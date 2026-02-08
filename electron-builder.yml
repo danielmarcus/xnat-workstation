@@ -1,0 +1,30 @@
+appId: com.xnat.viewer
+productName: XNAT Viewer
+directories:
+  buildResources: build
+  output: release
+files:
+  - dist/**/*
+  - package.json
+extraResources:
+  - from: build/
+    to: build/
+    filter:
+      - "*.png"
+      - "*.ico"
+      - "*.icns"
+mac:
+  icon: build/icon.png
+  target:
+    - dmg
+    - zip
+  category: public.app-category.medical
+  hardenedRuntime: true
+win:
+  target:
+    - nsis
+    - portable
+linux:
+  target:
+    - AppImage
+    - deb

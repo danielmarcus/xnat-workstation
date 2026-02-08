@@ -1,0 +1,627 @@
+/**
+ * SegmentationPanel — right-side panel for managing segmentations and segments.
+ *
+ * Layout:
+ * ┌─────────────────────────────┐
+ * │ Segments         [+ Seg]    │  ← Header + "Add Segmentation" button
+ * ├─────────────────────────────┤
+ * │ ▸ Segmentation 1  [×]      │  ← Segmentation row (collapsible)
+ * │   ■ Segment 1    👁 🔓 [×]  │  ← Segment: color, label, vis, lock, delete
+ * │   ■ Segment 2    👁 🔓 [×]  │
+ * │   [+ Add Segment]           │
+ * ├─────────────────────────────┤
+ * │ Brush Size: ─────○── 15px   │  ← Tool options
+ * │ Opacity:    ─────○── 50%    │
+ * │ ☑ Show Outline              │
+ * └─────────────────────────────┘
+ */
+import { useState, useCallback, useEffect, useRef } from 'react';
+import { useSegmentationStore } from '../../stores/segmentationStore';
+import { useViewerStore } from '../../stores/viewerStore';
+import { useConnectionStore } from '../../stores/connectionStore';
+import { segmentationService } from '../../lib/cornerstone/segmentationService';
+import { ToolName, LABELMAP_SEG_TOOLS } from '@shared/types/viewer';
+import {
+  IconPlus,
+  IconClose,
+  IconEye,
+  IconEyeOff,
+  IconLock,
+  IconLockOpen,
+  IconSave,
+  IconUpload,
+} from '../icons';
+
+/** Brush-style tools that use brush size */
+const BRUSH_SIZE_TOOLS = new Set<string>([
+  ToolName.Brush,
+  ToolName.Eraser,
+  ToolName.ThresholdBrush,
+]);
+
+/** Color palette for quick segment color picking */
+const COLOR_PALETTE: [number, number, number, number][] = [
+  [220, 50, 50, 255],    // Red
+  [50, 200, 50, 255],    // Green
+  [50, 100, 220, 255],   // Blue
+  [230, 200, 40, 255],   // Yellow
+  [200, 50, 200, 255],   // Magenta
+  [50, 200, 200, 255],   // Cyan
+  [240, 140, 40, 255],   // Orange
+  [150, 80, 200, 255],   // Purple
+  [50, 220, 130, 255],   // Spring Green
+  [255, 130, 130, 255],  // Light Red
+];
+
+/** Convert RGBA array to CSS rgba() string */
+function rgbaStr(c: [number, number, number, number]): string {
+  return `rgba(${c[0]},${c[1]},${c[2]},${c[3] / 255})`;
+}
+
+/** Props passed from ViewerPage */
+interface SegmentationPanelProps {
+  /** Source imageIds from the active viewport panel — needed to create segmentations */
+  sourceImageIds: string[];
+}
+
+export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelProps) {
+  const segmentations = useSegmentationStore((s) => s.segmentations);
+  const activeSegId = useSegmentationStore((s) => s.activeSegmentationId);
+  const activeSegIndex = useSegmentationStore((s) => s.activeSegmentIndex);
+  const fillAlpha = useSegmentationStore((s) => s.fillAlpha);
+  const renderOutline = useSegmentationStore((s) => s.renderOutline);
+  const brushSize = useSegmentationStore((s) => s.brushSize);
+  const activeSegTool = useSegmentationStore((s) => s.activeSegTool);
+  const thresholdRange = useSegmentationStore((s) => s.thresholdRange);
+  const splineType = useSegmentationStore((s) => s.splineType);
+  const setSplineType = useSegmentationStore((s) => s.setSplineType);
+  const activeViewportId = useViewerStore((s) => s.activeViewportId);
+  const xnatContext = useViewerStore((s) => s.xnatContext);
+  const connectionStatus = useConnectionStore((s) => s.status);
+
+  const setFillAlpha = useSegmentationStore((s) => s.setFillAlpha);
+  const toggleOutline = useSegmentationStore((s) => s.toggleOutline);
+  const setBrushSize = useSegmentationStore((s) => s.setBrushSize);
+  const setThresholdRange = useSegmentationStore((s) => s.setThresholdRange);
+
+  // Track which segmentations are expanded
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+
+  // Color picker state: which segment is being color-picked
+  const [colorPickerTarget, setColorPickerTarget] = useState<{
+    segmentationId: string;
+    segmentIndex: number;
+  } | null>(null);
+
+  // Save menu state
+  const [saveMenuOpen, setSaveMenuOpen] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const saveMenuRef = useRef<HTMLDivElement>(null);
+
+  // Auto-dismiss toast
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(null), 3000);
+    return () => clearTimeout(timer);
+  }, [toast]);
+
+  // Close save menu on outside click
+  useEffect(() => {
+    if (!saveMenuOpen) return;
+    const handleClick = (e: MouseEvent) => {
+      if (saveMenuRef.current && !saveMenuRef.current.contains(e.target as Node)) {
+        setSaveMenuOpen(null);
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [saveMenuOpen]);
+
+  // ─── Handlers ─────────────────────────────────────────────────
+
+  const handleAddSegmentation = useCallback(async () => {
+    if (sourceImageIds.length === 0) return;
+    const segId = await segmentationService.createStackSegmentation(sourceImageIds);
+    // Add to the active viewport
+    await segmentationService.addToViewport(activeViewportId, segId);
+    // Auto-expand the new segmentation
+    setExpandedIds((prev) => new Set(prev).add(segId));
+  }, [sourceImageIds, activeViewportId]);
+
+  const handleAddSegment = useCallback((segmentationId: string) => {
+    const nextIndex = segmentationService.addSegment(segmentationId, '');
+    segmentationService.setActiveSegmentIndex(segmentationId, nextIndex);
+  }, []);
+
+  const handleRemoveSegmentation = useCallback((segId: string) => {
+    segmentationService.removeSegmentation(segId);
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      next.delete(segId);
+      return next;
+    });
+  }, []);
+
+  const handleToggleExpand = useCallback((segId: string) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(segId)) next.delete(segId);
+      else next.add(segId);
+      return next;
+    });
+  }, []);
+
+  const handleSelectSegment = useCallback((segmentationId: string, segmentIndex: number) => {
+    useSegmentationStore.getState().setActiveSegmentation(segmentationId);
+    segmentationService.setActiveSegmentIndex(segmentationId, segmentIndex);
+    // Also update Cornerstone's active segmentation and ensure contour
+    // representation so contour tools work after switching segmentations.
+    segmentationService.activateOnViewport(activeViewportId, segmentationId);
+  }, [activeViewportId]);
+
+  const handleFillAlphaChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const val = parseFloat(e.target.value);
+      setFillAlpha(val);
+      segmentationService.updateStyle(val, useSegmentationStore.getState().renderOutline);
+    },
+    [setFillAlpha],
+  );
+
+  const handleBrushSizeChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const val = parseInt(e.target.value, 10);
+      setBrushSize(val);
+      segmentationService.setBrushSize(val);
+    },
+    [setBrushSize],
+  );
+
+  const handleOutlineToggle = useCallback(() => {
+    toggleOutline();
+    const store = useSegmentationStore.getState();
+    segmentationService.updateStyle(store.fillAlpha, !store.renderOutline);
+  }, [toggleOutline]);
+
+  const handleColorSelect = useCallback(
+    (color: [number, number, number, number]) => {
+      if (!colorPickerTarget) return;
+      segmentationService.setSegmentColor(
+        colorPickerTarget.segmentationId,
+        colorPickerTarget.segmentIndex,
+        color,
+      );
+      setColorPickerTarget(null);
+    },
+    [colorPickerTarget],
+  );
+
+  // ─── Save / Export Handlers ──────────────────────────────────
+
+  const handleSaveLocal = useCallback(async (segmentationId: string) => {
+    setSaveMenuOpen(null);
+    setSaving(true);
+    try {
+      const base64 = await segmentationService.exportToDicomSeg(segmentationId);
+      const result = await window.electronAPI.export.saveDicomSeg(base64, 'segmentation.dcm');
+      if (result.ok && result.path) {
+        setToast({ message: `Saved to ${result.path.split('/').pop()}`, type: 'success' });
+      } else if (result.error) {
+        setToast({ message: `Save failed: ${result.error}`, type: 'error' });
+      }
+      // If !ok and no error, user cancelled
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Export failed';
+      setToast({ message: msg, type: 'error' });
+      console.error('[SegmentationPanel] saveLocal error:', err);
+    } finally {
+      setSaving(false);
+    }
+  }, []);
+
+  const handleUploadXnat = useCallback(async (segmentationId: string) => {
+    setSaveMenuOpen(null);
+    if (!xnatContext) {
+      setToast({ message: 'No XNAT session context — load images from XNAT first', type: 'error' });
+      return;
+    }
+    setSaving(true);
+    try {
+      const base64 = await segmentationService.exportToDicomSeg(segmentationId);
+      const result = await window.electronAPI.xnat.uploadDicomSeg(
+        xnatContext.projectId,
+        xnatContext.subjectId,
+        xnatContext.sessionId,
+        xnatContext.sessionLabel,
+        xnatContext.scanId,
+        base64,
+      );
+      if (result.ok) {
+        setToast({ message: 'Uploaded to XNAT successfully', type: 'success' });
+      } else {
+        setToast({ message: `Upload failed: ${result.error}`, type: 'error' });
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Upload failed';
+      setToast({ message: msg, type: 'error' });
+      console.error('[SegmentationPanel] uploadXnat error:', err);
+    } finally {
+      setSaving(false);
+    }
+  }, [xnatContext]);
+
+  const isXnatConnected = connectionStatus === 'connected';
+
+  return (
+    <div className="w-64 shrink-0 border-l border-zinc-800 bg-zinc-950 flex flex-col overflow-hidden relative">
+      {/* Header */}
+      <div className="px-3 py-2 border-b border-zinc-800 flex items-center justify-between min-h-[36px]">
+        <h3 className="text-xs font-semibold text-zinc-300">
+          Segments
+          <span className="text-zinc-500 font-normal ml-1.5">{segmentations.length}</span>
+        </h3>
+        <button
+          onClick={handleAddSegmentation}
+          disabled={sourceImageIds.length === 0}
+          className="flex items-center gap-1 text-[10px] text-blue-400 hover:text-blue-300 transition-colors px-1.5 py-0.5 rounded hover:bg-blue-900/20 disabled:opacity-30 disabled:cursor-not-allowed"
+          title="Add a new segmentation"
+        >
+          <IconPlus className="w-3 h-3" />
+          Add Seg
+        </button>
+      </div>
+
+      {/* Segmentation list */}
+      <div className="flex-1 overflow-y-auto">
+        {segmentations.length === 0 ? (
+          <div className="p-4 text-xs text-zinc-600 text-center leading-relaxed">
+            No segmentations yet.
+            <br />
+            <span className="text-zinc-700">Click "Add Seg" to create one, then use the Brush tool.</span>
+          </div>
+        ) : (
+          <div className="py-0.5">
+            {segmentations.map((seg) => {
+              const isExpanded = expandedIds.has(seg.segmentationId);
+              const isActiveSeg = seg.segmentationId === activeSegId;
+
+              return (
+                <div key={seg.segmentationId}>
+                  {/* Segmentation row */}
+                  <div
+                    className={`group flex items-center gap-1.5 px-2 py-1.5 cursor-pointer transition-colors ${
+                      isActiveSeg ? 'bg-zinc-800/60' : 'hover:bg-zinc-800/40'
+                    }`}
+                    onClick={() => handleToggleExpand(seg.segmentationId)}
+                  >
+                    {/* Expand/collapse chevron */}
+                    <svg
+                      className={`w-3 h-3 text-zinc-500 transition-transform shrink-0 ${isExpanded ? 'rotate-90' : ''}`}
+                      viewBox="0 0 12 12"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                    >
+                      <polyline points="4,2 8,6 4,10" />
+                    </svg>
+
+                    <span className="text-xs text-zinc-300 truncate flex-1">{seg.label}</span>
+
+                    {/* Save segmentation */}
+                    <div className="relative shrink-0" ref={saveMenuOpen === seg.segmentationId ? saveMenuRef : undefined}>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSaveMenuOpen(saveMenuOpen === seg.segmentationId ? null : seg.segmentationId);
+                        }}
+                        disabled={saving}
+                        className="opacity-0 group-hover:opacity-100 text-zinc-500 hover:text-blue-400 transition-all p-0.5 rounded hover:bg-blue-900/20 disabled:opacity-30"
+                        title="Save segmentation"
+                      >
+                        <IconSave className="w-3.5 h-3.5" />
+                      </button>
+
+                      {/* Save dropdown menu */}
+                      {saveMenuOpen === seg.segmentationId && (
+                        <div className="absolute right-0 top-full mt-1 bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl z-50 min-w-[190px] py-1 text-xs">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleSaveLocal(seg.segmentationId);
+                            }}
+                            disabled={saving}
+                            className="w-full text-left px-3 py-1.5 text-zinc-300 hover:bg-zinc-800 transition-colors flex items-center gap-2 disabled:opacity-40"
+                          >
+                            <IconSave className="w-3.5 h-3.5 text-zinc-400" />
+                            Save DICOM SEG to file...
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleUploadXnat(seg.segmentationId);
+                            }}
+                            disabled={saving || !isXnatConnected || !xnatContext}
+                            className="w-full text-left px-3 py-1.5 text-zinc-300 hover:bg-zinc-800 transition-colors flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
+                          >
+                            <IconUpload className="w-3.5 h-3.5 text-zinc-400" />
+                            Upload to XNAT
+                            {(!isXnatConnected || !xnatContext) && (
+                              <span className="text-[9px] text-zinc-600 ml-auto">
+                                {!isXnatConnected ? 'Not connected' : 'No session'}
+                              </span>
+                            )}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Remove segmentation */}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleRemoveSegmentation(seg.segmentationId);
+                      }}
+                      className="opacity-0 group-hover:opacity-100 text-zinc-500 hover:text-red-400 transition-all p-0.5 shrink-0 rounded hover:bg-red-900/20"
+                      title="Remove segmentation"
+                    >
+                      <IconClose className="w-3 h-3" />
+                    </button>
+                  </div>
+
+                  {/* Expanded segment list */}
+                  {isExpanded && (
+                    <div className="pl-4 pb-1">
+                      {seg.segments.map((segment) => {
+                        const isActiveSegment =
+                          isActiveSeg && activeSegIndex === segment.segmentIndex;
+
+                        return (
+                          <div
+                            key={segment.segmentIndex}
+                            className={`group flex items-center gap-1.5 px-2 py-1 rounded cursor-pointer transition-colors ${
+                              isActiveSegment
+                                ? 'bg-blue-900/25 border-l-2 border-blue-500'
+                                : 'hover:bg-zinc-800/30 border-l-2 border-transparent'
+                            }`}
+                            onClick={() =>
+                              handleSelectSegment(seg.segmentationId, segment.segmentIndex)
+                            }
+                          >
+                            {/* Color swatch */}
+                            <button
+                              className="w-3.5 h-3.5 rounded-sm shrink-0 border border-zinc-600 hover:border-zinc-400 transition-colors"
+                              style={{ backgroundColor: rgbaStr(segment.color) }}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setColorPickerTarget(
+                                  colorPickerTarget?.segmentIndex === segment.segmentIndex &&
+                                    colorPickerTarget?.segmentationId === seg.segmentationId
+                                    ? null
+                                    : {
+                                        segmentationId: seg.segmentationId,
+                                        segmentIndex: segment.segmentIndex,
+                                      },
+                                );
+                              }}
+                              title="Change color"
+                            />
+
+                            {/* Label */}
+                            <span className="text-[11px] text-zinc-400 truncate flex-1">
+                              {segment.label}
+                            </span>
+
+                            {/* Visibility toggle */}
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                segmentationService.toggleSegmentVisibility(
+                                  activeViewportId,
+                                  seg.segmentationId,
+                                  segment.segmentIndex,
+                                );
+                              }}
+                              className="text-zinc-500 hover:text-zinc-300 transition-colors p-0.5 shrink-0"
+                              title={segment.visible ? 'Hide segment' : 'Show segment'}
+                            >
+                              {segment.visible ? (
+                                <IconEye className="w-3 h-3" />
+                              ) : (
+                                <IconEyeOff className="w-3 h-3" />
+                              )}
+                            </button>
+
+                            {/* Lock toggle */}
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                segmentationService.toggleSegmentLocked(
+                                  seg.segmentationId,
+                                  segment.segmentIndex,
+                                );
+                              }}
+                              className="text-zinc-500 hover:text-zinc-300 transition-colors p-0.5 shrink-0"
+                              title={segment.locked ? 'Unlock segment' : 'Lock segment'}
+                            >
+                              {segment.locked ? (
+                                <IconLock className="w-3 h-3" />
+                              ) : (
+                                <IconLockOpen className="w-3 h-3" />
+                              )}
+                            </button>
+
+                            {/* Delete segment */}
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                segmentationService.removeSegment(
+                                  seg.segmentationId,
+                                  segment.segmentIndex,
+                                );
+                              }}
+                              className="opacity-0 group-hover:opacity-100 text-zinc-500 hover:text-red-400 transition-all p-0.5 shrink-0"
+                              title="Delete segment"
+                            >
+                              <IconClose className="w-2.5 h-2.5" />
+                            </button>
+                          </div>
+                        );
+                      })}
+
+                      {/* Inline color picker */}
+                      {colorPickerTarget?.segmentationId === seg.segmentationId && (
+                        <div className="flex flex-wrap gap-1 px-2 py-1.5 mt-0.5">
+                          {COLOR_PALETTE.map((color, i) => (
+                            <button
+                              key={i}
+                              className="w-4 h-4 rounded-sm border border-zinc-600 hover:border-white transition-colors"
+                              style={{ backgroundColor: rgbaStr(color) }}
+                              onClick={() => handleColorSelect(color)}
+                              title={`Color ${i + 1}`}
+                            />
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Add segment button */}
+                      <button
+                        onClick={() => handleAddSegment(seg.segmentationId)}
+                        className="flex items-center gap-1 text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors px-2 py-1 mt-0.5"
+                      >
+                        <IconPlus className="w-2.5 h-2.5" />
+                        Add Segment
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Tool options section */}
+      <div className="border-t border-zinc-800 px-3 py-2 space-y-2">
+        {/* Brush size — only show for brush-style tools */}
+        {(!activeSegTool || BRUSH_SIZE_TOOLS.has(activeSegTool)) && (
+          <div>
+            <div className="flex items-center justify-between mb-0.5">
+              <label className="text-[10px] text-zinc-500">Brush Size</label>
+              <span className="text-[10px] text-zinc-400 tabular-nums">{brushSize}px</span>
+            </div>
+            <input
+              type="range"
+              min={1}
+              max={50}
+              value={brushSize}
+              onChange={handleBrushSizeChange}
+              className="w-full h-1 bg-zinc-700 rounded-full appearance-none cursor-pointer accent-blue-500"
+            />
+          </div>
+        )}
+
+        {/* Opacity */}
+        <div>
+          <div className="flex items-center justify-between mb-0.5">
+            <label className="text-[10px] text-zinc-500">Opacity</label>
+            <span className="text-[10px] text-zinc-400 tabular-nums">
+              {Math.round(fillAlpha * 100)}%
+            </span>
+          </div>
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step={0.05}
+            value={fillAlpha}
+            onChange={handleFillAlphaChange}
+            className="w-full h-1 bg-zinc-700 rounded-full appearance-none cursor-pointer accent-blue-500"
+          />
+        </div>
+
+        {/* Show Outline */}
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={renderOutline}
+            onChange={handleOutlineToggle}
+            className="w-3 h-3 rounded border-zinc-600 bg-zinc-800 accent-blue-500"
+          />
+          <span className="text-[10px] text-zinc-400">Show Outline</span>
+        </label>
+
+        {/* Threshold range (only when ThresholdBrush is active) */}
+        {activeSegTool === 'ThresholdBrush' && (
+          <div>
+            <label className="text-[10px] text-zinc-500 block mb-0.5">Threshold Range (HU)</label>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                value={thresholdRange[0]}
+                onChange={(e) => {
+                  const val = parseInt(e.target.value, 10) || 0;
+                  setThresholdRange([val, thresholdRange[1]]);
+                }}
+                className="w-16 bg-zinc-800 border border-zinc-700 rounded px-1.5 py-0.5 text-[10px] text-zinc-300"
+              />
+              <span className="text-[10px] text-zinc-600">to</span>
+              <input
+                type="number"
+                value={thresholdRange[1]}
+                onChange={(e) => {
+                  const val = parseInt(e.target.value, 10) || 0;
+                  setThresholdRange([thresholdRange[0], val]);
+                }}
+                className="w-16 bg-zinc-800 border border-zinc-700 rounded px-1.5 py-0.5 text-[10px] text-zinc-300"
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Spline type selector (only when SplineContour is active) */}
+        {activeSegTool === ToolName.SplineContour && (
+          <div>
+            <label className="text-[10px] text-zinc-500 block mb-0.5">Spline Type</label>
+            <select
+              value={splineType}
+              onChange={(e) => setSplineType(e.target.value as any)}
+              className="w-full bg-zinc-800 border border-zinc-700 rounded px-1.5 py-1 text-[10px] text-zinc-300 cursor-pointer"
+            >
+              <option value="CATMULLROM">Catmull-Rom</option>
+              <option value="CARDINAL">Cardinal</option>
+              <option value="BSPLINE">B-Spline</option>
+              <option value="LINEAR">Linear</option>
+            </select>
+          </div>
+        )}
+      </div>
+
+      {/* Toast notification */}
+      {toast && (
+        <div
+          className={`absolute top-2 left-2 right-2 z-[100] px-3 py-2 rounded-lg shadow-lg text-[11px] font-medium transition-opacity ${
+            toast.type === 'success'
+              ? 'bg-green-800/90 text-green-100'
+              : 'bg-red-800/90 text-red-100'
+          }`}
+        >
+          {toast.message}
+        </div>
+      )}
+
+      {/* Saving overlay */}
+      {saving && (
+        <div className="absolute inset-0 z-50 bg-zinc-950/60 flex items-center justify-center">
+          <div className="flex items-center gap-2 text-xs text-zinc-300">
+            <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
+              <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" className="opacity-25" />
+              <path d="M4 12a8 8 0 018-8" stroke="currentColor" strokeWidth="3" strokeLinecap="round" className="opacity-75" />
+            </svg>
+            Exporting...
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
