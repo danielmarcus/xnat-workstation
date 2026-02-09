@@ -98,7 +98,7 @@ export const useSegmentationStore = create<SegmentationStore>((set) => ({
   fillAlpha: 0.5,
   showPanel: false,
   renderOutline: true,
-  brushSize: 15,
+  brushSize: 5,
   thresholdRange: [-200, 200],
   activeSegTool: null,
   splineType: 'CATMULLROM',

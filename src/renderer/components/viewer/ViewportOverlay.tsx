@@ -29,6 +29,7 @@ const EMPTY_VP = {
 
 export default function ViewportOverlay({ panelId }: ViewportOverlayProps) {
   const viewport = useViewerStore((s) => s.viewports[panelId] ?? EMPTY_VP);
+  const sessionLabel = useViewerStore((s) => s.xnatContext?.sessionLabel ?? '');
   const overlay = useMetadataStore((s) => s.overlays[panelId] ?? EMPTY_OVERLAY);
 
   // Don't render if no images loaded
@@ -46,6 +47,9 @@ export default function ViewportOverlay({ panelId }: ViewportOverlayProps) {
           )}
           {overlay.studyDate && (
             <span className="text-zinc-400">{overlay.studyDate}</span>
+          )}
+          {sessionLabel && (
+            <span className="text-zinc-400">{sessionLabel}</span>
           )}
         </div>
 

@@ -508,13 +508,6 @@ export default function XnatBrowser({ onLoadScan, onLoadSession }: XnatBrowserPr
                           </div>
                         </div>
                       </div>
-                      <span className={`text-[11px] font-medium shrink-0 px-2 py-0.5 rounded ${
-                        isSeg
-                          ? 'text-purple-400 bg-purple-500/10'
-                          : 'text-blue-400 bg-blue-500/10'
-                      }`}>
-                        {isSeg ? 'Load SEG' : 'Load'}
-                      </span>
                     </div>
                   );
                 }}

@@ -189,21 +189,22 @@ export const viewportService = {
   },
 
   /**
-   * Toggle horizontal flip via setViewPresentation.
+   * Toggle horizontal flip.
+   *
+   * Cornerstone3D's viewport.flip() treats any truthy value as "toggle"
+   * (i.e., `flip({ flipHorizontal: true })` toggles the current state).
+   * We must NOT use setViewPresentation() here because it passes the
+   * desired state to flip(), but flip() interprets truthy/falsy as
+   * "should I toggle?" — causing setViewPresentation({ flipHorizontal: false })
+   * to be a no-op since false is falsy.
    */
   flipH(viewportId: string): void {
     const viewport = getStackViewport(viewportId);
     if (!viewport) return;
 
     const vp = viewport as any;
-    const current = vp.flipHorizontal ?? false;
-
     try {
-      if (typeof vp.setViewPresentation === 'function') {
-        vp.setViewPresentation({ flipHorizontal: !current });
-      } else if (typeof vp.flip === 'function') {
-        vp.flip({ flipHorizontal: true });
-      }
+      vp.flip({ flipHorizontal: true });
     } catch (err) {
       console.error('[viewportService] flipH failed:', err);
     }
@@ -211,21 +212,16 @@ export const viewportService = {
   },
 
   /**
-   * Toggle vertical flip via setViewPresentation.
+   * Toggle vertical flip.
+   * See flipH() for explanation of why we use flip() directly.
    */
   flipV(viewportId: string): void {
     const viewport = getStackViewport(viewportId);
     if (!viewport) return;
 
     const vp = viewport as any;
-    const current = vp.flipVertical ?? false;
-
     try {
-      if (typeof vp.setViewPresentation === 'function') {
-        vp.setViewPresentation({ flipVertical: !current });
-      } else if (typeof vp.flip === 'function') {
-        vp.flip({ flipVertical: true });
-      }
+      vp.flip({ flipVertical: true });
     } catch (err) {
       console.error('[viewportService] flipV failed:', err);
     }
@@ -266,6 +262,17 @@ export const viewportService = {
   },
 
   /**
+   * Zoom by a relative factor (e.g., 1.2 to zoom in 20%, 0.8 to zoom out 20%).
+   */
+  zoomBy(viewportId: string, factor: number): void {
+    const viewport = getStackViewport(viewportId);
+    if (!viewport) return;
+    const currentZoom = viewport.getZoom();
+    viewport.setZoom(currentZoom * factor);
+    viewport.render();
+  },
+
+  /**
    * Get current camera rotation in degrees.
    */
   getRotation(viewportId: string): number {
@@ -280,10 +287,12 @@ export const viewportService = {
   getFlipState(viewportId: string): { flipH: boolean; flipV: boolean } {
     const viewport = getStackViewport(viewportId);
     if (!viewport) return { flipH: false, flipV: false };
-    const camera = viewport.getCamera();
+    // Read from the viewport's own instance properties (maintained by
+    // setViewPresentation/flip), not getCamera() which may be stale.
+    const vp = viewport as any;
     return {
-      flipH: camera.flipHorizontal ?? false,
-      flipV: camera.flipVertical ?? false,
+      flipH: vp.flipHorizontal ?? false,
+      flipV: vp.flipVertical ?? false,
     };
   },
 };

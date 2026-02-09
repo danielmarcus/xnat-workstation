@@ -349,7 +349,7 @@ export default function Toolbar({ showDicomPanel = false, onToggleDicomPanel, on
       {/* ─── W/L Presets ──────────────────────────────── */}
       <div className="relative">
         <select
-          className="appearance-none bg-zinc-800 text-zinc-300 text-xs rounded px-2 py-1.5 pr-6 border border-zinc-700 cursor-pointer hover:bg-zinc-700 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          className="appearance-none bg-zinc-800 text-zinc-300 text-xs rounded px-2 py-1.5 pr-6 w-[80px] border border-zinc-700 cursor-pointer hover:bg-zinc-700 focus:outline-none focus:ring-1 focus:ring-blue-500"
           value=""
           onChange={(e) => {
             const preset = WL_PRESETS.find((p) => p.name === e.target.value);
