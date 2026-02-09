@@ -75,6 +75,52 @@ let segmentationCounter = 0;
  */
 const sourceImageIdsMap = new Map<string, string[]>();
 
+// ─── Types ──────────────────────────────────────────────────────
+
+export type LoadedDicomSeg = {
+  segmentationId: string;
+  /** The source imageId whose derived labelmap first has non-zero pixels, or null if all empty */
+  firstNonZeroImageId: string | null;
+};
+
+// ─── Helpers ────────────────────────────────────────────────────
+
+/**
+ * Scan derived labelmap images and return the referencedImageId (source imageId)
+ * of the first one that has any non-zero pixel.
+ *
+ * Each adapter image has a `.referencedImageId` pointing back to the source
+ * image it was derived from. We return that rather than a raw index because the
+ * viewport may re-sort images by spatial position (IPP), so a source-array
+ * index doesn't correspond to the viewport's display index.
+ */
+function findFirstNonZeroSourceImageId(adapterImages: any[]): string | null {
+  for (let i = 0; i < adapterImages.length; i++) {
+    const img = adapterImages[i];
+    if (!img) continue;
+    let pixels: any;
+    try {
+      if (img.voxelManager) pixels = img.voxelManager.getScalarData();
+      else if (typeof img.getPixelData === 'function') pixels = img.getPixelData();
+    } catch {
+      pixels = null;
+    }
+    if (!pixels) continue;
+    for (let k = 0; k < pixels.length; k++) {
+      if (pixels[k] !== 0) {
+        console.log(
+          `[segmentationService] findFirstNonZero: adapterIndex=${i}, ` +
+          `referencedImageId=${img.referencedImageId}, ` +
+          `imageId=${img.imageId}, ` +
+          `totalAdapterImages=${adapterImages.length}`,
+        );
+        return img.referencedImageId ?? null;
+      }
+    }
+  }
+  return null;
+}
+
 // ─── Sync Logic ─────────────────────────────────────────────────
 
 /**
@@ -479,7 +525,7 @@ export const segmentationService = {
    * Display a segmentation on a viewport as a labelmap overlay.
    * Creates the representation and sets it as active.
    */
-  async addToViewport(viewportId: string, segmentationId: string, forceActorCreation = false): Promise<void> {
+  async addToViewport(viewportId: string, segmentationId: string): Promise<void> {
     // Step 0: Wait for the viewport to be fully ready.
     // After React re-renders that change imageIds, the CornerstoneViewport
     // useEffect destroys and recreates the viewport. We need to wait until
@@ -505,9 +551,6 @@ export const segmentationService = {
 
     // Step 1: Add labelmap representation (core requirement for brush tools)
     try {
-      // Omit colorLUTOrIndex so Cornerstone auto-creates a default color LUT.
-      // Passing colorLUTOrIndex: 0 would assume a LUT already exists at index 0,
-      // which causes a crash in getSegmentIndexColor if no LUT was registered yet.
       csSegmentation.addLabelmapRepresentationToViewport(viewportId, [
         {
           segmentationId,
@@ -555,8 +598,6 @@ export const segmentationService = {
     }
 
     // Step 3: Add contour representation (optional — for contour tools).
-    // This is in its own try-catch because it can fail without affecting
-    // labelmap/brush functionality.
     try {
       csSegmentation.addContourRepresentationToViewport(viewportId, [
         { segmentationId },
@@ -565,144 +606,16 @@ export const segmentationService = {
       console.debug('[segmentationService] Contour representation add failed (non-critical):', err);
     }
 
-    // Step 4: Force the segmentation overlay to render.
-    //
-    // RACE CONDITION FIX (only for loaded DICOM SEGs, enabled by forceActorCreation):
-    //
-    // The imageChangeEventListener in Cornerstone creates VTK overlay
-    // actors for segmentation labelmaps. However, it REMOVES ITSELF from
-    // the IMAGE_RENDERED event after the first fire. If the viewport's
-    // initial render occurs before the segmentation is added (which
-    // happens ~50% of the time for loaded SEGs due to async timing), the
-    // listener is consumed and no actor creation will happen.
-    //
-    // For newly-created (empty) segmentations this isn't a problem because
-    // they're created and added in quick succession. But for loaded DICOM
-    // SEGs there's a long async gap (file download, parse, etc.).
-    //
-    // Solution: When forceActorCreation is true, we replicate the actor
-    // creation logic from imageChangeEventListener.updateSegmentationActor()
-    // directly here. The PRE_STACK_NEW_IMAGE listener (which does NOT
-    // self-remove) handles updating the overlay when scrolling.
-    if (!forceActorCreation) {
-      // For normal (non-loaded) segmentations, the addLabelmapRepresentationToViewport
-      // call in Step 1 already triggers the representation-added event, which fires
-      // the Cornerstone render pipeline. The imageChangeEventListener will create
-      // the VTK actor on the next IMAGE_RENDERED event. No additional action needed.
-    } else {
-    // forceActorCreation path — directly create VTK overlay actor
+    // Step 4: Trigger segmentation render to ensure overlay is visible.
     try {
-      const enabledElement = getEnabledElementByViewportId(viewportId);
-      const viewport = enabledElement?.viewport as any;
-
-      if (viewport) {
-        // 4a: Map labelmap image references for the current slice
-        try {
-          csSegmentation.state.updateLabelmapSegmentationImageReferences(
-            viewportId,
-            segmentationId,
-          );
-        } catch { /* may fail if already mapped */ }
-
-        // 4b: Get the derived (labelmap) imageIds for the current slice
-        const derivedImageIds = csSegmentation.getCurrentLabelmapImageIdsForViewport(
-          viewportId,
-          segmentationId,
-        );
-        const currentImageId = viewport.getCurrentImageId?.();
-
-        if (derivedImageIds?.length && currentImageId) {
-          const actors = viewport.getActors?.() ?? [];
-
-          for (const derivedImageId of derivedImageIds) {
-            // Check if an actor already exists for this derived image
-            const existingActor = actors.find((a: any) => a.referencedId === derivedImageId);
-            if (existingActor) {
-              // Actor exists — just update its pixel data
-              try {
-                const derivedImage = cache.getImage(derivedImageId);
-                if (derivedImage) {
-                  const actorImageData = existingActor.actor?.getMapper?.()?.getInputData?.();
-                  if (actorImageData) {
-                    if (actorImageData.setDerivedImage) {
-                      actorImageData.setDerivedImage(derivedImage);
-                    } else {
-                      (csUtilities as any).updateVTKImageDataWithCornerstoneImage?.(actorImageData, derivedImage);
-                    }
-                  }
-                }
-              } catch { /* non-critical update failure */ }
-              console.log(`[segmentationService] Existing actor found for ${derivedImageId}, updated`);
-              continue;
-            }
-
-            // No actor exists — create one (replicating imageChangeEventListener logic)
-            const derivedImage = cache.getImage(derivedImageId);
-            if (!derivedImage) {
-              console.warn(`[segmentationService] Derived image not in cache: ${derivedImageId}`);
-              continue;
-            }
-
-            const { dimensions, spacing, direction } = viewport.getImageDataMetadata(derivedImage);
-            const currentImage = cache.getImage(currentImageId) || { imageId: currentImageId };
-            const { origin: currentOrigin } = viewport.getImageDataMetadata(currentImage);
-
-            // Dynamic imports for VTK (same as imageChangeEventListener uses)
-            const vtkDataArrayMod = await import('@kitware/vtk.js/Common/Core/DataArray');
-            const vtkImageDataMod = await import('@kitware/vtk.js/Common/DataModel/ImageData');
-            const vtkDataArray = vtkDataArrayMod.default;
-            const vtkImageData = vtkImageDataMod.default;
-
-            const vm = derivedImage.voxelManager as any;
-            const TypedArrayConstructor = vm.getConstructor();
-            const newPixelData = vm.getScalarData();
-            const scalarArray = vtkDataArray.newInstance({
-              name: 'Pixels',
-              numberOfComponents: 1,
-              values: new TypedArrayConstructor(newPixelData),
-            });
-
-            const imageData = vtkImageData.newInstance();
-            imageData.setDimensions(dimensions[0], dimensions[1], 1);
-            imageData.setSpacing(spacing);
-            imageData.setDirection(direction);
-            imageData.setOrigin(currentOrigin);
-            imageData.getPointData().setScalars(scalarArray);
-            imageData.modified();
-
-            const representationUID = `${segmentationId}-Labelmap-${derivedImage.imageId}`;
-            viewport.addImages([
-              {
-                imageId: derivedImageId,
-                representationUID,
-                callback: ({ imageActor }: any) => {
-                  imageActor.getMapper().setInputData(imageData);
-                },
-              },
-            ]);
-
-            console.log(`[segmentationService] Created overlay actor: ${representationUID}`);
-          }
-
-          // 4c: Trigger segmentation render (sets up color/opacity on the actor)
-          // and then re-render the viewport. The segmentation rendering engine
-          // uses requestAnimationFrame internally, so we must wait for it to
-          // process before calling viewport.render().
-          csToolUtilities.segmentation.triggerSegmentationRender(viewportId);
-          // Wait for 2 animation frames: one for the segmentation rendering
-          // engine to process, one for the VTK render pipeline.
-          await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(undefined))));
-          viewport.render();
-          // Wait one more frame and render again to ensure the color/opacity
-          // transfer functions are fully applied.
-          await new Promise((r) => requestAnimationFrame(() => r(undefined)));
-          viewport.render();
-        }
-      }
+      csToolUtilities.segmentation.triggerSegmentationRender(viewportId);
+      const enabledEl = getEnabledElementByViewportId(viewportId);
+      const vp = enabledEl?.viewport as any;
+      vp?.render?.();
+      requestAnimationFrame(() => vp?.render?.());
     } catch (err) {
-      console.debug('[segmentationService] Post-add render trigger failed (non-critical):', err);
+      console.error('[segmentationService] triggerSegmentationRender failed:', err);
     }
-    } // end forceActorCreation else block
 
     console.log(`[segmentationService] Added to viewport ${viewportId}: ${segmentationId}`);
     syncSegmentations();
@@ -717,6 +630,10 @@ export const segmentationService = {
    */
   removeSegmentationsFromViewport(viewportId: string): void {
     try {
+      // Diagnostic: log call stack to identify who triggers removal
+      console.log(`[segmentationService] removeSegmentationsFromViewport(${viewportId}) called from:`,
+        new Error().stack?.split('\n').slice(1, 4).map(l => l.trim()).join(' <- '));
+
       const allSegmentations = csSegmentation.state.getSegmentations();
       const toRemoveFully: string[] = [];
 
@@ -955,12 +872,12 @@ export const segmentationService = {
    * Parses the ArrayBuffer with @cornerstonejs/adapters, extracts labelmap
    * data and segment metadata, then registers with Cornerstone3D.
    *
-   * Returns the segmentationId.
+   * Returns { segmentationId, firstNonZeroSourceIndex }.
    */
   async loadDicomSeg(
     arrayBuffer: ArrayBuffer,
     sourceImageIds: string[],
-  ): Promise<string> {
+  ): Promise<LoadedDicomSeg> {
     segmentationCounter++;
     const segmentationId = `seg_dicom_${Date.now()}_${segmentationCounter}`;
 
@@ -1197,33 +1114,17 @@ export const segmentationService = {
         } catch (_) { /* ignore counting errors */ }
       }
 
+      const firstNonZeroImageId = findFirstNonZeroSourceImageId(adapterImages);
+
       console.log(
         `[segmentationService] Using ${labelmapImageIds.length} adapter labelmap images ` +
         `(${totalNonZero} non-zero pixels total) for ${sourceImageIds.length} source images`,
       );
+      console.log(`[segmentationService] DICOM SEG firstNonZeroImageId=${firstNonZeroImageId}`);
 
-      // Verify metadata for first adapter image
-      if (labelmapImageIds.length > 0) {
-        const testLabelmapId = labelmapImageIds[0];
-        const testSrcId = sourceImageIds[0];
-        const labelmapMeta = metaData.get('imagePlaneModule', testLabelmapId);
-        const srcMeta = metaData.get('imagePlaneModule', testSrcId);
-        console.log(
-          `[segmentationService] Adapter image metadata verification:`,
-          `\n  labelmap[0] (${testLabelmapId}):`,
-          labelmapMeta ? {
-            rows: labelmapMeta.rows,
-            columns: labelmapMeta.columns,
-            ipp: labelmapMeta.imagePositionPatient?.slice(0, 3),
-            iop: labelmapMeta.imageOrientationPatient?.slice(0, 6),
-          } : 'NULL',
-          `\n  source[0] (${testSrcId}):`,
-          srcMeta ? {
-            rows: srcMeta.rows,
-            columns: srcMeta.columns,
-            ipp: srcMeta.imagePositionPatient?.slice(0, 3),
-            iop: srcMeta.imageOrientationPatient?.slice(0, 6),
-          } : 'NULL',
+      if (totalNonZero === 0) {
+        console.warn(
+          `[segmentationService] All labelmap pixels are zero — overlay will be invisible`,
         );
       }
 
@@ -1270,7 +1171,7 @@ export const segmentationService = {
       );
 
       syncSegmentations();
-      return segmentationId;
+      return { segmentationId, firstNonZeroImageId };
     } catch (err) {
       console.error('[segmentationService] Failed to load DICOM SEG:', err);
       throw err;
