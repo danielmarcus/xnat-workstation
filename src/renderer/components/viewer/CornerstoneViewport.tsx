@@ -214,11 +214,10 @@ function wireEvents(element: HTMLDivElement, panelId: string): void {
     useViewerStore.getState()._updateZoom(panelId, viewportService.getZoom(panelId));
   }) as EventListener);
 
-  // ─── Trackpad / smooth scroll support ───────────────────────
-  // Cornerstone's StackScrollTool handles discrete mouse wheel steps but
-  // trackpads (Magic Trackpad, laptop trackpads) fire many small deltaY
-  // values with momentum. We accumulate them and trigger a scroll when
-  // the accumulated value crosses a threshold.
+  // ─── Wheel / trackpad scroll handler ────────────────────────
+  // We handle all scroll input ourselves (StackScrollTool is Disabled).
+  // Trackpads fire many small deltaY values with momentum, so we
+  // accumulate them and trigger a scroll when the threshold is crossed.
   let wheelAccum = 0;
   const WHEEL_THRESHOLD = 50; // pixels of accumulated deltaY per slice step
 
