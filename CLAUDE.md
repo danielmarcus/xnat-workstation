@@ -4,6 +4,11 @@
 
 XNAT Viewer is a desktop DICOM medical image viewer built on Electron. It connects to XNAT imaging repositories to browse, load, annotate, segment, and export medical images. It renders images using Cornerstone3D directly (not OHIF).
 
+## Repository
+
+- **GitHub**: https://github.com/danielmarcus/xnat-viewer (private)
+- **Branch**: `main`
+
 ## Tech Stack
 
 - **Runtime**: Electron (main + renderer processes, context-isolated preload)

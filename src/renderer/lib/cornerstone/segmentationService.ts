@@ -35,7 +35,6 @@ import {
   segmentation as csSegmentation,
   Enums as ToolEnums,
   utilities as csToolUtilities,
-  BrushTool,
 } from '@cornerstonejs/tools';
 import { adaptersSEG, utilities as adaptersUtilities } from '@cornerstonejs/adapters';
 // Importing `utilities` triggers the referencedMetadataProvider side-effect,
@@ -79,26 +78,19 @@ const sourceImageIdsMap = new Map<string, string[]>();
 
 export type LoadedDicomSeg = {
   segmentationId: string;
-  /** The source imageId whose derived labelmap first has non-zero pixels, or null if all empty */
-  firstNonZeroImageId: string | null;
+  firstNonZeroReferencedImageId: string | null; // source slice imageId to jump to
+  firstNonZeroLabelmapImageId: string | null;   // derived labelmap imageId (debug)
 };
 
 // ─── Helpers ────────────────────────────────────────────────────
 
-/**
- * Scan derived labelmap images and return the referencedImageId (source imageId)
- * of the first one that has any non-zero pixel.
- *
- * Each adapter image has a `.referencedImageId` pointing back to the source
- * image it was derived from. We return that rather than a raw index because the
- * viewport may re-sort images by spatial position (IPP), so a source-array
- * index doesn't correspond to the viewport's display index.
- */
-function findFirstNonZeroSourceImageId(adapterImages: any[]): string | null {
-  for (let i = 0; i < adapterImages.length; i++) {
-    const img = adapterImages[i];
+function findFirstNonZeroRef(adapterImages: any[]): {
+  referencedImageId: string | null;
+  labelmapImageId: string | null;
+} {
+  for (const img of adapterImages) {
     if (!img) continue;
-    let pixels: any;
+    let pixels: any = null;
     try {
       if (img.voxelManager) pixels = img.voxelManager.getScalarData();
       else if (typeof img.getPixelData === 'function') pixels = img.getPixelData();
@@ -108,17 +100,14 @@ function findFirstNonZeroSourceImageId(adapterImages: any[]): string | null {
     if (!pixels) continue;
     for (let k = 0; k < pixels.length; k++) {
       if (pixels[k] !== 0) {
-        console.log(
-          `[segmentationService] findFirstNonZero: adapterIndex=${i}, ` +
-          `referencedImageId=${img.referencedImageId}, ` +
-          `imageId=${img.imageId}, ` +
-          `totalAdapterImages=${adapterImages.length}`,
-        );
-        return img.referencedImageId ?? null;
+        return {
+          referencedImageId: img.referencedImageId ?? null,
+          labelmapImageId: img.imageId ?? null,
+        };
       }
     }
   }
-  return null;
+  return { referencedImageId: null, labelmapImageId: null };
 }
 
 // ─── Sync Logic ─────────────────────────────────────────────────
@@ -361,7 +350,7 @@ export const segmentationService = {
       labelmapImageIds.push(labelmapImageId);
     }
 
-    // Step 3: Register the segmentation with Cornerstone's state,
+    // Step 4: Register the segmentation with Cornerstone's state,
     // providing the labelmap imageIds so the state manager can map them.
     csSegmentation.addSegmentations([
       {
@@ -630,10 +619,6 @@ export const segmentationService = {
    */
   removeSegmentationsFromViewport(viewportId: string): void {
     try {
-      // Diagnostic: log call stack to identify who triggers removal
-      console.log(`[segmentationService] removeSegmentationsFromViewport(${viewportId}) called from:`,
-        new Error().stack?.split('\n').slice(1, 4).map(l => l.trim()).join(' <- '));
-
       const allSegmentations = csSegmentation.state.getSegmentations();
       const toRemoveFully: string[] = [];
 
@@ -996,30 +981,14 @@ export const segmentationService = {
         get: (type: string, imageId: string) => {
           const result = metaData.get(type, imageId);
           if (type === 'instance' && result) {
-            if (result.Rows == null) result.Rows = sourceRows;
-            if (result.Columns == null) result.Columns = sourceCols;
+            if (result.Rows == null || result.Columns == null) {
+              // Return a shallow copy to avoid mutating the cached metadata object
+              return { ...result, Rows: result.Rows ?? sourceRows, Columns: result.Columns ?? sourceCols };
+            }
           }
           return result;
         },
       };
-
-      // Log source image orientation for debugging orientation mismatches
-      try {
-        const srcPlane = metaData.get('imagePlaneModule', sourceImageIds[0]);
-        const srcIOP = srcPlane?.imageOrientationPatient;
-        console.log(`[segmentationService] Source image IOP:`, srcIOP);
-
-        // Parse SEG IOP for comparison
-        const dcmjsMod = await import('dcmjs');
-        const dcmjsDataLocal = dcmjsMod.data as any;
-        const segDicom = dcmjsDataLocal.DicomMessage.readFile(loadBuffer);
-        const segDs = dcmjsDataLocal.DicomMetaDictionary.naturalizeDataset(segDicom.dict);
-        const sfgs = segDs.SharedFunctionalGroupsSequence;
-        const segIOP = sfgs?.PlaneOrientationSequence?.ImageOrientationPatient;
-        console.log(`[segmentationService] SEG file IOP:`, segIOP);
-      } catch (diagErr) {
-        console.debug('[segmentationService] IOP diagnostic failed:', diagErr);
-      }
 
       // Parse the DICOM SEG using the adapter. createFromDICOMSegBuffer
       // creates derived labelmap images (with derived:{uuid} imageIds) for
@@ -1087,7 +1056,6 @@ export const segmentationService = {
       // from the source images (via createAndCacheDerivedLabelmapImage),
       // so Cornerstone's matchImagesForOverlay will match them properly.
       const labelmapImageIds: string[] = [];
-      let totalNonZero = 0;
 
       for (let i = 0; i < adapterImages.length; i++) {
         const adapterImg = adapterImages[i];
@@ -1095,38 +1063,10 @@ export const segmentationService = {
           console.warn(`[segmentationService] Adapter image ${i} missing or has no imageId`);
           continue;
         }
-
         labelmapImageIds.push(adapterImg.imageId);
-
-        // Count non-zero pixels for diagnostic logging
-        try {
-          let pixels: any;
-          if (adapterImg.voxelManager) {
-            pixels = adapterImg.voxelManager.getScalarData();
-          } else if (adapterImg.getPixelData) {
-            pixels = adapterImg.getPixelData();
-          }
-          if (pixels) {
-            for (let k = 0; k < pixels.length; k++) {
-              if (pixels[k] !== 0) totalNonZero++;
-            }
-          }
-        } catch (_) { /* ignore counting errors */ }
       }
 
-      const firstNonZeroImageId = findFirstNonZeroSourceImageId(adapterImages);
-
-      console.log(
-        `[segmentationService] Using ${labelmapImageIds.length} adapter labelmap images ` +
-        `(${totalNonZero} non-zero pixels total) for ${sourceImageIds.length} source images`,
-      );
-      console.log(`[segmentationService] DICOM SEG firstNonZeroImageId=${firstNonZeroImageId}`);
-
-      if (totalNonZero === 0) {
-        console.warn(
-          `[segmentationService] All labelmap pixels are zero — overlay will be invisible`,
-        );
-      }
+      const { referencedImageId, labelmapImageId } = findFirstNonZeroRef(adapterImages);
 
       // Register the segmentation with Cornerstone
       csSegmentation.addSegmentations([
@@ -1171,7 +1111,11 @@ export const segmentationService = {
       );
 
       syncSegmentations();
-      return { segmentationId, firstNonZeroImageId };
+      return {
+        segmentationId,
+        firstNonZeroReferencedImageId: referencedImageId,
+        firstNonZeroLabelmapImageId: labelmapImageId,
+      };
     } catch (err) {
       console.error('[segmentationService] Failed to load DICOM SEG:', err);
       throw err;
@@ -1201,7 +1145,8 @@ export const segmentationService = {
       if (!seg.segments) {
         (seg as any).segments = {};
       }
-      for (const idx of [0, activeIdx]) {
+      const indicesToEnsure = activeIdx === 0 ? [0] : [0, activeIdx];
+      for (const idx of indicesToEnsure) {
         if (!seg.segments[idx]) {
           (seg.segments as any)[idx] = {
             segmentIndex: idx,
@@ -1275,13 +1220,15 @@ export const segmentationService = {
       throw new Error(`[segmentationService] Segmentation not found: ${segmentationId}`);
     }
 
-    const srcImageIds = sourceImageIdsMap.get(segmentationId);
-    if (!srcImageIds || srcImageIds.length === 0) {
+    const storedSrcImageIds = sourceImageIdsMap.get(segmentationId);
+    if (!storedSrcImageIds || storedSrcImageIds.length === 0) {
       throw new Error(
         '[segmentationService] No source imageIds tracked for this segmentation. ' +
         'Cannot export without source DICOM references.',
       );
     }
+    // Work with a copy so sorting doesn't mutate the stored array
+    let srcImageIds = [...storedSrcImageIds];
 
     // Get labelmap imageIds from the segmentation's representation data
     const labelmapData = seg.representationData?.Labelmap;
@@ -1308,15 +1255,47 @@ export const segmentationService = {
 
     // Step 2: Build labelmaps2D array — one entry per source image slice.
     // Each entry has { pixelData, segmentsOnLabelmap, rows, columns }.
+    //
+    // CRITICAL: labelmaps2D[i] must correspond to sourceImages[i] (and
+    // srcImageIds[i]).  generateSegmentation pairs them by index.
+    //
+    // However, labelmapImageIds may be in a DIFFERENT order than srcImageIds
+    // because Cornerstone's matchImagesForOverlay can reorder labelmap images
+    // by spatial position (IPP). If we naively zip labelmapImageIds[i] with
+    // srcImageIds[i], the pixel data ends up on the wrong source slice —
+    // causing the "slice 2 shows on slice 19" mirroring bug.
+    //
+    // Fix: build a lookup from referencedImageId → labelmap cached image,
+    // then iterate srcImageIds and pull the correct labelmap for each.
     const labelmaps2D: any[] = [];
     const rows = sourceImages[0].rows ?? sourceImages[0].height ?? 512;
     const columns = sourceImages[0].columns ?? sourceImages[0].width ?? 512;
-    console.log(`[segmentationService] Source image dimensions: ${columns}x${rows}`);
 
-    for (let i = 0; i < labelmapImageIds.length; i++) {
-      const lmImage = cache.getImage(labelmapImageIds[i]);
+    // Build referencedImageId → labelmap image lookup.
+    // Each labelmap image's .referencedImageId tells us which source image it
+    // corresponds to. This is the ONLY reliable way to pair them — we cannot
+    // use array index because the viewport may have reordered the labelmap
+    // images by spatial position (IPP), reversing them relative to srcImageIds.
+    const refIdToLabelmap = new Map<string, any>();
+    for (let li = 0; li < labelmapImageIds.length; li++) {
+      const lmId = labelmapImageIds[li];
+      const lmImage = cache.getImage(lmId);
+      if (!lmImage) continue;
+      const refId = (lmImage as any).referencedImageId;
+      if (refId) {
+        refIdToLabelmap.set(refId, lmImage);
+      }
+    }
+
+    const useRefIdLookup = refIdToLabelmap.size > 0;
+
+    for (let i = 0; i < srcImageIds.length; i++) {
+      const srcId = srcImageIds[i];
+      const lmImage = useRefIdLookup
+        ? refIdToLabelmap.get(srcId)
+        : cache.getImage(labelmapImageIds[i]);
+
       if (!lmImage) {
-        // If labelmap image isn't cached, create empty entry
         labelmaps2D.push({
           pixelData: new Uint8Array(rows * columns),
           segmentsOnLabelmap: [],
@@ -1370,7 +1349,6 @@ export const segmentationService = {
         }
       }
       const maxIdx = segKeys.length > 0 ? Math.max(...segKeys) : 0;
-      console.log(`[segmentationService] Segment indices: [${segKeys.join(', ')}], maxIdx=${maxIdx}`);
 
       for (let idx = 1; idx <= maxIdx; idx++) {
         const segment = seg.segments instanceof Map ? seg.segments.get(idx) : seg.segments[idx];
@@ -1468,8 +1446,75 @@ export const segmentationService = {
       },
     };
 
-    console.log(`[segmentationService] Calling generateSegmentation with ${sourceImages.length} images, ${labelmaps2D.length} labelmaps, ${segmentMetadata.length} segments`);
-    console.log(`[segmentationService] Forced Rows=${rows}, Columns=${columns} for all ImageData requests`);
+    // ─── Sort sourceImages + labelmaps2D by IPP distance (descending) ───
+    //
+    // CRITICAL: dcmjs SEGImageNormalizer.normalize() internally sorts the
+    // datasets by distance along the scan axis (descending — see
+    // ImageNormalizer.normalize() in dcmjs). It then builds the
+    // PerFrameFunctionalGroupsSequence in that sorted order. However,
+    // fillSegmentation() pairs labelmaps2D[i] with frame i by index.
+    //
+    // If sourceImages / labelmaps2D are in filename order (which may be
+    // REVERSED relative to IPP spatial order), the pixel data gets written
+    // to the wrong PerFrameFunctionalGroupsSequence frame — causing the
+    // "paint on slice 2, shows on slice 19" mirroring bug after reload.
+    //
+    // Fix: sort both arrays by IPP distance (descending) BEFORE passing to
+    // generateSegmentation, matching the normalizer's internal sort. This
+    // ensures labelmaps2D[i] corresponds to the correct sorted frame.
+    {
+      const refPlane = metaData.get('imagePlaneModule', srcImageIds[0]);
+      const refIOP = refPlane?.imageOrientationPatient;
+      const refIPP = refPlane?.imagePositionPatient;
+
+      if (refIOP && refIPP) {
+        // Compute scan axis (same cross product as dcmjs normalizer)
+        const rowVec = [refIOP[0], refIOP[1], refIOP[2]];
+        const colVec = [refIOP[3], refIOP[4], refIOP[5]];
+        const scanAxis = [
+          rowVec[1] * colVec[2] - rowVec[2] * colVec[1],
+          rowVec[2] * colVec[0] - rowVec[0] * colVec[2],
+          rowVec[0] * colVec[1] - rowVec[1] * colVec[0],
+        ];
+
+        // Build (distance, index) pairs
+        const distIndexPairs: { dist: number; idx: number }[] = [];
+        for (let i = 0; i < srcImageIds.length; i++) {
+          const plane = metaData.get('imagePlaneModule', srcImageIds[i]);
+          const ipp = plane?.imagePositionPatient;
+          if (ipp) {
+            const posVec = [ipp[0] - refIPP[0], ipp[1] - refIPP[1], ipp[2] - refIPP[2]];
+            const dist = posVec[0] * scanAxis[0] + posVec[1] * scanAxis[1] + posVec[2] * scanAxis[2];
+            distIndexPairs.push({ dist, idx: i });
+          } else {
+            distIndexPairs.push({ dist: i, idx: i }); // fallback
+          }
+        }
+
+        // Sort descending by distance (same as dcmjs normalizer: b[0] - a[0])
+        distIndexPairs.sort((a, b) => b.dist - a.dist);
+
+        // Check if sort order differs from input order
+        const needsReorder = distIndexPairs.some((p, i) => p.idx !== i);
+        if (needsReorder) {
+          const sortedSrcImageIds = distIndexPairs.map(p => srcImageIds[p.idx]);
+          const sortedSourceImages = distIndexPairs.map(p => sourceImages[p.idx]);
+          const sortedLabelmaps2D = distIndexPairs.map(p => labelmaps2D[p.idx]);
+
+          // Replace with sorted arrays
+          srcImageIds = sortedSrcImageIds;
+          sourceImages.length = 0;
+          sourceImages.push(...sortedSourceImages);
+          labelmaps2D.length = 0;
+          labelmaps2D.push(...sortedLabelmaps2D);
+          console.log(`[segmentationService] Reordered ${distIndexPairs.length} slices by IPP distance to match dcmjs normalizer sort`);
+        }
+      } else {
+        console.warn(`[segmentationService] Could not get IOP/IPP for sorting — proceeding with original order.`);
+      }
+    }
+
+    console.log(`[segmentationService] Generating DICOM SEG: ${sourceImages.length} images, ${segmentMetadata.length - 1} segments, ${rows}×${columns}`);
 
     let segDerivation: any;
     try {
@@ -1918,6 +1963,10 @@ export const segmentationService = {
     eventTarget.removeEventListener(Events.SEGMENTATION_REPRESENTATION_MODIFIED, onSegmentationEvent);
     eventTarget.removeEventListener(Events.SEGMENTATION_REPRESENTATION_ADDED, onSegmentationEvent);
     eventTarget.removeEventListener(Events.SEGMENTATION_REPRESENTATION_REMOVED, onSegmentationEvent);
+
+    // Clean up module-level state
+    sourceImageIdsMap.clear();
+    segmentationCounter = 0;
 
     initialized = false;
     console.log('[segmentationService] Disposed');

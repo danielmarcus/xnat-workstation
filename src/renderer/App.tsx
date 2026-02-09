@@ -30,15 +30,15 @@ function isSegScan(scan: XnatScan): boolean {
 
 /**
  * Extract the source scan ID from a SEG scan ID using the 30xx convention.
- * e.g., "3004" → "4", "3012" → "12", "3104" → "4" (prefix 31)
+ * Supports prefixes 30-39 (e.g., "3004" → "4", "3012" → "12", "3104" → "4").
  * Returns null if the scan ID doesn't follow the convention.
  */
 function getSourceScanId(segScanId: string): string | null {
-  const match = segScanId.match(/^(\d{2,})(\d{2})$/);
+  const match = segScanId.match(/^(3\d)(\d{2})$/);
   if (!match) return null;
-  const prefix = parseInt(match[1], 10);
-  if (prefix >= 30 && prefix < 100) return String(parseInt(match[2], 10));
-  return null;
+  const sourceId = parseInt(match[2], 10);
+  if (sourceId === 0) return null; // scan ID "0" is not valid
+  return String(sourceId);
 }
 
 /**
@@ -172,45 +172,37 @@ async function preloadImages(imageIds: string[]): Promise<void> {
   console.log(`[App] All ${imageIds.length} images pre-loaded`);
 }
 
-/**
- * After loading a SEG, jump the viewport to the slice that contains
- * non-zero mask pixels so the overlay is immediately visible.
- *
- * We match by imageId (not raw index) because the viewport may re-sort
- * images by spatial position, reversing the order relative to the
- * sourceImageIds array that was passed to the adapter.
- */
-async function jumpViewportToSegSlice(panelId: string, sourceImageId: string | null) {
-  if (sourceImageId == null) return;
-  // wait until viewport exists
+async function jumpViewportToReferencedImage(panelId: string, referencedImageId: string | null) {
+  if (!referencedImageId) return;
+
+  // Wait for viewport to exist and have stack imageIds
   for (let attempts = 0; attempts < 40; attempts++) {
     const vp = viewportService.getViewport(panelId);
     if (vp && vp.getImageIds().length > 0) break;
     await new Promise((r) => setTimeout(r, 100));
   }
+
   const vp = viewportService.getViewport(panelId);
   if (!vp) return;
-  // Find the index of this imageId in the viewport's actual stack order
-  const stackImageIds = vp.getImageIds();
-  console.log(
-    `[App] jumpViewportToSegSlice: looking for sourceImageId="${sourceImageId}" ` +
-    `in viewport stack of ${stackImageIds.length} images. ` +
-    `First 3 stack ids: ${stackImageIds.slice(0, 3).join(', ')}`,
-  );
-  const idx = stackImageIds.indexOf(sourceImageId);
-  if (idx < 0) {
-    console.warn(`[App] jumpViewportToSegSlice: imageId not found in viewport stack`, sourceImageId);
+
+  const stackIds = vp.getImageIds();
+  const targetIndex = stackIds.indexOf(referencedImageId);
+
+  if (targetIndex < 0) {
+    console.warn(`[App] referencedImageId not found in stack: ${referencedImageId}`);
     return;
   }
+
   const anyVp: any = vp;
   if (typeof anyVp.setImageIdIndex === 'function') {
-    anyVp.setImageIdIndex(idx);
+    anyVp.setImageIdIndex(targetIndex);
   } else {
     const cur = vp.getCurrentImageIdIndex();
-    vp.scroll(idx - cur);
+    vp.scroll(targetIndex - cur);
   }
+
   vp.render();
-  console.log(`[App] Jumped ${panelId} to viewport stack index ${idx} of ${stackImageIds.length}`);
+  console.log(`[App] Jumped ${panelId} to referenced slice index=${targetIndex}`);
 }
 
 /**
@@ -224,7 +216,7 @@ async function downloadSegArrayBuffer(
   if (!result.ok || !result.data) {
     throw new Error(result.error || 'Failed to download scan file');
   }
-  // Convert base64 → ArrayBuffer
+  // Convert base64 → ArrayBuffer (manual loop; fetch(data:) violates Electron CSP)
   const binaryString = atob(result.data);
   const bytes = new Uint8Array(binaryString.length);
   for (let i = 0; i < binaryString.length; i++) {
@@ -366,7 +358,7 @@ export default function App() {
       // images in the same drop, otherwise fall back to existing panel images.
       const sourceImageIds = newImageIds.length > 0
         ? newImageIds
-        : (panelImageIds[targetPanel] ?? []);
+        : (panelImageIdsRef.current[targetPanel] ?? []);
 
       if (sourceImageIds.length === 0) {
         console.warn('[App] Cannot load DICOM SEG — no source images loaded in active panel');
@@ -381,15 +373,10 @@ export default function App() {
       for (const file of segFiles) {
         try {
           const arrayBuffer = await file.arrayBuffer();
-          const { segmentationId, firstNonZeroImageId } =
+          const { segmentationId, firstNonZeroReferencedImageId } =
             await segmentationService.loadDicomSeg(arrayBuffer, sourceImageIds);
-          if (firstNonZeroImageId == null) {
-            console.warn(`[App] SEG "${file.name}" contains no mask pixels — skipping display`);
-            setLoadError(`SEG contains no mask pixels: "${file.name}"`);
-            continue;
-          }
           await segmentationService.addToViewport(targetPanel, segmentationId);
-          await jumpViewportToSegSlice(targetPanel, firstNonZeroImageId);
+          await jumpViewportToReferencedImage(targetPanel, firstNonZeroReferencedImageId);
           console.log(`[App] Loaded DICOM SEG file "${file.name}" as ${segmentationId}`);
         } catch (err) {
           console.error(`[App] Failed to load DICOM SEG "${file.name}":`, err);
@@ -402,7 +389,7 @@ export default function App() {
         segStore.togglePanel();
       }
     }
-  }, [panelImageIds]);
+  }, []);
 
   /**
    * Process pending DICOM SEG loads after the viewport has been recreated.
@@ -445,23 +432,18 @@ export default function App() {
         await preloadImages(pending.sourceImageIds);
 
         // Load the SEG
-        const { segmentationId, firstNonZeroImageId } =
+        const { segmentationId, firstNonZeroReferencedImageId } =
           await segmentationService.loadDicomSeg(
             pending.arrayBuffer,
             pending.sourceImageIds,
           );
-        if (firstNonZeroImageId == null) {
-          console.warn(`[App] Deferred SEG contains no mask pixels — skipping display`);
-          setLoadError('SEG contains no mask pixels');
-        } else {
-          await segmentationService.addToViewport(pending.panelId, segmentationId);
-          await jumpViewportToSegSlice(pending.panelId, firstNonZeroImageId);
-          console.log(`[App] Loaded deferred DICOM SEG as ${segmentationId} on ${pending.panelId}`);
+        await segmentationService.addToViewport(pending.panelId, segmentationId);
+        await jumpViewportToReferencedImage(pending.panelId, firstNonZeroReferencedImageId);
+        console.log(`[App] Loaded deferred DICOM SEG as ${segmentationId} on ${pending.panelId}`);
 
-          // Open segmentation panel
-          const segStore = useSegmentationStore.getState();
-          if (!segStore.showPanel) segStore.togglePanel();
-        }
+        // Open segmentation panel
+        const segStore = useSegmentationStore.getState();
+        if (!segStore.showPanel) segStore.togglePanel();
       } catch (err) {
         console.error('[App] Failed to load deferred DICOM SEG:', err);
       } finally {
@@ -562,7 +544,12 @@ export default function App() {
             sourceIds = await dicomwebLoader.getScanImageIds(sessionId, foundScanId);
           }
 
-          console.log(`[App] Source scan #${foundScanId}: ${sourceIds.length} images`);
+          // At this point sourceIds and foundScanId are guaranteed non-null
+          // (either from findSourceScanBySeriesUID or getSourceScanId fallback).
+          const resolvedSourceIds = sourceIds;
+          const resolvedScanId = foundScanId ?? scanId;
+
+          console.log(`[App] Source scan #${resolvedScanId}: ${resolvedSourceIds.length} images`);
           // Clean up stale segmentations before loading new source images
           segmentationService.removeSegmentationsFromViewport(segTargetPanel);
 
@@ -571,19 +558,18 @@ export default function App() {
           // the new source images. This prevents the race condition where
           // setPanelImageIds triggers viewport destruction that removes our
           // segmentation.
-          console.log(`[App] Deferring SEG load until viewport settles with new source images`);
           pendingSegLoadRef.current = {
             panelId: segTargetPanel,
             arrayBuffer,
-            sourceImageIds: sourceIds!,
+            sourceImageIds: resolvedSourceIds,
           };
           // Mark panel as having a SEG load in progress BEFORE triggering
           // any React re-renders or viewport recreation. This prevents
           // concurrent regular scan loads from clobbering the segmentation.
           segLoadingPanelRef.current = segTargetPanel;
 
-          setPanelImageIds((prev) => ({ ...prev, [segTargetPanel]: sourceIds! }));
-          useViewerStore.getState().setPanelScan(segTargetPanel, foundScanId!);
+          setPanelImageIds((prev) => ({ ...prev, [segTargetPanel]: resolvedSourceIds }));
+          useViewerStore.getState().setPanelScan(segTargetPanel, resolvedScanId);
           // Don't setLoading(false) here — the deferred useEffect will do it
           return;
         }
@@ -593,20 +579,15 @@ export default function App() {
         await preloadImages(sourceIds);
 
         // 6. Load the SEG as overlay
-        const { segmentationId, firstNonZeroImageId } =
+        const { segmentationId, firstNonZeroReferencedImageId } =
           await segmentationService.loadDicomSeg(arrayBuffer, sourceIds);
-        if (firstNonZeroImageId == null) {
-          console.warn(`[App] SEG scan #${scanId} contains no mask pixels — skipping display`);
-          setLoadError(`SEG contains no mask pixels (scan #${scanId})`);
-        } else {
-          await segmentationService.addToViewport(segTargetPanel, segmentationId);
-          await jumpViewportToSegSlice(segTargetPanel, firstNonZeroImageId);
-          console.log(`[App] Loaded DICOM SEG from XNAT as ${segmentationId} on ${segTargetPanel}`);
+        await segmentationService.addToViewport(segTargetPanel, segmentationId);
+        await jumpViewportToReferencedImage(segTargetPanel, firstNonZeroReferencedImageId);
+        console.log(`[App] Loaded DICOM SEG from XNAT as ${segmentationId} on ${segTargetPanel}`);
 
-          // 7. Open segmentation panel
-          const segStore = useSegmentationStore.getState();
-          if (!segStore.showPanel) segStore.togglePanel();
-        }
+        // 7. Open segmentation panel
+        const segStore = useSegmentationStore.getState();
+        if (!segStore.showPanel) segStore.togglePanel();
       } else {
         // ─── Regular scan: load as image stack ────────────────────
 
@@ -789,14 +770,10 @@ export default function App() {
                 continue;
               }
 
-              const { segmentationId, firstNonZeroImageId } =
+              const { segmentationId, firstNonZeroReferencedImageId } =
                 await segmentationService.loadDicomSeg(arrayBuffer, matchedPanel.ids);
-              if (firstNonZeroImageId == null) {
-                console.warn(`[App] SEG #${segScan.id} contains no mask pixels — skipping display`);
-                continue;
-              }
               await segmentationService.addToViewport(matchedPanel.pid, segmentationId);
-              await jumpViewportToSegSlice(matchedPanel.pid, firstNonZeroImageId);
+              await jumpViewportToReferencedImage(matchedPanel.pid, firstNonZeroReferencedImageId);
               segLoaded = true;
             } catch (err) {
               console.error(`[App] Failed to load SEG #${segScan.id}:`, err);
@@ -852,6 +829,11 @@ export default function App() {
           }
         );
         const results = await Promise.all(loadPromises);
+
+        // Clean up segmentations from panels that are about to be replaced
+        for (const { panelIdx } of results) {
+          segmentationService.removeSegmentationsFromViewport(panelId(panelIdx));
+        }
 
         const newPanelImageIds: Record<string, string[]> = {};
         for (const { panelIdx, ids } of results) {
