@@ -14,6 +14,7 @@ import DicomHeaderPanel from '../components/viewer/DicomHeaderPanel';
 import { toolService } from '../lib/cornerstone/toolService';
 import { annotationService } from '../lib/cornerstone/annotationService';
 import { segmentationService } from '../lib/cornerstone/segmentationService';
+import { useHotkeys } from '../hooks/useHotkeys';
 import { useAnnotationStore } from '../stores/annotationStore';
 import { useSegmentationStore } from '../stores/segmentationStore';
 import { useViewerStore } from '../stores/viewerStore';
@@ -39,6 +40,9 @@ export default function ViewerPage({ panelImageIds, onApplyProtocol, onToggleMPR
   // Check if the active panel has images loaded (for MPR button enable state)
   const activeViewportId = useViewerStore((s) => s.activeViewportId);
   const hasImages = (panelImageIds[activeViewportId]?.length ?? 0) > 1;
+
+  // Install global keyboard shortcuts.
+  useHotkeys();
 
   // Initialize the shared tool group and annotation service once on mount.
   // Individual CornerstoneViewport instances add/remove themselves.

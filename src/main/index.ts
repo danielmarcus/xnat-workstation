@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, Tray, nativeImage } from 'electron';
+import { app, BrowserWindow, Menu, nativeImage } from 'electron';
 import path from 'path';
 import { registerAuthHandlers } from './ipc/authHandlers';
 import { registerProxyHandlers } from './ipc/proxyHandlers';
@@ -16,7 +16,6 @@ process.stderr?.on?.('error', () => {});
 app.name = 'XNAT Viewer';
 
 let mainWindow: BrowserWindow | null = null;
-let tray: Tray | null = null;
 
 const isDev = !app.isPackaged;
 
@@ -43,21 +42,6 @@ function loadIcon(filename: string): Electron.NativeImage {
     // file not found — return empty
   }
   return nativeImage.createEmpty();
-}
-
-function createTrayIcon(): Electron.NativeImage {
-  if (process.platform === 'darwin') {
-    // macOS: Use iconTemplate.png (22×22 @1x) with iconTemplate@2x.png (44×44)
-    // for Retina. The "Template" suffix tells Electron/macOS to treat this as a
-    // template image — only alpha is used; the system tints it for light/dark mode.
-    // Electron auto-loads the @2x variant when it exists alongside the @1x file.
-    const p = getIconPath('iconTemplate.png');
-    const img = nativeImage.createFromPath(p);
-    if (!img.isEmpty()) return img;
-    // Fallback: return the full color icon
-  }
-  // Windows/Linux: use the full color icon for the tray
-  return loadIcon('icon.png');
 }
 
 // ─── App Menu ───────────────────────────────────────────────────
@@ -155,7 +139,7 @@ function createWindow(): void {
   const appIcon = loadIcon('icon.png');
 
   mainWindow = new BrowserWindow({
-    width: 1400,
+    width: 1600,
     height: 900,
     minWidth: 800,
     minHeight: 600,
@@ -183,38 +167,6 @@ function createWindow(): void {
   });
 }
 
-function createTray(): void {
-  const icon = createTrayIcon();
-  tray = new Tray(icon);
-  tray.setToolTip('XNAT Viewer');
-
-  const contextMenu = Menu.buildFromTemplate([
-    {
-      label: 'Show XNAT Viewer',
-      click: () => {
-        if (mainWindow) {
-          mainWindow.show();
-          mainWindow.focus();
-        }
-      },
-    },
-    { type: 'separator' },
-    {
-      label: 'Quit',
-      click: () => app.quit(),
-    },
-  ]);
-  tray.setContextMenu(contextMenu);
-
-  // Click on tray icon shows the window (macOS/Linux behavior)
-  tray.on('click', () => {
-    if (mainWindow) {
-      mainWindow.show();
-      mainWindow.focus();
-    }
-  });
-}
-
 app.whenReady().then(() => {
   // Register IPC handlers before creating the window
   registerAuthHandlers();
@@ -222,17 +174,28 @@ app.whenReady().then(() => {
   registerExportHandlers();
   registerUploadHandlers();
 
-  // Set the macOS dock icon (dev mode only — packaged app uses Info.plist)
+  // Set the macOS dock icon (dev mode only — packaged app uses Info.plist).
+  // In dev mode we can only use PNG; macOS won't apply the rounded-square
+  // treatment but the icon is still correct. Production uses .icns from
+  // the app bundle which gets full macOS styling automatically.
   if (process.platform === 'darwin' && app.dock) {
     const dockIcon = loadIcon('icon.png');
     if (!dockIcon.isEmpty()) app.dock.setIcon(dockIcon);
+  }
+
+  // Configure macOS About panel metadata.
+  // Note: iconPath is linux/win32 only — macOS About panel inherits
+  // the dock icon automatically, so no icon property is needed here.
+  if (process.platform === 'darwin') {
+    app.setAboutPanelOptions({
+      applicationName: 'XNAT Viewer',
+    });
   }
 
   // Set up the application menu (replaces "Electron" with "XNAT Viewer")
   buildAppMenu();
 
   createWindow();
-  createTray();
 });
 
 app.on('window-all-closed', () => {

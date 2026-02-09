@@ -151,6 +151,12 @@ function rebuildToolGroup(primaryTool: ToolName): ToolTypes.IToolGroup | undefin
     toolGroup.addViewport(vpId, viewportService.ENGINE_ID);
   }
 
+  // Restore the brush size from the store — addAllTools creates fresh tool
+  // instances with Cornerstone's default (25), so we must re-apply the
+  // user's chosen size.
+  const brushSize = useSegmentationStore.getState().brushSize;
+  segmentationService.setBrushSize(brushSize);
+
   // Apply bindings using public APIs only
   applyBindings(toolGroup, primaryTool);
 
@@ -326,6 +332,12 @@ export const toolService = {
 
     addAllTools(toolGroup);
 
+    // Restore the brush size from the store — addAllTools creates fresh tool
+    // instances with Cornerstone's default (25), so we must re-apply the
+    // user's chosen size.
+    const brushSize = useSegmentationStore.getState().brushSize;
+    segmentationService.setBrushSize(brushSize);
+
     // Apply initial bindings with W/L as primary
     currentActiveTool = ToolName.WindowLevel;
     applyBindings(toolGroup, currentActiveTool);
@@ -344,6 +356,13 @@ export const toolService = {
       return;
     }
     toolGroup.addViewport(viewportId, viewportService.ENGINE_ID);
+
+    // Sync the store's brush size to Cornerstone3D now that the tool group
+    // has at least one viewport — setBrushSizeForToolGroup is a no-op when
+    // the tool group has no viewports.
+    const brushSize = useSegmentationStore.getState().brushSize;
+    segmentationService.setBrushSize(brushSize);
+
     console.log('[toolService] Viewport added to tool group:', viewportId);
   },
 

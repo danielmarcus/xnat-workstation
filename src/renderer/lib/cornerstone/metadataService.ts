@@ -15,6 +15,11 @@ import { EMPTY_OVERLAY } from '@shared/types/dicom';
  */
 function formatDicomDate(dateVal: unknown): string {
   if (dateVal === undefined || dateVal === null) return '';
+  // DICOM values can arrive as objects — unwrap or skip
+  if (typeof dateVal === 'object') {
+    if ((dateVal as any).Alphabetic) dateVal = (dateVal as any).Alphabetic;
+    else return '';
+  }
   // DICOM dates can arrive as numbers (e.g. 20121231) — coerce to string
   const dateStr = String(dateVal);
   if (dateStr.length < 8) return dateStr;
@@ -27,11 +32,15 @@ function formatDicomDate(dateVal: unknown): string {
 /**
  * Format a patient name from DICOM format (Last^First^Middle) to readable.
  */
-function formatPatientName(name: string | undefined): string {
+function formatPatientName(name: unknown): string {
   if (!name) return '';
   // Handle object format { Alphabetic: "..." }
-  if (typeof name === 'object' && (name as any).Alphabetic) {
-    name = (name as any).Alphabetic;
+  if (typeof name === 'object') {
+    if ((name as any).Alphabetic) {
+      name = (name as any).Alphabetic;
+    } else {
+      return '';
+    }
   }
   return String(name).replace(/\^/g, ', ');
 }
@@ -43,6 +52,11 @@ function toStr(val: unknown): string {
   if (val === undefined || val === null) return '';
   if (typeof val === 'number') {
     return Number.isInteger(val) ? String(val) : val.toFixed(2);
+  }
+  // Handle DICOM objects (e.g., PersonName { Alphabetic: "..." })
+  if (typeof val === 'object') {
+    if ((val as any).Alphabetic) return String((val as any).Alphabetic);
+    return '';
   }
   return String(val);
 }

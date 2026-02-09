@@ -4,15 +4,12 @@
  *
  * Each panel contains a CornerstoneViewport + ViewportOverlay + ScrollSlider.
  * Clicking a panel sets it as active (blue border highlight).
- * Empty panels (no images) show a placeholder.
  *
- * Keyboard navigation: Up/Down arrows scroll one slice, PageUp/PageDown scroll
- * 10 slices, Home/End jump to first/last slice — all targeting the active viewport.
+ * Keyboard shortcuts (including slice navigation) are handled globally
+ * by hotkeyService — see src/renderer/lib/hotkeys/hotkeyService.ts.
  */
-import { useEffect, useCallback } from 'react';
 import { useViewerStore } from '../../stores/viewerStore';
 import { LAYOUT_CONFIGS, panelId } from '@shared/types/viewer';
-import { viewportService } from '../../lib/cornerstone/viewportService';
 import CornerstoneViewport from './CornerstoneViewport';
 import ViewportOverlay from './ViewportOverlay';
 import ScrollSlider from './ScrollSlider';
@@ -27,61 +24,6 @@ export default function ViewportGrid({ panelImageIds }: ViewportGridProps) {
   const setActiveViewport = useViewerStore((s) => s.setActiveViewport);
 
   const config = LAYOUT_CONFIGS[layout];
-
-  // ─── Keyboard Navigation ──────────────────────────────────────
-  const handleKeyboard = useCallback(
-    (e: KeyboardEvent) => {
-      // Don't intercept if focus is in an input, select, or textarea
-      const tag = (e.target as HTMLElement)?.tagName;
-      if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
-
-      const state = useViewerStore.getState();
-      const vp = state.viewports[state.activeViewportId];
-      if (!vp || vp.totalImages <= 1) return;
-
-      let delta = 0;
-      let jumpTo: number | null = null;
-
-      switch (e.key) {
-        case 'ArrowUp':
-        case 'ArrowLeft':
-          delta = -1;
-          break;
-        case 'ArrowDown':
-        case 'ArrowRight':
-          delta = 1;
-          break;
-        case 'PageUp':
-          delta = -10;
-          break;
-        case 'PageDown':
-          delta = 10;
-          break;
-        case 'Home':
-          jumpTo = 0;
-          break;
-        case 'End':
-          jumpTo = vp.totalImages - 1;
-          break;
-        default:
-          return; // Not a navigation key
-      }
-
-      e.preventDefault();
-
-      if (jumpTo !== null) {
-        viewportService.scrollToIndex(state.activeViewportId, jumpTo);
-      } else if (delta !== 0) {
-        viewportService.scroll(state.activeViewportId, delta);
-      }
-    },
-    [], // No deps — reads from store directly
-  );
-
-  useEffect(() => {
-    window.addEventListener('keydown', handleKeyboard);
-    return () => window.removeEventListener('keydown', handleKeyboard);
-  }, [handleKeyboard]);
 
   return (
     <div

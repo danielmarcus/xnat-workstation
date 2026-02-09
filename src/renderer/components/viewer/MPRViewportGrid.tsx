@@ -14,8 +14,11 @@
  * Panel 3: CornerstoneViewport (original stack for reference)
  *
  * Includes a volume loading overlay with progress bar.
+ *
+ * Keyboard shortcuts (including MPR slice navigation) are handled globally
+ * by hotkeyService — see src/renderer/lib/hotkeys/hotkeyService.ts.
  */
-import { useEffect, useCallback, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useViewerStore } from '../../stores/viewerStore';
 import { mprPanelId, MPR_PANELS } from '@shared/types/viewer';
 import { mprService } from '../../lib/cornerstone/mprService';
@@ -35,65 +38,6 @@ export default function MPRViewportGrid({ volumeId, sourceImageIds }: MPRViewpor
   const activeViewportId = useViewerStore((s) => s.activeViewportId);
   const setActiveViewport = useViewerStore((s) => s.setActiveViewport);
   const mprVolumeProgress = useViewerStore((s) => s.mprVolumeProgress);
-
-  // ─── Keyboard Navigation (for MPR panels) ───────────────────
-  const handleKeyboard = useCallback(
-    (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement)?.tagName;
-      if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
-
-      const state = useViewerStore.getState();
-      const pid = state.activeViewportId;
-
-      // Only handle keyboard for MPR panels (not the stack panel)
-      if (!pid.startsWith('mpr_panel_')) return;
-
-      const mprState = state.mprViewports[pid];
-      if (!mprState || mprState.totalSlices <= 1) return;
-
-      let delta = 0;
-      let jumpTo: number | null = null;
-
-      switch (e.key) {
-        case 'ArrowUp':
-        case 'ArrowLeft':
-          delta = -1;
-          break;
-        case 'ArrowDown':
-        case 'ArrowRight':
-          delta = 1;
-          break;
-        case 'PageUp':
-          delta = -10;
-          break;
-        case 'PageDown':
-          delta = 10;
-          break;
-        case 'Home':
-          jumpTo = 0;
-          break;
-        case 'End':
-          jumpTo = mprState.totalSlices - 1;
-          break;
-        default:
-          return;
-      }
-
-      e.preventDefault();
-
-      if (jumpTo !== null) {
-        mprService.scrollToIndex(pid, jumpTo);
-      } else if (delta !== 0) {
-        mprService.scroll(pid, delta);
-      }
-    },
-    [],
-  );
-
-  useEffect(() => {
-    window.addEventListener('keydown', handleKeyboard);
-    return () => window.removeEventListener('keydown', handleKeyboard);
-  }, [handleKeyboard]);
 
   // Is volume still loading?
   const isLoading = mprVolumeProgress !== null && mprVolumeProgress.percent < 100;
