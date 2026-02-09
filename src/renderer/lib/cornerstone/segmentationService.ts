@@ -110,6 +110,62 @@ function findFirstNonZeroRef(adapterImages: any[]): {
   return { referencedImageId: null, labelmapImageId: null };
 }
 
+/**
+ * Serialize a denaturalized DICOM dataset to an ArrayBuffer via dcmjs.
+ *
+ * First attempts a normal DicomDict.write(). If dcmjs throws "Not a number"
+ * (caused by NaN in its internal byte-count arithmetic, not our dataset values),
+ * retries once with a scoped NaN-guard on WriteBufferStream.prototype. The
+ * guard is removed in a finally block — no permanent prototype mutation.
+ */
+function writeDicomDict(
+  DicomDictClass: any,
+  denaturalizedMeta: any,
+  denaturalizedDict: any,
+): ArrayBuffer {
+  const dict = new DicomDictClass(denaturalizedMeta);
+  dict.dict = denaturalizedDict;
+
+  // Attempt 1: normal write — no prototype patching
+  try {
+    return dict.write();
+  } catch (firstErr: any) {
+    if (!(firstErr instanceof Error) || !firstErr.message.includes('Not a number')) {
+      throw firstErr; // not the NaN error — rethrow
+    }
+    console.warn(
+      '[segmentationService] DicomDict.write() hit NaN in dcmjs internals; retrying with NaN guard',
+    );
+  }
+
+  // Attempt 2: scoped NaN-guard fallback
+  const { WriteBufferStream } = dcmjsData as any;
+  const proto = WriteBufferStream?.prototype;
+  if (!proto) {
+    // Can't access prototype — rethrow by trying again (will fail the same way)
+    return dict.write();
+  }
+
+  const origWrite16 = proto.writeUint16;
+  const origWrite32 = proto.writeUint32;
+  try {
+    proto.writeUint16 = function (value: any) {
+      return origWrite16.call(this, isNaN(value) ? 0 : value);
+    };
+    proto.writeUint32 = function (value: any) {
+      return origWrite32.call(this, isNaN(value) ? 0 : value);
+    };
+
+    // Fresh DicomDict — the first write() may have left internal state inconsistent
+    const retryDict = new DicomDictClass(denaturalizedMeta);
+    retryDict.dict = denaturalizedDict;
+    return retryDict.write();
+  } finally {
+    proto.writeUint16 = origWrite16;
+    proto.writeUint32 = origWrite32;
+  }
+}
+
 // ─── Sync Logic ─────────────────────────────────────────────────
 
 /**
@@ -1733,6 +1789,10 @@ export const segmentationService = {
               // Empty string in a numeric VR → parseInt("") → NaN → 0.
               // Replace with 0 explicitly.
               entry.Value[i] = 0;
+            } else if (typeof v === 'string' && isNumericVR && isNaN(parseInt(v, 10))) {
+              // Non-parseable string in a numeric VR — dcmjs toInt() would
+              // throw "Not a number: NaN". Replace with 0.
+              entry.Value[i] = 0;
             } else if (v === undefined || v === null) {
               entry.Value[i] = isNumericVR ? 0 : '';
             } else if (typeof v === 'object') {
@@ -1816,66 +1876,17 @@ export const segmentationService = {
 
     // Write to ArrayBuffer via dcmjs DicomDict.
     //
-    // dcmjs writeUint16/writeUint32 call toInt() which throws "Not a number: NaN"
-    // when it receives a value that parseInt() can't parse. This happens when:
-    //   - A VR's writeBytes() returns NaN as the byte count (from writing
-    //     an empty or malformed value)
-    //   - A numeric tag value is an empty string "" that survives sanitization
-    //     (e.g., inside deeply nested sequence items)
+    // dcmjs's internal VR write methods compute byte counts via arithmetic
+    // that can produce NaN (e.g., writing a malformed value where the length
+    // calculation involves undefined fields). These NaN byte counts are then
+    // passed to writeUint16/writeUint32, which call toInt() and throw
+    // "Not a number: NaN". Dataset sanitization above handles Value arrays,
+    // but cannot prevent NaN in dcmjs's internal length arithmetic.
     //
-    // We monkey-patch writeUint16/writeUint32 to handle NaN gracefully:
-    // convert the input the same way dcmjs toInt() does, and if the result
-    // is NaN, substitute 0 instead of throwing. This only affects actual NaN
-    // after proper numeric conversion — valid string numbers like "512" still
-    // parse correctly via parseInt().
-    const { WriteBufferStream } = dcmjsData as any;
-    const origWriteUint16 = WriteBufferStream?.prototype?.writeUint16;
-    const origWriteUint32 = WriteBufferStream?.prototype?.writeUint32;
-    let nanFixCount = 0;
-
-    const safeToInt = (val: any): number => {
-      if (typeof val === 'number') {
-        return isNaN(val) ? 0 : val;
-      }
-      if (typeof val === 'string') {
-        const parsed = parseInt(val, 10);
-        return isNaN(parsed) ? 0 : parsed;
-      }
-      return 0;
-    };
-
-    if (WriteBufferStream?.prototype) {
-      WriteBufferStream.prototype.writeUint16 = function (value: any) {
-        const safe = safeToInt(value);
-        if (safe !== value && !(typeof value === 'string' && safe === parseInt(value, 10))) {
-          nanFixCount++;
-        }
-        return origWriteUint16.call(this, safe);
-      };
-      WriteBufferStream.prototype.writeUint32 = function (value: any) {
-        const safe = safeToInt(value);
-        if (safe !== value && !(typeof value === 'string' && safe === parseInt(value, 10))) {
-          nanFixCount++;
-        }
-        return origWriteUint32.call(this, safe);
-      };
-    }
-
-    let arrayBuffer: ArrayBuffer;
-    try {
-      const dicomDict = new DicomDict(denaturalizedMeta);
-      dicomDict.dict = denaturalizedDict;
-      arrayBuffer = dicomDict.write();
-    } finally {
-      // Restore originals
-      if (WriteBufferStream?.prototype) {
-        WriteBufferStream.prototype.writeUint16 = origWriteUint16;
-        WriteBufferStream.prototype.writeUint32 = origWriteUint32;
-      }
-    }
-    if (nanFixCount > 0) {
-      console.warn(`[segmentationService] Fixed ${nanFixCount} NaN values during DICOM write`);
-    }
+    // Workaround: use writeDicomDict() which temporarily guards the write
+    // calls on the stream instance used by DicomDict.write(). This is scoped
+    // to a single call and restores immediately.
+    const arrayBuffer = writeDicomDict(DicomDict, denaturalizedMeta, denaturalizedDict);
 
     // ─── Binary validation ───
     // Parse the just-written ArrayBuffer with dicom-parser to verify that

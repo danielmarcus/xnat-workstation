@@ -91,82 +91,106 @@ const TOOL_NAME_MAP: Record<ToolName, string> = {
 
 const { Primary, Auxiliary, Secondary } = ToolEnums.MouseBindings;
 
-/** All tool class names (unique — BrushTool covers Brush/Eraser/ThresholdBrush) */
-const ALL_TOOL_NAMES = [
-  WindowLevelTool.toolName,
-  PanTool.toolName,
-  ZoomTool.toolName,
-  StackScrollTool.toolName,
-  LengthTool.toolName,
-  AngleTool.toolName,
-  BidirectionalTool.toolName,
-  EllipticalROITool.toolName,
-  RectangleROITool.toolName,
-  CircleROITool.toolName,
-  ProbeTool.toolName,
-  ArrowAnnotateTool.toolName,
-  PlanarFreehandROITool.toolName,
-  // Labelmap segmentation tools
-  BrushTool.toolName,
-  CircleScissorsTool.toolName,
-  RectangleScissorsTool.toolName,
-  PaintFillTool.toolName,
-  // Contour segmentation tools
-  PlanarFreehandContourSegmentationTool.toolName,
-  SplineContourSegmentationTool.toolName,
-  LivewireContourSegmentationTool.toolName,
-  SculptorTool.toolName,
-];
-
 let currentActiveTool: ToolName = ToolName.WindowLevel;
 
 function getToolGroup(): ToolTypes.IToolGroup | undefined {
   return ToolGroupManager.getToolGroup(TOOL_GROUP_ID);
 }
 
-/** Map mouseButton enum to letter for debug logging */
-function bindingLabel(b: any): string {
-  if (b.mouseButton === Primary) return 'L';
-  if (b.mouseButton === Auxiliary) return 'M';
-  if (b.mouseButton === Secondary) return 'R';
-  return `?${b.mouseButton}`;
-}
+/** Configuration for ArrowAnnotateTool (passed during addTool) */
+const ARROW_ANNOTATE_CONFIG = {
+  getTextCallback: arrowAnnotateTextCallback,
+  changeTextCallback: arrowAnnotateTextCallback,
+};
 
-/** Log all tool bindings for debugging */
-function debugBindings(label: string, toolGroup: ToolTypes.IToolGroup): void {
-  const tg = toolGroup as any;
-  const parts: string[] = [];
-  for (const name of ALL_TOOL_NAMES) {
-    const opts = tg.toolOptions?.[name];
-    const bindings = opts?.bindings ?? [];
-    const mode = tg._toolInstances?.[name]?.mode ?? -1;
-    const modeNames: Record<number, string> = { 1: 'Active', 2: 'Passive', 3: 'Enabled', 4: 'Disabled' };
-    parts.push(`${name}:${modeNames[mode] ?? mode}[${bindings.map(bindingLabel).join(',')}]`);
+/**
+ * Rebuild all tool bindings from scratch by destroying and recreating the
+ * tool group. This is the only safe way to fully clear Cornerstone3D's
+ * internal binding state — the public API (setToolActive/setToolDisabled)
+ * merges bindings rather than replacing them.
+ *
+ * On recreation we:
+ * 1. Collect the list of viewportIds currently in the group
+ * 2. Destroy the tool group
+ * 3. Recreate it with all tools
+ * 4. Re-add the viewports
+ * 5. Set the desired Active/Enabled/Disabled modes via public APIs only
+ */
+function rebuildToolGroup(primaryTool: ToolName): ToolTypes.IToolGroup | undefined {
+  const oldGroup = getToolGroup();
+
+  // Collect viewport IDs before destroying the group
+  const viewportIds: string[] = [];
+  if (oldGroup) {
+    try {
+      const vpEntries = oldGroup.getViewportIds();
+      for (const entry of vpEntries) {
+        // getViewportIds() returns string[] in CS3D v4 typings but may
+        // return { viewportId, renderingEngineId }[] at runtime.
+        const vpId = typeof entry === 'string' ? entry : (entry as any).viewportId;
+        if (vpId) viewportIds.push(vpId);
+      }
+    } catch { /* ok */ }
   }
-  console.log(`[toolService] ${label} → ${parts.join(' | ')}`);
+
+  // Destroy existing group
+  try { ToolGroupManager.destroyToolGroup(TOOL_GROUP_ID); } catch { /* ok */ }
+
+  // Recreate
+  const toolGroup = ToolGroupManager.createToolGroup(TOOL_GROUP_ID);
+  if (!toolGroup) {
+    console.error('[toolService] Failed to recreate tool group');
+    return undefined;
+  }
+
+  // Add all tools
+  addAllTools(toolGroup);
+
+  // Re-add viewports
+  for (const vpId of viewportIds) {
+    toolGroup.addViewport(vpId, viewportService.ENGINE_ID);
+  }
+
+  // Apply bindings using public APIs only
+  applyBindings(toolGroup, primaryTool);
+
+  return toolGroup;
 }
 
 /**
- * Rebuild all tool bindings from scratch.
- *
- * Strategy: directly write toolOptions to force-clear all bindings,
- * then use setToolActive with the exact bindings we want. This avoids
- * the Cornerstone binding-merge issue completely.
+ * Add all tools to a tool group (used during initial creation and recreation).
+ */
+function addAllTools(toolGroup: ToolTypes.IToolGroup): void {
+  toolGroup.addTool(WindowLevelTool.toolName);
+  toolGroup.addTool(PanTool.toolName);
+  toolGroup.addTool(ZoomTool.toolName);
+  toolGroup.addTool(StackScrollTool.toolName);
+  toolGroup.addTool(LengthTool.toolName);
+  toolGroup.addTool(AngleTool.toolName);
+  toolGroup.addTool(BidirectionalTool.toolName);
+  toolGroup.addTool(EllipticalROITool.toolName);
+  toolGroup.addTool(RectangleROITool.toolName);
+  toolGroup.addTool(CircleROITool.toolName);
+  toolGroup.addTool(ProbeTool.toolName);
+  toolGroup.addTool(ArrowAnnotateTool.toolName, ARROW_ANNOTATE_CONFIG);
+  toolGroup.addTool(PlanarFreehandROITool.toolName);
+  toolGroup.addTool(BrushTool.toolName);
+  toolGroup.addTool(CircleScissorsTool.toolName);
+  toolGroup.addTool(RectangleScissorsTool.toolName);
+  toolGroup.addTool(PaintFillTool.toolName);
+  toolGroup.addTool(PlanarFreehandContourSegmentationTool.toolName);
+  toolGroup.addTool(SplineContourSegmentationTool.toolName);
+  toolGroup.addTool(LivewireContourSegmentationTool.toolName);
+  toolGroup.addTool(SculptorTool.toolName);
+}
+
+/**
+ * Set tool modes and bindings using only public APIs.
+ * Called on a freshly created tool group where all tools start in their
+ * default (added but not active) state — no stale bindings to worry about.
  */
 function applyBindings(toolGroup: ToolTypes.IToolGroup, primaryTool: ToolName): void {
-  const tg = toolGroup as any;
-
-  // 1. Force-clear ALL tools by directly writing toolOptions.
-  //    This bypasses setToolDisabled's restoreToolOptions logic and
-  //    ensures prevBindings is empty when setToolActive merges.
-  for (const name of ALL_TOOL_NAMES) {
-    tg.toolOptions[name] = { bindings: [], mode: 4 /* Disabled */ };
-    if (tg._toolInstances[name]) {
-      tg._toolInstances[name].mode = 4;
-    }
-  }
-
-  // 2. Activate the primary tool with Left-click (+ fixed binding if Pan/Zoom)
+  // 1. Activate the primary tool with Left-click (+ fixed binding if Pan/Zoom)
   const primaryCsName = TOOL_NAME_MAP[primaryTool];
   const primaryBindings: any[] = [{ mouseButton: Primary }];
   if (primaryTool === ToolName.Pan) {
@@ -176,7 +200,7 @@ function applyBindings(toolGroup: ToolTypes.IToolGroup, primaryTool: ToolName): 
   }
   toolGroup.setToolActive(primaryCsName, { bindings: primaryBindings });
 
-  // 3. Activate fixed-binding tools (if not already the primary)
+  // 2. Activate fixed-binding tools (if not already the primary)
   if (primaryTool !== ToolName.Pan) {
     toolGroup.setToolActive(PanTool.toolName, {
       bindings: [{ mouseButton: Auxiliary }],
@@ -188,15 +212,15 @@ function applyBindings(toolGroup: ToolTypes.IToolGroup, primaryTool: ToolName): 
     });
   }
 
-  // StackScroll — keep Enabled (not Active) because we handle wheel/trackpad
-  // scrolling ourselves in CornerstoneViewport's custom wheel handler.
-  // Active with bindings:[] would also intercept wheel events, causing
-  // double-scrolling and poor trackpad behavior.
+  // StackScroll — keep Disabled because we handle wheel/trackpad scrolling
+  // ourselves in CornerstoneViewport's custom wheel handler. StackScrollTool
+  // has no visual annotations, so Enabled mode provides no benefit and risks
+  // consuming wheel events on some Cornerstone3D versions.
   if (primaryTool !== ToolName.StackScroll) {
-    toolGroup.setToolEnabled(StackScrollTool.toolName);
+    toolGroup.setToolDisabled(StackScrollTool.toolName);
   }
 
-  // 4. All annotation tools stay Enabled (annotations visible/hoverable)
+  // 3. All annotation tools stay Enabled (annotations visible/hoverable)
   //    unless they are the active primary tool.
   for (const annTool of ANNOTATION_TOOLS) {
     if (annTool !== primaryTool) {
@@ -204,22 +228,16 @@ function applyBindings(toolGroup: ToolTypes.IToolGroup, primaryTool: ToolName): 
     }
   }
 
-  // 5. Segmentation tools:
-  //    - Labelmap tools (Brush, Eraser, ThresholdBrush, CircleScissors,
-  //      RectangleScissors, PaintFill) stay Disabled when not active.
-  //      They only paint when Active — no hover/display needed.
-  //    - Contour tools (FreehandContour, SplineContour, LivewireContour,
-  //      Sculptor) stay Enabled when not active, because they create
-  //      persistent annotation-like objects that must remain visible/hoverable.
+  // 4. Contour seg tools stay Enabled when not active (persistent annotations).
+  //    Labelmap seg tools stay in their default state (not activated = passive/disabled).
   for (const contourTool of CONTOUR_SEG_TOOLS) {
     const csName = TOOL_NAME_MAP[contourTool];
     if (csName && contourTool !== primaryTool) {
       toolGroup.setToolEnabled(csName);
     }
   }
-  // Labelmap seg tools are already Disabled from step 1 — nothing extra needed.
 
-  debugBindings(`applyBindings(${primaryTool})`, toolGroup);
+  console.log(`[toolService] applyBindings(${primaryTool})`);
 }
 
 /**
@@ -306,37 +324,7 @@ export const toolService = {
       return;
     }
 
-    // Add all tools to the group
-    toolGroup.addTool(WindowLevelTool.toolName);
-    toolGroup.addTool(PanTool.toolName);
-    toolGroup.addTool(ZoomTool.toolName);
-    toolGroup.addTool(StackScrollTool.toolName);
-    toolGroup.addTool(LengthTool.toolName);
-    toolGroup.addTool(AngleTool.toolName);
-    toolGroup.addTool(BidirectionalTool.toolName);
-    toolGroup.addTool(EllipticalROITool.toolName);
-    toolGroup.addTool(RectangleROITool.toolName);
-    toolGroup.addTool(CircleROITool.toolName);
-    toolGroup.addTool(ProbeTool.toolName);
-    toolGroup.addTool(ArrowAnnotateTool.toolName, {
-      // Override default getTextCallback/changeTextCallback which use prompt()
-      // (prompt() is blocked in Electron). Uses a floating <input> instead.
-      getTextCallback: arrowAnnotateTextCallback,
-      changeTextCallback: arrowAnnotateTextCallback,
-    });
-    toolGroup.addTool(PlanarFreehandROITool.toolName);
-
-    // Segmentation tools — labelmap
-    toolGroup.addTool(BrushTool.toolName);
-    toolGroup.addTool(CircleScissorsTool.toolName);
-    toolGroup.addTool(RectangleScissorsTool.toolName);
-    toolGroup.addTool(PaintFillTool.toolName);
-
-    // Segmentation tools — contour
-    toolGroup.addTool(PlanarFreehandContourSegmentationTool.toolName);
-    toolGroup.addTool(SplineContourSegmentationTool.toolName);
-    toolGroup.addTool(LivewireContourSegmentationTool.toolName);
-    toolGroup.addTool(SculptorTool.toolName);
+    addAllTools(toolGroup);
 
     // Apply initial bindings with W/L as primary
     currentActiveTool = ToolName.WindowLevel;
@@ -373,7 +361,9 @@ export const toolService = {
   },
 
   /**
-   * Switch the active left-click tool by rebuilding all bindings.
+   * Switch the active left-click tool by destroying and recreating the
+   * tool group with clean bindings (no stale merged state).
+   *
    * For segmentation tools, also handles:
    * - Auto-creating a segmentation if none exists (seamless UX)
    * - Auto-opening the segmentation panel
@@ -382,8 +372,7 @@ export const toolService = {
   setActiveTool(toolName: ToolName): void {
     if (toolName === currentActiveTool) return;
 
-    const toolGroup = getToolGroup();
-    if (!toolGroup) return;
+    if (!getToolGroup()) return;
 
     // Handle segmentation tool activation
     if (SEGMENTATION_TOOLS.has(toolName)) {
@@ -397,7 +386,7 @@ export const toolService = {
 
       // If no segmentation exists yet, auto-create one BEFORE activating the tool.
       // Segmentation tools crash if they receive mouse events without a segmentation
-      // on the viewport, so we must NOT call applyBindings until the segmentation is ready.
+      // on the viewport, so we must NOT rebuild until the segmentation is ready.
       if (!segStore.activeSegmentationId) {
         const viewportId = useViewerStore.getState().activeViewportId;
         try {
@@ -420,9 +409,7 @@ export const toolService = {
                     csSegmentation.segmentIndex.setActiveSegmentIndex(segId, updatedStore.activeSegmentIndex);
                   }
 
-                  // Ensure contour representation for contour tools — MUST complete
-                  // before activating the tool, otherwise the tool will throw
-                  // "A contour segmentation must be active" on first click.
+                  // Ensure contour representation for contour tools
                   if (CONTOUR_SEG_TOOLS.has(toolName)) {
                     const vpId = useViewerStore.getState().activeViewportId;
                     await segmentationService.ensureContourRepresentation(vpId, segId);
@@ -431,7 +418,7 @@ export const toolService = {
 
                 // NOW activate the tool — segmentation is fully registered
                 currentActiveTool = toolName;
-                applyBindings(toolGroup, toolName);
+                rebuildToolGroup(toolName);
                 console.log('[toolService] Active tool:', toolName, '(after auto-creating segmentation)');
               }).catch((err) => {
                 console.error('[toolService] Failed to auto-create segmentation:', err);
@@ -457,14 +444,12 @@ export const toolService = {
           csSegmentation.segmentIndex.setActiveSegmentIndex(segId, segStore.activeSegmentIndex);
         }
 
-        // Ensure contour representation for contour tools — MUST complete
-        // before activating the tool, otherwise the tool will throw
-        // "A contour segmentation must be active" on first click.
+        // Ensure contour representation for contour tools
         if (CONTOUR_SEG_TOOLS.has(toolName)) {
           const viewportId = useViewerStore.getState().activeViewportId;
           segmentationService.ensureContourRepresentation(viewportId, segId).then(() => {
             currentActiveTool = toolName;
-            applyBindings(toolGroup, toolName);
+            rebuildToolGroup(toolName);
             console.log('[toolService] Active tool:', toolName);
           });
           return;
@@ -473,11 +458,11 @@ export const toolService = {
 
       // Non-contour seg tool — activate immediately
       currentActiveTool = toolName;
-      applyBindings(toolGroup, toolName);
+      rebuildToolGroup(toolName);
     } else {
       // Non-segmentation tool — activate immediately
       currentActiveTool = toolName;
-      applyBindings(toolGroup, toolName);
+      rebuildToolGroup(toolName);
       // When switching away from seg tools, clear activeSegTool
       useSegmentationStore.getState().setActiveSegTool(null);
     }
