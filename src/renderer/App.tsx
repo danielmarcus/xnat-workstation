@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { initCornerstone } from './lib/cornerstone/init';
 import ViewerPage from './pages/ViewerPage';
+import ExportDropdown from './components/viewer/ExportDropdown';
 import LoginForm from './components/connection/LoginForm';
 import ConnectionStatus from './components/connection/ConnectionStatus';
 import XnatBrowser from './components/connection/XnatBrowser';
@@ -13,7 +14,7 @@ import { matchProtocol, applyProtocol } from './lib/hangingProtocolService';
 import { panelId } from '@shared/types/viewer';
 import { BUILT_IN_PROTOCOLS } from '@shared/types/hangingProtocol';
 import type { XnatScan } from '@shared/types/xnat';
-import { IconFolder, IconOpenFile, IconPin, IconChevronDown, XnatLogo } from './components/icons';
+import { IconOpenFile, IconPin, IconChevronDown, XnatLogo } from './components/icons';
 import { volumeService } from './lib/cornerstone/volumeService';
 import {
   loadPinnedItems,
@@ -344,7 +345,7 @@ async function downloadSegArrayBuffer(
 }
 
 /**
- * App — Root component for XNAT Viewer.
+ * App — Root component for XNAT Workstation.
  *
  * Shows LoginForm when disconnected, viewer when connected.
  *
@@ -368,6 +369,9 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [showBrowser, setShowBrowser] = useState(true);
+  const [browserWidth, setBrowserWidth] = useState(288);
+  const browserWidthRef = useRef(288); // persists width when collapsed
+  const isResizingRef = useRef(false);
 
   // ─── Bookmarks (pinned items & recent sessions) ───────────────
   const [pinnedItems, setPinnedItems] = useState<PinnedItem[]>([]);
@@ -419,9 +423,6 @@ export default function App() {
         setInitError(err instanceof Error ? err.message : String(err));
       });
   }, []);
-
-  /** Count total loaded images across all panels */
-  const totalImages = Object.values(panelImageIds).reduce((sum, ids) => sum + ids.length, 0);
 
   // ─── Bookmarks: migrate old storage on mount ──────────────────
   useEffect(() => {
@@ -484,6 +485,39 @@ export default function App() {
     },
     [showBrowser],
   );
+
+  // ─── Browser panel resize via drag handle ────────────────────
+  const handleResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    isResizingRef.current = true;
+    const startX = e.clientX;
+    const startW = browserWidth;
+
+    function onMouseMove(ev: MouseEvent) {
+      const newWidth = startW + (ev.clientX - startX);
+      if (newWidth < 150) {
+        // Collapse
+        isResizingRef.current = false;
+        browserWidthRef.current = startW; // remember last width for restore
+        setShowBrowser(false);
+        document.removeEventListener('mousemove', onMouseMove);
+        document.removeEventListener('mouseup', onMouseUp);
+        return;
+      }
+      const clamped = Math.min(Math.max(newWidth, 200), 500);
+      setBrowserWidth(clamped);
+      browserWidthRef.current = clamped;
+    }
+
+    function onMouseUp() {
+      isResizingRef.current = false;
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+    }
+
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  }, [browserWidth]);
 
   /** Promote a recent session to a pinned item. */
   const handlePromoteRecent = useCallback(
@@ -1441,261 +1475,252 @@ export default function App() {
 
   return (
     <div
-      className="h-full flex flex-col"
+      className="h-full flex flex-col relative"
       onDrop={handleDrop}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
     >
-      {/* Header bar — always visible */}
-      <div className="bg-zinc-900 border-b border-zinc-800 flex items-center px-3 gap-2 shrink-0 h-10">
-        <XnatLogo className="w-7 h-7 shrink-0" />
+      {/* Full-width toolbar at top, then browser + viewer below */}
+      <ViewerPage
+        panelImageIds={panelImageIds}
+        onApplyProtocol={handleApplyProtocol}
+        onToggleMPR={handleToggleMPR}
+        mprSourceImageIds={mprSourceImageIds}
+        leftSlot={
+          <>
+            <XnatLogo className="w-7 h-7 shrink-0" />
+            <div className="w-px h-5 bg-zinc-700 mx-0.5" />
+            <ConnectionStatus />
+            <div className="w-px h-5 bg-zinc-700 mx-0.5" />
+            {/* Import — icon only */}
+            <label className="flex items-center justify-center p-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white rounded cursor-pointer transition-colors" title="Import">
+              <IconOpenFile className="w-3.5 h-3.5" />
+              <input
+                type="file"
+                multiple
+                accept=".dcm,.DCM"
+                className="hidden"
+                onChange={handleFileInput}
+              />
+            </label>
+            {/* Export — icon only */}
+            <ExportDropdown />
+            {/* Bookmarks dropdown — always visible, greyed out when empty */}
+            {(() => {
+              const hasBookmarks = pinnedItems.length > 0 || recentSessions.length > 0;
+              return (
+                <div ref={bookmarksRef} className="relative">
+                  <button
+                    onClick={() => hasBookmarks && setShowBookmarks((v) => !v)}
+                    className={`flex items-center gap-1 text-xs font-medium px-2 py-1.5 rounded whitespace-nowrap transition-colors ${
+                      !hasBookmarks
+                        ? 'bg-zinc-800 text-zinc-600 cursor-default'
+                        : showBookmarks
+                          ? 'bg-amber-600/20 text-amber-300'
+                          : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200'
+                    }`}
+                    title={hasBookmarks ? 'Pinned & Recent' : 'No pinned or recent items'}
+                  >
+                    <IconPin className="w-3.5 h-3.5" filled={pinnedItems.length > 0} />
+                    <IconChevronDown className="w-3 h-3" />
+                  </button>
 
-        <div className="w-px h-5 bg-zinc-700" />
+                  {showBookmarks && hasBookmarks && (
+                    <div className="absolute top-full left-0 mt-1 w-72 bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl z-50 py-1 max-h-80 overflow-y-auto">
+                      {/* Pinned items section */}
+                      {pinnedItems.length > 0 && (
+                        <>
+                          <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+                            Pinned
+                          </div>
+                          {pinnedItems.map((item) => {
+                            const key =
+                              item.type === 'project' ? `pin-p-${item.projectId}` :
+                              item.type === 'subject' ? `pin-s-${item.subjectId}` :
+                              `pin-x-${item.sessionId}`;
+                            const label =
+                              item.type === 'project' ? item.projectName :
+                              item.type === 'subject' ? `${item.subjectLabel || item.subjectId}` :
+                              `${item.sessionLabel || item.sessionId}`;
+                            const sublabel =
+                              item.type === 'project' ? null :
+                              item.type === 'subject' ? item.projectName :
+                              `${item.subjectLabel || item.subjectId} / ${item.projectName}`;
+                            const icon =
+                              item.type === 'project' ? 'text-blue-400' :
+                              item.type === 'subject' ? 'text-violet-400' :
+                              'text-emerald-400';
+                            const typeLabel =
+                              item.type === 'project' ? 'P' :
+                              item.type === 'subject' ? 'S' : 'E';
 
-        {/* Connection status */}
-        <ConnectionStatus />
+                            return (
+                              <div
+                                key={key}
+                                className="flex items-center gap-2 px-3 py-1.5 hover:bg-zinc-800 cursor-pointer group"
+                                onClick={() => {
+                                  const target: NavigateToTarget = {
+                                    type: item.type,
+                                    projectId: item.projectId,
+                                    projectName: item.projectName,
+                                    ...(item.type !== 'project' && {
+                                      subjectId: item.subjectId,
+                                      subjectLabel: item.subjectLabel,
+                                    }),
+                                    ...(item.type === 'session' && {
+                                      sessionId: item.sessionId,
+                                      sessionLabel: item.sessionLabel,
+                                    }),
+                                  };
+                                  handleBookmarkNavigate(target);
+                                }}
+                              >
+                                <span className={`text-[10px] font-bold ${icon} shrink-0 w-4 text-center`}>
+                                  {typeLabel}
+                                </span>
+                                <div className="flex-1 min-w-0">
+                                  <div className="text-xs text-zinc-200 truncate">{label}</div>
+                                  {sublabel && (
+                                    <div className="text-[10px] text-zinc-500 truncate">{sublabel}</div>
+                                  )}
+                                </div>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleTogglePin(item);
+                                  }}
+                                  className="text-zinc-500 hover:text-red-400 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                                  title="Unpin"
+                                >
+                                  <svg className="w-3 h-3" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                                    <line x1="4" y1="4" x2="12" y2="12" />
+                                    <line x1="12" y1="4" x2="4" y2="12" />
+                                  </svg>
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </>
+                      )}
 
-        <div className="w-px h-5 bg-zinc-700" />
-
-        {/* Browse XNAT toggle */}
-        <button
-          onClick={() => setShowBrowser((v) => !v)}
-          className={`flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded whitespace-nowrap transition-colors ${
-            showBrowser
-              ? 'bg-blue-600 text-white'
-              : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700 hover:text-white'
-          }`}
-        >
-          <IconFolder className="w-3.5 h-3.5" />
-          {showBrowser ? 'Hide Browser' : 'Browse XNAT'}
-        </button>
-
-        {/* Local file picker */}
-        <label className="flex items-center gap-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white text-xs font-medium px-2.5 py-1.5 rounded cursor-pointer whitespace-nowrap transition-colors">
-          <IconOpenFile className="w-3.5 h-3.5" />
-          Open Files
-          <input
-            type="file"
-            multiple
-            accept=".dcm,.DCM"
-            className="hidden"
-            onChange={handleFileInput}
-          />
-        </label>
-
-        {/* Bookmarks dropdown — pinned items & recent sessions */}
-        {(pinnedItems.length > 0 || recentSessions.length > 0) && (
-          <div ref={bookmarksRef} className="relative">
-            <button
-              onClick={() => setShowBookmarks((v) => !v)}
-              className={`flex items-center gap-1 text-xs font-medium px-2 py-1.5 rounded whitespace-nowrap transition-colors ${
-                showBookmarks
-                  ? 'bg-amber-600/20 text-amber-300'
-                  : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200'
-              }`}
-              title="Pinned & Recent"
-            >
-              <IconPin className="w-3.5 h-3.5" filled={pinnedItems.length > 0} />
-              <IconChevronDown className="w-3 h-3" />
-            </button>
-
-            {showBookmarks && (
-              <div className="absolute top-full left-0 mt-1 w-72 bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl z-50 py-1 max-h-80 overflow-y-auto">
-                {/* Pinned items section */}
-                {pinnedItems.length > 0 && (
-                  <>
-                    <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
-                      Pinned
+                      {/* Recent sessions section */}
+                      {recentSessions.length > 0 && (
+                        <>
+                          {pinnedItems.length > 0 && (
+                            <div className="border-t border-zinc-800 my-1" />
+                          )}
+                          <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+                            Recent
+                          </div>
+                          {recentSessions.map((recent) => (
+                            <div
+                              key={`recent-${recent.sessionId}`}
+                              className="flex items-center gap-2 px-3 py-1.5 hover:bg-zinc-800 cursor-pointer group"
+                              onClick={() => {
+                                handleBookmarkNavigate({
+                                  type: 'session',
+                                  projectId: recent.projectId,
+                                  projectName: recent.projectName,
+                                  subjectId: recent.subjectId,
+                                  subjectLabel: recent.subjectLabel,
+                                  sessionId: recent.sessionId,
+                                  sessionLabel: recent.sessionLabel,
+                                });
+                              }}
+                            >
+                              <span className="text-[10px] font-bold text-emerald-400 shrink-0 w-4 text-center">
+                                E
+                              </span>
+                              <div className="flex-1 min-w-0">
+                                <div className="text-xs text-zinc-200 truncate">
+                                  {recent.sessionLabel || recent.sessionId}
+                                </div>
+                                <div className="text-[10px] text-zinc-500 truncate">
+                                  {recent.subjectLabel || recent.subjectId} / {recent.projectName || recent.projectId}
+                                </div>
+                              </div>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handlePromoteRecent(recent);
+                                }}
+                                className="text-zinc-500 hover:text-amber-400 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                                title="Pin this session"
+                              >
+                                <IconPin className="w-3 h-3" />
+                              </button>
+                            </div>
+                          ))}
+                        </>
+                      )}
                     </div>
-                    {pinnedItems.map((item) => {
-                      const key =
-                        item.type === 'project' ? `pin-p-${item.projectId}` :
-                        item.type === 'subject' ? `pin-s-${item.subjectId}` :
-                        `pin-x-${item.sessionId}`;
-                      const label =
-                        item.type === 'project' ? item.projectName :
-                        item.type === 'subject' ? `${item.subjectLabel || item.subjectId}` :
-                        `${item.sessionLabel || item.sessionId}`;
-                      const sublabel =
-                        item.type === 'project' ? null :
-                        item.type === 'subject' ? item.projectName :
-                        `${item.subjectLabel || item.subjectId} / ${item.projectName}`;
-                      const icon =
-                        item.type === 'project' ? 'text-blue-400' :
-                        item.type === 'subject' ? 'text-violet-400' :
-                        'text-emerald-400';
-                      const typeLabel =
-                        item.type === 'project' ? 'P' :
-                        item.type === 'subject' ? 'S' : 'E';
-
-                      return (
-                        <div
-                          key={key}
-                          className="flex items-center gap-2 px-3 py-1.5 hover:bg-zinc-800 cursor-pointer group"
-                          onClick={() => {
-                            const target: NavigateToTarget = {
-                              type: item.type,
-                              projectId: item.projectId,
-                              projectName: item.projectName,
-                              ...(item.type !== 'project' && {
-                                subjectId: item.subjectId,
-                                subjectLabel: item.subjectLabel,
-                              }),
-                              ...(item.type === 'session' && {
-                                sessionId: item.sessionId,
-                                sessionLabel: item.sessionLabel,
-                              }),
-                            };
-                            handleBookmarkNavigate(target);
-                          }}
-                        >
-                          <span className={`text-[10px] font-bold ${icon} shrink-0 w-4 text-center`}>
-                            {typeLabel}
-                          </span>
-                          <div className="flex-1 min-w-0">
-                            <div className="text-xs text-zinc-200 truncate">{label}</div>
-                            {sublabel && (
-                              <div className="text-[10px] text-zinc-500 truncate">{sublabel}</div>
-                            )}
-                          </div>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleTogglePin(item);
-                            }}
-                            className="text-zinc-500 hover:text-red-400 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
-                            title="Unpin"
-                          >
-                            <svg className="w-3 h-3" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-                              <line x1="4" y1="4" x2="12" y2="12" />
-                              <line x1="12" y1="4" x2="4" y2="12" />
-                            </svg>
-                          </button>
-                        </div>
-                      );
-                    })}
-                  </>
-                )}
-
-                {/* Recent sessions section */}
-                {recentSessions.length > 0 && (
-                  <>
-                    {pinnedItems.length > 0 && (
-                      <div className="border-t border-zinc-800 my-1" />
-                    )}
-                    <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
-                      Recent
-                    </div>
-                    {recentSessions.map((recent) => (
-                      <div
-                        key={`recent-${recent.sessionId}`}
-                        className="flex items-center gap-2 px-3 py-1.5 hover:bg-zinc-800 cursor-pointer group"
-                        onClick={() => {
-                          handleBookmarkNavigate({
-                            type: 'session',
-                            projectId: recent.projectId,
-                            projectName: recent.projectName,
-                            subjectId: recent.subjectId,
-                            subjectLabel: recent.subjectLabel,
-                            sessionId: recent.sessionId,
-                            sessionLabel: recent.sessionLabel,
-                          });
-                        }}
-                      >
-                        <span className="text-[10px] font-bold text-emerald-400 shrink-0 w-4 text-center">
-                          E
-                        </span>
-                        <div className="flex-1 min-w-0">
-                          <div className="text-xs text-zinc-200 truncate">
-                            {recent.sessionLabel || recent.sessionId}
-                          </div>
-                          <div className="text-[10px] text-zinc-500 truncate">
-                            {recent.subjectLabel || recent.subjectId} / {recent.projectName || recent.projectId}
-                          </div>
-                        </div>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handlePromoteRecent(recent);
-                          }}
-                          className="text-zinc-500 hover:text-amber-400 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
-                          title="Pin this session"
-                        >
-                          <IconPin className="w-3 h-3" />
-                        </button>
-                      </div>
-                    ))}
-                  </>
-                )}
-              </div>
+                  )}
+                </div>
+              );
+            })()}
+            {/* Status indicators */}
+            {loading && (
+              <span className="text-xs text-blue-400 animate-pulse flex items-center gap-1.5 ml-1">
+                <svg className="animate-spin h-3 w-3" viewBox="0 0 24 24" fill="none">
+                  <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" className="opacity-25" />
+                  <path d="M4 12a8 8 0 018-8" stroke="currentColor" strokeWidth="3" strokeLinecap="round" className="opacity-75" />
+                </svg>
+              </span>
             )}
-          </div>
-        )}
-
-        {/* Spacer pushes status info to the right */}
-        <div className="flex-1" />
-
-        {/* Loading / image count / error indicators */}
-        {loading && (
-          <span className="text-xs text-blue-400 animate-pulse flex items-center gap-1.5">
-            <svg className="animate-spin h-3 w-3" viewBox="0 0 24 24" fill="none">
-              <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" className="opacity-25" />
-              <path d="M4 12a8 8 0 018-8" stroke="currentColor" strokeWidth="3" strokeLinecap="round" className="opacity-75" />
-            </svg>
-            Loading...
-          </span>
-        )}
-        {totalImages > 0 && !loading && (
-          <span className="text-[11px] text-zinc-500 tabular-nums">
-            {totalImages} image{totalImages !== 1 ? 's' : ''}
-          </span>
-        )}
-        {loadError && (
-          <span className="text-xs text-red-400 truncate max-w-xs" title={loadError}>
-            {loadError}
-          </span>
-        )}
-
-        {/* Active panel indicator */}
-        <div className="w-px h-5 bg-zinc-700" />
-        <span className="text-[11px] text-zinc-500 tabular-nums">
-          {activeViewportId.replace('panel_', 'Panel ')}
-        </span>
-      </div>
-
-      {/* Main content: optional browser sidebar + viewer */}
-      <div className="flex-1 min-h-0 flex relative">
-        {/* XNAT Browser sidebar */}
-        {showBrowser && (
-          <div className="w-72 shrink-0 border-r border-zinc-800 bg-zinc-950 overflow-hidden flex flex-col">
-            <XnatBrowser
-              onLoadScan={loadFromXnatScan}
-              onLoadSession={loadSessionFromXnat}
-              navigateTo={navigateTo}
-              onNavigateComplete={() => setNavigateTo(null)}
-              pinnedItems={pinnedItems}
-              onTogglePin={handleTogglePin}
-            />
-          </div>
-        )}
-
-        {/* Viewer area — always show ViewerPage (grid handles empty panels) */}
-        <div className="flex-1 min-w-0 relative">
-          <ViewerPage
-            panelImageIds={panelImageIds}
-            onApplyProtocol={handleApplyProtocol}
-            onToggleMPR={handleToggleMPR}
-            mprSourceImageIds={mprSourceImageIds}
-          />
-
-          {/* Drag overlay */}
-          {dragOver && (
-            <div className="absolute inset-0 bg-blue-900/50 border-2 border-dashed border-blue-400 flex items-center justify-center z-50">
-              <p className="text-blue-200 text-xl font-semibold">Drop DICOM files here</p>
+            {loadError && (
+              <span className="text-xs text-red-400 truncate max-w-[120px] ml-1" title={loadError}>
+                Error
+              </span>
+            )}
+          </>
+        }
+        browserSlot={
+          showBrowser ? (
+            <>
+              <div
+                className="shrink-0 border-r border-zinc-800 bg-zinc-950 overflow-hidden flex flex-col"
+                style={{ width: browserWidth }}
+              >
+                <XnatBrowser
+                  onLoadScan={loadFromXnatScan}
+                  onLoadSession={loadSessionFromXnat}
+                  navigateTo={navigateTo}
+                  onNavigateComplete={() => setNavigateTo(null)}
+                  pinnedItems={pinnedItems}
+                  onTogglePin={handleTogglePin}
+                />
+              </div>
+              {/* Drag handle */}
+              <div
+                className="w-1 shrink-0 cursor-col-resize hover:bg-blue-500/40 active:bg-blue-500/60 transition-colors"
+                onMouseDown={handleResizeStart}
+              />
+            </>
+          ) : (
+            /* Collapsed strip — click to reopen browser */
+            <div
+              className="w-3 shrink-0 bg-zinc-900 hover:bg-zinc-700 cursor-pointer transition-colors border-r border-zinc-800 flex items-center justify-center group"
+              onClick={() => {
+                setBrowserWidth(browserWidthRef.current);
+                setShowBrowser(true);
+              }}
+              title="Open browser"
+            >
+              <svg className="w-2.5 h-5 text-zinc-600 group-hover:text-zinc-300 transition-colors" viewBox="0 0 10 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                <line x1="3" y1="6" x2="7" y2="10" />
+                <line x1="7" y1="10" x2="3" y2="14" />
+              </svg>
             </div>
-          )}
+          )
+        }
+      />
+
+      {/* Drag overlay */}
+      {dragOver && (
+        <div className="absolute inset-0 bg-blue-900/50 border-2 border-dashed border-blue-400 flex items-center justify-center z-50">
+          <p className="text-blue-200 text-xl font-semibold">Drop DICOM files here</p>
         </div>
-      </div>
+      )}
     </div>
   );
 }

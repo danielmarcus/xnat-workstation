@@ -2,6 +2,7 @@
  * Toolbar — horizontal toolbar for the viewer with icon+label tool buttons,
  * W/L presets, action buttons, cine controls, layout picker, and protocol picker.
  */
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useViewerStore } from '../../stores/viewerStore';
 import { useAnnotationStore } from '../../stores/annotationStore';
 import { useSegmentationStore } from '../../stores/segmentationStore';
@@ -10,7 +11,6 @@ import type { LayoutType } from '@shared/types/viewer';
 import { BUILT_IN_PROTOCOLS } from '@shared/types/hangingProtocol';
 import AnnotationToolDropdown from './AnnotationToolDropdown';
 import SegmentationToolDropdown from './SegmentationToolDropdown';
-import ExportDropdown from './ExportDropdown';
 import {
   IconWindowLevel,
   IconPan,
@@ -27,6 +27,7 @@ import {
   IconChevronDown,
   IconMPR,
   IconSegment,
+  IconProtocol,
   IconUndo,
   IconRedo,
 } from '../icons';
@@ -227,15 +228,174 @@ function DicomTagsToggle({
   );
 }
 
+/** Custom W/L presets dropdown — matches the styling of other toolbar dropdowns */
+function WLPresetsDropdown() {
+  const [open, setOpen] = useState(false);
+  const [dropdownPos, setDropdownPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const applyWLPreset = useViewerStore((s) => s.applyWLPreset);
+  const setActiveTool = useViewerStore((s) => s.setActiveTool);
+
+  useEffect(() => {
+    if (!open) return;
+    function handleClickOutside(e: MouseEvent) {
+      if (
+        buttonRef.current?.contains(e.target as Node) ||
+        dropdownRef.current?.contains(e.target as Node)
+      ) return;
+      setOpen(false);
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [open]);
+
+  const handleToggle = useCallback(() => {
+    if (!open && buttonRef.current) {
+      const rect = buttonRef.current.getBoundingClientRect();
+      const dropdownWidth = 200;
+      const maxLeft = window.innerWidth - dropdownWidth - 8;
+      setDropdownPos({ top: rect.bottom + 4, left: Math.min(rect.left, maxLeft) });
+    }
+    setOpen((v) => !v);
+  }, [open]);
+
+  return (
+    <div className="relative">
+      <button
+        ref={buttonRef}
+        onClick={handleToggle}
+        className={`flex items-center gap-1 text-xs font-medium px-2 py-1.5 rounded transition-colors ${
+          open
+            ? 'bg-blue-600 text-white'
+            : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700 hover:text-white'
+        }`}
+        title="Window/Level presets"
+      >
+        <IconWindowLevel className="w-3.5 h-3.5" />
+        <span>Presets</span>
+        <IconChevronDown className="w-3 h-3" />
+      </button>
+      {open && (
+        <div
+          ref={dropdownRef}
+          className="fixed z-50 bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl p-1.5 min-w-[200px]"
+          style={{ top: dropdownPos.top, left: dropdownPos.left }}
+        >
+          {WL_PRESETS.map((preset) => (
+            <button
+              key={preset.name}
+              onClick={() => {
+                applyWLPreset(preset);
+                setActiveTool(ToolName.WindowLevel);
+                setOpen(false);
+              }}
+              className="w-full flex items-center justify-between px-2.5 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 hover:text-white rounded transition-colors"
+            >
+              <span>{preset.name}</span>
+              <span className="text-zinc-500 text-[10px] tabular-nums">
+                W:{preset.window} L:{preset.level}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Custom protocol picker dropdown — matches the styling of other toolbar dropdowns */
+function ProtocolPickerDropdown({
+  onApplyProtocol,
+  currentProtocolId,
+}: {
+  onApplyProtocol: (protocolId: string) => void;
+  currentProtocolId: string | null;
+}) {
+  const [open, setOpen] = useState(false);
+  const [dropdownPos, setDropdownPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function handleClickOutside(e: MouseEvent) {
+      if (
+        buttonRef.current?.contains(e.target as Node) ||
+        dropdownRef.current?.contains(e.target as Node)
+      ) return;
+      setOpen(false);
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [open]);
+
+  const handleToggle = useCallback(() => {
+    if (!open && buttonRef.current) {
+      const rect = buttonRef.current.getBoundingClientRect();
+      const dropdownWidth = 220;
+      const maxLeft = window.innerWidth - dropdownWidth - 8;
+      setDropdownPos({ top: rect.bottom + 4, left: Math.min(rect.left, maxLeft) });
+    }
+    setOpen((v) => !v);
+  }, [open]);
+
+  return (
+    <div className="relative">
+      <button
+        ref={buttonRef}
+        onClick={handleToggle}
+        className={`flex items-center gap-1 text-xs font-medium px-2 py-1.5 rounded transition-colors ${
+          open
+            ? 'bg-blue-600 text-white'
+            : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700 hover:text-white'
+        }`}
+        title="Hanging protocol"
+      >
+        <IconProtocol className="w-3.5 h-3.5" />
+        <span>Protocol</span>
+        <IconChevronDown className="w-3 h-3" />
+      </button>
+      {open && (
+        <div
+          ref={dropdownRef}
+          className="fixed z-50 bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl p-1.5 min-w-[220px]"
+          style={{ top: dropdownPos.top, left: dropdownPos.left }}
+        >
+          {BUILT_IN_PROTOCOLS.map((p) => (
+            <button
+              key={p.id}
+              onClick={() => {
+                onApplyProtocol(p.id);
+                setOpen(false);
+              }}
+              className={`w-full flex items-center justify-between px-2.5 py-1.5 text-xs rounded transition-colors ${
+                currentProtocolId === p.id
+                  ? 'bg-blue-600/20 text-blue-300'
+                  : 'text-zinc-300 hover:bg-zinc-800 hover:text-white'
+              }`}
+            >
+              <span>{p.name}</span>
+              <span className="text-zinc-500 text-[10px]">{p.layout}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface ToolbarProps {
   showDicomPanel?: boolean;
   onToggleDicomPanel?: () => void;
   onApplyProtocol?: (protocolId: string) => void;
   onToggleMPR?: () => void;
   hasImages?: boolean;
+  /** Optional content rendered at the far left of the toolbar (e.g. XNAT logo, connection status) */
+  leftSlot?: React.ReactNode;
 }
 
-export default function Toolbar({ showDicomPanel = false, onToggleDicomPanel, onApplyProtocol, onToggleMPR, hasImages = false }: ToolbarProps) {
+export default function Toolbar({ showDicomPanel = false, onToggleDicomPanel, onApplyProtocol, onToggleMPR, hasImages = false, leftSlot }: ToolbarProps) {
   const activeTool = useViewerStore((s) => s.activeTool);
   const layout = useViewerStore((s) => s.layout);
   const mprActive = useViewerStore((s) => s.mprActive);
@@ -246,7 +406,6 @@ export default function Toolbar({ showDicomPanel = false, onToggleDicomPanel, on
   const hasSessionData = useViewerStore((s) => s.sessionScans !== null);
   const setActiveTool = useViewerStore((s) => s.setActiveTool);
   const setLayout = useViewerStore((s) => s.setLayout);
-  const applyWLPreset = useViewerStore((s) => s.applyWLPreset);
   const resetViewport = useViewerStore((s) => s.resetViewport);
   const toggleInvert = useViewerStore((s) => s.toggleInvert);
   const rotate90 = useViewerStore((s) => s.rotate90);
@@ -258,7 +417,15 @@ export default function Toolbar({ showDicomPanel = false, onToggleDicomPanel, on
   const canRedo = useSegmentationStore((s) => s.canRedo);
 
   return (
-    <div className="h-10 bg-zinc-900 border-b border-zinc-800 flex items-center px-2 gap-1 shrink-0 overflow-x-auto">
+    <div className="h-10 bg-zinc-900 border-b border-zinc-800 flex items-center px-2 gap-1 shrink-0">
+      {/* ─── Left Slot (XNAT logo, connection, etc.) ─── */}
+      {leftSlot && (
+        <>
+          {leftSlot}
+          <Separator />
+        </>
+      )}
+
       {/* ─── Layout Picker ──────────────────────────────── */}
       <div className={`flex items-center gap-0.5 ${mprActive ? 'opacity-40 pointer-events-none' : ''}`}>
         {LAYOUTS.map((l) => (
@@ -275,24 +442,10 @@ export default function Toolbar({ showDicomPanel = false, onToggleDicomPanel, on
       {hasSessionData && onApplyProtocol && !mprActive && (
         <>
           <Separator />
-          <div className="relative">
-            <select
-              className="appearance-none bg-zinc-800 text-zinc-300 text-xs rounded px-2 py-1.5 pr-6 border border-zinc-700 cursor-pointer hover:bg-zinc-700 max-w-[160px] focus:outline-none focus:ring-1 focus:ring-blue-500"
-              value={currentProtocol?.id ?? ''}
-              onChange={(e) => onApplyProtocol(e.target.value)}
-              title="Hanging protocol"
-            >
-              <option value="" disabled>
-                Protocol
-              </option>
-              {BUILT_IN_PROTOCOLS.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-            <IconChevronDown className="w-3 h-3 absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none text-zinc-500" />
-          </div>
+          <ProtocolPickerDropdown
+            onApplyProtocol={onApplyProtocol}
+            currentProtocolId={currentProtocol?.id ?? null}
+          />
         </>
       )}
 
@@ -357,30 +510,7 @@ export default function Toolbar({ showDicomPanel = false, onToggleDicomPanel, on
       <Separator />
 
       {/* ─── W/L Presets ──────────────────────────────── */}
-      <div className="relative">
-        <select
-          className="appearance-none bg-zinc-800 text-zinc-300 text-xs rounded px-2 py-1.5 pr-6 w-[80px] border border-zinc-700 cursor-pointer hover:bg-zinc-700 focus:outline-none focus:ring-1 focus:ring-blue-500"
-          value=""
-          onChange={(e) => {
-            const preset = WL_PRESETS.find((p) => p.name === e.target.value);
-            if (preset) {
-              applyWLPreset(preset);
-              setActiveTool(ToolName.WindowLevel);
-            }
-          }}
-          title="Window/Level presets"
-        >
-          <option value="" disabled>
-            Presets
-          </option>
-          {WL_PRESETS.map((preset) => (
-            <option key={preset.name} value={preset.name}>
-              {preset.name} (W:{preset.window} L:{preset.level})
-            </option>
-          ))}
-        </select>
-        <IconChevronDown className="w-3 h-3 absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none text-zinc-500" />
-      </div>
+      <WLPresetsDropdown />
 
       <Separator />
 
@@ -410,7 +540,6 @@ export default function Toolbar({ showDicomPanel = false, onToggleDicomPanel, on
         onClick={flipV}
         title="Flip vertical"
       />
-      <ExportDropdown />
 
       {/* ─── Undo / Redo ──────────────────────────────── */}
       <Separator />

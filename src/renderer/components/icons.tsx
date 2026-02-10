@@ -1,5 +1,5 @@
 /**
- * Shared SVG icon components for the XNAT Viewer UI.
+ * Shared SVG icon components for the XNAT Workstation UI.
  *
  * All icons are 16×16 viewBox with consistent stroke-based styling.
  * strokeWidth defaults to 1.5 for a clean, modern look.
@@ -161,13 +161,24 @@ export function IconFolder(props: IconProps) {
   );
 }
 
-/** Open file — folder with arrow */
+/** Import file — folder with upward arrow (into folder) */
 export function IconOpenFile(props: IconProps) {
   return (
     <svg {...defaults(props)}>
       <path d="M2 4.5 V12 A1 1 0 0 0 3 13 H13 A1 1 0 0 0 14 12 V6.5 A1 1 0 0 0 13 5.5 H8.5 L7 4 H3 A1 1 0 0 0 2 4.5 Z" />
       <line x1="8" y1="7.5" x2="8" y2="11" />
       <polyline points="6,9 8,7 10,9" />
+    </svg>
+  );
+}
+
+/** Export file — folder with downward arrow (out of folder) */
+export function IconExportFile(props: IconProps) {
+  return (
+    <svg {...defaults(props)}>
+      <path d="M2 4.5 V12 A1 1 0 0 0 3 13 H13 A1 1 0 0 0 14 12 V6.5 A1 1 0 0 0 13 5.5 H8.5 L7 4 H3 A1 1 0 0 0 2 4.5 Z" />
+      <line x1="8" y1="7" x2="8" y2="10.5" />
+      <polyline points="6,9 8,11 10,9" />
     </svg>
   );
 }

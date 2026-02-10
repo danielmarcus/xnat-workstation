@@ -308,6 +308,33 @@ export class XnatClient {
   }
 
   /**
+   * Get all sessions (experiments) for a project with subject and modality info.
+   * Used to build per-subject modality breakdowns without N+1 queries.
+   */
+  async getProjectSessions(projectId: string): Promise<Array<{
+    subjectId: string; modality: string;
+  }>> {
+    const data = await this.jsonRequest<{ ResultSet: { Result: any[] } }>(
+      `/data/projects/${encodeURIComponent(projectId)}/experiments?format=json`,
+    );
+    const results = data?.ResultSet?.Result ?? [];
+    return results
+      .filter((r: any) => r.xsiType && /SessionData/i.test(r.xsiType))
+      .map((r: any) => {
+        let modality = r.modality;
+        if (!modality && r.xsiType) {
+          const match = r.xsiType.match(/xnat:(\w+)SessionData/i);
+          if (match) modality = match[1].toUpperCase();
+        }
+        return {
+          subjectId: r.subject_ID || r.xnat_subjectdata_subject_id || '',
+          modality: modality || '',
+        };
+      })
+      .filter((r: { subjectId: string; modality: string }) => r.subjectId && r.modality);
+  }
+
+  /**
    * Get sessions (experiments) for a subject in a project.
    */
   async getSessions(projectId: string, subjectId: string): Promise<Array<{

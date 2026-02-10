@@ -24,9 +24,13 @@ interface ViewerPageProps {
   onApplyProtocol?: (protocolId: string) => void;
   onToggleMPR?: () => void;
   mprSourceImageIds?: string[];
+  /** Content rendered at the far left of the toolbar (XNAT logo, connection, etc.) */
+  leftSlot?: React.ReactNode;
+  /** Browser sidebar rendered below toolbar, left of viewport grid */
+  browserSlot?: React.ReactNode;
 }
 
-export default function ViewerPage({ panelImageIds, onApplyProtocol, onToggleMPR, mprSourceImageIds }: ViewerPageProps) {
+export default function ViewerPage({ panelImageIds, onApplyProtocol, onToggleMPR, mprSourceImageIds, leftSlot, browserSlot }: ViewerPageProps) {
   const showAnnotationPanel = useAnnotationStore((s) => s.showPanel);
   const showSegPanel = useSegmentationStore((s) => s.showPanel);
   const [showDicomPanel, setShowDicomPanel] = useState(false);
@@ -65,25 +69,30 @@ export default function ViewerPage({ panelImageIds, onApplyProtocol, onToggleMPR
         onApplyProtocol={onApplyProtocol}
         onToggleMPR={onToggleMPR}
         hasImages={hasImages}
+        leftSlot={leftSlot}
       />
       <div className="flex-1 min-h-0 flex relative">
-        <div className="flex-1 min-w-0 relative">
-          {mprActive && mprVolumeId ? (
-            <MPRViewportGrid
-              volumeId={mprVolumeId}
-              sourceImageIds={mprSourceImageIds ?? []}
+        {/* Optional browser sidebar (rendered by App) */}
+        {browserSlot}
+        <div className="flex-1 min-w-0 relative flex">
+          <div className="flex-1 min-w-0 relative">
+            {mprActive && mprVolumeId ? (
+              <MPRViewportGrid
+                volumeId={mprVolumeId}
+                sourceImageIds={mprSourceImageIds ?? []}
+              />
+            ) : (
+              <ViewportGrid panelImageIds={panelImageIds} />
+            )}
+          </div>
+          {!mprActive && showAnnotationPanel && <AnnotationListPanel />}
+          {!mprActive && showSegPanel && (
+            <SegmentationPanel
+              sourceImageIds={panelImageIds[activeViewportId] ?? []}
             />
-          ) : (
-            <ViewportGrid panelImageIds={panelImageIds} />
           )}
+          {!mprActive && showDicomPanel && <DicomHeaderPanel onClose={closeDicomPanel} />}
         </div>
-        {!mprActive && showAnnotationPanel && <AnnotationListPanel />}
-        {!mprActive && showSegPanel && (
-          <SegmentationPanel
-            sourceImageIds={panelImageIds[activeViewportId] ?? []}
-          />
-        )}
-        {!mprActive && showDicomPanel && <DicomHeaderPanel onClose={closeDicomPanel} />}
       </div>
     </div>
   );

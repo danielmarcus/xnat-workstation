@@ -1,5 +1,5 @@
 /**
- * Patch the Electron binary's Info.plist so macOS shows "XNAT Viewer"
+ * Patch the Electron binary's Info.plist so macOS shows "XNAT"
  * in the menu bar and dock during development. This is only needed in
  * dev mode — electron-builder writes the correct name when packaging.
  *
@@ -9,7 +9,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const APP_NAME = 'XNAT Viewer';
+const APP_NAME = 'XNAT';
 
 const plistPath = path.join(
   __dirname, '..', 'node_modules', 'electron', 'dist',
@@ -25,17 +25,19 @@ let plist = fs.readFileSync(plistPath, 'utf8');
 let changed = false;
 
 // Patch CFBundleName
-const nameRe = /(<key>CFBundleName<\/key>\s*<string>)[^<]*(<\/string>)/;
-if (nameRe.test(plist) && !plist.match(nameRe)[0].includes(APP_NAME)) {
-  plist = plist.replace(nameRe, `$1${APP_NAME}$2`);
+const nameRe = /(<key>CFBundleName<\/key>\s*<string>)([^<]*)(<\/string>)/;
+const nameMatch = plist.match(nameRe);
+if (nameMatch && nameMatch[2] !== APP_NAME) {
+  plist = plist.replace(nameRe, `$1${APP_NAME}$3`);
   changed = true;
 }
 
 // Patch CFBundleDisplayName (may not exist — add it after CFBundleName if missing)
-const displayNameRe = /(<key>CFBundleDisplayName<\/key>\s*<string>)[^<]*(<\/string>)/;
-if (displayNameRe.test(plist)) {
-  if (!plist.match(displayNameRe)[0].includes(APP_NAME)) {
-    plist = plist.replace(displayNameRe, `$1${APP_NAME}$2`);
+const displayNameRe = /(<key>CFBundleDisplayName<\/key>\s*<string>)([^<]*)(<\/string>)/;
+const displayMatch = plist.match(displayNameRe);
+if (displayMatch) {
+  if (displayMatch[2] !== APP_NAME) {
+    plist = plist.replace(displayNameRe, `$1${APP_NAME}$3`);
     changed = true;
   }
 } else {
