@@ -510,6 +510,17 @@ export function XnatLogo({ className, size }: IconProps) {
   );
 }
 
+/** Pin — pushpin icon (filled or outline) */
+export function IconPin(props: IconProps & { filled?: boolean }) {
+  const p = defaults(props);
+  return (
+    <svg {...p} fill={props.filled ? 'currentColor' : 'none'}>
+      <path d="M9.5 2L13 5.5 9.5 9l-1-1-3 3.5L2 14l2.5-3.5L8 7.5l-1-1z" />
+      <line x1="10" y1="6" x2="13" y2="3" />
+    </svg>
+  );
+}
+
 /** Upload — arrow up into cloud */
 export function IconUpload(props: IconProps) {
   return (

@@ -20,6 +20,7 @@ import { useSegmentationStore } from '../../stores/segmentationStore';
 import { useViewerStore } from '../../stores/viewerStore';
 import { useConnectionStore } from '../../stores/connectionStore';
 import { segmentationService } from '../../lib/cornerstone/segmentationService';
+import { rtStructService } from '../../lib/cornerstone/rtStructService';
 import { ToolName, LABELMAP_SEG_TOOLS } from '@shared/types/viewer';
 import {
   IconPlus,
@@ -251,6 +252,57 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
     }
   }, [xnatContext]);
 
+  const handleSaveRtStructLocal = useCallback(async (segmentationId: string) => {
+    setSaveMenuOpen(null);
+    setSaving(true);
+    try {
+      const base64 = await rtStructService.exportToRtStruct(segmentationId);
+      const result = await window.electronAPI.export.saveDicomRtStruct(base64, 'rtstruct.dcm');
+      if (result.ok && result.path) {
+        setToast({ message: `Saved RTSTRUCT to ${result.path.split('/').pop()}`, type: 'success' });
+      } else if (result.error) {
+        setToast({ message: `Save failed: ${result.error}`, type: 'error' });
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'RTSTRUCT export failed';
+      setToast({ message: msg, type: 'error' });
+      console.error('[SegmentationPanel] saveRtStructLocal error:', err);
+    } finally {
+      setSaving(false);
+    }
+  }, []);
+
+  const handleUploadRtStructXnat = useCallback(async (segmentationId: string) => {
+    setSaveMenuOpen(null);
+    if (!xnatContext) {
+      setToast({ message: 'No XNAT session context — load images from XNAT first', type: 'error' });
+      return;
+    }
+    setSaving(true);
+    try {
+      const base64 = await rtStructService.exportToRtStruct(segmentationId);
+      const result = await window.electronAPI.xnat.uploadDicomRtStruct(
+        xnatContext.projectId,
+        xnatContext.subjectId,
+        xnatContext.sessionId,
+        xnatContext.sessionLabel,
+        xnatContext.scanId,
+        base64,
+      );
+      if (result.ok) {
+        setToast({ message: 'Uploaded RTSTRUCT to XNAT successfully', type: 'success' });
+      } else {
+        setToast({ message: `Upload failed: ${result.error}`, type: 'error' });
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'RTSTRUCT upload failed';
+      setToast({ message: msg, type: 'error' });
+      console.error('[SegmentationPanel] uploadRtStructXnat error:', err);
+    } finally {
+      setSaving(false);
+    }
+  }, [xnatContext]);
+
   const isXnatConnected = connectionStatus === 'connected';
 
   return (
@@ -345,7 +397,35 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
                             className="w-full text-left px-3 py-1.5 text-zinc-300 hover:bg-zinc-800 transition-colors flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
                           >
                             <IconUpload className="w-3.5 h-3.5 text-zinc-400" />
-                            Upload to XNAT
+                            Upload SEG to XNAT
+                            {(!isXnatConnected || !xnatContext) && (
+                              <span className="text-[9px] text-zinc-600 ml-auto">
+                                {!isXnatConnected ? 'Not connected' : 'No session'}
+                              </span>
+                            )}
+                          </button>
+                          <div className="border-t border-zinc-700 my-1" />
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleSaveRtStructLocal(seg.segmentationId);
+                            }}
+                            disabled={saving}
+                            className="w-full text-left px-3 py-1.5 text-zinc-300 hover:bg-zinc-800 transition-colors flex items-center gap-2 disabled:opacity-40"
+                          >
+                            <IconSave className="w-3.5 h-3.5 text-green-400" />
+                            Save DICOM RTSTRUCT to file...
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleUploadRtStructXnat(seg.segmentationId);
+                            }}
+                            disabled={saving || !isXnatConnected || !xnatContext}
+                            className="w-full text-left px-3 py-1.5 text-zinc-300 hover:bg-zinc-800 transition-colors flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
+                          >
+                            <IconUpload className="w-3.5 h-3.5 text-green-400" />
+                            Upload RTSTRUCT to XNAT
                             {(!isXnatConnected || !xnatContext) && (
                               <span className="text-[9px] text-zinc-600 ml-auto">
                                 {!isXnatConnected ? 'Not connected' : 'No session'}

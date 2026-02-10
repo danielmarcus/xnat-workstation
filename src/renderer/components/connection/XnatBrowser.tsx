@@ -14,18 +14,32 @@ import type {
   XnatScan,
 } from '@shared/types/xnat';
 import { useViewerStore } from '../../stores/viewerStore';
+import { useConnectionStore } from '../../stores/connectionStore';
+import { IconPin } from '../icons';
+import type { PinnedItem, NavigateToTarget } from '../../lib/pinnedItems';
+import { isPinned } from '../../lib/pinnedItems';
+
+// ─── Component Props ──────────────────────────────────────────────
 
 interface XnatBrowserProps {
   onLoadScan: (sessionId: string, scanId: string, scan: XnatScan, context: {
     projectId: string;
     subjectId: string;
     sessionLabel: string;
+    projectName?: string;
+    subjectLabel?: string;
   }) => void;
   onLoadSession?: (sessionId: string, scans: XnatScan[], context: {
     projectId: string;
     subjectId: string;
     sessionLabel: string;
+    projectName?: string;
+    subjectLabel?: string;
   }) => void;
+  navigateTo?: NavigateToTarget | null;
+  onNavigateComplete?: () => void;
+  pinnedItems?: PinnedItem[];
+  onTogglePin?: (item: PinnedItem) => void;
 }
 
 type Level = 'projects' | 'subjects' | 'sessions' | 'scans';
@@ -98,6 +112,25 @@ function ClearIcon() {
   );
 }
 
+function RefreshIcon({ spinning }: { spinning?: boolean }) {
+  return (
+    <svg
+      className={`w-3.5 h-3.5 ${spinning ? 'animate-spin' : ''}`}
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M2.5 8a5.5 5.5 0 0 1 9.3-4" />
+      <polyline points="12 2 12 5 9 5" />
+      <path d="M13.5 8a5.5 5.5 0 0 1-9.3 4" />
+      <polyline points="4 14 4 11 7 11" />
+    </svg>
+  );
+}
+
 // ─── Loading Spinner ──────────────────────────────────────────────
 
 function Spinner() {
@@ -113,7 +146,14 @@ function Spinner() {
 
 // ─── Component ────────────────────────────────────────────────────
 
-export default function XnatBrowser({ onLoadScan, onLoadSession }: XnatBrowserProps) {
+export default function XnatBrowser({
+  onLoadScan,
+  onLoadSession,
+  navigateTo,
+  onNavigateComplete,
+  pinnedItems: pinnedItemsProp,
+  onTogglePin,
+}: XnatBrowserProps) {
   const [level, setLevel] = useState<Level>('projects');
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
@@ -129,6 +169,66 @@ export default function XnatBrowser({ onLoadScan, onLoadSession }: XnatBrowserPr
   const [selectedProject, setSelectedProject] = useState<XnatProject | null>(null);
   const [selectedSubject, setSelectedSubject] = useState<XnatSubject | null>(null);
   const [selectedSession, setSelectedSession] = useState<XnatSession | null>(null);
+
+  const connection = useConnectionStore((s) => s.connection);
+  const pins = pinnedItemsProp ?? [];
+
+  // ─── Navigate-to Handler ───────────────────────────────────────
+  useEffect(() => {
+    if (!navigateTo) return;
+
+    async function doNavigate(target: NavigateToTarget) {
+      setLoading(true);
+      try {
+        if (target.type === 'project') {
+          const project: XnatProject = { id: target.projectId, name: target.projectName };
+          setSelectedProject(project);
+          setSelectedSubject(null);
+          setSelectedSession(null);
+          setLevel('subjects');
+          const data = await window.electronAPI.xnat.getSubjects(target.projectId);
+          setSubjects(data);
+        } else if (target.type === 'subject' && target.subjectId != null) {
+          const project: XnatProject = { id: target.projectId, name: target.projectName };
+          const subject: XnatSubject = { id: target.subjectId, label: target.subjectLabel ?? '', projectId: target.projectId };
+          setSelectedProject(project);
+          setSelectedSubject(subject);
+          setSelectedSession(null);
+          setLevel('sessions');
+          const data = await window.electronAPI.xnat.getSessions(target.projectId, target.subjectId);
+          setSessions(data);
+        } else if (target.type === 'session' && target.subjectId != null && target.sessionId != null) {
+          const project: XnatProject = { id: target.projectId, name: target.projectName };
+          const subject: XnatSubject = { id: target.subjectId, label: target.subjectLabel ?? '', projectId: target.projectId };
+          const session: XnatSession = { id: target.sessionId, label: target.sessionLabel ?? '', projectId: target.projectId, subjectId: target.subjectId };
+          setSelectedProject(project);
+          setSelectedSubject(subject);
+          setSelectedSession(session);
+          setLevel('scans');
+          const data = await window.electronAPI.xnat.getScans(target.sessionId);
+          setScans(data);
+          // Auto-load session
+          if (onLoadSession && data.length > 0) {
+            onLoadSession(target.sessionId, data, {
+              projectId: target.projectId,
+              subjectId: target.subjectId!,
+              sessionLabel: target.sessionLabel!,
+              projectName: target.projectName,
+              subjectLabel: target.subjectLabel,
+            });
+          }
+        }
+      } catch (err) {
+        console.error('[XnatBrowser] Navigation failed:', err);
+      } finally {
+        setLoading(false);
+        onNavigateComplete?.();
+      }
+    }
+
+    doNavigate(navigateTo);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [navigateTo]);
 
   // Clear search when level changes
   useEffect(() => {
@@ -252,6 +352,8 @@ export default function XnatBrowser({ onLoadScan, onLoadSession }: XnatBrowserPr
         projectId: selectedProject.id,
         subjectId: selectedSubject.id,
         sessionLabel: selectedSession.label,
+        projectName: selectedProject.name,
+        subjectLabel: selectedSubject.label,
       });
     },
     [selectedSession, selectedProject, selectedSubject, onLoadScan],
@@ -274,6 +376,60 @@ export default function XnatBrowser({ onLoadScan, onLoadSession }: XnatBrowserPr
   function goToSessions() {
     setLevel('sessions');
     setSelectedSession(null);
+  }
+
+  // Refresh the current level's data
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    try {
+      if (level === 'projects') {
+        const data = await window.electronAPI.xnat.getProjects();
+        setProjects(data);
+      } else if (level === 'subjects' && selectedProject) {
+        const data = await window.electronAPI.xnat.getSubjects(selectedProject.id);
+        setSubjects(data);
+      } else if (level === 'sessions' && selectedProject && selectedSubject) {
+        const data = await window.electronAPI.xnat.getSessions(selectedProject.id, selectedSubject.id);
+        setSessions(data);
+      } else if (level === 'scans' && selectedSession) {
+        const data = await window.electronAPI.xnat.getScans(selectedSession.id);
+        setScans(data);
+      }
+    } catch (err) {
+      console.error(`Failed to refresh ${level}:`, err);
+    } finally {
+      setLoading(false);
+    }
+  }, [level, selectedProject, selectedSubject, selectedSession]);
+
+  // ─── Pin Helpers ───────────────────────────────────────────────
+  const serverUrl = connection?.serverUrl ?? '';
+
+  function makePinItem(type: 'project', project: XnatProject): PinnedItem;
+  function makePinItem(type: 'subject', subject: XnatSubject): PinnedItem;
+  function makePinItem(type: 'session', session: XnatSession): PinnedItem;
+  function makePinItem(type: PinnedItem['type'], item: XnatProject | XnatSubject | XnatSession): PinnedItem {
+    if (type === 'project') {
+      const p = item as XnatProject;
+      return { type: 'project', serverUrl, projectId: p.id, projectName: p.name, timestamp: Date.now() };
+    } else if (type === 'subject') {
+      const s = item as XnatSubject;
+      return {
+        type: 'subject', serverUrl,
+        projectId: selectedProject?.id ?? '', projectName: selectedProject?.name ?? '',
+        subjectId: s.id, subjectLabel: s.label,
+        timestamp: Date.now(),
+      };
+    } else {
+      const sess = item as XnatSession;
+      return {
+        type: 'session', serverUrl,
+        projectId: selectedProject?.id ?? '', projectName: selectedProject?.name ?? '',
+        subjectId: selectedSubject?.id ?? '', subjectLabel: selectedSubject?.label ?? '',
+        sessionId: sess.id, sessionLabel: sess.label,
+        timestamp: Date.now(),
+      };
+    }
   }
 
   // Label for the search placeholder
@@ -340,33 +496,43 @@ export default function XnatBrowser({ onLoadScan, onLoadSession }: XnatBrowserPr
         )}
       </div>
 
-      {/* Search bar */}
+      {/* Search bar + Refresh */}
       {!loading && totalCount > 0 && (
         <div className="px-3 py-2 border-b border-zinc-800 shrink-0">
-          <div className="relative">
-            <div className="absolute left-2 top-1/2 -translate-y-1/2 pointer-events-none">
-              <SearchIcon />
+          <div className="flex items-center gap-1.5">
+            <div className="relative flex-1">
+              <div className="absolute left-2 top-1/2 -translate-y-1/2 pointer-events-none">
+                <SearchIcon />
+              </div>
+              <input
+                ref={searchRef}
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder={searchPlaceholder}
+                className="w-full pl-7 pr-7 py-1.5 text-xs bg-zinc-900 border border-zinc-700 rounded-md text-zinc-300 placeholder-zinc-600 outline-none focus:border-zinc-500 focus:ring-1 focus:ring-zinc-500/30"
+              />
+              {search && (
+                <button
+                  onClick={() => {
+                    setSearch('');
+                    searchRef.current?.focus();
+                  }}
+                  className="absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 text-zinc-500 hover:text-zinc-300 transition-colors rounded hover:bg-zinc-700"
+                  title="Clear search"
+                >
+                  <ClearIcon />
+                </button>
+              )}
             </div>
-            <input
-              ref={searchRef}
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder={searchPlaceholder}
-              className="w-full pl-7 pr-7 py-1.5 text-xs bg-zinc-900 border border-zinc-700 rounded-md text-zinc-300 placeholder-zinc-600 outline-none focus:border-zinc-500 focus:ring-1 focus:ring-zinc-500/30"
-            />
-            {search && (
-              <button
-                onClick={() => {
-                  setSearch('');
-                  searchRef.current?.focus();
-                }}
-                className="absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 text-zinc-500 hover:text-zinc-300 transition-colors rounded hover:bg-zinc-700"
-                title="Clear search"
-              >
-                <ClearIcon />
-              </button>
-            )}
+            <button
+              onClick={refresh}
+              disabled={loading}
+              className="p-1.5 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-700 rounded-md transition-colors disabled:opacity-40 shrink-0"
+              title={`Refresh ${level}`}
+            >
+              <RefreshIcon />
+            </button>
           </div>
           {q && (
             <div className="text-[10px] text-zinc-600 mt-1 px-0.5">
@@ -401,6 +567,22 @@ export default function XnatBrowser({ onLoadScan, onLoadSession }: XnatBrowserPr
                     </div>
                   </div>
                 )}
+                renderAction={onTogglePin ? (p) => {
+                  const pinned = isPinned(pins, 'project', p.id);
+                  return (
+                    <button
+                      onClick={() => onTogglePin(makePinItem('project', p))}
+                      className={`p-1 rounded transition-colors ${
+                        pinned
+                          ? 'text-amber-400 hover:text-amber-300 opacity-100'
+                          : 'text-zinc-600 hover:text-amber-400 opacity-0 group-hover:opacity-100'
+                      }`}
+                      title={pinned ? 'Unpin' : 'Pin'}
+                    >
+                      <IconPin className="w-3 h-3" filled={pinned} />
+                    </button>
+                  );
+                } : undefined}
                 onSelect={selectProject}
                 emptyMessage={q ? `No projects matching "${search}"` : 'No accessible projects found'}
               />
@@ -420,6 +602,22 @@ export default function XnatBrowser({ onLoadScan, onLoadSession }: XnatBrowserPr
                     </div>
                   </div>
                 )}
+                renderAction={onTogglePin ? (s) => {
+                  const pinned = isPinned(pins, 'subject', s.id);
+                  return (
+                    <button
+                      onClick={() => onTogglePin(makePinItem('subject', s))}
+                      className={`p-1 rounded transition-colors ${
+                        pinned
+                          ? 'text-amber-400 hover:text-amber-300 opacity-100'
+                          : 'text-zinc-600 hover:text-amber-400 opacity-0 group-hover:opacity-100'
+                      }`}
+                      title={pinned ? 'Unpin' : 'Pin'}
+                    >
+                      <IconPin className="w-3 h-3" filled={pinned} />
+                    </button>
+                  );
+                } : undefined}
                 onSelect={selectSubject}
                 emptyMessage={q ? `No subjects matching "${search}"` : 'No subjects found'}
               />
@@ -448,14 +646,33 @@ export default function XnatBrowser({ onLoadScan, onLoadSession }: XnatBrowserPr
                     </div>
                   </div>
                 )}
+                renderAction={onTogglePin ? (e) => {
+                  const pinned = isPinned(pins, 'session', e.id);
+                  return (
+                    <button
+                      onClick={() => onTogglePin(makePinItem('session', e))}
+                      className={`p-1 rounded transition-colors ${
+                        pinned
+                          ? 'text-amber-400 hover:text-amber-300 opacity-100'
+                          : 'text-zinc-600 hover:text-amber-400 opacity-0 group-hover:opacity-100'
+                      }`}
+                      title={pinned ? 'Unpin' : 'Pin'}
+                    >
+                      <IconPin className="w-3 h-3" filled={pinned} />
+                    </button>
+                  );
+                } : undefined}
                 onSelect={selectSession}
                 emptyMessage={q ? `No sessions matching "${search}"` : 'No sessions found'}
               />
             )}
 
             {level === 'scans' && onLoadSession && scans.length > 1 && selectedSession && (() => {
-              const imagingScans = scans.filter((s) => s.type?.toUpperCase() !== 'SEG');
-              const segCount = scans.length - imagingScans.length;
+              const imagingScans = scans.filter((s) => {
+                const t = s.type?.toUpperCase();
+                return t !== 'SEG' && t !== 'RTSTRUCT' && t !== 'RT';
+              });
+              const derivedCount = scans.length - imagingScans.length;
               return (
                 <div className="px-3 py-2.5 border-b border-zinc-800">
                   <button
@@ -465,13 +682,15 @@ export default function XnatBrowser({ onLoadScan, onLoadSession }: XnatBrowserPr
                           projectId: selectedProject.id,
                           subjectId: selectedSubject.id,
                           sessionLabel: selectedSession.label,
+                          projectName: selectedProject.name,
+                          subjectLabel: selectedSubject.label,
                         });
                       }
                     }}
                     className="w-full bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium px-3 py-2 rounded-md transition-colors flex items-center justify-center gap-2"
                   >
                     <LoadAllIcon />
-                    Load All Scans ({imagingScans.length}{segCount > 0 ? ` + ${segCount} SEG` : ''})
+                    Load All Scans ({imagingScans.length}{derivedCount > 0 ? ` + ${derivedCount} derived` : ''})
                   </button>
                 </div>
               );
@@ -482,6 +701,8 @@ export default function XnatBrowser({ onLoadScan, onLoadSession }: XnatBrowserPr
                 items={filteredScans}
                 renderItem={(s) => {
                   const isSeg = s.type?.toUpperCase() === 'SEG';
+                  const isRT = s.type?.toUpperCase() === 'RTSTRUCT' || s.type?.toUpperCase() === 'RT';
+                  const isDerived = isSeg || isRT;
                   return (
                     <div className="flex items-center justify-between w-full gap-2">
                       <div className="flex items-start gap-2.5 min-w-0">
@@ -495,7 +716,12 @@ export default function XnatBrowser({ onLoadScan, onLoadSession }: XnatBrowserPr
                                 SEG
                               </span>
                             )}
-                            {s.modality && !isSeg && (
+                            {isRT && (
+                              <span className="ml-2 text-[10px] bg-green-500/20 text-green-300 px-1.5 py-0.5 rounded font-normal">
+                                RTSTRUCT
+                              </span>
+                            )}
+                            {s.modality && !isDerived && (
                               <span className="ml-2 text-[10px] bg-zinc-700/80 text-zinc-300 px-1.5 py-0.5 rounded font-normal">
                                 {s.modality}
                               </span>
@@ -527,11 +753,12 @@ export default function XnatBrowser({ onLoadScan, onLoadSession }: XnatBrowserPr
 interface ItemListProps<T> {
   items: T[];
   renderItem: (item: T) => React.ReactNode;
+  renderAction?: (item: T) => React.ReactNode;
   onSelect: (item: T) => void;
   emptyMessage: string;
 }
 
-function ItemList<T>({ items, renderItem, onSelect, emptyMessage }: ItemListProps<T>) {
+function ItemList<T>({ items, renderItem, renderAction, onSelect, emptyMessage }: ItemListProps<T>) {
   if (items.length === 0) {
     return (
       <div className="flex items-center justify-center py-8 text-zinc-600 text-xs">
@@ -543,13 +770,21 @@ function ItemList<T>({ items, renderItem, onSelect, emptyMessage }: ItemListProp
   return (
     <div className="divide-y divide-zinc-800/50">
       {items.map((item, i) => (
-        <button
+        <div
           key={i}
           onClick={() => onSelect(item)}
-          className="w-full text-left px-3 py-2.5 hover:bg-zinc-800/50 transition-colors"
+          className="w-full text-left px-3 py-2.5 hover:bg-zinc-800/50 transition-colors cursor-pointer flex items-center group"
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(item); } }}
         >
-          {renderItem(item)}
-        </button>
+          <div className="flex-1 min-w-0">{renderItem(item)}</div>
+          {renderAction && (
+            <div className="shrink-0 ml-1" onClick={(e) => e.stopPropagation()}>
+              {renderAction(item)}
+            </div>
+          )}
+        </div>
       ))}
     </div>
   );

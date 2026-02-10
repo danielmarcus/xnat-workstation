@@ -46,6 +46,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
     uploadDicomSeg: (projectId: string, subjectId: string, sessionId: string, sessionLabel: string, sourceScanId: string, dicomBase64: string) =>
       ipcRenderer.invoke(IPC.XNAT_UPLOAD_DICOM_SEG, projectId, subjectId, sessionId, sessionLabel, sourceScanId, dicomBase64),
+
+    uploadDicomRtStruct: (projectId: string, subjectId: string, sessionId: string, sessionLabel: string, sourceScanId: string, dicomBase64: string) =>
+      ipcRenderer.invoke(IPC.XNAT_UPLOAD_DICOM_RTSTRUCT, projectId, subjectId, sessionId, sessionLabel, sourceScanId, dicomBase64),
   },
 
   export: {
@@ -61,6 +64,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke(IPC.EXPORT_SAVE_REPORT, text, defaultName),
     saveDicomSeg: (dicomBase64: string, defaultName?: string) =>
       ipcRenderer.invoke(IPC.EXPORT_SAVE_DICOM_SEG, dicomBase64, defaultName),
+    saveDicomRtStruct: (dicomBase64: string, defaultName?: string) =>
+      ipcRenderer.invoke(IPC.EXPORT_SAVE_DICOM_RTSTRUCT, dicomBase64, defaultName),
   },
 
   on: (channel: string, callback: (...args: unknown[]) => void) => {

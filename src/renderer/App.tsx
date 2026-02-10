@@ -13,9 +13,23 @@ import { matchProtocol, applyProtocol } from './lib/hangingProtocolService';
 import { panelId } from '@shared/types/viewer';
 import { BUILT_IN_PROTOCOLS } from '@shared/types/hangingProtocol';
 import type { XnatScan } from '@shared/types/xnat';
-import { IconFolder, IconOpenFile, XnatLogo } from './components/icons';
+import { IconFolder, IconOpenFile, IconPin, IconChevronDown, XnatLogo } from './components/icons';
 import { volumeService } from './lib/cornerstone/volumeService';
+import {
+  loadPinnedItems,
+  addPinnedItem,
+  removePinnedItem,
+  isPinned as isPinnedCheck,
+  loadRecentSessions,
+  saveRecentSession as saveRecentSessionUtil,
+  removeRecentSession,
+  migrateOldStorage,
+  type PinnedItem,
+  type RecentSession,
+  type NavigateToTarget,
+} from './lib/pinnedItems';
 import { segmentationService } from './lib/cornerstone/segmentationService';
+import { rtStructService } from './lib/cornerstone/rtStructService';
 import { viewportService } from './lib/cornerstone/viewportService';
 import { imageLoader, cache, metaData } from '@cornerstonejs/core';
 import * as dicomParser from 'dicom-parser';
@@ -23,9 +37,23 @@ import * as dicomParser from 'dicom-parser';
 /** DICOM SEG SOP Class UID */
 const SEG_SOP_CLASS_UID = '1.2.840.10008.5.1.4.1.1.66.4';
 
+/** DICOM RTSTRUCT SOP Class UID */
+const RTSTRUCT_SOP_CLASS_UID = '1.2.840.10008.5.1.4.1.1.481.3';
+
 /** Check if a scan is a DICOM SEG scan based on XNAT type metadata */
 function isSegScan(scan: XnatScan): boolean {
   return scan.type?.toUpperCase() === 'SEG';
+}
+
+/** Check if a scan is a DICOM RTSTRUCT scan based on XNAT type metadata */
+function isRtStructScan(scan: XnatScan): boolean {
+  const t = scan.type?.toUpperCase();
+  return t === 'RTSTRUCT' || t === 'RT';
+}
+
+/** Check if a scan is a derived object (SEG or RTSTRUCT) */
+function isDerivedScan(scan: XnatScan): boolean {
+  return isSegScan(scan) || isRtStructScan(scan);
 }
 
 /**
@@ -126,8 +154,8 @@ async function findSourceScanBySeriesUID(
   targetSeriesUID: string,
   scans: XnatScan[],
 ): Promise<{ scanId: string; imageIds: string[] } | null> {
-  // Only check non-SEG scans
-  const candidates = scans.filter((s) => s.type?.toUpperCase() !== 'SEG');
+  // Only check non-derived scans (exclude SEG, RTSTRUCT)
+  const candidates = scans.filter((s) => !isDerivedScan(s));
   console.log(`[App] Searching ${candidates.length} scans for SeriesInstanceUID ${targetSeriesUID}`);
 
   for (const scan of candidates) {
@@ -251,6 +279,13 @@ export default function App() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [showBrowser, setShowBrowser] = useState(true);
 
+  // ─── Bookmarks (pinned items & recent sessions) ───────────────
+  const [pinnedItems, setPinnedItems] = useState<PinnedItem[]>([]);
+  const [recentSessions, setRecentSessions] = useState<RecentSession[]>([]);
+  const [navigateTo, setNavigateTo] = useState<NavigateToTarget | null>(null);
+  const [showBookmarks, setShowBookmarks] = useState(false);
+  const bookmarksRef = useRef<HTMLDivElement>(null);
+
   /**
    * Pending DICOM SEG load — when loading a SEG that requires loading new
    * source images into a panel, we can't load the SEG immediately because
@@ -294,6 +329,87 @@ export default function App() {
   /** Count total loaded images across all panels */
   const totalImages = Object.values(panelImageIds).reduce((sum, ids) => sum + ids.length, 0);
 
+  // ─── Bookmarks: migrate old storage on mount ──────────────────
+  useEffect(() => {
+    migrateOldStorage();
+  }, []);
+
+  // ─── Bookmarks: refresh pins & recents when server changes ────
+  const refreshBookmarks = useCallback(() => {
+    const url = connection?.serverUrl;
+    if (url) {
+      setPinnedItems(loadPinnedItems(url));
+      setRecentSessions(loadRecentSessions(url));
+    } else {
+      setPinnedItems([]);
+      setRecentSessions([]);
+    }
+  }, [connection?.serverUrl]);
+
+  useEffect(() => {
+    refreshBookmarks();
+  }, [refreshBookmarks]);
+
+  // ─── Bookmarks: close dropdown on outside click ───────────────
+  useEffect(() => {
+    if (!showBookmarks) return;
+    function handleClick(e: MouseEvent) {
+      if (bookmarksRef.current && !bookmarksRef.current.contains(e.target as Node)) {
+        setShowBookmarks(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [showBookmarks]);
+
+  // ─── Bookmarks: handlers ──────────────────────────────────────
+  const handleTogglePin = useCallback(
+    (item: PinnedItem) => {
+      const url = connection?.serverUrl;
+      if (!url) return;
+      const id =
+        item.type === 'project' ? item.projectId :
+        item.type === 'subject' ? item.subjectId :
+        item.sessionId;
+      if (isPinnedCheck(pinnedItems, item.type, id)) {
+        removePinnedItem(item.type, id, url);
+      } else {
+        addPinnedItem(item);
+      }
+      refreshBookmarks();
+    },
+    [connection?.serverUrl, pinnedItems, refreshBookmarks],
+  );
+
+  /** Navigate to a pinned or recent item via the bookmarks dropdown. */
+  const handleBookmarkNavigate = useCallback(
+    (target: NavigateToTarget) => {
+      setNavigateTo(target);
+      setShowBookmarks(false);
+      if (!showBrowser) setShowBrowser(true);
+    },
+    [showBrowser],
+  );
+
+  /** Promote a recent session to a pinned item. */
+  const handlePromoteRecent = useCallback(
+    (recent: RecentSession) => {
+      addPinnedItem({
+        type: 'session',
+        serverUrl: recent.serverUrl,
+        projectId: recent.projectId,
+        projectName: recent.projectName,
+        subjectId: recent.subjectId,
+        subjectLabel: recent.subjectLabel,
+        sessionId: recent.sessionId,
+        sessionLabel: recent.sessionLabel,
+        timestamp: Date.now(),
+      });
+      refreshBookmarks();
+    },
+    [refreshBookmarks],
+  );
+
   /**
    * Load local DICOM files using Cornerstone's file manager.
    * Creates wadouri: image IDs backed by in-memory File objects.
@@ -315,10 +431,11 @@ export default function App() {
     // Sort files by name for consistent ordering
     dicomFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
 
-    // Separate DICOM SEG files from regular image files.
+    // Separate DICOM SEG / RTSTRUCT files from regular image files.
     // We peek at the SOP Class UID tag (0008,0016) in each file.
     const regularFiles: File[] = [];
     const segFiles: File[] = [];
+    const rtStructFiles: File[] = [];
 
     for (const file of dicomFiles) {
       try {
@@ -330,6 +447,8 @@ export default function App() {
 
         if (sopClassUid === SEG_SOP_CLASS_UID) {
           segFiles.push(file);
+        } else if (sopClassUid === RTSTRUCT_SOP_CLASS_UID) {
+          rtStructFiles.push(file);
         } else {
           regularFiles.push(file);
         }
@@ -387,6 +506,45 @@ export default function App() {
       const segStore = useSegmentationStore.getState();
       if (!segStore.showPanel) {
         segStore.togglePanel();
+      }
+    }
+
+    // Load DICOM RTSTRUCT files as contour segmentation overlays
+    if (rtStructFiles.length > 0) {
+      const sourceImageIds = newImageIds.length > 0
+        ? newImageIds
+        : (panelImageIdsRef.current[targetPanel] ?? []);
+
+      if (sourceImageIds.length === 0) {
+        console.warn('[App] Cannot load DICOM RTSTRUCT — no source images loaded in active panel');
+        return;
+      }
+
+      // Small delay to let Cornerstone register the source images (if loaded together)
+      if (newImageIds.length > 0) {
+        await new Promise((r) => setTimeout(r, 200));
+      }
+
+      // Pre-load source images for metadata
+      await preloadImages(sourceImageIds);
+
+      for (const file of rtStructFiles) {
+        try {
+          const arrayBuffer = await file.arrayBuffer();
+          const parsed = rtStructService.parseRtStruct(arrayBuffer);
+          const { segmentationId, firstReferencedImageId } =
+            await rtStructService.loadRtStructAsContours(parsed, sourceImageIds, targetPanel);
+          await jumpViewportToReferencedImage(targetPanel, firstReferencedImageId);
+          console.log(`[App] Loaded RTSTRUCT file "${file.name}" as ${segmentationId}`);
+        } catch (err) {
+          console.error(`[App] Failed to load RTSTRUCT "${file.name}":`, err);
+        }
+      }
+
+      // Open the segmentation panel
+      const segStore2 = useSegmentationStore.getState();
+      if (!segStore2.showPanel) {
+        segStore2.togglePanel();
       }
     }
   }, []);
@@ -467,7 +625,7 @@ export default function App() {
     sessionId: string,
     scanId: string,
     scan: XnatScan,
-    context: { projectId: string; subjectId: string; sessionLabel: string },
+    context: { projectId: string; subjectId: string; sessionLabel: string; projectName?: string; subjectLabel?: string },
   ) => {
     if (!isConnected) return;
 
@@ -481,6 +639,20 @@ export default function App() {
       sessionLabel: context.sessionLabel,
       scanId,
     });
+
+    // Remember this session for "Load Recent" on next visit
+    const serverUrl = useConnectionStore.getState().connection?.serverUrl;
+    if (serverUrl) {
+      saveRecentSessionUtil(serverUrl, {
+        projectId: context.projectId,
+        projectName: context.projectName ?? context.projectId,
+        subjectId: context.subjectId,
+        subjectLabel: context.subjectLabel ?? context.subjectId,
+        sessionId,
+        sessionLabel: context.sessionLabel,
+      });
+      refreshBookmarks();
+    }
 
     try {
       setLoading(true);
@@ -588,6 +760,76 @@ export default function App() {
         // 7. Open segmentation panel
         const segStore = useSegmentationStore.getState();
         if (!segStore.showPanel) segStore.togglePanel();
+      } else if (isRtStructScan(scan)) {
+        // ─── RTSTRUCT scan: load contours as segmentation overlay ──
+
+        // 1. Download the RTSTRUCT file
+        const arrayBuffer = await downloadSegArrayBuffer(sessionId, scanId);
+        console.log(`[App] Downloaded RTSTRUCT file (${arrayBuffer.byteLength} bytes)`);
+
+        // 2. Parse the RTSTRUCT
+        const parsed = rtStructService.parseRtStruct(arrayBuffer);
+
+        // 3. Find source images
+        let sourceIds: string[] | null = null;
+        let rtTargetPanel = targetPanel;
+
+        if (parsed.referencedSeriesUID) {
+          const match = findPanelBySeriesUID(parsed.referencedSeriesUID, panelImageIdsRef.current);
+          if (match) {
+            console.log(`[App] RTSTRUCT matched to ${match.panelId} via SeriesInstanceUID`);
+            sourceIds = match.imageIds;
+            rtTargetPanel = match.panelId;
+          }
+        }
+
+        // 4. If source not loaded, find and load it
+        if (!sourceIds) {
+          if (parsed.referencedSeriesUID) {
+            let sessionScans = useViewerStore.getState().sessionScans;
+            if (!sessionScans || sessionScans.length === 0) {
+              sessionScans = await window.electronAPI.xnat.getScans(sessionId);
+            }
+            if (sessionScans.length > 0) {
+              const match = await findSourceScanBySeriesUID(sessionId, parsed.referencedSeriesUID, sessionScans);
+              if (match) {
+                sourceIds = match.imageIds;
+                // Load source images into panel, then load RTSTRUCT after settling
+                segmentationService.removeSegmentationsFromViewport(rtTargetPanel);
+                setPanelImageIds((prev) => ({ ...prev, [rtTargetPanel]: sourceIds! }));
+                useViewerStore.getState().setPanelScan(rtTargetPanel, match.scanId);
+
+                // Wait for viewport to settle
+                let attempts = 0;
+                while (attempts < 40) {
+                  const vp = viewportService.getViewport(rtTargetPanel);
+                  if (vp && vp.getImageIds().length > 0) break;
+                  await new Promise((r) => setTimeout(r, 100));
+                  attempts++;
+                }
+                await new Promise((r) => setTimeout(r, 300));
+              }
+            }
+          }
+
+          if (!sourceIds) {
+            setLoadError(`Cannot find source images for RTSTRUCT scan #${scanId}`);
+            return;
+          }
+        }
+
+        // 5. Pre-load source images for metadata
+        await preloadImages(sourceIds);
+
+        // 6. Load the RTSTRUCT as contour segmentation
+        const { segmentationId, firstReferencedImageId } =
+          await rtStructService.loadRtStructAsContours(parsed, sourceIds, rtTargetPanel);
+        await jumpViewportToReferencedImage(rtTargetPanel, firstReferencedImageId);
+        console.log(`[App] Loaded RTSTRUCT from XNAT as ${segmentationId} on ${rtTargetPanel}`);
+
+        // 7. Open segmentation panel
+        const segStore2 = useSegmentationStore.getState();
+        if (!segStore2.showPanel) segStore2.togglePanel();
       } else {
         // ─── Regular scan: load as image stack ────────────────────
 
@@ -631,7 +873,7 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  }, [isConnected]);
+  }, [isConnected, refreshBookmarks]);
 
   /**
    * Load ALL scans from an XNAT session using hanging protocols.
@@ -645,7 +887,7 @@ export default function App() {
     async (
       sessionId: string,
       scans: XnatScan[],
-      context: { projectId: string; subjectId: string; sessionLabel: string },
+      context: { projectId: string; subjectId: string; sessionLabel: string; projectName?: string; subjectLabel?: string },
     ) => {
       if (!isConnected) return;
 
@@ -653,12 +895,16 @@ export default function App() {
         setLoading(true);
         setLoadError(null);
 
-        // Separate SEG scans from imaging scans
-        const imagingScans = scans.filter((s) => !isSegScan(s));
+        // Separate derived scans (SEG, RTSTRUCT) from imaging scans
+        const imagingScans = scans.filter((s) => !isDerivedScan(s));
         const segScans = scans.filter((s) => isSegScan(s));
+        const rtStructScans = scans.filter((s) => isRtStructScan(s));
 
         if (segScans.length > 0) {
           console.log(`[App] Found ${segScans.length} SEG scan(s) — will auto-load as overlays`);
+        }
+        if (rtStructScans.length > 0) {
+          console.log(`[App] Found ${rtStructScans.length} RTSTRUCT scan(s) — will auto-load as contour overlays`);
         }
 
         // Match imaging scans to a hanging protocol
@@ -682,6 +928,20 @@ export default function App() {
           sessionLabel: context.sessionLabel,
           scanId: imagingScans[0]?.id ?? scans[0]?.id ?? '1',
         });
+
+        // Remember this session for "Load Recent" on next visit
+        const serverUrl = useConnectionStore.getState().connection?.serverUrl;
+        if (serverUrl) {
+          saveRecentSessionUtil(serverUrl, {
+            projectId: context.projectId,
+            projectName: context.projectName ?? context.projectId,
+            subjectId: context.subjectId,
+            subjectLabel: context.subjectLabel ?? context.subjectId,
+            sessionId,
+            sessionLabel: context.sessionLabel,
+          });
+          refreshBookmarks();
+        }
 
         // Fetch imageIds for all assigned panels in parallel
         const loadPromises = Array.from(assignments.entries()).map(
@@ -785,6 +1045,80 @@ export default function App() {
             if (!segStore.showPanel) segStore.togglePanel();
           }
         }
+
+        // ─── Auto-load RTSTRUCT scans as contour overlays ──────────
+        if (rtStructScans.length > 0) {
+          // Wait for viewports to be ready (may already be ready from SEG loading above)
+          if (segScans.length === 0) {
+            let attempts = 0;
+            while (attempts < 40) {
+              const allReady = results.every(({ panelIdx }) => {
+                const vp = viewportService.getViewport(panelId(panelIdx));
+                return vp && vp.getImageIds().length > 0;
+              });
+              if (allReady) break;
+              await new Promise((r) => setTimeout(r, 100));
+              attempts++;
+            }
+            await new Promise((r) => setTimeout(r, 300));
+
+            // Pre-load all source images
+            const allImageIds = Array.from(scanIdToPanelInfo.values()).flatMap((p) => p.ids);
+            await preloadImages(allImageIds);
+          }
+
+          let rtLoaded = false;
+
+          for (const rtScan of rtStructScans) {
+            try {
+              // Download the RTSTRUCT file
+              const arrayBuffer = await downloadSegArrayBuffer(sessionId, rtScan.id);
+              console.log(`[App] Downloaded RTSTRUCT #${rtScan.id} (${arrayBuffer.byteLength} bytes)`);
+
+              // Parse the RTSTRUCT
+              const parsed = rtStructService.parseRtStruct(arrayBuffer);
+
+              // Match to a loaded panel via Referenced Series UID
+              let matchedPanel: { pid: string; ids: string[] } | null = null;
+              if (parsed.referencedSeriesUID) {
+                const match = findPanelBySeriesUID(parsed.referencedSeriesUID, newPanelImageIds);
+                if (match) {
+                  matchedPanel = { pid: match.panelId, ids: match.imageIds };
+                  console.log(`[App] RTSTRUCT #${rtScan.id} matched to ${match.panelId} via SeriesInstanceUID`);
+                }
+              }
+
+              // Fallback: use the first panel with images
+              if (!matchedPanel) {
+                const firstEntry = Object.entries(newPanelImageIds).find(([, ids]) => ids.length > 0);
+                if (firstEntry) {
+                  matchedPanel = { pid: firstEntry[0], ids: firstEntry[1] };
+                  console.log(`[App] RTSTRUCT #${rtScan.id} falling back to first panel: ${firstEntry[0]}`);
+                }
+              }
+
+              if (!matchedPanel) {
+                console.warn(`[App] Could not find source images for RTSTRUCT #${rtScan.id}, skipping`);
+                continue;
+              }
+
+              // Pre-load source images
+              await preloadImages(matchedPanel.ids);
+
+              const { segmentationId, firstReferencedImageId } =
+                await rtStructService.loadRtStructAsContours(parsed, matchedPanel.ids, matchedPanel.pid);
+              await jumpViewportToReferencedImage(matchedPanel.pid, firstReferencedImageId);
+              rtLoaded = true;
+            } catch (err) {
+              console.error(`[App] Failed to load RTSTRUCT #${rtScan.id}:`, err);
+            }
+          }
+
+          if (rtLoaded) {
+            const segStore = useSegmentationStore.getState();
+            if (!segStore.showPanel) segStore.togglePanel();
+          }
+        }
       } catch (err) {
         console.error('Session load failed:', err);
         setLoadError(err instanceof Error ? err.message : String(err));
@@ -792,7 +1126,7 @@ export default function App() {
         setLoading(false);
       }
     },
-    [isConnected],
+    [isConnected, refreshBookmarks],
   );
 
   /**
@@ -1022,6 +1356,155 @@ export default function App() {
           />
         </label>
 
+        {/* Bookmarks dropdown — pinned items & recent sessions */}
+        {(pinnedItems.length > 0 || recentSessions.length > 0) && (
+          <div ref={bookmarksRef} className="relative">
+            <button
+              onClick={() => setShowBookmarks((v) => !v)}
+              className={`flex items-center gap-1 text-xs font-medium px-2 py-1.5 rounded whitespace-nowrap transition-colors ${
+                showBookmarks
+                  ? 'bg-amber-600/20 text-amber-300'
+                  : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200'
+              }`}
+              title="Pinned & Recent"
+            >
+              <IconPin className="w-3.5 h-3.5" filled={pinnedItems.length > 0} />
+              <IconChevronDown className="w-3 h-3" />
+            </button>
+
+            {showBookmarks && (
+              <div className="absolute top-full left-0 mt-1 w-72 bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl z-50 py-1 max-h-80 overflow-y-auto">
+                {/* Pinned items section */}
+                {pinnedItems.length > 0 && (
+                  <>
+                    <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+                      Pinned
+                    </div>
+                    {pinnedItems.map((item) => {
+                      const key =
+                        item.type === 'project' ? `pin-p-${item.projectId}` :
+                        item.type === 'subject' ? `pin-s-${item.subjectId}` :
+                        `pin-x-${item.sessionId}`;
+                      const label =
+                        item.type === 'project' ? item.projectName :
+                        item.type === 'subject' ? `${item.subjectLabel || item.subjectId}` :
+                        `${item.sessionLabel || item.sessionId}`;
+                      const sublabel =
+                        item.type === 'project' ? null :
+                        item.type === 'subject' ? item.projectName :
+                        `${item.subjectLabel || item.subjectId} / ${item.projectName}`;
+                      const icon =
+                        item.type === 'project' ? 'text-blue-400' :
+                        item.type === 'subject' ? 'text-violet-400' :
+                        'text-emerald-400';
+                      const typeLabel =
+                        item.type === 'project' ? 'P' :
+                        item.type === 'subject' ? 'S' : 'E';
+
+                      return (
+                        <div
+                          key={key}
+                          className="flex items-center gap-2 px-3 py-1.5 hover:bg-zinc-800 cursor-pointer group"
+                          onClick={() => {
+                            const target: NavigateToTarget = {
+                              type: item.type,
+                              projectId: item.projectId,
+                              projectName: item.projectName,
+                              ...(item.type !== 'project' && {
+                                subjectId: item.subjectId,
+                                subjectLabel: item.subjectLabel,
+                              }),
+                              ...(item.type === 'session' && {
+                                sessionId: item.sessionId,
+                                sessionLabel: item.sessionLabel,
+                              }),
+                            };
+                            handleBookmarkNavigate(target);
+                          }}
+                        >
+                          <span className={`text-[10px] font-bold ${icon} shrink-0 w-4 text-center`}>
+                            {typeLabel}
+                          </span>
+                          <div className="flex-1 min-w-0">
+                            <div className="text-xs text-zinc-200 truncate">{label}</div>
+                            {sublabel && (
+                              <div className="text-[10px] text-zinc-500 truncate">{sublabel}</div>
+                            )}
+                          </div>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleTogglePin(item);
+                            }}
+                            className="text-zinc-500 hover:text-red-400 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                            title="Unpin"
+                          >
+                            <svg className="w-3 h-3" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                              <line x1="4" y1="4" x2="12" y2="12" />
+                              <line x1="12" y1="4" x2="4" y2="12" />
+                            </svg>
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </>
+                )}
+
+                {/* Recent sessions section */}
+                {recentSessions.length > 0 && (
+                  <>
+                    {pinnedItems.length > 0 && (
+                      <div className="border-t border-zinc-800 my-1" />
+                    )}
+                    <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+                      Recent
+                    </div>
+                    {recentSessions.map((recent) => (
+                      <div
+                        key={`recent-${recent.sessionId}`}
+                        className="flex items-center gap-2 px-3 py-1.5 hover:bg-zinc-800 cursor-pointer group"
+                        onClick={() => {
+                          handleBookmarkNavigate({
+                            type: 'session',
+                            projectId: recent.projectId,
+                            projectName: recent.projectName,
+                            subjectId: recent.subjectId,
+                            subjectLabel: recent.subjectLabel,
+                            sessionId: recent.sessionId,
+                            sessionLabel: recent.sessionLabel,
+                          });
+                        }}
+                      >
+                        <span className="text-[10px] font-bold text-emerald-400 shrink-0 w-4 text-center">
+                          E
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-xs text-zinc-200 truncate">
+                            {recent.sessionLabel || recent.sessionId}
+                          </div>
+                          <div className="text-[10px] text-zinc-500 truncate">
+                            {recent.subjectLabel || recent.subjectId} / {recent.projectName || recent.projectId}
+                          </div>
+                        </div>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handlePromoteRecent(recent);
+                          }}
+                          className="text-zinc-500 hover:text-amber-400 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                          title="Pin this session"
+                        >
+                          <IconPin className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Spacer pushes status info to the right */}
         <div className="flex-1" />
 
@@ -1058,7 +1541,14 @@ export default function App() {
         {/* XNAT Browser sidebar */}
         {showBrowser && (
           <div className="w-72 shrink-0 border-r border-zinc-800 bg-zinc-950 overflow-hidden flex flex-col">
-            <XnatBrowser onLoadScan={loadFromXnatScan} onLoadSession={loadSessionFromXnat} />
+            <XnatBrowser
+              onLoadScan={loadFromXnatScan}
+              onLoadSession={loadSessionFromXnat}
+              navigateTo={navigateTo}
+              onNavigateComplete={() => setNavigateTo(null)}
+              pinnedItems={pinnedItems}
+              onTogglePin={handleTogglePin}
+            />
           </div>
         )}
 
