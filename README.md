@@ -113,15 +113,43 @@ Annotation list panel with search, visibility toggles, and delete.
 | Build (main) | TypeScript compiler (CommonJS) |
 | Packaging | electron-builder |
 
-## Getting Started
+## Installation
+
+Download the latest release for your platform from the [Releases](https://github.com/danielmarcus/xnat-viewer/releases) page.
+
+### macOS
+
+1. Download `XNAT Viewer-<version>-arm64.dmg` (Apple Silicon) or the `.zip` archive
+2. Open the DMG and drag **XNAT Viewer** to your Applications folder
+3. On first launch, macOS may show a security warning since the app is not notarized. To open it:
+   - Right-click (or Control-click) the app and select **Open**
+   - Click **Open** in the dialog that appears
+   - Alternatively, go to **System Settings → Privacy & Security** and click **Open Anyway**
+4. Launch the app and enter your XNAT server URL and credentials to connect
+
+### Windows
+
+1. Download `XNAT Viewer Setup-<version>.exe` (installer) or `XNAT Viewer-<version>.exe` (portable)
+2. Run the installer and follow the prompts, or run the portable EXE directly
+3. Launch the app and enter your XNAT server URL and credentials to connect
+
+### Linux
+
+1. Download `XNAT Viewer-<version>.AppImage` or the `.deb` package
+2. For AppImage: make it executable (`chmod +x`) and run it
+3. For Debian/Ubuntu: install with `sudo dpkg -i xnat-viewer_<version>_amd64.deb`
+4. Launch the app and enter your XNAT server URL and credentials to connect
+
+> **Note:** Windows and Linux builds are not yet available in the current release. macOS Apple Silicon (arm64) builds are provided. Additional platform builds will be added in future releases.
+
+## Development
 
 ### Prerequisites
 
 - [Node.js](https://nodejs.org/) 18+
 - npm 9+
-- Access to an XNAT instance
 
-### Install
+### Setup
 
 ```bash
 git clone https://github.com/danielmarcus/xnat-viewer.git
@@ -129,7 +157,7 @@ cd xnat-viewer
 npm install
 ```
 
-### Development
+### Run
 
 ```bash
 npm run dev
@@ -148,13 +176,16 @@ Compiles the main process (TypeScript → CommonJS) and bundles the renderer (Vi
 ### Package
 
 ```bash
-npm run package
+npm run build
+npx electron-builder --mac    # or --win, --linux
 ```
 
-Creates distributable installers in `release/`:
+Creates distributable installers in `release/`. Supported targets:
 - **macOS** — DMG, ZIP
 - **Windows** — NSIS installer, portable EXE
 - **Linux** — AppImage, DEB
+
+> **Tip:** If building on macOS from a cloud-synced folder (OneDrive, iCloud, Dropbox), codesigning may fail due to extended attributes. Copy the project to a local path (e.g., `/tmp`) before packaging.
 
 ## Architecture
 
