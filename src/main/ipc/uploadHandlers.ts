@@ -83,6 +83,126 @@ export function registerUploadHandlers(): void {
     },
   );
 
+  // ─── Overwrite DICOM SEG in existing scan ──────────────────────
+  ipcMain.handle(
+    IPC.XNAT_OVERWRITE_DICOM_SEG,
+    async (
+      _event,
+      sessionId: string,
+      targetScanId: string,
+      dicomSegBase64: string,
+    ) => {
+      const client = sessionManager.getClient();
+      if (!client) {
+        return { ok: false, error: 'Not connected to XNAT' };
+      }
+
+      try {
+        const buffer = Buffer.from(dicomSegBase64, 'base64');
+        console.log(
+          `[uploadHandlers] Overwriting DICOM SEG in scan ${targetScanId} (${buffer.length} bytes)`,
+        );
+
+        const result = await client.overwriteDicomSegInScan(sessionId, targetScanId, buffer);
+        return { ok: true, url: result.url, scanId: result.scanId };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error('[uploadHandlers] Overwrite failed:', msg);
+        return { ok: false, error: msg };
+      }
+    },
+  );
+
+  // ─── Auto-save to session-level temp resource ──────────────────
+  ipcMain.handle(
+    IPC.XNAT_AUTOSAVE_TEMP,
+    async (
+      _event,
+      sessionId: string,
+      sourceScanId: string,
+      dicomSegBase64: string,
+    ) => {
+      const client = sessionManager.getClient();
+      if (!client) {
+        return { ok: false, error: 'Not connected to XNAT' };
+      }
+
+      try {
+        const buffer = Buffer.from(dicomSegBase64, 'base64');
+        console.log(
+          `[uploadHandlers] Auto-saving to temp resource (${buffer.length} bytes, source scan: ${sourceScanId})`,
+        );
+
+        const result = await client.autoSaveToTemp(sessionId, sourceScanId, buffer);
+        return { ok: true, url: result.url };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error('[uploadHandlers] Auto-save to temp failed:', msg);
+        return { ok: false, error: msg };
+      }
+    },
+  );
+
+  // ─── List temp resource files ──────────────────────────────────
+  ipcMain.handle(
+    IPC.XNAT_LIST_TEMP_FILES,
+    async (_event, sessionId: string) => {
+      const client = sessionManager.getClient();
+      if (!client) {
+        return { ok: false, error: 'Not connected to XNAT' };
+      }
+
+      try {
+        const files = await client.listTempFiles(sessionId);
+        return { ok: true, files };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error('[uploadHandlers] List temp files failed:', msg);
+        return { ok: false, error: msg };
+      }
+    },
+  );
+
+  // ─── Delete temp resource file ─────────────────────────────────
+  ipcMain.handle(
+    IPC.XNAT_DELETE_TEMP_FILE,
+    async (_event, sessionId: string, filename: string) => {
+      const client = sessionManager.getClient();
+      if (!client) {
+        return { ok: false, error: 'Not connected to XNAT' };
+      }
+
+      try {
+        await client.deleteTempFile(sessionId, filename);
+        return { ok: true };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error('[uploadHandlers] Delete temp file failed:', msg);
+        return { ok: false, error: msg };
+      }
+    },
+  );
+
+  // ─── Download temp resource file ───────────────────────────────
+  ipcMain.handle(
+    IPC.XNAT_DOWNLOAD_TEMP_FILE,
+    async (_event, sessionId: string, filename: string) => {
+      const client = sessionManager.getClient();
+      if (!client) {
+        return { ok: false, error: 'Not connected to XNAT' };
+      }
+
+      try {
+        const buffer = await client.downloadTempFile(sessionId, filename);
+        return { ok: true, data: buffer.toString('base64') };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error('[uploadHandlers] Download temp file failed:', msg);
+        return { ok: false, error: msg };
+      }
+    },
+  );
+
   // ─── Upload DICOM RTSTRUCT to XNAT (as a scan) ─────────────────
   ipcMain.handle(
     IPC.XNAT_UPLOAD_DICOM_RTSTRUCT,

@@ -638,6 +638,190 @@ export class XnatClient {
     return { url: scanUrl, scanId: targetScanId };
   }
 
+  // ─── Overwrite Existing Scan ─────────────────────────────────────
+
+  /**
+   * Overwrite the DICOM SEG file within an existing scan.
+   * Deletes old files and uploads new content to the same scan ID.
+   */
+  async overwriteDicomSegInScan(
+    sessionId: string,
+    targetScanId: string,
+    dicomBuffer: Buffer,
+  ): Promise<{ url: string; scanId: string }> {
+    if (!this.token) throw new Error('Not authenticated');
+
+    console.log(
+      `[xnatClient] Overwriting DICOM SEG in scan ${targetScanId}`,
+      `(${(dicomBuffer.length / 1024).toFixed(1)} KB)`,
+    );
+
+    const basePath = `/data/experiments/${encodeURIComponent(sessionId)}`
+      + `/scans/${encodeURIComponent(targetScanId)}`;
+
+    // Delete existing files in the scan's DICOM resource
+    const deleteUrl = `${this.baseUrl}${basePath}/resources/DICOM/files`;
+    const deleteResp = await fetch(deleteUrl, {
+      method: 'DELETE',
+      headers: this.buildAuthHeaders(),
+    });
+    if (!deleteResp.ok && deleteResp.status !== 404) {
+      console.warn(`[xnatClient] Overwrite: could not delete old files (${deleteResp.status}), continuing`);
+    }
+
+    // Upload the new DICOM file
+    const fileUrl = `${this.baseUrl}${basePath}/resources/DICOM/files/segmentation.dcm?format=DICOM&content=SEG`;
+    const fileResp = await fetch(fileUrl, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/dicom',
+        ...this.buildAuthHeaders(),
+      },
+      body: new Uint8Array(dicomBuffer),
+    });
+
+    if (!fileResp.ok) {
+      const text = await fileResp.text().catch(() => '');
+      throw new Error(`Failed to overwrite SEG in scan ${targetScanId}: ${fileResp.status} ${text}`.trim());
+    }
+
+    const scanUrl = `${this.baseUrl}${basePath}`;
+    console.log(`[xnatClient] Overwrite successful: ${scanUrl}`);
+    return { url: scanUrl, scanId: targetScanId };
+  }
+
+  // ─── Temp Resource (Session-Level Auto-Save) ──────────────────────
+
+  /**
+   * Auto-save a DICOM SEG to the session-level "temp" resource folder.
+   * Filename: autosave_seg_{sourceScanId}.dcm
+   * XNAT auto-creates the "temp" resource on first PUT.
+   */
+  async autoSaveToTemp(
+    sessionId: string,
+    sourceScanId: string,
+    dicomBuffer: Buffer,
+  ): Promise<{ url: string }> {
+    if (!this.token) throw new Error('Not authenticated');
+
+    const filename = `autosave_seg_${sourceScanId}.dcm`;
+    console.log(
+      `[xnatClient] Auto-saving to temp resource: ${filename}`,
+      `(${(dicomBuffer.length / 1024).toFixed(1)} KB)`,
+    );
+
+    const fileUrl = `${this.baseUrl}/data/experiments/${encodeURIComponent(sessionId)}`
+      + `/resources/temp/files/${encodeURIComponent(filename)}`
+      + `?format=DICOM&content=SEG&overwrite=true`;
+
+    const resp = await fetch(fileUrl, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/dicom',
+        ...this.buildAuthHeaders(),
+      },
+      body: new Uint8Array(dicomBuffer),
+    });
+
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => '');
+      if (resp.status === 403) {
+        throw new Error('Permission denied: you do not have write access to this session');
+      }
+      throw new Error(`Failed to auto-save to temp: ${resp.status} ${text}`.trim());
+    }
+
+    console.log(`[xnatClient] Auto-save to temp successful: ${filename}`);
+    return { url: fileUrl };
+  }
+
+  /**
+   * List files in the session-level "temp" resource.
+   * Returns empty array if the resource does not exist.
+   */
+  async listTempFiles(
+    sessionId: string,
+  ): Promise<Array<{ name: string; uri: string; size: number }>> {
+    if (!this.token) throw new Error('Not authenticated');
+
+    const url = `${this.baseUrl}/data/experiments/${encodeURIComponent(sessionId)}`
+      + `/resources/temp/files?format=json`;
+
+    const resp = await fetch(url, {
+      method: 'GET',
+      headers: this.buildAuthHeaders(),
+    });
+
+    if (resp.status === 404) {
+      // Resource doesn't exist yet — no temp files
+      return [];
+    }
+
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => '');
+      throw new Error(`Failed to list temp files: ${resp.status} ${text}`.trim());
+    }
+
+    const data = await resp.json();
+    const results = data?.ResultSet?.Result ?? [];
+    return results.map((r: any) => ({
+      name: r.Name,
+      uri: r.URI,
+      size: parseInt(r.Size, 10) || 0,
+    }));
+  }
+
+  /**
+   * Delete a specific file from the session-level "temp" resource.
+   */
+  async deleteTempFile(
+    sessionId: string,
+    filename: string,
+  ): Promise<void> {
+    if (!this.token) throw new Error('Not authenticated');
+
+    const url = `${this.baseUrl}/data/experiments/${encodeURIComponent(sessionId)}`
+      + `/resources/temp/files/${encodeURIComponent(filename)}`;
+
+    const resp = await fetch(url, {
+      method: 'DELETE',
+      headers: this.buildAuthHeaders(),
+    });
+
+    if (!resp.ok && resp.status !== 404) {
+      const text = await resp.text().catch(() => '');
+      throw new Error(`Failed to delete temp file ${filename}: ${resp.status} ${text}`.trim());
+    }
+
+    console.log(`[xnatClient] Deleted temp file: ${filename}`);
+  }
+
+  /**
+   * Download a file from the session-level "temp" resource.
+   */
+  async downloadTempFile(
+    sessionId: string,
+    filename: string,
+  ): Promise<Buffer> {
+    if (!this.token) throw new Error('Not authenticated');
+
+    const url = `${this.baseUrl}/data/experiments/${encodeURIComponent(sessionId)}`
+      + `/resources/temp/files/${encodeURIComponent(filename)}`;
+
+    const resp = await fetch(url, {
+      method: 'GET',
+      headers: this.buildAuthHeaders(),
+    });
+
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => '');
+      throw new Error(`Failed to download temp file ${filename}: ${resp.status} ${text}`.trim());
+    }
+
+    const arrayBuffer = await resp.arrayBuffer();
+    return Buffer.from(arrayBuffer);
+  }
+
   // ─── Getters ───────────────────────────────────────────────────
 
   get isAuthenticated(): boolean {

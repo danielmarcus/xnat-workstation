@@ -55,6 +55,27 @@ export interface ElectronAPI {
       sourceScanId: string,
       dicomBase64: string,
     ): Promise<XnatUploadResult>;
+    overwriteDicomSeg(
+      sessionId: string,
+      targetScanId: string,
+      dicomBase64: string,
+    ): Promise<XnatUploadResult>;
+    autoSaveTemp(
+      sessionId: string,
+      sourceScanId: string,
+      dicomBase64: string,
+    ): Promise<{ ok: boolean; url?: string; error?: string }>;
+    listTempFiles(
+      sessionId: string,
+    ): Promise<{ ok: boolean; files?: Array<{ name: string; uri: string; size: number }>; error?: string }>;
+    deleteTempFile(
+      sessionId: string,
+      filename: string,
+    ): Promise<{ ok: boolean; error?: string }>;
+    downloadTempFile(
+      sessionId: string,
+      filename: string,
+    ): Promise<{ ok: boolean; data?: string; error?: string }>;
   };
   export: {
     saveScreenshot(

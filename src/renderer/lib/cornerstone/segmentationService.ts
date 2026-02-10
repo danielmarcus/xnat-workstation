@@ -26,6 +26,10 @@
  *   setBrushSize()            — Set brush radius
  *   loadDicomSeg()            — Parse DICOM SEG file and add as segmentation
  *   exportToDicomSeg()        — Export segmentation as DICOM SEG binary (base64)
+ *   undo()                    — Undo last segmentation/contour edit
+ *   redo()                    — Redo previously undone edit
+ *   getUndoState()            — Query undo/redo availability
+ *   cancelAutoSave()          — Cancel pending auto-save timer
  *   sync()                    — Force re-sync to store
  *   dispose()                 — Remove event listeners
  */
@@ -45,6 +49,7 @@ void adaptersUtilities;
 import { data as dcmjsData } from 'dcmjs';
 import { useSegmentationStore } from '../../stores/segmentationStore';
 import type { SegmentationSummary, SegmentSummary } from '../../stores/segmentationStore';
+import { useViewerStore } from '../../stores/viewerStore';
 // NOTE: We use the tool group ID directly here instead of importing from
 // toolService to avoid a circular dependency (toolService → segmentationService).
 const TOOL_GROUP_ID = 'xnatToolGroup_primary';
@@ -66,6 +71,12 @@ const DEFAULT_COLORS: [number, number, number, number][] = [
 ];
 
 let segmentationCounter = 0;
+
+/**
+ * Cornerstone3D's built-in undo/redo ring buffer.
+ * All segmentation/contour tools automatically push memos here via BaseTool.doneEditMemo().
+ */
+const { DefaultHistoryMemo } = (csUtilities as any).HistoryMemo;
 
 /**
  * Tracks the original source imageIds for each segmentation, keyed by segmentationId.
@@ -259,6 +270,74 @@ function syncSegmentations(): void {
 /** Event handler — sync on any segmentation change */
 function onSegmentationEvent(): void {
   syncSegmentations();
+  refreshUndoState();
+}
+
+/** Push canUndo/canRedo booleans into the Zustand store. */
+function refreshUndoState(): void {
+  useSegmentationStore.getState()._refreshUndoState(
+    DefaultHistoryMemo.canUndo,
+    DefaultHistoryMemo.canRedo,
+  );
+}
+
+// ─── Auto-Save Logic ─────────────────────────────────────────────
+
+let autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
+const AUTO_SAVE_DELAY = 10_000; // 10 seconds after last edit
+
+/** Called when segmentation pixel data changes — debounces auto-save. */
+function onSegmentationDataModified(): void {
+  scheduleAutoSave();
+}
+
+function scheduleAutoSave(): void {
+  if (autoSaveTimer) clearTimeout(autoSaveTimer);
+  autoSaveTimer = setTimeout(performAutoSave, AUTO_SAVE_DELAY);
+}
+
+/** Cancel any pending auto-save (e.g. when a manual save starts). */
+function cancelAutoSave(): void {
+  if (autoSaveTimer) {
+    clearTimeout(autoSaveTimer);
+    autoSaveTimer = null;
+  }
+}
+
+async function performAutoSave(): Promise<void> {
+  autoSaveTimer = null;
+  const segStore = useSegmentationStore.getState();
+  if (!segStore.autoSaveEnabled) return;
+
+  const xnatContext = useViewerStore.getState().xnatContext;
+  if (!xnatContext) return; // Not connected to XNAT or no context
+
+  const activeSegId = segStore.activeSegmentationId;
+  if (!activeSegId) return;
+
+  // Determine source scan: from origin if loaded from XNAT, else from context
+  const origin = segStore.xnatOriginMap[activeSegId];
+  const sourceScanId = origin?.sourceScanId ?? xnatContext.scanId;
+
+  segStore._setAutoSaveStatus('saving');
+  try {
+    const base64 = await segmentationService.exportToDicomSeg(activeSegId);
+    const result = await window.electronAPI.xnat.autoSaveTemp(
+      xnatContext.sessionId,
+      sourceScanId,
+      base64,
+    );
+    if (result.ok) {
+      segStore._setAutoSaveStatus('saved');
+      console.log(`[segmentationService] Auto-saved to temp resource for source scan ${sourceScanId}`);
+    } else {
+      console.error('[segmentationService] Auto-save to temp failed:', result.error);
+      segStore._setAutoSaveStatus('error');
+    }
+  } catch (err) {
+    console.error('[segmentationService] Auto-save failed:', err);
+    segStore._setAutoSaveStatus('error');
+  }
 }
 
 let initialized = false;
@@ -281,6 +360,12 @@ export const segmentationService = {
     eventTarget.addEventListener(Events.SEGMENTATION_REPRESENTATION_MODIFIED, onSegmentationEvent);
     eventTarget.addEventListener(Events.SEGMENTATION_REPRESENTATION_ADDED, onSegmentationEvent);
     eventTarget.addEventListener(Events.SEGMENTATION_REPRESENTATION_REMOVED, onSegmentationEvent);
+
+    // Auto-save: listen specifically for pixel-data changes (not metadata-only)
+    eventTarget.addEventListener(Events.SEGMENTATION_DATA_MODIFIED, onSegmentationDataModified);
+
+    // Increase undo ring buffer from default 50 to 200 for deep undo history
+    DefaultHistoryMemo.size = 200;
 
     initialized = true;
     console.log('[segmentationService] Initialized — listening for segmentation events');
@@ -1963,6 +2048,44 @@ export const segmentationService = {
     sourceImageIdsMap.set(segmentationId, [...imageIds]);
   },
 
+  // ─── Undo / Redo ──────────────────────────────────────────────
+
+  /**
+   * Undo the last segmentation/contour edit.
+   * Uses Cornerstone3D's DefaultHistoryMemo ring buffer.
+   */
+  undo(): void {
+    if (!DefaultHistoryMemo.canUndo) return;
+    DefaultHistoryMemo.undo();
+    syncSegmentations();
+    refreshUndoState();
+  },
+
+  /**
+   * Redo a previously undone edit.
+   */
+  redo(): void {
+    if (!DefaultHistoryMemo.canRedo) return;
+    DefaultHistoryMemo.redo();
+    syncSegmentations();
+    refreshUndoState();
+  },
+
+  /**
+   * Get current undo/redo availability (for external callers).
+   */
+  getUndoState(): { canUndo: boolean; canRedo: boolean } {
+    return {
+      canUndo: DefaultHistoryMemo.canUndo,
+      canRedo: DefaultHistoryMemo.canRedo,
+    };
+  },
+
+  /**
+   * Cancel any pending auto-save timer (e.g. when a manual save starts).
+   */
+  cancelAutoSave,
+
   /**
    * Force a re-sync of segmentation summaries (e.g. after viewport changes).
    */
@@ -1982,6 +2105,13 @@ export const segmentationService = {
     eventTarget.removeEventListener(Events.SEGMENTATION_REPRESENTATION_MODIFIED, onSegmentationEvent);
     eventTarget.removeEventListener(Events.SEGMENTATION_REPRESENTATION_ADDED, onSegmentationEvent);
     eventTarget.removeEventListener(Events.SEGMENTATION_REPRESENTATION_REMOVED, onSegmentationEvent);
+    eventTarget.removeEventListener(Events.SEGMENTATION_DATA_MODIFIED, onSegmentationDataModified);
+
+    // Cancel pending auto-save
+    if (autoSaveTimer) {
+      clearTimeout(autoSaveTimer);
+      autoSaveTimer = null;
+    }
 
     // Clean up module-level state
     sourceImageIdsMap.clear();

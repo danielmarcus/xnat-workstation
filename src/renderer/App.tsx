@@ -62,11 +62,101 @@ function isDerivedScan(scan: XnatScan): boolean {
  * Returns null if the scan ID doesn't follow the convention.
  */
 function getSourceScanId(segScanId: string): string | null {
-  const match = segScanId.match(/^(3\d)(\d{2})$/);
+  // Matches 30xx-39xx (manual SEG saves) and 50xx-59xx (legacy auto-saves)
+  const match = segScanId.match(/^([35]\d)(\d{2})$/);
   if (!match) return null;
   const sourceId = parseInt(match[2], 10);
   if (sourceId === 0) return null; // scan ID "0" is not valid
   return String(sourceId);
+}
+
+/**
+ * Check for auto-saved temp files on the XNAT session and prompt recovery.
+ * Called after all scans are loaded in loadSessionFromXnat().
+ */
+async function checkForAutoSaveRecovery(
+  sessionId: string,
+  scanIdToPanelInfo: Map<string, { pid: string; ids: string[] }>,
+): Promise<void> {
+  try {
+    const result = await window.electronAPI.xnat.listTempFiles(sessionId);
+    if (!result.ok || !result.files || result.files.length === 0) return;
+
+    // Find auto-save SEG files
+    const autoSaveFiles = result.files.filter(
+      (f) => f.name.startsWith('autosave_seg_') && f.name.endsWith('.dcm'),
+    );
+    if (autoSaveFiles.length === 0) return;
+
+    for (const file of autoSaveFiles) {
+      const match = file.name.match(/^autosave_seg_(.+)\.dcm$/);
+      if (!match) continue;
+      const sourceScanId = match[1];
+
+      // Find the panel with the matching source scan loaded
+      const panelInfo = scanIdToPanelInfo.get(sourceScanId);
+      if (!panelInfo) {
+        console.warn(`[App] Auto-save recovery: source scan #${sourceScanId} not loaded, skipping`);
+        continue;
+      }
+
+      // Prompt the user
+      const recover = window.confirm(
+        `An auto-saved segmentation was found for scan #${sourceScanId}.\n\n` +
+        `This may be from an editing session that was not saved.\n\n` +
+        `Would you like to recover it?`,
+      );
+
+      if (recover) {
+        try {
+          const downloadResult = await window.electronAPI.xnat.downloadTempFile(
+            sessionId, file.name,
+          );
+          if (!downloadResult.ok || !downloadResult.data) {
+            console.error(`[App] Failed to download temp file: ${downloadResult.error}`);
+            continue;
+          }
+
+          // Convert base64 → ArrayBuffer
+          const binaryString = atob(downloadResult.data);
+          const bytes = new Uint8Array(binaryString.length);
+          for (let i = 0; i < binaryString.length; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+          }
+          const arrayBuffer = bytes.buffer;
+
+          // Pre-load source images
+          await preloadImages(panelInfo.ids);
+
+          // Load as segmentation overlay
+          const { segmentationId, firstNonZeroReferencedImageId } =
+            await segmentationService.loadDicomSeg(arrayBuffer, panelInfo.ids);
+          await segmentationService.addToViewport(panelInfo.pid, segmentationId);
+          await jumpViewportToReferencedImage(panelInfo.pid, firstNonZeroReferencedImageId);
+
+          // No origin set — recovered segmentation will create a new scan on first manual save
+
+          console.log(`[App] Recovered auto-save for scan #${sourceScanId} as ${segmentationId}`);
+
+          const segStore = useSegmentationStore.getState();
+          if (!segStore.showPanel) segStore.togglePanel();
+        } catch (err) {
+          console.error(`[App] Failed to load recovered auto-save for scan #${sourceScanId}:`, err);
+        }
+      } else {
+        // User declined — offer to delete the temp file
+        const deleteIt = window.confirm(
+          `Delete the auto-saved file for scan #${sourceScanId}?`,
+        );
+        if (deleteIt) {
+          await window.electronAPI.xnat.deleteTempFile(sessionId, file.name).catch(() => {});
+        }
+      }
+    }
+  } catch (err) {
+    console.error('[App] Auto-save recovery check failed:', err);
+    // Non-fatal — don't block session loading
+  }
 }
 
 /**
@@ -299,6 +389,10 @@ export default function App() {
     panelId: string;
     arrayBuffer: ArrayBuffer;
     sourceImageIds: string[];
+    /** XNAT scan ID of the SEG scan (e.g. "3004") — used for origin tracking */
+    xnatScanId?: string;
+    /** Source imaging scan ID (e.g. "4") — used for origin tracking */
+    sourceScanId?: string;
   } | null>(null);
 
   /** Tracks panels with an active deferred SEG load (set when loadSeg starts,
@@ -599,6 +693,14 @@ export default function App() {
         await jumpViewportToReferencedImage(pending.panelId, firstNonZeroReferencedImageId);
         console.log(`[App] Loaded deferred DICOM SEG as ${segmentationId} on ${pending.panelId}`);
 
+        // Track XNAT origin for overwrite-on-save
+        if (pending.xnatScanId && pending.sourceScanId) {
+          useSegmentationStore.getState().setXnatOrigin(segmentationId, {
+            scanId: pending.xnatScanId,
+            sourceScanId: pending.sourceScanId,
+          });
+        }
+
         // Open segmentation panel
         const segStore = useSegmentationStore.getState();
         if (!segStore.showPanel) segStore.togglePanel();
@@ -734,6 +836,8 @@ export default function App() {
             panelId: segTargetPanel,
             arrayBuffer,
             sourceImageIds: resolvedSourceIds,
+            xnatScanId: scanId,
+            sourceScanId: resolvedScanId,
           };
           // Mark panel as having a SEG load in progress BEFORE triggering
           // any React re-renders or viewport recreation. This prevents
@@ -756,6 +860,15 @@ export default function App() {
         await segmentationService.addToViewport(segTargetPanel, segmentationId);
         await jumpViewportToReferencedImage(segTargetPanel, firstNonZeroReferencedImageId);
         console.log(`[App] Loaded DICOM SEG from XNAT as ${segmentationId} on ${segTargetPanel}`);
+
+        // Track XNAT origin for overwrite-on-save
+        const directSourceScanId = getSourceScanId(scanId);
+        if (directSourceScanId) {
+          useSegmentationStore.getState().setXnatOrigin(segmentationId, {
+            scanId,
+            sourceScanId: directSourceScanId,
+          });
+        }
 
         // 7. Open segmentation panel
         const segStore = useSegmentationStore.getState();
@@ -1034,6 +1147,16 @@ export default function App() {
                 await segmentationService.loadDicomSeg(arrayBuffer, matchedPanel.ids);
               await segmentationService.addToViewport(matchedPanel.pid, segmentationId);
               await jumpViewportToReferencedImage(matchedPanel.pid, firstNonZeroReferencedImageId);
+
+              // Track XNAT origin for overwrite-on-save
+              const segSourceScanId = getSourceScanId(segScan.id);
+              if (segSourceScanId) {
+                useSegmentationStore.getState().setXnatOrigin(segmentationId, {
+                  scanId: segScan.id,
+                  sourceScanId: segSourceScanId,
+                });
+              }
+
               segLoaded = true;
             } catch (err) {
               console.error(`[App] Failed to load SEG #${segScan.id}:`, err);
@@ -1119,6 +1242,10 @@ export default function App() {
             if (!segStore.showPanel) segStore.togglePanel();
           }
         }
+
+        // ─── Check for auto-save recovery (temp resource files) ──────
+        await checkForAutoSaveRecovery(sessionId, scanIdToPanelInfo);
+
       } catch (err) {
         console.error('Session load failed:', err);
         setLoadError(err instanceof Error ? err.message : String(err));

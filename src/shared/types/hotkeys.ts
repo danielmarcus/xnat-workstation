@@ -60,6 +60,9 @@ export type HotkeyAction =
   | 'slice.nextPage'
   | 'slice.first'
   | 'slice.last'
+  // Edit actions
+  | 'edit.undo'
+  | 'edit.redo'
   // W/L presets (by index)
   | 'preset.wl.0'
   | 'preset.wl.1'

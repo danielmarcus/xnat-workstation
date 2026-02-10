@@ -531,3 +531,23 @@ export function IconUpload(props: IconProps) {
     </svg>
   );
 }
+
+/** Undo — counter-clockwise arrow */
+export function IconUndo(props: IconProps) {
+  return (
+    <svg {...defaults(props)}>
+      <path d="M4 6h5.5a3.5 3.5 0 0 1 0 7H8" />
+      <polyline points="7,3.5 4,6 7,8.5" />
+    </svg>
+  );
+}
+
+/** Redo — clockwise arrow */
+export function IconRedo(props: IconProps) {
+  return (
+    <svg {...defaults(props)}>
+      <path d="M12 6H6.5a3.5 3.5 0 0 0 0 7H8" />
+      <polyline points="9,3.5 12,6 9,8.5" />
+    </svg>
+  );
+}

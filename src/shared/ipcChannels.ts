@@ -3,7 +3,8 @@
  *
  * renderer → main (invoke/handle):
  *   XNAT_LOGIN, XNAT_LOGOUT, XNAT_VALIDATE, XNAT_GET_CONNECTION, XNAT_DICOMWEB_FETCH,
- *   XNAT_UPLOAD_DICOM_SEG, XNAT_UPLOAD_DICOM_RTSTRUCT
+ *   XNAT_UPLOAD_DICOM_SEG, XNAT_UPLOAD_DICOM_RTSTRUCT, XNAT_OVERWRITE_DICOM_SEG,
+ *   XNAT_AUTOSAVE_TEMP, XNAT_LIST_TEMP_FILES, XNAT_DELETE_TEMP_FILE, XNAT_DOWNLOAD_TEMP_FILE
  *
  * main → renderer (send/on):
  *   XNAT_SESSION_EXPIRED
@@ -31,6 +32,13 @@ export const IPC = {
   // XNAT upload (renderer → main)
   XNAT_UPLOAD_DICOM_SEG: 'xnat:upload-dicom-seg',
   XNAT_UPLOAD_DICOM_RTSTRUCT: 'xnat:upload-dicom-rtstruct',
+  XNAT_OVERWRITE_DICOM_SEG: 'xnat:overwrite-dicom-seg',
+
+  // XNAT temp resource (auto-save, renderer → main)
+  XNAT_AUTOSAVE_TEMP: 'xnat:autosave-temp',
+  XNAT_LIST_TEMP_FILES: 'xnat:list-temp-files',
+  XNAT_DELETE_TEMP_FILE: 'xnat:delete-temp-file',
+  XNAT_DOWNLOAD_TEMP_FILE: 'xnat:download-temp-file',
 
   // Session events (main → renderer)
   XNAT_SESSION_EXPIRED: 'xnat:session-expired',
