@@ -166,6 +166,14 @@ function dispatchAction(action: HotkeyAction): boolean {
       return true;
     }
 
+    // Edit actions
+    case 'edit.undo':
+      segmentationService.undo();
+      return true;
+    case 'edit.redo':
+      segmentationService.redo();
+      return true;
+
     // Slice navigation
     case 'slice.prev':
     case 'slice.next':

@@ -58,6 +58,34 @@ interface SegmentationStore {
   /** Spline type for SplineContourSegmentationTool */
   splineType: 'CARDINAL' | 'BSPLINE' | 'CATMULLROM' | 'LINEAR';
 
+  // ─── Undo/Redo State ──────────────────────────────────────
+
+  /** Whether undo is available (from Cornerstone HistoryMemo) */
+  canUndo: boolean;
+
+  /** Whether redo is available (from Cornerstone HistoryMemo) */
+  canRedo: boolean;
+
+  // ─── Auto-Save State ──────────────────────────────────────
+
+  /** Whether auto-save to XNAT is enabled */
+  autoSaveEnabled: boolean;
+
+  /** Current auto-save status */
+  autoSaveStatus: 'idle' | 'saving' | 'saved' | 'error';
+
+  /** Timestamp of last successful auto-save */
+  lastAutoSaveTime: number | null;
+
+  // ─── XNAT Origin Tracking ─────────────────────────────────
+
+  /**
+   * Maps segmentationId → the XNAT scan it was loaded from.
+   * Used to overwrite the same scan on manual save instead of creating a new one.
+   * Entries absent for locally-created segmentations (first save creates new 30xx scan).
+   */
+  xnatOriginMap: Record<string, { scanId: string; sourceScanId: string }>;
+
   // ─── Actions ─────────────────────────────────────────────
 
   /** Internal: sync segmentation list from segmentationService */
@@ -89,6 +117,21 @@ interface SegmentationStore {
 
   /** Toggle panel visibility */
   togglePanel: () => void;
+
+  /** Internal: refresh undo/redo availability from HistoryMemo */
+  _refreshUndoState: (canUndo: boolean, canRedo: boolean) => void;
+
+  /** Enable or disable auto-save */
+  setAutoSaveEnabled: (enabled: boolean) => void;
+
+  /** Internal: update auto-save status */
+  _setAutoSaveStatus: (status: 'idle' | 'saving' | 'saved' | 'error') => void;
+
+  /** Set the XNAT origin scan for a segmentation (called after load or first save) */
+  setXnatOrigin: (segmentationId: string, origin: { scanId: string; sourceScanId: string }) => void;
+
+  /** Clear the XNAT origin for a segmentation (e.g. when deleted) */
+  clearXnatOrigin: (segmentationId: string) => void;
 }
 
 export const useSegmentationStore = create<SegmentationStore>((set) => ({
@@ -102,6 +145,12 @@ export const useSegmentationStore = create<SegmentationStore>((set) => ({
   thresholdRange: [-200, 200],
   activeSegTool: null,
   splineType: 'CATMULLROM',
+  canUndo: false,
+  canRedo: false,
+  autoSaveEnabled: true,
+  autoSaveStatus: 'idle',
+  lastAutoSaveTime: null,
+  xnatOriginMap: {},
 
   _sync: (segmentations) => set({ segmentations }),
 
@@ -122,4 +171,25 @@ export const useSegmentationStore = create<SegmentationStore>((set) => ({
   setSplineType: (type) => set({ splineType: type }),
 
   togglePanel: () => set((s) => ({ showPanel: !s.showPanel })),
+
+  _refreshUndoState: (canUndo, canRedo) => set({ canUndo, canRedo }),
+
+  setAutoSaveEnabled: (enabled) => set({ autoSaveEnabled: enabled }),
+
+  _setAutoSaveStatus: (status) =>
+    set({
+      autoSaveStatus: status,
+      ...(status === 'saved' ? { lastAutoSaveTime: Date.now() } : {}),
+    }),
+
+  setXnatOrigin: (segmentationId, origin) =>
+    set((s) => ({
+      xnatOriginMap: { ...s.xnatOriginMap, [segmentationId]: origin },
+    })),
+
+  clearXnatOrigin: (segmentationId) =>
+    set((s) => {
+      const { [segmentationId]: _, ...rest } = s.xnatOriginMap;
+      return { xnatOriginMap: rest };
+    }),
 }));

@@ -3,8 +3,9 @@
  *
  * Conventions:
  * - Single lowercase letters for frequent tools (OHIF-inspired)
- * - No Ctrl+letter combos that conflict with Electron/OS defaults
- *   (Ctrl+C/V/X/Z/A/S/W/Q all avoided)
+ * - Ctrl+Z / Ctrl+Shift+Z reserved for undo/redo
+ * - Other Ctrl combos that conflict with Electron/OS defaults avoided
+ *   (Ctrl+C/V/X/A/S/W/Q)
  * - Arrow keys + PageUp/Down for slice navigation (standard DICOM viewer)
  * - Numbers 1-4 for layout switching
  * - Ctrl+1..5 for W/L presets (avoids conflict with layout keys)
@@ -60,6 +61,10 @@ export const DEFAULT_HOTKEY_MAP: HotkeyMap = {
   'slice.nextPage': [{ key: 'PageDown' }],
   'slice.first':    [{ key: 'Home' }],
   'slice.last':     [{ key: 'End' }],
+
+  // ─── Edit Actions ──────────────────────────────────────────
+  'edit.undo': [{ key: 'z', modifiers: { ctrl: true } }],
+  'edit.redo': [{ key: 'z', modifiers: { ctrl: true, shift: true } }],
 
   // ─── W/L Presets (Ctrl+number) ──────────────────────────────
   'preset.wl.0': [{ key: '1', modifiers: { ctrl: true } }], // CT Soft Tissue

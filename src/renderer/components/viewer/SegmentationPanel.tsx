@@ -76,6 +76,9 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
   const thresholdRange = useSegmentationStore((s) => s.thresholdRange);
   const splineType = useSegmentationStore((s) => s.splineType);
   const setSplineType = useSegmentationStore((s) => s.setSplineType);
+  const autoSaveEnabled = useSegmentationStore((s) => s.autoSaveEnabled);
+  const autoSaveStatus = useSegmentationStore((s) => s.autoSaveStatus);
+  const setAutoSaveEnabled = useSegmentationStore((s) => s.setAutoSaveEnabled);
   const activeViewportId = useViewerStore((s) => s.activeViewportId);
   const xnatContext = useViewerStore((s) => s.xnatContext);
   const connectionStatus = useConnectionStore((s) => s.status);
@@ -106,6 +109,16 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
     const timer = setTimeout(() => setToast(null), 3000);
     return () => clearTimeout(timer);
   }, [toast]);
+
+  // Auto-dismiss auto-save "saved" / "error" status after a few seconds
+  useEffect(() => {
+    if (autoSaveStatus !== 'saved' && autoSaveStatus !== 'error') return;
+    const delay = autoSaveStatus === 'saved' ? 3000 : 5000;
+    const timer = setTimeout(() => {
+      useSegmentationStore.getState()._setAutoSaveStatus('idle');
+    }, delay);
+    return () => clearTimeout(timer);
+  }, [autoSaveStatus]);
 
   // Close save menu on outside click
   useEffect(() => {
@@ -227,21 +240,56 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
       setToast({ message: 'No XNAT session context — load images from XNAT first', type: 'error' });
       return;
     }
+
+    // Cancel any pending auto-save so it doesn't race with the manual save
+    segmentationService.cancelAutoSave();
+
     setSaving(true);
     try {
       const base64 = await segmentationService.exportToDicomSeg(segmentationId);
-      const result = await window.electronAPI.xnat.uploadDicomSeg(
-        xnatContext.projectId,
-        xnatContext.subjectId,
-        xnatContext.sessionId,
-        xnatContext.sessionLabel,
-        xnatContext.scanId,
-        base64,
-      );
-      if (result.ok) {
-        setToast({ message: 'Uploaded to XNAT successfully', type: 'success' });
+      const origin = useSegmentationStore.getState().xnatOriginMap[segmentationId];
+
+      let result: { ok: boolean; url?: string; scanId?: string; error?: string };
+
+      if (origin) {
+        // Overwrite existing scan
+        result = await window.electronAPI.xnat.overwriteDicomSeg(
+          xnatContext.sessionId,
+          origin.scanId,
+          base64,
+        );
+        if (result.ok) {
+          setToast({ message: `Saved to scan ${origin.scanId}`, type: 'success' });
+        }
       } else {
+        // First save: create new 30xx scan
+        result = await window.electronAPI.xnat.uploadDicomSeg(
+          xnatContext.projectId,
+          xnatContext.subjectId,
+          xnatContext.sessionId,
+          xnatContext.sessionLabel,
+          xnatContext.scanId,
+          base64,
+        );
+        if (result.ok && result.scanId) {
+          // Track origin for future overwrites
+          useSegmentationStore.getState().setXnatOrigin(segmentationId, {
+            scanId: result.scanId,
+            sourceScanId: xnatContext.scanId,
+          });
+          setToast({ message: `Uploaded to XNAT as scan ${result.scanId}`, type: 'success' });
+        }
+      }
+
+      if (!result.ok) {
         setToast({ message: `Upload failed: ${result.error}`, type: 'error' });
+      } else {
+        // Clean up temp auto-save file (non-blocking, non-fatal)
+        const sourceScanId = origin?.sourceScanId ?? xnatContext.scanId;
+        const tempFilename = `autosave_seg_${sourceScanId}.dcm`;
+        window.electronAPI.xnat.deleteTempFile(xnatContext.sessionId, tempFilename).catch(() => {
+          // Ignore — temp file may not exist
+        });
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Upload failed';
@@ -630,6 +678,52 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
           />
           <span className="text-[10px] text-zinc-400">Show Outline</span>
         </label>
+
+        {/* Auto-save toggle + status (only when connected to XNAT) */}
+        {isXnatConnected && xnatContext && (
+          <div className="flex items-center justify-between">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={autoSaveEnabled}
+                onChange={(e) => setAutoSaveEnabled(e.target.checked)}
+                className="w-3 h-3 rounded border-zinc-600 bg-zinc-800 accent-blue-500"
+              />
+              <span className="text-[10px] text-zinc-400">Auto-Save</span>
+            </label>
+            {autoSaveEnabled && (
+              <span className="text-[9px] flex items-center gap-1">
+                {autoSaveStatus === 'saving' && (
+                  <>
+                    <svg className="animate-spin h-2.5 w-2.5 text-blue-400" viewBox="0 0 24 24" fill="none">
+                      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" className="opacity-25" />
+                      <path d="M4 12a8 8 0 018-8" stroke="currentColor" strokeWidth="3" strokeLinecap="round" className="opacity-75" />
+                    </svg>
+                    <span className="text-blue-400">Saving...</span>
+                  </>
+                )}
+                {autoSaveStatus === 'saved' && (
+                  <>
+                    <svg className="h-2.5 w-2.5 text-green-400" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
+                      <polyline points="3,8 7,12 13,4" />
+                    </svg>
+                    <span className="text-green-400">Saved</span>
+                  </>
+                )}
+                {autoSaveStatus === 'error' && (
+                  <>
+                    <svg className="h-2.5 w-2.5 text-red-400" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
+                      <circle cx="8" cy="8" r="6" />
+                      <line x1="8" y1="5" x2="8" y2="9" />
+                      <circle cx="8" cy="11.5" r="0.5" fill="currentColor" />
+                    </svg>
+                    <span className="text-red-400">Failed</span>
+                  </>
+                )}
+              </span>
+            )}
+          </div>
+        )}
 
         {/* Threshold range (only when ThresholdBrush is active) */}
         {activeSegTool === 'ThresholdBrush' && (

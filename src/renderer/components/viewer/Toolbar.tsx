@@ -27,7 +27,10 @@ import {
   IconChevronDown,
   IconMPR,
   IconSegment,
+  IconUndo,
+  IconRedo,
 } from '../icons';
+import { segmentationService } from '../../lib/cornerstone/segmentationService';
 
 // ─── Shared Button Components ─────────────────────────────────────
 
@@ -67,20 +70,25 @@ function IconButton({
   active,
   onClick,
   title,
+  disabled,
 }: {
   icon: React.ReactNode;
   active?: boolean;
   onClick: () => void;
   title: string;
+  disabled?: boolean;
 }) {
   return (
     <button
       onClick={onClick}
       title={title}
+      disabled={disabled}
       className={`flex items-center justify-center p-1.5 rounded transition-colors ${
-        active
-          ? 'bg-blue-600 text-white'
-          : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-white'
+        disabled
+          ? 'bg-zinc-800 text-zinc-600 cursor-not-allowed opacity-40'
+          : active
+            ? 'bg-blue-600 text-white'
+            : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-white'
       }`}
     >
       {icon}
@@ -246,6 +254,8 @@ export default function Toolbar({ showDicomPanel = false, onToggleDicomPanel, on
   const flipV = useViewerStore((s) => s.flipV);
   const toggleCine = useViewerStore((s) => s.toggleCine);
   const setCineFps = useViewerStore((s) => s.setCineFps);
+  const canUndo = useSegmentationStore((s) => s.canUndo);
+  const canRedo = useSegmentationStore((s) => s.canRedo);
 
   return (
     <div className="h-10 bg-zinc-900 border-b border-zinc-800 flex items-center px-2 gap-1 shrink-0 overflow-x-auto">
@@ -401,6 +411,21 @@ export default function Toolbar({ showDicomPanel = false, onToggleDicomPanel, on
         title="Flip vertical"
       />
       <ExportDropdown />
+
+      {/* ─── Undo / Redo ──────────────────────────────── */}
+      <Separator />
+      <IconButton
+        icon={<IconUndo className="w-3.5 h-3.5" />}
+        onClick={() => segmentationService.undo()}
+        title="Undo (Ctrl+Z)"
+        disabled={!canUndo}
+      />
+      <IconButton
+        icon={<IconRedo className="w-3.5 h-3.5" />}
+        onClick={() => segmentationService.redo()}
+        title="Redo (Ctrl+Shift+Z)"
+        disabled={!canRedo}
+      />
 
       {/* ─── Cine Controls (hidden in MPR mode) ──────── */}
       {!mprActive && (
