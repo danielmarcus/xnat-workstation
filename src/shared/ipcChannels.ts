@@ -3,6 +3,7 @@
  *
  * renderer → main (invoke/handle):
  *   XNAT_LOGIN, XNAT_LOGOUT, XNAT_VALIDATE, XNAT_GET_CONNECTION, XNAT_DICOMWEB_FETCH,
+ *   XNAT_GET_PROJECT_SESSIONS,
  *   XNAT_UPLOAD_DICOM_SEG, XNAT_UPLOAD_DICOM_RTSTRUCT, XNAT_OVERWRITE_DICOM_SEG,
  *   XNAT_AUTOSAVE_TEMP, XNAT_LIST_TEMP_FILES, XNAT_DELETE_TEMP_FILE, XNAT_DOWNLOAD_TEMP_FILE
  *
@@ -25,6 +26,7 @@ export const IPC = {
   XNAT_GET_SESSIONS: 'xnat:get-sessions',
   XNAT_GET_SCANS: 'xnat:get-scans',
   XNAT_GET_SCAN_FILES: 'xnat:get-scan-files',
+  XNAT_GET_PROJECT_SESSIONS: 'xnat:get-project-sessions',
 
   // XNAT download (renderer → main)
   XNAT_DOWNLOAD_SCAN_FILE: 'xnat:download-scan-file',

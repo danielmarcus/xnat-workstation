@@ -1,4 +1,4 @@
-# XNAT Viewer
+# XNAT Workstation
 
 A desktop DICOM medical image viewer built with Electron that connects to [XNAT](https://www.xnat.org/) imaging repositories. Browse, view, annotate, segment, and export medical imaging studies with a modern interface powered by [Cornerstone3D](https://www.cornerstonejs.org/).
 
@@ -119,8 +119,8 @@ Download the latest release for your platform from the [Releases](https://github
 
 ### macOS
 
-1. Download `XNAT Viewer-<version>-arm64.dmg` (Apple Silicon) or the `.zip` archive
-2. Open the DMG and drag **XNAT Viewer** to your Applications folder
+1. Download `XNAT Workstation-<version>-arm64.dmg` (Apple Silicon) or the `.zip` archive
+2. Open the DMG and drag **XNAT Workstation** to your Applications folder
 3. On first launch, macOS may show a security warning since the app is not notarized. To open it:
    - Right-click (or Control-click) the app and select **Open**
    - Click **Open** in the dialog that appears
@@ -129,13 +129,13 @@ Download the latest release for your platform from the [Releases](https://github
 
 ### Windows
 
-1. Download `XNAT Viewer Setup-<version>.exe` (installer) or `XNAT Viewer-<version>.exe` (portable)
+1. Download `XNAT Workstation Setup-<version>.exe` (installer) or `XNAT Workstation-<version>.exe` (portable)
 2. Run the installer and follow the prompts, or run the portable EXE directly
 3. Launch the app and enter your XNAT server URL and credentials to connect
 
 ### Linux
 
-1. Download `XNAT Viewer-<version>.AppImage` or the `.deb` package
+1. Download `XNAT Workstation-<version>.AppImage` or the `.deb` package
 2. For AppImage: make it executable (`chmod +x`) and run it
 3. For Debian/Ubuntu: install with `sudo dpkg -i xnat-viewer_<version>_amd64.deb`
 4. Launch the app and enter your XNAT server URL and credentials to connect

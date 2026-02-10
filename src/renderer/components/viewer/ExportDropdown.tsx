@@ -15,6 +15,7 @@ import { wadouri } from '@cornerstonejs/dicom-image-loader';
 import { useViewerStore } from '../../stores/viewerStore';
 import { useAnnotationStore } from '../../stores/annotationStore';
 import { viewportService } from '../../lib/cornerstone/viewportService';
+import { IconExportFile } from '../icons';
 
 // ─── Toast Feedback ─────────────────────────────────────────────
 
@@ -159,7 +160,9 @@ export default function ExportDropdown() {
   const handleToggle = useCallback(() => {
     if (!open && buttonRef.current) {
       const rect = buttonRef.current.getBoundingClientRect();
-      setDropdownPos({ top: rect.bottom + 4, left: rect.left });
+      const dropdownWidth = 220;
+      const maxLeft = window.innerWidth - dropdownWidth - 8;
+      setDropdownPos({ top: rect.bottom + 4, left: Math.min(rect.left, maxLeft) });
     }
     setOpen((v) => !v);
   }, [open]);
@@ -396,33 +399,19 @@ export default function ExportDropdown() {
 
   return (
     <>
-      {/* Trigger button */}
+      {/* Trigger button — icon-only */}
       <button
         ref={buttonRef}
         onClick={handleToggle}
         disabled={busy}
-        className={`flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded transition-colors ${
+        className={`flex items-center justify-center p-1.5 rounded transition-colors ${
           open
             ? 'bg-blue-600 text-white'
             : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700 hover:text-white'
         } ${busy ? 'opacity-50 cursor-wait' : ''}`}
-        title="Export viewport"
+        title={progress ?? 'Export'}
       >
-        <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-          <path d="M8 2 V10" />
-          <polyline points="5,7 8,10 11,7" />
-          <path d="M2 12 V13 A1 1 0 0 0 3 14 H13 A1 1 0 0 0 14 13 V12" />
-        </svg>
-        {progress ?? 'Export'}
-        <svg
-          className={`w-3 h-3 transition-transform ${open ? 'rotate-180' : ''}`}
-          viewBox="0 0 12 12"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-        >
-          <polyline points="2,4 6,8 10,4" />
-        </svg>
+        <IconExportFile className="w-3.5 h-3.5" />
       </button>
 
       {/* Dropdown panel — fixed position to escape toolbar overflow clipping */}

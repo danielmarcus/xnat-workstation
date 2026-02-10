@@ -1520,7 +1520,7 @@ export const segmentationService = {
           SegmentLabel: segment.label || `Segment ${idx}`,
           SegmentNumber: idx,
           SegmentAlgorithmType: 'SEMIAUTOMATIC',
-          SegmentAlgorithmName: 'XNAT Viewer',
+          SegmentAlgorithmName: 'XNAT Workstation',
           SegmentedPropertyCategoryCodeSequence: {
             CodeValue: 'T-D0050',
             CodingSchemeDesignator: 'SRT',

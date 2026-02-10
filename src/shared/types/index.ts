@@ -35,6 +35,9 @@ export interface ElectronAPI {
       sessionId: string,
       scanId: string,
     ): Promise<{ ok: boolean; files: string[]; serverUrl?: string; error?: string }>;
+    getProjectSessions(
+      projectId: string,
+    ): Promise<Array<{ subjectId: string; modality: string }>>;
     downloadScanFile(
       sessionId: string,
       scanId: string,

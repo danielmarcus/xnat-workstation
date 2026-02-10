@@ -1,4 +1,4 @@
-# XNAT Viewer — Development Phases
+# XNAT Workstation — Development Phases
 
 ## Phase 0: Prove Cornerstone3D Works in Electron + Vite (Complete)
 - Scaffold Electron + Vite 5 + React 19 + TypeScript + Tailwind project
