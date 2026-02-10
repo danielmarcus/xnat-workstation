@@ -47,6 +47,14 @@ export interface ElectronAPI {
       sourceScanId: string,
       dicomBase64: string,
     ): Promise<XnatUploadResult>;
+    uploadDicomRtStruct(
+      projectId: string,
+      subjectId: string,
+      sessionId: string,
+      sessionLabel: string,
+      sourceScanId: string,
+      dicomBase64: string,
+    ): Promise<XnatUploadResult>;
   };
   export: {
     saveScreenshot(
@@ -67,6 +75,10 @@ export interface ElectronAPI {
       defaultName?: string,
     ): Promise<{ ok: boolean; path?: string; error?: string }>;
     saveDicomSeg(
+      dicomBase64: string,
+      defaultName?: string,
+    ): Promise<{ ok: boolean; path?: string; error?: string }>;
+    saveDicomRtStruct(
       dicomBase64: string,
       defaultName?: string,
     ): Promise<{ ok: boolean; path?: string; error?: string }>;

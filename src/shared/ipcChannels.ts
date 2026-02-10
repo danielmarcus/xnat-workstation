@@ -3,7 +3,7 @@
  *
  * renderer → main (invoke/handle):
  *   XNAT_LOGIN, XNAT_LOGOUT, XNAT_VALIDATE, XNAT_GET_CONNECTION, XNAT_DICOMWEB_FETCH,
- *   XNAT_UPLOAD_DICOM_SEG
+ *   XNAT_UPLOAD_DICOM_SEG, XNAT_UPLOAD_DICOM_RTSTRUCT
  *
  * main → renderer (send/on):
  *   XNAT_SESSION_EXPIRED
@@ -30,6 +30,7 @@ export const IPC = {
 
   // XNAT upload (renderer → main)
   XNAT_UPLOAD_DICOM_SEG: 'xnat:upload-dicom-seg',
+  XNAT_UPLOAD_DICOM_RTSTRUCT: 'xnat:upload-dicom-rtstruct',
 
   // Session events (main → renderer)
   XNAT_SESSION_EXPIRED: 'xnat:session-expired',
@@ -41,6 +42,7 @@ export const IPC = {
   EXPORT_SAVE_DICOM_SEG: 'export:save-dicom-seg',
   EXPORT_SAVE_ALL_SLICES: 'export:save-all-slices',
   EXPORT_SAVE_REPORT: 'export:save-report',
+  EXPORT_SAVE_DICOM_RTSTRUCT: 'export:save-dicom-rtstruct',
 } as const;
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC];

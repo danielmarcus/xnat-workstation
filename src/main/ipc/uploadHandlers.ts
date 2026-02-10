@@ -1,8 +1,8 @@
 /**
- * Upload & Download IPC Handlers — handles uploading DICOM SEG files to XNAT
- * and downloading raw DICOM scan files from XNAT.
+ * Upload & Download IPC Handlers — handles uploading DICOM SEG and RTSTRUCT
+ * files to XNAT and downloading raw DICOM scan files from XNAT.
  *
- * Upload: Renderer sends DICOM SEG data as base64 through IPC → main process
+ * Upload: Renderer sends DICOM data as base64 through IPC → main process
  * creates a new scan on the session (bypassing Session Importer).
  *
  * Download: Renderer requests raw DICOM bytes for a scan → main process
@@ -78,6 +78,48 @@ export function registerUploadHandlers(): void {
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.error('[uploadHandlers] Upload failed:', msg);
+        return { ok: false, error: msg };
+      }
+    },
+  );
+
+  // ─── Upload DICOM RTSTRUCT to XNAT (as a scan) ─────────────────
+  ipcMain.handle(
+    IPC.XNAT_UPLOAD_DICOM_RTSTRUCT,
+    async (
+      _event,
+      projectId: string,
+      subjectId: string,
+      sessionId: string,
+      sessionLabel: string,
+      sourceScanId: string,
+      dicomRtStructBase64: string,
+    ) => {
+      const client = sessionManager.getClient();
+      if (!client) {
+        return { ok: false, error: 'Not connected to XNAT' };
+      }
+
+      try {
+        const buffer = Buffer.from(dicomRtStructBase64, 'base64');
+        console.log(
+          `[uploadHandlers] Uploading DICOM RTSTRUCT (${buffer.length} bytes)`,
+          `to ${projectId}/${subjectId}/${sessionLabel} (source scan: ${sourceScanId})`,
+        );
+
+        const result = await client.uploadDicomRtStructAsScan(
+          projectId,
+          subjectId,
+          sessionId,
+          sessionLabel,
+          sourceScanId,
+          buffer,
+        );
+
+        return { ok: true, url: result.url, scanId: result.scanId };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error('[uploadHandlers] RTSTRUCT upload failed:', msg);
         return { ok: false, error: msg };
       }
     },

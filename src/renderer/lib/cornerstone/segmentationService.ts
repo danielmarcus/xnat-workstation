@@ -1956,6 +1956,14 @@ export const segmentationService = {
   },
 
   /**
+   * Track source image IDs for a segmentation (used for DICOM SEG/RTSTRUCT export).
+   * Called by rtStructService when loading RTSTRUCT contours.
+   */
+  trackSourceImageIds(segmentationId: string, imageIds: string[]): void {
+    sourceImageIdsMap.set(segmentationId, [...imageIds]);
+  },
+
+  /**
    * Force a re-sync of segmentation summaries (e.g. after viewport changes).
    */
   sync: syncSegmentations,

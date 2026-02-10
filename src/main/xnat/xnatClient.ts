@@ -539,6 +539,105 @@ export class XnatClient {
     return { url: scanUrl, scanId: targetScanId };
   }
 
+  /**
+   * Upload a DICOM RTSTRUCT file to an XNAT session as a new scan.
+   *
+   * Same three-step process as uploadDicomSegAsScan(), but:
+   * - Scan numbering convention: 40xx (then 41xx, 42xx, etc.)
+   * - xnat:otherDicomScanData/type = 'RTSTRUCT'
+   * - series_description = 'RT Structure Set'
+   * - filename = rtstruct.dcm
+   */
+  async uploadDicomRtStructAsScan(
+    projectId: string,
+    subjectId: string,
+    sessionId: string,
+    sessionLabel: string,
+    sourceScanId: string,
+    dicomBuffer: Buffer,
+    seriesDescription: string = 'RT Structure Set',
+  ): Promise<{ url: string; scanId: string }> {
+    if (!this.token) throw new Error('Not authenticated');
+
+    // ── Step 1: Find unused scan number ──────────────────────────
+    const existingScans = await this.getScans(sessionId);
+    const existingScanIds = new Set(existingScans.map((s) => s.id));
+
+    const srcNum = parseInt(sourceScanId, 10);
+    const suffix = isNaN(srcNum)
+      ? sourceScanId
+      : String(srcNum).padStart(2, '0');
+
+    let targetScanId = '';
+    for (let prefix = 40; prefix < 100; prefix++) {
+      const candidate = `${prefix}${suffix}`;
+      if (!existingScanIds.has(candidate)) {
+        targetScanId = candidate;
+        break;
+      }
+    }
+    if (!targetScanId) {
+      throw new Error(`Could not find unused scan number for source scan ${sourceScanId}`);
+    }
+
+    console.log(
+      `[xnatClient] Uploading DICOM RTSTRUCT as scan ${targetScanId}`,
+      `(source scan: ${sourceScanId}, ${(dicomBuffer.length / 1024).toFixed(1)} KB)`,
+    );
+
+    const basePath = `/data/projects/${encodeURIComponent(projectId)}`
+      + `/subjects/${encodeURIComponent(subjectId)}`
+      + `/experiments/${encodeURIComponent(sessionLabel)}`
+      + `/scans/${encodeURIComponent(targetScanId)}`;
+
+    // ── Step 2: Create the scan ──────────────────────────────────
+    const createParams = new URLSearchParams({
+      'xsiType': 'xnat:otherDicomScanData',
+      'xnat:otherDicomScanData/type': 'RTSTRUCT',
+      'xnat:otherDicomScanData/series_description': seriesDescription,
+    });
+
+    const createUrl = `${this.baseUrl}${basePath}?${createParams.toString()}`;
+    const createResp = await fetch(createUrl, {
+      method: 'PUT',
+      headers: this.buildAuthHeaders(),
+    });
+
+    if (!createResp.ok) {
+      const text = await createResp.text().catch(() => '');
+      if (createResp.status === 403) {
+        throw new Error('Permission denied: you do not have write access to this project');
+      }
+      throw new Error(`Failed to create scan ${targetScanId}: ${createResp.status} ${text}`.trim());
+    }
+    console.log(`[xnatClient] Created scan ${targetScanId}`);
+
+    // ── Step 3: Upload DICOM file to scan resource ───────────────
+    const fileParams = new URLSearchParams({
+      'format': 'DICOM',
+      'content': 'RTSTRUCT',
+    });
+
+    const fileUrl = `${this.baseUrl}${basePath}/resources/DICOM/files/rtstruct.dcm?${fileParams.toString()}`;
+    const fileResp = await fetch(fileUrl, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/dicom',
+        ...this.buildAuthHeaders(),
+      },
+      body: new Uint8Array(dicomBuffer),
+    });
+
+    if (!fileResp.ok) {
+      const text = await fileResp.text().catch(() => '');
+      throw new Error(`Failed to upload file to scan ${targetScanId}: ${fileResp.status} ${text}`.trim());
+    }
+
+    const scanUrl = `${this.baseUrl}${basePath}`;
+    console.log(`[xnatClient] RTSTRUCT upload successful: ${scanUrl}`);
+    return { url: scanUrl, scanId: targetScanId };
+  }
+
   // ─── Getters ───────────────────────────────────────────────────
 
   get isAuthenticated(): boolean {
