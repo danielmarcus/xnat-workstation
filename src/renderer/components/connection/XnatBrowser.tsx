@@ -170,6 +170,9 @@ export default function XnatBrowser({
   const [selectedSubject, setSelectedSubject] = useState<XnatSubject | null>(null);
   const [selectedSession, setSelectedSession] = useState<XnatSession | null>(null);
 
+  // Per-subject modality breakdown: subjectId → { CT: 2, MR: 1 }
+  const [subjectModalityMap, setSubjectModalityMap] = useState<Record<string, Record<string, number>>>({});
+
   const connection = useConnectionStore((s) => s.connection);
   const pins = pinnedItemsProp ?? [];
 
@@ -279,6 +282,27 @@ export default function XnatBrowser({
     );
   }, [scans, q]);
 
+  // Fetch per-subject modality breakdown when subjects are loaded
+  useEffect(() => {
+    if (level !== 'subjects' || !selectedProject || subjects.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const sessions = await window.electronAPI.xnat.getProjectSessions(selectedProject.id);
+        if (cancelled) return;
+        const map: Record<string, Record<string, number>> = {};
+        for (const s of sessions) {
+          if (!map[s.subjectId]) map[s.subjectId] = {};
+          map[s.subjectId][s.modality] = (map[s.subjectId][s.modality] || 0) + 1;
+        }
+        setSubjectModalityMap(map);
+      } catch (err) {
+        console.error('[XnatBrowser] Failed to fetch project sessions for modality breakdown:', err);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [level, selectedProject, subjects]);
+
   // Load projects on mount
   useEffect(() => {
     loadProjects();
@@ -367,15 +391,39 @@ export default function XnatBrowser({
     setSelectedSession(null);
   }
 
-  function goToSubjects() {
+  async function goToSubjects() {
     setLevel('subjects');
     setSelectedSubject(null);
     setSelectedSession(null);
+    // Re-fetch subjects if we don't have them (e.g. navigated via pinned session)
+    if (selectedProject && subjects.length === 0) {
+      setLoading(true);
+      try {
+        const data = await window.electronAPI.xnat.getSubjects(selectedProject.id);
+        setSubjects(data);
+      } catch (err) {
+        console.error('Failed to load subjects:', err);
+      } finally {
+        setLoading(false);
+      }
+    }
   }
 
-  function goToSessions() {
+  async function goToSessions() {
     setLevel('sessions');
     setSelectedSession(null);
+    // Re-fetch sessions if we don't have them (e.g. navigated via pinned session)
+    if (selectedProject && selectedSubject && sessions.length === 0) {
+      setLoading(true);
+      try {
+        const data = await window.electronAPI.xnat.getSessions(selectedProject.id, selectedSubject.id);
+        setSessions(data);
+      } catch (err) {
+        console.error('Failed to load sessions:', err);
+      } finally {
+        setLoading(false);
+      }
+    }
   }
 
   // Refresh the current level's data
@@ -591,17 +639,26 @@ export default function XnatBrowser({
             {level === 'subjects' && (
               <ItemList
                 items={filteredSubjects}
-                renderItem={(s) => (
-                  <div className="flex items-start gap-2.5">
-                    <SubjectIcon />
-                    <div className="min-w-0">
-                      <div className="text-sm text-zinc-200 font-medium truncate">{s.label}</div>
-                      <div className="text-[11px] text-zinc-600 tabular-nums">
-                        {s.sessionCount != null && `${s.sessionCount} sessions`}
+                renderItem={(s) => {
+                  const modBreakdown = subjectModalityMap[s.id];
+                  const modSummary = modBreakdown
+                    ? Object.entries(modBreakdown)
+                        .sort(([a], [b]) => a.localeCompare(b))
+                        .map(([mod, count]) => `${count} ${mod}`)
+                        .join(' \u00b7 ')
+                    : null;
+                  return (
+                    <div className="flex items-start gap-2.5">
+                      <SubjectIcon />
+                      <div className="min-w-0">
+                        <div className="text-sm text-zinc-200 font-medium truncate">{s.label}</div>
+                        <div className="text-[11px] text-zinc-600 tabular-nums">
+                          {modSummary || (s.sessionCount != null ? `${s.sessionCount} sessions` : '')}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                )}
+                  );
+                }}
                 renderAction={onTogglePin ? (s) => {
                   const pinned = isPinned(pins, 'subject', s.id);
                   return (
@@ -632,9 +689,9 @@ export default function XnatBrowser({
                     <div className="min-w-0">
                       <div className="text-sm text-zinc-200 font-medium truncate">
                         {e.label}
-                        {e.modality && (
+                        {e.modality?.trim() && (
                           <span className="ml-2 text-[10px] bg-zinc-700/80 text-zinc-300 px-1.5 py-0.5 rounded font-normal">
-                            {e.modality}
+                            {e.modality.trim()}
                           </span>
                         )}
                       </div>

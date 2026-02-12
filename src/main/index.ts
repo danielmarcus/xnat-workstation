@@ -11,9 +11,9 @@ process.stdout?.on?.('error', () => {});
 process.stderr?.on?.('error', () => {});
 
 // ─── App Name ───────────────────────────────────────────────────
-// Set the app name to "XNAT Viewer" so macOS shows it in the menu
+// Set the app name to "XNAT" so macOS shows it in the menu
 // bar and dock instead of the default "Electron".
-app.name = 'XNAT Viewer';
+app.name = 'XNAT';
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -45,26 +45,26 @@ function loadIcon(filename: string): Electron.NativeImage {
 }
 
 // ─── App Menu ───────────────────────────────────────────────────
-// Build a custom application menu that shows "XNAT Viewer" instead
+// Build a custom application menu that shows "XNAT" instead
 // of "Electron" in the macOS menu bar.
 
 function buildAppMenu(): void {
   const isMac = process.platform === 'darwin';
 
   const template: Electron.MenuItemConstructorOptions[] = [
-    // App menu (macOS only — shows "XNAT Viewer" as the first menu)
+    // App menu (macOS only — shows "XNAT" as the first menu)
     ...(isMac ? [{
       label: app.name,
       submenu: [
-        { role: 'about' as const },
+        { role: 'about' as const, label: 'About XNAT Workstation' },
         { type: 'separator' as const },
         { role: 'services' as const },
         { type: 'separator' as const },
-        { role: 'hide' as const },
+        { role: 'hide' as const, label: 'Hide XNAT Workstation' },
         { role: 'hideOthers' as const },
         { role: 'unhide' as const },
         { type: 'separator' as const },
-        { role: 'quit' as const },
+        { role: 'quit' as const, label: 'Quit XNAT Workstation' },
       ],
     }] : []),
     // File menu
@@ -143,7 +143,7 @@ function createWindow(): void {
     height: 900,
     minWidth: 800,
     minHeight: 600,
-    title: 'XNAT Viewer',
+    title: 'XNAT Workstation',
     icon: appIcon.isEmpty() ? undefined : appIcon,
     backgroundColor: '#09090b',
     webPreferences: {
@@ -188,11 +188,11 @@ app.whenReady().then(() => {
   // the dock icon automatically, so no icon property is needed here.
   if (process.platform === 'darwin') {
     app.setAboutPanelOptions({
-      applicationName: 'XNAT Viewer',
+      applicationName: 'XNAT Workstation',
     });
   }
 
-  // Set up the application menu (replaces "Electron" with "XNAT Viewer")
+  // Set up the application menu (replaces "Electron" with "XNAT")
   buildAppMenu();
 
   createWindow();

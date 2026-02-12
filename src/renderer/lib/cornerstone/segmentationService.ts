@@ -1400,26 +1400,40 @@ export const segmentationService = {
     // CRITICAL: labelmaps2D[i] must correspond to sourceImages[i] (and
     // srcImageIds[i]).  generateSegmentation pairs them by index.
     //
-    // However, labelmapImageIds may be in a DIFFERENT order than srcImageIds
-    // because Cornerstone's matchImagesForOverlay can reorder labelmap images
-    // by spatial position (IPP). If we naively zip labelmapImageIds[i] with
-    // srcImageIds[i], the pixel data ends up on the wrong source slice —
-    // causing the "slice 2 shows on slice 19" mirroring bug.
+    // For stack-based segmentations, the brush tool writes pixel data into
+    // the labelmap images managed by the SegmentationStateManager's
+    // _stackLabelmapImageIdReferenceMap. We need to read the LIVE data
+    // from those mapped images, not just the original registered imageIds
+    // (which may point to stale/empty cache entries).
     //
-    // Fix: build a lookup from referencedImageId → labelmap cached image,
-    // then iterate srcImageIds and pull the correct labelmap for each.
+    // Strategy: use csSegmentation.segmentation.getLabelmapImageIds() to get
+    // the canonical imageIds, then try cache.getImage() for each. Also try
+    // the viewport-mapped imageIds via getStackSegmentationImageIdsForViewport.
     const labelmaps2D: any[] = [];
     const rows = sourceImages[0].rows ?? sourceImages[0].height ?? 512;
     const columns = sourceImages[0].columns ?? sourceImages[0].width ?? 512;
 
+    // Try to get viewport-mapped labelmap imageIds (these are the ones the
+    // brush tool actually writes to). Fall back to the representation imageIds.
+    const viewportIds = csSegmentation.state.getViewportIdsWithSegmentation(segmentationId);
+    let viewportLabelmapIds: string[] | null = null;
+    if (viewportIds.length > 0) {
+      try {
+        viewportLabelmapIds = (csSegmentation.state as any)
+          .getStackSegmentationImageIdsForViewport(viewportIds[0], segmentationId);
+      } catch {
+        // Not available — fall back
+      }
+    }
+
+    const effectiveLmIds = viewportLabelmapIds ?? labelmapImageIds;
+    console.log(`[segmentationService] Using ${viewportLabelmapIds ? 'viewport-mapped' : 'representation'} labelmap imageIds (${effectiveLmIds.length})`);
+
     // Build referencedImageId → labelmap image lookup.
-    // Each labelmap image's .referencedImageId tells us which source image it
-    // corresponds to. This is the ONLY reliable way to pair them — we cannot
-    // use array index because the viewport may have reordered the labelmap
-    // images by spatial position (IPP), reversing them relative to srcImageIds.
     const refIdToLabelmap = new Map<string, any>();
-    for (let li = 0; li < labelmapImageIds.length; li++) {
-      const lmId = labelmapImageIds[li];
+    for (let li = 0; li < effectiveLmIds.length; li++) {
+      const lmId = effectiveLmIds[li];
+      if (!lmId) continue;
       const lmImage = cache.getImage(lmId);
       if (!lmImage) continue;
       const refId = (lmImage as any).referencedImageId;
@@ -1430,11 +1444,32 @@ export const segmentationService = {
 
     const useRefIdLookup = refIdToLabelmap.size > 0;
 
+    if (useRefIdLookup) {
+      let hitCount = 0;
+      for (const srcId of srcImageIds) {
+        if (refIdToLabelmap.has(srcId)) hitCount++;
+      }
+      console.log(`[segmentationService] refId lookup: ${hitCount}/${srcImageIds.length} hits`);
+    } else {
+      // Debug: sample first labelmap to understand its structure
+      const sampleLmId = effectiveLmIds[0];
+      if (sampleLmId) {
+        const sampleImg = cache.getImage(sampleLmId);
+        console.log(`[segmentationService] Sample labelmap [0]: id=${sampleLmId}, cached=${!!sampleImg}, hasVoxelManager=${!!sampleImg?.voxelManager}, referencedImageId=${(sampleImg as any)?.referencedImageId}`);
+        if (sampleImg?.voxelManager) {
+          const sd = sampleImg.voxelManager.getScalarData();
+          let nonZero = 0;
+          for (let k = 0; k < sd.length; k++) { if (sd[k] !== 0) nonZero++; }
+          console.log(`[segmentationService] Sample labelmap scalar data: type=${sd.constructor.name}, length=${sd.length}, nonZero=${nonZero}`);
+        }
+      }
+    }
+
     for (let i = 0; i < srcImageIds.length; i++) {
       const srcId = srcImageIds[i];
       const lmImage = useRefIdLookup
         ? refIdToLabelmap.get(srcId)
-        : cache.getImage(labelmapImageIds[i]);
+        : cache.getImage(effectiveLmIds[i]);
 
       if (!lmImage) {
         labelmaps2D.push({
@@ -1446,13 +1481,29 @@ export const segmentationService = {
         continue;
       }
 
-      // Get pixel data from the labelmap image
+      // Get pixel data from the labelmap image.
+      // scalarData may be Float32Array, Int16Array, etc. — we need Uint8 label values.
       let pixelData: Uint8Array;
       if (lmImage.voxelManager) {
         const scalarData = lmImage.voxelManager.getScalarData();
-        pixelData = new Uint8Array(scalarData);
+        if (scalarData instanceof Uint8Array || scalarData instanceof Uint8ClampedArray) {
+          pixelData = new Uint8Array(scalarData);
+        } else {
+          pixelData = new Uint8Array(scalarData.length);
+          for (let k = 0; k < scalarData.length; k++) {
+            pixelData[k] = Math.max(0, Math.min(255, Math.round(scalarData[k])));
+          }
+        }
       } else if ((lmImage as any).getPixelData) {
-        pixelData = new Uint8Array((lmImage as any).getPixelData());
+        const raw = (lmImage as any).getPixelData();
+        if (raw instanceof Uint8Array || raw instanceof Uint8ClampedArray) {
+          pixelData = new Uint8Array(raw);
+        } else {
+          pixelData = new Uint8Array(raw.length);
+          for (let k = 0; k < raw.length; k++) {
+            pixelData[k] = Math.max(0, Math.min(255, Math.round(raw[k])));
+          }
+        }
       } else {
         pixelData = new Uint8Array(rows * columns);
       }
@@ -1520,7 +1571,7 @@ export const segmentationService = {
           SegmentLabel: segment.label || `Segment ${idx}`,
           SegmentNumber: idx,
           SegmentAlgorithmType: 'SEMIAUTOMATIC',
-          SegmentAlgorithmName: 'XNAT Viewer',
+          SegmentAlgorithmName: 'XNAT Workstation',
           SegmentedPropertyCategoryCodeSequence: {
             CodeValue: 'T-D0050',
             CodingSchemeDesignator: 'SRT',
@@ -1653,6 +1704,15 @@ export const segmentationService = {
       } else {
         console.warn(`[segmentationService] Could not get IOP/IPP for sorting — proceeding with original order.`);
       }
+    }
+
+    // Pre-export validation: count segment-frame pairs (same logic as fillSegmentation)
+    const totalSegFrames = labelmaps2D.reduce((sum, lm) =>
+      sum + (lm.segmentsOnLabelmap?.filter((s: number) => s !== 0).length ?? 0), 0);
+    console.log(`[segmentationService] Pre-export check: ${totalSegFrames} segment-frame pairs across ${labelmaps2D.length} slices`);
+
+    if (totalSegFrames === 0) {
+      throw new Error('No painted segment data found in any slice. Nothing to export.');
     }
 
     console.log(`[segmentationService] Generating DICOM SEG: ${sourceImages.length} images, ${segmentMetadata.length - 1} segments, ${rows}×${columns}`);

@@ -142,18 +142,19 @@ export default function SegmentationToolDropdown() {
 
   return (
     <>
-      {/* Trigger button */}
+      {/* Trigger button — shows icon + "Segment" text when a tool is active, or just "Segment" when inactive */}
       <button
         ref={buttonRef}
         onClick={handleToggle}
-        className={`flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded transition-colors ${
+        className={`flex items-center gap-1.5 px-2 py-1.5 text-xs font-medium rounded transition-colors ${
           isSegActive
             ? 'bg-blue-600 text-white'
             : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700 hover:text-white'
         }`}
-        title="Segmentation painting tools"
+        title={isSegActive ? `Segment: ${TOOL_DISPLAY_NAMES[activeTool]}` : 'Segmentation painting tools'}
       >
-        {isSegActive ? TOOL_DISPLAY_NAMES[activeTool] : 'Segment'}
+        {isSegActive && <SegToolIcon tool={activeTool} />}
+        Segment
         <svg
           className={`w-3 h-3 transition-transform ${open ? 'rotate-180' : ''}`}
           viewBox="0 0 12 12"

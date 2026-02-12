@@ -119,9 +119,8 @@ Annotation list panel with search, visibility toggles, and delete.
 
 - [Node.js](https://nodejs.org/) 18+
 - npm 9+
-- Access to an XNAT instance
 
-### Install
+### Setup
 
 ```bash
 git clone https://github.com/danielmarcus/xnat-viewer.git
@@ -129,7 +128,7 @@ cd xnat-viewer
 npm install
 ```
 
-### Development
+### Run
 
 ```bash
 npm run dev

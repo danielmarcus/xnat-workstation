@@ -143,18 +143,19 @@ export default function AnnotationToolDropdown() {
 
   return (
     <>
-      {/* Trigger button */}
+      {/* Trigger button — shows icon + "Measure" text when a tool is active, or just "Measure" when inactive */}
       <button
         ref={buttonRef}
         onClick={handleToggle}
-        className={`flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded transition-colors ${
+        className={`flex items-center gap-1.5 px-2 py-1.5 text-xs font-medium rounded transition-colors ${
           isAnnotationActive
             ? 'bg-blue-600 text-white'
             : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700 hover:text-white'
         }`}
-        title="Annotation & measurement tools"
+        title={isAnnotationActive ? `Measure: ${TOOL_DISPLAY_NAMES[activeTool]}` : 'Annotation & measurement tools'}
       >
-        {isAnnotationActive ? TOOL_DISPLAY_NAMES[activeTool] : 'Measure'}
+        {isAnnotationActive && <ToolIcon tool={activeTool} />}
+        Measure
         <svg
           className={`w-3 h-3 transition-transform ${open ? 'rotate-180' : ''}`}
           viewBox="0 0 12 12"
