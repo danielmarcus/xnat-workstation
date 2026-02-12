@@ -21,6 +21,7 @@ import { useViewerStore } from '../../stores/viewerStore';
 import { useConnectionStore } from '../../stores/connectionStore';
 import { segmentationService } from '../../lib/cornerstone/segmentationService';
 import { rtStructService } from '../../lib/cornerstone/rtStructService';
+import { segmentationManager } from '../../lib/segmentation/segmentationManagerSingleton';
 import { ToolName, LABELMAP_SEG_TOOLS } from '@shared/types/viewer';
 import {
   IconPlus,
@@ -261,7 +262,8 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
   const handleColorSelect = useCallback(
     (color: [number, number, number, number]) => {
       if (!colorPickerTarget) return;
-      segmentationService.setSegmentColor(
+      // Use manager to update color + persist in presentation cache
+      segmentationManager.userChangedSegmentColor(
         colorPickerTarget.segmentationId,
         colorPickerTarget.segmentIndex,
         color,
@@ -737,7 +739,7 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
-                                segmentationService.toggleSegmentVisibility(
+                                segmentationManager.userToggledVisibility(
                                   activeViewportId,
                                   seg.segmentationId,
                                   segment.segmentIndex,
@@ -757,7 +759,7 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
-                                segmentationService.toggleSegmentLocked(
+                                segmentationManager.userToggledLock(
                                   seg.segmentationId,
                                   segment.segmentIndex,
                                 );

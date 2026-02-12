@@ -457,7 +457,16 @@ async function performAutoSave(): Promise<void> {
       console.error('[segmentationService] Auto-save to temp failed:', result.error);
       segStore._setAutoSaveStatus('error');
     }
-  } catch (err) {
+  } catch (err: any) {
+    // "No painted segment data" means the segmentation exists but has no actual
+    // pixel data (user created it but hasn't painted yet). This is not an error —
+    // silently return to idle instead of showing an error status.
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes('No painted segment data') || msg.includes('no segment-frame pairs')) {
+      console.log('[segmentationService] Auto-save skipped — no painted pixels yet');
+      segStore._setAutoSaveStatus('idle');
+      return;
+    }
     console.error('[segmentationService] Auto-save failed:', err);
     segStore._setAutoSaveStatus('error');
   }
@@ -476,6 +485,13 @@ export const segmentationService = {
   segmentationExists(segmentationId: string): boolean {
     const seg = csSegmentation.state.getSegmentation(segmentationId);
     return !!seg;
+  },
+
+  /**
+   * Get the viewport IDs that currently display a given segmentation.
+   */
+  getViewportIdsForSegmentation(segmentationId: string): string[] {
+    return csSegmentation.state.getViewportIdsWithSegmentation(segmentationId);
   },
 
   /**
@@ -827,27 +843,17 @@ export const segmentationService = {
     // internally when adding representations, which would falsely mark state as dirty.
     suppressDirtyTrackingCount++;
     try {
-    // Step 0: Wait for the viewport to be fully ready.
-    // After React re-renders that change imageIds, the CornerstoneViewport
-    // useEffect destroys and recreates the viewport. We need to wait until
-    // the new viewport exists and has images loaded.
-    {
-      let viewport: any = null;
-      for (let attempt = 0; attempt < 30; attempt++) {
-        try {
-          const enabledEl = getEnabledElementByViewportId(viewportId);
-          viewport = enabledEl?.viewport;
-          if (viewport && viewport.getImageIds().length > 0 && viewport.getCurrentImageId()) {
-            break;
-          }
-        } catch { /* viewport not ready yet */ }
-        await new Promise((r) => setTimeout(r, 50));
+    // NOTE: No polling loop here. The caller MUST ensure the viewport is ready
+    // before calling addToViewport (e.g., by awaiting viewportReadyService.whenReady).
+    // If the viewport doesn't exist, we throw instead of silently retrying.
+    try {
+      const enabledEl = getEnabledElementByViewportId(viewportId);
+      if (!enabledEl?.viewport) {
+        throw new Error(`Viewport ${viewportId} does not exist`);
       }
-      if (!viewport) {
-        console.error(`[segmentationService] Viewport ${viewportId} not ready after 1.5s, aborting addToViewport`);
-        return;
-      }
-      console.log(`[segmentationService] Viewport ${viewportId} ready, adding segmentation ${segmentationId}`);
+    } catch (err) {
+      console.error(`[segmentationService] Viewport ${viewportId} not ready — caller must await viewportReadyService.whenReady() first. Error:`, err);
+      throw err;
     }
 
     // Step 1: Add labelmap representation (core requirement for brush tools)
@@ -878,15 +884,15 @@ export const segmentationService = {
       console.error('[segmentationService] Failed to update style:', err);
     }
 
-    // Set colors for all segments, preferring loaded DICOM colors over defaults
-    const seg = csSegmentation.state.getSegmentation(segmentationId);
+    // Apply ONLY loaded DICOM colors (from RecommendedDisplayRGBValue) — do NOT
+    // stamp default palette colors over user-selected colors. Default colors are
+    // assigned at creation time (createStackSegmentation / addSegment) and should
+    // not be re-applied on every attach. This preserves user color choices across
+    // scan switching and viewport recreation.
     const loadedColors = loadedColorsMap.get(segmentationId);
-    let allColorsApplied = true;
-    if (seg?.segments) {
-      for (const [idxStr] of Object.entries(seg.segments)) {
-        const idx = Number(idxStr);
-        if (idx === 0) continue;
-        const color = loadedColors?.get(idx) ?? DEFAULT_COLORS[(idx - 1) % DEFAULT_COLORS.length];
+    if (loadedColors && loadedColors.size > 0) {
+      let allColorsApplied = true;
+      for (const [idx, color] of loadedColors.entries()) {
         try {
           csSegmentation.config.color.setSegmentIndexColor(
             viewportId,
@@ -895,14 +901,12 @@ export const segmentationService = {
             color as any,
           );
         } catch {
-          // Might fail if representation not ready yet — keep loadedColorsMap for fallback
           allColorsApplied = false;
         }
       }
+      // Only clear loaded colors if ALL were successfully applied
+      if (allColorsApplied) loadedColorsMap.delete(segmentationId);
     }
-    // Only clear loaded colors if ALL were successfully applied to the viewport;
-    // otherwise keep them so syncSegmentations() can use them as fallback
-    if (loadedColors && allColorsApplied) loadedColorsMap.delete(segmentationId);
 
     // Step 3: Add contour representation (optional — for contour tools).
     try {
@@ -938,15 +942,24 @@ export const segmentationService = {
    * Cornerstone crashes in matchImagesForOverlay when the new source images
    * don't match the old labelmap metadata.
    */
+  /**
+   * Detach all segmentation representations from a specific viewport.
+   * This ONLY removes the visual representations (labelmap + contour overlays),
+   * it does NOT delete the global segmentation objects from Cornerstone state.
+   *
+   * Previously, this method would fully remove segmentation objects when they
+   * were only on one viewport, causing them to "disappear" from the panel on
+   * scan switching. Now segmentation objects are preserved so they can be
+   * reattached by SegmentationManager when the user switches back.
+   */
   removeSegmentationsFromViewport(viewportId: string): void {
     try {
       const allSegmentations = csSegmentation.state.getSegmentations();
-      const toRemoveFully: string[] = [];
 
       for (const seg of allSegmentations) {
         const viewportIds = csSegmentation.state.getViewportIdsWithSegmentation(seg.segmentationId);
         if (viewportIds.includes(viewportId)) {
-          // Remove representations from this viewport
+          // Remove representations from this viewport only — keep the global object
           try {
             csSegmentation.removeLabelmapRepresentation(viewportId, seg.segmentationId);
           } catch {
@@ -958,32 +971,7 @@ export const segmentationService = {
             // May not have contour representation
           }
 
-          // If this was the only viewport, fully remove the segmentation
-          // to prevent stale entries in the panel that can't be re-activated.
-          if (viewportIds.length <= 1) {
-            toRemoveFully.push(seg.segmentationId);
-          }
-
-          console.log(`[segmentationService] Removed segmentation ${seg.segmentationId} from viewport ${viewportId}`);
-        }
-      }
-
-      // Fully remove segmentations that are no longer on any viewport
-      for (const segId of toRemoveFully) {
-        try {
-          csSegmentation.removeSegmentation(segId);
-          sourceImageIdsMap.delete(segId);
-          console.log(`[segmentationService] Fully removed orphaned segmentation: ${segId}`);
-        } catch {
-          // Already removed
-        }
-      }
-
-      // Clear active segmentation if it was removed
-      if (toRemoveFully.length > 0) {
-        const store = useSegmentationStore.getState();
-        if (store.activeSegmentationId && toRemoveFully.includes(store.activeSegmentationId)) {
-          store.setActiveSegmentation(null);
+          console.log(`[segmentationService] Detached segmentation ${seg.segmentationId} from viewport ${viewportId} (global object preserved)`);
         }
       }
 
