@@ -31,5 +31,8 @@ npm-debug.log*
 # Electron
 release/
 
+# Bundled binaries (downloaded by scripts/download-llama-server.sh)
+extraResources/
+
 # Claude
 .claude/

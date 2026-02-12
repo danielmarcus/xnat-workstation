@@ -562,3 +562,15 @@ export function IconRedo(props: IconProps) {
     </svg>
   );
 }
+
+/** AI Sparkle — 4-point sparkle for AI features */
+export function IconAiSparkle(props: IconProps) {
+  return (
+    <svg {...defaults(props)}>
+      {/* Large 4-point sparkle */}
+      <path d="M8 1.5 L9.5 6 L14.5 8 L9.5 10 L8 14.5 L6.5 10 L1.5 8 L6.5 6 Z" fill="none" />
+      {/* Small accent sparkle */}
+      <path d="M12.5 2 L13 3.5 L14.5 4 L13 4.5 L12.5 6 L12 4.5 L10.5 4 L12 3.5 Z" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}

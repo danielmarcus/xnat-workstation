@@ -2,6 +2,7 @@
 export * from './viewer';
 export * from './dicom';
 export * from './xnat';
+export * from './ai';
 
 import type {
   XnatLoginCredentials,
@@ -15,6 +16,16 @@ import type {
   XnatScan,
   XnatUploadResult,
 } from './xnat';
+
+import type {
+  AiModelConfig,
+  AiServerStatus,
+  AiAnalysisRequest,
+  AiAnalysisResult,
+  AiServerStatusUpdate,
+  ModelFileStatus,
+  ModelPreset,
+} from './ai';
 
 export interface ElectronAPI {
   platform: string;
@@ -106,6 +117,21 @@ export interface ElectronAPI {
       dicomBase64: string,
       defaultName?: string,
     ): Promise<{ ok: boolean; path?: string; error?: string }>;
+  };
+  ai: {
+    getConfig(): Promise<AiModelConfig>;
+    setConfig(config: Partial<AiModelConfig>): Promise<{ ok: boolean; error?: string }>;
+    startServer(): Promise<{ ok: boolean; error?: string }>;
+    stopServer(): Promise<{ ok: boolean }>;
+    getStatus(): Promise<{ status: AiServerStatus; error?: string }>;
+    analyzeImage(
+      request: AiAnalysisRequest,
+    ): Promise<{ ok: boolean; result?: AiAnalysisResult; error?: string }>;
+    checkModels(): Promise<ModelFileStatus[]>;
+    cancelAnalysis(): Promise<{ ok: boolean }>;
+    openModelsDir(): Promise<{ ok: boolean }>;
+    browseFile(title: string, filters?: Array<{ name: string; extensions: string[] }>): Promise<{ ok: boolean; path?: string }>;
+    scanModels(): Promise<ModelPreset[]>;
   };
   on(channel: string, callback: (...args: unknown[]) => void): void;
 }

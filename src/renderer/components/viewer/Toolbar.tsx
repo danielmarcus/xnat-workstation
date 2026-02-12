@@ -30,7 +30,9 @@ import {
   IconProtocol,
   IconUndo,
   IconRedo,
+  IconAiSparkle,
 } from '../icons';
+import { useAiFindingsStore } from '../../stores/aiFindingsStore';
 import { segmentationService } from '../../lib/cornerstone/segmentationService';
 
 // ─── Shared Button Components ─────────────────────────────────────
@@ -224,6 +226,38 @@ function DicomTagsToggle({
     >
       <IconDocument className="w-3.5 h-3.5" />
       <span>Tags</span>
+    </button>
+  );
+}
+
+/** Toggle button for the AI findings panel */
+function AiFindingsPanelToggle() {
+  const showPanel = useAiFindingsStore((s) => s.showPanel);
+  const togglePanel = useAiFindingsStore((s) => s.togglePanel);
+  const serverStatus = useAiFindingsStore((s) => s.serverStatus);
+  const isAnalyzing = useAiFindingsStore((s) => s.isAnalyzing);
+
+  return (
+    <button
+      onClick={togglePanel}
+      title={showPanel ? 'Hide AI findings' : 'Show AI findings'}
+      className={`flex items-center gap-1.5 px-2 py-1.5 text-xs font-medium rounded transition-colors ${
+        showPanel
+          ? 'bg-blue-600 text-white'
+          : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700 hover:text-white'
+      }`}
+    >
+      <span className="relative">
+        <IconAiSparkle className="w-3.5 h-3.5" />
+        {/* Status dot indicator */}
+        {serverStatus === 'ready' && !isAnalyzing && (
+          <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 bg-emerald-400 rounded-full" />
+        )}
+        {isAnalyzing && (
+          <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 bg-blue-400 rounded-full animate-pulse" />
+        )}
+      </span>
+      <span>AI</span>
     </button>
   );
 }
@@ -589,6 +623,7 @@ export default function Toolbar({ showDicomPanel = false, onToggleDicomPanel, on
       {onToggleDicomPanel && (
         <DicomTagsToggle active={showDicomPanel} onToggle={onToggleDicomPanel} />
       )}
+      {!mprActive && <AiFindingsPanelToggle />}
     </div>
   );
 }

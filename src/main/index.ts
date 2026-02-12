@@ -4,6 +4,8 @@ import { registerAuthHandlers } from './ipc/authHandlers';
 import { registerProxyHandlers } from './ipc/proxyHandlers';
 import { registerExportHandlers } from './ipc/exportHandlers';
 import { registerUploadHandlers } from './ipc/uploadHandlers';
+import { registerAiHandlers } from './ipc/aiHandlers';
+import { aiInferenceService } from './services/aiInferenceService';
 
 // Suppress EPIPE errors from console.log when stdout/stderr pipe is broken.
 // This is common when Electron is launched from a terminal that disconnects.
@@ -173,6 +175,7 @@ app.whenReady().then(() => {
   registerProxyHandlers();
   registerExportHandlers();
   registerUploadHandlers();
+  registerAiHandlers();
 
   // Set the macOS dock icon (dev mode only — packaged app uses Info.plist).
   // In dev mode we can only use PNG; macOS won't apply the rounded-square
@@ -196,6 +199,13 @@ app.whenReady().then(() => {
   buildAppMenu();
 
   createWindow();
+});
+
+// Clean up llama-server child process before quitting
+app.on('will-quit', () => {
+  aiInferenceService.stop().catch((err) => {
+    console.error('[main] Failed to stop AI server on quit:', err);
+  });
 });
 
 app.on('window-all-closed', () => {

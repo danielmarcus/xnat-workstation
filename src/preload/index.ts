@@ -68,6 +68,41 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke(IPC.XNAT_DOWNLOAD_TEMP_FILE, sessionId, filename),
   },
 
+  ai: {
+    getConfig: () =>
+      ipcRenderer.invoke(IPC.AI_GET_CONFIG),
+    setConfig: (config: Record<string, unknown>) =>
+      ipcRenderer.invoke(IPC.AI_SET_CONFIG, config),
+    startServer: () =>
+      ipcRenderer.invoke(IPC.AI_START_SERVER),
+    stopServer: () =>
+      ipcRenderer.invoke(IPC.AI_STOP_SERVER),
+    getStatus: () =>
+      ipcRenderer.invoke(IPC.AI_GET_STATUS),
+    analyzeImage: (request: {
+      imageDataUrl: string;
+      modality: string;
+      seriesDescription?: string;
+      bodyPart?: string;
+      sliceInfo?: string;
+      studyDescription?: string;
+      patientAge?: string;
+      patientSex?: string;
+      additionalWindows?: Array<{ name: string; dataUrl: string }>;
+    }) =>
+      ipcRenderer.invoke(IPC.AI_ANALYZE_IMAGE, request),
+    checkModels: () =>
+      ipcRenderer.invoke(IPC.AI_CHECK_MODELS),
+    cancelAnalysis: () =>
+      ipcRenderer.invoke(IPC.AI_CANCEL_ANALYSIS),
+    openModelsDir: () =>
+      ipcRenderer.invoke(IPC.AI_OPEN_MODELS_DIR),
+    browseFile: (title: string, filters?: Array<{ name: string; extensions: string[] }>) =>
+      ipcRenderer.invoke(IPC.AI_BROWSE_FILE, title, filters),
+    scanModels: () =>
+      ipcRenderer.invoke(IPC.AI_SCAN_MODELS),
+  },
+
   export: {
     saveScreenshot: (dataUrl: string, defaultName?: string) =>
       ipcRenderer.invoke(IPC.EXPORT_SAVE_SCREENSHOT, dataUrl, defaultName),

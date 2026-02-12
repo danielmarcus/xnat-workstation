@@ -20,11 +20,20 @@ mac:
     - zip
   category: public.app-category.medical
   hardenedRuntime: true
+  extraResources:
+    - from: extraResources/llama-server/darwin-${arch}/
+      to: llama-server/darwin-${arch}/
 win:
   target:
     - nsis
     - portable
+  extraResources:
+    - from: extraResources/llama-server/win32-x64/
+      to: llama-server/win32-x64/
 linux:
   target:
     - AppImage
     - deb
+  extraResources:
+    - from: extraResources/llama-server/linux-x64/
+      to: llama-server/linux-x64/

@@ -6,9 +6,12 @@
  *   XNAT_GET_PROJECT_SESSIONS,
  *   XNAT_UPLOAD_DICOM_SEG, XNAT_UPLOAD_DICOM_RTSTRUCT, XNAT_OVERWRITE_DICOM_SEG,
  *   XNAT_AUTOSAVE_TEMP, XNAT_LIST_TEMP_FILES, XNAT_DELETE_TEMP_FILE, XNAT_DOWNLOAD_TEMP_FILE
+ *   AI_GET_CONFIG, AI_SET_CONFIG, AI_START_SERVER, AI_STOP_SERVER, AI_GET_STATUS,
+ *   AI_ANALYZE_IMAGE, AI_CHECK_MODELS, AI_CANCEL_ANALYSIS, AI_OPEN_MODELS_DIR, AI_BROWSE_FILE,
+ *   AI_SCAN_MODELS
  *
  * main → renderer (send/on):
- *   XNAT_SESSION_EXPIRED
+ *   XNAT_SESSION_EXPIRED, AI_STATUS_UPDATE
  */
 export const IPC = {
   // Auth (renderer → main)
@@ -53,6 +56,22 @@ export const IPC = {
   EXPORT_SAVE_ALL_SLICES: 'export:save-all-slices',
   EXPORT_SAVE_REPORT: 'export:save-report',
   EXPORT_SAVE_DICOM_RTSTRUCT: 'export:save-dicom-rtstruct',
+
+  // AI Findings (renderer → main, invoke/handle)
+  AI_GET_CONFIG: 'ai:get-config',
+  AI_SET_CONFIG: 'ai:set-config',
+  AI_START_SERVER: 'ai:start-server',
+  AI_STOP_SERVER: 'ai:stop-server',
+  AI_GET_STATUS: 'ai:get-status',
+  AI_ANALYZE_IMAGE: 'ai:analyze-image',
+  AI_CHECK_MODELS: 'ai:check-models',
+  AI_CANCEL_ANALYSIS: 'ai:cancel-analysis',
+  AI_OPEN_MODELS_DIR: 'ai:open-models-dir',
+  AI_BROWSE_FILE: 'ai:browse-file',
+  AI_SCAN_MODELS: 'ai:scan-models',
+
+  // AI Findings (main → renderer, send/on)
+  AI_STATUS_UPDATE: 'ai:status-update',
 } as const;
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC];

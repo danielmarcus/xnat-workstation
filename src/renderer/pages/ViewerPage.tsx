@@ -11,12 +11,14 @@ import MPRViewportGrid from '../components/viewer/MPRViewportGrid';
 import AnnotationListPanel from '../components/viewer/AnnotationListPanel';
 import SegmentationPanel from '../components/viewer/SegmentationPanel';
 import DicomHeaderPanel from '../components/viewer/DicomHeaderPanel';
+import AiFindingsPanel from '../components/viewer/AiFindingsPanel';
 import { toolService } from '../lib/cornerstone/toolService';
 import { annotationService } from '../lib/cornerstone/annotationService';
 import { segmentationService } from '../lib/cornerstone/segmentationService';
 import { useHotkeys } from '../hooks/useHotkeys';
 import { useAnnotationStore } from '../stores/annotationStore';
 import { useSegmentationStore } from '../stores/segmentationStore';
+import { useAiFindingsStore } from '../stores/aiFindingsStore';
 import { useViewerStore } from '../stores/viewerStore';
 
 interface ViewerPageProps {
@@ -33,6 +35,7 @@ interface ViewerPageProps {
 export default function ViewerPage({ panelImageIds, onApplyProtocol, onToggleMPR, mprSourceImageIds, leftSlot, browserSlot }: ViewerPageProps) {
   const showAnnotationPanel = useAnnotationStore((s) => s.showPanel);
   const showSegPanel = useSegmentationStore((s) => s.showPanel);
+  const showAiPanel = useAiFindingsStore((s) => s.showPanel);
   const [showDicomPanel, setShowDicomPanel] = useState(false);
 
   const mprActive = useViewerStore((s) => s.mprActive);
@@ -92,6 +95,11 @@ export default function ViewerPage({ panelImageIds, onApplyProtocol, onToggleMPR
             />
           )}
           {!mprActive && showDicomPanel && <DicomHeaderPanel onClose={closeDicomPanel} />}
+          {!mprActive && showAiPanel && (
+            <AiFindingsPanel
+              sourceImageIds={panelImageIds[activeViewportId] ?? []}
+            />
+          )}
         </div>
       </div>
     </div>
