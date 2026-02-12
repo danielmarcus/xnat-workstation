@@ -29,7 +29,6 @@ import {
   type RecentSession,
   type NavigateToTarget,
 } from './lib/pinnedItems';
-import { segmentationService } from './lib/cornerstone/segmentationService';
 import { rtStructService } from './lib/cornerstone/rtStructService';
 import { viewportService } from './lib/cornerstone/viewportService';
 import { imageLoader, cache, metaData } from '@cornerstonejs/core';
@@ -164,29 +163,18 @@ async function checkForAutoSaveRecovery(
           // Pre-load source images
           await preloadImages(panelInfo.ids);
 
-          // Load as segmentation overlay (SEG or RTSTRUCT)
-          segmentationService.beginSegLoad();
+          // Load as segmentation overlay (SEG or RTSTRUCT) via manager
           let recoveredSegId: string;
-          try {
           if (isRtStruct) {
-            const parsed = rtStructService.parseRtStruct(arrayBuffer);
             const { segmentationId, firstReferencedImageId } =
-              await rtStructService.loadRtStructAsContours(parsed, panelInfo.ids, panelInfo.pid);
+              await segmentationManager.loadRtStructFromArrayBuffer(panelInfo.pid, arrayBuffer, panelInfo.ids);
             recoveredSegId = segmentationId;
             await jumpViewportToReferencedImage(panelInfo.pid, firstReferencedImageId);
           } else {
             const { segmentationId, firstNonZeroReferencedImageId } =
-              await segmentationService.loadDicomSeg(arrayBuffer, panelInfo.ids);
-            await segmentationService.addToViewport(panelInfo.pid, segmentationId);
-            await jumpViewportToReferencedImage(panelInfo.pid, firstNonZeroReferencedImageId);
+              await segmentationManager.loadSegFromArrayBuffer(panelInfo.pid, arrayBuffer, panelInfo.ids);
             recoveredSegId = segmentationId;
-          }
-
-          // Wait for render events to settle
-          await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
-          useSegmentationStore.getState()._markClean();
-          } finally {
-            segmentationService.endSegLoad();
+            await jumpViewportToReferencedImage(panelInfo.pid, firstNonZeroReferencedImageId);
           }
 
           // No origin set — recovered segmentation will create a new scan on first manual save
@@ -737,21 +725,14 @@ export default function App() {
       }
 
       for (const file of segFiles) {
-        segmentationService.beginSegLoad();
         try {
           const arrayBuffer = await file.arrayBuffer();
           const { segmentationId, firstNonZeroReferencedImageId } =
-            await segmentationService.loadDicomSeg(arrayBuffer, sourceImageIds);
-          await segmentationService.addToViewport(targetPanel, segmentationId);
+            await segmentationManager.loadSegFromArrayBuffer(targetPanel, arrayBuffer, sourceImageIds);
           await jumpViewportToReferencedImage(targetPanel, firstNonZeroReferencedImageId);
           console.log(`[App] Loaded DICOM SEG file "${file.name}" as ${segmentationId}`);
-          // Wait for render-triggered events to settle
-          await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
-          useSegmentationStore.getState()._markClean();
         } catch (err) {
           console.error(`[App] Failed to load DICOM SEG "${file.name}":`, err);
-        } finally {
-          segmentationService.endSegLoad();
         }
       }
 
@@ -778,25 +759,15 @@ export default function App() {
         await new Promise((r) => setTimeout(r, 200));
       }
 
-      // Pre-load source images for metadata
-      await preloadImages(sourceImageIds);
-
       for (const file of rtStructFiles) {
-        segmentationService.beginSegLoad();
         try {
           const arrayBuffer = await file.arrayBuffer();
-          const parsed = rtStructService.parseRtStruct(arrayBuffer);
           const { segmentationId, firstReferencedImageId } =
-            await rtStructService.loadRtStructAsContours(parsed, sourceImageIds, targetPanel);
+            await segmentationManager.loadRtStructFromArrayBuffer(targetPanel, arrayBuffer, sourceImageIds);
           await jumpViewportToReferencedImage(targetPanel, firstReferencedImageId);
           console.log(`[App] Loaded RTSTRUCT file "${file.name}" as ${segmentationId}`);
-          // Wait for render-triggered events to settle
-          await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
-          useSegmentationStore.getState()._markClean();
         } catch (err) {
           console.error(`[App] Failed to load RTSTRUCT "${file.name}":`, err);
-        } finally {
-          segmentationService.endSegLoad();
         }
       }
 
@@ -832,31 +803,21 @@ export default function App() {
     // and resets the camera — we need to wait for all of that to complete.
     const loadSeg = async () => {
       segLoadingPanelRef.current = pending.panelId;
-      segmentationService.beginSegLoad();
       try {
-        // Use the deterministic viewport-ready barrier instead of polling.
+        // Use the deterministic viewport-ready barrier via manager.
         // The epoch was bumped when setPanelImageIds was called; CornerstoneViewport
         // will call markReady after loadStack + render succeeds.
         const epoch = panelEpochRef.current[pending.panelId] ?? viewportReadyService.getEpoch(pending.panelId);
-        await viewportReadyService.whenReady(pending.panelId, epoch);
 
-        // Pre-load source images (may already be cached)
-        await preloadImages(pending.sourceImageIds);
-
-        // Load the SEG
         const { segmentationId, firstNonZeroReferencedImageId } =
-          await segmentationService.loadDicomSeg(
+          await segmentationManager.loadSegFromArrayBuffer(
+            pending.panelId,
             pending.arrayBuffer,
             pending.sourceImageIds,
+            { label: pending.xnatScanLabel, epoch },
           );
-        await segmentationService.addToViewport(pending.panelId, segmentationId);
         await jumpViewportToReferencedImage(pending.panelId, firstNonZeroReferencedImageId);
         console.log(`[App] Loaded deferred DICOM SEG as ${segmentationId} on ${pending.panelId}`);
-
-        // Override generic label with XNAT scan series description if available
-        if (pending.xnatScanLabel) {
-          segmentationService.setLabel(segmentationId, pending.xnatScanLabel);
-        }
 
         // Track XNAT origin for overwrite-on-save
         if (pending.xnatScanId && pending.sourceScanId) {
@@ -867,11 +828,6 @@ export default function App() {
         }
         if (pending.xnatScanId) releaseSegLock(pending.xnatScanId);
 
-        // Wait two rAF cycles for any pending render-triggered events, then reset dirty state.
-        // Cornerstone's render pipeline can chain multiple rAFs, so a single rAF is insufficient.
-        await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
-        useSegmentationStore.getState()._markClean();
-
         // Open segmentation panel
         const segStore = useSegmentationStore.getState();
         if (!segStore.showPanel) segStore.togglePanel();
@@ -879,8 +835,6 @@ export default function App() {
         console.error('[App] Failed to load deferred DICOM SEG:', err);
         if (pending.xnatScanId) releaseSegLock(pending.xnatScanId);
       } finally {
-        // End load AFTER double-rAF to keep auto-save blocked until renders complete
-        segmentationService.endSegLoad();
         segLoadingPanelRef.current = null;
         setLoading(false);
       }
@@ -968,7 +922,7 @@ export default function App() {
           // Verify the segmentation still actually exists in Cornerstone state
           // (it may have been removed when user clicked a different scan)
           const [existingSegId] = existingSegEntry;
-          if (segmentationService.segmentationExists(existingSegId)) {
+          if (segmentationManager.segmentationExists(existingSegId)) {
             console.log(`[App] SEG scan #${scanId} already loaded — opening panel instead`);
             if (!segStore.showPanel) segStore.togglePanel();
             segStore.setActiveSegmentation(existingSegId);
@@ -1043,7 +997,7 @@ export default function App() {
 
           console.log(`[App] Source scan #${resolvedScanId}: ${resolvedSourceIds.length} images`);
           // Clean up stale segmentations before loading new source images
-          segmentationService.removeSegmentationsFromViewport(segTargetPanel);
+          segmentationManager.removeSegmentationsFromViewport(segTargetPanel);
 
           // Defer the SEG loading: store the pending load info and let the
           // useEffect process it after the viewport has been recreated with
@@ -1072,23 +1026,16 @@ export default function App() {
           return;
         }
 
-        // Source images are already loaded in the panel — load SEG directly.
-        segmentationService.beginSegLoad();
-        try {
-        // 5. Pre-load source images so metadata is cached
-        await preloadImages(sourceIds);
-
-        // 6. Load the SEG as overlay
+        // Source images are already loaded in the panel — load SEG directly via manager.
         const { segmentationId, firstNonZeroReferencedImageId } =
-          await segmentationService.loadDicomSeg(arrayBuffer, sourceIds);
-        await segmentationService.addToViewport(segTargetPanel, segmentationId);
+          await segmentationManager.loadSegFromArrayBuffer(
+            segTargetPanel,
+            arrayBuffer,
+            sourceIds,
+            { label: scan.seriesDescription },
+          );
         await jumpViewportToReferencedImage(segTargetPanel, firstNonZeroReferencedImageId);
         console.log(`[App] Loaded DICOM SEG from XNAT as ${segmentationId} on ${segTargetPanel}`);
-
-        // Override generic label with XNAT scan series description if available
-        if (scan.seriesDescription) {
-          segmentationService.setLabel(segmentationId, scan.seriesDescription);
-        }
 
         // Track XNAT origin for overwrite-on-save
         const directSourceScanId = getSourceScanId(scanId);
@@ -1099,14 +1046,6 @@ export default function App() {
           });
         }
         releaseSegLock(scanId);
-
-        // Wait two rAF cycles for any pending render-triggered events, then reset dirty state.
-        // Cornerstone's render pipeline can chain multiple rAFs, so a single rAF is insufficient.
-        await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
-        useSegmentationStore.getState()._markClean();
-        } finally {
-          segmentationService.endSegLoad();
-        }
 
         // 7. Open segmentation panel
         if (!segStore.showPanel) segStore.togglePanel();
@@ -1127,7 +1066,7 @@ export default function App() {
         if (existingRtEntry) {
           // Verify the segmentation still actually exists in Cornerstone state
           const [existingRtId] = existingRtEntry;
-          if (segmentationService.segmentationExists(existingRtId)) {
+          if (segmentationManager.segmentationExists(existingRtId)) {
             console.log(`[App] RTSTRUCT scan #${scanId} already loaded — opening panel instead`);
             if (!segStoreRt.showPanel) segStoreRt.togglePanel();
             segStoreRt.setActiveSegmentation(existingRtId);
@@ -1172,7 +1111,7 @@ export default function App() {
               if (match) {
                 sourceIds = match.imageIds;
                 // Load source images into panel, then load RTSTRUCT after settling
-                segmentationService.removeSegmentationsFromViewport(rtTargetPanel);
+                segmentationManager.removeSegmentationsFromViewport(rtTargetPanel);
                 setPanelImageIds((prev) => ({ ...prev, [rtTargetPanel]: sourceIds! }));
                 useViewerStore.getState().setPanelScan(rtTargetPanel, match.scanId);
                 segmentationManager.onPanelImagesChanged(
@@ -1192,21 +1131,16 @@ export default function App() {
           }
         }
 
-        // 5. Pre-load source images for metadata
-        segmentationService.beginSegLoad();
-        try {
-        await preloadImages(sourceIds);
-
-        // 6. Load the RTSTRUCT as contour segmentation
+        // 5-6. Load the RTSTRUCT as contour segmentation via manager
         const { segmentationId, firstReferencedImageId } =
-          await rtStructService.loadRtStructAsContours(parsed, sourceIds, rtTargetPanel);
+          await segmentationManager.loadRtStructFromArrayBuffer(
+            rtTargetPanel,
+            arrayBuffer,
+            sourceIds,
+            { label: scan.seriesDescription },
+          );
         await jumpViewportToReferencedImage(rtTargetPanel, firstReferencedImageId);
         console.log(`[App] Loaded RTSTRUCT from XNAT as ${segmentationId} on ${rtTargetPanel}`);
-
-        // Override generic label with XNAT scan series description
-        if (scan.seriesDescription) {
-          segmentationService.setLabel(segmentationId, scan.seriesDescription);
-        }
 
         // 7. Track XNAT origin for RTSTRUCT (same as SEG) for duplicate prevention + save
         const sourceScanIdRt = getSourceScanId(scanId);
@@ -1215,14 +1149,6 @@ export default function App() {
           sourceScanId: sourceScanIdRt ?? scanId,
         });
         releaseSegLock(scanId);
-
-        // Wait two rAF cycles for any pending render-triggered events, then reset dirty state.
-        // Cornerstone's render pipeline can chain multiple rAFs, so a single rAF is insufficient.
-        await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
-        useSegmentationStore.getState()._markClean();
-        } finally {
-          segmentationService.endSegLoad();
-        }
 
         // 8. Open segmentation panel
         const segStore2 = useSegmentationStore.getState();
@@ -1239,7 +1165,7 @@ export default function App() {
         }
 
         // Clean up any stale segmentations on this viewport first
-        segmentationService.removeSegmentationsFromViewport(targetPanel);
+        segmentationManager.removeSegmentationsFromViewport(targetPanel);
 
         const ids = await dicomwebLoader.getScanImageIds(sessionId, scanId);
 
@@ -1402,7 +1328,7 @@ export default function App() {
 
         // Clean up all existing segmentations from panels we're about to load into
         for (const { panelIdx } of results) {
-          segmentationService.removeSegmentationsFromViewport(panelId(panelIdx));
+          segmentationManager.removeSegmentationsFromViewport(panelId(panelIdx));
         }
 
         // Build new panelImageIds map and track scanId→panelId+imageIds mapping
@@ -1539,7 +1465,7 @@ export default function App() {
 
         // Clean up segmentations from panels that are about to be replaced
         for (const { panelIdx } of results) {
-          segmentationService.removeSegmentationsFromViewport(panelId(panelIdx));
+          segmentationManager.removeSegmentationsFromViewport(panelId(panelIdx));
         }
 
         const newPanelImageIds: Record<string, string[]> = {};

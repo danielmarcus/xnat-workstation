@@ -16,7 +16,6 @@ import { segmentationService } from '../cornerstone/segmentationService';
 import { rtStructService } from '../cornerstone/rtStructService';
 import { useSegmentationManagerStore } from '../../stores/segmentationManagerStore';
 import { useSegmentationStore } from '../../stores/segmentationStore';
-import type { XnatScan, XnatUploadContext } from '@shared/types/xnat';
 
 /** Dependencies injected from App.tsx to avoid circular imports */
 export interface ManagerDeps {
@@ -61,34 +60,128 @@ export class SegmentationManager {
     useSegmentationManagerStore.getState().setPanelSourceScan(panelId, sourceScanId, epoch);
   }
 
-  // ─── Scan loading intents (will be fully wired in Phase 6) ─────
+  // ─── Viewport cleanup ──────────────────────────────────────────
 
   /**
-   * User selected a regular (imaging) scan in the browser.
-   * Manager handles: dirty check, detach old overlays, load images, reconcile overlays.
+   * Remove all segmentation representations from a viewport (detach only, not delete).
+   * Called before loading new source images into a panel.
    */
-  async onSelectScan(
-    _panelId: string,
-    _sessionId: string,
-    _scan: XnatScan,
-    _scansInSession: XnatScan[],
-    _context: XnatUploadContext,
-  ): Promise<void> {
-    // Phase 6: will replace App.tsx inline logic
+  removeSegmentationsFromViewport(panelId: string): void {
+    segmentationService.removeSegmentationsFromViewport(panelId);
+  }
+
+  // ─── Scan-click segmentation load helpers (Phase 6) ────────────
+
+  /**
+   * Load a DICOM SEG from a pre-downloaded ArrayBuffer and attach to a viewport.
+   * Used by App.tsx for both the direct and deferred SEG load paths.
+   *
+   * Returns the segmentation ID so the caller can track XNAT origin, etc.
+   */
+  async loadSegFromArrayBuffer(
+    panelId: string,
+    arrayBuffer: ArrayBuffer,
+    sourceImageIds: string[],
+    options?: { label?: string; epoch?: number },
+  ): Promise<{ segmentationId: string; firstNonZeroReferencedImageId: string | null }> {
+    if (!this.deps) throw new Error('SegmentationManager not initialized');
+
+    // Pre-load source images for metadata
+    await this.deps.preloadImages(sourceImageIds);
+
+    // Wait for viewport to be ready if epoch provided
+    if (options?.epoch !== undefined) {
+      await viewportReadyService.whenReady(panelId, options.epoch);
+    }
+
+    let segmentationId: string;
+    let firstNonZeroReferencedImageId: string | null = null;
+
+    segmentationService.beginSegLoad();
+    try {
+      const result = await segmentationService.loadDicomSeg(arrayBuffer, sourceImageIds);
+      segmentationId = result.segmentationId;
+      firstNonZeroReferencedImageId = result.firstNonZeroReferencedImageId;
+      await segmentationService.addToViewport(panelId, segmentationId);
+    } finally {
+      segmentationService.endSegLoad();
+    }
+
+    // Override label if provided
+    if (options?.label) {
+      segmentationService.setLabel(segmentationId, options.label);
+    }
+
+    // Wait two rAF cycles for render pipeline to settle, then clean dirty state
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    useSegmentationStore.getState()._markClean();
+
+    return { segmentationId, firstNonZeroReferencedImageId };
   }
 
   /**
-   * User selected a derived SEG scan in the browser.
-   * Manager handles: find/load source, load SEG, attach overlay.
+   * Load a DICOM RTSTRUCT from a pre-downloaded ArrayBuffer and attach to a viewport.
+   * Used by App.tsx for RTSTRUCT scan click path.
    */
-  async onSelectDerivedSegScan(
-    _panelId: string,
-    _sessionId: string,
-    _segScan: XnatScan,
-    _scansInSession: XnatScan[],
-    _context: XnatUploadContext,
-  ): Promise<void> {
-    // Phase 6: will replace App.tsx inline logic
+  async loadRtStructFromArrayBuffer(
+    panelId: string,
+    arrayBuffer: ArrayBuffer,
+    sourceImageIds: string[],
+    options?: { label?: string; epoch?: number },
+  ): Promise<{ segmentationId: string; firstReferencedImageId: string | null }> {
+    if (!this.deps) throw new Error('SegmentationManager not initialized');
+
+    // Pre-load source images for metadata
+    await this.deps.preloadImages(sourceImageIds);
+
+    // Wait for viewport to be ready if epoch provided
+    if (options?.epoch !== undefined) {
+      await viewportReadyService.whenReady(panelId, options.epoch);
+    }
+
+    segmentationService.beginSegLoad();
+    let segmentationId: string;
+    let firstReferencedImageId: string | null = null;
+    try {
+      const parsed = rtStructService.parseRtStruct(arrayBuffer);
+      const result = await rtStructService.loadRtStructAsContours(parsed, sourceImageIds, panelId);
+      segmentationId = result.segmentationId;
+      firstReferencedImageId = result.firstReferencedImageId;
+    } finally {
+      segmentationService.endSegLoad();
+    }
+
+    // Override label if provided
+    if (options?.label) {
+      segmentationService.setLabel(segmentationId, options.label);
+    }
+
+    // Wait two rAF cycles for render pipeline to settle, then clean dirty state
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    useSegmentationStore.getState()._markClean();
+
+    return { segmentationId, firstReferencedImageId };
+  }
+
+  /**
+   * Check if a segmentation exists in Cornerstone state.
+   */
+  segmentationExists(segmentationId: string): boolean {
+    return segmentationService.segmentationExists(segmentationId);
+  }
+
+  /**
+   * Begin a SEG load transaction (blocks autosave).
+   */
+  beginSegLoad(): void {
+    segmentationService.beginSegLoad();
+  }
+
+  /**
+   * End a SEG load transaction (unblocks autosave).
+   */
+  endSegLoad(): void {
+    segmentationService.endSegLoad();
   }
 
   // ─── Overlay management ─────────────────────────────────────────
@@ -209,13 +302,17 @@ export class SegmentationManager {
 
   /**
    * User selected a segmentation in the panel — activate it on viewport.
+   * Updates Cornerstone active segmentation + segment index, and ensures
+   * the contour representation exists so contour tools keep working.
    */
-  async userSelectedSegmentation(
-    _panelId: string,
-    _segmentationId: string,
-    _segmentIndex?: number,
-  ): Promise<void> {
-    // Phase 5: implement
+  userSelectedSegmentation(
+    viewportId: string,
+    segmentationId: string,
+    segmentIndex: number,
+  ): void {
+    useSegmentationStore.getState().setActiveSegmentation(segmentationId);
+    segmentationService.setActiveSegmentIndex(segmentationId, segmentIndex);
+    segmentationService.activateOnViewport(viewportId, segmentationId);
   }
 
   /**
@@ -261,24 +358,68 @@ export class SegmentationManager {
 
   /**
    * Create a new empty segmentation on the active panel.
+   * Returns the new segmentation ID.
    */
   async createNewSegmentation(
-    _panelId: string,
-    _sourceImageIds: string[],
-    _label?: string,
+    viewportId: string,
+    sourceImageIds: string[],
+    label?: string,
   ): Promise<string> {
-    // Phase 5: implement
-    throw new Error('Not yet implemented');
+    const segId = await segmentationService.createStackSegmentation(sourceImageIds, label);
+    await segmentationService.addToViewport(viewportId, segId);
+    return segId;
   }
 
-  // ─── Save intents ─────────────────────────────────────────────
-
-  async manualSaveToFile(_segmentationId: string): Promise<void> {
-    // Phase 5: implement
+  /**
+   * Add a new segment to an existing segmentation.
+   * Returns the new segment index.
+   */
+  addSegment(segmentationId: string, label: string): number {
+    const nextIndex = segmentationService.addSegment(segmentationId, label);
+    segmentationService.setActiveSegmentIndex(segmentationId, nextIndex);
+    return nextIndex;
   }
 
-  async manualUploadToXNAT(_segmentationId: string): Promise<void> {
-    // Phase 5: implement
+  /**
+   * Remove an entire segmentation from Cornerstone state.
+   */
+  removeSegmentation(segmentationId: string): void {
+    segmentationService.removeSegmentation(segmentationId);
+  }
+
+  /**
+   * Remove a single segment from a segmentation.
+   */
+  removeSegment(segmentationId: string, segmentIndex: number): void {
+    segmentationService.removeSegment(segmentationId, segmentIndex);
+  }
+
+  /**
+   * Rename a segmentation (the top-level label).
+   */
+  renameSegmentation(segmentationId: string, newLabel: string): void {
+    segmentationService.renameSegmentation(segmentationId, newLabel);
+  }
+
+  /**
+   * Rename an individual segment within a segmentation.
+   */
+  renameSegment(segmentationId: string, segmentIndex: number, newLabel: string): void {
+    segmentationService.renameSegment(segmentationId, segmentIndex, newLabel);
+  }
+
+  /**
+   * Export a segmentation as DICOM SEG (base64-encoded).
+   */
+  async exportToDicomSeg(segmentationId: string): Promise<string> {
+    return segmentationService.exportToDicomSeg(segmentationId);
+  }
+
+  /**
+   * Cancel any pending auto-save timer.
+   */
+  cancelAutoSave(): void {
+    segmentationService.cancelAutoSave();
   }
 
   // ─── Dirty tracking ───────────────────────────────────────────

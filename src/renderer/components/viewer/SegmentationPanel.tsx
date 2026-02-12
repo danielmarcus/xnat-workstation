@@ -179,9 +179,7 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
     if (!name) return;
     setNamingDialog(false);
     try {
-      const segId = await segmentationService.createStackSegmentation(sourceImageIds, name);
-      // Add to the active viewport
-      await segmentationService.addToViewport(activeViewportId, segId);
+      const segId = await segmentationManager.createNewSegmentation(activeViewportId, sourceImageIds, name);
       // Auto-expand the new segmentation
       setExpandedIds((prev) => new Set(prev).add(segId));
       // Track the source scan ID so auto-save targets the correct scan even
@@ -205,12 +203,11 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
   }, []);
 
   const handleAddSegment = useCallback((segmentationId: string) => {
-    const nextIndex = segmentationService.addSegment(segmentationId, '');
-    segmentationService.setActiveSegmentIndex(segmentationId, nextIndex);
+    segmentationManager.addSegment(segmentationId, '');
   }, []);
 
   const handleRemoveSegmentation = useCallback((segId: string) => {
-    segmentationService.removeSegmentation(segId);
+    segmentationManager.removeSegmentation(segId);
     setExpandedIds((prev) => {
       const next = new Set(prev);
       next.delete(segId);
@@ -228,11 +225,7 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
   }, []);
 
   const handleSelectSegment = useCallback((segmentationId: string, segmentIndex: number) => {
-    useSegmentationStore.getState().setActiveSegmentation(segmentationId);
-    segmentationService.setActiveSegmentIndex(segmentationId, segmentIndex);
-    // Also update Cornerstone's active segmentation and ensure contour
-    // representation so contour tools work after switching segmentations.
-    segmentationService.activateOnViewport(activeViewportId, segmentationId);
+    segmentationManager.userSelectedSegmentation(activeViewportId, segmentationId, segmentIndex);
   }, [activeViewportId]);
 
   const handleFillAlphaChange = useCallback(
@@ -292,9 +285,9 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
       return;
     }
     if (editingLabel.type === 'segmentation') {
-      segmentationService.renameSegmentation(editingLabel.segmentationId, trimmed);
+      segmentationManager.renameSegmentation(editingLabel.segmentationId, trimmed);
     } else if (editingLabel.type === 'segment' && editingLabel.segmentIndex != null) {
-      segmentationService.renameSegment(editingLabel.segmentationId, editingLabel.segmentIndex, trimmed);
+      segmentationManager.renameSegment(editingLabel.segmentationId, editingLabel.segmentIndex, trimmed);
     }
     setEditingLabel(null);
   }, [editingLabel, editingValue]);
@@ -322,7 +315,7 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
     setSaveMenuOpen(null);
     setSaving(true);
     try {
-      const base64 = await segmentationService.exportToDicomSeg(segmentationId);
+      const base64 = await segmentationManager.exportToDicomSeg(segmentationId);
       const result = await window.electronAPI.export.saveDicomSeg(base64, 'segmentation.dcm');
       if (result.ok && result.path) {
         setToast({ message: `Saved to ${result.path.split('/').pop()}`, type: 'success' });
@@ -347,11 +340,11 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
     }
 
     // Cancel any pending auto-save so it doesn't race with the manual save
-    segmentationService.cancelAutoSave();
+    segmentationManager.cancelAutoSave();
 
     setSaving(true);
     try {
-      const base64 = await segmentationService.exportToDicomSeg(segmentationId);
+      const base64 = await segmentationManager.exportToDicomSeg(segmentationId);
       const segStoreSnapshot = useSegmentationStore.getState();
       const origin = segStoreSnapshot.xnatOriginMap[segmentationId];
       const segLabel = segStoreSnapshot.segmentations.find(
@@ -448,7 +441,7 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
     }
 
     // Cancel any pending auto-save so it doesn't race with the manual save
-    segmentationService.cancelAutoSave();
+    segmentationManager.cancelAutoSave();
 
     setSaving(true);
     try {
@@ -778,7 +771,7 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
-                                segmentationService.removeSegment(
+                                segmentationManager.removeSegment(
                                   seg.segmentationId,
                                   segment.segmentIndex,
                                 );
