@@ -52,6 +52,7 @@ export function registerUploadHandlers(): void {
       sessionLabel: string,
       sourceScanId: string,
       dicomSegBase64: string,
+      label?: string,
     ) => {
       const client = sessionManager.getClient();
       if (!client) {
@@ -63,6 +64,7 @@ export function registerUploadHandlers(): void {
         console.log(
           `[uploadHandlers] Uploading DICOM SEG (${buffer.length} bytes)`,
           `to ${projectId}/${subjectId}/${sessionLabel} (source scan: ${sourceScanId})`,
+          label ? `label: "${label}"` : '',
         );
 
         const result = await client.uploadDicomSegAsScan(
@@ -72,6 +74,7 @@ export function registerUploadHandlers(): void {
           sessionLabel,
           sourceScanId,
           buffer,
+          label,
         );
 
         return { ok: true, url: result.url, scanId: result.scanId };
@@ -121,6 +124,7 @@ export function registerUploadHandlers(): void {
       sessionId: string,
       sourceScanId: string,
       dicomSegBase64: string,
+      tempFilename?: string,
     ) => {
       const client = sessionManager.getClient();
       if (!client) {
@@ -131,9 +135,10 @@ export function registerUploadHandlers(): void {
         const buffer = Buffer.from(dicomSegBase64, 'base64');
         console.log(
           `[uploadHandlers] Auto-saving to temp resource (${buffer.length} bytes, source scan: ${sourceScanId})`,
+          tempFilename ? `filename: ${tempFilename}` : '',
         );
 
-        const result = await client.autoSaveToTemp(sessionId, sourceScanId, buffer);
+        const result = await client.autoSaveToTemp(sessionId, sourceScanId, buffer, tempFilename);
         return { ok: true, url: result.url };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);

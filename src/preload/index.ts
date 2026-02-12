@@ -46,8 +46,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     downloadScanFile: (sessionId: string, scanId: string) =>
       ipcRenderer.invoke(IPC.XNAT_DOWNLOAD_SCAN_FILE, sessionId, scanId),
 
-    uploadDicomSeg: (projectId: string, subjectId: string, sessionId: string, sessionLabel: string, sourceScanId: string, dicomBase64: string) =>
-      ipcRenderer.invoke(IPC.XNAT_UPLOAD_DICOM_SEG, projectId, subjectId, sessionId, sessionLabel, sourceScanId, dicomBase64),
+    uploadDicomSeg: (projectId: string, subjectId: string, sessionId: string, sessionLabel: string, sourceScanId: string, dicomBase64: string, label?: string) =>
+      ipcRenderer.invoke(IPC.XNAT_UPLOAD_DICOM_SEG, projectId, subjectId, sessionId, sessionLabel, sourceScanId, dicomBase64, label),
 
     uploadDicomRtStruct: (projectId: string, subjectId: string, sessionId: string, sessionLabel: string, sourceScanId: string, dicomBase64: string) =>
       ipcRenderer.invoke(IPC.XNAT_UPLOAD_DICOM_RTSTRUCT, projectId, subjectId, sessionId, sessionLabel, sourceScanId, dicomBase64),
@@ -55,8 +55,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     overwriteDicomSeg: (sessionId: string, targetScanId: string, dicomBase64: string) =>
       ipcRenderer.invoke(IPC.XNAT_OVERWRITE_DICOM_SEG, sessionId, targetScanId, dicomBase64),
 
-    autoSaveTemp: (sessionId: string, sourceScanId: string, dicomBase64: string) =>
-      ipcRenderer.invoke(IPC.XNAT_AUTOSAVE_TEMP, sessionId, sourceScanId, dicomBase64),
+    autoSaveTemp: (sessionId: string, sourceScanId: string, dicomBase64: string, tempFilename?: string) =>
+      ipcRenderer.invoke(IPC.XNAT_AUTOSAVE_TEMP, sessionId, sourceScanId, dicomBase64, tempFilename),
 
     listTempFiles: (sessionId: string) =>
       ipcRenderer.invoke(IPC.XNAT_LIST_TEMP_FILES, sessionId),

@@ -728,10 +728,11 @@ export class XnatClient {
     sessionId: string,
     sourceScanId: string,
     dicomBuffer: Buffer,
+    customFilename?: string,
   ): Promise<{ url: string }> {
     if (!this.token) throw new Error('Not authenticated');
 
-    const filename = `autosave_seg_${sourceScanId}.dcm`;
+    const filename = customFilename ?? `autosave_seg_${sourceScanId}.dcm`;
     console.log(
       `[xnatClient] Auto-saving to temp resource: ${filename}`,
       `(${(dicomBuffer.length / 1024).toFixed(1)} KB)`,
