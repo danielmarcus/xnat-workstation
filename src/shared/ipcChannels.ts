@@ -2,7 +2,7 @@
  * Typed IPC channel constants shared between main and preload processes.
  *
  * renderer → main (invoke/handle):
- *   XNAT_LOGIN, XNAT_LOGOUT, XNAT_VALIDATE, XNAT_GET_CONNECTION, XNAT_DICOMWEB_FETCH,
+ *   XNAT_LOGIN, XNAT_BROWSER_LOGIN, XNAT_LOGOUT, XNAT_VALIDATE, XNAT_GET_CONNECTION, XNAT_DICOMWEB_FETCH,
  *   XNAT_GET_PROJECT_SESSIONS,
  *   XNAT_UPLOAD_DICOM_SEG, XNAT_UPLOAD_DICOM_RTSTRUCT, XNAT_OVERWRITE_DICOM_SEG,
  *   XNAT_AUTOSAVE_TEMP, XNAT_LIST_TEMP_FILES, XNAT_DELETE_TEMP_FILE, XNAT_DOWNLOAD_TEMP_FILE
@@ -13,6 +13,7 @@
 export const IPC = {
   // Auth (renderer → main)
   XNAT_LOGIN: 'xnat:login',
+  XNAT_BROWSER_LOGIN: 'xnat:browser-login',
   XNAT_LOGOUT: 'xnat:logout',
   XNAT_VALIDATE: 'xnat:validate-session',
   XNAT_GET_CONNECTION: 'xnat:get-connection',

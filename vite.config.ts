@@ -1,12 +1,10 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
-import { viteCommonjs } from '@originjs/vite-plugin-commonjs';
 import path from 'path';
 
 export default defineConfig({
   plugins: [
     react(),
-    viteCommonjs(),
   ],
   root: 'src/renderer',
   base: './',
@@ -46,6 +44,12 @@ export default defineConfig({
       '@cornerstonejs/core',
       '@cornerstonejs/tools',
       'dicom-parser',
+      // Codec packages are CJS/UMD — must be pre-bundled for ESM default-export interop.
+      // They're transitive deps of dicom-image-loader (which itself must stay excluded).
+      '@cornerstonejs/codec-libjpeg-turbo-8bit/decodewasmjs',
+      '@cornerstonejs/codec-charls/decodewasmjs',
+      '@cornerstonejs/codec-openjpeg/decodewasmjs',
+      '@cornerstonejs/codec-openjph/wasmjs',
     ],
   },
   worker: {

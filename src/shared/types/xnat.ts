@@ -20,7 +20,7 @@ export interface XnatConnectionInfo {
   serverUrl: string;
   username: string;
   connectedAt: number; // timestamp in ms
-  authType: 'alias' | 'jsession';
+  authType: 'alias' | 'jsession' | 'browser';
 }
 
 /** Result from login attempt */

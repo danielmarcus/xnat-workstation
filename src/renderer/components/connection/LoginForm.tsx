@@ -1,11 +1,10 @@
 /**
  * LoginForm — full-screen login dialog for connecting to an XNAT server.
  *
- * Fields: Server URL, Username, Password.
- * Submits via connectionStore.login() which goes through IPC to main process.
+ * Takes only a server URL. Clicking "Sign In" opens XNAT's own login page
+ * in a secure browser window, supporting all auth methods (local, LDAP, OIDC).
  *
- * Remembers recent server/username pairs in localStorage (never passwords).
- * Most recent connection is pre-filled; others available in a dropdown.
+ * Remembers recent server URLs in localStorage.
  */
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useConnectionStore } from '../../stores/connectionStore';
@@ -15,7 +14,6 @@ import { IconServer, XnatLogo } from '../icons';
 
 interface RecentConnection {
   serverUrl: string;
-  username: string;
   lastUsed: number; // Date.now()
 }
 
@@ -29,7 +27,8 @@ function loadRecent(): RecentConnection[] {
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
     return parsed
-      .filter((r: any) => r.serverUrl && r.username)
+      .filter((r: any) => r.serverUrl)
+      .map((r: any) => ({ serverUrl: r.serverUrl, lastUsed: r.lastUsed }))
       .sort((a: RecentConnection, b: RecentConnection) => b.lastUsed - a.lastUsed)
       .slice(0, MAX_RECENT);
   } catch {
@@ -37,16 +36,14 @@ function loadRecent(): RecentConnection[] {
   }
 }
 
-function saveRecent(serverUrl: string, username: string): void {
+function saveRecent(serverUrl: string): void {
   try {
     const existing = loadRecent();
     // Remove duplicate if exists
-    const filtered = existing.filter(
-      (r) => !(r.serverUrl === serverUrl && r.username === username),
-    );
+    const filtered = existing.filter((r) => r.serverUrl !== serverUrl);
     // Prepend new entry
     const updated = [
-      { serverUrl, username, lastUsed: Date.now() },
+      { serverUrl, lastUsed: Date.now() },
       ...filtered,
     ].slice(0, MAX_RECENT);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
@@ -60,12 +57,10 @@ function saveRecent(serverUrl: string, username: string): void {
 export default function LoginForm() {
   const status = useConnectionStore((s) => s.status);
   const error = useConnectionStore((s) => s.error);
-  const login = useConnectionStore((s) => s.login);
+  const browserLogin = useConnectionStore((s) => s.browserLogin);
 
   const [recentConnections] = useState(loadRecent);
   const [serverUrl, setServerUrl] = useState('');
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
   const [showRecent, setShowRecent] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -74,9 +69,7 @@ export default function LoginForm() {
   // Pre-fill with most recent connection on mount
   useEffect(() => {
     if (recentConnections.length > 0) {
-      const most = recentConnections[0];
-      setServerUrl(most.serverUrl);
-      setUsername(most.username);
+      setServerUrl(recentConnections[0].serverUrl);
     }
   }, [recentConnections]);
 
@@ -94,8 +87,6 @@ export default function LoginForm() {
 
   const selectRecent = useCallback((conn: RecentConnection) => {
     setServerUrl(conn.serverUrl);
-    setUsername(conn.username);
-    setPassword('');
     setShowRecent(false);
   }, []);
 
@@ -104,42 +95,21 @@ export default function LoginForm() {
       e.preventDefault();
 
       let trimmedUrl = serverUrl.trim().replace(/\/+$/, '');
-      const trimmedUser = username.trim();
 
-      if (!trimmedUrl || !trimmedUser || !password) return;
+      if (!trimmedUrl) return;
 
       // Auto-prepend https:// if no protocol specified
       if (!/^https?:\/\//i.test(trimmedUrl)) {
         trimmedUrl = `https://${trimmedUrl}`;
       }
 
-      // Try connecting with the URL (https first)
-      let success = await login({
-        serverUrl: trimmedUrl,
-        username: trimmedUser,
-        password,
-      });
-
-      // If https failed and the user didn't explicitly specify a protocol, try http
-      if (!success && !serverUrl.trim().toLowerCase().startsWith('http')) {
-        const httpUrl = trimmedUrl.replace(/^https:\/\//i, 'http://');
-        console.log(`[LoginForm] HTTPS failed, falling back to HTTP: ${httpUrl}`);
-        success = await login({
-          serverUrl: httpUrl,
-          username: trimmedUser,
-          password,
-        });
-        if (success) {
-          trimmedUrl = httpUrl;
-        }
-      }
+      const success = await browserLogin(trimmedUrl);
 
       if (success) {
-        // Save to recent connections on successful login
-        saveRecent(trimmedUrl, trimmedUser);
+        saveRecent(trimmedUrl);
       }
     },
-    [serverUrl, username, password, login],
+    [serverUrl, browserLogin],
   );
 
   const hasRecent = recentConnections.length > 0;
@@ -203,11 +173,11 @@ export default function LoginForm() {
             {showRecent && (
               <div className="absolute z-50 left-0 right-0 mt-1 bg-zinc-900 border border-zinc-700 rounded-md shadow-xl overflow-hidden">
                 <div className="px-3 py-1.5 text-[10px] font-medium text-zinc-500 uppercase tracking-wider border-b border-zinc-800">
-                  Recent Connections
+                  Recent Servers
                 </div>
                 {recentConnections.map((conn, i) => (
                   <button
-                    key={`${conn.serverUrl}-${conn.username}`}
+                    key={conn.serverUrl}
                     type="button"
                     onClick={() => selectRecent(conn)}
                     className={`w-full text-left px-3 py-2 hover:bg-zinc-800 transition-colors flex items-center gap-2.5 ${
@@ -215,58 +185,13 @@ export default function LoginForm() {
                     }`}
                   >
                     <IconServer className="w-3.5 h-3.5 shrink-0 text-zinc-500" />
-                    <div className="min-w-0">
-                      <div className="text-xs text-zinc-200 truncate">
-                        {conn.serverUrl}
-                      </div>
-                      <div className="text-[10px] text-zinc-500 mt-0.5">
-                        {conn.username}
-                      </div>
+                    <div className="text-xs text-zinc-200 truncate">
+                      {conn.serverUrl}
                     </div>
                   </button>
                 ))}
               </div>
             )}
-          </div>
-
-          {/* Username */}
-          <div>
-            <label
-              htmlFor="username"
-              className="block text-xs font-medium text-zinc-400 mb-1.5"
-            >
-              Username
-            </label>
-            <input
-              id="username"
-              type="text"
-              placeholder="admin"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              disabled={isConnecting}
-              autoComplete="username"
-              className="w-full bg-zinc-900 border border-zinc-700 rounded-md px-3 py-2 text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50"
-            />
-          </div>
-
-          {/* Password */}
-          <div>
-            <label
-              htmlFor="password"
-              className="block text-xs font-medium text-zinc-400 mb-1.5"
-            >
-              Password
-            </label>
-            <input
-              id="password"
-              type="password"
-              placeholder="Password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              disabled={isConnecting}
-              autoComplete="current-password"
-              className="w-full bg-zinc-900 border border-zinc-700 rounded-md px-3 py-2 text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50"
-            />
           </div>
 
           {/* Error message */}
@@ -279,12 +204,7 @@ export default function LoginForm() {
           {/* Submit button */}
           <button
             type="submit"
-            disabled={
-              isConnecting ||
-              !serverUrl.trim() ||
-              !username.trim() ||
-              !password
-            }
+            disabled={isConnecting || !serverUrl.trim()}
             className="w-full bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-700 disabled:text-zinc-500 text-white font-medium text-sm rounded-md px-4 py-2.5 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-zinc-950"
           >
             {isConnecting ? (
@@ -313,14 +233,14 @@ export default function LoginForm() {
                 Connecting...
               </span>
             ) : (
-              'Connect'
+              'Sign In with XNAT'
             )}
           </button>
         </form>
 
         {/* Footer */}
         <p className="text-center text-xs text-zinc-600 mt-6">
-          Credentials are sent securely. Only server &amp; username are remembered.
+          Opens your XNAT login page in a secure window
         </p>
       </div>
     </div>

@@ -87,6 +87,43 @@ export class XnatClient {
   }
 
   /**
+   * Set auth state from browser login results.
+   *
+   * browserLogin.ts handles all network operations (token exchange, username
+   * retrieval) using the login session's Chromium network stack, because
+   * Node.js fetch gets rejected by some XNAT servers. This method just
+   * stores the pre-fetched credentials without making any network calls.
+   */
+  setAuthFromBrowserLogin(opts: {
+    jsessionId: string;
+    aliasToken?: { alias: string; secret: string };
+    username: string;
+  }): void {
+    this.username = opts.username;
+
+    if (opts.aliasToken) {
+      this.token = {
+        type: 'alias',
+        alias: opts.aliasToken.alias,
+        secret: opts.aliasToken.secret,
+        expiresAt: Date.now() + 48 * 60 * 60 * 1000, // 48 hours
+      };
+      this.scheduleRefresh(); // token chaining for long sessions
+      console.log(`[xnatClient] Browser login: alias token set (${opts.aliasToken.alias.slice(0, 8)}...)`);
+    } else {
+      this.token = {
+        type: 'jsession',
+        alias: 'JSESSIONID',
+        secret: opts.jsessionId,
+        expiresAt: Date.now() + 15 * 60 * 1000, // 15 minutes
+      };
+      console.log('[xnatClient] Browser login: JSESSION token set');
+    }
+
+    console.log(`[xnatClient] Browser login complete: user=${this.username}, auth=${this.token.type}`);
+  }
+
+  /**
    * Fallback: authenticate using JSESSIONID cookie.
    */
   private async authenticateWithSession(
@@ -128,26 +165,66 @@ export class XnatClient {
 
   /**
    * Schedule automatic re-authentication before token expiration.
+   *
+   * If username/password are provided, uses them to re-authenticate (traditional login).
+   * Otherwise, uses token chaining: the current alias token issues a new alias token.
+   * JSESSION tokens without credentials are not auto-refreshed (rely on keepalive).
    */
-  private scheduleRefresh(username: string, password: string): void {
+  private scheduleRefresh(username?: string, password?: string): void {
     this.clearRefresh();
     if (!this.token) return;
 
-    // Refresh early: 13 min for 15-min JSESSION, 47 hours for 48-hour alias
-    const refreshIn =
-      this.token.type === 'jsession'
-        ? 13 * 60 * 1000
-        : 47 * 60 * 60 * 1000;
+    if (this.token.type === 'alias') {
+      // Alias tokens: refresh at 47 hours (before 48-hour expiry)
+      const refreshIn = 47 * 60 * 60 * 1000;
 
-    this.refreshTimeout = setTimeout(async () => {
-      try {
-        console.log('[xnatClient] Refreshing authentication');
-        await this.authenticate(username, password);
-      } catch (err) {
-        console.error('[xnatClient] Failed to refresh auth:', err);
-        // Token will expire — sessionManager will detect via keepalive
-      }
-    }, refreshIn);
+      this.refreshTimeout = setTimeout(async () => {
+        try {
+          if (username && password) {
+            // Traditional login: re-authenticate with credentials
+            console.log('[xnatClient] Refreshing authentication with credentials');
+            await this.authenticate(username, password);
+          } else {
+            // Token chaining: current alias token issues a new one
+            console.log('[xnatClient] Refreshing via token chaining');
+            const authHeaders = this.buildAuthHeaders();
+            const response = await fetch(`${this.baseUrl}/data/services/tokens/issue`, {
+              method: 'GET',
+              headers: authHeaders,
+            });
+            if (response.ok) {
+              const data = (await response.json()) as { alias: string; secret: string };
+              this.token = {
+                type: 'alias',
+                alias: data.alias,
+                secret: data.secret,
+                expiresAt: Date.now() + 48 * 60 * 60 * 1000,
+              };
+              this.scheduleRefresh(); // Chain again
+              console.log('[xnatClient] Token chaining successful');
+            } else {
+              console.error('[xnatClient] Token chaining failed:', response.status);
+            }
+          }
+        } catch (err) {
+          console.error('[xnatClient] Failed to refresh auth:', err);
+          // Token will expire — sessionManager will detect via keepalive
+        }
+      }, refreshIn);
+    } else if (this.token.type === 'jsession' && username && password) {
+      // JSESSION with credentials: refresh at 13 minutes (before 15-min expiry)
+      const refreshIn = 13 * 60 * 1000;
+
+      this.refreshTimeout = setTimeout(async () => {
+        try {
+          console.log('[xnatClient] Refreshing JSESSION with credentials');
+          await this.authenticate(username, password);
+        } catch (err) {
+          console.error('[xnatClient] Failed to refresh auth:', err);
+        }
+      }, refreshIn);
+    }
+    // JSESSION without credentials (browser login): no auto-refresh, rely on keepalive
   }
 
   private clearRefresh(): void {
@@ -227,6 +304,10 @@ export class XnatClient {
   /**
    * Make an authenticated request to an XNAT endpoint.
    * Returns the raw Response for caller to parse.
+   *
+   * Uses redirect: 'manual' to prevent Node.js fetch from stripping the
+   * Cookie header on redirects (common with XNAT behind reverse proxies).
+   * Redirects are followed manually with auth headers preserved.
    */
   async authenticatedFetch(
     endpoint: string,
@@ -240,7 +321,23 @@ export class XnatClient {
       ...this.buildAuthHeaders(),
     };
 
-    const response = await fetch(url, { ...options, headers });
+    let response = await fetch(url, { ...options, headers, redirect: 'manual' });
+
+    // Follow redirects manually, preserving auth headers only for same-origin
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get('location');
+      if (location) {
+        const redirectUrl = new URL(location, url);
+        const originalUrl = new URL(url);
+        const sameOrigin = redirectUrl.origin === originalUrl.origin;
+        console.log(`[xnatClient] Following redirect: ${response.status} → ${redirectUrl} (same-origin: ${sameOrigin})`);
+        response = await fetch(redirectUrl.toString(), {
+          ...options,
+          headers: sameOrigin ? headers : (options.headers as Record<string, string>) ?? {},
+          redirect: 'manual',
+        });
+      }
+    }
 
     if (!response.ok) {
       const text = await response.text().catch(() => '');

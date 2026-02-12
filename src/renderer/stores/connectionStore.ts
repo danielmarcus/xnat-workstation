@@ -21,6 +21,7 @@ interface ConnectionStore {
 
   // ─── Actions ────────────────────────────────────────────────
   login: (creds: XnatLoginCredentials) => Promise<boolean>;
+  browserLogin: (serverUrl: string) => Promise<boolean>;
   logout: () => Promise<void>;
   checkSession: () => Promise<void>;
 
@@ -50,6 +51,37 @@ export const useConnectionStore = create<ConnectionStore>((set) => ({
         set({
           status: 'error',
           error: result.error || 'Login failed',
+          connection: null,
+        });
+        return false;
+      }
+    } catch (err) {
+      set({
+        status: 'error',
+        error: err instanceof Error ? err.message : String(err),
+        connection: null,
+      });
+      return false;
+    }
+  },
+
+  browserLogin: async (serverUrl) => {
+    set({ status: 'connecting', error: null });
+
+    try {
+      const result = await window.electronAPI.xnat.browserLogin(serverUrl);
+
+      if (result.success && result.connection) {
+        set({
+          status: 'connected',
+          connection: result.connection,
+          error: null,
+        });
+        return true;
+      } else {
+        set({
+          status: result.error === 'Login cancelled' ? 'disconnected' : 'error',
+          error: result.error === 'Login cancelled' ? null : (result.error || 'Login failed'),
           connection: null,
         });
         return false;

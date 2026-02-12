@@ -12,6 +12,7 @@
  */
 import { session as electronSession, BrowserWindow } from 'electron';
 import { XnatClient } from './xnatClient';
+import { openBrowserLogin } from './browserLogin';
 import { IPC } from '../../shared/ipcChannels';
 import type {
   XnatLoginCredentials,
@@ -63,6 +64,55 @@ export async function login(creds: XnatLoginCredentials): Promise<XnatLoginResul
   setupWebRequestInterceptor();
 
   console.log(`[sessionManager] Connected to ${connectionInfo.serverUrl} as ${connectionInfo.username}`);
+
+  return { success: true, connection: connectionInfo };
+}
+
+/**
+ * Authenticate via browser-based login (SSO/OIDC/LDAP/local).
+ * Opens XNAT's login page in a child BrowserWindow. After the user
+ * authenticates, browserLogin extracts the JSESSIONID, exchanges it
+ * for an alias token, and retrieves the username — all using the
+ * BrowserWindow's Chromium network stack (which some XNAT servers
+ * require). The pre-fetched credentials are then handed to xnatClient.
+ */
+export async function browserLogin(serverUrl: string): Promise<XnatLoginResult> {
+  // Disconnect existing connection first
+  if (client) {
+    await logout();
+  }
+
+  // Open browser login window — returns pre-fetched auth data
+  let loginResult: Awaited<ReturnType<typeof openBrowserLogin>>;
+  try {
+    loginResult = await openBrowserLogin(serverUrl);
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+
+  // Create client and set pre-fetched auth credentials directly
+  const newClient = new XnatClient(serverUrl);
+  newClient.setAuthFromBrowserLogin(loginResult);
+
+  client = newClient;
+
+  connectionInfo = {
+    serverUrl: client.serverUrl,
+    username: client.currentUsername,
+    connectedAt: Date.now(),
+    authType: client.authType ?? 'jsession',
+  };
+
+  // Start keepalive timer
+  startKeepalive();
+
+  // Set up web request interceptor for Cornerstone's direct WADO-URI fetches
+  setupWebRequestInterceptor();
+
+  console.log(`[sessionManager] Browser login: connected to ${connectionInfo.serverUrl} as ${connectionInfo.username}`);
 
   return { success: true, connection: connectionInfo };
 }

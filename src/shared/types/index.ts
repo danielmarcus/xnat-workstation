@@ -20,6 +20,7 @@ export interface ElectronAPI {
   platform: string;
   xnat: {
     login(creds: XnatLoginCredentials): Promise<XnatLoginResult>;
+    browserLogin(serverUrl: string): Promise<XnatLoginResult>;
     logout(): Promise<void>;
     validateSession(): Promise<XnatSessionStatus>;
     getConnection(): Promise<XnatConnectionInfo | null>;

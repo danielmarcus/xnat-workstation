@@ -14,6 +14,10 @@ export function registerAuthHandlers(): void {
     return sessionManager.login(creds);
   });
 
+  ipcMain.handle(IPC.XNAT_BROWSER_LOGIN, async (_event, serverUrl: string) => {
+    return sessionManager.browserLogin(serverUrl);
+  });
+
   ipcMain.handle(IPC.XNAT_LOGOUT, async () => {
     return sessionManager.logout();
   });

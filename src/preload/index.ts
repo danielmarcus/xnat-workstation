@@ -17,6 +17,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     login: (creds: { serverUrl: string; username: string; password: string }) =>
       ipcRenderer.invoke(IPC.XNAT_LOGIN, creds),
 
+    browserLogin: (serverUrl: string) =>
+      ipcRenderer.invoke(IPC.XNAT_BROWSER_LOGIN, serverUrl),
+
     logout: () =>
       ipcRenderer.invoke(IPC.XNAT_LOGOUT),
 
