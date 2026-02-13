@@ -78,7 +78,13 @@ export class SegmentationManager {
       if (this.isEpochStale(panelId, epoch)) return;
 
       const mgr = useSegmentationManagerStore.getState();
-      const loadedForSource = mgr.loadedBySourceScan[sourceScanId] ?? {};
+      // Use session-scoped composite key for loadedBySourceScan lookup.
+      // Use xnatContext.sessionId (not viewerStore.sessionId) — see getVisibleSegmentationIdsForViewport.
+      const viewerState = useViewerStore.getState();
+      const projectId = viewerState.xnatContext?.projectId ?? '';
+      const currentSessionId = viewerState.xnatContext?.sessionId ?? '';
+      const compositeSourceKey = `${projectId}/${currentSessionId}/${sourceScanId}`;
+      const loadedForSource = mgr.loadedBySourceScan[compositeSourceKey] ?? {};
       const desired = mgr.panelState[panelId]?.desiredOverlayIds ?? [];
 
       // If desired list is empty, treat it as "attach everything already loaded for this source scan".
@@ -262,6 +268,13 @@ export class SegmentationManager {
     const deps = this.deps;
     const store = useSegmentationManagerStore.getState;
 
+    // Build session-scoped composite key for loadedBySourceScan lookups.
+    // Use xnatContext.sessionId (not viewerStore.sessionId) — see getVisibleSegmentationIdsForViewport.
+    const viewerState = useViewerStore.getState();
+    const projectId = viewerState.xnatContext?.projectId ?? '';
+    const currentSessionId = viewerState.xnatContext?.sessionId ?? '';
+    const compositeSourceKey = `${projectId}/${currentSessionId}/${sourceScanId}`;
+
     // Capture epoch at start for staleness checks
     const epochAtStart = store().panelState[panelId]?.epoch ?? viewportReadyService.getEpoch(panelId);
 
@@ -273,10 +286,10 @@ export class SegmentationManager {
 
       const { type, scanId, sessionId, label } = descriptor;
 
-      // Skip if already loaded for this source scan
-      const loaded = store().loadedBySourceScan[sourceScanId]?.[scanId];
+      // Skip if already loaded for this source scan (session-scoped)
+      const loaded = store().loadedBySourceScan[compositeSourceKey]?.[scanId];
       if (loaded) {
-        console.log(`[SegmentationManager] Overlay ${scanId} already loaded for source ${sourceScanId}`);
+        console.log(`[SegmentationManager] Overlay ${scanId} already loaded for source ${compositeSourceKey}`);
         continue;
       }
 
@@ -329,8 +342,8 @@ export class SegmentationManager {
           segmentationService.setLabel(segmentationId, label);
         }
 
-        // Record loaded
-        store().recordLoaded(sourceScanId, scanId, {
+        // Record loaded using session-scoped composite key
+        store().recordLoaded(compositeSourceKey, scanId, {
           segmentationId,
           loadedAt: Date.now(),
         });
@@ -356,43 +369,66 @@ export class SegmentationManager {
   // ─── Panel filtering ──────────────────────────────────────────
 
   /**
-   * Determine which segmentation IDs should be visible in the panel
-   * for the given viewport. Implements the rule: show segmentation if
-   * (A) it is currently represented on the viewport, OR
-   * (B) it is associated with the viewport's source scan via
-   *     loadedBySourceScan or localOriginBySegId.
+   * Return the set of segmentation IDs that should be visible in the
+   * segmentation panel for the given viewport.
+   *
+   * Uses session-scoped composite keys (projectId/sessionId/scanId) to
+   * prevent cross-session leakage — e.g. session A scan 6's SEGs must NOT
+   * appear when viewing session B scan 6.
+   *
+   * Checks three origin maps:
+   *   1. loadedBySourceScan — populated by requestShowOverlaysForSourceScan
+   *   2. xnatOriginMap — populated by all XNAT load paths (direct, deferred, auto-load)
+   *   3. localOriginBySegId — populated by createNewSegmentation for locally-created segs
+   *
+   * Fallback: if no panelScanMap entry exists (e.g. local drag-and-drop files),
+   * returns null to indicate "show all segmentations".
    */
-  getVisibleSegmentationIdsForViewport(viewportId: string): Set<string> {
-    const mgr = useSegmentationManagerStore.getState();
-    const sourceScanId = useViewerStore.getState().panelScanMap[viewportId];
+  getVisibleSegmentationIdsForViewport(viewportId: string): Set<string> | null {
+    const viewerState = useViewerStore.getState();
+    const sourceScanId = viewerState.panelScanMap[viewportId];
+    if (!sourceScanId) return null; // No XNAT scan → show all (local files)
+
+    // Use xnatContext.sessionId (not viewerStore.sessionId) because
+    // loadFromXnatScan sets xnatContext but does NOT update viewerStore.sessionId.
+    // viewerStore.sessionId is only set by setSessionData (full session load).
+    const projectId = viewerState.xnatContext?.projectId;
+    const currentSessionId = viewerState.xnatContext?.sessionId;
+    if (!projectId || !currentSessionId) return null; // No session context → show all
+
+    const compositeKey = `${projectId}/${currentSessionId}/${sourceScanId}`;
+    const mgrState = useSegmentationManagerStore.getState();
+    const segState = useSegmentationStore.getState();
     const result = new Set<string>();
 
-    // (B) Segmentations loaded from XNAT for this source scan
-    if (sourceScanId) {
-      const loadedForSource = mgr.loadedBySourceScan[sourceScanId] ?? {};
+    // 1. loadedBySourceScan — keyed by composite source key
+    const loadedForSource = mgrState.loadedBySourceScan[compositeKey];
+    if (loadedForSource) {
       for (const info of Object.values(loadedForSource)) {
         result.add(info.segmentationId);
       }
+    }
 
-      // (B) Locally-created segmentations whose origin matches this source scan
-      for (const [segId, originScan] of Object.entries(mgr.localOriginBySegId)) {
-        if (originScan === sourceScanId) {
-          result.add(segId);
-        }
-      }
-
-      // (B) Segmentations with XNAT origin matching this source scan
-      // (covers scan-click and auto-load paths that call setXnatOrigin but not recordLoaded)
-      const xnatOriginMap = useSegmentationStore.getState().xnatOriginMap;
-      for (const [segId, origin] of Object.entries(xnatOriginMap)) {
-        if (origin.sourceScanId === sourceScanId) {
-          result.add(segId);
-        }
+    // 2. xnatOriginMap — match projectId + sessionId + sourceScanId
+    for (const [segId, origin] of Object.entries(segState.xnatOriginMap)) {
+      if (
+        origin.sourceScanId === sourceScanId &&
+        origin.sessionId === currentSessionId &&
+        origin.projectId === projectId
+      ) {
+        result.add(segId);
       }
     }
 
-    // (A) Segmentations currently represented on this viewport
-    for (const seg of useSegmentationStore.getState().segmentations) {
+    // 3. localOriginBySegId — compare composite key
+    for (const [segId, originKey] of Object.entries(mgrState.localOriginBySegId)) {
+      if (originKey === compositeKey) {
+        result.add(segId);
+      }
+    }
+
+    // 4. Fallback: check Cornerstone viewport attachment for any segs not found via maps
+    for (const seg of segState.segmentations) {
       if (!result.has(seg.segmentationId) && this.isSegOnViewport(viewportId, seg.segmentationId)) {
         result.add(seg.segmentationId);
       }
@@ -497,10 +533,18 @@ export class SegmentationManager {
     const segId = await segmentationService.createStackSegmentation(sourceImageIds, label);
     await segmentationService.addToViewport(viewportId, segId);
 
-    // Track local origin so panel filtering knows this segmentation belongs to this source scan
-    const sourceScanId = useViewerStore.getState().panelScanMap[viewportId];
-    if (sourceScanId) {
-      useSegmentationManagerStore.getState().setLocalOrigin(segId, sourceScanId);
+    // Record local origin with session-scoped composite key so the
+    // segmentation panel can filter by the active viewport's source scan.
+    // Use xnatContext.sessionId (not viewerStore.sessionId) — see getVisibleSegmentationIdsForViewport.
+    const viewerState = useViewerStore.getState();
+    const sourceScanId = viewerState.panelScanMap[viewportId];
+    const projectId = viewerState.xnatContext?.projectId;
+    const sessionId = viewerState.xnatContext?.sessionId;
+    if (sourceScanId && projectId && sessionId) {
+      useSegmentationManagerStore.getState().setLocalOrigin(
+        segId,
+        `${projectId}/${sessionId}/${sourceScanId}`,
+      );
     }
 
     return segId;

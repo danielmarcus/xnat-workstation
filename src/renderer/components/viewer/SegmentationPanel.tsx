@@ -93,13 +93,12 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
   const loadedBySourceScan = useSegmentationManagerStore((s) => s.loadedBySourceScan);
   const localOriginBySegId = useSegmentationManagerStore((s) => s.localOriginBySegId);
 
-  // Filter segmentations to only those relevant to the active viewport's source scan
+  // ─── Filter segmentations by active viewport's source scan ────
   const visibleSegmentations = useMemo(() => {
     const allowed = segmentationManager.getVisibleSegmentationIdsForViewport(activeViewportId);
-    // If no source scan is mapped (e.g. local file load), show everything
-    if (!panelScanMap[activeViewportId]) return segmentations;
-    return segmentations.filter((s) => allowed.has(s.segmentationId));
-  }, [segmentations, activeViewportId, panelScanMap, loadedBySourceScan, localOriginBySegId, xnatOriginMap]);
+    if (!allowed) return segmentations; // null → show all (local files, no XNAT context)
+    return segmentations.filter((seg) => allowed.has(seg.segmentationId));
+  }, [segmentations, activeViewportId, panelScanMap, xnatContext, xnatOriginMap, loadedBySourceScan, localOriginBySegId]);
 
   const setFillAlpha = useSegmentationStore((s) => s.setFillAlpha);
   const toggleOutline = useSegmentationStore((s) => s.toggleOutline);
@@ -200,10 +199,12 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
       // if the user switches panels/scans before the auto-save fires.
       // scanId='' means "not yet saved to XNAT" (distinguished from loaded SEGs).
       const currentScanId = xnatContext?.scanId;
-      if (currentScanId) {
+      if (currentScanId && xnatContext?.projectId && xnatContext?.sessionId) {
         useSegmentationStore.getState().setXnatOrigin(segId, {
           scanId: '',
           sourceScanId: currentScanId,
+          projectId: xnatContext.projectId,
+          sessionId: xnatContext.sessionId,
         });
       }
     } catch (err) {
@@ -393,10 +394,12 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
           segLabel,
         );
         if (result.ok && result.scanId) {
-          // Track origin for future overwrites
+          // Track origin for future overwrites (session-scoped)
           useSegmentationStore.getState().setXnatOrigin(segmentationId, {
             scanId: result.scanId,
             sourceScanId,
+            projectId: xnatContext.projectId,
+            sessionId: xnatContext.sessionId,
           });
           setToast({ message: `Uploaded to XNAT as scan ${result.scanId}`, type: 'success' });
         }
@@ -477,11 +480,13 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
       );
       if (result.ok) {
         useSegmentationStore.getState()._markClean();
-        // Track origin for future overwrites (if first save)
+        // Track origin for future overwrites (if first save, session-scoped)
         if (result.scanId) {
           useSegmentationStore.getState().setXnatOrigin(segmentationId, {
             scanId: result.scanId,
             sourceScanId,
+            projectId: xnatContext.projectId,
+            sessionId: xnatContext.sessionId,
           });
         }
         // Clean up all auto-save temp files for this source scan (pattern-based for timestamped filenames)

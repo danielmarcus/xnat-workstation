@@ -467,6 +467,10 @@ export default function App() {
     sourceScanId?: string;
     /** XNAT scan series description — used to override generic Cornerstone labels */
     xnatScanLabel?: string;
+    /** XNAT project ID — used for session-scoped origin tracking */
+    projectId?: string;
+    /** XNAT session (experiment) ID — used for session-scoped origin tracking */
+    sessionId?: string;
   } | null>(null);
 
   /** Tracks panels with an active deferred SEG load (set when loadSeg starts,
@@ -819,11 +823,13 @@ export default function App() {
         await jumpViewportToReferencedImage(pending.panelId, firstNonZeroReferencedImageId);
         console.log(`[App] Loaded deferred DICOM SEG as ${segmentationId} on ${pending.panelId}`);
 
-        // Track XNAT origin for overwrite-on-save
-        if (pending.xnatScanId && pending.sourceScanId) {
+        // Track XNAT origin for overwrite-on-save (session-scoped)
+        if (pending.xnatScanId && pending.sourceScanId && pending.projectId && pending.sessionId) {
           useSegmentationStore.getState().setXnatOrigin(segmentationId, {
             scanId: pending.xnatScanId,
             sourceScanId: pending.sourceScanId,
+            projectId: pending.projectId,
+            sessionId: pending.sessionId,
           });
         }
         if (pending.xnatScanId) releaseSegLock(pending.xnatScanId);
@@ -913,21 +919,34 @@ export default function App() {
           return;
         }
 
-        // Check if this SEG scan is already loaded (prevent duplicates)
+        // Check if this SEG scan is already loaded (prevent duplicates, session-scoped)
         const segStore = useSegmentationStore.getState();
         const existingSegEntry = Object.entries(segStore.xnatOriginMap).find(
-          ([, origin]) => origin.scanId === scanId
+          ([, origin]) => origin.scanId === scanId && origin.sessionId === sessionId
         );
         if (existingSegEntry) {
-          // Verify the segmentation still actually exists in Cornerstone state
-          // (it may have been removed when user clicked a different scan)
-          const [existingSegId] = existingSegEntry;
+          const [existingSegId, existingOrigin] = existingSegEntry;
           if (segmentationManager.segmentationExists(existingSegId)) {
-            console.log(`[App] SEG scan #${scanId} already loaded — opening panel instead`);
-            if (!segStore.showPanel) segStore.togglePanel();
-            segStore.setActiveSegmentation(existingSegId);
-            setLoading(false);
-            return;
+            // Check if the correct source images are loaded in the target panel.
+            // The SEG labelmap geometry matches its source scan; reattaching to a
+            // viewport showing a different scan's images will silently fail.
+            const currentPanelScan = useViewerStore.getState().panelScanMap[targetPanel];
+            if (currentPanelScan === existingOrigin.sourceScanId) {
+              // Source images match — safe to reattach
+              console.log(`[App] SEG scan #${scanId} already loaded — reattaching to viewport`);
+              segmentationManager.userSelectedSegmentation(targetPanel, existingSegId, 1);
+              if (!segStore.showPanel) segStore.togglePanel();
+              segStore.setActiveSegmentation(existingSegId);
+              releaseSegLock(scanId);
+              setLoading(false);
+              return;
+            }
+            // Source images don't match — destroy the stale segmentation and reload fresh.
+            // The normal load path below will download the SEG, find source images, load them,
+            // and create a new labelmap with the correct geometry.
+            console.log(`[App] SEG scan #${scanId} exists but viewport has scan #${currentPanelScan} (need #${existingOrigin.sourceScanId}) — destroying and reloading`);
+            segmentationManager.removeSegmentation(existingSegId);
+            segStore.clearXnatOrigin(existingSegId);
           } else {
             // Stale origin — segmentation was removed. Clear it and proceed with fresh load.
             console.log(`[App] SEG scan #${scanId} origin is stale — reloading`);
@@ -1011,6 +1030,8 @@ export default function App() {
             xnatScanId: scanId,
             sourceScanId: resolvedScanId,
             xnatScanLabel: scan.seriesDescription,
+            projectId: context.projectId,
+            sessionId,
           };
           // Mark panel as having a SEG load in progress BEFORE triggering
           // any React re-renders or viewport recreation. This prevents
@@ -1037,12 +1058,14 @@ export default function App() {
         await jumpViewportToReferencedImage(segTargetPanel, firstNonZeroReferencedImageId);
         console.log(`[App] Loaded DICOM SEG from XNAT as ${segmentationId} on ${segTargetPanel}`);
 
-        // Track XNAT origin for overwrite-on-save
+        // Track XNAT origin for overwrite-on-save (session-scoped)
         const directSourceScanId = getSourceScanId(scanId);
         if (directSourceScanId) {
           useSegmentationStore.getState().setXnatOrigin(segmentationId, {
             scanId,
             sourceScanId: directSourceScanId,
+            projectId: context.projectId,
+            sessionId,
           });
         }
         releaseSegLock(scanId);
@@ -1058,20 +1081,30 @@ export default function App() {
           return;
         }
 
-        // Check if this RTSTRUCT scan is already loaded (prevent duplicates)
+        // Check if this RTSTRUCT scan is already loaded (prevent duplicates, session-scoped)
         const segStoreRt = useSegmentationStore.getState();
         const existingRtEntry = Object.entries(segStoreRt.xnatOriginMap).find(
-          ([, origin]) => origin.scanId === scanId
+          ([, origin]) => origin.scanId === scanId && origin.sessionId === sessionId
         );
         if (existingRtEntry) {
-          // Verify the segmentation still actually exists in Cornerstone state
-          const [existingRtId] = existingRtEntry;
+          const [existingRtId, existingRtOrigin] = existingRtEntry;
           if (segmentationManager.segmentationExists(existingRtId)) {
-            console.log(`[App] RTSTRUCT scan #${scanId} already loaded — opening panel instead`);
-            if (!segStoreRt.showPanel) segStoreRt.togglePanel();
-            segStoreRt.setActiveSegmentation(existingRtId);
-            setLoading(false);
-            return;
+            // Check if the correct source images are loaded in the target panel.
+            const currentPanelScan = useViewerStore.getState().panelScanMap[targetPanel];
+            if (currentPanelScan === existingRtOrigin.sourceScanId) {
+              // Source images match — safe to reattach
+              console.log(`[App] RTSTRUCT scan #${scanId} already loaded — reattaching to viewport`);
+              segmentationManager.userSelectedSegmentation(targetPanel, existingRtId, 1);
+              if (!segStoreRt.showPanel) segStoreRt.togglePanel();
+              segStoreRt.setActiveSegmentation(existingRtId);
+              releaseSegLock(scanId);
+              setLoading(false);
+              return;
+            }
+            // Source images don't match — destroy the stale segmentation and reload fresh.
+            console.log(`[App] RTSTRUCT scan #${scanId} exists but viewport has scan #${currentPanelScan} (need #${existingRtOrigin.sourceScanId}) — destroying and reloading`);
+            segmentationManager.removeSegmentation(existingRtId);
+            segStoreRt.clearXnatOrigin(existingRtId);
           } else {
             // Stale origin — segmentation was removed. Clear it and proceed with fresh load.
             console.log(`[App] RTSTRUCT scan #${scanId} origin is stale — reloading`);
@@ -1142,11 +1175,13 @@ export default function App() {
         await jumpViewportToReferencedImage(rtTargetPanel, firstReferencedImageId);
         console.log(`[App] Loaded RTSTRUCT from XNAT as ${segmentationId} on ${rtTargetPanel}`);
 
-        // 7. Track XNAT origin for RTSTRUCT (same as SEG) for duplicate prevention + save
+        // 7. Track XNAT origin for RTSTRUCT (same as SEG) for duplicate prevention + save (session-scoped)
         const sourceScanIdRt = getSourceScanId(scanId);
         useSegmentationStore.getState().setXnatOrigin(segmentationId, {
           scanId,
           sourceScanId: sourceScanIdRt ?? scanId,
+          projectId: context.projectId,
+          sessionId,
         });
         releaseSegLock(scanId);
 
@@ -1390,14 +1425,17 @@ export default function App() {
                   srcScanId,
                   descriptors,
                 ).then(() => {
-                  // Track XNAT origin for each loaded overlay (for overwrite-on-save)
+                  // Track XNAT origin for each loaded overlay (for overwrite-on-save, session-scoped)
+                  const compositeSourceKey = `${context.projectId}/${sessionId}/${srcScanId}`;
                   const managerState = useSegmentationManagerStore.getState();
-                  const loadedForSource = managerState.loadedBySourceScan[srcScanId];
+                  const loadedForSource = managerState.loadedBySourceScan[compositeSourceKey];
                   if (loadedForSource) {
                     for (const [derivedScanId, info] of Object.entries(loadedForSource)) {
                       useSegmentationStore.getState().setXnatOrigin(info.segmentationId, {
                         scanId: derivedScanId,
                         sourceScanId: srcScanId,
+                        projectId: context.projectId,
+                        sessionId,
                       });
                     }
                   }

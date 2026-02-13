@@ -84,7 +84,7 @@ interface SegmentationStore {
    * Used to overwrite the same scan on manual save instead of creating a new one.
    * Entries absent for locally-created segmentations (first save creates new 30xx scan).
    */
-  xnatOriginMap: Record<string, { scanId: string; sourceScanId: string }>;
+  xnatOriginMap: Record<string, { scanId: string; sourceScanId: string; projectId: string; sessionId: string }>;
 
   // ─── Actions ─────────────────────────────────────────────
 
@@ -128,7 +128,7 @@ interface SegmentationStore {
   _setAutoSaveStatus: (status: 'idle' | 'saving' | 'saved' | 'error') => void;
 
   /** Set the XNAT origin scan for a segmentation (called after load or first save) */
-  setXnatOrigin: (segmentationId: string, origin: { scanId: string; sourceScanId: string }) => void;
+  setXnatOrigin: (segmentationId: string, origin: { scanId: string; sourceScanId: string; projectId: string; sessionId: string }) => void;
 
   /** Clear the XNAT origin for a segmentation (e.g. when deleted) */
   clearXnatOrigin: (segmentationId: string) => void;
