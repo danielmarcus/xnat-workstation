@@ -17,16 +17,15 @@
  * fire before the new cookie has settled.
  *
  * Uses an isolated session partition to avoid cookie/state bleed with the main window.
- * Sets a standard Chrome User-Agent for Google OIDC compatibility.
+ *
+ * Note: Google OIDC blocks sign-in from embedded browsers (per RFC 8252 §8.12)
+ * because the host app has full access to the window contents and could intercept
+ * credentials. If XNAT uses Google OIDC, users will need to authenticate via a
+ * method that doesn't rely on Google's embedded-browser-restricted flow.
  */
 import { BrowserWindow, session } from 'electron';
 
 const LOGIN_PARTITION = 'persist:xnat-login';
-
-// Standard Chrome User-Agent — required for Google OIDC compatibility,
-// which blocks embedded browsers by default User-Agent detection.
-const CHROME_USER_AGENT =
-  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
 /** Parse alias token expiration from the XNAT API response. */
 function parseTokenExpiry(data: { estimatedExpirationTime?: string | number }): number {
@@ -205,8 +204,6 @@ export async function openBrowserLogin(
         partition: LOGIN_PARTITION,
       },
     });
-
-    loginWindow.webContents.setUserAgent(CHROME_USER_AGENT);
 
     let resolved = false;
     // Track the first JSESSIONID value. We clear session storage at the
