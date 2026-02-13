@@ -70,6 +70,9 @@ interface SegmentationManagerState {
   /** Active segment index per panel */
   activeSegmentIndexByPanel: Record<string, number>;
 
+  /** Maps segmentationId → sourceScanId for locally-created segmentations */
+  localOriginBySegId: Record<string, string>;
+
   // ─── Actions ──────────────────────────────────────────────────
 
   setPanelSourceScan: (panelId: string, sourceScanId: string | null, epoch: number) => void;
@@ -84,6 +87,7 @@ interface SegmentationManagerState {
   recordTempSaved: (sourceScanId: string) => void;
   setActiveSegmentationForPanel: (panelId: string, segId: string | null) => void;
   setActiveSegmentIndexForPanel: (panelId: string, segIdx: number) => void;
+  setLocalOrigin: (segId: string, sourceScanId: string) => void;
   clearPanel: (panelId: string) => void;
   /** Check if any segmentation is dirty */
   hasDirtySegmentations: () => boolean;
@@ -104,6 +108,7 @@ const INITIAL_STATE = {
   lastTempSaveAtBySourceScan: {} as Record<string, number | null>,
   activeSegmentationIdByPanel: {} as Record<string, string | null>,
   activeSegmentIndexByPanel: {} as Record<string, number>,
+  localOriginBySegId: {} as Record<string, string>,
 };
 
 export const useSegmentationManagerStore = create<SegmentationManagerState>((set, get) => ({
@@ -207,6 +212,11 @@ export const useSegmentationManagerStore = create<SegmentationManagerState>((set
   setActiveSegmentIndexForPanel: (panelId, segIdx) =>
     set((s) => ({
       activeSegmentIndexByPanel: { ...s.activeSegmentIndexByPanel, [panelId]: segIdx },
+    })),
+
+  setLocalOrigin: (segId, sourceScanId) =>
+    set((s) => ({
+      localOriginBySegId: { ...s.localOriginBySegId, [segId]: sourceScanId },
     })),
 
   clearPanel: (panelId) =>

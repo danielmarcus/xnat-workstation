@@ -16,6 +16,7 @@ import { segmentationService } from '../cornerstone/segmentationService';
 import { rtStructService } from '../cornerstone/rtStructService';
 import { useSegmentationManagerStore } from '../../stores/segmentationManagerStore';
 import { useSegmentationStore } from '../../stores/segmentationStore';
+import { useViewerStore } from '../../stores/viewerStore';
 
 /** Dependencies injected from App.tsx to avoid circular imports */
 export interface ManagerDeps {
@@ -352,6 +353,45 @@ export class SegmentationManager {
     }
   }
 
+  // ─── Panel filtering ──────────────────────────────────────────
+
+  /**
+   * Determine which segmentation IDs should be visible in the panel
+   * for the given viewport. Implements the rule: show segmentation if
+   * (A) it is currently represented on the viewport, OR
+   * (B) it is associated with the viewport's source scan via
+   *     loadedBySourceScan or localOriginBySegId.
+   */
+  getVisibleSegmentationIdsForViewport(viewportId: string): Set<string> {
+    const mgr = useSegmentationManagerStore.getState();
+    const sourceScanId = useViewerStore.getState().panelScanMap[viewportId];
+    const result = new Set<string>();
+
+    // (B) Segmentations loaded from XNAT for this source scan
+    if (sourceScanId) {
+      const loadedForSource = mgr.loadedBySourceScan[sourceScanId] ?? {};
+      for (const info of Object.values(loadedForSource)) {
+        result.add(info.segmentationId);
+      }
+
+      // (B) Locally-created segmentations whose origin matches this source scan
+      for (const [segId, originScan] of Object.entries(mgr.localOriginBySegId)) {
+        if (originScan === sourceScanId) {
+          result.add(segId);
+        }
+      }
+    }
+
+    // (A) Segmentations currently represented on this viewport
+    for (const seg of useSegmentationStore.getState().segmentations) {
+      if (!result.has(seg.segmentationId) && this.isSegOnViewport(viewportId, seg.segmentationId)) {
+        result.add(seg.segmentationId);
+      }
+    }
+
+    return result;
+  }
+
   // ─── User interactions (intents from SegmentationPanel) ────────
 
   /**
@@ -447,6 +487,13 @@ export class SegmentationManager {
   ): Promise<string> {
     const segId = await segmentationService.createStackSegmentation(sourceImageIds, label);
     await segmentationService.addToViewport(viewportId, segId);
+
+    // Track local origin so panel filtering knows this segmentation belongs to this source scan
+    const sourceScanId = useViewerStore.getState().panelScanMap[viewportId];
+    if (sourceScanId) {
+      useSegmentationManagerStore.getState().setLocalOrigin(segId, sourceScanId);
+    }
+
     return segId;
   }
 
