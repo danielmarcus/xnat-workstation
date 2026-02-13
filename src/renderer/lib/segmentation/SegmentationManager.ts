@@ -58,7 +58,61 @@ export class SegmentationManager {
    */
   onPanelImagesChanged(panelId: string, sourceScanId: string | null, epoch: number): void {
     useSegmentationManagerStore.getState().setPanelSourceScan(panelId, sourceScanId, epoch);
+
+    // After viewport recreation, overlay representations can be detached.
+    // Reattach desired/loaded overlays once the viewport reports ready for this epoch.
+    if (sourceScanId) {
+      void this.reconcilePanelAfterReady(panelId, sourceScanId, epoch);
+    }
   }
+
+  /**
+   * Reattach desired/loaded overlays after the viewport becomes ready for this epoch.
+   * Prevents "segmentations exist but aren't visible after layout/protocol changes".
+   */
+  private async reconcilePanelAfterReady(panelId: string, sourceScanId: string, epoch: number): Promise<void> {
+    try {
+      await viewportReadyService.whenReady(panelId, epoch);
+      if (this.disposed) return;
+      if (this.isEpochStale(panelId, epoch)) return;
+
+      const mgr = useSegmentationManagerStore.getState();
+      const loadedForSource = mgr.loadedBySourceScan[sourceScanId] ?? {};
+      const desired = mgr.panelState[panelId]?.desiredOverlayIds ?? [];
+
+      // If desired list is empty, treat it as "attach everything already loaded for this source scan".
+      const segIdsToAttach: string[] = [];
+      for (const [derivedScanId, info] of Object.entries(loadedForSource)) {
+        if (desired.length === 0 || desired.includes(derivedScanId)) {
+          segIdsToAttach.push(info.segmentationId);
+        }
+      }
+
+      for (const segId of segIdsToAttach) {
+        if (this.disposed) return;
+        if (this.isEpochStale(panelId, epoch)) return;
+
+        if (!this.isSegOnViewport(panelId, segId)) {
+          await segmentationService.addToViewport(panelId, segId);
+        }
+        this.restorePresentationState(segId);
+      }
+      } catch (err) {
+      // Non-fatal. Typical causes: stale epoch, timeout, or panel removed mid-flight.
+      console.debug('[SegmentationManager] reconcilePanelAfterReady failed:', err);
+    }
+  }
+
+  /** True iff the segmentation currently has a representation on the given viewport. */
+  private isSegOnViewport(viewportId: string, segmentationId: string): boolean {
+    try {
+      const viewportIds = segmentationService.getViewportIdsForSegmentation(segmentationId);
+      return viewportIds.includes(viewportId);
+    } catch {
+      return false;
+    }
+  }
+
 
   // ─── Viewport cleanup ──────────────────────────────────────────
 
@@ -311,9 +365,35 @@ export class SegmentationManager {
     segmentIndex: number,
   ): void {
     useSegmentationStore.getState().setActiveSegmentation(segmentationId);
-    segmentationService.setActiveSegmentIndex(segmentationId, segmentIndex);
-    segmentationService.activateOnViewport(viewportId, segmentationId);
+
+    // Activation can fail if the segmentation exists globally but is not currently
+    // represented on this viewport (e.g., after scan switching / viewport recreation).
+    void this.ensureAttachedAndActivate(viewportId, segmentationId, segmentIndex);
   }
+
+  /** Ensure representation exists on the viewport, then activate deterministically. */
+  private async ensureAttachedAndActivate(
+    viewportId: string,
+    segmentationId: string,
+    segmentIndex: number,
+  ): Promise<void> {
+    try {
+      const epoch = viewportReadyService.getEpoch(viewportId);
+      await viewportReadyService.whenReady(viewportId, epoch);
+      if (this.disposed) return;
+      if (this.isEpochStale(viewportId, epoch)) return;
+
+      if (!this.isSegOnViewport(viewportId, segmentationId)) {
+        await segmentationService.addToViewport(viewportId, segmentationId);
+      }
+
+      segmentationService.setActiveSegmentIndex(segmentationId, segmentIndex);
+      segmentationService.activateOnViewport(viewportId, segmentationId);
+    } catch (err) {
+      console.debug('[SegmentationManager] ensureAttachedAndActivate failed:', err);
+    }
+  }
+
 
   /**
    * User changed a segment's color via color picker.
