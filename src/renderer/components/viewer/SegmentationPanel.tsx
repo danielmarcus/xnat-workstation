@@ -339,8 +339,9 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
       return;
     }
 
-    // Cancel any pending auto-save so it doesn't race with the manual save
-    segmentationManager.cancelAutoSave();
+    // Block auto-save during the entire manual save operation so a brush stroke
+    // between cancelAutoSave and export completion can't trigger a competing save.
+    segmentationManager.beginManualSave();
 
     setSaving(true);
     try {
@@ -409,6 +410,7 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
       setToast({ message: msg, type: 'error' });
       console.error('[SegmentationPanel] uploadXnat error:', err);
     } finally {
+      segmentationManager.endManualSave();
       setSaving(false);
     }
   }, [xnatContext]);
@@ -440,8 +442,8 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
       return;
     }
 
-    // Cancel any pending auto-save so it doesn't race with the manual save
-    segmentationManager.cancelAutoSave();
+    // Block auto-save during the entire manual save operation
+    segmentationManager.beginManualSave();
 
     setSaving(true);
     try {
@@ -487,6 +489,7 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
       setToast({ message: msg, type: 'error' });
       console.error('[SegmentationPanel] uploadRtStructXnat error:', err);
     } finally {
+      segmentationManager.endManualSave();
       setSaving(false);
     }
   }, [xnatContext]);

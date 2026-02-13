@@ -338,10 +338,9 @@ export class SegmentationManager {
     // Toggle in Cornerstone
     segmentationService.toggleSegmentVisibility(viewportId, segmentationId, segmentIndex);
 
-    // Read current state and cache it
-    // (toggleSegmentVisibility doesn't return the new state, so we infer it)
-    const current = useSegmentationManagerStore.getState().presentation[segmentationId]?.visibility[segmentIndex];
-    const newVisible = current === undefined ? false : !current;
+    // Read the actual post-toggle visibility state from Cornerstone rather than
+    // inferring from the cache (which can be uninitialized or out of sync).
+    const newVisible = segmentationService.getSegmentVisibility(viewportId, segmentationId, segmentIndex);
     useSegmentationManagerStore.getState().setPresentation(segmentationId, segmentIndex, { visible: newVisible });
   }
 
@@ -351,8 +350,9 @@ export class SegmentationManager {
   userToggledLock(segmentationId: string, segmentIndex: number): void {
     segmentationService.toggleSegmentLocked(segmentationId, segmentIndex);
 
-    const current = useSegmentationManagerStore.getState().presentation[segmentationId]?.locked[segmentIndex];
-    const newLocked = current === undefined ? true : !current;
+    // Read the actual post-toggle lock state from Cornerstone rather than
+    // inferring from the cache (which can be uninitialized or out of sync).
+    const newLocked = segmentationService.getSegmentLocked(segmentationId, segmentIndex);
     useSegmentationManagerStore.getState().setPresentation(segmentationId, segmentIndex, { locked: newLocked });
   }
 
@@ -420,6 +420,23 @@ export class SegmentationManager {
    */
   cancelAutoSave(): void {
     segmentationService.cancelAutoSave();
+  }
+
+  /**
+   * Signal that a manual save/export is starting.
+   * Cancels pending auto-save and blocks new auto-saves until endManualSave().
+   * Must be paired with endManualSave() in a try/finally.
+   */
+  beginManualSave(): void {
+    segmentationService.beginManualSave();
+  }
+
+  /**
+   * Signal that a manual save/export has completed (or failed).
+   * Re-enables auto-save scheduling. Always call in a finally block.
+   */
+  endManualSave(): void {
+    segmentationService.endManualSave();
   }
 
   // ─── Dirty tracking ───────────────────────────────────────────

@@ -51,6 +51,7 @@ import { useSegmentationStore } from '../../stores/segmentationStore';
 import type { SegmentationSummary, SegmentSummary } from '../../stores/segmentationStore';
 import { useViewerStore } from '../../stores/viewerStore';
 import { rtStructService } from './rtStructService';
+import { writeDicomDict } from './writeDicomDict';
 // NOTE: We use the tool group ID directly here instead of importing from
 // toolService to avoid a circular dependency (toolService → segmentationService).
 const TOOL_GROUP_ID = 'xnatToolGroup_primary';
@@ -129,62 +130,6 @@ function findFirstNonZeroRef(adapterImages: any[]): {
   return { referencedImageId: null, labelmapImageId: null };
 }
 
-/**
- * Serialize a denaturalized DICOM dataset to an ArrayBuffer via dcmjs.
- *
- * First attempts a normal DicomDict.write(). If dcmjs throws "Not a number"
- * (caused by NaN in its internal byte-count arithmetic, not our dataset values),
- * retries once with a scoped NaN-guard on WriteBufferStream.prototype. The
- * guard is removed in a finally block — no permanent prototype mutation.
- */
-function writeDicomDict(
-  DicomDictClass: any,
-  denaturalizedMeta: any,
-  denaturalizedDict: any,
-): ArrayBuffer {
-  const dict = new DicomDictClass(denaturalizedMeta);
-  dict.dict = denaturalizedDict;
-
-  // Attempt 1: normal write — no prototype patching
-  try {
-    return dict.write();
-  } catch (firstErr: any) {
-    if (!(firstErr instanceof Error) || !firstErr.message.includes('Not a number')) {
-      throw firstErr; // not the NaN error — rethrow
-    }
-    console.warn(
-      '[segmentationService] DicomDict.write() hit NaN in dcmjs internals; retrying with NaN guard',
-    );
-  }
-
-  // Attempt 2: scoped NaN-guard fallback
-  const { WriteBufferStream } = dcmjsData as any;
-  const proto = WriteBufferStream?.prototype;
-  if (!proto) {
-    // Can't access prototype — rethrow by trying again (will fail the same way)
-    return dict.write();
-  }
-
-  const origWrite16 = proto.writeUint16;
-  const origWrite32 = proto.writeUint32;
-  try {
-    proto.writeUint16 = function (value: any) {
-      return origWrite16.call(this, isNaN(value) ? 0 : value);
-    };
-    proto.writeUint32 = function (value: any) {
-      return origWrite32.call(this, isNaN(value) ? 0 : value);
-    };
-
-    // Fresh DicomDict — the first write() may have left internal state inconsistent
-    const retryDict = new DicomDictClass(denaturalizedMeta);
-    retryDict.dict = denaturalizedDict;
-    return retryDict.write();
-  } finally {
-    proto.writeUint16 = origWrite16;
-    proto.writeUint32 = origWrite32;
-  }
-}
-
 // ─── Sync Logic ─────────────────────────────────────────────────
 
 /**
@@ -208,6 +153,7 @@ function syncSegmentations(): void {
 
           // Get color: Cornerstone API → loadedColorsMap fallback → DEFAULT_COLORS
           let color: [number, number, number, number] = DEFAULT_COLORS[(idx - 1) % DEFAULT_COLORS.length];
+          let gotColorFromCS = false;
           const viewportIds = csSegmentation.state.getViewportIdsWithSegmentation(seg.segmentationId);
           if (viewportIds.length > 0) {
             try {
@@ -218,13 +164,17 @@ function syncSegmentations(): void {
               );
               if (c && c.length >= 4) {
                 color = [c[0], c[1], c[2], c[3]];
+                gotColorFromCS = true;
               }
             } catch {
               // Use default color
             }
           }
-          // Fallback to loaded DICOM colors if Cornerstone API didn't return valid colors
-          if (color === DEFAULT_COLORS[(idx - 1) % DEFAULT_COLORS.length]) {
+          // Fallback to loaded DICOM colors only if Cornerstone API didn't return valid colors.
+          // Previously used reference identity (===) to check if color was still the default,
+          // which always matched because `color` was assigned directly from DEFAULT_COLORS.
+          // Using a boolean flag avoids overriding user-set colors that happen to match defaults.
+          if (!gotColorFromCS) {
             const loadedColors = loadedColorsMap.get(seg.segmentationId);
             if (loadedColors?.has(idx)) {
               color = loadedColors.get(idx)!;
@@ -339,6 +289,16 @@ let suppressDirtyTrackingCount = 0;
  */
 let loadInProgressCount = 0;
 
+/**
+ * Flag indicating a manual save/export is in progress.
+ * When true, performAutoSave() is blocked and onSegmentationDataModified()
+ * won't schedule auto-save. This prevents a race where a brush stroke during
+ * the async export window (between cancelAutoSave and export completion)
+ * triggers a competing auto-save that writes partial data.
+ * Set via beginManualSave()/endManualSave() from SegmentationPanel.
+ */
+let manualSaveInProgress = false;
+
 /** Called when segmentation pixel data changes — debounces auto-save and marks dirty. */
 function onSegmentationDataModified(): void {
   if (suppressDirtyTrackingCount === 0) {
@@ -363,6 +323,8 @@ function onAnnotationAutoSave(): void {
 }
 
 function scheduleAutoSave(): void {
+  // Don't schedule auto-save while a manual save is in progress
+  if (manualSaveInProgress) return;
   if (autoSaveTimer) clearTimeout(autoSaveTimer);
   autoSaveTimer = setTimeout(performAutoSave, AUTO_SAVE_DELAY);
 }
@@ -772,6 +734,14 @@ export const segmentationService = {
       }
     }
 
+    // Ensure Contour representation's annotationUIDsMap has an entry for the
+    // new segment index. Without this, contour tools can't attach annotations
+    // to the new segment until ensureContourRepresentation is triggered.
+    const contourData = (seg.representationData as any)?.Contour;
+    if (contourData?.annotationUIDsMap && !contourData.annotationUIDsMap.has(nextIndex)) {
+      contourData.annotationUIDsMap.set(nextIndex, new Set<string>());
+    }
+
     console.log(`[segmentationService] Added segment ${nextIndex} to ${segmentationId}: "${label}"`);
 
     syncSegmentations();
@@ -1139,6 +1109,48 @@ export const segmentationService = {
       !isLocked,
     );
     syncSegmentations();
+  },
+
+  /**
+   * Read the current visibility state of a segment from Cornerstone.
+   * Tries Labelmap representation first, then Contour. Defaults to true.
+   */
+  getSegmentVisibility(
+    viewportId: string,
+    segmentationId: string,
+    segmentIndex: number,
+  ): boolean {
+    try {
+      return csSegmentation.config.visibility.getSegmentIndexVisibility(
+        viewportId,
+        { segmentationId, type: ToolEnums.SegmentationRepresentations.Labelmap },
+        segmentIndex,
+      );
+    } catch {
+      try {
+        return csSegmentation.config.visibility.getSegmentIndexVisibility(
+          viewportId,
+          { segmentationId, type: ToolEnums.SegmentationRepresentations.Contour },
+          segmentIndex,
+        );
+      } catch {
+        return true; // default visible
+      }
+    }
+  },
+
+  /**
+   * Read the current lock state of a segment from Cornerstone.
+   */
+  getSegmentLocked(segmentationId: string, segmentIndex: number): boolean {
+    try {
+      return csSegmentation.segmentLocking.isSegmentIndexLocked(
+        segmentationId,
+        segmentIndex,
+      );
+    } catch {
+      return false; // default unlocked
+    }
   },
 
   /**
@@ -2383,6 +2395,25 @@ export const segmentationService = {
   endSegLoad(): void { loadInProgressCount = Math.max(0, loadInProgressCount - 1); },
 
   /**
+   * Signal that a manual save/export is starting.
+   * Cancels any pending auto-save and blocks new auto-saves from being
+   * scheduled until endManualSave() is called. Must be paired with
+   * endManualSave() in a try/finally to prevent permanently blocking auto-save.
+   */
+  beginManualSave(): void {
+    manualSaveInProgress = true;
+    cancelAutoSave();
+  },
+
+  /**
+   * Signal that a manual save/export has completed (or failed).
+   * Re-enables auto-save scheduling. Always call in a finally block.
+   */
+  endManualSave(): void {
+    manualSaveInProgress = false;
+  },
+
+  /**
    * Force a re-sync of segmentation summaries (e.g. after viewport changes).
    */
   sync: syncSegmentations,
@@ -2411,6 +2442,7 @@ export const segmentationService = {
 
     // Clean up module-level state
     sourceImageIdsMap.clear();
+    loadedColorsMap.clear();
     segmentationCounter = 0;
 
     initialized = false;

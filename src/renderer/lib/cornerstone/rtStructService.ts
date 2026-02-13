@@ -24,6 +24,7 @@ import {
 import { data as dcmjsData } from 'dcmjs';
 import { useSegmentationStore } from '../../stores/segmentationStore';
 import { segmentationService } from './segmentationService';
+import { writeDicomDict } from './writeDicomDict';
 
 // ─── Bridge: register a global 'frameModule' metadata provider ──────────
 //
@@ -464,8 +465,7 @@ async function loadRtStructAsContours(
         data: {
           contour: {
             polyline,
-            closed: contour.geometricType === 'CLOSED_PLANAR' ||
-                    contour.geometricType === 'CLOSED_PLANAR ',
+            closed: contour.geometricType.trim() === 'CLOSED_PLANAR',
           },
           segmentation: {
             segmentationId,

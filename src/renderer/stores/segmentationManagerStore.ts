@@ -87,6 +87,8 @@ interface SegmentationManagerState {
   clearPanel: (panelId: string) => void;
   /** Check if any segmentation is dirty */
   hasDirtySegmentations: () => boolean;
+  /** Clear all dirty flags (called by segmentationStore._markClean to keep stores in sync) */
+  clearAllDirty: () => void;
   /** Reset all state (e.g., on session change) */
   reset: () => void;
 }
@@ -220,6 +222,8 @@ export const useSegmentationManagerStore = create<SegmentationManagerState>((set
     }),
 
   hasDirtySegmentations: () => Object.values(get().dirtySegIds).some(Boolean),
+
+  clearAllDirty: () => set({ dirtySegIds: {} }),
 
   reset: () => set(INITIAL_STATE),
 }));
