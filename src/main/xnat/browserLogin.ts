@@ -28,20 +28,36 @@ const LOGIN_PARTITION = 'persist:xnat-login';
 const CHROME_USER_AGENT =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
+/** Parse alias token expiration from the XNAT API response. */
+function parseTokenExpiry(data: { estimatedExpirationTime?: string | number }): number {
+  if (data.estimatedExpirationTime != null) {
+    const raw = data.estimatedExpirationTime;
+    const ts = typeof raw === 'number' ? raw : new Date(String(raw)).getTime();
+    if (!isNaN(ts) && ts > Date.now()) return ts;
+  }
+  console.warn('[browserLogin] Could not parse token expiry, using 48h default');
+  return Date.now() + 48 * 60 * 60 * 1000;
+}
+
 /**
  * After authentication is confirmed, exchange the JSESSIONID for an alias
  * token and retrieve the username. All requests use session.fetch() so they
  * go through the same Chromium network stack as the BrowserWindow.
+ *
+ * IMPORTANT: The requests below (token issue, username lookup) can cause
+ * Tomcat to regenerate the JSESSIONID via Set-Cookie. Chromium updates its
+ * cookie jar automatically, but our caller's `jsessionId` variable becomes
+ * stale. We re-read the cookie at the end to return the current value.
  */
 async function exchangeCredentials(
   loginSession: Electron.Session,
   serverUrl: string,
   jsessionId: string,
 ): Promise<BrowserLoginResult> {
-  let aliasToken: { alias: string; secret: string } | undefined;
+  let aliasToken: { alias: string; secret: string; expiresAt: number } | undefined;
   let username = '';
 
-  // Step 1: Try to issue an alias token (lasts 48h, supports token chaining).
+  // Step 1: Try to issue an alias token (supports token chaining for long sessions).
   try {
     const tokenResp = await loginSession.fetch(
       `${serverUrl}/data/services/tokens/issue`,
@@ -50,8 +66,14 @@ async function exchangeCredentials(
     const tokenContentType = tokenResp.headers.get('content-type') ?? '';
     console.log(`[browserLogin] Token exchange: status=${tokenResp.status}, content-type=${tokenContentType}`);
     if (tokenResp.ok && tokenContentType.includes('json')) {
-      const data = (await tokenResp.json()) as { alias: string; secret: string };
-      aliasToken = data;
+      const data = (await tokenResp.json()) as {
+        alias: string; secret: string; estimatedExpirationTime?: string | number;
+      };
+      aliasToken = {
+        alias: data.alias,
+        secret: data.secret,
+        expiresAt: parseTokenExpiry(data),
+      };
       console.log(`[browserLogin] Alias token issued: ${data.alias.slice(0, 8)}...`);
     }
   } catch (err) {
@@ -59,34 +81,35 @@ async function exchangeCredentials(
   }
 
   // Step 2: Get the username.
-  // With alias token: GET /data/JSESSION using Basic auth returns the username.
-  // Without alias token: GET /data/user with cookie returns user profile.
-  if (aliasToken) {
-    try {
-      const basicAuth = `Basic ${btoa(`${aliasToken.alias}:${aliasToken.secret}`)}`;
-      const resp = await loginSession.fetch(`${serverUrl}/data/JSESSION`, {
-        headers: { Authorization: basicAuth },
-      });
-      if (resp.ok) {
-        username = (await resp.text()).trim();
-        console.log(`[browserLogin] Username from /data/JSESSION: ${username}`);
+  // Primary: GET /xapi/users/username (XNAT 1.7.5+)
+  try {
+    const resp = await loginSession.fetch(`${serverUrl}/xapi/users/username`);
+    if (resp.ok) {
+      const text = (await resp.text()).trim();
+      if (text) {
+        username = text;
+        console.log(`[browserLogin] Username from /xapi/users/username: ${username}`);
       }
-    } catch {
-      // Fall through to next method
     }
+  } catch {
+    // Fall through to next method
   }
 
+  // Fallback: GET /data/user returns user profile JSON.
   if (!username) {
     try {
-      const resp = await loginSession.fetch(`${serverUrl}/data/user`, {
-        headers: { Accept: 'application/json' },
-      });
+      const resp = await loginSession.fetch(`${serverUrl}/data/user`);
       if (resp.ok) {
-        const data = await resp.json();
-        const login = (data as any)?.items?.[0]?.data_fields?.login;
-        if (login) {
-          username = login;
-          console.log(`[browserLogin] Username from /data/user: ${username}`);
+        const text = await resp.text();
+        try {
+          const data = JSON.parse(text);
+          const login = (data as any)?.items?.[0]?.data_fields?.login;
+          if (login) {
+            username = login;
+            console.log(`[browserLogin] Username from /data/user: ${username}`);
+          }
+        } catch {
+          // Non-JSON response, skip
         }
       }
     } catch {
@@ -99,14 +122,56 @@ async function exchangeCredentials(
     console.warn('[browserLogin] Could not determine username');
   }
 
-  return { jsessionId, aliasToken, username };
+  // Re-read ALL cookies — the requests above may have caused Tomcat to
+  // regenerate the JSESSIONID (Set-Cookie), and we also need ALB
+  // sticky-session cookies (AWSALB, AWSALBCORS) for load-balanced servers.
+  const url = new URL(serverUrl);
+  const serverCookies: ServerCookie[] = [];
+  let currentJsessionId = jsessionId;
+
+  try {
+    const allCookies = await loginSession.cookies.get({ domain: url.hostname });
+    for (const c of allCookies) {
+      serverCookies.push({
+        name: c.name,
+        value: c.value,
+        path: c.path,
+        secure: c.secure,
+        httpOnly: c.httpOnly,
+        sameSite: c.sameSite as ServerCookie['sameSite'],
+      });
+      if (c.name === 'JSESSIONID' && c.value) {
+        if (c.value !== jsessionId) {
+          console.log(`[browserLogin] JSESSIONID changed during exchange: ${c.value.slice(0, 8)}... (was ${jsessionId.slice(0, 8)}...)`);
+        }
+        currentJsessionId = c.value;
+      }
+    }
+    console.log(`[browserLogin] Transferring ${serverCookies.length} cookies: ${serverCookies.map(c => c.name).join(', ')}`);
+  } catch {
+    // Use original JSESSIONID if cookie read fails
+  }
+
+  return { jsessionId: currentJsessionId, aliasToken, username, serverCookies };
+}
+
+/** A server cookie to transfer between sessions. */
+export interface ServerCookie {
+  name: string;
+  value: string;
+  path?: string;
+  secure?: boolean;
+  httpOnly?: boolean;
+  sameSite?: 'unspecified' | 'no_restriction' | 'lax' | 'strict';
 }
 
 /** Result from browser login — includes pre-fetched auth data. */
 export interface BrowserLoginResult {
   jsessionId: string;
-  aliasToken?: { alias: string; secret: string };
+  aliasToken?: { alias: string; secret: string; expiresAt: number };
   username: string;
+  /** All server cookies (JSESSIONID, ALB sticky-session cookies, etc.) */
+  serverCookies: ServerCookie[];
 }
 
 /**

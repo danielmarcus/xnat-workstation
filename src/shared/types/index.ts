@@ -4,7 +4,6 @@ export * from './dicom';
 export * from './xnat';
 
 import type {
-  XnatLoginCredentials,
   XnatLoginResult,
   XnatSessionStatus,
   XnatConnectionInfo,
@@ -19,7 +18,6 @@ import type {
 export interface ElectronAPI {
   platform: string;
   xnat: {
-    login(creds: XnatLoginCredentials): Promise<XnatLoginResult>;
     browserLogin(serverUrl: string): Promise<XnatLoginResult>;
     logout(): Promise<void>;
     validateSession(): Promise<XnatSessionStatus>;

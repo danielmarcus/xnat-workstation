@@ -36,6 +36,7 @@ export function registerUploadHandlers(): void {
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.error('[uploadHandlers] Download failed:', msg);
+        sessionManager.handleAuthFailure(err);
         return { ok: false, error: msg };
       }
     },
@@ -81,6 +82,7 @@ export function registerUploadHandlers(): void {
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.error('[uploadHandlers] Upload failed:', msg);
+        sessionManager.handleAuthFailure(err);
         return { ok: false, error: msg };
       }
     },
@@ -111,6 +113,7 @@ export function registerUploadHandlers(): void {
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.error('[uploadHandlers] Overwrite failed:', msg);
+        sessionManager.handleAuthFailure(err);
         return { ok: false, error: msg };
       }
     },
@@ -143,6 +146,7 @@ export function registerUploadHandlers(): void {
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.error('[uploadHandlers] Auto-save to temp failed:', msg);
+        sessionManager.handleAuthFailure(err);
         return { ok: false, error: msg };
       }
     },
@@ -163,6 +167,7 @@ export function registerUploadHandlers(): void {
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.error('[uploadHandlers] List temp files failed:', msg);
+        sessionManager.handleAuthFailure(err);
         return { ok: false, error: msg };
       }
     },
@@ -183,6 +188,7 @@ export function registerUploadHandlers(): void {
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.error('[uploadHandlers] Delete temp file failed:', msg);
+        sessionManager.handleAuthFailure(err);
         return { ok: false, error: msg };
       }
     },
@@ -203,6 +209,7 @@ export function registerUploadHandlers(): void {
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.error('[uploadHandlers] Download temp file failed:', msg);
+        sessionManager.handleAuthFailure(err);
         return { ok: false, error: msg };
       }
     },
@@ -245,6 +252,7 @@ export function registerUploadHandlers(): void {
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.error('[uploadHandlers] RTSTRUCT upload failed:', msg);
+        sessionManager.handleAuthFailure(err);
         return { ok: false, error: msg };
       }
     },

@@ -15,7 +15,6 @@ import { XnatClient } from './xnatClient';
 import { openBrowserLogin } from './browserLogin';
 import { IPC } from '../../shared/ipcChannels';
 import type {
-  XnatLoginCredentials,
   XnatLoginResult,
   XnatConnectionInfo,
   XnatSessionStatus,
@@ -26,47 +25,6 @@ let connectionInfo: XnatConnectionInfo | null = null;
 let keepaliveInterval: NodeJS.Timeout | null = null;
 
 // ─── Public API ──────────────────────────────────────────────────
-
-/**
- * Authenticate with XNAT, start keepalive, set up web request interceptor.
- */
-export async function login(creds: XnatLoginCredentials): Promise<XnatLoginResult> {
-  // Disconnect existing connection first
-  if (client) {
-    await logout();
-  }
-
-  const newClient = new XnatClient(creds.serverUrl);
-
-  try {
-    await newClient.authenticate(creds.username, creds.password);
-  } catch (err) {
-    return {
-      success: false,
-      error: err instanceof Error ? err.message : String(err),
-    };
-  }
-
-  client = newClient;
-
-  connectionInfo = {
-    serverUrl: client.serverUrl,
-    username: client.currentUsername,
-    connectedAt: Date.now(),
-    authType: client.authType ?? 'jsession',
-  };
-
-  // Start keepalive timer
-  startKeepalive();
-
-  // Set up web request interceptor to inject auth headers for Cornerstone's
-  // direct WADO-URI fetches
-  setupWebRequestInterceptor();
-
-  console.log(`[sessionManager] Connected to ${connectionInfo.serverUrl} as ${connectionInfo.username}`);
-
-  return { success: true, connection: connectionInfo };
-}
 
 /**
  * Authenticate via browser-based login (SSO/OIDC/LDAP/local).
@@ -95,7 +53,7 @@ export async function browserLogin(serverUrl: string): Promise<XnatLoginResult> 
 
   // Create client and set pre-fetched auth credentials directly
   const newClient = new XnatClient(serverUrl);
-  newClient.setAuthFromBrowserLogin(loginResult);
+  await newClient.setAuthFromBrowserLogin(loginResult);
 
   client = newClient;
 
@@ -173,11 +131,9 @@ export function isConnected(): boolean {
 function startKeepalive(): void {
   stopKeepalive();
 
-  // Ping interval: 5 min for JSESSION, 60 min for alias token
-  const intervalMs =
-    connectionInfo?.authType === 'jsession'
-      ? 5 * 60 * 1000
-      : 60 * 60 * 1000;
+  // All requests use JSESSION cookies — ping every 5 min to keep session alive.
+  // Alias token chaining is handled separately by xnatClient.scheduleAliasRefresh.
+  const intervalMs = 5 * 60 * 1000;
 
   keepaliveInterval = setInterval(async () => {
     if (!client) {
@@ -203,6 +159,28 @@ function stopKeepalive(): void {
     clearInterval(keepaliveInterval);
     keepaliveInterval = null;
   }
+}
+
+// ─── Auth Failure Handling ────────────────────────────────────────
+
+/**
+ * Called by IPC handlers when an API call fails with an auth error
+ * (401 or "Not authenticated") after xnatClient's own recovery attempt.
+ * Cleans up the session and notifies the renderer to return to login.
+ */
+export function handleAuthFailure(err: unknown): void {
+  const msg = err instanceof Error ? err.message : String(err);
+  if (!msg.includes('401') && !msg.includes('Not authenticated')) return;
+  if (!client && !connectionInfo) return; // Already cleaned up
+
+  console.warn('[sessionManager] Unrecoverable auth failure — disconnecting');
+  stopKeepalive();
+  clearWebRequestInterceptor();
+  // Mark disconnected first so concurrent in-flight requests stop retrying
+  if (client) client.markDisconnected();
+  client = null;
+  connectionInfo = null;
+  notifySessionExpired();
 }
 
 // ─── Session Expiry Notification ─────────────────────────────────

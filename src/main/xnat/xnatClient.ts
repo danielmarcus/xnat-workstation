@@ -1,27 +1,44 @@
 /**
  * XNAT REST API Client
  *
- * Handles authentication (alias tokens with JSESSION fallback),
- * authenticated requests, and token refresh scheduling.
+ * All XNAT API requests authenticate via JSESSION cookie. The alias token
+ * is kept as a long-lived backup: if the JSESSION expires (server restart,
+ * timeout), the alias token creates a new one via POST /data/JSESSION.
+ * The alias token itself is refreshed via chaining before it expires.
  *
- * Adapted from the reference XNAT Desktop Viewer project.
- * All network operations happen in the main process — credentials
- * never cross the IPC boundary to the renderer.
+ * All network operations happen in the main process — tokens never cross
+ * the IPC boundary to the renderer.
+ *
+ * Uses Electron's net.fetch() (Chromium network stack) instead of Node.js
+ * fetch() — Node.js fetch mishandles Cookie headers with some XNAT servers.
  */
+import { session as electronSession } from 'electron';
+import type { ServerCookie } from './browserLogin';
 
-/** Internal token representation (alias token or JSESSION) */
-interface AuthToken {
-  type: 'alias' | 'jsession';
-  alias: string;   // alias string or "JSESSIONID"
-  secret: string;  // alias secret or session ID value
-  expiresAt: number; // timestamp in ms
+/** Parse alias token expiration from the XNAT API response. */
+function parseTokenExpiry(data: { estimatedExpirationTime?: string | number }): number {
+  if (data.estimatedExpirationTime != null) {
+    const raw = data.estimatedExpirationTime;
+    const ts = typeof raw === 'number' ? raw : new Date(String(raw)).getTime();
+    if (!isNaN(ts) && ts > Date.now()) return ts;
+  }
+  // Fallback: 48 hours (default XNAT alias token lifetime)
+  console.warn('[xnatClient] Could not parse token expiry, using 48h default');
+  return Date.now() + 48 * 60 * 60 * 1000;
 }
 
 export class XnatClient {
   private baseUrl: string;
   private username: string = '';
-  private token: AuthToken | null = null;
+  /** JSESSION cookie — used for all XNAT API requests */
+  private jsessionId: string | null = null;
+  /** All server cookies (JSESSIONID, ALB sticky-session, etc.) */
+  private serverCookies: ServerCookie[] = [];
+  /** Long-lived alias token — used only to refresh JSESSION and chain new tokens */
+  private aliasToken: { alias: string; secret: string; expiresAt: number } | null = null;
   private refreshTimeout: NodeJS.Timeout | null = null;
+  /** Set by markDisconnected() to stop concurrent in-flight requests from retrying */
+  private _disconnected = false;
 
   constructor(baseUrl: string) {
     // Normalize base URL (remove trailing slash)
@@ -31,62 +48,6 @@ export class XnatClient {
   // ─── Authentication ────────────────────────────────────────────
 
   /**
-   * Authenticate with XNAT.
-   *
-   * Strategy:
-   * 1. Try alias token via POST /data/services/tokens/issue
-   * 2. If 405, retry with GET (older XNAT / CNDA compatibility)
-   * 3. If token endpoint fails (non-401), fall back to JSESSION
-   * 4. On 401 at any step → "Invalid username or password"
-   */
-  async authenticate(username: string, password: string): Promise<void> {
-    this.username = username;
-    const basicAuth = `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`;
-
-    // --- Try alias token (POST then GET) ---
-    let response: Response;
-    try {
-      response = await fetch(`${this.baseUrl}/data/services/tokens/issue`, {
-        method: 'POST',
-        headers: { Authorization: basicAuth },
-      });
-
-      if (response.status === 405) {
-        // POST not allowed — try GET (common on older XNAT / CNDA)
-        console.log('[xnatClient] Token endpoint returned 405 for POST, trying GET');
-        response = await fetch(`${this.baseUrl}/data/services/tokens/issue`, {
-          method: 'GET',
-          headers: { Authorization: basicAuth },
-        });
-      }
-    } catch (err) {
-      throw new Error(`Cannot reach XNAT server at ${this.baseUrl}`);
-    }
-
-    if (response.ok) {
-      // Alias token issued successfully
-      const data = (await response.json()) as { alias: string; secret: string };
-      this.token = {
-        type: 'alias',
-        alias: data.alias,
-        secret: data.secret,
-        expiresAt: Date.now() + 48 * 60 * 60 * 1000, // 48 hours
-      };
-      this.scheduleRefresh(username, password);
-      console.log('[xnatClient] Authenticated with alias token');
-      return;
-    }
-
-    if (response.status === 401) {
-      throw new Error('Invalid username or password');
-    }
-
-    // Token endpoint failed for non-auth reason — fall back to JSESSION
-    console.log(`[xnatClient] Token endpoint failed (${response.status}), falling back to JSESSION`);
-    await this.authenticateWithSession(username, password, basicAuth);
-  }
-
-  /**
    * Set auth state from browser login results.
    *
    * browserLogin.ts handles all network operations (token exchange, username
@@ -94,137 +55,161 @@ export class XnatClient {
    * Node.js fetch gets rejected by some XNAT servers. This method just
    * stores the pre-fetched credentials without making any network calls.
    */
-  setAuthFromBrowserLogin(opts: {
+  async setAuthFromBrowserLogin(opts: {
     jsessionId: string;
-    aliasToken?: { alias: string; secret: string };
+    aliasToken?: { alias: string; secret: string; expiresAt: number };
     username: string;
-  }): void {
+    serverCookies?: ServerCookie[];
+  }): Promise<void> {
     this.username = opts.username;
+    this.serverCookies = opts.serverCookies ?? [];
+    await this.setAllCookies(opts.jsessionId, this.serverCookies);
 
     if (opts.aliasToken) {
-      this.token = {
-        type: 'alias',
-        alias: opts.aliasToken.alias,
-        secret: opts.aliasToken.secret,
-        expiresAt: Date.now() + 48 * 60 * 60 * 1000, // 48 hours
-      };
-      this.scheduleRefresh(); // token chaining for long sessions
+      this.aliasToken = opts.aliasToken;
+      this.scheduleAliasRefresh();
       console.log(`[xnatClient] Browser login: alias token set (${opts.aliasToken.alias.slice(0, 8)}...)`);
-    } else {
-      this.token = {
-        type: 'jsession',
-        alias: 'JSESSIONID',
-        secret: opts.jsessionId,
-        expiresAt: Date.now() + 15 * 60 * 1000, // 15 minutes
-      };
-      console.log('[xnatClient] Browser login: JSESSION token set');
     }
 
-    console.log(`[xnatClient] Browser login complete: user=${this.username}, auth=${this.token.type}`);
+    console.log(`[xnatClient] Browser login complete: user=${this.username}, hasAliasToken=${!!this.aliasToken}`);
   }
 
   /**
-   * Fallback: authenticate using JSESSIONID cookie.
+   * Sync all server cookies to the default session's cookie jar.
+   * Includes JSESSIONID plus any infrastructure cookies (e.g. AWSALB
+   * sticky-session cookies for load-balanced XNAT servers).
+   * Must be awaited before making API calls.
    */
-  private async authenticateWithSession(
-    username: string,
-    password: string,
-    basicAuth: string,
-  ): Promise<void> {
-    let response: Response;
-    try {
-      response = await fetch(`${this.baseUrl}/data/JSESSION`, {
-        method: 'POST',
-        headers: { Authorization: basicAuth },
-      });
-    } catch (err) {
-      throw new Error(`Cannot reach XNAT server at ${this.baseUrl}`);
-    }
+  private async setAllCookies(jsessionId: string, cookies: ServerCookie[]): Promise<void> {
+    this.jsessionId = jsessionId;
 
-    if (!response.ok) {
-      if (response.status === 401) {
-        throw new Error('Invalid username or password');
+    // Always set JSESSIONID
+    await electronSession.defaultSession.cookies.set({
+      url: this.baseUrl,
+      name: 'JSESSIONID',
+      value: jsessionId,
+    });
+
+    // Set all other server cookies (ALB sticky-session, XNAT session state, etc.)
+    for (const c of cookies) {
+      if (c.name === 'JSESSIONID') continue; // already set above
+      try {
+        await electronSession.defaultSession.cookies.set({
+          url: this.baseUrl,
+          name: c.name,
+          value: c.value,
+          path: c.path,
+          secure: c.secure,
+          httpOnly: c.httpOnly,
+          sameSite: c.sameSite,
+        });
+      } catch (err) {
+        console.warn(`[xnatClient] Failed to set cookie ${c.name}:`, err);
       }
-      const text = await response.text().catch(() => '');
-      throw new Error(`Authentication failed: ${response.status} ${text}`.trim());
     }
+    console.log(`[xnatClient] Set ${cookies.length + 1} cookies in default session`);
+  }
 
-    const sessionId = (await response.text()).trim();
-    this.token = {
-      type: 'jsession',
-      alias: 'JSESSIONID',
-      secret: sessionId,
-      expiresAt: Date.now() + 15 * 60 * 1000, // 15 minutes
-    };
-
-    this.scheduleRefresh(username, password);
-    console.log('[xnatClient] Authenticated with JSESSION');
+  /**
+   * Update just the JSESSIONID (used during session refresh).
+   * Other cookies (ALB sticky-session, etc.) remain unchanged.
+   */
+  private async updateJsessionId(value: string): Promise<void> {
+    this.jsessionId = value;
+    await electronSession.defaultSession.cookies.set({
+      url: this.baseUrl,
+      name: 'JSESSIONID',
+      value,
+    });
+    // Update in serverCookies array too
+    const existing = this.serverCookies.find(c => c.name === 'JSESSIONID');
+    if (existing) {
+      existing.value = value;
+    }
   }
 
   // ─── Token Refresh ─────────────────────────────────────────────
 
   /**
-   * Schedule automatic re-authentication before token expiration.
-   *
-   * If username/password are provided, uses them to re-authenticate (traditional login).
-   * Otherwise, uses token chaining: the current alias token issues a new alias token.
-   * JSESSION tokens without credentials are not auto-refreshed (rely on keepalive).
+   * Schedule alias token chaining before it expires.
+   * The alias token is only used for refreshing the JSESSION (via
+   * refreshSession) — all normal API calls use the JSESSION cookie.
    */
-  private scheduleRefresh(username?: string, password?: string): void {
+  private scheduleAliasRefresh(): void {
     this.clearRefresh();
-    if (!this.token) return;
+    if (!this.aliasToken) return;
 
-    if (this.token.type === 'alias') {
-      // Alias tokens: refresh at 47 hours (before 48-hour expiry)
-      const refreshIn = 47 * 60 * 60 * 1000;
+    // Refresh 1 hour before expiry, minimum 1 minute from now
+    const msUntilExpiry = this.aliasToken.expiresAt - Date.now();
+    const refreshIn = Math.max(msUntilExpiry - 60 * 60 * 1000, 60 * 1000);
 
-      this.refreshTimeout = setTimeout(async () => {
-        try {
-          if (username && password) {
-            // Traditional login: re-authenticate with credentials
-            console.log('[xnatClient] Refreshing authentication with credentials');
-            await this.authenticate(username, password);
-          } else {
-            // Token chaining: current alias token issues a new one
-            console.log('[xnatClient] Refreshing via token chaining');
-            const authHeaders = this.buildAuthHeaders();
-            const response = await fetch(`${this.baseUrl}/data/services/tokens/issue`, {
-              method: 'GET',
-              headers: authHeaders,
-            });
-            if (response.ok) {
-              const data = (await response.json()) as { alias: string; secret: string };
-              this.token = {
-                type: 'alias',
-                alias: data.alias,
-                secret: data.secret,
-                expiresAt: Date.now() + 48 * 60 * 60 * 1000,
-              };
-              this.scheduleRefresh(); // Chain again
-              console.log('[xnatClient] Token chaining successful');
-            } else {
-              console.error('[xnatClient] Token chaining failed:', response.status);
-            }
-          }
-        } catch (err) {
-          console.error('[xnatClient] Failed to refresh auth:', err);
-          // Token will expire — sessionManager will detect via keepalive
+    this.refreshTimeout = setTimeout(async () => {
+      if (!this.aliasToken) return;
+      try {
+        console.log('[xnatClient] Refreshing alias token via chaining');
+        const basicAuth = `Basic ${Buffer.from(`${this.aliasToken.alias}:${this.aliasToken.secret}`).toString('base64')}`;
+        const response = await this.xfetch(`${this.baseUrl}/data/services/tokens/issue`, {
+          method: 'GET',
+          headers: { Authorization: basicAuth },
+        });
+        if (response.ok) {
+          const data = (await response.json()) as {
+            alias: string; secret: string; estimatedExpirationTime?: string | number;
+          };
+          this.aliasToken = {
+            alias: data.alias,
+            secret: data.secret,
+            expiresAt: parseTokenExpiry(data),
+          };
+          this.scheduleAliasRefresh();
+          console.log('[xnatClient] Alias token chaining successful');
+        } else {
+          console.error('[xnatClient] Alias token chaining failed:', response.status);
         }
-      }, refreshIn);
-    } else if (this.token.type === 'jsession' && username && password) {
-      // JSESSION with credentials: refresh at 13 minutes (before 15-min expiry)
-      const refreshIn = 13 * 60 * 1000;
+      } catch (err) {
+        console.error('[xnatClient] Failed to chain alias token:', err);
+      }
+    }, refreshIn);
 
-      this.refreshTimeout = setTimeout(async () => {
-        try {
-          console.log('[xnatClient] Refreshing JSESSION with credentials');
-          await this.authenticate(username, password);
-        } catch (err) {
-          console.error('[xnatClient] Failed to refresh auth:', err);
-        }
-      }, refreshIn);
+    console.log(`[xnatClient] Alias token refresh scheduled in ${Math.round(refreshIn / 60000)} minutes`);
+  }
+
+  /**
+   * Use the alias token to create a new JSESSION on the server.
+   * Called when the current JSESSION expires (401 from server).
+   *
+   * IMPORTANT: POST /data/JSESSION returns the JSESSIONID in the
+   * Set-Cookie header. The response *body* may contain the username
+   * or session ID depending on the XNAT version — Set-Cookie is
+   * authoritative.
+   */
+  async refreshSession(): Promise<boolean> {
+    if (!this.aliasToken || this._disconnected) return false;
+
+    try {
+      const basicAuth = `Basic ${Buffer.from(`${this.aliasToken.alias}:${this.aliasToken.secret}`).toString('base64')}`;
+      const response = await this.xfetch(`${this.baseUrl}/data/JSESSION`, {
+        method: 'POST',
+        headers: { Authorization: basicAuth },
+      });
+
+      if (response.ok) {
+        const body = (await response.text()).trim();
+        // Prefer JSESSIONID from Set-Cookie — the response body may be
+        // the username (not the session ID) on some XNAT versions.
+        const setCookie = response.headers.get('set-cookie') ?? '';
+        const cookieMatch = setCookie.match(/JSESSIONID=([^;,\s]+)/);
+        const newId = cookieMatch?.[1] || body;
+        await this.updateJsessionId(newId);
+        console.log(`[xnatClient] JSESSION refreshed via alias token (${cookieMatch ? 'Set-Cookie' : 'body'}: ${this.jsessionId!.slice(0, 8)}...)`);
+        return true;
+      }
+      console.warn('[xnatClient] JSESSION refresh failed:', response.status);
+      return false;
+    } catch (err) {
+      console.warn('[xnatClient] JSESSION refresh error:', err);
+      return false;
     }
-    // JSESSION without credentials (browser login): no auto-refresh, rely on keepalive
   }
 
   private clearRefresh(): void {
@@ -238,21 +223,27 @@ export class XnatClient {
 
   /**
    * Validate the current session by calling GET /data/JSESSION.
-   * Returns the username if valid, null if expired.
+   * If the JSESSION is expired but we have an alias token, attempts recovery.
+   * Returns the username if valid, null if expired beyond recovery.
    */
   async validateSession(): Promise<string | null> {
-    if (!this.token) return null;
+    if (!this.jsessionId) return null;
 
     try {
-      const response = await fetch(`${this.baseUrl}/data/JSESSION`, {
+      const response = await this.xfetch(`${this.baseUrl}/data/JSESSION`, {
         method: 'GET',
-        headers: this.buildAuthHeaders(),
       });
 
       if (response.ok) {
-        const text = (await response.text()).trim();
-        return text || this.username;
+        return this.username;
       }
+
+      // JSESSION expired — try to recover via alias token
+      if (await this.refreshSession()) {
+        console.log('[xnatClient] Session recovered via alias token');
+        return this.username;
+      }
+
       return null;
     } catch {
       return null;
@@ -262,24 +253,53 @@ export class XnatClient {
   // ─── Disconnect ────────────────────────────────────────────────
 
   /**
+   * Immediately mark this client as disconnected so concurrent in-flight
+   * requests stop retrying. Called by sessionManager.handleAuthFailure()
+   * before nulling the client reference.
+   */
+  markDisconnected(): void {
+    this._disconnected = true;
+    this.clearRefresh();
+  }
+
+  /**
    * Clean up: invalidate session on server, clear local state.
    */
   async disconnect(): Promise<void> {
     this.clearRefresh();
 
-    if (this.token) {
-      // Best-effort: invalidate server session
+    // Best-effort: invalidate JSESSION on server
+    if (this.jsessionId) {
       try {
-        await fetch(`${this.baseUrl}/data/JSESSION`, {
+        await this.xfetch(`${this.baseUrl}/data/JSESSION`, {
           method: 'DELETE',
-          headers: this.buildAuthHeaders(),
         });
       } catch {
         // Ignore — we're disconnecting anyway
       }
     }
 
-    this.token = null;
+    // Best-effort: invalidate alias token so it can't be reused
+    if (this.aliasToken) {
+      try {
+        await this.xfetch(
+          `${this.baseUrl}/data/services/tokens/invalidate/${encodeURIComponent(this.aliasToken.alias)}/${encodeURIComponent(this.aliasToken.secret)}`,
+          { method: 'DELETE' },
+        );
+      } catch {
+        // Ignore — token will expire naturally
+      }
+    }
+
+    // Clear all server cookies from the default session's cookie jar
+    for (const c of this.serverCookies) {
+      electronSession.defaultSession.cookies.remove(this.baseUrl, c.name).catch(() => {});
+    }
+    electronSession.defaultSession.cookies.remove(this.baseUrl, 'JSESSIONID').catch(() => {});
+
+    this.jsessionId = null;
+    this.aliasToken = null;
+    this.serverCookies = [];
     this.username = '';
     console.log('[xnatClient] Disconnected');
   }
@@ -287,56 +307,51 @@ export class XnatClient {
   // ─── Authenticated Requests ────────────────────────────────────
 
   /**
-   * Build auth headers for the current token type.
+   * Build auth headers for XNAT requests.
+   * Includes JSESSIONID plus any infrastructure cookies (ALB sticky-session, etc.).
+   * Used by the webRequest interceptor in sessionManager for renderer requests.
    */
   buildAuthHeaders(): Record<string, string> {
-    if (!this.token) throw new Error('Not authenticated');
-
-    if (this.token.type === 'jsession') {
-      return { Cookie: `JSESSIONID=${this.token.secret}` };
+    if (!this.jsessionId) throw new Error('Not authenticated');
+    const parts = [`JSESSIONID=${this.jsessionId}`];
+    for (const c of this.serverCookies) {
+      if (c.name === 'JSESSIONID') continue;
+      parts.push(`${c.name}=${c.value}`);
     }
-    // Alias token uses Basic auth with alias:secret
-    return {
-      Authorization: `Basic ${Buffer.from(`${this.token.alias}:${this.token.secret}`).toString('base64')}`,
-    };
+    return { Cookie: parts.join('; ') };
+  }
+
+  /**
+   * Wrapper around session.fetch that uses the default session's
+   * cookie jar. session.fetch() automatically sends cookies for the
+   * matching domain — unlike net.fetch() which may not reliably
+   * include cookies from programmatically-set jar entries.
+   */
+  private xfetch(url: string, options?: RequestInit): Promise<Response> {
+    return electronSession.defaultSession.fetch(url, options);
   }
 
   /**
    * Make an authenticated request to an XNAT endpoint.
    * Returns the raw Response for caller to parse.
    *
-   * Uses redirect: 'manual' to prevent Node.js fetch from stripping the
-   * Cookie header on redirects (common with XNAT behind reverse proxies).
-   * Redirects are followed manually with auth headers preserved.
+   * On 401, attempts JSESSION recovery via alias token and retries once.
    */
   async authenticatedFetch(
     endpoint: string,
     options: RequestInit = {},
   ): Promise<Response> {
-    if (!this.token) throw new Error('Not authenticated');
+    if (!this.jsessionId || this._disconnected) throw new Error('Not authenticated');
 
     const url = `${this.baseUrl}${endpoint}`;
-    const headers: Record<string, string> = {
-      ...(options.headers as Record<string, string>),
-      ...this.buildAuthHeaders(),
-    };
+    // JSESSIONID cookie is provided by the default session's cookie jar
+    // (set via setJsessionId). No manual Cookie header needed.
+    let response = await this.xfetch(url, options);
 
-    let response = await fetch(url, { ...options, headers, redirect: 'manual' });
-
-    // Follow redirects manually, preserving auth headers only for same-origin
-    if (response.status >= 300 && response.status < 400) {
-      const location = response.headers.get('location');
-      if (location) {
-        const redirectUrl = new URL(location, url);
-        const originalUrl = new URL(url);
-        const sameOrigin = redirectUrl.origin === originalUrl.origin;
-        console.log(`[xnatClient] Following redirect: ${response.status} → ${redirectUrl} (same-origin: ${sameOrigin})`);
-        response = await fetch(redirectUrl.toString(), {
-          ...options,
-          headers: sameOrigin ? headers : (options.headers as Record<string, string>) ?? {},
-          redirect: 'manual',
-        });
-      }
+    // On 401, try to recover JSESSION via alias token and retry once.
+    if (response.status === 401 && !this._disconnected && await this.refreshSession()) {
+      console.log('[xnatClient] JSESSION recovered, retrying request');
+      response = await this.xfetch(url, options);
     }
 
     if (!response.ok) {
@@ -580,7 +595,7 @@ export class XnatClient {
     dicomBuffer: Buffer,
     seriesDescription: string = 'Segmentation',
   ): Promise<{ url: string; scanId: string }> {
-    if (!this.token) throw new Error('Not authenticated');
+    if (!this.jsessionId) throw new Error('Not authenticated');
 
     // ── Step 1: Find unused scan number ──────────────────────────
     const existingScans = await this.getScans(sessionId);
@@ -623,9 +638,8 @@ export class XnatClient {
     });
 
     const createUrl = `${this.baseUrl}${basePath}?${createParams.toString()}`;
-    const createResp = await fetch(createUrl, {
+    const createResp = await this.xfetch(createUrl, {
       method: 'PUT',
-      headers: this.buildAuthHeaders(),
     });
 
     if (!createResp.ok) {
@@ -644,11 +658,10 @@ export class XnatClient {
     });
 
     const fileUrl = `${this.baseUrl}${basePath}/resources/DICOM/files/segmentation.dcm?${fileParams.toString()}`;
-    const fileResp = await fetch(fileUrl, {
+    const fileResp = await this.xfetch(fileUrl, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/dicom',
-        ...this.buildAuthHeaders(),
       },
       body: new Uint8Array(dicomBuffer),
     });
@@ -681,7 +694,7 @@ export class XnatClient {
     dicomBuffer: Buffer,
     seriesDescription: string = 'RT Structure Set',
   ): Promise<{ url: string; scanId: string }> {
-    if (!this.token) throw new Error('Not authenticated');
+    if (!this.jsessionId) throw new Error('Not authenticated');
 
     // ── Step 1: Find unused scan number ──────────────────────────
     const existingScans = await this.getScans(sessionId);
@@ -722,9 +735,8 @@ export class XnatClient {
     });
 
     const createUrl = `${this.baseUrl}${basePath}?${createParams.toString()}`;
-    const createResp = await fetch(createUrl, {
+    const createResp = await this.xfetch(createUrl, {
       method: 'PUT',
-      headers: this.buildAuthHeaders(),
     });
 
     if (!createResp.ok) {
@@ -743,11 +755,10 @@ export class XnatClient {
     });
 
     const fileUrl = `${this.baseUrl}${basePath}/resources/DICOM/files/rtstruct.dcm?${fileParams.toString()}`;
-    const fileResp = await fetch(fileUrl, {
+    const fileResp = await this.xfetch(fileUrl, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/dicom',
-        ...this.buildAuthHeaders(),
       },
       body: new Uint8Array(dicomBuffer),
     });
@@ -773,7 +784,7 @@ export class XnatClient {
     targetScanId: string,
     dicomBuffer: Buffer,
   ): Promise<{ url: string; scanId: string }> {
-    if (!this.token) throw new Error('Not authenticated');
+    if (!this.jsessionId) throw new Error('Not authenticated');
 
     console.log(
       `[xnatClient] Overwriting DICOM SEG in scan ${targetScanId}`,
@@ -785,9 +796,8 @@ export class XnatClient {
 
     // Delete existing files in the scan's DICOM resource
     const deleteUrl = `${this.baseUrl}${basePath}/resources/DICOM/files`;
-    const deleteResp = await fetch(deleteUrl, {
+    const deleteResp = await this.xfetch(deleteUrl, {
       method: 'DELETE',
-      headers: this.buildAuthHeaders(),
     });
     if (!deleteResp.ok && deleteResp.status !== 404) {
       console.warn(`[xnatClient] Overwrite: could not delete old files (${deleteResp.status}), continuing`);
@@ -795,11 +805,10 @@ export class XnatClient {
 
     // Upload the new DICOM file
     const fileUrl = `${this.baseUrl}${basePath}/resources/DICOM/files/segmentation.dcm?format=DICOM&content=SEG`;
-    const fileResp = await fetch(fileUrl, {
+    const fileResp = await this.xfetch(fileUrl, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/dicom',
-        ...this.buildAuthHeaders(),
       },
       body: new Uint8Array(dicomBuffer),
     });
@@ -827,7 +836,7 @@ export class XnatClient {
     dicomBuffer: Buffer,
     customFilename?: string,
   ): Promise<{ url: string }> {
-    if (!this.token) throw new Error('Not authenticated');
+    if (!this.jsessionId) throw new Error('Not authenticated');
 
     const filename = customFilename ?? `autosave_seg_${sourceScanId}.dcm`;
     console.log(
@@ -839,11 +848,10 @@ export class XnatClient {
       + `/resources/temp/files/${encodeURIComponent(filename)}`
       + `?format=DICOM&content=SEG&overwrite=true`;
 
-    const resp = await fetch(fileUrl, {
+    const resp = await this.xfetch(fileUrl, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/dicom',
-        ...this.buildAuthHeaders(),
       },
       body: new Uint8Array(dicomBuffer),
     });
@@ -867,14 +875,13 @@ export class XnatClient {
   async listTempFiles(
     sessionId: string,
   ): Promise<Array<{ name: string; uri: string; size: number }>> {
-    if (!this.token) throw new Error('Not authenticated');
+    if (!this.jsessionId) throw new Error('Not authenticated');
 
     const url = `${this.baseUrl}/data/experiments/${encodeURIComponent(sessionId)}`
       + `/resources/temp/files?format=json`;
 
-    const resp = await fetch(url, {
+    const resp = await this.xfetch(url, {
       method: 'GET',
-      headers: this.buildAuthHeaders(),
     });
 
     if (resp.status === 404) {
@@ -903,14 +910,13 @@ export class XnatClient {
     sessionId: string,
     filename: string,
   ): Promise<void> {
-    if (!this.token) throw new Error('Not authenticated');
+    if (!this.jsessionId) throw new Error('Not authenticated');
 
     const url = `${this.baseUrl}/data/experiments/${encodeURIComponent(sessionId)}`
       + `/resources/temp/files/${encodeURIComponent(filename)}`;
 
-    const resp = await fetch(url, {
+    const resp = await this.xfetch(url, {
       method: 'DELETE',
-      headers: this.buildAuthHeaders(),
     });
 
     if (!resp.ok && resp.status !== 404) {
@@ -928,14 +934,13 @@ export class XnatClient {
     sessionId: string,
     filename: string,
   ): Promise<Buffer> {
-    if (!this.token) throw new Error('Not authenticated');
+    if (!this.jsessionId) throw new Error('Not authenticated');
 
     const url = `${this.baseUrl}/data/experiments/${encodeURIComponent(sessionId)}`
       + `/resources/temp/files/${encodeURIComponent(filename)}`;
 
-    const resp = await fetch(url, {
+    const resp = await this.xfetch(url, {
       method: 'GET',
-      headers: this.buildAuthHeaders(),
     });
 
     if (!resp.ok) {
@@ -950,7 +955,7 @@ export class XnatClient {
   // ─── Getters ───────────────────────────────────────────────────
 
   get isAuthenticated(): boolean {
-    return this.token !== null && this.token.expiresAt > Date.now();
+    return this.jsessionId !== null;
   }
 
   get serverUrl(): string {
@@ -962,6 +967,7 @@ export class XnatClient {
   }
 
   get authType(): 'alias' | 'jsession' | null {
-    return this.token?.type ?? null;
+    if (!this.jsessionId) return null;
+    return this.aliasToken ? 'alias' : 'jsession';
   }
 }

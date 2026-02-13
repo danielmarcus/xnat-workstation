@@ -8,13 +8,6 @@
 /** Connection lifecycle status */
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
 
-/** Credentials for login — only used during the login IPC call, never stored in renderer */
-export interface XnatLoginCredentials {
-  serverUrl: string; // e.g. "https://xnat.example.com"
-  username: string;
-  password: string;
-}
-
 /** Connection info visible to renderer (no secrets) */
 export interface XnatConnectionInfo {
   serverUrl: string;

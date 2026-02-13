@@ -14,9 +14,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   platform: process.platform,
 
   xnat: {
-    login: (creds: { serverUrl: string; username: string; password: string }) =>
-      ipcRenderer.invoke(IPC.XNAT_LOGIN, creds),
-
     browserLogin: (serverUrl: string) =>
       ipcRenderer.invoke(IPC.XNAT_BROWSER_LOGIN, serverUrl),
 
@@ -89,6 +86,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
 
   on: (channel: string, callback: (...args: unknown[]) => void) => {
+    const allowedChannels = [IPC.XNAT_SESSION_EXPIRED];
+    if (!allowedChannels.includes(channel as any)) {
+      console.warn(`[preload] Blocked IPC listener for unknown channel: ${channel}`);
+      return;
+    }
     ipcRenderer.on(channel, (_event, ...args) => callback(...args));
   },
 });

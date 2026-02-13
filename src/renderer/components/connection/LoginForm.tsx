@@ -103,6 +103,11 @@ export default function LoginForm() {
         trimmedUrl = `https://${trimmedUrl}`;
       }
 
+      // Warn on plain HTTP (credentials and medical data should use TLS)
+      if (/^http:\/\//i.test(trimmedUrl) && !trimmedUrl.includes('localhost') && !trimmedUrl.includes('127.0.0.1')) {
+        console.warn('[LoginForm] Insecure HTTP connection — credentials will be sent in plaintext');
+      }
+
       const success = await browserLogin(trimmedUrl);
 
       if (success) {

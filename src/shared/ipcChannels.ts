@@ -12,7 +12,6 @@
  */
 export const IPC = {
   // Auth (renderer → main)
-  XNAT_LOGIN: 'xnat:login',
   XNAT_BROWSER_LOGIN: 'xnat:browser-login',
   XNAT_LOGOUT: 'xnat:logout',
   XNAT_VALIDATE: 'xnat:validate-session',
