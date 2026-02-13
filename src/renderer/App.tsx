@@ -34,9 +34,11 @@ import { viewportService } from './lib/cornerstone/viewportService';
 import { imageLoader, cache, metaData } from '@cornerstonejs/core';
 import * as dicomParser from 'dicom-parser';
 import { viewportReadyService } from './lib/cornerstone/viewportReadyService';
-import { useSessionDerivedIndexStore } from './stores/sessionDerivedIndexStore';
+import { useSessionDerivedIndexStore, isSegScan, isRtStructScan, isDerivedScan } from './stores/sessionDerivedIndexStore';
 import { useSegmentationManagerStore } from './stores/segmentationManagerStore';
 import { segmentationManager } from './lib/segmentation/segmentationManagerSingleton';
+import { getReferencedSeriesUID } from './lib/dicom/segReferencedSeriesUid';
+import { getSourceScanId } from './lib/dicom/scanIdConvention';
 
 /** DICOM SEG SOP Class UID */
 const SEG_SOP_CLASS_UID = '1.2.840.10008.5.1.4.1.1.66.4';
@@ -44,35 +46,9 @@ const SEG_SOP_CLASS_UID = '1.2.840.10008.5.1.4.1.1.66.4';
 /** DICOM RTSTRUCT SOP Class UID */
 const RTSTRUCT_SOP_CLASS_UID = '1.2.840.10008.5.1.4.1.1.481.3';
 
-/** Check if a scan is a DICOM SEG scan based on XNAT type metadata */
-function isSegScan(scan: XnatScan): boolean {
-  return scan.type?.toUpperCase() === 'SEG';
-}
-
-/** Check if a scan is a DICOM RTSTRUCT scan based on XNAT type metadata */
-function isRtStructScan(scan: XnatScan): boolean {
-  const t = scan.type?.toUpperCase();
-  return t === 'RTSTRUCT' || t === 'RT';
-}
-
-/** Check if a scan is a derived object (SEG or RTSTRUCT) */
-function isDerivedScan(scan: XnatScan): boolean {
-  return isSegScan(scan) || isRtStructScan(scan);
-}
-
-/**
- * Extract the source scan ID from a SEG scan ID using the 30xx convention.
- * Supports prefixes 30-39 (e.g., "3004" → "4", "3012" → "12", "3104" → "4").
- * Returns null if the scan ID doesn't follow the convention.
- */
-function getSourceScanId(segScanId: string): string | null {
-  // Matches 30xx-39xx (manual SEG), 40xx-49xx (RTSTRUCT), 50xx-59xx (legacy auto-saves)
-  const match = segScanId.match(/^([345]\d)(\d{2})$/);
-  if (!match) return null;
-  const sourceId = parseInt(match[2], 10);
-  if (sourceId === 0) return null; // scan ID "0" is not valid
-  return String(sourceId);
-}
+// isSegScan, isRtStructScan, isDerivedScan imported from sessionDerivedIndexStore
+// getSourceScanId imported from lib/dicom/scanIdConvention
+// getReferencedSeriesUID imported from lib/dicom/segReferencedSeriesUid
 
 /** Tracks sessions that have already been checked for auto-save recovery. */
 const recoveredSessions = new Set<string>();
@@ -209,60 +185,7 @@ async function checkForAutoSaveRecovery(
   }
 }
 
-/**
- * Parse a DICOM SEG ArrayBuffer and extract the Referenced Series Instance UID.
- * This tells us which source series the SEG was created from.
- */
-function getReferencedSeriesUID(segArrayBuffer: ArrayBuffer): string | null {
-  try {
-    const byteArray = new Uint8Array(segArrayBuffer);
-    const dataSet = dicomParser.parseDicom(byteArray);
-
-    // Method 1: ReferencedSeriesSequence (0008,1115) → SeriesInstanceUID (0020,000E)
-    const refSeriesSeq = dataSet.elements['x00081115'];
-    if (refSeriesSeq?.items?.length) {
-      const uid = refSeriesSeq.items[0].dataSet?.string('x0020000e');
-      if (uid) {
-        console.log(`[App] SEG ReferencedSeriesSequence → SeriesInstanceUID: ${uid}`);
-        return uid;
-      }
-    }
-
-    // Method 2: ReferencedFrameOfReferenceSequence (3006,0010) →
-    //   RTReferencedStudySequence (3006,0012) →
-    //   RTReferencedSeriesSequence (3006,0014) → SeriesInstanceUID (0020,000E)
-    const refFrameSeq = dataSet.elements['x30060010'];
-    if (refFrameSeq?.items?.length) {
-      const studySeq = refFrameSeq.items[0].dataSet?.elements['x30060012'];
-      if (studySeq?.items?.length) {
-        const seriesSeq = studySeq.items[0].dataSet?.elements['x30060014'];
-        if (seriesSeq?.items?.length) {
-          const uid = seriesSeq.items[0].dataSet?.string('x0020000e');
-          if (uid) {
-            console.log(`[App] SEG ReferencedFrameOfReferenceSequence → SeriesInstanceUID: ${uid}`);
-            return uid;
-          }
-        }
-      }
-    }
-
-    // Method 3: Check the SEG's own SeriesInstanceUID as a last resort
-    // (this is the SEG's series, not the source, but log it for debugging)
-    const ownSeriesUID = dataSet.string('x0020000e');
-    console.log(`[App] SEG own SeriesInstanceUID: ${ownSeriesUID || 'not found'}`);
-
-    // Log available top-level sequence tags for debugging
-    const seqTags = Object.keys(dataSet.elements).filter(
-      (k) => dataSet.elements[k].items && dataSet.elements[k].items!.length > 0
-    );
-    console.log(`[App] SEG sequence tags: ${seqTags.join(', ')}`);
-
-    return null;
-  } catch (err) {
-    console.warn('[App] Failed to parse SEG DICOM header:', err);
-    return null;
-  }
-}
+// getReferencedSeriesUID moved to lib/dicom/segReferencedSeriesUid.ts
 
 /**
  * Find which loaded scan's images match a given SeriesInstanceUID.
@@ -419,18 +342,29 @@ export default function App() {
   /**
    * Wrapper around setPanelImageIds that bumps the viewport-ready epoch for
    * each panel whose imageIds change. This is the ONLY way to update panelImageIds.
+   *
+   * Epochs are bumped synchronously before the React setState call so that
+   * downstream code (e.g. onPanelImagesChanged) sees the correct epoch
+   * immediately — React 18 batches setState updaters so a bump inside the
+   * updater function would not be visible until the next render.
+   *
+   * When called with an updater function, we compute the next state eagerly
+   * from panelImageIdsRef so the epoch bump still happens synchronously.
    */
   const setPanelImageIds = useCallback((
     updater: Record<string, string[]> | ((prev: Record<string, string[]>) => Record<string, string[]>),
   ) => {
-    setPanelImageIdsRaw((prev) => {
-      const next = typeof updater === 'function' ? updater(prev) : updater;
-      // Bump epoch for every panel that changed (simple: bump for any panel in the new map)
-      for (const pid of Object.keys(next)) {
-        panelEpochRef.current[pid] = viewportReadyService.bumpEpoch(pid);
-      }
-      return next;
-    });
+    // Compute the next value eagerly so we can bump epochs synchronously.
+    const prev = panelImageIdsRef.current;
+    const next = typeof updater === 'function' ? updater(prev) : updater;
+    // Bump epoch for every panel in the new map (synchronous — no batching delay)
+    for (const pid of Object.keys(next)) {
+      panelEpochRef.current[pid] = viewportReadyService.bumpEpoch(pid);
+    }
+    // Eagerly update the ref so that back-to-back calls before React re-renders
+    // still see the correct "previous" value.
+    panelImageIdsRef.current = next;
+    setPanelImageIdsRaw(next);
   }, []);
 
   const [dragOver, setDragOver] = useState(false);
@@ -961,6 +895,11 @@ export default function App() {
         // 2. Parse the SEG to find which series it references
         const refSeriesUID = getReferencedSeriesUID(arrayBuffer);
 
+        // Populate derived index with the referenced series UID
+        if (refSeriesUID) {
+          useSessionDerivedIndexStore.getState().setDerivedReferencedSeriesUid(scanId, refSeriesUID);
+        }
+
         // 3. Check if matching source images are already loaded in a panel
         let sourceIds: string[] | null = null;
         let segTargetPanel = targetPanel;
@@ -994,6 +933,8 @@ export default function App() {
               if (match) {
                 sourceIds = match.imageIds;
                 foundScanId = match.scanId;
+                // Record source scan UID for the derived index
+                useSessionDerivedIndexStore.getState().setSourceSeriesUid(match.scanId, refSeriesUID);
               }
             }
           }
@@ -1119,6 +1060,11 @@ export default function App() {
         // 2. Parse the RTSTRUCT
         const parsed = rtStructService.parseRtStruct(arrayBuffer);
 
+        // Populate derived index with the referenced series UID
+        if (parsed.referencedSeriesUID) {
+          useSessionDerivedIndexStore.getState().setDerivedReferencedSeriesUid(scanId, parsed.referencedSeriesUID);
+        }
+
         // 3. Find source images
         let sourceIds: string[] | null = null;
         let rtTargetPanel = targetPanel;
@@ -1143,6 +1089,8 @@ export default function App() {
               const match = await findSourceScanBySeriesUID(sessionId, parsed.referencedSeriesUID, sessionScans);
               if (match) {
                 sourceIds = match.imageIds;
+                // Record source scan UID for the derived index
+                useSessionDerivedIndexStore.getState().setSourceSeriesUid(match.scanId, parsed.referencedSeriesUID);
                 // Load source images into panel, then load RTSTRUCT after settling
                 segmentationManager.removeSegmentationsFromViewport(rtTargetPanel);
                 setPanelImageIds((prev) => ({ ...prev, [rtTargetPanel]: sourceIds! }));
@@ -1223,25 +1171,56 @@ export default function App() {
 
         // Auto-load associated SEG/RTSTRUCT scans for this source scan (if preference enabled)
         const { autoLoadSegOnScanClick } = useSegmentationStore.getState();
-        if (!autoLoadSegOnScanClick) {
-          console.log('[App] Auto-load SEG on scan click is disabled — skipping');
-        }
-        const sessionScans = useViewerStore.getState().sessionScans ?? [];
-        for (const otherScan of (autoLoadSegOnScanClick ? sessionScans : [])) {
-          if (isSegScan(otherScan) || isRtStructScan(otherScan)) {
-            const srcId = getSourceScanId(otherScan.id);
-            if (srcId === scanId) {
-              // Found an associated derived scan — trigger its load
-              // (reuse loadFromXnatScan; the SEG/RTSTRUCT branch handles everything)
-              console.log(`[App] Auto-loading associated scan #${otherScan.id} for source scan #${scanId}`);
-              try {
-                await loadFromXnatScan(sessionId, otherScan.id, otherScan, context);
-              } catch (err) {
-                console.error(`[App] Failed to auto-load derived scan #${otherScan.id}:`, err);
+        if (autoLoadSegOnScanClick) {
+          const derivedIndexStore = useSessionDerivedIndexStore.getState();
+          let sessionScans = useViewerStore.getState().sessionScans;
+
+          // Fetch session scans if not already cached (single-scan-click mode)
+          if (!sessionScans || sessionScans.length === 0) {
+            sessionScans = await window.electronAPI.xnat.getScans(sessionId);
+          }
+
+          // Ensure UID resolution is complete (idempotent — skips if already done)
+          if (sessionScans.length > 0) {
+            await derivedIndexStore.resolveAssociationsForSession(
+              sessionId,
+              sessionScans,
+              (sid, sid2) => dicomwebLoader.getScanImageIds(sid, sid2),
+              downloadSegArrayBuffer,
+            );
+          }
+
+          const derived = derivedIndexStore.getForSource(scanId);
+          const allDerived = [...derived.segScans, ...derived.rtStructScans];
+          if (allDerived.length > 0) {
+            const descriptors = allDerived.map((d) => ({
+              type: (isSegScan(d) ? 'SEG' : 'RTSTRUCT') as 'SEG' | 'RTSTRUCT',
+              scanId: d.id,
+              sessionId,
+              label: d.seriesDescription,
+            }));
+            console.log(`[App] Auto-loading ${descriptors.length} overlay(s) for source scan #${scanId}`);
+            try {
+              await segmentationManager.requestShowOverlaysForSourceScan(targetPanel, scanId, descriptors);
+              // Track XNAT origin for each loaded overlay
+              const compositeKey = `${context.projectId}/${sessionId}/${scanId}`;
+              const loaded = useSegmentationManagerStore.getState().loadedBySourceScan[compositeKey];
+              if (loaded) {
+                for (const [derivedScanId, info] of Object.entries(loaded)) {
+                  useSegmentationStore.getState().setXnatOrigin(info.segmentationId, {
+                    scanId: derivedScanId, sourceScanId: scanId,
+                    projectId: context.projectId, sessionId,
+                  });
+                }
               }
-              break; // Load at most one derived scan per source
+              const segStore = useSegmentationStore.getState();
+              if (!segStore.showPanel) segStore.togglePanel();
+            } catch (err) {
+              console.error(`[App] Failed to auto-load overlays for source scan #${scanId}:`, err);
             }
           }
+        } else {
+          console.log('[App] Auto-load SEG on scan click is disabled — skipping');
         }
       }
     } catch (err) {
@@ -1325,9 +1304,17 @@ export default function App() {
         store.setSessionData(sessionId, scans);
 
         // Build the derived-scan index (source scan → SEG/RTSTRUCT overlays)
-        useSessionDerivedIndexStore.getState().buildDerivedIndex(scans, (derivedScan) =>
-          getSourceScanId(derivedScan.id),
-        );
+        const derivedIndexStore = useSessionDerivedIndexStore.getState();
+        if (segScans.length > 0 || rtStructScans.length > 0) {
+          await derivedIndexStore.resolveAssociationsForSession(
+            sessionId,
+            scans,
+            (sid, scanIdArg) => dicomwebLoader.getScanImageIds(sid, scanIdArg),
+            downloadSegArrayBuffer,
+          );
+        } else {
+          derivedIndexStore.buildDerivedIndex(scans, (ds) => getSourceScanId(ds.id));
+        }
 
         // Set XNAT upload context so "Save to XNAT" works in SegmentationPanel
         store.setXnatContext({

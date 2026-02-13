@@ -16,6 +16,8 @@ interface PanelEntry {
   currentEpoch: number;
   /** Pending waiters keyed by epoch. Each waiter has resolve/reject + timeout id. */
   waiters: Map<number, Waiter[]>;
+  /** Epochs that have already been marked ready (so late callers resolve immediately) */
+  readyEpochs: Set<number>;
 }
 
 interface Waiter {
@@ -29,7 +31,7 @@ const registry = new Map<string, PanelEntry>();
 function getOrCreate(panelId: string): PanelEntry {
   let entry = registry.get(panelId);
   if (!entry) {
-    entry = { currentEpoch: 0, waiters: new Map() };
+    entry = { currentEpoch: 0, waiters: new Map(), readyEpochs: new Set() };
     registry.set(panelId, entry);
   }
   return entry;
@@ -60,6 +62,13 @@ export const viewportReadyService = {
       }
     }
 
+    // Clear ready flags for old epochs
+    for (const epoch of entry.readyEpochs) {
+      if (epoch < newEpoch) {
+        entry.readyEpochs.delete(epoch);
+      }
+    }
+
     console.debug(`[viewportReadyService] bumpEpoch(${panelId}): ${oldEpoch} → ${newEpoch}`);
     return newEpoch;
   },
@@ -78,6 +87,9 @@ export const viewportReadyService = {
   markReady(panelId: string, epoch: number): void {
     const entry = registry.get(panelId);
     if (!entry) return;
+
+    // Record that this epoch has been marked ready (for late callers)
+    entry.readyEpochs.add(epoch);
 
     // Only resolve waiters for this exact epoch
     const waiters = entry.waiters.get(epoch);
@@ -108,6 +120,11 @@ export const viewportReadyService = {
       return Promise.reject(new Error(
         `[viewportReadyService] Stale epoch for ${panelId}: requested ${epoch}, current is ${entry.currentEpoch}`
       ));
+    }
+
+    // If this epoch was already marked ready, resolve immediately
+    if (entry.readyEpochs.has(epoch)) {
+      return Promise.resolve();
     }
 
     return new Promise<void>((resolve, reject) => {

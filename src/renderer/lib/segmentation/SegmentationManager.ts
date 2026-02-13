@@ -14,7 +14,7 @@
 import { viewportReadyService } from '../cornerstone/viewportReadyService';
 import { segmentationService } from '../cornerstone/segmentationService';
 import { rtStructService } from '../cornerstone/rtStructService';
-import { useSegmentationManagerStore } from '../../stores/segmentationManagerStore';
+import { useSegmentationManagerStore, type RGBA } from '../../stores/segmentationManagerStore';
 import { useSegmentationStore } from '../../stores/segmentationStore';
 import { useViewerStore } from '../../stores/viewerStore';
 
@@ -103,6 +103,7 @@ export class SegmentationManager {
           await segmentationService.addToViewport(panelId, segId);
         }
         this.restorePresentationState(segId);
+        this.captureInitialPresentationState(segId);
       }
       } catch (err) {
       // Non-fatal. Typical causes: stale epoch, timeout, or panel removed mid-flight.
@@ -264,7 +265,10 @@ export class SegmentationManager {
     sourceScanId: string,
     overlayDescriptors: Array<{ type: 'SEG' | 'RTSTRUCT'; scanId: string; sessionId: string; label?: string }>,
   ): Promise<void> {
-    if (this.disposed || !this.deps) return;
+    if (this.disposed || !this.deps) {
+      console.warn(`[SegmentationManager] requestShowOverlaysForSourceScan: early return — disposed=${this.disposed}, deps=${!!this.deps}`);
+      return;
+    }
     const deps = this.deps;
     const store = useSegmentationManagerStore.getState;
 
@@ -278,11 +282,16 @@ export class SegmentationManager {
     // Capture epoch at start for staleness checks
     const epochAtStart = store().panelState[panelId]?.epoch ?? viewportReadyService.getEpoch(panelId);
 
+    console.log(`[SegmentationManager] requestShowOverlaysForSourceScan: panel=${panelId}, source=${sourceScanId}, compositeKey=${compositeSourceKey}, epochAtStart=${epochAtStart}, currentEpoch=${viewportReadyService.getEpoch(panelId)}, descriptors=${overlayDescriptors.length}`);
+
     // Record desired overlays
     store().setDesiredOverlays(panelId, overlayDescriptors.map((d) => d.scanId));
 
     for (const descriptor of overlayDescriptors) {
-      if (this.disposed || this.isEpochStale(panelId, epochAtStart)) return;
+      if (this.disposed || this.isEpochStale(panelId, epochAtStart)) {
+        console.warn(`[SegmentationManager] requestShowOverlaysForSourceScan: aborting loop — disposed=${this.disposed}, epochStale=${this.isEpochStale(panelId, epochAtStart)}`);
+        return;
+      }
 
       const { type, scanId, sessionId, label } = descriptor;
 
@@ -304,17 +313,31 @@ export class SegmentationManager {
 
       try {
         // Download the file
+        console.log(`[SegmentationManager] Downloading overlay ${scanId} (${type}) from session ${sessionId}...`);
         const arrayBuffer = await deps.downloadScanFile(sessionId, scanId);
-        if (this.disposed || this.isEpochStale(panelId, epochAtStart)) return;
+        console.log(`[SegmentationManager] Downloaded overlay ${scanId}: ${arrayBuffer.byteLength} bytes`);
+        if (this.disposed || this.isEpochStale(panelId, epochAtStart)) {
+          console.warn(`[SegmentationManager] Aborting after download ${scanId}: disposed=${this.disposed}, epochStale=${this.isEpochStale(panelId, epochAtStart)}`);
+          return;
+        }
 
         // Pre-load source images for metadata
         const sourceImageIds = deps.getPanelImageIds(panelId);
+        console.log(`[SegmentationManager] Pre-loading ${sourceImageIds.length} source images for ${scanId}...`);
         await deps.preloadImages(sourceImageIds);
-        if (this.disposed || this.isEpochStale(panelId, epochAtStart)) return;
+        if (this.disposed || this.isEpochStale(panelId, epochAtStart)) {
+          console.warn(`[SegmentationManager] Aborting after preload ${scanId}: disposed=${this.disposed}, epochStale=${this.isEpochStale(panelId, epochAtStart)}`);
+          return;
+        }
 
         // Wait for viewport to be ready
+        console.log(`[SegmentationManager] Waiting for viewport ready: panel=${panelId}, epoch=${epochAtStart}...`);
         await viewportReadyService.whenReady(panelId, epochAtStart);
-        if (this.disposed || this.isEpochStale(panelId, epochAtStart)) return;
+        console.log(`[SegmentationManager] Viewport ready for ${panelId}, loading ${type} ${scanId}...`);
+        if (this.disposed || this.isEpochStale(panelId, epochAtStart)) {
+          console.warn(`[SegmentationManager] Aborting after whenReady ${scanId}: disposed=${this.disposed}, epochStale=${this.isEpochStale(panelId, epochAtStart)}`);
+          return;
+        }
 
         // Load + attach based on type
         let segmentationId: string;
@@ -351,6 +374,10 @@ export class SegmentationManager {
 
         // Restore cached presentation state if any
         this.restorePresentationState(segmentationId);
+
+        // Capture initial colors (DICOM-loaded or defaults) into the
+        // presentation cache so they survive viewport recreation.
+        this.captureInitialPresentationState(segmentationId);
 
         // Wait two rAF cycles for render pipeline to settle, then clean dirty state
         await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
@@ -675,6 +702,34 @@ export class SegmentationManager {
     }
 
     console.log(`[SegmentationManager] Restored presentation state for ${segmentationId}`);
+  }
+
+  /**
+   * Capture the current presentation state (colors) from the UI store
+   * into the presentation cache. Only fills in entries not already
+   * present, so user customizations are never overwritten.
+   *
+   * Called after addToViewport() (which ends with syncSegmentations())
+   * so that DICOM-loaded colors and default palette colors are preserved
+   * across viewport recreation.
+   */
+  private captureInitialPresentationState(segmentationId: string): void {
+    const mgrStore = useSegmentationManagerStore.getState();
+    const existing = mgrStore.presentation[segmentationId];
+
+    // Read the synced segment summaries from the UI store
+    const segSummary = useSegmentationStore.getState().segmentations
+      .find((s) => s.segmentationId === segmentationId);
+    if (!segSummary) return;
+
+    for (const seg of segSummary.segments) {
+      // Skip if this segment already has a cached color (user customization)
+      if (existing?.color[seg.segmentIndex]) continue;
+
+      mgrStore.setPresentation(segmentationId, seg.segmentIndex, {
+        color: seg.color as RGBA,
+      });
+    }
   }
 
   /**

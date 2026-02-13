@@ -1387,12 +1387,13 @@ export const segmentationService = {
             cachedStats: {},
           };
 
-          // Extract RecommendedDisplayRGBValue for color persistence
-          if (meta.RecommendedDisplayRGBValue?.length >= 3) {
+          // Extract RecommendedDisplayCIELabValue and convert to RGBA
+          if (meta.RecommendedDisplayCIELabValue?.length >= 3) {
+            const rgb = dcmjsData.Colors.dicomlab2RGB(meta.RecommendedDisplayCIELabValue);
             colorMap.set(i, [
-              meta.RecommendedDisplayRGBValue[0],
-              meta.RecommendedDisplayRGBValue[1],
-              meta.RecommendedDisplayRGBValue[2],
+              Math.round(rgb[0] * 255),
+              Math.round(rgb[1] * 255),
+              Math.round(rgb[2] * 255),
               255,
             ]);
           }
@@ -1796,6 +1797,10 @@ export const segmentationService = {
           }
         }
 
+        // Convert RGB (0-255) to normalized RGB (0-1), then to DICOM CIE Lab
+        const normalizedRgb = [color[0] / 255, color[1] / 255, color[2] / 255];
+        const cieLabValues = dcmjsData.Colors.rgb2DICOMLAB(normalizedRgb);
+
         segmentMetadata.push({
           SegmentLabel: segment.label || `Segment ${idx}`,
           SegmentNumber: idx,
@@ -1811,7 +1816,7 @@ export const segmentationService = {
             CodingSchemeDesignator: 'SRT',
             CodeMeaning: 'Tissue',
           },
-          recommendedDisplayRGBValue: [color[0], color[1], color[2]],
+          RecommendedDisplayCIELabValue: cieLabValues,
         });
       }
     }
