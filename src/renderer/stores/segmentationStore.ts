@@ -132,6 +132,25 @@ interface SegmentationStore {
 
   /** Clear the XNAT origin for a segmentation (e.g. when deleted) */
   clearXnatOrigin: (segmentationId: string) => void;
+
+  // ─── Auto-Load Preference ────────────────────────────────────
+
+  /** Whether to auto-load associated SEG/RTSTRUCT when clicking a regular scan */
+  autoLoadSegOnScanClick: boolean;
+
+  /** Set auto-load preference */
+  setAutoLoadSegOnScanClick: (enabled: boolean) => void;
+
+  // ─── Unsaved Changes Tracking ─────────────────────────────────
+
+  /** Whether any segmentation has unsaved changes */
+  hasUnsavedChanges: boolean;
+
+  /** Mark that unsaved changes exist */
+  _markDirty: () => void;
+
+  /** Mark that all changes have been saved */
+  _markClean: () => void;
 }
 
 export const useSegmentationStore = create<SegmentationStore>((set) => ({
@@ -192,4 +211,14 @@ export const useSegmentationStore = create<SegmentationStore>((set) => ({
       const { [segmentationId]: _, ...rest } = s.xnatOriginMap;
       return { xnatOriginMap: rest };
     }),
+
+  autoLoadSegOnScanClick: true,
+
+  setAutoLoadSegOnScanClick: (enabled) => set({ autoLoadSegOnScanClick: enabled }),
+
+  hasUnsavedChanges: false,
+
+  _markDirty: () => set({ hasUnsavedChanges: true }),
+
+  _markClean: () => set({ hasUnsavedChanges: false }),
 }));

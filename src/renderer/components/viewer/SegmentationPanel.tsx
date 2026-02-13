@@ -21,6 +21,7 @@ import { useViewerStore } from '../../stores/viewerStore';
 import { useConnectionStore } from '../../stores/connectionStore';
 import { segmentationService } from '../../lib/cornerstone/segmentationService';
 import { rtStructService } from '../../lib/cornerstone/rtStructService';
+import { segmentationManager } from '../../lib/segmentation/segmentationManagerSingleton';
 import { ToolName, LABELMAP_SEG_TOOLS } from '@shared/types/viewer';
 import {
   IconPlus,
@@ -79,6 +80,9 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
   const autoSaveEnabled = useSegmentationStore((s) => s.autoSaveEnabled);
   const autoSaveStatus = useSegmentationStore((s) => s.autoSaveStatus);
   const setAutoSaveEnabled = useSegmentationStore((s) => s.setAutoSaveEnabled);
+  const autoLoadSegOnScanClick = useSegmentationStore((s) => s.autoLoadSegOnScanClick);
+  const setAutoLoadSegOnScanClick = useSegmentationStore((s) => s.setAutoLoadSegOnScanClick);
+  const xnatOriginMap = useSegmentationStore((s) => s.xnatOriginMap);
   const activeViewportId = useViewerStore((s) => s.activeViewportId);
   const xnatContext = useViewerStore((s) => s.xnatContext);
   const connectionStatus = useConnectionStore((s) => s.status);
@@ -96,6 +100,36 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
     segmentationId: string;
     segmentIndex: number;
   } | null>(null);
+
+  // Inline label editing state
+  const [editingLabel, setEditingLabel] = useState<{
+    type: 'segmentation' | 'segment';
+    segmentationId: string;
+    segmentIndex?: number;
+  } | null>(null);
+  const [editingValue, setEditingValue] = useState('');
+  const editInputRef = useRef<HTMLInputElement>(null);
+
+  // Focus the edit input when it appears
+  useEffect(() => {
+    if (editingLabel && editInputRef.current) {
+      editInputRef.current.focus();
+      editInputRef.current.select();
+    }
+  }, [editingLabel]);
+
+  // Naming dialog state (for creating a new segmentation)
+  const [namingDialog, setNamingDialog] = useState(false);
+  const [namingValue, setNamingValue] = useState('Segmentation');
+  const namingInputRef = useRef<HTMLInputElement>(null);
+
+  // Focus the naming input when it appears
+  useEffect(() => {
+    if (namingDialog && namingInputRef.current) {
+      namingInputRef.current.focus();
+      namingInputRef.current.select();
+    }
+  }, [namingDialog]);
 
   // Save menu state
   const [saveMenuOpen, setSaveMenuOpen] = useState<string | null>(null);
@@ -134,22 +168,46 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
 
   // ─── Handlers ─────────────────────────────────────────────────
 
-  const handleAddSegmentation = useCallback(async () => {
+  const handleAddSegmentation = useCallback(() => {
     if (sourceImageIds.length === 0) return;
-    const segId = await segmentationService.createStackSegmentation(sourceImageIds);
-    // Add to the active viewport
-    await segmentationService.addToViewport(activeViewportId, segId);
-    // Auto-expand the new segmentation
-    setExpandedIds((prev) => new Set(prev).add(segId));
-  }, [sourceImageIds, activeViewportId]);
+    setNamingValue('Segmentation');
+    setNamingDialog(true);
+  }, [sourceImageIds]);
+
+  const confirmAddSegmentation = useCallback(async () => {
+    const name = namingValue.trim();
+    if (!name) return;
+    setNamingDialog(false);
+    try {
+      const segId = await segmentationManager.createNewSegmentation(activeViewportId, sourceImageIds, name);
+      // Auto-expand the new segmentation
+      setExpandedIds((prev) => new Set(prev).add(segId));
+      // Track the source scan ID so auto-save targets the correct scan even
+      // if the user switches panels/scans before the auto-save fires.
+      // scanId='' means "not yet saved to XNAT" (distinguished from loaded SEGs).
+      const currentScanId = xnatContext?.scanId;
+      if (currentScanId) {
+        useSegmentationStore.getState().setXnatOrigin(segId, {
+          scanId: '',
+          sourceScanId: currentScanId,
+        });
+      }
+    } catch (err) {
+      console.error('[SegmentationPanel] Failed to create segmentation:', err);
+      setToast({ message: `Failed to create segmentation: ${err instanceof Error ? err.message : 'Unknown error'}`, type: 'error' });
+    }
+  }, [namingValue, sourceImageIds, activeViewportId, xnatContext]);
+
+  const cancelAddSegmentation = useCallback(() => {
+    setNamingDialog(false);
+  }, []);
 
   const handleAddSegment = useCallback((segmentationId: string) => {
-    const nextIndex = segmentationService.addSegment(segmentationId, '');
-    segmentationService.setActiveSegmentIndex(segmentationId, nextIndex);
+    segmentationManager.addSegment(segmentationId, '');
   }, []);
 
   const handleRemoveSegmentation = useCallback((segId: string) => {
-    segmentationService.removeSegmentation(segId);
+    segmentationManager.removeSegmentation(segId);
     setExpandedIds((prev) => {
       const next = new Set(prev);
       next.delete(segId);
@@ -167,11 +225,7 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
   }, []);
 
   const handleSelectSegment = useCallback((segmentationId: string, segmentIndex: number) => {
-    useSegmentationStore.getState().setActiveSegmentation(segmentationId);
-    segmentationService.setActiveSegmentIndex(segmentationId, segmentIndex);
-    // Also update Cornerstone's active segmentation and ensure contour
-    // representation so contour tools work after switching segmentations.
-    segmentationService.activateOnViewport(activeViewportId, segmentationId);
+    segmentationManager.userSelectedSegmentation(activeViewportId, segmentationId, segmentIndex);
   }, [activeViewportId]);
 
   const handleFillAlphaChange = useCallback(
@@ -201,7 +255,8 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
   const handleColorSelect = useCallback(
     (color: [number, number, number, number]) => {
       if (!colorPickerTarget) return;
-      segmentationService.setSegmentColor(
+      // Use manager to update color + persist in presentation cache
+      segmentationManager.userChangedSegmentColor(
         colorPickerTarget.segmentationId,
         colorPickerTarget.segmentIndex,
         color,
@@ -211,13 +266,56 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
     [colorPickerTarget],
   );
 
+  // ─── Inline label editing ──────────────────────────────────
+
+  const startEditLabel = useCallback(
+    (type: 'segmentation' | 'segment', segmentationId: string, currentLabel: string, segmentIndex?: number) => {
+      setEditingLabel({ type, segmentationId, segmentIndex });
+      setEditingValue(currentLabel);
+    },
+    [],
+  );
+
+  const commitEditLabel = useCallback(() => {
+    if (!editingLabel) return;
+    const trimmed = editingValue.trim();
+    if (trimmed.length === 0) {
+      // Don't allow empty labels — cancel edit
+      setEditingLabel(null);
+      return;
+    }
+    if (editingLabel.type === 'segmentation') {
+      segmentationManager.renameSegmentation(editingLabel.segmentationId, trimmed);
+    } else if (editingLabel.type === 'segment' && editingLabel.segmentIndex != null) {
+      segmentationManager.renameSegment(editingLabel.segmentationId, editingLabel.segmentIndex, trimmed);
+    }
+    setEditingLabel(null);
+  }, [editingLabel, editingValue]);
+
+  const cancelEditLabel = useCallback(() => {
+    setEditingLabel(null);
+  }, []);
+
+  const handleEditKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        commitEditLabel();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        cancelEditLabel();
+      }
+    },
+    [commitEditLabel, cancelEditLabel],
+  );
+
   // ─── Save / Export Handlers ──────────────────────────────────
 
   const handleSaveLocal = useCallback(async (segmentationId: string) => {
     setSaveMenuOpen(null);
     setSaving(true);
     try {
-      const base64 = await segmentationService.exportToDicomSeg(segmentationId);
+      const base64 = await segmentationManager.exportToDicomSeg(segmentationId);
       const result = await window.electronAPI.export.saveDicomSeg(base64, 'segmentation.dcm');
       if (result.ok && result.path) {
         setToast({ message: `Saved to ${result.path.split('/').pop()}`, type: 'success' });
@@ -242,17 +340,21 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
     }
 
     // Cancel any pending auto-save so it doesn't race with the manual save
-    segmentationService.cancelAutoSave();
+    segmentationManager.cancelAutoSave();
 
     setSaving(true);
     try {
-      const base64 = await segmentationService.exportToDicomSeg(segmentationId);
-      const origin = useSegmentationStore.getState().xnatOriginMap[segmentationId];
+      const base64 = await segmentationManager.exportToDicomSeg(segmentationId);
+      const segStoreSnapshot = useSegmentationStore.getState();
+      const origin = segStoreSnapshot.xnatOriginMap[segmentationId];
+      const segLabel = segStoreSnapshot.segmentations.find(
+        (s) => s.segmentationId === segmentationId,
+      )?.label;
 
       let result: { ok: boolean; url?: string; scanId?: string; error?: string };
 
-      if (origin) {
-        // Overwrite existing scan
+      if (origin && origin.scanId) {
+        // Overwrite existing scan (origin.scanId is non-empty for previously saved segmentations)
         result = await window.electronAPI.xnat.overwriteDicomSeg(
           xnatContext.sessionId,
           origin.scanId,
@@ -262,20 +364,24 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
           setToast({ message: `Saved to scan ${origin.scanId}`, type: 'success' });
         }
       } else {
-        // First save: create new 30xx scan
+        // First save: create new 30xx scan.
+        // Use origin.sourceScanId if available (tracked at creation time),
+        // otherwise fall back to xnatContext.scanId.
+        const sourceScanId = origin?.sourceScanId ?? xnatContext.scanId;
         result = await window.electronAPI.xnat.uploadDicomSeg(
           xnatContext.projectId,
           xnatContext.subjectId,
           xnatContext.sessionId,
           xnatContext.sessionLabel,
-          xnatContext.scanId,
+          sourceScanId,
           base64,
+          segLabel,
         );
         if (result.ok && result.scanId) {
           // Track origin for future overwrites
           useSegmentationStore.getState().setXnatOrigin(segmentationId, {
             scanId: result.scanId,
-            sourceScanId: xnatContext.scanId,
+            sourceScanId,
           });
           setToast({ message: `Uploaded to XNAT as scan ${result.scanId}`, type: 'success' });
         }
@@ -284,12 +390,19 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
       if (!result.ok) {
         setToast({ message: `Upload failed: ${result.error}`, type: 'error' });
       } else {
-        // Clean up temp auto-save file (non-blocking, non-fatal)
+        // Mark as saved
+        useSegmentationStore.getState()._markClean();
+        // Clean up all auto-save temp files for this source scan (pattern-based for timestamped filenames)
         const sourceScanId = origin?.sourceScanId ?? xnatContext.scanId;
-        const tempFilename = `autosave_seg_${sourceScanId}.dcm`;
-        window.electronAPI.xnat.deleteTempFile(xnatContext.sessionId, tempFilename).catch(() => {
-          // Ignore — temp file may not exist
-        });
+        try {
+          const files = await window.electronAPI.xnat.listTempFiles(xnatContext.sessionId);
+          const pattern = new RegExp(`^autosave_(?:seg|rtstruct)_${sourceScanId}(?:_\\d{14})?\\.dcm$`);
+          for (const f of files.files ?? []) {
+            if (pattern.test(f.name)) {
+              window.electronAPI.xnat.deleteTempFile(xnatContext.sessionId, f.name).catch(() => {});
+            }
+          }
+        } catch { /* ignore cleanup errors */ }
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Upload failed';
@@ -326,18 +439,45 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
       setToast({ message: 'No XNAT session context — load images from XNAT first', type: 'error' });
       return;
     }
+
+    // Cancel any pending auto-save so it doesn't race with the manual save
+    segmentationManager.cancelAutoSave();
+
     setSaving(true);
     try {
       const base64 = await rtStructService.exportToRtStruct(segmentationId);
+      // Use origin.sourceScanId if available (tracked at creation time),
+      // otherwise fall back to xnatContext.scanId.
+      const segStoreSnapshot = useSegmentationStore.getState();
+      const origin = segStoreSnapshot.xnatOriginMap[segmentationId];
+      const sourceScanId = origin?.sourceScanId ?? xnatContext.scanId;
       const result = await window.electronAPI.xnat.uploadDicomRtStruct(
         xnatContext.projectId,
         xnatContext.subjectId,
         xnatContext.sessionId,
         xnatContext.sessionLabel,
-        xnatContext.scanId,
+        sourceScanId,
         base64,
       );
       if (result.ok) {
+        useSegmentationStore.getState()._markClean();
+        // Track origin for future overwrites (if first save)
+        if (result.scanId) {
+          useSegmentationStore.getState().setXnatOrigin(segmentationId, {
+            scanId: result.scanId,
+            sourceScanId,
+          });
+        }
+        // Clean up all auto-save temp files for this source scan (pattern-based for timestamped filenames)
+        try {
+          const files = await window.electronAPI.xnat.listTempFiles(xnatContext.sessionId);
+          const pattern = new RegExp(`^autosave_(?:seg|rtstruct)_${sourceScanId}(?:_\\d{14})?\\.dcm$`);
+          for (const f of files.files ?? []) {
+            if (pattern.test(f.name)) {
+              window.electronAPI.xnat.deleteTempFile(xnatContext.sessionId, f.name).catch(() => {});
+            }
+          }
+        } catch { /* ignore cleanup errors */ }
         setToast({ message: 'Uploaded RTSTRUCT to XNAT successfully', type: 'success' });
       } else {
         setToast({ message: `Upload failed: ${result.error}`, type: 'error' });
@@ -406,7 +546,34 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
                       <polyline points="4,2 8,6 4,10" />
                     </svg>
 
-                    <span className="text-xs text-zinc-300 truncate flex-1">{seg.label}</span>
+                    {/* Segmentation label — double-click to rename */}
+                    {editingLabel?.type === 'segmentation' && editingLabel.segmentationId === seg.segmentationId ? (
+                      <input
+                        ref={editInputRef}
+                        className="text-xs text-zinc-300 bg-zinc-800 border border-blue-500 rounded px-1 py-0 flex-1 min-w-0 outline-none"
+                        value={editingValue}
+                        onChange={(e) => setEditingValue(e.target.value)}
+                        onBlur={commitEditLabel}
+                        onKeyDown={handleEditKeyDown}
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    ) : (() => {
+                      const origin = xnatOriginMap[seg.segmentationId];
+                      const suffix = origin ? `#${origin.scanId}` : 'unsaved';
+                      return (
+                        <span
+                          className="text-xs text-zinc-300 truncate flex-1"
+                          onDoubleClick={(e) => {
+                            e.stopPropagation();
+                            startEditLabel('segmentation', seg.segmentationId, seg.label);
+                          }}
+                          title="Double-click to rename"
+                        >
+                          {seg.label}
+                          <span className="text-zinc-500 text-[10px] ml-1">({suffix})</span>
+                        </span>
+                      );
+                    })()}
 
                     {/* Save segmentation */}
                     <div className="relative shrink-0" ref={saveMenuOpen === seg.segmentationId ? saveMenuRef : undefined}>
@@ -535,16 +702,37 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
                               title="Change color"
                             />
 
-                            {/* Label */}
-                            <span className="text-[11px] text-zinc-400 truncate flex-1">
-                              {segment.label}
-                            </span>
+                            {/* Label — double-click to rename */}
+                            {editingLabel?.type === 'segment' &&
+                              editingLabel.segmentationId === seg.segmentationId &&
+                              editingLabel.segmentIndex === segment.segmentIndex ? (
+                              <input
+                                ref={editInputRef}
+                                className="text-[11px] text-zinc-400 bg-zinc-800 border border-blue-500 rounded px-1 py-0 flex-1 min-w-0 outline-none"
+                                value={editingValue}
+                                onChange={(e) => setEditingValue(e.target.value)}
+                                onBlur={commitEditLabel}
+                                onKeyDown={handleEditKeyDown}
+                                onClick={(e) => e.stopPropagation()}
+                              />
+                            ) : (
+                              <span
+                                className="text-[11px] text-zinc-400 truncate flex-1"
+                                onDoubleClick={(e) => {
+                                  e.stopPropagation();
+                                  startEditLabel('segment', seg.segmentationId, segment.label, segment.segmentIndex);
+                                }}
+                                title="Double-click to rename"
+                              >
+                                {segment.label}
+                              </span>
+                            )}
 
                             {/* Visibility toggle */}
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
-                                segmentationService.toggleSegmentVisibility(
+                                segmentationManager.userToggledVisibility(
                                   activeViewportId,
                                   seg.segmentationId,
                                   segment.segmentIndex,
@@ -564,7 +752,7 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
-                                segmentationService.toggleSegmentLocked(
+                                segmentationManager.userToggledLock(
                                   seg.segmentationId,
                                   segment.segmentIndex,
                                 );
@@ -583,7 +771,7 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
-                                segmentationService.removeSegment(
+                                segmentationManager.removeSegment(
                                   seg.segmentationId,
                                   segment.segmentIndex,
                                 );
@@ -678,6 +866,19 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
           />
           <span className="text-[10px] text-zinc-400">Show Outline</span>
         </label>
+
+        {/* Auto-load associated SEG when clicking a scan */}
+        {isXnatConnected && xnatContext && (
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={autoLoadSegOnScanClick}
+              onChange={(e) => setAutoLoadSegOnScanClick(e.target.checked)}
+              className="w-3 h-3 rounded border-zinc-600 bg-zinc-800 accent-blue-500"
+            />
+            <span className="text-[10px] text-zinc-400">Auto-load SEG from scan</span>
+          </label>
+        )}
 
         {/* Auto-save toggle + status (only when connected to XNAT) */}
         {isXnatConnected && xnatContext && (
@@ -781,6 +982,46 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
           }`}
         >
           {toast.message}
+        </div>
+      )}
+
+      {/* Naming dialog overlay */}
+      {namingDialog && (
+        <div className="absolute inset-0 z-50 bg-zinc-950/70 flex items-center justify-center">
+          <div className="bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl p-4 mx-4 w-full max-w-[220px]">
+            <label className="block text-xs text-zinc-400 mb-1.5">Segmentation name</label>
+            <input
+              ref={namingInputRef}
+              className="w-full text-xs text-zinc-200 bg-zinc-800 border border-zinc-600 rounded px-2 py-1.5 outline-none focus:border-blue-500 transition-colors"
+              value={namingValue}
+              onChange={(e) => setNamingValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  confirmAddSegmentation();
+                } else if (e.key === 'Escape') {
+                  e.preventDefault();
+                  cancelAddSegmentation();
+                }
+              }}
+              placeholder="Enter name..."
+            />
+            <div className="flex justify-end gap-2 mt-3">
+              <button
+                onClick={cancelAddSegmentation}
+                className="text-[10px] text-zinc-400 hover:text-zinc-200 px-2.5 py-1 rounded hover:bg-zinc-800 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmAddSegmentation}
+                disabled={!namingValue.trim()}
+                className="text-[10px] text-blue-400 hover:text-blue-300 px-2.5 py-1 rounded bg-blue-900/30 hover:bg-blue-900/50 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                Create
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

@@ -29,11 +29,14 @@ import {
   type RecentSession,
   type NavigateToTarget,
 } from './lib/pinnedItems';
-import { segmentationService } from './lib/cornerstone/segmentationService';
 import { rtStructService } from './lib/cornerstone/rtStructService';
 import { viewportService } from './lib/cornerstone/viewportService';
 import { imageLoader, cache, metaData } from '@cornerstonejs/core';
 import * as dicomParser from 'dicom-parser';
+import { viewportReadyService } from './lib/cornerstone/viewportReadyService';
+import { useSessionDerivedIndexStore } from './stores/sessionDerivedIndexStore';
+import { useSegmentationManagerStore } from './stores/segmentationManagerStore';
+import { segmentationManager } from './lib/segmentation/segmentationManagerSingleton';
 
 /** DICOM SEG SOP Class UID */
 const SEG_SOP_CLASS_UID = '1.2.840.10008.5.1.4.1.1.66.4';
@@ -63,12 +66,37 @@ function isDerivedScan(scan: XnatScan): boolean {
  * Returns null if the scan ID doesn't follow the convention.
  */
 function getSourceScanId(segScanId: string): string | null {
-  // Matches 30xx-39xx (manual SEG saves) and 50xx-59xx (legacy auto-saves)
-  const match = segScanId.match(/^([35]\d)(\d{2})$/);
+  // Matches 30xx-39xx (manual SEG), 40xx-49xx (RTSTRUCT), 50xx-59xx (legacy auto-saves)
+  const match = segScanId.match(/^([345]\d)(\d{2})$/);
   if (!match) return null;
   const sourceId = parseInt(match[2], 10);
   if (sourceId === 0) return null; // scan ID "0" is not valid
   return String(sourceId);
+}
+
+/** Tracks sessions that have already been checked for auto-save recovery. */
+const recoveredSessions = new Set<string>();
+
+/** Tracks SEG/RTSTRUCT scan IDs with in-progress loads (prevents duplicates from rapid clicks).
+ *  Map of scanId → timestamp(ms). Entries older than 30s are considered stale and auto-cleared. */
+const segLoadingLock = new Map<string, number>();
+const SEG_LOCK_STALE_MS = 30_000;
+
+/** Acquire a loading lock for a SEG/RTSTRUCT scan. Returns false if already locked (not stale). */
+function acquireSegLock(scanId: string): boolean {
+  const now = Date.now();
+  const existing = segLoadingLock.get(scanId);
+  if (existing && (now - existing) < SEG_LOCK_STALE_MS) {
+    console.warn(`[App] SEG scan #${scanId} already loading — ignoring duplicate click`);
+    return false;
+  }
+  segLoadingLock.set(scanId, now);
+  return true;
+}
+
+/** Release a loading lock for a SEG/RTSTRUCT scan. */
+function releaseSegLock(scanId: string): void {
+  segLoadingLock.delete(scanId);
 }
 
 /**
@@ -79,18 +107,23 @@ async function checkForAutoSaveRecovery(
   sessionId: string,
   scanIdToPanelInfo: Map<string, { pid: string; ids: string[] }>,
 ): Promise<void> {
+  // Only check once per session to avoid repeated dialog prompts
+  if (recoveredSessions.has(sessionId)) return;
+
   try {
     const result = await window.electronAPI.xnat.listTempFiles(sessionId);
     if (!result.ok || !result.files || result.files.length === 0) return;
 
-    // Find auto-save SEG files
+    // Find auto-save files (both SEG and RTSTRUCT)
     const autoSaveFiles = result.files.filter(
-      (f) => f.name.startsWith('autosave_seg_') && f.name.endsWith('.dcm'),
+      (f) => (f.name.startsWith('autosave_seg_') || f.name.startsWith('autosave_rtstruct_')) && f.name.endsWith('.dcm'),
     );
     if (autoSaveFiles.length === 0) return;
 
     for (const file of autoSaveFiles) {
-      const match = file.name.match(/^autosave_seg_(.+)\.dcm$/);
+      const isRtStruct = file.name.startsWith('autosave_rtstruct_');
+      // Match both old format (autosave_seg_4.dcm) and new timestamped format (autosave_seg_4_20260212143522.dcm)
+      const match = file.name.match(/^autosave_(?:seg|rtstruct)_(.+?)(?:_\d{14})?\.dcm$/);
       if (!match) continue;
       const sourceScanId = match[1];
 
@@ -102,8 +135,9 @@ async function checkForAutoSaveRecovery(
       }
 
       // Prompt the user
+      const typeLabel = isRtStruct ? 'contour (RTSTRUCT)' : 'segmentation';
       const recover = window.confirm(
-        `An auto-saved segmentation was found for scan #${sourceScanId}.\n\n` +
+        `An auto-saved ${typeLabel} was found for scan #${sourceScanId}.\n\n` +
         `This may be from an editing session that was not saved.\n\n` +
         `Would you like to recover it?`,
       );
@@ -129,15 +163,26 @@ async function checkForAutoSaveRecovery(
           // Pre-load source images
           await preloadImages(panelInfo.ids);
 
-          // Load as segmentation overlay
-          const { segmentationId, firstNonZeroReferencedImageId } =
-            await segmentationService.loadDicomSeg(arrayBuffer, panelInfo.ids);
-          await segmentationService.addToViewport(panelInfo.pid, segmentationId);
-          await jumpViewportToReferencedImage(panelInfo.pid, firstNonZeroReferencedImageId);
+          // Load as segmentation overlay (SEG or RTSTRUCT) via manager
+          let recoveredSegId: string;
+          if (isRtStruct) {
+            const { segmentationId, firstReferencedImageId } =
+              await segmentationManager.loadRtStructFromArrayBuffer(panelInfo.pid, arrayBuffer, panelInfo.ids);
+            recoveredSegId = segmentationId;
+            await jumpViewportToReferencedImage(panelInfo.pid, firstReferencedImageId);
+          } else {
+            const { segmentationId, firstNonZeroReferencedImageId } =
+              await segmentationManager.loadSegFromArrayBuffer(panelInfo.pid, arrayBuffer, panelInfo.ids);
+            recoveredSegId = segmentationId;
+            await jumpViewportToReferencedImage(panelInfo.pid, firstNonZeroReferencedImageId);
+          }
 
           // No origin set — recovered segmentation will create a new scan on first manual save
 
-          console.log(`[App] Recovered auto-save for scan #${sourceScanId} as ${segmentationId}`);
+          // Delete the temp file after successful recovery so dialog doesn't re-appear
+          await window.electronAPI.xnat.deleteTempFile(sessionId, file.name).catch(() => {});
+
+          console.log(`[App] Recovered ${isRtStruct ? 'RTSTRUCT' : 'SEG'} auto-save for scan #${sourceScanId} as ${recoveredSegId}`);
 
           const segStore = useSegmentationStore.getState();
           if (!segStore.showPanel) segStore.togglePanel();
@@ -154,9 +199,13 @@ async function checkForAutoSaveRecovery(
         }
       }
     }
+
+    // Mark this session as checked so the dialog won't fire again
+    recoveredSessions.add(sessionId);
   } catch (err) {
     console.error('[App] Auto-save recovery check failed:', err);
     // Non-fatal — don't block session loading
+    recoveredSessions.add(sessionId); // Still mark as checked to avoid retry loops
   }
 }
 
@@ -294,13 +343,8 @@ async function preloadImages(imageIds: string[]): Promise<void> {
 async function jumpViewportToReferencedImage(panelId: string, referencedImageId: string | null) {
   if (!referencedImageId) return;
 
-  // Wait for viewport to exist and have stack imageIds
-  for (let attempts = 0; attempts < 40; attempts++) {
-    const vp = viewportService.getViewport(panelId);
-    if (vp && vp.getImageIds().length > 0) break;
-    await new Promise((r) => setTimeout(r, 100));
-  }
-
+  // The viewport should already be ready (callers await viewportReadyService.whenReady
+  // or addToViewport before calling this). No polling needed.
   const vp = viewportService.getViewport(panelId);
   if (!vp) return;
 
@@ -359,11 +403,35 @@ async function downloadSegArrayBuffer(
 export default function App() {
   const [cornerstoneReady, setCornerstoneReady] = useState(false);
   const [initError, setInitError] = useState<string | null>(null);
-  const [panelImageIds, setPanelImageIds] = useState<Record<string, string[]>>({});
+  const [panelImageIds, setPanelImageIdsRaw] = useState<Record<string, string[]>>({});
   /** Always-current ref to panelImageIds — avoids stale closures in callbacks
    *  that only depend on [isConnected]. */
   const panelImageIdsRef = useRef(panelImageIds);
   panelImageIdsRef.current = panelImageIds;
+
+  /**
+   * Tracks the latest epoch per panel. Whenever a panel's imageIds change, we
+   * bump the epoch via viewportReadyService so that any pending async operations
+   * targeting the old viewport can detect staleness and abort.
+   */
+  const panelEpochRef = useRef<Record<string, number>>({});
+
+  /**
+   * Wrapper around setPanelImageIds that bumps the viewport-ready epoch for
+   * each panel whose imageIds change. This is the ONLY way to update panelImageIds.
+   */
+  const setPanelImageIds = useCallback((
+    updater: Record<string, string[]> | ((prev: Record<string, string[]>) => Record<string, string[]>),
+  ) => {
+    setPanelImageIdsRaw((prev) => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      // Bump epoch for every panel that changed (simple: bump for any panel in the new map)
+      for (const pid of Object.keys(next)) {
+        panelEpochRef.current[pid] = viewportReadyService.bumpEpoch(pid);
+      }
+      return next;
+    });
+  }, []);
 
   const [dragOver, setDragOver] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -397,6 +465,8 @@ export default function App() {
     xnatScanId?: string;
     /** Source imaging scan ID (e.g. "4") — used for origin tracking */
     sourceScanId?: string;
+    /** XNAT scan series description — used to override generic Cornerstone labels */
+    xnatScanLabel?: string;
   } | null>(null);
 
   /** Tracks panels with an active deferred SEG load (set when loadSeg starts,
@@ -422,6 +492,43 @@ export default function App() {
         console.error('Cornerstone init failed:', err);
         setInitError(err instanceof Error ? err.message : String(err));
       });
+  }, []);
+
+  // ─── Initialize SegmentationManager once Cornerstone is ready ──
+  useEffect(() => {
+    if (!cornerstoneReady) return;
+
+    segmentationManager.initialize({
+      setPanelImageIds: (pid, imageIds) => {
+        setPanelImageIds((prev) => ({ ...prev, [pid]: imageIds }));
+      },
+      getPanelImageIds: (pid) => panelImageIdsRef.current[pid] ?? [],
+      preloadImages,
+      downloadScanFile: downloadSegArrayBuffer,
+      getScanImageIds: (sessionId, scanId) =>
+        dicomwebLoader.getScanImageIds(sessionId, scanId),
+    });
+
+    return () => {
+      segmentationManager.dispose();
+    };
+  }, [cornerstoneReady, setPanelImageIds]);
+
+  // ─── Unsaved changes: beforeunload guard ────────────────────
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      // Check both old store and new manager store for unsaved changes
+      if (
+        useSegmentationStore.getState().hasUnsavedChanges ||
+        segmentationManager.hasDirtySegmentations()
+      ) {
+        e.preventDefault();
+        // Modern browsers show a generic message; returnValue triggers the dialog
+        e.returnValue = 'You have unsaved segmentation changes. Are you sure you want to leave?';
+      }
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
   }, []);
 
   // ─── Bookmarks: migrate old storage on mount ──────────────────
@@ -621,8 +728,7 @@ export default function App() {
         try {
           const arrayBuffer = await file.arrayBuffer();
           const { segmentationId, firstNonZeroReferencedImageId } =
-            await segmentationService.loadDicomSeg(arrayBuffer, sourceImageIds);
-          await segmentationService.addToViewport(targetPanel, segmentationId);
+            await segmentationManager.loadSegFromArrayBuffer(targetPanel, arrayBuffer, sourceImageIds);
           await jumpViewportToReferencedImage(targetPanel, firstNonZeroReferencedImageId);
           console.log(`[App] Loaded DICOM SEG file "${file.name}" as ${segmentationId}`);
         } catch (err) {
@@ -653,15 +759,11 @@ export default function App() {
         await new Promise((r) => setTimeout(r, 200));
       }
 
-      // Pre-load source images for metadata
-      await preloadImages(sourceImageIds);
-
       for (const file of rtStructFiles) {
         try {
           const arrayBuffer = await file.arrayBuffer();
-          const parsed = rtStructService.parseRtStruct(arrayBuffer);
           const { segmentationId, firstReferencedImageId } =
-            await rtStructService.loadRtStructAsContours(parsed, sourceImageIds, targetPanel);
+            await segmentationManager.loadRtStructFromArrayBuffer(targetPanel, arrayBuffer, sourceImageIds);
           await jumpViewportToReferencedImage(targetPanel, firstReferencedImageId);
           console.log(`[App] Loaded RTSTRUCT file "${file.name}" as ${segmentationId}`);
         } catch (err) {
@@ -702,28 +804,18 @@ export default function App() {
     const loadSeg = async () => {
       segLoadingPanelRef.current = pending.panelId;
       try {
-        // Wait for the viewport to be fully created and have images loaded
-        let attempts = 0;
-        while (attempts < 40) {
-          const vp = viewportService.getViewport(pending.panelId);
-          if (vp && vp.getImageIds().length > 0) break;
-          await new Promise((r) => setTimeout(r, 100));
-          attempts++;
-        }
+        // Use the deterministic viewport-ready barrier via manager.
+        // The epoch was bumped when setPanelImageIds was called; CornerstoneViewport
+        // will call markReady after loadStack + render succeeds.
+        const epoch = panelEpochRef.current[pending.panelId] ?? viewportReadyService.getEpoch(pending.panelId);
 
-        // Additional settling time for the rendering pipeline
-        await new Promise((r) => setTimeout(r, 300));
-
-        // Pre-load source images (may already be cached)
-        await preloadImages(pending.sourceImageIds);
-
-        // Load the SEG
         const { segmentationId, firstNonZeroReferencedImageId } =
-          await segmentationService.loadDicomSeg(
+          await segmentationManager.loadSegFromArrayBuffer(
+            pending.panelId,
             pending.arrayBuffer,
             pending.sourceImageIds,
+            { label: pending.xnatScanLabel, epoch },
           );
-        await segmentationService.addToViewport(pending.panelId, segmentationId);
         await jumpViewportToReferencedImage(pending.panelId, firstNonZeroReferencedImageId);
         console.log(`[App] Loaded deferred DICOM SEG as ${segmentationId} on ${pending.panelId}`);
 
@@ -734,12 +826,14 @@ export default function App() {
             sourceScanId: pending.sourceScanId,
           });
         }
+        if (pending.xnatScanId) releaseSegLock(pending.xnatScanId);
 
         // Open segmentation panel
         const segStore = useSegmentationStore.getState();
         if (!segStore.showPanel) segStore.togglePanel();
       } catch (err) {
         console.error('[App] Failed to load deferred DICOM SEG:', err);
+        if (pending.xnatScanId) releaseSegLock(pending.xnatScanId);
       } finally {
         segLoadingPanelRef.current = null;
         setLoading(false);
@@ -765,15 +859,31 @@ export default function App() {
   ) => {
     if (!isConnected) return;
 
+    // Check for unsaved segmentation changes before loading a new scan
+    // (which may remove existing segmentation overlays)
+    const segStoreNav = useSegmentationStore.getState();
+    if (segStoreNav.hasUnsavedChanges || segmentationManager.hasDirtySegmentations()) {
+      const proceed = window.confirm(
+        'You have unsaved segmentation changes.\n\n' +
+        'If you continue, unsaved edits will be lost.\n\n' +
+        'Continue anyway?',
+      );
+      if (!proceed) return;
+      segStoreNav._markClean();
+    }
+
     const targetPanel = useViewerStore.getState().activeViewportId;
 
-    // Ensure XNAT upload context is set (used by SegmentationPanel "Save to XNAT")
+    // Ensure XNAT upload context is set (used by SegmentationPanel "Save to XNAT").
+    // For derived scans (SEG/RTSTRUCT), use the SOURCE scan ID so that saving
+    // new segmentations targets the correct imaging scan, not the derived scan.
+    const contextScanId = isDerivedScan(scan) ? (getSourceScanId(scanId) ?? scanId) : scanId;
     useViewerStore.getState().setXnatContext({
       projectId: context.projectId,
       subjectId: context.subjectId,
       sessionId,
       sessionLabel: context.sessionLabel,
-      scanId,
+      scanId: contextScanId,
     });
 
     // Remember this session for "Load Recent" on next visit
@@ -796,6 +906,34 @@ export default function App() {
 
       if (isSegScan(scan)) {
         // ─── SEG scan: load source images + overlay ───────────────
+
+        // Check loading lock (prevents duplicates from rapid clicks during deferred load)
+        if (!acquireSegLock(scanId)) {
+          setLoading(false);
+          return;
+        }
+
+        // Check if this SEG scan is already loaded (prevent duplicates)
+        const segStore = useSegmentationStore.getState();
+        const existingSegEntry = Object.entries(segStore.xnatOriginMap).find(
+          ([, origin]) => origin.scanId === scanId
+        );
+        if (existingSegEntry) {
+          // Verify the segmentation still actually exists in Cornerstone state
+          // (it may have been removed when user clicked a different scan)
+          const [existingSegId] = existingSegEntry;
+          if (segmentationManager.segmentationExists(existingSegId)) {
+            console.log(`[App] SEG scan #${scanId} already loaded — opening panel instead`);
+            if (!segStore.showPanel) segStore.togglePanel();
+            segStore.setActiveSegmentation(existingSegId);
+            setLoading(false);
+            return;
+          } else {
+            // Stale origin — segmentation was removed. Clear it and proceed with fresh load.
+            console.log(`[App] SEG scan #${scanId} origin is stale — reloading`);
+            segStore.clearXnatOrigin(existingSegId);
+          }
+        }
 
         // 1. Download the SEG file first so we can inspect its metadata
         const arrayBuffer = await downloadSegArrayBuffer(sessionId, scanId);
@@ -859,7 +997,7 @@ export default function App() {
 
           console.log(`[App] Source scan #${resolvedScanId}: ${resolvedSourceIds.length} images`);
           // Clean up stale segmentations before loading new source images
-          segmentationService.removeSegmentationsFromViewport(segTargetPanel);
+          segmentationManager.removeSegmentationsFromViewport(segTargetPanel);
 
           // Defer the SEG loading: store the pending load info and let the
           // useEffect process it after the viewport has been recreated with
@@ -872,6 +1010,7 @@ export default function App() {
             sourceImageIds: resolvedSourceIds,
             xnatScanId: scanId,
             sourceScanId: resolvedScanId,
+            xnatScanLabel: scan.seriesDescription,
           };
           // Mark panel as having a SEG load in progress BEFORE triggering
           // any React re-renders or viewport recreation. This prevents
@@ -880,18 +1019,21 @@ export default function App() {
 
           setPanelImageIds((prev) => ({ ...prev, [segTargetPanel]: resolvedSourceIds }));
           useViewerStore.getState().setPanelScan(segTargetPanel, resolvedScanId);
+          segmentationManager.onPanelImagesChanged(
+            segTargetPanel, resolvedScanId, panelEpochRef.current[segTargetPanel] ?? 0,
+          );
           // Don't setLoading(false) here — the deferred useEffect will do it
           return;
         }
 
-        // Source images are already loaded in the panel — load SEG directly.
-        // 5. Pre-load source images so metadata is cached
-        await preloadImages(sourceIds);
-
-        // 6. Load the SEG as overlay
+        // Source images are already loaded in the panel — load SEG directly via manager.
         const { segmentationId, firstNonZeroReferencedImageId } =
-          await segmentationService.loadDicomSeg(arrayBuffer, sourceIds);
-        await segmentationService.addToViewport(segTargetPanel, segmentationId);
+          await segmentationManager.loadSegFromArrayBuffer(
+            segTargetPanel,
+            arrayBuffer,
+            sourceIds,
+            { label: scan.seriesDescription },
+          );
         await jumpViewportToReferencedImage(segTargetPanel, firstNonZeroReferencedImageId);
         console.log(`[App] Loaded DICOM SEG from XNAT as ${segmentationId} on ${segTargetPanel}`);
 
@@ -903,12 +1045,39 @@ export default function App() {
             sourceScanId: directSourceScanId,
           });
         }
+        releaseSegLock(scanId);
 
         // 7. Open segmentation panel
-        const segStore = useSegmentationStore.getState();
         if (!segStore.showPanel) segStore.togglePanel();
       } else if (isRtStructScan(scan)) {
         // ─── RTSTRUCT scan: load contours as segmentation overlay ──
+
+        // Check loading lock (prevents duplicates from rapid clicks)
+        if (!acquireSegLock(scanId)) {
+          setLoading(false);
+          return;
+        }
+
+        // Check if this RTSTRUCT scan is already loaded (prevent duplicates)
+        const segStoreRt = useSegmentationStore.getState();
+        const existingRtEntry = Object.entries(segStoreRt.xnatOriginMap).find(
+          ([, origin]) => origin.scanId === scanId
+        );
+        if (existingRtEntry) {
+          // Verify the segmentation still actually exists in Cornerstone state
+          const [existingRtId] = existingRtEntry;
+          if (segmentationManager.segmentationExists(existingRtId)) {
+            console.log(`[App] RTSTRUCT scan #${scanId} already loaded — opening panel instead`);
+            if (!segStoreRt.showPanel) segStoreRt.togglePanel();
+            segStoreRt.setActiveSegmentation(existingRtId);
+            setLoading(false);
+            return;
+          } else {
+            // Stale origin — segmentation was removed. Clear it and proceed with fresh load.
+            console.log(`[App] RTSTRUCT scan #${scanId} origin is stale — reloading`);
+            segStoreRt.clearXnatOrigin(existingRtId);
+          }
+        }
 
         // 1. Download the RTSTRUCT file
         const arrayBuffer = await downloadSegArrayBuffer(sessionId, scanId);
@@ -942,19 +1111,16 @@ export default function App() {
               if (match) {
                 sourceIds = match.imageIds;
                 // Load source images into panel, then load RTSTRUCT after settling
-                segmentationService.removeSegmentationsFromViewport(rtTargetPanel);
+                segmentationManager.removeSegmentationsFromViewport(rtTargetPanel);
                 setPanelImageIds((prev) => ({ ...prev, [rtTargetPanel]: sourceIds! }));
                 useViewerStore.getState().setPanelScan(rtTargetPanel, match.scanId);
+                segmentationManager.onPanelImagesChanged(
+                  rtTargetPanel, match.scanId, panelEpochRef.current[rtTargetPanel] ?? 0,
+                );
 
-                // Wait for viewport to settle
-                let attempts = 0;
-                while (attempts < 40) {
-                  const vp = viewportService.getViewport(rtTargetPanel);
-                  if (vp && vp.getImageIds().length > 0) break;
-                  await new Promise((r) => setTimeout(r, 100));
-                  attempts++;
-                }
-                await new Promise((r) => setTimeout(r, 300));
+                // Use deterministic viewport-ready barrier instead of polling
+                const epoch = panelEpochRef.current[rtTargetPanel] ?? viewportReadyService.getEpoch(rtTargetPanel);
+                await viewportReadyService.whenReady(rtTargetPanel, epoch);
               }
             }
           }
@@ -965,16 +1131,26 @@ export default function App() {
           }
         }
 
-        // 5. Pre-load source images for metadata
-        await preloadImages(sourceIds);
-
-        // 6. Load the RTSTRUCT as contour segmentation
+        // 5-6. Load the RTSTRUCT as contour segmentation via manager
         const { segmentationId, firstReferencedImageId } =
-          await rtStructService.loadRtStructAsContours(parsed, sourceIds, rtTargetPanel);
+          await segmentationManager.loadRtStructFromArrayBuffer(
+            rtTargetPanel,
+            arrayBuffer,
+            sourceIds,
+            { label: scan.seriesDescription },
+          );
         await jumpViewportToReferencedImage(rtTargetPanel, firstReferencedImageId);
         console.log(`[App] Loaded RTSTRUCT from XNAT as ${segmentationId} on ${rtTargetPanel}`);
 
-        // 7. Open segmentation panel
+        // 7. Track XNAT origin for RTSTRUCT (same as SEG) for duplicate prevention + save
+        const sourceScanIdRt = getSourceScanId(scanId);
+        useSegmentationStore.getState().setXnatOrigin(segmentationId, {
+          scanId,
+          sourceScanId: sourceScanIdRt ?? scanId,
+        });
+        releaseSegLock(scanId);
+
+        // 8. Open segmentation panel
         const segStore2 = useSegmentationStore.getState();
         if (!segStore2.showPanel) segStore2.togglePanel();
       } else {
@@ -989,7 +1165,7 @@ export default function App() {
         }
 
         // Clean up any stale segmentations on this viewport first
-        segmentationService.removeSegmentationsFromViewport(targetPanel);
+        segmentationManager.removeSegmentationsFromViewport(targetPanel);
 
         const ids = await dicomwebLoader.getScanImageIds(sessionId, scanId);
 
@@ -1004,9 +1180,38 @@ export default function App() {
         console.log(`Loaded ${ids.length} images from XNAT into ${targetPanel}`);
         setPanelImageIds((prev) => ({ ...prev, [targetPanel]: ids }));
         useViewerStore.getState().setPanelScan(targetPanel, scanId);
+
+        // Notify SegmentationManager about the new source scan
+        segmentationManager.onPanelImagesChanged(
+          targetPanel, scanId, panelEpochRef.current[targetPanel] ?? 0,
+        );
+
+        // Auto-load associated SEG/RTSTRUCT scans for this source scan (if preference enabled)
+        const { autoLoadSegOnScanClick } = useSegmentationStore.getState();
+        if (!autoLoadSegOnScanClick) {
+          console.log('[App] Auto-load SEG on scan click is disabled — skipping');
+        }
+        const sessionScans = useViewerStore.getState().sessionScans ?? [];
+        for (const otherScan of (autoLoadSegOnScanClick ? sessionScans : [])) {
+          if (isSegScan(otherScan) || isRtStructScan(otherScan)) {
+            const srcId = getSourceScanId(otherScan.id);
+            if (srcId === scanId) {
+              // Found an associated derived scan — trigger its load
+              // (reuse loadFromXnatScan; the SEG/RTSTRUCT branch handles everything)
+              console.log(`[App] Auto-loading associated scan #${otherScan.id} for source scan #${scanId}`);
+              try {
+                await loadFromXnatScan(sessionId, otherScan.id, otherScan, context);
+              } catch (err) {
+                console.error(`[App] Failed to auto-load derived scan #${otherScan.id}:`, err);
+              }
+              break; // Load at most one derived scan per source
+            }
+          }
+        }
       }
     } catch (err) {
       console.error('Scan load failed:', err);
+      releaseSegLock(scanId);
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes('different geometry dimensions')) {
         setLoadError(
@@ -1038,6 +1243,23 @@ export default function App() {
     ) => {
       if (!isConnected) return;
 
+      // Check for unsaved changes before loading a different session
+      const segStoreNav = useSegmentationStore.getState();
+      if (segStoreNav.hasUnsavedChanges || segmentationManager.hasDirtySegmentations()) {
+        const proceed = window.confirm(
+          'You have unsaved segmentation changes.\n\n' +
+          'If you continue, unsaved edits will be lost.\n\n' +
+          'Continue anyway?',
+        );
+        if (!proceed) return;
+        segStoreNav._markClean();
+      }
+
+      // Clear stale loading locks, derived index, and manager state from previous session
+      segLoadingLock.clear();
+      useSessionDerivedIndexStore.getState().clear();
+      useSegmentationManagerStore.getState().reset();
+
       try {
         setLoading(true);
         setLoadError(null);
@@ -1066,6 +1288,11 @@ export default function App() {
         store.setLayout(protocol.layout);
         store.setCurrentProtocol(protocol);
         store.setSessionData(sessionId, scans);
+
+        // Build the derived-scan index (source scan → SEG/RTSTRUCT overlays)
+        useSessionDerivedIndexStore.getState().buildDerivedIndex(scans, (derivedScan) =>
+          getSourceScanId(derivedScan.id),
+        );
 
         // Set XNAT upload context so "Save to XNAT" works in SegmentationPanel
         store.setXnatContext({
@@ -1101,7 +1328,7 @@ export default function App() {
 
         // Clean up all existing segmentations from panels we're about to load into
         for (const { panelIdx } of results) {
-          segmentationService.removeSegmentationsFromViewport(panelId(panelIdx));
+          segmentationManager.removeSegmentationsFromViewport(panelId(panelIdx));
         }
 
         // Build new panelImageIds map and track scanId→panelId+imageIds mapping
@@ -1118,160 +1345,71 @@ export default function App() {
 
         setPanelImageIds(newPanelImageIds);
 
-        // ─── Auto-load SEG scans as overlays ────────────────────────
-        if (segScans.length > 0) {
-          // Wait for viewports to be fully created after setPanelImageIds.
-          // The React re-render destroys and recreates CornerstoneViewport
-          // components, so we need to wait for them to settle.
-          let attempts = 0;
-          while (attempts < 40) {
-            const allReady = results.every(({ panelIdx }) => {
-              const vp = viewportService.getViewport(panelId(panelIdx));
-              return vp && vp.getImageIds().length > 0;
-            });
-            if (allReady) break;
-            await new Promise((r) => setTimeout(r, 100));
-            attempts++;
-          }
-          // Additional settling time
-          await new Promise((r) => setTimeout(r, 300));
-
-          // Pre-load all source images so their metadata is cached
-          const allImageIds = Array.from(scanIdToPanelInfo.values()).flatMap((p) => p.ids);
-          await preloadImages(allImageIds);
-
-          let segLoaded = false;
-
-          for (const segScan of segScans) {
-            try {
-              // Download the SEG file
-              const arrayBuffer = await downloadSegArrayBuffer(sessionId, segScan.id);
-              console.log(`[App] Downloaded SEG #${segScan.id} (${arrayBuffer.byteLength} bytes)`);
-
-              // Try matching via Referenced Series UID first
-              const refSeriesUID = getReferencedSeriesUID(arrayBuffer);
-              let matchedPanel: { pid: string; ids: string[] } | null = null;
-
-              if (refSeriesUID) {
-                const match = findPanelBySeriesUID(refSeriesUID, newPanelImageIds);
-                if (match) {
-                  matchedPanel = { pid: match.panelId, ids: match.imageIds };
-                  console.log(`[App] SEG #${segScan.id} matched to ${match.panelId} via SeriesInstanceUID`);
-                }
-              }
-
-              // Fallback to scan ID convention
-              if (!matchedPanel) {
-                const sourceScanId = getSourceScanId(segScan.id);
-                if (sourceScanId) {
-                  const panelInfo = scanIdToPanelInfo.get(sourceScanId);
-                  if (panelInfo) {
-                    matchedPanel = panelInfo;
-                    console.log(`[App] SEG #${segScan.id} matched to ${panelInfo.pid} via scan ID convention (source: ${sourceScanId})`);
-                  }
-                }
-              }
-
-              if (!matchedPanel) {
-                console.warn(`[App] Could not find source scan for SEG #${segScan.id}, skipping`);
-                continue;
-              }
-
-              const { segmentationId, firstNonZeroReferencedImageId } =
-                await segmentationService.loadDicomSeg(arrayBuffer, matchedPanel.ids);
-              await segmentationService.addToViewport(matchedPanel.pid, segmentationId);
-              await jumpViewportToReferencedImage(matchedPanel.pid, firstNonZeroReferencedImageId);
-
-              // Track XNAT origin for overwrite-on-save
-              const segSourceScanId = getSourceScanId(segScan.id);
-              if (segSourceScanId) {
-                useSegmentationStore.getState().setXnatOrigin(segmentationId, {
-                  scanId: segScan.id,
-                  sourceScanId: segSourceScanId,
-                });
-              }
-
-              segLoaded = true;
-            } catch (err) {
-              console.error(`[App] Failed to load SEG #${segScan.id}:`, err);
-            }
-          }
-
-          if (segLoaded) {
-            const segStore = useSegmentationStore.getState();
-            if (!segStore.showPanel) segStore.togglePanel();
-          }
+        // Notify SegmentationManager about every panel's source scan + epoch
+        for (const { panelIdx, scanId: sid } of results) {
+          const pid = panelId(panelIdx);
+          segmentationManager.onPanelImagesChanged(pid, sid, panelEpochRef.current[pid] ?? 0);
         }
 
-        // ─── Auto-load RTSTRUCT scans as contour overlays ──────────
-        if (rtStructScans.length > 0) {
-          // Wait for viewports to be ready (may already be ready from SEG loading above)
-          if (segScans.length === 0) {
-            let attempts = 0;
-            while (attempts < 40) {
-              const allReady = results.every(({ panelIdx }) => {
-                const vp = viewportService.getViewport(panelId(panelIdx));
-                return vp && vp.getImageIds().length > 0;
+        // ─── Auto-load SEG + RTSTRUCT overlays via SegmentationManager ──
+        // Use the derived index (built above) to find overlays for each loaded
+        // source scan, then delegate loading to the manager which handles:
+        // viewport readiness, epoch staleness, load/attach, presentation state.
+        if (segScans.length > 0 || rtStructScans.length > 0) {
+          const derivedIndex = useSessionDerivedIndexStore.getState();
+          const overlayPromises: Promise<void>[] = [];
+
+          for (const { scanId: srcScanId } of results) {
+            const panelInfo = scanIdToPanelInfo.get(srcScanId);
+            if (!panelInfo) continue;
+
+            const derived = derivedIndex.getForSource(srcScanId);
+            const descriptors: Array<{ type: 'SEG' | 'RTSTRUCT'; scanId: string; sessionId: string; label?: string }> = [];
+
+            for (const segScan of derived.segScans) {
+              descriptors.push({
+                type: 'SEG',
+                scanId: segScan.id,
+                sessionId,
+                label: segScan.seriesDescription,
               });
-              if (allReady) break;
-              await new Promise((r) => setTimeout(r, 100));
-              attempts++;
             }
-            await new Promise((r) => setTimeout(r, 300));
+            for (const rtScan of derived.rtStructScans) {
+              descriptors.push({
+                type: 'RTSTRUCT',
+                scanId: rtScan.id,
+                sessionId,
+                label: rtScan.seriesDescription,
+              });
+            }
 
-            // Pre-load all source images
-            const allImageIds = Array.from(scanIdToPanelInfo.values()).flatMap((p) => p.ids);
-            await preloadImages(allImageIds);
-          }
-
-          let rtLoaded = false;
-
-          for (const rtScan of rtStructScans) {
-            try {
-              // Download the RTSTRUCT file
-              const arrayBuffer = await downloadSegArrayBuffer(sessionId, rtScan.id);
-              console.log(`[App] Downloaded RTSTRUCT #${rtScan.id} (${arrayBuffer.byteLength} bytes)`);
-
-              // Parse the RTSTRUCT
-              const parsed = rtStructService.parseRtStruct(arrayBuffer);
-
-              // Match to a loaded panel via Referenced Series UID
-              let matchedPanel: { pid: string; ids: string[] } | null = null;
-              if (parsed.referencedSeriesUID) {
-                const match = findPanelBySeriesUID(parsed.referencedSeriesUID, newPanelImageIds);
-                if (match) {
-                  matchedPanel = { pid: match.panelId, ids: match.imageIds };
-                  console.log(`[App] RTSTRUCT #${rtScan.id} matched to ${match.panelId} via SeriesInstanceUID`);
-                }
-              }
-
-              // Fallback: use the first panel with images
-              if (!matchedPanel) {
-                const firstEntry = Object.entries(newPanelImageIds).find(([, ids]) => ids.length > 0);
-                if (firstEntry) {
-                  matchedPanel = { pid: firstEntry[0], ids: firstEntry[1] };
-                  console.log(`[App] RTSTRUCT #${rtScan.id} falling back to first panel: ${firstEntry[0]}`);
-                }
-              }
-
-              if (!matchedPanel) {
-                console.warn(`[App] Could not find source images for RTSTRUCT #${rtScan.id}, skipping`);
-                continue;
-              }
-
-              // Pre-load source images
-              await preloadImages(matchedPanel.ids);
-
-              const { segmentationId, firstReferencedImageId } =
-                await rtStructService.loadRtStructAsContours(parsed, matchedPanel.ids, matchedPanel.pid);
-              await jumpViewportToReferencedImage(matchedPanel.pid, firstReferencedImageId);
-              rtLoaded = true;
-            } catch (err) {
-              console.error(`[App] Failed to load RTSTRUCT #${rtScan.id}:`, err);
+            if (descriptors.length > 0) {
+              overlayPromises.push(
+                segmentationManager.requestShowOverlaysForSourceScan(
+                  panelInfo.pid,
+                  srcScanId,
+                  descriptors,
+                ).then(() => {
+                  // Track XNAT origin for each loaded overlay (for overwrite-on-save)
+                  const managerState = useSegmentationManagerStore.getState();
+                  const loadedForSource = managerState.loadedBySourceScan[srcScanId];
+                  if (loadedForSource) {
+                    for (const [derivedScanId, info] of Object.entries(loadedForSource)) {
+                      useSegmentationStore.getState().setXnatOrigin(info.segmentationId, {
+                        scanId: derivedScanId,
+                        sourceScanId: srcScanId,
+                      });
+                    }
+                  }
+                }),
+              );
             }
           }
 
-          if (rtLoaded) {
+          if (overlayPromises.length > 0) {
+            await Promise.all(overlayPromises);
+
+            // Open segmentation panel if any overlays were loaded
             const segStore = useSegmentationStore.getState();
             if (!segStore.showPanel) segStore.togglePanel();
           }
@@ -1327,7 +1465,7 @@ export default function App() {
 
         // Clean up segmentations from panels that are about to be replaced
         for (const { panelIdx } of results) {
-          segmentationService.removeSegmentationsFromViewport(panelId(panelIdx));
+          segmentationManager.removeSegmentationsFromViewport(panelId(panelIdx));
         }
 
         const newPanelImageIds: Record<string, string[]> = {};

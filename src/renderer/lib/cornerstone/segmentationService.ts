@@ -50,6 +50,7 @@ import { data as dcmjsData } from 'dcmjs';
 import { useSegmentationStore } from '../../stores/segmentationStore';
 import type { SegmentationSummary, SegmentSummary } from '../../stores/segmentationStore';
 import { useViewerStore } from '../../stores/viewerStore';
+import { rtStructService } from './rtStructService';
 // NOTE: We use the tool group ID directly here instead of importing from
 // toolService to avoid a circular dependency (toolService → segmentationService).
 const TOOL_GROUP_ID = 'xnatToolGroup_primary';
@@ -84,6 +85,13 @@ const { DefaultHistoryMemo } = (csUtilities as any).HistoryMemo;
  * DICOM metadata (StudyInstanceUID, SeriesInstanceUID, etc.).
  */
 const sourceImageIdsMap = new Map<string, string[]>();
+
+/**
+ * Tracks loaded DICOM SEG colors per segmentation, keyed by segmentationId.
+ * Colors are extracted from RecommendedDisplayRGBValue during loadDicomSeg()
+ * and consumed (then deleted) in addToViewport() so they override the default palette.
+ */
+const loadedColorsMap = new Map<string, Map<number, [number, number, number, number]>>();
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -198,7 +206,7 @@ function syncSegmentations(): void {
           if (idx === 0) continue; // Skip background
           if (!segment) continue;
 
-          // Get color from first viewport that has this segmentation
+          // Get color: Cornerstone API → loadedColorsMap fallback → DEFAULT_COLORS
           let color: [number, number, number, number] = DEFAULT_COLORS[(idx - 1) % DEFAULT_COLORS.length];
           const viewportIds = csSegmentation.state.getViewportIdsWithSegmentation(seg.segmentationId);
           if (viewportIds.length > 0) {
@@ -213,6 +221,13 @@ function syncSegmentations(): void {
               }
             } catch {
               // Use default color
+            }
+          }
+          // Fallback to loaded DICOM colors if Cornerstone API didn't return valid colors
+          if (color === DEFAULT_COLORS[(idx - 1) % DEFAULT_COLORS.length]) {
+            const loadedColors = loadedColorsMap.get(seg.segmentationId);
+            if (loadedColors?.has(idx)) {
+              color = loadedColors.get(idx)!;
             }
           }
 
@@ -255,7 +270,7 @@ function syncSegmentations(): void {
       const store = useSegmentationStore.getState();
       summaries.push({
         segmentationId: seg.segmentationId,
-        label: seg.label || `Segmentation ${seg.segmentationId}`,
+        label: seg.label || 'Segmentation',
         segments,
         isActive: seg.segmentationId === store.activeSegmentationId,
       });
@@ -281,14 +296,70 @@ function refreshUndoState(): void {
   );
 }
 
+// ─── Segmentation Type Detection ─────────────────────────────────
+
+/**
+ * Determine the representation type of a segmentation.
+ * Returns 'labelmap' if it has labelmap data, 'contour' if contour-only,
+ * or 'both' if it has both representations with data.
+ */
+function getSegmentationType(segmentationId: string): 'labelmap' | 'contour' | 'both' {
+  const seg = csSegmentation.state.getSegmentation(segmentationId);
+  if (!seg) return 'labelmap';
+
+  const repData = seg.representationData as any;
+  const hasLabelmap = !!(repData?.Labelmap?.imageIds?.length > 0 || repData?.Labelmap?.imageIdReferenceMap?.size > 0);
+  const hasContour = !!(repData?.Contour?.annotationUIDsMap?.size > 0);
+
+  if (hasLabelmap && hasContour) return 'both';
+  if (hasContour) return 'contour';
+  return 'labelmap';
+}
+
 // ─── Auto-Save Logic ─────────────────────────────────────────────
 
 let autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
 const AUTO_SAVE_DELAY = 10_000; // 10 seconds after last edit
 
-/** Called when segmentation pixel data changes — debounces auto-save. */
+/**
+ * Reference counter for suppressing _markDirty() and scheduleAutoSave() calls.
+ * Incremented during load operations (addToViewport, loadDicomSeg) where Cornerstone
+ * fires SEGMENTATION_DATA_MODIFIED events internally during initialization,
+ * which would falsely mark the state as dirty.
+ * Using a counter instead of a boolean prevents race conditions when
+ * multiple async load operations overlap (e.g., loadDicomSeg + addToViewport).
+ */
+let suppressDirtyTrackingCount = 0;
+
+/**
+ * Reference counter for SEG/RTSTRUCT load operations in progress.
+ * When > 0, performAutoSave() is blocked to prevent exporting incomplete
+ * segmentation data (which causes "Error inserting pixels in PixelData").
+ * Incremented by beginSegLoad(), decremented by endSegLoad().
+ */
+let loadInProgressCount = 0;
+
+/** Called when segmentation pixel data changes — debounces auto-save and marks dirty. */
 function onSegmentationDataModified(): void {
-  scheduleAutoSave();
+  if (suppressDirtyTrackingCount === 0) {
+    useSegmentationStore.getState()._markDirty();
+    scheduleAutoSave();
+  }
+}
+
+/** Called when an annotation is completed/modified — triggers auto-save for contour segmentations. */
+function onAnnotationAutoSave(): void {
+  // Only schedule if there's an active segmentation that has contour data
+  const segStore = useSegmentationStore.getState();
+  const activeSegId = segStore.activeSegmentationId;
+  if (!activeSegId) return;
+  const segType = getSegmentationType(activeSegId);
+  if (segType === 'contour' || segType === 'both') {
+    if (suppressDirtyTrackingCount === 0) {
+      segStore._markDirty();
+      scheduleAutoSave();
+    }
+  }
 }
 
 function scheduleAutoSave(): void {
@@ -304,10 +375,33 @@ function cancelAutoSave(): void {
   }
 }
 
+/** Format current time as yyyymmddhhmmss for auto-save temp filenames. */
+function formatTimestamp(): string {
+  const d = new Date();
+  return d.getFullYear().toString() +
+    String(d.getMonth() + 1).padStart(2, '0') +
+    String(d.getDate()).padStart(2, '0') +
+    String(d.getHours()).padStart(2, '0') +
+    String(d.getMinutes()).padStart(2, '0') +
+    String(d.getSeconds()).padStart(2, '0');
+}
+
 async function performAutoSave(): Promise<void> {
   autoSaveTimer = null;
   const segStore = useSegmentationStore.getState();
   if (!segStore.autoSaveEnabled) return;
+
+  // Skip if dirty tracking is suppressed (load/creation in progress)
+  if (suppressDirtyTrackingCount > 0) return;
+
+  // Skip if a SEG/RTSTRUCT load is in progress (prevents PixelData corruption)
+  if (loadInProgressCount > 0) {
+    console.log('[segmentationService] Auto-save skipped — SEG load in progress');
+    return;
+  }
+
+  // Skip if no actual unsaved changes
+  if (!segStore.hasUnsavedChanges) return;
 
   const xnatContext = useViewerStore.getState().xnatContext;
   if (!xnatContext) return; // Not connected to XNAT or no context
@@ -319,22 +413,60 @@ async function performAutoSave(): Promise<void> {
   const origin = segStore.xnatOriginMap[activeSegId];
   const sourceScanId = origin?.sourceScanId ?? xnatContext.scanId;
 
+  // Determine segmentation type to choose correct export format
+  const segType = getSegmentationType(activeSegId);
+
   segStore._setAutoSaveStatus('saving');
   try {
-    const base64 = await segmentationService.exportToDicomSeg(activeSegId);
+    let base64: string;
+    let tempFilename: string;
+    const ts = formatTimestamp();
+
+    if (segType === 'contour') {
+      // Contour-only: export as RTSTRUCT
+      base64 = await rtStructService.exportToRtStruct(activeSegId);
+      tempFilename = `autosave_rtstruct_${sourceScanId}_${ts}.dcm`;
+    } else {
+      // Labelmap (or both): export as DICOM SEG
+      base64 = await segmentationService.exportToDicomSeg(activeSegId);
+      tempFilename = `autosave_seg_${sourceScanId}_${ts}.dcm`;
+    }
+
+    // Clean up old auto-save files for this source scan before writing new one
+    try {
+      const existingFiles = await window.electronAPI.xnat.listTempFiles(xnatContext.sessionId);
+      const cleanupPattern = new RegExp(`^autosave_(?:seg|rtstruct)_${sourceScanId}(?:_\\d{14})?\\.dcm$`);
+      for (const f of existingFiles.files ?? []) {
+        if (cleanupPattern.test(f.name)) {
+          await window.electronAPI.xnat.deleteTempFile(xnatContext.sessionId, f.name);
+        }
+      }
+    } catch { /* ignore cleanup errors */ }
+
     const result = await window.electronAPI.xnat.autoSaveTemp(
       xnatContext.sessionId,
       sourceScanId,
       base64,
+      tempFilename,
     );
     if (result.ok) {
       segStore._setAutoSaveStatus('saved');
-      console.log(`[segmentationService] Auto-saved to temp resource for source scan ${sourceScanId}`);
+      segStore._markClean();
+      console.log(`[segmentationService] Auto-saved ${segType} to temp resource for source scan ${sourceScanId} (${tempFilename})`);
     } else {
       console.error('[segmentationService] Auto-save to temp failed:', result.error);
       segStore._setAutoSaveStatus('error');
     }
-  } catch (err) {
+  } catch (err: any) {
+    // "No painted segment data" means the segmentation exists but has no actual
+    // pixel data (user created it but hasn't painted yet). This is not an error —
+    // silently return to idle instead of showing an error status.
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes('No painted segment data') || msg.includes('no segment-frame pairs')) {
+      console.log('[segmentationService] Auto-save skipped — no painted pixels yet');
+      segStore._setAutoSaveStatus('idle');
+      return;
+    }
     console.error('[segmentationService] Auto-save failed:', err);
     segStore._setAutoSaveStatus('error');
   }
@@ -345,6 +477,35 @@ let initialized = false;
 // ─── Public API ─────────────────────────────────────────────────
 
 export const segmentationService = {
+  /**
+   * Check whether a segmentation still exists in Cornerstone state.
+   * Useful for detecting stale xnatOriginMap entries after segmentations
+   * have been removed from viewports.
+   */
+  segmentationExists(segmentationId: string): boolean {
+    const seg = csSegmentation.state.getSegmentation(segmentationId);
+    return !!seg;
+  },
+
+  /**
+   * Get the viewport IDs that currently display a given segmentation.
+   */
+  getViewportIdsForSegmentation(segmentationId: string): string[] {
+    return csSegmentation.state.getViewportIdsWithSegmentation(segmentationId);
+  },
+
+  /**
+   * Update the label of a segmentation in Cornerstone state and re-sync the store.
+   * Used to override generic labels with user-friendly names from XNAT metadata.
+   */
+  setLabel(segmentationId: string, label: string): void {
+    const seg = csSegmentation.state.getSegmentation(segmentationId);
+    if (seg) {
+      (seg as any).label = label;
+      syncSegmentations();
+    }
+  },
+
   /**
    * Subscribe to Cornerstone segmentation events.
    * Call once after toolService.initialize().
@@ -363,6 +524,10 @@ export const segmentationService = {
 
     // Auto-save: listen specifically for pixel-data changes (not metadata-only)
     eventTarget.addEventListener(Events.SEGMENTATION_DATA_MODIFIED, onSegmentationDataModified);
+
+    // Auto-save: listen for contour annotation events (for contour-based segmentations)
+    eventTarget.addEventListener(Events.ANNOTATION_COMPLETED as any, onAnnotationAutoSave);
+    eventTarget.addEventListener(Events.ANNOTATION_MODIFIED as any, onAnnotationAutoSave);
 
     // Increase undo ring buffer from default 50 to 200 for deep undo history
     DefaultHistoryMemo.size = 200;
@@ -390,6 +555,11 @@ export const segmentationService = {
     sourceImageIds: string[],
     label?: string,
   ): Promise<string> {
+    // Suppress dirty tracking — Cornerstone fires SEGMENTATION_DATA_MODIFIED
+    // during addSegmentations() which would falsely schedule auto-save for
+    // an empty (unpainted) segmentation.
+    suppressDirtyTrackingCount++;
+    try {
     segmentationCounter++;
     const segmentationId = `seg_${Date.now()}_${segmentationCounter}`;
     const segLabel = label || `Segmentation ${segmentationCounter}`;
@@ -420,7 +590,7 @@ export const segmentationService = {
       );
     }
 
-    // Step 2: Pre-load all source images so their metadata is available.
+    // Step 2: Pre-load source images so their metadata is available.
     //
     // Stack segmentation in Cornerstone3D requires every source image to have
     // imagePlaneModule and generalSeriesModule metadata registered. With wadouri
@@ -429,18 +599,24 @@ export const segmentationService = {
     // scrolling to unloaded slices (matchImagesForOverlay and buildMetadata
     // both assume metadata is present).
     //
-    // We fire off all loads in parallel and wait for them to complete. Images
-    // that are already cached resolve instantly.
-    console.log(`[segmentationService] Pre-loading ${sourceImageIds.length} images for segmentation metadata...`);
-    const loadPromises = sourceImageIds.map((id) => {
-      // If already cached, skip the load
-      if (cache.getImage(id)) return Promise.resolve();
-      return imageLoader.loadAndCacheImage(id).catch((err: any) => {
-        console.warn(`[segmentationService] Failed to pre-load image ${id}:`, err);
-      });
+    // Optimization: skip images that already have metadata cached (i.e., they
+    // were already loaded for viewport display). This avoids re-fetching all
+    // images when most are already cached, reducing creation time dramatically.
+    const uncachedIds = sourceImageIds.filter((id) => {
+      try {
+        return !metaData.get('imagePlaneModule', id);
+      } catch { return true; }
     });
-    await Promise.all(loadPromises);
-    console.log(`[segmentationService] All images pre-loaded, creating labelmaps...`);
+    if (uncachedIds.length > 0) {
+      console.log(`[segmentationService] Pre-loading ${uncachedIds.length}/${sourceImageIds.length} uncached images for segmentation metadata...`);
+      await Promise.all(uncachedIds.map((id) =>
+        imageLoader.loadAndCacheImage(id).catch((err: any) => {
+          console.warn(`[segmentationService] Failed to pre-load image ${id}:`, err);
+        }),
+      ));
+    } else {
+      console.log(`[segmentationService] All ${sourceImageIds.length} images already have metadata, skipping pre-load`);
+    }
 
     // Step 3: Create blank labelmap images using createAndCacheLocalImage().
     // Now that all source images are loaded, every one has valid metadata.
@@ -538,6 +714,9 @@ export const segmentationService = {
 
     syncSegmentations();
     return segmentationId;
+    } finally {
+      suppressDirtyTrackingCount--;
+    }
   },
 
   /**
@@ -635,14 +814,18 @@ export const segmentationService = {
       // Remove the segmentation itself
       csSegmentation.removeSegmentation(segmentationId);
 
-      // Clean up source imageId tracking
+      // Clean up source imageId tracking and loaded colors
       sourceImageIdsMap.delete(segmentationId);
+      loadedColorsMap.delete(segmentationId);
 
       // Update store
       const store = useSegmentationStore.getState();
       if (store.activeSegmentationId === segmentationId) {
         store.setActiveSegmentation(null);
       }
+
+      // Clean up XNAT origin tracking (prevents stale duplicate detection)
+      store.clearXnatOrigin(segmentationId);
 
       console.log(`[segmentationService] Removed segmentation: ${segmentationId}`);
     } catch (err) {
@@ -656,27 +839,21 @@ export const segmentationService = {
    * Creates the representation and sets it as active.
    */
   async addToViewport(viewportId: string, segmentationId: string): Promise<void> {
-    // Step 0: Wait for the viewport to be fully ready.
-    // After React re-renders that change imageIds, the CornerstoneViewport
-    // useEffect destroys and recreates the viewport. We need to wait until
-    // the new viewport exists and has images loaded.
-    {
-      let viewport: any = null;
-      for (let attempt = 0; attempt < 50; attempt++) {
-        try {
-          const enabledEl = getEnabledElementByViewportId(viewportId);
-          viewport = enabledEl?.viewport;
-          if (viewport && viewport.getImageIds().length > 0 && viewport.getCurrentImageId()) {
-            break;
-          }
-        } catch { /* viewport not ready yet */ }
-        await new Promise((r) => setTimeout(r, 100));
+    // Suppress dirty tracking during load — Cornerstone fires SEGMENTATION_DATA_MODIFIED
+    // internally when adding representations, which would falsely mark state as dirty.
+    suppressDirtyTrackingCount++;
+    try {
+    // NOTE: No polling loop here. The caller MUST ensure the viewport is ready
+    // before calling addToViewport (e.g., by awaiting viewportReadyService.whenReady).
+    // If the viewport doesn't exist, we throw instead of silently retrying.
+    try {
+      const enabledEl = getEnabledElementByViewportId(viewportId);
+      if (!enabledEl?.viewport) {
+        throw new Error(`Viewport ${viewportId} does not exist`);
       }
-      if (!viewport) {
-        console.error(`[segmentationService] Viewport ${viewportId} not ready after 5s, aborting addToViewport`);
-        return;
-      }
-      console.log(`[segmentationService] Viewport ${viewportId} ready, adding segmentation ${segmentationId}`);
+    } catch (err) {
+      console.error(`[segmentationService] Viewport ${viewportId} not ready — caller must await viewportReadyService.whenReady() first. Error:`, err);
+      throw err;
     }
 
     // Step 1: Add labelmap representation (core requirement for brush tools)
@@ -707,13 +884,15 @@ export const segmentationService = {
       console.error('[segmentationService] Failed to update style:', err);
     }
 
-    // Set colors for all segments
-    const seg = csSegmentation.state.getSegmentation(segmentationId);
-    if (seg?.segments) {
-      for (const [idxStr] of Object.entries(seg.segments)) {
-        const idx = Number(idxStr);
-        if (idx === 0) continue;
-        const color = DEFAULT_COLORS[(idx - 1) % DEFAULT_COLORS.length];
+    // Apply ONLY loaded DICOM colors (from RecommendedDisplayRGBValue) — do NOT
+    // stamp default palette colors over user-selected colors. Default colors are
+    // assigned at creation time (createStackSegmentation / addSegment) and should
+    // not be re-applied on every attach. This preserves user color choices across
+    // scan switching and viewport recreation.
+    const loadedColors = loadedColorsMap.get(segmentationId);
+    if (loadedColors && loadedColors.size > 0) {
+      let allColorsApplied = true;
+      for (const [idx, color] of loadedColors.entries()) {
         try {
           csSegmentation.config.color.setSegmentIndexColor(
             viewportId,
@@ -722,9 +901,11 @@ export const segmentationService = {
             color as any,
           );
         } catch {
-          // Might fail if representation not ready yet
+          allColorsApplied = false;
         }
       }
+      // Only clear loaded colors if ALL were successfully applied
+      if (allColorsApplied) loadedColorsMap.delete(segmentationId);
     }
 
     // Step 3: Add contour representation (optional — for contour tools).
@@ -749,6 +930,9 @@ export const segmentationService = {
 
     console.log(`[segmentationService] Added to viewport ${viewportId}: ${segmentationId}`);
     syncSegmentations();
+    } finally {
+      suppressDirtyTrackingCount--;
+    }
   },
 
   /**
@@ -758,15 +942,24 @@ export const segmentationService = {
    * Cornerstone crashes in matchImagesForOverlay when the new source images
    * don't match the old labelmap metadata.
    */
+  /**
+   * Detach all segmentation representations from a specific viewport.
+   * This ONLY removes the visual representations (labelmap + contour overlays),
+   * it does NOT delete the global segmentation objects from Cornerstone state.
+   *
+   * Previously, this method would fully remove segmentation objects when they
+   * were only on one viewport, causing them to "disappear" from the panel on
+   * scan switching. Now segmentation objects are preserved so they can be
+   * reattached by SegmentationManager when the user switches back.
+   */
   removeSegmentationsFromViewport(viewportId: string): void {
     try {
       const allSegmentations = csSegmentation.state.getSegmentations();
-      const toRemoveFully: string[] = [];
 
       for (const seg of allSegmentations) {
         const viewportIds = csSegmentation.state.getViewportIdsWithSegmentation(seg.segmentationId);
         if (viewportIds.includes(viewportId)) {
-          // Remove representations from this viewport
+          // Remove representations from this viewport only — keep the global object
           try {
             csSegmentation.removeLabelmapRepresentation(viewportId, seg.segmentationId);
           } catch {
@@ -778,32 +971,7 @@ export const segmentationService = {
             // May not have contour representation
           }
 
-          // If this was the only viewport, fully remove the segmentation
-          // to prevent stale entries in the panel that can't be re-activated.
-          if (viewportIds.length <= 1) {
-            toRemoveFully.push(seg.segmentationId);
-          }
-
-          console.log(`[segmentationService] Removed segmentation ${seg.segmentationId} from viewport ${viewportId}`);
-        }
-      }
-
-      // Fully remove segmentations that are no longer on any viewport
-      for (const segId of toRemoveFully) {
-        try {
-          csSegmentation.removeSegmentation(segId);
-          sourceImageIdsMap.delete(segId);
-          console.log(`[segmentationService] Fully removed orphaned segmentation: ${segId}`);
-        } catch {
-          // Already removed
-        }
-      }
-
-      // Clear active segmentation if it was removed
-      if (toRemoveFully.length > 0) {
-        const store = useSegmentationStore.getState();
-        if (store.activeSegmentationId && toRemoveFully.includes(store.activeSegmentationId)) {
-          store.setActiveSegmentation(null);
+          console.log(`[segmentationService] Detached segmentation ${seg.segmentationId} from viewport ${viewportId} (global object preserved)`);
         }
       }
 
@@ -875,6 +1043,26 @@ export const segmentationService = {
         // ignore
       }
     }
+    syncSegmentations();
+  },
+
+  /**
+   * Rename a segmentation (the top-level label).
+   */
+  renameSegmentation(segmentationId: string, newLabel: string): void {
+    const seg = csSegmentation.state.getSegmentation(segmentationId);
+    if (!seg) return;
+    seg.label = newLabel;
+    syncSegmentations();
+  },
+
+  /**
+   * Rename an individual segment within a segmentation.
+   */
+  renameSegment(segmentationId: string, segmentIndex: number, newLabel: string): void {
+    const seg = csSegmentation.state.getSegmentation(segmentationId);
+    if (!seg?.segments?.[segmentIndex]) return;
+    seg.segments[segmentIndex].label = newLabel;
     syncSegmentations();
   },
 
@@ -1004,6 +1192,9 @@ export const segmentationService = {
     arrayBuffer: ArrayBuffer,
     sourceImageIds: string[],
   ): Promise<LoadedDicomSeg> {
+    // Suppress dirty tracking during load — Cornerstone fires data-modified events
+    // internally during segmentation registration, which would falsely mark as dirty.
+    suppressDirtyTrackingCount++;
     segmentationCounter++;
     const segmentationId = `seg_dicom_${Date.now()}_${segmentationCounter}`;
 
@@ -1169,6 +1360,7 @@ export const segmentationService = {
 
       // Extract segment metadata for labels and colors
       const segments: Record<number, any> = {};
+      const colorMap = new Map<number, [number, number, number, number]>();
       if (segMetadata?.data) {
         for (let i = 1; i < segMetadata.data.length; i++) {
           const meta = segMetadata.data[i];
@@ -1182,7 +1374,21 @@ export const segmentationService = {
             segmentIndex: i,
             cachedStats: {},
           };
+
+          // Extract RecommendedDisplayRGBValue for color persistence
+          if (meta.RecommendedDisplayRGBValue?.length >= 3) {
+            colorMap.set(i, [
+              meta.RecommendedDisplayRGBValue[0],
+              meta.RecommendedDisplayRGBValue[1],
+              meta.RecommendedDisplayRGBValue[2],
+              255,
+            ]);
+          }
         }
+      }
+      // Store loaded colors so addToViewport() can use them
+      if (colorMap.size > 0) {
+        loadedColorsMap.set(segmentationId, colorMap);
       }
 
       // Use the adapter's derived labelmap images directly.
@@ -1220,9 +1426,18 @@ export const segmentationService = {
               : undefined,
           },
           config: {
-            label: segMetadata?.seriesInstanceUid
-              ? `DICOM SEG`
-              : `DICOM SEG ${segmentationCounter}`,
+            label: (() => {
+              // Extract a meaningful label from DICOM metadata
+              const headerMeta = segMetadata?.data?.[0];
+              if (headerMeta?.SeriesDescription) return headerMeta.SeriesDescription;
+              if (headerMeta?.ContentDescription) return headerMeta.ContentDescription;
+              if (headerMeta?.ContentLabel) return headerMeta.ContentLabel;
+              // Try first segment's label as a fallback
+              const firstSegMeta = segMetadata?.data?.[1];
+              if (firstSegMeta?.SegmentLabel) return firstSegMeta.SegmentLabel;
+              segmentationCounter++;
+              return `Segmentation ${segmentationCounter}`;
+            })(),
             segments,
           },
         },
@@ -1260,6 +1475,8 @@ export const segmentationService = {
     } catch (err) {
       console.error('[segmentationService] Failed to load DICOM SEG:', err);
       throw err;
+    } finally {
+      suppressDirtyTrackingCount--;
     }
   },
 
@@ -1733,6 +1950,10 @@ export const segmentationService = {
       throw new Error('[segmentationService] generateSegmentation returned no dataset');
     }
 
+    // Persist the user-given segmentation label as SeriesDescription
+    // so it survives round-trip (export → XNAT → re-import → loadDicomSeg label extraction)
+    segDerivation.dataset.SeriesDescription = seg.label || 'Segmentation';
+
     // ─── Post-generation validation ───
     //
     // Even though we force Rows/Columns in the metadata provider, the
@@ -2145,6 +2366,21 @@ export const segmentationService = {
    * Cancel any pending auto-save timer (e.g. when a manual save starts).
    */
   cancelAutoSave,
+
+  /**
+   * Signal that a SEG/RTSTRUCT load operation is starting.
+   * While load is in progress, auto-save is blocked to prevent exporting
+   * incomplete data (which causes PixelData size mismatch errors).
+   * Must be paired with endSegLoad() in a try/finally.
+   */
+  beginSegLoad(): void { loadInProgressCount++; },
+
+  /**
+   * Signal that a SEG/RTSTRUCT load operation has completed.
+   * Call this AFTER the double-rAF + _markClean() pattern to ensure
+   * auto-save remains suppressed until all async renders complete.
+   */
+  endSegLoad(): void { loadInProgressCount = Math.max(0, loadInProgressCount - 1); },
 
   /**
    * Force a re-sync of segmentation summaries (e.g. after viewport changes).

@@ -17,6 +17,7 @@ import { Enums } from '@cornerstonejs/core';
 import { viewportService } from '../../lib/cornerstone/viewportService';
 import { toolService } from '../../lib/cornerstone/toolService';
 import { metadataService } from '../../lib/cornerstone/metadataService';
+import { viewportReadyService } from '../../lib/cornerstone/viewportReadyService';
 import { useViewerStore } from '../../stores/viewerStore';
 import { useMetadataStore } from '../../stores/metadataStore';
 
@@ -41,6 +42,11 @@ export default function CornerstoneViewport({ panelId, imageIds }: CornerstoneVi
       try {
         setStatus('Creating viewport...');
         setError(null);
+
+        // Capture the current epoch before setup. After loadStack + render,
+        // we'll signal readiness for this epoch so that SegmentationManager
+        // (and any other waiter) can proceed deterministically.
+        const epochAtSetup = viewportReadyService.getEpoch(panelId);
 
         // Wait for element to have non-zero dimensions before creating the
         // viewport. On first mount the element may not be laid out yet.
@@ -117,6 +123,13 @@ export default function CornerstoneViewport({ panelId, imageIds }: CornerstoneVi
         }
 
         setStatus(`Loaded ${imageIds.length} images`);
+
+        // Signal that this viewport is fully ready for the captured epoch.
+        // SegmentationManager awaits this before attaching overlays —
+        // no more polling for viewport existence.
+        if (!cancelled) {
+          viewportReadyService.markReady(panelId, epochAtSetup);
+        }
       } catch (err) {
         console.error(`[CornerstoneViewport:${panelId}] Setup error:`, err);
         if (!cancelled) {

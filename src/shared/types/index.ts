@@ -49,6 +49,7 @@ export interface ElectronAPI {
       sessionLabel: string,
       sourceScanId: string,
       dicomBase64: string,
+      label?: string,
     ): Promise<XnatUploadResult>;
     uploadDicomRtStruct(
       projectId: string,
@@ -67,6 +68,7 @@ export interface ElectronAPI {
       sessionId: string,
       sourceScanId: string,
       dicomBase64: string,
+      tempFilename?: string,
     ): Promise<{ ok: boolean; url?: string; error?: string }>;
     listTempFiles(
       sessionId: string,
