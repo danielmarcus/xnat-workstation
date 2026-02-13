@@ -380,6 +380,15 @@ export class SegmentationManager {
           result.add(segId);
         }
       }
+
+      // (B) Segmentations with XNAT origin matching this source scan
+      // (covers scan-click and auto-load paths that call setXnatOrigin but not recordLoaded)
+      const xnatOriginMap = useSegmentationStore.getState().xnatOriginMap;
+      for (const [segId, origin] of Object.entries(xnatOriginMap)) {
+        if (origin.sourceScanId === sourceScanId) {
+          result.add(segId);
+        }
+      }
     }
 
     // (A) Segmentations currently represented on this viewport

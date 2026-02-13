@@ -99,7 +99,7 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
     // If no source scan is mapped (e.g. local file load), show everything
     if (!panelScanMap[activeViewportId]) return segmentations;
     return segmentations.filter((s) => allowed.has(s.segmentationId));
-  }, [segmentations, activeViewportId, panelScanMap, loadedBySourceScan, localOriginBySegId]);
+  }, [segmentations, activeViewportId, panelScanMap, loadedBySourceScan, localOriginBySegId, xnatOriginMap]);
 
   const setFillAlpha = useSegmentationStore((s) => s.setFillAlpha);
   const toggleOutline = useSegmentationStore((s) => s.toggleOutline);
