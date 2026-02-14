@@ -3,7 +3,6 @@
  *
  * Wraps XnatClient with:
  * - Keepalive timer (pings /data/JSESSION periodically)
- * - Token refresh scheduling (handled by XnatClient internally)
  * - WebRequest interceptor for injecting auth headers into Cornerstone's
  *   direct WADO-URI fetches
  * - Session expiry notification to renderer via IPC
@@ -61,7 +60,6 @@ export async function browserLogin(serverUrl: string): Promise<XnatLoginResult> 
     serverUrl: client.serverUrl,
     username: client.currentUsername,
     connectedAt: Date.now(),
-    authType: client.authType ?? 'jsession',
   };
 
   // Start keepalive timer
@@ -131,8 +129,7 @@ export function isConnected(): boolean {
 function startKeepalive(): void {
   stopKeepalive();
 
-  // All requests use JSESSION cookies — ping every 5 min to keep session alive.
-  // Alias token chaining is handled separately by xnatClient.scheduleAliasRefresh.
+  // Ping every 5 min to keep JSESSION alive on the server.
   const intervalMs = 5 * 60 * 1000;
 
   keepaliveInterval = setInterval(async () => {
@@ -143,9 +140,9 @@ function startKeepalive(): void {
 
     const username = await client.validateSession();
     if (!username) {
-      console.warn('[sessionManager] Keepalive: session expired');
+      console.warn('[sessionManager] Keepalive: session expired — disconnecting');
+      tearDown();
       notifySessionExpired();
-      stopKeepalive();
     } else {
       console.log('[sessionManager] Keepalive: session valid');
     }
@@ -161,12 +158,30 @@ function stopKeepalive(): void {
   }
 }
 
+// ─── Tear Down ───────────────────────────────────────────────────
+
+/**
+ * Full cleanup of auth state: stop keepalive, clear interceptors,
+ * mark client disconnected, null references. Does NOT notify renderer
+ * — callers should call notifySessionExpired() separately if needed.
+ */
+function tearDown(): void {
+  stopKeepalive();
+  clearWebRequestInterceptor();
+  if (client) {
+    client.clearCookies();
+    client.markDisconnected();
+  }
+  client = null;
+  connectionInfo = null;
+}
+
 // ─── Auth Failure Handling ────────────────────────────────────────
 
 /**
  * Called by IPC handlers when an API call fails with an auth error
- * (401 or "Not authenticated") after xnatClient's own recovery attempt.
- * Cleans up the session and notifies the renderer to return to login.
+ * (401 or "Not authenticated"). Cleans up the session and notifies
+ * the renderer to return to login.
  */
 export function handleAuthFailure(err: unknown): void {
   const msg = err instanceof Error ? err.message : String(err);
@@ -174,12 +189,7 @@ export function handleAuthFailure(err: unknown): void {
   if (!client && !connectionInfo) return; // Already cleaned up
 
   console.warn('[sessionManager] Unrecoverable auth failure — disconnecting');
-  stopKeepalive();
-  clearWebRequestInterceptor();
-  // Mark disconnected first so concurrent in-flight requests stop retrying
-  if (client) client.markDisconnected();
-  client = null;
-  connectionInfo = null;
+  tearDown();
   notifySessionExpired();
 }
 

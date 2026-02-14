@@ -1,31 +1,19 @@
 /**
  * XNAT REST API Client
  *
- * All XNAT API requests authenticate via JSESSION cookie. The alias token
- * is kept as a long-lived backup: if the JSESSION expires (server restart,
- * timeout), the alias token creates a new one via POST /data/JSESSION.
- * The alias token itself is refreshed via chaining before it expires.
+ * All XNAT API requests authenticate via JSESSION cookie stored in
+ * Electron's default session cookie jar. The session is kept alive
+ * by a periodic keepalive ping in sessionManager.
  *
- * All network operations happen in the main process — tokens never cross
- * the IPC boundary to the renderer.
+ * All network operations happen in the main process — session cookies
+ * never cross the IPC boundary to the renderer.
  *
- * Uses Electron's net.fetch() (Chromium network stack) instead of Node.js
- * fetch() — Node.js fetch mishandles Cookie headers with some XNAT servers.
+ * Uses Electron's session.fetch() (Chromium network stack) instead of
+ * Node.js fetch() — Node.js fetch mishandles Cookie headers with some
+ * XNAT servers.
  */
 import { session as electronSession } from 'electron';
 import type { ServerCookie } from './browserLogin';
-
-/** Parse alias token expiration from the XNAT API response. */
-function parseTokenExpiry(data: { estimatedExpirationTime?: string | number }): number {
-  if (data.estimatedExpirationTime != null) {
-    const raw = data.estimatedExpirationTime;
-    const ts = typeof raw === 'number' ? raw : new Date(String(raw)).getTime();
-    if (!isNaN(ts) && ts > Date.now()) return ts;
-  }
-  // Fallback: 48 hours (default XNAT alias token lifetime)
-  console.warn('[xnatClient] Could not parse token expiry, using 48h default');
-  return Date.now() + 48 * 60 * 60 * 1000;
-}
 
 export class XnatClient {
   private baseUrl: string;
@@ -34,9 +22,6 @@ export class XnatClient {
   private jsessionId: string | null = null;
   /** All server cookies (JSESSIONID, ALB sticky-session, etc.) */
   private serverCookies: ServerCookie[] = [];
-  /** Long-lived alias token — used only to refresh JSESSION and chain new tokens */
-  private aliasToken: { alias: string; secret: string; expiresAt: number } | null = null;
-  private refreshTimeout: NodeJS.Timeout | null = null;
   /** Set by markDisconnected() to stop concurrent in-flight requests from retrying */
   private _disconnected = false;
 
@@ -49,29 +34,17 @@ export class XnatClient {
 
   /**
    * Set auth state from browser login results.
-   *
-   * browserLogin.ts handles all network operations (token exchange, username
-   * retrieval) using the login session's Chromium network stack, because
-   * Node.js fetch gets rejected by some XNAT servers. This method just
-   * stores the pre-fetched credentials without making any network calls.
+   * Stores the pre-fetched credentials without making any network calls.
    */
   async setAuthFromBrowserLogin(opts: {
     jsessionId: string;
-    aliasToken?: { alias: string; secret: string; expiresAt: number };
     username: string;
     serverCookies?: ServerCookie[];
   }): Promise<void> {
     this.username = opts.username;
     this.serverCookies = opts.serverCookies ?? [];
     await this.setAllCookies(opts.jsessionId, this.serverCookies);
-
-    if (opts.aliasToken) {
-      this.aliasToken = opts.aliasToken;
-      this.scheduleAliasRefresh();
-      console.log(`[xnatClient] Browser login: alias token set (${opts.aliasToken.alias.slice(0, 8)}...)`);
-    }
-
-    console.log(`[xnatClient] Browser login complete: user=${this.username}, hasAliasToken=${!!this.aliasToken}`);
+    console.log(`[xnatClient] Browser login complete: user=${this.username}`);
   }
 
   /**
@@ -110,121 +83,11 @@ export class XnatClient {
     console.log(`[xnatClient] Set ${cookies.length + 1} cookies in default session`);
   }
 
-  /**
-   * Update just the JSESSIONID (used during session refresh).
-   * Other cookies (ALB sticky-session, etc.) remain unchanged.
-   */
-  private async updateJsessionId(value: string): Promise<void> {
-    this.jsessionId = value;
-    await electronSession.defaultSession.cookies.set({
-      url: this.baseUrl,
-      name: 'JSESSIONID',
-      value,
-    });
-    // Update in serverCookies array too
-    const existing = this.serverCookies.find(c => c.name === 'JSESSIONID');
-    if (existing) {
-      existing.value = value;
-    }
-  }
-
-  // ─── Token Refresh ─────────────────────────────────────────────
-
-  /**
-   * Schedule alias token chaining before it expires.
-   * The alias token is only used for refreshing the JSESSION (via
-   * refreshSession) — all normal API calls use the JSESSION cookie.
-   */
-  private scheduleAliasRefresh(): void {
-    this.clearRefresh();
-    if (!this.aliasToken) return;
-
-    // Refresh 1 hour before expiry, minimum 1 minute from now
-    const msUntilExpiry = this.aliasToken.expiresAt - Date.now();
-    const refreshIn = Math.max(msUntilExpiry - 60 * 60 * 1000, 60 * 1000);
-
-    this.refreshTimeout = setTimeout(async () => {
-      if (!this.aliasToken) return;
-      try {
-        console.log('[xnatClient] Refreshing alias token via chaining');
-        const basicAuth = `Basic ${Buffer.from(`${this.aliasToken.alias}:${this.aliasToken.secret}`).toString('base64')}`;
-        const response = await this.xfetch(`${this.baseUrl}/data/services/tokens/issue`, {
-          method: 'GET',
-          headers: { Authorization: basicAuth },
-        });
-        if (response.ok) {
-          const data = (await response.json()) as {
-            alias: string; secret: string; estimatedExpirationTime?: string | number;
-          };
-          this.aliasToken = {
-            alias: data.alias,
-            secret: data.secret,
-            expiresAt: parseTokenExpiry(data),
-          };
-          this.scheduleAliasRefresh();
-          console.log('[xnatClient] Alias token chaining successful');
-        } else {
-          console.error('[xnatClient] Alias token chaining failed:', response.status);
-        }
-      } catch (err) {
-        console.error('[xnatClient] Failed to chain alias token:', err);
-      }
-    }, refreshIn);
-
-    console.log(`[xnatClient] Alias token refresh scheduled in ${Math.round(refreshIn / 60000)} minutes`);
-  }
-
-  /**
-   * Use the alias token to create a new JSESSION on the server.
-   * Called when the current JSESSION expires (401 from server).
-   *
-   * IMPORTANT: POST /data/JSESSION returns the JSESSIONID in the
-   * Set-Cookie header. The response *body* may contain the username
-   * or session ID depending on the XNAT version — Set-Cookie is
-   * authoritative.
-   */
-  async refreshSession(): Promise<boolean> {
-    if (!this.aliasToken || this._disconnected) return false;
-
-    try {
-      const basicAuth = `Basic ${Buffer.from(`${this.aliasToken.alias}:${this.aliasToken.secret}`).toString('base64')}`;
-      const response = await this.xfetch(`${this.baseUrl}/data/JSESSION`, {
-        method: 'POST',
-        headers: { Authorization: basicAuth },
-      });
-
-      if (response.ok) {
-        const body = (await response.text()).trim();
-        // Prefer JSESSIONID from Set-Cookie — the response body may be
-        // the username (not the session ID) on some XNAT versions.
-        const setCookie = response.headers.get('set-cookie') ?? '';
-        const cookieMatch = setCookie.match(/JSESSIONID=([^;,\s]+)/);
-        const newId = cookieMatch?.[1] || body;
-        await this.updateJsessionId(newId);
-        console.log(`[xnatClient] JSESSION refreshed via alias token (${cookieMatch ? 'Set-Cookie' : 'body'}: ${this.jsessionId!.slice(0, 8)}...)`);
-        return true;
-      }
-      console.warn('[xnatClient] JSESSION refresh failed:', response.status);
-      return false;
-    } catch (err) {
-      console.warn('[xnatClient] JSESSION refresh error:', err);
-      return false;
-    }
-  }
-
-  private clearRefresh(): void {
-    if (this.refreshTimeout) {
-      clearTimeout(this.refreshTimeout);
-      this.refreshTimeout = null;
-    }
-  }
-
   // ─── Session Validation ────────────────────────────────────────
 
   /**
    * Validate the current session by calling GET /data/JSESSION.
-   * If the JSESSION is expired but we have an alias token, attempts recovery.
-   * Returns the username if valid, null if expired beyond recovery.
+   * Returns the username if valid, null if expired.
    */
   async validateSession(): Promise<string | null> {
     if (!this.jsessionId) return null;
@@ -234,17 +97,7 @@ export class XnatClient {
         method: 'GET',
       });
 
-      if (response.ok) {
-        return this.username;
-      }
-
-      // JSESSION expired — try to recover via alias token
-      if (await this.refreshSession()) {
-        console.log('[xnatClient] Session recovered via alias token');
-        return this.username;
-      }
-
-      return null;
+      return response.ok ? this.username : null;
     } catch {
       return null;
     }
@@ -259,15 +112,28 @@ export class XnatClient {
    */
   markDisconnected(): void {
     this._disconnected = true;
-    this.clearRefresh();
+  }
+
+  /**
+   * Clear auth cookies from the default session's cookie jar and reset
+   * local credential state. Does not contact the server.
+   * Used by tearDown() for forced expiry where the session is already invalid.
+   */
+  clearCookies(): void {
+    for (const c of this.serverCookies) {
+      electronSession.defaultSession.cookies.remove(this.baseUrl, c.name).catch(() => {});
+    }
+    electronSession.defaultSession.cookies.remove(this.baseUrl, 'JSESSIONID').catch(() => {});
+
+    this.jsessionId = null;
+    this.serverCookies = [];
+    this.username = '';
   }
 
   /**
    * Clean up: invalidate session on server, clear local state.
    */
   async disconnect(): Promise<void> {
-    this.clearRefresh();
-
     // Best-effort: invalidate JSESSION on server
     if (this.jsessionId) {
       try {
@@ -279,28 +145,7 @@ export class XnatClient {
       }
     }
 
-    // Best-effort: invalidate alias token so it can't be reused
-    if (this.aliasToken) {
-      try {
-        await this.xfetch(
-          `${this.baseUrl}/data/services/tokens/invalidate/${encodeURIComponent(this.aliasToken.alias)}/${encodeURIComponent(this.aliasToken.secret)}`,
-          { method: 'DELETE' },
-        );
-      } catch {
-        // Ignore — token will expire naturally
-      }
-    }
-
-    // Clear all server cookies from the default session's cookie jar
-    for (const c of this.serverCookies) {
-      electronSession.defaultSession.cookies.remove(this.baseUrl, c.name).catch(() => {});
-    }
-    electronSession.defaultSession.cookies.remove(this.baseUrl, 'JSESSIONID').catch(() => {});
-
-    this.jsessionId = null;
-    this.aliasToken = null;
-    this.serverCookies = [];
-    this.username = '';
+    this.clearCookies();
     console.log('[xnatClient] Disconnected');
   }
 
@@ -334,8 +179,6 @@ export class XnatClient {
   /**
    * Make an authenticated request to an XNAT endpoint.
    * Returns the raw Response for caller to parse.
-   *
-   * On 401, attempts JSESSION recovery via alias token and retries once.
    */
   async authenticatedFetch(
     endpoint: string,
@@ -344,15 +187,8 @@ export class XnatClient {
     if (!this.jsessionId || this._disconnected) throw new Error('Not authenticated');
 
     const url = `${this.baseUrl}${endpoint}`;
-    // JSESSIONID cookie is provided by the default session's cookie jar
-    // (set via setJsessionId). No manual Cookie header needed.
-    let response = await this.xfetch(url, options);
-
-    // On 401, try to recover JSESSION via alias token and retry once.
-    if (response.status === 401 && !this._disconnected && await this.refreshSession()) {
-      console.log('[xnatClient] JSESSION recovered, retrying request');
-      response = await this.xfetch(url, options);
-    }
+    // JSESSIONID cookie is provided by the default session's cookie jar.
+    const response = await this.xfetch(url, options);
 
     if (!response.ok) {
       const text = await response.text().catch(() => '');
@@ -964,10 +800,5 @@ export class XnatClient {
 
   get currentUsername(): string {
     return this.username;
-  }
-
-  get authType(): 'alias' | 'jsession' | null {
-    if (!this.jsessionId) return null;
-    return this.aliasToken ? 'alias' : 'jsession';
   }
 }

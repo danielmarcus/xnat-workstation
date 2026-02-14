@@ -7,14 +7,13 @@
  *
  * Detection strategy: Tomcat sets a JSESSIONID cookie immediately (even for
  * anonymous sessions), so we can't just check for cookie presence. Instead we
- * listen for cookie changes AND page-load events, then validate the current
- * JSESSIONID against a protected endpoint to confirm it's authenticated.
+ * listen for cookie changes, then validate the current JSESSIONID against a
+ * protected endpoint to confirm it's authenticated.
  *
  * XNAT uses AJAX-based login (XNAT.xhr.submit) which triggers Spring Security's
  * SessionFixationProtectionStrategy — the JSESSIONID is regenerated after
  * authentication. We react to the cookie-changed event to reliably capture the
- * post-fixation session ID, rather than relying on navigation events that may
- * fire before the new cookie has settled.
+ * post-fixation session ID.
  *
  * Uses an isolated session partition to avoid cookie/state bleed with the main window.
  *
@@ -27,60 +26,24 @@ import { BrowserWindow, session } from 'electron';
 
 const LOGIN_PARTITION = 'persist:xnat-login';
 
-/** Parse alias token expiration from the XNAT API response. */
-function parseTokenExpiry(data: { estimatedExpirationTime?: string | number }): number {
-  if (data.estimatedExpirationTime != null) {
-    const raw = data.estimatedExpirationTime;
-    const ts = typeof raw === 'number' ? raw : new Date(String(raw)).getTime();
-    if (!isNaN(ts) && ts > Date.now()) return ts;
-  }
-  console.warn('[browserLogin] Could not parse token expiry, using 48h default');
-  return Date.now() + 48 * 60 * 60 * 1000;
-}
-
 /**
- * After authentication is confirmed, exchange the JSESSIONID for an alias
- * token and retrieve the username. All requests use session.fetch() so they
- * go through the same Chromium network stack as the BrowserWindow.
+ * After authentication is confirmed, retrieve the username and collect
+ * all cookies. All requests use session.fetch() so they go through the
+ * same Chromium network stack as the BrowserWindow.
  *
- * IMPORTANT: The requests below (token issue, username lookup) can cause
- * Tomcat to regenerate the JSESSIONID via Set-Cookie. Chromium updates its
- * cookie jar automatically, but our caller's `jsessionId` variable becomes
- * stale. We re-read the cookie at the end to return the current value.
+ * IMPORTANT: The requests below can cause Tomcat to regenerate the
+ * JSESSIONID via Set-Cookie. Chromium updates its cookie jar
+ * automatically, but our caller's `jsessionId` variable becomes stale.
+ * We re-read the cookie at the end to return the current value.
  */
 async function exchangeCredentials(
   loginSession: Electron.Session,
   serverUrl: string,
   jsessionId: string,
 ): Promise<BrowserLoginResult> {
-  let aliasToken: { alias: string; secret: string; expiresAt: number } | undefined;
   let username = '';
 
-  // Step 1: Try to issue an alias token (supports token chaining for long sessions).
-  try {
-    const tokenResp = await loginSession.fetch(
-      `${serverUrl}/data/services/tokens/issue`,
-      { headers: { Accept: 'application/json' } },
-    );
-    const tokenContentType = tokenResp.headers.get('content-type') ?? '';
-    console.log(`[browserLogin] Token exchange: status=${tokenResp.status}, content-type=${tokenContentType}`);
-    if (tokenResp.ok && tokenContentType.includes('json')) {
-      const data = (await tokenResp.json()) as {
-        alias: string; secret: string; estimatedExpirationTime?: string | number;
-      };
-      aliasToken = {
-        alias: data.alias,
-        secret: data.secret,
-        expiresAt: parseTokenExpiry(data),
-      };
-      console.log(`[browserLogin] Alias token issued: ${data.alias.slice(0, 8)}...`);
-    }
-  } catch (err) {
-    console.warn('[browserLogin] Token exchange failed:', err);
-  }
-
-  // Step 2: Get the username.
-  // Primary: GET /xapi/users/username (XNAT 1.7.5+)
+  // Get the username via GET /xapi/users/username
   try {
     const resp = await loginSession.fetch(`${serverUrl}/xapi/users/username`);
     if (resp.ok) {
@@ -91,37 +54,14 @@ async function exchangeCredentials(
       }
     }
   } catch {
-    // Fall through to next method
-  }
-
-  // Fallback: GET /data/user returns user profile JSON.
-  if (!username) {
-    try {
-      const resp = await loginSession.fetch(`${serverUrl}/data/user`);
-      if (resp.ok) {
-        const text = await resp.text();
-        try {
-          const data = JSON.parse(text);
-          const login = (data as any)?.items?.[0]?.data_fields?.login;
-          if (login) {
-            username = login;
-            console.log(`[browserLogin] Username from /data/user: ${username}`);
-          }
-        } catch {
-          // Non-JSON response, skip
-        }
-      }
-    } catch {
-      // Non-fatal
-    }
+    // Non-fatal
   }
 
   if (!username) {
-    username = 'User';
     console.warn('[browserLogin] Could not determine username');
   }
 
-  // Re-read ALL cookies — the requests above may have caused Tomcat to
+  // Re-read ALL cookies — the request above may have caused Tomcat to
   // regenerate the JSESSIONID (Set-Cookie), and we also need ALB
   // sticky-session cookies (AWSALB, AWSALBCORS) for load-balanced servers.
   const url = new URL(serverUrl);
@@ -151,7 +91,7 @@ async function exchangeCredentials(
     // Use original JSESSIONID if cookie read fails
   }
 
-  return { jsessionId: currentJsessionId, aliasToken, username, serverCookies };
+  return { jsessionId: currentJsessionId, username, serverCookies };
 }
 
 /** A server cookie to transfer between sessions. */
@@ -167,7 +107,6 @@ export interface ServerCookie {
 /** Result from browser login — includes pre-fetched auth data. */
 export interface BrowserLoginResult {
   jsessionId: string;
-  aliasToken?: { alias: string; secret: string; expiresAt: number };
   username: string;
   /** All server cookies (JSESSIONID, ALB sticky-session cookies, etc.) */
   serverCookies: ServerCookie[];
@@ -211,7 +150,6 @@ export async function openBrowserLogin(
     // After authentication, Spring Security's session fixation protection
     // regenerates the JSESSIONID to a new value — that's our signal.
     let firstJsessionId: string | null = null;
-    let initialLoadDone = false;
 
     function finish(result: BrowserLoginResult | null, error?: Error): void {
       if (resolved) return;
@@ -323,17 +261,6 @@ export async function openBrowserLogin(
       checkForAuthenticatedSession();
     }
     loginSession.cookies.on('changed', onCookieChanged);
-
-    // Also check after page loads — covers post-login redirects and
-    // servers that don't do session fixation (JSESSIONID stays the same).
-    // Skip the very first load (that's just the login page rendering).
-    loginWindow.webContents.on('did-finish-load', () => {
-      if (!initialLoadDone) {
-        initialLoadDone = true;
-        return;
-      }
-      checkForAuthenticatedSession();
-    });
 
     // Handle user closing the login window
     loginWindow.on('closed', () => {

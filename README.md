@@ -60,7 +60,7 @@ Annotation list panel with search, visibility toggles, and delete.
 
 ### XNAT Integration
 
-- Secure login with username/password or alias tokens
+- Secure browser-based login (local, LDAP, OIDC)
 - Browse projects → subjects → sessions → scans
 - Load individual scans or entire sessions
 - Hanging protocol auto-detection (CT Pre/Post Contrast, MR Brain, etc.)

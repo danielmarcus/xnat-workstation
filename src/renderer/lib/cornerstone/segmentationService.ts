@@ -1389,7 +1389,7 @@ export const segmentationService = {
 
           // Extract RecommendedDisplayCIELabValue and convert to RGBA
           if (meta.RecommendedDisplayCIELabValue?.length >= 3) {
-            const rgb = dcmjsData.Colors.dicomlab2RGB(meta.RecommendedDisplayCIELabValue);
+            const rgb = (dcmjsData as any).Colors.dicomlab2RGB(meta.RecommendedDisplayCIELabValue);
             colorMap.set(i, [
               Math.round(rgb[0] * 255),
               Math.round(rgb[1] * 255),
@@ -1799,7 +1799,7 @@ export const segmentationService = {
 
         // Convert RGB (0-255) to normalized RGB (0-1), then to DICOM CIE Lab
         const normalizedRgb = [color[0] / 255, color[1] / 255, color[2] / 255];
-        const cieLabValues = dcmjsData.Colors.rgb2DICOMLAB(normalizedRgb);
+        const cieLabValues = (dcmjsData as any).Colors.rgb2DICOMLAB(normalizedRgb);
 
         segmentMetadata.push({
           SegmentLabel: segment.label || `Segment ${idx}`,

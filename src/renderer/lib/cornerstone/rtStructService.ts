@@ -24,7 +24,6 @@ import {
 import { data as dcmjsData } from 'dcmjs';
 import { useSegmentationStore } from '../../stores/segmentationStore';
 import { segmentationService } from './segmentationService';
-import { writeDicomDict } from './writeDicomDict';
 
 // ─── Bridge: register a global 'frameModule' metadata provider ──────────
 //
