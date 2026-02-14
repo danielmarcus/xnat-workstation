@@ -108,7 +108,7 @@ export interface ElectronAPI {
       defaultName?: string,
     ): Promise<{ ok: boolean; path?: string; error?: string }>;
   };
-  on(channel: string, callback: (...args: unknown[]) => void): void;
+  on(channel: string, callback: (...args: unknown[]) => void): () => void;
 }
 
 declare global {

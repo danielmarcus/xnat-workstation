@@ -24,7 +24,9 @@
  */
 import { BrowserWindow, session } from 'electron';
 
-const LOGIN_PARTITION = 'persist:xnat-login';
+const LOGIN_PARTITION = 'xnat-login';
+/** Auto-close the login window after this duration (ms) to prevent indefinite hangs. */
+const LOGIN_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
 
 /**
  * After authentication is confirmed, retrieve the username and collect
@@ -115,20 +117,29 @@ export interface BrowserLoginResult {
 /**
  * Open a BrowserWindow to the XNAT login page and wait for the user to authenticate.
  *
- * After authentication is detected, exchanges the JSESSIONID for an alias token
- * and retrieves the username — all using the login session's Chromium network
- * stack (session.fetch), which shares cookies/headers with the BrowserWindow.
- * Node.js fetch gets rejected (401) by some XNAT servers, so all network
- * operations must happen through the login session before it's destroyed.
+ * After authentication is detected, retrieves the username and collects all
+ * cookies — using the login session's Chromium network stack (session.fetch),
+ * which shares the cookie jar with the BrowserWindow. All network operations
+ * must happen through the login session before it's destroyed.
+ *
+ * Times out after LOGIN_TIMEOUT_MS to prevent indefinite hangs.
  */
 export async function openBrowserLogin(
   serverUrl: string,
 ): Promise<BrowserLoginResult> {
+  // Validate URL scheme — only HTTP(S) allowed. The renderer auto-prepends
+  // https://, but the main process must enforce this independently since
+  // the URL is loaded into a BrowserWindow.
+  const parsedUrl = new URL(serverUrl);
+  if (parsedUrl.protocol !== 'https:' && parsedUrl.protocol !== 'http:') {
+    throw new Error('Only HTTP(S) URLs are supported');
+  }
+
   const loginSession = session.fromPartition(LOGIN_PARTITION);
 
-  // Clear stale cookies/state from previous login attempts.
-  // Must await — otherwise old cookies from a persistent partition
-  // can be detected before the page even loads.
+  // Clear stale cookies/state from previous login attempts within
+  // this app session. Must await — otherwise old cookies can be
+  // detected before the page even loads.
   await loginSession.clearStorageData();
 
   return new Promise<BrowserLoginResult>((resolve, reject) => {
@@ -140,6 +151,7 @@ export async function openBrowserLogin(
       webPreferences: {
         nodeIntegration: false,
         contextIsolation: true,
+        sandbox: true,
         partition: LOGIN_PARTITION,
       },
     });
@@ -151,9 +163,16 @@ export async function openBrowserLogin(
     // regenerates the JSESSIONID to a new value — that's our signal.
     let firstJsessionId: string | null = null;
 
+    // Auto-close after timeout to prevent indefinite hangs
+    const timeoutId = setTimeout(() => {
+      finish(null, new Error('Login timed out — please try again'));
+    }, LOGIN_TIMEOUT_MS);
+
     function finish(result: BrowserLoginResult | null, error?: Error): void {
       if (resolved) return;
       resolved = true;
+
+      clearTimeout(timeoutId);
 
       // Remove the cookie listener
       loginSession.cookies.removeListener('changed', onCookieChanged);
@@ -163,8 +182,11 @@ export async function openBrowserLogin(
         loginWindow.destroy();
       }
 
-      // Clean up the session
-      loginSession.clearStorageData().catch(() => {});
+      // Clean up the session — log failures since stale cookies could
+      // leak to subsequent login attempts within this app session
+      loginSession.clearStorageData().catch((err) => {
+        console.warn('[browserLogin] Failed to clear login session data:', err);
+      });
 
       if (error) {
         reject(error);
@@ -193,9 +215,7 @@ export async function openBrowserLogin(
         const jsessionId = cookies[0].value;
 
         // Validate using the login session's own Chromium network stack
-        // (session.fetch). This automatically includes all cookies,
-        // User-Agent, and headers that the BrowserWindow uses — Node.js
-        // fetch gets rejected by some XNAT servers.
+        // (session.fetch), which shares the cookie jar with the BrowserWindow.
         //
         // Some XNAT servers return 200 with an HTML login page for
         // unauthenticated browser requests instead of 401. We ask for
@@ -225,7 +245,7 @@ export async function openBrowserLogin(
 
         console.log(`[browserLogin] Authenticated session detected (JSESSIONID=${jsessionId.slice(0, 8)}...)`);
 
-        // ── Exchange JSESSIONID for alias token & get username ──
+        // ── Get username & collect all cookies ──
         // Must happen now, while the login session is still alive.
         // After finish() the session is destroyed and cookies are gone.
         const authData = await exchangeCredentials(loginSession, serverUrl, jsessionId);
