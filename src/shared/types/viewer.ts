@@ -28,6 +28,14 @@ export enum ToolName {
   RectangleScissors = 'RectangleScissors',
   PaintFill = 'PaintFill',
   Sculptor = 'Sculptor',
+  SphereScissors = 'SphereScissors',
+  SegmentSelect = 'SegmentSelect',
+  RegionSegment = 'RegionSegment',
+  RegionSegmentPlus = 'RegionSegmentPlus',
+  SegmentBidirectional = 'SegmentBidirectional',
+  RectangleROIThreshold = 'RectangleROIThreshold',
+  CircleROIThreshold = 'CircleROIThreshold',
+  LabelmapEditWithContour = 'LabelmapEditWithContour',
 }
 
 /** Set of all annotation/measurement tool names */
@@ -55,6 +63,14 @@ export const SEGMENTATION_TOOLS = new Set<ToolName>([
   ToolName.RectangleScissors,
   ToolName.PaintFill,
   ToolName.Sculptor,
+  ToolName.SphereScissors,
+  ToolName.SegmentSelect,
+  ToolName.RegionSegment,
+  ToolName.RegionSegmentPlus,
+  ToolName.SegmentBidirectional,
+  ToolName.RectangleROIThreshold,
+  ToolName.CircleROIThreshold,
+  ToolName.LabelmapEditWithContour,
 ]);
 
 /** Contour-based segmentation tools (create annotation-like persistent objects) */
@@ -63,6 +79,7 @@ export const CONTOUR_SEG_TOOLS = new Set<ToolName>([
   ToolName.SplineContour,
   ToolName.LivewireContour,
   ToolName.Sculptor,
+  ToolName.LabelmapEditWithContour,
 ]);
 
 /** Labelmap-based segmentation tools (directly modify labelmap pixel data) */
@@ -72,7 +89,12 @@ export const LABELMAP_SEG_TOOLS = new Set<ToolName>([
   ToolName.ThresholdBrush,
   ToolName.CircleScissors,
   ToolName.RectangleScissors,
+  ToolName.SphereScissors,
   ToolName.PaintFill,
+  ToolName.RegionSegment,
+  ToolName.RegionSegmentPlus,
+  ToolName.RectangleROIThreshold,
+  ToolName.CircleROIThreshold,
 ]);
 
 /** Human-readable display names for all tools */
@@ -101,6 +123,14 @@ export const TOOL_DISPLAY_NAMES: Record<ToolName, string> = {
   [ToolName.RectangleScissors]: 'Rectangle Scissors',
   [ToolName.PaintFill]: 'Paint Fill',
   [ToolName.Sculptor]: 'Sculptor',
+  [ToolName.SphereScissors]: 'Sphere Scissors',
+  [ToolName.SegmentSelect]: 'Segment Select',
+  [ToolName.RegionSegment]: 'Region Segment',
+  [ToolName.RegionSegmentPlus]: 'Region Segment+',
+  [ToolName.SegmentBidirectional]: 'Segment Bidir.',
+  [ToolName.RectangleROIThreshold]: 'Rect Threshold',
+  [ToolName.CircleROIThreshold]: 'Circle Threshold',
+  [ToolName.LabelmapEditWithContour]: 'Contour Edit',
 };
 
 /** Window/Level preset definition */
@@ -129,6 +159,8 @@ export interface CineState {
 export interface ViewportState {
   viewportId: string | null;
   imageIndex: number;
+  /** User-requested stack index while image decode/load is still in-flight */
+  requestedImageIndex: number | null;
   totalImages: number;
   windowWidth: number;
   windowCenter: number;

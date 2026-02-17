@@ -71,6 +71,7 @@ export interface XnatScan {
   quality?: string;
   frames?: number;
   modality?: string;
+  sopClassUID?: string;
 }
 
 // ─── XNAT Upload Types ──────────────────────────────────────

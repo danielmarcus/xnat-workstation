@@ -22,9 +22,17 @@ import {
   LivewireContourSegmentationTool,
   CircleScissorsTool,
   RectangleScissorsTool,
-  PaintFillTool,
+  SphereScissorsTool,
   SculptorTool,
+  SegmentSelectTool,
+  RegionSegmentTool,
+  RegionSegmentPlusTool,
+  SegmentBidirectionalTool,
+  RectangleROIThresholdTool,
+  CircleROIStartEndThresholdTool,
+  LabelMapEditWithContourTool,
 } from '@cornerstonejs/tools';
+import SafePaintFillTool from './tools/SafePaintFillTool';
 import { init as initDicomImageLoader } from '@cornerstonejs/dicom-image-loader';
 
 let initialized = false;
@@ -75,13 +83,25 @@ export async function initCornerstone(): Promise<void> {
   addTool(BrushTool);
   addTool(CircleScissorsTool);
   addTool(RectangleScissorsTool);
-  addTool(PaintFillTool);
+  addTool(SphereScissorsTool);
+  addTool(SafePaintFillTool);
+  addTool(RectangleROIThresholdTool);
+  addTool(CircleROIStartEndThresholdTool);
 
   // Segmentation tools — contour
   addTool(PlanarFreehandContourSegmentationTool);
   addTool(SplineContourSegmentationTool);
   addTool(LivewireContourSegmentationTool);
   addTool(SculptorTool);
+  addTool(LabelMapEditWithContourTool);
+
+  // Segmentation tools — smart/AI (GrowCut)
+  addTool(RegionSegmentTool);
+  addTool(RegionSegmentPlusTool);
+
+  // Segmentation tools — utility
+  addTool(SegmentSelectTool);
+  addTool(SegmentBidirectionalTool);
 
   // ---------- 3. Initialize DICOM Image Loader ----------
   // V4 uses CentralizedWebWorkerManager and import.meta.url for worker loading.

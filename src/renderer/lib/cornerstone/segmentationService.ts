@@ -130,6 +130,277 @@ function findFirstNonZeroRef(adapterImages: any[]): {
   return { referencedImageId: null, labelmapImageId: null };
 }
 
+function getValidSegmentIndices(seg: any): number[] {
+  if (!seg?.segments) return [];
+  const indices = new Set<number>();
+
+  const pushIfValid = (value: unknown): void => {
+    const idx = Number(value);
+    if (Number.isFinite(idx) && Number.isInteger(idx) && idx > 0) {
+      indices.add(idx);
+    }
+  };
+
+  const addFromEntry = (key: unknown, segment: any): void => {
+    pushIfValid(key);
+    pushIfValid(segment?.segmentIndex);
+  };
+
+  if (seg.segments instanceof Map) {
+    for (const [key, segment] of seg.segments.entries()) {
+      addFromEntry(key, segment);
+    }
+  } else {
+    for (const [key, segment] of Object.entries(seg.segments)) {
+      addFromEntry(key, segment);
+    }
+  }
+
+  return Array.from(indices).sort((a, b) => a - b);
+}
+
+function segmentsToPlainObject(segments: any): Record<number, any> {
+  const out: Record<number, any> = {};
+  if (!segments) return out;
+  if (segments instanceof Map) {
+    for (const [key, segment] of segments.entries()) {
+      const idx = Number((segment as any)?.segmentIndex ?? key);
+      if (!Number.isFinite(idx) || idx <= 0 || !Number.isInteger(idx)) continue;
+      out[idx] = segment;
+    }
+    return out;
+  }
+  for (const [key, segment] of Object.entries(segments)) {
+    const idx = Number((segment as any)?.segmentIndex ?? key);
+    if (!Number.isFinite(idx) || idx <= 0 || !Number.isInteger(idx)) continue;
+    out[idx] = segment as any;
+  }
+  return out;
+}
+
+function hasUsableColor(color: unknown): color is [number, number, number, number?] {
+  if (!Array.isArray(color) || color.length < 3) return false;
+  const r = Number(color[0]);
+  const g = Number(color[1]);
+  const b = Number(color[2]);
+  const a = color.length >= 4 ? Number(color[3]) : 255;
+  if (![r, g, b, a].every((v) => Number.isFinite(v))) return false;
+  // Cornerstone can synthesize [0,0,0,0] for missing LUT entries.
+  if (r === 0 && g === 0 && b === 0 && a === 0) return false;
+  return true;
+}
+
+function sanitizeSegmentIndices(indices: number[]): number[] {
+  const valid = new Set<number>();
+  for (const idx of indices) {
+    if (Number.isFinite(idx) && Number.isInteger(idx) && idx > 0) {
+      valid.add(idx);
+    }
+  }
+  return Array.from(valid).sort((a, b) => a - b);
+}
+
+function extractLabelmapImageId(value: unknown): string | null {
+  if (typeof value === 'string' && value.length > 0) return value;
+  if (value && typeof value === 'object' && typeof (value as any).imageId === 'string') {
+    return (value as any).imageId;
+  }
+  return null;
+}
+
+function getLabelmapImageIdsForSegmentation(segmentationId: string): string[] {
+  const seg = csSegmentation.state.getSegmentation(segmentationId);
+  const labelmapData: any = (seg?.representationData as any)?.Labelmap;
+  if (!labelmapData) return [];
+
+  if (Array.isArray(labelmapData.imageIds) && labelmapData.imageIds.length > 0) {
+    return labelmapData.imageIds.filter((id: unknown) => typeof id === 'string' && id.length > 0);
+  }
+
+  const mapLike = labelmapData.imageIdReferenceMap;
+  if (!mapLike) return [];
+
+  const sourceOrder = sourceImageIdsMap.get(segmentationId) ?? [];
+  const bySource = new Map<string, string>();
+
+  if (mapLike instanceof Map) {
+    for (const [sourceImageId, mappedValue] of mapLike.entries()) {
+      const mappedImageId = extractLabelmapImageId(mappedValue);
+      if (typeof sourceImageId === 'string' && mappedImageId) {
+        bySource.set(sourceImageId, mappedImageId);
+      }
+    }
+  } else if (typeof mapLike === 'object') {
+    for (const [sourceImageId, mappedValue] of Object.entries(mapLike)) {
+      const mappedImageId = extractLabelmapImageId(mappedValue);
+      if (mappedImageId) bySource.set(sourceImageId, mappedImageId);
+    }
+  }
+
+  if (bySource.size === 0) return [];
+
+  const ordered: string[] = [];
+  for (const sourceImageId of sourceOrder) {
+    const mapped = bySource.get(sourceImageId);
+    if (mapped) ordered.push(mapped);
+  }
+  if (ordered.length > 0) return ordered;
+
+  return Array.from(new Set(bySource.values()));
+}
+
+async function getCachedLabelmapSliceArrays(segmentationId: string): Promise<{
+  sliceArrays: ArrayLike<number>[];
+  width: number;
+  height: number;
+}> | null {
+  const labelmapImageIds = getLabelmapImageIdsForSegmentation(segmentationId);
+  if (!labelmapImageIds.length) return null;
+
+  let width = 0;
+  let height = 0;
+  const sliceArrays: ArrayLike<number>[] = [];
+
+  for (const imageId of labelmapImageIds) {
+    let image: any = cache.getImage(imageId);
+    if (!image) {
+      try {
+        image = await imageLoader.loadAndCacheImage(imageId);
+      } catch {
+        return null;
+      }
+    }
+    if (!image) return null;
+
+    const scalarData: ArrayLike<number> | undefined =
+      image?.voxelManager?.getScalarData?.()
+      ?? image?.imageFrame?.pixelData
+      ?? image?.getPixelData?.();
+    if (!scalarData) return null;
+
+    const w = Number(image.columns ?? image.width ?? image.imageFrame?.columns ?? 0);
+    const h = Number(image.rows ?? image.height ?? image.imageFrame?.rows ?? 0);
+    if (!w || !h) return null;
+    if (!width || !height) {
+      width = w;
+      height = h;
+    } else if (w !== width || h !== height) {
+      return null;
+    }
+
+    sliceArrays.push(scalarData);
+  }
+
+  return { sliceArrays, width, height };
+}
+
+function hasSegmentPixelsOnSlice(
+  scalarData: ArrayLike<number>,
+  segmentIndex: number,
+): boolean {
+  for (let i = 0; i < scalarData.length; i++) {
+    if (Number(scalarData[i]) === segmentIndex) return true;
+  }
+  return false;
+}
+
+function chamferDistanceToMask(
+  mask: Uint8Array,
+  width: number,
+  height: number,
+): Float32Array {
+  const dist = new Float32Array(mask.length);
+  for (let i = 0; i < mask.length; i++) {
+    dist[i] = mask[i] ? 0 : 1e12;
+  }
+
+  for (let y = 0; y < height; y++) {
+    const row = y * width;
+    for (let x = 0; x < width; x++) {
+      const i = row + x;
+      let best = dist[i];
+      if (x > 0) best = Math.min(best, dist[i - 1] + 1);
+      if (y > 0) best = Math.min(best, dist[i - width] + 1);
+      if (x > 0 && y > 0) best = Math.min(best, dist[i - width - 1] + Math.SQRT2);
+      if (x + 1 < width && y > 0) best = Math.min(best, dist[i - width + 1] + Math.SQRT2);
+      dist[i] = best;
+    }
+  }
+
+  for (let y = height - 1; y >= 0; y--) {
+    const row = y * width;
+    for (let x = width - 1; x >= 0; x--) {
+      const i = row + x;
+      let best = dist[i];
+      if (x + 1 < width) best = Math.min(best, dist[i + 1] + 1);
+      if (y + 1 < height) best = Math.min(best, dist[i + width] + 1);
+      if (x + 1 < width && y + 1 < height) best = Math.min(best, dist[i + width + 1] + Math.SQRT2);
+      if (x > 0 && y + 1 < height) best = Math.min(best, dist[i + width - 1] + Math.SQRT2);
+      dist[i] = best;
+    }
+  }
+
+  return dist;
+}
+
+function buildSignedDistanceForSegment(
+  scalarData: ArrayLike<number>,
+  width: number,
+  height: number,
+  segmentIndex: number,
+): Float32Array {
+  const size = width * height;
+  const inside = new Uint8Array(size);
+  const outside = new Uint8Array(size);
+
+  for (let i = 0; i < size; i++) {
+    const isInside = Number(scalarData[i]) === segmentIndex;
+    inside[i] = isInside ? 1 : 0;
+    outside[i] = isInside ? 0 : 1;
+  }
+
+  const distToInside = chamferDistanceToMask(inside, width, height);
+  const distToOutside = chamferDistanceToMask(outside, width, height);
+  const signed = new Float32Array(size);
+
+  for (let i = 0; i < size; i++) {
+    signed[i] = inside[i] ? -distToOutside[i] : distToInside[i];
+  }
+
+  return signed;
+}
+
+function applySourceDicomContextToSegDataset(dataset: any, sourceImageId: string): void {
+  if (!dataset || !sourceImageId) return;
+
+  const patient = metaData.get('patientModule', sourceImageId) as any;
+  const study = metaData.get('generalStudyModule', sourceImageId) as any;
+  const patientStudy = metaData.get('patientStudyModule', sourceImageId) as any;
+  const imagePlane = metaData.get('imagePlaneModule', sourceImageId) as any;
+
+  // Keep patient/study identity aligned with the source series.
+  if (patient?.patientName) dataset.PatientName = patient.patientName;
+  if (patient?.patientId) dataset.PatientID = patient.patientId;
+  if (patient?.patientBirthDate) dataset.PatientBirthDate = patient.patientBirthDate;
+  if (patient?.patientSex) dataset.PatientSex = patient.patientSex;
+
+  if (study?.studyInstanceUID) dataset.StudyInstanceUID = study.studyInstanceUID;
+  if (study?.studyDate) dataset.StudyDate = study.studyDate;
+  if (study?.studyTime) dataset.StudyTime = study.studyTime;
+  if (study?.studyID) dataset.StudyID = study.studyID;
+  if (study?.accessionNumber) dataset.AccessionNumber = study.accessionNumber;
+  if (study?.studyDescription) dataset.StudyDescription = study.studyDescription;
+  if (study?.referringPhysicianName) dataset.ReferringPhysicianName = study.referringPhysicianName;
+
+  if (patientStudy?.patientAge) dataset.PatientAge = patientStudy.patientAge;
+  if (patientStudy?.patientWeight) dataset.PatientWeight = patientStudy.patientWeight;
+  if (patientStudy?.patientSize) dataset.PatientSize = patientStudy.patientSize;
+
+  if (imagePlane?.frameOfReferenceUID) {
+    dataset.FrameOfReferenceUID = imagePlane.frameOfReferenceUID;
+  }
+}
+
 // ─── Sync Logic ─────────────────────────────────────────────────
 
 /**
@@ -140,16 +411,30 @@ function syncSegmentations(): void {
   try {
     const allSegmentations = csSegmentation.state.getSegmentations();
     const summaries: SegmentationSummary[] = [];
+    const existingSummaries = useSegmentationStore.getState().segmentations;
 
     for (const seg of allSegmentations) {
       const segments: SegmentSummary[] = [];
+      const priorSummary = existingSummaries.find((s) => s.segmentationId === seg.segmentationId);
+      const priorColorByIndex = new Map<number, [number, number, number, number]>(
+        (priorSummary?.segments ?? []).map((s) => [s.segmentIndex, s.color]),
+      );
 
       // Iterate over segments (skip index 0 = background)
       if (seg.segments) {
+        const seen = new Set<number>();
         for (const [idxStr, segment] of Object.entries(seg.segments)) {
-          const idx = Number(idxStr);
-          if (idx === 0) continue; // Skip background
+          let idx = Number(idxStr);
+          if ((!Number.isFinite(idx) || idx <= 0 || !Number.isInteger(idx)) && segment) {
+            const fallbackIdx = Number((segment as any).segmentIndex);
+            if (Number.isFinite(fallbackIdx) && fallbackIdx > 0 && Number.isInteger(fallbackIdx)) {
+              idx = fallbackIdx;
+            }
+          }
+          if (!Number.isFinite(idx) || idx <= 0 || !Number.isInteger(idx)) continue; // Skip invalid/background
           if (!segment) continue;
+          if (seen.has(idx)) continue;
+          seen.add(idx);
 
           // Get color: Cornerstone API → loadedColorsMap fallback → DEFAULT_COLORS
           let color: [number, number, number, number] = DEFAULT_COLORS[(idx - 1) % DEFAULT_COLORS.length];
@@ -162,8 +447,8 @@ function syncSegmentations(): void {
                 seg.segmentationId,
                 idx,
               );
-              if (c && c.length >= 4) {
-                color = [c[0], c[1], c[2], c[3]];
+              if (hasUsableColor(c)) {
+                color = [c[0], c[1], c[2], c.length >= 4 ? c[3] : 255];
                 gotColorFromCS = true;
               }
             } catch {
@@ -178,6 +463,8 @@ function syncSegmentations(): void {
             const loadedColors = loadedColorsMap.get(seg.segmentationId);
             if (loadedColors?.has(idx)) {
               color = loadedColors.get(idx)!;
+            } else if (priorColorByIndex.has(idx)) {
+              color = [...priorColorByIndex.get(idx)!] as [number, number, number, number];
             }
           }
 
@@ -238,12 +525,30 @@ function onSegmentationEvent(): void {
   refreshUndoState();
 }
 
+function onAnnotationHistoryEvent(): void {
+  refreshUndoState();
+}
+
 /** Push canUndo/canRedo booleans into the Zustand store. */
 function refreshUndoState(): void {
   useSegmentationStore.getState()._refreshUndoState(
-    DefaultHistoryMemo.canUndo,
-    DefaultHistoryMemo.canRedo,
+    !!DefaultHistoryMemo?.canUndo,
+    !!DefaultHistoryMemo?.canRedo,
   );
+}
+
+function renderAllSegmentationViewports(): void {
+  const viewportIds = new Set<string>();
+  for (const seg of csSegmentation.state.getSegmentations()) {
+    for (const viewportId of csSegmentation.state.getViewportIdsWithSegmentation(seg.segmentationId)) {
+      viewportIds.add(viewportId);
+    }
+  }
+  for (const viewportId of viewportIds) {
+    csToolUtilities.segmentation.triggerSegmentationRender(viewportId);
+    const enabledElement = getEnabledElementByViewportId(viewportId) as any;
+    enabledElement?.viewport?.render?.();
+  }
 }
 
 // ─── Segmentation Type Detection ─────────────────────────────────
@@ -259,7 +564,9 @@ function getSegmentationType(segmentationId: string): 'labelmap' | 'contour' | '
 
   const repData = seg.representationData as any;
   const hasLabelmap = !!(repData?.Labelmap?.imageIds?.length > 0 || repData?.Labelmap?.imageIdReferenceMap?.size > 0);
-  const hasContour = !!(repData?.Contour?.annotationUIDsMap?.size > 0);
+  // Treat an explicit contour representation as contour-capable even if it's
+  // currently empty (new RTSTRUCT rows intentionally start with zero structures).
+  const hasContour = repData?.Contour != null;
 
   if (hasLabelmap && hasContour) return 'both';
   if (hasContour) return 'contour';
@@ -270,6 +577,7 @@ function getSegmentationType(segmentationId: string): 'labelmap' | 'contour' | '
 
 let autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
 const AUTO_SAVE_DELAY = 10_000; // 10 seconds after last edit
+const LABELMAP_INTERPOLATION_DELAY = 250;
 
 /**
  * Reference counter for suppressing _markDirty() and scheduleAutoSave() calls.
@@ -280,6 +588,16 @@ const AUTO_SAVE_DELAY = 10_000; // 10 seconds after last edit
  * multiple async load operations overlap (e.g., loadDicomSeg + addToViewport).
  */
 let suppressDirtyTrackingCount = 0;
+let suppressDirtyTrackingUntilMs = 0;
+
+function isDirtyTrackingSuppressed(): boolean {
+  return suppressDirtyTrackingCount > 0 || Date.now() < suppressDirtyTrackingUntilMs;
+}
+
+function setDirtyTrackingSuppressedFor(ms: number): void {
+  if (ms <= 0) return;
+  suppressDirtyTrackingUntilMs = Math.max(suppressDirtyTrackingUntilMs, Date.now() + ms);
+}
 
 /**
  * Reference counter for SEG/RTSTRUCT load operations in progress.
@@ -298,12 +616,27 @@ let loadInProgressCount = 0;
  * Set via beginManualSave()/endManualSave() from SegmentationPanel.
  */
 let manualSaveInProgress = false;
+let labelmapInterpolationTimer: ReturnType<typeof setTimeout> | null = null;
+let labelmapInterpolationInProgress = false;
+let pendingLabelmapInterpolation: { segmentationId: string; segmentIndex: number | null } | null = null;
 
 /** Called when segmentation pixel data changes — debounces auto-save and marks dirty. */
-function onSegmentationDataModified(): void {
-  if (suppressDirtyTrackingCount === 0) {
+function onSegmentationDataModified(evt?: Event): void {
+  if (!isDirtyTrackingSuppressed()) {
+    const detail = (evt as CustomEvent | undefined)?.detail as
+      | { segmentationId?: string; segmentIndex?: number }
+      | undefined;
+    if (detail?.segmentationId) {
+      pendingLabelmapInterpolation = {
+        segmentationId: detail.segmentationId,
+        segmentIndex: Number.isInteger(detail.segmentIndex) ? Number(detail.segmentIndex) : null,
+      };
+    }
     useSegmentationStore.getState()._markDirty();
     scheduleAutoSave();
+    if (!labelmapInterpolationInProgress) {
+      scheduleLabelmapInterpolation();
+    }
   }
 }
 
@@ -315,7 +648,7 @@ function onAnnotationAutoSave(): void {
   if (!activeSegId) return;
   const segType = getSegmentationType(activeSegId);
   if (segType === 'contour' || segType === 'both') {
-    if (suppressDirtyTrackingCount === 0) {
+    if (!isDirtyTrackingSuppressed()) {
       segStore._markDirty();
       scheduleAutoSave();
     }
@@ -326,7 +659,101 @@ function scheduleAutoSave(): void {
   // Don't schedule auto-save while a manual save is in progress
   if (manualSaveInProgress) return;
   if (autoSaveTimer) clearTimeout(autoSaveTimer);
-  autoSaveTimer = setTimeout(performAutoSave, AUTO_SAVE_DELAY);
+  autoSaveTimer = setTimeout(() => {
+    void performAutoSave();
+  }, AUTO_SAVE_DELAY);
+}
+
+function scheduleLabelmapInterpolation(): void {
+  if (labelmapInterpolationTimer) clearTimeout(labelmapInterpolationTimer);
+  labelmapInterpolationTimer = setTimeout(() => {
+    void performLabelmapInterpolation();
+  }, LABELMAP_INTERPOLATION_DELAY);
+}
+
+async function performLabelmapInterpolation(): Promise<void> {
+  labelmapInterpolationTimer = null;
+  if (labelmapInterpolationInProgress) return;
+  if (isDirtyTrackingSuppressed()) return;
+  if (loadInProgressCount > 0) return;
+
+  const segStore = useSegmentationStore.getState();
+  if (!segStore.interpolationEnabled) return;
+  const pending = pendingLabelmapInterpolation;
+  pendingLabelmapInterpolation = null;
+  const activeSegId = pending?.segmentationId ?? segStore.activeSegmentationId;
+  if (!activeSegId) return;
+  if (getSegmentationType(activeSegId) === 'contour') return;
+  const segmentIndex = Number(pending?.segmentIndex ?? segStore.activeSegmentIndex);
+  if (!Number.isInteger(segmentIndex) || segmentIndex <= 0) return;
+
+  const labelmapData = await getCachedLabelmapSliceArrays(activeSegId);
+  if (!labelmapData) return;
+  const { sliceArrays, width, height } = labelmapData;
+  if (sliceArrays.length < 3) return;
+
+  const anchors: number[] = [];
+  for (let i = 0; i < sliceArrays.length; i++) {
+    if (hasSegmentPixelsOnSlice(sliceArrays[i], segmentIndex)) {
+      anchors.push(i);
+    }
+  }
+  if (anchors.length < 2) return;
+
+  labelmapInterpolationInProgress = true;
+  try {
+    const modifiedSlices = new Set<number>();
+    const pixelsPerSlice = width * height;
+
+    for (let i = 0; i < anchors.length - 1; i++) {
+      const a = anchors[i];
+      const b = anchors[i + 1];
+      const gap = b - a - 1;
+      if (gap <= 0) continue;
+
+      const signedA = buildSignedDistanceForSegment(sliceArrays[a], width, height, segmentIndex);
+      const signedB = buildSignedDistanceForSegment(sliceArrays[b], width, height, segmentIndex);
+
+      for (let s = a + 1; s < b; s++) {
+        const alpha = (s - a) / (b - a);
+        const slice = sliceArrays[s] as any;
+        let changed = false;
+
+        for (let p = 0; p < pixelsPerSlice; p++) {
+          const currentValue = Number(slice[p]);
+          if (currentValue !== 0 && currentValue !== segmentIndex) continue;
+
+          const interpolatedDistance = (1 - alpha) * signedA[p] + alpha * signedB[p];
+          if (interpolatedDistance <= 0 && currentValue === 0) {
+            slice[p] = segmentIndex;
+            changed = true;
+          }
+        }
+
+        if (changed) {
+          modifiedSlices.add(s);
+        }
+      }
+    }
+
+    if (modifiedSlices.size === 0) return;
+
+    csSegmentation.triggerSegmentationEvents.triggerSegmentationDataModified(
+      activeSegId,
+      Array.from(modifiedSlices).sort((x, y) => x - y),
+      segmentIndex,
+    );
+    const viewportIds = csSegmentation.state.getViewportIdsWithSegmentation(activeSegId);
+    for (const viewportId of viewportIds) {
+      csToolUtilities.segmentation.triggerSegmentationRender(viewportId);
+      const enabledElement = getEnabledElementByViewportId(viewportId) as any;
+      enabledElement?.viewport?.render?.();
+    }
+  } catch (err) {
+    console.debug('[segmentationService] Labelmap interpolation failed:', err);
+  } finally {
+    labelmapInterpolationInProgress = false;
+  }
 }
 
 /** Cancel any pending auto-save (e.g. when a manual save starts). */
@@ -348,28 +775,28 @@ function formatTimestamp(): string {
     String(d.getSeconds()).padStart(2, '0');
 }
 
-async function performAutoSave(): Promise<void> {
+async function performAutoSave(force = false): Promise<boolean> {
   autoSaveTimer = null;
   const segStore = useSegmentationStore.getState();
-  if (!segStore.autoSaveEnabled) return;
+  if (!segStore.autoSaveEnabled && !force) return false;
 
   // Skip if dirty tracking is suppressed (load/creation in progress)
-  if (suppressDirtyTrackingCount > 0) return;
+  if (isDirtyTrackingSuppressed()) return false;
 
   // Skip if a SEG/RTSTRUCT load is in progress (prevents PixelData corruption)
   if (loadInProgressCount > 0) {
     console.log('[segmentationService] Auto-save skipped — SEG load in progress');
-    return;
+    return false;
   }
 
   // Skip if no actual unsaved changes
-  if (!segStore.hasUnsavedChanges) return;
+  if (!segStore.hasUnsavedChanges) return false;
 
   const xnatContext = useViewerStore.getState().xnatContext;
-  if (!xnatContext) return; // Not connected to XNAT or no context
+  if (!xnatContext) return false; // Not connected to XNAT or no context
 
   const activeSegId = segStore.activeSegmentationId;
-  if (!activeSegId) return;
+  if (!activeSegId) return false;
 
   // Determine source scan: from origin if loaded from XNAT, else from context
   const origin = segStore.xnatOriginMap[activeSegId];
@@ -415,22 +842,29 @@ async function performAutoSave(): Promise<void> {
       segStore._setAutoSaveStatus('saved');
       segStore._markClean();
       console.log(`[segmentationService] Auto-saved ${segType} to temp resource for source scan ${sourceScanId} (${tempFilename})`);
+      return true;
     } else {
       console.error('[segmentationService] Auto-save to temp failed:', result.error);
       segStore._setAutoSaveStatus('error');
+      return false;
     }
   } catch (err: any) {
     // "No painted segment data" means the segmentation exists but has no actual
     // pixel data (user created it but hasn't painted yet). This is not an error —
     // silently return to idle instead of showing an error status.
     const msg = err instanceof Error ? err.message : String(err);
-    if (msg.includes('No painted segment data') || msg.includes('no segment-frame pairs')) {
+    if (
+      msg.includes('No painted segment data') ||
+      msg.includes('no segment-frame pairs') ||
+      msg.includes('Error inserting pixels in PixelData')
+    ) {
       console.log('[segmentationService] Auto-save skipped — no painted pixels yet');
       segStore._setAutoSaveStatus('idle');
-      return;
+      return false;
     }
     console.error('[segmentationService] Auto-save failed:', err);
     segStore._setAutoSaveStatus('error');
+    return false;
   }
 }
 
@@ -439,6 +873,28 @@ let initialized = false;
 // ─── Public API ─────────────────────────────────────────────────
 
 export const segmentationService = {
+  /**
+   * Execute operations while suppressing dirty tracking.
+   * Useful for non-user-initiated representation/style updates.
+   */
+  runWithDirtyTrackingSuppressed<T>(fn: () => T): T {
+    suppressDirtyTrackingCount++;
+    try {
+      return fn();
+    } finally {
+      suppressDirtyTrackingCount--;
+    }
+  },
+
+  /**
+   * Suppress dirty tracking for a short post-operation window.
+   * Use for operations that trigger SEGMENTATION_DATA_MODIFIED asynchronously
+   * after the mutating call returns (e.g. viewport representation detach/attach).
+   */
+  suppressDirtyTrackingFor(ms: number): void {
+    setDirtyTrackingSuppressedFor(ms);
+  },
+
   /**
    * Check whether a segmentation still exists in Cornerstone state.
    * Useful for detecting stale xnatOriginMap entries after segmentations
@@ -490,9 +946,14 @@ export const segmentationService = {
     // Auto-save: listen for contour annotation events (for contour-based segmentations)
     eventTarget.addEventListener(Events.ANNOTATION_COMPLETED as any, onAnnotationAutoSave);
     eventTarget.addEventListener(Events.ANNOTATION_MODIFIED as any, onAnnotationAutoSave);
+    eventTarget.addEventListener(Events.ANNOTATION_COMPLETED as any, onAnnotationHistoryEvent);
+    eventTarget.addEventListener(Events.ANNOTATION_MODIFIED as any, onAnnotationHistoryEvent);
+    eventTarget.addEventListener(Events.ANNOTATION_REMOVED as any, onAnnotationHistoryEvent);
 
     // Increase undo ring buffer from default 50 to 200 for deep undo history
-    DefaultHistoryMemo.size = 200;
+    if (DefaultHistoryMemo) {
+      DefaultHistoryMemo.size = 200;
+    }
 
     initialized = true;
     console.log('[segmentationService] Initialized — listening for segmentation events');
@@ -501,8 +962,9 @@ export const segmentationService = {
   /**
    * Create a stack-based labelmap segmentation for the given source images.
    *
-   * Creates an empty labelmap (one image per source image) with one default
-   * segment. Returns the segmentationId.
+   * Creates an empty labelmap (one image per source image). By default this
+   * starts with no segments so users can explicitly add and name the first one.
+   * Returns the segmentationId.
    *
    * Uses createAndCacheLocalImage() with explicit dimensions instead of
    * createAndCacheDerivedLabelmapImages(), because the latter requires all
@@ -516,6 +978,7 @@ export const segmentationService = {
   async createStackSegmentation(
     sourceImageIds: string[],
     label?: string,
+    createDefaultSegment = false,
   ): Promise<string> {
     // Suppress dirty tracking — Cornerstone fires SEGMENTATION_DATA_MODIFIED
     // during addSegmentations() which would falsely schedule auto-save for
@@ -642,32 +1105,49 @@ export const segmentationService = {
         },
         config: {
           label: segLabel,
-          segments: {
-            1: { label: 'Segment 1', locked: false, active: true } as any,
-          },
+          segments: createDefaultSegment
+            ? {
+                1: {
+                  label: 'Segment 1',
+                  segmentIndex: 1,
+                  locked: false,
+                  active: true,
+                  cachedStats: {},
+                } as any,
+              }
+            : {},
         },
       },
     ]);
 
-    // Immediately add empty Contour representation data so contour tools can
-    // work without needing PolySeg to convert from labelmap (which fails for
-    // stack-based labelmaps). Direct mutation is safe here — Object.freeze is
-    // shallow, and this is the same pattern used by the official
-    // addRepresentationData API internally.
-    const segObj = csSegmentation.state.getSegmentation(segmentationId);
-    if (segObj) {
-      (segObj.representationData as any).Contour = {
-        annotationUIDsMap: new Map(),
-      };
+    if (!createDefaultSegment) {
+      // Cornerstone can materialize a default segment even when config.segments
+      // is empty. Force a clean, zero-entry starting state for manual authoring.
+      try {
+        csSegmentation.updateSegmentations([
+          {
+            segmentationId,
+            config: { segments: {} },
+          },
+        ] as any);
+      } catch {
+        const created = csSegmentation.state.getSegmentation(segmentationId);
+        if (created) {
+          (created as any).segments = {};
+        }
+      }
     }
 
-    // Store: set as active segmentation + segment index 1
+    // Store: set active segmentation and segment index.
     const store = useSegmentationStore.getState();
     store.setActiveSegmentation(segmentationId);
-    store.setActiveSegmentIndex(1);
-
-    // Set the active segment index in Cornerstone
-    csSegmentation.segmentIndex.setActiveSegmentIndex(segmentationId, 1);
+    if (createDefaultSegment) {
+      store.setActiveSegmentIndex(1);
+      // Set the active segment index in Cornerstone
+      csSegmentation.segmentIndex.setActiveSegmentIndex(segmentationId, 1);
+    } else {
+      store.setActiveSegmentIndex(0);
+    }
 
     // Track source imageIds for DICOM SEG export
     sourceImageIdsMap.set(segmentationId, [...sourceImageIds]);
@@ -678,6 +1158,136 @@ export const segmentationService = {
     return segmentationId;
     } finally {
       suppressDirtyTrackingCount--;
+    }
+  },
+
+  /**
+   * Create a contour-only segmentation scaffold for structure annotation.
+   * This is the creation path for RTSTRUCT-style authoring.
+   */
+  async createContourSegmentation(
+    sourceImageIds: string[],
+    label?: string,
+    createDefaultSegment = false,
+  ): Promise<string> {
+    suppressDirtyTrackingCount++;
+    try {
+      segmentationCounter++;
+      const segmentationId = `rtstruct_${Date.now()}_${segmentationCounter}`;
+      const segLabel = label || `Structure ${segmentationCounter}`;
+
+      const annotationUIDsMap = new Map<number, Set<string>>();
+      if (createDefaultSegment) {
+        annotationUIDsMap.set(1, new Set<string>());
+      }
+
+      csSegmentation.addSegmentations([
+        {
+          segmentationId,
+          representation: {
+            type: ToolEnums.SegmentationRepresentations.Contour,
+            data: { annotationUIDsMap } as any,
+          },
+          config: {
+            label: segLabel,
+            segments: createDefaultSegment
+              ? {
+                  1: {
+                    label: 'Structure 1',
+                    segmentIndex: 1,
+                    locked: false,
+                    active: true,
+                    cachedStats: {},
+                  } as any,
+                }
+              : {},
+          },
+        },
+      ]);
+
+      if (!createDefaultSegment) {
+        try {
+          csSegmentation.updateSegmentations([
+            {
+              segmentationId,
+              config: { segments: {} },
+            },
+          ] as any);
+        } catch {
+          const created = csSegmentation.state.getSegmentation(segmentationId);
+          if (created) {
+            (created as any).segments = {};
+          }
+        }
+      }
+
+      sourceImageIdsMap.set(segmentationId, [...sourceImageIds]);
+
+      const store = useSegmentationStore.getState();
+      store.setActiveSegmentation(segmentationId);
+      if (createDefaultSegment) {
+        store.setActiveSegmentIndex(1);
+        csSegmentation.segmentIndex.setActiveSegmentIndex(segmentationId, 1);
+      } else {
+        store.setActiveSegmentIndex(0);
+      }
+
+      syncSegmentations();
+      return segmentationId;
+    } finally {
+      suppressDirtyTrackingCount--;
+    }
+  },
+
+  /**
+   * Add a new segment to an existing segmentation.
+   * Returns the new segment index (1-based).
+   */
+  ensureEmptySegmentation(segmentationId: string): void {
+    try {
+      const seg = csSegmentation.state.getSegmentation(segmentationId);
+      if (!seg) return;
+
+      const positiveIndices = getValidSegmentIndices(seg);
+      if (positiveIndices.length === 0) {
+        useSegmentationStore.getState().setActiveSegmentIndex(0);
+        return;
+      }
+
+      try {
+        csSegmentation.updateSegmentations([
+          {
+            segmentationId,
+            config: { segments: {} },
+          },
+        ] as any);
+      }
+      catch {
+        // Ignore and apply direct mutation fallback below.
+      }
+
+      // Hard-clear the in-memory segmentation map/object as a fallback because
+      // updateSegmentations() can be merge-like on some versions.
+      const live = csSegmentation.state.getSegmentation(segmentationId);
+      if (live) {
+        if (live.segments instanceof Map) live.segments.clear();
+        else (live as any).segments = {};
+      }
+
+      const contourData = (seg.representationData as any)?.Contour;
+      if (contourData?.annotationUIDsMap instanceof Map) {
+        contourData.annotationUIDsMap.clear();
+      }
+
+      try {
+        csSegmentation.segmentIndex.setActiveSegmentIndex(segmentationId, 0);
+      } catch {
+        // Some Cornerstone versions reject index 0; store still tracks no-active-segment.
+      }
+      useSegmentationStore.getState().setActiveSegmentIndex(0);
+      syncSegmentations();
+    } catch (err) {
+      console.debug('[segmentationService] ensureEmptySegmentation failed:', err);
     }
   },
 
@@ -695,28 +1305,51 @@ export const segmentationService = {
       throw new Error(`[segmentationService] Segmentation not found: ${segmentationId}`);
     }
 
-    // Find next available segment index
-    const existingIndices = Object.keys(seg.segments || {}).map(Number).filter(n => n > 0);
+    // Find next available segment index (supports object or Map storage).
+    const existingIndices = getValidSegmentIndices(seg);
     const nextIndex = existingIndices.length > 0 ? Math.max(...existingIndices) + 1 : 1;
+    const segmentLabel = label.trim() || `Segment ${nextIndex}`;
+
+    // Contour representation needs an annotationUID set per segment index.
+    const contourData = (seg.representationData as any)?.Contour;
+    if (contourData?.annotationUIDsMap instanceof Map && !contourData.annotationUIDsMap.has(nextIndex)) {
+      contourData.annotationUIDsMap.set(nextIndex, new Set<string>());
+    }
+
+    const nextSegments = segmentsToPlainObject(seg.segments);
+    nextSegments[nextIndex] = {
+      ...(nextSegments[nextIndex] ?? {}),
+      label: segmentLabel,
+      SegmentLabel: segmentLabel,
+      locked: false,
+      active: false,
+      segmentIndex: nextIndex,
+      cachedStats: (nextSegments[nextIndex] as any)?.cachedStats ?? {},
+    } as any;
 
     // Update segmentation state with new segment
     csSegmentation.updateSegmentations([
       {
         segmentationId,
         config: {
-          segments: {
-            ...seg.segments,
-            [nextIndex]: {
-              label: label || `Segment ${nextIndex}`,
-              locked: false,
-              active: false,
-              segmentIndex: nextIndex,
-              cachedStats: {},
-            } as any,
-          },
+          segments: nextSegments,
         },
       },
     ] as any);
+
+    // Force the final label on live state as a compatibility fallback.
+    const live = csSegmentation.state.getSegmentation(segmentationId);
+    if (live?.segments instanceof Map) {
+      const entry = live.segments.get(nextIndex) ?? { segmentIndex: nextIndex, locked: false, active: false, cachedStats: {} };
+      entry.label = segmentLabel;
+      entry.SegmentLabel = segmentLabel;
+      live.segments.set(nextIndex, entry);
+    } else if (live?.segments) {
+      const entry = (live.segments as any)[nextIndex] ?? { segmentIndex: nextIndex, locked: false, active: false, cachedStats: {} };
+      entry.label = segmentLabel;
+      entry.SegmentLabel = segmentLabel;
+      (live.segments as any)[nextIndex] = entry;
+    }
 
     // Set color on all viewports that have this segmentation
     const segColor = color || DEFAULT_COLORS[(nextIndex - 1) % DEFAULT_COLORS.length];
@@ -734,15 +1367,7 @@ export const segmentationService = {
       }
     }
 
-    // Ensure Contour representation's annotationUIDsMap has an entry for the
-    // new segment index. Without this, contour tools can't attach annotations
-    // to the new segment until ensureContourRepresentation is triggered.
-    const contourData = (seg.representationData as any)?.Contour;
-    if (contourData?.annotationUIDsMap && !contourData.annotationUIDsMap.has(nextIndex)) {
-      contourData.annotationUIDsMap.set(nextIndex, new Set<string>());
-    }
-
-    console.log(`[segmentationService] Added segment ${nextIndex} to ${segmentationId}: "${label}"`);
+    console.log(`[segmentationService] Added segment ${nextIndex} to ${segmentationId}: "${segmentLabel}"`);
 
     syncSegmentations();
     return nextIndex;
@@ -811,6 +1436,7 @@ export const segmentationService = {
   async addToViewport(viewportId: string, segmentationId: string): Promise<void> {
     // Suppress dirty tracking during load — Cornerstone fires SEGMENTATION_DATA_MODIFIED
     // internally when adding representations, which would falsely mark state as dirty.
+    setDirtyTrackingSuppressedFor(400);
     suppressDirtyTrackingCount++;
     try {
     // NOTE: No polling loop here. The caller MUST ensure the viewport is ready
@@ -839,6 +1465,45 @@ export const segmentationService = {
       return; // Can't continue without labelmap
     }
 
+    // v4.16+ requires both _stackLabelmapImageIdReferenceMap and
+    // _labelmapImageIdReferenceMap to be populated for every source→labelmap
+    // pair. The built-in Cornerstone methods are broken for stack viewports:
+    // - updateLabelmapSegmentationImageReferences: only maps current slice
+    // - _updateAllLabelmapSegmentationImageReferences: maps ALL source slices
+    //   to the SAME labelmap (matchImagesForOverlay always compares against
+    //   the current viewport position, not the iterated source position)
+    //
+    // Fix: directly populate both internal maps using the authoritative
+    // referencedImageId property on each labelmap image. This is O(N) and
+    // produces the correct 1:1 source↔labelmap mapping.
+    try {
+      const seg = csSegmentation.state.getSegmentation(segmentationId);
+      const lmImageIds: string[] = (seg?.representationData?.Labelmap as any)?.imageIds ?? [];
+      // Access the singleton SegmentationStateManager instance
+      const mgr = csSegmentation.defaultSegmentationStateManager as any;
+      if (!mgr._stackLabelmapImageIdReferenceMap.has(segmentationId)) {
+        mgr._stackLabelmapImageIdReferenceMap.set(segmentationId, new Map());
+      }
+      const perSegMap = mgr._stackLabelmapImageIdReferenceMap.get(segmentationId);
+      for (const lmId of lmImageIds) {
+        const lmImg = cache.getImage(lmId);
+        const refId = (lmImg as any)?.referencedImageId;
+        if (!refId) continue;
+        // _stackLabelmapImageIdReferenceMap: srcImageId → labelmapImageId
+        perSegMap.set(refId, lmId);
+        // _labelmapImageIdReferenceMap: "${segId}-${srcImageId}" → [labelmapImageId]
+        const mapKey = `${segmentationId}-${refId}`;
+        const existing = mgr._labelmapImageIdReferenceMap.get(mapKey);
+        if (!existing) {
+          mgr._labelmapImageIdReferenceMap.set(mapKey, [lmId]);
+        } else if (!existing.includes(lmId)) {
+          mgr._labelmapImageIdReferenceMap.set(mapKey, [...existing, lmId]);
+        }
+      }
+    } catch (err) {
+      console.warn('[segmentationService] Failed to populate labelmap reference maps:', err);
+    }
+
     // Step 2: Set as active segmentation + apply styles (must succeed for brush to work)
     try {
       csSegmentation.activeSegmentation.setActiveSegmentation(viewportId, segmentationId);
@@ -852,6 +1517,32 @@ export const segmentationService = {
       this.updateStyle(store.fillAlpha, store.renderOutline);
     } catch (err) {
       console.error('[segmentationService] Failed to update style:', err);
+    }
+
+    // Ensure a valid color exists for each segment on this viewport.
+    // Without this, Cornerstone can throw LUT-index errors during cursor/overlay render.
+    try {
+      const segObj = csSegmentation.state.getSegmentation(segmentationId);
+      for (const idx of getValidSegmentIndices(segObj)) {
+        let hasColor = false;
+        try {
+          const c = csSegmentation.config.color.getSegmentIndexColor(viewportId, segmentationId, idx);
+          hasColor = hasUsableColor(c);
+        } catch {
+          hasColor = false;
+        }
+        if (!hasColor) {
+          const fallback = DEFAULT_COLORS[(idx - 1) % DEFAULT_COLORS.length];
+          csSegmentation.config.color.setSegmentIndexColor(
+            viewportId,
+            segmentationId,
+            idx,
+            fallback as any,
+          );
+        }
+      }
+    } catch (err) {
+      console.debug('[segmentationService] Failed to ensure segment colors:', err);
     }
 
     // Apply ONLY loaded DICOM colors (from RecommendedDisplayRGBValue) — do NOT
@@ -878,16 +1569,7 @@ export const segmentationService = {
       if (allColorsApplied) loadedColorsMap.delete(segmentationId);
     }
 
-    // Step 3: Add contour representation (optional — for contour tools).
-    try {
-      csSegmentation.addContourRepresentationToViewport(viewportId, [
-        { segmentationId },
-      ]);
-    } catch (err) {
-      console.debug('[segmentationService] Contour representation add failed (non-critical):', err);
-    }
-
-    // Step 4: Trigger segmentation render to ensure overlay is visible.
+    // Step 3: Trigger segmentation render to ensure overlay is visible.
     try {
       csToolUtilities.segmentation.triggerSegmentationRender(viewportId);
       const enabledEl = getEnabledElementByViewportId(viewportId);
@@ -923,32 +1605,37 @@ export const segmentationService = {
    * reattached by SegmentationManager when the user switches back.
    */
   removeSegmentationsFromViewport(viewportId: string): void {
-    try {
-      const allSegmentations = csSegmentation.state.getSegmentations();
+    // Representation removals can trigger async SEGMENTATION_DATA_MODIFIED events
+    // after this method returns. Keep dirty tracking suppressed briefly so scan
+    // navigation doesn't create false unsaved changes / autosave attempts.
+    setDirtyTrackingSuppressedFor(1500);
+    this.runWithDirtyTrackingSuppressed(() => {
+      try {
+        const allSegmentations = csSegmentation.state.getSegmentations();
 
-      for (const seg of allSegmentations) {
-        const viewportIds = csSegmentation.state.getViewportIdsWithSegmentation(seg.segmentationId);
-        if (viewportIds.includes(viewportId)) {
-          // Remove representations from this viewport only — keep the global object
-          try {
-            csSegmentation.removeLabelmapRepresentation(viewportId, seg.segmentationId);
-          } catch {
-            // May already be removed
-          }
-          try {
-            csSegmentation.removeContourRepresentation(viewportId, seg.segmentationId);
-          } catch {
-            // May not have contour representation
-          }
+        for (const seg of allSegmentations) {
+          const viewportIds = csSegmentation.state.getViewportIdsWithSegmentation(seg.segmentationId);
+          if (viewportIds.includes(viewportId)) {
+            // Remove representations from this viewport only — keep the global object
+            try {
+              csSegmentation.removeLabelmapRepresentation(viewportId, seg.segmentationId);
+            } catch {
+              // May already be removed
+            }
+            try {
+              csSegmentation.removeContourRepresentation(viewportId, seg.segmentationId);
+            } catch {
+              // May not have contour representation
+            }
 
-          console.log(`[segmentationService] Detached segmentation ${seg.segmentationId} from viewport ${viewportId} (global object preserved)`);
+            console.log(`[segmentationService] Detached segmentation ${seg.segmentationId} from viewport ${viewportId} (global object preserved)`);
+          }
         }
+      } catch (err) {
+        console.error('[segmentationService] Failed to remove segmentations from viewport:', err);
       }
-
-      syncSegmentations();
-    } catch (err) {
-      console.error('[segmentationService] Failed to remove segmentations from viewport:', err);
-    }
+    });
+    syncSegmentations();
   },
 
   /**
@@ -971,24 +1658,61 @@ export const segmentationService = {
       console.debug('[segmentationService] activateOnViewport setActive:', err);
     }
 
-    // Ensure contour representation is registered on this viewport
-    // for the newly-activated segmentation (non-critical, for contour tools).
-    try {
-      csSegmentation.addContourRepresentationToViewport(viewportId, [
-        { segmentationId },
-      ]);
-    } catch (err) {
-      console.debug('[segmentationService] activateOnViewport contour:', err);
-    }
+    // Contour representation is added lazily only when a contour tool is activated.
   },
 
   /**
    * Set the active segment index for painting.
-   * Index 0 = background (eraser mode), 1+ = segments.
+   * Must be >= 1 (segment 0/background is not a paint target).
    */
   setActiveSegmentIndex(segmentationId: string, segmentIndex: number): void {
-    csSegmentation.segmentIndex.setActiveSegmentIndex(segmentationId, segmentIndex);
-    useSegmentationStore.getState().setActiveSegmentIndex(segmentIndex);
+    if (!Number.isFinite(segmentIndex) || segmentIndex <= 0) {
+      console.warn(`[segmentationService] Invalid active segment index ${segmentIndex}; using 1`);
+      segmentIndex = 1;
+    }
+    const fallbackColor = (() => {
+      const summary = useSegmentationStore
+        .getState()
+        .segmentations
+        .find((s) => s.segmentationId === segmentationId);
+      const fromStore = summary?.segments.find((s) => s.segmentIndex === segmentIndex)?.color;
+      if (fromStore && hasUsableColor(fromStore as any)) {
+        return [...fromStore] as [number, number, number, number];
+      }
+      return DEFAULT_COLORS[(segmentIndex - 1) % DEFAULT_COLORS.length];
+    })();
+
+    // Ensure color exists before activating the segment to avoid LUT-index
+    // warnings in Cornerstone cursor/annotation rendering paths.
+    const viewportIds = csSegmentation.state.getViewportIdsWithSegmentation(segmentationId);
+    for (const vpId of viewportIds) {
+      try {
+        const c = csSegmentation.config.color.getSegmentIndexColor(vpId, segmentationId, segmentIndex);
+        if (!hasUsableColor(c)) {
+          csSegmentation.config.color.setSegmentIndexColor(
+            vpId,
+            segmentationId,
+            segmentIndex,
+            fallbackColor as any,
+          );
+        }
+      } catch {
+        try {
+          csSegmentation.config.color.setSegmentIndexColor(
+            vpId,
+            segmentationId,
+            segmentIndex,
+            fallbackColor as any,
+          );
+        } catch {
+          // ignore color init failures on detached/stale viewports
+        }
+      }
+    }
+    this.runWithDirtyTrackingSuppressed(() => {
+      csSegmentation.segmentIndex.setActiveSegmentIndex(segmentationId, segmentIndex);
+      useSegmentationStore.getState().setActiveSegmentIndex(segmentIndex);
+    });
     console.log(`[segmentationService] Active segment: ${segmentIndex}`);
   },
 
@@ -1000,6 +1724,7 @@ export const segmentationService = {
     segmentIndex: number,
     color: [number, number, number, number],
   ): void {
+    if (!Number.isFinite(segmentIndex) || segmentIndex <= 0 || !Number.isInteger(segmentIndex)) return;
     const viewportIds = csSegmentation.state.getViewportIdsWithSegmentation(segmentationId);
     for (const vpId of viewportIds) {
       try {
@@ -1031,8 +1756,20 @@ export const segmentationService = {
    */
   renameSegment(segmentationId: string, segmentIndex: number, newLabel: string): void {
     const seg = csSegmentation.state.getSegmentation(segmentationId);
-    if (!seg?.segments?.[segmentIndex]) return;
-    seg.segments[segmentIndex].label = newLabel;
+    if (!seg?.segments) return;
+    if (seg.segments instanceof Map) {
+      const entry = seg.segments.get(segmentIndex);
+      if (!entry) return;
+      entry.label = newLabel;
+      entry.SegmentLabel = newLabel;
+      seg.segments.set(segmentIndex, entry);
+    } else {
+      const entry = (seg.segments as any)[segmentIndex];
+      if (!entry) return;
+      entry.label = newLabel;
+      entry.SegmentLabel = newLabel;
+      (seg.segments as any)[segmentIndex] = entry;
+    }
     syncSegmentations();
   },
 
@@ -1389,13 +2126,15 @@ export const segmentationService = {
 
           // Extract RecommendedDisplayCIELabValue and convert to RGBA
           if (meta.RecommendedDisplayCIELabValue?.length >= 3) {
-            const rgb = (dcmjsData as any).Colors.dicomlab2RGB(meta.RecommendedDisplayCIELabValue);
-            colorMap.set(i, [
-              Math.round(rgb[0] * 255),
-              Math.round(rgb[1] * 255),
-              Math.round(rgb[2] * 255),
-              255,
-            ]);
+            const rgb = (dcmjsData as any).Colors?.dicomlab2RGB?.(meta.RecommendedDisplayCIELabValue);
+            if (Array.isArray(rgb) && rgb.length >= 3) {
+              colorMap.set(i, [
+                Math.round(rgb[0] * 255),
+                Math.round(rgb[1] * 255),
+                Math.round(rgb[2] * 255),
+                255,
+              ]);
+            }
           }
         }
       }
@@ -1456,15 +2195,6 @@ export const segmentationService = {
         },
       ]);
 
-      // Add empty Contour representation data so contour tools work without
-      // PolySeg conversion (which fails for stack-based labelmaps).
-      const segObjDicom = csSegmentation.state.getSegmentation(segmentationId);
-      if (segObjDicom) {
-        (segObjDicom.representationData as any).Contour = {
-          annotationUIDsMap: new Map(),
-        };
-      }
-
       // Track source imageIds for DICOM SEG re-export
       sourceImageIdsMap.set(segmentationId, [...sourceImageIds]);
 
@@ -1512,7 +2242,11 @@ export const segmentationService = {
       }
 
       // 2. Ensure segments array has entries with all required properties.
-      const activeIdx = useSegmentationStore.getState().activeSegmentIndex;
+      const activeIdxRaw = useSegmentationStore.getState().activeSegmentIndex;
+      const activeIdx =
+        Number.isFinite(activeIdxRaw) && Number.isInteger(activeIdxRaw) && activeIdxRaw >= 0
+          ? activeIdxRaw
+          : 1;
       if (!seg.segments) {
         (seg as any).segments = {};
       }
@@ -1537,6 +2271,26 @@ export const segmentationService = {
       csSegmentation.addContourRepresentationToViewport(viewportId, [
         { segmentationId },
       ]);
+
+      // Ensure active contour segment has a valid color entry.
+      if (activeIdx > 0) {
+        let hasColor = false;
+        try {
+          const c = csSegmentation.config.color.getSegmentIndexColor(viewportId, segmentationId, activeIdx);
+          hasColor = hasUsableColor(c);
+        } catch {
+          hasColor = false;
+        }
+        if (!hasColor) {
+          const fallback = DEFAULT_COLORS[(activeIdx - 1) % DEFAULT_COLORS.length];
+          csSegmentation.config.color.setSegmentIndexColor(
+            viewportId,
+            segmentationId,
+            activeIdx,
+            fallback as any,
+          );
+        }
+      }
 
       // Set as active segmentation
       csSegmentation.activeSegmentation.setActiveSegmentation(viewportId, segmentationId);
@@ -1643,21 +2397,12 @@ export const segmentationService = {
     const rows = sourceImages[0].rows ?? sourceImages[0].height ?? 512;
     const columns = sourceImages[0].columns ?? sourceImages[0].width ?? 512;
 
-    // Try to get viewport-mapped labelmap imageIds (these are the ones the
-    // brush tool actually writes to). Fall back to the representation imageIds.
-    const viewportIds = csSegmentation.state.getViewportIdsWithSegmentation(segmentationId);
-    let viewportLabelmapIds: string[] | null = null;
-    if (viewportIds.length > 0) {
-      try {
-        viewportLabelmapIds = (csSegmentation.state as any)
-          .getStackSegmentationImageIdsForViewport(viewportIds[0], segmentationId);
-      } catch {
-        // Not available — fall back
-      }
-    }
-
-    const effectiveLmIds = viewportLabelmapIds ?? labelmapImageIds;
-    console.log(`[segmentationService] Using ${viewportLabelmapIds ? 'viewport-mapped' : 'representation'} labelmap imageIds (${effectiveLmIds.length})`);
+    // Use the labelmap imageIds from the representation data directly.
+    // DO NOT call getStackSegmentationImageIdsForViewport() — it triggers
+    // _updateAllLabelmapSegmentationImageReferences() which is broken in v4.16
+    // and corrupts the _stackLabelmapImageIdReferenceMap (maps all source images
+    // to the same labelmap, causing bleed to all slices + extreme lag).
+    const effectiveLmIds = labelmapImageIds;
 
     // Build referencedImageId → labelmap image lookup.
     const refIdToLabelmap = new Map<string, any>();
@@ -1748,7 +2493,7 @@ export const segmentationService = {
 
       labelmaps2D.push({
         pixelData,
-        segmentsOnLabelmap: Array.from(segmentsOnSlice),
+        segmentsOnLabelmap: sanitizeSegmentIndices(Array.from(segmentsOnSlice)),
         rows,
         columns,
       });
@@ -1799,7 +2544,8 @@ export const segmentationService = {
 
         // Convert RGB (0-255) to normalized RGB (0-1), then to DICOM CIE Lab
         const normalizedRgb = [color[0] / 255, color[1] / 255, color[2] / 255];
-        const cieLabValues = (dcmjsData as any).Colors.rgb2DICOMLAB(normalizedRgb);
+        const cieLabValues =
+          (dcmjsData as any).Colors?.rgb2DICOMLAB?.(normalizedRgb) ?? [0, 0, 0];
 
         segmentMetadata.push({
           SegmentLabel: segment.label || `Segment ${idx}`,
@@ -1942,7 +2688,7 @@ export const segmentationService = {
 
     // Pre-export validation: count segment-frame pairs (same logic as fillSegmentation)
     const totalSegFrames = labelmaps2D.reduce((sum, lm) =>
-      sum + (lm.segmentsOnLabelmap?.filter((s: number) => s !== 0).length ?? 0), 0);
+      sum + sanitizeSegmentIndices(lm.segmentsOnLabelmap ?? []).length, 0);
     console.log(`[segmentationService] Pre-export check: ${totalSegFrames} segment-frame pairs across ${labelmaps2D.length} slices`);
 
     if (totalSegFrames === 0) {
@@ -1985,6 +2731,7 @@ export const segmentationService = {
     //
     // We detect this condition and fully rebuild the DICOM SEG dataset.
     const ds = segDerivation.dataset;
+    applySourceDicomContextToSegDataset(ds, srcImageIds[0]);
 
     const dsRowsValid = typeof ds.Rows === 'number' && ds.Rows > 0;
     const dsColsValid = typeof ds.Columns === 'number' && ds.Columns > 0;
@@ -2346,6 +3093,23 @@ export const segmentationService = {
     sourceImageIdsMap.set(segmentationId, [...imageIds]);
   },
 
+  /**
+   * Return tracked source image IDs for a segmentation (copy), if available.
+   * Used by RTSTRUCT export to copy source DICOM identity fields.
+   */
+  getTrackedSourceImageIds(segmentationId: string): string[] | null {
+    const ids = sourceImageIdsMap.get(segmentationId);
+    return ids ? [...ids] : null;
+  },
+
+  /**
+   * Infer preferred DICOM object type for a segmentation.
+   * Contour-only segmentations map to RTSTRUCT; labelmap or mixed map to SEG.
+   */
+  getPreferredDicomType(segmentationId: string): 'SEG' | 'RTSTRUCT' {
+    return getSegmentationType(segmentationId) === 'contour' ? 'RTSTRUCT' : 'SEG';
+  },
+
   // ─── Undo / Redo ──────────────────────────────────────────────
 
   /**
@@ -2353,9 +3117,13 @@ export const segmentationService = {
    * Uses Cornerstone3D's DefaultHistoryMemo ring buffer.
    */
   undo(): void {
-    if (!DefaultHistoryMemo.canUndo) return;
-    DefaultHistoryMemo.undo();
+    try {
+      DefaultHistoryMemo?.undo?.();
+    } catch (err) {
+      console.warn('[segmentationService] Undo failed:', err);
+    }
     syncSegmentations();
+    renderAllSegmentationViewports();
     refreshUndoState();
   },
 
@@ -2363,9 +3131,13 @@ export const segmentationService = {
    * Redo a previously undone edit.
    */
   redo(): void {
-    if (!DefaultHistoryMemo.canRedo) return;
-    DefaultHistoryMemo.redo();
+    try {
+      DefaultHistoryMemo?.redo?.();
+    } catch (err) {
+      console.warn('[segmentationService] Redo failed:', err);
+    }
     syncSegmentations();
+    renderAllSegmentationViewports();
     refreshUndoState();
   },
 
@@ -2374,8 +3146,8 @@ export const segmentationService = {
    */
   getUndoState(): { canUndo: boolean; canRedo: boolean } {
     return {
-      canUndo: DefaultHistoryMemo.canUndo,
-      canRedo: DefaultHistoryMemo.canRedo,
+      canUndo: !!DefaultHistoryMemo?.canUndo,
+      canRedo: !!DefaultHistoryMemo?.canRedo,
     };
   },
 
@@ -2383,6 +3155,15 @@ export const segmentationService = {
    * Cancel any pending auto-save timer (e.g. when a manual save starts).
    */
   cancelAutoSave,
+
+  /**
+   * Immediately attempt an auto-save draft, regardless of the auto-save toggle.
+   * Used by navigation/disconnect flows when prompting users to save changes.
+   */
+  async flushAutoSaveNow(): Promise<boolean> {
+    cancelAutoSave();
+    return performAutoSave(true);
+  },
 
   /**
    * Signal that a SEG/RTSTRUCT load operation is starting.
@@ -2438,12 +3219,22 @@ export const segmentationService = {
     eventTarget.removeEventListener(Events.SEGMENTATION_REPRESENTATION_ADDED, onSegmentationEvent);
     eventTarget.removeEventListener(Events.SEGMENTATION_REPRESENTATION_REMOVED, onSegmentationEvent);
     eventTarget.removeEventListener(Events.SEGMENTATION_DATA_MODIFIED, onSegmentationDataModified);
+    eventTarget.removeEventListener(Events.ANNOTATION_COMPLETED as any, onAnnotationAutoSave);
+    eventTarget.removeEventListener(Events.ANNOTATION_MODIFIED as any, onAnnotationAutoSave);
+    eventTarget.removeEventListener(Events.ANNOTATION_COMPLETED as any, onAnnotationHistoryEvent);
+    eventTarget.removeEventListener(Events.ANNOTATION_MODIFIED as any, onAnnotationHistoryEvent);
+    eventTarget.removeEventListener(Events.ANNOTATION_REMOVED as any, onAnnotationHistoryEvent);
 
     // Cancel pending auto-save
     if (autoSaveTimer) {
       clearTimeout(autoSaveTimer);
       autoSaveTimer = null;
     }
+    if (labelmapInterpolationTimer) {
+      clearTimeout(labelmapInterpolationTimer);
+      labelmapInterpolationTimer = null;
+    }
+    labelmapInterpolationInProgress = false;
 
     // Clean up module-level state
     sourceImageIdsMap.clear();

@@ -33,3 +33,6 @@ release/
 
 # Claude
 .claude/
+
+# Bundled binaries
+extraResources/

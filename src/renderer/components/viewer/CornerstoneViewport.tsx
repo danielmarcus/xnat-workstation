@@ -13,7 +13,7 @@
  * 5. Loads images when imageIds prop changes
  */
 import { useEffect, useRef, useState } from 'react';
-import { Enums } from '@cornerstonejs/core';
+import { Enums, cache } from '@cornerstonejs/core';
 import { viewportService } from '../../lib/cornerstone/viewportService';
 import { toolService } from '../../lib/cornerstone/toolService';
 import { metadataService } from '../../lib/cornerstone/metadataService';
@@ -30,6 +30,8 @@ export default function CornerstoneViewport({ panelId, imageIds }: CornerstoneVi
   const containerRef = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<string>('Initializing...');
   const [error, setError] = useState<string | null>(null);
+  const renderedImageIndex = useViewerStore((s) => s.viewports[panelId]?.imageIndex ?? 0);
+  const requestedImageIndex = useViewerStore((s) => s.viewports[panelId]?.requestedImageIndex ?? null);
 
   // ─── Setup / Teardown ──────────────────────────────────────
   useEffect(() => {
@@ -185,6 +187,22 @@ export default function CornerstoneViewport({ panelId, imageIds }: CornerstoneVi
           </div>
         </div>
       )}
+      {(() => {
+        const hasPendingSlice =
+          requestedImageIndex !== null &&
+          requestedImageIndex !== renderedImageIndex &&
+          requestedImageIndex >= 0 &&
+          requestedImageIndex < imageIds.length;
+        if (!hasPendingSlice) return null;
+        const pendingImageId = imageIds[requestedImageIndex];
+        const isPendingLoaded = pendingImageId ? cache.isLoaded(pendingImageId) : true;
+        if (isPendingLoaded) return null;
+        return (
+          <div className="absolute left-1/2 -translate-x-1/2 bottom-2 px-2 py-1 rounded bg-black/50 text-zinc-200 text-[11px] pointer-events-none">
+            Slice loading...
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -245,7 +263,25 @@ function wireEvents(element: HTMLDivElement, panelId: string): void {
     if (Math.abs(wheelAccum) >= WHEEL_THRESHOLD) {
       const steps = Math.trunc(wheelAccum / WHEEL_THRESHOLD);
       wheelAccum -= steps * WHEEL_THRESHOLD;
-      viewportService.scroll(panelId, steps);
+
+      const state = useViewerStore.getState();
+      const vpState = state.viewports[panelId];
+      const total =
+        vpState?.totalImages ??
+        viewportService.getViewport(panelId)?.getImageIds().length ??
+        0;
+      if (total <= 1) return;
+
+      const baseIndex =
+        vpState?.requestedImageIndex ??
+        vpState?.imageIndex ??
+        viewportService.getViewport(panelId)?.getCurrentImageIdIndex() ??
+        0;
+      const targetIndex = Math.max(0, Math.min(total - 1, baseIndex + steps));
+      if (targetIndex !== baseIndex) {
+        state._requestImageIndex(panelId, targetIndex, total);
+        viewportService.scrollToIndex(panelId, targetIndex);
+      }
     }
   }, { passive: false });
 }

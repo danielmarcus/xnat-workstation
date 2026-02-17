@@ -96,6 +96,7 @@ export function registerUploadHandlers(): void {
       sessionId: string,
       targetScanId: string,
       dicomSegBase64: string,
+      seriesDescription?: string,
     ) => {
       const client = sessionManager.getClient();
       if (!client) {
@@ -108,12 +109,99 @@ export function registerUploadHandlers(): void {
           `[uploadHandlers] Overwriting DICOM SEG in scan ${targetScanId} (${buffer.length} bytes)`,
         );
 
-        const result = await client.overwriteDicomSegInScan(sessionId, targetScanId, buffer);
+        const result = await client.overwriteDicomSegInScan(
+          sessionId,
+          targetScanId,
+          buffer,
+          seriesDescription,
+        );
         return { ok: true, url: result.url, scanId: result.scanId };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.error('[uploadHandlers] Overwrite failed:', msg);
         sessionManager.handleAuthFailure(err);
+        return { ok: false, error: msg };
+      }
+    },
+  );
+
+  // ─── Overwrite DICOM RTSTRUCT in existing scan ─────────────────
+  ipcMain.handle(
+    IPC.XNAT_OVERWRITE_DICOM_RTSTRUCT,
+    async (
+      _event,
+      sessionId: string,
+      targetScanId: string,
+      dicomRtStructBase64: string,
+      seriesDescription?: string,
+    ) => {
+      const client = sessionManager.getClient();
+      if (!client) {
+        return { ok: false, error: 'Not connected to XNAT' };
+      }
+
+      try {
+        const buffer = Buffer.from(dicomRtStructBase64, 'base64');
+        console.log(
+          `[uploadHandlers] Overwriting DICOM RTSTRUCT in scan ${targetScanId} (${buffer.length} bytes)`,
+        );
+
+        const result = await client.overwriteDicomRtStructInScan(
+          sessionId,
+          targetScanId,
+          buffer,
+          seriesDescription,
+        );
+        return { ok: true, url: result.url, scanId: result.scanId };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error('[uploadHandlers] RTSTRUCT overwrite failed:', msg);
+        return { ok: false, error: msg };
+      }
+    },
+  );
+
+  // ─── Prepare DICOM bytes exactly as upload would store them ───
+  ipcMain.handle(
+    IPC.XNAT_PREPARE_DICOM_UPLOAD,
+    async (
+      _event,
+      type: 'SEG' | 'RTSTRUCT',
+      projectId: string,
+      subjectId: string,
+      sessionId: string,
+      sessionLabel: string,
+      sourceScanId: string,
+      dicomBase64: string,
+      targetScanId?: string,
+      seriesDescription?: string,
+    ) => {
+      const client = sessionManager.getClient();
+      if (!client) {
+        return { ok: false, error: 'Not connected to XNAT' };
+      }
+
+      try {
+        const buffer = Buffer.from(dicomBase64, 'base64');
+        const prepared = await client.prepareDicomForUpload(
+          type,
+          projectId,
+          subjectId,
+          sessionId,
+          sessionLabel,
+          sourceScanId,
+          buffer,
+          targetScanId,
+          seriesDescription,
+        );
+        return {
+          ok: true,
+          scanId: prepared.scanId,
+          data: prepared.dicomBuffer.toString('base64'),
+        };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error('[uploadHandlers] Prepare DICOM upload failed:', msg);
         return { ok: false, error: msg };
       }
     },
@@ -226,6 +314,7 @@ export function registerUploadHandlers(): void {
       sessionLabel: string,
       sourceScanId: string,
       dicomRtStructBase64: string,
+      label?: string,
     ) => {
       const client = sessionManager.getClient();
       if (!client) {
@@ -246,6 +335,7 @@ export function registerUploadHandlers(): void {
           sessionLabel,
           sourceScanId,
           buffer,
+          label,
         );
 
         return { ok: true, url: result.url, scanId: result.scanId };

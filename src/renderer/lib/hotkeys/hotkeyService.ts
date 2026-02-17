@@ -254,10 +254,18 @@ function handleSliceNavigation(
     case 'slice.last':     jumpTo = vp.totalImages - 1; break;
   }
 
+  const baseIndex = vp.requestedImageIndex ?? vp.imageIndex;
+  let targetIndex = baseIndex;
   if (jumpTo !== null) {
-    viewportService.scrollToIndex(pid, jumpTo);
+    targetIndex = jumpTo;
   } else if (delta !== 0) {
-    viewportService.scroll(pid, delta);
+    targetIndex = baseIndex + delta;
+  }
+  targetIndex = Math.max(0, Math.min(vp.totalImages - 1, targetIndex));
+
+  if (targetIndex !== baseIndex) {
+    viewerState._requestImageIndex(pid, targetIndex, vp.totalImages);
+    viewportService.scrollToIndex(pid, targetIndex);
   }
   return true;
 }
