@@ -38,11 +38,19 @@ import {
   LivewireContourSegmentationTool,
   CircleScissorsTool,
   RectangleScissorsTool,
-  PaintFillTool,
+  SphereScissorsTool,
   SculptorTool,
+  SegmentSelectTool,
+  RegionSegmentTool,
+  RegionSegmentPlusTool,
+  SegmentBidirectionalTool,
+  RectangleROIThresholdTool,
+  CircleROIStartEndThresholdTool,
+  LabelMapEditWithContourTool,
   Enums as ToolEnums,
   segmentation as csSegmentation,
 } from '@cornerstonejs/tools';
+import SafePaintFillTool from './tools/SafePaintFillTool';
 import type { Types as ToolTypes } from '@cornerstonejs/tools';
 import { getRenderingEngine } from '@cornerstonejs/core';
 import {
@@ -58,6 +66,12 @@ import { segmentationService } from './segmentationService';
 import { useViewerStore } from '../../stores/viewerStore';
 
 const TOOL_GROUP_ID = 'xnatToolGroup_primary';
+const CONTOUR_INTERPOLATION_TOOL_NAMES = [
+  PlanarFreehandContourSegmentationTool.toolName,
+  SplineContourSegmentationTool.toolName,
+  LivewireContourSegmentationTool.toolName,
+  LabelMapEditWithContourTool.toolName,
+] as const;
 
 /** Map ToolName enum to Cornerstone tool class name */
 const TOOL_NAME_MAP: Record<ToolName, string> = {
@@ -81,12 +95,22 @@ const TOOL_NAME_MAP: Record<ToolName, string> = {
   [ToolName.ThresholdBrush]: BrushTool.toolName,
   [ToolName.CircleScissors]: CircleScissorsTool.toolName,
   [ToolName.RectangleScissors]: RectangleScissorsTool.toolName,
-  [ToolName.PaintFill]: PaintFillTool.toolName,
+  [ToolName.SphereScissors]: SphereScissorsTool.toolName,
+  [ToolName.PaintFill]: SafePaintFillTool.toolName,
+  [ToolName.RectangleROIThreshold]: RectangleROIThresholdTool.toolName,
+  [ToolName.CircleROIThreshold]: CircleROIStartEndThresholdTool.toolName,
   // Contour segmentation tools
   [ToolName.FreehandContour]: PlanarFreehandContourSegmentationTool.toolName,
   [ToolName.SplineContour]: SplineContourSegmentationTool.toolName,
   [ToolName.LivewireContour]: LivewireContourSegmentationTool.toolName,
   [ToolName.Sculptor]: SculptorTool.toolName,
+  [ToolName.LabelmapEditWithContour]: LabelMapEditWithContourTool.toolName,
+  // Smart/AI segmentation tools (GrowCut)
+  [ToolName.RegionSegment]: RegionSegmentTool.toolName,
+  [ToolName.RegionSegmentPlus]: RegionSegmentPlusTool.toolName,
+  // Utility segmentation tools
+  [ToolName.SegmentSelect]: SegmentSelectTool.toolName,
+  [ToolName.SegmentBidirectional]: SegmentBidirectionalTool.toolName,
 };
 
 const { Primary, Auxiliary, Secondary } = ToolEnums.MouseBindings;
@@ -95,6 +119,44 @@ let currentActiveTool: ToolName = ToolName.WindowLevel;
 
 function getToolGroup(): ToolTypes.IToolGroup | undefined {
   return ToolGroupManager.getToolGroup(TOOL_GROUP_ID);
+}
+
+function applyInterpolationConfiguration(
+  toolGroup: ToolTypes.IToolGroup,
+  enabled: boolean,
+): void {
+  for (const toolName of CONTOUR_INTERPOLATION_TOOL_NAMES) {
+    try {
+      toolGroup.setToolConfiguration(
+        toolName,
+        {
+          interpolation: { enabled },
+        },
+      );
+    } catch (err) {
+      console.debug(`[toolService] Failed to set interpolation config for ${toolName}:`, err);
+    }
+  }
+}
+
+function getSafePaintSegmentIndex(segmentIndex: number): number {
+  if (Number.isFinite(segmentIndex) && Number.isInteger(segmentIndex) && segmentIndex > 0) {
+    return segmentIndex;
+  }
+  return 1;
+}
+
+function getBrushStrategyForTool(toolName: ToolName): string | null {
+  switch (toolName) {
+    case ToolName.Eraser:
+      return 'ERASE_INSIDE_CIRCLE';
+    case ToolName.ThresholdBrush:
+      return 'THRESHOLD_INSIDE_CIRCLE';
+    case ToolName.Brush:
+      return 'FILL_INSIDE_CIRCLE';
+    default:
+      return null;
+  }
 }
 
 /** Configuration for ArrowAnnotateTool (passed during addTool) */
@@ -145,6 +207,10 @@ function rebuildToolGroup(primaryTool: ToolName): ToolTypes.IToolGroup | undefin
 
   // Add all tools
   addAllTools(toolGroup);
+  applyInterpolationConfiguration(
+    toolGroup,
+    useSegmentationStore.getState().interpolationEnabled,
+  );
 
   // Re-add viewports
   for (const vpId of viewportIds) {
@@ -183,11 +249,19 @@ function addAllTools(toolGroup: ToolTypes.IToolGroup): void {
   toolGroup.addTool(BrushTool.toolName);
   toolGroup.addTool(CircleScissorsTool.toolName);
   toolGroup.addTool(RectangleScissorsTool.toolName);
-  toolGroup.addTool(PaintFillTool.toolName);
+  toolGroup.addTool(SphereScissorsTool.toolName);
+  toolGroup.addTool(SafePaintFillTool.toolName);
+  toolGroup.addTool(RectangleROIThresholdTool.toolName);
+  toolGroup.addTool(CircleROIStartEndThresholdTool.toolName);
   toolGroup.addTool(PlanarFreehandContourSegmentationTool.toolName);
   toolGroup.addTool(SplineContourSegmentationTool.toolName);
   toolGroup.addTool(LivewireContourSegmentationTool.toolName);
   toolGroup.addTool(SculptorTool.toolName);
+  toolGroup.addTool(LabelMapEditWithContourTool.toolName);
+  toolGroup.addTool(RegionSegmentTool.toolName);
+  toolGroup.addTool(RegionSegmentPlusTool.toolName);
+  toolGroup.addTool(SegmentSelectTool.toolName);
+  toolGroup.addTool(SegmentBidirectionalTool.toolName);
 }
 
 /**
@@ -196,6 +270,11 @@ function addAllTools(toolGroup: ToolTypes.IToolGroup): void {
  * default (added but not active) state — no stale bindings to worry about.
  */
 function applyBindings(toolGroup: ToolTypes.IToolGroup, primaryTool: ToolName): void {
+  const brushStrategy = getBrushStrategyForTool(primaryTool);
+  if (brushStrategy) {
+    toolGroup.setActiveStrategy(BrushTool.toolName, brushStrategy);
+  }
+
   // 1. Activate the primary tool with Left-click (+ fixed binding if Pan/Zoom)
   const primaryCsName = TOOL_NAME_MAP[primaryTool];
   const primaryBindings: any[] = [{ mouseButton: Primary }];
@@ -241,6 +320,11 @@ function applyBindings(toolGroup: ToolTypes.IToolGroup, primaryTool: ToolName): 
     if (csName && contourTool !== primaryTool) {
       toolGroup.setToolEnabled(csName);
     }
+  }
+
+  // 5. SegmentBidirectional creates persistent annotations → keep Enabled
+  if (primaryTool !== ToolName.SegmentBidirectional) {
+    toolGroup.setToolEnabled(SegmentBidirectionalTool.toolName);
   }
 
   console.log(`[toolService] applyBindings(${primaryTool})`);
@@ -331,6 +415,10 @@ export const toolService = {
     }
 
     addAllTools(toolGroup);
+    applyInterpolationConfiguration(
+      toolGroup,
+      useSegmentationStore.getState().interpolationEnabled,
+    );
 
     // Restore the brush size from the store — addAllTools creates fresh tool
     // instances with Cornerstone's default (25), so we must re-apply the
@@ -352,7 +440,7 @@ export const toolService = {
   addViewport(viewportId: string): void {
     const toolGroup = getToolGroup();
     if (!toolGroup) {
-      console.warn('[toolService] No tool group — call initialize() first');
+      console.debug('[toolService] No tool group — call initialize() first');
       return;
     }
     toolGroup.addViewport(viewportId, viewportService.ENGINE_ID);
@@ -386,16 +474,17 @@ export const toolService = {
    * For segmentation tools, also handles:
    * - Auto-creating a segmentation if none exists (seamless UX)
    * - Auto-opening the segmentation panel
-   * - Setting segment index: Eraser→0, Brush/ThresholdBrush→activeSegmentIndex
+   * - Setting active segment index to a valid paint segment (>= 1)
    */
   setActiveTool(toolName: ToolName): void {
-    if (toolName === currentActiveTool) return;
+    if (toolName === currentActiveTool && !SEGMENTATION_TOOLS.has(toolName)) return;
 
     if (!getToolGroup()) return;
 
     // Handle segmentation tool activation
     if (SEGMENTATION_TOOLS.has(toolName)) {
       const segStore = useSegmentationStore.getState();
+      const viewportId = useViewerStore.getState().activeViewportId;
       segStore.setActiveSegTool(toolName);
 
       // Auto-open the segmentation panel
@@ -403,11 +492,28 @@ export const toolService = {
         segStore.togglePanel();
       }
 
+      const isSegOnViewport = (segmentationId: string): boolean => {
+        return segmentationService.getViewportIdsForSegmentation(segmentationId).includes(viewportId);
+      };
+
+      // Active segmentation may belong to a different scan/panel. Prefer a segmentation
+      // currently attached to the active viewport; otherwise we'll create a new one.
+      let activeSegId = segStore.activeSegmentationId;
+      if (activeSegId && !isSegOnViewport(activeSegId)) {
+        activeSegId = null;
+      }
+      if (!activeSegId) {
+        const attachedSeg = segStore.segmentations.find((s) => isSegOnViewport(s.segmentationId));
+        if (attachedSeg) {
+          activeSegId = attachedSeg.segmentationId;
+          segStore.setActiveSegmentation(activeSegId);
+        }
+      }
+
       // If no segmentation exists yet, auto-create one BEFORE activating the tool.
       // Segmentation tools crash if they receive mouse events without a segmentation
       // on the viewport, so we must NOT rebuild until the segmentation is ready.
-      if (!segStore.activeSegmentationId) {
-        const viewportId = useViewerStore.getState().activeViewportId;
+      if (!activeSegId) {
         try {
           const engine = getRenderingEngine(viewportService.ENGINE_ID);
           const viewport = engine?.getViewport(viewportId);
@@ -415,23 +521,38 @@ export const toolService = {
             const imageIds = (viewport as any).getImageIds() as string[];
             if (imageIds && imageIds.length > 0) {
               // Create segmentation first, then activate the tool
-              segmentationService.createStackSegmentation(imageIds).then((segId) => {
-                return segmentationService.addToViewport(viewportId, segId);
-              }).then(async () => {
-                const updatedStore = useSegmentationStore.getState();
-                const segId = updatedStore.activeSegmentationId;
+              segmentationService.createStackSegmentation(imageIds, undefined, true).then(async (segId) => {
+                await segmentationService.addToViewport(viewportId, segId);
+
+                // Track local unsaved origin so auto-save/save targets stay bound
+                // to the source scan even if the user changes panels before saving.
+                const viewerState = useViewerStore.getState();
+                const sourceScanId =
+                  viewerState.panelScanMap[viewportId] ?? viewerState.xnatContext?.scanId;
+                if (
+                  sourceScanId &&
+                  viewerState.xnatContext?.projectId &&
+                  viewerState.xnatContext?.sessionId
+                ) {
+                  useSegmentationStore.getState().setXnatOrigin(segId, {
+                    scanId: '',
+                    sourceScanId,
+                    projectId: viewerState.xnatContext.projectId,
+                    sessionId: viewerState.xnatContext.sessionId,
+                  });
+                }
+
                 if (segId) {
-                  // Set the active segment index
-                  if (toolName === ToolName.Eraser) {
-                    csSegmentation.segmentIndex.setActiveSegmentIndex(segId, 0);
-                  } else {
-                    csSegmentation.segmentIndex.setActiveSegmentIndex(segId, updatedStore.activeSegmentIndex);
-                  }
+                  // Keep active segment index valid for cursor/LUT resolution.
+                  // Eraser behavior is controlled by Brush strategy, not segment index 0.
+                  const paintIdx = getSafePaintSegmentIndex(
+                    useSegmentationStore.getState().activeSegmentIndex,
+                  );
+                  segmentationService.setActiveSegmentIndex(segId, paintIdx);
 
                   // Ensure contour representation for contour tools
                   if (CONTOUR_SEG_TOOLS.has(toolName)) {
-                    const vpId = useViewerStore.getState().activeViewportId;
-                    await segmentationService.ensureContourRepresentation(vpId, segId);
+                    await segmentationService.ensureContourRepresentation(viewportId, segId);
                   }
                 }
 
@@ -443,11 +564,11 @@ export const toolService = {
                 console.error('[toolService] Failed to auto-create segmentation:', err);
               });
             } else {
-              console.warn('[toolService] Cannot auto-create segmentation — no images in viewport');
+              console.debug('[toolService] Cannot auto-create segmentation — no images in viewport');
             }
           }
         } catch (err) {
-          console.warn('[toolService] Cannot auto-create segmentation:', err);
+          console.debug('[toolService] Cannot auto-create segmentation:', err);
         }
         // Return early — don't activate the tool yet. It will be activated
         // in the .then() callback above once the segmentation is ready.
@@ -455,17 +576,15 @@ export const toolService = {
       }
 
       // Segmentation already exists
-      const segId = segStore.activeSegmentationId;
+      const segId = activeSegId;
       if (segId) {
-        if (toolName === ToolName.Eraser) {
-          csSegmentation.segmentIndex.setActiveSegmentIndex(segId, 0);
-        } else {
-          csSegmentation.segmentIndex.setActiveSegmentIndex(segId, segStore.activeSegmentIndex);
-        }
+        segmentationService.setActiveSegmentIndex(
+          segId,
+          getSafePaintSegmentIndex(segStore.activeSegmentIndex),
+        );
 
         // Ensure contour representation for contour tools
         if (CONTOUR_SEG_TOOLS.has(toolName)) {
-          const viewportId = useViewerStore.getState().activeViewportId;
           segmentationService.ensureContourRepresentation(viewportId, segId).then(() => {
             currentActiveTool = toolName;
             rebuildToolGroup(toolName);
@@ -494,6 +613,17 @@ export const toolService = {
    */
   getActiveTool(): ToolName {
     return currentActiveTool;
+  },
+
+  /**
+   * Enable/disable between-slice interpolation for contour segmentation tools.
+   * Labelmap interpolation reads the same store flag inside segmentationService.
+   */
+  setInterpolationEnabled(enabled: boolean): void {
+    useSegmentationStore.getState().setInterpolationEnabled(enabled);
+    const toolGroup = getToolGroup();
+    if (!toolGroup) return;
+    applyInterpolationConfiguration(toolGroup, enabled);
   },
 
   /**

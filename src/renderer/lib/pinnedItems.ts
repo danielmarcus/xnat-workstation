@@ -66,6 +66,7 @@ export interface NavigateToTarget {
 const PINNED_KEY = 'xnat-viewer:pinned-items';
 const RECENT_KEY = 'xnat-viewer:recent-sessions';
 const OLD_KEY = 'xnat-viewer:recent-session'; // Legacy key to migrate from
+const RECENT_CONNECTIONS_KEY = 'xnat-viewer:recent-connections';
 const MAX_RECENT = 5;
 
 function normalize(url: string): string {
@@ -276,5 +277,40 @@ export function migrateOldStorage(): void {
   } catch {
     // Migration failed — not critical, just remove old key
     try { localStorage.removeItem(OLD_KEY); } catch { /* ignore */ }
+  }
+}
+
+/**
+ * Clear all persisted local browser storage entries scoped to a server URL.
+ * Used on disconnect to avoid leaking per-server history across sessions.
+ */
+export function clearServerScopedStorage(serverUrl: string): void {
+  const norm = normalize(serverUrl);
+  try {
+    const pinned = readPinned().filter((item) => normalize(item.serverUrl) !== norm);
+    writePinned(pinned);
+  } catch {
+    // ignore
+  }
+
+  try {
+    const recent = readRecent().filter((item) => normalize(item.serverUrl) !== norm);
+    writeRecent(recent);
+  } catch {
+    // ignore
+  }
+
+  try {
+    const raw = localStorage.getItem(RECENT_CONNECTIONS_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return;
+    const filtered = parsed.filter((item: any) => {
+      const url = typeof item?.serverUrl === 'string' ? item.serverUrl : '';
+      return normalize(url) !== norm;
+    });
+    localStorage.setItem(RECENT_CONNECTIONS_KEY, JSON.stringify(filtered));
+  } catch {
+    // ignore
   }
 }

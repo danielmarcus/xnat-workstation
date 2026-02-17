@@ -81,8 +81,9 @@ export class SegmentationManager {
       // Use session-scoped composite key for loadedBySourceScan lookup.
       // Use xnatContext.sessionId (not viewerStore.sessionId) — see getVisibleSegmentationIdsForViewport.
       const viewerState = useViewerStore.getState();
-      const projectId = viewerState.xnatContext?.projectId ?? '';
-      const currentSessionId = viewerState.xnatContext?.sessionId ?? '';
+      const panelCtx = viewerState.panelXnatContextMap[panelId] ?? viewerState.xnatContext;
+      const projectId = panelCtx?.projectId ?? '';
+      const currentSessionId = panelCtx?.sessionId ?? '';
       const compositeSourceKey = `${projectId}/${currentSessionId}/${sourceScanId}`;
       const loadedForSource = mgr.loadedBySourceScan[compositeSourceKey] ?? {};
       const desired = mgr.panelState[panelId]?.desiredOverlayIds ?? [];
@@ -165,6 +166,8 @@ export class SegmentationManager {
       segmentationId = result.segmentationId;
       firstNonZeroReferencedImageId = result.firstNonZeroReferencedImageId;
       await segmentationService.addToViewport(panelId, segmentationId);
+      this.restorePresentationState(segmentationId);
+      this.captureInitialPresentationState(segmentationId);
     } finally {
       segmentationService.endSegLoad();
     }
@@ -209,6 +212,8 @@ export class SegmentationManager {
       const result = await rtStructService.loadRtStructAsContours(parsed, sourceImageIds, panelId);
       segmentationId = result.segmentationId;
       firstReferencedImageId = result.firstReferencedImageId;
+      this.restorePresentationState(segmentationId);
+      this.captureInitialPresentationState(segmentationId);
     } finally {
       segmentationService.endSegLoad();
     }
@@ -275,8 +280,9 @@ export class SegmentationManager {
     // Build session-scoped composite key for loadedBySourceScan lookups.
     // Use xnatContext.sessionId (not viewerStore.sessionId) — see getVisibleSegmentationIdsForViewport.
     const viewerState = useViewerStore.getState();
-    const projectId = viewerState.xnatContext?.projectId ?? '';
-    const currentSessionId = viewerState.xnatContext?.sessionId ?? '';
+    const panelCtx = viewerState.panelXnatContextMap[panelId] ?? viewerState.xnatContext;
+    const projectId = panelCtx?.projectId ?? '';
+    const currentSessionId = panelCtx?.sessionId ?? '';
     const compositeSourceKey = `${projectId}/${currentSessionId}/${sourceScanId}`;
 
     // Capture epoch at start for staleness checks
@@ -416,11 +422,10 @@ export class SegmentationManager {
     const sourceScanId = viewerState.panelScanMap[viewportId];
     if (!sourceScanId) return null; // No XNAT scan → show all (local files)
 
-    // Use xnatContext.sessionId (not viewerStore.sessionId) because
-    // loadFromXnatScan sets xnatContext but does NOT update viewerStore.sessionId.
-    // viewerStore.sessionId is only set by setSessionData (full session load).
-    const projectId = viewerState.xnatContext?.projectId;
-    const currentSessionId = viewerState.xnatContext?.sessionId;
+    // Use panel-scoped context first to prevent cross-panel/session leakage.
+    const panelCtx = viewerState.panelXnatContextMap[viewportId] ?? viewerState.xnatContext;
+    const projectId = panelCtx?.projectId;
+    const currentSessionId = panelCtx?.sessionId;
     if (!projectId || !currentSessionId) return null; // No session context → show all
 
     const compositeKey = `${projectId}/${currentSessionId}/${sourceScanId}`;
@@ -454,7 +459,8 @@ export class SegmentationManager {
       }
     }
 
-    // 4. Fallback: check Cornerstone viewport attachment for any segs not found via maps
+    // 4. Fallback: include segmentations still attached to this viewport.
+    // This keeps newly-created / not-yet-mapped rows visible.
     for (const seg of segState.segmentations) {
       if (!result.has(seg.segmentationId) && this.isSegOnViewport(viewportId, seg.segmentationId)) {
         result.add(seg.segmentationId);
@@ -495,11 +501,21 @@ export class SegmentationManager {
       if (this.disposed) return;
       if (this.isEpochStale(viewportId, epoch)) return;
 
+      let added = false;
       if (!this.isSegOnViewport(viewportId, segmentationId)) {
         await segmentationService.addToViewport(viewportId, segmentationId);
+        added = true;
+      }
+      if (added) {
+        this.restorePresentationState(segmentationId);
+        this.captureInitialPresentationState(segmentationId);
       }
 
-      segmentationService.setActiveSegmentIndex(segmentationId, segmentIndex);
+      const safeSegmentIndex =
+        Number.isFinite(segmentIndex) && Number.isInteger(segmentIndex) && segmentIndex >= 0
+          ? segmentIndex
+          : 1;
+      segmentationService.setActiveSegmentIndex(segmentationId, safeSegmentIndex);
       segmentationService.activateOnViewport(viewportId, segmentationId);
     } catch (err) {
       console.debug('[SegmentationManager] ensureAttachedAndActivate failed:', err);
@@ -557,16 +573,48 @@ export class SegmentationManager {
     sourceImageIds: string[],
     label?: string,
   ): Promise<string> {
-    const segId = await segmentationService.createStackSegmentation(sourceImageIds, label);
+    const segId = await segmentationService.createStackSegmentation(sourceImageIds, label, false);
     await segmentationService.addToViewport(viewportId, segId);
+    segmentationService.ensureEmptySegmentation(segId);
+    useSegmentationStore.getState().setDicomType(segId, 'SEG');
 
     // Record local origin with session-scoped composite key so the
     // segmentation panel can filter by the active viewport's source scan.
     // Use xnatContext.sessionId (not viewerStore.sessionId) — see getVisibleSegmentationIdsForViewport.
     const viewerState = useViewerStore.getState();
+    const panelCtx = viewerState.panelXnatContextMap[viewportId] ?? viewerState.xnatContext;
     const sourceScanId = viewerState.panelScanMap[viewportId];
-    const projectId = viewerState.xnatContext?.projectId;
-    const sessionId = viewerState.xnatContext?.sessionId;
+    const projectId = panelCtx?.projectId;
+    const sessionId = panelCtx?.sessionId;
+    if (sourceScanId && projectId && sessionId) {
+      useSegmentationManagerStore.getState().setLocalOrigin(
+        segId,
+        `${projectId}/${sessionId}/${sourceScanId}`,
+      );
+    }
+
+    return segId;
+  }
+
+  /**
+   * Create a new contour-based structure annotation on the active panel.
+   * Returns the new segmentation ID.
+   */
+  async createNewStructure(
+    viewportId: string,
+    sourceImageIds: string[],
+    label?: string,
+  ): Promise<string> {
+    const segId = await segmentationService.createContourSegmentation(sourceImageIds, label, false);
+    await segmentationService.ensureContourRepresentation(viewportId, segId);
+    segmentationService.ensureEmptySegmentation(segId);
+    useSegmentationStore.getState().setDicomType(segId, 'RTSTRUCT');
+
+    const viewerState = useViewerStore.getState();
+    const panelCtx = viewerState.panelXnatContextMap[viewportId] ?? viewerState.xnatContext;
+    const sourceScanId = viewerState.panelScanMap[viewportId];
+    const projectId = panelCtx?.projectId;
+    const sessionId = panelCtx?.sessionId;
     if (sourceScanId && projectId && sessionId) {
       useSegmentationManagerStore.getState().setLocalOrigin(
         segId,
@@ -674,32 +722,41 @@ export class SegmentationManager {
     const cached = useSegmentationManagerStore.getState().presentation[segmentationId];
     if (!cached) return;
 
-    // Restore colors
-    for (const [idxStr, rgba] of Object.entries(cached.color)) {
-      const idx = Number(idxStr);
-      segmentationService.setSegmentColor(segmentationId, idx, rgba);
-    }
-
-    // Restore visibility — need viewport IDs to call toggleSegmentVisibility
-    const viewportIds = segmentationService.getViewportIdsForSegmentation(segmentationId);
-    for (const [idxStr, visible] of Object.entries(cached.visibility)) {
-      if (!visible) {
+    // Color/visibility/lock restoration can emit asynchronous segmentation events.
+    // Suppress dirty tracking briefly so scan switching doesn't create false
+    // unsaved-change warnings or auto-save attempts.
+    segmentationService.suppressDirtyTrackingFor(600);
+    segmentationService.runWithDirtyTrackingSuppressed(() => {
+      // Restore colors
+      for (const [idxStr, rgba] of Object.entries(cached.color)) {
         const idx = Number(idxStr);
-        // toggleSegmentVisibility toggles, so only call if currently visible
-        // and we want it hidden. Since we just loaded, segments default to visible.
-        for (const vpId of viewportIds) {
-          segmentationService.toggleSegmentVisibility(vpId, segmentationId, idx);
+        if (!Number.isFinite(idx) || !Number.isInteger(idx) || idx <= 0) continue;
+        segmentationService.setSegmentColor(segmentationId, idx, rgba);
+      }
+
+      // Restore visibility — need viewport IDs to call toggleSegmentVisibility
+      const viewportIds = segmentationService.getViewportIdsForSegmentation(segmentationId);
+      for (const [idxStr, visible] of Object.entries(cached.visibility)) {
+        if (!visible) {
+          const idx = Number(idxStr);
+          if (!Number.isFinite(idx) || !Number.isInteger(idx) || idx <= 0) continue;
+          // toggleSegmentVisibility toggles, so only call if currently visible
+          // and we want it hidden. Since we just loaded, segments default to visible.
+          for (const vpId of viewportIds) {
+            segmentationService.toggleSegmentVisibility(vpId, segmentationId, idx);
+          }
         }
       }
-    }
 
-    // Restore lock state
-    for (const [idxStr, locked] of Object.entries(cached.locked)) {
-      if (locked) {
-        const idx = Number(idxStr);
-        segmentationService.toggleSegmentLocked(segmentationId, idx);
+      // Restore lock state
+      for (const [idxStr, locked] of Object.entries(cached.locked)) {
+        if (locked) {
+          const idx = Number(idxStr);
+          if (!Number.isFinite(idx) || !Number.isInteger(idx) || idx <= 0) continue;
+          segmentationService.toggleSegmentLocked(segmentationId, idx);
+        }
       }
-    }
+    });
 
     console.log(`[SegmentationManager] Restored presentation state for ${segmentationId}`);
   }
@@ -723,6 +780,9 @@ export class SegmentationManager {
     if (!segSummary) return;
 
     for (const seg of segSummary.segments) {
+      if (!Number.isFinite(seg.segmentIndex) || !Number.isInteger(seg.segmentIndex) || seg.segmentIndex <= 0) {
+        continue;
+      }
       // Skip if this segment already has a cached color (user customization)
       if (existing?.color[seg.segmentIndex]) continue;
 

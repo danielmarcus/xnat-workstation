@@ -61,6 +61,53 @@ export function registerExportHandlers(): void {
     },
   );
 
+  // ─── Save Viewport Region Capture to File ─────────────────────
+  ipcMain.handle(
+    IPC.EXPORT_SAVE_VIEWPORT_CAPTURE,
+    async (
+      _event,
+      bounds: { x: number; y: number; width: number; height: number },
+      defaultName?: string,
+    ) => {
+      try {
+        const win = BrowserWindow.getFocusedWindow();
+        if (!win) return { ok: false, error: 'No focused window' };
+
+        const x = Math.floor(bounds?.x ?? 0);
+        const y = Math.floor(bounds?.y ?? 0);
+        const width = Math.floor(bounds?.width ?? 0);
+        const height = Math.floor(bounds?.height ?? 0);
+        if (width <= 0 || height <= 0) {
+          return { ok: false, error: 'Invalid viewport bounds' };
+        }
+
+        const result = await dialog.showSaveDialog(win, {
+          defaultPath: defaultName ?? 'viewport.png',
+          filters: [
+            { name: 'PNG Image', extensions: ['png'] },
+            { name: 'JPEG Image', extensions: ['jpg', 'jpeg'] },
+          ],
+        });
+        if (result.canceled || !result.filePath) {
+          return { ok: false };
+        }
+
+        const image = await win.webContents.capturePage({ x, y, width, height });
+        const ext = path.extname(result.filePath).toLowerCase();
+        const buffer = ext === '.jpg' || ext === '.jpeg'
+          ? image.toJPEG(92)
+          : image.toPNG();
+
+        await fs.writeFile(result.filePath, buffer);
+        return { ok: true, path: result.filePath };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error('[exportHandlers] saveViewportCapture error:', msg);
+        return { ok: false, error: msg };
+      }
+    },
+  );
+
   // ─── Copy to Clipboard ────────────────────────────────────────
   ipcMain.handle(
     IPC.EXPORT_COPY_CLIPBOARD,

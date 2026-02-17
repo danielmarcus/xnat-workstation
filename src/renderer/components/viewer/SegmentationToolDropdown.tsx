@@ -10,7 +10,15 @@
  */
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useViewerStore } from '../../stores/viewerStore';
-import { ToolName, SEGMENTATION_TOOLS, TOOL_DISPLAY_NAMES } from '@shared/types/viewer';
+import { useSegmentationStore } from '../../stores/segmentationStore';
+import {
+  ToolName,
+  SEGMENTATION_TOOLS,
+  TOOL_DISPLAY_NAMES,
+  LABELMAP_SEG_TOOLS,
+  CONTOUR_SEG_TOOLS,
+} from '@shared/types/viewer';
+import { segmentationService } from '../../lib/cornerstone/segmentationService';
 import {
   IconBrush,
   IconEraser,
@@ -19,8 +27,16 @@ import {
   IconLivewireContour,
   IconCircleScissors,
   IconRectangleScissors,
+  IconSphereScissors,
   IconPaintFill,
   IconSculptor,
+  IconSegmentSelect,
+  IconRegionSegment,
+  IconRegionSegmentPlus,
+  IconSegmentBidirectional,
+  IconRectangleROIThreshold,
+  IconCircleROIThreshold,
+  IconLabelmapEditContour,
 } from '../icons';
 
 /** Tool group definition for structured dropdown */
@@ -42,11 +58,30 @@ const SEG_TOOL_GROUPS: ToolGroup[] = [
       ToolName.SplineContour,
       ToolName.LivewireContour,
       ToolName.Sculptor,
+      ToolName.LabelmapEditWithContour,
     ],
   },
   {
     label: 'Fill Tools',
-    tools: [ToolName.CircleScissors, ToolName.RectangleScissors, ToolName.PaintFill],
+    tools: [
+      ToolName.CircleScissors,
+      ToolName.RectangleScissors,
+      ToolName.SphereScissors,
+      ToolName.PaintFill,
+    ],
+  },
+  {
+    label: 'Smart Tools',
+    tools: [
+      ToolName.RegionSegment,
+      ToolName.RegionSegmentPlus,
+      ToolName.RectangleROIThreshold,
+      ToolName.CircleROIThreshold,
+    ],
+  },
+  {
+    label: 'Utility',
+    tools: [ToolName.SegmentSelect, ToolName.SegmentBidirectional],
   },
 ];
 
@@ -93,6 +128,22 @@ function SegToolIcon({ tool }: { tool: ToolName }) {
       return <IconPaintFill className={cls} />;
     case ToolName.Sculptor:
       return <IconSculptor className={cls} />;
+    case ToolName.SphereScissors:
+      return <IconSphereScissors className={cls} />;
+    case ToolName.SegmentSelect:
+      return <IconSegmentSelect className={cls} />;
+    case ToolName.RegionSegment:
+      return <IconRegionSegment className={cls} />;
+    case ToolName.RegionSegmentPlus:
+      return <IconRegionSegmentPlus className={cls} />;
+    case ToolName.SegmentBidirectional:
+      return <IconSegmentBidirectional className={cls} />;
+    case ToolName.RectangleROIThreshold:
+      return <IconRectangleROIThreshold className={cls} />;
+    case ToolName.CircleROIThreshold:
+      return <IconCircleROIThreshold className={cls} />;
+    case ToolName.LabelmapEditWithContour:
+      return <IconLabelmapEditContour className={cls} />;
     default:
       return <span className="w-4 h-4 text-[10px] text-center">?</span>;
   }
@@ -105,8 +156,16 @@ export default function SegmentationToolDropdown() {
   const dropdownRef = useRef<HTMLDivElement>(null);
   const activeTool = useViewerStore((s) => s.activeTool);
   const setActiveTool = useViewerStore((s) => s.setActiveTool);
+  const activeSegmentationId = useSegmentationStore((s) => s.activeSegmentationId);
+  const dicomTypeBySegmentationId = useSegmentationStore((s) => s.dicomTypeBySegmentationId);
 
   const isSegActive = SEGMENTATION_TOOLS.has(activeTool);
+  const activeAnnotationType = activeSegmentationId
+    ? (dicomTypeBySegmentationId[activeSegmentationId]
+      ?? segmentationService.getPreferredDicomType(activeSegmentationId))
+    : null;
+  const disableLabelmapTools = activeAnnotationType === 'RTSTRUCT';
+  const disableContourTools = activeAnnotationType === 'SEG';
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -134,15 +193,20 @@ export default function SegmentationToolDropdown() {
 
   const handleSelect = useCallback(
     (tool: ToolName) => {
+      const isLabelmapTool = LABELMAP_SEG_TOOLS.has(tool);
+      const isContourTool = CONTOUR_SEG_TOOLS.has(tool);
+      if ((disableLabelmapTools && isLabelmapTool) || (disableContourTools && isContourTool)) {
+        return;
+      }
       setActiveTool(tool);
       setOpen(false);
     },
-    [setActiveTool],
+    [setActiveTool, disableLabelmapTools, disableContourTools],
   );
 
   return (
     <>
-      {/* Trigger button — shows icon + "Segment" text when a tool is active, or just "Segment" when inactive */}
+      {/* Trigger button — shows icon + "Annotate" text when a tool is active, or just "Annotate" when inactive */}
       <button
         ref={buttonRef}
         onClick={handleToggle}
@@ -151,10 +215,10 @@ export default function SegmentationToolDropdown() {
             ? 'bg-blue-600 text-white'
             : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700 hover:text-white'
         }`}
-        title={isSegActive ? `Segment: ${TOOL_DISPLAY_NAMES[activeTool]}` : 'Segmentation painting tools'}
+        title={isSegActive ? `Annotate: ${TOOL_DISPLAY_NAMES[activeTool]}` : 'Segmentation/structure annotation tools'}
       >
         {isSegActive && <SegToolIcon tool={activeTool} />}
-        Segment
+        Annotate
         <svg
           className={`w-3 h-3 transition-transform ${open ? 'rotate-180' : ''}`}
           viewBox="0 0 12 12"
@@ -187,15 +251,30 @@ export default function SegmentationToolDropdown() {
               <div className="flex flex-col gap-0.5">
                 {group.tools.map((tool) => {
                   const isActive = activeTool === tool;
+                  const isLabelmapTool = LABELMAP_SEG_TOOLS.has(tool);
+                  const isContourTool = CONTOUR_SEG_TOOLS.has(tool);
+                  const disabled =
+                    (disableLabelmapTools && isLabelmapTool) ||
+                    (disableContourTools && isContourTool);
                   return (
                     <button
                       key={tool}
                       onClick={() => handleSelect(tool)}
+                      disabled={disabled}
                       className={`flex items-center gap-2 px-2.5 py-1.5 rounded text-xs transition-colors ${
-                        isActive
+                        disabled
+                          ? 'text-zinc-600 bg-zinc-900/60 cursor-not-allowed'
+                          : isActive
                           ? 'bg-blue-600 text-white'
                           : 'text-zinc-300 hover:bg-zinc-700 hover:text-white'
                       }`}
+                      title={
+                        disabled
+                          ? (activeAnnotationType === 'RTSTRUCT'
+                            ? 'Disabled for structure annotation mode'
+                            : 'Disabled for segmentation annotation mode')
+                          : undefined
+                      }
                     >
                       <SegToolIcon tool={tool} />
                       {TOOL_DISPLAY_NAMES[tool]}

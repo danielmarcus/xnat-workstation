@@ -27,6 +27,8 @@ export interface SegmentationSummary {
   isActive: boolean;         // Is this the active segmentation for editing?
 }
 
+export type SegmentationDicomType = 'SEG' | 'RTSTRUCT';
+
 interface SegmentationStore {
   /** All segmentation summaries, synced from Cornerstone state */
   segmentations: SegmentationSummary[];
@@ -45,6 +47,9 @@ interface SegmentationStore {
 
   /** Whether outline rendering is enabled */
   renderOutline: boolean;
+
+  /** Whether between-slice interpolation is enabled for annotations */
+  interpolationEnabled: boolean;
 
   /** Brush tool radius in pixels */
   brushSize: number;
@@ -86,6 +91,9 @@ interface SegmentationStore {
    */
   xnatOriginMap: Record<string, { scanId: string; sourceScanId: string; projectId: string; sessionId: string }>;
 
+  /** Per-row DICOM object type used for export/upload/download actions. */
+  dicomTypeBySegmentationId: Record<string, SegmentationDicomType>;
+
   // ─── Actions ─────────────────────────────────────────────
 
   /** Internal: sync segmentation list from segmentationService */
@@ -102,6 +110,9 @@ interface SegmentationStore {
 
   /** Toggle outline rendering */
   toggleOutline: () => void;
+
+  /** Enable/disable between-slice interpolation */
+  setInterpolationEnabled: (enabled: boolean) => void;
 
   /** Set brush size */
   setBrushSize: (size: number) => void;
@@ -133,6 +144,12 @@ interface SegmentationStore {
   /** Clear the XNAT origin for a segmentation (e.g. when deleted) */
   clearXnatOrigin: (segmentationId: string) => void;
 
+  /** Set export/upload DICOM type for a segmentation row */
+  setDicomType: (segmentationId: string, type: SegmentationDicomType) => void;
+
+  /** Clear stored DICOM type for a segmentation row */
+  clearDicomType: (segmentationId: string) => void;
+
   // ─── Auto-Load Preference ────────────────────────────────────
 
   /** Whether to auto-load associated SEG/RTSTRUCT when clicking a regular scan */
@@ -160,6 +177,7 @@ export const useSegmentationStore = create<SegmentationStore>((set) => ({
   fillAlpha: 0.5,
   showPanel: false,
   renderOutline: true,
+  interpolationEnabled: true,
   brushSize: 5,
   thresholdRange: [-200, 200],
   activeSegTool: null,
@@ -170,8 +188,17 @@ export const useSegmentationStore = create<SegmentationStore>((set) => ({
   autoSaveStatus: 'idle',
   lastAutoSaveTime: null,
   xnatOriginMap: {},
+  dicomTypeBySegmentationId: {},
 
-  _sync: (segmentations) => set({ segmentations }),
+  _sync: (segmentations) =>
+    set((s) => {
+      const keep = new Set(segmentations.map((seg) => seg.segmentationId));
+      const nextDicomType: Record<string, SegmentationDicomType> = {};
+      for (const [segId, type] of Object.entries(s.dicomTypeBySegmentationId)) {
+        if (keep.has(segId)) nextDicomType[segId] = type;
+      }
+      return { segmentations, dicomTypeBySegmentationId: nextDicomType };
+    }),
 
   setActiveSegmentation: (id) => set({ activeSegmentationId: id }),
 
@@ -180,6 +207,8 @@ export const useSegmentationStore = create<SegmentationStore>((set) => ({
   setFillAlpha: (alpha) => set({ fillAlpha: alpha }),
 
   toggleOutline: () => set((s) => ({ renderOutline: !s.renderOutline })),
+
+  setInterpolationEnabled: (enabled) => set({ interpolationEnabled: enabled }),
 
   setBrushSize: (size) => set({ brushSize: size }),
 
@@ -210,6 +239,17 @@ export const useSegmentationStore = create<SegmentationStore>((set) => ({
     set((s) => {
       const { [segmentationId]: _, ...rest } = s.xnatOriginMap;
       return { xnatOriginMap: rest };
+    }),
+
+  setDicomType: (segmentationId, type) =>
+    set((s) => ({
+      dicomTypeBySegmentationId: { ...s.dicomTypeBySegmentationId, [segmentationId]: type },
+    })),
+
+  clearDicomType: (segmentationId) =>
+    set((s) => {
+      const { [segmentationId]: _, ...rest } = s.dicomTypeBySegmentationId;
+      return { dicomTypeBySegmentationId: rest };
     }),
 
   autoLoadSegOnScanClick: true,

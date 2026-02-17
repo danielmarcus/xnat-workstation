@@ -44,6 +44,7 @@ export default function ViewportGrid({ panelImageIds }: ViewportGridProps) {
         return (
           <div
             key={pid}
+            data-panel-id={pid}
             className={`relative min-w-0 min-h-0 cursor-pointer ${
               isActive ? 'ring-2 ring-blue-500 ring-inset' : ''
             }`}

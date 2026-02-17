@@ -4,12 +4,18 @@
  *
  * Displays: green dot + server URL + username + Disconnect button
  */
+import { useState } from 'react';
 import { useConnectionStore } from '../../stores/connectionStore';
+import { useSegmentationStore } from '../../stores/segmentationStore';
+import { segmentationManager } from '../../lib/segmentation/segmentationManagerSingleton';
+import { segmentationService } from '../../lib/cornerstone/segmentationService';
+import { clearServerScopedStorage } from '../../lib/pinnedItems';
 import { IconDisconnect } from '../icons';
 
 export default function ConnectionStatus() {
   const connection = useConnectionStore((s) => s.connection);
   const logout = useConnectionStore((s) => s.logout);
+  const [disconnecting, setDisconnecting] = useState(false);
 
   if (!connection) return null;
 
@@ -19,6 +25,45 @@ export default function ConnectionStatus() {
     displayUrl = new URL(connection.serverUrl).hostname;
   } catch {
     // Keep full URL if parsing fails
+  }
+
+  async function handleDisconnect() {
+    if (disconnecting) return;
+
+    const hasUnsaved =
+      useSegmentationStore.getState().hasUnsavedChanges ||
+      segmentationManager.hasDirtySegmentations();
+
+    if (hasUnsaved) {
+      const saveDraft = window.confirm(
+        'You have unsaved annotations.\n\n' +
+        'Press OK to save a recoverable draft before disconnecting.\n' +
+        'Press Cancel to choose whether to discard changes.',
+      );
+
+      if (saveDraft) {
+        const saved = await segmentationService.flushAutoSaveNow();
+        if (!saved) {
+          const discardAfterFailed = window.confirm(
+            'Could not save a draft. Disconnect anyway and discard unsaved changes?',
+          );
+          if (!discardAfterFailed) return;
+        }
+      } else {
+        const discard = window.confirm(
+          'Disconnect and discard unsaved annotations?',
+        );
+        if (!discard) return;
+      }
+    }
+
+    setDisconnecting(true);
+    try {
+      clearServerScopedStorage(connection.serverUrl);
+      await logout();
+    } finally {
+      setDisconnecting(false);
+    }
   }
 
   return (
@@ -38,7 +83,8 @@ export default function ConnectionStatus() {
 
       {/* Disconnect button */}
       <button
-        onClick={logout}
+        onClick={() => { void handleDisconnect(); }}
+        disabled={disconnecting}
         className="flex items-center gap-1 text-zinc-500 hover:text-red-400 transition-colors ml-0.5 p-1 rounded hover:bg-zinc-800"
         title="Disconnect from XNAT"
       >

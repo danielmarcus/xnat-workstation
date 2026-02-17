@@ -1,31 +1,21 @@
 /**
- * SegmentationPanel — right-side panel for managing segmentations and segments.
- *
- * Layout:
- * ┌─────────────────────────────┐
- * │ Segments         [+ Seg]    │  ← Header + "Add Segmentation" button
- * ├─────────────────────────────┤
- * │ ▸ Segmentation 1  [×]      │  ← Segmentation row (collapsible)
- * │   ■ Segment 1    👁 🔓 [×]  │  ← Segment: color, label, vis, lock, delete
- * │   ■ Segment 2    👁 🔓 [×]  │
- * │   [+ Add Segment]           │
- * ├─────────────────────────────┤
- * │ Brush Size: ─────○── 15px   │  ← Tool options
- * │ Opacity:    ─────○── 50%    │
- * │ ☑ Show Outline              │
- * └─────────────────────────────┘
+ * SegmentationPanel — right-side panel for managing annotation objects and entries.
  */
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
-import { useSegmentationStore } from '../../stores/segmentationStore';
+import { useSegmentationStore, type SegmentationDicomType } from '../../stores/segmentationStore';
 import { useViewerStore } from '../../stores/viewerStore';
 import { useConnectionStore } from '../../stores/connectionStore';
 import { useSegmentationManagerStore } from '../../stores/segmentationManagerStore';
+import { useSessionDerivedIndexStore } from '../../stores/sessionDerivedIndexStore';
 import { segmentationService } from '../../lib/cornerstone/segmentationService';
 import { rtStructService } from '../../lib/cornerstone/rtStructService';
+import { toolService } from '../../lib/cornerstone/toolService';
 import { segmentationManager } from '../../lib/segmentation/segmentationManagerSingleton';
 import { ToolName, LABELMAP_SEG_TOOLS } from '@shared/types/viewer';
 import {
   IconPlus,
+  IconSegmentationAnnotation,
+  IconStructureAnnotation,
   IconClose,
   IconEye,
   IconEyeOff,
@@ -61,11 +51,69 @@ function rgbaStr(c: [number, number, number, number]): string {
   return `rgba(${c[0]},${c[1]},${c[2]},${c[3] / 255})`;
 }
 
+function isSegScanId(scanId: string): boolean {
+  return /^3\d+$/.test(scanId);
+}
+
+function isRtStructScanId(scanId: string): boolean {
+  return /^4\d+$/.test(scanId);
+}
+
+function isScanIdCompatibleWithType(scanId: string, type: SegmentationDicomType): boolean {
+  return type === 'SEG' ? isSegScanId(scanId) : isRtStructScanId(scanId);
+}
+
+function escapeRegex(raw: string): string {
+  return raw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 /** Props passed from ViewerPage */
 interface SegmentationPanelProps {
   /** Source imageIds from the active viewport panel — needed to create segmentations */
   sourceImageIds: string[];
 }
+
+interface AvailableOverlayRow {
+  type: 'SEG' | 'RTSTRUCT';
+  scanId: string;
+  label: string;
+  loadedSegmentationId: string | null;
+  loadStatus: 'idle' | 'loading' | 'loaded' | 'error';
+}
+
+type ExistingSaveDialogResult =
+  | { action: 'overwrite' }
+  | { action: 'create-new'; label: string }
+  | { action: 'cancel' };
+
+interface ExistingSaveDialogState {
+  scanId: string;
+  suggestedLabel: string;
+  newLabel: string;
+  mode: 'choose' | 'name';
+}
+
+interface SegmentNamingDialogState {
+  segmentationId: string;
+  rowType: SegmentationDicomType;
+  defaultName: string;
+  value: string;
+}
+
+const TYPE_ACCENTS = {
+  SEG: {
+    text: 'text-purple-300 hover:text-purple-200',
+    border: 'border-purple-900/35',
+    bgHover: 'hover:bg-purple-900/20',
+    badge: 'bg-purple-900/35 text-purple-300',
+  },
+  RTSTRUCT: {
+    text: 'text-emerald-300 hover:text-emerald-200',
+    border: 'border-emerald-900/35',
+    bgHover: 'hover:bg-emerald-900/20',
+    badge: 'bg-emerald-900/35 text-emerald-300',
+  },
+} as const;
 
 export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelProps) {
   const segmentations = useSegmentationStore((s) => s.segmentations);
@@ -73,6 +121,7 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
   const activeSegIndex = useSegmentationStore((s) => s.activeSegmentIndex);
   const fillAlpha = useSegmentationStore((s) => s.fillAlpha);
   const renderOutline = useSegmentationStore((s) => s.renderOutline);
+  const interpolationEnabled = useSegmentationStore((s) => s.interpolationEnabled);
   const brushSize = useSegmentationStore((s) => s.brushSize);
   const activeSegTool = useSegmentationStore((s) => s.activeSegTool);
   const thresholdRange = useSegmentationStore((s) => s.thresholdRange);
@@ -84,21 +133,84 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
   const autoLoadSegOnScanClick = useSegmentationStore((s) => s.autoLoadSegOnScanClick);
   const setAutoLoadSegOnScanClick = useSegmentationStore((s) => s.setAutoLoadSegOnScanClick);
   const xnatOriginMap = useSegmentationStore((s) => s.xnatOriginMap);
+  const dicomTypeBySegmentationId = useSegmentationStore((s) => s.dicomTypeBySegmentationId);
+  const setDicomType = useSegmentationStore((s) => s.setDicomType);
   const activeViewportId = useViewerStore((s) => s.activeViewportId);
   const panelScanMap = useViewerStore((s) => s.panelScanMap);
+  const panelXnatContextMap = useViewerStore((s) => s.panelXnatContextMap);
   const xnatContext = useViewerStore((s) => s.xnatContext);
   const connectionStatus = useConnectionStore((s) => s.status);
+  const derivedIndex = useSessionDerivedIndexStore((s) => s.derivedIndex);
 
   // Subscribe to manager store slices that affect panel filtering
   const loadedBySourceScan = useSegmentationManagerStore((s) => s.loadedBySourceScan);
   const localOriginBySegId = useSegmentationManagerStore((s) => s.localOriginBySegId);
+  const loadStatusByDerivedScan = useSegmentationManagerStore((s) => s.loadStatus);
+
+  const activeSourceScanId = panelScanMap[activeViewportId] ?? null;
+  const activePanelXnatContext = panelXnatContextMap[activeViewportId] ?? xnatContext;
 
   // ─── Filter segmentations by active viewport's source scan ────
   const visibleSegmentations = useMemo(() => {
     const allowed = segmentationManager.getVisibleSegmentationIdsForViewport(activeViewportId);
     if (!allowed) return segmentations; // null → show all (local files, no XNAT context)
     return segmentations.filter((seg) => allowed.has(seg.segmentationId));
-  }, [segmentations, activeViewportId, panelScanMap, xnatContext, xnatOriginMap, loadedBySourceScan, localOriginBySegId]);
+  }, [segmentations, activeViewportId, panelScanMap, panelXnatContextMap, xnatContext, xnatOriginMap, loadedBySourceScan, localOriginBySegId]);
+
+  const activeSourceCompositeKey = useMemo(() => {
+    if (!activeSourceScanId || !activePanelXnatContext?.projectId || !activePanelXnatContext?.sessionId) {
+      return null;
+    }
+    return `${activePanelXnatContext.projectId}/${activePanelXnatContext.sessionId}/${activeSourceScanId}`;
+  }, [activeSourceScanId, activePanelXnatContext]);
+
+  const availableOverlays = useMemo<AvailableOverlayRow[]>(() => {
+    if (!activeSourceScanId) return [];
+
+    const availability = derivedIndex[activeSourceScanId] ?? { segScans: [], rtStructScans: [] };
+    const loadedForSource = activeSourceCompositeKey
+      ? (loadedBySourceScan[activeSourceCompositeKey] ?? {})
+      : {};
+    const knownSegIds = new Set(segmentations.map((s) => s.segmentationId));
+    const rows: AvailableOverlayRow[] = [];
+
+    for (const scan of availability.segScans) {
+      const loadedInfo = loadedForSource[scan.id];
+      const loadedSegmentationId =
+        loadedInfo && knownSegIds.has(loadedInfo.segmentationId)
+          ? loadedInfo.segmentationId
+          : null;
+      rows.push({
+        type: 'SEG',
+        scanId: scan.id,
+        label: scan.seriesDescription || `SEG #${scan.id}`,
+        loadedSegmentationId,
+        loadStatus: loadStatusByDerivedScan[scan.id] ?? 'idle',
+      });
+    }
+
+    for (const scan of availability.rtStructScans) {
+      const loadedInfo = loadedForSource[scan.id];
+      const loadedSegmentationId =
+        loadedInfo && knownSegIds.has(loadedInfo.segmentationId)
+          ? loadedInfo.segmentationId
+          : null;
+      rows.push({
+        type: 'RTSTRUCT',
+        scanId: scan.id,
+        label: scan.seriesDescription || `RTSTRUCT #${scan.id}`,
+        loadedSegmentationId,
+        loadStatus: loadStatusByDerivedScan[scan.id] ?? 'idle',
+      });
+    }
+
+    return rows;
+  }, [activeSourceCompositeKey, activeSourceScanId, derivedIndex, loadedBySourceScan, loadStatusByDerivedScan, segmentations]);
+
+  const unloadedAvailableOverlays = useMemo(
+    () => availableOverlays.filter((overlay) => !overlay.loadedSegmentationId),
+    [availableOverlays],
+  );
 
   const setFillAlpha = useSegmentationStore((s) => s.setFillAlpha);
   const toggleOutline = useSegmentationStore((s) => s.toggleOutline);
@@ -131,10 +243,14 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
     }
   }, [editingLabel]);
 
-  // Naming dialog state (for creating a new segmentation)
+  // Naming dialog state (for creating a new annotation)
   const [namingDialog, setNamingDialog] = useState(false);
-  const [namingValue, setNamingValue] = useState('Segmentation');
+  const [namingValue, setNamingValue] = useState('Annotation');
+  const [pendingCreateType, setPendingCreateType] = useState<SegmentationDicomType>('SEG');
   const namingInputRef = useRef<HTMLInputElement>(null);
+  const [segmentNamingDialog, setSegmentNamingDialog] = useState<SegmentNamingDialogState | null>(null);
+  const segmentNamingInputRef = useRef<HTMLInputElement>(null);
+  const segmentNamingDialogWasOpenRef = useRef(false);
 
   // Focus the naming input when it appears
   useEffect(() => {
@@ -144,11 +260,22 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
     }
   }, [namingDialog]);
 
+  useEffect(() => {
+    const isOpen = segmentNamingDialog !== null;
+    if (isOpen && !segmentNamingDialogWasOpenRef.current && segmentNamingInputRef.current) {
+      segmentNamingInputRef.current.focus();
+      segmentNamingInputRef.current.select();
+    }
+    segmentNamingDialogWasOpenRef.current = isOpen;
+  }, [segmentNamingDialog]);
+
   // Save menu state
   const [saveMenuOpen, setSaveMenuOpen] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const saveMenuRef = useRef<HTMLDivElement>(null);
+  const [existingSaveDialog, setExistingSaveDialog] = useState<ExistingSaveDialogState | null>(null);
+  const existingSaveDialogResolverRef = useRef<((result: ExistingSaveDialogResult) => void) | null>(null);
 
   // Auto-dismiss toast
   useEffect(() => {
@@ -179,46 +306,89 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
     return () => document.removeEventListener('mousedown', handleClick);
   }, [saveMenuOpen]);
 
+  useEffect(() => {
+    return () => {
+      if (existingSaveDialogResolverRef.current) {
+        existingSaveDialogResolverRef.current({ action: 'cancel' });
+        existingSaveDialogResolverRef.current = null;
+      }
+    };
+  }, []);
+
   // ─── Handlers ─────────────────────────────────────────────────
 
-  const handleAddSegmentation = useCallback(() => {
+  const openAddAnnotationDialog = useCallback((type: SegmentationDicomType) => {
     if (sourceImageIds.length === 0) return;
-    setNamingValue('Segmentation');
+    setPendingCreateType(type);
+    setNamingValue(type === 'RTSTRUCT' ? 'Structure' : 'Segmentation');
     setNamingDialog(true);
   }, [sourceImageIds]);
 
-  const confirmAddSegmentation = useCallback(async () => {
+  const confirmAddAnnotation = useCallback(async () => {
     const name = namingValue.trim();
     if (!name) return;
     setNamingDialog(false);
     try {
-      const segId = await segmentationManager.createNewSegmentation(activeViewportId, sourceImageIds, name);
+      const segId = pendingCreateType === 'RTSTRUCT'
+        ? await segmentationManager.createNewStructure(activeViewportId, sourceImageIds, name)
+        : await segmentationManager.createNewSegmentation(activeViewportId, sourceImageIds, name);
+      setDicomType(segId, pendingCreateType);
       // Auto-expand the new segmentation
       setExpandedIds((prev) => new Set(prev).add(segId));
       // Track the source scan ID so auto-save targets the correct scan even
       // if the user switches panels/scans before the auto-save fires.
       // scanId='' means "not yet saved to XNAT" (distinguished from loaded SEGs).
-      const currentScanId = xnatContext?.scanId;
-      if (currentScanId && xnatContext?.projectId && xnatContext?.sessionId) {
+      const currentScanId = panelScanMap[activeViewportId] ?? activePanelXnatContext?.scanId;
+      if (currentScanId && activePanelXnatContext?.projectId && activePanelXnatContext?.sessionId) {
         useSegmentationStore.getState().setXnatOrigin(segId, {
           scanId: '',
           sourceScanId: currentScanId,
-          projectId: xnatContext.projectId,
-          sessionId: xnatContext.sessionId,
+          projectId: activePanelXnatContext.projectId,
+          sessionId: activePanelXnatContext.sessionId,
         });
       }
     } catch (err) {
-      console.error('[SegmentationPanel] Failed to create segmentation:', err);
-      setToast({ message: `Failed to create segmentation: ${err instanceof Error ? err.message : 'Unknown error'}`, type: 'error' });
+      console.error('[SegmentationPanel] Failed to create annotation:', err);
+      setToast({ message: `Failed to create annotation: ${err instanceof Error ? err.message : 'Unknown error'}`, type: 'error' });
     }
-  }, [namingValue, sourceImageIds, activeViewportId, xnatContext]);
+  }, [namingValue, sourceImageIds, activeViewportId, xnatContext, activePanelXnatContext, panelScanMap, setDicomType, pendingCreateType]);
 
-  const cancelAddSegmentation = useCallback(() => {
+  const cancelAddAnnotation = useCallback(() => {
     setNamingDialog(false);
   }, []);
 
-  const handleAddSegment = useCallback((segmentationId: string) => {
-    segmentationManager.addSegment(segmentationId, '');
+  const handleAddSegment = useCallback((segmentationId: string, rowType: SegmentationDicomType) => {
+    const storeType = useSegmentationStore.getState().dicomTypeBySegmentationId[segmentationId];
+    if (!storeType || storeType !== rowType) {
+      useSegmentationStore.getState().setDicomType(segmentationId, rowType);
+    }
+
+    const segSummary = useSegmentationStore.getState().segmentations.find((s) => s.segmentationId === segmentationId);
+    const nextIndex = ((segSummary?.segments.reduce((m, s) => Math.max(m, s.segmentIndex), 0) ?? 0) + 1);
+    const defaultName = rowType === 'RTSTRUCT'
+      ? `Structure ${nextIndex}`
+      : `Segment ${nextIndex}`;
+    setSegmentNamingDialog({
+      segmentationId,
+      rowType,
+      defaultName,
+      value: defaultName,
+    });
+  }, []);
+
+  const confirmAddSegment = useCallback(() => {
+    if (!segmentNamingDialog) return;
+    const finalName = segmentNamingDialog.value.trim();
+    if (!finalName) {
+      setToast({ message: 'Name is required', type: 'error' });
+      return;
+    }
+    segmentationManager.addSegment(segmentNamingDialog.segmentationId, finalName);
+    setSegmentNamingDialog(null);
+  }, [segmentNamingDialog]);
+
+  const cancelAddSegment = useCallback(() => {
+    setSegmentNamingDialog(null);
   }, []);
 
   const handleRemoveSegmentation = useCallback((segId: string) => {
@@ -240,6 +410,7 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
   }, []);
 
   const handleSelectSegment = useCallback((segmentationId: string, segmentIndex: number) => {
+    if (!Number.isFinite(segmentIndex) || !Number.isInteger(segmentIndex) || segmentIndex < 0) return;
     segmentationManager.userSelectedSegmentation(activeViewportId, segmentationId, segmentIndex);
   }, [activeViewportId]);
 
@@ -266,6 +437,10 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
     const store = useSegmentationStore.getState();
     segmentationService.updateStyle(store.fillAlpha, !store.renderOutline);
   }, [toggleOutline]);
+
+  const handleInterpolationToggle = useCallback((enabled: boolean) => {
+    toolService.setInterpolationEnabled(enabled);
+  }, []);
 
   const handleColorSelect = useCallback(
     (color: [number, number, number, number]) => {
@@ -326,12 +501,74 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
 
   // ─── Save / Export Handlers ──────────────────────────────────
 
-  const handleSaveLocal = useCallback(async (segmentationId: string) => {
+  const exportDicomByType = useCallback(
+    async (segmentationId: string, dicomType: SegmentationDicomType): Promise<string> => {
+      return dicomType === 'RTSTRUCT'
+        ? rtStructService.exportToRtStruct(segmentationId)
+        : segmentationManager.exportToDicomSeg(segmentationId);
+    },
+    [],
+  );
+
+  const saveDicomByType = useCallback(
+    async (dicomType: SegmentationDicomType, base64: string, defaultName: string) => {
+      return dicomType === 'RTSTRUCT'
+        ? window.electronAPI.export.saveDicomRtStruct(base64, defaultName)
+        : window.electronAPI.export.saveDicomSeg(base64, defaultName);
+    },
+    [],
+  );
+
+  const suggestNextScanLabel = useCallback(async (
+    sessionId: string,
+  ): Promise<string> => {
+    const stem = 'label';
+    const scans = await window.electronAPI.xnat.getScans(sessionId);
+    const regex = new RegExp(`^${escapeRegex(stem)}_(\\d{2})$`, 'i');
+    let maxN = 0;
+    for (const s of scans) {
+      const label = s.seriesDescription?.trim();
+      if (!label) continue;
+      const match = label.match(regex);
+      if (!match) continue;
+      const n = parseInt(match[1], 10);
+      if (Number.isFinite(n)) maxN = Math.max(maxN, n);
+    }
+    return `${stem}_${String(maxN + 1).padStart(2, '0')}`;
+  }, []);
+
+  const resolveExistingSaveDialog = useCallback((result: ExistingSaveDialogResult) => {
+    const resolver = existingSaveDialogResolverRef.current;
+    existingSaveDialogResolverRef.current = null;
+    setExistingSaveDialog(null);
+    resolver?.(result);
+  }, []);
+
+  const promptExistingSaveDialog = useCallback(
+    (scanId: string, suggestedLabel: string): Promise<ExistingSaveDialogResult> => {
+      return new Promise((resolve) => {
+        existingSaveDialogResolverRef.current = resolve;
+        setExistingSaveDialog({
+          scanId,
+          suggestedLabel,
+          newLabel: suggestedLabel,
+          mode: 'choose',
+        });
+      });
+    },
+    [],
+  );
+
+  const handleSaveLocal = useCallback(async (
+    segmentationId: string,
+    dicomType: SegmentationDicomType,
+  ) => {
     setSaveMenuOpen(null);
     setSaving(true);
     try {
-      const base64 = await segmentationManager.exportToDicomSeg(segmentationId);
-      const result = await window.electronAPI.export.saveDicomSeg(base64, 'segmentation.dcm');
+      const base64 = await exportDicomByType(segmentationId, dicomType);
+      const defaultName = dicomType === 'RTSTRUCT' ? 'rtstruct.dcm' : 'segmentation.dcm';
+      const result = await saveDicomByType(dicomType, base64, defaultName);
       if (result.ok && result.path) {
         setToast({ message: `Saved to ${result.path.split('/').pop()}`, type: 'success' });
       } else if (result.error) {
@@ -339,17 +576,21 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
       }
       // If !ok and no error, user cancelled
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Export failed';
+      const msg = err instanceof Error ? err.message : `${dicomType} export failed`;
       setToast({ message: msg, type: 'error' });
       console.error('[SegmentationPanel] saveLocal error:', err);
     } finally {
       setSaving(false);
     }
-  }, []);
+  }, [exportDicomByType, saveDicomByType]);
 
-  const handleUploadXnat = useCallback(async (segmentationId: string) => {
+  const handleUploadXnat = useCallback(async (
+    segmentationId: string,
+    dicomType: SegmentationDicomType,
+  ) => {
     setSaveMenuOpen(null);
-    if (!xnatContext) {
+    const panelCtx = panelXnatContextMap[activeViewportId] ?? xnatContext;
+    if (!panelCtx) {
       setToast({ message: 'No XNAT session context — load images from XNAT first', type: 'error' });
       return;
     }
@@ -357,196 +598,245 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
     // Block auto-save during the entire manual save operation so a brush stroke
     // between cancelAutoSave and export completion can't trigger a competing save.
     segmentationManager.beginManualSave();
-
-    setSaving(true);
     try {
-      const base64 = await segmentationManager.exportToDicomSeg(segmentationId);
       const segStoreSnapshot = useSegmentationStore.getState();
       const origin = segStoreSnapshot.xnatOriginMap[segmentationId];
       const segLabel = segStoreSnapshot.segmentations.find(
         (s) => s.segmentationId === segmentationId,
-      )?.label;
+      )?.label?.trim() || (dicomType === 'RTSTRUCT' ? 'Structure' : 'Segmentation');
+      const sourceScanId = origin?.sourceScanId ?? panelCtx.scanId;
 
       let result: { ok: boolean; url?: string; scanId?: string; error?: string };
+      const canOverwriteSeg =
+        dicomType === 'SEG'
+        && !!origin?.scanId
+        && isScanIdCompatibleWithType(origin.scanId, 'SEG');
+      const canOverwriteRtStruct =
+        dicomType === 'RTSTRUCT'
+        && !!origin?.scanId
+        && isScanIdCompatibleWithType(origin.scanId, 'RTSTRUCT');
+      const canOverwriteExisting = canOverwriteSeg || canOverwriteRtStruct;
 
-      if (origin && origin.scanId) {
-        // Overwrite existing scan (origin.scanId is non-empty for previously saved segmentations)
+      let uploadLabel = segLabel;
+      let createNewScan = false;
+      if (canOverwriteExisting && origin?.scanId) {
+        const suggested = await suggestNextScanLabel(panelCtx.sessionId);
+        const decision = await promptExistingSaveDialog(origin.scanId, suggested);
+        if (decision.action === 'cancel') return;
+        if (decision.action === 'create-new') {
+          uploadLabel = decision.label.trim() || suggested;
+          createNewScan = true;
+        }
+      }
+
+      setSaving(true);
+      const base64 = await exportDicomByType(segmentationId, dicomType);
+
+      if (canOverwriteSeg && origin?.scanId && !createNewScan) {
         result = await window.electronAPI.xnat.overwriteDicomSeg(
-          xnatContext.sessionId,
+          panelCtx.sessionId,
           origin.scanId,
           base64,
+          uploadLabel,
         );
-        if (result.ok) {
-          setToast({ message: `Saved to scan ${origin.scanId}`, type: 'success' });
-        }
-      } else {
-        // First save: create new 30xx scan.
-        // Use origin.sourceScanId if available (tracked at creation time),
-        // otherwise fall back to xnatContext.scanId.
-        const sourceScanId = origin?.sourceScanId ?? xnatContext.scanId;
+      } else if (canOverwriteRtStruct && origin?.scanId && !createNewScan) {
+        result = await window.electronAPI.xnat.overwriteDicomRtStruct(
+          panelCtx.sessionId,
+          origin.scanId,
+          base64,
+          uploadLabel,
+        );
+      } else if (dicomType === 'SEG') {
         result = await window.electronAPI.xnat.uploadDicomSeg(
-          xnatContext.projectId,
-          xnatContext.subjectId,
-          xnatContext.sessionId,
-          xnatContext.sessionLabel,
+          panelCtx.projectId,
+          panelCtx.subjectId,
+          panelCtx.sessionId,
+          panelCtx.sessionLabel,
           sourceScanId,
           base64,
-          segLabel,
+          uploadLabel,
         );
-        if (result.ok && result.scanId) {
-          // Track origin for future overwrites (session-scoped)
-          useSegmentationStore.getState().setXnatOrigin(segmentationId, {
-            scanId: result.scanId,
-            sourceScanId,
-            projectId: xnatContext.projectId,
-            sessionId: xnatContext.sessionId,
-          });
-          setToast({ message: `Uploaded to XNAT as scan ${result.scanId}`, type: 'success' });
-        }
+      } else {
+        result = await window.electronAPI.xnat.uploadDicomRtStruct(
+          panelCtx.projectId,
+          panelCtx.subjectId,
+          panelCtx.sessionId,
+          panelCtx.sessionLabel,
+          sourceScanId,
+          base64,
+          uploadLabel,
+        );
       }
 
       if (!result.ok) {
         setToast({ message: `Upload failed: ${result.error}`, type: 'error' });
       } else {
-        // Mark as saved
+        if (result.ok && result.scanId) {
+          useSegmentationStore.getState().setXnatOrigin(segmentationId, {
+            scanId: result.scanId,
+            sourceScanId,
+            projectId: panelCtx.projectId,
+            sessionId: panelCtx.sessionId,
+          });
+          useSegmentationStore.getState().setDicomType(segmentationId, dicomType);
+          setToast({ message: `Uploaded ${dicomType} as scan ${result.scanId}`, type: 'success' });
+        } else if ((canOverwriteSeg || canOverwriteRtStruct) && origin?.scanId) {
+          setToast({ message: `Saved ${dicomType} to scan ${origin.scanId}`, type: 'success' });
+        }
+
         useSegmentationStore.getState()._markClean();
-        // Clean up all auto-save temp files for this source scan (pattern-based for timestamped filenames)
-        const sourceScanId = origin?.sourceScanId ?? xnatContext.scanId;
         try {
-          const files = await window.electronAPI.xnat.listTempFiles(xnatContext.sessionId);
+          const files = await window.electronAPI.xnat.listTempFiles(panelCtx.sessionId);
           const pattern = new RegExp(`^autosave_(?:seg|rtstruct)_${sourceScanId}(?:_\\d{14})?\\.dcm$`);
           for (const f of files.files ?? []) {
             if (pattern.test(f.name)) {
-              window.electronAPI.xnat.deleteTempFile(xnatContext.sessionId, f.name).catch(() => {});
+              window.electronAPI.xnat.deleteTempFile(panelCtx.sessionId, f.name).catch(() => {});
             }
           }
         } catch { /* ignore cleanup errors */ }
       }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Upload failed';
+      const msg = err instanceof Error ? err.message : `${dicomType} upload failed`;
       setToast({ message: msg, type: 'error' });
       console.error('[SegmentationPanel] uploadXnat error:', err);
     } finally {
       segmentationManager.endManualSave();
       setSaving(false);
     }
-  }, [xnatContext]);
+  }, [xnatContext, panelXnatContextMap, activeViewportId, exportDicomByType, suggestNextScanLabel, promptExistingSaveDialog]);
 
-  const handleSaveRtStructLocal = useCallback(async (segmentationId: string) => {
-    setSaveMenuOpen(null);
-    setSaving(true);
-    try {
-      const base64 = await rtStructService.exportToRtStruct(segmentationId);
-      const result = await window.electronAPI.export.saveDicomRtStruct(base64, 'rtstruct.dcm');
-      if (result.ok && result.path) {
-        setToast({ message: `Saved RTSTRUCT to ${result.path.split('/').pop()}`, type: 'success' });
-      } else if (result.error) {
-        setToast({ message: `Save failed: ${result.error}`, type: 'error' });
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'RTSTRUCT export failed';
-      setToast({ message: msg, type: 'error' });
-      console.error('[SegmentationPanel] saveRtStructLocal error:', err);
-    } finally {
-      setSaving(false);
-    }
-  }, []);
-
-  const handleUploadRtStructXnat = useCallback(async (segmentationId: string) => {
-    setSaveMenuOpen(null);
-    if (!xnatContext) {
-      setToast({ message: 'No XNAT session context — load images from XNAT first', type: 'error' });
+  const handleLoadAvailableOverlay = useCallback(async (overlay: AvailableOverlayRow) => {
+    const panelCtx = panelXnatContextMap[activeViewportId] ?? xnatContext;
+    if (!activeSourceScanId || !panelCtx?.projectId || !panelCtx?.sessionId) {
+      setToast({ message: 'Load a source scan from XNAT first', type: 'error' });
       return;
     }
-
-    // Block auto-save during the entire manual save operation
-    segmentationManager.beginManualSave();
-
-    setSaving(true);
     try {
-      const base64 = await rtStructService.exportToRtStruct(segmentationId);
-      // Use origin.sourceScanId if available (tracked at creation time),
-      // otherwise fall back to xnatContext.scanId.
-      const segStoreSnapshot = useSegmentationStore.getState();
-      const origin = segStoreSnapshot.xnatOriginMap[segmentationId];
-      const sourceScanId = origin?.sourceScanId ?? xnatContext.scanId;
-      const result = await window.electronAPI.xnat.uploadDicomRtStruct(
-        xnatContext.projectId,
-        xnatContext.subjectId,
-        xnatContext.sessionId,
-        xnatContext.sessionLabel,
-        sourceScanId,
-        base64,
+      await segmentationManager.requestShowOverlaysForSourceScan(
+        activeViewportId,
+        activeSourceScanId,
+        [
+          {
+            type: overlay.type,
+            scanId: overlay.scanId,
+            sessionId: panelCtx.sessionId,
+            label: overlay.label,
+          },
+        ],
       );
-      if (result.ok) {
-        useSegmentationStore.getState()._markClean();
-        // Track origin for future overwrites (if first save, session-scoped)
-        if (result.scanId) {
-          useSegmentationStore.getState().setXnatOrigin(segmentationId, {
-            scanId: result.scanId,
-            sourceScanId,
-            projectId: xnatContext.projectId,
-            sessionId: xnatContext.sessionId,
-          });
-        }
-        // Clean up all auto-save temp files for this source scan (pattern-based for timestamped filenames)
-        try {
-          const files = await window.electronAPI.xnat.listTempFiles(xnatContext.sessionId);
-          const pattern = new RegExp(`^autosave_(?:seg|rtstruct)_${sourceScanId}(?:_\\d{14})?\\.dcm$`);
-          for (const f of files.files ?? []) {
-            if (pattern.test(f.name)) {
-              window.electronAPI.xnat.deleteTempFile(xnatContext.sessionId, f.name).catch(() => {});
-            }
-          }
-        } catch { /* ignore cleanup errors */ }
-        setToast({ message: 'Uploaded RTSTRUCT to XNAT successfully', type: 'success' });
-      } else {
-        setToast({ message: `Upload failed: ${result.error}`, type: 'error' });
-      }
+
+      const compositeKey = `${panelCtx.projectId}/${panelCtx.sessionId}/${activeSourceScanId}`;
+      const loaded = useSegmentationManagerStore.getState().loadedBySourceScan[compositeKey]?.[overlay.scanId];
+      if (!loaded?.segmentationId) return;
+
+      useSegmentationStore.getState().setXnatOrigin(loaded.segmentationId, {
+        scanId: overlay.scanId,
+        sourceScanId: activeSourceScanId,
+        projectId: panelCtx.projectId,
+        sessionId: panelCtx.sessionId,
+      });
+      useSegmentationStore.getState().setDicomType(loaded.segmentationId, overlay.type);
+      useSegmentationStore.getState().setActiveSegmentation(loaded.segmentationId);
+      segmentationManager.userSelectedSegmentation(activeViewportId, loaded.segmentationId, 1);
+      setExpandedIds((prev) => new Set(prev).add(loaded.segmentationId));
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'RTSTRUCT upload failed';
-      setToast({ message: msg, type: 'error' });
-      console.error('[SegmentationPanel] uploadRtStructXnat error:', err);
-    } finally {
-      segmentationManager.endManualSave();
-      setSaving(false);
+      console.error(`[SegmentationPanel] Failed to load ${overlay.type} overlay #${overlay.scanId}:`, err);
+      setToast({ message: `Failed to load ${overlay.type} #${overlay.scanId}`, type: 'error' });
     }
-  }, [xnatContext]);
+  }, [activeSourceScanId, activeViewportId, xnatContext, panelXnatContextMap]);
 
   const isXnatConnected = connectionStatus === 'connected';
+  const listItemCount = visibleSegmentations.length + unloadedAvailableOverlays.length;
 
   return (
     <div className="w-64 shrink-0 border-l border-zinc-800 bg-zinc-950 flex flex-col overflow-hidden relative">
       {/* Header */}
       <div className="px-3 py-2 border-b border-zinc-800 flex items-center justify-between min-h-[36px]">
         <h3 className="text-xs font-semibold text-zinc-300">
-          Segments
-          <span className="text-zinc-500 font-normal ml-1.5">{visibleSegmentations.length}</span>
+          Annotations
+          <span className="text-zinc-500 font-normal ml-1.5">{listItemCount}</span>
         </h3>
-        <button
-          onClick={handleAddSegmentation}
-          disabled={sourceImageIds.length === 0}
-          className="flex items-center gap-1 text-[10px] text-blue-400 hover:text-blue-300 transition-colors px-1.5 py-0.5 rounded hover:bg-blue-900/20 disabled:opacity-30 disabled:cursor-not-allowed"
-          title="Add a new segmentation"
-        >
-          <IconPlus className="w-3 h-3" />
-          Add Seg
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => openAddAnnotationDialog('SEG')}
+            disabled={sourceImageIds.length === 0}
+            className={`flex items-center justify-center gap-0.5 transition-colors px-1 py-1 rounded border ${TYPE_ACCENTS.SEG.text} ${TYPE_ACCENTS.SEG.border} ${TYPE_ACCENTS.SEG.bgHover} disabled:opacity-30 disabled:cursor-not-allowed`}
+            title="Create a segmentation annotation"
+            aria-label="Add segmentation"
+          >
+            <IconPlus className="w-2.5 h-2.5" />
+            <IconSegmentationAnnotation className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={() => openAddAnnotationDialog('RTSTRUCT')}
+            disabled={sourceImageIds.length === 0}
+            className={`flex items-center justify-center gap-0.5 transition-colors px-1 py-1 rounded border ${TYPE_ACCENTS.RTSTRUCT.text} ${TYPE_ACCENTS.RTSTRUCT.border} ${TYPE_ACCENTS.RTSTRUCT.bgHover} disabled:opacity-30 disabled:cursor-not-allowed`}
+            title="Create a structure annotation"
+            aria-label="Add structure"
+          >
+            <IconPlus className="w-2.5 h-2.5" />
+            <IconStructureAnnotation className="w-3.5 h-3.5" />
+          </button>
+        </div>
       </div>
 
       {/* Segmentation list */}
       <div className="flex-1 overflow-y-auto">
-        {visibleSegmentations.length === 0 ? (
-          <div className="p-4 text-xs text-zinc-600 text-center leading-relaxed">
-            No segmentations yet.
-            <br />
-            <span className="text-zinc-700">Click "Add Seg" to create one, then use the Brush tool.</span>
+        {unloadedAvailableOverlays.length > 0 && (
+          <div className="px-2 py-1.5 border-b border-zinc-800/70">
+            <div className="text-[10px] text-zinc-500 uppercase tracking-wide px-1 pb-1">
+              Available Annotations
+            </div>
+            <div className="space-y-0.5">
+              {unloadedAvailableOverlays.map((overlay) => {
+                const isLoading = overlay.loadStatus === 'loading';
+                const isError = overlay.loadStatus === 'error';
+                return (
+                  <button
+                    key={`${overlay.type}-${overlay.scanId}`}
+                    onClick={() => { void handleLoadAvailableOverlay(overlay); }}
+                    disabled={isLoading}
+                    className="w-full text-left px-1.5 py-1.5 rounded hover:bg-zinc-800/50 disabled:opacity-50 disabled:cursor-wait transition-colors"
+                    title={isLoading ? 'Loading annotation...' : 'Click to display annotation'}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[11px] text-zinc-300 truncate">
+                        {overlay.label}
+                      </span>
+                      <span
+                        className={`text-[9px] px-1.5 py-0.5 rounded shrink-0 ${TYPE_ACCENTS[overlay.type].badge}`}
+                      >
+                        {overlay.type}
+                      </span>
+                    </div>
+                    <div className="text-[10px] text-zinc-500 mt-0.5">
+                      #{overlay.scanId}
+                      {isLoading && ' · Loading...'}
+                      {isError && ' · Retry load'}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
           </div>
-        ) : (
+        )}
+        {visibleSegmentations.length === 0 && unloadedAvailableOverlays.length === 0 ? (
+          <div className="p-4 text-xs text-zinc-600 text-center leading-relaxed">
+            No annotations yet.
+            <br />
+            <span className="text-zinc-700">Use Add annotation to create a segmentation or structure.</span>
+          </div>
+        ) : visibleSegmentations.length > 0 ? (
           <div className="py-0.5">
             {visibleSegmentations.map((seg) => {
               const isExpanded = expandedIds.has(seg.segmentationId);
               const isActiveSeg = seg.segmentationId === activeSegId;
+              const origin = xnatOriginMap[seg.segmentationId];
+              const rowDicomType =
+                dicomTypeBySegmentationId[seg.segmentationId]
+                ?? segmentationService.getPreferredDicomType(seg.segmentationId);
+              const displayDicomType = rowDicomType;
+              const suffix = origin?.scanId ? `#${origin.scanId}` : 'unsaved';
 
               return (
                 <div key={seg.segmentationId}>
@@ -579,23 +869,27 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
                         onKeyDown={handleEditKeyDown}
                         onClick={(e) => e.stopPropagation()}
                       />
-                    ) : (() => {
-                      const origin = xnatOriginMap[seg.segmentationId];
-                      const suffix = origin ? `#${origin.scanId}` : 'unsaved';
-                      return (
-                        <span
-                          className="text-xs text-zinc-300 truncate flex-1"
-                          onDoubleClick={(e) => {
-                            e.stopPropagation();
-                            startEditLabel('segmentation', seg.segmentationId, seg.label);
-                          }}
-                          title="Double-click to rename"
-                        >
-                          {seg.label}
-                          <span className="text-zinc-500 text-[10px] ml-1">({suffix})</span>
-                        </span>
-                      );
-                    })()}
+                    ) : (
+                      <span
+                        className="text-xs text-zinc-300 truncate flex-1"
+                        onDoubleClick={(e) => {
+                          e.stopPropagation();
+                          startEditLabel('segmentation', seg.segmentationId, seg.label);
+                        }}
+                        title="Double-click to rename"
+                      >
+                        {seg.label}
+                        <span className="text-zinc-500 text-[10px] ml-1">({suffix})</span>
+                      </span>
+                    )}
+
+                    {/* Annotation object type */}
+                    <span
+                      className={`text-[9px] px-1.5 py-0.5 rounded shrink-0 ${TYPE_ACCENTS[displayDicomType].badge}`}
+                      title={displayDicomType === 'SEG' ? 'Segmentation object' : 'RT Structure Set object'}
+                    >
+                      {displayDicomType === 'SEG' ? 'SEG' : 'STRUCT'}
+                    </span>
 
                     {/* Save segmentation */}
                     <div className="relative shrink-0" ref={saveMenuOpen === seg.segmentationId ? saveMenuRef : undefined}>
@@ -617,53 +911,25 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              handleSaveLocal(seg.segmentationId);
+                              void handleSaveLocal(seg.segmentationId, displayDicomType);
                             }}
                             disabled={saving}
                             className="w-full text-left px-3 py-1.5 text-zinc-300 hover:bg-zinc-800 transition-colors flex items-center gap-2 disabled:opacity-40"
                           >
                             <IconSave className="w-3.5 h-3.5 text-zinc-400" />
-                            Save DICOM SEG to file...
+                            Save file
                           </button>
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              handleUploadXnat(seg.segmentationId);
+                              void handleUploadXnat(seg.segmentationId, displayDicomType);
                             }}
-                            disabled={saving || !isXnatConnected || !xnatContext}
+                            disabled={saving || !isXnatConnected || !activePanelXnatContext}
                             className="w-full text-left px-3 py-1.5 text-zinc-300 hover:bg-zinc-800 transition-colors flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
                           >
                             <IconUpload className="w-3.5 h-3.5 text-zinc-400" />
-                            Upload SEG to XNAT
-                            {(!isXnatConnected || !xnatContext) && (
-                              <span className="text-[9px] text-zinc-600 ml-auto">
-                                {!isXnatConnected ? 'Not connected' : 'No session'}
-                              </span>
-                            )}
-                          </button>
-                          <div className="border-t border-zinc-700 my-1" />
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleSaveRtStructLocal(seg.segmentationId);
-                            }}
-                            disabled={saving}
-                            className="w-full text-left px-3 py-1.5 text-zinc-300 hover:bg-zinc-800 transition-colors flex items-center gap-2 disabled:opacity-40"
-                          >
-                            <IconSave className="w-3.5 h-3.5 text-green-400" />
-                            Save DICOM RTSTRUCT to file...
-                          </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleUploadRtStructXnat(seg.segmentationId);
-                            }}
-                            disabled={saving || !isXnatConnected || !xnatContext}
-                            className="w-full text-left px-3 py-1.5 text-zinc-300 hover:bg-zinc-800 transition-colors flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
-                          >
-                            <IconUpload className="w-3.5 h-3.5 text-green-400" />
-                            Upload RTSTRUCT to XNAT
-                            {(!isXnatConnected || !xnatContext) && (
+                            Upload to XNAT
+                            {(!isXnatConnected || !activePanelXnatContext) && (
                               <span className="text-[9px] text-zinc-600 ml-auto">
                                 {!isXnatConnected ? 'Not connected' : 'No session'}
                               </span>
@@ -701,9 +967,10 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
                                 ? 'bg-blue-900/25 border-l-2 border-blue-500'
                                 : 'hover:bg-zinc-800/30 border-l-2 border-transparent'
                             }`}
-                            onClick={() =>
-                              handleSelectSegment(seg.segmentationId, segment.segmentIndex)
-                            }
+                            onClick={() => {
+                              setColorPickerTarget(null);
+                              handleSelectSegment(seg.segmentationId, segment.segmentIndex);
+                            }}
                           >
                             {/* Color swatch */}
                             <button
@@ -824,11 +1091,11 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
 
                       {/* Add segment button */}
                       <button
-                        onClick={() => handleAddSegment(seg.segmentationId)}
+                        onClick={() => handleAddSegment(seg.segmentationId, displayDicomType)}
                         className="flex items-center gap-1 text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors px-2 py-1 mt-0.5"
                       >
                         <IconPlus className="w-2.5 h-2.5" />
-                        Add Segment
+                        {displayDicomType === 'RTSTRUCT' ? 'Add Structure' : 'Add Segment'}
                       </button>
                     </div>
                   )}
@@ -836,7 +1103,7 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
               );
             })}
           </div>
-        )}
+        ) : null}
       </div>
 
       {/* Tool options section */}
@@ -889,64 +1156,76 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
           <span className="text-[10px] text-zinc-400">Show Outline</span>
         </label>
 
-        {/* Auto-load associated SEG when clicking a scan */}
-        {isXnatConnected && xnatContext && (
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={interpolationEnabled}
+            onChange={(e) => handleInterpolationToggle(e.target.checked)}
+            className="w-3 h-3 rounded border-zinc-600 bg-zinc-800 accent-blue-500"
+          />
+          <span className="text-[10px] text-zinc-400">Between-slice interpolation</span>
+        </label>
+
+        {/* Automatically display associated SEG/RTSTRUCT annotations */}
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={autoLoadSegOnScanClick}
+            onChange={(e) => setAutoLoadSegOnScanClick(e.target.checked)}
+            className="w-3 h-3 rounded border-zinc-600 bg-zinc-800 accent-blue-500"
+          />
+          <span className="text-[10px] text-zinc-400">Automatically display annotations</span>
+        </label>
+
+        {/* Auto-save toggle + status */}
+        <div className="flex items-center justify-between">
           <label className="flex items-center gap-2 cursor-pointer">
             <input
               type="checkbox"
-              checked={autoLoadSegOnScanClick}
-              onChange={(e) => setAutoLoadSegOnScanClick(e.target.checked)}
-              className="w-3 h-3 rounded border-zinc-600 bg-zinc-800 accent-blue-500"
+              checked={autoSaveEnabled}
+              onChange={(e) => setAutoSaveEnabled(e.target.checked)}
+              disabled={!isXnatConnected || !activePanelXnatContext}
+              className="w-3 h-3 rounded border-zinc-600 bg-zinc-800 accent-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
             />
-            <span className="text-[10px] text-zinc-400">Auto-load SEG from scan</span>
+            <span className="text-[10px] text-zinc-400">Auto-Save</span>
           </label>
-        )}
-
-        {/* Auto-save toggle + status (only when connected to XNAT) */}
-        {isXnatConnected && xnatContext && (
-          <div className="flex items-center justify-between">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={autoSaveEnabled}
-                onChange={(e) => setAutoSaveEnabled(e.target.checked)}
-                className="w-3 h-3 rounded border-zinc-600 bg-zinc-800 accent-blue-500"
-              />
-              <span className="text-[10px] text-zinc-400">Auto-Save</span>
-            </label>
-            {autoSaveEnabled && (
-              <span className="text-[9px] flex items-center gap-1">
-                {autoSaveStatus === 'saving' && (
-                  <>
-                    <svg className="animate-spin h-2.5 w-2.5 text-blue-400" viewBox="0 0 24 24" fill="none">
-                      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" className="opacity-25" />
-                      <path d="M4 12a8 8 0 018-8" stroke="currentColor" strokeWidth="3" strokeLinecap="round" className="opacity-75" />
-                    </svg>
-                    <span className="text-blue-400">Saving...</span>
-                  </>
-                )}
-                {autoSaveStatus === 'saved' && (
-                  <>
-                    <svg className="h-2.5 w-2.5 text-green-400" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
-                      <polyline points="3,8 7,12 13,4" />
-                    </svg>
-                    <span className="text-green-400">Saved</span>
-                  </>
-                )}
-                {autoSaveStatus === 'error' && (
-                  <>
-                    <svg className="h-2.5 w-2.5 text-red-400" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
-                      <circle cx="8" cy="8" r="6" />
-                      <line x1="8" y1="5" x2="8" y2="9" />
-                      <circle cx="8" cy="11.5" r="0.5" fill="currentColor" />
-                    </svg>
-                    <span className="text-red-400">Failed</span>
-                  </>
-                )}
-              </span>
-            )}
+          {autoSaveEnabled && (
+            <span className="text-[9px] flex items-center gap-1">
+              {autoSaveStatus === 'saving' && (
+                <>
+                  <svg className="animate-spin h-2.5 w-2.5 text-blue-400" viewBox="0 0 24 24" fill="none">
+                    <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" className="opacity-25" />
+                    <path d="M4 12a8 8 0 018-8" stroke="currentColor" strokeWidth="3" strokeLinecap="round" className="opacity-75" />
+                  </svg>
+                  <span className="text-blue-400">Saving...</span>
+                </>
+              )}
+              {autoSaveStatus === 'saved' && (
+                <>
+                  <svg className="h-2.5 w-2.5 text-green-400" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
+                    <polyline points="3,8 7,12 13,4" />
+                  </svg>
+                  <span className="text-green-400">Saved</span>
+                </>
+              )}
+              {autoSaveStatus === 'error' && (
+                <>
+                  <svg className="h-2.5 w-2.5 text-red-400" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
+                    <circle cx="8" cy="8" r="6" />
+                    <line x1="8" y1="5" x2="8" y2="9" />
+                    <circle cx="8" cy="11.5" r="0.5" fill="currentColor" />
+                  </svg>
+                  <span className="text-red-400">Failed</span>
+                </>
+              )}
+            </span>
+          )}
+        </div>
+        {!isXnatConnected || !activePanelXnatContext ? (
+          <div className="text-[9px] text-zinc-600 -mt-1">
+            Auto-save is available after loading an XNAT scan.
           </div>
-        )}
+        ) : null}
 
         {/* Threshold range (only when ThresholdBrush is active) */}
         {activeSegTool === 'ThresholdBrush' && (
@@ -1007,11 +1286,107 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
         </div>
       )}
 
+      {/* Existing-scan save decision dialog */}
+      {existingSaveDialog && (
+        <div className="absolute inset-0 z-50 bg-zinc-950/70 flex items-center justify-center">
+          <div className="bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl p-4 mx-4 w-full max-w-[260px]">
+            {existingSaveDialog.mode === 'choose' ? (
+              <>
+                <div className="text-xs text-zinc-300 leading-relaxed">
+                  This annotation already exists on XNAT as scan <span className="font-semibold text-zinc-100">#{existingSaveDialog.scanId}</span>.
+                </div>
+                <div className="text-[11px] text-zinc-500 mt-1.5">
+                  Choose how you want to save this update:
+                </div>
+                <div className="grid gap-2 mt-3">
+                  <button
+                    onClick={() => resolveExistingSaveDialog({ action: 'overwrite' })}
+                    className="text-[11px] text-zinc-100 px-3 py-1.5 rounded bg-blue-900/35 hover:bg-blue-900/50 transition-colors text-left"
+                  >
+                    Overwrite
+                  </button>
+                  <button
+                    onClick={() => {
+                      setExistingSaveDialog((prev) => prev ? { ...prev, mode: 'name' } : prev);
+                    }}
+                    className="text-[11px] text-zinc-200 px-3 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 transition-colors text-left"
+                  >
+                    Create New
+                  </button>
+                  <button
+                    onClick={() => resolveExistingSaveDialog({ action: 'cancel' })}
+                    className="text-[11px] text-zinc-400 hover:text-zinc-200 px-3 py-1.5 rounded hover:bg-zinc-800 transition-colors text-left"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <label className="block text-xs text-zinc-400 mb-1.5">
+                  Name for the new scan
+                </label>
+                <input
+                  className="w-full text-xs text-zinc-200 bg-zinc-800 border border-zinc-600 rounded px-2 py-1.5 outline-none focus:border-blue-500 transition-colors"
+                  value={existingSaveDialog.newLabel}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setExistingSaveDialog((prev) => prev ? { ...prev, newLabel: value } : prev);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      const finalLabel = existingSaveDialog.newLabel.trim();
+                      if (finalLabel) {
+                        resolveExistingSaveDialog({ action: 'create-new', label: finalLabel });
+                      }
+                    } else if (e.key === 'Escape') {
+                      e.preventDefault();
+                      resolveExistingSaveDialog({ action: 'cancel' });
+                    }
+                  }}
+                  placeholder="label_01"
+                />
+                <div className="flex justify-end gap-2 mt-3">
+                  <button
+                    onClick={() => {
+                      setExistingSaveDialog((prev) => prev ? { ...prev, mode: 'choose' } : prev);
+                    }}
+                    className="text-[10px] text-zinc-400 hover:text-zinc-200 px-2.5 py-1 rounded hover:bg-zinc-800 transition-colors"
+                  >
+                    Back
+                  </button>
+                  <button
+                    onClick={() => resolveExistingSaveDialog({ action: 'cancel' })}
+                    className="text-[10px] text-zinc-400 hover:text-zinc-200 px-2.5 py-1 rounded hover:bg-zinc-800 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => {
+                      const finalLabel = existingSaveDialog.newLabel.trim();
+                      if (!finalLabel) return;
+                      resolveExistingSaveDialog({ action: 'create-new', label: finalLabel });
+                    }}
+                    disabled={!existingSaveDialog.newLabel.trim()}
+                    className="text-[10px] text-blue-400 hover:text-blue-300 px-2.5 py-1 rounded bg-blue-900/30 hover:bg-blue-900/50 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                  >
+                    Create
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Naming dialog overlay */}
       {namingDialog && (
         <div className="absolute inset-0 z-50 bg-zinc-950/70 flex items-center justify-center">
           <div className="bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl p-4 mx-4 w-full max-w-[220px]">
-            <label className="block text-xs text-zinc-400 mb-1.5">Segmentation name</label>
+            <label className="block text-xs text-zinc-400 mb-1.5">
+              {pendingCreateType === 'RTSTRUCT' ? 'Structure name' : 'Segmentation name'}
+            </label>
             <input
               ref={namingInputRef}
               className="w-full text-xs text-zinc-200 bg-zinc-800 border border-zinc-600 rounded px-2 py-1.5 outline-none focus:border-blue-500 transition-colors"
@@ -1020,27 +1395,72 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
                   e.preventDefault();
-                  confirmAddSegmentation();
+                  confirmAddAnnotation();
                 } else if (e.key === 'Escape') {
                   e.preventDefault();
-                  cancelAddSegmentation();
+                  cancelAddAnnotation();
                 }
               }}
-              placeholder="Enter name..."
+              placeholder={pendingCreateType === 'RTSTRUCT' ? 'Enter structure name...' : 'Enter segmentation name...'}
             />
             <div className="flex justify-end gap-2 mt-3">
               <button
-                onClick={cancelAddSegmentation}
+                onClick={cancelAddAnnotation}
                 className="text-[10px] text-zinc-400 hover:text-zinc-200 px-2.5 py-1 rounded hover:bg-zinc-800 transition-colors"
               >
                 Cancel
               </button>
               <button
-                onClick={confirmAddSegmentation}
+                onClick={confirmAddAnnotation}
                 disabled={!namingValue.trim()}
                 className="text-[10px] text-blue-400 hover:text-blue-300 px-2.5 py-1 rounded bg-blue-900/30 hover:bg-blue-900/50 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
               >
                 Create
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Segment/structure naming dialog */}
+      {segmentNamingDialog && (
+        <div className="absolute inset-0 z-50 bg-zinc-950/70 flex items-center justify-center">
+          <div className="bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl p-4 mx-4 w-full max-w-[220px]">
+            <label className="block text-xs text-zinc-400 mb-1.5">
+              {segmentNamingDialog.rowType === 'RTSTRUCT' ? 'Structure name' : 'Segment name'}
+            </label>
+            <input
+              ref={segmentNamingInputRef}
+              className="w-full text-xs text-zinc-200 bg-zinc-800 border border-zinc-600 rounded px-2 py-1.5 outline-none focus:border-blue-500 transition-colors"
+              value={segmentNamingDialog.value}
+              onChange={(e) => {
+                const value = e.target.value;
+                setSegmentNamingDialog((prev) => (prev ? { ...prev, value } : prev));
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  confirmAddSegment();
+                } else if (e.key === 'Escape') {
+                  e.preventDefault();
+                  cancelAddSegment();
+                }
+              }}
+              placeholder={segmentNamingDialog.defaultName}
+            />
+            <div className="flex justify-end gap-2 mt-3">
+              <button
+                onClick={cancelAddSegment}
+                className="text-[10px] text-zinc-400 hover:text-zinc-200 px-2.5 py-1 rounded hover:bg-zinc-800 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmAddSegment}
+                disabled={!segmentNamingDialog.value.trim()}
+                className="text-[10px] text-blue-400 hover:text-blue-300 px-2.5 py-1 rounded bg-blue-900/30 hover:bg-blue-900/50 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                Add
               </button>
             </div>
           </div>

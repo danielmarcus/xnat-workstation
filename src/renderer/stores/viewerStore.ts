@@ -25,6 +25,7 @@ const cineIntervals = new Map<string, ReturnType<typeof setInterval>>();
 const INITIAL_VIEWPORT: ViewportState = {
   viewportId: null,
   imageIndex: 0,
+  requestedImageIndex: null,
   totalImages: 0,
   windowWidth: 0,
   windowCenter: 0,
@@ -58,9 +59,13 @@ interface ViewerStore {
 
   // ─── XNAT Upload Context ────────────────────────────────────────
   xnatContext: XnatUploadContext | null;
+  /** Full XNAT upload context per panel (project/subject/session/scan). */
+  panelXnatContextMap: Record<string, XnatUploadContext>;
 
   /** Maps panel IDs to their loaded XNAT scan IDs (e.g., panel-0 → "6") */
   panelScanMap: Record<string, string>;
+  /** Maps panel IDs to their loaded session label (for per-viewport overlay context). */
+  panelSessionLabelMap: Record<string, string>;
 
   // ─── MPR State ─────────────────────────────────────────────────
   mprActive: boolean;
@@ -78,8 +83,12 @@ interface ViewerStore {
   setCurrentProtocol: (protocol: HangingProtocol | null) => void;
   setSessionData: (sessionId: string | null, scans: XnatScan[] | null) => void;
   setXnatContext: (ctx: XnatUploadContext | null) => void;
+  /** Record full XNAT upload context for a given panel. */
+  setPanelXnatContext: (panelId: string, ctx: XnatUploadContext) => void;
   /** Record which XNAT scan is loaded in a given panel */
   setPanelScan: (panelId: string, scanId: string) => void;
+  /** Record which XNAT session label is associated with a given panel */
+  setPanelSessionLabel: (panelId: string, sessionLabel: string) => void;
 
   // ─── Tool / Viewport Actions (target active viewport) ────────
   setActiveTool: (tool: ToolName) => void;
@@ -107,6 +116,7 @@ interface ViewerStore {
   _destroyPanel: (panelId: string) => void;
   _updateVOI: (panelId: string, ww: number, wc: number) => void;
   _updateImageIndex: (panelId: string, index: number, total: number) => void;
+  _requestImageIndex: (panelId: string, index: number, total?: number) => void;
   _updateZoom: (panelId: string, percent: number) => void;
   _updateImageDimensions: (panelId: string, w: number, h: number) => void;
 }
@@ -130,7 +140,9 @@ export const useViewerStore = create<ViewerStore>((set, get) => ({
   sessionScans: null,
   sessionId: null,
   xnatContext: null,
+  panelXnatContextMap: {},
   panelScanMap: {},
+  panelSessionLabelMap: {},
   mprActive: false,
   mprVolumeId: null,
   mprSourcePanelId: null,
@@ -146,13 +158,52 @@ export const useViewerStore = create<ViewerStore>((set, get) => ({
 
   setXnatContext: (ctx) => set({ xnatContext: ctx }),
 
+  setPanelXnatContext: (pid, ctx) => {
+    const state = get();
+    const nextMap = { ...state.panelXnatContextMap, [pid]: ctx };
+    const updates: Partial<ViewerStore> = { panelXnatContextMap: nextMap };
+    // Keep global context in sync with the active panel.
+    if (pid === state.activeViewportId) {
+      updates.xnatContext = ctx;
+    }
+    set(updates);
+  },
+
   setPanelScan: (pid, scanId) => {
     const state = get();
-    set({ panelScanMap: { ...state.panelScanMap, [pid]: scanId } });
+    const nextPanelScanMap = { ...state.panelScanMap, [pid]: scanId };
+    const nextPanelXnatContextMap = { ...state.panelXnatContextMap };
+    const panelCtx = nextPanelXnatContextMap[pid];
+    if (panelCtx) {
+      nextPanelXnatContextMap[pid] = { ...panelCtx, scanId };
+    }
+    const updates: Partial<ViewerStore> = {
+      panelScanMap: nextPanelScanMap,
+      panelXnatContextMap: nextPanelXnatContextMap,
+    };
     // If this panel is the active viewport, update xnatContext.scanId
     if (state.xnatContext && pid === state.activeViewportId) {
-      set({ xnatContext: { ...state.xnatContext, scanId } });
+      updates.xnatContext = { ...state.xnatContext, scanId };
     }
+    set(updates);
+  },
+
+  setPanelSessionLabel: (pid, sessionLabel) => {
+    const state = get();
+    const nextPanelSessionLabelMap = { ...state.panelSessionLabelMap, [pid]: sessionLabel };
+    const nextPanelXnatContextMap = { ...state.panelXnatContextMap };
+    const panelCtx = nextPanelXnatContextMap[pid];
+    if (panelCtx) {
+      nextPanelXnatContextMap[pid] = { ...panelCtx, sessionLabel };
+    }
+    const updates: Partial<ViewerStore> = {
+      panelSessionLabelMap: nextPanelSessionLabelMap,
+      panelXnatContextMap: nextPanelXnatContextMap,
+    };
+    if (state.xnatContext && pid === state.activeViewportId) {
+      updates.xnatContext = { ...state.xnatContext, sessionLabel };
+    }
+    set(updates);
   },
 
   // ─── Layout Actions ────────────────────────────────────────────
@@ -172,9 +223,21 @@ export const useViewerStore = create<ViewerStore>((set, get) => ({
     // Clean up viewport/cine state for removed panels
     const newViewports: Record<string, ViewportState> = {};
     const newCineStates: Record<string, CineState> = {};
+    const newPanelScanMap: Record<string, string> = {};
+    const newPanelSessionLabelMap: Record<string, string> = {};
+    const newPanelXnatContextMap: Record<string, XnatUploadContext> = {};
     for (const pid of newPanelIds) {
       newViewports[pid] = state.viewports[pid] ?? { ...INITIAL_VIEWPORT };
       newCineStates[pid] = state.cineStates[pid] ?? { ...INITIAL_CINE };
+      if (state.panelScanMap[pid]) {
+        newPanelScanMap[pid] = state.panelScanMap[pid];
+      }
+      if (state.panelSessionLabelMap[pid]) {
+        newPanelSessionLabelMap[pid] = state.panelSessionLabelMap[pid];
+      }
+      if (state.panelXnatContextMap[pid]) {
+        newPanelXnatContextMap[pid] = state.panelXnatContextMap[pid];
+      }
       // Mark cine as not playing for removed panels that got stopped
       if (!newPanelIds.has(pid) && newCineStates[pid]) {
         newCineStates[pid] = { ...newCineStates[pid], isPlaying: false };
@@ -187,21 +250,50 @@ export const useViewerStore = create<ViewerStore>((set, get) => ({
       activeId = panelId(0);
     }
 
+    let nextXnatContext = state.xnatContext;
+    const activePanelCtx = newPanelXnatContextMap[activeId];
+    if (activePanelCtx) {
+      nextXnatContext = activePanelCtx;
+    } else {
+      const mappedScanId = newPanelScanMap[activeId];
+      if (nextXnatContext && mappedScanId) {
+        nextXnatContext = {
+          ...nextXnatContext,
+          scanId: mappedScanId,
+          sessionLabel: newPanelSessionLabelMap[activeId] ?? nextXnatContext.sessionLabel,
+        };
+      }
+    }
+
     set({
       layout,
       activeViewportId: activeId,
+      xnatContext: nextXnatContext,
       viewports: newViewports,
       cineStates: newCineStates,
+      panelScanMap: newPanelScanMap,
+      panelSessionLabelMap: newPanelSessionLabelMap,
+      panelXnatContextMap: newPanelXnatContextMap,
     });
   },
 
   setActiveViewport: (pid) => {
     const state = get();
     const updates: Partial<ViewerStore> = { activeViewportId: pid };
+    const mappedPanelCtx = state.panelXnatContextMap[pid];
+    if (mappedPanelCtx) {
+      updates.xnatContext = mappedPanelCtx;
+      set(updates);
+      return;
+    }
     // Auto-sync xnatContext.scanId when switching panels
     const mappedScanId = state.panelScanMap[pid];
     if (state.xnatContext && mappedScanId) {
-      updates.xnatContext = { ...state.xnatContext, scanId: mappedScanId };
+      updates.xnatContext = {
+        ...state.xnatContext,
+        scanId: mappedScanId,
+        sessionLabel: state.panelSessionLabelMap[pid] ?? state.xnatContext.sessionLabel,
+      };
     }
     set(updates);
   },
@@ -466,9 +558,13 @@ export const useViewerStore = create<ViewerStore>((set, get) => ({
     set((s) => {
       const { [pid]: _vp, ...restViewports } = s.viewports;
       const { [pid]: _cs, ...restCine } = s.cineStates;
+      const { [pid]: _scan, ...restPanelScans } = s.panelScanMap;
+      const { [pid]: _sess, ...restPanelSessionLabels } = s.panelSessionLabelMap;
       return {
         viewports: restViewports,
         cineStates: restCine,
+        panelScanMap: restPanelScans,
+        panelSessionLabelMap: restPanelSessionLabels,
       };
     });
   },
@@ -492,10 +588,39 @@ export const useViewerStore = create<ViewerStore>((set, get) => ({
         [pid]: {
           ...(s.viewports[pid] ?? { ...INITIAL_VIEWPORT }),
           imageIndex: index,
+          requestedImageIndex: (() => {
+            const requested = s.viewports[pid]?.requestedImageIndex ?? null;
+            if (requested === null) return null;
+            if (requested < 0 || requested >= total) return null;
+            return requested === index ? null : requested;
+          })(),
           totalImages: total,
         },
       },
     })),
+
+  _requestImageIndex: (pid, index, totalOverride) =>
+    set((s) => {
+      const current = s.viewports[pid] ?? { ...INITIAL_VIEWPORT };
+      const total = totalOverride ?? current.totalImages;
+      if (!Number.isFinite(index) || !Number.isInteger(index) || total <= 0) {
+        return s;
+      }
+      const clamped = Math.max(0, Math.min(total - 1, index));
+      const nextRequested = clamped === current.imageIndex ? null : clamped;
+      if (current.requestedImageIndex === nextRequested) {
+        return s;
+      }
+      return {
+        viewports: {
+          ...s.viewports,
+          [pid]: {
+            ...current,
+            requestedImageIndex: nextRequested,
+          },
+        },
+      };
+    }),
 
   _updateZoom: (pid, percent) =>
     set((s) => ({

@@ -28,7 +28,7 @@ export function writeDicomDict(
     if (!(firstErr instanceof Error) || !firstErr.message.includes('Not a number')) {
       throw firstErr; // not the NaN error — rethrow
     }
-    console.warn(
+    console.debug(
       `[${callerTag}] DicomDict.write() hit NaN in dcmjs internals; retrying with NaN guard`,
     );
   }

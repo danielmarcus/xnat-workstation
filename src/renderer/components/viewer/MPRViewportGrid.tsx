@@ -63,6 +63,7 @@ export default function MPRViewportGrid({ volumeId, sourceImageIds }: MPRViewpor
           return (
             <div
               key={pid}
+              data-panel-id={pid}
               className={`relative min-w-0 min-h-0 cursor-pointer ${
                 isActive ? 'ring-2 ring-blue-500 ring-inset' : ''
               }`}
@@ -76,6 +77,7 @@ export default function MPRViewportGrid({ volumeId, sourceImageIds }: MPRViewpor
 
         {/* Panel 3: Original stack viewport for reference */}
         <div
+          data-panel-id={MPR_STACK_PANEL_ID}
           className={`relative min-w-0 min-h-0 cursor-pointer ${
             MPR_STACK_PANEL_ID === activeViewportId ? 'ring-2 ring-blue-500 ring-inset' : ''
           }`}

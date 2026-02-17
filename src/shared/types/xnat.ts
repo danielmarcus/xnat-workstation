@@ -20,7 +20,7 @@ export interface XnatConnectionInfo {
   serverUrl: string;
   username: string;
   connectedAt: number; // timestamp in ms
-  authType: 'alias' | 'jsession';
+  authType: 'jsession';
 }
 
 /** Result from login attempt */
@@ -79,6 +79,7 @@ export interface XnatScan {
   quality?: string;
   frames?: number;
   modality?: string;
+  sopClassUID?: string;
 }
 
 // ─── XNAT Upload Types ──────────────────────────────────────

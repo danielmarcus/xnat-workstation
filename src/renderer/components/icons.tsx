@@ -470,6 +470,101 @@ export function IconPaintFill(props: IconProps) {
   );
 }
 
+/** Sphere Scissors — sphere with scissors cut */
+export function IconSphereScissors(props: IconProps) {
+  return (
+    <svg {...defaults(props)}>
+      <circle cx="8" cy="8" r="5.5" />
+      <ellipse cx="8" cy="8" rx="5.5" ry="3" strokeDasharray="2 1.5" />
+      <line x1="4" y1="4" x2="6.5" y2="6.5" strokeWidth={1.2} />
+      <line x1="4" y1="6.5" x2="6.5" y2="4" strokeWidth={1.2} />
+    </svg>
+  );
+}
+
+/** Segment Select — cursor pointer with segment circle */
+export function IconSegmentSelect(props: IconProps) {
+  return (
+    <svg {...defaults(props)}>
+      <path d="M3 2 L3 11 L5.5 8.5 L8 13 L10 12 L7.5 7.5 L11 7.5 Z" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="12" r="3" strokeDasharray="2 1" />
+    </svg>
+  );
+}
+
+/** Region Segment — growing region with center seed */
+export function IconRegionSegment(props: IconProps) {
+  return (
+    <svg {...defaults(props)}>
+      <circle cx="8" cy="8" r="3" />
+      <circle cx="8" cy="8" r="6" strokeDasharray="2 1.5" />
+      <circle cx="8" cy="8" r="1" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+/** Region Segment Plus — enhanced region with plus indicator */
+export function IconRegionSegmentPlus(props: IconProps) {
+  return (
+    <svg {...defaults(props)}>
+      <circle cx="7" cy="8" r="3" />
+      <circle cx="7" cy="8" r="5.5" strokeDasharray="2 1.5" />
+      <circle cx="7" cy="8" r="1" fill="currentColor" stroke="none" />
+      <line x1="12" y1="3" x2="12" y2="7" strokeWidth={1.5} />
+      <line x1="10" y1="5" x2="14" y2="5" strokeWidth={1.5} />
+    </svg>
+  );
+}
+
+/** Segment Bidirectional — bidirectional measurement on a segment */
+export function IconSegmentBidirectional(props: IconProps) {
+  return (
+    <svg {...defaults(props)}>
+      <circle cx="8" cy="8" r="5.5" strokeDasharray="2 1.5" />
+      <line x1="3.5" y1="8" x2="12.5" y2="8" />
+      <line x1="8" y1="4" x2="8" y2="12" />
+      <polyline points="5,6.5 3.5,8 5,9.5" />
+      <polyline points="11,6.5 12.5,8 11,9.5" />
+    </svg>
+  );
+}
+
+/** Rectangle ROI Threshold — rectangle with threshold gradient */
+export function IconRectangleROIThreshold(props: IconProps) {
+  return (
+    <svg {...defaults(props)}>
+      <rect x="2.5" y="3" width="11" height="10" rx="0.8" />
+      <line x1="5" y1="6" x2="11" y2="6" strokeWidth={1} strokeDasharray="1.5 1" />
+      <line x1="5" y1="8.5" x2="11" y2="8.5" strokeWidth={1} />
+      <line x1="5" y1="11" x2="11" y2="11" strokeWidth={1} strokeDasharray="1.5 1" />
+    </svg>
+  );
+}
+
+/** Circle ROI Threshold — circle with threshold gradient */
+export function IconCircleROIThreshold(props: IconProps) {
+  return (
+    <svg {...defaults(props)}>
+      <circle cx="8" cy="8" r="5.5" />
+      <line x1="5" y1="6.5" x2="11" y2="6.5" strokeWidth={1} strokeDasharray="1.5 1" />
+      <line x1="4" y1="8.5" x2="12" y2="8.5" strokeWidth={1} />
+      <line x1="5" y1="10.5" x2="11" y2="10.5" strokeWidth={1} strokeDasharray="1.5 1" />
+    </svg>
+  );
+}
+
+/** Labelmap Edit with Contour — contour drawing on a labelmap */
+export function IconLabelmapEditContour(props: IconProps) {
+  return (
+    <svg {...defaults(props)}>
+      <rect x="3" y="3" width="10" height="10" rx="1" strokeDasharray="2 1.5" />
+      <path d="M5 10 C4 7 6 5 8 5 C10 5 12 7 11 10" fill="none" />
+      <circle cx="5" cy="10" r="1" fill="currentColor" stroke="none" />
+      <circle cx="11" cy="10" r="1" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
 /** Sculptor — push/pull arrows on a curve */
 export function IconSculptor(props: IconProps) {
   return (
@@ -489,6 +584,31 @@ export function IconPlus(props: IconProps) {
     <svg {...defaults(props)} viewBox="0 0 14 14">
       <line x1="7" y1="3" x2="7" y2="11" />
       <line x1="3" y1="7" x2="11" y2="7" />
+    </svg>
+  );
+}
+
+/** Segmentation annotation glyph — filled labelmap block */
+export function IconSegmentationAnnotation(props: IconProps) {
+  return (
+    <svg {...defaults(props)} viewBox="0 0 14 14">
+      <rect x="2" y="2" width="10" height="10" rx="1.5" />
+      <rect x="4.2" y="4.2" width="2.4" height="2.4" fill="currentColor" stroke="none" />
+      <rect x="7.4" y="4.2" width="2.4" height="2.4" fill="currentColor" stroke="none" />
+      <rect x="4.2" y="7.4" width="2.4" height="2.4" fill="currentColor" stroke="none" />
+      <rect x="7.4" y="7.4" width="2.4" height="2.4" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+/** Structure annotation glyph — contour/polyline shape */
+export function IconStructureAnnotation(props: IconProps) {
+  return (
+    <svg {...defaults(props)} viewBox="0 0 14 14">
+      <path d="M2.4 8.7 C2.1 6.3 3.0 4.2 4.7 3.2 C6.1 2.4 7.9 2.6 9.2 3.6 C10.6 4.7 11.1 6.4 10.8 8.1 C10.5 9.8 9.2 11.2 7.5 11.6 C5.4 12.1 3.2 10.9 2.4 8.7 Z" />
+      <circle cx="2.4" cy="8.7" r="0.85" fill="currentColor" stroke="none" />
+      <circle cx="4.7" cy="3.2" r="0.85" fill="currentColor" stroke="none" />
+      <circle cx="10.8" cy="8.1" r="0.85" fill="currentColor" stroke="none" />
     </svg>
   );
 }
@@ -538,6 +658,17 @@ export function IconUpload(props: IconProps) {
     <svg {...defaults(props)}>
       <polyline points="5.5,6 8,3 10.5,6" />
       <line x1="8" y1="3.5" x2="8" y2="10" />
+      <path d="M3 10v2a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-2" />
+    </svg>
+  );
+}
+
+/** Download — arrow down into tray */
+export function IconDownload(props: IconProps) {
+  return (
+    <svg {...defaults(props)}>
+      <polyline points="5.5,10 8,13 10.5,10" />
+      <line x1="8" y1="3.5" x2="8" y2="12.5" />
       <path d="M3 10v2a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-2" />
     </svg>
   );

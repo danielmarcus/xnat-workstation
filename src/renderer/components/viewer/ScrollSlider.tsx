@@ -21,13 +21,16 @@ interface ScrollSliderProps {
 export default function ScrollSlider({ panelId }: ScrollSliderProps) {
   // Use separate primitive selectors to avoid creating new objects (infinite re-render pitfall)
   const imageIndex = useViewerStore((s) => s.viewports[panelId]?.imageIndex ?? 0);
+  const requestedImageIndex = useViewerStore((s) => s.viewports[panelId]?.requestedImageIndex ?? null);
   const totalImages = useViewerStore((s) => s.viewports[panelId]?.totalImages ?? 0);
+  const requestImageIndex = useViewerStore((s) => s._requestImageIndex);
   const [isDragging, setIsDragging] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
   const trackRef = useRef<HTMLDivElement>(null);
   const draggingRef = useRef(false); // Non-reactive ref for pointer events
 
-  const thumbPercent = totalImages > 1 ? (imageIndex / (totalImages - 1)) * 100 : 0;
+  const displayIndex = requestedImageIndex ?? imageIndex;
+  const thumbPercent = totalImages > 1 ? (displayIndex / (totalImages - 1)) * 100 : 0;
 
   // All hooks must be declared before any early return (Rules of Hooks)
   const scrollToY = useCallback(
@@ -37,9 +40,11 @@ export default function ScrollSlider({ panelId }: ScrollSliderProps) {
       const rect = track.getBoundingClientRect();
       const percent = Math.max(0, Math.min(1, (clientY - rect.top) / rect.height));
       const index = Math.round(percent * (totalImages - 1));
+      if (index === displayIndex) return;
+      requestImageIndex(panelId, index, totalImages);
       viewportService.scrollToIndex(panelId, index);
     },
-    [panelId, totalImages],
+    [displayIndex, panelId, totalImages, requestImageIndex],
   );
 
   const handlePointerDown = useCallback(
@@ -123,7 +128,7 @@ export default function ScrollSlider({ panelId }: ScrollSliderProps) {
           className="absolute right-8 bg-black/80 text-white text-[10px] font-mono px-1.5 py-0.5 rounded whitespace-nowrap pointer-events-none"
           style={{ top: `${Math.max(5, Math.min(95, thumbPercent))}%`, transform: 'translateY(-50%)' }}
         >
-          {imageIndex + 1}/{totalImages}
+          {displayIndex + 1}/{totalImages}
         </div>
       )}
     </div>

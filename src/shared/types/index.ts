@@ -58,12 +58,31 @@ export interface ElectronAPI {
       sessionLabel: string,
       sourceScanId: string,
       dicomBase64: string,
+      label?: string,
     ): Promise<XnatUploadResult>;
     overwriteDicomSeg(
       sessionId: string,
       targetScanId: string,
       dicomBase64: string,
+      seriesDescription?: string,
     ): Promise<XnatUploadResult>;
+    overwriteDicomRtStruct(
+      sessionId: string,
+      targetScanId: string,
+      dicomBase64: string,
+      seriesDescription?: string,
+    ): Promise<XnatUploadResult>;
+    prepareDicomForUpload(
+      type: 'SEG' | 'RTSTRUCT',
+      projectId: string,
+      subjectId: string,
+      sessionId: string,
+      sessionLabel: string,
+      sourceScanId: string,
+      dicomBase64: string,
+      targetScanId?: string,
+      seriesDescription?: string,
+    ): Promise<{ ok: boolean; data?: string; scanId?: string; error?: string }>;
     autoSaveTemp(
       sessionId: string,
       sourceScanId: string,
@@ -106,6 +125,10 @@ export interface ElectronAPI {
     ): Promise<{ ok: boolean; path?: string; error?: string }>;
     saveDicomRtStruct(
       dicomBase64: string,
+      defaultName?: string,
+    ): Promise<{ ok: boolean; path?: string; error?: string }>;
+    saveViewportCapture(
+      bounds: { x: number; y: number; width: number; height: number },
       defaultName?: string,
     ): Promise<{ ok: boolean; path?: string; error?: string }>;
   };

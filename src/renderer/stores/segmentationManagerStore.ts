@@ -121,7 +121,11 @@ export const useSegmentationManagerStore = create<SegmentationManagerState>((set
         [panelId]: {
           sourceScanId,
           epoch,
-          desiredOverlayIds: s.panelState[panelId]?.desiredOverlayIds ?? [],
+          // desired overlays are source-scan specific; clear when source changes
+          desiredOverlayIds:
+            s.panelState[panelId]?.sourceScanId === sourceScanId
+              ? (s.panelState[panelId]?.desiredOverlayIds ?? [])
+              : [],
         },
       },
     })),

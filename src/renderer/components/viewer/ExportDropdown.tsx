@@ -1,14 +1,13 @@
 /**
  * ExportDropdown — toolbar dropdown providing export actions:
- *   1. Save as Image (PNG/JPEG) — file save dialog (includes annotations)
+ *   1. Save as Image (PNG/JPEG) — file save dialog (captures viewport + overlay)
  *   2. Copy to Clipboard — system clipboard as image
  *   3. Save All Slices — export every slice as PNG to a folder
  *   4. Save DICOM — raw DICOM file for the current slice
  *   5. Export Annotations — CSV report of all measurements
  *
- * Canvas capture includes annotations (Cornerstone renders them on the main
- * canvas). Uses fixed positioning to escape toolbar overflow clipping, same
- * pattern as AnnotationToolDropdown.
+ * Dropdown uses fixed positioning to escape toolbar overflow clipping,
+ * same pattern as AnnotationToolDropdown.
  */
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { wadouri } from '@cornerstonejs/dicom-image-loader';
@@ -181,20 +180,42 @@ export default function ExportDropdown() {
     }
   }, [activeViewportId]);
 
+  const getActivePanelBounds = useCallback(() => {
+    const panelEl = document.querySelector(`[data-panel-id="${activeViewportId}"]`) as HTMLElement | null;
+    if (!panelEl) return null;
+    const rect = panelEl.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return null;
+    return {
+      x: Math.floor(rect.left),
+      y: Math.floor(rect.top),
+      width: Math.floor(rect.width),
+      height: Math.floor(rect.height),
+    };
+  }, [activeViewportId]);
+
   const handleSaveImage = useCallback(async () => {
     setBusy(true);
     setOpen(false);
     try {
-      const dataUrl = captureCanvas();
-      if (!dataUrl) {
-        setToast({ message: 'No image to export', type: 'error' });
-        return;
-      }
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19);
-      const result = await window.electronAPI.export.saveScreenshot(
-        dataUrl,
-        `viewport-${timestamp}.png`,
-      );
+      const bounds = getActivePanelBounds();
+
+      const result = bounds
+        ? await window.electronAPI.export.saveViewportCapture(
+            bounds,
+            `viewport-${timestamp}.png`,
+          )
+        : await (async () => {
+            // Fallback: canvas-only capture (should rarely be needed)
+            const dataUrl = captureCanvas();
+            if (!dataUrl) {
+              return { ok: false, error: 'No image to export' };
+            }
+            return window.electronAPI.export.saveScreenshot(
+              dataUrl,
+              `viewport-${timestamp}.png`,
+            );
+          })();
       if (result.ok) {
         setToast({ message: 'Image saved successfully', type: 'success' });
       } else if (result.error) {
@@ -207,7 +228,7 @@ export default function ExportDropdown() {
     } finally {
       setBusy(false);
     }
-  }, [captureCanvas]);
+  }, [captureCanvas, getActivePanelBounds]);
 
   const handleCopyClipboard = useCallback(async () => {
     setBusy(true);

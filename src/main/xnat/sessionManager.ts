@@ -3,7 +3,6 @@
  *
  * Wraps XnatClient with:
  * - Keepalive timer (pings /data/JSESSION periodically)
- * - Token refresh scheduling (handled by XnatClient internally)
  * - WebRequest interceptor for injecting auth headers into Cornerstone's
  *   direct WADO-URI fetches
  * - Session expiry notification to renderer via IPC
@@ -52,7 +51,7 @@ export async function login(creds: XnatLoginCredentials): Promise<XnatLoginResul
     serverUrl: client.serverUrl,
     username: client.currentUsername,
     connectedAt: Date.now(),
-    authType: client.authType ?? 'jsession',
+    authType: 'jsession',
   };
 
   // Start keepalive timer
@@ -123,11 +122,8 @@ export function isConnected(): boolean {
 function startKeepalive(): void {
   stopKeepalive();
 
-  // Ping interval: 5 min for JSESSION, 60 min for alias token
-  const intervalMs =
-    connectionInfo?.authType === 'jsession'
-      ? 5 * 60 * 1000
-      : 60 * 60 * 1000;
+  // Ping interval for JSESSION validation
+  const intervalMs = 5 * 60 * 1000;
 
   keepaliveInterval = setInterval(async () => {
     if (!client) {

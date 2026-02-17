@@ -1,27 +1,25 @@
 /**
  * XNAT REST API Client
  *
- * Handles authentication (alias tokens with JSESSION fallback),
- * authenticated requests, and token refresh scheduling.
+ * Handles authentication using a single JSESSION cookie and
+ * authenticated requests.
  *
  * Adapted from the reference XNAT Desktop Viewer project.
  * All network operations happen in the main process — credentials
  * never cross the IPC boundary to the renderer.
  */
-
-/** Internal token representation (alias token or JSESSION) */
+import { data as dcmjsData } from 'dcmjs';
+/** Internal token representation (single JSESSION) */
 interface AuthToken {
-  type: 'alias' | 'jsession';
-  alias: string;   // alias string or "JSESSIONID"
-  secret: string;  // alias secret or session ID value
-  expiresAt: number; // timestamp in ms
+  type: 'jsession';
+  secret: string;
 }
 
 export class XnatClient {
   private baseUrl: string;
   private username: string = '';
   private token: AuthToken | null = null;
-  private refreshTimeout: NodeJS.Timeout | null = null;
+  private scanSopClassUidCache = new Map<string, string | null>();
 
   constructor(baseUrl: string) {
     // Normalize base URL (remove trailing slash)
@@ -31,69 +29,36 @@ export class XnatClient {
   // ─── Authentication ────────────────────────────────────────────
 
   /**
+   * Return a user-facing authentication error message without leaking raw
+   * server HTML/error payloads into the renderer UI.
+   */
+  private authenticationErrorMessage(status: number): string {
+    if (status === 401) {
+      return 'Invalid username or password';
+    }
+    if (status === 503) {
+      return 'XNAT is temporarily unavailable. Please try again later.';
+    }
+    if (status >= 500) {
+      return 'XNAT is unavailable right now. Please try again later.';
+    }
+    return 'Authentication failed. Please check your server URL and credentials.';
+  }
+
+  /**
    * Authenticate with XNAT.
-   *
-   * Strategy:
-   * 1. Try alias token via POST /data/services/tokens/issue
-   * 2. If 405, retry with GET (older XNAT / CNDA compatibility)
-   * 3. If token endpoint fails (non-401), fall back to JSESSION
-   * 4. On 401 at any step → "Invalid username or password"
+   * Always uses JSESSION cookie auth.
    */
   async authenticate(username: string, password: string): Promise<void> {
     this.username = username;
     const basicAuth = `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`;
-
-    // --- Try alias token (POST then GET) ---
-    let response: Response;
-    try {
-      response = await fetch(`${this.baseUrl}/data/services/tokens/issue`, {
-        method: 'POST',
-        headers: { Authorization: basicAuth },
-      });
-
-      if (response.status === 405) {
-        // POST not allowed — try GET (common on older XNAT / CNDA)
-        console.log('[xnatClient] Token endpoint returned 405 for POST, trying GET');
-        response = await fetch(`${this.baseUrl}/data/services/tokens/issue`, {
-          method: 'GET',
-          headers: { Authorization: basicAuth },
-        });
-      }
-    } catch (err) {
-      throw new Error(`Cannot reach XNAT server at ${this.baseUrl}`);
-    }
-
-    if (response.ok) {
-      // Alias token issued successfully
-      const data = (await response.json()) as { alias: string; secret: string };
-      this.token = {
-        type: 'alias',
-        alias: data.alias,
-        secret: data.secret,
-        expiresAt: Date.now() + 48 * 60 * 60 * 1000, // 48 hours
-      };
-      this.scheduleRefresh(username, password);
-      console.log('[xnatClient] Authenticated with alias token');
-      return;
-    }
-
-    if (response.status === 401) {
-      throw new Error('Invalid username or password');
-    }
-
-    // Token endpoint failed for non-auth reason — fall back to JSESSION
-    console.log(`[xnatClient] Token endpoint failed (${response.status}), falling back to JSESSION`);
-    await this.authenticateWithSession(username, password, basicAuth);
+    await this.authenticateWithSession(basicAuth);
   }
 
   /**
-   * Fallback: authenticate using JSESSIONID cookie.
+   * Authenticate using JSESSIONID cookie.
    */
-  private async authenticateWithSession(
-    username: string,
-    password: string,
-    basicAuth: string,
-  ): Promise<void> {
+  private async authenticateWithSession(basicAuth: string): Promise<void> {
     let response: Response;
     try {
       response = await fetch(`${this.baseUrl}/data/JSESSION`, {
@@ -105,56 +70,23 @@ export class XnatClient {
     }
 
     if (!response.ok) {
-      if (response.status === 401) {
-        throw new Error('Invalid username or password');
-      }
       const text = await response.text().catch(() => '');
-      throw new Error(`Authentication failed: ${response.status} ${text}`.trim());
+      // Keep server details in logs for debugging, but return only a simple
+      // message to the UI.
+      console.warn(
+        `[xnatClient] Session auth failed (${response.status})`,
+        text ? text.slice(0, 300) : '',
+      );
+      throw new Error(this.authenticationErrorMessage(response.status));
     }
 
     const sessionId = (await response.text()).trim();
     this.token = {
       type: 'jsession',
-      alias: 'JSESSIONID',
       secret: sessionId,
-      expiresAt: Date.now() + 15 * 60 * 1000, // 15 minutes
     };
 
-    this.scheduleRefresh(username, password);
     console.log('[xnatClient] Authenticated with JSESSION');
-  }
-
-  // ─── Token Refresh ─────────────────────────────────────────────
-
-  /**
-   * Schedule automatic re-authentication before token expiration.
-   */
-  private scheduleRefresh(username: string, password: string): void {
-    this.clearRefresh();
-    if (!this.token) return;
-
-    // Refresh early: 13 min for 15-min JSESSION, 47 hours for 48-hour alias
-    const refreshIn =
-      this.token.type === 'jsession'
-        ? 13 * 60 * 1000
-        : 47 * 60 * 60 * 1000;
-
-    this.refreshTimeout = setTimeout(async () => {
-      try {
-        console.log('[xnatClient] Refreshing authentication');
-        await this.authenticate(username, password);
-      } catch (err) {
-        console.error('[xnatClient] Failed to refresh auth:', err);
-        // Token will expire — sessionManager will detect via keepalive
-      }
-    }, refreshIn);
-  }
-
-  private clearRefresh(): void {
-    if (this.refreshTimeout) {
-      clearTimeout(this.refreshTimeout);
-      this.refreshTimeout = null;
-    }
   }
 
   // ─── Session Validation ────────────────────────────────────────
@@ -188,8 +120,6 @@ export class XnatClient {
    * Clean up: invalidate session on server, clear local state.
    */
   async disconnect(): Promise<void> {
-    this.clearRefresh();
-
     if (this.token) {
       // Best-effort: invalidate server session
       try {
@@ -214,14 +144,7 @@ export class XnatClient {
    */
   buildAuthHeaders(): Record<string, string> {
     if (!this.token) throw new Error('Not authenticated');
-
-    if (this.token.type === 'jsession') {
-      return { Cookie: `JSESSIONID=${this.token.secret}` };
-    }
-    // Alias token uses Basic auth with alias:secret
-    return {
-      Authorization: `Basic ${Buffer.from(`${this.token.alias}:${this.token.secret}`).toString('base64')}`,
-    };
+    return { Cookie: `JSESSIONID=${this.token.secret}` };
   }
 
   /**
@@ -373,28 +296,160 @@ export class XnatClient {
    */
   async getScans(sessionId: string): Promise<Array<{
     id: string; type?: string; seriesDescription?: string;
-    quality?: string; frames?: number; modality?: string;
+    quality?: string; frames?: number; modality?: string; sopClassUID?: string;
   }>> {
     const data = await this.jsonRequest<any>(
       `/data/experiments/${encodeURIComponent(sessionId)}/scans`,
     );
     const results = data?.ResultSet?.Result ?? data?.items ?? [];
-    return results.map((r: any) => {
+    return Promise.all(results.map(async (r: any) => {
       const fields = r.data_fields || r;
       let modality = fields.modality;
       if (!modality && fields.xsiType) {
         const match = fields.xsiType.match(/xnat:(\w+)ScanData/i);
         if (match) modality = match[1].toUpperCase();
       }
+      const rawScanId = fields.ID || fields.id;
+      const scanId = rawScanId != null ? String(rawScanId) : '';
+      const sopClassUID = scanId
+        ? await this.getScanSopClassUid(sessionId, scanId).catch(() => undefined)
+        : undefined;
       return {
-        id: fields.ID || fields.id,
+        id: scanId,
         type: fields.type,
         seriesDescription: fields.series_description,
         quality: fields.quality,
         frames: fields.frames ? parseInt(String(fields.frames), 10) : undefined,
         modality,
+        sopClassUID,
       };
-    });
+    }));
+  }
+
+  private scanCacheKey(sessionId: string, scanId: string): string {
+    return `${sessionId}/${scanId}`;
+  }
+
+  private parseSopClassUidFromDicom(arrayBuffer: ArrayBuffer): string | undefined {
+    const file = (dcmjsData as any).DicomMessage.readFile(arrayBuffer);
+    const naturalized = (dcmjsData as any).DicomMetaDictionary.naturalizeDataset(file.dict);
+    const uid = naturalized?.SOPClassUID
+      ?? file?.dict?.x00080016?.Value?.[0]
+      ?? file?.dict?.['x00080016']?.Value?.[0];
+    return typeof uid === 'string' && uid.length > 0 ? uid : undefined;
+  }
+
+  private async getScanFilesFromAllResources(sessionId: string, scanId: string): Promise<string[]> {
+    const resourcesEndpoint =
+      `/data/experiments/${encodeURIComponent(sessionId)}/scans/${encodeURIComponent(scanId)}/resources`;
+    const resourcesData = await this.jsonRequest<{ ResultSet: { Result: any[] } }>(resourcesEndpoint);
+    const resources = resourcesData?.ResultSet?.Result ?? [];
+
+    const uris: string[] = [];
+    for (const resource of resources) {
+      const baseUri = resource.URI as string | undefined;
+      const resourceLabel =
+        (resource.label as string | undefined) ??
+        (resource.xnat_abstractresource_id as string | undefined);
+      const filesEndpoint = baseUri
+        ? `${baseUri}/files`
+        : `${resourcesEndpoint}/${encodeURIComponent(resourceLabel ?? '')}/files`;
+      if (!filesEndpoint.includes('/files')) continue;
+
+      try {
+        const filesData = await this.jsonRequest<{ ResultSet: { Result: any[] } }>(filesEndpoint);
+        const results = filesData?.ResultSet?.Result ?? [];
+        for (const f of results) {
+          const uri = f.URI as string | undefined;
+          const name = String(f.Name ?? '').toLowerCase();
+          if (!uri) continue;
+          if (name.endsWith('.dcm') || !name.includes('.')) {
+            uris.push(uri);
+          }
+        }
+      } catch {
+        // Skip resource-level failures and continue.
+      }
+    }
+
+    // Dedupe while preserving order.
+    return [...new Set(uris)];
+  }
+
+  /**
+   * Resolve SOPClassUID for a scan by reading DICOM metadata from its files.
+   * Cached per session/scan to avoid repeated network and parse work.
+   */
+  private async getScanSopClassUid(sessionId: string, scanId: string): Promise<string | undefined> {
+    const key = this.scanCacheKey(sessionId, scanId);
+    if (this.scanSopClassUidCache.has(key)) {
+      return this.scanSopClassUidCache.get(key) ?? undefined;
+    }
+
+    try {
+      let fileUris = await this.getScanFiles(sessionId, scanId);
+      if (fileUris.length === 0) {
+        fileUris = await this.getScanFilesFromAllResources(sessionId, scanId);
+      }
+      for (const uri of fileUris) {
+        try {
+          const response = await this.authenticatedFetch(uri);
+          const arrayBuffer = await response.arrayBuffer();
+          const sopClassUID = this.parseSopClassUidFromDicom(arrayBuffer);
+          if (sopClassUID) {
+            this.scanSopClassUidCache.set(key, sopClassUID);
+            return sopClassUID;
+          }
+        } catch {
+          // Try the next file in this scan.
+        }
+      }
+    } catch {
+      // Leave unresolved and cache as null below.
+    }
+
+    this.scanSopClassUidCache.set(key, null);
+    return undefined;
+  }
+
+  /**
+   * Resolve canonical experiment routing fields from XNAT.
+   * This avoids trusting renderer-provided project/subject IDs for writes.
+   */
+  private async getExperimentRouting(sessionId: string): Promise<{
+    experimentId: string;
+    projectId: string;
+    subjectId: string;
+    sessionLabel?: string;
+  }> {
+    const data = await this.jsonRequest<any>(
+      `/data/experiments/${encodeURIComponent(sessionId)}`,
+    );
+    const row =
+      data?.items?.[0]?.data_fields ??
+      data?.ResultSet?.Result?.[0] ??
+      data;
+
+    const experimentId = row?.ID || row?.id || sessionId;
+    const projectId =
+      row?.project ||
+      row?.project_id ||
+      row?.xnat_experimentdata_project ||
+      '';
+    const subjectId =
+      row?.subject_ID ||
+      row?.subject_id ||
+      row?.xnat_experimentdata_subject_id ||
+      '';
+    const sessionLabel = row?.label || row?.session_label;
+
+    if (!projectId || !subjectId) {
+      throw new Error(
+        `Failed to resolve canonical routing for experiment ${sessionId} (project/subject missing)`,
+      );
+    }
+
+    return { experimentId, projectId, subjectId, sessionLabel };
   }
 
   /**
@@ -413,17 +468,15 @@ export class XnatClient {
       console.log('[xnatClient] getScanFiles: sample file entry:', JSON.stringify(results[0]));
     }
 
-    // Filter to DICOM files only and sort by Name for consistent ordering
+    // Filter to DICOM files only. Do not impose filename-based ordering here;
+    // downstream consumers should choose metadata-based stack ordering.
     const dicomFiles = results
       .filter((f: any) => {
         const name = (f.Name || '').toLowerCase();
         const collection = (f.collection || '').toLowerCase();
         // Include files from DICOM collection or with .dcm extension
         return collection === 'dicom' || name.endsWith('.dcm') || !name.includes('.');
-      })
-      .sort((a: any, b: any) =>
-        (a.Name || '').localeCompare(b.Name || '', undefined, { numeric: true }),
-      );
+      });
 
     console.log(`[xnatClient] getScanFiles: ${dicomFiles.length} DICOM files after filtering`);
 
@@ -458,21 +511,145 @@ export class XnatClient {
   // ─── Upload ───────────────────────────────────────────────────
 
   /**
+   * Ask XNAT to re-extract experiment/scan metadata from archived DICOM headers.
+   * This makes scan-level DICOM attributes visible in the XNAT UI after manual
+   * resource uploads that bypass the normal session importer flow.
+   */
+  private async pullDataFromHeaders(sessionId: string): Promise<void> {
+    // Temporarily disabled per product request while server-side behavior is investigated.
+    void sessionId;
+  }
+
+  /**
+   * Stamp upload metadata in the DICOM header.
+   * - SeriesNumber is always aligned to target XNAT scan ID.
+   * - SeriesDescription is optionally set from annotation label.
+   */
+  private withUploadMetadata(
+    dicomBuffer: Buffer,
+    scanId: string,
+    seriesDescription?: string,
+  ): Buffer {
+    if (!/^\d+$/.test(scanId)) {
+      throw new Error(`Cannot stamp SeriesNumber from non-numeric scan ID: ${scanId}`);
+    }
+    const parsedSeriesNumber = parseInt(scanId, 10);
+    const normalizedSeriesDescription = seriesDescription?.trim();
+
+    try {
+      const file = (dcmjsData as any).DicomMessage.readFile(
+        dicomBuffer.buffer.slice(
+          dicomBuffer.byteOffset,
+          dicomBuffer.byteOffset + dicomBuffer.byteLength,
+        ),
+      );
+
+      const naturalized = (dcmjsData as any).DicomMetaDictionary.naturalizeDataset(file.dict);
+      const naturalizedMeta = (dcmjsData as any).DicomMetaDictionary.naturalizeDataset(file.meta);
+      naturalized.SeriesNumber = parsedSeriesNumber;
+      if (normalizedSeriesDescription) {
+        naturalized.SeriesDescription = normalizedSeriesDescription;
+      }
+      naturalized._meta = naturalizedMeta;
+
+      const denaturalizedMeta = (dcmjsData as any).DicomMetaDictionary.denaturalizeDataset(naturalizedMeta);
+      delete naturalized._meta;
+      const denaturalizedDict = (dcmjsData as any).DicomMetaDictionary.denaturalizeDataset(naturalized);
+
+      const dict = new (dcmjsData as any).DicomDict(denaturalizedMeta);
+      dict.dict = denaturalizedDict;
+      const arrayBuffer = dict.write();
+      return Buffer.from(new Uint8Array(arrayBuffer));
+    } catch (err) {
+      throw new Error(
+        `[xnatClient] Failed to stamp SeriesNumber=${scanId}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  private async resolveUploadRouting(
+    projectId: string,
+    subjectId: string,
+    sessionId: string,
+    sessionLabel: string,
+    kind: 'SEG' | 'RTSTRUCT',
+  ): Promise<{
+    targetSessionId: string;
+    targetSessionLabel: string;
+    targetProjectId: string;
+    targetSubjectId: string;
+  }> {
+    const routing = await this.getExperimentRouting(sessionId);
+    const targetSessionId = routing.experimentId || sessionId;
+    const targetSessionLabel = routing.sessionLabel || sessionLabel || targetSessionId;
+    const targetProjectId = routing.projectId || projectId;
+    const targetSubjectId = routing.subjectId || subjectId;
+    if (targetProjectId !== projectId || targetSubjectId !== subjectId) {
+      console.warn(
+        `[xnatClient] ${kind} upload routing override from experiment ${sessionId}: `
+        + `project ${projectId} -> ${targetProjectId}, subject ${subjectId} -> ${targetSubjectId}`,
+      );
+    }
+    return { targetSessionId, targetSessionLabel, targetProjectId, targetSubjectId };
+  }
+
+  private async findNextDerivedScanId(
+    sessionId: string,
+    sourceScanId: string,
+    kind: 'SEG' | 'RTSTRUCT',
+  ): Promise<string> {
+    const existingScans = await this.getScans(sessionId);
+    const existingScanIds = new Set(existingScans.map((s) => s.id));
+    const srcNum = parseInt(sourceScanId, 10);
+    const suffix = Number.isNaN(srcNum)
+      ? sourceScanId
+      : String(srcNum).padStart(2, '0');
+    const prefixStart = kind === 'SEG' ? 30 : 40;
+
+    for (let prefix = prefixStart; prefix < 100; prefix++) {
+      const candidate = `${prefix}${suffix}`;
+      if (!existingScanIds.has(candidate)) {
+        return candidate;
+      }
+    }
+    throw new Error(`Could not find unused ${kind} scan number for source scan ${sourceScanId}`);
+  }
+
+  /**
+   * Build DICOM bytes exactly as upload would store them (including SeriesNumber stamping).
+   * If targetScanId is provided, that scan ID is used directly (overwrite path).
+   */
+  async prepareDicomForUpload(
+    kind: 'SEG' | 'RTSTRUCT',
+    projectId: string,
+    subjectId: string,
+    sessionId: string,
+    sessionLabel: string,
+    sourceScanId: string,
+    dicomBuffer: Buffer,
+    targetScanId?: string,
+    seriesDescription?: string,
+  ): Promise<{ scanId: string; dicomBuffer: Buffer }> {
+    if (!this.token) throw new Error('Not authenticated');
+
+    let resolvedScanId = targetScanId;
+    if (!resolvedScanId) {
+      const routing = await this.resolveUploadRouting(projectId, subjectId, sessionId, sessionLabel, kind);
+      resolvedScanId = await this.findNextDerivedScanId(
+        routing.targetSessionId,
+        sourceScanId,
+        kind,
+      );
+    }
+
+    return {
+      scanId: resolvedScanId,
+      dicomBuffer: this.withUploadMetadata(dicomBuffer, resolvedScanId, seriesDescription),
+    };
+  }
+
+  /**
    * Upload a DICOM SEG file to an XNAT session as a new scan.
-   *
-   * We bypass the Session Importer (which routes SEG to assessors based
-   * on SOP Class) and instead use the manual scan resource REST API so
-   * the SEG appears as a scan on the session — the way it would if sent
-   * from PACS.
-   *
-   * Scan numbering convention: 30xx where xx = source scan number.
-   * If 30xx is occupied, try 31xx, 32xx, etc.
-   * Example: source scan 4 → try 3004, 3104, 3204, ...
-   *
-   * Three-step process:
-   *  1. Query existing scans to find an unused scan number
-   *  2. Create scan with xsiType=xnat:otherDicomScanData
-   *  3. Upload DICOM file to the scan's DICOM resource
    */
   async uploadDicomSegAsScan(
     projectId: string,
@@ -484,96 +661,80 @@ export class XnatClient {
     seriesDescription: string = 'Segmentation',
   ): Promise<{ url: string; scanId: string }> {
     if (!this.token) throw new Error('Not authenticated');
-
-    // ── Step 1: Find unused scan number ──────────────────────────
-    const existingScans = await this.getScans(sessionId);
-    const existingScanIds = new Set(existingScans.map((s) => s.id));
-
-    // Parse the source scan number (handles numeric and string IDs)
-    const srcNum = parseInt(sourceScanId, 10);
-    const suffix = isNaN(srcNum)
-      ? sourceScanId                          // Non-numeric: use as-is
-      : String(srcNum).padStart(2, '0');      // Numeric: zero-pad to 2+ digits
-
-    let targetScanId = '';
-    for (let prefix = 30; prefix < 100; prefix++) {
-      const candidate = `${prefix}${suffix}`;
-      if (!existingScanIds.has(candidate)) {
-        targetScanId = candidate;
-        break;
-      }
-    }
-    if (!targetScanId) {
-      throw new Error(`Could not find unused scan number for source scan ${sourceScanId}`);
-    }
+    const { targetSessionId, targetSessionLabel, targetProjectId, targetSubjectId } =
+      await this.resolveUploadRouting(projectId, subjectId, sessionId, sessionLabel, 'SEG');
+    const targetScanId = await this.findNextDerivedScanId(targetSessionId, sourceScanId, 'SEG');
+    const prepared = await this.prepareDicomForUpload(
+      'SEG',
+      projectId,
+      subjectId,
+      sessionId,
+      sessionLabel,
+      sourceScanId,
+      dicomBuffer,
+      targetScanId,
+      seriesDescription,
+    );
+    const dicomWithScanNumber = prepared.dicomBuffer;
 
     console.log(
       `[xnatClient] Uploading DICOM SEG as scan ${targetScanId}`,
-      `(source scan: ${sourceScanId}, ${(dicomBuffer.length / 1024).toFixed(1)} KB)`,
+      `(experiment: ${targetSessionId}, source scan: ${sourceScanId}, ${(dicomBuffer.length / 1024).toFixed(1)} KB)`,
+      seriesDescription ? `label: "${seriesDescription}"` : '',
     );
 
-    // Build the base path for scan operations
-    const basePath = `/data/projects/${encodeURIComponent(projectId)}`
-      + `/subjects/${encodeURIComponent(subjectId)}`
-      + `/experiments/${encodeURIComponent(sessionLabel)}`
+    const basePath = `/data/projects/${encodeURIComponent(targetProjectId)}`
+      + `/subjects/${encodeURIComponent(targetSubjectId)}`
+      + `/experiments/${encodeURIComponent(targetSessionLabel)}`
       + `/scans/${encodeURIComponent(targetScanId)}`;
 
-    // ── Step 2: Create the scan ──────────────────────────────────
     const createParams = new URLSearchParams({
-      'xsiType': 'xnat:otherDicomScanData',
-      'xnat:otherDicomScanData/type': 'SEG',
-      'xnat:otherDicomScanData/series_description': seriesDescription,
+      xsiType: 'xnat:segScanData',
+      'xnat:segScanData/type': 'SEG',
+      'xnat:segScanData/series_description': seriesDescription,
     });
-
     const createUrl = `${this.baseUrl}${basePath}?${createParams.toString()}`;
     const createResp = await fetch(createUrl, {
       method: 'PUT',
       headers: this.buildAuthHeaders(),
     });
-
     if (!createResp.ok) {
       const text = await createResp.text().catch(() => '');
       if (createResp.status === 403) {
         throw new Error('Permission denied: you do not have write access to this project');
       }
-      throw new Error(`Failed to create scan ${targetScanId}: ${createResp.status} ${text}`.trim());
+      throw new Error(`Failed to create SEG scan ${targetScanId}: ${createResp.status} ${text}`.trim());
     }
-    console.log(`[xnatClient] Created scan ${targetScanId}`);
 
-    // ── Step 3: Upload DICOM file to scan resource ───────────────
-    const fileParams = new URLSearchParams({
-      'format': 'DICOM',
-      'content': 'SEG',
-    });
-
-    const fileUrl = `${this.baseUrl}${basePath}/resources/DICOM/files/segmentation.dcm?${fileParams.toString()}`;
+    const fileUrl = `${this.baseUrl}${basePath}/resources/DICOM/files/segmentation.dcm?format=DICOM&content=SEG`;
     const fileResp = await fetch(fileUrl, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/dicom',
         ...this.buildAuthHeaders(),
       },
-      body: new Uint8Array(dicomBuffer),
+      body: new Uint8Array(dicomWithScanNumber),
     });
-
     if (!fileResp.ok) {
       const text = await fileResp.text().catch(() => '');
-      throw new Error(`Failed to upload file to scan ${targetScanId}: ${fileResp.status} ${text}`.trim());
+      throw new Error(`Failed to upload SEG file to scan ${targetScanId}: ${fileResp.status} ${text}`.trim());
     }
 
-    const scanUrl = `${this.baseUrl}${basePath}`;
-    console.log(`[xnatClient] Upload successful: ${scanUrl}`);
+    try {
+      await this.pullDataFromHeaders(targetSessionId);
+    } catch (err) {
+      console.warn(
+        `[xnatClient] SEG upload succeeded but pullDataFromHeaders failed for ${targetSessionId}:`,
+        err,
+      );
+    }
+
+    const scanUrl = `${this.baseUrl}/data/experiments/${encodeURIComponent(targetSessionId)}/scans/${encodeURIComponent(targetScanId)}`;
     return { url: scanUrl, scanId: targetScanId };
   }
 
   /**
    * Upload a DICOM RTSTRUCT file to an XNAT session as a new scan.
-   *
-   * Same three-step process as uploadDicomSegAsScan(), but:
-   * - Scan numbering convention: 40xx (then 41xx, 42xx, etc.)
-   * - xnat:otherDicomScanData/type = 'RTSTRUCT'
-   * - series_description = 'RT Structure Set'
-   * - filename = rtstruct.dcm
    */
   async uploadDicomRtStructAsScan(
     projectId: string,
@@ -585,83 +746,75 @@ export class XnatClient {
     seriesDescription: string = 'RT Structure Set',
   ): Promise<{ url: string; scanId: string }> {
     if (!this.token) throw new Error('Not authenticated');
-
-    // ── Step 1: Find unused scan number ──────────────────────────
-    const existingScans = await this.getScans(sessionId);
-    const existingScanIds = new Set(existingScans.map((s) => s.id));
-
-    const srcNum = parseInt(sourceScanId, 10);
-    const suffix = isNaN(srcNum)
-      ? sourceScanId
-      : String(srcNum).padStart(2, '0');
-
-    let targetScanId = '';
-    for (let prefix = 40; prefix < 100; prefix++) {
-      const candidate = `${prefix}${suffix}`;
-      if (!existingScanIds.has(candidate)) {
-        targetScanId = candidate;
-        break;
-      }
-    }
-    if (!targetScanId) {
-      throw new Error(`Could not find unused scan number for source scan ${sourceScanId}`);
-    }
+    const { targetSessionId, targetSessionLabel, targetProjectId, targetSubjectId } =
+      await this.resolveUploadRouting(projectId, subjectId, sessionId, sessionLabel, 'RTSTRUCT');
+    const targetScanId = await this.findNextDerivedScanId(targetSessionId, sourceScanId, 'RTSTRUCT');
+    const prepared = await this.prepareDicomForUpload(
+      'RTSTRUCT',
+      projectId,
+      subjectId,
+      sessionId,
+      sessionLabel,
+      sourceScanId,
+      dicomBuffer,
+      targetScanId,
+      seriesDescription,
+    );
+    const dicomWithScanNumber = prepared.dicomBuffer;
 
     console.log(
       `[xnatClient] Uploading DICOM RTSTRUCT as scan ${targetScanId}`,
-      `(source scan: ${sourceScanId}, ${(dicomBuffer.length / 1024).toFixed(1)} KB)`,
+      `(experiment: ${targetSessionId}, source scan: ${sourceScanId}, ${(dicomBuffer.length / 1024).toFixed(1)} KB)`,
+      seriesDescription ? `label: "${seriesDescription}"` : '',
     );
 
-    const basePath = `/data/projects/${encodeURIComponent(projectId)}`
-      + `/subjects/${encodeURIComponent(subjectId)}`
-      + `/experiments/${encodeURIComponent(sessionLabel)}`
+    const basePath = `/data/projects/${encodeURIComponent(targetProjectId)}`
+      + `/subjects/${encodeURIComponent(targetSubjectId)}`
+      + `/experiments/${encodeURIComponent(targetSessionLabel)}`
       + `/scans/${encodeURIComponent(targetScanId)}`;
 
-    // ── Step 2: Create the scan ──────────────────────────────────
     const createParams = new URLSearchParams({
-      'xsiType': 'xnat:otherDicomScanData',
-      'xnat:otherDicomScanData/type': 'RTSTRUCT',
-      'xnat:otherDicomScanData/series_description': seriesDescription,
+      xsiType: 'xnat:rtImageScanData',
+      'xnat:rtImageScanData/type': 'RTSTRUCT',
+      'xnat:rtImageScanData/series_description': seriesDescription,
     });
-
     const createUrl = `${this.baseUrl}${basePath}?${createParams.toString()}`;
     const createResp = await fetch(createUrl, {
       method: 'PUT',
       headers: this.buildAuthHeaders(),
     });
-
     if (!createResp.ok) {
       const text = await createResp.text().catch(() => '');
       if (createResp.status === 403) {
         throw new Error('Permission denied: you do not have write access to this project');
       }
-      throw new Error(`Failed to create scan ${targetScanId}: ${createResp.status} ${text}`.trim());
+      throw new Error(`Failed to create RTSTRUCT scan ${targetScanId}: ${createResp.status} ${text}`.trim());
     }
-    console.log(`[xnatClient] Created scan ${targetScanId}`);
 
-    // ── Step 3: Upload DICOM file to scan resource ───────────────
-    const fileParams = new URLSearchParams({
-      'format': 'DICOM',
-      'content': 'RTSTRUCT',
-    });
-
-    const fileUrl = `${this.baseUrl}${basePath}/resources/DICOM/files/rtstruct.dcm?${fileParams.toString()}`;
+    const fileUrl = `${this.baseUrl}${basePath}/resources/DICOM/files/rtstruct.dcm?format=DICOM&content=RTSTRUCT`;
     const fileResp = await fetch(fileUrl, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/dicom',
         ...this.buildAuthHeaders(),
       },
-      body: new Uint8Array(dicomBuffer),
+      body: new Uint8Array(dicomWithScanNumber),
     });
-
     if (!fileResp.ok) {
       const text = await fileResp.text().catch(() => '');
-      throw new Error(`Failed to upload file to scan ${targetScanId}: ${fileResp.status} ${text}`.trim());
+      throw new Error(`Failed to upload RTSTRUCT file to scan ${targetScanId}: ${fileResp.status} ${text}`.trim());
     }
 
-    const scanUrl = `${this.baseUrl}${basePath}`;
-    console.log(`[xnatClient] RTSTRUCT upload successful: ${scanUrl}`);
+    try {
+      await this.pullDataFromHeaders(targetSessionId);
+    } catch (err) {
+      console.warn(
+        `[xnatClient] RTSTRUCT upload succeeded but pullDataFromHeaders failed for ${targetSessionId}:`,
+        err,
+      );
+    }
+
+    const scanUrl = `${this.baseUrl}/data/experiments/${encodeURIComponent(targetSessionId)}/scans/${encodeURIComponent(targetScanId)}`;
     return { url: scanUrl, scanId: targetScanId };
   }
 
@@ -675,6 +828,7 @@ export class XnatClient {
     sessionId: string,
     targetScanId: string,
     dicomBuffer: Buffer,
+    seriesDescription?: string,
   ): Promise<{ url: string; scanId: string }> {
     if (!this.token) throw new Error('Not authenticated');
 
@@ -697,6 +851,7 @@ export class XnatClient {
     }
 
     // Upload the new DICOM file
+    const dicomWithScanNumber = this.withUploadMetadata(dicomBuffer, targetScanId, seriesDescription);
     const fileUrl = `${this.baseUrl}${basePath}/resources/DICOM/files/segmentation.dcm?format=DICOM&content=SEG`;
     const fileResp = await fetch(fileUrl, {
       method: 'PUT',
@@ -704,7 +859,7 @@ export class XnatClient {
         'Content-Type': 'application/dicom',
         ...this.buildAuthHeaders(),
       },
-      body: new Uint8Array(dicomBuffer),
+      body: new Uint8Array(dicomWithScanNumber),
     });
 
     if (!fileResp.ok) {
@@ -712,8 +867,77 @@ export class XnatClient {
       throw new Error(`Failed to overwrite SEG in scan ${targetScanId}: ${fileResp.status} ${text}`.trim());
     }
 
+    // Best-effort metadata refresh so DICOM-derived scan attributes are repopulated in XNAT.
+    try {
+      await this.pullDataFromHeaders(sessionId);
+    } catch (err) {
+      console.warn(
+        `[xnatClient] SEG overwrite succeeded but pullDataFromHeaders failed for session ${sessionId}:`,
+        err,
+      );
+    }
+
     const scanUrl = `${this.baseUrl}${basePath}`;
     console.log(`[xnatClient] Overwrite successful: ${scanUrl}`);
+    return { url: scanUrl, scanId: targetScanId };
+  }
+
+  /**
+   * Overwrite the DICOM RTSTRUCT file within an existing scan.
+   * Deletes old files and uploads new content to the same scan ID.
+   */
+  async overwriteDicomRtStructInScan(
+    sessionId: string,
+    targetScanId: string,
+    dicomBuffer: Buffer,
+    seriesDescription?: string,
+  ): Promise<{ url: string; scanId: string }> {
+    if (!this.token) throw new Error('Not authenticated');
+
+    console.log(
+      `[xnatClient] Overwriting DICOM RTSTRUCT in scan ${targetScanId}`,
+      `(${(dicomBuffer.length / 1024).toFixed(1)} KB)`,
+    );
+
+    const basePath = `/data/experiments/${encodeURIComponent(sessionId)}`
+      + `/scans/${encodeURIComponent(targetScanId)}`;
+
+    const deleteUrl = `${this.baseUrl}${basePath}/resources/DICOM/files`;
+    const deleteResp = await fetch(deleteUrl, {
+      method: 'DELETE',
+      headers: this.buildAuthHeaders(),
+    });
+    if (!deleteResp.ok && deleteResp.status !== 404) {
+      console.warn(`[xnatClient] RTSTRUCT overwrite: could not delete old files (${deleteResp.status}), continuing`);
+    }
+
+    const dicomWithScanNumber = this.withUploadMetadata(dicomBuffer, targetScanId, seriesDescription);
+    const fileUrl = `${this.baseUrl}${basePath}/resources/DICOM/files/rtstruct.dcm?format=DICOM&content=RTSTRUCT`;
+    const fileResp = await fetch(fileUrl, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/dicom',
+        ...this.buildAuthHeaders(),
+      },
+      body: new Uint8Array(dicomWithScanNumber),
+    });
+
+    if (!fileResp.ok) {
+      const text = await fileResp.text().catch(() => '');
+      throw new Error(`Failed to overwrite RTSTRUCT in scan ${targetScanId}: ${fileResp.status} ${text}`.trim());
+    }
+
+    try {
+      await this.pullDataFromHeaders(sessionId);
+    } catch (err) {
+      console.warn(
+        `[xnatClient] RTSTRUCT overwrite succeeded but pullDataFromHeaders failed for session ${sessionId}:`,
+        err,
+      );
+    }
+
+    const scanUrl = `${this.baseUrl}${basePath}`;
+    console.log(`[xnatClient] RTSTRUCT overwrite successful: ${scanUrl}`);
     return { url: scanUrl, scanId: targetScanId };
   }
 
@@ -853,7 +1077,7 @@ export class XnatClient {
   // ─── Getters ───────────────────────────────────────────────────
 
   get isAuthenticated(): boolean {
-    return this.token !== null && this.token.expiresAt > Date.now();
+    return this.token !== null;
   }
 
   get serverUrl(): string {
@@ -864,7 +1088,7 @@ export class XnatClient {
     return this.username;
   }
 
-  get authType(): 'alias' | 'jsession' | null {
+  get authType(): 'jsession' | null {
     return this.token?.type ?? null;
   }
 }

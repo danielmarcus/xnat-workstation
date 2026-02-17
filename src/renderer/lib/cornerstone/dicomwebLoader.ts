@@ -8,10 +8,31 @@
  * to the XNAT server — the main process's webRequest interceptor
  * automatically injects auth headers.
  */
+import { metaData } from '@cornerstonejs/core';
+import { wadouri } from '@cornerstonejs/dicom-image-loader';
+import { pLimit } from '../util/pLimit';
 
 /** DICOM tags used in QIDO-RS responses */
 const TAG_SOP_INSTANCE_UID = '00080018';
 const TAG_INSTANCE_NUMBER = '00200013';
+type Vec3 = [number, number, number];
+
+type ScanImageIdOrder = 'filename' | 'dicomMetadata';
+
+interface GetScanImageIdsOptions {
+  order?: ScanImageIdOrder;
+}
+
+interface ImageOrderingMeta {
+  imageId: string;
+  uri: string;
+  originalIndex: number;
+  instanceNumber: number | null;
+  imagePositionPatient: Vec3 | null;
+  rowCosines: Vec3 | null;
+  columnCosines: Vec3 | null;
+  positionScalar: number | null;
+}
 
 /**
  * Extract a DICOM tag value from a QIDO-RS JSON response item.
@@ -25,7 +46,198 @@ function getTagNumber(item: Record<string, any>, tag: string): number {
   return typeof val === 'number' ? val : parseInt(val, 10) || 0;
 }
 
+function toWadouriUri(imageId: string): string {
+  return imageId.startsWith('wadouri:') ? imageId.slice(8) : imageId;
+}
+
+function parseNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim().length > 0) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function parseVec3(value: unknown): Vec3 | null {
+  if (!Array.isArray(value) || value.length < 3) return null;
+  const x = parseNumber(value[0]);
+  const y = parseNumber(value[1]);
+  const z = parseNumber(value[2]);
+  if (x === null || y === null || z === null) return null;
+  return [x, y, z];
+}
+
+function cross(a: Vec3, b: Vec3): Vec3 {
+  return [
+    a[1] * b[2] - a[2] * b[1],
+    a[2] * b[0] - a[0] * b[2],
+    a[0] * b[1] - a[1] * b[0],
+  ];
+}
+
+function dot(a: Vec3, b: Vec3): number {
+  return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+}
+
+function readImageOrderingMeta(imageId: string, originalIndex: number): ImageOrderingMeta {
+  const uri = toWadouriUri(imageId);
+
+  const plane = metaData.get('imagePlaneModule', imageId) as
+    | { imagePositionPatient?: unknown; rowCosines?: unknown; columnCosines?: unknown }
+    | undefined;
+  const generalImage = metaData.get('generalImageModule', imageId) as
+    | { instanceNumber?: unknown }
+    | undefined;
+  const instanceMeta = metaData.get('instance', imageId) as
+    | { InstanceNumber?: unknown }
+    | undefined;
+
+  let datasetInstanceNumber: number | null = null;
+  try {
+    if (wadouri.dataSetCacheManager.isLoaded(uri)) {
+      const dataSet = wadouri.dataSetCacheManager.get(uri);
+      datasetInstanceNumber = parseNumber(dataSet?.string?.('x00200013'));
+    }
+  } catch {
+    // Ignore missing dataset cache entries.
+  }
+
+  const instanceNumber =
+    parseNumber(instanceMeta?.InstanceNumber)
+    ?? parseNumber(generalImage?.instanceNumber)
+    ?? datasetInstanceNumber;
+
+  const imagePositionPatient = parseVec3(plane?.imagePositionPatient);
+  const rowCosines = parseVec3(plane?.rowCosines);
+  const columnCosines = parseVec3(plane?.columnCosines);
+
+  return {
+    imageId,
+    uri,
+    originalIndex,
+    instanceNumber,
+    imagePositionPatient,
+    rowCosines,
+    columnCosines,
+    positionScalar: null,
+  };
+}
+
+function assignPositionScalars(entries: ImageOrderingMeta[]): void {
+  let geometryScalars = 0;
+  for (const entry of entries) {
+    const ipp = entry.imagePositionPatient;
+    const row = entry.rowCosines;
+    const col = entry.columnCosines;
+    if (!ipp || !row || !col) continue;
+    const normal = cross(row, col);
+    const magnitude = Math.hypot(normal[0], normal[1], normal[2]);
+    if (!Number.isFinite(magnitude) || magnitude <= 1e-6) continue;
+    entry.positionScalar = dot(ipp, normal);
+    geometryScalars++;
+  }
+
+  if (geometryScalars >= 2) return;
+
+  const positions = entries
+    .map((entry) => entry.imagePositionPatient)
+    .filter((v): v is Vec3 => !!v);
+  if (positions.length < 2) return;
+
+  const ranges: Vec3 = [0, 0, 0];
+  for (let axis = 0; axis < 3; axis++) {
+    let min = Infinity;
+    let max = -Infinity;
+    for (const position of positions) {
+      if (position[axis] < min) min = position[axis];
+      if (position[axis] > max) max = position[axis];
+    }
+    ranges[axis] = max - min;
+  }
+  const dominantAxis =
+    ranges[1] > ranges[0]
+      ? (ranges[2] > ranges[1] ? 2 : 1)
+      : (ranges[2] > ranges[0] ? 2 : 0);
+
+  for (const entry of entries) {
+    if (entry.positionScalar !== null || !entry.imagePositionPatient) continue;
+    entry.positionScalar = entry.imagePositionPatient[dominantAxis];
+  }
+}
+
+function compareNullableNumbers(a: number | null, b: number | null): number {
+  if (a === null && b === null) return 0;
+  if (a === null) return 1;
+  if (b === null) return -1;
+  return a - b;
+}
+
+async function sortImageIdsByDicomMetadata(
+  imageIds: string[],
+  contextLabel: string,
+): Promise<string[]> {
+  const limit = pLimit(12);
+  await Promise.all(
+    imageIds.map((imageId) =>
+      limit(async () => {
+        try {
+          const uri = toWadouriUri(imageId);
+          if (!wadouri.dataSetCacheManager.isLoaded(uri)) {
+            await wadouri.dataSetCacheManager.load(uri, undefined as any, imageId);
+          }
+        } catch (err) {
+          // Keep partial metadata available; missing slices fall back to instance/file ordering.
+          console.debug('[dicomwebLoader] Metadata pre-load failed for imageId:', imageId, err);
+        }
+      })
+    ),
+  );
+
+  const entries = imageIds.map((imageId, index) => readImageOrderingMeta(imageId, index));
+  assignPositionScalars(entries);
+
+  entries.sort((a, b) => {
+    const scalarCmp = compareNullableNumbers(a.positionScalar, b.positionScalar);
+    if (scalarCmp !== 0) return scalarCmp;
+
+    const instanceCmp = compareNullableNumbers(a.instanceNumber, b.instanceNumber);
+    if (instanceCmp !== 0) return instanceCmp;
+
+    const uriCmp = a.uri.localeCompare(b.uri, undefined, { numeric: true });
+    if (uriCmp !== 0) return uriCmp;
+
+    return a.originalIndex - b.originalIndex;
+  });
+
+  const geometryCount = entries.reduce((count, entry) => (
+    entry.positionScalar === null ? count : count + 1
+  ), 0);
+  const instanceCount = entries.reduce((count, entry) => (
+    entry.instanceNumber === null ? count : count + 1
+  ), 0);
+
+  console.log(
+    `[dicomwebLoader] Ordered ${entries.length} images for ${contextLabel} `
+    + `(geometry=${geometryCount}, instance=${instanceCount})`,
+  );
+
+  return entries.map((entry) => entry.imageId);
+}
+
 export const dicomwebLoader = {
+  /**
+   * Order arbitrary imageIds by DICOM spatial metadata (IPP/IOP) with
+   * InstanceNumber fallback. Useful for local imports and other non-XNAT stacks.
+   */
+  async orderImageIdsByDicomMetadata(
+    imageIds: string[],
+    contextLabel = 'custom image set',
+  ): Promise<string[]> {
+    if (imageIds.length <= 1) return imageIds;
+    return sortImageIdsByDicomMetadata(imageIds, contextLabel);
+  },
+
   /**
    * Fetch the instance list for a series via QIDO-RS (through IPC proxy),
    * sort by instance number, and build wadouri: image IDs pointing to
@@ -87,7 +299,11 @@ export const dicomwebLoader = {
    * @param sessionId - XNAT experiment/session ID (e.g. "XNAT_E00001")
    * @param scanId - Scan number within the session (e.g. "1")
    */
-  async getScanImageIds(sessionId: string, scanId: string): Promise<string[]> {
+  async getScanImageIds(
+    sessionId: string,
+    scanId: string,
+    options: GetScanImageIdsOptions = {},
+  ): Promise<string[]> {
     const result = await window.electronAPI.xnat.getScanFiles(sessionId, scanId);
 
     if (!result.ok || !result.serverUrl) {
@@ -107,8 +323,24 @@ export const dicomwebLoader = {
       (uri) => `wadouri:${baseUrl}${uri}`,
     );
 
-    // Sort by filename for consistent ordering
+    // Always apply deterministic filename ordering first.
     imageIds.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+
+    if (options.order === 'dicomMetadata' && imageIds.length > 1) {
+      try {
+        const ordered = await sortImageIdsByDicomMetadata(
+          imageIds,
+          `scan ${sessionId}/${scanId}`,
+        );
+        console.log(`[dicomwebLoader] Built ${ordered.length} imageIds for scan ${sessionId}/${scanId}`);
+        return ordered;
+      } catch (err) {
+        console.warn(
+          `[dicomwebLoader] Metadata ordering failed for scan ${sessionId}/${scanId}; using filename order`,
+          err,
+        );
+      }
+    }
 
     console.log(`[dicomwebLoader] Built ${imageIds.length} imageIds for scan ${sessionId}/${scanId}`);
     return imageIds;

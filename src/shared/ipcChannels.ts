@@ -35,6 +35,8 @@ export const IPC = {
   XNAT_UPLOAD_DICOM_SEG: 'xnat:upload-dicom-seg',
   XNAT_UPLOAD_DICOM_RTSTRUCT: 'xnat:upload-dicom-rtstruct',
   XNAT_OVERWRITE_DICOM_SEG: 'xnat:overwrite-dicom-seg',
+  XNAT_OVERWRITE_DICOM_RTSTRUCT: 'xnat:overwrite-dicom-rtstruct',
+  XNAT_PREPARE_DICOM_UPLOAD: 'xnat:prepare-dicom-upload',
 
   // XNAT temp resource (auto-save, renderer → main)
   XNAT_AUTOSAVE_TEMP: 'xnat:autosave-temp',
@@ -53,6 +55,7 @@ export const IPC = {
   EXPORT_SAVE_ALL_SLICES: 'export:save-all-slices',
   EXPORT_SAVE_REPORT: 'export:save-report',
   EXPORT_SAVE_DICOM_RTSTRUCT: 'export:save-dicom-rtstruct',
+  EXPORT_SAVE_VIEWPORT_CAPTURE: 'export:save-viewport-capture',
 } as const;
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC];

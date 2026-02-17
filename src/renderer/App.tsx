@@ -37,18 +37,32 @@ import { viewportReadyService } from './lib/cornerstone/viewportReadyService';
 import { useSessionDerivedIndexStore, isSegScan, isRtStructScan, isDerivedScan } from './stores/sessionDerivedIndexStore';
 import { useSegmentationManagerStore } from './stores/segmentationManagerStore';
 import { segmentationManager } from './lib/segmentation/segmentationManagerSingleton';
-import { getReferencedSeriesUID } from './lib/dicom/segReferencedSeriesUid';
-import { getSourceScanId } from './lib/dicom/scanIdConvention';
+import { segmentationService } from './lib/cornerstone/segmentationService';
+import { getSegReferenceInfo } from './lib/dicom/segReferencedSeriesUid';
 
 /** DICOM SEG SOP Class UID */
 const SEG_SOP_CLASS_UID = '1.2.840.10008.5.1.4.1.1.66.4';
 
 /** DICOM RTSTRUCT SOP Class UID */
 const RTSTRUCT_SOP_CLASS_UID = '1.2.840.10008.5.1.4.1.1.481.3';
+const XNAT_SCAN_DRAG_MIME = 'application/x-xnat-scan';
+const XNAT_SCAN_DRAG_FALLBACK_MIME = 'text/x-xnat-scan';
+
+interface XnatScanDragPayload {
+  sessionId: string;
+  scanId: string;
+  scan: XnatScan;
+  context: {
+    projectId: string;
+    subjectId: string;
+    sessionLabel: string;
+    projectName?: string;
+    subjectLabel?: string;
+  };
+}
 
 // isSegScan, isRtStructScan, isDerivedScan imported from sessionDerivedIndexStore
-// getSourceScanId imported from lib/dicom/scanIdConvention
-// getReferencedSeriesUID imported from lib/dicom/segReferencedSeriesUid
+// getSegReferenceInfo imported from lib/dicom/segReferencedSeriesUid
 
 /** Tracks sessions that have already been checked for auto-save recovery. */
 const recoveredSessions = new Set<string>();
@@ -96,80 +110,132 @@ async function checkForAutoSaveRecovery(
     );
     if (autoSaveFiles.length === 0) return;
 
+    const loadedPanelsById: Record<string, string[]> = {};
+    for (const panelInfo of scanIdToPanelInfo.values()) {
+      loadedPanelsById[panelInfo.pid] = panelInfo.ids;
+    }
+
     for (const file of autoSaveFiles) {
       const isRtStruct = file.name.startsWith('autosave_rtstruct_');
-      // Match both old format (autosave_seg_4.dcm) and new timestamped format (autosave_seg_4_20260212143522.dcm)
-      const match = file.name.match(/^autosave_(?:seg|rtstruct)_(.+?)(?:_\d{14})?\.dcm$/);
-      if (!match) continue;
-      const sourceScanId = match[1];
+      const sourceScanHint = file.name.match(/^autosave_(?:seg|rtstruct)_(.+?)(?:_\d{14})?\.dcm$/)?.[1] ?? null;
 
-      // Find the panel with the matching source scan loaded
-      const panelInfo = scanIdToPanelInfo.get(sourceScanId);
-      if (!panelInfo) {
-        console.warn(`[App] Auto-save recovery: source scan #${sourceScanId} not loaded, skipping`);
+      let arrayBuffer: ArrayBuffer;
+      try {
+        const downloadResult = await window.electronAPI.xnat.downloadTempFile(sessionId, file.name);
+        if (!downloadResult.ok || !downloadResult.data) {
+          console.error(`[App] Failed to download temp file: ${downloadResult.error}`);
+          continue;
+        }
+        const binaryString = atob(downloadResult.data);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+        arrayBuffer = bytes.buffer;
+      } catch (err) {
+        console.error(`[App] Failed to fetch auto-saved file "${file.name}":`, err);
         continue;
       }
 
-      // Prompt the user
+      let targetPanelInfo: { panelId: string; imageIds: string[] } | null = null;
+      let refLabel = '';
+      try {
+        if (isRtStruct) {
+          const parsedRt = rtStructService.parseRtStruct(arrayBuffer);
+          if (parsedRt.referencedSeriesUID) {
+            targetPanelInfo = findPanelBySeriesUID(parsedRt.referencedSeriesUID, loadedPanelsById);
+            if (targetPanelInfo) refLabel = `SeriesInstanceUID ${parsedRt.referencedSeriesUID}`;
+          }
+          if (!targetPanelInfo) {
+            const referencedSops = new Set<string>();
+            for (const roi of parsedRt.rois) {
+              for (const contour of roi.contours) {
+                if (contour.referencedSOPInstanceUID) {
+                  referencedSops.add(contour.referencedSOPInstanceUID);
+                }
+              }
+            }
+            if (referencedSops.size > 0) {
+              targetPanelInfo = findPanelByReferencedSopInstanceUIDs(
+                Array.from(referencedSops),
+                loadedPanelsById,
+              );
+              if (targetPanelInfo) refLabel = `${referencedSops.size} referenced SOP UID(s)`;
+            }
+          }
+        } else {
+          const refInfo = getSegReferenceInfo(arrayBuffer);
+          if (refInfo.referencedSeriesUID) {
+            targetPanelInfo = findPanelBySeriesUID(refInfo.referencedSeriesUID, loadedPanelsById);
+            if (targetPanelInfo) refLabel = `SeriesInstanceUID ${refInfo.referencedSeriesUID}`;
+          }
+          if (!targetPanelInfo && refInfo.referencedSOPInstanceUIDs.length > 0) {
+            targetPanelInfo = findPanelByReferencedSopInstanceUIDs(
+              refInfo.referencedSOPInstanceUIDs,
+              loadedPanelsById,
+            );
+            if (targetPanelInfo) refLabel = `${refInfo.referencedSOPInstanceUIDs.length} referenced SOP UID(s)`;
+          }
+        }
+      } catch (err) {
+        console.error(`[App] Failed to parse auto-saved file "${file.name}":`, err);
+      }
+
+      if (!targetPanelInfo) {
+        console.warn(
+          `[App] Auto-save recovery: could not resolve loaded source for ${file.name}`
+          + (sourceScanHint ? ` (hint source scan #${sourceScanHint})` : ''),
+        );
+        continue;
+      }
+
       const typeLabel = isRtStruct ? 'contour (RTSTRUCT)' : 'segmentation';
       const recover = window.confirm(
-        `An auto-saved ${typeLabel} was found for scan #${sourceScanId}.\n\n` +
+        `An auto-saved ${typeLabel} was found.\n\n` +
+        `${refLabel ? `Linked by ${refLabel}.\n\n` : ''}` +
         `This may be from an editing session that was not saved.\n\n` +
         `Would you like to recover it?`,
       );
 
       if (recover) {
         try {
-          const downloadResult = await window.electronAPI.xnat.downloadTempFile(
-            sessionId, file.name,
-          );
-          if (!downloadResult.ok || !downloadResult.data) {
-            console.error(`[App] Failed to download temp file: ${downloadResult.error}`);
-            continue;
-          }
+          await preloadImages(targetPanelInfo.imageIds);
 
-          // Convert base64 → ArrayBuffer
-          const binaryString = atob(downloadResult.data);
-          const bytes = new Uint8Array(binaryString.length);
-          for (let i = 0; i < binaryString.length; i++) {
-            bytes[i] = binaryString.charCodeAt(i);
-          }
-          const arrayBuffer = bytes.buffer;
-
-          // Pre-load source images
-          await preloadImages(panelInfo.ids);
-
-          // Load as segmentation overlay (SEG or RTSTRUCT) via manager
           let recoveredSegId: string;
           if (isRtStruct) {
             const { segmentationId, firstReferencedImageId } =
-              await segmentationManager.loadRtStructFromArrayBuffer(panelInfo.pid, arrayBuffer, panelInfo.ids);
+              await segmentationManager.loadRtStructFromArrayBuffer(
+                targetPanelInfo.panelId,
+                arrayBuffer,
+                targetPanelInfo.imageIds,
+              );
             recoveredSegId = segmentationId;
-            await jumpViewportToReferencedImage(panelInfo.pid, firstReferencedImageId);
+            await jumpViewportToReferencedImage(targetPanelInfo.panelId, firstReferencedImageId);
           } else {
             const { segmentationId, firstNonZeroReferencedImageId } =
-              await segmentationManager.loadSegFromArrayBuffer(panelInfo.pid, arrayBuffer, panelInfo.ids);
+              await segmentationManager.loadSegFromArrayBuffer(
+                targetPanelInfo.panelId,
+                arrayBuffer,
+                targetPanelInfo.imageIds,
+              );
             recoveredSegId = segmentationId;
-            await jumpViewportToReferencedImage(panelInfo.pid, firstNonZeroReferencedImageId);
+            await jumpViewportToReferencedImage(targetPanelInfo.panelId, firstNonZeroReferencedImageId);
           }
 
-          // No origin set — recovered segmentation will create a new scan on first manual save
-
-          // Delete the temp file after successful recovery so dialog doesn't re-appear
           await window.electronAPI.xnat.deleteTempFile(sessionId, file.name).catch(() => {});
 
-          console.log(`[App] Recovered ${isRtStruct ? 'RTSTRUCT' : 'SEG'} auto-save for scan #${sourceScanId} as ${recoveredSegId}`);
+          console.log(
+            `[App] Recovered ${isRtStruct ? 'RTSTRUCT' : 'SEG'} auto-save "${file.name}" `
+            + `on ${targetPanelInfo.panelId} as ${recoveredSegId}`,
+          );
 
           const segStore = useSegmentationStore.getState();
           if (!segStore.showPanel) segStore.togglePanel();
         } catch (err) {
-          console.error(`[App] Failed to load recovered auto-save for scan #${sourceScanId}:`, err);
+          console.error(`[App] Failed to load recovered auto-save file "${file.name}":`, err);
         }
       } else {
-        // User declined — offer to delete the temp file
-        const deleteIt = window.confirm(
-          `Delete the auto-saved file for scan #${sourceScanId}?`,
-        );
+        const deleteIt = window.confirm('Delete this auto-saved file?');
         if (deleteIt) {
           await window.electronAPI.xnat.deleteTempFile(sessionId, file.name).catch(() => {});
         }
@@ -185,7 +251,7 @@ async function checkForAutoSaveRecovery(
   }
 }
 
-// getReferencedSeriesUID moved to lib/dicom/segReferencedSeriesUid.ts
+// getSegReferenceInfo moved to lib/dicom/segReferencedSeriesUid.ts
 
 /**
  * Find which loaded scan's images match a given SeriesInstanceUID.
@@ -207,6 +273,88 @@ function findPanelBySeriesUID(
   return null;
 }
 
+function toWadouriUri(imageId: string): string {
+  return imageId.startsWith('wadouri:') ? imageId.slice('wadouri:'.length) : imageId;
+}
+
+function extractObjectUidFromImageId(imageId: string): string | null {
+  const uri = toWadouriUri(imageId);
+  const queryStart = uri.indexOf('?');
+  if (queryStart < 0) return null;
+  const params = new URLSearchParams(uri.slice(queryStart + 1));
+  return (
+    params.get('objectUID') ??
+    params.get('objectUid') ??
+    params.get('SOPInstanceUID') ??
+    params.get('sopInstanceUID')
+  );
+}
+
+function findPanelByReferencedSopInstanceUIDs(
+  referencedSopInstanceUIDs: string[],
+  panelImageIds: Record<string, string[]>,
+): { panelId: string; imageIds: string[] } | null {
+  if (referencedSopInstanceUIDs.length === 0) return null;
+  const target = new Set(referencedSopInstanceUIDs);
+
+  for (const [pid, ids] of Object.entries(panelImageIds)) {
+    if (ids.length === 0) continue;
+    for (const imageId of ids) {
+      const fromImageId = extractObjectUidFromImageId(imageId);
+      if (fromImageId && target.has(fromImageId)) {
+        return { panelId: pid, imageIds: ids };
+      }
+
+      const sopCommon = metaData.get('sopCommonModule', imageId) as
+        | { sopInstanceUID?: string }
+        | undefined;
+      if (sopCommon?.sopInstanceUID && target.has(sopCommon.sopInstanceUID)) {
+        return { panelId: pid, imageIds: ids };
+      }
+    }
+  }
+
+  return null;
+}
+
+async function getSeriesUidForImageId(imageId: string): Promise<string | null> {
+  const seriesMeta = metaData.get('generalSeriesModule', imageId) as
+    | { seriesInstanceUID?: string } | undefined;
+  if (seriesMeta?.seriesInstanceUID) return seriesMeta.seriesInstanceUID;
+
+  try {
+    const uri = toWadouriUri(imageId);
+    if (!wadouri.dataSetCacheManager.isLoaded(uri)) {
+      await wadouri.dataSetCacheManager.load(uri, undefined as any, imageId);
+    }
+    const ds = wadouri.dataSetCacheManager.get(uri);
+    return ds?.string?.('x0020000e') ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function getSopInstanceUidForImageId(imageId: string): Promise<string | null> {
+  const fromImageId = extractObjectUidFromImageId(imageId);
+  if (fromImageId) return fromImageId;
+
+  const sopCommon = metaData.get('sopCommonModule', imageId) as
+    | { sopInstanceUID?: string }
+    | undefined;
+  if (sopCommon?.sopInstanceUID) return sopCommon.sopInstanceUID;
+
+  try {
+    const uri = toWadouriUri(imageId);
+    if (!wadouri.dataSetCacheManager.isLoaded(uri)) {
+      await wadouri.dataSetCacheManager.load(uri, undefined as any, imageId);
+    }
+    const ds = wadouri.dataSetCacheManager.get(uri);
+    return ds?.string?.('x00080018') ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Search through all session scans to find the one whose SeriesInstanceUID
  * matches the given UID. Loads the first image of each candidate scan to
@@ -226,15 +374,8 @@ async function findSourceScanBySeriesUID(
       const ids = await dicomwebLoader.getScanImageIds(sessionId, scan.id);
       if (ids.length === 0) continue;
 
-      // Load just the first image to get its metadata
-      if (!cache.getImageLoadObject(ids[0])) {
-        await imageLoader.loadAndCacheImage(ids[0]);
-      }
-
-      const seriesMeta = metaData.get('generalSeriesModule', ids[0]) as
-        | { seriesInstanceUID?: string } | undefined;
-
-      if (seriesMeta?.seriesInstanceUID === targetSeriesUID) {
+      const seriesUID = await getSeriesUidForImageId(ids[0]);
+      if (seriesUID === targetSeriesUID) {
         console.log(`[App] Found matching source: scan #${scan.id} (${ids.length} images)`);
         return { scanId: scan.id, imageIds: ids };
       }
@@ -242,6 +383,50 @@ async function findSourceScanBySeriesUID(
       console.warn(`[App] Failed to probe scan #${scan.id}:`, err);
     }
   }
+  return null;
+}
+
+async function findSourceScanByReferencedSopInstanceUIDs(
+  sessionId: string,
+  referencedSopInstanceUIDs: string[],
+  scans: XnatScan[],
+): Promise<{ scanId: string; imageIds: string[] } | null> {
+  if (referencedSopInstanceUIDs.length === 0) return null;
+  const target = new Set(referencedSopInstanceUIDs);
+  const candidates = scans.filter((s) => !isDerivedScan(s));
+  console.log(
+    `[App] Searching ${candidates.length} scans for referenced SOP Instance UID fallback (${target.size} UID(s))`,
+  );
+
+  for (const scan of candidates) {
+    try {
+      const ids = await dicomwebLoader.getScanImageIds(sessionId, scan.id);
+      if (ids.length === 0) continue;
+
+      // Fast path: UID embedded in wadouri URL query.
+      const fastMatch = ids.some((imageId) => {
+        const uid = extractObjectUidFromImageId(imageId);
+        return !!uid && target.has(uid);
+      });
+      if (fastMatch) {
+        console.log(`[App] Found SOP UID fallback match in source scan #${scan.id} (${ids.length} images)`);
+        return { scanId: scan.id, imageIds: ids };
+      }
+
+      // Slow path: metadata/header probe for non-query imageIds.
+      const probeIds = ids.slice(0, Math.min(ids.length, 8));
+      for (const imageId of probeIds) {
+        const uid = await getSopInstanceUidForImageId(imageId);
+        if (uid && target.has(uid)) {
+          console.log(`[App] Found SOP UID fallback metadata match in source scan #${scan.id}`);
+          return { scanId: scan.id, imageIds: ids };
+        }
+      }
+    } catch (err) {
+      console.warn(`[App] Failed SOP UID fallback probe for scan #${scan.id}:`, err);
+    }
+  }
+
   return null;
 }
 
@@ -382,6 +567,20 @@ export default function App() {
   const [showBookmarks, setShowBookmarks] = useState(false);
   const bookmarksRef = useRef<HTMLDivElement>(null);
 
+  const recordLoadedOverlay = useCallback((
+    projectId: string,
+    sessionId: string,
+    sourceScanId: string,
+    derivedScanId: string,
+    segmentationId: string,
+  ) => {
+    useSegmentationManagerStore.getState().recordLoaded(
+      `${projectId}/${sessionId}/${sourceScanId}`,
+      derivedScanId,
+      { segmentationId, loadedAt: Date.now() },
+    );
+  }, []);
+
   /**
    * Pending DICOM SEG load — when loading a SEG that requires loading new
    * source images into a panel, we can't load the SEG immediately because
@@ -419,6 +618,71 @@ export default function App() {
 
   // Active panel from viewer store
   const activeViewportId = useViewerStore((s) => s.activeViewportId);
+
+  const promptToSaveUnsavedAnnotations = useCallback(async (): Promise<boolean> => {
+    const segStore = useSegmentationStore.getState();
+    const hasUnsaved =
+      segStore.hasUnsavedChanges || segmentationManager.hasDirtySegmentations();
+    if (!hasUnsaved) return true;
+
+    const saveDraft = window.confirm(
+      'You have unsaved annotations.\n\n' +
+      'Press OK to save a recoverable draft before continuing.\n' +
+      'Press Cancel to choose whether to discard changes.',
+    );
+
+    if (saveDraft) {
+      const saved = await segmentationService.flushAutoSaveNow();
+      if (saved) {
+        segStore._markClean();
+        return true;
+      }
+
+      const continueWithoutSave = window.confirm(
+        'Could not save a draft. Continue and discard unsaved changes?',
+      );
+      if (!continueWithoutSave) return false;
+      segStore._markClean();
+      return true;
+    }
+
+    const discard = window.confirm(
+      'Continue without saving and discard unsaved annotations?',
+    );
+    if (!discard) return false;
+    segStore._markClean();
+    return true;
+  }, []);
+
+  const wasConnectedRef = useRef(false);
+  useEffect(() => {
+    if (wasConnectedRef.current && !isConnected) {
+      // Clear in-memory viewer/session/annotation state when disconnecting.
+      for (const seg of [...useSegmentationStore.getState().segmentations]) {
+        segmentationManager.removeSegmentation(seg.segmentationId);
+      }
+      useSegmentationStore.getState()._markClean();
+      useSessionDerivedIndexStore.getState().clear();
+      useSegmentationManagerStore.getState().reset();
+      recoveredSessions.clear();
+      segLoadingLock.clear();
+      pendingSegLoadRef.current = null;
+      segLoadingPanelRef.current = null;
+      setPanelImageIds({});
+      setLoading(false);
+      setLoadError(null);
+      useViewerStore.setState({
+        sessionId: null,
+        sessionScans: null,
+        currentProtocol: null,
+        xnatContext: null,
+        panelXnatContextMap: {},
+        panelScanMap: {},
+        panelSessionLabelMap: {},
+      });
+    }
+    wasConnectedRef.current = isConnected;
+  }, [isConnected, setPanelImageIds]);
 
   useEffect(() => {
     initCornerstone()
@@ -601,9 +865,6 @@ export default function App() {
       return;
     }
 
-    // Sort files by name for consistent ordering
-    dicomFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
-
     // Separate DICOM SEG / RTSTRUCT files from regular image files.
     // We peek at the SOP Class UID tag (0008,0016) in each file.
     const regularFiles: File[] = [];
@@ -640,22 +901,28 @@ export default function App() {
         const imageId = wadouri.fileManager.add(file);
         newImageIds.push(imageId);
       }
+      if (newImageIds.length > 1) {
+        try {
+          newImageIds = await dicomwebLoader.orderImageIdsByDicomMetadata(
+            newImageIds,
+            `local import (${regularFiles.length} file(s))`,
+          );
+        } catch (err) {
+          console.warn('[App] Local file metadata ordering failed, using insertion order:', err);
+        }
+      }
       console.log(`Loaded ${newImageIds.length} DICOM image files into ${targetPanel}`);
       setPanelImageIds((prev) => ({ ...prev, [targetPanel]: newImageIds }));
+      useViewerStore.getState().setPanelSessionLabel(targetPanel, '');
     }
 
     // Load DICOM SEG files as segmentation overlays
     if (segFiles.length > 0) {
-      // Determine source image IDs — use freshly loaded IDs if we just loaded
-      // images in the same drop, otherwise fall back to existing panel images.
-      const sourceImageIds = newImageIds.length > 0
+      // Baseline source image IDs — use freshly loaded IDs if we just loaded
+      // images in the same drop, otherwise fall back to existing active-panel images.
+      const defaultSourceImageIds = newImageIds.length > 0
         ? newImageIds
         : (panelImageIdsRef.current[targetPanel] ?? []);
-
-      if (sourceImageIds.length === 0) {
-        console.warn('[App] Cannot load DICOM SEG — no source images loaded in active panel');
-        return;
-      }
 
       // Small delay to let Cornerstone register the source images (if loaded together)
       if (newImageIds.length > 0) {
@@ -665,10 +932,60 @@ export default function App() {
       for (const file of segFiles) {
         try {
           const arrayBuffer = await file.arrayBuffer();
+          let segTargetPanel = targetPanel;
+          let segSourceImageIds = defaultSourceImageIds;
+          let matchedByReference = false;
+
+          // For externally-generated SEG files, resolve source linkage against
+          // currently loaded panels before assuming the active panel.
+          const refInfo = getSegReferenceInfo(arrayBuffer);
+          const refSeriesUID = refInfo.referencedSeriesUID;
+          if (refSeriesUID) {
+            const loadedMatch = findPanelBySeriesUID(refSeriesUID, panelImageIdsRef.current);
+            if (loadedMatch) {
+              segTargetPanel = loadedMatch.panelId;
+              segSourceImageIds = loadedMatch.imageIds;
+              matchedByReference = true;
+              console.log(
+                `[App] Local SEG "${file.name}" matched loaded source in ${segTargetPanel} via SeriesInstanceUID`,
+              );
+            }
+          }
+          if (!matchedByReference && refInfo.referencedSOPInstanceUIDs.length > 0) {
+            const loadedSopMatch = findPanelByReferencedSopInstanceUIDs(
+              refInfo.referencedSOPInstanceUIDs,
+              panelImageIdsRef.current,
+            );
+            if (loadedSopMatch) {
+              segTargetPanel = loadedSopMatch.panelId;
+              segSourceImageIds = loadedSopMatch.imageIds;
+              matchedByReference = true;
+              console.log(
+                `[App] Local SEG "${file.name}" matched loaded source in ${segTargetPanel} via SOP Instance UID fallback`,
+              );
+            }
+          }
+          // If SEG carries explicit references but none match loaded panels,
+          // avoid applying it to an unrelated active stack.
+          if (
+            !matchedByReference
+            && (refSeriesUID || refInfo.referencedSOPInstanceUIDs.length > 0)
+          ) {
+            segSourceImageIds = [];
+          }
+
+          if (segSourceImageIds.length === 0) {
+            console.warn(
+              `[App] Cannot load DICOM SEG "${file.name}" — no matching source images loaded in any viewport`,
+            );
+            continue;
+          }
+
           const { segmentationId, firstNonZeroReferencedImageId } =
-            await segmentationManager.loadSegFromArrayBuffer(targetPanel, arrayBuffer, sourceImageIds);
-          await jumpViewportToReferencedImage(targetPanel, firstNonZeroReferencedImageId);
-          console.log(`[App] Loaded DICOM SEG file "${file.name}" as ${segmentationId}`);
+            await segmentationManager.loadSegFromArrayBuffer(segTargetPanel, arrayBuffer, segSourceImageIds);
+          useViewerStore.getState().setActiveViewport(segTargetPanel);
+          await jumpViewportToReferencedImage(segTargetPanel, firstNonZeroReferencedImageId);
+          console.log(`[App] Loaded DICOM SEG file "${file.name}" as ${segmentationId} on ${segTargetPanel}`);
         } catch (err) {
           console.error(`[App] Failed to load DICOM SEG "${file.name}":`, err);
         }
@@ -765,6 +1082,13 @@ export default function App() {
             projectId: pending.projectId,
             sessionId: pending.sessionId,
           });
+          recordLoadedOverlay(
+            pending.projectId,
+            pending.sessionId,
+            pending.sourceScanId,
+            pending.xnatScanId,
+            segmentationId,
+          );
         }
         if (pending.xnatScanId) releaseSegLock(pending.xnatScanId);
 
@@ -781,7 +1105,7 @@ export default function App() {
     };
 
     loadSeg();
-  }, [panelImageIds]);
+  }, [panelImageIds, recordLoadedOverlay]);
 
   /**
    * Load DICOM files for an XNAT scan (selected from the browser panel).
@@ -799,26 +1123,50 @@ export default function App() {
   ) => {
     if (!isConnected) return;
 
-    // Check for unsaved segmentation changes before loading a new scan
-    // (which may remove existing segmentation overlays)
     const segStoreNav = useSegmentationStore.getState();
-    if (segStoreNav.hasUnsavedChanges || segmentationManager.hasDirtySegmentations()) {
-      const proceed = window.confirm(
-        'You have unsaved segmentation changes.\n\n' +
-        'If you continue, unsaved edits will be lost.\n\n' +
-        'Continue anyway?',
-      );
-      if (!proceed) return;
-      segStoreNav._markClean();
+    // Prompt to save/discard unsaved annotations before switching scans.
+    if (!(await promptToSaveUnsavedAnnotations())) return;
+
+    const currentSessionId = useViewerStore.getState().xnatContext?.sessionId ?? null;
+    if (currentSessionId && currentSessionId !== sessionId) {
+      for (const seg of [...segStoreNav.segmentations]) {
+        segmentationManager.removeSegmentation(seg.segmentationId);
+      }
+      segLoadingLock.clear();
+      useSessionDerivedIndexStore.getState().clear();
+      useSegmentationManagerStore.getState().reset();
     }
 
     const targetPanel = useViewerStore.getState().activeViewportId;
+    const ensureSourceScanOnPanel = async (panelId: string, sourceScanId: string): Promise<string[]> => {
+      segmentationManager.removeSegmentationsFromViewport(panelId);
+      const ids = await dicomwebLoader.getScanImageIds(sessionId, sourceScanId, {
+        order: 'dicomMetadata',
+      });
+      setPanelImageIds((prev) => ({ ...prev, [panelId]: ids }));
+      useViewerStore.getState().setPanelXnatContext(panelId, {
+        projectId: context.projectId,
+        subjectId: context.subjectId,
+        sessionId,
+        sessionLabel: context.sessionLabel,
+        scanId: sourceScanId,
+      });
+      useViewerStore.getState().setPanelScan(panelId, sourceScanId);
+      useViewerStore.getState().setPanelSessionLabel(panelId, context.sessionLabel);
+      segmentationManager.onPanelImagesChanged(
+        panelId, sourceScanId, panelEpochRef.current[panelId] ?? 0,
+      );
+      const epoch = panelEpochRef.current[panelId] ?? viewportReadyService.getEpoch(panelId);
+      await viewportReadyService.whenReady(panelId, epoch);
+      return ids;
+    };
 
     // Ensure XNAT upload context is set (used by SegmentationPanel "Save to XNAT").
-    // For derived scans (SEG/RTSTRUCT), use the SOURCE scan ID so that saving
-    // new segmentations targets the correct imaging scan, not the derived scan.
-    const contextScanId = isDerivedScan(scan) ? (getSourceScanId(scanId) ?? scanId) : scanId;
-    useViewerStore.getState().setXnatContext({
+    // For derived scans (SEG/RTSTRUCT), prefer the currently loaded panel source.
+    const contextScanId = isDerivedScan(scan)
+      ? (useViewerStore.getState().panelScanMap[targetPanel] ?? scanId)
+      : scanId;
+    useViewerStore.getState().setPanelXnatContext(targetPanel, {
       projectId: context.projectId,
       subjectId: context.subjectId,
       sessionId,
@@ -868,6 +1216,13 @@ export default function App() {
             if (currentPanelScan === existingOrigin.sourceScanId) {
               // Source images match — safe to reattach
               console.log(`[App] SEG scan #${scanId} already loaded — reattaching to viewport`);
+              recordLoadedOverlay(
+                existingOrigin.projectId,
+                existingOrigin.sessionId,
+                existingOrigin.sourceScanId,
+                scanId,
+                existingSegId,
+              );
               segmentationManager.userSelectedSegmentation(targetPanel, existingSegId, 1);
               if (!segStore.showPanel) segStore.togglePanel();
               segStore.setActiveSegmentation(existingSegId);
@@ -875,12 +1230,46 @@ export default function App() {
               setLoading(false);
               return;
             }
-            // Source images don't match — destroy the stale segmentation and reload fresh.
-            // The normal load path below will download the SEG, find source images, load them,
-            // and create a new labelmap with the correct geometry.
-            console.log(`[App] SEG scan #${scanId} exists but viewport has scan #${currentPanelScan} (need #${existingOrigin.sourceScanId}) — destroying and reloading`);
-            segmentationManager.removeSegmentation(existingSegId);
-            segStore.clearXnatOrigin(existingSegId);
+            // Source images don't match the active panel. Reuse the existing
+            // segmentation non-destructively by attaching it where its source scan is shown,
+            // or load that source scan into the target panel and attach there.
+            const panelWithSource = Object.entries(useViewerStore.getState().panelScanMap)
+              .find(([, sid]) => sid === existingOrigin.sourceScanId)?.[0];
+            if (panelWithSource && (panelImageIdsRef.current[panelWithSource]?.length ?? 0) > 0) {
+              console.log(`[App] SEG scan #${scanId} already loaded — reusing on ${panelWithSource}`);
+              useViewerStore.getState().setActiveViewport(panelWithSource);
+              recordLoadedOverlay(
+                existingOrigin.projectId,
+                existingOrigin.sessionId,
+                existingOrigin.sourceScanId,
+                scanId,
+                existingSegId,
+              );
+              segmentationManager.userSelectedSegmentation(panelWithSource, existingSegId, 1);
+              if (!segStore.showPanel) segStore.togglePanel();
+              segStore.setActiveSegmentation(existingSegId);
+              releaseSegLock(scanId);
+              setLoading(false);
+              return;
+            }
+            try {
+              await ensureSourceScanOnPanel(targetPanel, existingOrigin.sourceScanId);
+              recordLoadedOverlay(
+                existingOrigin.projectId,
+                existingOrigin.sessionId,
+                existingOrigin.sourceScanId,
+                scanId,
+                existingSegId,
+              );
+              segmentationManager.userSelectedSegmentation(targetPanel, existingSegId, 1);
+              if (!segStore.showPanel) segStore.togglePanel();
+              segStore.setActiveSegmentation(existingSegId);
+              releaseSegLock(scanId);
+              setLoading(false);
+              return;
+            } catch (err) {
+              console.warn(`[App] Failed to reuse existing SEG #${scanId}, falling back to fresh load:`, err);
+            }
           } else {
             // Stale origin — segmentation was removed. Clear it and proceed with fresh load.
             console.log(`[App] SEG scan #${scanId} origin is stale — reloading`);
@@ -892,17 +1281,19 @@ export default function App() {
         const arrayBuffer = await downloadSegArrayBuffer(sessionId, scanId);
         console.log(`[App] Downloaded SEG file (${arrayBuffer.byteLength} bytes)`);
 
-        // 2. Parse the SEG to find which series it references
-        const refSeriesUID = getReferencedSeriesUID(arrayBuffer);
+        // 2. Parse SEG references for source matching.
+        const refInfo = getSegReferenceInfo(arrayBuffer);
+        const refSeriesUID = refInfo.referencedSeriesUID;
 
         // Populate derived index with the referenced series UID
         if (refSeriesUID) {
-          useSessionDerivedIndexStore.getState().setDerivedReferencedSeriesUid(scanId, refSeriesUID);
+          useSessionDerivedIndexStore.getState().setDerivedReferencedSeriesUid(sessionId, scanId, refSeriesUID);
         }
 
         // 3. Check if matching source images are already loaded in a panel
         let sourceIds: string[] | null = null;
         let segTargetPanel = targetPanel;
+        let resolvedSegSourceScanId: string | null = null;
 
         if (refSeriesUID) {
           // Use the ref to get the CURRENT panelImageIds (not the stale
@@ -914,6 +1305,19 @@ export default function App() {
             console.log(`[App] Found matching source in ${match.panelId} via SeriesInstanceUID`);
             sourceIds = match.imageIds;
             segTargetPanel = match.panelId;
+            resolvedSegSourceScanId = useViewerStore.getState().panelScanMap[match.panelId] ?? null;
+          }
+        }
+        if (!sourceIds && refInfo.referencedSOPInstanceUIDs.length > 0) {
+          const sopMatch = findPanelByReferencedSopInstanceUIDs(
+            refInfo.referencedSOPInstanceUIDs,
+            panelImageIdsRef.current,
+          );
+          if (sopMatch) {
+            console.log(`[App] Found matching source in ${sopMatch.panelId} via SOP Instance UID fallback`);
+            sourceIds = sopMatch.imageIds;
+            segTargetPanel = sopMatch.panelId;
+            resolvedSegSourceScanId = useViewerStore.getState().panelScanMap[sopMatch.panelId] ?? null;
           }
         }
 
@@ -933,27 +1337,43 @@ export default function App() {
               if (match) {
                 sourceIds = match.imageIds;
                 foundScanId = match.scanId;
+                resolvedSegSourceScanId = match.scanId;
                 // Record source scan UID for the derived index
-                useSessionDerivedIndexStore.getState().setSourceSeriesUid(match.scanId, refSeriesUID);
+                useSessionDerivedIndexStore.getState().setSourceSeriesUid(sessionId, match.scanId, refSeriesUID);
+              }
+            }
+          }
+          // 4b. Fallback: match by referenced SOP Instance UIDs
+          if (!sourceIds && refInfo.referencedSOPInstanceUIDs.length > 0) {
+            let sessionScans = useViewerStore.getState().sessionScans;
+            if (!sessionScans || sessionScans.length === 0) {
+              sessionScans = await window.electronAPI.xnat.getScans(sessionId);
+            }
+            if (sessionScans.length > 0) {
+              const sopMatch = await findSourceScanByReferencedSopInstanceUIDs(
+                sessionId,
+                refInfo.referencedSOPInstanceUIDs,
+                sessionScans,
+              );
+              if (sopMatch) {
+                sourceIds = sopMatch.imageIds;
+                foundScanId = sopMatch.scanId;
+                resolvedSegSourceScanId = sopMatch.scanId;
               }
             }
           }
 
-          // 4b. Fallback to scan ID convention
           if (!sourceIds) {
-            foundScanId = getSourceScanId(scanId);
-            if (!foundScanId) {
-              setLoadError(`Cannot determine source scan for SEG scan #${scanId}`);
-              return;
-            }
-            console.log(`[App] Falling back to scan ID convention: source scan #${foundScanId}`);
-            sourceIds = await dicomwebLoader.getScanImageIds(sessionId, foundScanId);
+            setLoadError(
+              `Cannot resolve source scan for SEG scan #${scanId} via Series UID or SOP Instance UID references.`,
+            );
+            return;
           }
 
           // At this point sourceIds and foundScanId are guaranteed non-null
-          // (either from findSourceScanBySeriesUID or getSourceScanId fallback).
+          // from UID-based matching.
           const resolvedSourceIds = sourceIds;
-          const resolvedScanId = foundScanId ?? scanId;
+          const resolvedScanId = resolvedSegSourceScanId ?? foundScanId ?? scanId;
 
           console.log(`[App] Source scan #${resolvedScanId}: ${resolvedSourceIds.length} images`);
           // Clean up stale segmentations before loading new source images
@@ -981,6 +1401,7 @@ export default function App() {
 
           setPanelImageIds((prev) => ({ ...prev, [segTargetPanel]: resolvedSourceIds }));
           useViewerStore.getState().setPanelScan(segTargetPanel, resolvedScanId);
+          useViewerStore.getState().setPanelSessionLabel(segTargetPanel, context.sessionLabel);
           segmentationManager.onPanelImagesChanged(
             segTargetPanel, resolvedScanId, panelEpochRef.current[segTargetPanel] ?? 0,
           );
@@ -1000,7 +1421,9 @@ export default function App() {
         console.log(`[App] Loaded DICOM SEG from XNAT as ${segmentationId} on ${segTargetPanel}`);
 
         // Track XNAT origin for overwrite-on-save (session-scoped)
-        const directSourceScanId = getSourceScanId(scanId);
+        const directSourceScanId =
+          resolvedSegSourceScanId ??
+          useViewerStore.getState().panelScanMap[segTargetPanel];
         if (directSourceScanId) {
           useSegmentationStore.getState().setXnatOrigin(segmentationId, {
             scanId,
@@ -1008,6 +1431,13 @@ export default function App() {
             projectId: context.projectId,
             sessionId,
           });
+          recordLoadedOverlay(
+            context.projectId,
+            sessionId,
+            directSourceScanId,
+            scanId,
+            segmentationId,
+          );
         }
         releaseSegLock(scanId);
 
@@ -1035,6 +1465,13 @@ export default function App() {
             if (currentPanelScan === existingRtOrigin.sourceScanId) {
               // Source images match — safe to reattach
               console.log(`[App] RTSTRUCT scan #${scanId} already loaded — reattaching to viewport`);
+              recordLoadedOverlay(
+                existingRtOrigin.projectId,
+                existingRtOrigin.sessionId,
+                existingRtOrigin.sourceScanId,
+                scanId,
+                existingRtId,
+              );
               segmentationManager.userSelectedSegmentation(targetPanel, existingRtId, 1);
               if (!segStoreRt.showPanel) segStoreRt.togglePanel();
               segStoreRt.setActiveSegmentation(existingRtId);
@@ -1042,10 +1479,43 @@ export default function App() {
               setLoading(false);
               return;
             }
-            // Source images don't match — destroy the stale segmentation and reload fresh.
-            console.log(`[App] RTSTRUCT scan #${scanId} exists but viewport has scan #${currentPanelScan} (need #${existingRtOrigin.sourceScanId}) — destroying and reloading`);
-            segmentationManager.removeSegmentation(existingRtId);
-            segStoreRt.clearXnatOrigin(existingRtId);
+            const panelWithSource = Object.entries(useViewerStore.getState().panelScanMap)
+              .find(([, sid]) => sid === existingRtOrigin.sourceScanId)?.[0];
+            if (panelWithSource && (panelImageIdsRef.current[panelWithSource]?.length ?? 0) > 0) {
+              console.log(`[App] RTSTRUCT scan #${scanId} already loaded — reusing on ${panelWithSource}`);
+              useViewerStore.getState().setActiveViewport(panelWithSource);
+              recordLoadedOverlay(
+                existingRtOrigin.projectId,
+                existingRtOrigin.sessionId,
+                existingRtOrigin.sourceScanId,
+                scanId,
+                existingRtId,
+              );
+              segmentationManager.userSelectedSegmentation(panelWithSource, existingRtId, 1);
+              if (!segStoreRt.showPanel) segStoreRt.togglePanel();
+              segStoreRt.setActiveSegmentation(existingRtId);
+              releaseSegLock(scanId);
+              setLoading(false);
+              return;
+            }
+            try {
+              await ensureSourceScanOnPanel(targetPanel, existingRtOrigin.sourceScanId);
+              recordLoadedOverlay(
+                existingRtOrigin.projectId,
+                existingRtOrigin.sessionId,
+                existingRtOrigin.sourceScanId,
+                scanId,
+                existingRtId,
+              );
+              segmentationManager.userSelectedSegmentation(targetPanel, existingRtId, 1);
+              if (!segStoreRt.showPanel) segStoreRt.togglePanel();
+              segStoreRt.setActiveSegmentation(existingRtId);
+              releaseSegLock(scanId);
+              setLoading(false);
+              return;
+            } catch (err) {
+              console.warn(`[App] Failed to reuse existing RTSTRUCT #${scanId}, falling back to fresh load:`, err);
+            }
           } else {
             // Stale origin — segmentation was removed. Clear it and proceed with fresh load.
             console.log(`[App] RTSTRUCT scan #${scanId} origin is stale — reloading`);
@@ -1062,12 +1532,17 @@ export default function App() {
 
         // Populate derived index with the referenced series UID
         if (parsed.referencedSeriesUID) {
-          useSessionDerivedIndexStore.getState().setDerivedReferencedSeriesUid(scanId, parsed.referencedSeriesUID);
+          useSessionDerivedIndexStore.getState().setDerivedReferencedSeriesUid(
+            sessionId,
+            scanId,
+            parsed.referencedSeriesUID,
+          );
         }
 
         // 3. Find source images
         let sourceIds: string[] | null = null;
         let rtTargetPanel = targetPanel;
+        let resolvedRtSourceScanId: string | null = null;
 
         if (parsed.referencedSeriesUID) {
           const match = findPanelBySeriesUID(parsed.referencedSeriesUID, panelImageIdsRef.current);
@@ -1075,6 +1550,7 @@ export default function App() {
             console.log(`[App] RTSTRUCT matched to ${match.panelId} via SeriesInstanceUID`);
             sourceIds = match.imageIds;
             rtTargetPanel = match.panelId;
+            resolvedRtSourceScanId = useViewerStore.getState().panelScanMap[match.panelId] ?? null;
           }
         }
 
@@ -1089,25 +1565,23 @@ export default function App() {
               const match = await findSourceScanBySeriesUID(sessionId, parsed.referencedSeriesUID, sessionScans);
               if (match) {
                 sourceIds = match.imageIds;
+                resolvedRtSourceScanId = match.scanId;
                 // Record source scan UID for the derived index
-                useSessionDerivedIndexStore.getState().setSourceSeriesUid(match.scanId, parsed.referencedSeriesUID);
-                // Load source images into panel, then load RTSTRUCT after settling
-                segmentationManager.removeSegmentationsFromViewport(rtTargetPanel);
-                setPanelImageIds((prev) => ({ ...prev, [rtTargetPanel]: sourceIds! }));
-                useViewerStore.getState().setPanelScan(rtTargetPanel, match.scanId);
-                segmentationManager.onPanelImagesChanged(
-                  rtTargetPanel, match.scanId, panelEpochRef.current[rtTargetPanel] ?? 0,
+                useSessionDerivedIndexStore.getState().setSourceSeriesUid(
+                  sessionId,
+                  match.scanId,
+                  parsed.referencedSeriesUID,
                 );
-
-                // Use deterministic viewport-ready barrier instead of polling
-                const epoch = panelEpochRef.current[rtTargetPanel] ?? viewportReadyService.getEpoch(rtTargetPanel);
-                await viewportReadyService.whenReady(rtTargetPanel, epoch);
+                // Load source images into panel, then load RTSTRUCT after settling
+                sourceIds = await ensureSourceScanOnPanel(rtTargetPanel, match.scanId);
               }
             }
           }
 
           if (!sourceIds) {
-            setLoadError(`Cannot find source images for RTSTRUCT scan #${scanId}`);
+            setLoadError(
+              `Cannot resolve source scan for RTSTRUCT #${scanId} via ReferencedFrameOfReference/Series UID.`,
+            );
             return;
           }
         }
@@ -1124,13 +1598,25 @@ export default function App() {
         console.log(`[App] Loaded RTSTRUCT from XNAT as ${segmentationId} on ${rtTargetPanel}`);
 
         // 7. Track XNAT origin for RTSTRUCT (same as SEG) for duplicate prevention + save (session-scoped)
-        const sourceScanIdRt = getSourceScanId(scanId);
+        const sourceScanIdRt =
+          resolvedRtSourceScanId ??
+          useViewerStore.getState().panelScanMap[rtTargetPanel];
+        if (!sourceScanIdRt) {
+          throw new Error(`Unable to resolve source scan for RTSTRUCT scan #${scanId}`);
+        }
         useSegmentationStore.getState().setXnatOrigin(segmentationId, {
           scanId,
-          sourceScanId: sourceScanIdRt ?? scanId,
+          sourceScanId: sourceScanIdRt,
           projectId: context.projectId,
           sessionId,
         });
+        recordLoadedOverlay(
+          context.projectId,
+          sessionId,
+          sourceScanIdRt,
+          scanId,
+          segmentationId,
+        );
         releaseSegLock(scanId);
 
         // 8. Open segmentation panel
@@ -1147,10 +1633,9 @@ export default function App() {
           return;
         }
 
-        // Clean up any stale segmentations on this viewport first
-        segmentationManager.removeSegmentationsFromViewport(targetPanel);
-
-        const ids = await dicomwebLoader.getScanImageIds(sessionId, scanId);
+        const ids = await dicomwebLoader.getScanImageIds(sessionId, scanId, {
+          order: 'dicomMetadata',
+        });
 
         // Re-check after async: a deferred SEG load may have started while
         // we were fetching image IDs
@@ -1160,38 +1645,58 @@ export default function App() {
           return;
         }
 
-        console.log(`Loaded ${ids.length} images from XNAT into ${targetPanel}`);
-        setPanelImageIds((prev) => ({ ...prev, [targetPanel]: ids }));
-        useViewerStore.getState().setPanelScan(targetPanel, scanId);
+        const currentScanId = useViewerStore.getState().panelScanMap[targetPanel] ?? null;
+        const currentIds = panelImageIdsRef.current[targetPanel] ?? [];
+        const stackUnchanged =
+          currentScanId === scanId &&
+          currentIds.length === ids.length &&
+          currentIds.every((id, i) => id === ids[i]);
+
+        if (stackUnchanged) {
+          console.log(`[App] Scan #${scanId} already loaded in ${targetPanel}; skipping viewport reload`);
+        } else {
+          // Clean up stale segmentations before replacing the stack
+          segmentationManager.removeSegmentationsFromViewport(targetPanel);
+          console.log(`Loaded ${ids.length} images from XNAT into ${targetPanel}`);
+          setPanelImageIds((prev) => ({ ...prev, [targetPanel]: ids }));
+          useViewerStore.getState().setPanelScan(targetPanel, scanId);
+        }
+        useViewerStore.getState().setPanelSessionLabel(targetPanel, context.sessionLabel);
 
         // Notify SegmentationManager about the new source scan
         segmentationManager.onPanelImagesChanged(
-          targetPanel, scanId, panelEpochRef.current[targetPanel] ?? 0,
+          targetPanel,
+          scanId,
+          panelEpochRef.current[targetPanel] ?? viewportReadyService.getEpoch(targetPanel),
         );
 
-        // Auto-load associated SEG/RTSTRUCT scans for this source scan (if preference enabled)
+        // Always resolve SEG/RTSTRUCT associations so the Segmentation panel can
+        // list available overlays even when automatic display is disabled.
+        const derivedIndexStore = useSessionDerivedIndexStore.getState();
+        let sessionScans = useViewerStore.getState().sessionScans;
+
+        // Fetch session scans if not already cached (single-scan-click mode)
+        if (!sessionScans || sessionScans.length === 0) {
+          sessionScans = await window.electronAPI.xnat.getScans(sessionId);
+        }
+
+        // Ensure UID resolution is complete (idempotent — skips if already done)
+        if (sessionScans.length > 0) {
+          await derivedIndexStore.resolveAssociationsForSession(
+            sessionId,
+            sessionScans,
+            (sid, sid2) => dicomwebLoader.getScanImageIds(sid, sid2),
+            downloadSegArrayBuffer,
+          );
+        }
+
+        const derived = derivedIndexStore.getForSource(scanId);
+        const allDerived = [...derived.segScans, ...derived.rtStructScans];
+
+        // Auto-display associated SEG/RTSTRUCT annotations for this source scan
+        // when the user preference is enabled.
         const { autoLoadSegOnScanClick } = useSegmentationStore.getState();
         if (autoLoadSegOnScanClick) {
-          const derivedIndexStore = useSessionDerivedIndexStore.getState();
-          let sessionScans = useViewerStore.getState().sessionScans;
-
-          // Fetch session scans if not already cached (single-scan-click mode)
-          if (!sessionScans || sessionScans.length === 0) {
-            sessionScans = await window.electronAPI.xnat.getScans(sessionId);
-          }
-
-          // Ensure UID resolution is complete (idempotent — skips if already done)
-          if (sessionScans.length > 0) {
-            await derivedIndexStore.resolveAssociationsForSession(
-              sessionId,
-              sessionScans,
-              (sid, sid2) => dicomwebLoader.getScanImageIds(sid, sid2),
-              downloadSegArrayBuffer,
-            );
-          }
-
-          const derived = derivedIndexStore.getForSource(scanId);
-          const allDerived = [...derived.segScans, ...derived.rtStructScans];
           if (allDerived.length > 0) {
             const descriptors = allDerived.map((d) => ({
               type: (isSegScan(d) ? 'SEG' : 'RTSTRUCT') as 'SEG' | 'RTSTRUCT',
@@ -1220,18 +1725,21 @@ export default function App() {
             }
           }
         } else {
-          console.log('[App] Auto-load SEG on scan click is disabled — skipping');
+          console.log('[App] Automatic annotation display is disabled — available overlays will be listed in Segments panel');
         }
       }
     } catch (err) {
       console.error('Scan load failed:', err);
       releaseSegLock(scanId);
       const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes('different geometry dimensions')) {
+      if (
+        msg.includes('different geometry dimensions') ||
+        msg.includes('ReferencedSeriesSequence UID') ||
+        msg.includes('ReferencedFrameOfReference/Series UID')
+      ) {
         setLoadError(
-          `SEG scan #${scanId} has a geometry mismatch with its source scan. ` +
-          `This can happen if the scan numbering convention doesn't match. ` +
-          `Try loading the correct source scan first, then load the SEG.`
+          `Scan #${scanId} has a UID/geometry mismatch with the loaded source series. ` +
+          `Verify that the SEG/RTSTRUCT references a source series present in this session.`
         );
       } else {
         setLoadError(msg);
@@ -1239,7 +1747,7 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  }, [isConnected, refreshBookmarks]);
+  }, [isConnected, refreshBookmarks, recordLoadedOverlay, promptToSaveUnsavedAnnotations]);
 
   /**
    * Load ALL scans from an XNAT session using hanging protocols.
@@ -1257,16 +1765,12 @@ export default function App() {
     ) => {
       if (!isConnected) return;
 
-      // Check for unsaved changes before loading a different session
       const segStoreNav = useSegmentationStore.getState();
-      if (segStoreNav.hasUnsavedChanges || segmentationManager.hasDirtySegmentations()) {
-        const proceed = window.confirm(
-          'You have unsaved segmentation changes.\n\n' +
-          'If you continue, unsaved edits will be lost.\n\n' +
-          'Continue anyway?',
-        );
-        if (!proceed) return;
-        segStoreNav._markClean();
+      // Prompt to save/discard unsaved annotations before switching sessions.
+      if (!(await promptToSaveUnsavedAnnotations())) return;
+
+      for (const seg of [...segStoreNav.segmentations]) {
+        segmentationManager.removeSegmentation(seg.segmentationId);
       }
 
       // Clear stale loading locks, derived index, and manager state from previous session
@@ -1313,17 +1817,8 @@ export default function App() {
             downloadSegArrayBuffer,
           );
         } else {
-          derivedIndexStore.buildDerivedIndex(scans, (ds) => getSourceScanId(ds.id));
+          derivedIndexStore.buildDerivedIndex(scans);
         }
-
-        // Set XNAT upload context so "Save to XNAT" works in SegmentationPanel
-        store.setXnatContext({
-          projectId: context.projectId,
-          subjectId: context.subjectId,
-          sessionId,
-          sessionLabel: context.sessionLabel,
-          scanId: imagingScans[0]?.id ?? scans[0]?.id ?? '1',
-        });
 
         // Remember this session for "Load Recent" on next visit
         const serverUrl = useConnectionStore.getState().connection?.serverUrl;
@@ -1342,7 +1837,9 @@ export default function App() {
         // Fetch imageIds for all assigned panels in parallel
         const loadPromises = Array.from(assignments.entries()).map(
           async ([panelIdx, scan]) => {
-            const ids = await dicomwebLoader.getScanImageIds(sessionId, scan.id);
+            const ids = await dicomwebLoader.getScanImageIds(sessionId, scan.id, {
+              order: 'dicomMetadata',
+            });
             return { panelIdx, ids, scanId: scan.id };
           }
         );
@@ -1361,7 +1858,15 @@ export default function App() {
           const pid = panelId(panelIdx);
           newPanelImageIds[pid] = ids;
           scanIdToPanelInfo.set(scanId, { pid, ids });
+          store.setPanelXnatContext(pid, {
+            projectId: context.projectId,
+            subjectId: context.subjectId,
+            sessionId,
+            sessionLabel: context.sessionLabel,
+            scanId,
+          });
           store.setPanelScan(pid, scanId);
+          store.setPanelSessionLabel(pid, context.sessionLabel);
           console.log(`  Panel ${panelIdx} (${pid}): scan #${scanId} → ${ids.length} images`);
         }
 
@@ -1373,11 +1878,12 @@ export default function App() {
           segmentationManager.onPanelImagesChanged(pid, sid, panelEpochRef.current[pid] ?? 0);
         }
 
-        // ─── Auto-load SEG + RTSTRUCT overlays via SegmentationManager ──
+        // ─── Auto-display SEG + RTSTRUCT overlays via SegmentationManager ──
         // Use the derived index (built above) to find overlays for each loaded
         // source scan, then delegate loading to the manager which handles:
         // viewport readiness, epoch staleness, load/attach, presentation state.
-        if (segScans.length > 0 || rtStructScans.length > 0) {
+        const { autoLoadSegOnScanClick } = useSegmentationStore.getState();
+        if (autoLoadSegOnScanClick && (segScans.length > 0 || rtStructScans.length > 0)) {
           const derivedIndex = useSessionDerivedIndexStore.getState();
           const overlayPromises: Promise<void>[] = [];
 
@@ -1438,6 +1944,8 @@ export default function App() {
             const segStore = useSegmentationStore.getState();
             if (!segStore.showPanel) segStore.togglePanel();
           }
+        } else if (!autoLoadSegOnScanClick) {
+          console.log('[App] Automatic annotation display is disabled — skipping session overlay attach');
         }
 
         // ─── Check for auto-save recovery (temp resource files) ──────
@@ -1450,7 +1958,7 @@ export default function App() {
         setLoading(false);
       }
     },
-    [isConnected, refreshBookmarks],
+    [isConnected, refreshBookmarks, promptToSaveUnsavedAnnotations],
   );
 
   /**
@@ -1482,7 +1990,9 @@ export default function App() {
         // Fetch imageIds in parallel
         const loadPromises = Array.from(assignments.entries()).map(
           async ([panelIdx, scan]) => {
-            const ids = await dicomwebLoader.getScanImageIds(storedSessionId, scan.id);
+            const ids = await dicomwebLoader.getScanImageIds(storedSessionId, scan.id, {
+              order: 'dicomMetadata',
+            });
             return { panelIdx, ids };
           }
         );
@@ -1571,17 +2081,41 @@ export default function App() {
       e.stopPropagation();
       setDragOver(false);
 
+      const xnatScanRaw =
+        e.dataTransfer.getData(XNAT_SCAN_DRAG_MIME) ||
+        e.dataTransfer.getData(XNAT_SCAN_DRAG_FALLBACK_MIME);
+      if (xnatScanRaw) {
+        try {
+          const payload = JSON.parse(xnatScanRaw) as XnatScanDragPayload;
+          const dropTarget = e.target as HTMLElement | null;
+          const dropPanelId = dropTarget?.closest?.('[data-panel-id]')?.getAttribute('data-panel-id');
+          if (dropPanelId) {
+            useViewerStore.getState().setActiveViewport(dropPanelId);
+          }
+          void loadFromXnatScan(payload.sessionId, payload.scanId, payload.scan, payload.context);
+          return;
+        } catch (err) {
+          console.warn('[App] Failed to parse dropped XNAT scan payload:', err);
+        }
+      }
+
       if (e.dataTransfer.files.length > 0) {
         loadLocalFiles(e.dataTransfer.files);
       }
     },
-    [loadLocalFiles]
+    [loadLocalFiles, loadFromXnatScan]
   );
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
+    const types = Array.from(e.dataTransfer.types);
+    const hasFileDrop = types.includes('Files');
+    const hasXnatScanDrop =
+      types.includes(XNAT_SCAN_DRAG_MIME) ||
+      types.includes(XNAT_SCAN_DRAG_FALLBACK_MIME);
+    if (!hasFileDrop && !hasXnatScanDrop) return;
     e.preventDefault();
     e.stopPropagation();
-    setDragOver(true);
+    setDragOver(hasFileDrop);
   }, []);
 
   const handleDragLeave = useCallback((e: React.DragEvent) => {

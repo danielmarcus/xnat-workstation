@@ -550,8 +550,7 @@ async function loadRtStructAsContours(
   // Update store
   const store = useSegmentationStore.getState();
   store.setActiveSegmentation(segmentationId);
-  store.setActiveSegmentIndex(1);
-  csSegmentation.segmentIndex.setActiveSegmentIndex(segmentationId, 1);
+  segmentationService.setActiveSegmentIndex(segmentationId, 1);
 
   // Sync segmentations to store
   segmentationService.sync();
@@ -591,61 +590,107 @@ function findClosestImageByZ(z: number, imageIds: string[]): string | null {
   return bestId;
 }
 
-// ─── DICOM Write Helper ─────────────────────────────────────────
+function applySourceDicomContextToRtStructDataset(dataset: any, sourceImageId: string): void {
+  if (!dataset || !sourceImageId) return;
 
-/**
- * Serialize a denaturalized DICOM dataset to an ArrayBuffer via dcmjs.
- *
- * First attempts a normal DicomDict.write(). If dcmjs throws "Not a number"
- * (caused by NaN in its internal byte-count arithmetic), retries once with
- * a scoped NaN-guard on WriteBufferStream.prototype. The guard is removed
- * in a finally block — no permanent prototype mutation.
- *
- * Same pattern as segmentationService.writeDicomDict().
- */
-function writeDicomDict(
-  DicomDictClass: any,
-  denaturalizedMeta: any,
-  denaturalizedDict: any,
-): ArrayBuffer {
-  const dict = new DicomDictClass(denaturalizedMeta);
-  dict.dict = denaturalizedDict;
+  const patient = metaData.get('patientModule', sourceImageId) as any;
+  const study = metaData.get('generalStudyModule', sourceImageId) as any;
+  const patientStudy = metaData.get('patientStudyModule', sourceImageId) as any;
+  const series = metaData.get('generalSeriesModule', sourceImageId) as any;
+  const imagePlane = metaData.get('imagePlaneModule', sourceImageId) as any;
 
-  // Attempt 1: normal write — no prototype patching
-  try {
-    return dict.write();
-  } catch (firstErr: any) {
-    if (!(firstErr instanceof Error) || !firstErr.message.includes('Not a number')) {
-      throw firstErr; // not the NaN error — rethrow
+  if (patient?.patientName) dataset.PatientName = patient.patientName;
+  if (patient?.patientId) dataset.PatientID = patient.patientId;
+  if (patient?.patientBirthDate) dataset.PatientBirthDate = patient.patientBirthDate;
+  if (patient?.patientSex) dataset.PatientSex = patient.patientSex;
+
+  if (study?.studyInstanceUID) dataset.StudyInstanceUID = study.studyInstanceUID;
+  if (study?.studyDate) dataset.StudyDate = study.studyDate;
+  if (study?.studyTime) dataset.StudyTime = study.studyTime;
+  if (study?.studyID) dataset.StudyID = study.studyID;
+  if (study?.accessionNumber) dataset.AccessionNumber = study.accessionNumber;
+  if (study?.studyDescription) dataset.StudyDescription = study.studyDescription;
+  if (study?.referringPhysicianName) dataset.ReferringPhysicianName = study.referringPhysicianName;
+
+  if (patientStudy?.patientAge) dataset.PatientAge = patientStudy.patientAge;
+  if (patientStudy?.patientWeight) dataset.PatientWeight = patientStudy.patientWeight;
+  if (patientStudy?.patientSize) dataset.PatientSize = patientStudy.patientSize;
+
+  if (imagePlane?.frameOfReferenceUID) {
+    dataset.FrameOfReferenceUID = imagePlane.frameOfReferenceUID;
+  }
+
+  // Ensure core reference chain exists and points to the source study/series.
+  const frameUid = imagePlane?.frameOfReferenceUID;
+  const studyUid = study?.studyInstanceUID;
+  const seriesUid = series?.seriesInstanceUID;
+  if (frameUid && studyUid && seriesUid) {
+    if (!Array.isArray(dataset.ReferencedFrameOfReferenceSequence) || dataset.ReferencedFrameOfReferenceSequence.length === 0) {
+      dataset.ReferencedFrameOfReferenceSequence = [{
+        FrameOfReferenceUID: frameUid,
+        RTReferencedStudySequence: [{
+          ReferencedSOPClassUID: '1.2.840.10008.3.1.2.3.1',
+          ReferencedSOPInstanceUID: studyUid,
+          RTReferencedSeriesSequence: [{
+            SeriesInstanceUID: seriesUid,
+            ContourImageSequence: [],
+          }],
+        }],
+      }];
+    } else {
+      const rfor = dataset.ReferencedFrameOfReferenceSequence[0] ?? {};
+      rfor.FrameOfReferenceUID = rfor.FrameOfReferenceUID || frameUid;
+      if (!Array.isArray(rfor.RTReferencedStudySequence) || rfor.RTReferencedStudySequence.length === 0) {
+        rfor.RTReferencedStudySequence = [{
+          ReferencedSOPClassUID: '1.2.840.10008.3.1.2.3.1',
+          ReferencedSOPInstanceUID: studyUid,
+          RTReferencedSeriesSequence: [{ SeriesInstanceUID: seriesUid, ContourImageSequence: [] }],
+        }];
+      } else {
+        const rstudy = rfor.RTReferencedStudySequence[0] ?? {};
+        rstudy.ReferencedSOPClassUID = rstudy.ReferencedSOPClassUID || '1.2.840.10008.3.1.2.3.1';
+        rstudy.ReferencedSOPInstanceUID = rstudy.ReferencedSOPInstanceUID || studyUid;
+        if (!Array.isArray(rstudy.RTReferencedSeriesSequence) || rstudy.RTReferencedSeriesSequence.length === 0) {
+          rstudy.RTReferencedSeriesSequence = [{ SeriesInstanceUID: seriesUid, ContourImageSequence: [] }];
+        } else {
+          const rseries = rstudy.RTReferencedSeriesSequence[0] ?? {};
+          rseries.SeriesInstanceUID = rseries.SeriesInstanceUID || seriesUid;
+          rstudy.RTReferencedSeriesSequence[0] = rseries;
+        }
+        rfor.RTReferencedStudySequence[0] = rstudy;
+      }
+      dataset.ReferencedFrameOfReferenceSequence[0] = rfor;
     }
-    console.warn(
-      '[rtStructService] DicomDict.write() hit NaN in dcmjs internals; retrying with NaN guard',
-    );
   }
 
-  // Attempt 2: scoped NaN-guard fallback
-  const { WriteBufferStream } = dcmjsData as any;
-  const proto = WriteBufferStream?.prototype;
-  if (!proto) {
-    return dict.write();
+}
+
+function applyCurrentSegmentColorsToRtStructDataset(dataset: any, segmentationId: string): void {
+  if (!dataset || !Array.isArray(dataset.ROIContourSequence)) return;
+
+  const segSummary = useSegmentationStore
+    .getState()
+    .segmentations.find((seg) => seg.segmentationId === segmentationId);
+  if (!segSummary) return;
+
+  const colorBySegmentIndex = new Map<number, [number, number, number]>();
+  for (const segment of segSummary.segments) {
+    if (!Number.isFinite(segment.segmentIndex) || segment.segmentIndex <= 0) continue;
+    colorBySegmentIndex.set(segment.segmentIndex, [
+      Math.max(0, Math.min(255, Math.round(segment.color[0]))),
+      Math.max(0, Math.min(255, Math.round(segment.color[1]))),
+      Math.max(0, Math.min(255, Math.round(segment.color[2]))),
+    ]);
   }
 
-  const origWrite16 = proto.writeUint16;
-  const origWrite32 = proto.writeUint32;
-  try {
-    proto.writeUint16 = function (value: any) {
-      return origWrite16.call(this, isNaN(value) ? 0 : value);
-    };
-    proto.writeUint32 = function (value: any) {
-      return origWrite32.call(this, isNaN(value) ? 0 : value);
-    };
-
-    const retryDict = new DicomDictClass(denaturalizedMeta);
-    retryDict.dict = denaturalizedDict;
-    return retryDict.write();
-  } finally {
-    proto.writeUint16 = origWrite16;
-    proto.writeUint32 = origWrite32;
+  for (let i = 0; i < dataset.ROIContourSequence.length; i++) {
+    const roiContour = dataset.ROIContourSequence[i];
+    if (!roiContour || typeof roiContour !== 'object') continue;
+    const referenced = Number(roiContour.ReferencedROINumber);
+    const lookupIndex = Number.isFinite(referenced) && referenced > 0 ? referenced : i + 1;
+    const rgb = colorBySegmentIndex.get(lookupIndex);
+    if (!rgb) continue;
+    roiContour.ROIDisplayColor = rgb;
   }
 }
 
@@ -712,6 +757,9 @@ async function exportToRtStruct(segmentationId: string): Promise<string> {
 
   console.log('[rtStructService] Exporting RTSTRUCT for segmentation:', segmentationId);
 
+  const trackedSourceIds = segmentationService.getTrackedSourceImageIds(segmentationId);
+  const sourceImageIdForMetadata = trackedSourceIds?.[0] ?? null;
+
   // Build a custom metadataProvider that bridges gaps between what the
   // adapters' referencedMetadataProvider expects and what our DICOMweb
   // image loader actually registers.
@@ -752,6 +800,10 @@ async function exportToRtStruct(segmentationId: string): Promise<string> {
   const rtssDataset: any = generateContourFn(seg, {
     metadataProvider: exportMetadataProvider,
   });
+  if (sourceImageIdForMetadata) {
+    applySourceDicomContextToRtStructDataset(rtssDataset, sourceImageIdForMetadata);
+  }
+  applyCurrentSegmentColorsToRtStructDataset(rtssDataset, segmentationId);
 
   // Serialize to DICOM binary via dcmjs
   //
@@ -774,6 +826,7 @@ async function exportToRtStruct(segmentationId: string): Promise<string> {
     dcmjsData.DicomDict,
     meta,
     denaturalizedDataset,
+    'rtStructService',
   );
 
   // Convert to base64 for IPC transport

@@ -16,6 +16,7 @@ interface ViewportOverlayProps {
 const EMPTY_VP = {
   totalImages: 0,
   imageIndex: 0,
+  requestedImageIndex: null,
   windowWidth: 0,
   windowCenter: 0,
   zoomPercent: 100,
@@ -29,7 +30,9 @@ const EMPTY_VP = {
 
 export default function ViewportOverlay({ panelId }: ViewportOverlayProps) {
   const viewport = useViewerStore((s) => s.viewports[panelId] ?? EMPTY_VP);
-  const sessionLabel = useViewerStore((s) => s.xnatContext?.sessionLabel ?? '');
+  const sessionLabel = useViewerStore(
+    (s) => s.panelSessionLabelMap[panelId] ?? s.xnatContext?.sessionLabel ?? '',
+  );
   const overlay = useMetadataStore((s) => s.overlays[panelId] ?? EMPTY_OVERLAY);
 
   // Don't render if no images loaded
