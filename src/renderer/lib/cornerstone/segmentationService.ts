@@ -253,7 +253,7 @@ async function getCachedLabelmapSliceArrays(segmentationId: string): Promise<{
   sliceArrays: ArrayLike<number>[];
   width: number;
   height: number;
-}> | null {
+} | null> {
   const labelmapImageIds = getLabelmapImageIdsForSegmentation(segmentationId);
   if (!labelmapImageIds.length) return null;
 

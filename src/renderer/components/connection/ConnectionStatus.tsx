@@ -59,7 +59,7 @@ export default function ConnectionStatus() {
 
     setDisconnecting(true);
     try {
-      clearServerScopedStorage(connection.serverUrl);
+      clearServerScopedStorage(connection!.serverUrl);
       await logout();
     } finally {
       setDisconnecting(false);

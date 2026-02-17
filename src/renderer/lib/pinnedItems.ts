@@ -281,8 +281,9 @@ export function migrateOldStorage(): void {
 }
 
 /**
- * Clear all persisted local browser storage entries scoped to a server URL.
- * Used on disconnect to avoid leaking per-server history across sessions.
+ * Clear per-server pinned and recent scan items on disconnect.
+ * Preserves recent connections (server URLs) so the login form
+ * remembers previously used servers.
  */
 export function clearServerScopedStorage(serverUrl: string): void {
   const norm = normalize(serverUrl);
@@ -296,20 +297,6 @@ export function clearServerScopedStorage(serverUrl: string): void {
   try {
     const recent = readRecent().filter((item) => normalize(item.serverUrl) !== norm);
     writeRecent(recent);
-  } catch {
-    // ignore
-  }
-
-  try {
-    const raw = localStorage.getItem(RECENT_CONNECTIONS_KEY);
-    if (!raw) return;
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return;
-    const filtered = parsed.filter((item: any) => {
-      const url = typeof item?.serverUrl === 'string' ? item.serverUrl : '';
-      return normalize(url) !== norm;
-    });
-    localStorage.setItem(RECENT_CONNECTIONS_KEY, JSON.stringify(filtered));
   } catch {
     // ignore
   }
