@@ -10,10 +10,10 @@
  * Only one active connection at a time.
  */
 import { session as electronSession, BrowserWindow } from 'electron';
-import { XnatClient } from './xnatClient';
+import { XnatClient, XnatAuthError } from './xnatClient';
+import { openBrowserLogin } from './browserLogin';
 import { IPC } from '../../shared/ipcChannels';
 import type {
-  XnatLoginCredentials,
   XnatLoginResult,
   XnatConnectionInfo,
   XnatSessionStatus,
@@ -26,18 +26,23 @@ let keepaliveInterval: NodeJS.Timeout | null = null;
 // ─── Public API ──────────────────────────────────────────────────
 
 /**
- * Authenticate with XNAT, start keepalive, set up web request interceptor.
+ * Authenticate via browser-based login (SSO/OIDC/LDAP/local).
+ * Opens XNAT's login page in a child BrowserWindow. After the user
+ * authenticates, extracts the JSESSIONID and retrieves the username —
+ * all using the BrowserWindow's Chromium network stack (which some
+ * XNAT servers require). The pre-fetched credentials are then handed
+ * to xnatClient.
  */
-export async function login(creds: XnatLoginCredentials): Promise<XnatLoginResult> {
+export async function browserLogin(serverUrl: string): Promise<XnatLoginResult> {
   // Disconnect existing connection first
   if (client) {
     await logout();
   }
 
-  const newClient = new XnatClient(creds.serverUrl);
-
+  // Open browser login window — returns pre-fetched auth data
+  let loginResult: Awaited<ReturnType<typeof openBrowserLogin>>;
   try {
-    await newClient.authenticate(creds.username, creds.password);
+    loginResult = await openBrowserLogin(serverUrl);
   } catch (err) {
     return {
       success: false,
@@ -45,40 +50,41 @@ export async function login(creds: XnatLoginCredentials): Promise<XnatLoginResul
     };
   }
 
+  // Create client and set pre-fetched auth credentials directly
+  const newClient = new XnatClient(serverUrl);
+  await newClient.setAuthFromBrowserLogin(loginResult);
+
   client = newClient;
 
   connectionInfo = {
     serverUrl: client.serverUrl,
     username: client.currentUsername,
     connectedAt: Date.now(),
-    authType: 'jsession',
   };
+
+  // Reset expiry notification flag for the new session
+  resetSessionExpiredFlag();
 
   // Start keepalive timer
   startKeepalive();
 
-  // Set up web request interceptor to inject auth headers for Cornerstone's
-  // direct WADO-URI fetches
+  // Set up web request interceptor for Cornerstone's direct WADO-URI fetches
   setupWebRequestInterceptor();
 
-  console.log(`[sessionManager] Connected to ${connectionInfo.serverUrl} as ${connectionInfo.username}`);
+  console.log(`[sessionManager] Browser login: connected to ${connectionInfo.serverUrl} as ${connectionInfo.username}`);
 
   return { success: true, connection: connectionInfo };
 }
 
 /**
- * Disconnect: stop timers, invalidate session, clear interceptors.
+ * Disconnect: invalidate session on server, then clean up local state.
  */
 export async function logout(): Promise<void> {
-  stopKeepalive();
-  clearWebRequestInterceptor();
-
+  // Best-effort: tell the server to invalidate the session
   if (client) {
     await client.disconnect();
-    client = null;
   }
-
-  connectionInfo = null;
+  tearDown();
   console.log('[sessionManager] Logged out');
 }
 
@@ -122,7 +128,7 @@ export function isConnected(): boolean {
 function startKeepalive(): void {
   stopKeepalive();
 
-  // Ping interval for JSESSION validation
+  // Ping every 5 min to keep JSESSION alive on the server.
   const intervalMs = 5 * 60 * 1000;
 
   keepaliveInterval = setInterval(async () => {
@@ -133,9 +139,9 @@ function startKeepalive(): void {
 
     const username = await client.validateSession();
     if (!username) {
-      console.warn('[sessionManager] Keepalive: session expired');
+      console.warn('[sessionManager] Keepalive: session expired — disconnecting');
+      tearDown();
       notifySessionExpired();
-      stopKeepalive();
     } else {
       console.log('[sessionManager] Keepalive: session valid');
     }
@@ -151,13 +157,59 @@ function stopKeepalive(): void {
   }
 }
 
+// ─── Tear Down ───────────────────────────────────────────────────
+
+/**
+ * Full cleanup of auth state: stop keepalive, clear interceptors,
+ * mark client disconnected, null references. Does NOT notify renderer
+ * — callers should call notifySessionExpired() separately if needed.
+ */
+function tearDown(): void {
+  stopKeepalive();
+  clearWebRequestInterceptor();
+  if (client) {
+    client.clearCookies();
+    client.markDisconnected();
+  }
+  client = null;
+  connectionInfo = null;
+}
+
+// ─── Auth Failure Handling ────────────────────────────────────────
+
+/**
+ * Called by IPC handlers when an API call fails with an auth error.
+ * Cleans up the session and notifies the renderer to return to login.
+ * Uses XnatAuthError type checking instead of fragile string matching.
+ */
+export function handleAuthFailure(err: unknown): void {
+  if (!(err instanceof XnatAuthError)) return;
+  if (!client && !connectionInfo) return; // Already cleaned up
+
+  console.warn('[sessionManager] Unrecoverable auth failure — disconnecting');
+  tearDown();
+  notifySessionExpired();
+}
+
 // ─── Session Expiry Notification ─────────────────────────────────
 
+/** Debounce flag to prevent duplicate session-expired notifications
+ *  when multiple API calls fail simultaneously with auth errors. */
+let sessionExpiredNotified = false;
+
 function notifySessionExpired(): void {
+  if (sessionExpiredNotified) return;
+  sessionExpiredNotified = true;
+
   const windows = BrowserWindow.getAllWindows();
   for (const win of windows) {
     win.webContents.send(IPC.XNAT_SESSION_EXPIRED);
   }
+}
+
+/** Reset the notification flag (called when a new login succeeds). */
+function resetSessionExpiredFlag(): void {
+  sessionExpiredNotified = false;
 }
 
 // ─── Web Request Interceptor ─────────────────────────────────────

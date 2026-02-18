@@ -17,8 +17,8 @@
 - DICOM loading via drag-and-drop, file picker, and DICOMweb
 
 ## Phase 2: XNAT Connection & Session Management (Complete)
-- XNAT REST API client with dual auth (alias tokens + JSESSION fallback)
-- Session lifecycle manager with keepalive and token refresh
+- XNAT REST API client with JSESSION cookie auth
+- Session lifecycle manager with keepalive
 - IPC bridge for secure credential handling (credentials stay in main process)
 - Login form UI and connection status indicator
 - webRequest interceptor for injecting auth headers into WADO-URI fetches

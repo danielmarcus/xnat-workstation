@@ -266,7 +266,8 @@ export const useSegmentationStore = create<SegmentationStore>((set) => ({
     // so the two stores stay in sync. Without this, App.tsx checks like
     //   segStore.hasUnsavedChanges || manager.hasDirtySegmentations()
     // could show stale unsaved-changes warnings after a successful save.
-    const { useSegmentationManagerStore } = require('./segmentationManagerStore');
-    useSegmentationManagerStore.getState().clearAllDirty();
+    import('./segmentationManagerStore').then(({ useSegmentationManagerStore }) => {
+      useSegmentationManagerStore.getState().clearAllDirty();
+    });
   },
 }));

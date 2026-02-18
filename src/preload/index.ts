@@ -4,8 +4,8 @@
  * Context isolation is enabled. The renderer accesses main process
  * functionality exclusively through window.electronAPI.
  *
- * XNAT credentials (passwords, tokens) never flow through this bridge
- * except during the login() call — the main process handles them securely.
+ * XNAT credentials never flow through this bridge — the main process
+ * handles authentication via a browser window and cookie-based sessions.
  */
 import { contextBridge, ipcRenderer } from 'electron';
 import { IPC } from '../shared/ipcChannels';
@@ -14,8 +14,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   platform: process.platform,
 
   xnat: {
-    login: (creds: { serverUrl: string; username: string; password: string }) =>
-      ipcRenderer.invoke(IPC.XNAT_LOGIN, creds),
+    browserLogin: (serverUrl: string) =>
+      ipcRenderer.invoke(IPC.XNAT_BROWSER_LOGIN, serverUrl),
 
     logout: () =>
       ipcRenderer.invoke(IPC.XNAT_LOGOUT),
@@ -135,6 +135,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
 
   on: (channel: string, callback: (...args: unknown[]) => void) => {
-    ipcRenderer.on(channel, (_event, ...args) => callback(...args));
+    const allowedChannels = [IPC.XNAT_SESSION_EXPIRED];
+    if (!allowedChannels.includes(channel as any)) {
+      console.warn(`[preload] Blocked IPC listener for unknown channel: ${channel}`);
+      return () => {};
+    }
+    const wrappedCallback = (_event: Electron.IpcRendererEvent, ...args: unknown[]) => callback(...args);
+    ipcRenderer.on(channel, wrappedCallback);
+    // Return unsubscribe function to prevent listener accumulation
+    return () => {
+      ipcRenderer.removeListener(channel, wrappedCallback);
+    };
   },
 });

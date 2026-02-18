@@ -6,12 +6,11 @@
  */
 import { ipcMain } from 'electron';
 import { IPC } from '../../shared/ipcChannels';
-import type { XnatLoginCredentials } from '../../shared/types/xnat';
 import * as sessionManager from '../xnat/sessionManager';
 
 export function registerAuthHandlers(): void {
-  ipcMain.handle(IPC.XNAT_LOGIN, async (_event, creds: XnatLoginCredentials) => {
-    return sessionManager.login(creds);
+  ipcMain.handle(IPC.XNAT_BROWSER_LOGIN, async (_event, serverUrl: string) => {
+    return sessionManager.browserLogin(serverUrl);
   });
 
   ipcMain.handle(IPC.XNAT_LOGOUT, async () => {

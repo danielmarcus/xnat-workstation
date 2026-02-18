@@ -4,7 +4,6 @@ export * from './dicom';
 export * from './xnat';
 
 import type {
-  XnatLoginCredentials,
   XnatLoginResult,
   XnatSessionStatus,
   XnatConnectionInfo,
@@ -19,7 +18,7 @@ import type {
 export interface ElectronAPI {
   platform: string;
   xnat: {
-    login(creds: XnatLoginCredentials): Promise<XnatLoginResult>;
+    browserLogin(serverUrl: string): Promise<XnatLoginResult>;
     logout(): Promise<void>;
     validateSession(): Promise<XnatSessionStatus>;
     getConnection(): Promise<XnatConnectionInfo | null>;
@@ -132,7 +131,7 @@ export interface ElectronAPI {
       defaultName?: string,
     ): Promise<{ ok: boolean; path?: string; error?: string }>;
   };
-  on(channel: string, callback: (...args: unknown[]) => void): void;
+  on(channel: string, callback: (...args: unknown[]) => void): () => void;
 }
 
 declare global {

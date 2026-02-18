@@ -107,6 +107,7 @@ export class SafePaintFillTool extends PaintFillTool {
       const { currentPoints, element } = eventDetail;
       const worldPos = currentPoints.world;
       const enabledElement = getEnabledElement(element);
+      if (!enabledElement) return true;
       const { viewport } = enabledElement;
       const camera = viewport.getCamera();
       const { viewPlaneNormal } = camera;
@@ -174,7 +175,7 @@ export class SafePaintFillTool extends PaintFillTool {
       }
 
       const clickedLabelValue = getLabelValue(index[0], index[1], index[2]);
-      if (segmentsLocked.includes(clickedLabelValue)) return true;
+      if ((segmentsLocked as number[]).includes(clickedLabelValue)) return true;
 
       const flooded = floodFill2D(floodFillGetter, inPlaneSeedPoint);
       if (!flooded.length) return true;

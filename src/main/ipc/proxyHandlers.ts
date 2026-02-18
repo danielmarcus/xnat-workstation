@@ -43,6 +43,7 @@ export function registerProxyHandlers(): void {
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         console.error('[proxy] DICOMweb fetch error:', message);
+        sessionManager.handleAuthFailure(err);
         return { ok: false, status: 500, error: message };
       }
     },
@@ -57,6 +58,7 @@ export function registerProxyHandlers(): void {
       return await client.getProjects();
     } catch (err) {
       console.error('[proxy] getProjects error:', err);
+      sessionManager.handleAuthFailure(err);
       return [];
     }
   });
@@ -68,6 +70,7 @@ export function registerProxyHandlers(): void {
       return await client.getSubjects(projectId);
     } catch (err) {
       console.error('[proxy] getSubjects error:', err);
+      sessionManager.handleAuthFailure(err);
       return [];
     }
   });
@@ -81,6 +84,7 @@ export function registerProxyHandlers(): void {
         return await client.getSessions(projectId, subjectId);
       } catch (err) {
         console.error('[proxy] getSessions error:', err);
+        sessionManager.handleAuthFailure(err);
         return [];
       }
     },
@@ -93,6 +97,7 @@ export function registerProxyHandlers(): void {
       return await client.getProjectSessions(projectId);
     } catch (err) {
       console.error('[proxy] getProjectSessions error:', err);
+      sessionManager.handleAuthFailure(err);
       return [];
     }
   });
@@ -104,6 +109,7 @@ export function registerProxyHandlers(): void {
       return await client.getScans(sessionId);
     } catch (err) {
       console.error('[proxy] getScans error:', err);
+      sessionManager.handleAuthFailure(err);
       return [];
     }
   });
@@ -118,6 +124,7 @@ export function registerProxyHandlers(): void {
         return { ok: true, files: uris, serverUrl: client.serverUrl };
       } catch (err) {
         console.error('[proxy] getScanFiles error:', err);
+        sessionManager.handleAuthFailure(err);
         return {
           ok: false,
           error: err instanceof Error ? err.message : String(err),

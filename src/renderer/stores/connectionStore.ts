@@ -10,7 +10,6 @@ import { create } from 'zustand';
 import type {
   ConnectionStatus,
   XnatConnectionInfo,
-  XnatLoginCredentials,
 } from '@shared/types/xnat';
 
 interface ConnectionStore {
@@ -20,7 +19,7 @@ interface ConnectionStore {
   error: string | null;
 
   // ─── Actions ────────────────────────────────────────────────
-  login: (creds: XnatLoginCredentials) => Promise<boolean>;
+  browserLogin: (serverUrl: string) => Promise<boolean>;
   logout: () => Promise<void>;
   checkSession: () => Promise<void>;
 
@@ -33,11 +32,11 @@ export const useConnectionStore = create<ConnectionStore>((set) => ({
   connection: null,
   error: null,
 
-  login: async (creds) => {
+  browserLogin: async (serverUrl) => {
     set({ status: 'connecting', error: null });
 
     try {
-      const result = await window.electronAPI.xnat.login(creds);
+      const result = await window.electronAPI.xnat.browserLogin(serverUrl);
 
       if (result.success && result.connection) {
         set({
@@ -48,8 +47,8 @@ export const useConnectionStore = create<ConnectionStore>((set) => ({
         return true;
       } else {
         set({
-          status: 'error',
-          error: result.error || 'Login failed',
+          status: result.error === 'Login cancelled' ? 'disconnected' : 'error',
+          error: result.error === 'Login cancelled' ? null : (result.error || 'Login failed'),
           connection: null,
         });
         return false;

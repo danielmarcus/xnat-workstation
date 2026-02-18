@@ -1,24 +1,37 @@
 /**
  * XNAT REST API Client
  *
- * Handles authentication using a single JSESSION cookie and
- * authenticated requests.
+ * All XNAT API requests authenticate via JSESSION cookie stored in
+ * Electron's default session cookie jar. The session is kept alive
+ * by a periodic keepalive ping in sessionManager.
  *
- * Adapted from the reference XNAT Desktop Viewer project.
- * All network operations happen in the main process — credentials
+ * All network operations happen in the main process — session cookies
  * never cross the IPC boundary to the renderer.
+ *
+ * Uses Electron's session.fetch() (Chromium network stack) so requests
+ * automatically include cookies from the default session's cookie jar.
  */
+import { session as electronSession } from 'electron';
 import { data as dcmjsData } from 'dcmjs';
-/** Internal token representation (single JSESSION) */
-interface AuthToken {
-  type: 'jsession';
-  secret: string;
+import type { ServerCookie } from './browserLogin';
+
+/** Typed auth error so callers can detect auth failures without string matching. */
+export class XnatAuthError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'XnatAuthError';
+  }
 }
 
 export class XnatClient {
   private baseUrl: string;
   private username: string = '';
-  private token: AuthToken | null = null;
+  /** JSESSION cookie — used for all XNAT API requests */
+  private jsessionId: string | null = null;
+  /** All server cookies (JSESSIONID, ALB sticky-session, etc.) */
+  private serverCookies: ServerCookie[] = [];
+  /** Set by markDisconnected() to stop concurrent in-flight requests from retrying */
+  private _disconnected = false;
   private scanSopClassUidCache = new Map<string, string | null>();
 
   constructor(baseUrl: string) {
@@ -29,64 +42,54 @@ export class XnatClient {
   // ─── Authentication ────────────────────────────────────────────
 
   /**
-   * Return a user-facing authentication error message without leaking raw
-   * server HTML/error payloads into the renderer UI.
+   * Set auth state from browser login results.
+   * Stores the pre-fetched credentials without making any network calls.
    */
-  private authenticationErrorMessage(status: number): string {
-    if (status === 401) {
-      return 'Invalid username or password';
-    }
-    if (status === 503) {
-      return 'XNAT is temporarily unavailable. Please try again later.';
-    }
-    if (status >= 500) {
-      return 'XNAT is unavailable right now. Please try again later.';
-    }
-    return 'Authentication failed. Please check your server URL and credentials.';
+  async setAuthFromBrowserLogin(opts: {
+    jsessionId: string;
+    username: string;
+    serverCookies?: ServerCookie[];
+  }): Promise<void> {
+    this.username = opts.username;
+    this.serverCookies = opts.serverCookies ?? [];
+    await this.setAllCookies(opts.jsessionId, this.serverCookies);
+    console.log(`[xnatClient] Browser login complete: user=${this.username}`);
   }
 
   /**
-   * Authenticate with XNAT.
-   * Always uses JSESSION cookie auth.
+   * Sync all server cookies to the default session's cookie jar.
+   * Includes JSESSIONID plus any infrastructure cookies (e.g. AWSALB
+   * sticky-session cookies for load-balanced XNAT servers).
+   * Must be awaited before making API calls.
    */
-  async authenticate(username: string, password: string): Promise<void> {
-    this.username = username;
-    const basicAuth = `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`;
-    await this.authenticateWithSession(basicAuth);
-  }
+  private async setAllCookies(jsessionId: string, cookies: ServerCookie[]): Promise<void> {
+    this.jsessionId = jsessionId;
 
-  /**
-   * Authenticate using JSESSIONID cookie.
-   */
-  private async authenticateWithSession(basicAuth: string): Promise<void> {
-    let response: Response;
-    try {
-      response = await fetch(`${this.baseUrl}/data/JSESSION`, {
-        method: 'POST',
-        headers: { Authorization: basicAuth },
-      });
-    } catch (err) {
-      throw new Error(`Cannot reach XNAT server at ${this.baseUrl}`);
+    // Always set JSESSIONID
+    await electronSession.defaultSession.cookies.set({
+      url: this.baseUrl,
+      name: 'JSESSIONID',
+      value: jsessionId,
+    });
+
+    // Set all other server cookies (ALB sticky-session, XNAT session state, etc.)
+    for (const c of cookies) {
+      if (c.name === 'JSESSIONID') continue; // already set above
+      try {
+        await electronSession.defaultSession.cookies.set({
+          url: this.baseUrl,
+          name: c.name,
+          value: c.value,
+          path: c.path,
+          secure: c.secure,
+          httpOnly: c.httpOnly,
+          sameSite: c.sameSite,
+        });
+      } catch (err) {
+        console.warn(`[xnatClient] Failed to set cookie ${c.name}:`, err);
+      }
     }
-
-    if (!response.ok) {
-      const text = await response.text().catch(() => '');
-      // Keep server details in logs for debugging, but return only a simple
-      // message to the UI.
-      console.warn(
-        `[xnatClient] Session auth failed (${response.status})`,
-        text ? text.slice(0, 300) : '',
-      );
-      throw new Error(this.authenticationErrorMessage(response.status));
-    }
-
-    const sessionId = (await response.text()).trim();
-    this.token = {
-      type: 'jsession',
-      secret: sessionId,
-    };
-
-    console.log('[xnatClient] Authenticated with JSESSION');
+    console.log(`[xnatClient] Set ${cookies.length + 1} cookies in default session`);
   }
 
   // ─── Session Validation ────────────────────────────────────────
@@ -96,19 +99,16 @@ export class XnatClient {
    * Returns the username if valid, null if expired.
    */
   async validateSession(): Promise<string | null> {
-    if (!this.token) return null;
+    if (!this.jsessionId) return null;
 
     try {
-      const response = await fetch(`${this.baseUrl}/data/JSESSION`, {
+      const response = await this.xfetch(`${this.baseUrl}/data/JSESSION`, {
         method: 'GET',
-        headers: this.buildAuthHeaders(),
       });
 
-      if (response.ok) {
-        const text = (await response.text()).trim();
-        return text || this.username;
-      }
-      return null;
+      // Drain the response body to release the connection
+      await response.text().catch(() => {});
+      return response.ok ? this.username : null;
     } catch {
       return null;
     }
@@ -117,34 +117,71 @@ export class XnatClient {
   // ─── Disconnect ────────────────────────────────────────────────
 
   /**
-   * Clean up: invalidate session on server, clear local state.
+   * Immediately mark this client as disconnected so concurrent in-flight
+   * requests stop retrying. Called by sessionManager.handleAuthFailure()
+   * before nulling the client reference.
+   */
+  markDisconnected(): void {
+    this._disconnected = true;
+  }
+
+  /**
+   * Clear auth cookies from the default session's cookie jar and reset
+   * local credential state. Does not contact the server.
+   * Used by tearDown() for forced expiry where the session is already invalid.
+   */
+  clearCookies(): void {
+    for (const c of this.serverCookies) {
+      electronSession.defaultSession.cookies.remove(this.baseUrl, c.name).catch(() => {});
+    }
+    electronSession.defaultSession.cookies.remove(this.baseUrl, 'JSESSIONID').catch(() => {});
+
+    this.jsessionId = null;
+    this.serverCookies = [];
+    this.username = '';
+  }
+
+  /**
+   * Best-effort server-side session invalidation. Does NOT clear local
+   * state — that's handled by clearCookies() in sessionManager.tearDown().
    */
   async disconnect(): Promise<void> {
-    if (this.token) {
-      // Best-effort: invalidate server session
+    if (this.jsessionId) {
       try {
-        await fetch(`${this.baseUrl}/data/JSESSION`, {
+        await this.xfetch(`${this.baseUrl}/data/JSESSION`, {
           method: 'DELETE',
-          headers: this.buildAuthHeaders(),
         });
       } catch {
         // Ignore — we're disconnecting anyway
       }
     }
-
-    this.token = null;
-    this.username = '';
     console.log('[xnatClient] Disconnected');
   }
 
   // ─── Authenticated Requests ────────────────────────────────────
 
   /**
-   * Build auth headers for the current token type.
+   * Build auth headers for XNAT requests.
+   * Includes JSESSIONID plus any infrastructure cookies (ALB sticky-session, etc.).
+   * Used by the webRequest interceptor in sessionManager for renderer requests.
    */
   buildAuthHeaders(): Record<string, string> {
-    if (!this.token) throw new Error('Not authenticated');
-    return { Cookie: `JSESSIONID=${this.token.secret}` };
+    if (!this.jsessionId) throw new XnatAuthError('Not authenticated');
+    const parts = [`JSESSIONID=${this.jsessionId}`];
+    for (const c of this.serverCookies) {
+      if (c.name === 'JSESSIONID') continue;
+      parts.push(`${c.name}=${c.value}`);
+    }
+    return { Cookie: parts.join('; ') };
+  }
+
+  /**
+   * Wrapper around session.fetch that uses the default session's
+   * cookie jar. session.fetch() automatically sends cookies for the
+   * matching domain.
+   */
+  private xfetch(url: string, options?: RequestInit): Promise<Response> {
+    return electronSession.defaultSession.fetch(url, options);
   }
 
   /**
@@ -155,18 +192,17 @@ export class XnatClient {
     endpoint: string,
     options: RequestInit = {},
   ): Promise<Response> {
-    if (!this.token) throw new Error('Not authenticated');
+    if (!this.jsessionId || this._disconnected) throw new XnatAuthError('Not authenticated');
 
     const url = `${this.baseUrl}${endpoint}`;
-    const headers: Record<string, string> = {
-      ...(options.headers as Record<string, string>),
-      ...this.buildAuthHeaders(),
-    };
-
-    const response = await fetch(url, { ...options, headers });
+    // JSESSIONID cookie is provided by the default session's cookie jar.
+    const response = await this.xfetch(url, options);
 
     if (!response.ok) {
       const text = await response.text().catch(() => '');
+      if (response.status === 401) {
+        throw new XnatAuthError(`401 ${text}`.trim());
+      }
       throw new Error(`XNAT API error: ${response.status} ${text}`.trim());
     }
 
@@ -177,14 +213,15 @@ export class XnatClient {
 
   /**
    * Make an authenticated JSON request with format=json appended.
+   * Returns null for empty responses — callers use optional chaining.
    */
-  private async jsonRequest<T>(endpoint: string): Promise<T> {
+  private async jsonRequest<T>(endpoint: string): Promise<T | null> {
     const separator = endpoint.includes('?') ? '&' : '?';
     const response = await this.authenticatedFetch(
       `${endpoint}${separator}format=json`,
     );
     const text = await response.text();
-    if (!text.trim()) return {} as T;
+    if (!text.trim()) return null;
     return JSON.parse(text) as T;
   }
 
@@ -630,7 +667,7 @@ export class XnatClient {
     targetScanId?: string,
     seriesDescription?: string,
   ): Promise<{ scanId: string; dicomBuffer: Buffer }> {
-    if (!this.token) throw new Error('Not authenticated');
+    if (!this.jsessionId || this._disconnected) throw new XnatAuthError('Not authenticated');
 
     let resolvedScanId = targetScanId;
     if (!resolvedScanId) {
@@ -660,7 +697,7 @@ export class XnatClient {
     dicomBuffer: Buffer,
     seriesDescription: string = 'Segmentation',
   ): Promise<{ url: string; scanId: string }> {
-    if (!this.token) throw new Error('Not authenticated');
+    if (!this.jsessionId || this._disconnected) throw new XnatAuthError('Not authenticated');
     const { targetSessionId, targetSessionLabel, targetProjectId, targetSubjectId } =
       await this.resolveUploadRouting(projectId, subjectId, sessionId, sessionLabel, 'SEG');
     const targetScanId = await this.findNextDerivedScanId(targetSessionId, sourceScanId, 'SEG');
@@ -694,9 +731,8 @@ export class XnatClient {
       'xnat:segScanData/series_description': seriesDescription,
     });
     const createUrl = `${this.baseUrl}${basePath}?${createParams.toString()}`;
-    const createResp = await fetch(createUrl, {
+    const createResp = await this.xfetch(createUrl, {
       method: 'PUT',
-      headers: this.buildAuthHeaders(),
     });
     if (!createResp.ok) {
       const text = await createResp.text().catch(() => '');
@@ -707,11 +743,10 @@ export class XnatClient {
     }
 
     const fileUrl = `${this.baseUrl}${basePath}/resources/DICOM/files/segmentation.dcm?format=DICOM&content=SEG`;
-    const fileResp = await fetch(fileUrl, {
+    const fileResp = await this.xfetch(fileUrl, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/dicom',
-        ...this.buildAuthHeaders(),
       },
       body: new Uint8Array(dicomWithScanNumber),
     });
@@ -745,7 +780,7 @@ export class XnatClient {
     dicomBuffer: Buffer,
     seriesDescription: string = 'RT Structure Set',
   ): Promise<{ url: string; scanId: string }> {
-    if (!this.token) throw new Error('Not authenticated');
+    if (!this.jsessionId || this._disconnected) throw new XnatAuthError('Not authenticated');
     const { targetSessionId, targetSessionLabel, targetProjectId, targetSubjectId } =
       await this.resolveUploadRouting(projectId, subjectId, sessionId, sessionLabel, 'RTSTRUCT');
     const targetScanId = await this.findNextDerivedScanId(targetSessionId, sourceScanId, 'RTSTRUCT');
@@ -779,9 +814,8 @@ export class XnatClient {
       'xnat:rtImageScanData/series_description': seriesDescription,
     });
     const createUrl = `${this.baseUrl}${basePath}?${createParams.toString()}`;
-    const createResp = await fetch(createUrl, {
+    const createResp = await this.xfetch(createUrl, {
       method: 'PUT',
-      headers: this.buildAuthHeaders(),
     });
     if (!createResp.ok) {
       const text = await createResp.text().catch(() => '');
@@ -792,11 +826,10 @@ export class XnatClient {
     }
 
     const fileUrl = `${this.baseUrl}${basePath}/resources/DICOM/files/rtstruct.dcm?format=DICOM&content=RTSTRUCT`;
-    const fileResp = await fetch(fileUrl, {
+    const fileResp = await this.xfetch(fileUrl, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/dicom',
-        ...this.buildAuthHeaders(),
       },
       body: new Uint8Array(dicomWithScanNumber),
     });
@@ -830,7 +863,7 @@ export class XnatClient {
     dicomBuffer: Buffer,
     seriesDescription?: string,
   ): Promise<{ url: string; scanId: string }> {
-    if (!this.token) throw new Error('Not authenticated');
+    if (!this.jsessionId || this._disconnected) throw new XnatAuthError('Not authenticated');
 
     console.log(
       `[xnatClient] Overwriting DICOM SEG in scan ${targetScanId}`,
@@ -842,9 +875,8 @@ export class XnatClient {
 
     // Delete existing files in the scan's DICOM resource
     const deleteUrl = `${this.baseUrl}${basePath}/resources/DICOM/files`;
-    const deleteResp = await fetch(deleteUrl, {
+    const deleteResp = await this.xfetch(deleteUrl, {
       method: 'DELETE',
-      headers: this.buildAuthHeaders(),
     });
     if (!deleteResp.ok && deleteResp.status !== 404) {
       console.warn(`[xnatClient] Overwrite: could not delete old files (${deleteResp.status}), continuing`);
@@ -853,11 +885,10 @@ export class XnatClient {
     // Upload the new DICOM file
     const dicomWithScanNumber = this.withUploadMetadata(dicomBuffer, targetScanId, seriesDescription);
     const fileUrl = `${this.baseUrl}${basePath}/resources/DICOM/files/segmentation.dcm?format=DICOM&content=SEG`;
-    const fileResp = await fetch(fileUrl, {
+    const fileResp = await this.xfetch(fileUrl, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/dicom',
-        ...this.buildAuthHeaders(),
       },
       body: new Uint8Array(dicomWithScanNumber),
     });
@@ -892,7 +923,7 @@ export class XnatClient {
     dicomBuffer: Buffer,
     seriesDescription?: string,
   ): Promise<{ url: string; scanId: string }> {
-    if (!this.token) throw new Error('Not authenticated');
+    if (!this.jsessionId || this._disconnected) throw new XnatAuthError('Not authenticated');
 
     console.log(
       `[xnatClient] Overwriting DICOM RTSTRUCT in scan ${targetScanId}`,
@@ -903,9 +934,8 @@ export class XnatClient {
       + `/scans/${encodeURIComponent(targetScanId)}`;
 
     const deleteUrl = `${this.baseUrl}${basePath}/resources/DICOM/files`;
-    const deleteResp = await fetch(deleteUrl, {
+    const deleteResp = await this.xfetch(deleteUrl, {
       method: 'DELETE',
-      headers: this.buildAuthHeaders(),
     });
     if (!deleteResp.ok && deleteResp.status !== 404) {
       console.warn(`[xnatClient] RTSTRUCT overwrite: could not delete old files (${deleteResp.status}), continuing`);
@@ -913,11 +943,10 @@ export class XnatClient {
 
     const dicomWithScanNumber = this.withUploadMetadata(dicomBuffer, targetScanId, seriesDescription);
     const fileUrl = `${this.baseUrl}${basePath}/resources/DICOM/files/rtstruct.dcm?format=DICOM&content=RTSTRUCT`;
-    const fileResp = await fetch(fileUrl, {
+    const fileResp = await this.xfetch(fileUrl, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/dicom',
-        ...this.buildAuthHeaders(),
       },
       body: new Uint8Array(dicomWithScanNumber),
     });
@@ -954,7 +983,7 @@ export class XnatClient {
     dicomBuffer: Buffer,
     customFilename?: string,
   ): Promise<{ url: string }> {
-    if (!this.token) throw new Error('Not authenticated');
+    if (!this.jsessionId || this._disconnected) throw new XnatAuthError('Not authenticated');
 
     const filename = customFilename ?? `autosave_seg_${sourceScanId}.dcm`;
     console.log(
@@ -966,11 +995,10 @@ export class XnatClient {
       + `/resources/temp/files/${encodeURIComponent(filename)}`
       + `?format=DICOM&content=SEG&overwrite=true`;
 
-    const resp = await fetch(fileUrl, {
+    const resp = await this.xfetch(fileUrl, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/dicom',
-        ...this.buildAuthHeaders(),
       },
       body: new Uint8Array(dicomBuffer),
     });
@@ -994,14 +1022,13 @@ export class XnatClient {
   async listTempFiles(
     sessionId: string,
   ): Promise<Array<{ name: string; uri: string; size: number }>> {
-    if (!this.token) throw new Error('Not authenticated');
+    if (!this.jsessionId || this._disconnected) throw new XnatAuthError('Not authenticated');
 
     const url = `${this.baseUrl}/data/experiments/${encodeURIComponent(sessionId)}`
       + `/resources/temp/files?format=json`;
 
-    const resp = await fetch(url, {
+    const resp = await this.xfetch(url, {
       method: 'GET',
-      headers: this.buildAuthHeaders(),
     });
 
     if (resp.status === 404) {
@@ -1030,14 +1057,13 @@ export class XnatClient {
     sessionId: string,
     filename: string,
   ): Promise<void> {
-    if (!this.token) throw new Error('Not authenticated');
+    if (!this.jsessionId || this._disconnected) throw new XnatAuthError('Not authenticated');
 
     const url = `${this.baseUrl}/data/experiments/${encodeURIComponent(sessionId)}`
       + `/resources/temp/files/${encodeURIComponent(filename)}`;
 
-    const resp = await fetch(url, {
+    const resp = await this.xfetch(url, {
       method: 'DELETE',
-      headers: this.buildAuthHeaders(),
     });
 
     if (!resp.ok && resp.status !== 404) {
@@ -1055,14 +1081,13 @@ export class XnatClient {
     sessionId: string,
     filename: string,
   ): Promise<Buffer> {
-    if (!this.token) throw new Error('Not authenticated');
+    if (!this.jsessionId || this._disconnected) throw new XnatAuthError('Not authenticated');
 
     const url = `${this.baseUrl}/data/experiments/${encodeURIComponent(sessionId)}`
       + `/resources/temp/files/${encodeURIComponent(filename)}`;
 
-    const resp = await fetch(url, {
+    const resp = await this.xfetch(url, {
       method: 'GET',
-      headers: this.buildAuthHeaders(),
     });
 
     if (!resp.ok) {
@@ -1077,7 +1102,7 @@ export class XnatClient {
   // ─── Getters ───────────────────────────────────────────────────
 
   get isAuthenticated(): boolean {
-    return this.token !== null;
+    return this.jsessionId !== null;
   }
 
   get serverUrl(): string {
@@ -1086,9 +1111,5 @@ export class XnatClient {
 
   get currentUsername(): string {
     return this.username;
-  }
-
-  get authType(): 'jsession' | null {
-    return this.token?.type ?? null;
   }
 }
