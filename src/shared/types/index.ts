@@ -29,7 +29,10 @@ export interface ElectronAPI {
     getProjects(): Promise<XnatProject[]>;
     getSubjects(projectId: string): Promise<XnatSubject[]>;
     getSessions(projectId: string, subjectId: string): Promise<XnatSession[]>;
-    getScans(sessionId: string): Promise<XnatScan[]>;
+    getScans(
+      sessionId: string,
+      options?: { includeSopClassUID?: boolean },
+    ): Promise<XnatScan[]>;
     getScanFiles(
       sessionId: string,
       scanId: string,

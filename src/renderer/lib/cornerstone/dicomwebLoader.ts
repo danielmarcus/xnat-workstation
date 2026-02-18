@@ -23,6 +23,10 @@ interface GetScanImageIdsOptions {
   order?: ScanImageIdOrder;
 }
 
+interface ScanImageIdsCacheEntry {
+  imageIds: string[];
+}
+
 interface ImageOrderingMeta {
   imageId: string;
   uri: string;
@@ -173,6 +177,17 @@ function compareNullableNumbers(a: number | null, b: number | null): number {
   return a - b;
 }
 
+function scanCacheKey(
+  sessionId: string,
+  scanId: string,
+  order: ScanImageIdOrder | undefined,
+): string {
+  return `${sessionId}|${scanId}|${order ?? 'filename'}`;
+}
+
+const scanImageIdsCache = new Map<string, ScanImageIdsCacheEntry>();
+const scanImageIdsInFlight = new Map<string, Promise<string[]>>();
+
 async function sortImageIdsByDicomMetadata(
   imageIds: string[],
   contextLabel: string,
@@ -226,6 +241,21 @@ async function sortImageIdsByDicomMetadata(
 }
 
 export const dicomwebLoader = {
+  clearScanImageIdsCache(sessionId?: string): void {
+    if (!sessionId) {
+      scanImageIdsCache.clear();
+      scanImageIdsInFlight.clear();
+      return;
+    }
+    const prefix = `${sessionId}|`;
+    for (const key of Array.from(scanImageIdsCache.keys())) {
+      if (key.startsWith(prefix)) scanImageIdsCache.delete(key);
+    }
+    for (const key of Array.from(scanImageIdsInFlight.keys())) {
+      if (key.startsWith(prefix)) scanImageIdsInFlight.delete(key);
+    }
+  },
+
   /**
    * Order arbitrary imageIds by DICOM spatial metadata (IPP/IOP) with
    * InstanceNumber fallback. Useful for local imports and other non-XNAT stacks.
@@ -304,45 +334,70 @@ export const dicomwebLoader = {
     scanId: string,
     options: GetScanImageIdsOptions = {},
   ): Promise<string[]> {
-    const result = await window.electronAPI.xnat.getScanFiles(sessionId, scanId);
+    const order = options.order;
+    const key = scanCacheKey(sessionId, scanId, order);
 
-    if (!result.ok || !result.serverUrl) {
-      throw new Error(`Failed to get scan files: ${result.error || 'Unknown error'}`);
+    const cached = scanImageIdsCache.get(key);
+    if (cached) {
+      return [...cached.imageIds];
     }
 
-    if (result.files.length === 0) {
-      throw new Error('No DICOM files found for this scan');
+    const inFlight = scanImageIdsInFlight.get(key);
+    if (inFlight) {
+      const ids = await inFlight;
+      return [...ids];
     }
 
-    const baseUrl = result.serverUrl.replace(/\/+$/, '');
+    const promise = (async () => {
+      const result = await window.electronAPI.xnat.getScanFiles(sessionId, scanId);
 
-    // Build wadouri: image IDs — each file URI is a path like
-    // /data/experiments/.../scans/.../resources/DICOM/files/xxx.dcm
-    // The webRequest interceptor will inject auth headers automatically.
-    const imageIds = result.files.map(
-      (uri) => `wadouri:${baseUrl}${uri}`,
-    );
-
-    // Always apply deterministic filename ordering first.
-    imageIds.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-
-    if (options.order === 'dicomMetadata' && imageIds.length > 1) {
-      try {
-        const ordered = await sortImageIdsByDicomMetadata(
-          imageIds,
-          `scan ${sessionId}/${scanId}`,
-        );
-        console.log(`[dicomwebLoader] Built ${ordered.length} imageIds for scan ${sessionId}/${scanId}`);
-        return ordered;
-      } catch (err) {
-        console.warn(
-          `[dicomwebLoader] Metadata ordering failed for scan ${sessionId}/${scanId}; using filename order`,
-          err,
-        );
+      if (!result.ok || !result.serverUrl) {
+        throw new Error(`Failed to get scan files: ${result.error || 'Unknown error'}`);
       }
-    }
 
-    console.log(`[dicomwebLoader] Built ${imageIds.length} imageIds for scan ${sessionId}/${scanId}`);
-    return imageIds;
+      if (result.files.length === 0) {
+        throw new Error('No DICOM files found for this scan');
+      }
+
+      const baseUrl = result.serverUrl.replace(/\/+$/, '');
+
+      // Build wadouri: image IDs — each file URI is a path like
+      // /data/experiments/.../scans/.../resources/DICOM/files/xxx.dcm
+      // The webRequest interceptor will inject auth headers automatically.
+      const imageIds = result.files.map(
+        (uri) => `wadouri:${baseUrl}${uri}`,
+      );
+
+      // Always apply deterministic filename ordering first.
+      imageIds.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+
+      let finalIds = imageIds;
+      if (order === 'dicomMetadata' && imageIds.length > 1) {
+        try {
+          finalIds = await sortImageIdsByDicomMetadata(
+            imageIds,
+            `scan ${sessionId}/${scanId}`,
+          );
+        } catch (err) {
+          console.warn(
+            `[dicomwebLoader] Metadata ordering failed for scan ${sessionId}/${scanId}; using filename order`,
+            err,
+          );
+          finalIds = imageIds;
+        }
+      }
+
+      scanImageIdsCache.set(key, { imageIds: [...finalIds] });
+      console.log(`[dicomwebLoader] Built ${finalIds.length} imageIds for scan ${sessionId}/${scanId}`);
+      return finalIds;
+    })();
+
+    scanImageIdsInFlight.set(key, promise);
+    try {
+      const ids = await promise;
+      return [...ids];
+    } finally {
+      scanImageIdsInFlight.delete(key);
+    }
   },
 };

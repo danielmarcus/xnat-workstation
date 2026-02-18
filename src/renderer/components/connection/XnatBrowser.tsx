@@ -409,9 +409,15 @@ export default function XnatBrowser({
   const derivedIndex = useSessionDerivedIndexStore((s) => s.derivedIndex);
   const sourceSeriesUidByScanId = useSessionDerivedIndexStore((s) => s.sourceSeriesUidByScanId);
   const derivedRefSeriesUidByScanId = useSessionDerivedIndexStore((s) => s.derivedRefSeriesUidByScanId);
+  const resolvedSessionIds = useSessionDerivedIndexStore((s) => s.resolvedSessionIds);
   const resolveAssociationsForSession = useSessionDerivedIndexStore(
     (s) => s.resolveAssociationsForSession,
   );
+  const uidResolutionRequestedRef = useRef<Set<string>>(new Set());
+
+  const thumbObserverRef = useRef<IntersectionObserver | null>(null);
+  const thumbNodeByKeyRef = useRef<Map<string, Element>>(new Map());
+  const [visibleThumbKeys, setVisibleThumbKeys] = useState<Record<string, true>>({});
 
   const sourceScans = useMemo(() => {
     return scans.filter(isBrowsableSourceScan);
@@ -478,6 +484,44 @@ export default function XnatBrowser({
   const connection = useConnectionStore((s) => s.connection);
   const pins = pinnedItemsProp ?? [];
 
+  const downloadDerivedScanFile = useCallback(async (sessionId: string, scanId: string) => {
+    const result = await window.electronAPI.xnat.downloadScanFile(sessionId, scanId);
+    if (!result.ok || !result.data) {
+      throw new Error(result.error || 'Failed to download scan file');
+    }
+    const binaryString = atob(result.data);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    return bytes.buffer;
+  }, []);
+
+  const maybeResolveSessionAssociations = useCallback(
+    (sessionId: string, sessionScans: XnatScan[]) => {
+      if (!sessionScans.some((scan) => isDerivedScan(scan))) return;
+      if (resolvedSessionIds.has(sessionId)) return;
+      if (uidResolutionRequestedRef.current.has(sessionId)) return;
+
+      uidResolutionRequestedRef.current.add(sessionId);
+      void resolveAssociationsForSession(
+        sessionId,
+        sessionScans,
+        (sid, scanId) => dicomwebLoader.getScanImageIds(sid, scanId),
+        downloadDerivedScanFile,
+      )
+        .catch((err) => {
+          console.warn(`[XnatBrowser] Failed to resolve UID associations for session ${sessionId}:`, err);
+        })
+        .finally(() => {
+          if (!useSessionDerivedIndexStore.getState().resolvedSessionIds.has(sessionId)) {
+            uidResolutionRequestedRef.current.delete(sessionId);
+          }
+        });
+    },
+    [downloadDerivedScanFile, resolveAssociationsForSession, resolvedSessionIds],
+  );
+
   // ─── Navigate-to Handler ───────────────────────────────────────
   useEffect(() => {
     if (!navigateTo) return;
@@ -510,8 +554,11 @@ export default function XnatBrowser({
           setSelectedSubject(subject);
           setSelectedSession(session);
           setLevel('scans');
-          const data = await window.electronAPI.xnat.getScans(target.sessionId);
+          const data = await window.electronAPI.xnat.getScans(target.sessionId, {
+            includeSopClassUID: true,
+          });
           setScans(data);
+          maybeResolveSessionAssociations(target.sessionId, data);
           // Auto-load session
           if (onLoadSession && data.length > 0) {
             onLoadSession(target.sessionId, data, {
@@ -533,7 +580,7 @@ export default function XnatBrowser({
 
     doNavigate(navigateTo);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [navigateTo]);
+  }, [navigateTo, maybeResolveSessionAssociations]);
 
   // Clear search when level changes
   useEffect(() => {
@@ -546,6 +593,7 @@ export default function XnatBrowser({
     setSessionScansById({});
     setSessionScansLoadingById({});
     setSessionScansErrorById({});
+    uidResolutionRequestedRef.current.clear();
   }, [selectedProject?.id, selectedSubject?.id]);
 
   // ─── Filtered lists ──────────────────────────────────────────────
@@ -608,27 +656,10 @@ export default function XnatBrowser({
     });
 
     try {
-      const data = await window.electronAPI.xnat.getScans(session.id);
+      const data = await window.electronAPI.xnat.getScans(session.id, {
+        includeSopClassUID: true,
+      });
       setSessionScansById((prev) => ({ ...prev, [session.id]: data }));
-      if (data.some((scan) => isDerivedScan(scan))) {
-        void resolveAssociationsForSession(
-          session.id,
-          data,
-          (sessionId, scanId) => dicomwebLoader.getScanImageIds(sessionId, scanId),
-          async (sessionId, scanId) => {
-            const result = await window.electronAPI.xnat.downloadScanFile(sessionId, scanId);
-            if (!result.ok || !result.data) {
-              throw new Error(result.error || 'Failed to download scan file');
-            }
-            const binaryString = atob(result.data);
-            const bytes = new Uint8Array(binaryString.length);
-            for (let i = 0; i < binaryString.length; i++) {
-              bytes[i] = binaryString.charCodeAt(i);
-            }
-            return bytes.buffer;
-          },
-        );
-      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to load scans';
       setSessionScansErrorById((prev) => ({ ...prev, [session.id]: msg }));
@@ -691,32 +722,99 @@ export default function XnatBrowser({
     });
   }, [scanThumbnails]);
 
-  // Grid thumbnails for the expanded sessions view
   useEffect(() => {
-    if (scanViewMode !== 'grid' || level !== 'sessions') return;
-    for (const session of filteredSessions) {
-      if (!expandedSessionIds[session.id]) continue;
-      const source = getSourceScansForSession(session.id);
-      for (const scan of source) {
-        ensureScanThumbnail(session.id, scan);
+    const observer = new IntersectionObserver(
+      (entries) => {
+        setVisibleThumbKeys((prev) => {
+          let changed = false;
+          const next = { ...prev };
+          for (const entry of entries) {
+            const key = (entry.target as HTMLElement).dataset.thumbKey;
+            if (!key) continue;
+            if (entry.isIntersecting) {
+              if (!next[key]) {
+                next[key] = true;
+                changed = true;
+              }
+            } else if (next[key]) {
+              delete next[key];
+              changed = true;
+            }
+          }
+          return changed ? next : prev;
+        });
+      },
+      {
+        root: null,
+        rootMargin: '140px 0px',
+        threshold: 0.01,
+      },
+    );
+    thumbObserverRef.current = observer;
+
+    return () => {
+      observer.disconnect();
+      thumbObserverRef.current = null;
+      thumbNodeByKeyRef.current.clear();
+      setVisibleThumbKeys({});
+    };
+  }, []);
+
+  const registerThumbVisibilityTarget = useCallback(
+    (key: string) => (node: HTMLElement | null) => {
+      const observer = thumbObserverRef.current;
+      const current = thumbNodeByKeyRef.current.get(key);
+      if (current && (!node || current !== node)) {
+        observer?.unobserve(current);
+        thumbNodeByKeyRef.current.delete(key);
+      }
+      if (!node || !observer) return;
+      node.dataset.thumbKey = key;
+      thumbNodeByKeyRef.current.set(key, node);
+      observer.observe(node);
+    },
+    [],
+  );
+
+  const visibleGridThumbnailCandidates = useMemo(() => {
+    const candidates: Array<{ key: string; sessionId: string; scan: XnatScan }> = [];
+    if (scanViewMode !== 'grid') return candidates;
+
+    if (level === 'sessions') {
+      for (const session of filteredSessions) {
+        if (!expandedSessionIds[session.id]) continue;
+        const source = getSourceScansForSession(session.id);
+        for (const scan of source) {
+          candidates.push({ key: `${session.id}/${scan.id}`, sessionId: session.id, scan });
+        }
+      }
+      return candidates;
+    }
+
+    if (level === 'scans' && selectedSession) {
+      for (const scan of filteredScans) {
+        candidates.push({ key: `${selectedSession.id}/${scan.id}`, sessionId: selectedSession.id, scan });
       }
     }
+
+    return candidates;
   }, [
     scanViewMode,
     level,
     filteredSessions,
     expandedSessionIds,
     getSourceScansForSession,
-    ensureScanThumbnail,
+    selectedSession,
+    filteredScans,
   ]);
 
-  // Grid thumbnails for single-session scan view
   useEffect(() => {
-    if (scanViewMode !== 'grid' || level !== 'scans' || !selectedSession) return;
-    for (const scan of filteredScans) {
-      ensureScanThumbnail(selectedSession.id, scan);
+    if (scanViewMode !== 'grid') return;
+    for (const candidate of visibleGridThumbnailCandidates) {
+      if (!visibleThumbKeys[candidate.key]) continue;
+      ensureScanThumbnail(candidate.sessionId, candidate.scan);
     }
-  }, [scanViewMode, level, selectedSession, filteredScans, ensureScanThumbnail]);
+  }, [scanViewMode, visibleGridThumbnailCandidates, visibleThumbKeys, ensureScanThumbnail]);
 
   // Fetch per-subject modality breakdown when subjects are loaded
   useEffect(() => {
@@ -743,46 +841,6 @@ export default function XnatBrowser({
   useEffect(() => {
     loadProjects();
   }, []);
-
-  useEffect(() => {
-    if (level !== 'scans' || !selectedSession || scans.length === 0) return;
-    if (!scans.some((s) => isDerivedScan(s))) return;
-    const sessionId = selectedSession.id;
-
-    let cancelled = false;
-
-    async function resolveDerivedLinks() {
-      try {
-        await resolveAssociationsForSession(
-          sessionId,
-          scans,
-          (sessionId, scanId) => dicomwebLoader.getScanImageIds(sessionId, scanId),
-          async (sessionId, scanId) => {
-            const result = await window.electronAPI.xnat.downloadScanFile(sessionId, scanId);
-            if (!result.ok || !result.data) {
-              throw new Error(result.error || 'Failed to download scan file');
-            }
-            const binaryString = atob(result.data);
-            const bytes = new Uint8Array(binaryString.length);
-            for (let i = 0; i < binaryString.length; i++) {
-              bytes[i] = binaryString.charCodeAt(i);
-            }
-            return bytes.buffer;
-          },
-        );
-      } catch (err) {
-        if (!cancelled) {
-          console.warn('[XnatBrowser] Failed to resolve UID associations for overlay counts:', err);
-        }
-      }
-    }
-
-    resolveDerivedLinks();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [level, selectedSession, scans, resolveAssociationsForSession]);
 
   async function loadProjects() {
     setLoading(true);
@@ -836,14 +894,17 @@ export default function XnatBrowser({
     setLevel('scans');
     setLoading(true);
     try {
-      const data = await window.electronAPI.xnat.getScans(session.id);
+      const data = await window.electronAPI.xnat.getScans(session.id, {
+        includeSopClassUID: true,
+      });
       setScans(data);
+      maybeResolveSessionAssociations(session.id, data);
     } catch (err) {
       console.error('Failed to load scans:', err);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [maybeResolveSessionAssociations]);
 
   const loadScanForSession = useCallback(
     (session: XnatSession, scan: XnatScan) => {
@@ -953,15 +1014,18 @@ export default function XnatBrowser({
         const data = await window.electronAPI.xnat.getSessions(selectedProject.id, selectedSubject.id);
         setSessions(data);
       } else if (level === 'scans' && selectedSession) {
-        const data = await window.electronAPI.xnat.getScans(selectedSession.id);
+        const data = await window.electronAPI.xnat.getScans(selectedSession.id, {
+          includeSopClassUID: true,
+        });
         setScans(data);
+        maybeResolveSessionAssociations(selectedSession.id, data);
       }
     } catch (err) {
       console.error(`Failed to refresh ${level}:`, err);
     } finally {
       setLoading(false);
     }
-  }, [level, selectedProject, selectedSubject, selectedSession]);
+  }, [level, selectedProject, selectedSubject, selectedSession, maybeResolveSessionAssociations]);
 
   // ─── Pin Helpers ───────────────────────────────────────────────
   const serverUrl = connection?.serverUrl ?? '';
@@ -1332,6 +1396,7 @@ export default function XnatBrowser({
                                       return (
                                         <button
                                           key={scan.id}
+                                          ref={registerThumbVisibilityTarget(`${session.id}/${scan.id}`)}
                                           onClick={() => loadScanForSession(session, scan)}
                                           draggable
                                           onDragStart={(e) => handleScanDragStart(e, session, scan)}
@@ -1471,6 +1536,7 @@ export default function XnatBrowser({
                       return (
                         <button
                           key={s.id}
+                          ref={selectedSession ? registerThumbVisibilityTarget(`${selectedSession.id}/${s.id}`) : undefined}
                           onClick={() => selectScan(s)}
                           draggable
                           onDragStart={(e) => {

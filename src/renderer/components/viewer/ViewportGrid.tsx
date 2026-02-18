@@ -9,7 +9,7 @@
  * by hotkeyService — see src/renderer/lib/hotkeys/hotkeyService.ts.
  */
 import { useViewerStore } from '../../stores/viewerStore';
-import { LAYOUT_CONFIGS, panelId } from '@shared/types/viewer';
+import { panelId } from '@shared/types/viewer';
 import CornerstoneViewport from './CornerstoneViewport';
 import ViewportOverlay from './ViewportOverlay';
 import ScrollSlider from './ScrollSlider';
@@ -19,24 +19,22 @@ interface ViewportGridProps {
 }
 
 export default function ViewportGrid({ panelImageIds }: ViewportGridProps) {
-  const layout = useViewerStore((s) => s.layout);
+  const layoutConfig = useViewerStore((s) => s.layoutConfig);
   const activeViewportId = useViewerStore((s) => s.activeViewportId);
   const setActiveViewport = useViewerStore((s) => s.setActiveViewport);
-
-  const config = LAYOUT_CONFIGS[layout];
 
   return (
     <div
       className="w-full h-full"
       style={{
         display: 'grid',
-        gridTemplateRows: `repeat(${config.rows}, 1fr)`,
-        gridTemplateColumns: `repeat(${config.cols}, 1fr)`,
+        gridTemplateRows: `repeat(${layoutConfig.rows}, 1fr)`,
+        gridTemplateColumns: `repeat(${layoutConfig.cols}, 1fr)`,
         gap: '2px',
         background: '#18181b', // zinc-900 gap color
       }}
     >
-      {Array.from({ length: config.panelCount }, (_, i) => {
+      {Array.from({ length: layoutConfig.panelCount }, (_, i) => {
         const pid = panelId(i);
         const imageIds = panelImageIds[pid] ?? [];
         const isActive = pid === activeViewportId;

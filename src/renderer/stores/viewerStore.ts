@@ -10,7 +10,15 @@
  * Internal _update* methods are called by event handlers in CornerstoneViewport.
  */
 import { create } from 'zustand';
-import type { ViewportState, CineState, WLPreset, LayoutType, MPRViewportState, VolumeLoadProgress } from '@shared/types/viewer';
+import type {
+  ViewportState,
+  CineState,
+  WLPreset,
+  LayoutType,
+  PanelConfig,
+  MPRViewportState,
+  VolumeLoadProgress,
+} from '@shared/types/viewer';
 import { ToolName, LAYOUT_CONFIGS, panelId } from '@shared/types/viewer';
 import type { HangingProtocol } from '@shared/types/hangingProtocol';
 import type { XnatScan, XnatUploadContext } from '@shared/types/xnat';
@@ -42,7 +50,8 @@ const INITIAL_CINE: CineState = { isPlaying: false, fps: 15 };
 
 interface ViewerStore {
   // ─── Layout State ─────────────────────────────────────────────
-  layout: LayoutType;
+  layout: LayoutType | 'custom';
+  layoutConfig: PanelConfig;
   activeViewportId: string;
 
   // ─── Per-panel State ──────────────────────────────────────────
@@ -71,12 +80,18 @@ interface ViewerStore {
   mprActive: boolean;
   mprVolumeId: string | null;
   mprSourcePanelId: string | null;
-  mprPriorState: { layout: LayoutType; activeViewportId: string; activeTool: ToolName } | null;
+  mprPriorState: {
+    layout: LayoutType | 'custom';
+    layoutConfig: PanelConfig;
+    activeViewportId: string;
+    activeTool: ToolName;
+  } | null;
   mprViewports: Record<string, MPRViewportState>;
   mprVolumeProgress: VolumeLoadProgress | null;
 
   // ─── Layout Actions ───────────────────────────────────────────
   setLayout: (layout: LayoutType) => void;
+  setCustomLayout: (rows: number, cols: number) => void;
   setActiveViewport: (panelId: string) => void;
 
   // ─── Hanging Protocol Actions ─────────────────────────────────
@@ -132,6 +147,7 @@ function stopCineForPanel(pid: string): void {
 
 export const useViewerStore = create<ViewerStore>((set, get) => ({
   layout: '1x1',
+  layoutConfig: { ...LAYOUT_CONFIGS['1x1'] },
   activeViewportId: panelId(0),
   viewports: {},
   cineStates: {},
@@ -209,7 +225,7 @@ export const useViewerStore = create<ViewerStore>((set, get) => ({
   // ─── Layout Actions ────────────────────────────────────────────
 
   setLayout: (layout) => {
-    const config = LAYOUT_CONFIGS[layout];
+    const config = { ...LAYOUT_CONFIGS[layout] };
     const state = get();
 
     // Stop cine for panels that will be removed
@@ -267,6 +283,76 @@ export const useViewerStore = create<ViewerStore>((set, get) => ({
 
     set({
       layout,
+      layoutConfig: config,
+      activeViewportId: activeId,
+      xnatContext: nextXnatContext,
+      viewports: newViewports,
+      cineStates: newCineStates,
+      panelScanMap: newPanelScanMap,
+      panelSessionLabelMap: newPanelSessionLabelMap,
+      panelXnatContextMap: newPanelXnatContextMap,
+    });
+  },
+
+  setCustomLayout: (rows, cols) => {
+    const safeRows = Math.max(1, Math.min(8, Math.floor(rows) || 1));
+    const safeCols = Math.max(1, Math.min(8, Math.floor(cols) || 1));
+    const config: PanelConfig = {
+      rows: safeRows,
+      cols: safeCols,
+      panelCount: safeRows * safeCols,
+    };
+    const state = get();
+
+    const newPanelIds = new Set(Array.from({ length: config.panelCount }, (_, i) => panelId(i)));
+    for (const [pid] of cineIntervals) {
+      if (!newPanelIds.has(pid)) {
+        stopCineForPanel(pid);
+      }
+    }
+
+    const newViewports: Record<string, ViewportState> = {};
+    const newCineStates: Record<string, CineState> = {};
+    const newPanelScanMap: Record<string, string> = {};
+    const newPanelSessionLabelMap: Record<string, string> = {};
+    const newPanelXnatContextMap: Record<string, XnatUploadContext> = {};
+    for (const pid of newPanelIds) {
+      newViewports[pid] = state.viewports[pid] ?? { ...INITIAL_VIEWPORT };
+      newCineStates[pid] = state.cineStates[pid] ?? { ...INITIAL_CINE };
+      if (state.panelScanMap[pid]) {
+        newPanelScanMap[pid] = state.panelScanMap[pid];
+      }
+      if (state.panelSessionLabelMap[pid]) {
+        newPanelSessionLabelMap[pid] = state.panelSessionLabelMap[pid];
+      }
+      if (state.panelXnatContextMap[pid]) {
+        newPanelXnatContextMap[pid] = state.panelXnatContextMap[pid];
+      }
+    }
+
+    let activeId = state.activeViewportId;
+    if (!newPanelIds.has(activeId)) {
+      activeId = panelId(0);
+    }
+
+    let nextXnatContext = state.xnatContext;
+    const activePanelCtx = newPanelXnatContextMap[activeId];
+    if (activePanelCtx) {
+      nextXnatContext = activePanelCtx;
+    } else {
+      const mappedScanId = newPanelScanMap[activeId];
+      if (nextXnatContext && mappedScanId) {
+        nextXnatContext = {
+          ...nextXnatContext,
+          scanId: mappedScanId,
+          sessionLabel: newPanelSessionLabelMap[activeId] ?? nextXnatContext.sessionLabel,
+        };
+      }
+    }
+
+    set({
+      layout: 'custom',
+      layoutConfig: config,
       activeViewportId: activeId,
       xnatContext: nextXnatContext,
       viewports: newViewports,
@@ -478,6 +564,7 @@ export const useViewerStore = create<ViewerStore>((set, get) => ({
       mprSourcePanelId: sourcePanelId,
       mprPriorState: {
         layout: state.layout,
+        layoutConfig: { ...state.layoutConfig },
         activeViewportId: state.activeViewportId,
         activeTool: state.activeTool,
       },
@@ -511,6 +598,7 @@ export const useViewerStore = create<ViewerStore>((set, get) => ({
       mprVolumeProgress: null,
       ...(prior ? {
         layout: prior.layout,
+        layoutConfig: { ...prior.layoutConfig },
         activeViewportId: prior.activeViewportId,
         activeTool: prior.activeTool,
       } : {}),
@@ -558,13 +646,9 @@ export const useViewerStore = create<ViewerStore>((set, get) => ({
     set((s) => {
       const { [pid]: _vp, ...restViewports } = s.viewports;
       const { [pid]: _cs, ...restCine } = s.cineStates;
-      const { [pid]: _scan, ...restPanelScans } = s.panelScanMap;
-      const { [pid]: _sess, ...restPanelSessionLabels } = s.panelSessionLabelMap;
       return {
         viewports: restViewports,
         cineStates: restCine,
-        panelScanMap: restPanelScans,
-        panelSessionLabelMap: restPanelSessionLabels,
       };
     });
   },

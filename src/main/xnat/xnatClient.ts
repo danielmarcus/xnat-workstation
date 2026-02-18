@@ -331,10 +331,14 @@ export class XnatClient {
   /**
    * Get scans in a session.
    */
-  async getScans(sessionId: string): Promise<Array<{
+  async getScans(
+    sessionId: string,
+    options?: { includeSopClassUID?: boolean },
+  ): Promise<Array<{
     id: string; type?: string; seriesDescription?: string;
     quality?: string; frames?: number; modality?: string; sopClassUID?: string;
   }>> {
+    const includeSopClassUID = options?.includeSopClassUID === true;
     const data = await this.jsonRequest<any>(
       `/data/experiments/${encodeURIComponent(sessionId)}/scans`,
     );
@@ -348,9 +352,10 @@ export class XnatClient {
       }
       const rawScanId = fields.ID || fields.id;
       const scanId = rawScanId != null ? String(rawScanId) : '';
-      const sopClassUID = scanId
-        ? await this.getScanSopClassUid(sessionId, scanId).catch(() => undefined)
-        : undefined;
+      const sopClassUID =
+        includeSopClassUID && scanId
+          ? await this.getScanSopClassUid(sessionId, scanId).catch(() => undefined)
+          : undefined;
       return {
         id: scanId,
         type: fields.type,
@@ -428,7 +433,9 @@ export class XnatClient {
       if (fileUris.length === 0) {
         fileUris = await this.getScanFilesFromAllResources(sessionId, scanId);
       }
-      for (const uri of fileUris) {
+      // SOPClassUID is series-level; sampling the first 1-2 files is typically sufficient.
+      const candidateUris = fileUris.slice(0, 2);
+      for (const uri of candidateUris) {
         try {
           const response = await this.authenticatedFetch(uri);
           const arrayBuffer = await response.arrayBuffer();

@@ -2,15 +2,23 @@
  * SegmentationPanel — right-side panel for managing annotation objects and entries.
  */
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
+import { metaData } from '@cornerstonejs/core';
+import type { XnatScan } from '@shared/types/xnat';
 import { useSegmentationStore, type SegmentationDicomType } from '../../stores/segmentationStore';
 import { useViewerStore } from '../../stores/viewerStore';
 import { useConnectionStore } from '../../stores/connectionStore';
 import { useSegmentationManagerStore } from '../../stores/segmentationManagerStore';
-import { useSessionDerivedIndexStore } from '../../stores/sessionDerivedIndexStore';
+import {
+  useSessionDerivedIndexStore,
+  isDerivedScan,
+  isSegScan,
+  isRtStructScan,
+} from '../../stores/sessionDerivedIndexStore';
 import { segmentationService } from '../../lib/cornerstone/segmentationService';
 import { rtStructService } from '../../lib/cornerstone/rtStructService';
 import { toolService } from '../../lib/cornerstone/toolService';
 import { segmentationManager } from '../../lib/segmentation/segmentationManagerSingleton';
+import { dicomwebLoader } from '../../lib/cornerstone/dicomwebLoader';
 import { ToolName, LABELMAP_SEG_TOOLS } from '@shared/types/viewer';
 import {
   IconPlus,
@@ -139,8 +147,12 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
   const panelScanMap = useViewerStore((s) => s.panelScanMap);
   const panelXnatContextMap = useViewerStore((s) => s.panelXnatContextMap);
   const xnatContext = useViewerStore((s) => s.xnatContext);
+  const sessionScans = useViewerStore((s) => s.sessionScans);
+  const viewerSessionId = useViewerStore((s) => s.sessionId);
   const connectionStatus = useConnectionStore((s) => s.status);
-  const derivedIndex = useSessionDerivedIndexStore((s) => s.derivedIndex);
+  const sourceSeriesUidByScanId = useSessionDerivedIndexStore((s) => s.sourceSeriesUidByScanId);
+  const derivedRefSeriesUidByScanId = useSessionDerivedIndexStore((s) => s.derivedRefSeriesUidByScanId);
+  const resolveAssociationsForSession = useSessionDerivedIndexStore((s) => s.resolveAssociationsForSession);
 
   // Subscribe to manager store slices that affect panel filtering
   const loadedBySourceScan = useSegmentationManagerStore((s) => s.loadedBySourceScan);
@@ -151,11 +163,67 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
   const activePanelXnatContext = panelXnatContextMap[activeViewportId] ?? xnatContext;
 
   // ─── Filter segmentations by active viewport's source scan ────
+  const visibleSegmentationIds = useMemo<Set<string> | null>(() => {
+    // No source scan on the active panel (e.g., local file workflows): show all.
+    if (!activeSourceScanId) return null;
+
+    const sourceScanId = activeSourceScanId;
+    const projectId = activePanelXnatContext?.projectId;
+    const sessionId = activePanelXnatContext?.sessionId;
+    const allowed = new Set<string>();
+
+    // If panel XNAT context is incomplete, do a conservative source-scan-only
+    // fallback instead of session-wide "show all".
+    if (!projectId || !sessionId) {
+      for (const [segId, origin] of Object.entries(xnatOriginMap)) {
+        if (origin.sourceScanId === sourceScanId) {
+          allowed.add(segId);
+        }
+      }
+      for (const [sourceKey, loaded] of Object.entries(loadedBySourceScan)) {
+        if (!sourceKey.endsWith(`/${sourceScanId}`)) continue;
+        for (const info of Object.values(loaded)) {
+          allowed.add(info.segmentationId);
+        }
+      }
+      return allowed;
+    }
+
+    const compositeKey = `${projectId}/${sessionId}/${sourceScanId}`;
+
+    // 1) Locally created segmentations keyed by composite source key.
+    for (const [segId, originKey] of Object.entries(localOriginBySegId)) {
+      if (originKey === compositeKey) {
+        allowed.add(segId);
+      }
+    }
+
+    // 2) Loaded overlays tracked by source composite key.
+    const loadedForSource = loadedBySourceScan[compositeKey];
+    if (loadedForSource) {
+      for (const info of Object.values(loadedForSource)) {
+        allowed.add(info.segmentationId);
+      }
+    }
+
+    // 3) Explicit XNAT origin map.
+    for (const [segId, origin] of Object.entries(xnatOriginMap)) {
+      if (
+        origin.sourceScanId === sourceScanId &&
+        origin.projectId === projectId &&
+        origin.sessionId === sessionId
+      ) {
+        allowed.add(segId);
+      }
+    }
+
+    return allowed;
+  }, [activePanelXnatContext, activeSourceScanId, loadedBySourceScan, localOriginBySegId, xnatOriginMap]);
+
   const visibleSegmentations = useMemo(() => {
-    const allowed = segmentationManager.getVisibleSegmentationIdsForViewport(activeViewportId);
-    if (!allowed) return segmentations; // null → show all (local files, no XNAT context)
-    return segmentations.filter((seg) => allowed.has(seg.segmentationId));
-  }, [segmentations, activeViewportId, panelScanMap, panelXnatContextMap, xnatContext, xnatOriginMap, loadedBySourceScan, localOriginBySegId]);
+    if (!visibleSegmentationIds) return segmentations;
+    return segmentations.filter((seg) => visibleSegmentationIds.has(seg.segmentationId));
+  }, [segmentations, visibleSegmentationIds]);
 
   const activeSourceCompositeKey = useMemo(() => {
     if (!activeSourceScanId || !activePanelXnatContext?.projectId || !activePanelXnatContext?.sessionId) {
@@ -164,48 +232,119 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
     return `${activePanelXnatContext.projectId}/${activePanelXnatContext.sessionId}/${activeSourceScanId}`;
   }, [activeSourceScanId, activePanelXnatContext]);
 
+  const activeSessionId = activePanelXnatContext?.sessionId ?? null;
+
+  const activeSourceSeriesUid = useMemo(() => {
+    if (!activeSourceScanId || !activeSessionId) return null;
+    const cached = sourceSeriesUidByScanId[`${activeSessionId}/${activeSourceScanId}`];
+    if (cached) return cached;
+
+    for (const imageId of sourceImageIds.slice(0, 3)) {
+      const seriesMeta = metaData.get('generalSeriesModule', imageId) as
+        | { seriesInstanceUID?: string }
+        | undefined;
+      if (seriesMeta?.seriesInstanceUID) {
+        return seriesMeta.seriesInstanceUID;
+      }
+    }
+    return null;
+  }, [activeSourceScanId, activeSessionId, sourceSeriesUidByScanId, sourceImageIds]);
+
+  const activeSessionScans = useMemo<XnatScan[]>(() => {
+    if (!activeSessionId) return [];
+    if (viewerSessionId !== activeSessionId) return [];
+    return sessionScans ?? [];
+  }, [activeSessionId, viewerSessionId, sessionScans]);
+
+  const panelUidResolveInFlightRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (!activeSessionId) return;
+    if (!activeSessionScans.some(isDerivedScan)) return;
+    if (panelUidResolveInFlightRef.current.has(activeSessionId)) return;
+
+    panelUidResolveInFlightRef.current.add(activeSessionId);
+
+    void resolveAssociationsForSession(
+      activeSessionId,
+      activeSessionScans,
+      (sessionId, scanId) => dicomwebLoader.getScanImageIds(sessionId, scanId),
+      async (sessionId, scanId) => {
+        const result = await window.electronAPI.xnat.downloadScanFile(sessionId, scanId);
+        if (!result.ok || !result.data) {
+          throw new Error(result.error || 'Failed to download scan file');
+        }
+        const binaryString = atob(result.data);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+        return bytes.buffer;
+      },
+    )
+      .catch((err) => {
+        console.warn(
+          `[SegmentationPanel] Failed to resolve derived UID associations for session ${activeSessionId}:`,
+          err,
+        );
+      })
+      .finally(() => {
+        panelUidResolveInFlightRef.current.delete(activeSessionId);
+      });
+  }, [activeSessionId, activeSessionScans, resolveAssociationsForSession]);
+
   const availableOverlays = useMemo<AvailableOverlayRow[]>(() => {
     if (!activeSourceScanId) return [];
 
-    const availability = derivedIndex[activeSourceScanId] ?? { segScans: [], rtStructScans: [] };
+    const seen = new Set<string>();
+    const rows: AvailableOverlayRow[] = [];
+
     const loadedForSource = activeSourceCompositeKey
       ? (loadedBySourceScan[activeSourceCompositeKey] ?? {})
       : {};
     const knownSegIds = new Set(segmentations.map((s) => s.segmentationId));
-    const rows: AvailableOverlayRow[] = [];
 
-    for (const scan of availability.segScans) {
+    const pushOverlayRow = (scan: XnatScan, type: 'SEG' | 'RTSTRUCT') => {
+      const rowKey = `${type}:${scan.id}`;
+      if (seen.has(rowKey)) return;
+      seen.add(rowKey);
       const loadedInfo = loadedForSource[scan.id];
       const loadedSegmentationId =
         loadedInfo && knownSegIds.has(loadedInfo.segmentationId)
           ? loadedInfo.segmentationId
           : null;
       rows.push({
-        type: 'SEG',
+        type,
         scanId: scan.id,
-        label: scan.seriesDescription || `SEG #${scan.id}`,
+        label: scan.seriesDescription || `${type} #${scan.id}`,
         loadedSegmentationId,
         loadStatus: loadStatusByDerivedScan[scan.id] ?? 'idle',
       });
-    }
+    };
 
-    for (const scan of availability.rtStructScans) {
-      const loadedInfo = loadedForSource[scan.id];
-      const loadedSegmentationId =
-        loadedInfo && knownSegIds.has(loadedInfo.segmentationId)
-          ? loadedInfo.segmentationId
-          : null;
-      rows.push({
-        type: 'RTSTRUCT',
-        scanId: scan.id,
-        label: scan.seriesDescription || `RTSTRUCT #${scan.id}`,
-        loadedSegmentationId,
-        loadStatus: loadStatusByDerivedScan[scan.id] ?? 'idle',
-      });
+    // Primary path: session-scoped UID matching (robust when scan IDs repeat across sessions).
+    if (activeSessionId && activeSourceSeriesUid && activeSessionScans.length > 0) {
+      for (const scan of activeSessionScans) {
+        if (!isDerivedScan(scan)) continue;
+        const refUid = derivedRefSeriesUidByScanId[`${activeSessionId}/${scan.id}`];
+        if (!refUid || refUid !== activeSourceSeriesUid) continue;
+        if (isSegScan(scan)) pushOverlayRow(scan, 'SEG');
+        else if (isRtStructScan(scan)) pushOverlayRow(scan, 'RTSTRUCT');
+      }
     }
 
     return rows;
-  }, [activeSourceCompositeKey, activeSourceScanId, derivedIndex, loadedBySourceScan, loadStatusByDerivedScan, segmentations]);
+  }, [
+    activeSessionId,
+    activeSessionScans,
+    activeSourceCompositeKey,
+    activeSourceScanId,
+    activeSourceSeriesUid,
+    derivedRefSeriesUidByScanId,
+    loadedBySourceScan,
+    loadStatusByDerivedScan,
+    segmentations,
+  ]);
 
   const unloadedAvailableOverlays = useMemo(
     () => availableOverlays.filter((overlay) => !overlay.loadedSegmentationId),

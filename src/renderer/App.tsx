@@ -61,6 +61,14 @@ interface XnatScanDragPayload {
   };
 }
 
+type BrowserStatusTone = 'info' | 'loading' | 'success' | 'error';
+
+interface BrowserStatusState {
+  tone: BrowserStatusTone;
+  message: string;
+  detail: string;
+}
+
 // isSegScan, isRtStructScan, isDerivedScan imported from sessionDerivedIndexStore
 // getSegReferenceInfo imported from lib/dicom/segReferencedSeriesUid
 
@@ -555,10 +563,22 @@ export default function App() {
   const [dragOver, setDragOver] = useState(false);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [browserStatus, setBrowserStatus] = useState<BrowserStatusState>({
+    tone: 'info',
+    message: 'Ready',
+    detail: 'Select a session or scan to load data.',
+  });
   const [showBrowser, setShowBrowser] = useState(true);
   const [browserWidth, setBrowserWidth] = useState(288);
   const browserWidthRef = useRef(288); // persists width when collapsed
   const isResizingRef = useRef(false);
+
+  const setBrowserStatusMessage = useCallback(
+    (message: string, tone: BrowserStatusTone = 'info', detail = '') => {
+      setBrowserStatus({ tone, message, detail });
+    },
+    [],
+  );
 
   // ─── Bookmarks (pinned items & recent sessions) ───────────────
   const [pinnedItems, setPinnedItems] = useState<PinnedItem[]>([]);
@@ -616,6 +636,27 @@ export default function App() {
   const connection = useConnectionStore((s) => s.connection);
   const isConnected = connectionStatus === 'connected';
 
+  useEffect(() => {
+    if (connectionStatus === 'connected') {
+      setBrowserStatusMessage('Connected to XNAT', 'success', 'Select a session or scan to begin.');
+      return;
+    }
+    if (connectionStatus === 'connecting') {
+      setBrowserStatusMessage('Connecting to XNAT...', 'loading', 'Authenticating with server.');
+      return;
+    }
+    if (connectionStatus === 'error') {
+      setBrowserStatusMessage('Connection error', 'error', 'Check server URL and credentials.');
+      return;
+    }
+    setBrowserStatusMessage('Disconnected', 'info', 'Connect to an XNAT server.');
+  }, [connectionStatus, setBrowserStatusMessage]);
+
+  useEffect(() => {
+    if (!loadError) return;
+    setBrowserStatusMessage('Load failed', 'error', loadError);
+  }, [loadError, setBrowserStatusMessage]);
+
   // Active panel from viewer store
   const activeViewportId = useViewerStore((s) => s.activeViewportId);
 
@@ -668,6 +709,7 @@ export default function App() {
       segLoadingLock.clear();
       pendingSegLoadRef.current = null;
       segLoadingPanelRef.current = null;
+      dicomwebLoader.clearScanImageIdsCache();
       setPanelImageIds({});
       setLoading(false);
       setLoadError(null);
@@ -862,8 +904,15 @@ export default function App() {
 
     if (dicomFiles.length === 0) {
       console.warn('No DICOM files found in selection');
+      setBrowserStatusMessage('No DICOM files found', 'info', 'Choose one or more .dcm files.');
       return;
     }
+
+    setBrowserStatusMessage(
+      'Loading local DICOM files...',
+      'loading',
+      `${dicomFiles.length} file(s) selected.`,
+    );
 
     // Separate DICOM SEG / RTSTRUCT files from regular image files.
     // We peek at the SOP Class UID tag (0008,0016) in each file.
@@ -914,6 +963,11 @@ export default function App() {
       console.log(`Loaded ${newImageIds.length} DICOM image files into ${targetPanel}`);
       setPanelImageIds((prev) => ({ ...prev, [targetPanel]: newImageIds }));
       useViewerStore.getState().setPanelSessionLabel(targetPanel, '');
+      setBrowserStatusMessage(
+        'Loaded local image stack',
+        'success',
+        `${newImageIds.length} image(s) loaded into ${targetPanel}.`,
+      );
     }
 
     // Load DICOM SEG files as segmentation overlays
@@ -978,16 +1032,28 @@ export default function App() {
             console.warn(
               `[App] Cannot load DICOM SEG "${file.name}" — no matching source images loaded in any viewport`,
             );
+            setBrowserStatusMessage(
+              'Cannot display local SEG',
+              'error',
+              `${file.name}: no matching loaded source scan found.`,
+            );
             continue;
           }
 
+          setBrowserStatusMessage('Loading local SEG...', 'loading', file.name);
           const { segmentationId, firstNonZeroReferencedImageId } =
             await segmentationManager.loadSegFromArrayBuffer(segTargetPanel, arrayBuffer, segSourceImageIds);
           useViewerStore.getState().setActiveViewport(segTargetPanel);
           await jumpViewportToReferencedImage(segTargetPanel, firstNonZeroReferencedImageId);
           console.log(`[App] Loaded DICOM SEG file "${file.name}" as ${segmentationId} on ${segTargetPanel}`);
+          setBrowserStatusMessage('Loaded local SEG', 'success', `${file.name} on ${segTargetPanel}.`);
         } catch (err) {
           console.error(`[App] Failed to load DICOM SEG "${file.name}":`, err);
+          setBrowserStatusMessage(
+            'Failed to load local SEG',
+            'error',
+            `${file.name}: ${err instanceof Error ? err.message : String(err)}`,
+          );
         }
       }
 
@@ -1006,6 +1072,11 @@ export default function App() {
 
       if (sourceImageIds.length === 0) {
         console.warn('[App] Cannot load DICOM RTSTRUCT — no source images loaded in active panel');
+        setBrowserStatusMessage(
+          'Cannot display local RTSTRUCT',
+          'error',
+          'Load source images first, then import the RTSTRUCT file.',
+        );
         return;
       }
 
@@ -1016,13 +1087,20 @@ export default function App() {
 
       for (const file of rtStructFiles) {
         try {
+          setBrowserStatusMessage('Loading local RTSTRUCT...', 'loading', file.name);
           const arrayBuffer = await file.arrayBuffer();
           const { segmentationId, firstReferencedImageId } =
             await segmentationManager.loadRtStructFromArrayBuffer(targetPanel, arrayBuffer, sourceImageIds);
           await jumpViewportToReferencedImage(targetPanel, firstReferencedImageId);
           console.log(`[App] Loaded RTSTRUCT file "${file.name}" as ${segmentationId}`);
+          setBrowserStatusMessage('Loaded local RTSTRUCT', 'success', `${file.name} on ${targetPanel}.`);
         } catch (err) {
           console.error(`[App] Failed to load RTSTRUCT "${file.name}":`, err);
+          setBrowserStatusMessage(
+            'Failed to load local RTSTRUCT',
+            'error',
+            `${file.name}: ${err instanceof Error ? err.message : String(err)}`,
+          );
         }
       }
 
@@ -1032,7 +1110,7 @@ export default function App() {
         segStore2.togglePanel();
       }
     }
-  }, []);
+  }, [setBrowserStatusMessage]);
 
   /**
    * Process pending DICOM SEG loads after the viewport has been recreated.
@@ -1058,6 +1136,11 @@ export default function App() {
     // and resets the camera — we need to wait for all of that to complete.
     const loadSeg = async () => {
       segLoadingPanelRef.current = pending.panelId;
+      setBrowserStatusMessage(
+        'Loading annotation overlay...',
+        'loading',
+        `Applying SEG to ${pending.panelId}.`,
+      );
       try {
         // Use the deterministic viewport-ready barrier via manager.
         // The epoch was bumped when setPanelImageIds was called; CornerstoneViewport
@@ -1073,6 +1156,11 @@ export default function App() {
           );
         await jumpViewportToReferencedImage(pending.panelId, firstNonZeroReferencedImageId);
         console.log(`[App] Loaded deferred DICOM SEG as ${segmentationId} on ${pending.panelId}`);
+        setBrowserStatusMessage(
+          'Annotation loaded',
+          'success',
+          `SEG loaded on ${pending.panelId}.`,
+        );
 
         // Track XNAT origin for overwrite-on-save (session-scoped)
         if (pending.xnatScanId && pending.sourceScanId && pending.projectId && pending.sessionId) {
@@ -1097,6 +1185,11 @@ export default function App() {
         if (!segStore.showPanel) segStore.togglePanel();
       } catch (err) {
         console.error('[App] Failed to load deferred DICOM SEG:', err);
+        setBrowserStatusMessage(
+          'Failed to load annotation',
+          'error',
+          err instanceof Error ? err.message : String(err),
+        );
         if (pending.xnatScanId) releaseSegLock(pending.xnatScanId);
       } finally {
         segLoadingPanelRef.current = null;
@@ -1105,7 +1198,7 @@ export default function App() {
     };
 
     loadSeg();
-  }, [panelImageIds, recordLoadedOverlay]);
+  }, [panelImageIds, recordLoadedOverlay, setBrowserStatusMessage]);
 
   /**
    * Load DICOM files for an XNAT scan (selected from the browser panel).
@@ -1135,6 +1228,7 @@ export default function App() {
       segLoadingLock.clear();
       useSessionDerivedIndexStore.getState().clear();
       useSegmentationManagerStore.getState().reset();
+      dicomwebLoader.clearScanImageIdsCache(currentSessionId);
     }
 
     const targetPanel = useViewerStore.getState().activeViewportId;
@@ -1160,6 +1254,28 @@ export default function App() {
       await viewportReadyService.whenReady(panelId, epoch);
       return ids;
     };
+
+    let cachedSessionScans: XnatScan[] | null = null;
+    const ensureSessionScans = async (): Promise<XnatScan[]> => {
+      if (cachedSessionScans) return cachedSessionScans;
+      const viewerState = useViewerStore.getState();
+      if (viewerState.sessionId === sessionId && viewerState.sessionScans?.length) {
+        const cached = viewerState.sessionScans;
+        const hasMissingSopClassUid = cached.some((s) => !s.sopClassUID);
+        if (!hasMissingSopClassUid) {
+          cachedSessionScans = cached;
+          return cachedSessionScans;
+        }
+      }
+      const scansForSession = await window.electronAPI.xnat.getScans(sessionId, {
+        includeSopClassUID: true,
+      });
+      useViewerStore.getState().setSessionData(sessionId, scansForSession);
+      cachedSessionScans = scansForSession;
+      return scansForSession;
+    };
+
+    let effectiveScan = scan;
 
     // Ensure XNAT upload context is set (used by SegmentationPanel "Save to XNAT").
     // For derived scans (SEG/RTSTRUCT), prefer the currently loaded panel source.
@@ -1192,12 +1308,27 @@ export default function App() {
       setLoading(true);
       setLoadError(null);
 
-      if (isSegScan(scan)) {
+      if (!effectiveScan.sopClassUID) {
+        const sessionScans = await ensureSessionScans();
+        const enriched = sessionScans.find((s) => s.id === scanId);
+        if (enriched) {
+          effectiveScan = enriched;
+        }
+      }
+
+      setBrowserStatusMessage(
+        `Loading scan #${scanId}...`,
+        'loading',
+        effectiveScan.seriesDescription || effectiveScan.type || context.sessionLabel,
+      );
+
+      if (isSegScan(effectiveScan)) {
         // ─── SEG scan: load source images + overlay ───────────────
 
         // Check loading lock (prevents duplicates from rapid clicks during deferred load)
         if (!acquireSegLock(scanId)) {
           setLoading(false);
+          setBrowserStatusMessage('Annotation load already in progress', 'info', `SEG #${scanId}`);
           return;
         }
 
@@ -1228,6 +1359,7 @@ export default function App() {
               segStore.setActiveSegmentation(existingSegId);
               releaseSegLock(scanId);
               setLoading(false);
+              setBrowserStatusMessage('Annotation already loaded', 'info', `SEG #${scanId} reused in ${targetPanel}.`);
               return;
             }
             // Source images don't match the active panel. Reuse the existing
@@ -1250,6 +1382,7 @@ export default function App() {
               segStore.setActiveSegmentation(existingSegId);
               releaseSegLock(scanId);
               setLoading(false);
+              setBrowserStatusMessage('Annotation already loaded', 'info', `SEG #${scanId} reused in ${panelWithSource}.`);
               return;
             }
             try {
@@ -1266,6 +1399,7 @@ export default function App() {
               segStore.setActiveSegmentation(existingSegId);
               releaseSegLock(scanId);
               setLoading(false);
+              setBrowserStatusMessage('Annotation already loaded', 'info', `SEG #${scanId} reused in ${targetPanel}.`);
               return;
             } catch (err) {
               console.warn(`[App] Failed to reuse existing SEG #${scanId}, falling back to fresh load:`, err);
@@ -1280,6 +1414,7 @@ export default function App() {
         // 1. Download the SEG file first so we can inspect its metadata
         const arrayBuffer = await downloadSegArrayBuffer(sessionId, scanId);
         console.log(`[App] Downloaded SEG file (${arrayBuffer.byteLength} bytes)`);
+        setBrowserStatusMessage('Resolving SEG references...', 'loading', `SEG #${scanId}`);
 
         // 2. Parse SEG references for source matching.
         const refInfo = getSegReferenceInfo(arrayBuffer);
@@ -1327,11 +1462,7 @@ export default function App() {
 
           // 4a. Use Referenced Series UID to search all session scans
           if (refSeriesUID) {
-            let sessionScans = useViewerStore.getState().sessionScans;
-            if (!sessionScans || sessionScans.length === 0) {
-              // Fetch scans list from XNAT if not already cached
-              sessionScans = await window.electronAPI.xnat.getScans(sessionId);
-            }
+            const sessionScans = await ensureSessionScans();
             if (sessionScans.length > 0) {
               const match = await findSourceScanBySeriesUID(sessionId, refSeriesUID, sessionScans);
               if (match) {
@@ -1345,10 +1476,7 @@ export default function App() {
           }
           // 4b. Fallback: match by referenced SOP Instance UIDs
           if (!sourceIds && refInfo.referencedSOPInstanceUIDs.length > 0) {
-            let sessionScans = useViewerStore.getState().sessionScans;
-            if (!sessionScans || sessionScans.length === 0) {
-              sessionScans = await window.electronAPI.xnat.getScans(sessionId);
-            }
+            const sessionScans = await ensureSessionScans();
             if (sessionScans.length > 0) {
               const sopMatch = await findSourceScanByReferencedSopInstanceUIDs(
                 sessionId,
@@ -1390,7 +1518,7 @@ export default function App() {
             sourceImageIds: resolvedSourceIds,
             xnatScanId: scanId,
             sourceScanId: resolvedScanId,
-            xnatScanLabel: scan.seriesDescription,
+            xnatScanLabel: effectiveScan.seriesDescription,
             projectId: context.projectId,
             sessionId,
           };
@@ -1400,6 +1528,11 @@ export default function App() {
           segLoadingPanelRef.current = segTargetPanel;
 
           setPanelImageIds((prev) => ({ ...prev, [segTargetPanel]: resolvedSourceIds }));
+          setBrowserStatusMessage(
+            'Loading source images for SEG...',
+            'loading',
+            `Source scan #${resolvedScanId} (${resolvedSourceIds.length} slices).`,
+          );
           useViewerStore.getState().setPanelScan(segTargetPanel, resolvedScanId);
           useViewerStore.getState().setPanelSessionLabel(segTargetPanel, context.sessionLabel);
           segmentationManager.onPanelImagesChanged(
@@ -1415,10 +1548,11 @@ export default function App() {
             segTargetPanel,
             arrayBuffer,
             sourceIds,
-            { label: scan.seriesDescription },
+            { label: effectiveScan.seriesDescription },
           );
         await jumpViewportToReferencedImage(segTargetPanel, firstNonZeroReferencedImageId);
         console.log(`[App] Loaded DICOM SEG from XNAT as ${segmentationId} on ${segTargetPanel}`);
+        setBrowserStatusMessage('SEG loaded', 'success', `SEG #${scanId} on ${segTargetPanel}.`);
 
         // Track XNAT origin for overwrite-on-save (session-scoped)
         const directSourceScanId =
@@ -1443,12 +1577,13 @@ export default function App() {
 
         // 7. Open segmentation panel
         if (!segStore.showPanel) segStore.togglePanel();
-      } else if (isRtStructScan(scan)) {
+      } else if (isRtStructScan(effectiveScan)) {
         // ─── RTSTRUCT scan: load contours as segmentation overlay ──
 
         // Check loading lock (prevents duplicates from rapid clicks)
         if (!acquireSegLock(scanId)) {
           setLoading(false);
+          setBrowserStatusMessage('Annotation load already in progress', 'info', `RTSTRUCT #${scanId}`);
           return;
         }
 
@@ -1477,6 +1612,7 @@ export default function App() {
               segStoreRt.setActiveSegmentation(existingRtId);
               releaseSegLock(scanId);
               setLoading(false);
+              setBrowserStatusMessage('Annotation already loaded', 'info', `RTSTRUCT #${scanId} reused in ${targetPanel}.`);
               return;
             }
             const panelWithSource = Object.entries(useViewerStore.getState().panelScanMap)
@@ -1496,6 +1632,7 @@ export default function App() {
               segStoreRt.setActiveSegmentation(existingRtId);
               releaseSegLock(scanId);
               setLoading(false);
+              setBrowserStatusMessage('Annotation already loaded', 'info', `RTSTRUCT #${scanId} reused in ${panelWithSource}.`);
               return;
             }
             try {
@@ -1512,6 +1649,7 @@ export default function App() {
               segStoreRt.setActiveSegmentation(existingRtId);
               releaseSegLock(scanId);
               setLoading(false);
+              setBrowserStatusMessage('Annotation already loaded', 'info', `RTSTRUCT #${scanId} reused in ${targetPanel}.`);
               return;
             } catch (err) {
               console.warn(`[App] Failed to reuse existing RTSTRUCT #${scanId}, falling back to fresh load:`, err);
@@ -1526,6 +1664,7 @@ export default function App() {
         // 1. Download the RTSTRUCT file
         const arrayBuffer = await downloadSegArrayBuffer(sessionId, scanId);
         console.log(`[App] Downloaded RTSTRUCT file (${arrayBuffer.byteLength} bytes)`);
+        setBrowserStatusMessage('Resolving RTSTRUCT references...', 'loading', `RTSTRUCT #${scanId}`);
 
         // 2. Parse the RTSTRUCT
         const parsed = rtStructService.parseRtStruct(arrayBuffer);
@@ -1557,10 +1696,7 @@ export default function App() {
         // 4. If source not loaded, find and load it
         if (!sourceIds) {
           if (parsed.referencedSeriesUID) {
-            let sessionScans = useViewerStore.getState().sessionScans;
-            if (!sessionScans || sessionScans.length === 0) {
-              sessionScans = await window.electronAPI.xnat.getScans(sessionId);
-            }
+            const sessionScans = await ensureSessionScans();
             if (sessionScans.length > 0) {
               const match = await findSourceScanBySeriesUID(sessionId, parsed.referencedSeriesUID, sessionScans);
               if (match) {
@@ -1592,10 +1728,11 @@ export default function App() {
             rtTargetPanel,
             arrayBuffer,
             sourceIds,
-            { label: scan.seriesDescription },
+            { label: effectiveScan.seriesDescription },
           );
         await jumpViewportToReferencedImage(rtTargetPanel, firstReferencedImageId);
         console.log(`[App] Loaded RTSTRUCT from XNAT as ${segmentationId} on ${rtTargetPanel}`);
+        setBrowserStatusMessage('RTSTRUCT loaded', 'success', `RTSTRUCT #${scanId} on ${rtTargetPanel}.`);
 
         // 7. Track XNAT origin for RTSTRUCT (same as SEG) for duplicate prevention + save (session-scoped)
         const sourceScanIdRt =
@@ -1624,6 +1761,7 @@ export default function App() {
         if (!segStore2.showPanel) segStore2.togglePanel();
       } else {
         // ─── Regular scan: load as image stack ────────────────────
+        setBrowserStatusMessage('Loading image stack...', 'loading', `Scan #${scanId}`);
 
         // If a deferred SEG load is pending or in-progress for this panel,
         // skip the regular scan load to avoid clobbering the segmentation.
@@ -1654,12 +1792,14 @@ export default function App() {
 
         if (stackUnchanged) {
           console.log(`[App] Scan #${scanId} already loaded in ${targetPanel}; skipping viewport reload`);
+          setBrowserStatusMessage('Scan already loaded', 'info', `Scan #${scanId} is already visible in ${targetPanel}.`);
         } else {
           // Clean up stale segmentations before replacing the stack
           segmentationManager.removeSegmentationsFromViewport(targetPanel);
           console.log(`Loaded ${ids.length} images from XNAT into ${targetPanel}`);
           setPanelImageIds((prev) => ({ ...prev, [targetPanel]: ids }));
           useViewerStore.getState().setPanelScan(targetPanel, scanId);
+          setBrowserStatusMessage('Image stack loaded', 'success', `${ids.length} image(s) in ${targetPanel}.`);
         }
         useViewerStore.getState().setPanelSessionLabel(targetPanel, context.sessionLabel);
 
@@ -1670,33 +1810,34 @@ export default function App() {
           panelEpochRef.current[targetPanel] ?? viewportReadyService.getEpoch(targetPanel),
         );
 
-        // Always resolve SEG/RTSTRUCT associations so the Segmentation panel can
-        // list available overlays even when automatic display is disabled.
+        // Start SEG/RTSTRUCT UID association resolution in the background so
+        // the stack appears immediately, then await only if auto-display is enabled.
         const derivedIndexStore = useSessionDerivedIndexStore.getState();
-        let sessionScans = useViewerStore.getState().sessionScans;
-
-        // Fetch session scans if not already cached (single-scan-click mode)
-        if (!sessionScans || sessionScans.length === 0) {
-          sessionScans = await window.electronAPI.xnat.getScans(sessionId);
-        }
-
-        // Ensure UID resolution is complete (idempotent — skips if already done)
-        if (sessionScans.length > 0) {
-          await derivedIndexStore.resolveAssociationsForSession(
-            sessionId,
-            sessionScans,
-            (sid, sid2) => dicomwebLoader.getScanImageIds(sid, sid2),
-            downloadSegArrayBuffer,
-          );
-        }
-
-        const derived = derivedIndexStore.getForSource(scanId);
-        const allDerived = [...derived.segScans, ...derived.rtStructScans];
+        const sessionScans = await ensureSessionScans();
+        const hasDerivedScans = sessionScans.some(isDerivedScan);
+        const uidResolutionPromise = hasDerivedScans
+          ? derivedIndexStore.resolveAssociationsForSession(
+              sessionId,
+              sessionScans,
+              (sid, sid2) => dicomwebLoader.getScanImageIds(sid, sid2),
+              downloadSegArrayBuffer,
+            )
+          : Promise.resolve();
 
         // Auto-display associated SEG/RTSTRUCT annotations for this source scan
         // when the user preference is enabled.
         const { autoLoadSegOnScanClick } = useSegmentationStore.getState();
         if (autoLoadSegOnScanClick) {
+          if (hasDerivedScans) {
+            await uidResolutionPromise;
+          }
+          // The user may have changed panels/scans while UID resolution was in flight.
+          if (useViewerStore.getState().panelScanMap[targetPanel] !== scanId) {
+            console.log(`[App] Skipping stale annotation attach for scan #${scanId} on ${targetPanel}`);
+            return;
+          }
+          const derived = derivedIndexStore.getForSource(scanId);
+          const allDerived = [...derived.segScans, ...derived.rtStructScans];
           if (allDerived.length > 0) {
             const descriptors = allDerived.map((d) => ({
               type: (isSegScan(d) ? 'SEG' : 'RTSTRUCT') as 'SEG' | 'RTSTRUCT',
@@ -1705,6 +1846,11 @@ export default function App() {
               label: d.seriesDescription,
             }));
             console.log(`[App] Auto-loading ${descriptors.length} overlay(s) for source scan #${scanId}`);
+            setBrowserStatusMessage(
+              'Loading associated annotations...',
+              'loading',
+              `${descriptors.length} overlay(s) for scan #${scanId}.`,
+            );
             try {
               await segmentationManager.requestShowOverlaysForSourceScan(targetPanel, scanId, descriptors);
               // Track XNAT origin for each loaded overlay
@@ -1720,12 +1866,38 @@ export default function App() {
               }
               const segStore = useSegmentationStore.getState();
               if (!segStore.showPanel) segStore.togglePanel();
+              setBrowserStatusMessage(
+                'Scan and annotations loaded',
+                'success',
+                `${descriptors.length} overlay(s) displayed for scan #${scanId}.`,
+              );
             } catch (err) {
               console.error(`[App] Failed to auto-load overlays for source scan #${scanId}:`, err);
             }
+          } else {
+            setBrowserStatusMessage(
+              'Scan loaded',
+              'success',
+              `No annotations linked to scan #${scanId}.`,
+            );
           }
         } else {
+          if (hasDerivedScans) {
+            void uidResolutionPromise.catch((err) => {
+              console.warn(
+                `[App] Background UID resolution failed for session ${sessionId} (scan #${scanId}):`,
+                err,
+              );
+            });
+          }
           console.log('[App] Automatic annotation display is disabled — available overlays will be listed in Segments panel');
+          setBrowserStatusMessage(
+            'Scan loaded',
+            'success',
+            hasDerivedScans
+              ? `Resolving annotations in background for scan #${scanId}.`
+              : `No linked annotations for scan #${scanId}.`,
+          );
         }
       }
     } catch (err) {
@@ -1744,10 +1916,11 @@ export default function App() {
       } else {
         setLoadError(msg);
       }
+      setBrowserStatusMessage('Scan load failed', 'error', msg);
     } finally {
       setLoading(false);
     }
-  }, [isConnected, refreshBookmarks, recordLoadedOverlay, promptToSaveUnsavedAnnotations]);
+  }, [isConnected, refreshBookmarks, recordLoadedOverlay, promptToSaveUnsavedAnnotations, setBrowserStatusMessage]);
 
   /**
    * Load ALL scans from an XNAT session using hanging protocols.
@@ -1769,6 +1942,11 @@ export default function App() {
       // Prompt to save/discard unsaved annotations before switching sessions.
       if (!(await promptToSaveUnsavedAnnotations())) return;
 
+      const previousSessionId = useViewerStore.getState().sessionId;
+      if (previousSessionId && previousSessionId !== sessionId) {
+        dicomwebLoader.clearScanImageIdsCache(previousSessionId);
+      }
+
       for (const seg of [...segStoreNav.segmentations]) {
         segmentationManager.removeSegmentation(seg.segmentationId);
       }
@@ -1781,11 +1959,23 @@ export default function App() {
       try {
         setLoading(true);
         setLoadError(null);
+        setBrowserStatusMessage(
+          'Loading session...',
+          'loading',
+          `${context.sessionLabel || sessionId}`,
+        );
+
+        let sessionScans = scans;
+        if (sessionScans.some((s) => !s.sopClassUID)) {
+          sessionScans = await window.electronAPI.xnat.getScans(sessionId, {
+            includeSopClassUID: true,
+          });
+        }
 
         // Separate derived scans (SEG, RTSTRUCT) from imaging scans
-        const imagingScans = scans.filter((s) => !isDerivedScan(s));
-        const segScans = scans.filter((s) => isSegScan(s));
-        const rtStructScans = scans.filter((s) => isRtStructScan(s));
+        const imagingScans = sessionScans.filter((s) => !isDerivedScan(s));
+        const segScans = sessionScans.filter((s) => isSegScan(s));
+        const rtStructScans = sessionScans.filter((s) => isRtStructScan(s));
 
         if (segScans.length > 0) {
           console.log(`[App] Found ${segScans.length} SEG scan(s) — will auto-load as overlays`);
@@ -1800,24 +1990,31 @@ export default function App() {
           `Matched protocol "${protocol.name}" (${protocol.layout}) — ` +
           `${assignments.size} assigned, ${unmatched.length} unmatched`
         );
+        setBrowserStatusMessage(
+          'Applying layout and loading scans...',
+          'loading',
+          `${protocol.name}: ${assignments.size} panel assignment(s).`,
+        );
 
         // Apply the layout
         const store = useViewerStore.getState();
         store.setLayout(protocol.layout);
         store.setCurrentProtocol(protocol);
-        store.setSessionData(sessionId, scans);
+        store.setSessionData(sessionId, sessionScans);
 
-        // Build the derived-scan index (source scan → SEG/RTSTRUCT overlays)
+        // Start building the derived-scan index in parallel with image stack loading.
         const derivedIndexStore = useSessionDerivedIndexStore.getState();
-        if (segScans.length > 0 || rtStructScans.length > 0) {
-          await derivedIndexStore.resolveAssociationsForSession(
-            sessionId,
-            scans,
-            (sid, scanIdArg) => dicomwebLoader.getScanImageIds(sid, scanIdArg),
-            downloadSegArrayBuffer,
-          );
-        } else {
-          derivedIndexStore.buildDerivedIndex(scans);
+        const hasDerivedScans = segScans.length > 0 || rtStructScans.length > 0;
+        const derivedResolutionPromise = hasDerivedScans
+          ? derivedIndexStore.resolveAssociationsForSession(
+              sessionId,
+              sessionScans,
+              (sid, scanIdArg) => dicomwebLoader.getScanImageIds(sid, scanIdArg),
+              downloadSegArrayBuffer,
+            )
+          : Promise.resolve();
+        if (!hasDerivedScans) {
+          derivedIndexStore.buildDerivedIndex(sessionScans);
         }
 
         // Remember this session for "Load Recent" on next visit
@@ -1844,6 +2041,11 @@ export default function App() {
           }
         );
         const results = await Promise.all(loadPromises);
+        setBrowserStatusMessage(
+          'Loading scan stacks...',
+          'loading',
+          `${results.length} panel(s) receiving image data.`,
+        );
 
         // Clean up all existing segmentations from panels we're about to load into
         for (const { panelIdx } of results) {
@@ -1883,7 +2085,8 @@ export default function App() {
         // source scan, then delegate loading to the manager which handles:
         // viewport readiness, epoch staleness, load/attach, presentation state.
         const { autoLoadSegOnScanClick } = useSegmentationStore.getState();
-        if (autoLoadSegOnScanClick && (segScans.length > 0 || rtStructScans.length > 0)) {
+        if (autoLoadSegOnScanClick && hasDerivedScans) {
+          await derivedResolutionPromise;
           const derivedIndex = useSessionDerivedIndexStore.getState();
           const overlayPromises: Promise<void>[] = [];
 
@@ -1943,22 +2146,47 @@ export default function App() {
             // Open segmentation panel if any overlays were loaded
             const segStore = useSegmentationStore.getState();
             if (!segStore.showPanel) segStore.togglePanel();
+            setBrowserStatusMessage(
+              'Session loaded',
+              'success',
+              `${results.length} scan(s) loaded with ${overlayPromises.length} annotation group(s).`,
+            );
           }
         } else if (!autoLoadSegOnScanClick) {
+          if (hasDerivedScans) {
+            void derivedResolutionPromise.catch((err) => {
+              console.warn(
+                `[App] Background UID resolution failed for session ${sessionId}:`,
+                err,
+              );
+            });
+          }
           console.log('[App] Automatic annotation display is disabled — skipping session overlay attach');
+          setBrowserStatusMessage(
+            'Session loaded',
+            'success',
+            `${results.length} scan(s) loaded. Annotations available in panel.`,
+          );
         }
 
         // ─── Check for auto-save recovery (temp resource files) ──────
         await checkForAutoSaveRecovery(sessionId, scanIdToPanelInfo);
+        setBrowserStatusMessage(
+          'Session ready',
+          'success',
+          `${results.length} scan(s) available.`,
+        );
 
       } catch (err) {
         console.error('Session load failed:', err);
-        setLoadError(err instanceof Error ? err.message : String(err));
+        const msg = err instanceof Error ? err.message : String(err);
+        setLoadError(msg);
+        setBrowserStatusMessage('Session load failed', 'error', msg);
       } finally {
         setLoading(false);
       }
     },
-    [isConnected, refreshBookmarks, promptToSaveUnsavedAnnotations],
+    [isConnected, refreshBookmarks, promptToSaveUnsavedAnnotations, setBrowserStatusMessage],
   );
 
   /**
@@ -1977,6 +2205,7 @@ export default function App() {
       try {
         setLoading(true);
         setLoadError(null);
+        setBrowserStatusMessage('Applying viewport protocol...', 'loading', protocol.name);
 
         const { assignments, unmatched } = applyProtocol(sessionScans, protocol);
         console.log(
@@ -2008,14 +2237,21 @@ export default function App() {
           newPanelImageIds[panelId(panelIdx)] = ids;
         }
         setPanelImageIds(newPanelImageIds);
+        setBrowserStatusMessage(
+          'Protocol applied',
+          'success',
+          `${protocol.name}: ${results.length} panel(s) updated.`,
+        );
       } catch (err) {
         console.error('Protocol apply failed:', err);
-        setLoadError(err instanceof Error ? err.message : String(err));
+        const msg = err instanceof Error ? err.message : String(err);
+        setLoadError(msg);
+        setBrowserStatusMessage('Protocol apply failed', 'error', msg);
       } finally {
         setLoading(false);
       }
     },
-    [],
+    [setBrowserStatusMessage],
   );
 
   /**
@@ -2355,20 +2591,6 @@ export default function App() {
                 </div>
               );
             })()}
-            {/* Status indicators */}
-            {loading && (
-              <span className="text-xs text-blue-400 animate-pulse flex items-center gap-1.5 ml-1">
-                <svg className="animate-spin h-3 w-3" viewBox="0 0 24 24" fill="none">
-                  <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" className="opacity-25" />
-                  <path d="M4 12a8 8 0 018-8" stroke="currentColor" strokeWidth="3" strokeLinecap="round" className="opacity-75" />
-                </svg>
-              </span>
-            )}
-            {loadError && (
-              <span className="text-xs text-red-400 truncate max-w-[120px] ml-1" title={loadError}>
-                Error
-              </span>
-            )}
           </>
         }
         browserSlot={
@@ -2378,14 +2600,53 @@ export default function App() {
                 className="shrink-0 border-r border-zinc-800 bg-zinc-950 overflow-hidden flex flex-col"
                 style={{ width: browserWidth }}
               >
-                <XnatBrowser
-                  onLoadScan={loadFromXnatScan}
-                  onLoadSession={loadSessionFromXnat}
-                  navigateTo={navigateTo}
-                  onNavigateComplete={() => setNavigateTo(null)}
-                  pinnedItems={pinnedItems}
-                  onTogglePin={handleTogglePin}
-                />
+                <div className="min-h-0 flex-1">
+                  <XnatBrowser
+                    onLoadScan={loadFromXnatScan}
+                    onLoadSession={loadSessionFromXnat}
+                    navigateTo={navigateTo}
+                    onNavigateComplete={() => setNavigateTo(null)}
+                    pinnedItems={pinnedItems}
+                    onTogglePin={handleTogglePin}
+                  />
+                </div>
+                <div className="shrink-0 border-t border-zinc-800 bg-zinc-900/70 px-2.5 py-2">
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    {browserStatus.tone === 'loading' ? (
+                      <svg className="animate-spin h-3 w-3 text-blue-400 shrink-0" viewBox="0 0 24 24" fill="none">
+                        <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" className="opacity-25" />
+                        <path d="M4 12a8 8 0 018-8" stroke="currentColor" strokeWidth="3" strokeLinecap="round" className="opacity-75" />
+                      </svg>
+                    ) : (
+                      <span
+                        className={`w-2 h-2 rounded-full shrink-0 ${
+                          browserStatus.tone === 'error'
+                            ? 'bg-red-400'
+                            : browserStatus.tone === 'success'
+                              ? 'bg-green-400'
+                              : 'bg-zinc-500'
+                        }`}
+                      />
+                    )}
+                    <span
+                      className={`text-[11px] font-medium truncate ${
+                        browserStatus.tone === 'error'
+                          ? 'text-red-300'
+                          : browserStatus.tone === 'success'
+                            ? 'text-green-300'
+                            : browserStatus.tone === 'loading'
+                              ? 'text-blue-300'
+                              : 'text-zinc-300'
+                      }`}
+                      title={browserStatus.message}
+                    >
+                      {browserStatus.message}
+                    </span>
+                  </div>
+                  <div className="text-[10px] text-zinc-500 truncate mt-0.5" title={browserStatus.detail}>
+                    {browserStatus.detail || 'Idle'}
+                  </div>
+                </div>
               </div>
               {/* Drag handle */}
               <div

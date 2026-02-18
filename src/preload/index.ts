@@ -36,8 +36,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke(IPC.XNAT_GET_SUBJECTS, projectId),
     getSessions: (projectId: string, subjectId: string) =>
       ipcRenderer.invoke(IPC.XNAT_GET_SESSIONS, projectId, subjectId),
-    getScans: (sessionId: string) =>
-      ipcRenderer.invoke(IPC.XNAT_GET_SCANS, sessionId),
+    getScans: (sessionId: string, options?: { includeSopClassUID?: boolean }) =>
+      ipcRenderer.invoke(IPC.XNAT_GET_SCANS, sessionId, options),
     getScanFiles: (sessionId: string, scanId: string) =>
       ipcRenderer.invoke(IPC.XNAT_GET_SCAN_FILES, sessionId, scanId),
     getProjectSessions: (projectId: string) =>

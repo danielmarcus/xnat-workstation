@@ -102,17 +102,24 @@ export function registerProxyHandlers(): void {
     }
   });
 
-  ipcMain.handle(IPC.XNAT_GET_SCANS, async (_event, sessionId: string) => {
+  ipcMain.handle(
+    IPC.XNAT_GET_SCANS,
+    async (
+      _event,
+      sessionId: string,
+      options?: { includeSopClassUID?: boolean },
+    ) => {
     const client = sessionManager.getClient();
     if (!client) return [];
     try {
-      return await client.getScans(sessionId);
+      return await client.getScans(sessionId, options);
     } catch (err) {
       console.error('[proxy] getScans error:', err);
       sessionManager.handleAuthFailure(err);
       return [];
     }
-  });
+    },
+  );
 
   ipcMain.handle(
     IPC.XNAT_GET_SCAN_FILES,

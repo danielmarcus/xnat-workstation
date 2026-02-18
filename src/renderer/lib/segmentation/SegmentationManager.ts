@@ -32,6 +32,28 @@ export class SegmentationManager {
   private disposed = false;
 
   /**
+   * Attach a segmentation to a viewport using the correct representation path.
+   * SEG/labelmap objects must use addToViewport(); RTSTRUCT/contour objects
+   * must use ensureContourRepresentation().
+   */
+  private async attachSegmentationToViewport(
+    viewportId: string,
+    segmentationId: string,
+  ): Promise<void> {
+    const segStore = useSegmentationStore.getState();
+    const dicomType =
+      segStore.dicomTypeBySegmentationId[segmentationId]
+      ?? segmentationService.getPreferredDicomType(segmentationId);
+
+    if (dicomType === 'RTSTRUCT') {
+      await segmentationService.ensureContourRepresentation(viewportId, segmentationId);
+      return;
+    }
+
+    await segmentationService.addToViewport(viewportId, segmentationId);
+  }
+
+  /**
    * Initialize the manager with injected dependencies. Call once after
    * Cornerstone services are initialized.
    */
@@ -101,7 +123,7 @@ export class SegmentationManager {
         if (this.isEpochStale(panelId, epoch)) return;
 
         if (!this.isSegOnViewport(panelId, segId)) {
-          await segmentationService.addToViewport(panelId, segId);
+          await this.attachSegmentationToViewport(panelId, segId);
         }
         this.restorePresentationState(segId);
         this.captureInitialPresentationState(segId);
@@ -459,14 +481,6 @@ export class SegmentationManager {
       }
     }
 
-    // 4. Fallback: include segmentations still attached to this viewport.
-    // This keeps newly-created / not-yet-mapped rows visible.
-    for (const seg of segState.segmentations) {
-      if (!result.has(seg.segmentationId) && this.isSegOnViewport(viewportId, seg.segmentationId)) {
-        result.add(seg.segmentationId);
-      }
-    }
-
     return result;
   }
 
@@ -503,7 +517,7 @@ export class SegmentationManager {
 
       let added = false;
       if (!this.isSegOnViewport(viewportId, segmentationId)) {
-        await segmentationService.addToViewport(viewportId, segmentationId);
+        await this.attachSegmentationToViewport(viewportId, segmentationId);
         added = true;
       }
       if (added) {

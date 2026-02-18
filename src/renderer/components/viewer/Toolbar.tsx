@@ -4,7 +4,6 @@
  */
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useViewerStore } from '../../stores/viewerStore';
-import { useAnnotationStore } from '../../stores/annotationStore';
 import { useSegmentationStore } from '../../stores/segmentationStore';
 import { ToolName, WL_PRESETS } from '@shared/types/viewer';
 import type { LayoutType } from '@shared/types/viewer';
@@ -22,7 +21,6 @@ import {
   IconFlipV,
   IconPlay,
   IconStop,
-  IconList,
   IconDocument,
   IconChevronDown,
   IconMPR,
@@ -102,85 +100,175 @@ function Separator() {
   return <div className="w-px h-6 bg-zinc-700 mx-0.5" />;
 }
 
-/** Small layout grid icon button */
-function LayoutButton({
-  layout,
-  active,
-  onClick,
-}: {
-  layout: LayoutType;
-  active: boolean;
-  onClick: () => void;
-}) {
-  const grids: Record<LayoutType, [number, number]> = {
-    '1x1': [1, 1],
-    '1x2': [1, 2],
-    '2x1': [2, 1],
-    '2x2': [2, 2],
-  };
-  const [rows, cols] = grids[layout];
-
+function LayoutGridIcon({ rows, cols, className = '' }: { rows: number; cols: number; className?: string }) {
   return (
-    <button
-      onClick={onClick}
-      title={`Layout: ${layout}`}
-      className={`p-1.5 rounded transition-colors ${
-        active
-          ? 'bg-blue-600 text-white'
-          : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-white'
-      }`}
-    >
-      <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-        {Array.from({ length: rows }, (_, r) =>
-          Array.from({ length: cols }, (_, c) => {
-            const gap = 1.5;
-            const cellW = (16 - (cols - 1) * gap) / cols;
-            const cellH = (16 - (rows - 1) * gap) / rows;
-            return (
-              <rect
-                key={`${r}-${c}`}
-                x={c * (cellW + gap)}
-                y={r * (cellH + gap)}
-                width={cellW}
-                height={cellH}
-                rx={1.5}
-                fill="currentColor"
-                opacity={0.8}
-              />
-            );
-          })
-        )}
-      </svg>
-    </button>
+    <svg className={className} width="14" height="14" viewBox="0 0 16 16" fill="none">
+      {Array.from({ length: rows }, (_, r) =>
+        Array.from({ length: cols }, (_, c) => {
+          const gap = 1.5;
+          const cellW = (16 - (cols - 1) * gap) / cols;
+          const cellH = (16 - (rows - 1) * gap) / rows;
+          return (
+            <rect
+              key={`${r}-${c}`}
+              x={c * (cellW + gap)}
+              y={r * (cellH + gap)}
+              width={cellW}
+              height={cellH}
+              rx={1.5}
+              fill="currentColor"
+              opacity={0.8}
+            />
+          );
+        }),
+      )}
+    </svg>
   );
 }
 
-const LAYOUTS: LayoutType[] = ['1x1', '1x2', '2x1', '2x2'];
+const LAYOUT_PRESETS: { id: LayoutType; label: string; rows: number; cols: number }[] = [
+  { id: '1x1', label: '1 x 1', rows: 1, cols: 1 },
+  { id: '1x2', label: '1 x 2', rows: 1, cols: 2 },
+  { id: '2x1', label: '2 x 1', rows: 2, cols: 1 },
+  { id: '2x2', label: '2 x 2', rows: 2, cols: 2 },
+];
+
+function LayoutDropdown({ disabled }: { disabled: boolean }) {
+  const [open, setOpen] = useState(false);
+  const [dropdownPos, setDropdownPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
+  const [customRows, setCustomRows] = useState(2);
+  const [customCols, setCustomCols] = useState(2);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const layout = useViewerStore((s) => s.layout);
+  const layoutConfig = useViewerStore((s) => s.layoutConfig);
+  const setLayout = useViewerStore((s) => s.setLayout);
+  const setCustomLayout = useViewerStore((s) => s.setCustomLayout);
+
+  useEffect(() => {
+    if (!open) return;
+    setCustomRows(layoutConfig.rows);
+    setCustomCols(layoutConfig.cols);
+  }, [open, layoutConfig.rows, layoutConfig.cols]);
+
+  useEffect(() => {
+    if (!open) return;
+    function handleClickOutside(e: MouseEvent) {
+      if (
+        buttonRef.current?.contains(e.target as Node) ||
+        dropdownRef.current?.contains(e.target as Node)
+      ) return;
+      setOpen(false);
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [open]);
+
+  const handleToggle = useCallback(() => {
+    if (disabled) return;
+    if (!open && buttonRef.current) {
+      const rect = buttonRef.current.getBoundingClientRect();
+      const dropdownWidth = 240;
+      const maxLeft = window.innerWidth - dropdownWidth - 8;
+      setDropdownPos({ top: rect.bottom + 4, left: Math.min(rect.left, maxLeft) });
+    }
+    setOpen((v) => !v);
+  }, [disabled, open]);
+
+  const applyCustomLayout = useCallback(() => {
+    setCustomLayout(customRows, customCols);
+    setOpen(false);
+  }, [customCols, customRows, setCustomLayout]);
+
+  const currentLabel = layout === 'custom' ? `Custom ${layoutConfig.rows} x ${layoutConfig.cols}` : layout;
+
+  return (
+    <div className="relative">
+      <button
+        ref={buttonRef}
+        onClick={handleToggle}
+        title={`Viewport layout (${currentLabel})`}
+        disabled={disabled}
+        className={`flex items-center gap-1 px-2 py-1.5 rounded transition-colors ${
+          disabled
+            ? 'bg-zinc-800 text-zinc-600 cursor-not-allowed'
+            : open
+              ? 'bg-blue-600 text-white'
+              : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700 hover:text-white'
+        }`}
+      >
+        <LayoutGridIcon rows={2} cols={2} />
+        <IconChevronDown className="w-3 h-3" />
+      </button>
+
+      {open && (
+        <div
+          ref={dropdownRef}
+          className="fixed z-50 bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl p-2 min-w-[240px]"
+          style={{ top: dropdownPos.top, left: dropdownPos.left }}
+        >
+          <p className="px-1 pb-1 text-[10px] uppercase tracking-wide text-zinc-500">Presets</p>
+          <div className="space-y-1 mb-2">
+            {LAYOUT_PRESETS.map((preset) => (
+              <button
+                key={preset.id}
+                onClick={() => {
+                  setLayout(preset.id);
+                  setOpen(false);
+                }}
+                className={`w-full flex items-center justify-between px-2 py-1.5 rounded text-xs transition-colors ${
+                  layout === preset.id
+                    ? 'bg-blue-600/20 text-blue-300'
+                    : 'text-zinc-300 hover:bg-zinc-800 hover:text-white'
+                }`}
+              >
+                <span>{preset.label}</span>
+                <LayoutGridIcon rows={preset.rows} cols={preset.cols} className="text-zinc-400" />
+              </button>
+            ))}
+          </div>
+
+          <div className="border-t border-zinc-700 pt-2">
+            <p className="px-1 pb-1 text-[10px] uppercase tracking-wide text-zinc-500">Custom Grid</p>
+            <div className="flex items-center gap-2 px-1">
+              <label className="flex items-center gap-1 text-[11px] text-zinc-400">
+                <span>R</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={8}
+                  value={customRows}
+                  onChange={(e) => setCustomRows(parseInt(e.target.value || '1', 10))}
+                  className="w-12 px-1.5 py-1 rounded bg-zinc-800 border border-zinc-700 text-zinc-200 text-xs"
+                />
+              </label>
+              <label className="flex items-center gap-1 text-[11px] text-zinc-400">
+                <span>C</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={8}
+                  value={customCols}
+                  onChange={(e) => setCustomCols(parseInt(e.target.value || '1', 10))}
+                  className="w-12 px-1.5 py-1 rounded bg-zinc-800 border border-zinc-700 text-zinc-200 text-xs"
+                />
+              </label>
+              <button
+                onClick={applyCustomLayout}
+                className="ml-auto px-2.5 py-1 rounded bg-blue-600 text-white text-xs hover:bg-blue-500 transition-colors"
+              >
+                Apply
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 /** Stable fallback — must live outside the component to avoid infinite re-renders */
 const DEFAULT_CINE = { isPlaying: false, fps: 15 } as const;
-
-/** Toggle button for the annotation list panel */
-function AnnotationPanelToggle() {
-  const showPanel = useAnnotationStore((s) => s.showPanel);
-  const togglePanel = useAnnotationStore((s) => s.togglePanel);
-  const count = useAnnotationStore((s) => s.annotations.length);
-
-  return (
-    <button
-      onClick={togglePanel}
-      title={showPanel ? 'Hide annotation list' : 'Show annotation list'}
-      className={`flex items-center gap-1.5 px-2 py-1.5 text-xs font-medium rounded transition-colors ${
-        showPanel
-          ? 'bg-blue-600 text-white'
-          : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700 hover:text-white'
-      }`}
-    >
-      <IconList className="w-3.5 h-3.5" />
-      {count > 0 && <span>{count}</span>}
-    </button>
-  );
-}
 
 /** Toggle button for the segmentation panel */
 function SegmentationPanelToggle() {
@@ -397,7 +485,6 @@ interface ToolbarProps {
 
 export default function Toolbar({ showDicomPanel = false, onToggleDicomPanel, onApplyProtocol, onToggleMPR, hasImages = false, leftSlot }: ToolbarProps) {
   const activeTool = useViewerStore((s) => s.activeTool);
-  const layout = useViewerStore((s) => s.layout);
   const mprActive = useViewerStore((s) => s.mprActive);
   const cine = useViewerStore(
     (s) => s.cineStates[s.activeViewportId] ?? DEFAULT_CINE,
@@ -405,7 +492,6 @@ export default function Toolbar({ showDicomPanel = false, onToggleDicomPanel, on
   const currentProtocol = useViewerStore((s) => s.currentProtocol);
   const hasSessionData = useViewerStore((s) => s.sessionScans !== null);
   const setActiveTool = useViewerStore((s) => s.setActiveTool);
-  const setLayout = useViewerStore((s) => s.setLayout);
   const resetViewport = useViewerStore((s) => s.resetViewport);
   const toggleInvert = useViewerStore((s) => s.toggleInvert);
   const rotate90 = useViewerStore((s) => s.rotate90);
@@ -428,14 +514,7 @@ export default function Toolbar({ showDicomPanel = false, onToggleDicomPanel, on
 
       {/* ─── Layout Picker ──────────────────────────────── */}
       <div className={`flex items-center gap-0.5 ${mprActive ? 'opacity-40 pointer-events-none' : ''}`}>
-        {LAYOUTS.map((l) => (
-          <LayoutButton
-            key={l}
-            layout={l}
-            active={layout === l && !mprActive}
-            onClick={() => setLayout(l)}
-          />
-        ))}
+        <LayoutDropdown disabled={mprActive} />
       </div>
 
       {/* ─── Protocol Picker ──────────────────────────────── */}
@@ -584,7 +663,6 @@ export default function Toolbar({ showDicomPanel = false, onToggleDicomPanel, on
       <Separator />
 
       {/* ─── Panel Toggles ─────────────────────────── */}
-      <AnnotationPanelToggle />
       {!mprActive && <SegmentationPanelToggle />}
       {onToggleDicomPanel && (
         <DicomTagsToggle active={showDicomPanel} onToggle={onToggleDicomPanel} />

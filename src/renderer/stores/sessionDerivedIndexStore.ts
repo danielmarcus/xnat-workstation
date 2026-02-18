@@ -381,11 +381,30 @@ export const useSessionDerivedIndexStore = create<SessionDerivedIndexState>((set
   },
 
   resolveAssociationsForSession: async (sessionId, scans, getScanImageIds, downloadScanFile) => {
-    // Idempotent + context refresh: if already resolved, rebuild current
-    // derivedIndex from cached UID associations for this session.
-    if (get().resolvedSessionIds.has(sessionId)) {
-      get().rebuildFromUids(sessionId, scans);
+    const state = get();
+    const sourceScans = scans.filter((s) => !isDerivedScan(s));
+    const derivedScans = scans.filter((s) => isDerivedScan(s));
+
+    const hasMissingSourceUid = sourceScans.some(
+      (scan) => !state.sourceSeriesUidByScanId[sessionScanKey(sessionId, scan.id)],
+    );
+    const hasMissingDerivedRefUid = derivedScans.some(
+      (scan) => !state.derivedRefSeriesUidByScanId[sessionScanKey(sessionId, scan.id)],
+    );
+
+    // Idempotent + context refresh:
+    // - If fully resolved, just rebuild from cached UIDs.
+    // - If marked resolved but missing UID state, retry resolution.
+    if (state.resolvedSessionIds.has(sessionId) && !hasMissingSourceUid && !hasMissingDerivedRefUid) {
+      state.rebuildFromUids(sessionId, scans);
       return;
+    }
+
+    if (state.resolvedSessionIds.has(sessionId) && (hasMissingSourceUid || hasMissingDerivedRefUid)) {
+      console.warn(
+        `[sessionDerivedIndex] Session ${sessionId} marked resolved but has missing UID state ` +
+        `(missingSource=${hasMissingSourceUid}, missingDerived=${hasMissingDerivedRefUid}); retrying`,
+      );
     }
 
     // Handle concurrent calls for the same session
@@ -397,8 +416,6 @@ export const useSessionDerivedIndexStore = create<SessionDerivedIndexState>((set
 
     const promise = (async () => {
       const startTime = Date.now();
-      const sourceScans = scans.filter((s) => !isDerivedScan(s));
-      const derivedScans = scans.filter((s) => isDerivedScan(s));
 
       console.log(
         `[sessionDerivedIndex] Resolving UID associations for session ${sessionId}: ` +
@@ -413,26 +430,19 @@ export const useSessionDerivedIndexStore = create<SessionDerivedIndexState>((set
         )
       );
 
-      // Build SOP Instance UID -> source SeriesInstanceUID lookup for SEG fallback.
-      const sourceSopUidToSeriesUid = new Map<string, string>();
-      await Promise.all(
-        sourceScans.map((s) =>
-          limit5(async () => {
-            const seriesUid = get().sourceSeriesUidByScanId[sessionScanKey(sessionId, s.id)];
-            if (!seriesUid) return;
-            const imageIds = await getScanImageIds(sessionId, s.id);
-            for (const imageId of imageIds) {
-              const sopUid = extractObjectUidFromImageId(imageId);
-              if (sopUid && !sourceSopUidToSeriesUid.has(sopUid)) {
-                sourceSopUidToSeriesUid.set(sopUid, seriesUid);
-              }
-            }
-          })
-        )
-      );
+      // Reuse downloaded derived files across phases.
+      const derivedFileCache = new Map<string, ArrayBuffer>();
+      const downloadDerivedCached = async (sid: string, scanId: string): Promise<ArrayBuffer> => {
+        const key = sessionScanKey(sid, scanId);
+        const cached = derivedFileCache.get(key);
+        if (cached) return cached;
+        const buf = await downloadScanFile(sid, scanId);
+        derivedFileCache.set(key, buf);
+        return buf;
+      };
 
-      // Phase 2: Resolve derived scan referenced SeriesInstanceUIDs (concurrency 3),
-      // including SOP Instance UID fallback for SEG files.
+      // Phase 2a: Resolve derived scan referenced SeriesInstanceUIDs (concurrency 3)
+      // using direct referenced-series linkage only.
       const limit3 = pLimit(3);
       await Promise.all(
         derivedScans.map((s) =>
@@ -441,20 +451,81 @@ export const useSessionDerivedIndexStore = create<SessionDerivedIndexState>((set
               sessionId,
               s.id,
               s,
-              downloadScanFile,
-              sourceSopUidToSeriesUid,
+              downloadDerivedCached,
             )
           )
         )
       );
 
+      // Phase 2b (conditional): only if there are SEG scans that still lack
+      // referenced series UIDs, build SOP->Series lookup and retry those scans.
+      const unresolvedSegScans = derivedScans.filter(
+        (s) =>
+          isSegScan(s) &&
+          !get().derivedRefSeriesUidByScanId[sessionScanKey(sessionId, s.id)],
+      );
+
+      if (unresolvedSegScans.length > 0) {
+        console.log(
+          `[sessionDerivedIndex] ${unresolvedSegScans.length} SEG scan(s) missing ReferencedSeriesSequence UID; ` +
+          `building SOP fallback map`,
+        );
+
+        const sourceSopUidToSeriesUid = new Map<string, string>();
+        await Promise.all(
+          sourceScans.map((s) =>
+            limit5(async () => {
+              const seriesUid = get().sourceSeriesUidByScanId[sessionScanKey(sessionId, s.id)];
+              if (!seriesUid) return;
+              const imageIds = await getScanImageIds(sessionId, s.id);
+              for (const imageId of imageIds) {
+                const sopUid = extractObjectUidFromImageId(imageId);
+                if (sopUid && !sourceSopUidToSeriesUid.has(sopUid)) {
+                  sourceSopUidToSeriesUid.set(sopUid, seriesUid);
+                }
+              }
+            }),
+          ),
+        );
+
+        await Promise.all(
+          unresolvedSegScans.map((s) =>
+            limit3(() =>
+              get().ensureDerivedReferencedSeriesUid(
+                sessionId,
+                s.id,
+                s,
+                downloadDerivedCached,
+                sourceSopUidToSeriesUid,
+              ),
+            ),
+          ),
+        );
+      }
+
       // Phase 3: Rebuild index from UIDs
       get().rebuildFromUids(sessionId, scans);
 
-      // Mark session as resolved
-      set((s) => ({
-        resolvedSessionIds: new Set([...s.resolvedSessionIds, sessionId]),
-      }));
+      // Mark as resolved only when all derived scans have referenced SeriesInstanceUIDs.
+      // This avoids "sticky partial" sessions where one transient failure suppresses retries.
+      const missingDerivedAfter = derivedScans.some(
+        (scan) => !get().derivedRefSeriesUidByScanId[sessionScanKey(sessionId, scan.id)],
+      );
+      if (!missingDerivedAfter) {
+        set((s) => ({
+          resolvedSessionIds: new Set([...s.resolvedSessionIds, sessionId]),
+        }));
+      } else {
+        set((s) => {
+          const next = new Set(s.resolvedSessionIds);
+          next.delete(sessionId);
+          return { resolvedSessionIds: next };
+        });
+        console.warn(
+          `[sessionDerivedIndex] Session ${sessionId} remains unresolved: ` +
+          `missing referenced SeriesInstanceUID for one or more derived scans`,
+        );
+      }
 
       const elapsed = Date.now() - startTime;
       console.log(`[sessionDerivedIndex] UID resolution complete for session ${sessionId} in ${elapsed}ms`);
