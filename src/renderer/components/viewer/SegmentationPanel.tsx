@@ -19,7 +19,7 @@ import { rtStructService } from '../../lib/cornerstone/rtStructService';
 import { toolService } from '../../lib/cornerstone/toolService';
 import { segmentationManager } from '../../lib/segmentation/segmentationManagerSingleton';
 import { dicomwebLoader } from '../../lib/cornerstone/dicomwebLoader';
-import { ToolName, LABELMAP_SEG_TOOLS } from '@shared/types/viewer';
+import { ToolName, TOOL_DISPLAY_NAMES, SEGMENTATION_TOOLS } from '@shared/types/viewer';
 import {
   IconPlus,
   IconSegmentationAnnotation,
@@ -31,6 +31,21 @@ import {
   IconLockOpen,
   IconSave,
   IconUpload,
+  IconBrush,
+  IconEraser,
+  IconFreehandContour,
+  IconSplineContour,
+  IconLivewireContour,
+  IconCircleScissors,
+  IconRectangleScissors,
+  IconPaintFill,
+  IconSphereScissors,
+  IconRegionSegment,
+  IconRegionSegmentPlus,
+  IconRectangleROIThreshold,
+  IconCircleROIThreshold,
+  IconLabelmapEditContour,
+  IconSculptor,
 } from '../icons';
 
 /** Brush-style tools that use brush size */
@@ -39,6 +54,86 @@ const BRUSH_SIZE_TOOLS = new Set<string>([
   ToolName.Eraser,
   ToolName.ThresholdBrush,
 ]);
+
+const SEG_PANEL_TOOLS: ToolName[] = [
+  ToolName.Brush,
+  ToolName.Eraser,
+  ToolName.ThresholdBrush,
+  ToolName.CircleScissors,
+  ToolName.RectangleScissors,
+  ToolName.SphereScissors,
+  ToolName.PaintFill,
+  ToolName.RegionSegment,
+  ToolName.RegionSegmentPlus,
+  ToolName.RectangleROIThreshold,
+  ToolName.CircleROIThreshold,
+];
+
+const STRUCT_PANEL_TOOLS: ToolName[] = [
+  ToolName.FreehandContour,
+  ToolName.SplineContour,
+  ToolName.LivewireContour,
+  ToolName.Sculptor,
+  ToolName.LabelmapEditWithContour,
+];
+
+function IconThresholdBrush({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className ?? 'w-3 h-3 shrink-0'}
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M10.5 2 L14 5.5 L7 12.5 L3.5 12.5 L3.5 9 Z" />
+      <line x1="9" y1="3.5" x2="12.5" y2="7" />
+      <line x1="5" y1="8" x2="8" y2="11" strokeDasharray="1.5 1.5" />
+    </svg>
+  );
+}
+
+function SegToolIcon({ tool }: { tool: ToolName }) {
+  const cls = 'w-3 h-3 shrink-0';
+  switch (tool) {
+    case ToolName.Brush:
+      return <IconBrush className={cls} />;
+    case ToolName.Eraser:
+      return <IconEraser className={cls} />;
+    case ToolName.ThresholdBrush:
+      return <IconThresholdBrush className={cls} />;
+    case ToolName.FreehandContour:
+      return <IconFreehandContour className={cls} />;
+    case ToolName.SplineContour:
+      return <IconSplineContour className={cls} />;
+    case ToolName.LivewireContour:
+      return <IconLivewireContour className={cls} />;
+    case ToolName.CircleScissors:
+      return <IconCircleScissors className={cls} />;
+    case ToolName.RectangleScissors:
+      return <IconRectangleScissors className={cls} />;
+    case ToolName.PaintFill:
+      return <IconPaintFill className={cls} />;
+    case ToolName.SphereScissors:
+      return <IconSphereScissors className={cls} />;
+    case ToolName.RegionSegment:
+      return <IconRegionSegment className={cls} />;
+    case ToolName.RegionSegmentPlus:
+      return <IconRegionSegmentPlus className={cls} />;
+    case ToolName.RectangleROIThreshold:
+      return <IconRectangleROIThreshold className={cls} />;
+    case ToolName.CircleROIThreshold:
+      return <IconCircleROIThreshold className={cls} />;
+    case ToolName.Sculptor:
+      return <IconSculptor className={cls} />;
+    case ToolName.LabelmapEditWithContour:
+      return <IconLabelmapEditContour className={cls} />;
+    default:
+      return <span className="w-3 h-3 shrink-0 text-[9px] text-center">?</span>;
+  }
+}
 
 /** Color palette for quick segment color picking */
 const COLOR_PALETTE: [number, number, number, number][] = [
@@ -129,6 +224,8 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
   const activeSegIndex = useSegmentationStore((s) => s.activeSegmentIndex);
   const fillAlpha = useSegmentationStore((s) => s.fillAlpha);
   const renderOutline = useSegmentationStore((s) => s.renderOutline);
+  const contourLineWidth = useSegmentationStore((s) => s.contourLineWidth);
+  const contourOpacity = useSegmentationStore((s) => s.contourOpacity);
   const interpolationEnabled = useSegmentationStore((s) => s.interpolationEnabled);
   const brushSize = useSegmentationStore((s) => s.brushSize);
   const activeSegTool = useSegmentationStore((s) => s.activeSegTool);
@@ -143,6 +240,8 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
   const xnatOriginMap = useSegmentationStore((s) => s.xnatOriginMap);
   const dicomTypeBySegmentationId = useSegmentationStore((s) => s.dicomTypeBySegmentationId);
   const setDicomType = useSegmentationStore((s) => s.setDicomType);
+  const activeTool = useViewerStore((s) => s.activeTool);
+  const setActiveTool = useViewerStore((s) => s.setActiveTool);
   const activeViewportId = useViewerStore((s) => s.activeViewportId);
   const panelScanMap = useViewerStore((s) => s.panelScanMap);
   const panelXnatContextMap = useViewerStore((s) => s.panelXnatContextMap);
@@ -352,6 +451,8 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
   );
 
   const setFillAlpha = useSegmentationStore((s) => s.setFillAlpha);
+  const setContourLineWidth = useSegmentationStore((s) => s.setContourLineWidth);
+  const setContourOpacity = useSegmentationStore((s) => s.setContourOpacity);
   const toggleOutline = useSegmentationStore((s) => s.toggleOutline);
   const setBrushSize = useSegmentationStore((s) => s.setBrushSize);
   const setThresholdRange = useSegmentationStore((s) => s.setThresholdRange);
@@ -454,6 +555,10 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
     };
   }, []);
 
+  useEffect(() => {
+    segmentationService.updateContourStyle(contourLineWidth);
+  }, [contourLineWidth, contourOpacity]);
+
   // ─── Handlers ─────────────────────────────────────────────────
 
   const openAddAnnotationDialog = useCallback((type: SegmentationDicomType) => {
@@ -548,6 +653,17 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
     });
   }, []);
 
+  const handleSelectSegmentationRow = useCallback((segmentationId: string) => {
+    const segSummary = useSegmentationStore
+      .getState()
+      .segmentations
+      .find((s) => s.segmentationId === segmentationId);
+    const firstSegmentIndex = segSummary?.segments.find((s) => Number.isInteger(s.segmentIndex) && s.segmentIndex > 0)?.segmentIndex ?? 0;
+    setColorPickerTarget(null);
+    segmentationManager.userSelectedSegmentation(activeViewportId, segmentationId, firstSegmentIndex);
+    setExpandedIds((prev) => new Set(prev).add(segmentationId));
+  }, [activeViewportId]);
+
   const handleSelectSegment = useCallback((segmentationId: string, segmentIndex: number) => {
     if (!Number.isFinite(segmentIndex) || !Number.isInteger(segmentIndex) || segmentIndex < 0) return;
     segmentationManager.userSelectedSegmentation(activeViewportId, segmentationId, segmentIndex);
@@ -572,10 +688,31 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
   );
 
   const handleOutlineToggle = useCallback(() => {
-    toggleOutline();
     const store = useSegmentationStore.getState();
-    segmentationService.updateStyle(store.fillAlpha, !store.renderOutline);
+    const nextOutline = !store.renderOutline;
+    toggleOutline();
+    segmentationService.updateStyle(store.fillAlpha, nextOutline);
   }, [toggleOutline]);
+
+  const handleContourLineWidthChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const val = parseInt(e.target.value, 10);
+      const width = Number.isFinite(val) ? Math.max(1, Math.min(8, val)) : 2;
+      setContourLineWidth(width);
+      segmentationService.updateContourStyle(width);
+    },
+    [setContourLineWidth],
+  );
+
+  const handleContourOpacityChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const val = parseFloat(e.target.value);
+      const opacity = Number.isFinite(val) ? Math.max(0.05, Math.min(1, val)) : 1;
+      setContourOpacity(opacity);
+      segmentationService.updateContourStyle();
+    },
+    [setContourOpacity],
+  );
 
   const handleInterpolationToggle = useCallback((enabled: boolean) => {
     toolService.setInterpolationEnabled(enabled);
@@ -862,6 +999,7 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
             label: overlay.label,
           },
         ],
+        { defaultVisibility: 'visible' },
       );
 
       const compositeKey = `${panelCtx.projectId}/${panelCtx.sessionId}/${activeSourceScanId}`;
@@ -884,11 +1022,53 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
     }
   }, [activeSourceScanId, activeViewportId, xnatContext, panelXnatContextMap]);
 
+  // Reset local panel UI state and clear active annotation/tool context when scan changes.
+  // Existing overlays can still be displayed, but editing context stays neutral until
+  // the user explicitly selects an annotation row.
+  useEffect(() => {
+    setExpandedIds(new Set());
+    setColorPickerTarget(null);
+    setSaveMenuOpen(null);
+    setEditingLabel(null);
+    setSegmentNamingDialog(null);
+
+    const segStore = useSegmentationStore.getState();
+    segStore.setActiveSegmentation(null);
+    segStore.setActiveSegTool(null);
+
+    const viewer = useViewerStore.getState();
+    if (SEGMENTATION_TOOLS.has(viewer.activeTool)) {
+      viewer.setActiveTool(ToolName.WindowLevel);
+    }
+  }, [activeSourceCompositeKey]);
+
+  const activeAnnotationType = useMemo<SegmentationDicomType | null>(() => {
+    if (!activeSegId) return null;
+    return (
+      dicomTypeBySegmentationId[activeSegId]
+      ?? segmentationService.getPreferredDicomType(activeSegId)
+    );
+  }, [activeSegId, dicomTypeBySegmentationId]);
+
+  const activeAnnotationTools = useMemo<ToolName[]>(() => {
+    if (activeAnnotationType === 'RTSTRUCT') return STRUCT_PANEL_TOOLS;
+    if (activeAnnotationType === 'SEG') return SEG_PANEL_TOOLS;
+    return [];
+  }, [activeAnnotationType]);
+
+  const handleToolSelect = useCallback((tool: ToolName) => {
+    if (!activeSegId || !activeAnnotationType) return;
+    setActiveTool(tool);
+  }, [activeAnnotationType, activeSegId, setActiveTool]);
+
   const isXnatConnected = connectionStatus === 'connected';
   const listItemCount = visibleSegmentations.length + unloadedAvailableOverlays.length;
+  const overlaysLoading = availableOverlays.some((overlay) => overlay.loadStatus === 'loading');
+  const toolPanelAnnotationType = overlaysLoading ? null : activeAnnotationType;
+  const toolPanelTools = overlaysLoading ? [] : activeAnnotationTools;
 
   return (
-    <div className="w-64 shrink-0 border-l border-zinc-800 bg-zinc-950 flex flex-col overflow-hidden relative">
+    <div className="w-64 shrink-0 min-h-0 border-l border-zinc-800 bg-zinc-950 flex flex-col overflow-hidden relative">
       {/* Header */}
       <div className="px-3 py-2 border-b border-zinc-800 flex items-center justify-between min-h-[36px]">
         <h3 className="text-xs font-semibold text-zinc-300">
@@ -920,8 +1100,13 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
       </div>
 
       {/* Segmentation list */}
-      <div className="flex-1 overflow-y-auto">
-        {unloadedAvailableOverlays.length > 0 && (
+      <div className="flex-1 min-h-0 overflow-y-auto">
+        {overlaysLoading ? (
+          <div className="p-4 text-xs text-zinc-500 text-center leading-relaxed">
+            Loading annotations...
+          </div>
+        ) : null}
+        {!overlaysLoading && unloadedAvailableOverlays.length > 0 && (
           <div className="px-2 py-1.5 border-b border-zinc-800/70">
             <div className="text-[10px] text-zinc-500 uppercase tracking-wide px-1 pb-1">
               Available Annotations
@@ -959,13 +1144,13 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
             </div>
           </div>
         )}
-        {visibleSegmentations.length === 0 && unloadedAvailableOverlays.length === 0 ? (
+        {!overlaysLoading && visibleSegmentations.length === 0 && unloadedAvailableOverlays.length === 0 ? (
           <div className="p-4 text-xs text-zinc-600 text-center leading-relaxed">
             No annotations yet.
             <br />
             <span className="text-zinc-700">Use Add annotation to create a segmentation or structure.</span>
           </div>
-        ) : visibleSegmentations.length > 0 ? (
+        ) : !overlaysLoading && visibleSegmentations.length > 0 ? (
           <div className="py-0.5">
             {visibleSegmentations.map((seg) => {
               const isExpanded = expandedIds.has(seg.segmentationId);
@@ -984,7 +1169,7 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
                     className={`group flex items-center gap-1.5 px-2 py-1.5 cursor-pointer transition-colors ${
                       isActiveSeg ? 'bg-zinc-800/60' : 'hover:bg-zinc-800/40'
                     }`}
-                    onClick={() => handleToggleExpand(seg.segmentationId)}
+                    onClick={() => handleSelectSegmentationRow(seg.segmentationId)}
                   >
                     {/* Expand/collapse chevron */}
                     <svg
@@ -993,6 +1178,10 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
                       fill="none"
                       stroke="currentColor"
                       strokeWidth="2"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleToggleExpand(seg.segmentationId);
+                      }}
                     >
                       <polyline points="4,2 8,6 4,10" />
                     </svg>
@@ -1195,17 +1384,24 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
                               )}
                             </button>
 
-                            {/* Delete segment */}
+                            {/* Delete component */}
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
-                                segmentationManager.removeSegment(
-                                  seg.segmentationId,
-                                  segment.segmentIndex,
-                                );
+                                const removedSelectedComponent =
+                                  segmentationManager.removeSelectedContourComponents(
+                                    seg.segmentationId,
+                                    segment.segmentIndex,
+                                  );
+                                if (!removedSelectedComponent) {
+                                  segmentationManager.removeSegment(
+                                    seg.segmentationId,
+                                    segment.segmentIndex,
+                                  );
+                                }
                               }}
-                              className="opacity-0 group-hover:opacity-100 text-zinc-500 hover:text-red-400 transition-all p-0.5 shrink-0"
-                              title="Delete segment"
+                              className={`${isActiveSegment ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} text-zinc-500 hover:text-red-400 transition-all p-0.5 shrink-0`}
+                              title={displayDicomType === 'RTSTRUCT' ? 'Delete contour component' : 'Delete segment'}
                             >
                               <IconClose className="w-2.5 h-2.5" />
                             </button>
@@ -1246,9 +1442,52 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
       </div>
 
       {/* Tool options section */}
-      <div className="border-t border-zinc-800 px-3 py-2 space-y-2">
+      <div className="border-t border-zinc-800 px-3 py-2 shrink-0 space-y-1.5">
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <label className="text-[10px] text-zinc-500 uppercase tracking-wide">Tools</label>
+            {toolPanelAnnotationType && (
+              <span className={`text-[9px] px-1.5 py-0.5 rounded ${TYPE_ACCENTS[toolPanelAnnotationType].badge}`}>
+                {toolPanelAnnotationType === 'SEG' ? 'SEG' : 'STRUCT'}
+              </span>
+            )}
+          </div>
+          <div className="pr-0.5">
+            {overlaysLoading ? (
+              <div className="text-[10px] text-zinc-600 leading-relaxed pt-1">
+                Loading annotations...
+              </div>
+            ) : !toolPanelAnnotationType ? (
+              <div className="text-[10px] text-zinc-600 leading-relaxed pt-1">
+                Select an annotation row to enable tools.
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-1">
+                {toolPanelTools.map((tool) => {
+                  const isActive = activeTool === tool;
+                  return (
+                    <button
+                      key={tool}
+                      onClick={() => handleToolSelect(tool)}
+                      className={`flex items-center gap-1.5 px-2 py-1 rounded text-[10px] transition-colors ${
+                        isActive
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700 hover:text-white'
+                      }`}
+                      title={TOOL_DISPLAY_NAMES[tool]}
+                    >
+                      <SegToolIcon tool={tool} />
+                      <span className="truncate">{TOOL_DISPLAY_NAMES[tool]}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+
         {/* Brush size — only show for brush-style tools */}
-        {(!activeSegTool || BRUSH_SIZE_TOOLS.has(activeSegTool)) && (
+        {toolPanelAnnotationType === 'SEG' && (!activeSegTool || BRUSH_SIZE_TOOLS.has(activeSegTool)) && (
           <div>
             <div className="flex items-center justify-between mb-0.5">
               <label className="text-[10px] text-zinc-500">Brush Size</label>
@@ -1265,47 +1504,141 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
           </div>
         )}
 
-        {/* Opacity */}
-        <div>
-          <div className="flex items-center justify-between mb-0.5">
-            <label className="text-[10px] text-zinc-500">Opacity</label>
-            <span className="text-[10px] text-zinc-400 tabular-nums">
-              {Math.round(fillAlpha * 100)}%
-            </span>
+        {/* Contour line thickness (RTSTRUCT only) */}
+        {toolPanelAnnotationType === 'RTSTRUCT' && (
+          <div>
+            <div className="flex items-center justify-between mb-0.5">
+              <label className="text-[10px] text-zinc-500">Contour Thickness</label>
+              <span className="text-[10px] text-zinc-400 tabular-nums">{contourLineWidth}px</span>
+            </div>
+            <input
+              type="range"
+              min={1}
+              max={8}
+              value={contourLineWidth}
+              onChange={handleContourLineWidthChange}
+              className="w-full h-1 bg-zinc-700 rounded-full appearance-none cursor-pointer accent-emerald-500"
+            />
           </div>
-          <input
-            type="range"
-            min={0}
-            max={1}
-            step={0.05}
-            value={fillAlpha}
-            onChange={handleFillAlphaChange}
-            className="w-full h-1 bg-zinc-700 rounded-full appearance-none cursor-pointer accent-blue-500"
-          />
-        </div>
+        )}
 
-        {/* Show Outline */}
-        <label className="flex items-center gap-2 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={renderOutline}
-            onChange={handleOutlineToggle}
-            className="w-3 h-3 rounded border-zinc-600 bg-zinc-800 accent-blue-500"
-          />
-          <span className="text-[10px] text-zinc-400">Show Outline</span>
-        </label>
+        {/* Labelmap opacity (SEG only) */}
+        {toolPanelAnnotationType === 'SEG' && (
+          <div>
+            <div className="flex items-center justify-between mb-0.5">
+              <label className="text-[10px] text-zinc-500">Labelmap Opacity</label>
+              <span className="text-[10px] text-zinc-400 tabular-nums">
+                {Math.round(fillAlpha * 100)}%
+              </span>
+            </div>
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.05}
+              value={fillAlpha}
+              onChange={handleFillAlphaChange}
+              className="w-full h-1 bg-zinc-700 rounded-full appearance-none cursor-pointer accent-blue-500"
+            />
+          </div>
+        )}
 
-        <label className="flex items-center gap-2 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={interpolationEnabled}
-            onChange={(e) => handleInterpolationToggle(e.target.checked)}
-            className="w-3 h-3 rounded border-zinc-600 bg-zinc-800 accent-blue-500"
-          />
-          <span className="text-[10px] text-zinc-400">Between-slice interpolation</span>
-        </label>
+        {/* Contour opacity (RTSTRUCT only) */}
+        {toolPanelAnnotationType === 'RTSTRUCT' && (
+          <div>
+            <div className="flex items-center justify-between mb-0.5">
+              <label className="text-[10px] text-zinc-500">Contour Opacity</label>
+              <span className="text-[10px] text-zinc-400 tabular-nums">
+                {Math.round(contourOpacity * 100)}%
+              </span>
+            </div>
+            <input
+              type="range"
+              min={0.05}
+              max={1}
+              step={0.05}
+              value={contourOpacity}
+              onChange={handleContourOpacityChange}
+              className="w-full h-1 bg-zinc-700 rounded-full appearance-none cursor-pointer accent-emerald-500"
+            />
+          </div>
+        )}
 
-        {/* Automatically display associated SEG/RTSTRUCT annotations */}
+        {/* Show Outline (SEG only) */}
+        {toolPanelAnnotationType === 'SEG' && (
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={renderOutline}
+              onChange={handleOutlineToggle}
+              className="w-3 h-3 rounded border-zinc-600 bg-zinc-800 accent-blue-500"
+            />
+            <span className="text-[10px] text-zinc-400">Show Outline</span>
+          </label>
+        )}
+
+        {toolPanelAnnotationType && (
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={interpolationEnabled}
+              onChange={(e) => handleInterpolationToggle(e.target.checked)}
+              className="w-3 h-3 rounded border-zinc-600 bg-zinc-800 accent-blue-500"
+            />
+            <span className="text-[10px] text-zinc-400">
+              Interpolate between slices
+            </span>
+          </label>
+        )}
+
+        {/* Threshold range (only when ThresholdBrush is active) */}
+        {toolPanelAnnotationType === 'SEG' && activeSegTool === 'ThresholdBrush' && (
+          <div>
+            <label className="text-[10px] text-zinc-500 block mb-0.5">Threshold Range (HU)</label>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                value={thresholdRange[0]}
+                onChange={(e) => {
+                  const val = parseInt(e.target.value, 10) || 0;
+                  setThresholdRange([val, thresholdRange[1]]);
+                }}
+                className="w-16 bg-zinc-800 border border-zinc-700 rounded px-1.5 py-0.5 text-[10px] text-zinc-300"
+              />
+              <span className="text-[10px] text-zinc-600">to</span>
+              <input
+                type="number"
+                value={thresholdRange[1]}
+                onChange={(e) => {
+                  const val = parseInt(e.target.value, 10) || 0;
+                  setThresholdRange([thresholdRange[0], val]);
+                }}
+                className="w-16 bg-zinc-800 border border-zinc-700 rounded px-1.5 py-0.5 text-[10px] text-zinc-300"
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Spline type selector (only when SplineContour is active) */}
+        {toolPanelAnnotationType === 'RTSTRUCT' && activeSegTool === ToolName.SplineContour && (
+          <div>
+            <label className="text-[10px] text-zinc-500 block mb-0.5">Spline Type</label>
+            <select
+              value={splineType}
+              onChange={(e) => setSplineType(e.target.value as any)}
+              className="w-full bg-zinc-800 border border-zinc-700 rounded px-1.5 py-1 text-[10px] text-zinc-300 cursor-pointer"
+            >
+              <option value="CATMULLROM">Catmull-Rom</option>
+              <option value="CARDINAL">Cardinal</option>
+              <option value="BSPLINE">B-Spline</option>
+              <option value="LINEAR">Linear</option>
+            </select>
+          </div>
+        )}
+      </div>
+
+      {/* Shared annotation options (outside fixed-size tool section) */}
+      <div className="border-t border-zinc-800 px-3 py-2 space-y-2 shrink-0">
         <label className="flex items-center gap-2 cursor-pointer">
           <input
             type="checkbox"
@@ -1316,7 +1649,6 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
           <span className="text-[10px] text-zinc-400">Automatically display annotations</span>
         </label>
 
-        {/* Auto-save toggle + status */}
         <div className="flex items-center justify-between">
           <label className="flex items-center gap-2 cursor-pointer">
             <input
@@ -1365,51 +1697,6 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
             Auto-save is available after loading an XNAT scan.
           </div>
         ) : null}
-
-        {/* Threshold range (only when ThresholdBrush is active) */}
-        {activeSegTool === 'ThresholdBrush' && (
-          <div>
-            <label className="text-[10px] text-zinc-500 block mb-0.5">Threshold Range (HU)</label>
-            <div className="flex items-center gap-2">
-              <input
-                type="number"
-                value={thresholdRange[0]}
-                onChange={(e) => {
-                  const val = parseInt(e.target.value, 10) || 0;
-                  setThresholdRange([val, thresholdRange[1]]);
-                }}
-                className="w-16 bg-zinc-800 border border-zinc-700 rounded px-1.5 py-0.5 text-[10px] text-zinc-300"
-              />
-              <span className="text-[10px] text-zinc-600">to</span>
-              <input
-                type="number"
-                value={thresholdRange[1]}
-                onChange={(e) => {
-                  const val = parseInt(e.target.value, 10) || 0;
-                  setThresholdRange([thresholdRange[0], val]);
-                }}
-                className="w-16 bg-zinc-800 border border-zinc-700 rounded px-1.5 py-0.5 text-[10px] text-zinc-300"
-              />
-            </div>
-          </div>
-        )}
-
-        {/* Spline type selector (only when SplineContour is active) */}
-        {activeSegTool === ToolName.SplineContour && (
-          <div>
-            <label className="text-[10px] text-zinc-500 block mb-0.5">Spline Type</label>
-            <select
-              value={splineType}
-              onChange={(e) => setSplineType(e.target.value as any)}
-              className="w-full bg-zinc-800 border border-zinc-700 rounded px-1.5 py-1 text-[10px] text-zinc-300 cursor-pointer"
-            >
-              <option value="CATMULLROM">Catmull-Rom</option>
-              <option value="CARDINAL">Cardinal</option>
-              <option value="BSPLINE">B-Spline</option>
-              <option value="LINEAR">Linear</option>
-            </select>
-          </div>
-        )}
       </div>
 
       {/* Toast notification */}

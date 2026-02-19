@@ -48,6 +48,12 @@ interface SegmentationStore {
   /** Whether outline rendering is enabled */
   renderOutline: boolean;
 
+  /** Contour outline thickness in pixels (RTSTRUCT/contour representation) */
+  contourLineWidth: number;
+
+  /** Contour outline opacity (0-1) */
+  contourOpacity: number;
+
   /** Whether between-slice interpolation is enabled for annotations */
   interpolationEnabled: boolean;
 
@@ -110,6 +116,12 @@ interface SegmentationStore {
 
   /** Toggle outline rendering */
   toggleOutline: () => void;
+
+  /** Set contour line thickness */
+  setContourLineWidth: (width: number) => void;
+
+  /** Set contour opacity */
+  setContourOpacity: (opacity: number) => void;
 
   /** Enable/disable between-slice interpolation */
   setInterpolationEnabled: (enabled: boolean) => void;
@@ -177,6 +189,8 @@ export const useSegmentationStore = create<SegmentationStore>((set) => ({
   fillAlpha: 0.5,
   showPanel: false,
   renderOutline: true,
+  contourLineWidth: 2,
+  contourOpacity: 1,
   interpolationEnabled: true,
   brushSize: 5,
   thresholdRange: [-200, 200],
@@ -207,6 +221,10 @@ export const useSegmentationStore = create<SegmentationStore>((set) => ({
   setFillAlpha: (alpha) => set({ fillAlpha: alpha }),
 
   toggleOutline: () => set((s) => ({ renderOutline: !s.renderOutline })),
+
+  setContourLineWidth: (width) => set({ contourLineWidth: width }),
+
+  setContourOpacity: (opacity) => set({ contourOpacity: opacity }),
 
   setInterpolationEnabled: (enabled) => set({ interpolationEnabled: enabled }),
 

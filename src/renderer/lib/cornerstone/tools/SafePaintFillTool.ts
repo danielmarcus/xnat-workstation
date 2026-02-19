@@ -3,21 +3,24 @@ import { PaintFillTool, segmentation as csSegmentation } from '@cornerstonejs/to
 
 const { transformWorldToIndex } = csUtilities;
 const coreUtils = csUtilities as any;
-const DefaultHistoryMemo = coreUtils.HistoryMemo?.DefaultHistoryMemo;
-const { VoxelManager, RLEVoxelMap, uuidv4 } = coreUtils;
+const { uuidv4 } = coreUtils;
 
-const MAX_BACKGROUND_FILL_RATIO = 0.95;
+const MAX_BACKGROUND_FILL_RATIO = 0.9;
 
 type FillPoint = [number, number];
+type FillChange = {
+  index: number;
+  oldValue: number;
+  newValue: number;
+};
 
 type PaintFillMemo = {
   id: string;
   operationType: 'labelmap';
   segmentationId: string;
   segmentationVoxelManager: any;
-  voxelManager: any;
-  undoVoxelManager?: any;
-  redoVoxelManager?: any;
+  changes: FillChange[];
+  modifiedSlices: number[];
   restoreMemo: (isUndo: boolean) => void;
   commitMemo: () => boolean;
 };
@@ -47,50 +50,33 @@ function floodFill2D(getter: (x: number, y: number) => number | undefined, seed:
 }
 
 function restorePaintFillMemo(this: PaintFillMemo, isUndo: boolean): void {
-  const useVoxelManager = isUndo === false ? this.redoVoxelManager : this.undoVoxelManager;
-  if (!useVoxelManager) return;
-
-  useVoxelManager.forEach(({ value, pointIJK }: { value: number; pointIJK: [number, number, number] }) => {
-    this.segmentationVoxelManager.setAtIJKPoint(pointIJK, value);
-  });
-
-  const slices = useVoxelManager.getArrayOfModifiedSlices();
-  csSegmentation.triggerSegmentationEvents.triggerSegmentationDataModified(this.segmentationId, slices);
+  for (const change of this.changes) {
+    const nextValue = isUndo ? change.oldValue : change.newValue;
+    this.segmentationVoxelManager.setAtIndex(change.index, nextValue);
+  }
+  csSegmentation.triggerSegmentationEvents.triggerSegmentationDataModified(
+    this.segmentationId,
+    this.modifiedSlices,
+  );
 }
 
 function commitPaintFillMemo(this: PaintFillMemo): boolean {
-  if (this.redoVoxelManager) return true;
-  if (!this.voxelManager?.modifiedSlices?.size) return false;
-
-  const undoVoxelManager = VoxelManager.createRLEHistoryVoxelManager(this.segmentationVoxelManager);
-  RLEVoxelMap.copyMap(undoVoxelManager.map, this.voxelManager.map);
-  for (const key of this.voxelManager.modifiedSlices.keys()) {
-    undoVoxelManager.modifiedSlices.add(key);
-  }
-  this.undoVoxelManager = undoVoxelManager;
-
-  const redoVoxelManager = VoxelManager.createRLEVolumeVoxelManager({
-    dimensions: this.segmentationVoxelManager.dimensions,
-  });
-  this.redoVoxelManager = redoVoxelManager;
-
-  undoVoxelManager.forEach(({ index, pointIJK, value }: { index: number; pointIJK: [number, number, number]; value: number }) => {
-    const currentValue = this.segmentationVoxelManager.getAtIJKPoint(pointIJK);
-    if (currentValue === value) return;
-    redoVoxelManager.setAtIndex(index, currentValue);
-  });
-
-  return true;
+  return this.changes.length > 0;
 }
 
-function createPaintFillMemo(segmentationId: string, segmentationVoxelManager: any): PaintFillMemo {
-  const voxelManager = VoxelManager.createRLEHistoryVoxelManager(segmentationVoxelManager);
+function createPaintFillMemo(
+  segmentationId: string,
+  segmentationVoxelManager: any,
+  changes: FillChange[],
+  modifiedSlices: number[],
+): PaintFillMemo {
   return {
     id: uuidv4(),
     operationType: 'labelmap',
     segmentationId,
     segmentationVoxelManager,
-    voxelManager,
+    changes,
+    modifiedSlices,
     restoreMemo: restorePaintFillMemo,
     commitMemo: commitPaintFillMemo,
   };
@@ -120,6 +106,7 @@ export class SafePaintFillTool extends PaintFillTool {
       const { segmentationId } = activeSegmentationRepresentation;
       const activeSegmentIndex = csSegmentation.segmentIndex.getActiveSegmentIndex(segmentationId);
       if (!activeSegmentIndex || activeSegmentIndex <= 0) return true;
+      this.doneEditMemo();
 
       const segmentsLocked = csSegmentation.segmentLocking.getLockedSegmentIndices(segmentationId);
       const segmentation = csSegmentation.state.getSegmentation(segmentationId) as any;
@@ -180,15 +167,44 @@ export class SafePaintFillTool extends PaintFillTool {
       const flooded = floodFill2D(floodFillGetter, inPlaneSeedPoint);
       if (!flooded.length) return true;
 
+      const [planeWidth, planeHeight] =
+        fixedDimension === 0
+          ? [dimensions[1], dimensions[2]]
+          : fixedDimension === 1
+            ? [dimensions[0], dimensions[2]]
+            : [dimensions[0], dimensions[1]];
+
       if (clickedLabelValue === 0) {
         const planePixels =
-          fixedDimension === 0
-            ? dimensions[1] * dimensions[2]
-            : fixedDimension === 1
-              ? dimensions[0] * dimensions[2]
-              : dimensions[0] * dimensions[1];
+          planeWidth * planeHeight;
         const fillRatio = flooded.length / Math.max(planePixels, 1);
-        if (fillRatio >= MAX_BACKGROUND_FILL_RATIO) {
+        let minX = Number.POSITIVE_INFINITY;
+        let minY = Number.POSITIVE_INFINITY;
+        let maxX = Number.NEGATIVE_INFINITY;
+        let maxY = Number.NEGATIVE_INFINITY;
+        for (const [fx, fy] of flooded) {
+          if (fx < minX) minX = fx;
+          if (fy < minY) minY = fy;
+          if (fx > maxX) maxX = fx;
+          if (fy > maxY) maxY = fy;
+        }
+        const touchesLeft = minX <= 0;
+        const touchesRight = maxX >= planeWidth - 1;
+        const touchesTop = minY <= 0;
+        const touchesBottom = maxY >= planeHeight - 1;
+        const touchesAnyEdge = touchesLeft || touchesRight || touchesTop || touchesBottom;
+        const touchesAllEdges = touchesLeft && touchesRight && touchesTop && touchesBottom;
+
+        // Background regions connected to image borders are usually "outside"
+        // clicks; suppress them to avoid accidental full-slice fills.
+        if (touchesAnyEdge && fillRatio > 0.05) {
+          console.warn(
+            `[SafePaintFillTool] Ignored background fill connected to slice edge (${(fillRatio * 100).toFixed(1)}% of slice).`,
+          );
+          return true;
+        }
+
+        if (touchesAllEdges && fillRatio >= MAX_BACKGROUND_FILL_RATIO) {
           console.warn(
             `[SafePaintFillTool] Ignored oversized background fill (${(fillRatio * 100).toFixed(1)}% of slice).`,
           );
@@ -196,20 +212,32 @@ export class SafePaintFillTool extends PaintFillTool {
         }
       }
 
-      const memo = createPaintFillMemo(segmentationId, voxelManager);
-      const memoVoxelManager = memo.voxelManager;
+      const changes: FillChange[] = [];
 
       for (const pt of flooded) {
         const scalarDataIndex = getScalarDataPositionFromPlane(pt[0], pt[1]);
-        memoVoxelManager.setAtIndex(scalarDataIndex, activeSegmentIndex);
+        const oldValue = voxelManager.getAtIndex?.(scalarDataIndex) ?? clickedLabelValue;
+        if (oldValue === activeSegmentIndex) continue;
+        changes.push({
+          index: scalarDataIndex,
+          oldValue,
+          newValue: activeSegmentIndex,
+        });
       }
 
-      const committed = memo.commitMemo();
-      if (committed && DefaultHistoryMemo?.push) {
-        DefaultHistoryMemo.push(memo);
+      if (changes.length === 0) {
+        return true;
+      }
+
+      for (const change of changes) {
+        voxelManager.setAtIndex(change.index, change.newValue);
       }
 
       const framesModified = (this as any).getFramesModified(fixedDimension, fixedDimensionValue, { flooded });
+      const memo = createPaintFillMemo(segmentationId, voxelManager, changes, framesModified);
+      (this as any).memo = memo;
+      this.doneEditMemo();
+
       csSegmentation.triggerSegmentationEvents.triggerSegmentationDataModified(
         segmentationId,
         framesModified,

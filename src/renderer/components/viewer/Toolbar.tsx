@@ -9,7 +9,6 @@ import { ToolName, WL_PRESETS } from '@shared/types/viewer';
 import type { LayoutType } from '@shared/types/viewer';
 import { BUILT_IN_PROTOCOLS } from '@shared/types/hangingProtocol';
 import AnnotationToolDropdown from './AnnotationToolDropdown';
-import SegmentationToolDropdown from './SegmentationToolDropdown';
 import {
   IconWindowLevel,
   IconPan,
@@ -271,7 +270,7 @@ function LayoutDropdown({ disabled }: { disabled: boolean }) {
 const DEFAULT_CINE = { isPlaying: false, fps: 15 } as const;
 
 /** Toggle button for the segmentation panel */
-function SegmentationPanelToggle() {
+function SegmentationPanelToggle({ label = 'Annotate', showCount = false }: { label?: string; showCount?: boolean }) {
   const showPanel = useSegmentationStore((s) => s.showPanel);
   const togglePanel = useSegmentationStore((s) => s.togglePanel);
   const count = useSegmentationStore((s) => s.segmentations.length);
@@ -287,7 +286,8 @@ function SegmentationPanelToggle() {
       }`}
     >
       <IconSegment className="w-3.5 h-3.5" />
-      {count > 0 && <span>{count}</span>}
+      {label && <span>{label}</span>}
+      {showCount && count > 0 && <span>{count}</span>}
     </button>
   );
 }
@@ -576,8 +576,8 @@ export default function Toolbar({ showDicomPanel = false, onToggleDicomPanel, on
             onClick={() => setActiveTool(ToolName.Zoom)}
             title="Zoom (left-click drag)"
           />
+          <SegmentationPanelToggle label="Annotate" />
           <AnnotationToolDropdown />
-          <SegmentationToolDropdown />
         </>
       )}
       {mprActive && (
@@ -660,12 +660,12 @@ export default function Toolbar({ showDicomPanel = false, onToggleDicomPanel, on
         </>
       )}
 
-      <Separator />
-
       {/* ─── Panel Toggles ─────────────────────────── */}
-      {!mprActive && <SegmentationPanelToggle />}
       {onToggleDicomPanel && (
-        <DicomTagsToggle active={showDicomPanel} onToggle={onToggleDicomPanel} />
+        <>
+          <Separator />
+          <DicomTagsToggle active={showDicomPanel} onToggle={onToggleDicomPanel} />
+        </>
       )}
     </div>
   );

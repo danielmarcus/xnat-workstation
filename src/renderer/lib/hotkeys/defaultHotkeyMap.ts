@@ -65,6 +65,7 @@ export const DEFAULT_HOTKEY_MAP: HotkeyMap = {
   // ─── Edit Actions ──────────────────────────────────────────
   'edit.undo': [{ key: 'z', modifiers: { ctrl: true } }],
   'edit.redo': [{ key: 'z', modifiers: { ctrl: true, shift: true } }],
+  'edit.delete': [{ key: 'Delete' }, { key: 'Backspace' }],
 
   // ─── W/L Presets (Ctrl+number) ──────────────────────────────
   'preset.wl.0': [{ key: '1', modifiers: { ctrl: true } }], // CT Soft Tissue

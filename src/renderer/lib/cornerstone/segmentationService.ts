@@ -28,6 +28,7 @@
  *   exportToDicomSeg()        — Export segmentation as DICOM SEG binary (base64)
  *   undo()                    — Undo last segmentation/contour edit
  *   redo()                    — Redo previously undone edit
+ *   deleteSelectedContourComponents() — Delete selected contour annotation component(s)
  *   getUndoState()            — Query undo/redo availability
  *   cancelAutoSave()          — Cancel pending auto-save timer
  *   sync()                    — Force re-sync to store
@@ -36,6 +37,7 @@
 import { eventTarget, metaData, imageLoader, cache, utilities as csUtilities, getEnabledElementByViewportId } from '@cornerstonejs/core';
 import type { Types as CoreTypes } from '@cornerstonejs/core';
 import {
+  annotation as csAnnotation,
   segmentation as csSegmentation,
   Enums as ToolEnums,
   utilities as csToolUtilities,
@@ -50,6 +52,7 @@ import { data as dcmjsData } from 'dcmjs';
 import { useSegmentationStore } from '../../stores/segmentationStore';
 import type { SegmentationSummary, SegmentSummary } from '../../stores/segmentationStore';
 import { useViewerStore } from '../../stores/viewerStore';
+import { useSegmentationManagerStore } from '../../stores/segmentationManagerStore';
 import { rtStructService } from './rtStructService';
 import { writeDicomDict } from './writeDicomDict';
 // NOTE: We use the tool group ID directly here instead of importing from
@@ -471,7 +474,11 @@ function syncSegmentations(): void {
           // Check visibility - from the representation's per-segment visibility
           // Try Labelmap first, then Contour
           let visible = true;
-          if (viewportIds.length > 0) {
+          const cachedPresentation = useSegmentationManagerStore.getState().presentation[seg.segmentationId];
+          const cachedVisible = cachedPresentation?.visibility?.[idx];
+          if (typeof cachedVisible === 'boolean') {
+            visible = cachedVisible;
+          } else if (viewportIds.length > 0) {
             try {
               visible = csSegmentation.config.visibility.getSegmentIndexVisibility(
                 viewportIds[0],
@@ -491,12 +498,14 @@ function syncSegmentations(): void {
             }
           }
 
+          const cachedLocked = cachedPresentation?.locked?.[idx];
+
           segments.push({
             segmentIndex: idx,
             label: segment.label || `Segment ${idx}`,
             color,
             visible,
-            locked: segment.locked ?? false,
+            locked: typeof cachedLocked === 'boolean' ? cachedLocked : (segment.locked ?? false),
           });
         }
       }
@@ -1387,6 +1396,77 @@ export const segmentationService = {
   },
 
   /**
+   * Delete selected contour annotation component(s).
+   * If `segmentationId` and/or `segmentIndex` are provided, deletion is filtered
+   * to those identifiers.
+   *
+   * Returns true if at least one contour component was removed.
+   */
+  deleteSelectedContourComponents(segmentationId?: string, segmentIndex?: number): boolean {
+    try {
+      const selected = csAnnotation.selection.getAnnotationsSelected?.() ?? [];
+      if (!selected.length) return false;
+
+      const targetSegmentIndex =
+        Number.isInteger(segmentIndex) && Number(segmentIndex) > 0 ? Number(segmentIndex) : null;
+
+      let removed = 0;
+      const affectedViewportIds = new Set<string>();
+
+      for (const annotationUID of selected) {
+        const ann: any = csAnnotation.state.getAnnotation(annotationUID);
+        if (!ann) continue;
+
+        const annSeg = ann.data?.segmentation;
+        const annSegId: string | undefined = annSeg?.segmentationId;
+        const annSegIndex = Number(annSeg?.segmentIndex);
+        if (!annSegId || !Number.isInteger(annSegIndex) || annSegIndex <= 0) continue;
+        if (segmentationId && annSegId !== segmentationId) continue;
+        if (targetSegmentIndex != null && annSegIndex !== targetSegmentIndex) continue;
+
+        const segType = getSegmentationType(annSegId);
+        if (segType !== 'contour' && segType !== 'both') continue;
+
+        try {
+          // Remove from contour representation map first so segmentation metadata
+          // stays in sync, then remove the annotation object.
+          csToolUtilities.contourSegmentation.removeContourSegmentationAnnotation(ann as any);
+        } catch (err) {
+          console.debug('[segmentationService] removeContourSegmentationAnnotation failed:', err);
+        }
+
+        csAnnotation.state.removeAnnotation(annotationUID);
+        removed++;
+
+        const vpIds = csSegmentation.state.getViewportIdsWithSegmentation(annSegId);
+        for (const vpId of vpIds) affectedViewportIds.add(vpId);
+      }
+
+      if (removed === 0) return false;
+
+      syncSegmentations();
+      refreshUndoState();
+      useSegmentationStore.getState()._markDirty();
+      scheduleAutoSave();
+
+      const triggerAnnotationRenderForViewportIds = (csToolUtilities as any).triggerAnnotationRenderForViewportIds;
+      if (typeof triggerAnnotationRenderForViewportIds === 'function' && affectedViewportIds.size > 0) {
+        triggerAnnotationRenderForViewportIds(Array.from(affectedViewportIds));
+      }
+      renderAllSegmentationViewports();
+
+      console.log(
+        `[segmentationService] Removed ${removed} selected contour component(s)` +
+          (segmentationId ? ` for ${segmentationId}` : ''),
+      );
+      return true;
+    } catch (err) {
+      console.error('[segmentationService] Failed to delete selected contour components:', err);
+      return false;
+    }
+  },
+
+  /**
    * Remove an entire segmentation from Cornerstone state.
    */
   removeSegmentation(segmentationId: string): void {
@@ -1830,6 +1910,56 @@ export const segmentationService = {
     }
 
     syncSegmentations();
+    try {
+      csToolUtilities.segmentation.triggerSegmentationRender(viewportId);
+      const enabledElement = getEnabledElementByViewportId(viewportId) as any;
+      enabledElement?.viewport?.render?.();
+    } catch {
+      // Best effort render kick
+    }
+  },
+
+  /**
+   * Set visibility for an individual segment on a viewport.
+   */
+  setSegmentVisibility(
+    viewportId: string,
+    segmentationId: string,
+    segmentIndex: number,
+    visible: boolean,
+  ): void {
+    // Set visibility on Labelmap representation
+    try {
+      csSegmentation.config.visibility.setSegmentIndexVisibility(
+        viewportId,
+        { segmentationId, type: ToolEnums.SegmentationRepresentations.Labelmap },
+        segmentIndex,
+        visible,
+      );
+    } catch {
+      // May not have labelmap representation
+    }
+
+    // Set visibility on Contour representation
+    try {
+      csSegmentation.config.visibility.setSegmentIndexVisibility(
+        viewportId,
+        { segmentationId, type: ToolEnums.SegmentationRepresentations.Contour },
+        segmentIndex,
+        visible,
+      );
+    } catch {
+      // May not have contour representation
+    }
+
+    syncSegmentations();
+    try {
+      csToolUtilities.segmentation.triggerSegmentationRender(viewportId);
+      const enabledElement = getEnabledElementByViewportId(viewportId) as any;
+      enabledElement?.viewport?.render?.();
+    } catch {
+      // Best effort render kick
+    }
   },
 
   /**
@@ -1910,6 +2040,7 @@ export const segmentationService = {
           outlineOpacityInactive: 0.6,
         },
       );
+      renderAllSegmentationViewports();
     } catch (err) {
       console.error('[segmentationService] Failed to update style:', err);
     }
@@ -2308,21 +2439,25 @@ export const segmentationService = {
    * Update global contour representation style.
    * Contours use outline-only rendering (no fill) with opacity 1.
    */
-  updateContourStyle(): void {
+  updateContourStyle(lineWidth?: number): void {
     try {
+      const store = useSegmentationStore.getState();
+      const width = Math.max(1, Math.min(8, Math.round(lineWidth ?? store.contourLineWidth ?? 2)));
+      const opacity = Math.max(0.05, Math.min(1, store.contourOpacity ?? 1));
       csSegmentation.segmentationStyle.setStyle(
         { type: ToolEnums.SegmentationRepresentations.Contour },
         {
           renderFill: false,
           renderOutline: true,
-          outlineWidth: 2,
-          outlineOpacity: 1,
+          outlineWidth: width,
+          outlineOpacity: opacity,
           renderFillInactive: false,
           renderOutlineInactive: true,
-          outlineWidthInactive: 1,
-          outlineOpacityInactive: 0.6,
+          outlineWidthInactive: Math.max(1, width - 1),
+          outlineOpacityInactive: Math.max(0.05, opacity * 0.6),
         },
       );
+      renderAllSegmentationViewports();
     } catch (err) {
       console.error('[segmentationService] Failed to update contour style:', err);
     }
