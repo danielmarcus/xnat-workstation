@@ -173,6 +173,9 @@ function dispatchAction(action: HotkeyAction): boolean {
     case 'edit.redo':
       segmentationService.redo();
       return true;
+    case 'edit.delete':
+      segmentationService.deleteSelectedContourComponents();
+      return true;
 
     // Slice navigation
     case 'slice.prev':

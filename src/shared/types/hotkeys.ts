@@ -63,6 +63,7 @@ export type HotkeyAction =
   // Edit actions
   | 'edit.undo'
   | 'edit.redo'
+  | 'edit.delete'
   // W/L presets (by index)
   | 'preset.wl.0'
   | 'preset.wl.1'

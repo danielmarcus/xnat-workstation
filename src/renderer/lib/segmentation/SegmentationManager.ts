@@ -291,6 +291,7 @@ export class SegmentationManager {
     panelId: string,
     sourceScanId: string,
     overlayDescriptors: Array<{ type: 'SEG' | 'RTSTRUCT'; scanId: string; sessionId: string; label?: string }>,
+    options?: { defaultVisibility?: 'visible' | 'hidden' },
   ): Promise<void> {
     if (this.disposed || !this.deps) {
       console.warn(`[SegmentationManager] requestShowOverlaysForSourceScan: early return — disposed=${this.disposed}, deps=${!!this.deps}`);
@@ -315,29 +316,35 @@ export class SegmentationManager {
     // Record desired overlays
     store().setDesiredOverlays(panelId, overlayDescriptors.map((d) => d.scanId));
 
+    const descriptorsToLoad: Array<{ type: 'SEG' | 'RTSTRUCT'; scanId: string; sessionId: string; label?: string }> = [];
     for (const descriptor of overlayDescriptors) {
+      const { scanId } = descriptor;
+      const loaded = store().loadedBySourceScan[compositeSourceKey]?.[scanId];
+      if (loaded) {
+        console.log(`[SegmentationManager] Overlay ${scanId} already loaded for source ${compositeSourceKey}`);
+        continue;
+      }
+      const status = store().loadStatus[scanId];
+      if (status === 'loading') {
+        console.log(`[SegmentationManager] Overlay ${scanId} is already loading — skipping`);
+        continue;
+      }
+      descriptorsToLoad.push(descriptor);
+    }
+
+    // Mark all pending overlays as loading up-front to avoid per-item
+    // loading-state oscillation (which causes list flicker in the panel).
+    for (const descriptor of descriptorsToLoad) {
+      store().setLoadStatus(descriptor.scanId, 'loading');
+    }
+
+    for (const descriptor of descriptorsToLoad) {
       if (this.disposed || this.isEpochStale(panelId, epochAtStart)) {
         console.warn(`[SegmentationManager] requestShowOverlaysForSourceScan: aborting loop — disposed=${this.disposed}, epochStale=${this.isEpochStale(panelId, epochAtStart)}`);
         return;
       }
 
       const { type, scanId, sessionId, label } = descriptor;
-
-      // Skip if already loaded for this source scan (session-scoped)
-      const loaded = store().loadedBySourceScan[compositeSourceKey]?.[scanId];
-      if (loaded) {
-        console.log(`[SegmentationManager] Overlay ${scanId} already loaded for source ${compositeSourceKey}`);
-        continue;
-      }
-
-      // Skip if currently loading
-      const status = store().loadStatus[scanId];
-      if (status === 'loading') {
-        console.log(`[SegmentationManager] Overlay ${scanId} is already loading — skipping`);
-        continue;
-      }
-
-      store().setLoadStatus(scanId, 'loading');
 
       try {
         // Download the file
@@ -418,6 +425,44 @@ export class SegmentationManager {
         console.error(`[SegmentationManager] Failed to load overlay ${scanId}:`, err);
         store().setLoadStatus(scanId, 'error');
       }
+    }
+
+    if (options?.defaultVisibility) {
+      const shouldBeVisible = options.defaultVisibility === 'visible';
+      // Wait one frame so newly-loaded segment summaries are available.
+      await new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
+      const loadedForSource = store().loadedBySourceScan[compositeSourceKey] ?? {};
+      for (const descriptor of overlayDescriptors) {
+        const segId = loadedForSource[descriptor.scanId]?.segmentationId;
+        if (!segId) continue;
+        this.setAllSegmentVisibilityOnViewport(panelId, segId, shouldBeVisible);
+      }
+    }
+
+    // Keep annotation context neutral after background overlay loading.
+    // The user should explicitly pick an annotation row before edit tools become active.
+    useSegmentationStore.getState().setActiveSegmentation(null);
+    useSegmentationStore.getState().setActiveSegTool(null);
+  }
+
+  private setAllSegmentVisibilityOnViewport(
+    viewportId: string,
+    segmentationId: string,
+    visible: boolean,
+  ): void {
+    const segSummary = useSegmentationStore
+      .getState()
+      .segmentations
+      .find((s) => s.segmentationId === segmentationId);
+    const indices = (segSummary?.segments ?? [])
+      .map((segment) => segment.segmentIndex)
+      .filter((idx) => Number.isFinite(idx) && Number.isInteger(idx) && idx > 0);
+    if (indices.length === 0) return;
+
+    const managerStore = useSegmentationManagerStore.getState();
+    for (const idx of indices) {
+      segmentationService.setSegmentVisibility(viewportId, segmentationId, idx, visible);
+      managerStore.setPresentation(segmentationId, idx, { visible });
     }
   }
 
@@ -557,13 +602,18 @@ export class SegmentationManager {
    * User toggled segment visibility.
    */
   userToggledVisibility(viewportId: string, segmentationId: string, segmentIndex: number): void {
-    // Toggle in Cornerstone
-    segmentationService.toggleSegmentVisibility(viewportId, segmentationId, segmentIndex);
+    const managerStore = useSegmentationManagerStore.getState();
+    const cachedVisible = managerStore.presentation[segmentationId]?.visibility?.[segmentIndex];
+    const segStore = useSegmentationStore.getState();
+    const summary = segStore.segmentations.find((s) => s.segmentationId === segmentationId);
+    const segment = summary?.segments.find((s) => s.segmentIndex === segmentIndex);
+    const currentVisible = typeof cachedVisible === 'boolean'
+      ? cachedVisible
+      : (segment?.visible ?? segmentationService.getSegmentVisibility(viewportId, segmentationId, segmentIndex));
+    const newVisible = !currentVisible;
 
-    // Read the actual post-toggle visibility state from Cornerstone rather than
-    // inferring from the cache (which can be uninitialized or out of sync).
-    const newVisible = segmentationService.getSegmentVisibility(viewportId, segmentationId, segmentIndex);
-    useSegmentationManagerStore.getState().setPresentation(segmentationId, segmentIndex, { visible: newVisible });
+    segmentationService.setSegmentVisibility(viewportId, segmentationId, segmentIndex, newVisible);
+    managerStore.setPresentation(segmentationId, segmentIndex, { visible: newVisible });
   }
 
   /**
@@ -664,6 +714,14 @@ export class SegmentationManager {
   }
 
   /**
+   * Remove selected contour component(s), optionally filtered to a specific
+   * segmentation + segment index. Returns true if anything was removed.
+   */
+  removeSelectedContourComponents(segmentationId?: string, segmentIndex?: number): boolean {
+    return segmentationService.deleteSelectedContourComponents(segmentationId, segmentIndex);
+  }
+
+  /**
    * Rename a segmentation (the top-level label).
    */
   renameSegmentation(segmentationId: string, newLabel: string): void {
@@ -751,14 +809,10 @@ export class SegmentationManager {
       // Restore visibility — need viewport IDs to call toggleSegmentVisibility
       const viewportIds = segmentationService.getViewportIdsForSegmentation(segmentationId);
       for (const [idxStr, visible] of Object.entries(cached.visibility)) {
-        if (!visible) {
-          const idx = Number(idxStr);
-          if (!Number.isFinite(idx) || !Number.isInteger(idx) || idx <= 0) continue;
-          // toggleSegmentVisibility toggles, so only call if currently visible
-          // and we want it hidden. Since we just loaded, segments default to visible.
-          for (const vpId of viewportIds) {
-            segmentationService.toggleSegmentVisibility(vpId, segmentationId, idx);
-          }
+        const idx = Number(idxStr);
+        if (!Number.isFinite(idx) || !Number.isInteger(idx) || idx <= 0) continue;
+        for (const vpId of viewportIds) {
+          segmentationService.setSegmentVisibility(vpId, segmentationId, idx, !!visible);
         }
       }
 
@@ -776,7 +830,7 @@ export class SegmentationManager {
   }
 
   /**
-   * Capture the current presentation state (colors) from the UI store
+   * Capture the current presentation state (colors/visibility/lock) from the UI store
    * into the presentation cache. Only fills in entries not already
    * present, so user customizations are never overwritten.
    *
@@ -797,11 +851,15 @@ export class SegmentationManager {
       if (!Number.isFinite(seg.segmentIndex) || !Number.isInteger(seg.segmentIndex) || seg.segmentIndex <= 0) {
         continue;
       }
-      // Skip if this segment already has a cached color (user customization)
-      if (existing?.color[seg.segmentIndex]) continue;
+      const hasCachedColor = !!existing?.color[seg.segmentIndex];
+      const hasCachedVisibility = Object.prototype.hasOwnProperty.call(existing?.visibility ?? {}, seg.segmentIndex);
+      const hasCachedLock = Object.prototype.hasOwnProperty.call(existing?.locked ?? {}, seg.segmentIndex);
+      if (hasCachedColor && hasCachedVisibility && hasCachedLock) continue;
 
       mgrStore.setPresentation(segmentationId, seg.segmentIndex, {
-        color: seg.color as RGBA,
+        ...(hasCachedColor ? {} : { color: seg.color as RGBA }),
+        ...(hasCachedVisibility ? {} : { visible: seg.visible }),
+        ...(hasCachedLock ? {} : { locked: seg.locked }),
       });
     }
   }

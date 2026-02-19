@@ -1322,6 +1322,18 @@ export default function App() {
         effectiveScan.seriesDescription || effectiveScan.type || context.sessionLabel,
       );
 
+      // For primary-image scan switches, clear the current viewport stack
+      // immediately so stale imagery disappears while the next stack loads.
+      const currentPanelScan = useViewerStore.getState().panelScanMap[targetPanel] ?? null;
+      if (
+        currentPanelScan &&
+        currentPanelScan !== scanId &&
+        !isDerivedScan(effectiveScan)
+      ) {
+        segmentationManager.removeSegmentationsFromViewport(targetPanel);
+        setPanelImageIds((prev) => ({ ...prev, [targetPanel]: [] }));
+      }
+
       if (isSegScan(effectiveScan)) {
         // ─── SEG scan: load source images + overlay ───────────────
 
@@ -1824,79 +1836,77 @@ export default function App() {
             )
           : Promise.resolve();
 
-        // Auto-display associated SEG/RTSTRUCT annotations for this source scan
-        // when the user preference is enabled.
+        if (hasDerivedScans) {
+          await uidResolutionPromise;
+        }
+        // The user may have changed panels/scans while UID resolution was in flight.
+        if (useViewerStore.getState().panelScanMap[targetPanel] !== scanId) {
+          console.log(`[App] Skipping stale annotation attach for scan #${scanId} on ${targetPanel}`);
+          return;
+        }
+
+        const derived = derivedIndexStore.getForSource(scanId);
+        const allDerived = [...derived.segScans, ...derived.rtStructScans];
         const { autoLoadSegOnScanClick } = useSegmentationStore.getState();
-        if (autoLoadSegOnScanClick) {
-          if (hasDerivedScans) {
-            await uidResolutionPromise;
-          }
-          // The user may have changed panels/scans while UID resolution was in flight.
-          if (useViewerStore.getState().panelScanMap[targetPanel] !== scanId) {
-            console.log(`[App] Skipping stale annotation attach for scan #${scanId} on ${targetPanel}`);
-            return;
-          }
-          const derived = derivedIndexStore.getForSource(scanId);
-          const allDerived = [...derived.segScans, ...derived.rtStructScans];
-          if (allDerived.length > 0) {
-            const descriptors = allDerived.map((d) => ({
-              type: (isSegScan(d) ? 'SEG' : 'RTSTRUCT') as 'SEG' | 'RTSTRUCT',
-              scanId: d.id,
-              sessionId,
-              label: d.seriesDescription,
-            }));
-            console.log(`[App] Auto-loading ${descriptors.length} overlay(s) for source scan #${scanId}`);
-            setBrowserStatusMessage(
-              'Loading associated annotations...',
-              'loading',
-              `${descriptors.length} overlay(s) for scan #${scanId}.`,
+        if (!autoLoadSegOnScanClick) {
+          const segStore = useSegmentationStore.getState();
+          if (segStore.showPanel) segStore.togglePanel();
+        }
+
+        if (allDerived.length > 0) {
+          const descriptors = allDerived.map((d) => ({
+            type: (isSegScan(d) ? 'SEG' : 'RTSTRUCT') as 'SEG' | 'RTSTRUCT',
+            scanId: d.id,
+            sessionId,
+            label: d.seriesDescription,
+          }));
+          setBrowserStatusMessage(
+            autoLoadSegOnScanClick ? 'Loading associated annotations...' : 'Loading linked annotations...',
+            'loading',
+            `${descriptors.length} overlay(s) for scan #${scanId}.`,
+          );
+          try {
+            await segmentationManager.requestShowOverlaysForSourceScan(
+              targetPanel,
+              scanId,
+              descriptors,
+              { defaultVisibility: autoLoadSegOnScanClick ? 'visible' : 'hidden' },
             );
-            try {
-              await segmentationManager.requestShowOverlaysForSourceScan(targetPanel, scanId, descriptors);
-              // Track XNAT origin for each loaded overlay
-              const compositeKey = `${context.projectId}/${sessionId}/${scanId}`;
-              const loaded = useSegmentationManagerStore.getState().loadedBySourceScan[compositeKey];
-              if (loaded) {
-                for (const [derivedScanId, info] of Object.entries(loaded)) {
-                  useSegmentationStore.getState().setXnatOrigin(info.segmentationId, {
-                    scanId: derivedScanId, sourceScanId: scanId,
-                    projectId: context.projectId, sessionId,
-                  });
-                }
+            // Track XNAT origin for each loaded overlay
+            const compositeKey = `${context.projectId}/${sessionId}/${scanId}`;
+            const loaded = useSegmentationManagerStore.getState().loadedBySourceScan[compositeKey];
+            if (loaded) {
+              for (const [derivedScanId, info] of Object.entries(loaded)) {
+                useSegmentationStore.getState().setXnatOrigin(info.segmentationId, {
+                  scanId: derivedScanId, sourceScanId: scanId,
+                  projectId: context.projectId, sessionId,
+                });
               }
-              const segStore = useSegmentationStore.getState();
+            }
+            const segStore = useSegmentationStore.getState();
+            if (autoLoadSegOnScanClick) {
               if (!segStore.showPanel) segStore.togglePanel();
               setBrowserStatusMessage(
                 'Scan and annotations loaded',
                 'success',
                 `${descriptors.length} overlay(s) displayed for scan #${scanId}.`,
               );
-            } catch (err) {
-              console.error(`[App] Failed to auto-load overlays for source scan #${scanId}:`, err);
+            } else {
+              if (segStore.showPanel) segStore.togglePanel();
+              setBrowserStatusMessage(
+                'Scan loaded',
+                'success',
+                `${descriptors.length} annotation object(s) loaded hidden for scan #${scanId}.`,
+              );
             }
-          } else {
-            setBrowserStatusMessage(
-              'Scan loaded',
-              'success',
-              `No annotations linked to scan #${scanId}.`,
-            );
+          } catch (err) {
+            console.error(`[App] Failed to load overlays for source scan #${scanId}:`, err);
           }
         } else {
-          if (hasDerivedScans) {
-            void uidResolutionPromise.catch((err) => {
-              console.warn(
-                `[App] Background UID resolution failed for session ${sessionId} (scan #${scanId}):`,
-                err,
-              );
-            });
-          }
-          console.log('[App] Automatic annotation display is disabled — available overlays will be listed in Segments panel');
           setBrowserStatusMessage(
             'Scan loaded',
             'success',
-            hasDerivedScans
-              ? `Resolving annotations in background for scan #${scanId}.`
-              : `No linked annotations for scan #${scanId}.`,
+            `No annotations linked to scan #${scanId}.`,
           );
         }
       }
@@ -2085,7 +2095,7 @@ export default function App() {
         // source scan, then delegate loading to the manager which handles:
         // viewport readiness, epoch staleness, load/attach, presentation state.
         const { autoLoadSegOnScanClick } = useSegmentationStore.getState();
-        if (autoLoadSegOnScanClick && hasDerivedScans) {
+        if (hasDerivedScans) {
           await derivedResolutionPromise;
           const derivedIndex = useSessionDerivedIndexStore.getState();
           const overlayPromises: Promise<void>[] = [];
@@ -2120,6 +2130,7 @@ export default function App() {
                   panelInfo.pid,
                   srcScanId,
                   descriptors,
+                  { defaultVisibility: autoLoadSegOnScanClick ? 'visible' : 'hidden' },
                 ).then(() => {
                   // Track XNAT origin for each loaded overlay (for overwrite-on-save, session-scoped)
                   const compositeSourceKey = `${context.projectId}/${sessionId}/${srcScanId}`;
@@ -2143,30 +2154,26 @@ export default function App() {
           if (overlayPromises.length > 0) {
             await Promise.all(overlayPromises);
 
-            // Open segmentation panel if any overlays were loaded
             const segStore = useSegmentationStore.getState();
-            if (!segStore.showPanel) segStore.togglePanel();
-            setBrowserStatusMessage(
-              'Session loaded',
-              'success',
-              `${results.length} scan(s) loaded with ${overlayPromises.length} annotation group(s).`,
-            );
-          }
-        } else if (!autoLoadSegOnScanClick) {
-          if (hasDerivedScans) {
-            void derivedResolutionPromise.catch((err) => {
-              console.warn(
-                `[App] Background UID resolution failed for session ${sessionId}:`,
-                err,
+            if (autoLoadSegOnScanClick) {
+              if (!segStore.showPanel) segStore.togglePanel();
+              setBrowserStatusMessage(
+                'Session loaded',
+                'success',
+                `${results.length} scan(s) loaded with ${overlayPromises.length} annotation group(s) displayed.`,
               );
-            });
+            } else {
+              if (segStore.showPanel) segStore.togglePanel();
+              setBrowserStatusMessage(
+                'Session loaded',
+                'success',
+                `${results.length} scan(s) loaded with ${overlayPromises.length} annotation group(s) hidden.`,
+              );
+            }
+          } else if (!autoLoadSegOnScanClick) {
+            const segStore = useSegmentationStore.getState();
+            if (segStore.showPanel) segStore.togglePanel();
           }
-          console.log('[App] Automatic annotation display is disabled — skipping session overlay attach');
-          setBrowserStatusMessage(
-            'Session loaded',
-            'success',
-            `${results.length} scan(s) loaded. Annotations available in panel.`,
-          );
         }
 
         // ─── Check for auto-save recovery (temp resource files) ──────
