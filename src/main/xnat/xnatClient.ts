@@ -33,6 +33,33 @@ export class XnatClient {
   /** Set by markDisconnected() to stop concurrent in-flight requests from retrying */
   private _disconnected = false;
   private scanSopClassUidCache = new Map<string, string | null>();
+  /** Cached CSRF token used for mutating requests (PUT/POST/PATCH/DELETE). */
+  private csrfToken: string | null = null;
+  private loggedCsrfMissingWarning = false;
+  /** Candidate cookie names used by XNAT/Spring deployments for CSRF token transport. */
+  private static readonly CSRF_COOKIE_NAMES = [
+    'XNAT_CSRF',
+    'XSRF-TOKEN',
+    'CSRF-TOKEN',
+    '_csrf',
+    'CSRF',
+  ];
+  /** Candidate endpoints that may return/refresh CSRF token material on different XNAT versions. */
+  private static readonly CSRF_TOKEN_ENDPOINTS = [
+    '/data/services/tokens/XSRF',
+    '/data/services/tokens/CSRF',
+    '/data/services/tokens/xsrf',
+    '/data/services/tokens/csrf',
+    '/xapi/auth/csrf',
+    '/xapi/auth/CSRF',
+    '/xapi/auth/xsrf',
+    '/xapi/auth/XSRF',
+  ];
+  private static readonly CSRF_TOKEN_METHODS: ReadonlyArray<'GET' | 'POST' | 'PUT'> = [
+    'GET',
+    'POST',
+    'PUT',
+  ];
 
   constructor(baseUrl: string) {
     // Normalize base URL (remove trailing slash)
@@ -52,6 +79,7 @@ export class XnatClient {
   }): Promise<void> {
     this.username = opts.username;
     this.serverCookies = opts.serverCookies ?? [];
+    this.csrfToken = this.extractCsrfFromServerCookies(this.serverCookies);
     await this.setAllCookies(opts.jsessionId, this.serverCookies);
     console.log(`[xnatClient] Browser login complete: user=${this.username}`);
   }
@@ -138,6 +166,7 @@ export class XnatClient {
 
     this.jsessionId = null;
     this.serverCookies = [];
+    this.csrfToken = null;
     this.username = '';
   }
 
@@ -172,7 +201,14 @@ export class XnatClient {
       if (c.name === 'JSESSIONID') continue;
       parts.push(`${c.name}=${c.value}`);
     }
-    return { Cookie: parts.join('; ') };
+    const headers: Record<string, string> = { Cookie: parts.join('; ') };
+    if (this.csrfToken) {
+      headers['X-XSRF-TOKEN'] = this.csrfToken;
+      headers['X-CSRF-TOKEN'] = this.csrfToken;
+      headers.XNAT_CSRF = this.csrfToken;
+      headers['X-Requested-With'] = 'XMLHttpRequest';
+    }
+    return headers;
   }
 
   /**
@@ -180,8 +216,301 @@ export class XnatClient {
    * cookie jar. session.fetch() automatically sends cookies for the
    * matching domain.
    */
-  private xfetch(url: string, options?: RequestInit): Promise<Response> {
-    return electronSession.defaultSession.fetch(url, options);
+  private rawFetch(url: string, options?: RequestInit): Promise<Response> {
+    // Explicitly set fetch mode/credentials for non-renderer requests so
+    // Chromium does not downgrade to no-cors semantics (which can strip
+    // custom CSRF headers on mutating requests).
+    const normalized: RequestInit = {
+      credentials: 'include',
+      cache: 'no-store',
+      redirect: 'follow',
+      ...(options ?? {}),
+    };
+    if (!normalized.mode) {
+      normalized.mode = 'cors';
+    }
+    return electronSession.defaultSession.fetch(url, normalized);
+  }
+
+  private extractCsrfFromServerCookies(cookies: ServerCookie[]): string | null {
+    for (const name of XnatClient.CSRF_COOKIE_NAMES) {
+      const hit = cookies.find((c) => c.name.toLowerCase() === name.toLowerCase() && c.value);
+      if (hit?.value) return hit.value;
+    }
+    return null;
+  }
+
+  private async readCsrfFromDefaultSessionCookies(): Promise<string | null> {
+    try {
+      const cookies = await electronSession.defaultSession.cookies.get({ url: this.baseUrl });
+      for (const name of XnatClient.CSRF_COOKIE_NAMES) {
+        const hit = cookies.find((c) => c.name.toLowerCase() === name.toLowerCase() && c.value);
+        if (hit?.value) {
+          return hit.value;
+        }
+      }
+      const heuristic = cookies.find((c) => /csrf|xsrf/i.test(c.name) && c.value);
+      if (heuristic?.value) {
+        return heuristic.value;
+      }
+    } catch {
+      // Ignore cookie-read failures and continue with endpoint probing.
+    }
+    return null;
+  }
+
+  private async getDefaultSessionCookieNames(): Promise<string[]> {
+    try {
+      const cookies = await electronSession.defaultSession.cookies.get({ url: this.baseUrl });
+      return cookies.map((c) => c.name);
+    } catch {
+      return [];
+    }
+  }
+
+  private extractCsrfFromResponse(resp: Response, bodyText: string): string | null {
+    const headerCandidates = ['x-xsrf-token', 'x-csrf-token', 'xnat_csrf'];
+    for (const name of headerCandidates) {
+      const value = resp.headers.get(name);
+      if (value && value.trim()) return value.trim();
+    }
+
+    const text = (bodyText || '').trim();
+    if (!text) return null;
+    if (text.startsWith('<')) return null; // HTML status/login pages are not token payloads
+
+    // Plain text token.
+    if (!text.startsWith('{') && !text.startsWith('[')) {
+      const normalized = text.replace(/^"+|"+$/g, '').trim();
+      return normalized || null;
+    }
+
+    // JSON payload token.
+    try {
+      const parsed = JSON.parse(text) as Record<string, unknown>;
+      const candidates = ['token', 'csrfToken', 'csrf', '_csrf', 'value'];
+      for (const key of candidates) {
+        const raw = parsed[key];
+        if (typeof raw === 'string' && raw.trim()) return raw.trim();
+      }
+    } catch {
+      // Not parseable JSON — ignore.
+    }
+    return null;
+  }
+
+  private extractCsrfFromHtml(htmlText: string): string | null {
+    const text = htmlText || '';
+    if (!text) return null;
+    const patterns = [
+      /name=["']_csrf["'][^>]*value=["']([^"']+)["']/i,
+      /name=["']csrf-token["'][^>]*content=["']([^"']+)["']/i,
+      /name=["']x-csrf-token["'][^>]*content=["']([^"']+)["']/i,
+      /"_csrf"\s*:\s*"([^"]+)"/i,
+      /"csrfToken"\s*:\s*"([^"]+)"/i,
+      /window\._csrf\s*=\s*["']([^"']+)["']/i,
+    ];
+    for (const pattern of patterns) {
+      const match = text.match(pattern);
+      const value = match?.[1]?.trim();
+      if (value) return value;
+    }
+    return null;
+  }
+
+  private async ensureCsrfToken(): Promise<string | null> {
+    if (this.csrfToken) return this.csrfToken;
+
+    const cookieToken = await this.readCsrfFromDefaultSessionCookies();
+    if (cookieToken) {
+      this.csrfToken = cookieToken;
+      console.log('[xnatClient] CSRF token resolved from cookie jar');
+      return cookieToken;
+    }
+
+    // Prime server session state first. Some deployments only mint CSRF
+    // after a normal authenticated API request.
+    try {
+      await this.rawFetch(`${this.baseUrl}/data/JSESSION`, {
+        method: 'GET',
+        headers: {
+          Accept: 'application/json, text/plain, */*',
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+      });
+      const tokenAfterPrime = await this.readCsrfFromDefaultSessionCookies();
+      if (tokenAfterPrime) {
+        this.csrfToken = tokenAfterPrime;
+        console.log('[xnatClient] CSRF token resolved from cookie jar after JSESSION prime');
+        return tokenAfterPrime;
+      }
+    } catch {
+      // Continue with endpoint probing.
+    }
+
+    const probeResults: string[] = [];
+    for (const endpoint of XnatClient.CSRF_TOKEN_ENDPOINTS) {
+      for (const method of XnatClient.CSRF_TOKEN_METHODS) {
+        try {
+          const headers = new Headers({
+            Accept: 'application/json, text/plain, */*',
+            'X-Requested-With': 'XMLHttpRequest',
+            'X-XSRF-TOKEN': 'Fetch',
+            'X-CSRF-TOKEN': 'Fetch',
+          });
+          let body: string | undefined;
+          if (method !== 'GET') {
+            headers.set('Content-Type', 'application/json');
+            body = '{}';
+          }
+          const resp = await this.rawFetch(`${this.baseUrl}${endpoint}`, {
+            method,
+            headers,
+            body,
+          });
+          const text = await resp.text().catch(() => '');
+          const extracted = this.extractCsrfFromResponse(resp, text);
+          if (extracted) {
+            this.csrfToken = extracted;
+            console.log(`[xnatClient] CSRF token resolved from endpoint ${method} ${endpoint}`);
+            return extracted;
+          }
+          const refreshedCookieToken = await this.readCsrfFromDefaultSessionCookies();
+          if (refreshedCookieToken) {
+            this.csrfToken = refreshedCookieToken;
+            console.log(`[xnatClient] CSRF token refreshed in cookie jar via ${method} ${endpoint}`);
+            return refreshedCookieToken;
+          }
+          const snippet = text.replace(/\s+/g, ' ').slice(0, 120);
+          probeResults.push(`${method} ${endpoint}:${resp.status}${snippet ? `:${snippet}` : ''}`);
+        } catch {
+          probeResults.push(`${method} ${endpoint}:error`);
+          // Try next method/endpoint variant.
+        }
+      }
+    }
+
+    // Fallback: some deployments only expose CSRF token in authenticated HTML pages.
+    const htmlFallbacks = [
+      '/app/template/Login.vm',
+      '/app/',
+      '/',
+    ];
+    for (const endpoint of htmlFallbacks) {
+      try {
+        const resp = await this.rawFetch(`${this.baseUrl}${endpoint}`, {
+          method: 'GET',
+          headers: {
+            Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'X-Requested-With': 'XMLHttpRequest',
+          },
+        });
+        const text = await resp.text().catch(() => '');
+        const htmlToken = this.extractCsrfFromHtml(text);
+        if (htmlToken) {
+          this.csrfToken = htmlToken;
+          console.log(`[xnatClient] CSRF token resolved from HTML fallback ${endpoint}`);
+          return htmlToken;
+        }
+        probeResults.push(`GET ${endpoint}:${resp.status}:html-no-token`);
+      } catch {
+        probeResults.push(`GET ${endpoint}:error`);
+      }
+    }
+
+    const names = await this.getDefaultSessionCookieNames();
+    console.warn(
+      '[xnatClient] Failed to resolve CSRF token.',
+      `probes=${probeResults.join(', ') || '<none>'}`,
+      `cookies=${names.join(', ') || '<none>'}`,
+    );
+
+    return null;
+  }
+
+  private isInvalidCsrfResponse(resp: Response, bodyText: string): boolean {
+    const text = bodyText.toLowerCase();
+    const csrfText = (
+      text.includes('invalid csrf')
+      || text.includes('invalidcsrf')
+      || text.includes('invalidcsrfexception')
+      || text.includes('csrftoken')
+      || text.includes('csrf')
+    );
+    if (!csrfText) return false;
+    return (
+      resp.status === 403
+      || resp.status === 400
+      || resp.status === 412
+      || resp.status === 500
+      || text.includes('forbidden')
+    );
+  }
+
+  private async xfetch(url: string, options?: RequestInit): Promise<Response> {
+    const method = (options?.method ?? 'GET').toUpperCase();
+    const isMutating = method === 'POST' || method === 'PUT' || method === 'PATCH' || method === 'DELETE';
+    if (!isMutating) {
+      return this.rawFetch(url, options);
+    }
+
+    const attachCsrfHeaders = (token: string | null): Headers => {
+      const headers = new Headers(options?.headers ?? {});
+      headers.set('X-Requested-With', 'XMLHttpRequest');
+      if (token) {
+        headers.set('X-XSRF-TOKEN', token);
+        headers.set('X-CSRF-TOKEN', token);
+        headers.set('XNAT_CSRF', token);
+        headers.set('XSRF-TOKEN', token);
+      }
+      return headers;
+    };
+
+    const csrfToken = await this.ensureCsrfToken();
+    if (csrfToken) {
+      this.loggedCsrfMissingWarning = false;
+    } else if (!this.loggedCsrfMissingWarning) {
+      this.loggedCsrfMissingWarning = true;
+      console.warn(`[xnatClient] No CSRF token resolved for ${method} ${url}`);
+    }
+
+    let response = await this.rawFetch(url, {
+      ...(options ?? {}),
+      headers: attachCsrfHeaders(csrfToken),
+    });
+
+    // Some XNAT deployments rotate CSRF tokens server-side and may return
+    // either 403 or 500 InvalidCsrfException. Retry once on CSRF failures.
+    if (!response.ok) {
+      const firstBody = await response.text().catch(() => '');
+      if (this.isInvalidCsrfResponse(response, firstBody)) {
+        this.csrfToken = null;
+        const refreshedToken = await this.ensureCsrfToken();
+        if (refreshedToken) {
+          console.warn('[xnatClient] Retrying mutating request after CSRF token refresh');
+          response = await this.rawFetch(url, {
+            ...(options ?? {}),
+            headers: attachCsrfHeaders(refreshedToken),
+          });
+        } else {
+          // Recreate the consumed response body so callers receive the original detail.
+          response = new Response(firstBody, {
+            status: response.status,
+            statusText: response.statusText,
+            headers: response.headers,
+          });
+        }
+      } else {
+        // Recreate the consumed body for non-CSRF callers too.
+        response = new Response(firstBody, {
+          status: response.status,
+          statusText: response.statusText,
+          headers: response.headers,
+        });
+      }
+    }
+
+    return response;
   }
 
   /**
@@ -335,7 +664,7 @@ export class XnatClient {
     sessionId: string,
     options?: { includeSopClassUID?: boolean },
   ): Promise<Array<{
-    id: string; type?: string; seriesDescription?: string;
+    id: string; xsiType?: string; type?: string; seriesDescription?: string;
     quality?: string; frames?: number; modality?: string; sopClassUID?: string;
   }>> {
     const includeSopClassUID = options?.includeSopClassUID === true;
@@ -358,6 +687,7 @@ export class XnatClient {
           : undefined;
       return {
         id: scanId,
+        xsiType: fields.xsiType,
         type: fields.type,
         seriesDescription: fields.series_description,
         quality: fields.quality,

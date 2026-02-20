@@ -50,6 +50,7 @@ export const IPC = {
   // Export (renderer → main)
   EXPORT_SAVE_SCREENSHOT: 'export:save-screenshot',
   EXPORT_COPY_CLIPBOARD: 'export:copy-clipboard',
+  EXPORT_COPY_VIEWPORT_CAPTURE: 'export:copy-viewport-capture',
   EXPORT_SAVE_DICOM: 'export:save-dicom',
   EXPORT_SAVE_DICOM_SEG: 'export:save-dicom-seg',
   EXPORT_SAVE_ALL_SLICES: 'export:save-all-slices',

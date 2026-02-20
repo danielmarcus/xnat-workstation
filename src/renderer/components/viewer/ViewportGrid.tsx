@@ -22,6 +22,9 @@ export default function ViewportGrid({ panelImageIds }: ViewportGridProps) {
   const layoutConfig = useViewerStore((s) => s.layoutConfig);
   const activeViewportId = useViewerStore((s) => s.activeViewportId);
   const setActiveViewport = useViewerStore((s) => s.setActiveViewport);
+  const sessionScans = useViewerStore((s) => s.sessionScans);
+  const panelXnatContextMap = useViewerStore((s) => s.panelXnatContextMap);
+  const panelScanMap = useViewerStore((s) => s.panelScanMap);
 
   return (
     <div
@@ -38,6 +41,11 @@ export default function ViewportGrid({ panelImageIds }: ViewportGridProps) {
         const pid = panelId(i);
         const imageIds = panelImageIds[pid] ?? [];
         const isActive = pid === activeViewportId;
+        const loadingScanId = panelXnatContextMap[pid]?.scanId || panelScanMap[pid] || '';
+        const loadingScanLabel = sessionScans?.find((scan) => scan.id === loadingScanId)?.seriesDescription?.trim() ?? '';
+        const loadingMessage = loadingScanId
+          ? `Loading #${loadingScanId}${loadingScanLabel ? ` ${loadingScanLabel}` : ''}`
+          : 'Select a scan to load';
 
         return (
           <div
@@ -58,7 +66,7 @@ export default function ViewportGrid({ panelImageIds }: ViewportGridProps) {
               <div className="w-full h-full bg-black flex items-center justify-center">
                 <div className="text-center text-zinc-600 text-sm">
                   <p>Panel {i + 1}</p>
-                  <p className="text-xs mt-1">Select a scan to load</p>
+                  <p className="text-xs mt-1">{loadingMessage}</p>
                 </div>
               </div>
             )}

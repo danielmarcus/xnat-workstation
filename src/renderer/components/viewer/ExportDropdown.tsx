@@ -180,23 +180,42 @@ export default function ExportDropdown() {
     }
   }, [activeViewportId]);
 
-  const getActivePanelBounds = useCallback(() => {
-    const panelEl = document.querySelector(`[data-panel-id="${activeViewportId}"]`) as HTMLElement | null;
-    if (!panelEl) return null;
-    const rect = panelEl.getBoundingClientRect();
+  const boundsFromElement = useCallback((el: HTMLElement | null) => {
+    if (!el) return null;
+    const rect = el.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) return null;
     return {
       x: Math.floor(rect.left),
       y: Math.floor(rect.top),
-      width: Math.floor(rect.width),
-      height: Math.floor(rect.height),
+      width: Math.ceil(rect.width),
+      height: Math.ceil(rect.height),
     };
-  }, [activeViewportId]);
+  }, []);
+
+  const getActivePanelBounds = useCallback(() => {
+    const panelEl = document.querySelector(`[data-panel-id="${activeViewportId}"]`) as HTMLElement | null;
+    const panelBounds = boundsFromElement(panelEl);
+    if (panelBounds) return panelBounds;
+
+    // Fallback: use the viewport root if panel attr lookup fails for any reason.
+    const viewport = viewportService.getViewport(activeViewportId);
+    const viewportCanvas = viewport?.getCanvas() as HTMLCanvasElement | undefined;
+    const viewportRoot = (viewportCanvas?.closest('[data-panel-id]') as HTMLElement | null) ?? viewportCanvas?.parentElement ?? null;
+    return boundsFromElement(viewportRoot as HTMLElement | null);
+  }, [activeViewportId, boundsFromElement]);
+
+  const waitForCompositedFrame = useCallback(async () => {
+    // Ensure dropdown closes and Cornerstone annotation overlays have rendered.
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+  }, []);
 
   const handleSaveImage = useCallback(async () => {
     setBusy(true);
     setOpen(false);
     try {
+      await waitForCompositedFrame();
+
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19);
       const bounds = getActivePanelBounds();
 
@@ -228,18 +247,23 @@ export default function ExportDropdown() {
     } finally {
       setBusy(false);
     }
-  }, [captureCanvas, getActivePanelBounds]);
+  }, [captureCanvas, getActivePanelBounds, waitForCompositedFrame]);
 
   const handleCopyClipboard = useCallback(async () => {
     setBusy(true);
     setOpen(false);
     try {
-      const dataUrl = captureCanvas();
-      if (!dataUrl) {
-        setToast({ message: 'No image to copy', type: 'error' });
-        return;
-      }
-      const result = await window.electronAPI.export.copyToClipboard(dataUrl);
+      await waitForCompositedFrame();
+      const bounds = getActivePanelBounds();
+
+      const result = bounds
+        ? await window.electronAPI.export.copyViewportCapture(bounds)
+        : await (async () => {
+            const dataUrl = captureCanvas();
+            if (!dataUrl) return { ok: false, error: 'No image to copy' };
+            return window.electronAPI.export.copyToClipboard(dataUrl);
+          })();
+
       if (result.ok) {
         setToast({ message: 'Copied to clipboard', type: 'success' });
       } else {
@@ -251,7 +275,7 @@ export default function ExportDropdown() {
     } finally {
       setBusy(false);
     }
-  }, [captureCanvas]);
+  }, [captureCanvas, getActivePanelBounds, waitForCompositedFrame]);
 
   const handleSaveAllSlices = useCallback(async () => {
     setBusy(true);

@@ -30,6 +30,7 @@ import {
   useSessionDerivedIndexStore,
   isDerivedScan,
   isSegScan,
+  isSrScan,
   isRtStructScan,
 } from '../../stores/sessionDerivedIndexStore';
 
@@ -104,6 +105,15 @@ const NON_THUMB_SOP_CLASS_UIDS = new Set([
 ]);
 
 function scanSupportsThumbnail(scan: XnatScan): boolean {
+  const xsiType = (scan.xsiType ?? '').trim().toLowerCase();
+  if (
+    xsiType === 'xnat:segscandata' ||
+    xsiType === 'xnat:srscandata' ||
+    xsiType === 'xnat:otherdicomscandata'
+  ) {
+    return false;
+  }
+
   const sopClassUID = (scan.sopClassUID ?? '').trim();
   if (sopClassUID.length > 0) {
     if (
@@ -136,6 +146,7 @@ function scanSupportsThumbnail(scan: XnatScan): boolean {
 }
 
 function isStructuredReportScan(scan: XnatScan): boolean {
+  if (isSrScan(scan)) return true;
   const sopClassUID = (scan.sopClassUID ?? '').trim();
   if (sopClassUID.startsWith('1.2.840.10008.5.1.4.1.1.88.')) {
     return true;
@@ -152,6 +163,10 @@ function isStructuredReportScan(scan: XnatScan): boolean {
 }
 
 function isBrowsableSourceScan(scan: XnatScan): boolean {
+  const xsiType = (scan.xsiType ?? '').trim().toLowerCase();
+  // xnat:otherDicomScanData may include RTSTRUCT (handled as derived) and
+  // other non-primary SOP classes. Filter non-derived "other DICOM" for now.
+  if (xsiType === 'xnat:otherdicomscandata' && !isRtStructScan(scan)) return false;
   return !isDerivedScan(scan) && !isStructuredReportScan(scan);
 }
 
@@ -301,17 +316,6 @@ function ScanIcon() {
       <rect x="2" y="2" width="12" height="12" rx="1.5" />
       <circle cx="5.5" cy="5.5" r="1.5" />
       <polyline points="2,12 5,9 7,11 10,7 14,12" />
-    </svg>
-  );
-}
-
-function LoadAllIcon() {
-  return (
-    <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="1.5" y="1.5" width="5.5" height="5.5" rx="1" />
-      <rect x="9" y="1.5" width="5.5" height="5.5" rx="1" />
-      <rect x="1.5" y="9" width="5.5" height="5.5" rx="1" />
-      <rect x="9" y="9" width="5.5" height="5.5" rx="1" />
     </svg>
   );
 }
@@ -554,9 +558,7 @@ export default function XnatBrowser({
           setSelectedSubject(subject);
           setSelectedSession(session);
           setLevel('scans');
-          const data = await window.electronAPI.xnat.getScans(target.sessionId, {
-            includeSopClassUID: true,
-          });
+          const data = await window.electronAPI.xnat.getScans(target.sessionId);
           setScans(data);
           maybeResolveSessionAssociations(target.sessionId, data);
           // Auto-load session
@@ -656,10 +658,10 @@ export default function XnatBrowser({
     });
 
     try {
-      const data = await window.electronAPI.xnat.getScans(session.id, {
-        includeSopClassUID: true,
-      });
+      const data = await window.electronAPI.xnat.getScans(session.id);
       setSessionScansById((prev) => ({ ...prev, [session.id]: data }));
+      // Lazy-load overlay badge counts only after this session's scans are expanded.
+      maybeResolveSessionAssociations(session.id, data);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to load scans';
       setSessionScansErrorById((prev) => ({ ...prev, [session.id]: msg }));
@@ -667,7 +669,7 @@ export default function XnatBrowser({
     } finally {
       setSessionScansLoadingById((prev) => ({ ...prev, [session.id]: false }));
     }
-  }, [sessionScansById, sessionScansLoadingById]);
+  }, [sessionScansById, sessionScansLoadingById, maybeResolveSessionAssociations]);
 
   const toggleSessionExpanded = useCallback((session: XnatSession) => {
     setExpandedSessionIds((prev) => {
@@ -894,9 +896,7 @@ export default function XnatBrowser({
     setLevel('scans');
     setLoading(true);
     try {
-      const data = await window.electronAPI.xnat.getScans(session.id, {
-        includeSopClassUID: true,
-      });
+      const data = await window.electronAPI.xnat.getScans(session.id);
       setScans(data);
       maybeResolveSessionAssociations(session.id, data);
     } catch (err) {
@@ -1014,9 +1014,7 @@ export default function XnatBrowser({
         const data = await window.electronAPI.xnat.getSessions(selectedProject.id, selectedSubject.id);
         setSessions(data);
       } else if (level === 'scans' && selectedSession) {
-        const data = await window.electronAPI.xnat.getScans(selectedSession.id, {
-          includeSopClassUID: true,
-        });
+        const data = await window.electronAPI.xnat.getScans(selectedSession.id);
         setScans(data);
         maybeResolveSessionAssociations(selectedSession.id, data);
       }
@@ -1295,7 +1293,6 @@ export default function XnatBrowser({
                     const isSessionLoading = Boolean(sessionScansLoadingById[session.id]);
                     const sessionError = sessionScansErrorById[session.id];
                     const sessionScans = getSourceScansForSession(session.id);
-                    const overlayCount = (sessionScansById[session.id] ?? []).filter(isDerivedScan).length;
                     const isPinnedSession = isPinned(pins, 'session', session.id);
 
                     return (
@@ -1367,26 +1364,6 @@ export default function XnatBrowser({
                               <div className="text-[11px] text-zinc-600 py-2">No source scans in this session.</div>
                             ) : (
                               <div className="space-y-2">
-                                {onLoadSession && sessionScans.length > 1 && selectedProject && selectedSubject && (
-                                  <button
-                                    onClick={() => {
-                                      const allScans = sessionScansById[session.id] ?? [];
-                                      if (!allScans.length) return;
-                                      onLoadSession(session.id, allScans, {
-                                        projectId: selectedProject.id,
-                                        subjectId: selectedSubject.id,
-                                        sessionLabel: session.label,
-                                        projectName: selectedProject.name,
-                                        subjectLabel: selectedSubject.label,
-                                      });
-                                    }}
-                                    className="w-full bg-blue-600 hover:bg-blue-500 text-white text-[11px] font-medium px-2.5 py-1.5 rounded-md transition-colors flex items-center justify-center gap-1.5"
-                                  >
-                                    <LoadAllIcon />
-                                    Load All Scans ({sessionScans.length}{overlayCount > 0 ? ` + ${overlayCount} overlays` : ''})
-                                  </button>
-                                )}
-
                                 {scanViewMode === 'grid' ? (
                                   <div className="grid grid-cols-2 gap-2">
                                     {sessionScans.map((scan) => {
@@ -1419,8 +1396,7 @@ export default function XnatBrowser({
                                               #{scan.id} {scan.seriesDescription || scan.type || 'Unknown'}
                                             </div>
                                             <div className="text-[10px] text-zinc-500 tabular-nums truncate">
-                                              {scan.modality || scan.type || 'Scan'}
-                                              {scan.frames != null ? ` · ${scan.frames} frames` : ''}
+                                              {scan.frames != null ? `${scan.frames} frames` : ''}
                                             </div>
                                             {(overlayCounts.seg > 0 || overlayCounts.rt > 0) && (
                                               <div className="text-[10px] mt-1">
@@ -1460,11 +1436,10 @@ export default function XnatBrowser({
                                             {scan.seriesDescription || scan.type || 'Unknown'}
                                           </div>
                                           <div className="text-[11px] text-zinc-600 tabular-nums">
-                                            {scan.modality || scan.type || 'Scan'}
-                                            {scan.frames != null ? ` · ${scan.frames} frames` : ''}
+                                            {scan.frames != null ? `${scan.frames} frames` : ''}
                                             {(overlayCounts.seg > 0 || overlayCounts.rt > 0) && (
                                               <>
-                                                {' · '}
+                                                {scan.frames != null ? ' · ' : ''}
                                                 {overlayCounts.seg > 0 && (
                                                   <span className="inline-flex items-center gap-1 mr-2 text-purple-300">
                                                     <IconSegmentationAnnotation className="w-3 h-3" />
@@ -1495,31 +1470,6 @@ export default function XnatBrowser({
                 </div>
               )
             )}
-
-            {level === 'scans' && onLoadSession && sourceScans.length > 1 && selectedSession && (() => {
-              const overlayCount = scans.filter(isDerivedScan).length;
-              return (
-                <div className="px-3 py-2.5 border-b border-zinc-800">
-                  <button
-                    onClick={() => {
-                      if (selectedProject && selectedSubject) {
-                        onLoadSession(selectedSession.id, scans, {
-                          projectId: selectedProject.id,
-                          subjectId: selectedSubject.id,
-                          sessionLabel: selectedSession.label,
-                          projectName: selectedProject.name,
-                          subjectLabel: selectedSubject.label,
-                        });
-                      }
-                    }}
-                    className="w-full bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium px-3 py-2 rounded-md transition-colors flex items-center justify-center gap-2"
-                  >
-                    <LoadAllIcon />
-                    Load All Scans ({sourceScans.length}{overlayCount > 0 ? ` + ${overlayCount} overlays` : ''})
-                  </button>
-                </div>
-              );
-            })()}
 
             {level === 'scans' && (
               scanViewMode === 'grid' ? (
@@ -1561,8 +1511,7 @@ export default function XnatBrowser({
                               #{s.id} {s.seriesDescription || s.type || 'Unknown'}
                             </div>
                             <div className="text-[10px] text-zinc-500 tabular-nums">
-                              {s.modality || s.type || 'Scan'}
-                              {s.frames != null ? ` · ${s.frames}` : ''}
+                              {s.frames != null ? `${s.frames} frames` : ''}
                             </div>
                             {(overlayCounts.seg > 0 || overlayCounts.rt > 0) && (
                               <div className="text-[10px] mt-1">
@@ -1599,18 +1548,13 @@ export default function XnatBrowser({
                             <div className="text-sm text-zinc-200 font-medium truncate">
                               <span className="text-zinc-500 mr-1.5">#{s.id}</span>
                               {s.seriesDescription || s.type || 'Unknown'}
-                              {s.modality && (
-                                <span className="ml-2 text-[10px] bg-zinc-700/80 text-zinc-300 px-1.5 py-0.5 rounded font-normal">
-                                  {s.modality}
-                                </span>
-                              )}
                             </div>
                             <div className="text-[11px] text-zinc-600 tabular-nums">
                               {s.type && <span>{s.type}</span>}
-                              {s.frames != null && ` · ${s.frames} frames`}
+                              {s.frames != null && (s.type ? ` · ${s.frames} frames` : `${s.frames} frames`)}
                               {(overlayCounts.seg > 0 || overlayCounts.rt > 0) && (
                                 <>
-                                  {' · '}
+                                  {(s.type || s.frames != null) ? ' · ' : ''}
                                   {overlayCounts.seg > 0 && (
                                     <span className="inline-flex items-center gap-1 mr-2 text-purple-300">
                                       <IconSegmentationAnnotation className="w-3 h-3" />

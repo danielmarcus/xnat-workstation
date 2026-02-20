@@ -24,17 +24,53 @@ export interface DerivedScanIndex {
 
 const SEG_SOP_CLASS_UID = '1.2.840.10008.5.1.4.1.1.66.4';
 const RTSTRUCT_SOP_CLASS_UID = '1.2.840.10008.5.1.4.1.1.481.3';
+const XSI_SEG = 'xnat:segscandata';
+const XSI_SR = 'xnat:srscandata';
+const XSI_OTHER_DICOM = 'xnat:otherdicomscandata';
+
+function norm(value: string | undefined): string {
+  return (value ?? '').trim().toLowerCase();
+}
 
 export function isSegScan(scan: XnatScan): boolean {
-  return scan.sopClassUID === SEG_SOP_CLASS_UID;
+  const xsiType = norm(scan.xsiType);
+  if (xsiType === XSI_SEG) return true;
+  if (scan.sopClassUID === SEG_SOP_CLASS_UID) return true;
+  return norm(scan.type) === 'seg';
 }
 
 export function isRtStructScan(scan: XnatScan): boolean {
-  return scan.sopClassUID === RTSTRUCT_SOP_CLASS_UID;
+  const xsiType = norm(scan.xsiType);
+  if (scan.sopClassUID === RTSTRUCT_SOP_CLASS_UID) return true;
+
+  // Metadata-first path requested by product:
+  // RTSTRUCT rows are expected to arrive as xnat:otherDicomScanData.
+  // Guard with type/description heuristics so other DICOM objects under the same
+  // xsiType are filtered out for now.
+  if (xsiType === XSI_OTHER_DICOM) {
+    const type = norm(scan.type);
+    const desc = norm(scan.seriesDescription);
+    return (
+      type === 'rtstruct' ||
+      type === 'rt structure set' ||
+      type === 'structure' ||
+      type === 'structure set' ||
+      desc.includes('rtstruct') ||
+      desc.includes('rt structure') ||
+      desc.includes('structure set')
+    );
+  }
+  return false;
 }
 
 export function isDerivedScan(scan: XnatScan): boolean {
   return isSegScan(scan) || isRtStructScan(scan);
+}
+
+export function isSrScan(scan: XnatScan): boolean {
+  const xsiType = norm(scan.xsiType);
+  if (xsiType === XSI_SR) return true;
+  return norm(scan.modality) === 'sr' || norm(scan.type) === 'sr';
 }
 
 interface SessionDerivedIndexState {

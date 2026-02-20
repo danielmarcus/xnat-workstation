@@ -124,6 +124,36 @@ export function registerExportHandlers(): void {
     },
   );
 
+  // ─── Copy Viewport Region Capture to Clipboard ───────────────
+  ipcMain.handle(
+    IPC.EXPORT_COPY_VIEWPORT_CAPTURE,
+    async (
+      _event,
+      bounds: { x: number; y: number; width: number; height: number },
+    ) => {
+      try {
+        const win = BrowserWindow.getFocusedWindow();
+        if (!win) return { ok: false, error: 'No focused window' };
+
+        const x = Math.floor(bounds?.x ?? 0);
+        const y = Math.floor(bounds?.y ?? 0);
+        const width = Math.floor(bounds?.width ?? 0);
+        const height = Math.floor(bounds?.height ?? 0);
+        if (width <= 0 || height <= 0) {
+          return { ok: false, error: 'Invalid viewport bounds' };
+        }
+
+        const image = await win.webContents.capturePage({ x, y, width, height });
+        clipboard.writeImage(image);
+        return { ok: true };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error('[exportHandlers] copyViewportCapture error:', msg);
+        return { ok: false, error: msg };
+      }
+    },
+  );
+
   // ─── Save All Slices to Folder ───────────────────────────────
   ipcMain.handle(
     IPC.EXPORT_SAVE_ALL_SLICES,

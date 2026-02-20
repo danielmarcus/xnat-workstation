@@ -7,6 +7,7 @@
  */
 import { useViewerStore } from '../../stores/viewerStore';
 import { useMetadataStore } from '../../stores/metadataStore';
+import { useSegmentationStore } from '../../stores/segmentationStore';
 import { EMPTY_OVERLAY } from '@shared/types/dicom';
 
 interface ViewportOverlayProps {
@@ -29,6 +30,7 @@ const EMPTY_VP = {
 };
 
 export default function ViewportOverlay({ panelId }: ViewportOverlayProps) {
+  const showContextOverlay = useSegmentationStore((s) => s.showViewportContextOverlay);
   const viewport = useViewerStore((s) => s.viewports[panelId] ?? EMPTY_VP);
   const sessionLabel = useViewerStore(
     (s) => s.panelSessionLabelMap[panelId] ?? s.xnatContext?.sessionLabel ?? '',
@@ -36,7 +38,7 @@ export default function ViewportOverlay({ panelId }: ViewportOverlayProps) {
   const overlay = useMetadataStore((s) => s.overlays[panelId] ?? EMPTY_OVERLAY);
 
   // Don't render if no images loaded
-  if (viewport.totalImages === 0) return null;
+  if (!showContextOverlay || viewport.totalImages === 0) return null;
 
   return (
     <div className="absolute inset-0 pointer-events-none p-2 flex flex-col justify-between font-mono text-xs text-white select-none [text-shadow:_0_1px_3px_rgb(0_0_0_/_80%)]">

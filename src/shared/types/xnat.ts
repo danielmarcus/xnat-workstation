@@ -66,6 +66,8 @@ export interface XnatSession {
 
 export interface XnatScan {
   id: string;
+  /** XNAT entity type (e.g. xnat:mrScanData, xnat:segScanData, xnat:otherDicomScanData) */
+  xsiType?: string;
   type?: string;
   seriesDescription?: string;
   quality?: string;

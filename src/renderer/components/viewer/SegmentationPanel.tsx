@@ -235,6 +235,8 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
   const autoSaveEnabled = useSegmentationStore((s) => s.autoSaveEnabled);
   const autoSaveStatus = useSegmentationStore((s) => s.autoSaveStatus);
   const setAutoSaveEnabled = useSegmentationStore((s) => s.setAutoSaveEnabled);
+  const showViewportContextOverlay = useSegmentationStore((s) => s.showViewportContextOverlay);
+  const setShowViewportContextOverlay = useSegmentationStore((s) => s.setShowViewportContextOverlay);
   const autoLoadSegOnScanClick = useSegmentationStore((s) => s.autoLoadSegOnScanClick);
   const setAutoLoadSegOnScanClick = useSegmentationStore((s) => s.setAutoLoadSegOnScanClick);
   const xnatOriginMap = useSegmentationStore((s) => s.xnatOriginMap);
@@ -1649,17 +1651,29 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
           <span className="text-[10px] text-zinc-400">Automatically display annotations</span>
         </label>
 
-        <div className="flex items-center justify-between">
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={autoSaveEnabled}
-              onChange={(e) => setAutoSaveEnabled(e.target.checked)}
-              disabled={!isXnatConnected || !activePanelXnatContext}
-              className="w-3 h-3 rounded border-zinc-600 bg-zinc-800 accent-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
-            />
-            <span className="text-[10px] text-zinc-400">Auto-Save</span>
-          </label>
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-4">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={autoSaveEnabled}
+                onChange={(e) => setAutoSaveEnabled(e.target.checked)}
+                disabled={!isXnatConnected || !activePanelXnatContext}
+                className="w-3 h-3 rounded border-zinc-600 bg-zinc-800 accent-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+              />
+              <span className="text-[10px] text-zinc-400">Auto-Save</span>
+            </label>
+
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={showViewportContextOverlay}
+                onChange={(e) => setShowViewportContextOverlay(e.target.checked)}
+                className="w-3 h-3 rounded border-zinc-600 bg-zinc-800 accent-blue-500"
+              />
+              <span className="text-[10px] text-zinc-400">Display context info</span>
+            </label>
+          </div>
           {autoSaveEnabled && (
             <span className="text-[9px] flex items-center gap-1">
               {autoSaveStatus === 'saving' && (

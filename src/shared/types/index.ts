@@ -111,6 +111,9 @@ export interface ElectronAPI {
     copyToClipboard(
       dataUrl: string,
     ): Promise<{ ok: boolean; error?: string }>;
+    copyViewportCapture(
+      bounds: { x: number; y: number; width: number; height: number },
+    ): Promise<{ ok: boolean; error?: string }>;
     saveDicom(
       dicomData: string,
     ): Promise<{ ok: boolean; path?: string; error?: string }>;

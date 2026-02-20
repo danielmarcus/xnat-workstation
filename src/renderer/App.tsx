@@ -34,7 +34,7 @@ import { viewportService } from './lib/cornerstone/viewportService';
 import { imageLoader, cache, metaData } from '@cornerstonejs/core';
 import * as dicomParser from 'dicom-parser';
 import { viewportReadyService } from './lib/cornerstone/viewportReadyService';
-import { useSessionDerivedIndexStore, isSegScan, isRtStructScan, isDerivedScan } from './stores/sessionDerivedIndexStore';
+import { useSessionDerivedIndexStore, isSegScan, isRtStructScan, isDerivedScan, isSrScan } from './stores/sessionDerivedIndexStore';
 import { useSegmentationManagerStore } from './stores/segmentationManagerStore';
 import { segmentationManager } from './lib/segmentation/segmentationManagerSingleton';
 import { segmentationService } from './lib/cornerstone/segmentationService';
@@ -47,6 +47,13 @@ const SEG_SOP_CLASS_UID = '1.2.840.10008.5.1.4.1.1.66.4';
 const RTSTRUCT_SOP_CLASS_UID = '1.2.840.10008.5.1.4.1.1.481.3';
 const XNAT_SCAN_DRAG_MIME = 'application/x-xnat-scan';
 const XNAT_SCAN_DRAG_FALLBACK_MIME = 'text/x-xnat-scan';
+
+function isPrimaryImageScan(scan: XnatScan): boolean {
+  if (isDerivedScan(scan) || isSrScan(scan)) return false;
+  const xsiType = (scan.xsiType ?? '').trim().toLowerCase();
+  if (xsiType === 'xnat:otherdicomscandata') return false;
+  return true;
+}
 
 interface XnatScanDragPayload {
   sessionId: string;
@@ -373,8 +380,8 @@ async function findSourceScanBySeriesUID(
   targetSeriesUID: string,
   scans: XnatScan[],
 ): Promise<{ scanId: string; imageIds: string[] } | null> {
-  // Only check non-derived scans (exclude SEG, RTSTRUCT)
-  const candidates = scans.filter((s) => !isDerivedScan(s));
+  // Only check primary image scans (exclude SEG/RTSTRUCT/SR/other non-image DICOM rows)
+  const candidates = scans.filter((s) => isPrimaryImageScan(s));
   console.log(`[App] Searching ${candidates.length} scans for SeriesInstanceUID ${targetSeriesUID}`);
 
   for (const scan of candidates) {
@@ -401,7 +408,7 @@ async function findSourceScanByReferencedSopInstanceUIDs(
 ): Promise<{ scanId: string; imageIds: string[] } | null> {
   if (referencedSopInstanceUIDs.length === 0) return null;
   const target = new Set(referencedSopInstanceUIDs);
-  const candidates = scans.filter((s) => !isDerivedScan(s));
+  const candidates = scans.filter((s) => isPrimaryImageScan(s));
   console.log(
     `[App] Searching ${candidates.length} scans for referenced SOP Instance UID fallback (${target.size} UID(s))`,
   );
@@ -446,14 +453,22 @@ async function findSourceScanByReferencedSopInstanceUIDs(
  */
 async function preloadImages(imageIds: string[]): Promise<void> {
   console.log(`[App] Pre-loading ${imageIds.length} images for metadata...`);
+  let loadedCount = 0;
   const promises = imageIds.map((id) => {
     if (cache.getImageLoadObject(id)) return Promise.resolve();
-    return imageLoader.loadAndCacheImage(id).catch((err: unknown) => {
+    try {
+      return Promise.resolve(imageLoader.loadAndCacheImage(id))
+        .then(() => { loadedCount++; })
+        .catch((err: unknown) => {
+          console.warn(`[App] Failed to pre-load image ${id}:`, err);
+        });
+    } catch (err) {
       console.warn(`[App] Failed to pre-load image ${id}:`, err);
-    });
+      return Promise.resolve();
+    }
   });
   await Promise.all(promises);
-  console.log(`[App] All ${imageIds.length} images pre-loaded`);
+  console.log(`[App] Pre-load complete: ${loadedCount}/${imageIds.length} newly loaded`);
 }
 
 async function jumpViewportToReferencedImage(panelId: string, referencedImageId: string | null) {
@@ -1260,16 +1275,10 @@ export default function App() {
       if (cachedSessionScans) return cachedSessionScans;
       const viewerState = useViewerStore.getState();
       if (viewerState.sessionId === sessionId && viewerState.sessionScans?.length) {
-        const cached = viewerState.sessionScans;
-        const hasMissingSopClassUid = cached.some((s) => !s.sopClassUID);
-        if (!hasMissingSopClassUid) {
-          cachedSessionScans = cached;
-          return cachedSessionScans;
-        }
+        cachedSessionScans = viewerState.sessionScans;
+        return cachedSessionScans;
       }
-      const scansForSession = await window.electronAPI.xnat.getScans(sessionId, {
-        includeSopClassUID: true,
-      });
+      const scansForSession = await window.electronAPI.xnat.getScans(sessionId);
       useViewerStore.getState().setSessionData(sessionId, scansForSession);
       cachedSessionScans = scansForSession;
       return scansForSession;
@@ -1307,14 +1316,6 @@ export default function App() {
     try {
       setLoading(true);
       setLoadError(null);
-
-      if (!effectiveScan.sopClassUID) {
-        const sessionScans = await ensureSessionScans();
-        const enriched = sessionScans.find((s) => s.id === scanId);
-        if (enriched) {
-          effectiveScan = enriched;
-        }
-      }
 
       setBrowserStatusMessage(
         `Loading scan #${scanId}...`,
@@ -1975,15 +1976,10 @@ export default function App() {
           `${context.sessionLabel || sessionId}`,
         );
 
-        let sessionScans = scans;
-        if (sessionScans.some((s) => !s.sopClassUID)) {
-          sessionScans = await window.electronAPI.xnat.getScans(sessionId, {
-            includeSopClassUID: true,
-          });
-        }
+        const sessionScans = scans;
 
-        // Separate derived scans (SEG, RTSTRUCT) from imaging scans
-        const imagingScans = sessionScans.filter((s) => !isDerivedScan(s));
+        // Separate derived scans (SEG, RTSTRUCT) from primary source imaging scans.
+        const imagingScans = sessionScans.filter((s) => isPrimaryImageScan(s));
         const segScans = sessionScans.filter((s) => isSegScan(s));
         const rtStructScans = sessionScans.filter((s) => isRtStructScan(s));
 

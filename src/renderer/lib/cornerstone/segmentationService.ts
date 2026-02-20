@@ -2079,6 +2079,65 @@ export const segmentationService = {
     const segmentationId = `seg_dicom_${Date.now()}_${segmentationCounter}`;
 
     try {
+      const requestedSourceImageIds = sourceImageIds.filter(
+        (id): id is string => typeof id === 'string' && id.length > 0,
+      );
+      if (requestedSourceImageIds.length === 0) {
+        throw new Error('[segmentationService] No source imageIds were provided for SEG load.');
+      }
+
+      // Keep only source ids that at least expose a SOP Instance UID.
+      // Some scans include non-image DICOM objects that break SEG matching.
+      const idsWithSop = requestedSourceImageIds.filter((id) => {
+        const gen = metaData.get('generalImageModule', id) as any;
+        const inst = metaData.get('instance', id) as any;
+        const sop = gen?.sopInstanceUID ?? inst?.SOPInstanceUID ?? inst?.sopInstanceUID;
+        return typeof sop === 'string' && sop.length > 0;
+      });
+      const effectiveBaseSourceImageIds = idsWithSop.length > 0 ? idsWithSop : requestedSourceImageIds;
+      if (effectiveBaseSourceImageIds.length !== requestedSourceImageIds.length) {
+        console.warn(
+          `[segmentationService] Ignoring ${requestedSourceImageIds.length - effectiveBaseSourceImageIds.length} `
+          + 'source imageIds without SOP metadata during SEG load.',
+        );
+      }
+
+      // Cornerstone SEG adapter may resolve referenced images as ?frame= / /frames/
+      // ids even when the source stack was loaded with base ids. Build adapter ids
+      // in a frame-addressable form to keep metadata index maps aligned.
+      const toFrameAddressableImageId = (imageId: string): string => {
+        if (imageId.includes('/frames/') || /[?&]frame=\d+/.test(imageId)) {
+          return imageId;
+        }
+        if (imageId.startsWith('wadors:')) {
+          return `${imageId}/frames/1`;
+        }
+        return imageId.includes('?') ? `${imageId}&frame=0` : `${imageId}?frame=0`;
+      };
+      const adapterSourceImageIds = effectiveBaseSourceImageIds.map(toFrameAddressableImageId);
+      const baseIdByAdapterId = new Map<string, string>();
+      for (let i = 0; i < adapterSourceImageIds.length; i++) {
+        baseIdByAdapterId.set(adapterSourceImageIds[i], effectiveBaseSourceImageIds[i]);
+      }
+      const effectiveBaseSet = new Set(effectiveBaseSourceImageIds);
+      const resolveBaseImageId = (candidate: string | undefined): string => {
+        if (candidate && baseIdByAdapterId.has(candidate)) {
+          return baseIdByAdapterId.get(candidate)!;
+        }
+        if (candidate && effectiveBaseSet.has(candidate)) {
+          return candidate;
+        }
+        if (candidate) {
+          const withoutFramePath = candidate.replace(/\/frames\/\d+$/, '');
+          if (effectiveBaseSet.has(withoutFramePath)) return withoutFramePath;
+          const withoutFrameQuery = withoutFramePath
+            .replace(/([?&])frame=\d+(&?)/g, (_m, sep, tail) => (sep === '?' && tail ? '?' : tail ? sep : ''))
+            .replace(/[?&]$/, '');
+          if (effectiveBaseSet.has(withoutFrameQuery)) return withoutFrameQuery;
+        }
+        return effectiveBaseSourceImageIds[0];
+      };
+
       // ─── Ensure "instance" metadata has Rows/Columns for every source image ───
       //
       // createFromDICOMSegBuffer reads `metadataProvider.get("instance", imageId)`
@@ -2099,10 +2158,12 @@ export const segmentationService = {
 
       // ─── Get source image dimensions ───
       // Used for both metadata patching and SEG buffer repair.
-      const srcImg = cache.getImage(sourceImageIds[0]);
-      const pixMod = metaData.get('imagePixelModule', sourceImageIds[0]);
-      const sourceRows = pixMod?.rows ?? srcImg?.rows ?? srcImg?.height;
-      const sourceCols = pixMod?.columns ?? srcImg?.columns ?? srcImg?.width;
+      const srcImg = cache.getImage(effectiveBaseSourceImageIds[0]);
+      const pixMod = metaData.get('imagePixelModule', effectiveBaseSourceImageIds[0]);
+      const sourceRowsRaw = pixMod?.rows ?? srcImg?.rows ?? srcImg?.height;
+      const sourceColsRaw = pixMod?.columns ?? srcImg?.columns ?? srcImg?.width;
+      const sourceRows = Number.isFinite(sourceRowsRaw) && sourceRowsRaw > 0 ? sourceRowsRaw : 512;
+      const sourceCols = Number.isFinite(sourceColsRaw) && sourceColsRaw > 0 ? sourceColsRaw : 512;
       console.log(`[segmentationService] Source image dimensions: ${sourceCols}x${sourceRows}`);
 
       // ─── Fix SEG buffer if Rows/Columns are 0 or missing ───
@@ -2189,16 +2250,215 @@ export const segmentationService = {
       // checks .Rows / .Columns. If these are missing from the instance
       // metadata (which happens with some wadouri metadata providers), the
       // geometry check fails. We create a wrapper that ensures they're present.
+      const sourceIndexById = new Map<string, number>();
+      effectiveBaseSourceImageIds.forEach((id, idx) => sourceIndexById.set(id, idx));
+
+      const toTriplet = (value: any): [number, number, number] | null => {
+        if (Array.isArray(value) && value.length >= 3) {
+          const x = Number(value[0]);
+          const y = Number(value[1]);
+          const z = Number(value[2]);
+          if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z)) return [x, y, z];
+        }
+        if (
+          value
+          && typeof value === 'object'
+          && Number.isFinite((value as any).x)
+          && Number.isFinite((value as any).y)
+          && Number.isFinite((value as any).z)
+        ) {
+          return [Number((value as any).x), Number((value as any).y), Number((value as any).z)];
+        }
+        return null;
+      };
+
+      const toOrientation = (value: any): [number, number, number, number, number, number] | null => {
+        if (!Array.isArray(value) || value.length < 6) return null;
+        const out = value.slice(0, 6).map((v: any) => Number(v));
+        if (out.every((v: number) => Number.isFinite(v))) {
+          return out as [number, number, number, number, number, number];
+        }
+        return null;
+      };
+
+      const pickString = (...values: any[]): string | undefined => {
+        for (const value of values) {
+          if (typeof value === 'string' && value.trim().length > 0) {
+            return value.trim();
+          }
+        }
+        return undefined;
+      };
+
+      const firstUsableImageId = effectiveBaseSourceImageIds.find((id) => {
+        const plane = metaData.get('imagePlaneModule', id) as any;
+        const row = toTriplet(plane?.rowCosines);
+        const col = toTriplet(plane?.columnCosines);
+        const iop = toOrientation(plane?.imageOrientationPatient);
+        return Boolean((row && col) || iop);
+      }) ?? effectiveBaseSourceImageIds[0];
+
+      const firstUsablePlane = metaData.get('imagePlaneModule', firstUsableImageId) as any;
+      const firstUsableInstance = (metaData.get('instance', firstUsableImageId) as any) ?? {};
+      const firstUsableSeries = (metaData.get('generalSeriesModule', firstUsableImageId) as any) ?? {};
+      const firstIop =
+        toOrientation(firstUsablePlane?.imageOrientationPatient)
+        ?? toOrientation(firstUsableInstance?.ImageOrientationPatient)
+        ?? toOrientation(firstUsableInstance?.imageOrientationPatient);
+
+      const fallbackRowCos: [number, number, number] =
+        toTriplet(firstUsablePlane?.rowCosines)
+        ?? (firstIop ? [firstIop[0], firstIop[1], firstIop[2]] : [1, 0, 0]);
+      const fallbackColCos: [number, number, number] =
+        toTriplet(firstUsablePlane?.columnCosines)
+        ?? (firstIop ? [firstIop[3], firstIop[4], firstIop[5]] : [0, 1, 0]);
+      const fallbackPosition: [number, number, number] =
+        toTriplet(firstUsablePlane?.imagePositionPatient)
+        ?? toTriplet(firstUsableInstance?.ImagePositionPatient)
+        ?? toTriplet(firstUsableInstance?.imagePositionPatient)
+        ?? [0, 0, 0];
+      const fallbackFrameOfReferenceUID = pickString(
+        firstUsablePlane?.frameOfReferenceUID,
+        firstUsableInstance?.FrameOfReferenceUID,
+        firstUsableInstance?.frameOfReferenceUID,
+      );
+      const fallbackSeriesInstanceUID = pickString(
+        firstUsableSeries?.seriesInstanceUID,
+        firstUsableInstance?.SeriesInstanceUID,
+        firstUsableInstance?.seriesInstanceUID,
+      );
+      const fallbackRowSpacing = Number(firstUsablePlane?.rowPixelSpacing);
+      const fallbackColSpacing = Number(firstUsablePlane?.columnPixelSpacing);
+
       const loadMetadataProvider = {
         get: (type: string, imageId: string) => {
-          const result = metaData.get(type, imageId);
-          if (type === 'instance' && result) {
-            if (result.Rows == null || result.Columns == null) {
-              // Return a shallow copy to avoid mutating the cached metadata object
-              return { ...result, Rows: result.Rows ?? sourceRows, Columns: result.Columns ?? sourceCols };
-            }
+          const requestedId =
+            typeof imageId === 'string' && imageId.length > 0 ? imageId : adapterSourceImageIds[0];
+          const resolvedId = resolveBaseImageId(requestedId);
+          const raw = metaData.get(type, resolvedId) as any;
+          const instance = (metaData.get('instance', resolvedId) as any) ?? {};
+          const sourceIndex = sourceIndexById.get(resolvedId) ?? 0;
+
+          if (type === 'imagePlaneModule') {
+            const imageOrientationPatient =
+              toOrientation(raw?.imageOrientationPatient)
+              ?? toOrientation(instance?.ImageOrientationPatient)
+              ?? toOrientation(instance?.imageOrientationPatient)
+              ?? [...fallbackRowCos, ...fallbackColCos];
+            const rowCosines =
+              toTriplet(raw?.rowCosines)
+              ?? [imageOrientationPatient[0], imageOrientationPatient[1], imageOrientationPatient[2]];
+            const columnCosines =
+              toTriplet(raw?.columnCosines)
+              ?? [imageOrientationPatient[3], imageOrientationPatient[4], imageOrientationPatient[5]];
+            const imagePositionPatient =
+              toTriplet(raw?.imagePositionPatient)
+              ?? toTriplet(instance?.ImagePositionPatient)
+              ?? toTriplet(instance?.imagePositionPatient)
+              ?? [fallbackPosition[0], fallbackPosition[1], fallbackPosition[2] + sourceIndex];
+
+            const rowSpacingRaw = Number(
+              raw?.rowPixelSpacing
+              ?? raw?.pixelSpacing?.[0]
+              ?? instance?.PixelSpacing?.[0]
+              ?? instance?.pixelSpacing?.[0]
+              ?? fallbackRowSpacing,
+            );
+            const colSpacingRaw = Number(
+              raw?.columnPixelSpacing
+              ?? raw?.pixelSpacing?.[1]
+              ?? instance?.PixelSpacing?.[1]
+              ?? instance?.pixelSpacing?.[1]
+              ?? fallbackColSpacing,
+            );
+            const rowPixelSpacing = Number.isFinite(rowSpacingRaw) && rowSpacingRaw > 0 ? rowSpacingRaw : 1;
+            const columnPixelSpacing = Number.isFinite(colSpacingRaw) && colSpacingRaw > 0 ? colSpacingRaw : 1;
+
+            return {
+              ...(raw ?? {}),
+              rows: raw?.rows ?? sourceRows,
+              columns: raw?.columns ?? sourceCols,
+              imageOrientationPatient,
+              rowCosines,
+              columnCosines,
+              imagePositionPatient,
+              rowPixelSpacing,
+              columnPixelSpacing,
+              pixelSpacing: [rowPixelSpacing, columnPixelSpacing],
+              frameOfReferenceUID: pickString(
+                raw?.frameOfReferenceUID,
+                instance?.FrameOfReferenceUID,
+                instance?.frameOfReferenceUID,
+                fallbackFrameOfReferenceUID,
+              ),
+            };
           }
-          return result;
+
+          if (type === 'generalSeriesModule') {
+            return {
+              ...(raw ?? {}),
+              seriesInstanceUID: pickString(
+                raw?.seriesInstanceUID,
+                instance?.SeriesInstanceUID,
+                instance?.seriesInstanceUID,
+                fallbackSeriesInstanceUID,
+              ),
+            };
+          }
+
+          if (type === 'generalImageModule') {
+            return {
+              ...(raw ?? {}),
+              sopInstanceUID: pickString(
+                raw?.sopInstanceUID,
+                instance?.SOPInstanceUID,
+                instance?.sopInstanceUID,
+              ),
+            };
+          }
+
+          if (type === 'instance') {
+            const imagePositionPatient =
+              toTriplet(raw?.ImagePositionPatient)
+              ?? toTriplet(raw?.imagePositionPatient)
+              ?? toTriplet(instance?.ImagePositionPatient)
+              ?? toTriplet(instance?.imagePositionPatient)
+              ?? [fallbackPosition[0], fallbackPosition[1], fallbackPosition[2] + sourceIndex];
+            const imageOrientationPatient =
+              toOrientation(raw?.ImageOrientationPatient)
+              ?? toOrientation(raw?.imageOrientationPatient)
+              ?? toOrientation(instance?.ImageOrientationPatient)
+              ?? toOrientation(instance?.imageOrientationPatient)
+              ?? [...fallbackRowCos, ...fallbackColCos];
+
+            return {
+              ...(raw ?? {}),
+              Rows: raw?.Rows ?? sourceRows,
+              Columns: raw?.Columns ?? sourceCols,
+              ImagePositionPatient: imagePositionPatient,
+              ImageOrientationPatient: imageOrientationPatient,
+              FrameOfReferenceUID: pickString(
+                raw?.FrameOfReferenceUID,
+                instance?.FrameOfReferenceUID,
+                instance?.frameOfReferenceUID,
+                fallbackFrameOfReferenceUID,
+              ),
+              SeriesInstanceUID: pickString(
+                raw?.SeriesInstanceUID,
+                instance?.SeriesInstanceUID,
+                instance?.seriesInstanceUID,
+                fallbackSeriesInstanceUID,
+              ),
+              SOPInstanceUID: pickString(
+                raw?.SOPInstanceUID,
+                instance?.SOPInstanceUID,
+                instance?.sopInstanceUID,
+              ),
+              NumberOfFrames: 1,
+            };
+          }
+
+          return raw;
         },
       };
 
@@ -2207,7 +2467,7 @@ export const segmentationService = {
       // every source image, spatially matches each SEG frame to the correct
       // source image, and writes pixel data directly into the matched images.
       const result = await adaptersSEG.Cornerstone3D.Segmentation.createFromDICOMSegBuffer(
-        sourceImageIds,
+        adapterSourceImageIds,
         loadBuffer,
         {
           metadataProvider: loadMetadataProvider,
@@ -2327,7 +2587,7 @@ export const segmentationService = {
       ]);
 
       // Track source imageIds for DICOM SEG re-export
-      sourceImageIdsMap.set(segmentationId, [...sourceImageIds]);
+      sourceImageIdsMap.set(segmentationId, [...effectiveBaseSourceImageIds]);
 
       // Update store
       const store = useSegmentationStore.getState();
@@ -2488,7 +2748,14 @@ export const segmentationService = {
       );
     }
     // Work with a copy so sorting doesn't mutate the stored array
-    let srcImageIds = [...storedSrcImageIds];
+    const originalSrcImageIds = [...storedSrcImageIds];
+    let srcImageIds = [...originalSrcImageIds];
+    const originalIndexBySourceId = new Map<string, number>();
+    originalSrcImageIds.forEach((id, idx) => {
+      if (!originalIndexBySourceId.has(id)) {
+        originalIndexBySourceId.set(id, idx);
+      }
+    });
 
     // Get labelmap imageIds from the segmentation's representation data
     const labelmapData = seg.representationData?.Labelmap;
@@ -2505,12 +2772,34 @@ export const segmentationService = {
     // Step 1: Get source Cornerstone image objects (needed by generateSegmentation
     // for DICOM metadata extraction: study/series/image UIDs, pixel spacing, etc.)
     const sourceImages: any[] = [];
-    for (const srcId of srcImageIds) {
+    const validSrcImageIds: string[] = [];
+    const skippedSources: Array<{ srcId: string; index: number; error: string }> = [];
+    for (const srcId of originalSrcImageIds) {
       const img = cache.getImage(srcId);
       if (!img) {
-        throw new Error(`[segmentationService] Source image not in cache: ${srcId}. All source images must be loaded.`);
+        skippedSources.push({
+          srcId,
+          index: originalIndexBySourceId.get(srcId) ?? -1,
+          error: 'source image not cached',
+        });
+        continue;
       }
       sourceImages.push(img);
+      validSrcImageIds.push(srcId);
+    }
+    if (sourceImages.length === 0) {
+      const first = skippedSources[0];
+      throw new Error(
+        `[segmentationService] Could not load any source images for export. `
+        + `${first ? `${first.srcId}: ${first.error}` : ''}`,
+      );
+    }
+    srcImageIds = validSrcImageIds;
+    if (skippedSources.length > 0) {
+      console.warn(
+        `[segmentationService] Skipping ${skippedSources.length}/${originalSrcImageIds.length} source images `
+        + `that failed to load for export (likely non-image DICOM objects).`,
+      );
     }
 
     // Step 2: Build labelmaps2D array — one entry per source image slice.
@@ -2554,6 +2843,34 @@ export const segmentationService = {
 
     const useRefIdLookup = refIdToLabelmap.size > 0;
 
+    const getSliceHasPixels = (lmImage: any): boolean => {
+      if (!lmImage) return false;
+      const scalarData: any =
+        lmImage.voxelManager?.getScalarData?.()
+        ?? lmImage.imageFrame?.pixelData
+        ?? lmImage.getPixelData?.();
+      if (!scalarData || typeof scalarData.length !== 'number') return false;
+      for (let i = 0; i < scalarData.length; i++) {
+        if (Number(scalarData[i]) > 0) return true;
+      }
+      return false;
+    };
+
+    if (skippedSources.length > 0) {
+      const skippedWithPaintedData = skippedSources.filter(({ srcId, index }) => {
+        const lmByRef = refIdToLabelmap.get(srcId);
+        const lmByIndex = index >= 0 ? cache.getImage(effectiveLmIds[index]) : undefined;
+        return getSliceHasPixels(lmByRef ?? lmByIndex);
+      });
+      if (skippedWithPaintedData.length > 0) {
+        const first = skippedWithPaintedData[0];
+        throw new Error(
+          `[segmentationService] Cannot export SEG: source slice ${first.srcId} failed to load `
+          + `(${first.error}) and contains segmentation data.`,
+        );
+      }
+    }
+
     if (useRefIdLookup) {
       let hitCount = 0;
       for (const srcId of srcImageIds) {
@@ -2577,9 +2894,10 @@ export const segmentationService = {
 
     for (let i = 0; i < srcImageIds.length; i++) {
       const srcId = srcImageIds[i];
+      const sourceIndex = originalIndexBySourceId.get(srcId) ?? i;
       const lmImage = useRefIdLookup
         ? refIdToLabelmap.get(srcId)
-        : cache.getImage(effectiveLmIds[i]);
+        : cache.getImage(effectiveLmIds[sourceIndex]);
 
       if (!lmImage) {
         labelmaps2D.push({
@@ -2730,6 +3048,22 @@ export const segmentationService = {
     const SERIES_MODULES = ['generalSeriesModule'];
     const IMAGE_MODULES = ['generalImageModule', 'imagePlaneModule', 'cineModule', 'voiLutModule', 'modalityLutModule', 'sopCommonModule'];
 
+    const getArrayFromVectorLike = (value: any): number[] | null => {
+      if (Array.isArray(value) && value.length >= 3) {
+        return [Number(value[0]), Number(value[1]), Number(value[2])];
+      }
+      if (
+        value
+        && typeof value === 'object'
+        && Number.isFinite(value.x)
+        && Number.isFinite(value.y)
+        && Number.isFinite(value.z)
+      ) {
+        return [Number(value.x), Number(value.y), Number(value.z)];
+      }
+      return null;
+    };
+
     const exportMetadataProvider = {
       get: (type: string, ...args: any[]) => {
         const imageId = args[0] as string;
@@ -2741,6 +3075,62 @@ export const segmentationService = {
         }
         if (type === 'ImageData') {
           const normalized: Record<string, any> = metaData.getNormalized(imageId, IMAGE_MODULES);
+          const imagePlane = metaData.get('imagePlaneModule', imageId) as any;
+          const sourceIndex = Math.max(0, srcImageIds.indexOf(imageId));
+
+          // Ensure ImageOrientationPatient exists (dcmjs SEG normalizer requires it).
+          if (!Array.isArray(normalized.ImageOrientationPatient) || normalized.ImageOrientationPatient.length < 6) {
+            const fromNormalized = Array.isArray(normalized.imageOrientationPatient) && normalized.imageOrientationPatient.length >= 6
+              ? normalized.imageOrientationPatient
+              : null;
+            const fromPlane = Array.isArray(imagePlane?.imageOrientationPatient) && imagePlane.imageOrientationPatient.length >= 6
+              ? imagePlane.imageOrientationPatient
+              : null;
+            const row = getArrayFromVectorLike(imagePlane?.rowCosines);
+            const col = getArrayFromVectorLike(imagePlane?.columnCosines);
+            if (fromNormalized) {
+              normalized.ImageOrientationPatient = [...fromNormalized];
+            } else if (fromPlane) {
+              normalized.ImageOrientationPatient = [...fromPlane];
+            } else if (row && col) {
+              normalized.ImageOrientationPatient = [...row, ...col];
+            } else {
+              // Last-resort orthogonal identity orientation for single-slice / malformed metadata.
+              normalized.ImageOrientationPatient = [1, 0, 0, 0, 1, 0];
+            }
+          }
+
+          // Ensure ImagePositionPatient exists (dcmjs SEG normalizer requires it).
+          if (!Array.isArray(normalized.ImagePositionPatient) || normalized.ImagePositionPatient.length < 3) {
+            const fromNormalized = Array.isArray(normalized.imagePositionPatient) && normalized.imagePositionPatient.length >= 3
+              ? normalized.imagePositionPatient
+              : null;
+            const fromPlane = Array.isArray(imagePlane?.imagePositionPatient) && imagePlane.imagePositionPatient.length >= 3
+              ? imagePlane.imagePositionPatient
+              : null;
+            if (fromNormalized) {
+              normalized.ImagePositionPatient = [...fromNormalized];
+            } else if (fromPlane) {
+              normalized.ImagePositionPatient = [...fromPlane];
+            } else {
+              // Keep deterministic ordering along Z when true geometry is unavailable.
+              normalized.ImagePositionPatient = [0, 0, sourceIndex];
+            }
+          }
+
+          // Prefer explicit PixelSpacing when imagePlane provides it.
+          if (!Array.isArray(normalized.PixelSpacing) || normalized.PixelSpacing.length < 2) {
+            const rowSpacing = Number(imagePlane?.rowPixelSpacing);
+            const colSpacing = Number(imagePlane?.columnPixelSpacing);
+            if (Number.isFinite(rowSpacing) && Number.isFinite(colSpacing) && rowSpacing > 0 && colSpacing > 0) {
+              normalized.PixelSpacing = [rowSpacing, colSpacing];
+            }
+          }
+
+          if (!normalized.FrameOfReferenceUID && imagePlane?.frameOfReferenceUID) {
+            normalized.FrameOfReferenceUID = imagePlane.frameOfReferenceUID;
+          }
+
           // ALWAYS force Rows/Columns from known source image dimensions.
           // This is the critical fix: we do NOT trust the metadata chain to
           // provide these. We use the source image dimensions directly.

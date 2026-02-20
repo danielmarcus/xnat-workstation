@@ -117,6 +117,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke(IPC.EXPORT_SAVE_SCREENSHOT, dataUrl, defaultName),
     copyToClipboard: (dataUrl: string) =>
       ipcRenderer.invoke(IPC.EXPORT_COPY_CLIPBOARD, dataUrl),
+    copyViewportCapture: (bounds: { x: number; y: number; width: number; height: number }) =>
+      ipcRenderer.invoke(IPC.EXPORT_COPY_VIEWPORT_CAPTURE, bounds),
     saveDicom: (dicomData: string) =>
       ipcRenderer.invoke(IPC.EXPORT_SAVE_DICOM, dicomData),
     saveAllSlices: (slices: Array<{ dataUrl: string; filename: string }>) =>

@@ -170,6 +170,12 @@ interface SegmentationStore {
   /** Set auto-load preference */
   setAutoLoadSegOnScanClick: (enabled: boolean) => void;
 
+  /** Whether viewport context metadata overlay is displayed */
+  showViewportContextOverlay: boolean;
+
+  /** Set viewport context metadata visibility */
+  setShowViewportContextOverlay: (enabled: boolean) => void;
+
   // ─── Unsaved Changes Tracking ─────────────────────────────────
 
   /** Whether any segmentation has unsaved changes */
@@ -273,6 +279,10 @@ export const useSegmentationStore = create<SegmentationStore>((set) => ({
   autoLoadSegOnScanClick: true,
 
   setAutoLoadSegOnScanClick: (enabled) => set({ autoLoadSegOnScanClick: enabled }),
+
+  showViewportContextOverlay: true,
+
+  setShowViewportContextOverlay: (enabled) => set({ showViewportContextOverlay: enabled }),
 
   hasUnsavedChanges: false,
 
