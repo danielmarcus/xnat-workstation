@@ -318,10 +318,14 @@ export class SegmentationManager {
 
     const descriptorsToLoad: Array<{ type: 'SEG' | 'RTSTRUCT'; scanId: string; sessionId: string; label?: string }> = [];
     for (const descriptor of overlayDescriptors) {
-      const { scanId } = descriptor;
+      const { scanId, type } = descriptor;
       const loaded = store().loadedBySourceScan[compositeSourceKey]?.[scanId];
       if (loaded) {
         console.log(`[SegmentationManager] Overlay ${scanId} already loaded for source ${compositeSourceKey}`);
+        // Ensure row-level DICOM type is always persisted for loaded overlays.
+        // Without this, UI fallback inference can misclassify RTSTRUCT as SEG
+        // and route overwrite/save through the wrong exporter.
+        useSegmentationStore.getState().setDicomType(loaded.segmentationId, type);
         continue;
       }
       const status = store().loadStatus[scanId];
@@ -399,6 +403,10 @@ export class SegmentationManager {
         if (label) {
           segmentationService.setLabel(segmentationId, label);
         }
+
+        // Persist explicit DICOM object type from the overlay descriptor.
+        // This is the source of truth for export/upload route selection.
+        useSegmentationStore.getState().setDicomType(segmentationId, type);
 
         // Record loaded using session-scoped composite key
         store().recordLoaded(compositeSourceKey, scanId, {

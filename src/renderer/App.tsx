@@ -37,7 +37,6 @@ import { viewportReadyService } from './lib/cornerstone/viewportReadyService';
 import { useSessionDerivedIndexStore, isSegScan, isRtStructScan, isDerivedScan, isSrScan } from './stores/sessionDerivedIndexStore';
 import { useSegmentationManagerStore } from './stores/segmentationManagerStore';
 import { segmentationManager } from './lib/segmentation/segmentationManagerSingleton';
-import { segmentationService } from './lib/cornerstone/segmentationService';
 import { getSegReferenceInfo } from './lib/dicom/segReferencedSeriesUid';
 
 /** DICOM SEG SOP Class UID */
@@ -74,6 +73,10 @@ interface BrowserStatusState {
   tone: BrowserStatusTone;
   message: string;
   detail: string;
+}
+
+interface UnsavedNavigationDialogState {
+  open: boolean;
 }
 
 // isSegScan, isRtStructScan, isDerivedScan imported from sessionDerivedIndexStore
@@ -583,6 +586,8 @@ export default function App() {
     message: 'Ready',
     detail: 'Select a session or scan to load data.',
   });
+  const [unsavedNavigationDialog, setUnsavedNavigationDialog] = useState<UnsavedNavigationDialogState>({ open: false });
+  const unsavedNavigationResolverRef = useRef<((proceed: boolean) => void) | null>(null);
   const [showBrowser, setShowBrowser] = useState(true);
   const [browserWidth, setBrowserWidth] = useState(288);
   const browserWidthRef = useRef(288); // persists width when collapsed
@@ -594,6 +599,35 @@ export default function App() {
     },
     [],
   );
+
+  const discardCurrentAnnotations = useCallback(() => {
+    const segStore = useSegmentationStore.getState();
+    for (const seg of [...segStore.segmentations]) {
+      segmentationManager.removeSegmentation(seg.segmentationId);
+    }
+    segStore._markClean();
+  }, []);
+
+  const resolveUnsavedNavigationDialog = useCallback((proceed: boolean) => {
+    if (proceed) {
+      discardCurrentAnnotations();
+    }
+    const resolver = unsavedNavigationResolverRef.current;
+    unsavedNavigationResolverRef.current = null;
+    setUnsavedNavigationDialog({ open: false });
+    resolver?.(proceed);
+  }, [discardCurrentAnnotations]);
+
+  const promptUnsavedNavigationDialog = useCallback(async (): Promise<boolean> => {
+    if (unsavedNavigationResolverRef.current) {
+      unsavedNavigationResolverRef.current(false);
+      unsavedNavigationResolverRef.current = null;
+    }
+    return new Promise<boolean>((resolve) => {
+      unsavedNavigationResolverRef.current = resolve;
+      setUnsavedNavigationDialog({ open: true });
+    });
+  }, []);
 
   // ─── Bookmarks (pinned items & recent sessions) ───────────────
   const [pinnedItems, setPinnedItems] = useState<PinnedItem[]>([]);
@@ -681,33 +715,16 @@ export default function App() {
       segStore.hasUnsavedChanges || segmentationManager.hasDirtySegmentations();
     if (!hasUnsaved) return true;
 
-    const saveDraft = window.confirm(
-      'You have unsaved annotations.\n\n' +
-      'Press OK to save a recoverable draft before continuing.\n' +
-      'Press Cancel to choose whether to discard changes.',
-    );
+    return promptUnsavedNavigationDialog();
+  }, [promptUnsavedNavigationDialog]);
 
-    if (saveDraft) {
-      const saved = await segmentationService.flushAutoSaveNow();
-      if (saved) {
-        segStore._markClean();
-        return true;
+  useEffect(() => {
+    return () => {
+      if (unsavedNavigationResolverRef.current) {
+        unsavedNavigationResolverRef.current(false);
+        unsavedNavigationResolverRef.current = null;
       }
-
-      const continueWithoutSave = window.confirm(
-        'Could not save a draft. Continue and discard unsaved changes?',
-      );
-      if (!continueWithoutSave) return false;
-      segStore._markClean();
-      return true;
-    }
-
-    const discard = window.confirm(
-      'Continue without saving and discard unsaved annotations?',
-    );
-    if (!discard) return false;
-    segStore._markClean();
-    return true;
+    };
   }, []);
 
   const wasConnectedRef = useRef(false);
@@ -1250,7 +1267,7 @@ export default function App() {
     const ensureSourceScanOnPanel = async (panelId: string, sourceScanId: string): Promise<string[]> => {
       segmentationManager.removeSegmentationsFromViewport(panelId);
       const ids = await dicomwebLoader.getScanImageIds(sessionId, sourceScanId, {
-        order: 'dicomMetadata',
+        order: 'filename',
       });
       setPanelImageIds((prev) => ({ ...prev, [panelId]: ids }));
       useViewerStore.getState().setPanelXnatContext(panelId, {
@@ -1785,7 +1802,7 @@ export default function App() {
         }
 
         const ids = await dicomwebLoader.getScanImageIds(sessionId, scanId, {
-          order: 'dicomMetadata',
+          order: 'filename',
         });
 
         // Re-check after async: a deferred SEG load may have started while
@@ -2041,7 +2058,7 @@ export default function App() {
         const loadPromises = Array.from(assignments.entries()).map(
           async ([panelIdx, scan]) => {
             const ids = await dicomwebLoader.getScanImageIds(sessionId, scan.id, {
-              order: 'dicomMetadata',
+              order: 'filename',
             });
             return { panelIdx, ids, scanId: scan.id };
           }
@@ -2223,7 +2240,7 @@ export default function App() {
         const loadPromises = Array.from(assignments.entries()).map(
           async ([panelIdx, scan]) => {
             const ids = await dicomwebLoader.getScanImageIds(storedSessionId, scan.id, {
-              order: 'dicomMetadata',
+              order: 'filename',
             });
             return { panelIdx, ids };
           }
@@ -2680,6 +2697,34 @@ export default function App() {
       {dragOver && (
         <div className="absolute inset-0 bg-blue-900/50 border-2 border-dashed border-blue-400 flex items-center justify-center z-50">
           <p className="text-blue-200 text-xl font-semibold">Drop DICOM files here</p>
+        </div>
+      )}
+
+      {/* Unsaved annotation navigation dialog */}
+      {unsavedNavigationDialog.open && (
+        <div className="absolute inset-0 z-[80] bg-zinc-950/70 flex items-center justify-center p-4">
+          <div className="w-full max-w-md rounded-lg border border-zinc-700 bg-zinc-900 shadow-xl">
+            <div className="px-4 py-3 border-b border-zinc-800">
+              <h3 className="text-sm font-semibold text-zinc-100">Unsaved annotations</h3>
+              <p className="text-xs text-zinc-400 mt-1">
+                You have unsaved annotation changes. Choose how to continue.
+              </p>
+            </div>
+            <div className="px-4 py-3 space-y-2">
+              <button
+                onClick={() => resolveUnsavedNavigationDialog(true)}
+                className="w-full text-left text-xs px-3 py-2 rounded border border-red-900/60 bg-red-900/20 text-red-200 hover:bg-red-900/35 transition-colors"
+              >
+                Continue without saving. Unsaved annotations will be lost.
+              </button>
+              <button
+                onClick={() => resolveUnsavedNavigationDialog(false)}
+                className="w-full text-left text-xs px-3 py-2 rounded border border-zinc-700 bg-zinc-800 text-zinc-200 hover:bg-zinc-700 transition-colors"
+              >
+                Return to session.
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

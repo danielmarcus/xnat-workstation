@@ -166,8 +166,17 @@ function isScanIdCompatibleWithType(scanId: string, type: SegmentationDicomType)
   return type === 'SEG' ? isSegScanId(scanId) : isRtStructScanId(scanId);
 }
 
-function escapeRegex(raw: string): string {
-  return raw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+function nextVersionedLabel(rawLabel: string): string {
+  const trimmed = rawLabel.trim() || 'Annotation';
+  const match = trimmed.match(/^(.*?)(?:_(\d+))$/);
+  if (!match) {
+    return `${trimmed}_01`;
+  }
+  const stem = (match[1] ?? '').trim() || 'Annotation';
+  const current = parseInt(match[2], 10);
+  const width = Math.max(2, match[2]?.length ?? 0);
+  const next = Number.isFinite(current) ? current + 1 : 1;
+  return `${stem}_${String(next).padStart(width, '0')}`;
 }
 
 /** Props passed from ViewerPage */
@@ -191,6 +200,7 @@ type ExistingSaveDialogResult =
 
 interface ExistingSaveDialogState {
   scanId: string;
+  dicomType: SegmentationDicomType;
   suggestedLabel: string;
   newLabel: string;
   mode: 'choose' | 'name';
@@ -248,6 +258,7 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
   const panelScanMap = useViewerStore((s) => s.panelScanMap);
   const panelXnatContextMap = useViewerStore((s) => s.panelXnatContextMap);
   const xnatContext = useViewerStore((s) => s.xnatContext);
+  const setSessionData = useViewerStore((s) => s.setSessionData);
   const sessionScans = useViewerStore((s) => s.sessionScans);
   const viewerSessionId = useViewerStore((s) => s.sessionId);
   const connectionStatus = useConnectionStore((s) => s.status);
@@ -259,6 +270,7 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
   const loadedBySourceScan = useSegmentationManagerStore((s) => s.loadedBySourceScan);
   const localOriginBySegId = useSegmentationManagerStore((s) => s.localOriginBySegId);
   const loadStatusByDerivedScan = useSegmentationManagerStore((s) => s.loadStatus);
+  const dirtySegIds = useSegmentationManagerStore((s) => s.dirtySegIds);
 
   const activeSourceScanId = panelScanMap[activeViewportId] ?? null;
   const activePanelXnatContext = panelXnatContextMap[activeViewportId] ?? xnatContext;
@@ -325,6 +337,23 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
     if (!visibleSegmentationIds) return segmentations;
     return segmentations.filter((seg) => visibleSegmentationIds.has(seg.segmentationId));
   }, [segmentations, visibleSegmentationIds]);
+
+  const resolveSegRowDicomType = useCallback((segmentationId: string): SegmentationDicomType => {
+    const origin = xnatOriginMap[segmentationId];
+    const originTypeFromScanId = origin?.scanId
+      ? (isRtStructScanId(origin.scanId) ? 'RTSTRUCT' : (isSegScanId(origin.scanId) ? 'SEG' : undefined))
+      : undefined;
+    return (
+      dicomTypeBySegmentationId[segmentationId]
+      ?? originTypeFromScanId
+      ?? segmentationService.getPreferredDicomType(segmentationId)
+    );
+  }, [dicomTypeBySegmentationId, xnatOriginMap]);
+
+  const dirtyVisibleSegmentations = useMemo(
+    () => visibleSegmentations.filter((seg) => !!dirtySegIds[seg.segmentationId]),
+    [dirtySegIds, visibleSegmentations],
+  );
 
   const activeSourceCompositeKey = useMemo(() => {
     if (!activeSourceScanId || !activePanelXnatContext?.projectId || !activePanelXnatContext?.sessionId) {
@@ -518,6 +547,7 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
   const saveMenuRef = useRef<HTMLDivElement>(null);
   const [existingSaveDialog, setExistingSaveDialog] = useState<ExistingSaveDialogState | null>(null);
   const existingSaveDialogResolverRef = useRef<((result: ExistingSaveDialogResult) => void) | null>(null);
+  const existingSaveInputRef = useRef<HTMLInputElement>(null);
 
   // Auto-dismiss toast
   useEffect(() => {
@@ -556,6 +586,13 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (existingSaveDialog?.mode === 'name' && existingSaveInputRef.current) {
+      existingSaveInputRef.current.focus();
+      existingSaveInputRef.current.select();
+    }
+  }, [existingSaveDialog?.mode]);
 
   useEffect(() => {
     segmentationService.updateContourStyle(contourLineWidth);
@@ -797,22 +834,48 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
     [],
   );
 
-  const suggestNextScanLabel = useCallback(async (
-    sessionId: string,
-  ): Promise<string> => {
-    const stem = 'label';
-    const scans = await window.electronAPI.xnat.getScans(sessionId);
-    const regex = new RegExp(`^${escapeRegex(stem)}_(\\d{2})$`, 'i');
-    let maxN = 0;
-    for (const s of scans) {
-      const label = s.seriesDescription?.trim();
-      if (!label) continue;
-      const match = label.match(regex);
-      if (!match) continue;
-      const n = parseInt(match[1], 10);
-      if (Number.isFinite(n)) maxN = Math.max(maxN, n);
+  const getErrorMessage = useCallback((err: unknown, fallback: string): string => {
+    if (err instanceof Error && typeof err.message === 'string' && err.message.length > 0) {
+      return err.message;
     }
-    return `${stem}_${String(maxN + 1).padStart(2, '0')}`;
+    if (typeof err === 'string' && err.length > 0) {
+      return err;
+    }
+    if (err && typeof err === 'object') {
+      const anyErr = err as { message?: unknown; error?: { message?: unknown } };
+      if (typeof anyErr.message === 'string' && anyErr.message.length > 0) {
+        return anyErr.message;
+      }
+      if (typeof anyErr.error?.message === 'string' && anyErr.error.message.length > 0) {
+        return anyErr.error.message;
+      }
+      try {
+        const json = JSON.stringify(err);
+        if (json && json !== '{}') return json;
+      } catch {
+        // no-op
+      }
+    }
+    return fallback;
+  }, []);
+
+  const suggestNextAnnotationLabel = useCallback(async (
+    sessionId: string,
+    baseLabel: string,
+  ): Promise<string> => {
+    const scans = await window.electronAPI.xnat.getScans(sessionId);
+    const existing = new Set(
+      scans
+        .map((s) => s.seriesDescription?.trim().toLowerCase())
+        .filter((label): label is string => !!label),
+    );
+    let candidate = nextVersionedLabel(baseLabel);
+    let guard = 0;
+    while (existing.has(candidate.toLowerCase()) && guard < 1000) {
+      candidate = nextVersionedLabel(candidate);
+      guard++;
+    }
+    return candidate;
   }, []);
 
   const resolveExistingSaveDialog = useCallback((result: ExistingSaveDialogResult) => {
@@ -823,11 +886,16 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
   }, []);
 
   const promptExistingSaveDialog = useCallback(
-    (scanId: string, suggestedLabel: string): Promise<ExistingSaveDialogResult> => {
+    (
+      scanId: string,
+      dicomType: SegmentationDicomType,
+      suggestedLabel: string,
+    ): Promise<ExistingSaveDialogResult> => {
       return new Promise((resolve) => {
         existingSaveDialogResolverRef.current = resolve;
         setExistingSaveDialog({
           scanId,
+          dicomType,
           suggestedLabel,
           newLabel: suggestedLabel,
           mode: 'choose',
@@ -844,6 +912,15 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
     setSaveMenuOpen(null);
     setSaving(true);
     try {
+      if (!segmentationService.hasExportableContent(segmentationId, dicomType)) {
+        setToast({
+          message: dicomType === 'RTSTRUCT'
+            ? 'Add at least one structure contour before saving.'
+            : 'Add at least one painted segment before saving.',
+          type: 'error',
+        });
+        return;
+      }
       const base64 = await exportDicomByType(segmentationId, dicomType);
       const defaultName = dicomType === 'RTSTRUCT' ? 'rtstruct.dcm' : 'segmentation.dcm';
       const result = await saveDicomByType(dicomType, base64, defaultName);
@@ -854,23 +931,32 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
       }
       // If !ok and no error, user cancelled
     } catch (err) {
-      const msg = err instanceof Error ? err.message : `${dicomType} export failed`;
+      const msg = getErrorMessage(err, `${dicomType} export failed`);
       setToast({ message: msg, type: 'error' });
       console.error('[SegmentationPanel] saveLocal error:', err);
     } finally {
       setSaving(false);
     }
-  }, [exportDicomByType, saveDicomByType]);
+  }, [exportDicomByType, getErrorMessage, saveDicomByType]);
 
   const handleUploadXnat = useCallback(async (
     segmentationId: string,
     dicomType: SegmentationDicomType,
-  ) => {
+  ): Promise<'saved' | 'cancelled' | 'failed'> => {
     setSaveMenuOpen(null);
     const panelCtx = panelXnatContextMap[activeViewportId] ?? xnatContext;
     if (!panelCtx) {
       setToast({ message: 'No XNAT session context — load images from XNAT first', type: 'error' });
-      return;
+      return 'failed';
+    }
+    if (!segmentationService.hasExportableContent(segmentationId, dicomType)) {
+      setToast({
+        message: dicomType === 'RTSTRUCT'
+          ? 'Add at least one structure contour before upload.'
+          : 'Add at least one painted segment before upload.',
+        type: 'error',
+      });
+      return 'failed';
     }
 
     // Block auto-save during the entire manual save operation so a brush stroke
@@ -898,9 +984,9 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
       let uploadLabel = segLabel;
       let createNewScan = false;
       if (canOverwriteExisting && origin?.scanId) {
-        const suggested = await suggestNextScanLabel(panelCtx.sessionId);
-        const decision = await promptExistingSaveDialog(origin.scanId, suggested);
-        if (decision.action === 'cancel') return;
+        const suggested = await suggestNextAnnotationLabel(panelCtx.sessionId, segLabel);
+        const decision = await promptExistingSaveDialog(origin.scanId, dicomType, suggested);
+        if (decision.action === 'cancel') return 'cancelled';
         if (decision.action === 'create-new') {
           uploadLabel = decision.label.trim() || suggested;
           createNewScan = true;
@@ -948,21 +1034,72 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
 
       if (!result.ok) {
         setToast({ message: `Upload failed: ${result.error}`, type: 'error' });
+        return 'failed';
       } else {
         if (result.ok && result.scanId) {
-          useSegmentationStore.getState().setXnatOrigin(segmentationId, {
-            scanId: result.scanId,
-            sourceScanId,
-            projectId: panelCtx.projectId,
-            sessionId: panelCtx.sessionId,
+          const isCreateNewFromExisting = createNewScan && canOverwriteExisting;
+          if (!isCreateNewFromExisting) {
+            // Overwrite or first-time upload: current in-memory annotation now
+            // corresponds to the returned scan.
+            useSegmentationStore.getState().setXnatOrigin(segmentationId, {
+              scanId: result.scanId,
+              sourceScanId,
+              projectId: panelCtx.projectId,
+              sessionId: panelCtx.sessionId,
+            });
+            useSegmentationStore.getState().setDicomType(segmentationId, dicomType);
+            if (sourceScanId) {
+              const compositeKey = `${panelCtx.projectId}/${panelCtx.sessionId}/${sourceScanId}`;
+              const mgr = useSegmentationManagerStore.getState();
+              mgr.recordLoaded(compositeKey, result.scanId, {
+                segmentationId,
+                loadedAt: Date.now(),
+              });
+              mgr.setLoadStatus(result.scanId, 'loaded');
+            }
+          }
+          // Refresh session scans + UID associations so the new annotation scan
+          // appears immediately in the annotation browser state.
+          try {
+            const refreshedScans = await window.electronAPI.xnat.getScans(panelCtx.sessionId);
+            setSessionData(panelCtx.sessionId, refreshedScans);
+            const idxStore = useSessionDerivedIndexStore.getState();
+            idxStore.buildDerivedIndex(refreshedScans);
+            void idxStore.resolveAssociationsForSession(
+              panelCtx.sessionId,
+              refreshedScans,
+              (sessionId, scanId) => dicomwebLoader.getScanImageIds(sessionId, scanId),
+              async (sessionId, scanId) => {
+                const dl = await window.electronAPI.xnat.downloadScanFile(sessionId, scanId);
+                if (!dl.ok || !dl.data) {
+                  throw new Error(dl.error || 'Failed to download scan file');
+                }
+                const binary = atob(dl.data);
+                const bytes = new Uint8Array(binary.length);
+                for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+                return bytes.buffer;
+              },
+            ).catch((err) => {
+              console.warn('[SegmentationPanel] Post-upload UID refresh failed:', err);
+            });
+          } catch (err) {
+            console.warn('[SegmentationPanel] Failed to refresh scans after upload:', err);
+          }
+          setToast({
+            message: isCreateNewFromExisting
+              ? `Created new ${dicomType} scan ${result.scanId}`
+              : `Uploaded ${dicomType} as scan ${result.scanId}`,
+            type: 'success',
           });
-          useSegmentationStore.getState().setDicomType(segmentationId, dicomType);
-          setToast({ message: `Uploaded ${dicomType} as scan ${result.scanId}`, type: 'success' });
         } else if ((canOverwriteSeg || canOverwriteRtStruct) && origin?.scanId) {
           setToast({ message: `Saved ${dicomType} to scan ${origin.scanId}`, type: 'success' });
         }
 
-        useSegmentationStore.getState()._markClean();
+        const mgrStore = useSegmentationManagerStore.getState();
+        mgrStore.clearDirty(segmentationId);
+        if (!mgrStore.hasDirtySegmentations()) {
+          useSegmentationStore.getState()._markClean();
+        }
         try {
           const files = await window.electronAPI.xnat.listTempFiles(panelCtx.sessionId);
           const pattern = new RegExp(`^autosave_(?:seg|rtstruct)_${sourceScanId}(?:_\\d{14})?\\.dcm$`);
@@ -972,16 +1109,76 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
             }
           }
         } catch { /* ignore cleanup errors */ }
+        return 'saved';
       }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : `${dicomType} upload failed`;
+      const msg = getErrorMessage(err, `${dicomType} upload failed`);
+      const normalized = msg.toLowerCase();
+      if (
+        normalized.includes('no painted segment data found')
+        || normalized.includes('no painted segment data')
+        || normalized.includes('nothing to export')
+      ) {
+        setToast({
+          message: dicomType === 'RTSTRUCT'
+            ? 'No structure content to save. Add a contour first.'
+            : 'No painted segment data to save. Paint at least one slice first.',
+          type: 'error',
+        });
+        return 'failed';
+      }
       setToast({ message: msg, type: 'error' });
       console.error('[SegmentationPanel] uploadXnat error:', err);
+      return 'failed';
     } finally {
       segmentationManager.endManualSave();
       setSaving(false);
     }
-  }, [xnatContext, panelXnatContextMap, activeViewportId, exportDicomByType, suggestNextScanLabel, promptExistingSaveDialog]);
+  }, [
+    xnatContext,
+    panelXnatContextMap,
+    activeViewportId,
+    exportDicomByType,
+    getErrorMessage,
+    suggestNextAnnotationLabel,
+    promptExistingSaveDialog,
+    setSessionData,
+  ]);
+
+  const isXnatConnected = connectionStatus === 'connected';
+  const listItemCount = visibleSegmentations.length + unloadedAvailableOverlays.length;
+  const overlaysLoading = availableOverlays.some((overlay) => overlay.loadStatus === 'loading');
+
+  const handleSaveAllModified = useCallback(async () => {
+    if (saving) return;
+    if (!isXnatConnected || !activePanelXnatContext) {
+      setToast({ message: 'Connect to XNAT and load a session first.', type: 'error' });
+      return;
+    }
+    const targets = dirtyVisibleSegmentations;
+    if (targets.length === 0) {
+      setToast({ message: 'No modified annotations to save.', type: 'success' });
+      return;
+    }
+    for (const seg of targets) {
+      const dicomType = resolveSegRowDicomType(seg.segmentationId);
+      if (!segmentationService.hasExportableContent(seg.segmentationId, dicomType)) {
+        continue;
+      }
+      const status = await handleUploadXnat(seg.segmentationId, dicomType);
+      if (status === 'cancelled') {
+        setToast({ message: 'Save-all cancelled.', type: 'error' });
+        break;
+      }
+    }
+  }, [
+    saving,
+    isXnatConnected,
+    activePanelXnatContext,
+    dirtyVisibleSegmentations,
+    resolveSegRowDicomType,
+    handleUploadXnat,
+  ]);
 
   const handleLoadAvailableOverlay = useCallback(async (overlay: AvailableOverlayRow) => {
     const panelCtx = panelXnatContextMap[activeViewportId] ?? xnatContext;
@@ -1057,17 +1254,13 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
     if (activeAnnotationType === 'SEG') return SEG_PANEL_TOOLS;
     return [];
   }, [activeAnnotationType]);
+  const toolPanelAnnotationType = overlaysLoading ? null : activeAnnotationType;
+  const toolPanelTools = overlaysLoading ? [] : activeAnnotationTools;
 
   const handleToolSelect = useCallback((tool: ToolName) => {
     if (!activeSegId || !activeAnnotationType) return;
     setActiveTool(tool);
   }, [activeAnnotationType, activeSegId, setActiveTool]);
-
-  const isXnatConnected = connectionStatus === 'connected';
-  const listItemCount = visibleSegmentations.length + unloadedAvailableOverlays.length;
-  const overlaysLoading = availableOverlays.some((overlay) => overlay.loadStatus === 'loading');
-  const toolPanelAnnotationType = overlaysLoading ? null : activeAnnotationType;
-  const toolPanelTools = overlaysLoading ? [] : activeAnnotationTools;
 
   return (
     <div className="w-64 shrink-0 min-h-0 border-l border-zinc-800 bg-zinc-950 flex flex-col overflow-hidden relative">
@@ -1097,6 +1290,20 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
           >
             <IconPlus className="w-2.5 h-2.5" />
             <IconStructureAnnotation className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={() => { void handleSaveAllModified(); }}
+            disabled={
+              saving
+              || dirtyVisibleSegmentations.length === 0
+              || !isXnatConnected
+              || !activePanelXnatContext
+            }
+            className="flex items-center justify-center transition-colors px-1 py-1 rounded border border-blue-900/35 text-blue-300 hover:text-blue-200 hover:bg-blue-900/20 disabled:opacity-30 disabled:cursor-not-allowed"
+            title="Save all modified annotations"
+            aria-label="Save all modified annotations"
+          >
+            <IconSave className="w-3.5 h-3.5" />
           </button>
         </div>
       </div>
@@ -1158,9 +1365,7 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
               const isExpanded = expandedIds.has(seg.segmentationId);
               const isActiveSeg = seg.segmentationId === activeSegId;
               const origin = xnatOriginMap[seg.segmentationId];
-              const rowDicomType =
-                dicomTypeBySegmentationId[seg.segmentationId]
-                ?? segmentationService.getPreferredDicomType(seg.segmentationId);
+              const rowDicomType = resolveSegRowDicomType(seg.segmentationId);
               const displayDicomType = rowDicomType;
               const suffix = origin?.scanId ? `#${origin.scanId}` : 'unsaved';
 
@@ -1252,7 +1457,11 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              void handleUploadXnat(seg.segmentationId, displayDicomType);
+                              void handleUploadXnat(seg.segmentationId, displayDicomType).catch((err) => {
+                                const msg = getErrorMessage(err, `${displayDicomType} upload failed`);
+                                setToast({ message: msg, type: 'error' });
+                                console.error('[SegmentationPanel] Unexpected upload rejection:', err);
+                              });
                             }}
                             disabled={saving || !isXnatConnected || !activePanelXnatContext}
                             className="w-full text-left px-3 py-1.5 text-zinc-300 hover:bg-zinc-800 transition-colors flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
@@ -1764,9 +1973,10 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
             ) : (
               <>
                 <label className="block text-xs text-zinc-400 mb-1.5">
-                  Name for the new scan
+                  {existingSaveDialog.dicomType === 'RTSTRUCT' ? 'Structure name' : 'Segmentation name'}
                 </label>
                 <input
+                  ref={existingSaveInputRef}
                   className="w-full text-xs text-zinc-200 bg-zinc-800 border border-zinc-600 rounded px-2 py-1.5 outline-none focus:border-blue-500 transition-colors"
                   value={existingSaveDialog.newLabel}
                   onChange={(e) => {
@@ -1785,7 +1995,7 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
                       resolveExistingSaveDialog({ action: 'cancel' });
                     }
                   }}
-                  placeholder="label_01"
+                  placeholder={existingSaveDialog.suggestedLabel}
                 />
                 <div className="flex justify-end gap-2 mt-3">
                   <button

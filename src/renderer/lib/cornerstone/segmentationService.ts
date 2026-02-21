@@ -642,6 +642,13 @@ function onSegmentationDataModified(evt?: Event): void {
       };
     }
     useSegmentationStore.getState()._markDirty();
+    const dirtySegId =
+      detail?.segmentationId
+      ?? useSegmentationStore.getState().activeSegmentationId
+      ?? null;
+    if (dirtySegId) {
+      useSegmentationManagerStore.getState().markDirty(dirtySegId);
+    }
     scheduleAutoSave();
     if (!labelmapInterpolationInProgress) {
       scheduleLabelmapInterpolation();
@@ -659,6 +666,7 @@ function onAnnotationAutoSave(): void {
   if (segType === 'contour' || segType === 'both') {
     if (!isDirtyTrackingSuppressed()) {
       segStore._markDirty();
+      useSegmentationManagerStore.getState().markDirty(activeSegId);
       scheduleAutoSave();
     }
   }
@@ -821,10 +829,18 @@ async function performAutoSave(force = false): Promise<boolean> {
     const ts = formatTimestamp();
 
     if (segType === 'contour') {
+      if (!segmentationService.hasExportableContent(activeSegId, 'RTSTRUCT')) {
+        segStore._setAutoSaveStatus('idle');
+        return false;
+      }
       // Contour-only: export as RTSTRUCT
       base64 = await rtStructService.exportToRtStruct(activeSegId);
       tempFilename = `autosave_rtstruct_${sourceScanId}_${ts}.dcm`;
     } else {
+      if (!segmentationService.hasExportableContent(activeSegId, 'SEG')) {
+        segStore._setAutoSaveStatus('idle');
+        return false;
+      }
       // Labelmap (or both): export as DICOM SEG
       base64 = await segmentationService.exportToDicomSeg(activeSegId);
       tempFilename = `autosave_seg_${sourceScanId}_${ts}.dcm`;
@@ -2751,6 +2767,7 @@ export const segmentationService = {
     const originalSrcImageIds = [...storedSrcImageIds];
     let srcImageIds = [...originalSrcImageIds];
     const originalIndexBySourceId = new Map<string, number>();
+    const validIndexBySourceId = new Map<string, number>();
     originalSrcImageIds.forEach((id, idx) => {
       if (!originalIndexBySourceId.has(id)) {
         originalIndexBySourceId.set(id, idx);
@@ -2784,8 +2801,10 @@ export const segmentationService = {
         });
         continue;
       }
+      const validIndex = validSrcImageIds.length;
       sourceImages.push(img);
       validSrcImageIds.push(srcId);
+      validIndexBySourceId.set(srcId, validIndex);
     }
     if (sourceImages.length === 0) {
       const first = skippedSources[0];
@@ -2828,8 +2847,39 @@ export const segmentationService = {
     // to the same labelmap, causing bleed to all slices + extreme lag).
     const effectiveLmIds = labelmapImageIds;
 
-    // Build referencedImageId → labelmap image lookup.
+    const toImageIdMatchKey = (imageId: string | undefined): string => {
+      if (!imageId || typeof imageId !== 'string') return '';
+      let key = imageId;
+      if (key.startsWith('wadouri:')) key = key.slice('wadouri:'.length);
+      if (key.startsWith('wadors:')) key = key.slice('wadors:'.length);
+      key = key.replace(/\/frames\/\d+$/i, '');
+      key = key
+        .replace(/([?&])frame=\d+(&?)/gi, (_m, sep, tail) => (sep === '?' && tail ? '?' : tail ? sep : ''))
+        .replace(/[?&]$/, '');
+      return key;
+    };
+    const getSopUidForImageId = (imageId: string | undefined): string | undefined => {
+      if (!imageId || typeof imageId !== 'string') return undefined;
+      const gen = metaData.get('generalImageModule', imageId) as any;
+      const inst = metaData.get('instance', imageId) as any;
+      const metaUid = gen?.sopInstanceUID ?? inst?.SOPInstanceUID ?? inst?.sopInstanceUID;
+      if (typeof metaUid === 'string' && metaUid.length > 0) return metaUid;
+      const key = toImageIdMatchKey(imageId);
+      const queryIndex = key.indexOf('?');
+      if (queryIndex < 0) return undefined;
+      const params = new URLSearchParams(key.slice(queryIndex + 1));
+      const queryUid =
+        params.get('objectUID')
+        ?? params.get('objectUid')
+        ?? params.get('SOPInstanceUID')
+        ?? params.get('sopInstanceUID');
+      return queryUid ?? undefined;
+    };
+
+    // Build source->labelmap lookup maps.
     const refIdToLabelmap = new Map<string, any>();
+    const refKeyToLabelmap = new Map<string, any>();
+    const refSopToLabelmap = new Map<string, any>();
     for (let li = 0; li < effectiveLmIds.length; li++) {
       const lmId = effectiveLmIds[li];
       if (!lmId) continue;
@@ -2838,10 +2888,82 @@ export const segmentationService = {
       const refId = (lmImage as any).referencedImageId;
       if (refId) {
         refIdToLabelmap.set(refId, lmImage);
+        const refKey = toImageIdMatchKey(refId);
+        if (refKey && !refKeyToLabelmap.has(refKey)) {
+          refKeyToLabelmap.set(refKey, lmImage);
+        }
+        const refSopUid = getSopUidForImageId(refId);
+        if (refSopUid && !refSopToLabelmap.has(refSopUid)) {
+          refSopToLabelmap.set(refSopUid, lmImage);
+        }
       }
     }
+    const resolveMappedLabelmapImage = (value: any): any | undefined => {
+      if (typeof value === 'string' && value.length > 0) {
+        return cache.getImage(value);
+      }
+      if (Array.isArray(value)) {
+        for (const candidate of value) {
+          if (typeof candidate !== 'string' || candidate.length === 0) continue;
+          const img = cache.getImage(candidate);
+          if (img) return img;
+        }
+      }
+      return undefined;
+    };
+    const stackRefIdToLabelmap = new Map<string, any>();
+    const stackRefKeyToLabelmap = new Map<string, any>();
+    const stackRefSopToLabelmap = new Map<string, any>();
+    try {
+      const mgr = csSegmentation.defaultSegmentationStateManager as any;
+      const stackRefMap = mgr?._stackLabelmapImageIdReferenceMap?.get?.(segmentationId);
+      if (stackRefMap && typeof stackRefMap.forEach === 'function') {
+        stackRefMap.forEach((lmValue: any, refIdRaw: any) => {
+          const refId = typeof refIdRaw === 'string' ? refIdRaw : String(refIdRaw ?? '');
+          if (!refId) return;
+          const lmImage = resolveMappedLabelmapImage(lmValue);
+          if (!lmImage) return;
+          stackRefIdToLabelmap.set(refId, lmImage);
+          const refKey = toImageIdMatchKey(refId);
+          if (refKey && !stackRefKeyToLabelmap.has(refKey)) {
+            stackRefKeyToLabelmap.set(refKey, lmImage);
+          }
+          const refSopUid = getSopUidForImageId(refId);
+          if (refSopUid && !stackRefSopToLabelmap.has(refSopUid)) {
+            stackRefSopToLabelmap.set(refSopUid, lmImage);
+          }
+        });
+      }
+    } catch (err) {
+      console.debug('[segmentationService] Could not read stack labelmap reference map:', err);
+    }
 
-    const useRefIdLookup = refIdToLabelmap.size > 0;
+    const resolveLabelmapImage = (srcId: string, sourceIndex: number): { image: any | undefined; match: 'ref' | 'normalized' | 'sop' | 'index' | 'none' } => {
+      const stackExact = stackRefIdToLabelmap.get(srcId);
+      if (stackExact) return { image: stackExact, match: 'ref' };
+      const exact = refIdToLabelmap.get(srcId);
+      if (exact) return { image: exact, match: 'ref' };
+
+      const srcKey = toImageIdMatchKey(srcId);
+      if (srcKey) {
+        const stackNormalized = stackRefKeyToLabelmap.get(srcKey);
+        if (stackNormalized) return { image: stackNormalized, match: 'normalized' };
+        const normalized = refKeyToLabelmap.get(srcKey);
+        if (normalized) return { image: normalized, match: 'normalized' };
+      }
+
+      const srcSopUid = getSopUidForImageId(srcId);
+      if (srcSopUid) {
+        const stackSopMatch = stackRefSopToLabelmap.get(srcSopUid);
+        if (stackSopMatch) return { image: stackSopMatch, match: 'sop' };
+        const sopMatch = refSopToLabelmap.get(srcSopUid);
+        if (sopMatch) return { image: sopMatch, match: 'sop' };
+      }
+
+      const lmByIndex = cache.getImage(effectiveLmIds[sourceIndex]);
+      if (lmByIndex) return { image: lmByIndex, match: 'index' };
+      return { image: undefined, match: 'none' };
+    };
 
     const getSliceHasPixels = (lmImage: any): boolean => {
       if (!lmImage) return false;
@@ -2858,9 +2980,11 @@ export const segmentationService = {
 
     if (skippedSources.length > 0) {
       const skippedWithPaintedData = skippedSources.filter(({ srcId, index }) => {
-        const lmByRef = refIdToLabelmap.get(srcId);
-        const lmByIndex = index >= 0 ? cache.getImage(effectiveLmIds[index]) : undefined;
-        return getSliceHasPixels(lmByRef ?? lmByIndex);
+        const fallbackIndex = index >= 0 && index < effectiveLmIds.length
+          ? index
+          : 0;
+        const resolved = resolveLabelmapImage(srcId, fallbackIndex);
+        return getSliceHasPixels(resolved.image);
       });
       if (skippedWithPaintedData.length > 0) {
         const first = skippedWithPaintedData[0];
@@ -2871,33 +2995,26 @@ export const segmentationService = {
       }
     }
 
-    if (useRefIdLookup) {
-      let hitCount = 0;
-      for (const srcId of srcImageIds) {
-        if (refIdToLabelmap.has(srcId)) hitCount++;
-      }
-      console.log(`[segmentationService] refId lookup: ${hitCount}/${srcImageIds.length} hits`);
-    } else {
-      // Debug: sample first labelmap to understand its structure
-      const sampleLmId = effectiveLmIds[0];
-      if (sampleLmId) {
-        const sampleImg = cache.getImage(sampleLmId);
-        console.log(`[segmentationService] Sample labelmap [0]: id=${sampleLmId}, cached=${!!sampleImg}, hasVoxelManager=${!!sampleImg?.voxelManager}, referencedImageId=${(sampleImg as any)?.referencedImageId}`);
-        if (sampleImg?.voxelManager) {
-          const sd = sampleImg.voxelManager.getScalarData();
-          let nonZero = 0;
-          for (let k = 0; k < sd.length; k++) { if (sd[k] !== 0) nonZero++; }
-          console.log(`[segmentationService] Sample labelmap scalar data: type=${sd.constructor.name}, length=${sd.length}, nonZero=${nonZero}`);
-        }
+    // Debug: sample first labelmap to understand its structure
+    const sampleLmId = effectiveLmIds[0];
+    if (sampleLmId) {
+      const sampleImg = cache.getImage(sampleLmId);
+      console.log(`[segmentationService] Sample labelmap [0]: id=${sampleLmId}, cached=${!!sampleImg}, hasVoxelManager=${!!sampleImg?.voxelManager}, referencedImageId=${(sampleImg as any)?.referencedImageId}`);
+      if (sampleImg?.voxelManager) {
+        const sd = sampleImg.voxelManager.getScalarData();
+        let nonZero = 0;
+        for (let k = 0; k < sd.length; k++) { if (sd[k] !== 0) nonZero++; }
+        console.log(`[segmentationService] Sample labelmap scalar data: type=${sd.constructor.name}, length=${sd.length}, nonZero=${nonZero}`);
       }
     }
 
+    const lookupStats = { ref: 0, normalized: 0, sop: 0, index: 0, none: 0 };
     for (let i = 0; i < srcImageIds.length; i++) {
       const srcId = srcImageIds[i];
-      const sourceIndex = originalIndexBySourceId.get(srcId) ?? i;
-      const lmImage = useRefIdLookup
-        ? refIdToLabelmap.get(srcId)
-        : cache.getImage(effectiveLmIds[sourceIndex]);
+      const sourceIndex = validIndexBySourceId.get(srcId) ?? i;
+      const resolved = resolveLabelmapImage(srcId, sourceIndex);
+      lookupStats[resolved.match]++;
+      const lmImage = resolved.image;
 
       if (!lmImage) {
         labelmaps2D.push({
@@ -2951,6 +3068,10 @@ export const segmentationService = {
         columns,
       });
     }
+    console.log(
+      `[segmentationService] labelmap lookup: ref=${lookupStats.ref}, normalized=${lookupStats.normalized}, `
+      + `sop=${lookupStats.sop}, index=${lookupStats.index}, none=${lookupStats.none}`,
+    );
 
     // Step 3: Build segment metadata array (index 0 = null for background).
     const segmentMetadata: any[] = [null]; // index 0 = background
@@ -3217,7 +3338,19 @@ export const segmentationService = {
     console.log(`[segmentationService] Pre-export check: ${totalSegFrames} segment-frame pairs across ${labelmaps2D.length} slices`);
 
     if (totalSegFrames === 0) {
-      throw new Error('No painted segment data found in any slice. Nothing to export.');
+      const nonZeroPixels = labelmaps2D.reduce((sum, lm) => {
+        const pd: Uint8Array | undefined = lm?.pixelData;
+        if (!pd || typeof pd.length !== 'number') return sum;
+        let local = 0;
+        for (let i = 0; i < pd.length; i++) {
+          if (pd[i] > 0) local++;
+        }
+        return sum + local;
+      }, 0);
+      throw new Error(
+        `No painted segment data found in any slice. Nothing to export. `
+        + `(nonZeroPixels=${nonZeroPixels})`,
+      );
     }
 
     console.log(`[segmentationService] Generating DICOM SEG: ${sourceImages.length} images, ${segmentMetadata.length - 1} segments, ${rows}×${columns}`);
@@ -3633,6 +3766,57 @@ export const segmentationService = {
    */
   getPreferredDicomType(segmentationId: string): 'SEG' | 'RTSTRUCT' {
     return getSegmentationType(segmentationId) === 'contour' ? 'RTSTRUCT' : 'SEG';
+  },
+
+  /**
+   * Returns whether a segmentation currently has any drawable/exportable content.
+   * Used by UI save flows to avoid hard export errors for empty annotations.
+   */
+  hasExportableContent(segmentationId: string, targetType?: 'SEG' | 'RTSTRUCT'): boolean {
+    const seg = csSegmentation.state.getSegmentation(segmentationId);
+    if (!seg) return false;
+
+    const checkContour = targetType === 'RTSTRUCT' || targetType == null;
+    const checkLabelmap = targetType === 'SEG' || targetType == null;
+
+    if (checkContour) {
+      const contourData = (seg.representationData as any)?.Contour;
+      if (contourData?.annotationUIDsMap instanceof Map) {
+        for (const uids of contourData.annotationUIDsMap.values()) {
+          if (uids && typeof uids.size === 'number' && uids.size > 0) {
+            return true;
+          }
+        }
+      }
+      if (targetType === 'RTSTRUCT') return false;
+    }
+
+    if (!checkLabelmap) return false;
+
+    const labelmapData = (seg.representationData as any)?.Labelmap;
+    const imageIds: string[] = labelmapData?.imageIds ?? [];
+    if (!Array.isArray(imageIds) || imageIds.length === 0) return false;
+
+    const hasNonZeroPixels = (img: any): boolean => {
+      if (!img) return false;
+      const scalarData: any =
+        img.voxelManager?.getScalarData?.()
+        ?? img.imageFrame?.pixelData
+        ?? img.getPixelData?.();
+      if (!scalarData || typeof scalarData.length !== 'number') return false;
+      for (let i = 0; i < scalarData.length; i++) {
+        if (Number(scalarData[i]) > 0) return true;
+      }
+      return false;
+    };
+
+    for (const imageId of imageIds) {
+      if (hasNonZeroPixels(cache.getImage(imageId))) {
+        return true;
+      }
+    }
+
+    return false;
   },
 
   // ─── Undo / Redo ──────────────────────────────────────────────
