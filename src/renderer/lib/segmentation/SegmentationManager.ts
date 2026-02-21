@@ -701,8 +701,8 @@ export class SegmentationManager {
    * Add a new segment to an existing segmentation.
    * Returns the new segment index.
    */
-  addSegment(segmentationId: string, label: string): number {
-    const nextIndex = segmentationService.addSegment(segmentationId, label);
+  async addSegment(segmentationId: string, label: string): Promise<number> {
+    const nextIndex = await segmentationService.addSegment(segmentationId, label);
     segmentationService.setActiveSegmentIndex(segmentationId, nextIndex);
     return nextIndex;
   }
