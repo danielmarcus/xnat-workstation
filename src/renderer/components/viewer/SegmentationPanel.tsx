@@ -659,14 +659,19 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
     });
   }, []);
 
-  const confirmAddSegment = useCallback(() => {
+  const confirmAddSegment = useCallback(async () => {
     if (!segmentNamingDialog) return;
     const finalName = segmentNamingDialog.value.trim();
     if (!finalName) {
       setToast({ message: 'Name is required', type: 'error' });
       return;
     }
-    segmentationManager.addSegment(segmentNamingDialog.segmentationId, finalName);
+    try {
+      await segmentationManager.addSegment(segmentNamingDialog.segmentationId, finalName);
+    } catch (err) {
+      setToast({ message: getErrorMessage(err, 'Failed to add segment'), type: 'error' });
+      return;
+    }
     setSegmentNamingDialog(null);
   }, [segmentNamingDialog]);
 
@@ -2090,7 +2095,7 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
                   e.preventDefault();
-                  confirmAddSegment();
+                  void confirmAddSegment();
                 } else if (e.key === 'Escape') {
                   e.preventDefault();
                   cancelAddSegment();
@@ -2106,7 +2111,7 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
                 Cancel
               </button>
               <button
-                onClick={confirmAddSegment}
+                onClick={() => { void confirmAddSegment(); }}
                 disabled={!segmentNamingDialog.value.trim()}
                 className="text-[10px] text-blue-400 hover:text-blue-300 px-2.5 py-1 rounded bg-blue-900/30 hover:bg-blue-900/50 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
               >
