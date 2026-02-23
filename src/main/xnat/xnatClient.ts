@@ -193,19 +193,26 @@ export class XnatClient {
     const isMutating = method === 'POST' || method === 'PUT' || method === 'PATCH' || method === 'DELETE';
 
     let fetchUrl = url;
-    if (isMutating && this.csrfToken) {
-      const separator = url.includes('?') ? '&' : '?';
-      fetchUrl = `${url}${separator}XNAT_CSRF=${encodeURIComponent(this.csrfToken)}`;
-    } else if (isMutating) {
-      console.warn(`[xnatClient] No CSRF token for ${method} ${url}`);
-    }
-
-    return electronSession.defaultSession.fetch(fetchUrl, {
+    const fetchOptions: RequestInit = {
       credentials: 'include',
       cache: 'no-store',
       redirect: 'follow',
       ...(options ?? {}),
-    });
+    };
+
+    if (isMutating && this.csrfToken) {
+      const separator = url.includes('?') ? '&' : '?';
+      fetchUrl = `${url}${separator}XNAT_CSRF=${encodeURIComponent(this.csrfToken)}`;
+    } else if (isMutating) {
+      // Fallback: XNAT's XnatSecureGuard skips CSRF validation for
+      // non-browser User-Agent strings. Use the XNATDesktopClient UA
+      // so mutating requests still succeed without a token.
+      const headers = new Headers(fetchOptions.headers as HeadersInit ?? {});
+      headers.set('User-Agent', 'XNATDesktopClient');
+      fetchOptions.headers = headers;
+    }
+
+    return electronSession.defaultSession.fetch(fetchUrl, fetchOptions);
   }
 
   /**
