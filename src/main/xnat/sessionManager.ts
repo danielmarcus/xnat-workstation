@@ -227,7 +227,8 @@ function setupWebRequestInterceptor(): void {
   const serverUrl = client.serverUrl;
   const filter = { urls: [`${serverUrl}/*`] };
 
-  // Inject auth headers on outgoing requests
+  // Inject auth cookie on outgoing requests from the renderer (Cornerstone
+  // wadouri GETs). Main-process fetches already have cookies via session.fetch().
   electronSession.defaultSession.webRequest.onBeforeSendHeaders(
     filter,
     (details, callback) => {
@@ -239,35 +240,14 @@ function setupWebRequestInterceptor(): void {
       try {
         const authHeaders = client.buildAuthHeaders();
         const requestHeaders = { ...details.requestHeaders } as Record<string, string | string[]>;
-        const method = String(details.method || 'GET').toUpperCase();
-        const isMutating = method === 'POST' || method === 'PUT' || method === 'PATCH' || method === 'DELETE';
         const hasHeader = (name: string): boolean =>
           Object.keys(requestHeaders).some((k) => k.toLowerCase() === name.toLowerCase());
 
-        // Preserve cookie jar-managed headers when already present (main-process
-        // fetches). Only inject auth cookie for requests that have none.
         if (!hasHeader('cookie') && authHeaders.Cookie) {
           requestHeaders.Cookie = authHeaders.Cookie;
         }
 
-        // Do not overwrite existing CSRF headers set by the caller.
-        for (const [name, value] of Object.entries(authHeaders)) {
-          if (name.toLowerCase() === 'cookie') continue;
-          if (!hasHeader(name)) {
-            requestHeaders[name] = value;
-          }
-        }
-
-        // XNAT can require CSRF token only for "interactive" user-agents
-        // (browser regexes like Mozilla/AppleWebKit). Main-process API writes
-        // should present a non-interactive agent string.
-        if (isMutating) {
-          requestHeaders['User-Agent'] = 'XNAT-Viewer-API/0.4.1';
-        }
-
-        callback({
-          requestHeaders,
-        });
+        callback({ requestHeaders });
       } catch {
         callback({ requestHeaders: details.requestHeaders });
       }

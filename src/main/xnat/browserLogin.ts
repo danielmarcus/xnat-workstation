@@ -42,6 +42,7 @@ async function exchangeCredentials(
   loginSession: Electron.Session,
   serverUrl: string,
   jsessionId: string,
+  csrfToken: string | null,
 ): Promise<BrowserLoginResult> {
   let username = '';
 
@@ -93,7 +94,7 @@ async function exchangeCredentials(
     // Use original JSESSIONID if cookie read fails
   }
 
-  return { jsessionId: currentJsessionId, username, serverCookies };
+  return { jsessionId: currentJsessionId, username, serverCookies, csrfToken };
 }
 
 /** A server cookie to transfer between sessions. */
@@ -112,6 +113,8 @@ export interface BrowserLoginResult {
   username: string;
   /** All server cookies (JSESSIONID, ALB sticky-session cookies, etc.) */
   serverCookies: ServerCookie[];
+  /** CSRF token extracted from XNAT's rendered pages (session attribute XNAT_CSRF). */
+  csrfToken: string | null;
 }
 
 /**
@@ -245,10 +248,34 @@ export async function openBrowserLogin(
 
         console.log(`[browserLogin] Authenticated session detected (JSESSIONID=${jsessionId.slice(0, 8)}...)`);
 
+        // ── Extract CSRF token from the rendered XNAT page ──
+        // XNAT sets `var csrfToken = '<uuid>'` via server-side template rendering
+        // on every authenticated page. Extract it before destroying the window.
+        let csrfToken: string | null = null;
+        try {
+          csrfToken = await loginWindow.webContents.executeJavaScript('window.csrfToken || ""') || null;
+        } catch {
+          // Window may have navigated away — try loading the root page
+        }
+        if (!csrfToken) {
+          try {
+            const baseUrl = serverUrl.replace(/\/+$/, '');
+            await loginWindow.loadURL(`${baseUrl}/`);
+            csrfToken = await loginWindow.webContents.executeJavaScript('window.csrfToken || ""') || null;
+          } catch {
+            // Non-fatal — CSRF token will be missing but GETs still work
+          }
+        }
+        if (csrfToken) {
+          console.log(`[browserLogin] CSRF token extracted: ${csrfToken.slice(0, 8)}...`);
+        } else {
+          console.warn('[browserLogin] Could not extract CSRF token from login window');
+        }
+
         // ── Get username & collect all cookies ──
         // Must happen now, while the login session is still alive.
         // After finish() the session is destroyed and cookies are gone.
-        const authData = await exchangeCredentials(loginSession, serverUrl, jsessionId);
+        const authData = await exchangeCredentials(loginSession, serverUrl, jsessionId, csrfToken);
         finish(authData);
         return;
       } catch (err) {
