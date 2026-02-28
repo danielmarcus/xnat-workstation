@@ -27,6 +27,7 @@ const RTSTRUCT_SOP_CLASS_UID = '1.2.840.10008.5.1.4.1.1.481.3';
 const XSI_SEG = 'xnat:segscandata';
 const XSI_SR = 'xnat:srscandata';
 const XSI_OTHER_DICOM = 'xnat:otherdicomscandata';
+const XSI_RT_IMAGE = 'xnat:rtimagescandata';
 
 function norm(value: string | undefined): string {
   return (value ?? '').trim().toLowerCase();
@@ -42,6 +43,9 @@ export function isSegScan(scan: XnatScan): boolean {
 export function isRtStructScan(scan: XnatScan): boolean {
   const xsiType = norm(scan.xsiType);
   if (scan.sopClassUID === RTSTRUCT_SOP_CLASS_UID) return true;
+
+  // Our uploads create scans with xnat:rtImageScanData — recognise this directly.
+  if (xsiType === XSI_RT_IMAGE) return true;
 
   // Metadata-first path requested by product:
   // RTSTRUCT rows are expected to arrive as xnat:otherDicomScanData.
@@ -60,6 +64,12 @@ export function isRtStructScan(scan: XnatScan): boolean {
       desc.includes('structure set')
     );
   }
+
+  // Fallback: type/description heuristics regardless of xsiType, so that
+  // scans created by external tools with unexpected xsiTypes are still caught.
+  const type = norm(scan.type);
+  if (type === 'rtstruct' || type === 'rt structure set') return true;
+
   return false;
 }
 
