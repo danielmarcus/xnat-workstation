@@ -31,7 +31,6 @@ import {
   ProbeTool,
   ArrowAnnotateTool,
   PlanarFreehandROITool,
-  CrosshairsTool,
   BrushTool,
   PlanarFreehandContourSegmentationTool,
   SplineContourSegmentationTool,
@@ -64,6 +63,7 @@ import { viewportService } from './viewportService';
 import { useSegmentationStore } from '../../stores/segmentationStore';
 import { segmentationService } from './segmentationService';
 import { useViewerStore } from '../../stores/viewerStore';
+import { segmentationManager } from '../segmentation/segmentationManagerSingleton';
 
 const TOOL_GROUP_ID = 'xnatToolGroup_primary';
 const CONTOUR_INTERPOLATION_TOOL_NAMES = [
@@ -88,7 +88,10 @@ const TOOL_NAME_MAP: Record<ToolName, string> = {
   [ToolName.Probe]: ProbeTool.toolName,
   [ToolName.ArrowAnnotate]: ArrowAnnotateTool.toolName,
   [ToolName.PlanarFreehandROI]: PlanarFreehandROITool.toolName,
-  [ToolName.Crosshairs]: CrosshairsTool.toolName,
+  // Use WindowLevel binding behavior for crosshair pick mode in the
+  // standard tool group; actual coordinate sync is handled by our custom
+  // pointer listeners to avoid CrosshairsTool rendering errors on stack viewports.
+  [ToolName.Crosshairs]: WindowLevelTool.toolName,
   // Labelmap segmentation tools — Brush/Eraser/ThresholdBrush all map to BrushTool
   [ToolName.Brush]: BrushTool.toolName,
   [ToolName.Eraser]: BrushTool.toolName,
@@ -495,19 +498,40 @@ export const toolService = {
       const isSegOnViewport = (segmentationId: string): boolean => {
         return segmentationService.getViewportIdsForSegmentation(segmentationId).includes(viewportId);
       };
+      const visibleForViewport = segmentationManager.getVisibleSegmentationIdsForViewport(viewportId);
+      const isVisibleForViewport = (segmentationId: string): boolean =>
+        visibleForViewport === null || visibleForViewport.has(segmentationId);
 
       // Active segmentation may belong to a different scan/panel. Prefer a segmentation
       // currently attached to the active viewport; otherwise we'll create a new one.
       let activeSegId = segStore.activeSegmentationId;
-      if (activeSegId && !isSegOnViewport(activeSegId)) {
+      if (activeSegId && (!isVisibleForViewport(activeSegId))) {
         activeSegId = null;
       }
       if (!activeSegId) {
-        const attachedSeg = segStore.segmentations.find((s) => isSegOnViewport(s.segmentationId));
+        const attachedSeg = segStore.segmentations.find(
+          (s) => isVisibleForViewport(s.segmentationId) && isSegOnViewport(s.segmentationId),
+        );
         if (attachedSeg) {
           activeSegId = attachedSeg.segmentationId;
           segStore.setActiveSegmentation(activeSegId);
         }
+      }
+      if (!activeSegId) {
+        const visibleSeg = segStore.segmentations.find((s) => isVisibleForViewport(s.segmentationId));
+        if (visibleSeg) {
+          activeSegId = visibleSeg.segmentationId;
+          segStore.setActiveSegmentation(activeSegId);
+        }
+      }
+      if (activeSegId && !isSegOnViewport(activeSegId)) {
+        // Ensure source-scan-associated annotations can be edited from any panel
+        // showing the same underlying scan, even if representation wasn't attached yet.
+        segmentationManager.userSelectedSegmentation(
+          viewportId,
+          activeSegId,
+          getSafePaintSegmentIndex(segStore.activeSegmentIndex),
+        );
       }
 
       // If no segmentation exists yet, auto-create one BEFORE activating the tool.
@@ -517,55 +541,62 @@ export const toolService = {
         try {
           const engine = getRenderingEngine(viewportService.ENGINE_ID);
           const viewport = engine?.getViewport(viewportId);
-          if (viewport && 'getImageIds' in viewport) {
-            const imageIds = (viewport as any).getImageIds() as string[];
-            if (imageIds && imageIds.length > 0) {
-              // Create segmentation first, then activate the tool
-              segmentationService.createStackSegmentation(imageIds, undefined, true).then(async (segId) => {
-                await segmentationService.addToViewport(viewportId, segId);
+          let imageIds: string[] = [];
+          if (viewport && 'getImageIds' in viewport && typeof (viewport as any).getImageIds === 'function') {
+            imageIds = ((viewport as any).getImageIds() as string[]) ?? [];
+          }
+          if (imageIds.length === 0) {
+            imageIds = useViewerStore.getState().panelImageIdsMap[viewportId] ?? [];
+          }
+          if (imageIds && imageIds.length > 0) {
+            // Create segmentation first, then activate the tool
+            segmentationManager.createNewSegmentation(
+              viewportId,
+              imageIds,
+              undefined,
+              true,
+            ).then(async (segId) => {
+              // Track local unsaved origin so auto-save/save targets stay bound
+              // to the source scan even if the user changes panels before saving.
+              const viewerState = useViewerStore.getState();
+              const sourceScanId =
+                viewerState.panelScanMap[viewportId] ?? viewerState.xnatContext?.scanId;
+              if (
+                sourceScanId &&
+                viewerState.xnatContext?.projectId &&
+                viewerState.xnatContext?.sessionId
+              ) {
+                useSegmentationStore.getState().setXnatOrigin(segId, {
+                  scanId: '',
+                  sourceScanId,
+                  projectId: viewerState.xnatContext.projectId,
+                  sessionId: viewerState.xnatContext.sessionId,
+                });
+              }
 
-                // Track local unsaved origin so auto-save/save targets stay bound
-                // to the source scan even if the user changes panels before saving.
-                const viewerState = useViewerStore.getState();
-                const sourceScanId =
-                  viewerState.panelScanMap[viewportId] ?? viewerState.xnatContext?.scanId;
-                if (
-                  sourceScanId &&
-                  viewerState.xnatContext?.projectId &&
-                  viewerState.xnatContext?.sessionId
-                ) {
-                  useSegmentationStore.getState().setXnatOrigin(segId, {
-                    scanId: '',
-                    sourceScanId,
-                    projectId: viewerState.xnatContext.projectId,
-                    sessionId: viewerState.xnatContext.sessionId,
-                  });
+              if (segId) {
+                // Keep active segment index valid for cursor/LUT resolution.
+                // Eraser behavior is controlled by Brush strategy, not segment index 0.
+                const paintIdx = getSafePaintSegmentIndex(
+                  useSegmentationStore.getState().activeSegmentIndex,
+                );
+                segmentationManager.userSelectedSegmentation(viewportId, segId, paintIdx);
+
+                // Ensure contour representation for contour tools
+                if (CONTOUR_SEG_TOOLS.has(toolName)) {
+                  await segmentationService.ensureContourRepresentation(viewportId, segId);
                 }
+              }
 
-                if (segId) {
-                  // Keep active segment index valid for cursor/LUT resolution.
-                  // Eraser behavior is controlled by Brush strategy, not segment index 0.
-                  const paintIdx = getSafePaintSegmentIndex(
-                    useSegmentationStore.getState().activeSegmentIndex,
-                  );
-                  segmentationService.setActiveSegmentIndex(segId, paintIdx);
-
-                  // Ensure contour representation for contour tools
-                  if (CONTOUR_SEG_TOOLS.has(toolName)) {
-                    await segmentationService.ensureContourRepresentation(viewportId, segId);
-                  }
-                }
-
-                // NOW activate the tool — segmentation is fully registered
-                currentActiveTool = toolName;
-                rebuildToolGroup(toolName);
-                console.log('[toolService] Active tool:', toolName, '(after auto-creating segmentation)');
-              }).catch((err) => {
-                console.error('[toolService] Failed to auto-create segmentation:', err);
-              });
-            } else {
-              console.debug('[toolService] Cannot auto-create segmentation — no images in viewport');
-            }
+              // NOW activate the tool — segmentation is fully registered
+              currentActiveTool = toolName;
+              rebuildToolGroup(toolName);
+              console.log('[toolService] Active tool:', toolName, '(after auto-creating segmentation)');
+            }).catch((err) => {
+              console.error('[toolService] Failed to auto-create segmentation:', err);
+            });
+          } else {
+            console.debug('[toolService] Cannot auto-create segmentation — no images in viewport');
           }
         } catch (err) {
           console.debug('[toolService] Cannot auto-create segmentation:', err);
@@ -578,7 +609,8 @@ export const toolService = {
       // Segmentation already exists
       const segId = activeSegId;
       if (segId) {
-        segmentationService.setActiveSegmentIndex(
+        segmentationManager.userSelectedSegmentation(
+          viewportId,
           segId,
           getSafePaintSegmentIndex(segStore.activeSegmentIndex),
         );

@@ -17,6 +17,7 @@ import { rtStructService } from '../cornerstone/rtStructService';
 import { useSegmentationManagerStore, type RGBA } from '../../stores/segmentationManagerStore';
 import { useSegmentationStore } from '../../stores/segmentationStore';
 import { useViewerStore } from '../../stores/viewerStore';
+import { getEnabledElementByViewportId } from '@cornerstonejs/core';
 
 /** Dependencies injected from App.tsx to avoid circular imports */
 export interface ManagerDeps {
@@ -95,7 +96,7 @@ export class SegmentationManager {
    */
   private async reconcilePanelAfterReady(panelId: string, sourceScanId: string, epoch: number): Promise<void> {
     try {
-      await viewportReadyService.whenReady(panelId, epoch);
+      await this.waitForPanelReady(panelId, epoch, 'reconcile');
       if (this.disposed) return;
       if (this.isEpochStale(panelId, epoch)) return;
 
@@ -144,6 +145,77 @@ export class SegmentationManager {
     }
   }
 
+  /**
+   * Wait for panel readiness for an epoch.
+   * If viewportReadyService times out but the viewport already exists, continue
+   * to avoid blocking overlay attach on missed markReady races.
+   */
+  private async waitForPanelReady(
+    panelId: string,
+    epoch: number,
+    context: 'reconcile' | 'cross-panel-attach' | 'overlay-load' | 'direct-load' | 'activate',
+  ): Promise<void> {
+    try {
+      await viewportReadyService.whenReady(panelId, epoch);
+      return;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const isTimeout = msg.includes('[viewportReadyService] Timeout waiting');
+      if (!isTimeout) {
+        throw err;
+      }
+
+      let viewportExists = false;
+      try {
+        const enabled = getEnabledElementByViewportId(panelId);
+        viewportExists = !!enabled?.viewport;
+      } catch {
+        viewportExists = false;
+      }
+
+      if (viewportExists) {
+        console.warn(
+          `[SegmentationManager] whenReady timeout fallback: panel=${panelId}, epoch=${epoch}, context=${context}; viewport exists, continuing`,
+        );
+        return;
+      }
+
+      throw err;
+    }
+  }
+
+  /**
+   * Ensure a segmentation representation exists on all panels currently showing
+   * the same source scan (except the optional excluded panel).
+   */
+  private async attachSegmentationToPanelsForSource(
+    sourceScanId: string,
+    segmentationId: string,
+    excludePanelId?: string,
+  ): Promise<void> {
+    const panelScanMap = useViewerStore.getState().panelScanMap;
+    const panelIds = Object.entries(panelScanMap)
+      .filter(([panelId, scanId]) => scanId === sourceScanId && panelId !== excludePanelId)
+      .map(([panelId]) => panelId);
+
+    for (const panelId of panelIds) {
+      if (this.disposed) return;
+      try {
+        const epoch = viewportReadyService.getEpoch(panelId);
+        await this.waitForPanelReady(panelId, epoch, 'cross-panel-attach');
+        if (this.isSegOnViewport(panelId, segmentationId)) continue;
+        await this.attachSegmentationToViewport(panelId, segmentationId);
+        this.restorePresentationState(segmentationId);
+        this.captureInitialPresentationState(segmentationId);
+      } catch (err) {
+        console.debug(
+          `[SegmentationManager] Failed cross-panel attach for ${segmentationId} on ${panelId}:`,
+          err,
+        );
+      }
+    }
+  }
+
 
   // ─── Viewport cleanup ──────────────────────────────────────────
 
@@ -153,6 +225,37 @@ export class SegmentationManager {
    */
   removeSegmentationsFromViewport(panelId: string): void {
     segmentationService.removeSegmentationsFromViewport(panelId);
+  }
+
+  /**
+   * Attach all currently relevant segmentations to a viewport.
+   * Used after viewport recreation/orientation changes so overlays remain visible
+   * across panels that show the same source scan.
+   */
+  async attachVisibleSegmentationsToViewport(panelId: string): Promise<void> {
+    if (this.disposed) return;
+
+    const visible = this.getVisibleSegmentationIdsForViewport(panelId);
+    const candidates = useSegmentationStore.getState().segmentations
+      .map((seg) => seg.segmentationId)
+      .filter((segmentationId) => (visible ? visible.has(segmentationId) : true));
+
+    for (const segmentationId of candidates) {
+      if (this.disposed) return;
+      if (!segmentationService.segmentationExists(segmentationId)) continue;
+      if (this.isSegOnViewport(panelId, segmentationId)) continue;
+
+      try {
+        await this.attachSegmentationToViewport(panelId, segmentationId);
+        this.restorePresentationState(segmentationId);
+        this.captureInitialPresentationState(segmentationId);
+      } catch (err) {
+        console.debug(
+          `[SegmentationManager] Failed to attach ${segmentationId} on ${panelId}:`,
+          err,
+        );
+      }
+    }
   }
 
   // ─── Scan-click segmentation load helpers (Phase 6) ────────────
@@ -176,7 +279,7 @@ export class SegmentationManager {
 
     // Wait for viewport to be ready if epoch provided
     if (options?.epoch !== undefined) {
-      await viewportReadyService.whenReady(panelId, options.epoch);
+      await this.waitForPanelReady(panelId, options.epoch, 'direct-load');
     }
 
     let segmentationId: string;
@@ -223,7 +326,7 @@ export class SegmentationManager {
 
     // Wait for viewport to be ready if epoch provided
     if (options?.epoch !== undefined) {
-      await viewportReadyService.whenReady(panelId, options.epoch);
+      await this.waitForPanelReady(panelId, options.epoch, 'direct-load');
     }
 
     segmentationService.beginSegLoad();
@@ -371,7 +474,7 @@ export class SegmentationManager {
 
         // Wait for viewport to be ready
         console.log(`[SegmentationManager] Waiting for viewport ready: panel=${panelId}, epoch=${epochAtStart}...`);
-        await viewportReadyService.whenReady(panelId, epochAtStart);
+        await this.waitForPanelReady(panelId, epochAtStart, 'overlay-load');
         console.log(`[SegmentationManager] Viewport ready for ${panelId}, loading ${type} ${scanId}...`);
         if (this.disposed || this.isEpochStale(panelId, epochAtStart)) {
           console.warn(`[SegmentationManager] Aborting after whenReady ${scanId}: disposed=${this.disposed}, epochStale=${this.isEpochStale(panelId, epochAtStart)}`);
@@ -407,6 +510,10 @@ export class SegmentationManager {
         // Persist explicit DICOM object type from the overlay descriptor.
         // This is the source of truth for export/upload route selection.
         useSegmentationStore.getState().setDicomType(segmentationId, type);
+
+        // Ensure the same overlay is visible on other panels that currently
+        // show this source scan (e.g., axial/sagittal/coronal side-by-side).
+        await this.attachSegmentationToPanelsForSource(sourceScanId, segmentationId, panelId);
 
         // Record loaded using session-scoped composite key
         store().recordLoaded(compositeSourceKey, scanId, {
@@ -564,7 +671,7 @@ export class SegmentationManager {
   ): Promise<void> {
     try {
       const epoch = viewportReadyService.getEpoch(viewportId);
-      await viewportReadyService.whenReady(viewportId, epoch);
+      await this.waitForPanelReady(viewportId, epoch, 'activate');
       if (this.disposed) return;
       if (this.isEpochStale(viewportId, epoch)) return;
 
@@ -612,15 +719,24 @@ export class SegmentationManager {
   userToggledVisibility(viewportId: string, segmentationId: string, segmentIndex: number): void {
     const managerStore = useSegmentationManagerStore.getState();
     const cachedVisible = managerStore.presentation[segmentationId]?.visibility?.[segmentIndex];
-    const segStore = useSegmentationStore.getState();
-    const summary = segStore.segmentations.find((s) => s.segmentationId === segmentationId);
-    const segment = summary?.segments.find((s) => s.segmentIndex === segmentIndex);
+    const representedViewportIds = segmentationService.getViewportIdsForSegmentation(segmentationId);
+    const targetViewportIds = representedViewportIds.length > 0
+      ? representedViewportIds
+      : [viewportId];
     const currentVisible = typeof cachedVisible === 'boolean'
       ? cachedVisible
-      : (segment?.visible ?? segmentationService.getSegmentVisibility(viewportId, segmentationId, segmentIndex));
+      : segmentationService.getSegmentVisibility(
+          targetViewportIds[0],
+          segmentationId,
+          segmentIndex,
+        );
     const newVisible = !currentVisible;
 
-    segmentationService.setSegmentVisibility(viewportId, segmentationId, segmentIndex, newVisible);
+    // Apply the same visibility state to all viewport representations so the
+    // annotation panel state stays deterministic across multi-viewport layouts.
+    for (const vpId of targetViewportIds) {
+      segmentationService.setSegmentVisibility(vpId, segmentationId, segmentIndex, newVisible);
+    }
     managerStore.setPresentation(segmentationId, segmentIndex, { visible: newVisible });
   }
 
@@ -644,10 +760,17 @@ export class SegmentationManager {
     viewportId: string,
     sourceImageIds: string[],
     label?: string,
+    createDefaultSegment = false,
   ): Promise<string> {
-    const segId = await segmentationService.createStackSegmentation(sourceImageIds, label, false);
+    const segId = await segmentationService.createStackSegmentation(
+      sourceImageIds,
+      label,
+      createDefaultSegment,
+    );
     await segmentationService.addToViewport(viewportId, segId);
-    segmentationService.ensureEmptySegmentation(segId);
+    if (!createDefaultSegment) {
+      segmentationService.ensureEmptySegmentation(segId);
+    }
     useSegmentationStore.getState().setDicomType(segId, 'SEG');
 
     // Record local origin with session-scoped composite key so the
@@ -663,6 +786,7 @@ export class SegmentationManager {
         segId,
         `${projectId}/${sessionId}/${sourceScanId}`,
       );
+      await this.attachSegmentationToPanelsForSource(sourceScanId, segId, viewportId);
     }
 
     return segId;
@@ -692,6 +816,7 @@ export class SegmentationManager {
         segId,
         `${projectId}/${sessionId}/${sourceScanId}`,
       );
+      await this.attachSegmentationToPanelsForSource(sourceScanId, segId, viewportId);
     }
 
     return segId;
@@ -701,8 +826,9 @@ export class SegmentationManager {
    * Add a new segment to an existing segmentation.
    * Returns the new segment index.
    */
-  async addSegment(segmentationId: string, label: string): Promise<number> {
-    const nextIndex = await segmentationService.addSegment(segmentationId, label);
+  addSegment(segmentationId: string, label: string): number {
+    const nextIndex = segmentationService.addSegment(segmentationId, label);
+    useSegmentationManagerStore.getState().setPresentation(segmentationId, nextIndex, { visible: true });
     segmentationService.setActiveSegmentIndex(segmentationId, nextIndex);
     return nextIndex;
   }

@@ -23,13 +23,22 @@ import {
 } from '@cornerstonejs/core';
 
 const VOLUME_SCHEME = 'cornerstoneStreamingImageVolume';
+let lastVolumeTs = 0;
+let volumeSeq = 0;
 
 /**
  * Generate a unique volume ID for MPR use.
  * Format: cornerstoneStreamingImageVolume:xnat_mpr_<timestamp>
  */
 export function generateVolumeId(): string {
-  return `${VOLUME_SCHEME}:xnat_mpr_${Date.now()}`;
+  const now = Date.now();
+  if (now === lastVolumeTs) {
+    volumeSeq += 1;
+  } else {
+    lastVolumeTs = now;
+    volumeSeq = 0;
+  }
+  return `${VOLUME_SCHEME}:xnat_mpr_${now}_${volumeSeq}`;
 }
 
 /** Keep a reference to volumes so we can call load() later */

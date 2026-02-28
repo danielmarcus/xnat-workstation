@@ -13,8 +13,10 @@ import { Enums } from '@cornerstonejs/core';
 import { mprService } from '../../lib/cornerstone/mprService';
 import { mprToolService } from '../../lib/cornerstone/mprToolService';
 import { viewportService } from '../../lib/cornerstone/viewportService';
+import { crosshairSyncService } from '../../lib/cornerstone/crosshairSyncService';
+import { wireCrosshairPointerHandlers } from '../../lib/cornerstone/crosshairGeometry';
 import { useViewerStore } from '../../stores/viewerStore';
-import type { MPRPlane } from '@shared/types/viewer';
+import { ToolName, type MPRPlane } from '@shared/types/viewer';
 
 interface MPRViewportProps {
   panelId: string;
@@ -39,10 +41,23 @@ const PLANE_LABELS: Record<MPRPlane, string> = {
 export default function MPRViewport({ panelId, volumeId, plane }: MPRViewportProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
+  const activeTool = useViewerStore((s) => s.activeTool);
+  const cursorClass = activeTool === ToolName.Crosshairs ? 'cursor-crosshair' : '';
 
   // Read MPR slice state from store
   const mprState = useViewerStore((s) => s.mprViewports[panelId]);
   const voiState = useViewerStore((s) => s.viewports[panelId]);
+
+  useEffect(() => {
+    const element = containerRef.current;
+    if (!element) return;
+    const cursor = activeTool === ToolName.Crosshairs ? 'crosshair' : '';
+    element.style.cursor = cursor;
+    const canvas = element.querySelector('canvas') as HTMLCanvasElement | null;
+    if (canvas) {
+      canvas.style.cursor = cursor;
+    }
+  }, [activeTool]);
 
   // ─── Setup / Teardown ──────────────────────────────────────
   useEffect(() => {
@@ -88,6 +103,7 @@ export default function MPRViewport({ panelId, volumeId, plane }: MPRViewportPro
         // Initialize slice info in store
         const sliceInfo = mprService.getSliceInfo(panelId);
         useViewerStore.getState()._updateMPRSlice(panelId, sliceInfo.sliceIndex, sliceInfo.totalSlices);
+        useViewerStore.getState()._updateImageIndex(panelId, sliceInfo.sliceIndex, sliceInfo.totalSlices);
 
         // Initialize zoom
         useViewerStore.getState()._updateZoom(panelId, mprService.getZoom(panelId));
@@ -138,10 +154,10 @@ export default function MPRViewport({ panelId, volumeId, plane }: MPRViewportPro
   const wc = voiState?.windowCenter ?? 0;
 
   return (
-    <div className="relative w-full h-full bg-black">
+    <div className={`relative w-full h-full bg-black ${cursorClass}`}>
       <div
         ref={containerRef}
-        className="w-full h-full"
+        className={`w-full h-full ${cursorClass}`}
         onContextMenu={(e) => e.preventDefault()}
       />
 
@@ -213,6 +229,7 @@ function wireEvents(element: HTMLDivElement, panelId: string): void {
     // Update slice info
     const sliceInfo = mprService.getSliceInfo(panelId);
     useViewerStore.getState()._updateMPRSlice(panelId, sliceInfo.sliceIndex, sliceInfo.totalSlices);
+    useViewerStore.getState()._updateImageIndex(panelId, sliceInfo.sliceIndex, sliceInfo.totalSlices);
 
     // Update zoom
     useViewerStore.getState()._updateZoom(panelId, mprService.getZoom(panelId));
@@ -234,4 +251,11 @@ function wireEvents(element: HTMLDivElement, panelId: string): void {
       mprService.scroll(panelId, steps);
     }
   }, { passive: false });
+
+  wireCrosshairPointerHandlers({
+    element,
+    panelId,
+    isCrosshairActive: () => useViewerStore.getState().activeTool === ToolName.Crosshairs,
+    onWorldPoint: (point) => crosshairSyncService.syncFromViewport(panelId, point),
+  });
 }

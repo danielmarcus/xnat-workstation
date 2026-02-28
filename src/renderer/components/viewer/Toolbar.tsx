@@ -11,6 +11,7 @@ import { BUILT_IN_PROTOCOLS } from '@shared/types/hangingProtocol';
 import AnnotationToolDropdown from './AnnotationToolDropdown';
 import {
   IconWindowLevel,
+  IconCrosshairs,
   IconPan,
   IconZoom,
   IconReset,
@@ -555,6 +556,13 @@ export default function Toolbar({ showDicomPanel = false, onToggleDicomPanel, on
       {/* ─── Interaction Tools ──────────────────────────── */}
       {!mprActive && (
         <>
+          <ToolButton
+            icon={<IconCrosshairs className="w-3.5 h-3.5" />}
+            label="Cross"
+            active={activeTool === ToolName.Crosshairs}
+            onClick={() => setActiveTool(ToolName.Crosshairs)}
+            title="Crosshairs (left-click to sync; hold Shift+move for dynamic sync; left-drag W/L)"
+          />
           <ToolButton
             icon={<IconWindowLevel className="w-3.5 h-3.5" />}
             label="W/L"

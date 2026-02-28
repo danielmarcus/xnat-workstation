@@ -11,7 +11,7 @@
  * through existing stores (viewerStore, segmentationStore, annotationStore).
  */
 import type { HotkeyAction, HotkeyBinding, HotkeyMap } from '@shared/types/hotkeys';
-import { ToolName, WL_PRESETS } from '@shared/types/viewer';
+import { ToolName, WL_PRESETS, panelId } from '@shared/types/viewer';
 import type { LayoutType } from '@shared/types/viewer';
 import { DEFAULT_HOTKEY_MAP } from './defaultHotkeyMap';
 import { useViewerStore } from '../../stores/viewerStore';
@@ -149,6 +149,25 @@ function dispatchAction(action: HotkeyAction): boolean {
     case 'panel.toggleSegmentation':
       useSegmentationStore.getState().togglePanel();
       return true;
+    case 'panel.nextViewport': {
+      const order = buildClockwisePanelOrder(
+        viewerState.layoutConfig.rows,
+        viewerState.layoutConfig.cols,
+        viewerState.layoutConfig.panelCount,
+      );
+      if (order.length <= 1) return false;
+      const currentIdx = order.indexOf(viewerState.activeViewportId);
+      const nextIdx = currentIdx >= 0 ? (currentIdx + 1) % order.length : 0;
+      const nextPanelId = order[nextIdx];
+      viewerState.setActiveViewport(nextPanelId);
+      // Keep keyboard focus on the active viewport panel to avoid toolbar
+      // focus stealing and make active-panel transitions obvious.
+      requestAnimationFrame(() => {
+        const el = document.querySelector(`[data-panel-id="${nextPanelId}"]`) as HTMLElement | null;
+        el?.focus?.();
+      });
+      return true;
+    }
 
     // Brush size
     case 'brush.decrease': {
@@ -206,6 +225,40 @@ function dispatchAction(action: HotkeyAction): boolean {
   }
 }
 
+function buildClockwisePanelOrder(rows: number, cols: number, panelCount: number): string[] {
+  if (rows <= 0 || cols <= 0 || panelCount <= 0) return [];
+
+  const order: string[] = [];
+  const visited = new Set<number>();
+  let top = 0;
+  let bottom = rows - 1;
+  let left = 0;
+  let right = cols - 1;
+
+  const pushIndex = (idx: number) => {
+    if (idx < 0 || idx >= panelCount || visited.has(idx)) return;
+    visited.add(idx);
+    order.push(panelId(idx));
+  };
+
+  while (left <= right && top <= bottom && order.length < panelCount) {
+    for (let c = left; c <= right; c++) pushIndex(top * cols + c);
+    for (let r = top + 1; r <= bottom; r++) pushIndex(r * cols + right);
+    if (top < bottom) {
+      for (let c = right - 1; c >= left; c--) pushIndex(bottom * cols + c);
+    }
+    if (left < right) {
+      for (let r = bottom - 1; r > top; r--) pushIndex(r * cols + left);
+    }
+    top++;
+    bottom--;
+    left++;
+    right--;
+  }
+
+  return order;
+}
+
 /**
  * Handle slice navigation for both stack and MPR viewports.
  * Replicates the logic from ViewportGrid.tsx and MPRViewportGrid.tsx.
@@ -218,6 +271,31 @@ function handleSliceNavigation(
 
   // MPR panel (volume viewport)
   if (pid.startsWith('mpr_panel_')) {
+    const mprState = viewerState.mprViewports[pid];
+    if (!mprState || mprState.totalSlices <= 1) return false;
+
+    let delta = 0;
+    let jumpTo: number | null = null;
+
+    switch (action) {
+      case 'slice.prev':     delta = -1;  break;
+      case 'slice.next':     delta = 1;   break;
+      case 'slice.prevPage': delta = -10; break;
+      case 'slice.nextPage': delta = 10;  break;
+      case 'slice.first':    jumpTo = 0;  break;
+      case 'slice.last':     jumpTo = mprState.totalSlices - 1; break;
+    }
+
+    if (jumpTo !== null) {
+      mprService.scrollToIndex(pid, jumpTo);
+    } else if (delta !== 0) {
+      mprService.scroll(pid, delta);
+    }
+    return true;
+  }
+
+  // Per-panel oriented volume viewport in standard grid
+  if ((viewerState.panelOrientationMap[pid] ?? 'STACK') !== 'STACK') {
     const mprState = viewerState.mprViewports[pid];
     if (!mprState || mprState.totalSlices <= 1) return false;
 
@@ -282,12 +360,20 @@ let listenerInstalled = false;
 // ─── Keydown Handler ──────────────────────────────────────────────
 
 function handleKeyDown(e: KeyboardEvent): void {
-  // Input guard: don't intercept when focus is in a form element
-  const tag = (e.target as HTMLElement)?.tagName;
-  if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
-
-  // Also guard for contentEditable elements
-  if ((e.target as HTMLElement)?.isContentEditable) return;
+  const target = e.target as HTMLElement | null;
+  const tag = target?.tagName ?? '';
+  const inputType =
+    tag === 'INPUT' ? ((target as HTMLInputElement).type || '').toLowerCase() : '';
+  const isTextEntryContext =
+    !!target &&
+    (
+      tag === 'TEXTAREA' ||
+      target.isContentEditable ||
+      (
+        tag === 'INPUT' &&
+        !['checkbox', 'radio', 'range', 'button', 'submit', 'reset'].includes(inputType)
+      )
+    );
 
   // Build normalized key from the event
   const parts: string[] = [];
@@ -297,6 +383,16 @@ function handleKeyDown(e: KeyboardEvent): void {
   if (e.metaKey) parts.push('meta');
   parts.push(e.key.toLowerCase());
   const normalized = parts.join('+');
+
+  // Tab should cycle viewports even when focus is on non-text controls
+  // (checkboxes/sliders/buttons/selects). Preserve normal tab behavior only
+  // while actively editing text-like fields.
+  if (e.key === 'Tab' && isTextEntryContext) return;
+
+  // Non-Tab shortcuts should not fire while focus is in form controls/editors.
+  if (e.key !== 'Tab' && (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA' || !!target?.isContentEditable)) {
+    return;
+  }
 
   const action = lookup.get(normalized);
   if (!action) return;
