@@ -150,6 +150,7 @@ export async function openBrowserLogin(
       width: 900,
       height: 700,
       show: false,
+      useContentSize: true,
       title: 'Sign in — XNAT',
       webPreferences: {
         nodeIntegration: false,
@@ -250,18 +251,24 @@ export async function openBrowserLogin(
 
         // ── Extract CSRF token from the rendered XNAT page ──
         // XNAT sets `var csrfToken = '<uuid>'` via server-side template rendering
-        // on every authenticated page. Extract it before destroying the window.
+        // on every authenticated page. First try the current page in the login
+        // window; if that fails, fetch the root page via session.fetch() (invisible
+        // HTTP request) to avoid flashing the XNAT homepage in the visible window.
         let csrfToken: string | null = null;
         try {
           csrfToken = await loginWindow.webContents.executeJavaScript('window.csrfToken || ""') || null;
         } catch {
-          // Window may have navigated away — try loading the root page
+          // Window may have navigated away — fall through to fetch
         }
         if (!csrfToken) {
           try {
             const baseUrl = serverUrl.replace(/\/+$/, '');
-            await loginWindow.loadURL(`${baseUrl}/`);
-            csrfToken = await loginWindow.webContents.executeJavaScript('window.csrfToken || ""') || null;
+            const resp = await loginSession.fetch(`${baseUrl}/`);
+            if (resp.ok) {
+              const html = await resp.text();
+              const match = html.match(/var\s+csrfToken\s*=\s*['"]([^'"]+)['"]/);
+              csrfToken = match?.[1] || null;
+            }
           } catch {
             // Non-fatal — CSRF token will be missing but GETs still work
           }
@@ -305,6 +312,11 @@ export async function openBrowserLogin(
       if (value === firstJsessionId) return; // same cookie, no change
 
       console.log(`[browserLogin] JSESSIONID regenerated (${value.slice(0, 8)}...), checking auth`);
+      // Hide immediately — XNAT's login JS will redirect to the homepage
+      // and we don't want that to flash while we validate asynchronously.
+      if (!loginWindow.isDestroyed()) {
+        loginWindow.hide();
+      }
       checkForAuthenticatedSession();
     }
     loginSession.cookies.on('changed', onCookieChanged);
@@ -319,7 +331,25 @@ export async function openBrowserLogin(
     const loginUrl = `${baseUrl}/app/template/Login.vm`;
     console.log(`[browserLogin] Opening login window: ${loginUrl}`);
 
-    loginWindow.loadURL(loginUrl).then(() => {
+    loginWindow.loadURL(loginUrl).then(async () => {
+      if (resolved) return;
+
+      // Resize the window to fit the page content before showing
+      try {
+        const [w, h] = await loginWindow.webContents.executeJavaScript(
+          '[document.documentElement.scrollWidth, document.documentElement.scrollHeight]',
+        );
+        if (w > 0 && h > 0) {
+          loginWindow.setContentSize(
+            Math.max(w, 480),
+            Math.max(h, 360),
+          );
+          loginWindow.center();
+        }
+      } catch {
+        // Use default size if measurement fails
+      }
+
       if (!resolved) {
         loginWindow.show();
       }
