@@ -9,7 +9,7 @@
 import { metaData } from '@cornerstonejs/core';
 import type { OverlayMetadata } from '@shared/types/dicom';
 import { EMPTY_OVERLAY } from '@shared/types/dicom';
-import type { MPRPlane } from '@shared/types/viewer';
+import type { ViewportOrientation } from '@shared/types/viewer';
 
 /**
  * Format a DICOM date string (YYYYMMDD) to a readable format.
@@ -64,31 +64,39 @@ function toStr(val: unknown): string {
 
 export const metadataService = {
   /**
-   * Infer native orientation from DICOM ImageOrientationPatient.
-   * Uses the dominant component of the plane normal.
+   * Infer the native acquisition orientation from the DICOM
+   * ImageOrientationPatient tag. Computes the cross product of
+   * the row and column direction cosines and returns the dominant
+   * axis as AXIAL / SAGITTAL / CORONAL.
+   *
+   * Falls back to 'AXIAL' if metadata is unavailable.
    */
-  getNativeOrientation(imageId: string): MPRPlane | null {
-    if (!imageId) return null;
+  getNativeOrientation(imageId: string): ViewportOrientation {
     try {
-      const imagePlane = metaData.get('imagePlaneModule', imageId) as any;
-      const iop = imagePlane?.imageOrientationPatient;
-      if (!Array.isArray(iop) || iop.length < 6) return null;
-      const row = [Number(iop[0]), Number(iop[1]), Number(iop[2])];
-      const col = [Number(iop[3]), Number(iop[4]), Number(iop[5])];
-      if (![...row, ...col].every((v) => Number.isFinite(v))) return null;
+      const imagePlane = metaData.get('imagePlaneModule', imageId);
+      const iop: number[] | undefined =
+        imagePlane?.imageOrientationPatient ??
+        imagePlane?.rowCosines; // fallback field name
+      if (!iop || iop.length < 6) return 'AXIAL';
 
-      const normal: [number, number, number] = [
-        row[1] * col[2] - row[2] * col[1],
-        row[2] * col[0] - row[0] * col[2],
-        row[0] * col[1] - row[1] * col[0],
-      ];
-      const abs = normal.map((v) => Math.abs(v));
-      const max = Math.max(abs[0], abs[1], abs[2]);
-      if (max === abs[0]) return 'SAGITTAL';
-      if (max === abs[1]) return 'CORONAL';
-      return 'AXIAL';
+      // Row direction cosines
+      const rx = iop[0], ry = iop[1], rz = iop[2];
+      // Column direction cosines
+      const cx = iop[3], cy = iop[4], cz = iop[5];
+      // Normal = row × col
+      const nx = ry * cz - rz * cy;
+      const ny = rz * cx - rx * cz;
+      const nz = rx * cy - ry * cx;
+
+      const absX = Math.abs(nx);
+      const absY = Math.abs(ny);
+      const absZ = Math.abs(nz);
+
+      if (absZ >= absX && absZ >= absY) return 'AXIAL';
+      if (absX >= absY) return 'SAGITTAL';
+      return 'CORONAL';
     } catch {
-      return null;
+      return 'AXIAL';
     }
   },
 

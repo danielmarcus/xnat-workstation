@@ -28,7 +28,7 @@ let volumeSeq = 0;
 
 /**
  * Generate a unique volume ID for MPR use.
- * Format: cornerstoneStreamingImageVolume:xnat_mpr_<timestamp>
+ * Format: cornerstoneStreamingImageVolume:xnat_mpr_<timestamp>_<seq>
  */
 export function generateVolumeId(): string {
   const now = Date.now();

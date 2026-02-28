@@ -71,7 +71,7 @@ export default function ViewportOverlay({ panelId }: ViewportOverlayProps) {
   const crosshairPoint = useViewerStore((s) => s.crosshairWorldPoint);
   const activeTool = useViewerStore((s) => s.activeTool);
   const displayOrientation: MPRPlane =
-    panelOrientation === 'STACK' ? nativeOrientation : panelOrientation;
+    (panelOrientation === 'STACK' ? nativeOrientation : panelOrientation) as MPRPlane;
 
   if (viewport.totalImages === 0) return null;
 

@@ -19,8 +19,8 @@ import type {
   MPRViewportState,
   VolumeLoadProgress,
   ViewportOrientation,
-  MPRPlane,
 } from '@shared/types/viewer';
+import type { Types as CsTypes } from '@cornerstonejs/core';
 import { ToolName, LAYOUT_CONFIGS, panelId } from '@shared/types/viewer';
 import type { HangingProtocol } from '@shared/types/hangingProtocol';
 import type { XnatScan, XnatUploadContext } from '@shared/types/xnat';
@@ -77,17 +77,21 @@ interface ViewerStore {
   panelScanMap: Record<string, string>;
   /** Maps panel IDs to their loaded session label (for per-viewport overlay context). */
   panelSessionLabelMap: Record<string, string>;
-  /** Maps panel IDs to their loaded subject label (for per-viewport overlay context). */
+  /** Maps panel IDs to subject labels (e.g., panel-0 → "SUBJ001"). */
   panelSubjectLabelMap: Record<string, string>;
-  /** Per-panel source imageIds currently loaded (used by tool fallbacks/oriented views). */
+  /** Maps panel IDs to their loaded imageId arrays. */
   panelImageIdsMap: Record<string, string[]>;
-  /** Per-panel viewing orientation (STACK/AXIAL/SAGITTAL/CORONAL). */
+
+  // ─── Per-Panel Orientation State ───────────────────────────────
+  /** Current viewing orientation per panel (STACK = original, or AXIAL/SAGITTAL/CORONAL). */
   panelOrientationMap: Record<string, ViewportOrientation>;
-  /** Per-panel inferred native orientation from source DICOM geometry. */
-  panelNativeOrientationMap: Record<string, MPRPlane>;
-  /** Last picked crosshair world coordinate [x,y,z] in patient LPS space. */
-  crosshairWorldPoint: [number, number, number] | null;
-  /** Panel where the last crosshair coordinate was picked. */
+  /** Native acquisition orientation per panel (detected from DICOM metadata). */
+  panelNativeOrientationMap: Record<string, ViewportOrientation>;
+
+  // ─── Crosshair State ──────────────────────────────────────────
+  /** World-space crosshair coordinate synced across viewports. */
+  crosshairWorldPoint: CsTypes.Point3 | null;
+  /** Panel that originated the crosshair position. */
   crosshairSourcePanelId: string | null;
 
   // ─── MPR State ─────────────────────────────────────────────────
@@ -118,16 +122,16 @@ interface ViewerStore {
   setPanelScan: (panelId: string, scanId: string) => void;
   /** Record which XNAT session label is associated with a given panel */
   setPanelSessionLabel: (panelId: string, sessionLabel: string) => void;
-  /** Record which XNAT subject label is associated with a given panel */
+  /** Record subject label for a panel. */
   setPanelSubjectLabel: (panelId: string, subjectLabel: string) => void;
-  /** Record source imageIds currently shown in a panel. */
+  /** Record imageIds loaded in a panel. */
   setPanelImageIds: (panelId: string, imageIds: string[]) => void;
-  /** Set per-panel viewing orientation. */
+  /** Set viewing orientation for a panel. */
   setPanelOrientation: (panelId: string, orientation: ViewportOrientation) => void;
-  /** Set inferred native orientation for a panel */
-  setPanelNativeOrientation: (panelId: string, orientation: MPRPlane) => void;
-  /** Set/clear crosshair coordinate shown in viewport overlays. */
-  setCrosshairWorldPoint: (panelId: string, point: [number, number, number] | null) => void;
+  /** Set native acquisition orientation for a panel. */
+  setPanelNativeOrientation: (panelId: string, orientation: ViewportOrientation) => void;
+  /** Set crosshair world point and source panel. */
+  setCrosshairWorldPoint: (point: CsTypes.Point3 | null, sourcePanelId: string | null) => void;
 
   // ─── Tool / Viewport Actions (target active viewport) ────────
   setActiveTool: (tool: ToolName) => void;
@@ -254,41 +258,26 @@ export const useViewerStore = create<ViewerStore>((set, get) => ({
 
   setPanelSubjectLabel: (pid, subjectLabel) =>
     set((s) => ({
-      panelSubjectLabelMap: {
-        ...s.panelSubjectLabelMap,
-        [pid]: subjectLabel,
-      },
+      panelSubjectLabelMap: { ...s.panelSubjectLabelMap, [pid]: subjectLabel },
     })),
 
   setPanelImageIds: (pid, imageIds) =>
     set((s) => ({
-      panelImageIdsMap: {
-        ...s.panelImageIdsMap,
-        [pid]: [...imageIds],
-      },
+      panelImageIdsMap: { ...s.panelImageIdsMap, [pid]: imageIds },
     })),
 
   setPanelOrientation: (pid, orientation) =>
     set((s) => ({
-      panelOrientationMap: {
-        ...s.panelOrientationMap,
-        [pid]: orientation,
-      },
+      panelOrientationMap: { ...s.panelOrientationMap, [pid]: orientation },
     })),
 
   setPanelNativeOrientation: (pid, orientation) =>
     set((s) => ({
-      panelNativeOrientationMap: {
-        ...s.panelNativeOrientationMap,
-        [pid]: orientation,
-      },
+      panelNativeOrientationMap: { ...s.panelNativeOrientationMap, [pid]: orientation },
     })),
 
-  setCrosshairWorldPoint: (pid, point) =>
-    set({
-      crosshairSourcePanelId: point ? pid : null,
-      crosshairWorldPoint: point,
-    }),
+  setCrosshairWorldPoint: (point, sourcePanelId) =>
+    set({ crosshairWorldPoint: point, crosshairSourcePanelId: sourcePanelId }),
 
   // ─── Layout Actions ────────────────────────────────────────────
 
@@ -309,11 +298,11 @@ export const useViewerStore = create<ViewerStore>((set, get) => ({
     const newCineStates: Record<string, CineState> = {};
     const newPanelScanMap: Record<string, string> = {};
     const newPanelSessionLabelMap: Record<string, string> = {};
-    const newPanelSubjectLabelMap: Record<string, string> = {};
     const newPanelXnatContextMap: Record<string, XnatUploadContext> = {};
+    const newPanelSubjectLabelMap: Record<string, string> = {};
     const newPanelImageIdsMap: Record<string, string[]> = {};
     const newPanelOrientationMap: Record<string, ViewportOrientation> = {};
-    const newPanelNativeOrientationMap: Record<string, MPRPlane> = {};
+    const newPanelNativeOrientationMap: Record<string, ViewportOrientation> = {};
     for (const pid of newPanelIds) {
       newViewports[pid] = state.viewports[pid] ?? { ...INITIAL_VIEWPORT };
       newCineStates[pid] = state.cineStates[pid] ?? { ...INITIAL_CINE };
@@ -323,15 +312,21 @@ export const useViewerStore = create<ViewerStore>((set, get) => ({
       if (state.panelSessionLabelMap[pid]) {
         newPanelSessionLabelMap[pid] = state.panelSessionLabelMap[pid];
       }
-      if (state.panelSubjectLabelMap[pid]) {
-        newPanelSubjectLabelMap[pid] = state.panelSubjectLabelMap[pid];
-      }
       if (state.panelXnatContextMap[pid]) {
         newPanelXnatContextMap[pid] = state.panelXnatContextMap[pid];
       }
-      newPanelImageIdsMap[pid] = state.panelImageIdsMap[pid] ?? [];
-      newPanelOrientationMap[pid] = state.panelOrientationMap[pid] ?? 'STACK';
-      newPanelNativeOrientationMap[pid] = state.panelNativeOrientationMap[pid] ?? 'AXIAL';
+      if (state.panelSubjectLabelMap[pid]) {
+        newPanelSubjectLabelMap[pid] = state.panelSubjectLabelMap[pid];
+      }
+      if (state.panelImageIdsMap[pid]) {
+        newPanelImageIdsMap[pid] = state.panelImageIdsMap[pid];
+      }
+      if (state.panelOrientationMap[pid]) {
+        newPanelOrientationMap[pid] = state.panelOrientationMap[pid];
+      }
+      if (state.panelNativeOrientationMap[pid]) {
+        newPanelNativeOrientationMap[pid] = state.panelNativeOrientationMap[pid];
+      }
       // Mark cine as not playing for removed panels that got stopped
       if (!newPanelIds.has(pid) && newCineStates[pid]) {
         newCineStates[pid] = { ...newCineStates[pid], isPlaying: false };
@@ -368,8 +363,8 @@ export const useViewerStore = create<ViewerStore>((set, get) => ({
       cineStates: newCineStates,
       panelScanMap: newPanelScanMap,
       panelSessionLabelMap: newPanelSessionLabelMap,
-      panelSubjectLabelMap: newPanelSubjectLabelMap,
       panelXnatContextMap: newPanelXnatContextMap,
+      panelSubjectLabelMap: newPanelSubjectLabelMap,
       panelImageIdsMap: newPanelImageIdsMap,
       panelOrientationMap: newPanelOrientationMap,
       panelNativeOrientationMap: newPanelNativeOrientationMap,
@@ -397,11 +392,11 @@ export const useViewerStore = create<ViewerStore>((set, get) => ({
     const newCineStates: Record<string, CineState> = {};
     const newPanelScanMap: Record<string, string> = {};
     const newPanelSessionLabelMap: Record<string, string> = {};
-    const newPanelSubjectLabelMap: Record<string, string> = {};
     const newPanelXnatContextMap: Record<string, XnatUploadContext> = {};
+    const newPanelSubjectLabelMap: Record<string, string> = {};
     const newPanelImageIdsMap: Record<string, string[]> = {};
     const newPanelOrientationMap: Record<string, ViewportOrientation> = {};
-    const newPanelNativeOrientationMap: Record<string, MPRPlane> = {};
+    const newPanelNativeOrientationMap: Record<string, ViewportOrientation> = {};
     for (const pid of newPanelIds) {
       newViewports[pid] = state.viewports[pid] ?? { ...INITIAL_VIEWPORT };
       newCineStates[pid] = state.cineStates[pid] ?? { ...INITIAL_CINE };
@@ -411,15 +406,21 @@ export const useViewerStore = create<ViewerStore>((set, get) => ({
       if (state.panelSessionLabelMap[pid]) {
         newPanelSessionLabelMap[pid] = state.panelSessionLabelMap[pid];
       }
-      if (state.panelSubjectLabelMap[pid]) {
-        newPanelSubjectLabelMap[pid] = state.panelSubjectLabelMap[pid];
-      }
       if (state.panelXnatContextMap[pid]) {
         newPanelXnatContextMap[pid] = state.panelXnatContextMap[pid];
       }
-      newPanelImageIdsMap[pid] = state.panelImageIdsMap[pid] ?? [];
-      newPanelOrientationMap[pid] = state.panelOrientationMap[pid] ?? 'STACK';
-      newPanelNativeOrientationMap[pid] = state.panelNativeOrientationMap[pid] ?? 'AXIAL';
+      if (state.panelSubjectLabelMap[pid]) {
+        newPanelSubjectLabelMap[pid] = state.panelSubjectLabelMap[pid];
+      }
+      if (state.panelImageIdsMap[pid]) {
+        newPanelImageIdsMap[pid] = state.panelImageIdsMap[pid];
+      }
+      if (state.panelOrientationMap[pid]) {
+        newPanelOrientationMap[pid] = state.panelOrientationMap[pid];
+      }
+      if (state.panelNativeOrientationMap[pid]) {
+        newPanelNativeOrientationMap[pid] = state.panelNativeOrientationMap[pid];
+      }
     }
 
     let activeId = state.activeViewportId;
@@ -451,8 +452,8 @@ export const useViewerStore = create<ViewerStore>((set, get) => ({
       cineStates: newCineStates,
       panelScanMap: newPanelScanMap,
       panelSessionLabelMap: newPanelSessionLabelMap,
-      panelSubjectLabelMap: newPanelSubjectLabelMap,
       panelXnatContextMap: newPanelXnatContextMap,
+      panelSubjectLabelMap: newPanelSubjectLabelMap,
       panelImageIdsMap: newPanelImageIdsMap,
       panelOrientationMap: newPanelOrientationMap,
       panelNativeOrientationMap: newPanelNativeOrientationMap,
@@ -675,6 +676,7 @@ export const useViewerStore = create<ViewerStore>((set, get) => ({
     const state = get();
     const volumeIdToDestroy = state.mprVolumeId;
 
+    // Restore prior state FIRST (toggle off mprActive so viewports unmount)
     const prior = state.mprPriorState;
 
     set({
@@ -692,20 +694,17 @@ export const useViewerStore = create<ViewerStore>((set, get) => ({
       } : {}),
     });
 
-    // Destroy MPR tool group after toggling off MPR mode.
+    // Destroy MPR tool group AFTER toggling off mprActive
     mprToolService.destroy();
-
-    // Defer volume destruction to allow React unmount cleanup to detach
-    // MPR viewports before removing GPU resources from cache.
-    if (volumeIdToDestroy) {
-      setTimeout(() => {
-        volumeService.destroy(volumeIdToDestroy);
-      }, 0);
-    }
 
     // Restore tool activation in the stack tool group
     if (prior) {
       toolService.setActiveTool(prior.activeTool);
+    }
+
+    // Defer volume destruction so viewports can unmount cleanly first
+    if (volumeIdToDestroy) {
+      setTimeout(() => volumeService.destroy(volumeIdToDestroy), 100);
     }
 
     console.log('[viewerStore] Exited MPR mode');

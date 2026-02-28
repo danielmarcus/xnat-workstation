@@ -11,7 +11,7 @@
  * through existing stores (viewerStore, segmentationStore, annotationStore).
  */
 import type { HotkeyAction, HotkeyBinding, HotkeyMap } from '@shared/types/hotkeys';
-import { ToolName, WL_PRESETS, panelId } from '@shared/types/viewer';
+import { ToolName, WL_PRESETS, panelId as makePanelId } from '@shared/types/viewer';
 import type { LayoutType } from '@shared/types/viewer';
 import { DEFAULT_HOTKEY_MAP } from './defaultHotkeyMap';
 import { useViewerStore } from '../../stores/viewerStore';
@@ -89,6 +89,41 @@ const LAYOUT_ACTION_MAP: Partial<Record<HotkeyAction, LayoutType>> = {
   'layout.2x2': '2x2',
 };
 
+// ─── Clockwise Panel Ordering ─────────────────────────────────────
+
+/**
+ * Build a clockwise traversal order for a rows×cols grid layout.
+ * For a 2×2 grid: TL → TR → BR → BL (i.e., panel_0 → panel_1 → panel_3 → panel_2).
+ */
+function buildClockwisePanelOrder(rows: number, cols: number): string[] {
+  const order: string[] = [];
+  if (rows <= 0 || cols <= 0) return order;
+
+  // Simple cases: 1 row or 1 col → normal L-to-R / T-to-B order
+  if (rows === 1 || cols === 1) {
+    for (let i = 0; i < rows * cols; i++) {
+      order.push(makePanelId(i));
+    }
+    return order;
+  }
+
+  // Multi-row, multi-col: clockwise spiral (simplified for 2×2)
+  // Top row L→R, right col T→B, bottom row R→L, left col B→T
+  const visited = new Set<number>();
+  let top = 0, bottom = rows - 1, left = 0, right = cols - 1;
+  while (top <= bottom && left <= right) {
+    for (let c = left; c <= right; c++) { const idx = top * cols + c; if (!visited.has(idx)) { visited.add(idx); order.push(makePanelId(idx)); } }
+    top++;
+    for (let r = top; r <= bottom; r++) { const idx = r * cols + right; if (!visited.has(idx)) { visited.add(idx); order.push(makePanelId(idx)); } }
+    right--;
+    for (let c = right; c >= left; c--) { const idx = bottom * cols + c; if (!visited.has(idx)) { visited.add(idx); order.push(makePanelId(idx)); } }
+    bottom--;
+    for (let r = bottom; r >= top; r--) { const idx = r * cols + left; if (!visited.has(idx)) { visited.add(idx); order.push(makePanelId(idx)); } }
+    left++;
+  }
+  return order;
+}
+
 // ─── Action Dispatch ──────────────────────────────────────────────
 
 /**
@@ -150,22 +185,13 @@ function dispatchAction(action: HotkeyAction): boolean {
       useSegmentationStore.getState().togglePanel();
       return true;
     case 'panel.nextViewport': {
-      const order = buildClockwisePanelOrder(
-        viewerState.layoutConfig.rows,
-        viewerState.layoutConfig.cols,
-        viewerState.layoutConfig.panelCount,
-      );
-      if (order.length <= 1) return false;
+      // Cycle active viewport clockwise through visible panels
+      const panelCount = viewerState.layoutConfig.panelCount;
+      if (panelCount <= 1) return true;
+      const order = buildClockwisePanelOrder(viewerState.layoutConfig.rows, viewerState.layoutConfig.cols);
       const currentIdx = order.indexOf(viewerState.activeViewportId);
-      const nextIdx = currentIdx >= 0 ? (currentIdx + 1) % order.length : 0;
-      const nextPanelId = order[nextIdx];
-      viewerState.setActiveViewport(nextPanelId);
-      // Keep keyboard focus on the active viewport panel to avoid toolbar
-      // focus stealing and make active-panel transitions obvious.
-      requestAnimationFrame(() => {
-        const el = document.querySelector(`[data-panel-id="${nextPanelId}"]`) as HTMLElement | null;
-        el?.focus?.();
-      });
+      const nextIdx = (currentIdx + 1) % order.length;
+      viewerState.setActiveViewport(order[nextIdx]);
       return true;
     }
 
@@ -225,40 +251,6 @@ function dispatchAction(action: HotkeyAction): boolean {
   }
 }
 
-function buildClockwisePanelOrder(rows: number, cols: number, panelCount: number): string[] {
-  if (rows <= 0 || cols <= 0 || panelCount <= 0) return [];
-
-  const order: string[] = [];
-  const visited = new Set<number>();
-  let top = 0;
-  let bottom = rows - 1;
-  let left = 0;
-  let right = cols - 1;
-
-  const pushIndex = (idx: number) => {
-    if (idx < 0 || idx >= panelCount || visited.has(idx)) return;
-    visited.add(idx);
-    order.push(panelId(idx));
-  };
-
-  while (left <= right && top <= bottom && order.length < panelCount) {
-    for (let c = left; c <= right; c++) pushIndex(top * cols + c);
-    for (let r = top + 1; r <= bottom; r++) pushIndex(r * cols + right);
-    if (top < bottom) {
-      for (let c = right - 1; c >= left; c--) pushIndex(bottom * cols + c);
-    }
-    if (left < right) {
-      for (let r = bottom - 1; r > top; r--) pushIndex(r * cols + left);
-    }
-    top++;
-    bottom--;
-    left++;
-    right--;
-  }
-
-  return order;
-}
-
 /**
  * Handle slice navigation for both stack and MPR viewports.
  * Replicates the logic from ViewportGrid.tsx and MPRViewportGrid.tsx.
@@ -294,26 +286,19 @@ function handleSliceNavigation(
     return true;
   }
 
-  // Per-panel oriented volume viewport in standard grid
-  if ((viewerState.panelOrientationMap[pid] ?? 'STACK') !== 'STACK') {
-    const mprState = viewerState.mprViewports[pid];
-    if (!mprState || mprState.totalSlices <= 1) return false;
-
+  // Oriented viewport (AXIAL/SAGITTAL/CORONAL → uses volume viewport via mprService)
+  const panelOrientation = viewerState.panelOrientationMap[pid];
+  if (panelOrientation && panelOrientation !== 'STACK') {
     let delta = 0;
-    let jumpTo: number | null = null;
-
     switch (action) {
       case 'slice.prev':     delta = -1;  break;
       case 'slice.next':     delta = 1;   break;
       case 'slice.prevPage': delta = -10; break;
       case 'slice.nextPage': delta = 10;  break;
-      case 'slice.first':    jumpTo = 0;  break;
-      case 'slice.last':     jumpTo = mprState.totalSlices - 1; break;
+      case 'slice.first':    mprService.scrollToIndex(pid, 0); return true;
+      case 'slice.last':     mprService.scroll(pid, 999999); return true; // jump to end
     }
-
-    if (jumpTo !== null) {
-      mprService.scrollToIndex(pid, jumpTo);
-    } else if (delta !== 0) {
+    if (delta !== 0) {
       mprService.scroll(pid, delta);
     }
     return true;
@@ -360,20 +345,18 @@ let listenerInstalled = false;
 // ─── Keydown Handler ──────────────────────────────────────────────
 
 function handleKeyDown(e: KeyboardEvent): void {
-  const target = e.target as HTMLElement | null;
-  const tag = target?.tagName ?? '';
-  const inputType =
-    tag === 'INPUT' ? ((target as HTMLInputElement).type || '').toLowerCase() : '';
-  const isTextEntryContext =
-    !!target &&
-    (
-      tag === 'TEXTAREA' ||
-      target.isContentEditable ||
-      (
-        tag === 'INPUT' &&
-        !['checkbox', 'radio', 'range', 'button', 'submit', 'reset'].includes(inputType)
-      )
-    );
+  // Input guard: don't intercept when focus is in a form element,
+  // UNLESS it's Tab which we want for viewport cycling even from controls.
+  const tag = (e.target as HTMLElement)?.tagName;
+  const isTextInput = tag === 'INPUT' || tag === 'TEXTAREA';
+  const isFormControl = isTextInput || tag === 'SELECT';
+  if (isFormControl) {
+    // Allow Tab through even in form controls (for viewport cycling)
+    if (e.key !== 'Tab') return;
+  }
+
+  // Also guard for contentEditable elements (except Tab)
+  if ((e.target as HTMLElement)?.isContentEditable && e.key !== 'Tab') return;
 
   // Build normalized key from the event
   const parts: string[] = [];
@@ -383,16 +366,6 @@ function handleKeyDown(e: KeyboardEvent): void {
   if (e.metaKey) parts.push('meta');
   parts.push(e.key.toLowerCase());
   const normalized = parts.join('+');
-
-  // Tab should cycle viewports even when focus is on non-text controls
-  // (checkboxes/sliders/buttons/selects). Preserve normal tab behavior only
-  // while actively editing text-like fields.
-  if (e.key === 'Tab' && isTextEntryContext) return;
-
-  // Non-Tab shortcuts should not fire while focus is in form controls/editors.
-  if (e.key !== 'Tab' && (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA' || !!target?.isContentEditable)) {
-    return;
-  }
 
   const action = lookup.get(normalized);
   if (!action) return;

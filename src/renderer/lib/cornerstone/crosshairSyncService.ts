@@ -157,7 +157,7 @@ export const crosshairSyncService = {
    */
   syncFromViewport(sourcePanelId: string, worldPoint: Point3): void {
     const store = useViewerStore.getState();
-    store.setCrosshairWorldPoint(sourcePanelId, worldPoint);
+    store.setCrosshairWorldPoint(worldPoint, sourcePanelId);
 
     const sourceIds = store.panelImageIdsMap[sourcePanelId] ?? [];
     const sourceForUid = sourceIds[0] ? getFrameOfReferenceUid(sourceIds[0]) : null;

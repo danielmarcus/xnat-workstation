@@ -1616,7 +1616,7 @@ function ItemList<T>({ items, renderItem, renderAction, onSelect, onItemDragStar
       {items.map((item, i) => (
         <div
           key={i}
-              onClick={(e) => onSelect(item, e)}
+          onClick={(e) => onSelect(item, e)}
           draggable={Boolean(onItemDragStart)}
           onDragStart={onItemDragStart ? (e) => onItemDragStart(item, e) : undefined}
           className="w-full text-left px-3 py-2.5 hover:bg-zinc-800/50 transition-colors cursor-pointer flex items-center group"
