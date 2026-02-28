@@ -208,6 +208,9 @@ export function mprPanelId(index: number): string {
 /** Orientation axis for MPR planes */
 export type MPRPlane = 'AXIAL' | 'SAGITTAL' | 'CORONAL';
 
+/** Per-viewport viewing orientation (stack/original or orthographic plane) */
+export type ViewportOrientation = 'STACK' | MPRPlane;
+
 /** Fixed MPR panel assignments: 3 orthogonal planes */
 export const MPR_PANELS: { panelIndex: number; plane: MPRPlane; label: string }[] = [
   { panelIndex: 0, plane: 'AXIAL', label: 'Axial' },

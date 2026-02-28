@@ -9,6 +9,7 @@
 import { metaData } from '@cornerstonejs/core';
 import type { OverlayMetadata } from '@shared/types/dicom';
 import { EMPTY_OVERLAY } from '@shared/types/dicom';
+import type { ViewportOrientation } from '@shared/types/viewer';
 
 /**
  * Format a DICOM date string (YYYYMMDD) to a readable format.
@@ -62,6 +63,43 @@ function toStr(val: unknown): string {
 }
 
 export const metadataService = {
+  /**
+   * Infer the native acquisition orientation from the DICOM
+   * ImageOrientationPatient tag. Computes the cross product of
+   * the row and column direction cosines and returns the dominant
+   * axis as AXIAL / SAGITTAL / CORONAL.
+   *
+   * Falls back to 'AXIAL' if metadata is unavailable.
+   */
+  getNativeOrientation(imageId: string): ViewportOrientation {
+    try {
+      const imagePlane = metaData.get('imagePlaneModule', imageId);
+      const iop: number[] | undefined =
+        imagePlane?.imageOrientationPatient ??
+        imagePlane?.rowCosines; // fallback field name
+      if (!iop || iop.length < 6) return 'AXIAL';
+
+      // Row direction cosines
+      const rx = iop[0], ry = iop[1], rz = iop[2];
+      // Column direction cosines
+      const cx = iop[3], cy = iop[4], cz = iop[5];
+      // Normal = row × col
+      const nx = ry * cz - rz * cy;
+      const ny = rz * cx - rx * cz;
+      const nz = rx * cy - ry * cx;
+
+      const absX = Math.abs(nx);
+      const absY = Math.abs(ny);
+      const absZ = Math.abs(nz);
+
+      if (absZ >= absX && absZ >= absY) return 'AXIAL';
+      if (absX >= absY) return 'SAGITTAL';
+      return 'CORONAL';
+    } catch {
+      return 'AXIAL';
+    }
+  },
+
   /**
    * Extract overlay metadata for a given imageId.
    * Returns empty strings/zeros for any missing fields.

@@ -18,9 +18,9 @@
  * Keyboard shortcuts (including MPR slice navigation) are handled globally
  * by hotkeyService — see src/renderer/lib/hotkeys/hotkeyService.ts.
  */
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useViewerStore } from '../../stores/viewerStore';
-import { mprPanelId, MPR_PANELS } from '@shared/types/viewer';
+import { ToolName, mprPanelId, MPR_PANELS } from '@shared/types/viewer';
 import { mprService } from '../../lib/cornerstone/mprService';
 import MPRViewport from './MPRViewport';
 import CornerstoneViewport from './CornerstoneViewport';
@@ -37,7 +37,13 @@ const MPR_STACK_PANEL_ID = 'mpr_stack';
 export default function MPRViewportGrid({ volumeId, sourceImageIds }: MPRViewportGridProps) {
   const activeViewportId = useViewerStore((s) => s.activeViewportId);
   const setActiveViewport = useViewerStore((s) => s.setActiveViewport);
+  const activeTool = useViewerStore((s) => s.activeTool);
   const mprVolumeProgress = useViewerStore((s) => s.mprVolumeProgress);
+
+  useEffect(() => {
+    const el = document.querySelector(`[data-panel-id="${activeViewportId}"]`) as HTMLElement | null;
+    el?.focus?.();
+  }, [activeViewportId]);
 
   // Is volume still loading?
   const isLoading = mprVolumeProgress !== null && mprVolumeProgress.percent < 100;
@@ -46,7 +52,7 @@ export default function MPRViewportGrid({ volumeId, sourceImageIds }: MPRViewpor
     <div className="relative w-full h-full">
       {/* 2×2 grid */}
       <div
-        className="w-full h-full"
+        className={`w-full h-full ${activeTool === ToolName.Crosshairs ? 'crosshair-mode' : ''}`}
         style={{
           display: 'grid',
           gridTemplateRows: 'repeat(2, 1fr)',
@@ -64,12 +70,15 @@ export default function MPRViewportGrid({ volumeId, sourceImageIds }: MPRViewpor
             <div
               key={pid}
               data-panel-id={pid}
-              className={`relative min-w-0 min-h-0 cursor-pointer ${
-                isActive ? 'ring-2 ring-blue-500 ring-inset' : ''
-              }`}
+              tabIndex={-1}
+              className="relative min-w-0 min-h-0 cursor-pointer"
               onClick={() => setActiveViewport(pid)}
             >
+              {isActive && (
+                <div className="absolute inset-0 border border-zinc-500/80 pointer-events-none z-40" />
+              )}
               <MPRViewport panelId={pid} volumeId={volumeId} plane={plane} />
+              <ViewportOverlay panelId={pid} />
               <MPRScrollSlider panelId={pid} />
             </div>
           );
@@ -78,11 +87,13 @@ export default function MPRViewportGrid({ volumeId, sourceImageIds }: MPRViewpor
         {/* Panel 3: Original stack viewport for reference */}
         <div
           data-panel-id={MPR_STACK_PANEL_ID}
-          className={`relative min-w-0 min-h-0 cursor-pointer ${
-            MPR_STACK_PANEL_ID === activeViewportId ? 'ring-2 ring-blue-500 ring-inset' : ''
-          }`}
+          tabIndex={-1}
+          className="relative min-w-0 min-h-0 cursor-pointer"
           onClick={() => setActiveViewport(MPR_STACK_PANEL_ID)}
         >
+          {MPR_STACK_PANEL_ID === activeViewportId && (
+            <div className="absolute inset-0 border border-zinc-500/80 pointer-events-none z-40" />
+          )}
           {sourceImageIds.length > 0 ? (
             <>
               <CornerstoneViewport panelId={MPR_STACK_PANEL_ID} imageIds={sourceImageIds} />

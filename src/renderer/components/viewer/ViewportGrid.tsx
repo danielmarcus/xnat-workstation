@@ -11,8 +11,11 @@
 import { useViewerStore } from '../../stores/viewerStore';
 import { panelId } from '@shared/types/viewer';
 import CornerstoneViewport from './CornerstoneViewport';
+import OrientedViewport from './OrientedViewport';
 import ViewportOverlay from './ViewportOverlay';
 import ScrollSlider from './ScrollSlider';
+import { ToolName } from '@shared/types/viewer';
+import { useEffect } from 'react';
 
 interface ViewportGridProps {
   panelImageIds: Record<string, string[]>;
@@ -22,13 +25,20 @@ export default function ViewportGrid({ panelImageIds }: ViewportGridProps) {
   const layoutConfig = useViewerStore((s) => s.layoutConfig);
   const activeViewportId = useViewerStore((s) => s.activeViewportId);
   const setActiveViewport = useViewerStore((s) => s.setActiveViewport);
+  const panelOrientationMap = useViewerStore((s) => s.panelOrientationMap);
+  const activeTool = useViewerStore((s) => s.activeTool);
   const sessionScans = useViewerStore((s) => s.sessionScans);
   const panelXnatContextMap = useViewerStore((s) => s.panelXnatContextMap);
   const panelScanMap = useViewerStore((s) => s.panelScanMap);
 
+  useEffect(() => {
+    const el = document.querySelector(`[data-panel-id="${activeViewportId}"]`) as HTMLElement | null;
+    el?.focus?.();
+  }, [activeViewportId]);
+
   return (
     <div
-      className="w-full h-full"
+      className={`w-full h-full ${activeTool === ToolName.Crosshairs ? 'crosshair-mode' : ''}`}
       style={{
         display: 'grid',
         gridTemplateRows: `repeat(${layoutConfig.rows}, 1fr)`,
@@ -41,6 +51,9 @@ export default function ViewportGrid({ panelImageIds }: ViewportGridProps) {
         const pid = panelId(i);
         const imageIds = panelImageIds[pid] ?? [];
         const isActive = pid === activeViewportId;
+        const orientation = panelOrientationMap[pid] ?? 'STACK';
+        const canUseOrientedView = imageIds.length > 1;
+        const shouldUseOrientedView = canUseOrientedView && orientation !== 'STACK';
         const loadingScanId = panelXnatContextMap[pid]?.scanId || panelScanMap[pid] || '';
         const loadingScanLabel = sessionScans?.find((scan) => scan.id === loadingScanId)?.seriesDescription?.trim() ?? '';
         const loadingMessage = loadingScanId
@@ -51,14 +64,20 @@ export default function ViewportGrid({ panelImageIds }: ViewportGridProps) {
           <div
             key={pid}
             data-panel-id={pid}
-            className={`relative min-w-0 min-h-0 cursor-pointer ${
-              isActive ? 'ring-2 ring-blue-500 ring-inset' : ''
-            }`}
+            tabIndex={-1}
+            className="relative min-w-0 min-h-0 cursor-pointer"
             onClick={() => setActiveViewport(pid)}
           >
+            {isActive && (
+              <div className="absolute inset-0 border border-zinc-500/80 pointer-events-none z-40" />
+            )}
             {imageIds.length > 0 ? (
               <>
-                <CornerstoneViewport panelId={pid} imageIds={imageIds} />
+                {shouldUseOrientedView ? (
+                  <OrientedViewport panelId={pid} imageIds={imageIds} plane={orientation} />
+                ) : (
+                  <CornerstoneViewport panelId={pid} imageIds={imageIds} />
+                )}
                 <ViewportOverlay panelId={pid} />
                 <ScrollSlider panelId={pid} />
               </>

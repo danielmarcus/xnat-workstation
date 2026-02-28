@@ -97,6 +97,186 @@ const sourceImageIdsMap = new Map<string, string[]>();
  */
 const loadedColorsMap = new Map<string, Map<number, [number, number, number, number]>>();
 
+// ─── Multi-Layer Group Registry ─────────────────────────────────
+//
+// Each logical segmentation (shown in the UI as one row with N segments)
+// is backed by N independent Cornerstone segmentation objects ("sub-segs"),
+// one per segment. Each sub-seg has its own set of binary (0/1) Uint8Array
+// labelmap images, enabling overlapping segments.
+
+/** Per-segment metadata stored at the group level. */
+interface SegmentMeta {
+  label: string;
+  color: [number, number, number, number];
+  locked: boolean;
+}
+
+/** Image dimensions + source IDs for creating new sub-seg labelmap images. */
+interface GroupDimensions {
+  rows: number;
+  columns: number;
+  rowPixelSpacing: number;
+  columnPixelSpacing: number;
+  sourceImageIds: string[];
+}
+
+/**
+ * Maps group ID (logical segmentation shown in UI) → ordered sub-seg IDs.
+ * Array index + 1 = logical segment index. Null entries = removed segments.
+ */
+const subSegGroupMap = new Map<string, (string | null)[]>();
+
+/**
+ * Reverse lookup: Cornerstone sub-segmentation ID → { groupId, segmentIndex }.
+ */
+const subSegToGroupMap = new Map<string, { groupId: string; segmentIndex: number }>();
+
+/**
+ * Per-segment metadata (label, color, locked) keyed by group ID + segment index.
+ */
+const segmentMetaMap = new Map<string, Map<number, SegmentMeta>>();
+
+/**
+ * Image dimensions for creating new sub-seg labelmap images on demand.
+ */
+const groupDimensionsMap = new Map<string, GroupDimensions>();
+
+/** Group label storage (separate from segments). */
+const groupLabelMap = new Map<string, string>();
+
+/** Returns true if a segmentationId is a multi-layer group. */
+function isMultiLayerGroup(segmentationId: string): boolean {
+  return subSegGroupMap.has(segmentationId);
+}
+
+/** Returns non-null sub-seg IDs for a group. */
+function getActiveSubSegIds(segmentationId: string): string[] {
+  const arr = subSegGroupMap.get(segmentationId);
+  if (!arr) return [];
+  return arr.filter((id): id is string => id !== null);
+}
+
+/** Resolve a group ID + logical segment index to the sub-seg ID. */
+function resolveSubSegId(groupId: string, segmentIndex: number): string | null {
+  const arr = subSegGroupMap.get(groupId);
+  if (!arr) return null;
+  return arr[segmentIndex - 1] ?? null;
+}
+
+/** Find viewport IDs that have any sub-seg of a group attached. */
+function findViewportsWithGroup(groupId: string): string[] {
+  const subSegIds = getActiveSubSegIds(groupId);
+  const vpSet = new Set<string>();
+  for (const subSegId of subSegIds) {
+    for (const vpId of csSegmentation.state.getViewportIdsWithSegmentation(subSegId)) {
+      vpSet.add(vpId);
+    }
+  }
+  return Array.from(vpSet);
+}
+
+/**
+ * Attach a single sub-segmentation to a viewport: add labelmap representation,
+ * populate Cornerstone reference maps, and set the segment color.
+ */
+async function addSubSegToViewport(
+  viewportId: string,
+  subSegId: string,
+  segColor: [number, number, number, number],
+): Promise<void> {
+  // Volume viewports (ORTHOGRAPHIC/MPR) need volume-backed labelmaps.
+  // If the sub-seg only has stack imageIds, convert it first.
+  try {
+    const volEl = getEnabledElementByViewportId(viewportId) as any;
+    const volVp: any = volEl?.viewport;
+    if (volVp && typeof volVp.getAllVolumeIds === 'function') {
+      const segObj = csSegmentation.state.getSegmentation(subSegId) as any;
+      const labelmap = segObj?.representationData?.Labelmap as any;
+      const hasImageIds = Array.isArray(labelmap?.imageIds) && labelmap.imageIds.length > 0;
+      const hasVolumeId = typeof labelmap?.volumeId === 'string' && labelmap.volumeId.length > 0;
+      if (hasImageIds && !hasVolumeId) {
+        try {
+          await (csSegmentation.helpers as any).convertStackToVolumeLabelmap({
+            segmentationId: subSegId,
+          });
+          console.log(`[segmentationService] Converted sub-seg ${subSegId} stack→volume labelmap for ${viewportId}`);
+        } catch (convErr) {
+          console.warn(`[segmentationService] Failed converting ${subSegId} to volume labelmap; continuing with stack path`, convErr);
+        }
+      }
+    }
+  } catch {
+    // Viewport may not be ready yet — proceed with stack path
+  }
+
+  csSegmentation.addLabelmapRepresentationToViewport(viewportId, [
+    { segmentationId: subSegId },
+  ]);
+
+  // Populate internal reference maps for stack viewports.
+  try {
+    const seg = csSegmentation.state.getSegmentation(subSegId);
+    const lmImageIds: string[] = (seg?.representationData?.Labelmap as any)?.imageIds ?? [];
+    const mgr = csSegmentation.defaultSegmentationStateManager as any;
+    if (!mgr._stackLabelmapImageIdReferenceMap.has(subSegId)) {
+      mgr._stackLabelmapImageIdReferenceMap.set(subSegId, new Map());
+    }
+    const perSegMap = mgr._stackLabelmapImageIdReferenceMap.get(subSegId);
+    for (const lmId of lmImageIds) {
+      const lmImg = cache.getImage(lmId);
+      const refId = (lmImg as any)?.referencedImageId;
+      if (!refId) continue;
+      perSegMap.set(refId, lmId);
+      const mapKey = `${subSegId}-${refId}`;
+      const existing = mgr._labelmapImageIdReferenceMap.get(mapKey);
+      if (!existing) {
+        mgr._labelmapImageIdReferenceMap.set(mapKey, [lmId]);
+      } else if (!existing.includes(lmId)) {
+        mgr._labelmapImageIdReferenceMap.set(mapKey, [...existing, lmId]);
+      }
+    }
+
+    // Also map viewport-specific imageIds (wadouri/wadors format differences).
+    const enabledEl = getEnabledElementByViewportId(viewportId) as any;
+    const viewport = enabledEl?.viewport as any;
+    if (viewport && typeof viewport.getAllVolumeIds !== 'function') {
+      const viewportImageIds = viewport.getImageIds?.() as string[] | undefined;
+      if (Array.isArray(viewportImageIds)) {
+        const srcIds = sourceImageIdsMap.get(subSegId) ?? [];
+        const count = Math.min(srcIds.length, viewportImageIds.length);
+        for (let i = 0; i < count; i++) {
+          const vpImgId = viewportImageIds[i];
+          if (typeof vpImgId !== 'string' || vpImgId.length === 0) continue;
+          const lmId = lmImageIds[i];
+          if (!lmId) continue;
+          perSegMap.set(vpImgId, lmId);
+          const vpMapKey = `${subSegId}-${vpImgId}`;
+          const vpExisting = mgr._labelmapImageIdReferenceMap.get(vpMapKey);
+          if (!vpExisting) {
+            mgr._labelmapImageIdReferenceMap.set(vpMapKey, [lmId]);
+          } else if (!vpExisting.includes(lmId)) {
+            mgr._labelmapImageIdReferenceMap.set(vpMapKey, [...vpExisting, lmId]);
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn(`[segmentationService] Failed to populate reference maps for ${subSegId}:`, err);
+  }
+
+  // Set color for segment index 1 on this sub-seg.
+  try {
+    csSegmentation.config.color.setSegmentIndexColor(
+      viewportId,
+      subSegId,
+      1,
+      segColor as any,
+    );
+  } catch {
+    // Color may not be settable yet
+  }
+}
+
 // ─── Types ──────────────────────────────────────────────────────
 
 export type LoadedDicomSeg = {
@@ -415,15 +595,115 @@ function syncSegmentations(): void {
     const allSegmentations = csSegmentation.state.getSegmentations();
     const summaries: SegmentationSummary[] = [];
     const existingSummaries = useSegmentationStore.getState().segmentations;
+    const store = useSegmentationStore.getState();
 
+    // Track which Cornerstone segmentation IDs are sub-segs (skip them in the legacy pass)
+    const processedSubSegIds = new Set<string>();
+
+    // Deterministic reference viewport: prefer the active viewport so
+    // visibility/color queries return consistent results across calls.
+    const activeVpId = useViewerStore.getState().activeViewportId;
+
+    // ─── Pass 1: Multi-layer groups ────────────────────────────
+    for (const [groupId, subSegArr] of subSegGroupMap) {
+      const segments: SegmentSummary[] = [];
+      const priorSummary = existingSummaries.find((s) => s.segmentationId === groupId);
+      const priorColorByIndex = new Map<number, [number, number, number, number]>(
+        (priorSummary?.segments ?? []).map((s) => [s.segmentIndex, s.color]),
+      );
+      const cachedPresentation = useSegmentationManagerStore.getState().presentation[groupId];
+
+      for (let i = 0; i < subSegArr.length; i++) {
+        const subSegId = subSegArr[i];
+        if (subSegId === null) continue; // removed segment slot
+        processedSubSegIds.add(subSegId);
+
+        const segmentIndex = i + 1; // 1-based
+        const meta = segmentMetaMap.get(groupId)?.get(segmentIndex);
+
+        // Color: try Cornerstone API on the sub-seg (segment index 1), then meta, then default
+        let color: [number, number, number, number] =
+          meta?.color ?? DEFAULT_COLORS[(segmentIndex - 1) % DEFAULT_COLORS.length];
+        let gotColorFromCS = false;
+        const vpIds = csSegmentation.state.getViewportIdsWithSegmentation(subSegId);
+        // Prefer active viewport for deterministic reads
+        const refVpId = vpIds.includes(activeVpId) ? activeVpId : vpIds[0];
+        if (vpIds.length > 0) {
+          try {
+            const c = csSegmentation.config.color.getSegmentIndexColor(refVpId, subSegId, 1);
+            if (hasUsableColor(c)) {
+              color = [c[0], c[1], c[2], c.length >= 4 ? c[3] : 255];
+              gotColorFromCS = true;
+            }
+          } catch {
+            // fallback
+          }
+        }
+        if (!gotColorFromCS) {
+          const loadedColors = loadedColorsMap.get(groupId);
+          if (loadedColors?.has(segmentIndex)) {
+            color = loadedColors.get(segmentIndex)!;
+          } else if (priorColorByIndex.has(segmentIndex)) {
+            color = [...priorColorByIndex.get(segmentIndex)!] as [number, number, number, number];
+          }
+        }
+
+        // Visibility: from sub-seg's segment index 1
+        let visible = true;
+        const cachedVisible = cachedPresentation?.visibility?.[segmentIndex];
+        if (typeof cachedVisible === 'boolean') {
+          visible = cachedVisible;
+        } else if (vpIds.length > 0) {
+          try {
+            visible = csSegmentation.config.visibility.getSegmentIndexVisibility(
+              refVpId,
+              { segmentationId: subSegId, type: ToolEnums.SegmentationRepresentations.Labelmap },
+              1,
+            );
+          } catch {
+            // default visible
+          }
+          // Seed the presentation cache when not yet populated
+          if (cachedVisible === undefined) {
+            useSegmentationManagerStore.getState().setPresentation(groupId, segmentIndex, { visible });
+          }
+        }
+
+        // Locked
+        const cachedLocked = cachedPresentation?.locked?.[segmentIndex];
+        let locked = meta?.locked ?? false;
+        if (typeof cachedLocked === 'boolean') locked = cachedLocked;
+
+        segments.push({
+          segmentIndex,
+          label: meta?.label ?? `Segment ${segmentIndex}`,
+          color,
+          visible,
+          locked,
+        });
+      }
+
+      segments.sort((a, b) => a.segmentIndex - b.segmentIndex);
+
+      summaries.push({
+        segmentationId: groupId,
+        label: groupLabelMap.get(groupId) ?? 'Segmentation',
+        segments,
+        isActive: groupId === store.activeSegmentationId,
+      });
+    }
+
+    // ─── Pass 2: Legacy (non-group) segmentations ──────────────
     for (const seg of allSegmentations) {
+      if (processedSubSegIds.has(seg.segmentationId)) continue;
+      if (subSegGroupMap.has(seg.segmentationId)) continue; // group ID itself (no CS object)
+
       const segments: SegmentSummary[] = [];
       const priorSummary = existingSummaries.find((s) => s.segmentationId === seg.segmentationId);
       const priorColorByIndex = new Map<number, [number, number, number, number]>(
         (priorSummary?.segments ?? []).map((s) => [s.segmentIndex, s.color]),
       );
 
-      // Iterate over segments (skip index 0 = background)
       if (seg.segments) {
         const seen = new Set<number>();
         for (const [idxStr, segment] of Object.entries(seg.segments)) {
@@ -434,12 +714,11 @@ function syncSegmentations(): void {
               idx = fallbackIdx;
             }
           }
-          if (!Number.isFinite(idx) || idx <= 0 || !Number.isInteger(idx)) continue; // Skip invalid/background
+          if (!Number.isFinite(idx) || idx <= 0 || !Number.isInteger(idx)) continue;
           if (!segment) continue;
           if (seen.has(idx)) continue;
           seen.add(idx);
 
-          // Get color: Cornerstone API → loadedColorsMap fallback → DEFAULT_COLORS
           let color: [number, number, number, number] = DEFAULT_COLORS[(idx - 1) % DEFAULT_COLORS.length];
           let gotColorFromCS = false;
           const viewportIds = csSegmentation.state.getViewportIdsWithSegmentation(seg.segmentationId);
@@ -458,10 +737,6 @@ function syncSegmentations(): void {
               // Use default color
             }
           }
-          // Fallback to loaded DICOM colors only if Cornerstone API didn't return valid colors.
-          // Previously used reference identity (===) to check if color was still the default,
-          // which always matched because `color` was assigned directly from DEFAULT_COLORS.
-          // Using a boolean flag avoids overriding user-set colors that happen to match defaults.
           if (!gotColorFromCS) {
             const loadedColors = loadedColorsMap.get(seg.segmentationId);
             if (loadedColors?.has(idx)) {
@@ -471,24 +746,23 @@ function syncSegmentations(): void {
             }
           }
 
-          // Check visibility - from the representation's per-segment visibility
-          // Try Labelmap first, then Contour
           let visible = true;
           const cachedPresentation = useSegmentationManagerStore.getState().presentation[seg.segmentationId];
           const cachedVisible = cachedPresentation?.visibility?.[idx];
           if (typeof cachedVisible === 'boolean') {
             visible = cachedVisible;
-          } else if (viewportIds.length > 0) {
+          } else if (csSegmentation.state.getViewportIdsWithSegmentation(seg.segmentationId).length > 0) {
+            const vpId = csSegmentation.state.getViewportIdsWithSegmentation(seg.segmentationId)[0];
             try {
               visible = csSegmentation.config.visibility.getSegmentIndexVisibility(
-                viewportIds[0],
+                vpId,
                 { segmentationId: seg.segmentationId, type: ToolEnums.SegmentationRepresentations.Labelmap },
                 idx,
               );
             } catch {
               try {
                 visible = csSegmentation.config.visibility.getSegmentIndexVisibility(
-                  viewportIds[0],
+                  vpId,
                   { segmentationId: seg.segmentationId, type: ToolEnums.SegmentationRepresentations.Contour },
                   idx,
                 );
@@ -498,7 +772,7 @@ function syncSegmentations(): void {
             }
           }
 
-          const cachedLocked = cachedPresentation?.locked?.[idx];
+          const cachedLocked = useSegmentationManagerStore.getState().presentation[seg.segmentationId]?.locked?.[idx];
 
           segments.push({
             segmentIndex: idx,
@@ -510,10 +784,8 @@ function syncSegmentations(): void {
         }
       }
 
-      // Sort segments by index
       segments.sort((a, b) => a.segmentIndex - b.segmentIndex);
 
-      const store = useSegmentationStore.getState();
       summaries.push({
         segmentationId: seg.segmentationId,
         label: seg.label || 'Segmentation',
@@ -568,6 +840,9 @@ function renderAllSegmentationViewports(): void {
  * or 'both' if it has both representations with data.
  */
 function getSegmentationType(segmentationId: string): 'labelmap' | 'contour' | 'both' {
+  // Multi-layer groups are always labelmap-based
+  if (isMultiLayerGroup(segmentationId)) return 'labelmap';
+
   const seg = csSegmentation.state.getSegmentation(segmentationId);
   if (!seg) return 'labelmap';
 
@@ -635,15 +910,29 @@ function onSegmentationDataModified(evt?: Event): void {
     const detail = (evt as CustomEvent | undefined)?.detail as
       | { segmentationId?: string; segmentIndex?: number }
       | undefined;
+
+    // Resolve sub-seg ID to group ID for dirty tracking
+    let resolvedSegId = detail?.segmentationId ?? null;
+    if (resolvedSegId) {
+      const groupInfo = subSegToGroupMap.get(resolvedSegId);
+      if (groupInfo) {
+        resolvedSegId = groupInfo.groupId;
+      }
+    }
+
     if (detail?.segmentationId) {
+      // For interpolation, use the resolved group ID so it can look up the right sub-seg
+      const groupInfo = subSegToGroupMap.get(detail.segmentationId);
       pendingLabelmapInterpolation = {
-        segmentationId: detail.segmentationId,
-        segmentIndex: Number.isInteger(detail.segmentIndex) ? Number(detail.segmentIndex) : null,
+        segmentationId: groupInfo ? groupInfo.groupId : detail.segmentationId,
+        segmentIndex: groupInfo
+          ? groupInfo.segmentIndex
+          : (Number.isInteger(detail.segmentIndex) ? Number(detail.segmentIndex) : null),
       };
     }
     useSegmentationStore.getState()._markDirty();
     const dirtySegId =
-      detail?.segmentationId
+      resolvedSegId
       ?? useSegmentationStore.getState().activeSegmentationId
       ?? null;
     if (dirtySegId) {
@@ -698,20 +987,32 @@ async function performLabelmapInterpolation(): Promise<void> {
   if (!segStore.interpolationEnabled) return;
   const pending = pendingLabelmapInterpolation;
   pendingLabelmapInterpolation = null;
-  const activeSegId = pending?.segmentationId ?? segStore.activeSegmentationId;
+  let activeSegId = pending?.segmentationId ?? segStore.activeSegmentationId;
   if (!activeSegId) return;
-  if (getSegmentationType(activeSegId) === 'contour') return;
-  const segmentIndex = Number(pending?.segmentIndex ?? segStore.activeSegmentIndex);
+
+  let segmentIndex = Number(pending?.segmentIndex ?? segStore.activeSegmentIndex);
   if (!Number.isInteger(segmentIndex) || segmentIndex <= 0) return;
 
-  const labelmapData = await getCachedLabelmapSliceArrays(activeSegId);
+  // For multi-layer groups, resolve to the sub-seg and use segment index 1
+  let effectiveSegId = activeSegId;
+  let effectiveSegIndex = segmentIndex;
+  if (isMultiLayerGroup(activeSegId)) {
+    const subSegId = resolveSubSegId(activeSegId, segmentIndex);
+    if (!subSegId) return;
+    effectiveSegId = subSegId;
+    effectiveSegIndex = 1; // sub-segs are binary (0/1)
+  }
+
+  if (getSegmentationType(effectiveSegId) === 'contour') return;
+
+  const labelmapData = await getCachedLabelmapSliceArrays(effectiveSegId);
   if (!labelmapData) return;
   const { sliceArrays, width, height } = labelmapData;
   if (sliceArrays.length < 3) return;
 
   const anchors: number[] = [];
   for (let i = 0; i < sliceArrays.length; i++) {
-    if (hasSegmentPixelsOnSlice(sliceArrays[i], segmentIndex)) {
+    if (hasSegmentPixelsOnSlice(sliceArrays[i], effectiveSegIndex)) {
       anchors.push(i);
     }
   }
@@ -728,8 +1029,8 @@ async function performLabelmapInterpolation(): Promise<void> {
       const gap = b - a - 1;
       if (gap <= 0) continue;
 
-      const signedA = buildSignedDistanceForSegment(sliceArrays[a], width, height, segmentIndex);
-      const signedB = buildSignedDistanceForSegment(sliceArrays[b], width, height, segmentIndex);
+      const signedA = buildSignedDistanceForSegment(sliceArrays[a], width, height, effectiveSegIndex);
+      const signedB = buildSignedDistanceForSegment(sliceArrays[b], width, height, effectiveSegIndex);
 
       for (let s = a + 1; s < b; s++) {
         const alpha = (s - a) / (b - a);
@@ -738,11 +1039,11 @@ async function performLabelmapInterpolation(): Promise<void> {
 
         for (let p = 0; p < pixelsPerSlice; p++) {
           const currentValue = Number(slice[p]);
-          if (currentValue !== 0 && currentValue !== segmentIndex) continue;
+          if (currentValue !== 0 && currentValue !== effectiveSegIndex) continue;
 
           const interpolatedDistance = (1 - alpha) * signedA[p] + alpha * signedB[p];
           if (interpolatedDistance <= 0 && currentValue === 0) {
-            slice[p] = segmentIndex;
+            slice[p] = effectiveSegIndex;
             changed = true;
           }
         }
@@ -756,11 +1057,11 @@ async function performLabelmapInterpolation(): Promise<void> {
     if (modifiedSlices.size === 0) return;
 
     csSegmentation.triggerSegmentationEvents.triggerSegmentationDataModified(
-      activeSegId,
+      effectiveSegId,
       Array.from(modifiedSlices).sort((x, y) => x - y),
-      segmentIndex,
+      effectiveSegIndex,
     );
-    const viewportIds = csSegmentation.state.getViewportIdsWithSegmentation(activeSegId);
+    const viewportIds = csSegmentation.state.getViewportIdsWithSegmentation(effectiveSegId);
     for (const viewportId of viewportIds) {
       csToolUtilities.segmentation.triggerSegmentationRender(viewportId);
       const enabledElement = getEnabledElementByViewportId(viewportId) as any;
@@ -926,6 +1227,7 @@ export const segmentationService = {
    * have been removed from viewports.
    */
   segmentationExists(segmentationId: string): boolean {
+    if (isMultiLayerGroup(segmentationId)) return true;
     const seg = csSegmentation.state.getSegmentation(segmentationId);
     return !!seg;
   },
@@ -934,6 +1236,10 @@ export const segmentationService = {
    * Get the viewport IDs that currently display a given segmentation.
    */
   getViewportIdsForSegmentation(segmentationId: string): string[] {
+    // Multi-layer group: union viewport IDs from all sub-segs
+    if (isMultiLayerGroup(segmentationId)) {
+      return findViewportsWithGroup(segmentationId);
+    }
     return csSegmentation.state.getViewportIdsWithSegmentation(segmentationId);
   },
 
@@ -942,6 +1248,11 @@ export const segmentationService = {
    * Used to override generic labels with user-friendly names from XNAT metadata.
    */
   setLabel(segmentationId: string, label: string): void {
+    if (isMultiLayerGroup(segmentationId)) {
+      groupLabelMap.set(segmentationId, label);
+      syncSegmentations();
+      return;
+    }
     const seg = csSegmentation.state.getSegmentation(segmentationId);
     if (seg) {
       (seg as any).label = label;
@@ -1015,8 +1326,6 @@ export const segmentationService = {
     const segLabel = label || `Segmentation ${segmentationCounter}`;
 
     // Step 1: Determine image dimensions from a loaded source image.
-    // Try each sourceImageId until we find one that's cached (the currently
-    // displayed image is guaranteed to be cached).
     let rows = 0;
     let columns = 0;
     let rowPixelSpacing = 1;
@@ -1041,17 +1350,6 @@ export const segmentationService = {
     }
 
     // Step 2: Pre-load source images so their metadata is available.
-    //
-    // Stack segmentation in Cornerstone3D requires every source image to have
-    // imagePlaneModule and generalSeriesModule metadata registered. With wadouri
-    // images, metadata is only available after the DICOM file is fetched. If we
-    // create labelmaps before all images are loaded, Cornerstone crashes when
-    // scrolling to unloaded slices (matchImagesForOverlay and buildMetadata
-    // both assume metadata is present).
-    //
-    // Optimization: skip images that already have metadata cached (i.e., they
-    // were already loaded for viewport display). This avoids re-fetching all
-    // images when most are already cached, reducing creation time dramatically.
     const uncachedIds = sourceImageIds.filter((id) => {
       try {
         return !metaData.get('imagePlaneModule', id);
@@ -1068,116 +1366,36 @@ export const segmentationService = {
       console.log(`[segmentationService] All ${sourceImageIds.length} images already have metadata, skipping pre-load`);
     }
 
-    // Step 3: Create blank labelmap images using createAndCacheLocalImage().
-    // Now that all source images are loaded, every one has valid metadata.
-    //
-    // We pass origin, direction, and frameOfReferenceUID from each source
-    // image's imagePlaneModule so the labelmap overlay can be matched to the
-    // correct source slice. We also register generalSeriesModule (for modality)
-    // which Cornerstone's buildMetadata() requires.
-    const labelmapImageIds: string[] = [];
-    const pixelCount = rows * columns;
-
-    // Grab generalSeriesModule from any source image (same for all slices in a series)
-    let refGeneralSeriesMeta: any = null;
-    for (const srcId of sourceImageIds) {
-      refGeneralSeriesMeta = metaData.get('generalSeriesModule', srcId);
-      if (refGeneralSeriesMeta) break;
-    }
-
-    const genericMeta = (csUtilities as any).genericMetadataProvider;
-
-    for (let i = 0; i < sourceImageIds.length; i++) {
-      const labelmapImageId = `generated:labelmap_${segmentationId}_${i}`;
-      const srcImageId = sourceImageIds[i];
-
-      // Get per-slice spatial metadata from the source image.
-      const imagePlane = metaData.get('imagePlaneModule', srcImageId);
-
-      imageLoader.createAndCacheLocalImage(labelmapImageId, {
-        scalarData: new Uint8Array(pixelCount),
-        dimensions: [columns, rows],
-        spacing: [columnPixelSpacing, rowPixelSpacing],
-        origin: imagePlane?.imagePositionPatient,
-        direction: imagePlane?.imageOrientationPatient,
-        frameOfReferenceUID: imagePlane?.frameOfReferenceUID,
-        referencedImageId: srcImageId,
-      } as any);
-
-      // Register generalSeriesModule metadata for the labelmap image.
-      // Cornerstone's buildMetadata() destructures { modality } from this
-      // module and crashes if it's missing when adding the overlay.
-      if (refGeneralSeriesMeta) {
-        genericMeta.add(labelmapImageId, {
-          type: 'generalSeriesModule',
-          metadata: refGeneralSeriesMeta,
-        });
-      }
-
-      labelmapImageIds.push(labelmapImageId);
-    }
-
-    // Step 4: Register the segmentation with Cornerstone's state,
-    // providing the labelmap imageIds so the state manager can map them.
-    csSegmentation.addSegmentations([
-      {
-        segmentationId,
-        representation: {
-          type: ToolEnums.SegmentationRepresentations.Labelmap,
-          data: {
-            imageIds: labelmapImageIds,
-          } as any,
-        },
-        config: {
-          label: segLabel,
-          segments: createDefaultSegment
-            ? {
-                1: {
-                  label: 'Segment 1',
-                  segmentIndex: 1,
-                  locked: false,
-                  active: true,
-                  cachedStats: {},
-                } as any,
-              }
-            : {},
-        },
-      },
-    ]);
-
-    if (!createDefaultSegment) {
-      // Cornerstone can materialize a default segment even when config.segments
-      // is empty. Force a clean, zero-entry starting state for manual authoring.
-      try {
-        csSegmentation.updateSegmentations([
-          {
-            segmentationId,
-            config: { segments: {} },
-          },
-        ] as any);
-      } catch {
-        const created = csSegmentation.state.getSegmentation(segmentationId);
-        if (created) {
-          (created as any).segments = {};
-        }
-      }
-    }
-
-    // Store: set active segmentation and segment index.
-    const store = useSegmentationStore.getState();
-    store.setActiveSegmentation(segmentationId);
-    if (createDefaultSegment) {
-      store.setActiveSegmentIndex(1);
-      // Set the active segment index in Cornerstone
-      csSegmentation.segmentIndex.setActiveSegmentIndex(segmentationId, 1);
-    } else {
-      store.setActiveSegmentIndex(0);
-    }
+    // Step 3: Initialize the multi-layer group (no labelmap images yet —
+    // those are created per-segment in addSegment()).
+    subSegGroupMap.set(segmentationId, []);
+    segmentMetaMap.set(segmentationId, new Map());
+    groupDimensionsMap.set(segmentationId, {
+      rows,
+      columns,
+      rowPixelSpacing,
+      columnPixelSpacing,
+      sourceImageIds: [...sourceImageIds],
+    });
+    groupLabelMap.set(segmentationId, segLabel);
 
     // Track source imageIds for DICOM SEG export
     sourceImageIdsMap.set(segmentationId, [...sourceImageIds]);
 
-    console.log(`[segmentationService] Created stack segmentation: ${segmentationId} (${labelmapImageIds.length} labelmap images, ${columns}×${rows})`);
+    // Store: set active segmentation.
+    const store = useSegmentationStore.getState();
+    store.setActiveSegmentation(segmentationId);
+
+    // Step 4: If requested, create the first segment (which creates the
+    // first sub-segmentation with its own labelmap images).
+    if (createDefaultSegment) {
+      this.addSegment(segmentationId, 'Segment 1');
+      store.setActiveSegmentIndex(1);
+    } else {
+      store.setActiveSegmentIndex(0);
+    }
+
+    console.log(`[segmentationService] Created multi-layer segmentation group: ${segmentationId} (${sourceImageIds.length} source slices, ${columns}×${rows})`);
 
     syncSegmentations();
     return segmentationId;
@@ -1270,6 +1488,16 @@ export const segmentationService = {
    */
   ensureEmptySegmentation(segmentationId: string): void {
     try {
+      // Multi-layer group: check sub-seg count instead of Cornerstone state
+      if (isMultiLayerGroup(segmentationId)) {
+        const subSegs = getActiveSubSegIds(segmentationId);
+        if (subSegs.length === 0) {
+          useSegmentationStore.getState().setActiveSegmentIndex(0);
+        }
+        syncSegmentations();
+        return;
+      }
+
       const seg = csSegmentation.state.getSegmentation(segmentationId);
       if (!seg) return;
 
@@ -1318,6 +1546,8 @@ export const segmentationService = {
 
   /**
    * Add a new segment to an existing segmentation.
+   * Creates an independent sub-segmentation with its own binary labelmap
+   * images so segments can overlap.
    * Returns the new segment index (1-based).
    */
   addSegment(
@@ -1325,74 +1555,110 @@ export const segmentationService = {
     label: string,
     color?: [number, number, number, number],
   ): number {
-    const seg = csSegmentation.state.getSegmentation(segmentationId);
-    if (!seg) {
-      throw new Error(`[segmentationService] Segmentation not found: ${segmentationId}`);
+    if (!isMultiLayerGroup(segmentationId)) {
+      throw new Error(`[segmentationService] Not a multi-layer group: ${segmentationId}`);
     }
 
-    // Find next available segment index (supports object or Map storage).
-    const existingIndices = getValidSegmentIndices(seg);
-    const nextIndex = existingIndices.length > 0 ? Math.max(...existingIndices) + 1 : 1;
+    const dims = groupDimensionsMap.get(segmentationId);
+    if (!dims) {
+      throw new Error(`[segmentationService] No dimensions stored for group: ${segmentationId}`);
+    }
+
+    // Determine next segment index from existing sub-segs.
+    const subSegIds = subSegGroupMap.get(segmentationId)!;
+    const nextIndex = subSegIds.length + 1;
     const segmentLabel = label.trim() || `Segment ${nextIndex}`;
-
-    // Contour representation needs an annotationUID set per segment index.
-    const contourData = (seg.representationData as any)?.Contour;
-    if (contourData?.annotationUIDsMap instanceof Map && !contourData.annotationUIDsMap.has(nextIndex)) {
-      contourData.annotationUIDsMap.set(nextIndex, new Set<string>());
-    }
-
-    const nextSegments = segmentsToPlainObject(seg.segments);
-    nextSegments[nextIndex] = {
-      ...(nextSegments[nextIndex] ?? {}),
-      label: segmentLabel,
-      SegmentLabel: segmentLabel,
-      locked: false,
-      active: false,
-      segmentIndex: nextIndex,
-      cachedStats: (nextSegments[nextIndex] as any)?.cachedStats ?? {},
-    } as any;
-
-    // Update segmentation state with new segment
-    csSegmentation.updateSegmentations([
-      {
-        segmentationId,
-        config: {
-          segments: nextSegments,
-        },
-      },
-    ] as any);
-
-    // Force the final label on live state as a compatibility fallback.
-    const live = csSegmentation.state.getSegmentation(segmentationId);
-    if (live?.segments instanceof Map) {
-      const entry = live.segments.get(nextIndex) ?? { segmentIndex: nextIndex, locked: false, active: false, cachedStats: {} };
-      entry.label = segmentLabel;
-      entry.SegmentLabel = segmentLabel;
-      live.segments.set(nextIndex, entry);
-    } else if (live?.segments) {
-      const entry = (live.segments as any)[nextIndex] ?? { segmentIndex: nextIndex, locked: false, active: false, cachedStats: {} };
-      entry.label = segmentLabel;
-      entry.SegmentLabel = segmentLabel;
-      (live.segments as any)[nextIndex] = entry;
-    }
-
-    // Set color on all viewports that have this segmentation
     const segColor = color || DEFAULT_COLORS[(nextIndex - 1) % DEFAULT_COLORS.length];
-    const viewportIds = csSegmentation.state.getViewportIdsWithSegmentation(segmentationId);
-    for (const vpId of viewportIds) {
+
+    // Create the sub-segmentation ID and its labelmap images.
+    const subSegId = `${segmentationId}_layer_${nextIndex}`;
+    const labelmapImageIds: string[] = [];
+    const pixelCount = dims.rows * dims.columns;
+    const genericMeta = (csUtilities as any).genericMetadataProvider;
+
+    // Grab generalSeriesModule from any source image.
+    let refGeneralSeriesMeta: any = null;
+    for (const srcId of dims.sourceImageIds) {
+      refGeneralSeriesMeta = metaData.get('generalSeriesModule', srcId);
+      if (refGeneralSeriesMeta) break;
+    }
+
+    for (let i = 0; i < dims.sourceImageIds.length; i++) {
+      const labelmapImageId = `generated:labelmap_${subSegId}_${i}`;
+      const srcImageId = dims.sourceImageIds[i];
+      const imagePlane = metaData.get('imagePlaneModule', srcImageId);
+
+      imageLoader.createAndCacheLocalImage(labelmapImageId, {
+        scalarData: new Uint8Array(pixelCount),
+        dimensions: [dims.columns, dims.rows],
+        spacing: [dims.columnPixelSpacing, dims.rowPixelSpacing],
+        origin: imagePlane?.imagePositionPatient,
+        direction: imagePlane?.imageOrientationPatient,
+        frameOfReferenceUID: imagePlane?.frameOfReferenceUID,
+        referencedImageId: srcImageId,
+      } as any);
+
+      if (refGeneralSeriesMeta) {
+        genericMeta.add(labelmapImageId, {
+          type: 'generalSeriesModule',
+          metadata: refGeneralSeriesMeta,
+        });
+      }
+
+      labelmapImageIds.push(labelmapImageId);
+    }
+
+    // Register as an independent Cornerstone segmentation (segment index 1).
+    suppressDirtyTrackingCount++;
+    try {
+      csSegmentation.addSegmentations([
+        {
+          segmentationId: subSegId,
+          representation: {
+            type: ToolEnums.SegmentationRepresentations.Labelmap,
+            data: { imageIds: labelmapImageIds } as any,
+          },
+          config: {
+            label: segmentLabel,
+            segments: {
+              1: {
+                label: segmentLabel,
+                segmentIndex: 1,
+                locked: false,
+                active: true,
+                cachedStats: {},
+              } as any,
+            },
+          },
+        },
+      ]);
+    } finally {
+      suppressDirtyTrackingCount--;
+    }
+
+    // Track source imageIds on the sub-seg (for export resolution).
+    sourceImageIdsMap.set(subSegId, [...dims.sourceImageIds]);
+
+    // Update group registry.
+    subSegIds.push(subSegId);
+    subSegToGroupMap.set(subSegId, { groupId: segmentationId, segmentIndex: nextIndex });
+    segmentMetaMap.get(segmentationId)!.set(nextIndex, {
+      label: segmentLabel,
+      color: segColor,
+      locked: false,
+    });
+
+    // If the group is already attached to viewports, add the new sub-seg too.
+    const attachedViewportIds = findViewportsWithGroup(segmentationId);
+    for (const vpId of attachedViewportIds) {
       try {
-        csSegmentation.config.color.setSegmentIndexColor(
-          vpId,
-          segmentationId,
-          nextIndex,
-          segColor as any,
-        );
-      } catch {
-        // Color may not be settable if representation not fully loaded
+        addSubSegToViewport(vpId, subSegId, segColor);
+      } catch (err) {
+        console.warn(`[segmentationService] Failed to attach sub-seg ${subSegId} to viewport ${vpId}:`, err);
       }
     }
 
-    console.log(`[segmentationService] Added segment ${nextIndex} to ${segmentationId}: "${segmentLabel}"`);
+    console.log(`[segmentationService] Added segment ${nextIndex} (${subSegId}) to group ${segmentationId}: "${segmentLabel}"`);
 
     syncSegmentations();
     return nextIndex;
@@ -1402,6 +1668,54 @@ export const segmentationService = {
    * Remove a segment from a segmentation.
    */
   removeSegment(segmentationId: string, segmentIndex: number): void {
+    // ─── Multi-layer group path ─────────────────────────────
+    if (isMultiLayerGroup(segmentationId)) {
+      const subSegId = resolveSubSegId(segmentationId, segmentIndex);
+      if (!subSegId) {
+        console.warn(`[segmentationService] No sub-seg for group ${segmentationId} index ${segmentIndex}`);
+        syncSegmentations();
+        return;
+      }
+      try {
+        // Remove from all viewports
+        const vpIds = csSegmentation.state.getViewportIdsWithSegmentation(subSegId);
+        for (const vpId of vpIds) {
+          try { csSegmentation.removeLabelmapRepresentation(vpId, subSegId); } catch { /* ok */ }
+        }
+        // Remove from Cornerstone state
+        csSegmentation.removeSegmentation(subSegId);
+      } catch (err) {
+        console.error('[segmentationService] Failed to remove sub-seg:', err);
+      }
+      // Clean up maps
+      subSegToGroupMap.delete(subSegId);
+      sourceImageIdsMap.delete(subSegId);
+      const groupArr = subSegGroupMap.get(segmentationId);
+      if (groupArr) {
+        groupArr[segmentIndex - 1] = null; // null-out the slot
+      }
+      segmentMetaMap.get(segmentationId)?.delete(segmentIndex);
+
+      // If all sub-segs are removed, clean up the entire group
+      const remaining = getActiveSubSegIds(segmentationId);
+      if (remaining.length === 0) {
+        subSegGroupMap.delete(segmentationId);
+        segmentMetaMap.delete(segmentationId);
+        groupDimensionsMap.delete(segmentationId);
+        groupLabelMap.delete(segmentationId);
+        sourceImageIdsMap.delete(segmentationId);
+        const store = useSegmentationStore.getState();
+        if (store.activeSegmentationId === segmentationId) {
+          store.setActiveSegmentation(null);
+        }
+        store.clearXnatOrigin(segmentationId);
+      }
+      console.log(`[segmentationService] Removed segment ${segmentIndex} (sub-seg: ${subSegId}) from group ${segmentationId}`);
+      syncSegmentations();
+      return;
+    }
+
+    // ─── Legacy path ────────────────────────────────────────
     try {
       csSegmentation.removeSegment(segmentationId, segmentIndex);
       console.log(`[segmentationService] Removed segment ${segmentIndex} from ${segmentationId}`);
@@ -1486,8 +1800,45 @@ export const segmentationService = {
    * Remove an entire segmentation from Cornerstone state.
    */
   removeSegmentation(segmentationId: string): void {
+    // ─── Multi-layer group path ─────────────────────────────
+    if (isMultiLayerGroup(segmentationId)) {
+      try {
+        const allSubSegIds = getActiveSubSegIds(segmentationId);
+        for (const subSegId of allSubSegIds) {
+          // Remove from all viewports
+          const vpIds = csSegmentation.state.getViewportIdsWithSegmentation(subSegId);
+          for (const vpId of vpIds) {
+            try { csSegmentation.removeLabelmapRepresentation(vpId, subSegId); } catch { /* ok */ }
+          }
+          // Remove from Cornerstone state
+          try { csSegmentation.removeSegmentation(subSegId); } catch { /* ok */ }
+          subSegToGroupMap.delete(subSegId);
+          sourceImageIdsMap.delete(subSegId);
+        }
+        // Clean up group maps
+        subSegGroupMap.delete(segmentationId);
+        segmentMetaMap.delete(segmentationId);
+        groupDimensionsMap.delete(segmentationId);
+        groupLabelMap.delete(segmentationId);
+        sourceImageIdsMap.delete(segmentationId);
+        loadedColorsMap.delete(segmentationId);
+
+        const store = useSegmentationStore.getState();
+        if (store.activeSegmentationId === segmentationId) {
+          store.setActiveSegmentation(null);
+        }
+        store.clearXnatOrigin(segmentationId);
+
+        console.log(`[segmentationService] Removed group segmentation: ${segmentationId} (${allSubSegIds.length} sub-segs)`);
+      } catch (err) {
+        console.error('[segmentationService] Failed to remove group segmentation:', err);
+      }
+      syncSegmentations();
+      return;
+    }
+
+    // ─── Legacy path ────────────────────────────────────────
     try {
-      // Remove representations from all viewports first (both Labelmap and Contour)
       const viewportIds = csSegmentation.state.getViewportIdsWithSegmentation(segmentationId);
       for (const vpId of viewportIds) {
         try {
@@ -1502,20 +1853,14 @@ export const segmentationService = {
         }
       }
 
-      // Remove the segmentation itself
       csSegmentation.removeSegmentation(segmentationId);
-
-      // Clean up source imageId tracking and loaded colors
       sourceImageIdsMap.delete(segmentationId);
       loadedColorsMap.delete(segmentationId);
 
-      // Update store
       const store = useSegmentationStore.getState();
       if (store.activeSegmentationId === segmentationId) {
         store.setActiveSegmentation(null);
       }
-
-      // Clean up XNAT origin tracking (prevents stale duplicate detection)
       store.clearXnatOrigin(segmentationId);
 
       console.log(`[segmentationService] Removed segmentation: ${segmentationId}`);
@@ -1527,156 +1872,167 @@ export const segmentationService = {
 
   /**
    * Display a segmentation on a viewport as a labelmap overlay.
-   * Creates the representation and sets it as active.
+   * For multi-layer groups, attaches all sub-segmentations as independent actors.
    */
   async addToViewport(viewportId: string, segmentationId: string): Promise<void> {
-    // Suppress dirty tracking during load — Cornerstone fires SEGMENTATION_DATA_MODIFIED
-    // internally when adding representations, which would falsely mark state as dirty.
     setDirtyTrackingSuppressedFor(400);
     suppressDirtyTrackingCount++;
     try {
-    // NOTE: No polling loop here. The caller MUST ensure the viewport is ready
-    // before calling addToViewport (e.g., by awaiting viewportReadyService.whenReady).
-    // If the viewport doesn't exist, we throw instead of silently retrying.
+    // Verify viewport exists.
     try {
       const enabledEl = getEnabledElementByViewportId(viewportId);
       if (!enabledEl?.viewport) {
         throw new Error(`Viewport ${viewportId} does not exist`);
       }
     } catch (err) {
-      console.error(`[segmentationService] Viewport ${viewportId} not ready — caller must await viewportReadyService.whenReady() first. Error:`, err);
+      console.error(`[segmentationService] Viewport ${viewportId} not ready:`, err);
       throw err;
     }
 
-    // Step 1: Add labelmap representation (core requirement for brush tools)
-    try {
-      csSegmentation.addLabelmapRepresentationToViewport(viewportId, [
-        {
-          segmentationId,
-        },
-      ]);
-    } catch (err) {
-      console.error('[segmentationService] Failed to add labelmap to viewport:', err);
-      syncSegmentations();
-      return; // Can't continue without labelmap
-    }
-
-    // v4.16+ requires both _stackLabelmapImageIdReferenceMap and
-    // _labelmapImageIdReferenceMap to be populated for every source→labelmap
-    // pair. The built-in Cornerstone methods are broken for stack viewports:
-    // - updateLabelmapSegmentationImageReferences: only maps current slice
-    // - _updateAllLabelmapSegmentationImageReferences: maps ALL source slices
-    //   to the SAME labelmap (matchImagesForOverlay always compares against
-    //   the current viewport position, not the iterated source position)
-    //
-    // Fix: directly populate both internal maps using the authoritative
-    // referencedImageId property on each labelmap image. This is O(N) and
-    // produces the correct 1:1 source↔labelmap mapping.
-    try {
-      const seg = csSegmentation.state.getSegmentation(segmentationId);
-      const lmImageIds: string[] = (seg?.representationData?.Labelmap as any)?.imageIds ?? [];
-      // Access the singleton SegmentationStateManager instance
-      const mgr = csSegmentation.defaultSegmentationStateManager as any;
-      if (!mgr._stackLabelmapImageIdReferenceMap.has(segmentationId)) {
-        mgr._stackLabelmapImageIdReferenceMap.set(segmentationId, new Map());
-      }
-      const perSegMap = mgr._stackLabelmapImageIdReferenceMap.get(segmentationId);
-      for (const lmId of lmImageIds) {
-        const lmImg = cache.getImage(lmId);
-        const refId = (lmImg as any)?.referencedImageId;
-        if (!refId) continue;
-        // _stackLabelmapImageIdReferenceMap: srcImageId → labelmapImageId
-        perSegMap.set(refId, lmId);
-        // _labelmapImageIdReferenceMap: "${segId}-${srcImageId}" → [labelmapImageId]
-        const mapKey = `${segmentationId}-${refId}`;
-        const existing = mgr._labelmapImageIdReferenceMap.get(mapKey);
-        if (!existing) {
-          mgr._labelmapImageIdReferenceMap.set(mapKey, [lmId]);
-        } else if (!existing.includes(lmId)) {
-          mgr._labelmapImageIdReferenceMap.set(mapKey, [...existing, lmId]);
-        }
-      }
-    } catch (err) {
-      console.warn('[segmentationService] Failed to populate labelmap reference maps:', err);
-    }
-
-    // Step 2: Set as active segmentation + apply styles (must succeed for brush to work)
-    try {
-      csSegmentation.activeSegmentation.setActiveSegmentation(viewportId, segmentationId);
-    } catch (err) {
-      console.error('[segmentationService] Failed to set active segmentation:', err);
-    }
-
-    // Apply current style settings
-    try {
+    if (isMultiLayerGroup(segmentationId)) {
+      // ─── Multi-layer path: attach each sub-seg as an independent actor ───
+      const subSegIds = getActiveSubSegIds(segmentationId);
+      const metaMap = segmentMetaMap.get(segmentationId);
       const store = useSegmentationStore.getState();
-      this.updateStyle(store.fillAlpha, store.renderOutline);
-    } catch (err) {
-      console.error('[segmentationService] Failed to update style:', err);
-    }
+      const activeSegIdx = store.activeSegmentIndex;
 
-    // Ensure a valid color exists for each segment on this viewport.
-    // Without this, Cornerstone can throw LUT-index errors during cursor/overlay render.
-    try {
-      const segObj = csSegmentation.state.getSegmentation(segmentationId);
-      for (const idx of getValidSegmentIndices(segObj)) {
-        let hasColor = false;
+      for (const subSegId of subSegIds) {
+        const info = subSegToGroupMap.get(subSegId);
+        if (!info) continue;
+        const meta = metaMap?.get(info.segmentIndex);
+        const segColor = meta?.color ?? DEFAULT_COLORS[(info.segmentIndex - 1) % DEFAULT_COLORS.length];
+
         try {
-          const c = csSegmentation.config.color.getSegmentIndexColor(viewportId, segmentationId, idx);
-          hasColor = hasUsableColor(c);
-        } catch {
-          hasColor = false;
-        }
-        if (!hasColor) {
-          const fallback = DEFAULT_COLORS[(idx - 1) % DEFAULT_COLORS.length];
-          csSegmentation.config.color.setSegmentIndexColor(
-            viewportId,
-            segmentationId,
-            idx,
-            fallback as any,
-          );
+          addSubSegToViewport(viewportId, subSegId, segColor);
+        } catch (err) {
+          console.error(`[segmentationService] Failed to add sub-seg ${subSegId} to viewport:`, err);
         }
       }
-    } catch (err) {
-      console.debug('[segmentationService] Failed to ensure segment colors:', err);
-    }
 
-    // Apply ONLY loaded DICOM colors (from RecommendedDisplayRGBValue) — do NOT
-    // stamp default palette colors over user-selected colors. Default colors are
-    // assigned at creation time (createStackSegmentation / addSegment) and should
-    // not be re-applied on every attach. This preserves user color choices across
-    // scan switching and viewport recreation.
-    const loadedColors = loadedColorsMap.get(segmentationId);
-    if (loadedColors && loadedColors.size > 0) {
-      let allColorsApplied = true;
-      for (const [idx, color] of loadedColors.entries()) {
+      // Set the active sub-seg to the one matching the active segment index.
+      const activeSubSegId = resolveSubSegId(segmentationId, activeSegIdx);
+      if (activeSubSegId) {
         try {
-          csSegmentation.config.color.setSegmentIndexColor(
-            viewportId,
-            segmentationId,
-            idx,
-            color as any,
-          );
-        } catch {
-          allColorsApplied = false;
+          csSegmentation.activeSegmentation.setActiveSegmentation(viewportId, activeSubSegId);
+          csSegmentation.segmentIndex.setActiveSegmentIndex(activeSubSegId, 1);
+        } catch (err) {
+          console.debug('[segmentationService] Failed to set active sub-seg:', err);
         }
       }
-      // Only clear loaded colors if ALL were successfully applied
-      if (allColorsApplied) loadedColorsMap.delete(segmentationId);
+
+      // Apply current style settings.
+      try {
+        this.updateStyle(store.fillAlpha, store.renderOutline);
+      } catch (err) {
+        console.error('[segmentationService] Failed to update style:', err);
+      }
+
+      // Trigger render.
+      try {
+        csToolUtilities.segmentation.triggerSegmentationRender(viewportId);
+        const enabledEl = getEnabledElementByViewportId(viewportId);
+        const vp = enabledEl?.viewport as any;
+        vp?.render?.();
+        requestAnimationFrame(() => vp?.render?.());
+      } catch (err) {
+        console.error('[segmentationService] triggerSegmentationRender failed:', err);
+      }
+
+      console.log(`[segmentationService] Added multi-layer group to viewport ${viewportId}: ${segmentationId} (${subSegIds.length} layers)`);
+    } else {
+      // ─── Legacy single-segmentation path ───
+      try {
+        csSegmentation.addLabelmapRepresentationToViewport(viewportId, [
+          { segmentationId },
+        ]);
+      } catch (err) {
+        console.error('[segmentationService] Failed to add labelmap to viewport:', err);
+        syncSegmentations();
+        return;
+      }
+
+      // Populate reference maps.
+      try {
+        const seg = csSegmentation.state.getSegmentation(segmentationId);
+        const lmImageIds: string[] = (seg?.representationData?.Labelmap as any)?.imageIds ?? [];
+        const mgr = csSegmentation.defaultSegmentationStateManager as any;
+        if (!mgr._stackLabelmapImageIdReferenceMap.has(segmentationId)) {
+          mgr._stackLabelmapImageIdReferenceMap.set(segmentationId, new Map());
+        }
+        const perSegMap = mgr._stackLabelmapImageIdReferenceMap.get(segmentationId);
+        for (const lmId of lmImageIds) {
+          const lmImg = cache.getImage(lmId);
+          const refId = (lmImg as any)?.referencedImageId;
+          if (!refId) continue;
+          perSegMap.set(refId, lmId);
+          const mapKey = `${segmentationId}-${refId}`;
+          const existing = mgr._labelmapImageIdReferenceMap.get(mapKey);
+          if (!existing) {
+            mgr._labelmapImageIdReferenceMap.set(mapKey, [lmId]);
+          } else if (!existing.includes(lmId)) {
+            mgr._labelmapImageIdReferenceMap.set(mapKey, [...existing, lmId]);
+          }
+        }
+      } catch (err) {
+        console.warn('[segmentationService] Failed to populate labelmap reference maps:', err);
+      }
+
+      try {
+        csSegmentation.activeSegmentation.setActiveSegmentation(viewportId, segmentationId);
+      } catch (err) {
+        console.error('[segmentationService] Failed to set active segmentation:', err);
+      }
+
+      try {
+        const store = useSegmentationStore.getState();
+        this.updateStyle(store.fillAlpha, store.renderOutline);
+      } catch (err) {
+        console.error('[segmentationService] Failed to update style:', err);
+      }
+
+      // Ensure colors.
+      try {
+        const segObj = csSegmentation.state.getSegmentation(segmentationId);
+        for (const idx of getValidSegmentIndices(segObj)) {
+          let hasColor = false;
+          try {
+            const c = csSegmentation.config.color.getSegmentIndexColor(viewportId, segmentationId, idx);
+            hasColor = hasUsableColor(c);
+          } catch { hasColor = false; }
+          if (!hasColor) {
+            const fallback = DEFAULT_COLORS[(idx - 1) % DEFAULT_COLORS.length];
+            csSegmentation.config.color.setSegmentIndexColor(viewportId, segmentationId, idx, fallback as any);
+          }
+        }
+      } catch (err) {
+        console.debug('[segmentationService] Failed to ensure segment colors:', err);
+      }
+
+      // Apply loaded DICOM colors.
+      const loadedColors = loadedColorsMap.get(segmentationId);
+      if (loadedColors && loadedColors.size > 0) {
+        let allColorsApplied = true;
+        for (const [idx, color] of loadedColors.entries()) {
+          try {
+            csSegmentation.config.color.setSegmentIndexColor(viewportId, segmentationId, idx, color as any);
+          } catch { allColorsApplied = false; }
+        }
+        if (allColorsApplied) loadedColorsMap.delete(segmentationId);
+      }
+
+      try {
+        csToolUtilities.segmentation.triggerSegmentationRender(viewportId);
+        const enabledEl = getEnabledElementByViewportId(viewportId);
+        const vp = enabledEl?.viewport as any;
+        vp?.render?.();
+        requestAnimationFrame(() => vp?.render?.());
+      } catch (err) {
+        console.error('[segmentationService] triggerSegmentationRender failed:', err);
+      }
+
+      console.log(`[segmentationService] Added to viewport ${viewportId}: ${segmentationId}`);
     }
 
-    // Step 3: Trigger segmentation render to ensure overlay is visible.
-    try {
-      csToolUtilities.segmentation.triggerSegmentationRender(viewportId);
-      const enabledEl = getEnabledElementByViewportId(viewportId);
-      const vp = enabledEl?.viewport as any;
-      vp?.render?.();
-      requestAnimationFrame(() => vp?.render?.());
-    } catch (err) {
-      console.error('[segmentationService] triggerSegmentationRender failed:', err);
-    }
-
-    console.log(`[segmentationService] Added to viewport ${viewportId}: ${segmentationId}`);
     syncSegmentations();
     } finally {
       suppressDirtyTrackingCount--;
@@ -1740,8 +2096,31 @@ export const segmentationService = {
    * Also ensures the contour representation exists so contour tools keep working.
    */
   activateOnViewport(viewportId: string, segmentationId: string): void {
-    // First check if this segmentation actually has a representation on this viewport.
-    // If not (e.g., it was cleaned up when switching scans), skip activation.
+    // ─── Multi-layer group path ─────────────────────────────
+    if (isMultiLayerGroup(segmentationId)) {
+      // Check if any sub-seg is on this viewport
+      const subSegIds = getActiveSubSegIds(segmentationId);
+      const hasAny = subSegIds.some((id) =>
+        csSegmentation.state.getViewportIdsWithSegmentation(id).includes(viewportId),
+      );
+      if (!hasAny) {
+        console.debug(`[segmentationService] Group ${segmentationId} not on viewport ${viewportId}, skipping activation`);
+        return;
+      }
+      // Activate the sub-seg matching the current active segment index
+      const activeIdx = useSegmentationStore.getState().activeSegmentIndex;
+      const activeSubSegId = resolveSubSegId(segmentationId, activeIdx) ?? subSegIds[0];
+      if (activeSubSegId) {
+        try {
+          csSegmentation.activeSegmentation.setActiveSegmentation(viewportId, activeSubSegId);
+        } catch (err) {
+          console.debug('[segmentationService] activateOnViewport setActive (group):', err);
+        }
+      }
+      return;
+    }
+
+    // ─── Legacy path ────────────────────────────────────────
     const viewportIds = csSegmentation.state.getViewportIdsWithSegmentation(segmentationId);
     if (!viewportIds.includes(viewportId)) {
       console.debug(`[segmentationService] Segmentation ${segmentationId} not on viewport ${viewportId}, skipping activation`);
@@ -1766,6 +2145,54 @@ export const segmentationService = {
       console.warn(`[segmentationService] Invalid active segment index ${segmentIndex}; using 1`);
       segmentIndex = 1;
     }
+
+    // ─── Multi-layer group path ────────────────────────────────
+    if (isMultiLayerGroup(segmentationId)) {
+      const subSegId = resolveSubSegId(segmentationId, segmentIndex);
+      if (!subSegId) {
+        console.warn(`[segmentationService] No sub-seg for group ${segmentationId} index ${segmentIndex}`);
+        return;
+      }
+
+      // Get the color for this segment from metadata
+      const meta = segmentMetaMap.get(segmentationId)?.get(segmentIndex);
+      const segColor = meta?.color ?? DEFAULT_COLORS[(segmentIndex - 1) % DEFAULT_COLORS.length];
+
+      // Switch the active Cornerstone segmentation to this sub-seg on all viewports
+      const vpIds = findViewportsWithGroup(segmentationId);
+      for (const vpId of vpIds) {
+        try {
+          csSegmentation.activeSegmentation.setActiveSegmentation(vpId, subSegId);
+        } catch {
+          // viewport may be detached
+        }
+        // Ensure color on segment index 1 of the sub-seg
+        try {
+          csSegmentation.config.color.setSegmentIndexColor(vpId, subSegId, 1, segColor as any);
+        } catch {
+          // ignore
+        }
+      }
+
+      this.runWithDirtyTrackingSuppressed(() => {
+        // Within the sub-seg, the brush always paints segment index 1
+        csSegmentation.segmentIndex.setActiveSegmentIndex(subSegId, 1);
+        useSegmentationStore.getState().setActiveSegmentIndex(segmentIndex);
+      });
+
+      // Force render to reflect the active segment change visually
+      for (const vpId of vpIds) {
+        try {
+          csToolUtilities.segmentation.triggerSegmentationRender(vpId);
+          getEnabledElementByViewportId(vpId)?.viewport?.render();
+        } catch { /* ignore detached viewports */ }
+      }
+
+      console.log(`[segmentationService] Active segment: ${segmentIndex} (sub-seg: ${subSegId})`);
+      return;
+    }
+
+    // ─── Legacy (non-group) path ───────────────────────────────
     const fallbackColor = (() => {
       const summary = useSegmentationStore
         .getState()
@@ -1809,6 +2236,15 @@ export const segmentationService = {
       csSegmentation.segmentIndex.setActiveSegmentIndex(segmentationId, segmentIndex);
       useSegmentationStore.getState().setActiveSegmentIndex(segmentIndex);
     });
+
+    // Force render to reflect the active segment change visually
+    for (const vpId of viewportIds) {
+      try {
+        csToolUtilities.segmentation.triggerSegmentationRender(vpId);
+        getEnabledElementByViewportId(vpId)?.viewport?.render();
+      } catch { /* ignore detached viewports */ }
+    }
+
     console.log(`[segmentationService] Active segment: ${segmentIndex}`);
   },
 
@@ -1821,6 +2257,38 @@ export const segmentationService = {
     color: [number, number, number, number],
   ): void {
     if (!Number.isFinite(segmentIndex) || segmentIndex <= 0 || !Number.isInteger(segmentIndex)) return;
+
+    // ─── Multi-layer group path ─────────────────────────────
+    if (isMultiLayerGroup(segmentationId)) {
+      const subSegId = resolveSubSegId(segmentationId, segmentIndex);
+      if (!subSegId) return;
+      // Update metadata
+      const metaMap = segmentMetaMap.get(segmentationId);
+      if (metaMap) {
+        const existing = metaMap.get(segmentIndex);
+        if (existing) existing.color = color;
+      }
+      // Set color on the sub-seg's segment index 1
+      const vpIds = csSegmentation.state.getViewportIdsWithSegmentation(subSegId);
+      for (const vpId of vpIds) {
+        try {
+          csSegmentation.config.color.setSegmentIndexColor(vpId, subSegId, 1, color as any);
+        } catch {
+          // ignore
+        }
+      }
+      // Force render to reflect color change
+      for (const vpId of vpIds) {
+        try {
+          csToolUtilities.segmentation.triggerSegmentationRender(vpId);
+          getEnabledElementByViewportId(vpId)?.viewport?.render();
+        } catch { /* ignore */ }
+      }
+      syncSegmentations();
+      return;
+    }
+
+    // ─── Legacy path ────────────────────────────────────────
     const viewportIds = csSegmentation.state.getViewportIdsWithSegmentation(segmentationId);
     for (const vpId of viewportIds) {
       try {
@@ -1834,6 +2302,13 @@ export const segmentationService = {
         // ignore
       }
     }
+    // Force render to reflect color change
+    for (const vpId of viewportIds) {
+      try {
+        csToolUtilities.segmentation.triggerSegmentationRender(vpId);
+        getEnabledElementByViewportId(vpId)?.viewport?.render();
+      } catch { /* ignore */ }
+    }
     syncSegmentations();
   },
 
@@ -1841,6 +2316,11 @@ export const segmentationService = {
    * Rename a segmentation (the top-level label).
    */
   renameSegmentation(segmentationId: string, newLabel: string): void {
+    if (isMultiLayerGroup(segmentationId)) {
+      groupLabelMap.set(segmentationId, newLabel);
+      syncSegmentations();
+      return;
+    }
     const seg = csSegmentation.state.getSegmentation(segmentationId);
     if (!seg) return;
     seg.label = newLabel;
@@ -1851,6 +2331,13 @@ export const segmentationService = {
    * Rename an individual segment within a segmentation.
    */
   renameSegment(segmentationId: string, segmentIndex: number, newLabel: string): void {
+    if (isMultiLayerGroup(segmentationId)) {
+      const metaMap = segmentMetaMap.get(segmentationId);
+      const meta = metaMap?.get(segmentIndex);
+      if (meta) meta.label = newLabel;
+      syncSegmentations();
+      return;
+    }
     const seg = csSegmentation.state.getSegmentation(segmentationId);
     if (!seg?.segments) return;
     if (seg.segments instanceof Map) {
@@ -1877,10 +2364,52 @@ export const segmentationService = {
     segmentationId: string,
     segmentIndex: number,
   ): void {
-    // Toggle visibility for both Labelmap and Contour representations
-    let currentVisible = true;
+    // ─── Multi-layer group path ─────────────────────────────
+    if (isMultiLayerGroup(segmentationId)) {
+      const subSegId = resolveSubSegId(segmentationId, segmentIndex);
+      if (!subSegId) return;
+      // Read current visibility from sub-seg's segment index 1
+      let currentVisible = true;
+      const vpIds = csSegmentation.state.getViewportIdsWithSegmentation(subSegId);
+      if (vpIds.length > 0) {
+        try {
+          currentVisible = csSegmentation.config.visibility.getSegmentIndexVisibility(
+            vpIds[0],
+            { segmentationId: subSegId, type: ToolEnums.SegmentationRepresentations.Labelmap },
+            1,
+          );
+        } catch {
+          // default visible
+        }
+      }
+      const newVisible = !currentVisible;
+      for (const vpId of vpIds) {
+        try {
+          csSegmentation.config.visibility.setSegmentIndexVisibility(
+            vpId,
+            { segmentationId: subSegId, type: ToolEnums.SegmentationRepresentations.Labelmap },
+            1,
+            newVisible,
+          );
+        } catch {
+          // ignore
+        }
+      }
+      syncSegmentations();
+      for (const vpId of vpIds) {
+        try {
+          csToolUtilities.segmentation.triggerSegmentationRender(vpId);
+          const enabledElement = getEnabledElementByViewportId(vpId) as any;
+          enabledElement?.viewport?.render?.();
+        } catch {
+          // Best effort
+        }
+      }
+      return;
+    }
 
-    // Try to get current visibility from Labelmap first, then Contour
+    // ─── Legacy path ────────────────────────────────────────
+    let currentVisible = true;
     try {
       currentVisible = csSegmentation.config.visibility.getSegmentIndexVisibility(
         viewportId,
@@ -1901,7 +2430,6 @@ export const segmentationService = {
 
     const newVisible = !currentVisible;
 
-    // Set visibility on Labelmap representation
     try {
       csSegmentation.config.visibility.setSegmentIndexVisibility(
         viewportId,
@@ -1913,7 +2441,6 @@ export const segmentationService = {
       // May not have labelmap representation
     }
 
-    // Set visibility on Contour representation
     try {
       csSegmentation.config.visibility.setSegmentIndexVisibility(
         viewportId,
@@ -1944,7 +2471,37 @@ export const segmentationService = {
     segmentIndex: number,
     visible: boolean,
   ): void {
-    // Set visibility on Labelmap representation
+    // ─── Multi-layer group path ─────────────────────────────
+    if (isMultiLayerGroup(segmentationId)) {
+      const subSegId = resolveSubSegId(segmentationId, segmentIndex);
+      if (!subSegId) return;
+      const vpIds = csSegmentation.state.getViewportIdsWithSegmentation(subSegId);
+      for (const vpId of vpIds) {
+        try {
+          csSegmentation.config.visibility.setSegmentIndexVisibility(
+            vpId,
+            { segmentationId: subSegId, type: ToolEnums.SegmentationRepresentations.Labelmap },
+            1,
+            visible,
+          );
+        } catch {
+          // ignore
+        }
+      }
+      syncSegmentations();
+      for (const vpId of vpIds) {
+        try {
+          csToolUtilities.segmentation.triggerSegmentationRender(vpId);
+          const enabledElement = getEnabledElementByViewportId(vpId) as any;
+          enabledElement?.viewport?.render?.();
+        } catch {
+          // Best effort
+        }
+      }
+      return;
+    }
+
+    // ─── Legacy path ────────────────────────────────────────
     try {
       csSegmentation.config.visibility.setSegmentIndexVisibility(
         viewportId,
@@ -1956,7 +2513,6 @@ export const segmentationService = {
       // May not have labelmap representation
     }
 
-    // Set visibility on Contour representation
     try {
       csSegmentation.config.visibility.setSegmentIndexVisibility(
         viewportId,
@@ -1982,6 +2538,20 @@ export const segmentationService = {
    * Toggle lock for a segment (locked segments can't be painted over).
    */
   toggleSegmentLocked(segmentationId: string, segmentIndex: number): void {
+    // ─── Multi-layer group path ─────────────────────────────
+    if (isMultiLayerGroup(segmentationId)) {
+      const subSegId = resolveSubSegId(segmentationId, segmentIndex);
+      if (!subSegId) return;
+      const isLocked = csSegmentation.segmentLocking.isSegmentIndexLocked(subSegId, 1);
+      csSegmentation.segmentLocking.setSegmentIndexLocked(subSegId, 1, !isLocked);
+      // Update metadata
+      const meta = segmentMetaMap.get(segmentationId)?.get(segmentIndex);
+      if (meta) meta.locked = !isLocked;
+      syncSegmentations();
+      return;
+    }
+
+    // ─── Legacy path ────────────────────────────────────────
     const isLocked = csSegmentation.segmentLocking.isSegmentIndexLocked(
       segmentationId,
       segmentIndex,
@@ -2003,6 +2573,22 @@ export const segmentationService = {
     segmentationId: string,
     segmentIndex: number,
   ): boolean {
+    if (isMultiLayerGroup(segmentationId)) {
+      const subSegId = resolveSubSegId(segmentationId, segmentIndex);
+      if (!subSegId) return true;
+      const vpIds = csSegmentation.state.getViewportIdsWithSegmentation(subSegId);
+      if (vpIds.length === 0) return true;
+      try {
+        return csSegmentation.config.visibility.getSegmentIndexVisibility(
+          vpIds[0],
+          { segmentationId: subSegId, type: ToolEnums.SegmentationRepresentations.Labelmap },
+          1,
+        );
+      } catch {
+        return true;
+      }
+    }
+
     try {
       return csSegmentation.config.visibility.getSegmentIndexVisibility(
         viewportId,
@@ -2026,6 +2612,16 @@ export const segmentationService = {
    * Read the current lock state of a segment from Cornerstone.
    */
   getSegmentLocked(segmentationId: string, segmentIndex: number): boolean {
+    if (isMultiLayerGroup(segmentationId)) {
+      const subSegId = resolveSubSegId(segmentationId, segmentIndex);
+      if (!subSegId) return false;
+      try {
+        return csSegmentation.segmentLocking.isSegmentIndexLocked(subSegId, 1);
+      } catch {
+        return false;
+      }
+    }
+
     try {
       return csSegmentation.segmentLocking.isSegmentIndexLocked(
         segmentationId,
@@ -2545,75 +3141,197 @@ export const segmentationService = {
           }
         }
       }
-      // Store loaded colors so addToViewport() can use them
-      if (colorMap.size > 0) {
-        loadedColorsMap.set(segmentationId, colorMap);
-      }
-
-      // Use the adapter's derived labelmap images directly.
-      //
-      // The adapter's createFromDICOMSegBuffer:
-      //   1. Creates one derived:uuid labelmap image per source image
-      //   2. Spatially matches each SEG frame to the correct source image
-      //   3. Writes pixel data directly into the correct labelmap image
-      //   4. Each image has .imageId and .referencedImageId set
-      //
-      // The derived images already have correct spatial metadata inherited
-      // from the source images (via createAndCacheDerivedLabelmapImage),
-      // so Cornerstone's matchImagesForOverlay will match them properly.
-      const labelmapImageIds: string[] = [];
-
-      for (let i = 0; i < adapterImages.length; i++) {
-        const adapterImg = adapterImages[i];
-        if (!adapterImg || !adapterImg.imageId) {
-          console.warn(`[segmentationService] Adapter image ${i} missing or has no imageId`);
-          continue;
-        }
-        labelmapImageIds.push(adapterImg.imageId);
-      }
-
+      // ─── Find first non-zero reference before we clean up adapter images ───
       const { referencedImageId, labelmapImageId } = findFirstNonZeroRef(adapterImages);
 
-      // Register the segmentation with Cornerstone
-      csSegmentation.addSegmentations([
-        {
-          segmentationId,
+      // ─── Map adapter images to base source image IDs for pixel extraction ───
+      const adapterImageBySourceId = new Map<string, any>();
+      for (const adapterImg of adapterImages) {
+        if (!adapterImg || !adapterImg.imageId) continue;
+        const baseId = resolveBaseImageId(adapterImg.referencedImageId);
+        adapterImageBySourceId.set(baseId, adapterImg);
+      }
+
+      // ─── Scan adapter images for unique segment indices ───
+      const uniqueSegmentIndices = new Set<number>();
+      for (const adapterImg of adapterImages) {
+        if (!adapterImg) continue;
+        let pixels: any = null;
+        try {
+          if (adapterImg.voxelManager) pixels = adapterImg.voxelManager.getScalarData();
+          else if (typeof adapterImg.getPixelData === 'function') pixels = adapterImg.getPixelData();
+        } catch { pixels = null; }
+        if (!pixels) continue;
+        for (let k = 0; k < pixels.length; k++) {
+          if (pixels[k] > 0) uniqueSegmentIndices.add(pixels[k]);
+        }
+      }
+      const sortedSegIndices = Array.from(uniqueSegmentIndices).sort((a, b) => a - b);
+      console.log(`[segmentationService] DICOM SEG contains segment indices: [${sortedSegIndices.join(', ')}]`);
+
+      // Determine group label from DICOM metadata
+      const groupLabel = (() => {
+        const headerMeta = segMetadata?.data?.[0];
+        if (headerMeta?.SeriesDescription) return headerMeta.SeriesDescription;
+        if (headerMeta?.ContentDescription) return headerMeta.ContentDescription;
+        if (headerMeta?.ContentLabel) return headerMeta.ContentLabel;
+        const firstSegMeta = segMetadata?.data?.[1];
+        if (firstSegMeta?.SegmentLabel) return firstSegMeta.SegmentLabel;
+        segmentationCounter++;
+        return `Segmentation ${segmentationCounter}`;
+      })();
+
+      // ─── Create multi-layer group ───
+      const loadPlane = metaData.get('imagePlaneModule', effectiveBaseSourceImageIds[0]) as any;
+      const loadRowSpacing = Number(loadPlane?.rowPixelSpacing) || 1;
+      const loadColSpacing = Number(loadPlane?.columnPixelSpacing) || 1;
+
+      subSegGroupMap.set(segmentationId, []);
+      segmentMetaMap.set(segmentationId, new Map());
+      groupDimensionsMap.set(segmentationId, {
+        rows: sourceRows,
+        columns: sourceCols,
+        rowPixelSpacing: loadRowSpacing,
+        columnPixelSpacing: loadColSpacing,
+        sourceImageIds: [...effectiveBaseSourceImageIds],
+      });
+      groupLabelMap.set(segmentationId, groupLabel);
+      sourceImageIdsMap.set(segmentationId, [...effectiveBaseSourceImageIds]);
+
+      const genericMeta = (csUtilities as any).genericMetadataProvider;
+      let refGeneralSeriesMeta: any = null;
+      for (const srcId of effectiveBaseSourceImageIds) {
+        refGeneralSeriesMeta = metaData.get('generalSeriesModule', srcId);
+        if (refGeneralSeriesMeta) break;
+      }
+
+      const pixelCount = sourceRows * sourceCols;
+      const subSegIds = subSegGroupMap.get(segmentationId)!;
+      const metaMapForGroup = segmentMetaMap.get(segmentationId)!;
+
+      // ─── Create per-segment sub-segmentations with binary labelmaps ───
+      for (const segIdx of sortedSegIndices) {
+        const segmentIndex = subSegIds.length + 1; // 1-based position in group
+        const meta = segments[segIdx];
+        const segLabel = meta?.label ?? `Segment ${segmentIndex}`;
+        const segColor = colorMap.get(segIdx) ?? DEFAULT_COLORS[(segmentIndex - 1) % DEFAULT_COLORS.length];
+
+        const subSegId = `${segmentationId}_layer_${segmentIndex}`;
+        const subSegLmImageIds: string[] = [];
+
+        // Create binary labelmap images (0/1) for this segment
+        for (let i = 0; i < effectiveBaseSourceImageIds.length; i++) {
+          const srcImageId = effectiveBaseSourceImageIds[i];
+          const lmImageId = `generated:labelmap_${subSegId}_${i}`;
+
+          // Extract binary data from the adapter's combined image
+          const binaryData = new Uint8Array(pixelCount);
+          const adapterImg = adapterImageBySourceId.get(srcImageId);
+          if (adapterImg) {
+            let adapterPixels: any = null;
+            try {
+              if (adapterImg.voxelManager) adapterPixels = adapterImg.voxelManager.getScalarData();
+              else if (typeof adapterImg.getPixelData === 'function') adapterPixels = adapterImg.getPixelData();
+            } catch { adapterPixels = null; }
+            if (adapterPixels) {
+              for (let p = 0; p < pixelCount && p < adapterPixels.length; p++) {
+                if (Number(adapterPixels[p]) === segIdx) {
+                  binaryData[p] = 1;
+                }
+              }
+            }
+          }
+
+          const imagePlane = metaData.get('imagePlaneModule', srcImageId);
+          imageLoader.createAndCacheLocalImage(lmImageId, {
+            scalarData: binaryData,
+            dimensions: [sourceCols, sourceRows],
+            spacing: [loadColSpacing, loadRowSpacing],
+            origin: imagePlane?.imagePositionPatient,
+            direction: imagePlane?.imageOrientationPatient,
+            frameOfReferenceUID: imagePlane?.frameOfReferenceUID,
+            referencedImageId: srcImageId,
+          } as any);
+
+          if (refGeneralSeriesMeta) {
+            genericMeta.add(lmImageId, {
+              type: 'generalSeriesModule',
+              metadata: refGeneralSeriesMeta,
+            });
+          }
+
+          subSegLmImageIds.push(lmImageId);
+        }
+
+        // Register as independent Cornerstone segmentation (segment index 1)
+        csSegmentation.addSegmentations([{
+          segmentationId: subSegId,
           representation: {
             type: ToolEnums.SegmentationRepresentations.Labelmap,
-            data: labelmapImageIds.length > 0
-              ? { imageIds: labelmapImageIds } as any
-              : undefined,
+            data: { imageIds: subSegLmImageIds } as any,
           },
           config: {
-            label: (() => {
-              // Extract a meaningful label from DICOM metadata
-              const headerMeta = segMetadata?.data?.[0];
-              if (headerMeta?.SeriesDescription) return headerMeta.SeriesDescription;
-              if (headerMeta?.ContentDescription) return headerMeta.ContentDescription;
-              if (headerMeta?.ContentLabel) return headerMeta.ContentLabel;
-              // Try first segment's label as a fallback
-              const firstSegMeta = segMetadata?.data?.[1];
-              if (firstSegMeta?.SegmentLabel) return firstSegMeta.SegmentLabel;
-              segmentationCounter++;
-              return `Segmentation ${segmentationCounter}`;
-            })(),
-            segments,
+            label: segLabel,
+            segments: {
+              1: {
+                label: segLabel,
+                segmentIndex: 1,
+                locked: false,
+                active: segmentIndex === 1,
+                cachedStats: {},
+              } as any,
+            },
           },
-        },
-      ]);
+        }]);
 
-      // Track source imageIds for DICOM SEG re-export
-      sourceImageIdsMap.set(segmentationId, [...effectiveBaseSourceImageIds]);
+        // Track source imageIds on the sub-seg
+        sourceImageIdsMap.set(subSegId, [...effectiveBaseSourceImageIds]);
+
+        // Update group registry
+        subSegIds.push(subSegId);
+        subSegToGroupMap.set(subSegId, { groupId: segmentationId, segmentIndex });
+        metaMapForGroup.set(segmentIndex, {
+          label: segLabel,
+          color: segColor,
+          locked: false,
+        });
+
+        console.log(`[segmentationService] Created sub-seg ${subSegId} for adapter segment ${segIdx} → group index ${segmentIndex}: "${segLabel}"`);
+      }
+
+      // Store loaded colors (remapped from adapter segment index → group segment index)
+      // so addToViewport() can apply them when attaching to viewports.
+      if (colorMap.size > 0) {
+        const remappedColors = new Map<number, [number, number, number, number]>();
+        let groupIdx = 0;
+        for (const segIdx of sortedSegIndices) {
+          groupIdx++;
+          const color = colorMap.get(segIdx);
+          if (color) remappedColors.set(groupIdx, color);
+        }
+        if (remappedColors.size > 0) {
+          loadedColorsMap.set(segmentationId, remappedColors);
+        }
+      }
+
+      // Clean up adapter's combined images from cache to free memory
+      for (const adapterImg of adapterImages) {
+        if (!adapterImg?.imageId) continue;
+        try { cache.removeImageLoadObject(adapterImg.imageId); } catch { /* ok */ }
+      }
 
       // Update store
       const store = useSegmentationStore.getState();
       store.setActiveSegmentation(segmentationId);
       store.setActiveSegmentIndex(1);
-      csSegmentation.segmentIndex.setActiveSegmentIndex(segmentationId, 1);
+      // Set active segment index 1 on the first sub-seg
+      if (subSegIds.length > 0 && subSegIds[0]) {
+        csSegmentation.segmentIndex.setActiveSegmentIndex(subSegIds[0], 1);
+      }
 
       console.log(
-        `[segmentationService] Loaded DICOM SEG: ${segmentationId}`,
-        `(${Object.keys(segments).length} segments, ${labelmapImageIds.length} labelmap images)`,
+        `[segmentationService] Loaded DICOM SEG as multi-layer group: ${segmentationId}`,
+        `(${sortedSegIndices.length} segments as sub-segmentations, ${effectiveBaseSourceImageIds.length} slices)`,
       );
 
       syncSegmentations();
@@ -2751,6 +3469,14 @@ export const segmentationService = {
    * 6. Return base64-encoded string for IPC transport
    */
   async exportToDicomSeg(segmentationId: string): Promise<string> {
+    // ─── Multi-layer group path ─────────────────────────────
+    // Composite all sub-seg binary layers into multi-valued labelmaps,
+    // build a temporary Cornerstone segmentation for the legacy export path.
+    if (isMultiLayerGroup(segmentationId)) {
+      return this._exportGroupToDicomSeg(segmentationId);
+    }
+
+    // ─── Legacy (non-group) path ────────────────────────────
     const seg = csSegmentation.state.getSegmentation(segmentationId);
     if (!seg) {
       throw new Error(`[segmentationService] Segmentation not found: ${segmentationId}`);
@@ -3744,6 +4470,156 @@ export const segmentationService = {
   },
 
   /**
+   * Export a multi-layer group to DICOM SEG by compositing all sub-seg
+   * binary layers into multi-valued labelmaps (pixel value = segment index).
+   * Higher-indexed segments win at overlap pixels.
+   */
+  async _exportGroupToDicomSeg(groupId: string): Promise<string> {
+    const dims = groupDimensionsMap.get(groupId);
+    const srcImageIds = dims?.sourceImageIds ?? sourceImageIdsMap.get(groupId) ?? [];
+    if (srcImageIds.length === 0) {
+      throw new Error('[segmentationService] No source imageIds for group export.');
+    }
+
+    const subSegArr = subSegGroupMap.get(groupId) ?? [];
+    const metaMap = segmentMetaMap.get(groupId);
+    const { rows, columns } = dims ?? { rows: 512, columns: 512 };
+    const sliceCount = srcImageIds.length;
+    const pixelsPerSlice = rows * columns;
+
+    // Build composited labelmaps: for each slice, iterate sub-segs in order.
+    // Higher-indexed segment overwrites lower at overlap pixels.
+    const compositedSlices: Uint8Array[] = [];
+    for (let s = 0; s < sliceCount; s++) {
+      const composited = new Uint8Array(pixelsPerSlice);
+      for (let i = 0; i < subSegArr.length; i++) {
+        const subSegId = subSegArr[i];
+        if (!subSegId) continue;
+        const segmentIndex = i + 1;
+        const subSeg = csSegmentation.state.getSegmentation(subSegId);
+        const lmImageIds: string[] = (subSeg?.representationData as any)?.Labelmap?.imageIds ?? [];
+        if (s >= lmImageIds.length) continue;
+        const lmImage = cache.getImage(lmImageIds[s]);
+        if (!lmImage) continue;
+        const scalarData =
+          lmImage.voxelManager?.getScalarData?.()
+          ?? (lmImage as any).getPixelData?.();
+        if (!scalarData) continue;
+        for (let p = 0; p < pixelsPerSlice && p < scalarData.length; p++) {
+          if (Number(scalarData[p]) > 0) {
+            composited[p] = segmentIndex;
+          }
+        }
+      }
+      compositedSlices.push(composited);
+    }
+
+    // Build segment metadata
+    const segmentMetadata: any[] = [null]; // index 0 = background
+    const maxIdx = subSegArr.length;
+    for (let idx = 1; idx <= maxIdx; idx++) {
+      if (!subSegArr[idx - 1]) {
+        segmentMetadata.push(null);
+        continue;
+      }
+      const meta = metaMap?.get(idx);
+      const color = meta?.color ?? DEFAULT_COLORS[(idx - 1) % DEFAULT_COLORS.length];
+      const normalizedRgb = [color[0] / 255, color[1] / 255, color[2] / 255];
+      const cieLabValues =
+        (dcmjsData as any).Colors?.rgb2DICOMLAB?.(normalizedRgb) ?? [0, 0, 0];
+
+      segmentMetadata.push({
+        SegmentLabel: meta?.label ?? `Segment ${idx}`,
+        SegmentNumber: idx,
+        SegmentAlgorithmType: 'SEMIAUTOMATIC',
+        SegmentAlgorithmName: 'XNAT Workstation',
+        SegmentedPropertyCategoryCodeSequence: {
+          CodeValue: 'T-D0050',
+          CodingSchemeDesignator: 'SRT',
+          CodeMeaning: 'Tissue',
+        },
+        SegmentedPropertyTypeCodeSequence: {
+          CodeValue: 'T-D0050',
+          CodingSchemeDesignator: 'SRT',
+          CodeMeaning: 'Tissue',
+        },
+        RecommendedDisplayCIELabValue: cieLabValues,
+      });
+    }
+
+    // Create a temporary single-layer Cornerstone segmentation with the
+    // composited labelmaps, register it, export, then clean up.
+    const tempSegId = `_export_temp_${groupId}_${Date.now()}`;
+    const tempLmImageIds: string[] = [];
+    try {
+      // Create labelmap images for the temporary segmentation
+      for (let s = 0; s < sliceCount; s++) {
+        const srcId = srcImageIds[s];
+        const localId = `${tempSegId}_slice_${s}`;
+        const pixelData = compositedSlices[s];
+
+        const imagePlane = metaData.get('imagePlaneModule', srcId) as any;
+        imageLoader.createAndCacheLocalImage(localId, {
+          scalarData: pixelData,
+          dimensions: [columns, rows],
+          spacing: [
+            Number(imagePlane?.columnPixelSpacing) || 1,
+            Number(imagePlane?.rowPixelSpacing) || 1,
+          ],
+          origin: imagePlane?.imagePositionPatient,
+          direction: imagePlane?.imageOrientationPatient,
+          frameOfReferenceUID: imagePlane?.frameOfReferenceUID,
+          referencedImageId: srcId,
+        } as any);
+        tempLmImageIds.push(localId);
+      }
+
+      // Build segments object for Cornerstone
+      const segments: Record<number, any> = {};
+      for (let idx = 1; idx <= maxIdx; idx++) {
+        if (!subSegArr[idx - 1]) continue;
+        const meta = metaMap?.get(idx);
+        segments[idx] = {
+          label: meta?.label ?? `Segment ${idx}`,
+          locked: false,
+          active: idx === 1,
+          segmentIndex: idx,
+          cachedStats: {},
+        };
+      }
+
+      // Register temporary segmentation
+      csSegmentation.addSegmentations([{
+        segmentationId: tempSegId,
+        representation: {
+          type: ToolEnums.SegmentationRepresentations.Labelmap,
+          data: { imageIds: tempLmImageIds } as any,
+        },
+        config: {
+          label: groupLabelMap.get(groupId) ?? 'Segmentation',
+          segments,
+        },
+      }]);
+
+      // Track source image IDs for the temp seg
+      sourceImageIdsMap.set(tempSegId, [...srcImageIds]);
+
+      // Delegate to the legacy export path
+      const result = await this.exportToDicomSeg(tempSegId);
+
+      return result;
+    } finally {
+      // Clean up temporary segmentation
+      try { csSegmentation.removeSegmentation(tempSegId); } catch { /* ok */ }
+      sourceImageIdsMap.delete(tempSegId);
+      // Clean up temporary labelmap images from cache
+      for (const lmId of tempLmImageIds) {
+        try { cache.removeImageLoadObject(lmId); } catch { /* ok */ }
+      }
+    }
+  },
+
+  /**
    * Track source image IDs for a segmentation (used for DICOM SEG/RTSTRUCT export).
    * Called by rtStructService when loading RTSTRUCT contours.
    */
@@ -3773,6 +4649,35 @@ export const segmentationService = {
    * Used by UI save flows to avoid hard export errors for empty annotations.
    */
   hasExportableContent(segmentationId: string, targetType?: 'SEG' | 'RTSTRUCT'): boolean {
+    const hasNonZeroPixels = (img: any): boolean => {
+      if (!img) return false;
+      const scalarData: any =
+        img.voxelManager?.getScalarData?.()
+        ?? img.imageFrame?.pixelData
+        ?? img.getPixelData?.();
+      if (!scalarData || typeof scalarData.length !== 'number') return false;
+      for (let i = 0; i < scalarData.length; i++) {
+        if (Number(scalarData[i]) > 0) return true;
+      }
+      return false;
+    };
+
+    // ─── Multi-layer group path ─────────────────────────────
+    if (isMultiLayerGroup(segmentationId)) {
+      if (targetType === 'RTSTRUCT') return false; // groups are labelmap-only
+      // Check if any sub-seg has non-zero pixels
+      const subSegIds = getActiveSubSegIds(segmentationId);
+      for (const subSegId of subSegIds) {
+        const subSeg = csSegmentation.state.getSegmentation(subSegId);
+        const imageIds: string[] = (subSeg?.representationData as any)?.Labelmap?.imageIds ?? [];
+        for (const imageId of imageIds) {
+          if (hasNonZeroPixels(cache.getImage(imageId))) return true;
+        }
+      }
+      return false;
+    }
+
+    // ─── Legacy path ────────────────────────────────────────
     const seg = csSegmentation.state.getSegmentation(segmentationId);
     if (!seg) return false;
 
@@ -3796,19 +4701,6 @@ export const segmentationService = {
     const labelmapData = (seg.representationData as any)?.Labelmap;
     const imageIds: string[] = labelmapData?.imageIds ?? [];
     if (!Array.isArray(imageIds) || imageIds.length === 0) return false;
-
-    const hasNonZeroPixels = (img: any): boolean => {
-      if (!img) return false;
-      const scalarData: any =
-        img.voxelManager?.getScalarData?.()
-        ?? img.imageFrame?.pixelData
-        ?? img.getPixelData?.();
-      if (!scalarData || typeof scalarData.length !== 'number') return false;
-      for (let i = 0; i < scalarData.length; i++) {
-        if (Number(scalarData[i]) > 0) return true;
-      }
-      return false;
-    };
 
     for (const imageId of imageIds) {
       if (hasNonZeroPixels(cache.getImage(imageId))) {
@@ -3948,6 +4840,11 @@ export const segmentationService = {
     // Clean up module-level state
     sourceImageIdsMap.clear();
     loadedColorsMap.clear();
+    subSegGroupMap.clear();
+    subSegToGroupMap.clear();
+    segmentMetaMap.clear();
+    groupDimensionsMap.clear();
+    groupLabelMap.clear();
     segmentationCounter = 0;
 
     initialized = false;

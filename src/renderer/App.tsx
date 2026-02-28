@@ -568,13 +568,27 @@ export default function App() {
     // Compute the next value eagerly so we can bump epochs synchronously.
     const prev = panelImageIdsRef.current;
     const next = typeof updater === 'function' ? updater(prev) : updater;
-    // Bump epoch for every panel in the new map (synchronous — no batching delay)
-    for (const pid of Object.keys(next)) {
-      panelEpochRef.current[pid] = viewportReadyService.bumpEpoch(pid);
+    // Bump epoch only for panels whose image stack actually changed.
+    // Bumping unchanged panels causes whenReady() waits to target epochs that
+    // will never be marked ready (no viewport recreate), leading to timeouts.
+    const allPanelIds = new Set([...Object.keys(prev), ...Object.keys(next)]);
+    for (const pid of allPanelIds) {
+      const prevIds = prev[pid] ?? [];
+      const nextIds = next[pid] ?? [];
+      const changed =
+        prevIds.length !== nextIds.length ||
+        prevIds.some((id, idx) => id !== nextIds[idx]);
+      if (changed) {
+        panelEpochRef.current[pid] = viewportReadyService.bumpEpoch(pid);
+      }
     }
     // Eagerly update the ref so that back-to-back calls before React re-renders
     // still see the correct "previous" value.
     panelImageIdsRef.current = next;
+    const viewer = useViewerStore.getState();
+    for (const pid of allPanelIds) {
+      viewer.setPanelImageIds(pid, next[pid] ?? []);
+    }
     setPanelImageIdsRaw(next);
   }, []);
 
@@ -753,6 +767,9 @@ export default function App() {
         panelXnatContextMap: {},
         panelScanMap: {},
         panelSessionLabelMap: {},
+        panelSubjectLabelMap: {},
+        crosshairWorldPoint: null,
+        crosshairSourcePanelId: null,
       });
     }
     wasConnectedRef.current = isConnected;
@@ -975,7 +992,7 @@ export default function App() {
 
     // Load regular DICOM image files into the active panel
     let newImageIds: string[] = [];
-    const targetPanel = useViewerStore.getState().activeViewportId;
+    let targetPanel = useViewerStore.getState().activeViewportId;
 
     if (regularFiles.length > 0) {
       for (const file of regularFiles) {
@@ -995,6 +1012,7 @@ export default function App() {
       console.log(`Loaded ${newImageIds.length} DICOM image files into ${targetPanel}`);
       setPanelImageIds((prev) => ({ ...prev, [targetPanel]: newImageIds }));
       useViewerStore.getState().setPanelSessionLabel(targetPanel, '');
+      useViewerStore.getState().setPanelSubjectLabel(targetPanel, '');
       setBrowserStatusMessage(
         'Loaded local image stack',
         'success',
@@ -1245,6 +1263,7 @@ export default function App() {
     scanId: string,
     scan: XnatScan,
     context: { projectId: string; subjectId: string; sessionLabel: string; projectName?: string; subjectLabel?: string },
+    options?: { openInMpr?: boolean },
   ) => {
     if (!isConnected) return;
 
@@ -1263,7 +1282,7 @@ export default function App() {
       dicomwebLoader.clearScanImageIdsCache(currentSessionId);
     }
 
-    const targetPanel = useViewerStore.getState().activeViewportId;
+    let targetPanel = useViewerStore.getState().activeViewportId;
     const ensureSourceScanOnPanel = async (panelId: string, sourceScanId: string): Promise<string[]> => {
       segmentationManager.removeSegmentationsFromViewport(panelId);
       const ids = await dicomwebLoader.getScanImageIds(sessionId, sourceScanId, {
@@ -1279,6 +1298,7 @@ export default function App() {
       });
       useViewerStore.getState().setPanelScan(panelId, sourceScanId);
       useViewerStore.getState().setPanelSessionLabel(panelId, context.sessionLabel);
+      useViewerStore.getState().setPanelSubjectLabel(panelId, context.subjectLabel ?? context.subjectId);
       segmentationManager.onPanelImagesChanged(
         panelId, sourceScanId, panelEpochRef.current[panelId] ?? 0,
       );
@@ -1315,6 +1335,7 @@ export default function App() {
       sessionLabel: context.sessionLabel,
       scanId: contextScanId,
     });
+    useViewerStore.getState().setPanelSubjectLabel(targetPanel, context.subjectLabel ?? context.subjectId);
 
     // Remember this session for "Load Recent" on next visit
     const serverUrl = useConnectionStore.getState().connection?.serverUrl;
@@ -1565,6 +1586,7 @@ export default function App() {
           );
           useViewerStore.getState().setPanelScan(segTargetPanel, resolvedScanId);
           useViewerStore.getState().setPanelSessionLabel(segTargetPanel, context.sessionLabel);
+          useViewerStore.getState().setPanelSubjectLabel(segTargetPanel, context.subjectLabel ?? context.subjectId);
           segmentationManager.onPanelImagesChanged(
             segTargetPanel, resolvedScanId, panelEpochRef.current[segTargetPanel] ?? 0,
           );
@@ -1822,6 +1844,11 @@ export default function App() {
 
         if (stackUnchanged) {
           console.log(`[App] Scan #${scanId} already loaded in ${targetPanel}; skipping viewport reload`);
+          // This path does not recreate the viewport; ensure readiness is marked
+          // for the current epoch so overlay attach paths cannot stall.
+          const currentEpoch =
+            panelEpochRef.current[targetPanel] ?? viewportReadyService.getEpoch(targetPanel);
+          viewportReadyService.markReady(targetPanel, currentEpoch);
           setBrowserStatusMessage('Scan already loaded', 'info', `Scan #${scanId} is already visible in ${targetPanel}.`);
         } else {
           // Clean up stale segmentations before replacing the stack
@@ -1832,6 +1859,7 @@ export default function App() {
           setBrowserStatusMessage('Image stack loaded', 'success', `${ids.length} image(s) in ${targetPanel}.`);
         }
         useViewerStore.getState().setPanelSessionLabel(targetPanel, context.sessionLabel);
+        useViewerStore.getState().setPanelSubjectLabel(targetPanel, context.subjectLabel ?? context.subjectId);
 
         // Notify SegmentationManager about the new source scan
         segmentationManager.onPanelImagesChanged(
@@ -1839,6 +1867,70 @@ export default function App() {
           scanId,
           panelEpochRef.current[targetPanel] ?? viewportReadyService.getEpoch(targetPanel),
         );
+
+        if (options?.openInMpr && isPrimaryImageScan(effectiveScan)) {
+          const viewerStore = useViewerStore.getState();
+          if (viewerStore.mprActive) {
+            viewerStore.exitMPR();
+          }
+
+          setBrowserStatusMessage(
+            'Opening 2x2 orientation view...',
+            'loading',
+            `Scan #${scanId} in axial/sagittal/coronal views.`,
+          );
+
+          viewerStore.setLayout('2x2');
+          const p0 = panelId(0); // top-left
+          const p1 = panelId(1); // top-right
+          const p2 = panelId(2); // bottom-left
+          const p3 = panelId(3); // bottom-right
+          const targetPanels = [p0, p1, p2, p3];
+
+          for (const pid of targetPanels) {
+            segmentationManager.removeSegmentationsFromViewport(pid);
+          }
+
+          setPanelImageIds((prev) => ({
+            ...prev,
+            [p0]: ids,
+            [p1]: ids,
+            [p2]: ids,
+            [p3]: ids,
+          }));
+
+          viewerStore.setPanelOrientation(p0, 'AXIAL');
+          viewerStore.setPanelOrientation(p1, 'SAGITTAL');
+          viewerStore.setPanelOrientation(p2, 'CORONAL');
+          viewerStore.setPanelOrientation(p3, 'STACK');
+
+          for (const pid of targetPanels) {
+            viewerStore.setPanelXnatContext(pid, {
+              projectId: context.projectId,
+              subjectId: context.subjectId,
+              sessionId,
+              sessionLabel: context.sessionLabel,
+              scanId,
+            });
+            viewerStore.setPanelScan(pid, scanId);
+            viewerStore.setPanelSessionLabel(pid, context.sessionLabel);
+            viewerStore.setPanelSubjectLabel(pid, context.subjectLabel ?? context.subjectId);
+            segmentationManager.onPanelImagesChanged(
+              pid,
+              scanId,
+              panelEpochRef.current[pid] ?? viewportReadyService.getEpoch(pid),
+            );
+          }
+
+          targetPanel = p0;
+          viewerStore.setActiveViewport(targetPanel);
+
+          setBrowserStatusMessage(
+            '2x2 orientation view ready',
+            'success',
+            `Axial / Sagittal / Coronal loaded for scan #${scanId}.`,
+          );
+        }
 
         // Start SEG/RTSTRUCT UID association resolution in the background so
         // the stack appears immediately, then await only if auto-display is enabled.
@@ -2092,6 +2184,7 @@ export default function App() {
           });
           store.setPanelScan(pid, scanId);
           store.setPanelSessionLabel(pid, context.sessionLabel);
+          store.setPanelSubjectLabel(pid, context.subjectLabel ?? context.subjectId);
           console.log(`  Panel ${panelIdx} (${pid}): scan #${scanId} → ${ids.length} images`);
         }
 
@@ -2274,6 +2367,44 @@ export default function App() {
     [setBrowserStatusMessage],
   );
 
+  const enterMprForPanel = useCallback(async (sourcePanelId: string, sourceImageIds: string[]) => {
+    const store = useViewerStore.getState();
+    if (sourceImageIds.length < 2) {
+      console.warn('[App] Need at least 2 slices for MPR');
+      return false;
+    }
+
+    if (store.mprActive) {
+      store.exitMPR();
+    }
+
+    const volumeId = volumeService.generateId();
+    try {
+      await volumeService.create(volumeId, sourceImageIds);
+      console.log('[App] Volume created in cache:', volumeId);
+    } catch (err) {
+      console.error('[App] Volume creation failed:', err);
+      return false;
+    }
+
+    useViewerStore.getState().setActiveViewport(sourcePanelId);
+    useViewerStore.getState().enterMPR(sourcePanelId, volumeId);
+
+    try {
+      await volumeService.load(volumeId, (p) => {
+        const percent = p.total > 0 ? Math.round((p.loaded / p.total) * 100) : 0;
+        useViewerStore.getState()._updateMPRVolumeProgress({ ...p, percent });
+      });
+      useViewerStore.getState()._updateMPRVolumeProgress(null);
+      console.log('[App] Volume loaded for MPR');
+      return true;
+    } catch (err) {
+      console.error('[App] Volume loading failed:', err);
+      useViewerStore.getState().exitMPR();
+      return false;
+    }
+  }, []);
+
   /**
    * Toggle MPR mode on the active panel's image stack.
    * Enters MPR: creates a 3D volume and shows 2×2 orthogonal views.
@@ -2283,48 +2414,13 @@ export default function App() {
     const store = useViewerStore.getState();
 
     if (store.mprActive) {
-      // Exit MPR
       store.exitMPR();
       return;
     }
 
-    // Enter MPR — need images from the active panel
     const activeImageIds = panelImageIds[store.activeViewportId] ?? [];
-    if (activeImageIds.length < 2) {
-      console.warn('[App] Need at least 2 slices for MPR');
-      return;
-    }
-
-    // Step 1: Generate volume ID and create the volume in cache FIRST
-    // This must complete before viewports mount and try to call setVolume
-    const volumeId = volumeService.generateId();
-
-    try {
-      await volumeService.create(volumeId, activeImageIds);
-      console.log('[App] Volume created in cache:', volumeId);
-    } catch (err) {
-      console.error('[App] Volume creation failed:', err);
-      return;
-    }
-
-    // Step 2: Now enter MPR mode (sets mprActive=true, renders viewports)
-    // The volume exists in cache so viewports can successfully call setVolume
-    store.enterMPR(store.activeViewportId, volumeId);
-
-    // Step 3: Start loading the volume data (streaming, progressive)
-    try {
-      await volumeService.load(volumeId, (p) => {
-        const percent = p.total > 0 ? Math.round((p.loaded / p.total) * 100) : 0;
-        useViewerStore.getState()._updateMPRVolumeProgress({ ...p, percent });
-      });
-      // Clear progress when done
-      useViewerStore.getState()._updateMPRVolumeProgress(null);
-      console.log('[App] Volume loaded for MPR');
-    } catch (err) {
-      console.error('[App] Volume loading failed:', err);
-      useViewerStore.getState().exitMPR();
-    }
-  }, [panelImageIds]);
+    await enterMprForPanel(store.activeViewportId, activeImageIds);
+  }, [panelImageIds, enterMprForPanel]);
 
   // Derive sourceImageIds for MPR mode (from the panel that launched MPR)
   const mprSourcePanelId = useViewerStore((s) => s.mprSourcePanelId);

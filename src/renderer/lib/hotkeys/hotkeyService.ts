@@ -11,7 +11,7 @@
  * through existing stores (viewerStore, segmentationStore, annotationStore).
  */
 import type { HotkeyAction, HotkeyBinding, HotkeyMap } from '@shared/types/hotkeys';
-import { ToolName, WL_PRESETS } from '@shared/types/viewer';
+import { ToolName, WL_PRESETS, panelId as makePanelId } from '@shared/types/viewer';
 import type { LayoutType } from '@shared/types/viewer';
 import { DEFAULT_HOTKEY_MAP } from './defaultHotkeyMap';
 import { useViewerStore } from '../../stores/viewerStore';
@@ -89,6 +89,41 @@ const LAYOUT_ACTION_MAP: Partial<Record<HotkeyAction, LayoutType>> = {
   'layout.2x2': '2x2',
 };
 
+// ─── Clockwise Panel Ordering ─────────────────────────────────────
+
+/**
+ * Build a clockwise traversal order for a rows×cols grid layout.
+ * For a 2×2 grid: TL → TR → BR → BL (i.e., panel_0 → panel_1 → panel_3 → panel_2).
+ */
+function buildClockwisePanelOrder(rows: number, cols: number): string[] {
+  const order: string[] = [];
+  if (rows <= 0 || cols <= 0) return order;
+
+  // Simple cases: 1 row or 1 col → normal L-to-R / T-to-B order
+  if (rows === 1 || cols === 1) {
+    for (let i = 0; i < rows * cols; i++) {
+      order.push(makePanelId(i));
+    }
+    return order;
+  }
+
+  // Multi-row, multi-col: clockwise spiral (simplified for 2×2)
+  // Top row L→R, right col T→B, bottom row R→L, left col B→T
+  const visited = new Set<number>();
+  let top = 0, bottom = rows - 1, left = 0, right = cols - 1;
+  while (top <= bottom && left <= right) {
+    for (let c = left; c <= right; c++) { const idx = top * cols + c; if (!visited.has(idx)) { visited.add(idx); order.push(makePanelId(idx)); } }
+    top++;
+    for (let r = top; r <= bottom; r++) { const idx = r * cols + right; if (!visited.has(idx)) { visited.add(idx); order.push(makePanelId(idx)); } }
+    right--;
+    for (let c = right; c >= left; c--) { const idx = bottom * cols + c; if (!visited.has(idx)) { visited.add(idx); order.push(makePanelId(idx)); } }
+    bottom--;
+    for (let r = bottom; r >= top; r--) { const idx = r * cols + left; if (!visited.has(idx)) { visited.add(idx); order.push(makePanelId(idx)); } }
+    left++;
+  }
+  return order;
+}
+
 // ─── Action Dispatch ──────────────────────────────────────────────
 
 /**
@@ -149,6 +184,16 @@ function dispatchAction(action: HotkeyAction): boolean {
     case 'panel.toggleSegmentation':
       useSegmentationStore.getState().togglePanel();
       return true;
+    case 'panel.nextViewport': {
+      // Cycle active viewport clockwise through visible panels
+      const panelCount = viewerState.layoutConfig.panelCount;
+      if (panelCount <= 1) return true;
+      const order = buildClockwisePanelOrder(viewerState.layoutConfig.rows, viewerState.layoutConfig.cols);
+      const currentIdx = order.indexOf(viewerState.activeViewportId);
+      const nextIdx = (currentIdx + 1) % order.length;
+      viewerState.setActiveViewport(order[nextIdx]);
+      return true;
+    }
 
     // Brush size
     case 'brush.decrease': {
@@ -241,6 +286,24 @@ function handleSliceNavigation(
     return true;
   }
 
+  // Oriented viewport (AXIAL/SAGITTAL/CORONAL → uses volume viewport via mprService)
+  const panelOrientation = viewerState.panelOrientationMap[pid];
+  if (panelOrientation && panelOrientation !== 'STACK') {
+    let delta = 0;
+    switch (action) {
+      case 'slice.prev':     delta = -1;  break;
+      case 'slice.next':     delta = 1;   break;
+      case 'slice.prevPage': delta = -10; break;
+      case 'slice.nextPage': delta = 10;  break;
+      case 'slice.first':    mprService.scrollToIndex(pid, 0); return true;
+      case 'slice.last':     mprService.scroll(pid, 999999); return true; // jump to end
+    }
+    if (delta !== 0) {
+      mprService.scroll(pid, delta);
+    }
+    return true;
+  }
+
   // Stack viewport
   const vp = viewerState.viewports[pid];
   if (!vp || vp.totalImages <= 1) return false;
@@ -282,12 +345,18 @@ let listenerInstalled = false;
 // ─── Keydown Handler ──────────────────────────────────────────────
 
 function handleKeyDown(e: KeyboardEvent): void {
-  // Input guard: don't intercept when focus is in a form element
+  // Input guard: don't intercept when focus is in a form element,
+  // UNLESS it's Tab which we want for viewport cycling even from controls.
   const tag = (e.target as HTMLElement)?.tagName;
-  if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+  const isTextInput = tag === 'INPUT' || tag === 'TEXTAREA';
+  const isFormControl = isTextInput || tag === 'SELECT';
+  if (isFormControl) {
+    // Allow Tab through even in form controls (for viewport cycling)
+    if (e.key !== 'Tab') return;
+  }
 
-  // Also guard for contentEditable elements
-  if ((e.target as HTMLElement)?.isContentEditable) return;
+  // Also guard for contentEditable elements (except Tab)
+  if ((e.target as HTMLElement)?.isContentEditable && e.key !== 'Tab') return;
 
   // Build normalized key from the event
   const parts: string[] = [];
