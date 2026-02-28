@@ -539,7 +539,14 @@ export const toolService = {
           if (imageIds && imageIds.length > 0) {
             // Create segmentation first, then activate the tool.
             // Use segmentationManager for cross-panel attachment.
-            segmentationManager.createNewSegmentation(viewportId, imageIds, undefined, true).then(async (segId) => {
+            // Contour tools get a contour (RTSTRUCT) segmentation;
+            // labelmap tools get a multi-layer (SEG) segmentation.
+            const isContourTool = CONTOUR_SEG_TOOLS.has(toolName);
+            const createPromise = isContourTool
+              ? segmentationManager.createNewStructure(viewportId, imageIds, undefined)
+              : segmentationManager.createNewSegmentation(viewportId, imageIds, undefined, true);
+
+            createPromise.then(async (segId) => {
               // Track local unsaved origin so auto-save/save targets stay bound
               // to the source scan even if the user changes panels before saving.
               const viewerState = useViewerStore.getState();
@@ -559,16 +566,17 @@ export const toolService = {
               }
 
               if (segId) {
-                // Keep active segment index valid for cursor/LUT resolution.
-                // Eraser behavior is controlled by Brush strategy, not segment index 0.
-                const paintIdx = getSafePaintSegmentIndex(
-                  useSegmentationStore.getState().activeSegmentIndex,
-                );
-                segmentationService.setActiveSegmentIndex(segId, paintIdx);
-
-                // Ensure contour representation for contour tools
-                if (CONTOUR_SEG_TOOLS.has(toolName)) {
+                if (isContourTool) {
+                  // Contour: add a default structure and ensure representation
+                  segmentationService.addSegment(segId, 'Structure 1');
+                  segmentationService.setActiveSegmentIndex(segId, 1);
                   await segmentationService.ensureContourRepresentation(viewportId, segId);
+                } else {
+                  // Labelmap: keep active segment index valid for cursor/LUT resolution.
+                  const paintIdx = getSafePaintSegmentIndex(
+                    useSegmentationStore.getState().activeSegmentIndex,
+                  );
+                  segmentationService.setActiveSegmentIndex(segId, paintIdx);
                 }
               }
 

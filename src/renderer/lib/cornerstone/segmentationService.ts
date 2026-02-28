@@ -1546,8 +1546,10 @@ export const segmentationService = {
 
   /**
    * Add a new segment to an existing segmentation.
-   * Creates an independent sub-segmentation with its own binary labelmap
-   * images so segments can overlap.
+   * For multi-layer groups: creates an independent sub-segmentation with its
+   * own binary labelmap images so segments can overlap.
+   * For contour segmentations (RTSTRUCT): adds a segment entry to the
+   * Cornerstone segmentation state and annotation map.
    * Returns the new segment index (1-based).
    */
   addSegment(
@@ -1555,6 +1557,59 @@ export const segmentationService = {
     label: string,
     color?: [number, number, number, number],
   ): number {
+    // ─── Contour (RTSTRUCT) path ─────────────────────────────
+    const segType = getSegmentationType(segmentationId);
+    if (segType === 'contour') {
+      const seg = csSegmentation.state.getSegmentation(segmentationId);
+      if (!seg) throw new Error(`[segmentationService] Segmentation not found: ${segmentationId}`);
+
+      // Determine next index from existing segments
+      const existingIndices = seg.segments
+        ? Object.keys(seg.segments).map(Number).filter((n) => n > 0)
+        : [];
+      const nextIndex = existingIndices.length > 0
+        ? Math.max(...existingIndices) + 1
+        : 1;
+      const segLabel = label.trim() || `Structure ${nextIndex}`;
+      const segColor = color || DEFAULT_COLORS[(nextIndex - 1) % DEFAULT_COLORS.length];
+
+      // Add segment entry to Cornerstone's segmentation state
+      if (!seg.segments) (seg as any).segments = {};
+      (seg.segments as any)[nextIndex] = {
+        segmentIndex: nextIndex,
+        label: segLabel,
+        locked: false,
+        active: true,
+        cachedStats: {},
+      };
+
+      // Ensure contour annotation map has an entry for this segment
+      const contourData = (seg.representationData as any)?.Contour;
+      if (contourData?.annotationUIDsMap instanceof Map) {
+        if (!contourData.annotationUIDsMap.has(nextIndex)) {
+          contourData.annotationUIDsMap.set(nextIndex, new Set<string>());
+        }
+      }
+
+      // Set active segment index in Cornerstone
+      csSegmentation.segmentIndex.setActiveSegmentIndex(segmentationId, nextIndex);
+
+      // Apply color on all viewports showing this segmentation
+      const vpIds = csSegmentation.state.getViewportIdsWithSegmentation(segmentationId);
+      for (const vpId of vpIds) {
+        try {
+          csSegmentation.config.color.setSegmentIndexColor(
+            vpId, segmentationId, nextIndex, segColor as any,
+          );
+        } catch { /* viewport may be detached */ }
+      }
+
+      console.log(`[segmentationService] Added contour segment ${nextIndex} to ${segmentationId}: "${segLabel}"`);
+      syncSegmentations();
+      return nextIndex;
+    }
+
+    // ─── Multi-layer group (SEG) path ────────────────────────
     if (!isMultiLayerGroup(segmentationId)) {
       throw new Error(`[segmentationService] Not a multi-layer group: ${segmentationId}`);
     }

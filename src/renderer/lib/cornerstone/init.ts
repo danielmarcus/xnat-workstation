@@ -33,6 +33,7 @@ import {
   LabelMapEditWithContourTool,
 } from '@cornerstonejs/tools';
 import SafePaintFillTool from './tools/SafePaintFillTool';
+import { utilities as csToolsUtilities } from '@cornerstonejs/tools';
 import { init as initDicomImageLoader } from '@cornerstonejs/dicom-image-loader';
 
 let initialized = false;
@@ -94,6 +95,15 @@ export async function initCornerstone(): Promise<void> {
   addTool(LivewireContourSegmentationTool);
   addTool(SculptorTool);
   addTool(LabelMapEditWithContourTool);
+
+  // SplineContourSegmentationTool inherits getContourSequence from
+  // ContourBaseTool but doesn't self-register with AnnotationToPointData
+  // (unlike PlanarFreehand and Livewire which do). Without registration,
+  // RTSTRUCT export throws "Unknown tool type" for spline annotations.
+  const { AnnotationToPointData } = csToolsUtilities.contours;
+  if (AnnotationToPointData && !AnnotationToPointData.TOOL_NAMES[SplineContourSegmentationTool.toolName]) {
+    AnnotationToPointData.register(SplineContourSegmentationTool);
+  }
 
   // Segmentation tools — smart/AI (GrowCut)
   addTool(RegionSegmentTool);
