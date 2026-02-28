@@ -39,11 +39,18 @@ export default defineConfig({
   optimizeDeps: {
     // dicom-image-loader MUST be excluded — if Vite pre-bundles it,
     // the internal import.meta.url-based worker creation breaks.
-    exclude: ['@cornerstonejs/dicom-image-loader'],
+    // polymorphic-segmentation MUST be excluded so its worker URL
+    // (`./workers/polySegConverters.js`) resolves from package files, not
+    // from optimize-deps virtual output.
+    exclude: ['@cornerstonejs/dicom-image-loader', '@cornerstonejs/polymorphic-segmentation'],
     include: [
       '@cornerstonejs/core',
       '@cornerstonejs/tools',
       'dicom-parser',
+      // Keep CJS interop explicit for ToolGroup dependencies.
+      'lodash.get',
+      // Ensure vtk.js dependency graph is optimized for browser ESM/CJS interop.
+      '@kitware/vtk.js',
       // Codec packages are CJS/UMD — must be pre-bundled for ESM default-export interop.
       // They're transitive deps of dicom-image-loader (which itself must stay excluded).
       '@cornerstonejs/codec-libjpeg-turbo-8bit/decodewasmjs',

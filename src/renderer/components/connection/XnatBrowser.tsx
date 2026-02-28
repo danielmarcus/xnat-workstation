@@ -43,7 +43,7 @@ interface XnatBrowserProps {
     sessionLabel: string;
     projectName?: string;
     subjectLabel?: string;
-  }) => void;
+  }, options?: { openInMpr?: boolean }) => void;
   onLoadSession?: (sessionId: string, scans: XnatScan[], context: {
     projectId: string;
     subjectId: string;
@@ -907,7 +907,7 @@ export default function XnatBrowser({
   }, [maybeResolveSessionAssociations]);
 
   const loadScanForSession = useCallback(
-    (session: XnatSession, scan: XnatScan) => {
+    (session: XnatSession, scan: XnatScan, options?: { openInMpr?: boolean }) => {
       if (!selectedProject || !selectedSubject) return;
       onLoadScan(session.id, scan.id, scan, {
         projectId: selectedProject.id,
@@ -915,7 +915,7 @@ export default function XnatBrowser({
         sessionLabel: session.label,
         projectName: selectedProject.name,
         subjectLabel: selectedSubject.label,
-      });
+      }, options);
     },
     [selectedProject, selectedSubject, onLoadScan],
   );
@@ -950,9 +950,9 @@ export default function XnatBrowser({
   );
 
   const selectScan = useCallback(
-    (scan: XnatScan) => {
+    (scan: XnatScan, e?: React.MouseEvent) => {
       if (!selectedSession) return;
-      loadScanForSession(selectedSession, scan);
+      loadScanForSession(selectedSession, scan, { openInMpr: !!e?.shiftKey });
     },
     [selectedSession, loadScanForSession],
   );
@@ -1374,7 +1374,7 @@ export default function XnatBrowser({
                                         <button
                                           key={scan.id}
                                           ref={registerThumbVisibilityTarget(`${session.id}/${scan.id}`)}
-                                          onClick={() => loadScanForSession(session, scan)}
+                                          onClick={(e) => loadScanForSession(session, scan, { openInMpr: e.shiftKey })}
                                           draggable
                                           onDragStart={(e) => handleScanDragStart(e, session, scan)}
                                           className="text-left border border-zinc-800 rounded-md overflow-hidden hover:border-zinc-600 hover:bg-zinc-800/30 transition-colors"
@@ -1426,7 +1426,7 @@ export default function XnatBrowser({
                                       return (
                                         <button
                                           key={scan.id}
-                                          onClick={() => loadScanForSession(session, scan)}
+                                          onClick={(e) => loadScanForSession(session, scan, { openInMpr: e.shiftKey })}
                                           draggable
                                           onDragStart={(e) => handleScanDragStart(e, session, scan)}
                                           className="w-full text-left px-2.5 py-2 hover:bg-zinc-800/40 transition-colors"
@@ -1487,7 +1487,7 @@ export default function XnatBrowser({
                         <button
                           key={s.id}
                           ref={selectedSession ? registerThumbVisibilityTarget(`${selectedSession.id}/${s.id}`) : undefined}
-                          onClick={() => selectScan(s)}
+                          onClick={(e) => selectScan(s, e)}
                           draggable
                           onDragStart={(e) => {
                             if (!selectedSession) return;
@@ -1597,7 +1597,7 @@ interface ItemListProps<T> {
   items: T[];
   renderItem: (item: T) => React.ReactNode;
   renderAction?: (item: T) => React.ReactNode;
-  onSelect: (item: T) => void;
+  onSelect: (item: T, e?: React.MouseEvent<HTMLDivElement>) => void;
   onItemDragStart?: (item: T, e: React.DragEvent<HTMLDivElement>) => void;
   emptyMessage: string;
 }
@@ -1616,7 +1616,7 @@ function ItemList<T>({ items, renderItem, renderAction, onSelect, onItemDragStar
       {items.map((item, i) => (
         <div
           key={i}
-          onClick={() => onSelect(item)}
+              onClick={(e) => onSelect(item, e)}
           draggable={Boolean(onItemDragStart)}
           onDragStart={onItemDragStart ? (e) => onItemDragStart(item, e) : undefined}
           className="w-full text-left px-3 py-2.5 hover:bg-zinc-800/50 transition-colors cursor-pointer flex items-center group"

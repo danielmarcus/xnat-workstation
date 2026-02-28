@@ -18,8 +18,12 @@ import { viewportService } from '../../lib/cornerstone/viewportService';
 import { toolService } from '../../lib/cornerstone/toolService';
 import { metadataService } from '../../lib/cornerstone/metadataService';
 import { viewportReadyService } from '../../lib/cornerstone/viewportReadyService';
+import { crosshairSyncService } from '../../lib/cornerstone/crosshairSyncService';
+import { wireCrosshairPointerHandlers } from '../../lib/cornerstone/crosshairGeometry';
+import { segmentationManager } from '../../lib/segmentation/segmentationManagerSingleton';
 import { useViewerStore } from '../../stores/viewerStore';
 import { useMetadataStore } from '../../stores/metadataStore';
+import { ToolName } from '@shared/types/viewer';
 
 interface CornerstoneViewportProps {
   panelId: string;
@@ -30,8 +34,21 @@ export default function CornerstoneViewport({ panelId, imageIds }: CornerstoneVi
   const containerRef = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<string>('Initializing...');
   const [error, setError] = useState<string | null>(null);
+  const activeTool = useViewerStore((s) => s.activeTool);
   const renderedImageIndex = useViewerStore((s) => s.viewports[panelId]?.imageIndex ?? 0);
   const requestedImageIndex = useViewerStore((s) => s.viewports[panelId]?.requestedImageIndex ?? null);
+  const cursorClass = activeTool === ToolName.Crosshairs ? 'cursor-crosshair' : '';
+
+  useEffect(() => {
+    const element = containerRef.current;
+    if (!element) return;
+    const cursor = activeTool === ToolName.Crosshairs ? 'crosshair' : '';
+    element.style.cursor = cursor;
+    const canvas = element.querySelector('canvas') as HTMLCanvasElement | null;
+    if (canvas) {
+      canvas.style.cursor = cursor;
+    }
+  }, [activeTool]);
 
   // ─── Setup / Teardown ──────────────────────────────────────
   useEffect(() => {
@@ -111,6 +128,10 @@ export default function CornerstoneViewport({ panelId, imageIds }: CornerstoneVi
           if (currentImageId) {
             const overlay = metadataService.getOverlayData(currentImageId);
             useMetadataStore.getState()._updateOverlay(panelId, overlay);
+            const nativeOrientation = metadataService.getNativeOrientation(currentImageId);
+            if (nativeOrientation) {
+              useViewerStore.getState().setPanelNativeOrientation(panelId, nativeOrientation);
+            }
 
             // Image dimensions
             const imageData = viewport.getImageData();
@@ -131,6 +152,13 @@ export default function CornerstoneViewport({ panelId, imageIds }: CornerstoneVi
         // no more polling for viewport existence.
         if (!cancelled) {
           viewportReadyService.markReady(panelId, epochAtSetup);
+        }
+
+        // Ensure overlays are re-attached after viewport recreation (e.g. when
+        // changing orientation/layout without changing source imageIds).
+        if (!cancelled) {
+          segmentationManager.removeSegmentationsFromViewport(panelId);
+          await segmentationManager.attachVisibleSegmentationsToViewport(panelId);
         }
       } catch (err) {
         console.error(`[CornerstoneViewport:${panelId}] Setup error:`, err);
@@ -167,10 +195,10 @@ export default function CornerstoneViewport({ panelId, imageIds }: CornerstoneVi
   }, [panelId, imageIds]);
 
   return (
-    <div className="relative w-full h-full bg-black">
+    <div className={`relative w-full h-full bg-black ${cursorClass}`}>
       <div
         ref={containerRef}
-        className="w-full h-full"
+        className={`w-full h-full ${cursorClass}`}
         onContextMenu={(e) => e.preventDefault()}
       />
       {/* Status overlay — only shown when no images or loading */}
@@ -237,6 +265,10 @@ function wireEvents(element: HTMLDivElement, panelId: string): void {
     if (imageId) {
       const overlay = metadataService.getOverlayData(imageId);
       useMetadataStore.getState()._updateOverlay(panelId, overlay);
+      const nativeOrientation = metadataService.getNativeOrientation(imageId);
+      if (nativeOrientation) {
+        useViewerStore.getState().setPanelNativeOrientation(panelId, nativeOrientation);
+      }
     }
   }) as EventListener);
 
@@ -284,4 +316,11 @@ function wireEvents(element: HTMLDivElement, panelId: string): void {
       }
     }
   }, { passive: false });
+
+  wireCrosshairPointerHandlers({
+    element,
+    panelId,
+    isCrosshairActive: () => useViewerStore.getState().activeTool === ToolName.Crosshairs,
+    onWorldPoint: (point) => crosshairSyncService.syncFromViewport(panelId, point),
+  });
 }

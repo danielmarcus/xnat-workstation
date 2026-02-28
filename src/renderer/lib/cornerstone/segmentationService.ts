@@ -96,6 +96,8 @@ const sourceImageIdsMap = new Map<string, string[]>();
  * and consumed (then deleted) in addToViewport() so they override the default palette.
  */
 const loadedColorsMap = new Map<string, Map<number, [number, number, number, number]>>();
+const segmentLayerImageIdsMap = new Map<string, Map<number, string[]>>();
+const retainedLabelmapImagesMap = new Map<string, Map<string, any>>();
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -250,6 +252,354 @@ function getLabelmapImageIdsForSegmentation(segmentationId: string): string[] {
   if (ordered.length > 0) return ordered;
 
   return Array.from(new Set(bySource.values()));
+}
+
+function setSegmentLayerImageIds(
+  segmentationId: string,
+  segmentIndex: number,
+  imageIds: string[],
+): void {
+  if (!Number.isInteger(segmentIndex) || segmentIndex <= 0 || imageIds.length === 0) return;
+  let layerMap = segmentLayerImageIdsMap.get(segmentationId);
+  if (!layerMap) {
+    layerMap = new Map<number, string[]>();
+    segmentLayerImageIdsMap.set(segmentationId, layerMap);
+  }
+  layerMap.set(segmentIndex, [...imageIds]);
+}
+
+function retainLabelmapImage(segmentationId: string, imageId: string, image: any): void {
+  if (!segmentationId || !imageId || !image) return;
+  let retained = retainedLabelmapImagesMap.get(segmentationId);
+  if (!retained) {
+    retained = new Map<string, any>();
+    retainedLabelmapImagesMap.set(segmentationId, retained);
+  }
+  retained.set(imageId, image);
+}
+
+function ensureSegmentLayerTracking(segmentationId: string): void {
+  const existing = segmentLayerImageIdsMap.get(segmentationId);
+  if (existing && existing.size > 0) {
+    // Preserve explicit per-segment layer assignments exactly as authored/loaded.
+    // Deduplicating aliases here can collapse valid mappings and make segments
+    // disappear or paint into the wrong layer.
+    return;
+  }
+
+  const seg = csSegmentation.state.getSegmentation(segmentationId);
+  if (!seg) return;
+  const imageIds = getLabelmapImageIdsForSegmentation(segmentationId);
+  if (!imageIds.length) return;
+
+  const indices = getValidSegmentIndices(seg);
+  if (indices.length === 0) {
+    setSegmentLayerImageIds(segmentationId, 1, imageIds);
+    return;
+  }
+  // Do NOT alias every segment index to the same base layer. That causes
+  // active-segment-dependent display/edit behavior when multiple segments
+  // later get dedicated layers.
+  //
+  // Bind the current legacy labelmap only to the first segment index and let
+  // all other segments get explicit layers on demand via ensureSegmentLayerForIndex.
+  const firstIdx = [...indices].sort((a, b) => a - b)[0] ?? 1;
+  setSegmentLayerImageIds(segmentationId, firstIdx, imageIds);
+}
+
+function getAllLayerIdsForSource(
+  segmentationId: string,
+  _sourceImageId: string,
+  sourceIndex: number,
+): string[] {
+  const layerMap = segmentLayerImageIdsMap.get(segmentationId);
+  if (!layerMap || layerMap.size === 0) return [];
+
+  const out: string[] = [];
+  const orderedIndices = Array.from(layerMap.keys())
+    .filter((idx) => Number.isInteger(idx) && idx > 0)
+    .sort((a, b) => a - b);
+  for (const segIdx of orderedIndices) {
+    const ids = layerMap.get(segIdx);
+    const id = ids?.[sourceIndex];
+    if (id && !out.includes(id)) out.push(id);
+  }
+  return out;
+}
+
+function getSegmentLayerImageIds(
+  segmentationId: string,
+  segmentIndex: number,
+): string[] | null {
+  ensureSegmentLayerTracking(segmentationId);
+  const layerMap = segmentLayerImageIdsMap.get(segmentationId);
+  if (!layerMap || layerMap.size === 0) return null;
+  const direct = layerMap.get(segmentIndex);
+  return direct && direct.length > 0 ? direct : null;
+}
+
+function ensureSegmentLayerForIndex(
+  segmentationId: string,
+  segmentIndex: number,
+): string[] | null {
+  if (!Number.isInteger(segmentIndex) || segmentIndex <= 0) return null;
+  ensureSegmentLayerTracking(segmentationId);
+  const existing = getSegmentLayerImageIds(segmentationId, segmentIndex);
+  if (existing && existing.length > 0) return existing;
+
+  const seg = csSegmentation.state.getSegmentation(segmentationId) as any;
+  const labelmapData = seg?.representationData?.Labelmap as any;
+  if (!labelmapData) return null;
+
+  const sourceIds = sourceImageIdsMap.get(segmentationId) ?? [];
+  if (sourceIds.length === 0) return null;
+
+  const created = createEmptySegmentLayerImageIds(segmentationId, segmentIndex, sourceIds);
+  if (created.length === 0) return null;
+
+  setSegmentLayerImageIds(segmentationId, segmentIndex, created);
+
+  const currentImageIds = Array.isArray(labelmapData.imageIds)
+    ? labelmapData.imageIds.filter((id: unknown) => typeof id === 'string' && id.length > 0)
+    : [];
+  const merged = [...currentImageIds];
+  for (const id of created) {
+    if (!merged.includes(id)) merged.push(id);
+  }
+  labelmapData.imageIds = merged;
+  syncLabelmapReferenceMapsFromLayers(segmentationId);
+  const viewportIds = csSegmentation.state.getViewportIdsWithSegmentation(segmentationId);
+  for (const vpId of viewportIds) {
+    try {
+      const enabledElement = getEnabledElementByViewportId(vpId) as any;
+      const viewport = enabledElement?.viewport as any;
+      if (!viewport || typeof viewport.getAllVolumeIds === 'function') continue;
+      csToolUtilities.segmentation.triggerSegmentationRender(vpId);
+      viewport.render?.();
+    } catch {
+      // best-effort
+    }
+  }
+  return created;
+}
+
+function syncLabelmapReferenceMapsFromLayers(segmentationId: string): void {
+  ensureSegmentLayerTracking(segmentationId);
+  const sourceIds = sourceImageIdsMap.get(segmentationId) ?? [];
+  if (sourceIds.length === 0) return;
+
+  const mgr = (csSegmentation as any).defaultSegmentationStateManager as any;
+  if (!mgr) return;
+  if (!mgr._stackLabelmapImageIdReferenceMap.has(segmentationId)) {
+    mgr._stackLabelmapImageIdReferenceMap.set(segmentationId, new Map());
+  }
+  const perSegMap = mgr._stackLabelmapImageIdReferenceMap.get(segmentationId);
+
+  for (let i = 0; i < sourceIds.length; i++) {
+    const srcId = sourceIds[i];
+    const layerIdsForSource = getAllLayerIdsForSource(segmentationId, srcId, i);
+    if (layerIdsForSource.length === 0) continue;
+    const mapKey = `${segmentationId}-${srcId}`;
+    mgr._labelmapImageIdReferenceMap.set(mapKey, layerIdsForSource);
+    // Default stack editing target for this source image (active segment will
+    // override via setEditingLayerForSegment).
+    perSegMap.set(srcId, layerIdsForSource[0]);
+  }
+
+  // Mirror reference maps for viewport-specific imageId variants so stack
+  // labelmap actor creation can resolve all layers even when current imageIds
+  // differ from canonical source ids (wadouri/wadors/frame formatting).
+  const attachedViewportIds = csSegmentation.state.getViewportIdsWithSegmentation(segmentationId);
+  for (const viewportId of attachedViewportIds) {
+    const enabledElement = getEnabledElementByViewportId(viewportId) as any;
+    const viewport = enabledElement?.viewport as any;
+    if (!viewport || typeof viewport.getAllVolumeIds === 'function') continue;
+    const viewportImageIds = viewport.getImageIds?.() as string[] | undefined;
+    if (!Array.isArray(viewportImageIds) || viewportImageIds.length === 0) continue;
+
+    const count = Math.min(sourceIds.length, viewportImageIds.length);
+    for (let i = 0; i < count; i++) {
+      const refId = viewportImageIds[i];
+      if (typeof refId !== 'string' || refId.length === 0) continue;
+      const layerIdsForSource = getAllLayerIdsForSource(segmentationId, sourceIds[i], i);
+      if (layerIdsForSource.length === 0) continue;
+      mgr._labelmapImageIdReferenceMap.set(`${segmentationId}-${refId}`, layerIdsForSource);
+      perSegMap.set(refId, layerIdsForSource[0]);
+    }
+  }
+}
+
+function setEditingLayerForSegment(
+  segmentationId: string,
+  segmentIndex: number,
+): void {
+  const activeLayer = ensureSegmentLayerForIndex(segmentationId, segmentIndex);
+  const sourceIds = sourceImageIdsMap.get(segmentationId) ?? [];
+  if (!activeLayer || sourceIds.length === 0) return;
+
+  syncLabelmapReferenceMapsFromLayers(segmentationId);
+  const mgr = (csSegmentation as any).defaultSegmentationStateManager as any;
+  if (!mgr) return;
+
+  if (!mgr._stackLabelmapImageIdReferenceMap.has(segmentationId)) {
+    mgr._stackLabelmapImageIdReferenceMap.set(segmentationId, new Map());
+  }
+  const perSegMap = mgr._stackLabelmapImageIdReferenceMap.get(segmentationId);
+  for (let i = 0; i < sourceIds.length; i++) {
+    const srcId = sourceIds[i];
+    const lmId = activeLayer[i];
+    if (lmId) perSegMap.set(srcId, lmId);
+  }
+
+  // Mirror edit-target mappings for each attached stack viewport's live
+  // reference imageIds. Keep _labelmapImageIdReferenceMap order stable; only
+  // _stackLabelmapImageIdReferenceMap should change on active segment switch.
+  const attachedViewportIds = csSegmentation.state.getViewportIdsWithSegmentation(segmentationId);
+  for (const viewportId of attachedViewportIds) {
+    const enabledElement = getEnabledElementByViewportId(viewportId) as any;
+    const viewport = enabledElement?.viewport as any;
+    if (!viewport || typeof viewport.getAllVolumeIds === 'function') continue;
+    const viewportImageIds = viewport.getImageIds?.() as string[] | undefined;
+    if (!Array.isArray(viewportImageIds) || viewportImageIds.length === 0) continue;
+
+    const count = Math.min(sourceIds.length, viewportImageIds.length);
+    for (let i = 0; i < count; i++) {
+      const refId = viewportImageIds[i];
+      if (typeof refId !== 'string' || refId.length === 0) continue;
+      const lmId = activeLayer[i];
+      if (lmId) perSegMap.set(refId, lmId);
+    }
+
+    // Ensure the exact runtime key used by brush tools is mapped to the
+    // active layer. This avoids key-format drift (e.g. ?frame=, wadouri/wadors).
+    try {
+      const currentImageId = viewport.getCurrentImageId?.();
+      const currentIndex = Number(viewport.getCurrentImageIdIndex?.());
+      if (
+        typeof currentImageId === 'string' &&
+        currentImageId.length > 0 &&
+        Number.isInteger(currentIndex) &&
+        currentIndex >= 0
+      ) {
+        const activeLmId = activeLayer[currentIndex];
+        if (typeof activeLmId === 'string' && activeLmId.length > 0) {
+          perSegMap.set(currentImageId, activeLmId);
+        }
+        const currentSourceId = sourceIds[currentIndex];
+        const currentLayerIds = getAllLayerIdsForSource(
+          segmentationId,
+          currentSourceId ?? '',
+          currentIndex,
+        );
+        if (currentLayerIds.length > 0) {
+          mgr._labelmapImageIdReferenceMap.set(
+            `${segmentationId}-${currentImageId}`,
+            currentLayerIds,
+          );
+        }
+      }
+    } catch {
+      // best-effort
+    }
+  }
+}
+
+function isSegmentationAttachedToVolumeViewport(segmentationId: string): boolean {
+  const viewportIds = csSegmentation.state.getViewportIdsWithSegmentation(segmentationId);
+  for (const viewportId of viewportIds) {
+    const enabledElement = getEnabledElementByViewportId(viewportId) as any;
+    if (enabledElement?.viewport && typeof enabledElement.viewport.getAllVolumeIds === 'function') {
+      return true;
+    }
+  }
+  return false;
+}
+
+function removeAllStackLabelmapActorsForSegmentation(
+  viewportId: string,
+  segmentationId: string,
+): void {
+  const enabledElement = getEnabledElementByViewportId(viewportId) as any;
+  const viewport = enabledElement?.viewport as any;
+  if (!viewport || typeof viewport.getAllVolumeIds === 'function') return;
+  const actors = viewport.getActors?.() as Array<{ uid?: string; representationUID?: string }> | undefined;
+  if (!Array.isArray(actors) || actors.length === 0) return;
+
+  const labelmapPrefix = `${segmentationId}-${ToolEnums.SegmentationRepresentations.Labelmap}`;
+  const actorUids = actors
+    .filter((actor) => typeof actor?.representationUID === 'string' && actor.representationUID.startsWith(labelmapPrefix))
+    .map((actor) => actor.uid)
+    .filter((uid): uid is string => typeof uid === 'string' && uid.length > 0);
+
+  if (actorUids.length > 0) {
+    viewport.removeActors(actorUids);
+  }
+}
+
+function createEmptySegmentLayerImageIds(
+  segmentationId: string,
+  segmentIndex: number,
+  sourceImageIds: string[],
+): string[] {
+  if (sourceImageIds.length === 0) return [];
+
+  let rows = 0;
+  let columns = 0;
+  let rowPixelSpacing = 1;
+  let columnPixelSpacing = 1;
+
+  for (const srcId of sourceImageIds) {
+    const cachedImage = cache.getImage(srcId) as any;
+    if (!cachedImage) continue;
+    rows = Number(cachedImage.rows ?? cachedImage.height ?? 0);
+    columns = Number(cachedImage.columns ?? cachedImage.width ?? 0);
+    rowPixelSpacing = Number(cachedImage.rowPixelSpacing ?? 1);
+    columnPixelSpacing = Number(cachedImage.columnPixelSpacing ?? 1);
+    if (rows > 0 && columns > 0) break;
+  }
+
+  if (rows <= 0 || columns <= 0) {
+    const fallbackLayer = getSegmentLayerImageIds(segmentationId, 1);
+    const fallbackImage = fallbackLayer?.[0] ? (cache.getImage(fallbackLayer[0]) as any) : null;
+    rows = Number(fallbackImage?.rows ?? fallbackImage?.height ?? 0);
+    columns = Number(fallbackImage?.columns ?? fallbackImage?.width ?? 0);
+  }
+
+  if (rows <= 0 || columns <= 0) return [];
+
+  let refGeneralSeriesMeta: any = null;
+  for (const srcId of sourceImageIds) {
+    refGeneralSeriesMeta = metaData.get('generalSeriesModule', srcId);
+    if (refGeneralSeriesMeta) break;
+  }
+  const genericMeta = (csUtilities as any).genericMetadataProvider;
+  const pixelCount = rows * columns;
+  const layerImageIds: string[] = [];
+
+  for (let i = 0; i < sourceImageIds.length; i++) {
+    const srcId = sourceImageIds[i];
+    const layerImageId = `generated:labelmap_${segmentationId}_s${segmentIndex}_${i}`;
+    const imagePlane = metaData.get('imagePlaneModule', srcId) as any;
+    imageLoader.createAndCacheLocalImage(layerImageId, {
+      scalarData: new Uint8Array(pixelCount),
+      dimensions: [columns, rows],
+      spacing: [columnPixelSpacing, rowPixelSpacing],
+      origin: imagePlane?.imagePositionPatient,
+      direction: imagePlane?.imageOrientationPatient,
+      frameOfReferenceUID: imagePlane?.frameOfReferenceUID,
+      referencedImageId: srcId,
+    } as any);
+    if (refGeneralSeriesMeta) {
+      genericMeta.add(layerImageId, {
+        type: 'generalSeriesModule',
+        metadata: refGeneralSeriesMeta,
+      });
+    }
+    retainLabelmapImage(segmentationId, layerImageId, cache.getImage(layerImageId));
+    layerImageIds.push(layerImageId);
+  }
+
+  return layerImageIds;
 }
 
 async function getCachedLabelmapSliceArrays(segmentationId: string): Promise<{
@@ -479,16 +829,22 @@ function syncSegmentations(): void {
           if (typeof cachedVisible === 'boolean') {
             visible = cachedVisible;
           } else if (viewportIds.length > 0) {
+            // Use a deterministic reference viewport for visibility lookup:
+            // prefer the active viewport when available, otherwise lexical order.
+            const activeViewportId = useViewerStore.getState().activeViewportId;
+            const referenceViewportId = viewportIds.includes(activeViewportId)
+              ? activeViewportId
+              : [...viewportIds].sort()[0];
             try {
               visible = csSegmentation.config.visibility.getSegmentIndexVisibility(
-                viewportIds[0],
+                referenceViewportId,
                 { segmentationId: seg.segmentationId, type: ToolEnums.SegmentationRepresentations.Labelmap },
                 idx,
               );
             } catch {
               try {
                 visible = csSegmentation.config.visibility.getSegmentIndexVisibility(
-                  viewportIds[0],
+                  referenceViewportId,
                   { segmentationId: seg.segmentationId, type: ToolEnums.SegmentationRepresentations.Contour },
                   idx,
                 );
@@ -496,6 +852,18 @@ function syncSegmentations(): void {
                 // default visible
               }
             }
+          }
+          // Seed presentation visibility cache once so UI icon state does not
+          // drift when other per-segment interactions trigger syncs.
+          const presentationState = useSegmentationManagerStore.getState().presentation[seg.segmentationId];
+          const hasCachedVisibility = Object.prototype.hasOwnProperty.call(
+            presentationState?.visibility ?? {},
+            idx,
+          );
+          if (!hasCachedVisibility) {
+            useSegmentationManagerStore
+              .getState()
+              .setPresentation(seg.segmentationId, idx, { visible });
           }
 
           const cachedLocked = cachedPresentation?.locked?.[idx];
@@ -558,6 +926,147 @@ function renderAllSegmentationViewports(): void {
     const enabledElement = getEnabledElementByViewportId(viewportId) as any;
     enabledElement?.viewport?.render?.();
   }
+}
+
+function getPreferredActiveSegmentIndex(segmentationId: string): number {
+  const seg = csSegmentation.state.getSegmentation(segmentationId) as any;
+  if (!seg) return 0;
+
+  const storeState = useSegmentationStore.getState();
+  let candidate =
+    storeState.activeSegmentationId === segmentationId
+      ? storeState.activeSegmentIndex
+      : 0;
+
+  if (!Number.isInteger(candidate) || candidate <= 0) {
+    try {
+      const idxFromCs = Number((csSegmentation.segmentIndex as any).getActiveSegmentIndex?.(segmentationId));
+      if (Number.isInteger(idxFromCs) && idxFromCs > 0) {
+        candidate = idxFromCs;
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  if (!Number.isInteger(candidate) || candidate <= 0) {
+    const entries = Object.entries(seg.segments ?? {});
+    const activeEntry = entries.find(([, value]) => (value as any)?.active === true);
+    if (activeEntry) {
+      const activeIdx = Number(activeEntry[0]);
+      if (Number.isInteger(activeIdx) && activeIdx > 0) {
+        candidate = activeIdx;
+      }
+    }
+  }
+
+  if (!Number.isInteger(candidate) || candidate <= 0) {
+    const valid = getValidSegmentIndices(seg).sort((a, b) => a - b);
+    candidate = valid[0] ?? 0;
+  }
+
+  return Number.isInteger(candidate) && candidate > 0 ? candidate : 0;
+}
+
+function installStackLabelmapEditingStabilizer(): void {
+  const mgr = (csSegmentation as any).defaultSegmentationStateManager as any;
+  if (!mgr || typeof mgr.updateLabelmapSegmentationImageReferences !== 'function') return;
+  if ((mgr as any).__xnatViewerEditingLayerPatched) return;
+
+  const original = mgr.updateLabelmapSegmentationImageReferences.bind(mgr);
+  const originalUpdateAll = typeof mgr._updateAllLabelmapSegmentationImageReferences === 'function'
+    ? mgr._updateAllLabelmapSegmentationImageReferences.bind(mgr)
+    : null;
+
+  const applyDeterministicLayerMapping = (viewportId: string, segmentationId: string): any => {
+    const enabledElement = getEnabledElementByViewportId(viewportId) as any;
+    const viewport = enabledElement?.viewport as any;
+    if (!viewport || typeof viewport.getAllVolumeIds === 'function') {
+      return undefined;
+    }
+    syncLabelmapReferenceMapsFromLayers(segmentationId);
+    const activeIdx = getPreferredActiveSegmentIndex(segmentationId);
+    if (activeIdx > 0) {
+      setEditingLayerForSegment(segmentationId, activeIdx);
+    }
+    const perSegMap = mgr?._stackLabelmapImageIdReferenceMap?.get?.(segmentationId);
+    const currentImageId = viewport.getCurrentImageId?.();
+    if (perSegMap && typeof currentImageId === 'string' && currentImageId.length > 0) {
+      return perSegMap.get(currentImageId);
+    }
+    return undefined;
+  };
+
+  const shouldBypassNativeStackUpdate = (viewportId: string, segmentationId: string): boolean => {
+    const enabledElement = getEnabledElementByViewportId(viewportId) as any;
+    const viewport = enabledElement?.viewport as any;
+    if (!viewport || typeof viewport.getAllVolumeIds === 'function') return false;
+    const layerMap = segmentLayerImageIdsMap.get(segmentationId);
+    return !!layerMap && layerMap.size > 1;
+  };
+
+  mgr.updateLabelmapSegmentationImageReferences = (viewportId: string, segmentationId: string) => {
+    if (shouldBypassNativeStackUpdate(viewportId, segmentationId)) {
+      return applyDeterministicLayerMapping(viewportId, segmentationId);
+    }
+    const result = original(viewportId, segmentationId);
+    try {
+      const enabledElement = getEnabledElementByViewportId(viewportId) as any;
+      const viewport = enabledElement?.viewport as any;
+      if (!viewport || typeof viewport.getAllVolumeIds === 'function') {
+        return result;
+      }
+      const activeIdx = getPreferredActiveSegmentIndex(segmentationId);
+      if (activeIdx > 0) {
+        setEditingLayerForSegment(segmentationId, activeIdx);
+        const perSegMap = mgr?._stackLabelmapImageIdReferenceMap?.get?.(segmentationId);
+        const activeLayer = ensureSegmentLayerForIndex(segmentationId, activeIdx);
+        const currentImageId = viewport.getCurrentImageId?.();
+        const currentIndex = Number(viewport.getCurrentImageIdIndex?.());
+        const sourceIds = sourceImageIdsMap.get(segmentationId) ?? [];
+        if (
+          perSegMap &&
+          activeLayer &&
+          typeof currentImageId === 'string' &&
+          currentImageId.length > 0 &&
+          Number.isInteger(currentIndex) &&
+          currentIndex >= 0
+        ) {
+          const activeLmId = activeLayer[currentIndex];
+          if (typeof activeLmId === 'string' && activeLmId.length > 0) {
+            perSegMap.set(currentImageId, activeLmId);
+          }
+          const currentSourceId = sourceIds[currentIndex];
+          const currentLayerIds = getAllLayerIdsForSource(
+            segmentationId,
+            currentSourceId ?? '',
+            currentIndex,
+          );
+          if (currentLayerIds.length > 0) {
+            mgr._labelmapImageIdReferenceMap.set(
+              `${segmentationId}-${currentImageId}`,
+              currentLayerIds,
+            );
+          }
+        }
+      }
+    } catch (err) {
+      console.debug('[segmentationService] Failed to stabilize stack editing layer:', err);
+    }
+    return result;
+  };
+
+  if (originalUpdateAll) {
+    mgr._updateAllLabelmapSegmentationImageReferences = (viewportId: string, segmentationId: string) => {
+      if (shouldBypassNativeStackUpdate(viewportId, segmentationId)) {
+        return applyDeterministicLayerMapping(viewportId, segmentationId);
+      }
+      return originalUpdateAll(viewportId, segmentationId);
+    };
+  }
+
+  (mgr as any).__xnatViewerEditingLayerPatched = true;
+  console.log('[segmentationService] Installed stack labelmap editing-layer stabilizer');
 }
 
 // ─── Segmentation Type Detection ─────────────────────────────────
@@ -980,6 +1489,8 @@ export const segmentationService = {
       DefaultHistoryMemo.size = 200;
     }
 
+    installStackLabelmapEditingStabilizer();
+
     initialized = true;
     console.log('[segmentationService] Initialized — listening for segmentation events');
   },
@@ -1113,6 +1624,7 @@ export const segmentationService = {
           metadata: refGeneralSeriesMeta,
         });
       }
+      retainLabelmapImage(segmentationId, labelmapImageId, cache.getImage(labelmapImageId));
 
       labelmapImageIds.push(labelmapImageId);
     }
@@ -1176,6 +1688,10 @@ export const segmentationService = {
 
     // Track source imageIds for DICOM SEG export
     sourceImageIdsMap.set(segmentationId, [...sourceImageIds]);
+    setSegmentLayerImageIds(segmentationId, 1, labelmapImageIds);
+    if (createDefaultSegment) {
+      setEditingLayerForSegment(segmentationId, 1);
+    }
 
     console.log(`[segmentationService] Created stack segmentation: ${segmentationId} (${labelmapImageIds.length} labelmap images, ${columns}×${rows})`);
 
@@ -1335,6 +1851,12 @@ export const segmentationService = {
     const nextIndex = existingIndices.length > 0 ? Math.max(...existingIndices) + 1 : 1;
     const segmentLabel = label.trim() || `Segment ${nextIndex}`;
 
+    const labelmapData = (seg.representationData as any)?.Labelmap as any;
+    if (labelmapData && !isSegmentationAttachedToVolumeViewport(segmentationId)) {
+      ensureSegmentLayerTracking(segmentationId);
+      ensureSegmentLayerForIndex(segmentationId, nextIndex);
+    }
+
     // Contour representation needs an annotationUID set per segment index.
     const contourData = (seg.representationData as any)?.Contour;
     if (contourData?.annotationUIDsMap instanceof Map && !contourData.annotationUIDsMap.has(nextIndex)) {
@@ -1404,6 +1926,8 @@ export const segmentationService = {
   removeSegment(segmentationId: string, segmentIndex: number): void {
     try {
       csSegmentation.removeSegment(segmentationId, segmentIndex);
+      const layerMap = segmentLayerImageIdsMap.get(segmentationId);
+      layerMap?.delete(segmentIndex);
       console.log(`[segmentationService] Removed segment ${segmentIndex} from ${segmentationId}`);
     } catch (err) {
       console.error('[segmentationService] Failed to remove segment:', err);
@@ -1495,6 +2019,7 @@ export const segmentationService = {
         } catch {
           // May already be removed
         }
+        removeAllStackLabelmapActorsForSegmentation(vpId, segmentationId);
         try {
           csSegmentation.removeContourRepresentation(vpId, segmentationId);
         } catch {
@@ -1508,6 +2033,8 @@ export const segmentationService = {
       // Clean up source imageId tracking and loaded colors
       sourceImageIdsMap.delete(segmentationId);
       loadedColorsMap.delete(segmentationId);
+      segmentLayerImageIdsMap.delete(segmentationId);
+      retainedLabelmapImagesMap.delete(segmentationId);
 
       // Update store
       const store = useSegmentationStore.getState();
@@ -1530,6 +2057,7 @@ export const segmentationService = {
    * Creates the representation and sets it as active.
    */
   async addToViewport(viewportId: string, segmentationId: string): Promise<void> {
+    installStackLabelmapEditingStabilizer();
     // Suppress dirty tracking during load — Cornerstone fires SEGMENTATION_DATA_MODIFIED
     // internally when adding representations, which would falsely mark state as dirty.
     setDirtyTrackingSuppressedFor(400);
@@ -1543,6 +2071,33 @@ export const segmentationService = {
       if (!enabledEl?.viewport) {
         throw new Error(`Viewport ${viewportId} does not exist`);
       }
+
+      // Volume viewports (orthogonal/MPR) need a volume-backed labelmap to
+      // render/edit labelmaps consistently across planes. Stack-only labelmaps
+      // can appear in the panel but won't render reliably in ORTHOGRAPHIC views.
+      const viewport: any = enabledEl.viewport as any;
+      const isVolumeViewport = typeof viewport.getAllVolumeIds === 'function';
+      if (isVolumeViewport) {
+        const seg = csSegmentation.state.getSegmentation(segmentationId) as any;
+        const labelmap = seg?.representationData?.Labelmap as any;
+        const hasImageIds = Array.isArray(labelmap?.imageIds) && labelmap.imageIds.length > 0;
+        const hasVolumeId = typeof labelmap?.volumeId === 'string' && labelmap.volumeId.length > 0;
+        if (hasImageIds && !hasVolumeId) {
+          try {
+            await (csSegmentation.helpers as any).convertStackToVolumeLabelmap({
+              segmentationId,
+            });
+            console.log(
+              `[segmentationService] Converted stack labelmap to volume labelmap for ${segmentationId} (viewport=${viewportId})`,
+            );
+          } catch (convErr) {
+            console.warn(
+              `[segmentationService] Failed converting ${segmentationId} to volume labelmap for ${viewportId}; continuing with stack path`,
+              convErr,
+            );
+          }
+        }
+      }
     } catch (err) {
       console.error(`[segmentationService] Viewport ${viewportId} not ready — caller must await viewportReadyService.whenReady() first. Error:`, err);
       throw err;
@@ -1550,6 +2105,7 @@ export const segmentationService = {
 
     // Step 1: Add labelmap representation (core requirement for brush tools)
     try {
+      removeAllStackLabelmapActorsForSegmentation(viewportId, segmentationId);
       csSegmentation.addLabelmapRepresentationToViewport(viewportId, [
         {
           segmentationId,
@@ -1561,41 +2117,17 @@ export const segmentationService = {
       return; // Can't continue without labelmap
     }
 
-    // v4.16+ requires both _stackLabelmapImageIdReferenceMap and
-    // _labelmapImageIdReferenceMap to be populated for every source→labelmap
-    // pair. The built-in Cornerstone methods are broken for stack viewports:
-    // - updateLabelmapSegmentationImageReferences: only maps current slice
-    // - _updateAllLabelmapSegmentationImageReferences: maps ALL source slices
-    //   to the SAME labelmap (matchImagesForOverlay always compares against
-    //   the current viewport position, not the iterated source position)
-    //
-    // Fix: directly populate both internal maps using the authoritative
-    // referencedImageId property on each labelmap image. This is O(N) and
-    // produces the correct 1:1 source↔labelmap mapping.
+    // Keep stack labelmap reference maps deterministic:
+    // - _labelmapImageIdReferenceMap contains all layers for rendering
+    // - _stackLabelmapImageIdReferenceMap points to the active segment layer for editing
     try {
-      const seg = csSegmentation.state.getSegmentation(segmentationId);
-      const lmImageIds: string[] = (seg?.representationData?.Labelmap as any)?.imageIds ?? [];
-      // Access the singleton SegmentationStateManager instance
-      const mgr = csSegmentation.defaultSegmentationStateManager as any;
-      if (!mgr._stackLabelmapImageIdReferenceMap.has(segmentationId)) {
-        mgr._stackLabelmapImageIdReferenceMap.set(segmentationId, new Map());
-      }
-      const perSegMap = mgr._stackLabelmapImageIdReferenceMap.get(segmentationId);
-      for (const lmId of lmImageIds) {
-        const lmImg = cache.getImage(lmId);
-        const refId = (lmImg as any)?.referencedImageId;
-        if (!refId) continue;
-        // _stackLabelmapImageIdReferenceMap: srcImageId → labelmapImageId
-        perSegMap.set(refId, lmId);
-        // _labelmapImageIdReferenceMap: "${segId}-${srcImageId}" → [labelmapImageId]
-        const mapKey = `${segmentationId}-${refId}`;
-        const existing = mgr._labelmapImageIdReferenceMap.get(mapKey);
-        if (!existing) {
-          mgr._labelmapImageIdReferenceMap.set(mapKey, [lmId]);
-        } else if (!existing.includes(lmId)) {
-          mgr._labelmapImageIdReferenceMap.set(mapKey, [...existing, lmId]);
-        }
-      }
+      ensureSegmentLayerTracking(segmentationId);
+      syncLabelmapReferenceMapsFromLayers(segmentationId);
+      const activeIndex = useSegmentationStore.getState().activeSegmentIndex;
+      setEditingLayerForSegment(
+        segmentationId,
+        Number.isInteger(activeIndex) && activeIndex > 0 ? activeIndex : 1,
+      );
     } catch (err) {
       console.warn('[segmentationService] Failed to populate labelmap reference maps:', err);
     }
@@ -1718,6 +2250,7 @@ export const segmentationService = {
             } catch {
               // May already be removed
             }
+            removeAllStackLabelmapActorsForSegmentation(viewportId, seg.segmentationId);
             try {
               csSegmentation.removeContourRepresentation(viewportId, seg.segmentationId);
             } catch {
@@ -1762,6 +2295,7 @@ export const segmentationService = {
    * Must be >= 1 (segment 0/background is not a paint target).
    */
   setActiveSegmentIndex(segmentationId: string, segmentIndex: number): void {
+    installStackLabelmapEditingStabilizer();
     if (!Number.isFinite(segmentIndex) || segmentIndex <= 0) {
       console.warn(`[segmentationService] Invalid active segment index ${segmentIndex}; using 1`);
       segmentIndex = 1;
@@ -1809,6 +2343,17 @@ export const segmentationService = {
       csSegmentation.segmentIndex.setActiveSegmentIndex(segmentationId, segmentIndex);
       useSegmentationStore.getState().setActiveSegmentIndex(segmentIndex);
     });
+    setEditingLayerForSegment(segmentationId, segmentIndex);
+    // Ensure display actors refresh immediately after layer-map reordering.
+    for (const vpId of viewportIds) {
+      try {
+        csToolUtilities.segmentation.triggerSegmentationRender(vpId);
+        const enabledElement = getEnabledElementByViewportId(vpId) as any;
+        enabledElement?.viewport?.render?.();
+      } catch {
+        // no-op
+      }
+    }
     console.log(`[segmentationService] Active segment: ${segmentIndex}`);
   },
 
@@ -1834,6 +2379,17 @@ export const segmentationService = {
         // ignore
       }
     }
+
+    for (const vpId of viewportIds) {
+      try {
+        csToolUtilities.segmentation.triggerSegmentationRender(vpId);
+        const enabledElement = getEnabledElementByViewportId(vpId) as any;
+        enabledElement?.viewport?.render?.();
+      } catch {
+        // ignore
+      }
+    }
+
     syncSegmentations();
   },
 
@@ -2492,27 +3048,24 @@ export const segmentationService = {
 
       const segMetadata = result.segMetadata;
 
-      // Unwrap the nested array structure.
-      // result.labelMapImages is [[img0, img1, ...imgN]] for non-overlapping,
-      // or [[group1imgs...], [group2imgs...]] for overlapping.
+      // Keep all labelmap groups. Overlapping SEGs are represented by multiple
+      // parallel labelmap groups (same slice count, different segment occupancy).
       const rawLabelMapImages = result.labelMapImages;
-      let adapterImages: any[];
-      if (
-        Array.isArray(rawLabelMapImages) &&
-        rawLabelMapImages.length > 0 &&
-        Array.isArray(rawLabelMapImages[0])
-      ) {
-        adapterImages = rawLabelMapImages[0];
-        console.log(
-          `[segmentationService] Unwrapped nested labelMapImages: ` +
-          `${rawLabelMapImages.length} group(s), first group has ${adapterImages.length} images`,
-        );
-      } else {
-        adapterImages = rawLabelMapImages ?? [];
-        console.log(
-          `[segmentationService] labelMapImages is flat array with ${adapterImages.length} images`,
-        );
+      const labelmapGroups: any[][] = Array.isArray(rawLabelMapImages?.[0])
+        ? (rawLabelMapImages as any[][])
+        : [((rawLabelMapImages ?? []) as any[])];
+      const adapterImages: any[] = labelmapGroups[0] ?? [];
+      const allAdapterImages: any[] = labelmapGroups.flat();
+      for (const lmImage of allAdapterImages) {
+        const imageId = lmImage?.imageId;
+        if (typeof imageId === 'string' && imageId.length > 0) {
+          retainLabelmapImage(segmentationId, imageId, lmImage);
+        }
       }
+      console.log(
+        `[segmentationService] Loaded labelMapImages: ${labelmapGroups.length} group(s), ` +
+        `${adapterImages.length} slice(s)/group`,
+      );
 
       // Extract segment metadata for labels and colors
       const segments: Record<number, any> = {};
@@ -2561,18 +3114,15 @@ export const segmentationService = {
       // The derived images already have correct spatial metadata inherited
       // from the source images (via createAndCacheDerivedLabelmapImage),
       // so Cornerstone's matchImagesForOverlay will match them properly.
-      const labelmapImageIds: string[] = [];
+      const labelmapImageIds = Array.from(
+        new Set(
+          allAdapterImages
+            .map((img: any) => (img?.imageId as string | undefined) ?? '')
+            .filter((id: string) => id.length > 0),
+        ),
+      );
 
-      for (let i = 0; i < adapterImages.length; i++) {
-        const adapterImg = adapterImages[i];
-        if (!adapterImg || !adapterImg.imageId) {
-          console.warn(`[segmentationService] Adapter image ${i} missing or has no imageId`);
-          continue;
-        }
-        labelmapImageIds.push(adapterImg.imageId);
-      }
-
-      const { referencedImageId, labelmapImageId } = findFirstNonZeroRef(adapterImages);
+      const { referencedImageId, labelmapImageId } = findFirstNonZeroRef(allAdapterImages);
 
       // Register the segmentation with Cornerstone
       csSegmentation.addSegmentations([
@@ -2604,12 +3154,54 @@ export const segmentationService = {
 
       // Track source imageIds for DICOM SEG re-export
       sourceImageIdsMap.set(segmentationId, [...effectiveBaseSourceImageIds]);
+      segmentLayerImageIdsMap.delete(segmentationId);
+      const groupImageIds = labelmapGroups.map((group) =>
+        group
+          .map((img: any) => (img?.imageId as string | undefined) ?? '')
+          .filter((id: string) => id.length > 0),
+      );
+      if (groupImageIds.length > 0) {
+        const segmentIndices = Object.keys(segments)
+          .map((k) => Number(k))
+          .filter((idx) => Number.isInteger(idx) && idx > 0);
+        const groupBySegment = new Map<number, number>();
+        for (let groupIndex = 0; groupIndex < labelmapGroups.length; groupIndex++) {
+          const group = labelmapGroups[groupIndex];
+          const seen = new Set<number>();
+          for (const img of group) {
+            const scalarData: any =
+              img?.voxelManager?.getScalarData?.()
+              ?? img?.imageFrame?.pixelData
+              ?? img?.getPixelData?.();
+            if (!scalarData || typeof scalarData.length !== 'number') continue;
+            for (let i = 0; i < scalarData.length; i++) {
+              const value = Number(scalarData[i]);
+              if (value > 0 && Number.isInteger(value)) {
+                seen.add(value);
+              }
+            }
+          }
+          for (const idx of seen) {
+            if (!groupBySegment.has(idx)) {
+              groupBySegment.set(idx, groupIndex);
+            }
+          }
+        }
+        for (const idx of segmentIndices) {
+          const groupIndex = groupBySegment.get(idx) ?? 0;
+          const layerIds = groupImageIds[groupIndex] ?? groupImageIds[0] ?? [];
+          if (layerIds.length > 0) {
+            setSegmentLayerImageIds(segmentationId, idx, layerIds);
+          }
+        }
+      }
 
       // Update store
       const store = useSegmentationStore.getState();
       store.setActiveSegmentation(segmentationId);
       store.setActiveSegmentIndex(1);
       csSegmentation.segmentIndex.setActiveSegmentIndex(segmentationId, 1);
+      setEditingLayerForSegment(segmentationId, 1);
 
       console.log(
         `[segmentationService] Loaded DICOM SEG: ${segmentationId}`,
@@ -2840,238 +3432,309 @@ export const segmentationService = {
     const rows = sourceImages[0].rows ?? sourceImages[0].height ?? 512;
     const columns = sourceImages[0].columns ?? sourceImages[0].width ?? 512;
 
-    // Use the labelmap imageIds from the representation data directly.
-    // DO NOT call getStackSegmentationImageIdsForViewport() — it triggers
-    // _updateAllLabelmapSegmentationImageReferences() which is broken in v4.16
-    // and corrupts the _stackLabelmapImageIdReferenceMap (maps all source images
-    // to the same labelmap, causing bleed to all slices + extreme lag).
-    const effectiveLmIds = labelmapImageIds;
+    // Use per-segment layer maps when available. This keeps multi-layer stack
+    // segmentations stable for export (one binary layer per segment), instead of
+    // collapsing all source slices to a single last-written labelmap.
+    const perSegmentLayers = segmentLayerImageIdsMap.get(segmentationId);
+    const orderedLayerEntries = perSegmentLayers
+      ? Array.from(perSegmentLayers.entries())
+        .filter(([idx, ids]) => Number.isInteger(idx) && idx > 0 && Array.isArray(ids) && ids.length > 0)
+        .sort((a, b) => a[0] - b[0])
+      : [];
 
-    const toImageIdMatchKey = (imageId: string | undefined): string => {
-      if (!imageId || typeof imageId !== 'string') return '';
-      let key = imageId;
-      if (key.startsWith('wadouri:')) key = key.slice('wadouri:'.length);
-      if (key.startsWith('wadors:')) key = key.slice('wadors:'.length);
-      key = key.replace(/\/frames\/\d+$/i, '');
-      key = key
-        .replace(/([?&])frame=\d+(&?)/gi, (_m, sep, tail) => (sep === '?' && tail ? '?' : tail ? sep : ''))
-        .replace(/[?&]$/, '');
-      return key;
-    };
-    const getSopUidForImageId = (imageId: string | undefined): string | undefined => {
-      if (!imageId || typeof imageId !== 'string') return undefined;
-      const gen = metaData.get('generalImageModule', imageId) as any;
-      const inst = metaData.get('instance', imageId) as any;
-      const metaUid = gen?.sopInstanceUID ?? inst?.SOPInstanceUID ?? inst?.sopInstanceUID;
-      if (typeof metaUid === 'string' && metaUid.length > 0) return metaUid;
-      const key = toImageIdMatchKey(imageId);
-      const queryIndex = key.indexOf('?');
-      if (queryIndex < 0) return undefined;
-      const params = new URLSearchParams(key.slice(queryIndex + 1));
-      const queryUid =
-        params.get('objectUID')
-        ?? params.get('objectUid')
-        ?? params.get('SOPInstanceUID')
-        ?? params.get('sopInstanceUID');
-      return queryUid ?? undefined;
-    };
-
-    // Build source->labelmap lookup maps.
-    const refIdToLabelmap = new Map<string, any>();
-    const refKeyToLabelmap = new Map<string, any>();
-    const refSopToLabelmap = new Map<string, any>();
-    for (let li = 0; li < effectiveLmIds.length; li++) {
-      const lmId = effectiveLmIds[li];
-      if (!lmId) continue;
-      const lmImage = cache.getImage(lmId);
-      if (!lmImage) continue;
-      const refId = (lmImage as any).referencedImageId;
-      if (refId) {
-        refIdToLabelmap.set(refId, lmImage);
-        const refKey = toImageIdMatchKey(refId);
-        if (refKey && !refKeyToLabelmap.has(refKey)) {
-          refKeyToLabelmap.set(refKey, lmImage);
-        }
-        const refSopUid = getSopUidForImageId(refId);
-        if (refSopUid && !refSopToLabelmap.has(refSopUid)) {
-          refSopToLabelmap.set(refSopUid, lmImage);
-        }
-      }
-    }
-    const resolveMappedLabelmapImage = (value: any): any | undefined => {
-      if (typeof value === 'string' && value.length > 0) {
-        return cache.getImage(value);
-      }
-      if (Array.isArray(value)) {
-        for (const candidate of value) {
-          if (typeof candidate !== 'string' || candidate.length === 0) continue;
-          const img = cache.getImage(candidate);
-          if (img) return img;
-        }
-      }
-      return undefined;
-    };
-    const stackRefIdToLabelmap = new Map<string, any>();
-    const stackRefKeyToLabelmap = new Map<string, any>();
-    const stackRefSopToLabelmap = new Map<string, any>();
-    try {
-      const mgr = csSegmentation.defaultSegmentationStateManager as any;
-      const stackRefMap = mgr?._stackLabelmapImageIdReferenceMap?.get?.(segmentationId);
-      if (stackRefMap && typeof stackRefMap.forEach === 'function') {
-        stackRefMap.forEach((lmValue: any, refIdRaw: any) => {
-          const refId = typeof refIdRaw === 'string' ? refIdRaw : String(refIdRaw ?? '');
-          if (!refId) return;
-          const lmImage = resolveMappedLabelmapImage(lmValue);
-          if (!lmImage) return;
-          stackRefIdToLabelmap.set(refId, lmImage);
-          const refKey = toImageIdMatchKey(refId);
-          if (refKey && !stackRefKeyToLabelmap.has(refKey)) {
-            stackRefKeyToLabelmap.set(refKey, lmImage);
-          }
-          const refSopUid = getSopUidForImageId(refId);
-          if (refSopUid && !stackRefSopToLabelmap.has(refSopUid)) {
-            stackRefSopToLabelmap.set(refSopUid, lmImage);
-          }
-        });
-      }
-    } catch (err) {
-      console.debug('[segmentationService] Could not read stack labelmap reference map:', err);
-    }
-
-    const resolveLabelmapImage = (srcId: string, sourceIndex: number): { image: any | undefined; match: 'ref' | 'normalized' | 'sop' | 'index' | 'none' } => {
-      const stackExact = stackRefIdToLabelmap.get(srcId);
-      if (stackExact) return { image: stackExact, match: 'ref' };
-      const exact = refIdToLabelmap.get(srcId);
-      if (exact) return { image: exact, match: 'ref' };
-
-      const srcKey = toImageIdMatchKey(srcId);
-      if (srcKey) {
-        const stackNormalized = stackRefKeyToLabelmap.get(srcKey);
-        if (stackNormalized) return { image: stackNormalized, match: 'normalized' };
-        const normalized = refKeyToLabelmap.get(srcKey);
-        if (normalized) return { image: normalized, match: 'normalized' };
-      }
-
-      const srcSopUid = getSopUidForImageId(srcId);
-      if (srcSopUid) {
-        const stackSopMatch = stackRefSopToLabelmap.get(srcSopUid);
-        if (stackSopMatch) return { image: stackSopMatch, match: 'sop' };
-        const sopMatch = refSopToLabelmap.get(srcSopUid);
-        if (sopMatch) return { image: sopMatch, match: 'sop' };
-      }
-
-      const lmByIndex = cache.getImage(effectiveLmIds[sourceIndex]);
-      if (lmByIndex) return { image: lmByIndex, match: 'index' };
-      return { image: undefined, match: 'none' };
-    };
-
-    const getSliceHasPixels = (lmImage: any): boolean => {
-      if (!lmImage) return false;
+    const readScalarDataAsUint8 = (lmImage: any): Uint8Array => {
       const scalarData: any =
-        lmImage.voxelManager?.getScalarData?.()
-        ?? lmImage.imageFrame?.pixelData
-        ?? lmImage.getPixelData?.();
-      if (!scalarData || typeof scalarData.length !== 'number') return false;
-      for (let i = 0; i < scalarData.length; i++) {
-        if (Number(scalarData[i]) > 0) return true;
+        lmImage?.voxelManager?.getScalarData?.()
+        ?? lmImage?.imageFrame?.pixelData
+        ?? lmImage?.getPixelData?.();
+      if (!scalarData || typeof scalarData.length !== 'number') {
+        return new Uint8Array(rows * columns);
       }
-      return false;
+      if (scalarData instanceof Uint8Array || scalarData instanceof Uint8ClampedArray) {
+        return new Uint8Array(scalarData);
+      }
+      const out = new Uint8Array(scalarData.length);
+      for (let i = 0; i < scalarData.length; i++) {
+        out[i] = Math.max(0, Math.min(255, Math.round(scalarData[i])));
+      }
+      return out;
     };
 
-    if (skippedSources.length > 0) {
-      const skippedWithPaintedData = skippedSources.filter(({ srcId, index }) => {
-        const fallbackIndex = index >= 0 && index < effectiveLmIds.length
-          ? index
-          : 0;
-        const resolved = resolveLabelmapImage(srcId, fallbackIndex);
-        return getSliceHasPixels(resolved.image);
-      });
-      if (skippedWithPaintedData.length > 0) {
-        const first = skippedWithPaintedData[0];
-        throw new Error(
-          `[segmentationService] Cannot export SEG: source slice ${first.srcId} failed to load `
-          + `(${first.error}) and contains segmentation data.`,
-        );
-      }
-    }
+    const hasLayerCoverage = orderedLayerEntries.some(([, ids]) => ids.length >= srcImageIds.length);
 
-    // Debug: sample first labelmap to understand its structure
-    const sampleLmId = effectiveLmIds[0];
-    if (sampleLmId) {
-      const sampleImg = cache.getImage(sampleLmId);
-      console.log(`[segmentationService] Sample labelmap [0]: id=${sampleLmId}, cached=${!!sampleImg}, hasVoxelManager=${!!sampleImg?.voxelManager}, referencedImageId=${(sampleImg as any)?.referencedImageId}`);
-      if (sampleImg?.voxelManager) {
-        const sd = sampleImg.voxelManager.getScalarData();
-        let nonZero = 0;
-        for (let k = 0; k < sd.length; k++) { if (sd[k] !== 0) nonZero++; }
-        console.log(`[segmentationService] Sample labelmap scalar data: type=${sd.constructor.name}, length=${sd.length}, nonZero=${nonZero}`);
-      }
-    }
+    if (hasLayerCoverage) {
+      const retainedLabelmaps = retainedLabelmapImagesMap.get(segmentationId);
+      let overlapPixels = 0;
+      let missingLayerImages = 0;
+      const segmentSliceCounts = new Map<number, number>();
+      for (let sourceIndex = 0; sourceIndex < srcImageIds.length; sourceIndex++) {
+        const mergedPixelData = new Uint8Array(rows * columns);
+        const segmentsOnSlice = new Set<number>();
 
-    const lookupStats = { ref: 0, normalized: 0, sop: 0, index: 0, none: 0 };
-    for (let i = 0; i < srcImageIds.length; i++) {
-      const srcId = srcImageIds[i];
-      const sourceIndex = validIndexBySourceId.get(srcId) ?? i;
-      const resolved = resolveLabelmapImage(srcId, sourceIndex);
-      lookupStats[resolved.match]++;
-      const lmImage = resolved.image;
+        for (const [segmentIndex, layerIds] of orderedLayerEntries) {
+          const layerId = layerIds[sourceIndex];
+          if (typeof layerId !== 'string' || layerId.length === 0) continue;
+          let lmImage =
+            cache.getImage(layerId)
+            ?? retainedLabelmaps?.get(layerId);
+          if (!lmImage) {
+            try {
+              lmImage = await imageLoader.loadAndCacheImage(layerId);
+            } catch {
+              lmImage = undefined;
+            }
+          }
+          if (!lmImage) {
+            missingLayerImages++;
+            continue;
+          }
+          if (!cache.getImage(layerId)) {
+            // Keep non-cache-backed local/derived labelmaps reachable for export.
+            retainLabelmapImage(segmentationId, layerId, lmImage);
+          }
 
-      if (!lmImage) {
+          const layerPixels = readScalarDataAsUint8(lmImage);
+          let hasSegmentPixels = false;
+          const len = Math.min(mergedPixelData.length, layerPixels.length);
+          for (let p = 0; p < len; p++) {
+            if (layerPixels[p] <= 0) continue;
+            hasSegmentPixels = true;
+            if (mergedPixelData[p] === 0) {
+              mergedPixelData[p] = segmentIndex;
+            } else if (mergedPixelData[p] !== segmentIndex) {
+              overlapPixels++;
+            }
+          }
+          if (hasSegmentPixels) {
+            segmentsOnSlice.add(segmentIndex);
+            segmentSliceCounts.set(segmentIndex, (segmentSliceCounts.get(segmentIndex) ?? 0) + 1);
+          }
+        }
+
         labelmaps2D.push({
-          pixelData: new Uint8Array(rows * columns),
-          segmentsOnLabelmap: [],
+          pixelData: mergedPixelData,
+          segmentsOnLabelmap: sanitizeSegmentIndices(Array.from(segmentsOnSlice)),
           rows,
           columns,
         });
-        continue;
       }
+      console.log(
+        `[segmentationService] labelmap lookup (layered): slices=${labelmaps2D.length}, `
+        + `segments=${orderedLayerEntries.length}, overlaps=${overlapPixels}, missing=${missingLayerImages}, `
+        + `sliceHits=${JSON.stringify(Object.fromEntries(segmentSliceCounts.entries()))}`,
+      );
+    } else {
+      // Use the labelmap imageIds from the representation data directly.
+      // DO NOT call getStackSegmentationImageIdsForViewport() — it triggers
+      // _updateAllLabelmapSegmentationImageReferences() which is broken in v4.16
+      // and corrupts the _stackLabelmapImageIdReferenceMap (maps all source images
+      // to the same labelmap, causing bleed to all slices + extreme lag).
+      const effectiveLmIds = labelmapImageIds;
 
-      // Get pixel data from the labelmap image.
-      // scalarData may be Float32Array, Int16Array, etc. — we need Uint8 label values.
-      let pixelData: Uint8Array;
-      if (lmImage.voxelManager) {
-        const scalarData = lmImage.voxelManager.getScalarData();
-        if (scalarData instanceof Uint8Array || scalarData instanceof Uint8ClampedArray) {
-          pixelData = new Uint8Array(scalarData);
-        } else {
-          pixelData = new Uint8Array(scalarData.length);
-          for (let k = 0; k < scalarData.length; k++) {
-            pixelData[k] = Math.max(0, Math.min(255, Math.round(scalarData[k])));
+      const toImageIdMatchKey = (imageId: string | undefined): string => {
+        if (!imageId || typeof imageId !== 'string') return '';
+        let key = imageId;
+        if (key.startsWith('wadouri:')) key = key.slice('wadouri:'.length);
+        if (key.startsWith('wadors:')) key = key.slice('wadors:'.length);
+        key = key.replace(/\/frames\/\d+$/i, '');
+        key = key
+          .replace(/([?&])frame=\d+(&?)/gi, (_m, sep, tail) => (sep === '?' && tail ? '?' : tail ? sep : ''))
+          .replace(/[?&]$/, '');
+        return key;
+      };
+      const getSopUidForImageId = (imageId: string | undefined): string | undefined => {
+        if (!imageId || typeof imageId !== 'string') return undefined;
+        const gen = metaData.get('generalImageModule', imageId) as any;
+        const inst = metaData.get('instance', imageId) as any;
+        const metaUid = gen?.sopInstanceUID ?? inst?.SOPInstanceUID ?? inst?.sopInstanceUID;
+        if (typeof metaUid === 'string' && metaUid.length > 0) return metaUid;
+        const key = toImageIdMatchKey(imageId);
+        const queryIndex = key.indexOf('?');
+        if (queryIndex < 0) return undefined;
+        const params = new URLSearchParams(key.slice(queryIndex + 1));
+        const queryUid =
+          params.get('objectUID')
+          ?? params.get('objectUid')
+          ?? params.get('SOPInstanceUID')
+          ?? params.get('sopInstanceUID');
+        return queryUid ?? undefined;
+      };
+
+      // Build source->labelmap lookup maps.
+      const refIdToLabelmap = new Map<string, any>();
+      const refKeyToLabelmap = new Map<string, any>();
+      const refSopToLabelmap = new Map<string, any>();
+      for (let li = 0; li < effectiveLmIds.length; li++) {
+        const lmId = effectiveLmIds[li];
+        if (!lmId) continue;
+        const lmImage = cache.getImage(lmId);
+        if (!lmImage) continue;
+        const refId = (lmImage as any).referencedImageId;
+        if (refId) {
+          refIdToLabelmap.set(refId, lmImage);
+          const refKey = toImageIdMatchKey(refId);
+          if (refKey && !refKeyToLabelmap.has(refKey)) {
+            refKeyToLabelmap.set(refKey, lmImage);
+          }
+          const refSopUid = getSopUidForImageId(refId);
+          if (refSopUid && !refSopToLabelmap.has(refSopUid)) {
+            refSopToLabelmap.set(refSopUid, lmImage);
           }
         }
-      } else if ((lmImage as any).getPixelData) {
-        const raw = (lmImage as any).getPixelData();
-        if (raw instanceof Uint8Array || raw instanceof Uint8ClampedArray) {
-          pixelData = new Uint8Array(raw);
-        } else {
-          pixelData = new Uint8Array(raw.length);
-          for (let k = 0; k < raw.length; k++) {
-            pixelData[k] = Math.max(0, Math.min(255, Math.round(raw[k])));
+      }
+      const resolveMappedLabelmapImage = (value: any): any | undefined => {
+        if (typeof value === 'string' && value.length > 0) {
+          return cache.getImage(value);
+        }
+        if (Array.isArray(value)) {
+          for (const candidate of value) {
+            if (typeof candidate !== 'string' || candidate.length === 0) continue;
+            const img = cache.getImage(candidate);
+            if (img) return img;
           }
         }
-      } else {
-        pixelData = new Uint8Array(rows * columns);
+        return undefined;
+      };
+      const stackRefIdToLabelmap = new Map<string, any>();
+      const stackRefKeyToLabelmap = new Map<string, any>();
+      const stackRefSopToLabelmap = new Map<string, any>();
+      try {
+        const mgr = csSegmentation.defaultSegmentationStateManager as any;
+        const stackRefMap = mgr?._stackLabelmapImageIdReferenceMap?.get?.(segmentationId);
+        if (stackRefMap && typeof stackRefMap.forEach === 'function') {
+          stackRefMap.forEach((lmValue: any, refIdRaw: any) => {
+            const refId = typeof refIdRaw === 'string' ? refIdRaw : String(refIdRaw ?? '');
+            if (!refId) return;
+            const lmImage = resolveMappedLabelmapImage(lmValue);
+            if (!lmImage) return;
+            stackRefIdToLabelmap.set(refId, lmImage);
+            const refKey = toImageIdMatchKey(refId);
+            if (refKey && !stackRefKeyToLabelmap.has(refKey)) {
+              stackRefKeyToLabelmap.set(refKey, lmImage);
+            }
+            const refSopUid = getSopUidForImageId(refId);
+            if (refSopUid && !stackRefSopToLabelmap.has(refSopUid)) {
+              stackRefSopToLabelmap.set(refSopUid, lmImage);
+            }
+          });
+        }
+      } catch (err) {
+        console.debug('[segmentationService] Could not read stack labelmap reference map:', err);
       }
 
-      // Find which segments are present on this slice
-      const segmentsOnSlice = new Set<number>();
-      for (let j = 0; j < pixelData.length; j++) {
-        if (pixelData[j] > 0) {
-          segmentsOnSlice.add(pixelData[j]);
+      const resolveLabelmapImage = (
+        srcId: string,
+        sourceIndex: number,
+      ): { image: any | undefined; match: 'ref' | 'normalized' | 'sop' | 'index' | 'none' } => {
+        const stackExact = stackRefIdToLabelmap.get(srcId);
+        if (stackExact) return { image: stackExact, match: 'ref' };
+        const exact = refIdToLabelmap.get(srcId);
+        if (exact) return { image: exact, match: 'ref' };
+
+        const srcKey = toImageIdMatchKey(srcId);
+        if (srcKey) {
+          const stackNormalized = stackRefKeyToLabelmap.get(srcKey);
+          if (stackNormalized) return { image: stackNormalized, match: 'normalized' };
+          const normalized = refKeyToLabelmap.get(srcKey);
+          if (normalized) return { image: normalized, match: 'normalized' };
+        }
+
+        const srcSopUid = getSopUidForImageId(srcId);
+        if (srcSopUid) {
+          const stackSopMatch = stackRefSopToLabelmap.get(srcSopUid);
+          if (stackSopMatch) return { image: stackSopMatch, match: 'sop' };
+          const sopMatch = refSopToLabelmap.get(srcSopUid);
+          if (sopMatch) return { image: sopMatch, match: 'sop' };
+        }
+
+        const lmByIndex = cache.getImage(effectiveLmIds[sourceIndex]);
+        if (lmByIndex) return { image: lmByIndex, match: 'index' };
+        return { image: undefined, match: 'none' };
+      };
+
+      const getSliceHasPixels = (lmImage: any): boolean => {
+        if (!lmImage) return false;
+        const scalarData: any =
+          lmImage.voxelManager?.getScalarData?.()
+          ?? lmImage.imageFrame?.pixelData
+          ?? lmImage.getPixelData?.();
+        if (!scalarData || typeof scalarData.length !== 'number') return false;
+        for (let i = 0; i < scalarData.length; i++) {
+          if (Number(scalarData[i]) > 0) return true;
+        }
+        return false;
+      };
+
+      if (skippedSources.length > 0) {
+        const skippedWithPaintedData = skippedSources.filter(({ srcId, index }) => {
+          const fallbackIndex = index >= 0 && index < effectiveLmIds.length
+            ? index
+            : 0;
+          const resolved = resolveLabelmapImage(srcId, fallbackIndex);
+          return getSliceHasPixels(resolved.image);
+        });
+        if (skippedWithPaintedData.length > 0) {
+          const first = skippedWithPaintedData[0];
+          throw new Error(
+            `[segmentationService] Cannot export SEG: source slice ${first.srcId} failed to load `
+            + `(${first.error}) and contains segmentation data.`,
+          );
         }
       }
 
-      labelmaps2D.push({
-        pixelData,
-        segmentsOnLabelmap: sanitizeSegmentIndices(Array.from(segmentsOnSlice)),
-        rows,
-        columns,
-      });
+      // Debug: sample first labelmap to understand its structure
+      const sampleLmId = effectiveLmIds[0];
+      if (sampleLmId) {
+        const sampleImg = cache.getImage(sampleLmId);
+        console.log(`[segmentationService] Sample labelmap [0]: id=${sampleLmId}, cached=${!!sampleImg}, hasVoxelManager=${!!sampleImg?.voxelManager}, referencedImageId=${(sampleImg as any)?.referencedImageId}`);
+        if (sampleImg?.voxelManager) {
+          const sd = sampleImg.voxelManager.getScalarData();
+          let nonZero = 0;
+          for (let k = 0; k < sd.length; k++) { if (sd[k] !== 0) nonZero++; }
+          console.log(`[segmentationService] Sample labelmap scalar data: type=${sd.constructor.name}, length=${sd.length}, nonZero=${nonZero}`);
+        }
+      }
+
+      const lookupStats = { ref: 0, normalized: 0, sop: 0, index: 0, none: 0 };
+      for (let i = 0; i < srcImageIds.length; i++) {
+        const srcId = srcImageIds[i];
+        const sourceIndex = validIndexBySourceId.get(srcId) ?? i;
+        const resolved = resolveLabelmapImage(srcId, sourceIndex);
+        lookupStats[resolved.match]++;
+        const lmImage = resolved.image;
+
+        if (!lmImage) {
+          labelmaps2D.push({
+            pixelData: new Uint8Array(rows * columns),
+            segmentsOnLabelmap: [],
+            rows,
+            columns,
+          });
+          continue;
+        }
+
+        const pixelData = readScalarDataAsUint8(lmImage);
+
+        // Find which segments are present on this slice
+        const segmentsOnSlice = new Set<number>();
+        for (let j = 0; j < pixelData.length; j++) {
+          if (pixelData[j] > 0) {
+            segmentsOnSlice.add(pixelData[j]);
+          }
+        }
+
+        labelmaps2D.push({
+          pixelData,
+          segmentsOnLabelmap: sanitizeSegmentIndices(Array.from(segmentsOnSlice)),
+          rows,
+          columns,
+        });
+      }
+      console.log(
+        `[segmentationService] labelmap lookup: ref=${lookupStats.ref}, normalized=${lookupStats.normalized}, `
+        + `sop=${lookupStats.sop}, index=${lookupStats.index}, none=${lookupStats.none}`,
+      );
     }
-    console.log(
-      `[segmentationService] labelmap lookup: ref=${lookupStats.ref}, normalized=${lookupStats.normalized}, `
-      + `sop=${lookupStats.sop}, index=${lookupStats.index}, none=${lookupStats.none}`,
-    );
 
     // Step 3: Build segment metadata array (index 0 = null for background).
     const segmentMetadata: any[] = [null]; // index 0 = background

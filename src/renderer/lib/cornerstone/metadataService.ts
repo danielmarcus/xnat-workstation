@@ -9,6 +9,7 @@
 import { metaData } from '@cornerstonejs/core';
 import type { OverlayMetadata } from '@shared/types/dicom';
 import { EMPTY_OVERLAY } from '@shared/types/dicom';
+import type { MPRPlane } from '@shared/types/viewer';
 
 /**
  * Format a DICOM date string (YYYYMMDD) to a readable format.
@@ -62,6 +63,35 @@ function toStr(val: unknown): string {
 }
 
 export const metadataService = {
+  /**
+   * Infer native orientation from DICOM ImageOrientationPatient.
+   * Uses the dominant component of the plane normal.
+   */
+  getNativeOrientation(imageId: string): MPRPlane | null {
+    if (!imageId) return null;
+    try {
+      const imagePlane = metaData.get('imagePlaneModule', imageId) as any;
+      const iop = imagePlane?.imageOrientationPatient;
+      if (!Array.isArray(iop) || iop.length < 6) return null;
+      const row = [Number(iop[0]), Number(iop[1]), Number(iop[2])];
+      const col = [Number(iop[3]), Number(iop[4]), Number(iop[5])];
+      if (![...row, ...col].every((v) => Number.isFinite(v))) return null;
+
+      const normal: [number, number, number] = [
+        row[1] * col[2] - row[2] * col[1],
+        row[2] * col[0] - row[0] * col[2],
+        row[0] * col[1] - row[1] * col[0],
+      ];
+      const abs = normal.map((v) => Math.abs(v));
+      const max = Math.max(abs[0], abs[1], abs[2]);
+      if (max === abs[0]) return 'SAGITTAL';
+      if (max === abs[1]) return 'CORONAL';
+      return 'AXIAL';
+    } catch {
+      return null;
+    }
+  },
+
   /**
    * Extract overlay metadata for a given imageId.
    * Returns empty strings/zeros for any missing fields.

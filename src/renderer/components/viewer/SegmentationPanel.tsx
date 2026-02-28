@@ -271,6 +271,7 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
   const localOriginBySegId = useSegmentationManagerStore((s) => s.localOriginBySegId);
   const loadStatusByDerivedScan = useSegmentationManagerStore((s) => s.loadStatus);
   const dirtySegIds = useSegmentationManagerStore((s) => s.dirtySegIds);
+  const presentation = useSegmentationManagerStore((s) => s.presentation);
 
   const activeSourceScanId = panelScanMap[activeViewportId] ?? null;
   const activePanelXnatContext = panelXnatContextMap[activeViewportId] ?? xnatContext;
@@ -1241,6 +1242,31 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
     }
   }, [activeSourceCompositeKey]);
 
+  // Keep the currently selected annotation activated when viewport focus changes.
+  // Avoid depending on full segmentation summaries: they change on every
+  // segmentation event and can cause activation loops.
+  const lastViewportActivationRef = useRef<string>('');
+  useEffect(() => {
+    if (!activeSegId) {
+      lastViewportActivationRef.current = '';
+      return;
+    }
+
+    const segStore = useSegmentationStore.getState();
+    const targetIndex =
+      Number.isFinite(segStore.activeSegmentIndex) &&
+      Number.isInteger(segStore.activeSegmentIndex) &&
+      segStore.activeSegmentIndex > 0
+        ? segStore.activeSegmentIndex
+        : 1;
+
+    const activationKey = `${activeViewportId}|${activeSegId}|${targetIndex}`;
+    if (lastViewportActivationRef.current === activationKey) return;
+    lastViewportActivationRef.current = activationKey;
+
+    segmentationManager.userSelectedSegmentation(activeViewportId, activeSegId, targetIndex);
+  }, [activeViewportId, activeSegId]);
+
   const activeAnnotationType = useMemo<SegmentationDicomType | null>(() => {
     if (!activeSegId) return null;
     return (
@@ -1497,10 +1523,14 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
                       {seg.segments.map((segment) => {
                         const isActiveSegment =
                           isActiveSeg && activeSegIndex === segment.segmentIndex;
+                        const cachedVisible =
+                          presentation[seg.segmentationId]?.visibility?.[segment.segmentIndex];
+                        const isVisible =
+                          typeof cachedVisible === 'boolean' ? cachedVisible : segment.visible;
 
                         return (
                           <div
-                            key={segment.segmentIndex}
+                            key={`${seg.segmentationId}:${segment.segmentIndex}`}
                             className={`group flex items-center gap-1.5 px-2 py-1 rounded cursor-pointer transition-colors ${
                               isActiveSegment
                                 ? 'bg-blue-900/25 border-l-2 border-blue-500'
@@ -1567,9 +1597,9 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
                                 );
                               }}
                               className="text-zinc-500 hover:text-zinc-300 transition-colors p-0.5 shrink-0"
-                              title={segment.visible ? 'Hide segment' : 'Show segment'}
+                              title={isVisible ? 'Hide segment' : 'Show segment'}
                             >
-                              {segment.visible ? (
+                              {isVisible ? (
                                 <IconEye className="w-3 h-3" />
                               ) : (
                                 <IconEyeOff className="w-3 h-3" />

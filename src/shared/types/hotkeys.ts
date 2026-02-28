@@ -50,6 +50,7 @@ export type HotkeyAction =
   // Panel toggles
   | 'panel.toggleAnnotations'
   | 'panel.toggleSegmentation'
+  | 'panel.nextViewport'
   // Brush size
   | 'brush.decrease'
   | 'brush.increase'

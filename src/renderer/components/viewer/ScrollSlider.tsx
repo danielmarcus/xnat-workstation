@@ -13,38 +13,49 @@
 import { useCallback, useRef, useState } from 'react';
 import { useViewerStore } from '../../stores/viewerStore';
 import { viewportService } from '../../lib/cornerstone/viewportService';
+import { mprService } from '../../lib/cornerstone/mprService';
 
 interface ScrollSliderProps {
   panelId: string;
 }
 
 export default function ScrollSlider({ panelId }: ScrollSliderProps) {
+  const orientation = useViewerStore((s) => s.panelOrientationMap[panelId] ?? 'STACK');
   // Use separate primitive selectors to avoid creating new objects (infinite re-render pitfall)
   const imageIndex = useViewerStore((s) => s.viewports[panelId]?.imageIndex ?? 0);
   const requestedImageIndex = useViewerStore((s) => s.viewports[panelId]?.requestedImageIndex ?? null);
   const totalImages = useViewerStore((s) => s.viewports[panelId]?.totalImages ?? 0);
+  const mprSliceIndex = useViewerStore((s) => s.mprViewports[panelId]?.sliceIndex ?? 0);
+  const mprTotalSlices = useViewerStore((s) => s.mprViewports[panelId]?.totalSlices ?? 0);
   const requestImageIndex = useViewerStore((s) => s._requestImageIndex);
   const [isDragging, setIsDragging] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
   const trackRef = useRef<HTMLDivElement>(null);
   const draggingRef = useRef(false); // Non-reactive ref for pointer events
 
-  const displayIndex = requestedImageIndex ?? imageIndex;
-  const thumbPercent = totalImages > 1 ? (displayIndex / (totalImages - 1)) * 100 : 0;
+  const isOriented = orientation !== 'STACK';
+  const total = isOriented ? mprTotalSlices : totalImages;
+  const currentIndex = isOriented ? mprSliceIndex : imageIndex;
+  const displayIndex = isOriented ? currentIndex : (requestedImageIndex ?? currentIndex);
+  const thumbPercent = total > 1 ? (displayIndex / (total - 1)) * 100 : 0;
 
   // All hooks must be declared before any early return (Rules of Hooks)
   const scrollToY = useCallback(
     (clientY: number) => {
       const track = trackRef.current;
-      if (!track || totalImages <= 1) return;
+      if (!track || total <= 1) return;
       const rect = track.getBoundingClientRect();
       const percent = Math.max(0, Math.min(1, (clientY - rect.top) / rect.height));
-      const index = Math.round(percent * (totalImages - 1));
+      const index = Math.round(percent * (total - 1));
       if (index === displayIndex) return;
-      requestImageIndex(panelId, index, totalImages);
-      viewportService.scrollToIndex(panelId, index);
+      if (isOriented) {
+        mprService.scrollToIndex(panelId, index);
+      } else {
+        requestImageIndex(panelId, index, total);
+        viewportService.scrollToIndex(panelId, index);
+      }
     },
-    [displayIndex, panelId, totalImages, requestImageIndex],
+    [displayIndex, isOriented, panelId, requestImageIndex, total],
   );
 
   const handlePointerDown = useCallback(
@@ -85,7 +96,7 @@ export default function ScrollSlider({ panelId }: ScrollSliderProps) {
   );
 
   // Don't show slider for single-slice or empty stacks
-  if (totalImages <= 1) return null;
+  if (total <= 1) return null;
 
   const isVisible = isDragging || isHovered;
 
@@ -113,7 +124,7 @@ export default function ScrollSlider({ panelId }: ScrollSliderProps) {
             isDragging ? 'bg-blue-400' : 'bg-white'
           }`}
           style={{
-            height: `${Math.max(8, 100 / totalImages)}%`,
+            height: `${Math.max(8, 100 / total)}%`,
             minHeight: '8px',
             maxHeight: '24px',
             top: `${thumbPercent}%`,
@@ -128,7 +139,7 @@ export default function ScrollSlider({ panelId }: ScrollSliderProps) {
           className="absolute right-8 bg-black/80 text-white text-[10px] font-mono px-1.5 py-0.5 rounded whitespace-nowrap pointer-events-none"
           style={{ top: `${Math.max(5, Math.min(95, thumbPercent))}%`, transform: 'translateY(-50%)' }}
         >
-          {displayIndex + 1}/{totalImages}
+          {displayIndex + 1}/{total}
         </div>
       )}
     </div>

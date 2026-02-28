@@ -8,3 +8,9 @@ html, body, #root {
   padding: 0;
   overflow: hidden;
 }
+
+.crosshair-mode [data-panel-id],
+.crosshair-mode [data-panel-id] *,
+.crosshair-mode [data-panel-id] canvas {
+  cursor: crosshair !important;
+}

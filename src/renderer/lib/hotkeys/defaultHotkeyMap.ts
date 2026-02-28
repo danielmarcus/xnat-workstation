@@ -49,6 +49,7 @@ export const DEFAULT_HOTKEY_MAP: HotkeyMap = {
   // ─── Panel Toggles ──────────────────────────────────────────
   'panel.toggleAnnotations':  [{ key: 'o' }], // O for list/overview
   'panel.toggleSegmentation': [{ key: 'g' }], // G for seGmentation
+  'panel.nextViewport': [{ key: 'Tab' }, { key: 'Tab', modifiers: { shift: true } }],
 
   // ─── Brush Size ──────────────────────────────────────────────
   'brush.decrease': [{ key: '[' }],

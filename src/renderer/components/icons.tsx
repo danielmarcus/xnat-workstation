@@ -67,6 +67,20 @@ export function IconZoom(props: IconProps) {
   );
 }
 
+/** Crosshairs — targeting reticle */
+export function IconCrosshairs(props: IconProps) {
+  return (
+    <svg {...defaults(props)}>
+      <circle cx="8" cy="8" r="3.25" />
+      <line x1="8" y1="1.5" x2="8" y2="4" />
+      <line x1="8" y1="12" x2="8" y2="14.5" />
+      <line x1="1.5" y1="8" x2="4" y2="8" />
+      <line x1="12" y1="8" x2="14.5" y2="8" />
+      <circle cx="8" cy="8" r="0.8" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
 // ─── Action Icons ─────────────────────────────────────────────────
 
 /** Reset — counterclockwise arrow */
