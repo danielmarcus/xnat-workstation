@@ -42,6 +42,7 @@ async function exchangeCredentials(
   loginSession: Electron.Session,
   serverUrl: string,
   jsessionId: string,
+  csrfToken: string | null,
 ): Promise<BrowserLoginResult> {
   let username = '';
 
@@ -93,7 +94,7 @@ async function exchangeCredentials(
     // Use original JSESSIONID if cookie read fails
   }
 
-  return { jsessionId: currentJsessionId, username, serverCookies };
+  return { jsessionId: currentJsessionId, username, serverCookies, csrfToken };
 }
 
 /** A server cookie to transfer between sessions. */
@@ -112,6 +113,8 @@ export interface BrowserLoginResult {
   username: string;
   /** All server cookies (JSESSIONID, ALB sticky-session cookies, etc.) */
   serverCookies: ServerCookie[];
+  /** CSRF token extracted from XNAT's rendered pages (session attribute XNAT_CSRF). */
+  csrfToken: string | null;
 }
 
 /**
@@ -147,6 +150,7 @@ export async function openBrowserLogin(
       width: 900,
       height: 700,
       show: false,
+      useContentSize: true,
       title: 'Sign in — XNAT',
       webPreferences: {
         nodeIntegration: false,
@@ -245,10 +249,47 @@ export async function openBrowserLogin(
 
         console.log(`[browserLogin] Authenticated session detected (JSESSIONID=${jsessionId.slice(0, 8)}...)`);
 
+        // Hide and stop loading immediately so XNAT's post-login
+        // redirect to the homepage doesn't flash in the window.
+        if (!loginWindow.isDestroyed()) {
+          loginWindow.webContents.stop();
+          loginWindow.hide();
+        }
+
+        // ── Extract CSRF token from the rendered XNAT page ──
+        // XNAT sets `var csrfToken = '<uuid>'` via server-side template rendering
+        // on every authenticated page. First try the current page in the login
+        // window; if that fails, fetch the root page via session.fetch() (invisible
+        // HTTP request) to avoid flashing the XNAT homepage in the visible window.
+        let csrfToken: string | null = null;
+        try {
+          csrfToken = await loginWindow.webContents.executeJavaScript('window.csrfToken || ""') || null;
+        } catch {
+          // Window may have navigated away — fall through to fetch
+        }
+        if (!csrfToken) {
+          try {
+            const baseUrl = serverUrl.replace(/\/+$/, '');
+            const resp = await loginSession.fetch(`${baseUrl}/`);
+            if (resp.ok) {
+              const html = await resp.text();
+              const match = html.match(/var\s+csrfToken\s*=\s*['"]([^'"]+)['"]/);
+              csrfToken = match?.[1] || null;
+            }
+          } catch {
+            // Non-fatal — CSRF token will be missing but GETs still work
+          }
+        }
+        if (csrfToken) {
+          console.log(`[browserLogin] CSRF token extracted: ${csrfToken.slice(0, 8)}...`);
+        } else {
+          console.warn('[browserLogin] Could not extract CSRF token from login window');
+        }
+
         // ── Get username & collect all cookies ──
         // Must happen now, while the login session is still alive.
         // After finish() the session is destroyed and cookies are gone.
-        const authData = await exchangeCredentials(loginSession, serverUrl, jsessionId);
+        const authData = await exchangeCredentials(loginSession, serverUrl, jsessionId, csrfToken);
         finish(authData);
         return;
       } catch (err) {
@@ -292,7 +333,25 @@ export async function openBrowserLogin(
     const loginUrl = `${baseUrl}/app/template/Login.vm`;
     console.log(`[browserLogin] Opening login window: ${loginUrl}`);
 
-    loginWindow.loadURL(loginUrl).then(() => {
+    loginWindow.loadURL(loginUrl).then(async () => {
+      if (resolved) return;
+
+      // Resize the window to fit the page content before showing
+      try {
+        const [w, h] = await loginWindow.webContents.executeJavaScript(
+          '[document.documentElement.scrollWidth, document.documentElement.scrollHeight]',
+        );
+        if (w > 0 && h > 0) {
+          loginWindow.setContentSize(
+            Math.max(w, 480),
+            Math.max(h, 360),
+          );
+          loginWindow.center();
+        }
+      } catch {
+        // Use default size if measurement fails
+      }
+
       if (!resolved) {
         loginWindow.show();
       }
