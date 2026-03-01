@@ -249,6 +249,13 @@ export async function openBrowserLogin(
 
         console.log(`[browserLogin] Authenticated session detected (JSESSIONID=${jsessionId.slice(0, 8)}...)`);
 
+        // Hide and stop loading immediately so XNAT's post-login
+        // redirect to the homepage doesn't flash in the window.
+        if (!loginWindow.isDestroyed()) {
+          loginWindow.webContents.stop();
+          loginWindow.hide();
+        }
+
         // ── Extract CSRF token from the rendered XNAT page ──
         // XNAT sets `var csrfToken = '<uuid>'` via server-side template rendering
         // on every authenticated page. First try the current page in the login
@@ -312,11 +319,6 @@ export async function openBrowserLogin(
       if (value === firstJsessionId) return; // same cookie, no change
 
       console.log(`[browserLogin] JSESSIONID regenerated (${value.slice(0, 8)}...), checking auth`);
-      // Hide immediately — XNAT's login JS will redirect to the homepage
-      // and we don't want that to flash while we validate asynchronously.
-      if (!loginWindow.isDestroyed()) {
-        loginWindow.hide();
-      }
       checkForAuthenticatedSession();
     }
     loginSession.cookies.on('changed', onCookieChanged);
