@@ -116,6 +116,8 @@ interface SegmentationStore {
 
   /** Toggle outline rendering */
   toggleOutline: () => void;
+  /** Set outline rendering */
+  setRenderOutline: (enabled: boolean) => void;
 
   /** Set contour line thickness */
   setContourLineWidth: (width: number) => void;
@@ -227,6 +229,7 @@ export const useSegmentationStore = create<SegmentationStore>((set) => ({
   setFillAlpha: (alpha) => set({ fillAlpha: alpha }),
 
   toggleOutline: () => set((s) => ({ renderOutline: !s.renderOutline })),
+  setRenderOutline: (enabled) => set({ renderOutline: enabled }),
 
   setContourLineWidth: (width) => set({ contourLineWidth: width }),
 

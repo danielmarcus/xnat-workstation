@@ -3,6 +3,9 @@ import {
   ALL_OVERLAY_FIELD_KEYS,
   DEFAULT_OVERLAY_CORNERS,
   DEFAULT_PREFERENCES,
+  DEFAULT_SEGMENT_COLOR_SEQUENCE,
+  type AnnotationToolPreferences,
+  type HexColor,
   type OverlayCornerId,
   type OverlayFieldKey,
   type OverlayPreferences,
@@ -21,10 +24,16 @@ interface PreferencesStore {
   setShowOverlayVerticalRuler: (enabled: boolean) => void;
   setShowOverlayOrientationMarkers: (enabled: boolean) => void;
   setOverlayCornerField: (corner: OverlayCornerId, field: OverlayFieldKey, enabled: boolean) => void;
+  setAnnotationBrushSize: (size: number) => void;
+  setAnnotationContourThickness: (size: number) => void;
+  setAnnotationMaskOutlines: (enabled: boolean) => void;
+  setAnnotationSegmentOpacity: (opacity: number) => void;
+  setAnnotationColorSequence: (colors: string[]) => void;
   resetAll: () => void;
 }
 
 const OVERLAY_FIELD_SET = new Set<OverlayFieldKey>(ALL_OVERLAY_FIELD_KEYS);
+const HEX_COLOR_PATTERN = /^#?([0-9a-fA-F]{6})$/;
 
 function cloneDefaultCorners(): Record<OverlayCornerId, OverlayFieldKey[]> {
   return {
@@ -33,6 +42,36 @@ function cloneDefaultCorners(): Record<OverlayCornerId, OverlayFieldKey[]> {
     bottomLeft: [...DEFAULT_OVERLAY_CORNERS.bottomLeft],
     bottomRight: [...DEFAULT_OVERLAY_CORNERS.bottomRight],
   };
+}
+
+function cloneDefaultColorSequence(): HexColor[] {
+  return [...DEFAULT_SEGMENT_COLOR_SEQUENCE];
+}
+
+function clampNumber(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+function sanitizeHexColor(value: unknown): HexColor | null {
+  if (typeof value !== 'string') return null;
+  const match = value.trim().match(HEX_COLOR_PATTERN);
+  if (!match) return null;
+  return (`#${match[1].toUpperCase()}`) as HexColor;
+}
+
+function sanitizeColorSequence(value: unknown): HexColor[] {
+  if (!Array.isArray(value)) return cloneDefaultColorSequence();
+  const seen = new Set<HexColor>();
+  const out: HexColor[] = [];
+  for (const entry of value) {
+    const color = sanitizeHexColor(entry);
+    if (!color) continue;
+    if (seen.has(color)) continue;
+    seen.add(color);
+    out.push(color);
+    if (out.length >= 32) break;
+  }
+  return out.length > 0 ? out : cloneDefaultColorSequence();
 }
 
 function makeDefaultPreferences(): PreferencesV1 {
@@ -46,6 +85,13 @@ function makeDefaultPreferences(): PreferencesV1 {
       showVerticalRuler: DEFAULT_PREFERENCES.overlay.showVerticalRuler,
       showOrientationMarkers: DEFAULT_PREFERENCES.overlay.showOrientationMarkers,
       corners: cloneDefaultCorners(),
+    },
+    annotation: {
+      defaultBrushSize: DEFAULT_PREFERENCES.annotation.defaultBrushSize,
+      defaultContourThickness: DEFAULT_PREFERENCES.annotation.defaultContourThickness,
+      defaultMaskOutlines: DEFAULT_PREFERENCES.annotation.defaultMaskOutlines,
+      defaultSegmentOpacity: DEFAULT_PREFERENCES.annotation.defaultSegmentOpacity,
+      defaultColorSequence: cloneDefaultColorSequence(),
     },
   };
 }
@@ -113,6 +159,40 @@ function mergeOverlayPreferences(current: OverlayPreferences, incoming: unknown)
         ? sanitizeOverlayFields(incomingCorners.bottomRight)
         : [...current.corners.bottomRight],
     },
+  };
+}
+
+function mergeAnnotationPreferences(current: AnnotationToolPreferences, incoming: unknown): AnnotationToolPreferences {
+  if (!incoming || typeof incoming !== 'object') {
+    return {
+      ...current,
+      defaultColorSequence: [...current.defaultColorSequence],
+    };
+  }
+
+  const candidate = incoming as Partial<AnnotationToolPreferences>;
+
+  return {
+    defaultBrushSize:
+      typeof candidate.defaultBrushSize === 'number' && Number.isFinite(candidate.defaultBrushSize)
+        ? clampNumber(Math.round(candidate.defaultBrushSize), 1, 100)
+        : current.defaultBrushSize,
+    defaultContourThickness:
+      typeof candidate.defaultContourThickness === 'number' && Number.isFinite(candidate.defaultContourThickness)
+        ? clampNumber(Math.round(candidate.defaultContourThickness), 1, 8)
+        : current.defaultContourThickness,
+    defaultMaskOutlines:
+      typeof candidate.defaultMaskOutlines === 'boolean'
+        ? candidate.defaultMaskOutlines
+        : current.defaultMaskOutlines,
+    defaultSegmentOpacity:
+      typeof candidate.defaultSegmentOpacity === 'number' && Number.isFinite(candidate.defaultSegmentOpacity)
+        ? clampNumber(candidate.defaultSegmentOpacity, 0, 1)
+        : current.defaultSegmentOpacity,
+    defaultColorSequence:
+      Object.prototype.hasOwnProperty.call(candidate, 'defaultColorSequence')
+        ? sanitizeColorSequence(candidate.defaultColorSequence)
+        : [...current.defaultColorSequence],
   };
 }
 
@@ -226,6 +306,61 @@ export const usePreferencesStore = create<PreferencesStore>()(
           };
         }),
 
+      setAnnotationBrushSize: (size) =>
+        set((state) => ({
+          preferences: {
+            ...state.preferences,
+            annotation: {
+              ...state.preferences.annotation,
+              defaultBrushSize: clampNumber(Math.round(size), 1, 100),
+            },
+          },
+        })),
+
+      setAnnotationContourThickness: (size) =>
+        set((state) => ({
+          preferences: {
+            ...state.preferences,
+            annotation: {
+              ...state.preferences.annotation,
+              defaultContourThickness: clampNumber(Math.round(size), 1, 8),
+            },
+          },
+        })),
+
+      setAnnotationMaskOutlines: (enabled) =>
+        set((state) => ({
+          preferences: {
+            ...state.preferences,
+            annotation: {
+              ...state.preferences.annotation,
+              defaultMaskOutlines: enabled,
+            },
+          },
+        })),
+
+      setAnnotationSegmentOpacity: (opacity) =>
+        set((state) => ({
+          preferences: {
+            ...state.preferences,
+            annotation: {
+              ...state.preferences.annotation,
+              defaultSegmentOpacity: clampNumber(opacity, 0, 1),
+            },
+          },
+        })),
+
+      setAnnotationColorSequence: (colors) =>
+        set((state) => ({
+          preferences: {
+            ...state.preferences,
+            annotation: {
+              ...state.preferences.annotation,
+              defaultColorSequence: sanitizeColorSequence(colors),
+            },
+          },
+        })),
+
       resetAll: () =>
         set({
           preferences: makeDefaultPreferences(),
@@ -248,6 +383,7 @@ export const usePreferencesStore = create<PreferencesStore>()(
               overrides: incoming.hotkeys?.overrides ?? base.preferences.hotkeys.overrides,
             },
             overlay: mergeOverlayPreferences(base.preferences.overlay, incoming.overlay),
+            annotation: mergeAnnotationPreferences(base.preferences.annotation, incoming.annotation),
           },
         };
       },
