@@ -61,6 +61,7 @@ import {
   LABELMAP_SEG_TOOLS,
 } from '@shared/types/viewer';
 import { viewportService } from './viewportService';
+import { usePreferencesStore } from '../../stores/preferencesStore';
 import { useSegmentationStore } from '../../stores/segmentationStore';
 import { segmentationService } from './segmentationService';
 import { useViewerStore } from '../../stores/viewerStore';
@@ -213,7 +214,7 @@ function rebuildToolGroup(primaryTool: ToolName): ToolTypes.IToolGroup | undefin
   addAllTools(toolGroup);
   applyInterpolationConfiguration(
     toolGroup,
-    useSegmentationStore.getState().interpolationEnabled,
+    usePreferencesStore.getState().preferences.interpolation.enabled,
   );
 
   // Re-add viewports
@@ -421,7 +422,7 @@ export const toolService = {
     addAllTools(toolGroup);
     applyInterpolationConfiguration(
       toolGroup,
-      useSegmentationStore.getState().interpolationEnabled,
+      usePreferencesStore.getState().preferences.interpolation.enabled,
     );
 
     // Restore the brush size from the store — addAllTools creates fresh tool
@@ -568,7 +569,7 @@ export const toolService = {
               if (segId) {
                 if (isContourTool) {
                   // Contour: add a default structure and ensure representation
-                  segmentationService.addSegment(segId, 'Structure 1');
+                  await segmentationService.addSegment(segId, 'Structure 1');
                   segmentationService.setActiveSegmentIndex(segId, 1);
                   await segmentationService.ensureContourRepresentation(viewportId, segId);
                 } else {
@@ -634,17 +635,6 @@ export const toolService = {
    */
   getActiveTool(): ToolName {
     return currentActiveTool;
-  },
-
-  /**
-   * Enable/disable between-slice interpolation for contour segmentation tools.
-   * Labelmap interpolation reads the same store flag inside segmentationService.
-   */
-  setInterpolationEnabled(enabled: boolean): void {
-    useSegmentationStore.getState().setInterpolationEnabled(enabled);
-    const toolGroup = getToolGroup();
-    if (!toolGroup) return;
-    applyInterpolationConfiguration(toolGroup, enabled);
   },
 
   /**

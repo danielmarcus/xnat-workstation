@@ -24,6 +24,7 @@ export const DEFAULT_HOTKEY_MAP: HotkeyMap = {
   'tool.crosshairs':  [{ key: 'c' }],
   'tool.probe':       [{ key: 'd' }],   // D for density probe
   'tool.arrowAnnotate': [{ key: 't' }], // T for text annotation
+  'tool.paintFill':   [{ key: 'f' }],
   'tool.stackScroll': [{ key: 's' }],
 
   // ─── Viewport Actions ────────────────────────────────────────
