@@ -16,7 +16,6 @@ import {
 } from '../../stores/sessionDerivedIndexStore';
 import { segmentationService } from '../../lib/cornerstone/segmentationService';
 import { rtStructService } from '../../lib/cornerstone/rtStructService';
-import { toolService } from '../../lib/cornerstone/toolService';
 import { segmentationManager } from '../../lib/segmentation/segmentationManagerSingleton';
 import { dicomwebLoader } from '../../lib/cornerstone/dicomwebLoader';
 import { ToolName, TOOL_DISPLAY_NAMES, SEGMENTATION_TOOLS } from '@shared/types/viewer';
@@ -236,7 +235,6 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
   const renderOutline = useSegmentationStore((s) => s.renderOutline);
   const contourLineWidth = useSegmentationStore((s) => s.contourLineWidth);
   const contourOpacity = useSegmentationStore((s) => s.contourOpacity);
-  const interpolationEnabled = useSegmentationStore((s) => s.interpolationEnabled);
   const brushSize = useSegmentationStore((s) => s.brushSize);
   const activeSegTool = useSegmentationStore((s) => s.activeSegTool);
   const thresholdRange = useSegmentationStore((s) => s.thresholdRange);
@@ -615,6 +613,8 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
         ? await segmentationManager.createNewStructure(activeViewportId, sourceImageIds, name)
         : await segmentationManager.createNewSegmentation(activeViewportId, sourceImageIds, name);
       setDicomType(segId, pendingCreateType);
+      // Set as the active segmentation so subsequent tool activation finds it
+      useSegmentationStore.getState().setActiveSegmentation(segId);
       // Auto-expand the new segmentation
       setExpandedIds((prev) => new Set(prev).add(segId));
       // Track the source scan ID so auto-save targets the correct scan even
@@ -667,6 +667,8 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
     }
     try {
       await segmentationManager.addSegment(segmentNamingDialog.segmentationId, finalName);
+      // Ensure the parent segmentation is active so tool activation finds it
+      useSegmentationStore.getState().setActiveSegmentation(segmentNamingDialog.segmentationId);
     } catch (err) {
       setToast({ message: getErrorMessage(err, 'Failed to add segment'), type: 'error' });
       return;
@@ -757,9 +759,6 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
     [setContourOpacity],
   );
 
-  const handleInterpolationToggle = useCallback((enabled: boolean) => {
-    toolService.setInterpolationEnabled(enabled);
-  }, []);
 
   const handleColorSelect = useCallback(
     (color: [number, number, number, number]) => {
@@ -1818,20 +1817,6 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
               className="w-3 h-3 rounded border-zinc-600 bg-zinc-800 accent-blue-500"
             />
             <span className="text-[10px] text-zinc-400">Show Outline</span>
-          </label>
-        )}
-
-        {toolPanelAnnotationType && (
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={interpolationEnabled}
-              onChange={(e) => handleInterpolationToggle(e.target.checked)}
-              className="w-3 h-3 rounded border-zinc-600 bg-zinc-800 accent-blue-500"
-            />
-            <span className="text-[10px] text-zinc-400">
-              Interpolate between slices
-            </span>
           </label>
         )}
 

@@ -3,6 +3,9 @@ import {
   ALL_OVERLAY_FIELD_KEYS,
   DEFAULT_OVERLAY_CORNERS,
   DEFAULT_PREFERENCES,
+  DEFAULT_INTERPOLATION_PREFERENCES,
+  type InterpolationAlgorithm,
+  type InterpolationPreferences,
   type OverlayCornerId,
   type OverlayFieldKey,
   type OverlayPreferences,
@@ -21,6 +24,10 @@ interface PreferencesStore {
   setShowOverlayVerticalRuler: (enabled: boolean) => void;
   setShowOverlayOrientationMarkers: (enabled: boolean) => void;
   setOverlayCornerField: (corner: OverlayCornerId, field: OverlayFieldKey, enabled: boolean) => void;
+  // ─── Interpolation ─────────────────────────────────────
+  setInterpolationEnabled: (enabled: boolean) => void;
+  setInterpolationAlgorithm: (algorithm: InterpolationAlgorithm) => void;
+  setLinearThreshold: (threshold: number) => void;
   resetAll: () => void;
 }
 
@@ -47,6 +54,7 @@ function makeDefaultPreferences(): PreferencesV1 {
       showOrientationMarkers: DEFAULT_PREFERENCES.overlay.showOrientationMarkers,
       corners: cloneDefaultCorners(),
     },
+    interpolation: { ...DEFAULT_INTERPOLATION_PREFERENCES },
   };
 }
 
@@ -226,6 +234,35 @@ export const usePreferencesStore = create<PreferencesStore>()(
           };
         }),
 
+      // ─── Interpolation ────────────────────────────────────
+
+      setInterpolationEnabled: (enabled) =>
+        set((state) => ({
+          preferences: {
+            ...state.preferences,
+            interpolation: { ...state.preferences.interpolation, enabled },
+          },
+        })),
+
+      setInterpolationAlgorithm: (algorithm) =>
+        set((state) => ({
+          preferences: {
+            ...state.preferences,
+            interpolation: { ...state.preferences.interpolation, algorithm },
+          },
+        })),
+
+      setLinearThreshold: (threshold) =>
+        set((state) => ({
+          preferences: {
+            ...state.preferences,
+            interpolation: {
+              ...state.preferences.interpolation,
+              linearThreshold: Math.max(0, Math.min(1, threshold)),
+            },
+          },
+        })),
+
       resetAll: () =>
         set({
           preferences: makeDefaultPreferences(),
@@ -241,6 +278,24 @@ export const usePreferencesStore = create<PreferencesStore>()(
         const incoming = (persisted as Partial<PreferencesStore>)?.preferences;
         if (!incoming) return base;
 
+        // Merge interpolation preferences with defaults as fallback
+        const incomingInterp = (incoming as Partial<PreferencesV1>).interpolation;
+        const mergedInterpolation: InterpolationPreferences = {
+          enabled:
+            typeof incomingInterp?.enabled === 'boolean'
+              ? incomingInterp.enabled
+              : base.preferences.interpolation.enabled,
+          algorithm:
+            incomingInterp?.algorithm &&
+            ['sdf', 'morphological', 'nearestSlice', 'linear'].includes(incomingInterp.algorithm)
+              ? incomingInterp.algorithm
+              : base.preferences.interpolation.algorithm,
+          linearThreshold:
+            typeof incomingInterp?.linearThreshold === 'number'
+              ? Math.max(0, Math.min(1, incomingInterp.linearThreshold))
+              : base.preferences.interpolation.linearThreshold,
+        };
+
         return {
           ...base,
           preferences: {
@@ -248,6 +303,7 @@ export const usePreferencesStore = create<PreferencesStore>()(
               overrides: incoming.hotkeys?.overrides ?? base.preferences.hotkeys.overrides,
             },
             overlay: mergeOverlayPreferences(base.preferences.overlay, incoming.overlay),
+            interpolation: mergedInterpolation,
           },
         };
       },
