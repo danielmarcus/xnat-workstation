@@ -18,6 +18,11 @@ app.name = 'XNAT';
 let mainWindow: BrowserWindow | null = null;
 
 const isDev = !app.isPackaged;
+const devServerUrl = (() => {
+  const raw = process.env.VITE_DEV_SERVER_URL?.trim();
+  if (!raw) return 'http://localhost:5173/';
+  return raw.endsWith('/') ? raw : `${raw}/`;
+})();
 
 // ─── Icon Paths ─────────────────────────────────────────────────
 // The official XNAT icon lives in build/. In dev mode __dirname is
@@ -155,7 +160,7 @@ function createWindow(): void {
   });
 
   if (isDev) {
-    mainWindow.loadURL('http://localhost:5173/');
+    mainWindow.loadURL(devServerUrl);
     mainWindow.webContents.openDevTools();
   } else {
     // In production: dist/main/main/index.js -> ../../renderer/index.html

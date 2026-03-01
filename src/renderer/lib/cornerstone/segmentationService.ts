@@ -62,8 +62,8 @@ const TOOL_GROUP_ID = 'xnatToolGroup_primary';
 
 // ─── Constants ──────────────────────────────────────────────────
 
-/** Default color palette for segments (10 colors, RGBA 0-255, cycles) */
-const DEFAULT_COLORS: [number, number, number, number][] = [
+/** Built-in fallback color palette for segments (10 colors, RGBA 0-255, cycles) */
+const BUILTIN_DEFAULT_COLORS: [number, number, number, number][] = [
   [220, 50, 50, 255],    // Red
   [50, 200, 50, 255],    // Green
   [50, 100, 220, 255],   // Blue
@@ -75,6 +75,16 @@ const DEFAULT_COLORS: [number, number, number, number][] = [
   [50, 220, 130, 255],   // Spring Green
   [255, 130, 130, 255],  // Light Red
 ];
+let DEFAULT_COLORS: [number, number, number, number][] = BUILTIN_DEFAULT_COLORS.map((c) => [...c] as [number, number, number, number]);
+
+function isValidColorTuple(color: unknown): color is [number, number, number, number] {
+  if (!Array.isArray(color) || color.length !== 4) return false;
+  for (const entry of color) {
+    if (typeof entry !== 'number' || !Number.isFinite(entry)) return false;
+    if (entry < 0 || entry > 255) return false;
+  }
+  return true;
+}
 
 let segmentationCounter = 0;
 
@@ -2971,6 +2981,24 @@ export const segmentationService = {
     } catch (err) {
       console.error('[segmentationService] Failed to set brush size:', err);
     }
+  },
+
+  /**
+   * Override the default segment color sequence used for new segments.
+   */
+  setDefaultColorSequence(colors: [number, number, number, number][]): void {
+    const valid = colors
+      .filter((color) => isValidColorTuple(color))
+      .map((color) => ([
+        Math.round(color[0]),
+        Math.round(color[1]),
+        Math.round(color[2]),
+        Math.round(color[3]),
+      ] as [number, number, number, number]));
+
+    DEFAULT_COLORS = valid.length > 0
+      ? valid
+      : BUILTIN_DEFAULT_COLORS.map((color) => [...color] as [number, number, number, number]);
   },
 
   /**

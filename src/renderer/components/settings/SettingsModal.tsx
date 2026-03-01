@@ -9,6 +9,7 @@ import { DEFAULT_HOTKEY_MAP } from '../../lib/hotkeys/defaultHotkeyMap';
 import { usePreferencesStore } from '../../stores/preferencesStore';
 import { IconClose } from '../icons';
 
+type SettingsTab = 'hotkeys' | 'overlay' | 'annotation';
 type SettingsTab = 'hotkeys' | 'overlay' | 'interpolation';
 
 interface SettingsModalProps {
@@ -19,6 +20,7 @@ interface SettingsModalProps {
 const TAB_ITEMS: Array<{ id: SettingsTab; label: string }> = [
   { id: 'hotkeys', label: 'Hotkeys' },
   { id: 'overlay', label: 'Overlay' },
+  { id: 'annotation', label: 'Annotation' },
   { id: 'interpolation', label: 'Interpolation' },
 ];
 
@@ -111,6 +113,25 @@ function normalizeKeyInput(input: string): string {
   return trimmed;
 }
 
+function normalizeHexColor(value: string): string | null {
+  const match = value.trim().match(/^#?([0-9a-fA-F]{6})$/);
+  if (!match) return null;
+  return `#${match[1].toUpperCase()}`;
+}
+
+function parseColorSequenceInput(input: string): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const token of input.split(',')) {
+    const color = normalizeHexColor(token);
+    if (!color) continue;
+    if (seen.has(color)) continue;
+    seen.add(color);
+    out.push(color);
+  }
+  return out;
+}
+
 function bindingToDraft(binding: HotkeyBinding): { key: string; modifiers: Required<HotkeyModifiers> } {
   return {
     key: binding.key === ' ' ? 'Space' : binding.key,
@@ -126,6 +147,7 @@ function bindingToDraft(binding: HotkeyBinding): { key: string; modifiers: Requi
 export default function SettingsModal({ open, onClose }: SettingsModalProps) {
   const overrides = usePreferencesStore((s) => s.preferences.hotkeys.overrides);
   const overlayPrefs = usePreferencesStore((s) => s.preferences.overlay);
+  const annotationPrefs = usePreferencesStore((s) => s.preferences.annotation);
   const interpPrefs = usePreferencesStore((s) => s.preferences.interpolation);
   const setHotkeyOverride = usePreferencesStore((s) => s.setHotkeyOverride);
   const clearHotkeyOverride = usePreferencesStore((s) => s.clearHotkeyOverride);
@@ -135,6 +157,11 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
   const setShowOverlayVerticalRuler = usePreferencesStore((s) => s.setShowOverlayVerticalRuler);
   const setShowOverlayOrientationMarkers = usePreferencesStore((s) => s.setShowOverlayOrientationMarkers);
   const setOverlayCornerField = usePreferencesStore((s) => s.setOverlayCornerField);
+  const setAnnotationBrushSize = usePreferencesStore((s) => s.setAnnotationBrushSize);
+  const setAnnotationContourThickness = usePreferencesStore((s) => s.setAnnotationContourThickness);
+  const setAnnotationMaskOutlines = usePreferencesStore((s) => s.setAnnotationMaskOutlines);
+  const setAnnotationSegmentOpacity = usePreferencesStore((s) => s.setAnnotationSegmentOpacity);
+  const setAnnotationColorSequence = usePreferencesStore((s) => s.setAnnotationColorSequence);
   const setInterpolationEnabled = usePreferencesStore((s) => s.setInterpolationEnabled);
   const setInterpolationAlgorithm = usePreferencesStore((s) => s.setInterpolationAlgorithm);
   const setLinearThreshold = usePreferencesStore((s) => s.setLinearThreshold);
@@ -157,6 +184,7 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
     alt: false,
     meta: false,
   });
+  const [colorSequenceDraft, setColorSequenceDraft] = useState('');
 
   useEffect(() => {
     if (!open) return;
@@ -189,6 +217,10 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
     setDraftModifiers(draft.modifiers);
   }, [overrides, selectedAction]);
 
+  useEffect(() => {
+    setColorSequenceDraft(annotationPrefs.defaultColorSequence.join(', '));
+  }, [annotationPrefs.defaultColorSequence]);
+
   const overrideEntries = useMemo(
     () => Object.entries(overrides) as Array<[HotkeyAction, HotkeyBinding[]]>,
     [overrides],
@@ -219,6 +251,12 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
     const draft = bindingToDraft(first);
     setDraftKey(draft.key);
     setDraftModifiers(draft.modifiers);
+  };
+
+  const applyColorSequence = () => {
+    const parsed = parseColorSequenceInput(colorSequenceDraft);
+    if (parsed.length === 0) return;
+    setAnnotationColorSequence(parsed);
   };
 
   if (!open) return null;
@@ -465,6 +503,99 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
               </>
             )}
 
+            {activeTab === 'annotation' && (
+              <>
+                <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-4 space-y-4">
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-xs text-zinc-300">Default brush size</label>
+                      <span className="text-[11px] text-zinc-400 tabular-nums">{annotationPrefs.defaultBrushSize}px</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={1}
+                      max={50}
+                      value={annotationPrefs.defaultBrushSize}
+                      onChange={(e) => setAnnotationBrushSize(parseInt(e.target.value, 10) || 1)}
+                      className="w-full h-1 bg-zinc-700 rounded-full appearance-none cursor-pointer accent-blue-500"
+                    />
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-xs text-zinc-300">Default contour thickness</label>
+                      <span className="text-[11px] text-zinc-400 tabular-nums">{annotationPrefs.defaultContourThickness}px</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={1}
+                      max={8}
+                      value={annotationPrefs.defaultContourThickness}
+                      onChange={(e) => setAnnotationContourThickness(parseInt(e.target.value, 10) || 1)}
+                      className="w-full h-1 bg-zinc-700 rounded-full appearance-none cursor-pointer accent-emerald-500"
+                    />
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-xs text-zinc-300">Default segment opacity</label>
+                      <span className="text-[11px] text-zinc-400 tabular-nums">
+                        {Math.round(annotationPrefs.defaultSegmentOpacity * 100)}%
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min={0}
+                      max={1}
+                      step={0.05}
+                      value={annotationPrefs.defaultSegmentOpacity}
+                      onChange={(e) => setAnnotationSegmentOpacity(parseFloat(e.target.value))}
+                      className="w-full h-1 bg-zinc-700 rounded-full appearance-none cursor-pointer accent-blue-500"
+                    />
+                  </div>
+
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={annotationPrefs.defaultMaskOutlines}
+                      onChange={(e) => setAnnotationMaskOutlines(e.target.checked)}
+                      className="w-3.5 h-3.5 rounded border-zinc-600 bg-zinc-800 accent-blue-500"
+                    />
+                    <span className="text-xs text-zinc-300">Default display mask outlines</span>
+                  </label>
+                </div>
+
+                <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-4 space-y-3">
+                  <div className="text-xs text-zinc-300">Default color sequence</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {annotationPrefs.defaultColorSequence.map((color) => (
+                      <div
+                        key={color}
+                        className="w-5 h-5 rounded border border-zinc-700"
+                        style={{ backgroundColor: color }}
+                        title={color}
+                      />
+                    ))}
+                  </div>
+                  <label className="space-y-1 block">
+                    <span className="text-[11px] text-zinc-500">Comma-separated hex colors</span>
+                    <input
+                      value={colorSequenceDraft}
+                      onChange={(e) => setColorSequenceDraft(e.target.value)}
+                      placeholder="#DC3232, #32C832, #3264DC"
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-xs text-zinc-200"
+                    />
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={applyColorSequence}
+                      disabled={parseColorSequenceInput(colorSequenceDraft).length === 0}
+                      className="px-2.5 py-1.5 rounded bg-zinc-800 text-zinc-200 text-xs hover:bg-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      Apply Sequence
+                    </button>
+                  </div>
             {activeTab === 'interpolation' && (
               <>
                 <div className="text-xs text-zinc-400">

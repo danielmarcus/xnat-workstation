@@ -8,6 +8,7 @@ import { useSegmentationStore, type SegmentationDicomType } from '../../stores/s
 import { useViewerStore } from '../../stores/viewerStore';
 import { useConnectionStore } from '../../stores/connectionStore';
 import { useSegmentationManagerStore } from '../../stores/segmentationManagerStore';
+import { usePreferencesStore } from '../../stores/preferencesStore';
 import {
   useSessionDerivedIndexStore,
   isDerivedScan,
@@ -135,7 +136,7 @@ function SegToolIcon({ tool }: { tool: ToolName }) {
 }
 
 /** Color palette for quick segment color picking */
-const COLOR_PALETTE: [number, number, number, number][] = [
+const DEFAULT_COLOR_PALETTE: [number, number, number, number][] = [
   [220, 50, 50, 255],    // Red
   [50, 200, 50, 255],    // Green
   [50, 100, 220, 255],   // Blue
@@ -147,6 +148,17 @@ const COLOR_PALETTE: [number, number, number, number][] = [
   [50, 220, 130, 255],   // Spring Green
   [255, 130, 130, 255],  // Light Red
 ];
+
+function hexToRgbaColor(hex: string): [number, number, number, number] | null {
+  const match = hex.trim().match(/^#?([0-9a-fA-F]{6})$/);
+  if (!match) return null;
+  const raw = match[1];
+  const r = parseInt(raw.slice(0, 2), 16);
+  const g = parseInt(raw.slice(2, 4), 16);
+  const b = parseInt(raw.slice(4, 6), 16);
+  if (!Number.isFinite(r) || !Number.isFinite(g) || !Number.isFinite(b)) return null;
+  return [r, g, b, 255];
+}
 
 /** Convert RGBA array to CSS rgba() string */
 function rgbaStr(c: [number, number, number, number]): string {
@@ -240,6 +252,7 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
   const thresholdRange = useSegmentationStore((s) => s.thresholdRange);
   const splineType = useSegmentationStore((s) => s.splineType);
   const setSplineType = useSegmentationStore((s) => s.setSplineType);
+  const defaultColorSequence = usePreferencesStore((s) => s.preferences.annotation.defaultColorSequence);
   const autoSaveEnabled = useSegmentationStore((s) => s.autoSaveEnabled);
   const autoSaveStatus = useSegmentationStore((s) => s.autoSaveStatus);
   const setAutoSaveEnabled = useSegmentationStore((s) => s.setAutoSaveEnabled);
@@ -519,6 +532,12 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
   const [segmentNamingDialog, setSegmentNamingDialog] = useState<SegmentNamingDialogState | null>(null);
   const segmentNamingInputRef = useRef<HTMLInputElement>(null);
   const segmentNamingDialogWasOpenRef = useRef(false);
+  const colorPalette = useMemo(() => {
+    const parsed = defaultColorSequence
+      .map((color) => hexToRgbaColor(color))
+      .filter((color): color is [number, number, number, number] => color !== null);
+    return parsed.length > 0 ? parsed : DEFAULT_COLOR_PALETTE;
+  }, [defaultColorSequence]);
 
   // Focus the naming input when it appears
   useEffect(() => {
@@ -1655,7 +1674,7 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
                       {/* Inline color picker */}
                       {colorPickerTarget?.segmentationId === seg.segmentationId && (
                         <div className="flex flex-wrap gap-1 px-2 py-1.5 mt-0.5">
-                          {COLOR_PALETTE.map((color, i) => (
+                          {colorPalette.map((color, i) => (
                             <button
                               key={i}
                               className="w-4 h-4 rounded-sm border border-zinc-600 hover:border-white transition-colors"

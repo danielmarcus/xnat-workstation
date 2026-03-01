@@ -5,9 +5,9 @@
   "main": "dist/main/main/index.js",
   "scripts": {
     "dev": "concurrently \"npm run dev:renderer\" \"npm run dev:main\"",
-    "dev:renderer": "vite",
+    "dev:renderer": "vite --port ${VITE_DEV_SERVER_PORT:-5173}",
     "postinstall": "node scripts/fix-dev-app-name.js",
-    "dev:main": "node scripts/fix-dev-app-name.js && wait-on http://localhost:5173 && tsc -p tsconfig.main.json && electron .",
+    "dev:main": "node scripts/fix-dev-app-name.js && wait-on http://localhost:${VITE_DEV_SERVER_PORT:-5173} && tsc -p tsconfig.main.json && VITE_DEV_SERVER_URL=http://localhost:${VITE_DEV_SERVER_PORT:-5173} electron .",
     "build": "npm run build:main && npm run build:renderer",
     "build:main": "tsc -p tsconfig.main.json",
     "build:renderer": "vite build",
