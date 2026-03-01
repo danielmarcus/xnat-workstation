@@ -9,6 +9,7 @@ import { ToolName, WL_PRESETS } from '@shared/types/viewer';
 import type { LayoutType } from '@shared/types/viewer';
 import { BUILT_IN_PROTOCOLS } from '@shared/types/hangingProtocol';
 import AnnotationToolDropdown from './AnnotationToolDropdown';
+import SettingsModal from '../settings/SettingsModal';
 import {
   IconWindowLevel,
   IconCrosshairs,
@@ -28,6 +29,7 @@ import {
   IconProtocol,
   IconUndo,
   IconRedo,
+  IconSettings,
 } from '../icons';
 import { segmentationService } from '../../lib/cornerstone/segmentationService';
 
@@ -485,6 +487,7 @@ interface ToolbarProps {
 }
 
 export default function Toolbar({ showDicomPanel = false, onToggleDicomPanel, onApplyProtocol, onToggleMPR, hasImages = false, leftSlot }: ToolbarProps) {
+  const [showSettings, setShowSettings] = useState(false);
   const activeTool = useViewerStore((s) => s.activeTool);
   const mprActive = useViewerStore((s) => s.mprActive);
   const cine = useViewerStore(
@@ -504,7 +507,8 @@ export default function Toolbar({ showDicomPanel = false, onToggleDicomPanel, on
   const canRedo = useSegmentationStore((s) => s.canRedo);
 
   return (
-    <div className="h-10 bg-zinc-900 border-b border-zinc-800 flex items-center px-2 gap-1 shrink-0">
+    <>
+      <div className="h-10 bg-zinc-900 border-b border-zinc-800 flex items-center px-2 gap-1 shrink-0">
       {/* ─── Left Slot (XNAT logo, connection, etc.) ─── */}
       {leftSlot && (
         <>
@@ -675,6 +679,16 @@ export default function Toolbar({ showDicomPanel = false, onToggleDicomPanel, on
           <DicomTagsToggle active={showDicomPanel} onToggle={onToggleDicomPanel} />
         </>
       )}
-    </div>
+        <div className="ml-auto" />
+        <Separator />
+        <IconButton
+          icon={<IconSettings className="w-3.5 h-3.5" />}
+          active={showSettings}
+          onClick={() => setShowSettings((v) => !v)}
+          title={showSettings ? 'Close settings' : 'Open settings'}
+        />
+      </div>
+      <SettingsModal open={showSettings} onClose={() => setShowSettings(false)} />
+    </>
   );
 }
