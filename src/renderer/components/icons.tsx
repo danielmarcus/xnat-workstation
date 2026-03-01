@@ -707,3 +707,20 @@ export function IconRedo(props: IconProps) {
     </svg>
   );
 }
+
+/** Settings — simple gear icon */
+export function IconSettings(props: IconProps) {
+  return (
+    <svg {...defaults(props)}>
+      <circle cx="8" cy="8" r="2.2" />
+      <path d="M8 1.8 V3.1" />
+      <path d="M8 12.9 V14.2" />
+      <path d="M1.8 8 H3.1" />
+      <path d="M12.9 8 H14.2" />
+      <path d="M3.3 3.3 L4.2 4.2" />
+      <path d="M11.8 11.8 L12.7 12.7" />
+      <path d="M3.3 12.7 L4.2 11.8" />
+      <path d="M11.8 4.2 L12.7 3.3" />
+    </svg>
+  );
+}

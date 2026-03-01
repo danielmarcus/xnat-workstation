@@ -5,9 +5,17 @@
  * so it doesn't interfere with mouse interactions. Reads per-panel state
  * from viewerStore and per-panel metadata from metadataStore.
  */
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { metaData } from '@cornerstonejs/core';
+import {
+  DEFAULT_OVERLAY_CORNERS,
+  type OverlayCornerId,
+  type OverlayFieldKey,
+} from '@shared/types/preferences';
 import { useViewerStore } from '../../stores/viewerStore';
 import { useMetadataStore } from '../../stores/metadataStore';
 import { useSegmentationStore } from '../../stores/segmentationStore';
+import { usePreferencesStore } from '../../stores/preferencesStore';
 import { EMPTY_OVERLAY } from '@shared/types/dicom';
 import type { MPRPlane } from '@shared/types/viewer';
 import { ToolName } from '@shared/types/viewer';
@@ -39,9 +47,131 @@ function getCrosshairDisplayPoint(
   return getPanelDisplayPointForWorld(panelId, worldPoint);
 }
 
+const ORIENTATION_LABELS: Record<MPRPlane, { top: string; bottom: string; left: string; right: string }> = {
+  AXIAL: { top: 'A', bottom: 'P', left: 'R', right: 'L' },
+  SAGITTAL: { top: 'S', bottom: 'I', left: 'A', right: 'P' },
+  CORONAL: { top: 'S', bottom: 'I', left: 'R', right: 'L' },
+};
+const PIXEL_SPACING_CACHE = new Map<string, { row: number; col: number } | null>();
+
+function toPositiveNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) return value;
+  if (typeof value === 'string') {
+    const parsed = parseFloat(value);
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  }
+  return null;
+}
+
+function getPixelSpacingMm(imageId: string | null): { row: number; col: number } | null {
+  if (!imageId) return null;
+  if (PIXEL_SPACING_CACHE.has(imageId)) {
+    return PIXEL_SPACING_CACHE.get(imageId) ?? null;
+  }
+  const imagePlane = metaData.get('imagePlaneModule', imageId) as
+    | { pixelSpacing?: unknown; rowPixelSpacing?: unknown; columnPixelSpacing?: unknown }
+    | undefined;
+
+  let row = toPositiveNumber(imagePlane?.rowPixelSpacing);
+  let col = toPositiveNumber(imagePlane?.columnPixelSpacing);
+
+  const spacing = imagePlane?.pixelSpacing;
+  if (Array.isArray(spacing)) {
+    if (!row) row = toPositiveNumber(spacing[0]);
+    if (!col) col = toPositiveNumber(spacing[1] ?? spacing[0]);
+  } else {
+    const parsed = toPositiveNumber(spacing);
+    if (!row) row = parsed;
+    if (!col) col = parsed;
+  }
+
+  if (!row && !col) {
+    PIXEL_SPACING_CACHE.set(imageId, null);
+    return null;
+  }
+  const resolvedSpacing = {
+    row: row ?? col ?? 1,
+    col: col ?? row ?? 1,
+  };
+  PIXEL_SPACING_CACHE.set(imageId, resolvedSpacing);
+  return resolvedSpacing;
+}
+
+function pickNiceMm(rawMm: number): number {
+  if (!Number.isFinite(rawMm) || rawMm <= 0) return 0;
+  const exponent = Math.floor(Math.log10(rawMm));
+  const base = 10 ** exponent;
+  const normalized = rawMm / base;
+  if (normalized <= 1) return 1 * base;
+  if (normalized <= 2) return 2 * base;
+  if (normalized <= 5) return 5 * base;
+  return 10 * base;
+}
+
+function formatLengthMm(mm: number): string {
+  if (!Number.isFinite(mm) || mm <= 0) return '';
+  if (mm >= 100) return `${(mm / 10).toFixed(mm % 10 === 0 ? 0 : 1)} cm`;
+  if (mm >= 10) return `${Math.round(mm)} mm`;
+  return `${mm.toFixed(mm >= 1 ? 1 : 2)} mm`;
+}
+
+function buildRulerSpec(mmPerDisplayPx: number, maxLengthPx: number, targetLengthPx: number): {
+  lengthPx: number;
+  label: string;
+  tickCount: number;
+} | null {
+  if (!Number.isFinite(mmPerDisplayPx) || mmPerDisplayPx <= 0) return null;
+  if (!Number.isFinite(maxLengthPx) || maxLengthPx <= 30) return null;
+  if (!Number.isFinite(targetLengthPx) || targetLengthPx <= 0) return null;
+
+  let lengthMm = pickNiceMm(mmPerDisplayPx * targetLengthPx);
+  if (lengthMm <= 0) lengthMm = 50;
+
+  let lengthPx = lengthMm / mmPerDisplayPx;
+  while (lengthPx > maxLengthPx && lengthMm > 0.01) {
+    let nextLengthMm = pickNiceMm(lengthMm / 2);
+    // Guard against non-decreasing "nice" rounding that can stall the loop.
+    if (nextLengthMm >= lengthMm) {
+      nextLengthMm = lengthMm / 2;
+    }
+    if (nextLengthMm <= 0) break;
+    lengthMm = nextLengthMm;
+    lengthPx = lengthMm / mmPerDisplayPx;
+  }
+  while (lengthPx < 44) {
+    let grown = pickNiceMm(lengthMm * 2);
+    if (grown <= lengthMm) {
+      grown = lengthMm * 2;
+    }
+    if (!Number.isFinite(grown) || grown <= lengthMm) break;
+    const grownPx = grown / mmPerDisplayPx;
+    if (grownPx > maxLengthPx) break;
+    lengthMm = grown;
+    lengthPx = grownPx;
+  }
+
+  if (!Number.isFinite(lengthPx) || lengthPx <= 0) return null;
+
+  const tickCount = lengthPx >= 220
+    ? 10
+    : lengthPx >= 170
+      ? 8
+      : lengthPx >= 120
+        ? 6
+        : 4;
+
+  return {
+    lengthPx,
+    label: formatLengthMm(lengthMm),
+    tickCount,
+  };
+}
+
 export default function ViewportOverlay({ panelId }: ViewportOverlayProps) {
-  const showContextOverlay = useSegmentationStore((s) => s.showViewportContextOverlay);
+  const showContextOverlayFromLegacyStore = useSegmentationStore((s) => s.showViewportContextOverlay);
+  const overlayPrefs = usePreferencesStore((s) => s.preferences.overlay);
   const viewport = useViewerStore((s) => s.viewports[panelId] ?? EMPTY_VP);
+  const panelImageIds = useViewerStore((s) => s.panelImageIdsMap[panelId] ?? []);
   const panelOrientation = useViewerStore((s) => s.panelOrientationMap[panelId] ?? 'STACK');
   const nativeOrientation = useViewerStore((s) => s.panelNativeOrientationMap[panelId] ?? 'AXIAL');
   const setPanelOrientation = useViewerStore((s) => s.setPanelOrientation);
@@ -72,24 +202,214 @@ export default function ViewportOverlay({ panelId }: ViewportOverlayProps) {
   const activeTool = useViewerStore((s) => s.activeTool);
   const displayOrientation: MPRPlane =
     (panelOrientation === 'STACK' ? nativeOrientation : panelOrientation) as MPRPlane;
-
-  if (viewport.totalImages === 0) return null;
+  const [overlaySize, setOverlaySize] = useState({ width: 0, height: 0 });
+  const overlayRef = useRef<HTMLDivElement | null>(null);
+  const showContextOverlay = overlayPrefs.showViewportContextOverlay && showContextOverlayFromLegacyStore;
+  const showHorizontalRuler = overlayPrefs.showHorizontalRuler;
+  const showVerticalRuler = overlayPrefs.showVerticalRuler;
+  const showOrientationMarkers = overlayPrefs.showOrientationMarkers;
+  const cornerFields = overlayPrefs.corners ?? DEFAULT_OVERLAY_CORNERS;
 
   const crosshairGuides =
     activeTool === ToolName.Crosshairs && crosshairPoint
       ? getCrosshairDisplayPoint(panelId, crosshairPoint)
       : null;
   const showCrosshairGuides = crosshairGuides !== null;
-
-  if (!showContextOverlay && !showCrosshairGuides) return null;
+  const shouldRenderOverlay =
+    viewport.totalImages > 0
+    && (showContextOverlay || showCrosshairGuides || showHorizontalRuler || showVerticalRuler || showOrientationMarkers);
 
   const crosshairText =
     activeTool === ToolName.Crosshairs && crosshairPoint
       ? `${crosshairPoint[0].toFixed(1)}, ${crosshairPoint[1].toFixed(1)}, ${crosshairPoint[2].toFixed(1)}`
       : null;
 
+  const currentImageId = useMemo(() => {
+    if (panelImageIds.length === 0) return null;
+    const requested = viewport.requestedImageIndex;
+    const preferred = requested ?? viewport.imageIndex;
+    const clamped = Math.max(0, Math.min(panelImageIds.length - 1, preferred));
+    return panelImageIds[clamped] ?? null;
+  }, [panelImageIds, viewport.imageIndex, viewport.requestedImageIndex]);
+
+  useEffect(() => {
+    if (!shouldRenderOverlay) return;
+    const element = overlayRef.current;
+    if (!element) return;
+    const updateOverlaySize = () => {
+      const nextWidth = element.clientWidth;
+      const nextHeight = element.clientHeight;
+      setOverlaySize((prev) => (
+        prev.width === nextWidth && prev.height === nextHeight
+          ? prev
+          : { width: nextWidth, height: nextHeight }
+      ));
+    };
+    updateOverlaySize();
+    const observer = new ResizeObserver(updateOverlaySize);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [shouldRenderOverlay]);
+
+  const rulers = useMemo(() => {
+    const showAnyRuler = showHorizontalRuler || showVerticalRuler;
+    if (!showAnyRuler) {
+      return { horizontal: null, vertical: null };
+    }
+    if (overlaySize.width <= 0 || overlaySize.height <= 0) {
+      return { horizontal: null, vertical: null };
+    }
+
+    const imageHeight = viewport.imageHeight > 0
+      ? viewport.imageHeight
+      : (overlay.rows > 0 ? overlay.rows : overlaySize.height);
+    const imageWidth = viewport.imageWidth > 0
+      ? viewport.imageWidth
+      : (overlay.columns > 0 ? overlay.columns : overlaySize.width);
+    const imagePixelSpacing = getPixelSpacingMm(currentImageId) ?? { row: 1, col: 1 };
+
+    const zoomScale = Math.max(0.01, viewport.zoomPercent / 100);
+    const fitScale = Math.min(
+      overlaySize.width / Math.max(1, imageWidth),
+      overlaySize.height / Math.max(1, imageHeight),
+    );
+    const imageToDisplayScale = fitScale * zoomScale;
+    if (!Number.isFinite(imageToDisplayScale) || imageToDisplayScale <= 0) {
+      return { horizontal: null, vertical: null };
+    }
+
+    const mmPerDisplayPxHorizontal = imagePixelSpacing.col / imageToDisplayScale;
+    const mmPerDisplayPxVertical = imagePixelSpacing.row / imageToDisplayScale;
+    const maxHorizontal = Math.min(overlaySize.width * 0.38, 280);
+    const maxVertical = Math.min(overlaySize.height * 0.38, 220);
+
+    return {
+      horizontal: showHorizontalRuler
+        ? buildRulerSpec(mmPerDisplayPxHorizontal, maxHorizontal, 160)
+        : null,
+      vertical: showVerticalRuler
+        ? buildRulerSpec(mmPerDisplayPxVertical, maxVertical, 130)
+        : null,
+    };
+  }, [
+    currentImageId,
+    overlay.columns,
+    overlay.rows,
+    overlaySize.height,
+    overlaySize.width,
+    showHorizontalRuler,
+    showVerticalRuler,
+    viewport.imageHeight,
+    viewport.imageWidth,
+    viewport.zoomPercent,
+  ]);
+
+  const horizontalRuler = rulers.horizontal;
+  const verticalRuler = rulers.vertical;
+
+  const renderField = (field: OverlayFieldKey): React.ReactNode | null => {
+    switch (field) {
+      case 'orientationSelector':
+        return (
+          <div className="pointer-events-auto">
+            <select
+              value={displayOrientation}
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => e.stopPropagation()}
+              onChange={(e) => {
+                e.stopPropagation();
+                const next = e.target.value as MPRPlane;
+                setPanelOrientation(panelId, next === nativeOrientation ? 'STACK' : next);
+              }}
+              className="bg-zinc-900/85 border border-zinc-700 text-zinc-200 text-[10px] rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              title="Viewport orientation"
+              disabled={viewport.totalImages <= 1}
+            >
+              <option value="AXIAL">Axial</option>
+              <option value="SAGITTAL">Sagittal</option>
+              <option value="CORONAL">Coronal</option>
+            </select>
+          </div>
+        );
+      case 'subjectLabel':
+        return subjectLabel ? <span className="text-zinc-200">{subjectLabel}</span> : null;
+      case 'sessionLabel':
+        return sessionLabel ? <span className="text-zinc-400">{sessionLabel}</span> : null;
+      case 'patientName':
+        return overlay.patientName ? <span className="text-zinc-200">{overlay.patientName}</span> : null;
+      case 'patientId':
+        return overlay.patientId ? <span className="text-zinc-400">ID: {overlay.patientId}</span> : null;
+      case 'studyDate':
+        return overlay.studyDate ? <span className="text-zinc-400">{overlay.studyDate}</span> : null;
+      case 'institutionName':
+        return overlay.institutionName ? <span>{overlay.institutionName}</span> : null;
+      case 'seriesDescription': {
+        const value = overlay.seriesDescription || scanSeriesDescription;
+        return value ? <span className="text-zinc-300">{value}</span> : null;
+      }
+      case 'scanId': {
+        const value = overlay.seriesNumber || panelScanId;
+        return value ? <span className="text-zinc-400">Scan: {value}</span> : null;
+      }
+      case 'imageIndex':
+        return (
+          <span>
+            Image: {viewport.imageIndex + 1} / {viewport.totalImages}
+          </span>
+        );
+      case 'sliceLocation':
+        return overlay.sliceLocation ? <span className="text-zinc-300">Loc: {overlay.sliceLocation} mm</span> : null;
+      case 'sliceThickness':
+        return overlay.sliceThickness ? <span className="text-zinc-400">Thick: {overlay.sliceThickness} mm</span> : null;
+      case 'windowLevel':
+        return <span className="text-zinc-300">W: {viewport.windowWidth} L: {viewport.windowCenter}</span>;
+      case 'zoom':
+        return <span>Zoom: {viewport.zoomPercent}%</span>;
+      case 'dimensions':
+        return (overlay.rows > 0 || viewport.imageWidth > 0)
+          ? (
+            <span className="text-zinc-300">
+              {overlay.rows || viewport.imageWidth} &times; {overlay.columns || viewport.imageHeight}
+            </span>
+          )
+          : null;
+      case 'rotation':
+        return viewport.rotation !== 0 ? <span className="text-zinc-400">Rot: {viewport.rotation}&deg;</span> : null;
+      case 'flip':
+        return (viewport.flipH || viewport.flipV)
+          ? (
+            <span className="text-zinc-400">
+              {viewport.flipH && 'FlipH'}
+              {viewport.flipH && viewport.flipV && ' / '}
+              {viewport.flipV && 'FlipV'}
+            </span>
+          )
+          : null;
+      case 'invert':
+        return viewport.invert ? <span className="text-zinc-400">Inverted</span> : null;
+      case 'crosshair':
+        return crosshairText ? <span className="text-cyan-300">{crosshairText}</span> : null;
+      default:
+        return null;
+    }
+  };
+
+  const renderCorner = (corner: OverlayCornerId): React.ReactNode[] => {
+    const fields = cornerFields[corner] ?? [];
+    const rendered: React.ReactNode[] = [];
+    for (let i = 0; i < fields.length; i++) {
+      const field = fields[i];
+      const node = renderField(field);
+      if (!node) continue;
+      rendered.push(<div key={`${corner}:${field}:${i}`}>{node}</div>);
+    }
+    return rendered;
+  };
+
+  if (!shouldRenderOverlay) return null;
+
   return (
-    <div className="absolute inset-0 pointer-events-none select-none">
+    <div ref={overlayRef} className="absolute inset-0 pointer-events-none select-none">
       {showCrosshairGuides && (() => {
         const { x, y, width, height } = crosshairGuides;
         const gap = 12;
@@ -128,98 +448,89 @@ export default function ViewportOverlay({ panelId }: ViewportOverlayProps) {
         <div className="absolute inset-0 p-2 flex flex-col justify-between font-mono text-xs text-white [text-shadow:_0_1px_3px_rgb(0_0_0_/_80%)]">
           {/* ─── Top Row ───────────────────────────────────────────── */}
           <div className="flex justify-between items-start">
-            {/* Top-left: Patient info */}
+            {/* Top-left */}
             <div className="flex flex-col gap-0.5">
-              <div className="pointer-events-auto">
-                <select
-                  value={displayOrientation}
-                  onMouseDown={(e) => e.stopPropagation()}
-                  onClick={(e) => e.stopPropagation()}
-                  onChange={(e) => {
-                    e.stopPropagation();
-                    const next = e.target.value as MPRPlane;
-                    setPanelOrientation(panelId, next === nativeOrientation ? 'STACK' : next);
-                  }}
-                  className="bg-zinc-900/85 border border-zinc-700 text-zinc-200 text-[10px] rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                  title="Viewport orientation"
-                  disabled={viewport.totalImages <= 1}
-                >
-                  <option value="AXIAL">Axial</option>
-                  <option value="SAGITTAL">Sagittal</option>
-                  <option value="CORONAL">Coronal</option>
-                </select>
-              </div>
-              {subjectLabel && <span className="text-zinc-200">{subjectLabel}</span>}
-              {sessionLabel && (
-                <span className="text-zinc-400">{sessionLabel}</span>
-              )}
-              {overlay.studyDate && (
-                <span className="text-zinc-400">{overlay.studyDate}</span>
-              )}
+              {renderCorner('topLeft')}
             </div>
 
-            {/* Top-right: Institution / series info */}
+            {/* Top-right */}
             <div className="flex flex-col gap-0.5 items-end">
-              {overlay.institutionName && <span>{overlay.institutionName}</span>}
-              {(overlay.seriesDescription || scanSeriesDescription) && (
-                <span className="text-zinc-300">{overlay.seriesDescription || scanSeriesDescription}</span>
-              )}
-              {(overlay.seriesNumber || panelScanId) && (
-                <span className="text-zinc-400">
-                  Scan: {overlay.seriesNumber || panelScanId}
-                </span>
-              )}
+              {renderCorner('topRight')}
             </div>
           </div>
 
           {/* ─── Bottom Row ────────────────────────────────────────── */}
           <div className="flex justify-between items-end">
-            {/* Bottom-left: Slice / W/L */}
+            {/* Bottom-left */}
             <div className="flex flex-col gap-0.5">
-              <span>
-                Image: {viewport.imageIndex + 1} / {viewport.totalImages}
-              </span>
-              {overlay.sliceLocation && (
-                <span className="text-zinc-300">
-                  Loc: {overlay.sliceLocation} mm
-                </span>
-              )}
-              {overlay.sliceThickness && (
-                <span className="text-zinc-400">
-                  Thick: {overlay.sliceThickness} mm
-                </span>
-              )}
-              <span className="text-zinc-300">
-                W: {viewport.windowWidth} L: {viewport.windowCenter}
-              </span>
+              {renderCorner('bottomLeft')}
             </div>
 
-            {/* Bottom-right: Zoom / dimensions */}
+            {/* Bottom-right */}
             <div className="flex flex-col gap-0.5 items-end">
-              <span>Zoom: {viewport.zoomPercent}%</span>
-              {(overlay.rows > 0 || viewport.imageWidth > 0) && (
-                <span className="text-zinc-300">
-                  {overlay.rows || viewport.imageWidth} &times;{' '}
-                  {overlay.columns || viewport.imageHeight}
-                </span>
-              )}
-              {viewport.rotation !== 0 && (
-                <span className="text-zinc-400">Rot: {viewport.rotation}&deg;</span>
-              )}
-              {(viewport.flipH || viewport.flipV) && (
-                <span className="text-zinc-400">
-                  {viewport.flipH && 'FlipH'}
-                  {viewport.flipH && viewport.flipV && ' / '}
-                  {viewport.flipV && 'FlipV'}
-                </span>
-              )}
-              {viewport.invert && (
-                <span className="text-zinc-400">Inverted</span>
-              )}
-              {crosshairText && (
-                <span className="text-cyan-300">{crosshairText}</span>
-              )}
+              {renderCorner('bottomRight')}
             </div>
+          </div>
+        </div>
+      )}
+
+      {showOrientationMarkers && (
+        <div className="absolute inset-0 text-[11px] font-bold text-zinc-300 [text-shadow:_0_1px_2px_rgb(0_0_0_/_80%)]">
+          <span className="absolute top-1.5 left-1/2 -translate-x-1/2">{ORIENTATION_LABELS[displayOrientation].top}</span>
+          <span className="absolute bottom-1.5 left-1/2 -translate-x-1/2">{ORIENTATION_LABELS[displayOrientation].bottom}</span>
+          <span className="absolute left-1.5 top-1/2 -translate-y-1/2">{ORIENTATION_LABELS[displayOrientation].left}</span>
+          <span className="absolute right-1.5 top-1/2 -translate-y-1/2">{ORIENTATION_LABELS[displayOrientation].right}</span>
+        </div>
+      )}
+
+      {showHorizontalRuler && horizontalRuler && (
+        <div className="absolute left-1/2 -translate-x-1/2 bottom-6 z-20 flex items-center gap-2 text-[11px] text-zinc-200 [text-shadow:_0_1px_2px_rgb(0_0_0_/_85%)]">
+          <div className="relative h-3" style={{ width: `${horizontalRuler.lengthPx}px` }}>
+            <div className="absolute left-0 right-0 top-1/2 -translate-y-1/2 h-px bg-zinc-200/90" />
+            {Array.from({ length: horizontalRuler.tickCount + 1 }, (_, index) => {
+              const ratio = horizontalRuler.tickCount > 0 ? (index / horizontalRuler.tickCount) : 0;
+              const isMajor =
+                index === 0
+                || index === horizontalRuler.tickCount
+                || index % 2 === 0;
+              return (
+                <div
+                  key={`h-tick-${index}`}
+                  className="absolute top-1/2 -translate-y-1/2 w-px bg-zinc-200/90"
+                  style={{
+                    left: `${ratio * 100}%`,
+                    height: `${isMajor ? 9 : 6}px`,
+                  }}
+                />
+              );
+            })}
+          </div>
+          <span className="font-mono">{horizontalRuler.label}</span>
+        </div>
+      )}
+
+      {showVerticalRuler && verticalRuler && (
+        <div className="absolute left-6 top-1/2 -translate-y-1/2 z-20 flex flex-col items-center gap-1 text-[11px] text-zinc-200 [text-shadow:_0_1px_2px_rgb(0_0_0_/_85%)]">
+          <span className="font-mono">{verticalRuler.label}</span>
+          <div className="relative w-3" style={{ height: `${verticalRuler.lengthPx}px` }}>
+            <div className="absolute top-0 bottom-0 left-1/2 -translate-x-1/2 w-px bg-zinc-200/90" />
+            {Array.from({ length: verticalRuler.tickCount + 1 }, (_, index) => {
+              const ratio = verticalRuler.tickCount > 0 ? (index / verticalRuler.tickCount) : 0;
+              const isMajor =
+                index === 0
+                || index === verticalRuler.tickCount
+                || index % 2 === 0;
+              return (
+                <div
+                  key={`v-tick-${index}`}
+                  className="absolute left-1/2 -translate-x-1/2 h-px bg-zinc-200/90"
+                  style={{
+                    top: `${ratio * 100}%`,
+                    width: `${isMajor ? 9 : 6}px`,
+                  }}
+                />
+              );
+            })}
           </div>
         </div>
       )}

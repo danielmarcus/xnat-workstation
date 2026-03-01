@@ -711,16 +711,22 @@ export const useViewerStore = create<ViewerStore>((set, get) => ({
   },
 
   _updateMPRSlice: (pid, sliceIndex, totalSlices) =>
-    set((s) => ({
-      mprViewports: {
-        ...s.mprViewports,
-        [pid]: {
-          ...(s.mprViewports[pid] ?? { sliceIndex: 0, totalSlices: 0, plane: 'AXIAL' as const }),
-          sliceIndex,
-          totalSlices,
+    set((s) => {
+      const current = s.mprViewports[pid] ?? { sliceIndex: 0, totalSlices: 0, plane: 'AXIAL' as const };
+      if (current.sliceIndex === sliceIndex && current.totalSlices === totalSlices) {
+        return s;
+      }
+      return {
+        mprViewports: {
+          ...s.mprViewports,
+          [pid]: {
+            ...current,
+            sliceIndex,
+            totalSlices,
+          },
         },
-      },
-    })),
+      };
+    }),
 
   _updateMPRVolumeProgress: (progress) =>
     set({ mprVolumeProgress: progress }),
@@ -764,22 +770,35 @@ export const useViewerStore = create<ViewerStore>((set, get) => ({
     })),
 
   _updateImageIndex: (pid, index, total) =>
-    set((s) => ({
-      viewports: {
-        ...s.viewports,
-        [pid]: {
-          ...(s.viewports[pid] ?? { ...INITIAL_VIEWPORT }),
-          imageIndex: index,
-          requestedImageIndex: (() => {
-            const requested = s.viewports[pid]?.requestedImageIndex ?? null;
-            if (requested === null) return null;
-            if (requested < 0 || requested >= total) return null;
-            return requested === index ? null : requested;
-          })(),
-          totalImages: total,
+    set((s) => {
+      const current = s.viewports[pid] ?? { ...INITIAL_VIEWPORT };
+      const nextRequestedImageIndex = (() => {
+        const requested = current.requestedImageIndex ?? null;
+        if (requested === null) return null;
+        if (requested < 0 || requested >= total) return null;
+        return requested === index ? null : requested;
+      })();
+
+      if (
+        current.imageIndex === index
+        && current.totalImages === total
+        && current.requestedImageIndex === nextRequestedImageIndex
+      ) {
+        return s;
+      }
+
+      return {
+        viewports: {
+          ...s.viewports,
+          [pid]: {
+            ...current,
+            imageIndex: index,
+            requestedImageIndex: nextRequestedImageIndex,
+            totalImages: total,
+          },
         },
-      },
-    })),
+      };
+    }),
 
   _requestImageIndex: (pid, index, totalOverride) =>
     set((s) => {
@@ -805,15 +824,21 @@ export const useViewerStore = create<ViewerStore>((set, get) => ({
     }),
 
   _updateZoom: (pid, percent) =>
-    set((s) => ({
-      viewports: {
-        ...s.viewports,
-        [pid]: {
-          ...(s.viewports[pid] ?? { ...INITIAL_VIEWPORT }),
-          zoomPercent: percent,
+    set((s) => {
+      const current = s.viewports[pid] ?? { ...INITIAL_VIEWPORT };
+      if (current.zoomPercent === percent) {
+        return s;
+      }
+      return {
+        viewports: {
+          ...s.viewports,
+          [pid]: {
+            ...current,
+            zoomPercent: percent,
+          },
         },
-      },
-    })),
+      };
+    }),
 
   _updateImageDimensions: (pid, w, h) =>
     set((s) => ({

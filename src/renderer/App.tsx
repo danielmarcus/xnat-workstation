@@ -8,6 +8,7 @@ import XnatBrowser from './components/connection/XnatBrowser';
 import { useConnectionStore } from './stores/connectionStore';
 import { useViewerStore } from './stores/viewerStore';
 import { useSegmentationStore } from './stores/segmentationStore';
+import { usePreferencesStore } from './stores/preferencesStore';
 import { wadouri } from '@cornerstonejs/dicom-image-loader';
 import { dicomwebLoader } from './lib/cornerstone/dicomwebLoader';
 import { matchProtocol, applyProtocol } from './lib/hangingProtocolService';
@@ -38,6 +39,7 @@ import { useSessionDerivedIndexStore, isSegScan, isRtStructScan, isDerivedScan, 
 import { useSegmentationManagerStore } from './stores/segmentationManagerStore';
 import { segmentationManager } from './lib/segmentation/segmentationManagerSingleton';
 import { getSegReferenceInfo } from './lib/dicom/segReferencedSeriesUid';
+import { applyPreferences } from './lib/preferences/applyPreferences';
 
 /** DICOM SEG SOP Class UID */
 const SEG_SOP_CLASS_UID = '1.2.840.10008.5.1.4.1.1.66.4';
@@ -606,6 +608,7 @@ export default function App() {
   const [browserWidth, setBrowserWidth] = useState(288);
   const browserWidthRef = useRef(288); // persists width when collapsed
   const isResizingRef = useRef(false);
+  const preferences = usePreferencesStore((s) => s.preferences);
 
   const setBrowserStatusMessage = useCallback(
     (message: string, tone: BrowserStatusTone = 'info', detail = '') => {
@@ -698,6 +701,10 @@ export default function App() {
   const connectionStatus = useConnectionStore((s) => s.status);
   const connection = useConnectionStore((s) => s.connection);
   const isConnected = connectionStatus === 'connected';
+
+  useEffect(() => {
+    applyPreferences(preferences);
+  }, [preferences]);
 
   useEffect(() => {
     if (connectionStatus === 'connected') {

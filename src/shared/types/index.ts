@@ -2,6 +2,7 @@
 export * from './viewer';
 export * from './dicom';
 export * from './xnat';
+export * from './preferences';
 
 import type {
   XnatLoginResult,

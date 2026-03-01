@@ -16,6 +16,7 @@ import { viewportService } from '../../lib/cornerstone/viewportService';
 import { crosshairSyncService } from '../../lib/cornerstone/crosshairSyncService';
 import { wireCrosshairPointerHandlers } from '../../lib/cornerstone/crosshairGeometry';
 import { useViewerStore } from '../../stores/viewerStore';
+import { usePreferencesStore } from '../../stores/preferencesStore';
 import { ToolName, type MPRPlane } from '@shared/types/viewer';
 
 interface MPRViewportProps {
@@ -42,6 +43,7 @@ export default function MPRViewport({ panelId, volumeId, plane }: MPRViewportPro
   const containerRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
   const activeTool = useViewerStore((s) => s.activeTool);
+  const showOrientationMarkers = usePreferencesStore((s) => s.preferences.overlay.showOrientationMarkers);
   const cursorClass = activeTool === ToolName.Crosshairs ? 'cursor-crosshair' : '';
 
   // Read MPR slice state from store
@@ -180,19 +182,23 @@ export default function MPRViewport({ panelId, volumeId, plane }: MPRViewportPro
           </div>
         )}
 
-        {/* Orientation edge labels */}
-        <span className="absolute top-1.5 left-1/2 -translate-x-1/2 text-[11px] font-bold text-zinc-300 drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]">
-          {labels.top}
-        </span>
-        <span className="absolute bottom-1.5 left-1/2 -translate-x-1/2 text-[11px] font-bold text-zinc-300 drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]">
-          {labels.bottom}
-        </span>
-        <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-[11px] font-bold text-zinc-300 drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]">
-          {labels.left}
-        </span>
-        <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[11px] font-bold text-zinc-300 drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]">
-          {labels.right}
-        </span>
+        {showOrientationMarkers && (
+          <>
+            {/* Orientation edge labels */}
+            <span className="absolute top-1.5 left-1/2 -translate-x-1/2 text-[11px] font-bold text-zinc-300 drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]">
+              {labels.top}
+            </span>
+            <span className="absolute bottom-1.5 left-1/2 -translate-x-1/2 text-[11px] font-bold text-zinc-300 drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]">
+              {labels.bottom}
+            </span>
+            <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-[11px] font-bold text-zinc-300 drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]">
+              {labels.left}
+            </span>
+            <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[11px] font-bold text-zinc-300 drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]">
+              {labels.right}
+            </span>
+          </>
+        )}
       </div>
 
       {/* Error overlay */}
