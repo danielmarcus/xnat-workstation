@@ -49,6 +49,7 @@ import { adaptersSEG, utilities as adaptersUtilities } from '@cornerstonejs/adap
 // Cornerstone core utilities and reference it below to prevent tree-shaking.
 void adaptersUtilities;
 import { data as dcmjsData } from 'dcmjs';
+import { usePreferencesStore } from '../../stores/preferencesStore';
 import { useSegmentationStore } from '../../stores/segmentationStore';
 import type { SegmentationSummary, SegmentSummary } from '../../stores/segmentationStore';
 import { useViewerStore } from '../../stores/viewerStore';
@@ -154,6 +155,22 @@ const groupDimensionsMap = new Map<string, GroupDimensions>();
 /** Group label storage (separate from segments). */
 const groupLabelMap = new Map<string, string>();
 
+/**
+ * Viewport attachment tracking for multi-layer groups.
+ * Records which viewports a group was added to via addToViewport(),
+ * even before any sub-segs exist. Without this, the first addSegment()
+ * cannot discover the target viewports because findViewportsWithGroup()
+ * iterates sub-segs — which are empty until the first segment is created.
+ */
+const groupViewportAttachments = new Map<string, Set<string>>();
+
+/**
+ * Background metadata pre-load promises per group.
+ * Started in createStackSegmentation() and awaited lazily in addSegment()
+ * so the UI doesn't block on first creation.
+ */
+const metadataPreloadPromises = new Map<string, Promise<void>>();
+
 /** Returns true if a segmentationId is a multi-layer group. */
 function isMultiLayerGroup(segmentationId: string): boolean {
   return subSegGroupMap.has(segmentationId);
@@ -180,6 +197,15 @@ function findViewportsWithGroup(groupId: string): string[] {
   for (const subSegId of subSegIds) {
     for (const vpId of csSegmentation.state.getViewportIdsWithSegmentation(subSegId)) {
       vpSet.add(vpId);
+    }
+  }
+  // Fall back to recorded viewport attachments — the group may have been added
+  // to viewports before any sub-segs existed (e.g. panel-created segmentations
+  // where the first segment is added separately).
+  if (vpSet.size === 0) {
+    const recorded = groupViewportAttachments.get(groupId);
+    if (recorded) {
+      for (const vpId of recorded) vpSet.add(vpId);
     }
   }
   return Array.from(vpSet);
@@ -497,43 +523,85 @@ function hasSegmentPixelsOnSlice(
   return false;
 }
 
-function chamferDistanceToMask(
+/**
+ * 1-D squared-Euclidean distance transform (Felzenszwalb–Huttenlocher).
+ * Operates in-place on `f` which contains 0 for mask pixels and +Inf for
+ * non-mask pixels. On output `f[i]` = squared Euclidean distance to the
+ * nearest mask pixel along this 1-D scanline.
+ *
+ * Reference: P. Felzenszwalb & D. Huttenlocher, "Distance Transforms of
+ *            Sampled Functions", Theory of Computing 8 (2012), 415–428.
+ */
+function edt1d(f: Float64Array, n: number): void {
+  const v = new Int32Array(n);   // locations of parabolas in lower envelope
+  const z = new Float64Array(n + 1); // boundaries between parabolas
+  let k = 0;
+  v[0] = 0;
+  z[0] = -Infinity;
+  z[1] = Infinity;
+
+  for (let q = 1; q < n; q++) {
+    let s = ((f[q] + q * q) - (f[v[k]] + v[k] * v[k])) / (2 * q - 2 * v[k]);
+    while (s <= z[k]) {
+      k--;
+      s = ((f[q] + q * q) - (f[v[k]] + v[k] * v[k])) / (2 * q - 2 * v[k]);
+    }
+    k++;
+    v[k] = q;
+    z[k] = s;
+    z[k + 1] = Infinity;
+  }
+
+  k = 0;
+  for (let q = 0; q < n; q++) {
+    while (z[k + 1] < q) k++;
+    const dq = q - v[k];
+    f[q] = dq * dq + f[v[k]];
+  }
+}
+
+/**
+ * Exact 2-D Euclidean Distance Transform using separable 1-D transforms.
+ * Returns a Float32Array of Euclidean distances (not squared) from each
+ * non-mask pixel to the nearest mask pixel. Mask pixels get distance 0.
+ */
+function euclideanDistanceToMask(
   mask: Uint8Array,
   width: number,
   height: number,
 ): Float32Array {
-  const dist = new Float32Array(mask.length);
-  for (let i = 0; i < mask.length; i++) {
-    dist[i] = mask[i] ? 0 : 1e12;
+  const INF = 1e20;
+  const size = width * height;
+
+  // Working buffer holds squared distances.
+  const grid = new Float64Array(size);
+  for (let i = 0; i < size; i++) {
+    grid[i] = mask[i] ? 0 : INF;
   }
 
+  // Transform columns (along Y for each X).
+  const col = new Float64Array(height);
+  for (let x = 0; x < width; x++) {
+    for (let y = 0; y < height; y++) col[y] = grid[y * width + x];
+    edt1d(col, height);
+    for (let y = 0; y < height; y++) grid[y * width + x] = col[y];
+  }
+
+  // Transform rows (along X for each Y).
+  const row = new Float64Array(width);
   for (let y = 0; y < height; y++) {
-    const row = y * width;
-    for (let x = 0; x < width; x++) {
-      const i = row + x;
-      let best = dist[i];
-      if (x > 0) best = Math.min(best, dist[i - 1] + 1);
-      if (y > 0) best = Math.min(best, dist[i - width] + 1);
-      if (x > 0 && y > 0) best = Math.min(best, dist[i - width - 1] + Math.SQRT2);
-      if (x + 1 < width && y > 0) best = Math.min(best, dist[i - width + 1] + Math.SQRT2);
-      dist[i] = best;
-    }
+    const off = y * width;
+    for (let x = 0; x < width; x++) row[x] = grid[off + x];
+    edt1d(row, width);
+    for (let x = 0; x < width; x++) grid[off + x] = row[x];
   }
 
-  for (let y = height - 1; y >= 0; y--) {
-    const row = y * width;
-    for (let x = width - 1; x >= 0; x--) {
-      const i = row + x;
-      let best = dist[i];
-      if (x + 1 < width) best = Math.min(best, dist[i + 1] + 1);
-      if (y + 1 < height) best = Math.min(best, dist[i + width] + 1);
-      if (x + 1 < width && y + 1 < height) best = Math.min(best, dist[i + width + 1] + Math.SQRT2);
-      if (x > 0 && y + 1 < height) best = Math.min(best, dist[i + width - 1] + Math.SQRT2);
-      dist[i] = best;
-    }
+  // Take square root → Euclidean distance.
+  const result = new Float32Array(size);
+  for (let i = 0; i < size; i++) {
+    result[i] = Math.sqrt(grid[i]);
   }
-
-  return dist;
+  return result;
 }
 
 function buildSignedDistanceForSegment(
@@ -552,8 +620,8 @@ function buildSignedDistanceForSegment(
     outside[i] = isInside ? 0 : 1;
   }
 
-  const distToInside = chamferDistanceToMask(inside, width, height);
-  const distToOutside = chamferDistanceToMask(outside, width, height);
+  const distToInside = euclideanDistanceToMask(inside, width, height);
+  const distToOutside = euclideanDistanceToMask(outside, width, height);
   const signed = new Float32Array(size);
 
   for (let i = 0; i < size; i++) {
@@ -561,6 +629,136 @@ function buildSignedDistanceForSegment(
   }
 
   return signed;
+}
+
+// ─── Interpolation Algorithm Implementations ─────────────────────
+
+/**
+ * Build an "inside distance" field for the Raya-Udupa morphological algorithm.
+ * Returns a Float32Array where inside pixels hold their Euclidean distance
+ * to the nearest boundary (>0), and outside/boundary pixels hold 0.
+ */
+function buildInsideDistanceField(
+  scalarData: ArrayLike<number>,
+  width: number,
+  height: number,
+  segmentIndex: number,
+): Float32Array {
+  const size = width * height;
+  const outside = new Uint8Array(size); // mask of outside pixels
+  for (let i = 0; i < size; i++) {
+    outside[i] = Number(scalarData[i]) === segmentIndex ? 0 : 1;
+  }
+  // EDT of outside mask gives: for each pixel, distance to nearest outside pixel.
+  // Inside pixels distant from boundary get high values; outside pixels get 0.
+  const distToOutside = euclideanDistanceToMask(outside, width, height);
+  return distToOutside;
+}
+
+/**
+ * Morphological (Raya-Udupa) interpolation between two anchor slices.
+ * Uses inside-distance fields: for each gap pixel, linearly blends the
+ * inside-distances from both anchors. Pixel is filled where the blended
+ * distance > 0, meaning the point is "inside" the interpolated shape.
+ *
+ * This produces larger (more volume-preserving) regions than SDF interpolation
+ * because it only considers positive inside-distances rather than the full
+ * signed distance field.
+ */
+function interpolateMorphological(
+  sliceA: ArrayLike<number>,
+  sliceB: ArrayLike<number>,
+  alpha: number,
+  width: number,
+  height: number,
+  segIdx: number,
+): Uint8Array {
+  const size = width * height;
+  const insideDistA = buildInsideDistanceField(sliceA, width, height, segIdx);
+  const insideDistB = buildInsideDistanceField(sliceB, width, height, segIdx);
+  const result = new Uint8Array(size);
+  for (let p = 0; p < size; p++) {
+    const blended = (1 - alpha) * insideDistA[p] + alpha * insideDistB[p];
+    if (blended > 0) {
+      result[p] = segIdx;
+    }
+  }
+  return result;
+}
+
+/**
+ * Nearest-slice interpolation. Returns the data from whichever anchor
+ * slice is nearest in position (alpha < 0.5 → slice A, else slice B).
+ */
+function interpolateNearestSlice(
+  sliceA: ArrayLike<number>,
+  sliceB: ArrayLike<number>,
+  alpha: number,
+  width: number,
+  height: number,
+  segIdx: number,
+): Uint8Array {
+  const size = width * height;
+  const source = alpha < 0.5 ? sliceA : sliceB;
+  const result = new Uint8Array(size);
+  for (let p = 0; p < size; p++) {
+    if (Number(source[p]) === segIdx) {
+      result[p] = segIdx;
+    }
+  }
+  return result;
+}
+
+/**
+ * Linear per-pixel blend interpolation. Blends binary presence values from
+ * both anchors and fills where the blend meets or exceeds the threshold.
+ * Lower threshold = more aggressive fill; 0.5 = standard midpoint.
+ */
+function interpolateLinearBlend(
+  sliceA: ArrayLike<number>,
+  sliceB: ArrayLike<number>,
+  alpha: number,
+  width: number,
+  height: number,
+  segIdx: number,
+  threshold: number,
+): Uint8Array {
+  const size = width * height;
+  const result = new Uint8Array(size);
+  for (let p = 0; p < size; p++) {
+    const valA = Number(sliceA[p]) === segIdx ? 1 : 0;
+    const valB = Number(sliceB[p]) === segIdx ? 1 : 0;
+    const blend = (1 - alpha) * valA + alpha * valB;
+    if (blend >= threshold) {
+      result[p] = segIdx;
+    }
+  }
+  return result;
+}
+
+/**
+ * SDF interpolation for a single gap slice (factored out from performLabelmapInterpolation).
+ * Returns a Uint8Array where filled pixels have value segIdx.
+ */
+function interpolateSDF(
+  sliceA: ArrayLike<number>,
+  sliceB: ArrayLike<number>,
+  alpha: number,
+  width: number,
+  height: number,
+  segIdx: number,
+): Uint8Array {
+  const size = width * height;
+  const signedA = buildSignedDistanceForSegment(sliceA, width, height, segIdx);
+  const signedB = buildSignedDistanceForSegment(sliceB, width, height, segIdx);
+  const result = new Uint8Array(size);
+  for (let p = 0; p < size; p++) {
+    const dist = (1 - alpha) * signedA[p] + alpha * signedB[p];
+    if (dist <= 0) {
+      result[p] = segIdx;
+    }
+  }
+  return result;
 }
 
 function applySourceDicomContextToSegDataset(dataset: any, sourceImageId: string): void {
@@ -993,8 +1191,12 @@ async function performLabelmapInterpolation(): Promise<void> {
   if (isDirtyTrackingSuppressed()) return;
   if (loadInProgressCount > 0) return;
 
+  // Read interpolation settings from preferences store (canonical source)
+  const prefState = usePreferencesStore.getState();
+  const interpPrefs = prefState.preferences.interpolation;
+  if (!interpPrefs.enabled) return;
+
   const segStore = useSegmentationStore.getState();
-  if (!segStore.interpolationEnabled) return;
   const pending = pendingLabelmapInterpolation;
   pendingLabelmapInterpolation = null;
   let activeSegId = pending?.segmentationId ?? segStore.activeSegmentationId;
@@ -1013,7 +1215,8 @@ async function performLabelmapInterpolation(): Promise<void> {
     effectiveSegIndex = 1; // sub-segs are binary (0/1)
   }
 
-  if (getSegmentationType(effectiveSegId) === 'contour') return;
+  const segType = getSegmentationType(effectiveSegId);
+  if (segType === 'contour') return;
 
   const labelmapData = await getCachedLabelmapSliceArrays(effectiveSegId);
   if (!labelmapData) return;
@@ -1029,6 +1232,9 @@ async function performLabelmapInterpolation(): Promise<void> {
   if (anchors.length < 2) return;
 
   labelmapInterpolationInProgress = true;
+  const algorithm = interpPrefs.algorithm;
+  const linearThreshold = interpPrefs.linearThreshold;
+
   try {
     const modifiedSlices = new Set<number>();
     const pixelsPerSlice = width * height;
@@ -1039,20 +1245,36 @@ async function performLabelmapInterpolation(): Promise<void> {
       const gap = b - a - 1;
       if (gap <= 0) continue;
 
-      const signedA = buildSignedDistanceForSegment(sliceArrays[a], width, height, effectiveSegIndex);
-      const signedB = buildSignedDistanceForSegment(sliceArrays[b], width, height, effectiveSegIndex);
-
       for (let s = a + 1; s < b; s++) {
         const alpha = (s - a) / (b - a);
         const slice = sliceArrays[s] as any;
-        let changed = false;
 
+        // Dispatch to the selected algorithm
+        let interpolated: Uint8Array;
+        switch (algorithm) {
+          case 'morphological':
+            interpolated = interpolateMorphological(sliceArrays[a], sliceArrays[b], alpha, width, height, effectiveSegIndex);
+            break;
+          case 'nearestSlice':
+            interpolated = interpolateNearestSlice(sliceArrays[a], sliceArrays[b], alpha, width, height, effectiveSegIndex);
+            break;
+          case 'linear':
+            interpolated = interpolateLinearBlend(sliceArrays[a], sliceArrays[b], alpha, width, height, effectiveSegIndex, linearThreshold);
+            break;
+          case 'sdf':
+          default:
+            interpolated = interpolateSDF(sliceArrays[a], sliceArrays[b], alpha, width, height, effectiveSegIndex);
+            break;
+        }
+
+        // Apply interpolated result to the gap slice
+        let changed = false;
         for (let p = 0; p < pixelsPerSlice; p++) {
           const currentValue = Number(slice[p]);
+          // Skip pixels that belong to a different segment
           if (currentValue !== 0 && currentValue !== effectiveSegIndex) continue;
-
-          const interpolatedDistance = (1 - alpha) * signedA[p] + alpha * signedB[p];
-          if (interpolatedDistance <= 0 && currentValue === 0) {
+          // Fill empty pixels where the algorithm says there should be data
+          if (interpolated[p] === effectiveSegIndex && currentValue === 0) {
             slice[p] = effectiveSegIndex;
             changed = true;
           }
@@ -1078,7 +1300,7 @@ async function performLabelmapInterpolation(): Promise<void> {
       enabledElement?.viewport?.render?.();
     }
   } catch (err) {
-    console.debug('[segmentationService] Labelmap interpolation failed:', err);
+    console.error('[segmentationService] Labelmap interpolation failed:', err);
   } finally {
     labelmapInterpolationInProgress = false;
   }
@@ -1359,21 +1581,29 @@ export const segmentationService = {
       );
     }
 
-    // Step 2: Pre-load source images so their metadata is available.
+    // Step 2: Start background pre-load of source image metadata.
+    // This is needed before addSegment() creates labelmap images, but we
+    // don't need to block creation — the promise is awaited lazily in
+    // addSegment() so the segmentation appears in the UI immediately.
     const uncachedIds = sourceImageIds.filter((id) => {
       try {
         return !metaData.get('imagePlaneModule', id);
       } catch { return true; }
     });
     if (uncachedIds.length > 0) {
-      console.log(`[segmentationService] Pre-loading ${uncachedIds.length}/${sourceImageIds.length} uncached images for segmentation metadata...`);
-      await Promise.all(uncachedIds.map((id) =>
+      console.log(`[segmentationService] Starting background pre-load of ${uncachedIds.length}/${sourceImageIds.length} uncached images...`);
+      const preloadPromise = Promise.all(uncachedIds.map((id) =>
         imageLoader.loadAndCacheImage(id).catch((err: any) => {
           console.warn(`[segmentationService] Failed to pre-load image ${id}:`, err);
         }),
-      ));
-    } else {
-      console.log(`[segmentationService] All ${sourceImageIds.length} images already have metadata, skipping pre-load`);
+      )).then(() => { metadataPreloadPromises.delete(segmentationId); });
+      metadataPreloadPromises.set(segmentationId, preloadPromise);
+
+      // If creating a default segment, we must await now because addSegment
+      // needs metadata synchronously within this call.
+      if (createDefaultSegment) {
+        await preloadPromise;
+      }
     }
 
     // Step 3: Initialize the multi-layer group (no labelmap images yet —
@@ -1399,7 +1629,7 @@ export const segmentationService = {
     // Step 4: If requested, create the first segment (which creates the
     // first sub-segmentation with its own labelmap images).
     if (createDefaultSegment) {
-      this.addSegment(segmentationId, 'Segment 1');
+      await this.addSegment(segmentationId, 'Segment 1');
       store.setActiveSegmentIndex(1);
     } else {
       store.setActiveSegmentIndex(0);
@@ -1562,11 +1792,11 @@ export const segmentationService = {
    * Cornerstone segmentation state and annotation map.
    * Returns the new segment index (1-based).
    */
-  addSegment(
+  async addSegment(
     segmentationId: string,
     label: string,
     color?: [number, number, number, number],
-  ): number {
+  ): Promise<number> {
     // ─── Contour (RTSTRUCT) path ─────────────────────────────
     const segType = getSegmentationType(segmentationId);
     if (segType === 'contour') {
@@ -1622,6 +1852,13 @@ export const segmentationService = {
     // ─── Multi-layer group (SEG) path ────────────────────────
     if (!isMultiLayerGroup(segmentationId)) {
       throw new Error(`[segmentationService] Not a multi-layer group: ${segmentationId}`);
+    }
+
+    // Ensure background metadata pre-load is complete before creating
+    // labelmap images (each needs imagePlaneModule from its source image).
+    const preloadPromise = metadataPreloadPromises.get(segmentationId);
+    if (preloadPromise) {
+      await preloadPromise;
     }
 
     const dims = groupDimensionsMap.get(segmentationId);
@@ -1887,6 +2124,8 @@ export const segmentationService = {
         groupLabelMap.delete(segmentationId);
         sourceImageIdsMap.delete(segmentationId);
         loadedColorsMap.delete(segmentationId);
+        groupViewportAttachments.delete(segmentationId);
+        metadataPreloadPromises.delete(segmentationId);
 
         const store = useSegmentationStore.getState();
         if (store.activeSegmentationId === segmentationId) {
@@ -1956,6 +2195,13 @@ export const segmentationService = {
 
     if (isMultiLayerGroup(segmentationId)) {
       // ─── Multi-layer path: attach each sub-seg as an independent actor ───
+      // Record viewport attachment so addSegment() can discover the target
+      // viewports even before any sub-segs exist (first segment case).
+      if (!groupViewportAttachments.has(segmentationId)) {
+        groupViewportAttachments.set(segmentationId, new Set());
+      }
+      groupViewportAttachments.get(segmentationId)!.add(viewportId);
+
       const subSegIds = getActiveSubSegIds(segmentationId);
       const metaMap = segmentMetaMap.get(segmentationId);
       const store = useSegmentationStore.getState();

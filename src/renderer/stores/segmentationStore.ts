@@ -54,9 +54,6 @@ interface SegmentationStore {
   /** Contour outline opacity (0-1) */
   contourOpacity: number;
 
-  /** Whether between-slice interpolation is enabled for annotations */
-  interpolationEnabled: boolean;
-
   /** Brush tool radius in pixels */
   brushSize: number;
 
@@ -124,9 +121,6 @@ interface SegmentationStore {
 
   /** Set contour opacity */
   setContourOpacity: (opacity: number) => void;
-
-  /** Enable/disable between-slice interpolation */
-  setInterpolationEnabled: (enabled: boolean) => void;
 
   /** Set brush size */
   setBrushSize: (size: number) => void;
@@ -199,7 +193,6 @@ export const useSegmentationStore = create<SegmentationStore>((set) => ({
   renderOutline: true,
   contourLineWidth: 2,
   contourOpacity: 1,
-  interpolationEnabled: true,
   brushSize: 5,
   thresholdRange: [-200, 200],
   activeSegTool: null,
@@ -234,8 +227,6 @@ export const useSegmentationStore = create<SegmentationStore>((set) => ({
   setContourLineWidth: (width) => set({ contourLineWidth: width }),
 
   setContourOpacity: (opacity) => set({ contourOpacity: opacity }),
-
-  setInterpolationEnabled: (enabled) => set({ interpolationEnabled: enabled }),
 
   setBrushSize: (size) => set({ brushSize: size }),
 

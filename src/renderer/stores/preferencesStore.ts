@@ -6,6 +6,9 @@ import {
   DEFAULT_SEGMENT_COLOR_SEQUENCE,
   type AnnotationToolPreferences,
   type HexColor,
+  DEFAULT_INTERPOLATION_PREFERENCES,
+  type InterpolationAlgorithm,
+  type InterpolationPreferences,
   type OverlayCornerId,
   type OverlayFieldKey,
   type OverlayPreferences,
@@ -29,6 +32,10 @@ interface PreferencesStore {
   setAnnotationMaskOutlines: (enabled: boolean) => void;
   setAnnotationSegmentOpacity: (opacity: number) => void;
   setAnnotationColorSequence: (colors: string[]) => void;
+  // ─── Interpolation ─────────────────────────────────────
+  setInterpolationEnabled: (enabled: boolean) => void;
+  setInterpolationAlgorithm: (algorithm: InterpolationAlgorithm) => void;
+  setLinearThreshold: (threshold: number) => void;
   resetAll: () => void;
 }
 
@@ -93,6 +100,7 @@ function makeDefaultPreferences(): PreferencesV1 {
       defaultSegmentOpacity: DEFAULT_PREFERENCES.annotation.defaultSegmentOpacity,
       defaultColorSequence: cloneDefaultColorSequence(),
     },
+    interpolation: { ...DEFAULT_INTERPOLATION_PREFERENCES },
   };
 }
 
@@ -357,6 +365,31 @@ export const usePreferencesStore = create<PreferencesStore>()(
             annotation: {
               ...state.preferences.annotation,
               defaultColorSequence: sanitizeColorSequence(colors),
+      // ─── Interpolation ────────────────────────────────────
+
+      setInterpolationEnabled: (enabled) =>
+        set((state) => ({
+          preferences: {
+            ...state.preferences,
+            interpolation: { ...state.preferences.interpolation, enabled },
+          },
+        })),
+
+      setInterpolationAlgorithm: (algorithm) =>
+        set((state) => ({
+          preferences: {
+            ...state.preferences,
+            interpolation: { ...state.preferences.interpolation, algorithm },
+          },
+        })),
+
+      setLinearThreshold: (threshold) =>
+        set((state) => ({
+          preferences: {
+            ...state.preferences,
+            interpolation: {
+              ...state.preferences.interpolation,
+              linearThreshold: Math.max(0, Math.min(1, threshold)),
             },
           },
         })),
@@ -376,6 +409,24 @@ export const usePreferencesStore = create<PreferencesStore>()(
         const incoming = (persisted as Partial<PreferencesStore>)?.preferences;
         if (!incoming) return base;
 
+        // Merge interpolation preferences with defaults as fallback
+        const incomingInterp = (incoming as Partial<PreferencesV1>).interpolation;
+        const mergedInterpolation: InterpolationPreferences = {
+          enabled:
+            typeof incomingInterp?.enabled === 'boolean'
+              ? incomingInterp.enabled
+              : base.preferences.interpolation.enabled,
+          algorithm:
+            incomingInterp?.algorithm &&
+            ['sdf', 'morphological', 'nearestSlice', 'linear'].includes(incomingInterp.algorithm)
+              ? incomingInterp.algorithm
+              : base.preferences.interpolation.algorithm,
+          linearThreshold:
+            typeof incomingInterp?.linearThreshold === 'number'
+              ? Math.max(0, Math.min(1, incomingInterp.linearThreshold))
+              : base.preferences.interpolation.linearThreshold,
+        };
+
         return {
           ...base,
           preferences: {
@@ -384,6 +435,7 @@ export const usePreferencesStore = create<PreferencesStore>()(
             },
             overlay: mergeOverlayPreferences(base.preferences.overlay, incoming.overlay),
             annotation: mergeAnnotationPreferences(base.preferences.annotation, incoming.annotation),
+            interpolation: mergedInterpolation,
           },
         };
       },
