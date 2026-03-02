@@ -36,6 +36,7 @@ export interface AnnotationToolPreferences {
   defaultBrushSize: number;
   defaultContourThickness: number;
   defaultMaskOutlines: boolean;
+  autoDisplayAnnotations: boolean;
   defaultSegmentOpacity: number;
   defaultColorSequence: HexColor[];
 }
@@ -141,6 +142,7 @@ export const DEFAULT_PREFERENCES: PreferencesV1 = {
     defaultBrushSize: 5,
     defaultContourThickness: 2,
     defaultMaskOutlines: true,
+    autoDisplayAnnotations: true,
     defaultSegmentOpacity: 0.5,
     defaultColorSequence: DEFAULT_SEGMENT_COLOR_SEQUENCE,
   },

@@ -3,7 +3,12 @@ node_modules/
 
 # Build output
 dist/
-build/
+build/*
+!build/icon.icns
+!build/icon.png
+!build/xnat-logo.png
+!build/entitlements.mac.plist
+!build/entitlements.mac.inherit.plist
 out/
 
 # Vite

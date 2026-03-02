@@ -30,6 +30,7 @@ interface PreferencesStore {
   setAnnotationBrushSize: (size: number) => void;
   setAnnotationContourThickness: (size: number) => void;
   setAnnotationMaskOutlines: (enabled: boolean) => void;
+  setAnnotationAutoDisplay: (enabled: boolean) => void;
   setAnnotationSegmentOpacity: (opacity: number) => void;
   setAnnotationColorSequence: (colors: string[]) => void;
   // ─── Interpolation ─────────────────────────────────────
@@ -97,6 +98,7 @@ function makeDefaultPreferences(): PreferencesV1 {
       defaultBrushSize: DEFAULT_PREFERENCES.annotation.defaultBrushSize,
       defaultContourThickness: DEFAULT_PREFERENCES.annotation.defaultContourThickness,
       defaultMaskOutlines: DEFAULT_PREFERENCES.annotation.defaultMaskOutlines,
+      autoDisplayAnnotations: DEFAULT_PREFERENCES.annotation.autoDisplayAnnotations,
       defaultSegmentOpacity: DEFAULT_PREFERENCES.annotation.defaultSegmentOpacity,
       defaultColorSequence: cloneDefaultColorSequence(),
     },
@@ -193,6 +195,10 @@ function mergeAnnotationPreferences(current: AnnotationToolPreferences, incoming
       typeof candidate.defaultMaskOutlines === 'boolean'
         ? candidate.defaultMaskOutlines
         : current.defaultMaskOutlines,
+    autoDisplayAnnotations:
+      typeof candidate.autoDisplayAnnotations === 'boolean'
+        ? candidate.autoDisplayAnnotations
+        : current.autoDisplayAnnotations,
     defaultSegmentOpacity:
       typeof candidate.defaultSegmentOpacity === 'number' && Number.isFinite(candidate.defaultSegmentOpacity)
         ? clampNumber(candidate.defaultSegmentOpacity, 0, 1)
@@ -347,6 +353,17 @@ export const usePreferencesStore = create<PreferencesStore>()(
           },
         })),
 
+      setAnnotationAutoDisplay: (enabled) =>
+        set((state) => ({
+          preferences: {
+            ...state.preferences,
+            annotation: {
+              ...state.preferences.annotation,
+              autoDisplayAnnotations: enabled,
+            },
+          },
+        })),
+
       setAnnotationSegmentOpacity: (opacity) =>
         set((state) => ({
           preferences: {
@@ -365,6 +382,10 @@ export const usePreferencesStore = create<PreferencesStore>()(
             annotation: {
               ...state.preferences.annotation,
               defaultColorSequence: sanitizeColorSequence(colors),
+            },
+          },
+        })),
+
       // ─── Interpolation ────────────────────────────────────
 
       setInterpolationEnabled: (enabled) =>

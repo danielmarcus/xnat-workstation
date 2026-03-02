@@ -14,12 +14,16 @@ extraResources:
       - "*.ico"
       - "*.icns"
 mac:
-  icon: build/icon.png
+  icon: build/icon.icns
   target:
     - dmg
     - zip
   category: public.app-category.medical
   hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.inherit.plist
+  notarize: true
 win:
   target:
     - nsis

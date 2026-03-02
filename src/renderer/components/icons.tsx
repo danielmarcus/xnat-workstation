@@ -712,15 +712,16 @@ export function IconRedo(props: IconProps) {
 export function IconSettings(props: IconProps) {
   return (
     <svg {...defaults(props)}>
-      <circle cx="8" cy="8" r="2.2" />
-      <path d="M8 1.8 V3.1" />
-      <path d="M8 12.9 V14.2" />
-      <path d="M1.8 8 H3.1" />
-      <path d="M12.9 8 H14.2" />
-      <path d="M3.3 3.3 L4.2 4.2" />
-      <path d="M11.8 11.8 L12.7 12.7" />
-      <path d="M3.3 12.7 L4.2 11.8" />
-      <path d="M11.8 4.2 L12.7 3.3" />
+      <circle cx="8" cy="8" r="4.1" />
+      <circle cx="8" cy="8" r="1.8" />
+      <path d="M8 0.9 V2.5" />
+      <path d="M8 13.5 V15.1" />
+      <path d="M0.9 8 H2.5" />
+      <path d="M13.5 8 H15.1" />
+      <path d="M2.9 2.9 L4 4" />
+      <path d="M12 12 L13.1 13.1" />
+      <path d="M2.9 13.1 L4 12" />
+      <path d="M12 4 L13.1 2.9" />
     </svg>
   );
 }

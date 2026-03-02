@@ -28,6 +28,10 @@ export function applyPreferences(preferences: PreferencesV1): void {
   const brushSize = clamp(Math.round(annotationPrefs.defaultBrushSize), 1, 100);
   const contourThickness = clamp(Math.round(annotationPrefs.defaultContourThickness), 1, 8);
   const segmentOpacity = clamp(annotationPrefs.defaultSegmentOpacity, 0, 1);
+  const autoDisplayAnnotations =
+    typeof annotationPrefs.autoDisplayAnnotations === 'boolean'
+      ? annotationPrefs.autoDisplayAnnotations
+      : DEFAULT_PREFERENCES.annotation.autoDisplayAnnotations;
   const colorSequence = (annotationPrefs.defaultColorSequence ?? DEFAULT_PREFERENCES.annotation.defaultColorSequence)
     .map((hex) => hexToRgba(hex))
     .filter((color): color is [number, number, number, number] => color !== null);
@@ -40,6 +44,7 @@ export function applyPreferences(preferences: PreferencesV1): void {
   segmentationState.setBrushSize(brushSize);
   segmentationState.setContourLineWidth(contourThickness);
   segmentationState.setRenderOutline(annotationPrefs.defaultMaskOutlines);
+  segmentationState.setAutoLoadSegOnScanClick(autoDisplayAnnotations);
   segmentationState.setFillAlpha(segmentOpacity);
 
   segmentationService.setDefaultColorSequence(colorSequence);

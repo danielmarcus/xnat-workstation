@@ -256,8 +256,6 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
   const autoSaveEnabled = useSegmentationStore((s) => s.autoSaveEnabled);
   const autoSaveStatus = useSegmentationStore((s) => s.autoSaveStatus);
   const setAutoSaveEnabled = useSegmentationStore((s) => s.setAutoSaveEnabled);
-  const autoLoadSegOnScanClick = useSegmentationStore((s) => s.autoLoadSegOnScanClick);
-  const setAutoLoadSegOnScanClick = useSegmentationStore((s) => s.setAutoLoadSegOnScanClick);
   const xnatOriginMap = useSegmentationStore((s) => s.xnatOriginMap);
   const dicomTypeBySegmentationId = useSegmentationStore((s) => s.dicomTypeBySegmentationId);
   const setDicomType = useSegmentationStore((s) => s.setDicomType);
@@ -1887,16 +1885,6 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
 
       {/* Shared annotation options (outside fixed-size tool section) */}
       <div className="border-t border-zinc-800 px-3 py-2 space-y-2 shrink-0">
-        <label className="flex items-center gap-2 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={autoLoadSegOnScanClick}
-            onChange={(e) => setAutoLoadSegOnScanClick(e.target.checked)}
-            className="w-3 h-3 rounded border-zinc-600 bg-zinc-800 accent-blue-500"
-          />
-          <span className="text-[10px] text-zinc-400">Automatically display annotations</span>
-        </label>
-
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-4">
             <label className="flex items-center gap-2 cursor-pointer">
