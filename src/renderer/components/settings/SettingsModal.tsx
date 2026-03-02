@@ -9,8 +9,7 @@ import { DEFAULT_HOTKEY_MAP } from '../../lib/hotkeys/defaultHotkeyMap';
 import { usePreferencesStore } from '../../stores/preferencesStore';
 import { IconClose } from '../icons';
 
-type SettingsTab = 'hotkeys' | 'overlay' | 'annotation';
-type SettingsTab = 'hotkeys' | 'overlay' | 'interpolation';
+type SettingsTab = 'hotkeys' | 'overlay' | 'annotation' | 'interpolation';
 
 interface SettingsModalProps {
   open: boolean;
@@ -160,6 +159,7 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
   const setAnnotationBrushSize = usePreferencesStore((s) => s.setAnnotationBrushSize);
   const setAnnotationContourThickness = usePreferencesStore((s) => s.setAnnotationContourThickness);
   const setAnnotationMaskOutlines = usePreferencesStore((s) => s.setAnnotationMaskOutlines);
+  const setAnnotationAutoDisplay = usePreferencesStore((s) => s.setAnnotationAutoDisplay);
   const setAnnotationSegmentOpacity = usePreferencesStore((s) => s.setAnnotationSegmentOpacity);
   const setAnnotationColorSequence = usePreferencesStore((s) => s.setAnnotationColorSequence);
   const setInterpolationEnabled = usePreferencesStore((s) => s.setInterpolationEnabled);
@@ -563,6 +563,16 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
                     />
                     <span className="text-xs text-zinc-300">Default display mask outlines</span>
                   </label>
+
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={annotationPrefs.autoDisplayAnnotations}
+                      onChange={(e) => setAnnotationAutoDisplay(e.target.checked)}
+                      className="w-3.5 h-3.5 rounded border-zinc-600 bg-zinc-800 accent-blue-500"
+                    />
+                    <span className="text-xs text-zinc-300">Automatically display annotations</span>
+                  </label>
                 </div>
 
                 <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-4 space-y-3">
@@ -596,6 +606,10 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
                       Apply Sequence
                     </button>
                   </div>
+                </div>
+              </>
+            )}
+
             {activeTab === 'interpolation' && (
               <>
                 <div className="text-xs text-zinc-400">
