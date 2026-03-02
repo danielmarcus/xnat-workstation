@@ -42,6 +42,8 @@ import { getSegReferenceInfo } from './lib/dicom/segReferencedSeriesUid';
 import { applyPreferences } from './lib/preferences/applyPreferences';
 import { backupService } from './lib/backup/backupService';
 import { segmentationService } from './lib/cornerstone/segmentationService';
+import AppDialogHost from './components/dialog/AppDialogHost';
+import { showConfirmDialog } from './stores/dialogStore';
 
 /** DICOM SEG SOP Class UID */
 const SEG_SOP_CLASS_UID = '1.2.840.10008.5.1.4.1.1.66.4';
@@ -3309,6 +3311,7 @@ export default function App() {
           </div>
         </div>
       )}
+      <AppDialogHost />
     </div>
   );
 }

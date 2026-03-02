@@ -10,6 +10,7 @@ import { useSegmentationStore } from '../../stores/segmentationStore';
 import { segmentationManager } from '../../lib/segmentation/segmentationManagerSingleton';
 import { segmentationService } from '../../lib/cornerstone/segmentationService';
 import { clearServerScopedStorage } from '../../lib/pinnedItems';
+import { showConfirmDialog } from '../../stores/dialogStore';
 import { IconDisconnect } from '../icons';
 
 export default function ConnectionStatus() {
@@ -35,24 +36,36 @@ export default function ConnectionStatus() {
       segmentationManager.hasDirtySegmentations();
 
     if (hasUnsaved) {
-      const saveDraft = window.confirm(
-        'You have unsaved annotations.\n\n' +
-        'Press OK to save a recoverable draft before disconnecting.\n' +
-        'Press Cancel to choose whether to discard changes.',
-      );
+      const saveDraft = await showConfirmDialog({
+        title: 'Unsaved Annotations',
+        message:
+          'You have unsaved annotations.\n\n' +
+          'Press Save Draft to keep a recoverable copy before disconnecting.\n' +
+          'Press Discard to choose whether to drop changes.',
+        confirmLabel: 'Save Draft',
+        cancelLabel: 'Discard',
+      });
 
       if (saveDraft) {
         const saved = await segmentationService.flushAutoSaveNow();
         if (!saved) {
-          const discardAfterFailed = window.confirm(
-            'Could not save a draft. Disconnect anyway and discard unsaved changes?',
-          );
+          const discardAfterFailed = await showConfirmDialog({
+            title: 'Draft Save Failed',
+            message: 'Could not save a draft. Disconnect anyway and discard unsaved changes?',
+            confirmLabel: 'Disconnect',
+            cancelLabel: 'Stay Connected',
+            tone: 'danger',
+          });
           if (!discardAfterFailed) return;
         }
       } else {
-        const discard = window.confirm(
-          'Disconnect and discard unsaved annotations?',
-        );
+        const discard = await showConfirmDialog({
+          title: 'Discard Unsaved Annotations',
+          message: 'Disconnect and discard unsaved annotations?',
+          confirmLabel: 'Disconnect',
+          cancelLabel: 'Cancel',
+          tone: 'danger',
+        });
         if (!discard) return;
       }
     }

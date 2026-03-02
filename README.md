@@ -155,6 +155,48 @@ Creates distributable installers in `release/`:
 - **Windows** — NSIS installer, portable EXE
 - **Linux** — AppImage, DEB
 
+### Signed macOS Package (Developer ID)
+
+To avoid Gatekeeper "unidentified developer" warnings, build with Apple signing + notarization credentials:
+
+```bash
+# Code signing certificate (.p12 exported from Keychain Access)
+export CSC_LINK="/absolute/path/to/DeveloperIDApplication.p12"
+export CSC_KEY_PASSWORD="your-p12-password"
+
+# Notarization (recommended: App Store Connect API key)
+export APPLE_API_KEY="/absolute/path/to/AuthKey_XXXXXX.p8"
+export APPLE_API_KEY_ID="XXXXXX"
+export APPLE_API_ISSUER="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+
+# Alternative notarization auth:
+# export APPLE_ID="name@example.com"
+# export APPLE_APP_SPECIFIC_PASSWORD="xxxx-xxxx-xxxx-xxxx"
+# export APPLE_TEAM_ID="XXXXXXXXXX"
+
+npm run package -- --mac
+```
+
+Quick validation after build:
+
+```bash
+codesign --verify --deep --strict --verbose=2 "release/mac/XNAT Workstation.app"
+spctl -a -vv -t install "release/XNAT Workstation-*.dmg"
+```
+
+If `codesign` fails with `unable to build chain to self-signed root`, restore standard keychain search paths and remove custom trust overrides on `Developer ID Certification Authority`:
+
+```bash
+security list-keychains -d user -s \
+  ~/Library/Keychains/login.keychain-db \
+  /Library/Keychains/System.keychain \
+  /System/Library/Keychains/SystemRootCertificates.keychain
+
+security find-certificate -c "Developer ID Certification Authority" -p \
+  /Library/Keychains/System.keychain > /tmp/dev-id-ca.pem
+security remove-trusted-cert -d /tmp/dev-id-ca.pem
+```
+
 ## Architecture
 
 ```

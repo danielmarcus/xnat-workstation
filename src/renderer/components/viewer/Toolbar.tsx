@@ -526,6 +526,8 @@ export default function Toolbar({ showDicomPanel = false, onToggleDicomPanel, on
   return (
     <>
       <div className="h-10 bg-zinc-900 border-b border-zinc-800 flex items-center px-2 gap-1 shrink-0">
+        <div className="flex-1 min-w-0 overflow-x-auto overflow-y-hidden">
+          <div className="flex items-center gap-1 w-max min-w-full pr-2">
       {/* ─── Left Slot (XNAT logo, connection, etc.) ─── */}
       {leftSlot && (
         <>
@@ -696,14 +698,16 @@ export default function Toolbar({ showDicomPanel = false, onToggleDicomPanel, on
           <DicomTagsToggle active={showDicomPanel} onToggle={onToggleDicomPanel} />
         </>
       )}
-        <div className="ml-auto" />
-        <Separator />
+          </div>
+        </div>
+        <div className="shrink-0 flex items-center gap-1 border-l border-zinc-800 pl-2">
         <IconButton
           icon={<IconSettings className="w-3.5 h-3.5" />}
           active={showSettings}
           onClick={() => setShowSettings((v) => !v)}
           title={showSettings ? 'Close settings' : 'Open settings'}
         />
+        </div>
       </div>
       <SettingsModal open={showSettings} onClose={() => { setShowSettings(false); setSettingsInitialTab(undefined); }} onRecover={onRecoverBackup} initialTab={settingsInitialTab} />
     </>
