@@ -40,6 +40,8 @@ import { useSegmentationManagerStore } from './stores/segmentationManagerStore';
 import { segmentationManager } from './lib/segmentation/segmentationManagerSingleton';
 import { getSegReferenceInfo } from './lib/dicom/segReferencedSeriesUid';
 import { applyPreferences } from './lib/preferences/applyPreferences';
+import AppDialogHost from './components/dialog/AppDialogHost';
+import { showConfirmDialog } from './stores/dialogStore';
 
 /** DICOM SEG SOP Class UID */
 const SEG_SOP_CLASS_UID = '1.2.840.10008.5.1.4.1.1.66.4';
@@ -210,12 +212,16 @@ async function checkForAutoSaveRecovery(
       }
 
       const typeLabel = isRtStruct ? 'contour (RTSTRUCT)' : 'segmentation';
-      const recover = window.confirm(
+      const recover = await showConfirmDialog({
+        title: `Recover Auto-Saved ${isRtStruct ? 'RTSTRUCT' : 'Segmentation'}`,
+        confirmLabel: 'Recover',
+        cancelLabel: 'Skip',
+        message:
         `An auto-saved ${typeLabel} was found.\n\n` +
         `${refLabel ? `Linked by ${refLabel}.\n\n` : ''}` +
         `This may be from an editing session that was not saved.\n\n` +
         `Would you like to recover it?`,
-      );
+      });
 
       if (recover) {
         try {
@@ -255,7 +261,13 @@ async function checkForAutoSaveRecovery(
           console.error(`[App] Failed to load recovered auto-save file "${file.name}":`, err);
         }
       } else {
-        const deleteIt = window.confirm('Delete this auto-saved file?');
+        const deleteIt = await showConfirmDialog({
+          title: 'Delete Auto-Saved File',
+          message: 'Delete this auto-saved file?',
+          confirmLabel: 'Delete',
+          cancelLabel: 'Keep',
+          tone: 'danger',
+        });
         if (deleteIt) {
           await window.electronAPI.xnat.deleteTempFile(sessionId, file.name).catch(() => {});
         }
@@ -2830,6 +2842,7 @@ export default function App() {
           </div>
         </div>
       )}
+      <AppDialogHost />
     </div>
   );
 }
