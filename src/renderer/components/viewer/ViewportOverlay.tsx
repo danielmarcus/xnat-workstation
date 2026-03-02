@@ -40,6 +40,9 @@ const EMPTY_VP = {
   imageHeight: 0,
 };
 
+/** Stable empty array to prevent Zustand selector infinite re-render loops. */
+const EMPTY_IMAGE_IDS: string[] = [];
+
 function getCrosshairDisplayPoint(
   panelId: string,
   worldPoint: [number, number, number],
@@ -171,7 +174,7 @@ export default function ViewportOverlay({ panelId }: ViewportOverlayProps) {
   const showContextOverlayFromLegacyStore = useSegmentationStore((s) => s.showViewportContextOverlay);
   const overlayPrefs = usePreferencesStore((s) => s.preferences.overlay);
   const viewport = useViewerStore((s) => s.viewports[panelId] ?? EMPTY_VP);
-  const panelImageIds = useViewerStore((s) => s.panelImageIdsMap[panelId] ?? []);
+  const panelImageIds = useViewerStore((s) => s.panelImageIdsMap[panelId] ?? EMPTY_IMAGE_IDS);
   const panelOrientation = useViewerStore((s) => s.panelOrientationMap[panelId] ?? 'STACK');
   const nativeOrientation = useViewerStore((s) => s.panelNativeOrientationMap[panelId] ?? 'AXIAL');
   const setPanelOrientation = useViewerStore((s) => s.setPanelOrientation);

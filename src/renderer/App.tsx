@@ -874,7 +874,11 @@ export default function App() {
   const discardCurrentAnnotations = useCallback(() => {
     const segStore = useSegmentationStore.getState();
     for (const seg of [...segStore.segmentations]) {
-      segmentationManager.removeSegmentation(seg.segmentationId);
+      try {
+        segmentationManager.removeSegmentation(seg.segmentationId);
+      } catch (err) {
+        console.error('[App] Failed to remove segmentation during discard:', err);
+      }
     }
     segStore._markClean();
   }, []);
@@ -986,6 +990,8 @@ export default function App() {
 
   const promptToSaveUnsavedAnnotations = useCallback(async (): Promise<boolean> => {
     const segStore = useSegmentationStore.getState();
+    // If there are no segmentations loaded, there's nothing to save
+    if (segStore.segmentations.length === 0) return true;
     const hasUnsaved =
       segStore.hasUnsavedChanges || segmentationManager.hasDirtySegmentations();
     if (!hasUnsaved) return true;
@@ -1094,9 +1100,13 @@ export default function App() {
   // ─── Unsaved changes: beforeunload guard ────────────────────
   useEffect(() => {
     const handler = (e: BeforeUnloadEvent) => {
-      // Check both old store and new manager store for unsaved changes
+      const segStore = useSegmentationStore.getState();
+      // Only block window close if there are loaded segmentations with changes
+      // that haven't been backed up locally yet. Changes that have been backed
+      // up to the local cache can be recovered on the next app launch, so we
+      // don't need to block quit for those.
       if (
-        useSegmentationStore.getState().hasUnsavedChanges ||
+        segStore.segmentations.length > 0 &&
         segmentationManager.hasDirtySegmentations()
       ) {
         e.preventDefault();
@@ -1551,13 +1561,14 @@ export default function App() {
   ) => {
     if (!isConnected) return;
 
-    const segStoreNav = useSegmentationStore.getState();
     // Prompt to save/discard unsaved annotations before switching scans.
     if (!(await promptToSaveUnsavedAnnotations())) return;
 
     const currentSessionId = useViewerStore.getState().xnatContext?.sessionId ?? null;
     if (currentSessionId && currentSessionId !== sessionId) {
-      for (const seg of [...segStoreNav.segmentations]) {
+      // Re-read state AFTER the prompt — discardCurrentAnnotations may have
+      // already removed segmentations if the user chose to proceed.
+      for (const seg of [...useSegmentationStore.getState().segmentations]) {
         segmentationManager.removeSegmentation(seg.segmentationId);
       }
       segLoadingLock.clear();
@@ -2342,7 +2353,6 @@ export default function App() {
     ) => {
       if (!isConnected) return;
 
-      const segStoreNav = useSegmentationStore.getState();
       // Prompt to save/discard unsaved annotations before switching sessions.
       if (!(await promptToSaveUnsavedAnnotations())) return;
 
@@ -2351,7 +2361,9 @@ export default function App() {
         dicomwebLoader.clearScanImageIdsCache(previousSessionId);
       }
 
-      for (const seg of [...segStoreNav.segmentations]) {
+      // Re-read state AFTER the prompt — discardCurrentAnnotations may have
+      // already removed segmentations if the user chose to proceed.
+      for (const seg of [...useSegmentationStore.getState().segmentations]) {
         segmentationManager.removeSegmentation(seg.segmentationId);
       }
 

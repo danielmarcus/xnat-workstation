@@ -9,7 +9,6 @@ import { useConnectionStore } from '../../stores/connectionStore';
 import { useSegmentationStore } from '../../stores/segmentationStore';
 import { segmentationManager } from '../../lib/segmentation/segmentationManagerSingleton';
 import { segmentationService } from '../../lib/cornerstone/segmentationService';
-import { clearServerScopedStorage } from '../../lib/pinnedItems';
 import { showConfirmDialog } from '../../stores/dialogStore';
 import { IconDisconnect } from '../icons';
 
@@ -72,7 +71,6 @@ export default function ConnectionStatus() {
 
     setDisconnecting(true);
     try {
-      clearServerScopedStorage(connection!.serverUrl);
       await logout();
     } finally {
       setDisconnecting(false);

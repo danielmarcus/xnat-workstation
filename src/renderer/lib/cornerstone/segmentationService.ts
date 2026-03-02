@@ -797,6 +797,32 @@ function applySourceDicomContextToSegDataset(dataset: any, sourceImageId: string
 // ─── Sync Logic ─────────────────────────────────────────────────
 
 /**
+ * After a segmentation is removed, clear its per-seg dirty flag and
+ * re-evaluate the global hasUnsavedChanges flag.  If no dirty
+ * segmentations remain, the global flag is cleared so that navigation
+ * guards and beforeunload no longer block.
+ *
+ * Note: we set hasUnsavedChanges directly via setState instead of calling
+ * _markClean(), because _markClean() uses an async import().then() to call
+ * clearAllDirty(). That async state update can fire during React's commit
+ * phase and trigger infinite re-render loops. Since we already clear the
+ * per-seg dirty flag here, the async clearAllDirty is unnecessary.
+ */
+function cleanupDirtyStateAfterRemoval(segmentationId: string): void {
+  try {
+    const mgrStore = useSegmentationManagerStore.getState();
+    mgrStore.clearDirty(segmentationId);
+
+    // If no remaining segmentations are dirty, clear the global flag
+    if (!mgrStore.hasDirtySegmentations()) {
+      useSegmentationStore.setState({ hasUnsavedChanges: false });
+    }
+  } catch {
+    // Non-critical cleanup — don't let it break the removal flow
+  }
+}
+
+/**
  * Rebuild segmentation summaries from Cornerstone's global state
  * and push to the Zustand store.
  */
@@ -2186,6 +2212,7 @@ export const segmentationService = {
         console.error('[segmentationService] Failed to remove group segmentation:', err);
       }
       syncSegmentations();
+      cleanupDirtyStateAfterRemoval(segmentationId);
       return;
     }
 
@@ -2220,6 +2247,7 @@ export const segmentationService = {
       console.error('[segmentationService] Failed to remove segmentation:', err);
     }
     syncSegmentations();
+    cleanupDirtyStateAfterRemoval(segmentationId);
   },
 
   /**

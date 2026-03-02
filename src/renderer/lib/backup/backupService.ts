@@ -275,10 +275,10 @@ export const backupService = {
         console.error('[backupService] Failed to write manifest:', err);
       }
 
-      // If all dirty segs are now clean, update the global flag
-      if (!mgrStore.hasDirtySegmentations()) {
-        useSegmentationStore.getState()._markClean();
-      }
+      // Note: we intentionally do NOT call _markClean() here.
+      // Local backup ≠ saved to XNAT. The hasUnsavedChanges flag
+      // must remain true until the user actually saves to the server,
+      // so that navigation guards still prompt before discarding.
     }
 
     return backed;

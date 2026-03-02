@@ -708,20 +708,12 @@ export function IconRedo(props: IconProps) {
   );
 }
 
-/** Settings — simple gear icon */
+/** Settings — gear / cog icon */
 export function IconSettings(props: IconProps) {
   return (
     <svg {...defaults(props)}>
-      <circle cx="8" cy="8" r="4.1" />
+      <path d="M6.9 3.9L6.4 1.9L9.6 1.9L9.1 3.9L11.0 5.0L12.5 3.5L14.1 6.4L12.1 6.9L12.1 9.1L14.1 9.6L12.5 12.5L11.0 11.0L9.1 12.1L9.6 14.1L6.4 14.1L6.9 12.1L5.0 11.0L3.5 12.5L1.9 9.6L3.9 9.1L3.9 6.9L1.9 6.4L3.5 3.5L5.0 5.0Z" />
       <circle cx="8" cy="8" r="1.8" />
-      <path d="M8 0.9 V2.5" />
-      <path d="M8 13.5 V15.1" />
-      <path d="M0.9 8 H2.5" />
-      <path d="M13.5 8 H15.1" />
-      <path d="M2.9 2.9 L4 4" />
-      <path d="M12 12 L13.1 13.1" />
-      <path d="M2.9 13.1 L4 12" />
-      <path d="M12 4 L13.1 2.9" />
     </svg>
   );
 }

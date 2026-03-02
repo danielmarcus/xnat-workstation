@@ -526,7 +526,7 @@ export default function Toolbar({ showDicomPanel = false, onToggleDicomPanel, on
   return (
     <>
       <div className="h-10 bg-zinc-900 border-b border-zinc-800 flex items-center px-2 gap-1 shrink-0">
-        <div className="flex-1 min-w-0 overflow-x-auto overflow-y-hidden">
+        <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1 w-max min-w-full pr-2">
       {/* ─── Left Slot (XNAT logo, connection, etc.) ─── */}
       {leftSlot && (

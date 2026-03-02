@@ -65,7 +65,7 @@ export default function ViewportGrid({ panelImageIds }: ViewportGridProps) {
             key={pid}
             data-panel-id={pid}
             tabIndex={-1}
-            className="relative min-w-0 min-h-0 cursor-pointer"
+            className="relative min-w-0 min-h-0 cursor-pointer outline-none"
             onClick={() => setActiveViewport(pid)}
           >
             {isActive && (
