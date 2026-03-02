@@ -3,6 +3,7 @@ export * from './viewer';
 export * from './dicom';
 export * from './xnat';
 export * from './preferences';
+export * from './backup';
 
 import type {
   XnatLoginResult,
@@ -137,6 +138,39 @@ export interface ElectronAPI {
       bounds: { x: number; y: number; width: number; height: number },
       defaultName?: string,
     ): Promise<{ ok: boolean; path?: string; error?: string }>;
+  };
+  shell: {
+    openExternal(url: string): Promise<{ ok: boolean; error?: string }>;
+  };
+  backup: {
+    writeFile(
+      sessionId: string,
+      filename: string,
+      base64Data: string,
+    ): Promise<{ ok: boolean; path?: string; sizeBytes?: number; error?: string }>;
+    readFile(
+      sessionId: string,
+      filename: string,
+    ): Promise<{ ok: boolean; data?: string; error?: string }>;
+    deleteFile(
+      sessionId: string,
+      filename: string,
+    ): Promise<{ ok: boolean; error?: string }>;
+    listSession(
+      sessionId: string,
+    ): Promise<{ ok: boolean; files?: Array<{ name: string; sizeBytes: number; modifiedAt: string }>; error?: string }>;
+    readManifest(
+      sessionId: string,
+    ): Promise<{ ok: boolean; manifest?: import('./backup').BackupManifest; error?: string }>;
+    writeManifest(
+      sessionId: string,
+      manifestJson: string,
+    ): Promise<{ ok: boolean; error?: string }>;
+    deleteSession(
+      sessionId: string,
+    ): Promise<{ ok: boolean; error?: string }>;
+    listAllSessions(): Promise<{ ok: boolean; sessions?: import('./backup').BackupSessionSummary[]; error?: string }>;
+    getCachePath(): Promise<{ ok: boolean; path?: string; error?: string }>;
   };
   on(channel: string, callback: (...args: unknown[]) => void): () => void;
 }

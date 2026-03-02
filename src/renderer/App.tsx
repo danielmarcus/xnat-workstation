@@ -40,6 +40,8 @@ import { useSegmentationManagerStore } from './stores/segmentationManagerStore';
 import { segmentationManager } from './lib/segmentation/segmentationManagerSingleton';
 import { getSegReferenceInfo } from './lib/dicom/segReferencedSeriesUid';
 import { applyPreferences } from './lib/preferences/applyPreferences';
+import { backupService } from './lib/backup/backupService';
+import { segmentationService } from './lib/cornerstone/segmentationService';
 
 /** DICOM SEG SOP Class UID */
 const SEG_SOP_CLASS_UID = '1.2.840.10008.5.1.4.1.1.66.4';
@@ -81,6 +83,15 @@ interface UnsavedNavigationDialogState {
   open: boolean;
 }
 
+/** State for the styled recovery confirm dialog (replaces window.confirm). */
+interface RecoveryConfirmDialogState {
+  open: boolean;
+  title: string;
+  message: string;
+  confirmLabel: string;
+  cancelLabel: string;
+}
+
 // isSegScan, isRtStructScan, isDerivedScan imported from sessionDerivedIndexStore
 // getSegReferenceInfo imported from lib/dicom/segReferencedSeriesUid
 
@@ -110,29 +121,225 @@ function releaseSegLock(scanId: string): void {
 }
 
 /**
- * Check for auto-saved temp files on the XNAT session and prompt recovery.
+ * Check for auto-saved files and prompt recovery.
+ *
+ * Checks two sources in order:
+ *   1. Local filesystem backup cache (via backupService)
+ *   2. Legacy XNAT temp resource files (backward compatibility)
+ *
  * Called after all scans are loaded in loadSessionFromXnat().
  */
 async function checkForAutoSaveRecovery(
   sessionId: string,
   scanIdToPanelInfo: Map<string, { pid: string; ids: string[] }>,
+  confirm: (title: string, message: string, confirmLabel?: string, cancelLabel?: string) => Promise<boolean>,
 ): Promise<void> {
   // Only check once per session to avoid repeated dialog prompts
   if (recoveredSessions.has(sessionId)) return;
 
+  const loadedPanelsById: Record<string, string[]> = {};
+  for (const panelInfo of scanIdToPanelInfo.values()) {
+    loadedPanelsById[panelInfo.pid] = panelInfo.ids;
+  }
+
+  // ─── Phase 1: Check local filesystem backup cache ───────────────
+  try {
+    const manifest = await backupService.getManifestForSession(sessionId);
+    console.log(`[App] Local backup check for ${sessionId}: ${manifest ? manifest.entries.length + ' entries' : 'no manifest'}`);
+    if (manifest && manifest.entries.length > 0) {
+      for (const entry of manifest.entries) {
+        const isRtStruct = entry.format === 'RTSTRUCT';
+
+        // ── Step 1: Match backup to a loaded panel ──
+        // Primary: use the manifest's sourceScanId to look up in scanIdToPanelInfo
+        // (This is reliable even before Cornerstone metadata is loaded)
+        let targetPanelInfo: { panelId: string; imageIds: string[] } | null = null;
+        let refLabel = '';
+        let earlyArrayBuffer: ArrayBuffer | null = null;
+
+        const panelBySourceScan = scanIdToPanelInfo.get(entry.sourceScanId);
+        if (panelBySourceScan) {
+          targetPanelInfo = { panelId: panelBySourceScan.pid, imageIds: panelBySourceScan.ids };
+          refLabel = `source scan #${entry.sourceScanId}`;
+          console.log(`[App] Matched backup "${entry.filename}" to panel ${panelBySourceScan.pid} via sourceScanId ${entry.sourceScanId}`);
+        }
+
+        // Fallback: parse the DICOM backup and match by series/SOP UIDs
+        // (Only needed if sourceScanId doesn't match — e.g. legacy backups)
+        if (!targetPanelInfo) {
+          try {
+            const base64 = await backupService.readSegmentation(sessionId, entry.filename);
+            const binaryString = atob(base64);
+            const bytes = new Uint8Array(binaryString.length);
+            for (let i = 0; i < binaryString.length; i++) {
+              bytes[i] = binaryString.charCodeAt(i);
+            }
+            earlyArrayBuffer = bytes.buffer;
+          } catch (err) {
+            console.error(`[App] Failed to read local backup "${entry.filename}":`, err);
+            continue;
+          }
+
+          try {
+            if (isRtStruct) {
+              const parsedRt = rtStructService.parseRtStruct(earlyArrayBuffer);
+              if (parsedRt.referencedSeriesUID) {
+                targetPanelInfo = findPanelBySeriesUID(parsedRt.referencedSeriesUID, loadedPanelsById);
+                if (targetPanelInfo) refLabel = `SeriesInstanceUID ${parsedRt.referencedSeriesUID}`;
+              }
+              if (!targetPanelInfo) {
+                const referencedSops = new Set<string>();
+                for (const roi of parsedRt.rois) {
+                  for (const contour of roi.contours) {
+                    if (contour.referencedSOPInstanceUID) {
+                      referencedSops.add(contour.referencedSOPInstanceUID);
+                    }
+                  }
+                }
+                if (referencedSops.size > 0) {
+                  targetPanelInfo = findPanelByReferencedSopInstanceUIDs(
+                    Array.from(referencedSops),
+                    loadedPanelsById,
+                  );
+                  if (targetPanelInfo) refLabel = `${referencedSops.size} referenced SOP UID(s)`;
+                }
+              }
+            } else {
+              const refInfo = getSegReferenceInfo(earlyArrayBuffer);
+              if (refInfo.referencedSeriesUID) {
+                targetPanelInfo = findPanelBySeriesUID(refInfo.referencedSeriesUID, loadedPanelsById);
+                if (targetPanelInfo) refLabel = `SeriesInstanceUID ${refInfo.referencedSeriesUID}`;
+              }
+              if (!targetPanelInfo && refInfo.referencedSOPInstanceUIDs.length > 0) {
+                targetPanelInfo = findPanelByReferencedSopInstanceUIDs(
+                  refInfo.referencedSOPInstanceUIDs,
+                  loadedPanelsById,
+                );
+                if (targetPanelInfo) refLabel = `${refInfo.referencedSOPInstanceUIDs.length} referenced SOP UID(s)`;
+              }
+            }
+          } catch (err) {
+            console.error(`[App] Failed to parse local backup "${entry.filename}":`, err);
+          }
+        }
+
+        if (!targetPanelInfo) {
+          console.warn(
+            `[App] Local backup recovery: could not resolve loaded source for ${entry.filename}`
+            + ` (sourceScanId: ${entry.sourceScanId})`,
+          );
+          continue;
+        }
+
+        // ── Step 2: Read the backup file (if not already read in fallback) ──
+        let arrayBuffer: ArrayBuffer;
+        if (earlyArrayBuffer) {
+          arrayBuffer = earlyArrayBuffer;
+        } else {
+          try {
+            const base64 = await backupService.readSegmentation(sessionId, entry.filename);
+            const binaryString = atob(base64);
+            const bytes = new Uint8Array(binaryString.length);
+            for (let i = 0; i < binaryString.length; i++) {
+              bytes[i] = binaryString.charCodeAt(i);
+            }
+            arrayBuffer = bytes.buffer;
+          } catch (err) {
+            console.error(`[App] Failed to read local backup "${entry.filename}":`, err);
+            continue;
+          }
+        }
+
+        // ── Step 3: Prompt the user for recovery ──
+        const recover = await confirm(
+          'Recover backup',
+          `A recovered annotation was identified for Scan #${entry.sourceScanId}.`,
+          'Recover',
+          'Skip',
+        );
+
+        if (recover) {
+          try {
+            await preloadImages(targetPanelInfo.imageIds);
+
+            let recoveredSegId: string;
+            if (isRtStruct) {
+              const { segmentationId, firstReferencedImageId } =
+                await segmentationManager.loadRtStructFromArrayBuffer(
+                  targetPanelInfo.panelId,
+                  arrayBuffer,
+                  targetPanelInfo.imageIds,
+                );
+              recoveredSegId = segmentationId;
+              await jumpViewportToReferencedImage(targetPanelInfo.panelId, firstReferencedImageId);
+            } else {
+              const { segmentationId, firstNonZeroReferencedImageId } =
+                await segmentationManager.loadSegFromArrayBuffer(
+                  targetPanelInfo.panelId,
+                  arrayBuffer,
+                  targetPanelInfo.imageIds,
+                );
+              recoveredSegId = segmentationId;
+              await jumpViewportToReferencedImage(targetPanelInfo.panelId, firstNonZeroReferencedImageId);
+            }
+
+            // Register in tracking store so SegmentationPanel includes this in its filter
+            const panelContext = useViewerStore.getState().panelXnatContextMap[targetPanelInfo.panelId];
+            if (panelContext?.projectId) {
+              const compositeKey = `${panelContext.projectId}/${sessionId}/${entry.sourceScanId}`;
+              useSegmentationManagerStore.getState().setLocalOrigin(recoveredSegId, compositeKey);
+            }
+
+            // Delete the recovered backup entry
+            await backupService.deleteBackupEntry(sessionId, entry.filename).catch(() => {});
+
+            console.log(
+              `[App] Recovered local backup ${isRtStruct ? 'RTSTRUCT' : 'SEG'} "${entry.filename}" `
+              + `on ${targetPanelInfo.panelId} as ${recoveredSegId}`,
+            );
+
+            segmentationService.sync();
+            const segStore = useSegmentationStore.getState();
+            if (!segStore.showPanel) segStore.togglePanel();
+          } catch (err) {
+            console.error(`[App] Failed to load recovered local backup "${entry.filename}":`, err);
+          }
+        } else {
+          const deleteIt = await confirm(
+            'Delete backup',
+            'Delete this backed-up file? This cannot be undone.',
+            'Delete',
+            'Keep',
+          );
+          if (deleteIt) {
+            await backupService.deleteBackupEntry(sessionId, entry.filename).catch(() => {});
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.error('[App] Local backup recovery check failed:', err);
+    // Non-fatal — fall through to XNAT temp check
+  }
+
+  // Mark recovery as checked — always do this regardless of Phase 2 outcome
+  recoveredSessions.add(sessionId);
+
+  // ─── Phase 2: Check legacy XNAT temp resource files ─────────────
   try {
     const result = await window.electronAPI.xnat.listTempFiles(sessionId);
-    if (!result.ok || !result.files || result.files.length === 0) return;
+    if (!result.ok || !result.files || result.files.length === 0) {
+      recoveredSessions.add(sessionId);
+      return;
+    }
 
     // Find auto-save files (both SEG and RTSTRUCT)
     const autoSaveFiles = result.files.filter(
       (f) => (f.name.startsWith('autosave_seg_') || f.name.startsWith('autosave_rtstruct_')) && f.name.endsWith('.dcm'),
     );
-    if (autoSaveFiles.length === 0) return;
-
-    const loadedPanelsById: Record<string, string[]> = {};
-    for (const panelInfo of scanIdToPanelInfo.values()) {
-      loadedPanelsById[panelInfo.pid] = panelInfo.ids;
+    if (autoSaveFiles.length === 0) {
+      recoveredSessions.add(sessionId);
+      return;
     }
 
     for (const file of autoSaveFiles) {
@@ -209,12 +416,12 @@ async function checkForAutoSaveRecovery(
         continue;
       }
 
-      const typeLabel = isRtStruct ? 'contour (RTSTRUCT)' : 'segmentation';
-      const recover = window.confirm(
-        `An auto-saved ${typeLabel} was found.\n\n` +
-        `${refLabel ? `Linked by ${refLabel}.\n\n` : ''}` +
-        `This may be from an editing session that was not saved.\n\n` +
-        `Would you like to recover it?`,
+      const scanLabel = sourceScanHint ?? 'unknown';
+      const recover = await confirm(
+        'Recover backup',
+        `A recovered annotation was identified for Scan #${scanLabel}.`,
+        'Recover',
+        'Skip',
       );
 
       if (recover) {
@@ -242,20 +449,34 @@ async function checkForAutoSaveRecovery(
             await jumpViewportToReferencedImage(targetPanelInfo.panelId, firstNonZeroReferencedImageId);
           }
 
+          // Register in tracking store so SegmentationPanel includes this in its filter
+          const panelContext2 = useViewerStore.getState().panelXnatContextMap[targetPanelInfo.panelId];
+          const sourceScan2 = sourceScanHint ?? useViewerStore.getState().panelScanMap[targetPanelInfo.panelId];
+          if (panelContext2?.projectId && sourceScan2) {
+            const compositeKey = `${panelContext2.projectId}/${sessionId}/${sourceScan2}`;
+            useSegmentationManagerStore.getState().setLocalOrigin(recoveredSegId, compositeKey);
+          }
+
           await window.electronAPI.xnat.deleteTempFile(sessionId, file.name).catch(() => {});
 
           console.log(
-            `[App] Recovered ${isRtStruct ? 'RTSTRUCT' : 'SEG'} auto-save "${file.name}" `
+            `[App] Recovered ${isRtStruct ? 'RTSTRUCT' : 'SEG'} XNAT temp auto-save "${file.name}" `
             + `on ${targetPanelInfo.panelId} as ${recoveredSegId}`,
           );
 
+          segmentationService.sync();
           const segStore = useSegmentationStore.getState();
           if (!segStore.showPanel) segStore.togglePanel();
         } catch (err) {
           console.error(`[App] Failed to load recovered auto-save file "${file.name}":`, err);
         }
       } else {
-        const deleteIt = window.confirm('Delete this auto-saved file?');
+        const deleteIt = await confirm(
+          'Delete backup',
+          'Delete this auto-saved file? This cannot be undone.',
+          'Delete',
+          'Keep',
+        );
         if (deleteIt) {
           await window.electronAPI.xnat.deleteTempFile(sessionId, file.name).catch(() => {});
         }
@@ -604,11 +825,42 @@ export default function App() {
   });
   const [unsavedNavigationDialog, setUnsavedNavigationDialog] = useState<UnsavedNavigationDialogState>({ open: false });
   const unsavedNavigationResolverRef = useRef<((proceed: boolean) => void) | null>(null);
+
+  // ─── Recovery confirm dialog (replaces native window.confirm) ───
+  const [recoveryConfirmDialog, setRecoveryConfirmDialog] = useState<RecoveryConfirmDialogState>({
+    open: false, title: '', message: '', confirmLabel: 'OK', cancelLabel: 'Cancel',
+  });
+  const recoveryConfirmResolverRef = useRef<((result: boolean) => void) | null>(null);
+
+  const resolveRecoveryConfirmDialog = useCallback((result: boolean) => {
+    const resolver = recoveryConfirmResolverRef.current;
+    recoveryConfirmResolverRef.current = null;
+    setRecoveryConfirmDialog((prev) => ({ ...prev, open: false }));
+    resolver?.(result);
+  }, []);
+
+  const promptRecoveryConfirm = useCallback(
+    async (title: string, message: string, confirmLabel = 'OK', cancelLabel = 'Cancel'): Promise<boolean> => {
+      if (recoveryConfirmResolverRef.current) {
+        recoveryConfirmResolverRef.current(false);
+        recoveryConfirmResolverRef.current = null;
+      }
+      return new Promise<boolean>((resolve) => {
+        recoveryConfirmResolverRef.current = resolve;
+        setRecoveryConfirmDialog({ open: true, title, message, confirmLabel, cancelLabel });
+      });
+    },
+    [],
+  );
+
   const [showBrowser, setShowBrowser] = useState(true);
   const [browserWidth, setBrowserWidth] = useState(288);
   const browserWidthRef = useRef(288); // persists width when collapsed
   const isResizingRef = useRef(false);
   const preferences = usePreferencesStore((s) => s.preferences);
+  const [backupBannerCount, setBackupBannerCount] = useState(0);
+  const [backupBannerDismissed, setBackupBannerDismissed] = useState(false);
+  const [openSettingsToBackup, setOpenSettingsToBackup] = useState(false);
 
   const setBrowserStatusMessage = useCallback(
     (message: string, tone: BrowserStatusTone = 'info', detail = '') => {
@@ -745,6 +997,10 @@ export default function App() {
         unsavedNavigationResolverRef.current(false);
         unsavedNavigationResolverRef.current = null;
       }
+      if (recoveryConfirmResolverRef.current) {
+        recoveryConfirmResolverRef.current(false);
+        recoveryConfirmResolverRef.current = null;
+      }
     };
   }, []);
 
@@ -793,6 +1049,25 @@ export default function App() {
         setInitError(err instanceof Error ? err.message : String(err));
       });
   }, []);
+
+  // ─── Check for local backup files when connected server changes ──
+  const connectedServerUrl = useConnectionStore((s) => s.connection?.serverUrl ?? '');
+  useEffect(() => {
+    if (!connectedServerUrl) {
+      setBackupBannerCount(0);
+      return;
+    }
+    backupService.listAllBackups().then((sessions) => {
+      // Only count entries for the currently connected server
+      const matching = sessions.filter((s) => s.serverUrl === connectedServerUrl);
+      const totalEntries = matching.reduce((sum, s) => sum + s.entryCount, 0);
+      setBackupBannerCount(totalEntries);
+      setBackupBannerDismissed(false);
+      if (totalEntries > 0) {
+        console.log(`[App] Found ${totalEntries} backed-up annotation(s) for ${connectedServerUrl}`);
+      }
+    }).catch(() => { /* ignore */ });
+  }, [connectedServerUrl]);
 
   // ─── Initialize SegmentationManager once Cornerstone is ready ──
   useEffect(() => {
@@ -2290,7 +2565,7 @@ export default function App() {
         }
 
         // ─── Check for auto-save recovery (temp resource files) ──────
-        await checkForAutoSaveRecovery(sessionId, scanIdToPanelInfo);
+        await checkForAutoSaveRecovery(sessionId, scanIdToPanelInfo, promptRecoveryConfirm);
         setBrowserStatusMessage(
           'Session ready',
           'success',
@@ -2306,7 +2581,7 @@ export default function App() {
         setLoading(false);
       }
     },
-    [isConnected, refreshBookmarks, promptToSaveUnsavedAnnotations, setBrowserStatusMessage],
+    [isConnected, refreshBookmarks, promptToSaveUnsavedAnnotations, promptRecoveryConfirm, setBrowserStatusMessage],
   );
 
   /**
@@ -2490,6 +2765,151 @@ export default function App() {
     }
   }
 
+  // ─── Recover backup from Settings → File Backup ─────────────────
+  const handleRecoverBackup = useCallback(async (sessionId: string) => {
+    try {
+      const manifest = await backupService.getManifestForSession(sessionId);
+      if (!manifest || manifest.entries.length === 0) {
+        console.warn('[App] No backup entries to recover for', sessionId);
+        return;
+      }
+
+      // Build scanId → panelId + imageIds mapping from viewerStore
+      let store = useViewerStore.getState();
+
+      // If the matching session isn't loaded, auto-load it from XNAT first
+      if (store.sessionId !== sessionId) {
+        const subjectId = manifest.subjectId;
+        const projectId = manifest.projectId;
+        if (!subjectId || !projectId) {
+          await promptRecoveryConfirm(
+            'Session not loaded',
+            'Load this session in the XNAT browser first, then click Recover again.',
+            'OK',
+            'OK',
+          );
+          return;
+        }
+
+        // Fetch scans from XNAT and load the session
+        const scans = await window.electronAPI.xnat.getScans(sessionId);
+        if (!scans || scans.length === 0) {
+          await promptRecoveryConfirm(
+            'No scans found',
+            'Could not fetch scans for this session from XNAT.',
+            'OK',
+            'OK',
+          );
+          return;
+        }
+
+        // Pre-mark as recovered so checkForAutoSaveRecovery (called at end of
+        // loadSessionFromXnat) doesn't double-prompt for the same entries.
+        recoveredSessions.add(sessionId);
+
+        await loadSessionFromXnat(sessionId, scans, {
+          projectId,
+          subjectId,
+          sessionLabel: manifest.sessionLabel ?? sessionId,
+          subjectLabel: manifest.subjectLabel,
+        });
+
+        // Re-read store after session load
+        store = useViewerStore.getState();
+        if (store.sessionId !== sessionId) {
+          console.warn('[App] Session load did not complete for', sessionId);
+          return;
+        }
+      }
+
+      const scanToPanelMap = new Map<string, { pid: string; ids: string[] }>();
+      for (const [pid, scanId] of Object.entries(store.panelScanMap)) {
+        const ids = store.panelImageIdsMap[pid] ?? [];
+        if (ids.length > 0) {
+          scanToPanelMap.set(scanId, { pid, ids });
+        }
+      }
+
+      let recoveredCount = 0;
+      for (const entry of manifest.entries) {
+        const isRtStruct = entry.format === 'RTSTRUCT';
+
+        // Match by sourceScanId
+        const panel = scanToPanelMap.get(entry.sourceScanId);
+        if (!panel) {
+          console.warn(`[App] Recovery: no panel found for sourceScanId ${entry.sourceScanId} (${entry.filename})`);
+          continue;
+        }
+
+        // Read the backup file
+        let arrayBuffer: ArrayBuffer;
+        try {
+          const base64 = await backupService.readSegmentation(sessionId, entry.filename);
+          const binaryString = atob(base64);
+          const bytes = new Uint8Array(binaryString.length);
+          for (let i = 0; i < binaryString.length; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+          }
+          arrayBuffer = bytes.buffer;
+        } catch (err) {
+          console.error(`[App] Recovery: failed to read "${entry.filename}":`, err);
+          continue;
+        }
+
+        // Load into the panel
+        try {
+          await preloadImages(panel.ids);
+
+          let recoveredSegId: string;
+          if (isRtStruct) {
+            const { segmentationId } = await segmentationManager.loadRtStructFromArrayBuffer(
+              panel.pid, arrayBuffer, panel.ids,
+            );
+            recoveredSegId = segmentationId;
+            console.log(`[App] Recovered RTSTRUCT "${entry.filename}" → ${panel.pid} as ${recoveredSegId}`);
+          } else {
+            const { segmentationId } = await segmentationManager.loadSegFromArrayBuffer(
+              panel.pid, arrayBuffer, panel.ids,
+            );
+            recoveredSegId = segmentationId;
+            console.log(`[App] Recovered SEG "${entry.filename}" → ${panel.pid} as ${recoveredSegId}`);
+          }
+
+          // Register in tracking store so SegmentationPanel includes this in its filter
+          const panelContext = store.panelXnatContextMap[panel.pid];
+          if (panelContext?.projectId) {
+            const compositeKey = `${panelContext.projectId}/${panelContext.sessionId}/${entry.sourceScanId}`;
+            useSegmentationManagerStore.getState().setLocalOrigin(recoveredSegId, compositeKey);
+          }
+
+          // Delete the recovered backup entry
+          await backupService.deleteBackupEntry(sessionId, entry.filename).catch(() => {});
+          recoveredCount++;
+        } catch (err) {
+          console.error(`[App] Recovery: failed to load "${entry.filename}":`, err);
+        }
+      }
+
+      if (recoveredCount > 0) {
+        // Show the segmentation panel first, then sync after a tick
+        // so the panel component is mounted before the store updates.
+        const segStore = useSegmentationStore.getState();
+        if (!segStore.showPanel) segStore.togglePanel();
+
+        // Dismiss the backup banner since we recovered
+        setBackupBannerDismissed(true);
+
+        // Force re-sync after a microtask to ensure the panel is rendered
+        await new Promise((r) => setTimeout(r, 100));
+        segmentationService.sync();
+      }
+
+      console.log(`[App] Settings recovery: ${recoveredCount}/${manifest.entries.length} entries recovered`);
+    } catch (err) {
+      console.error('[App] Settings recovery failed:', err);
+    }
+  }, [promptRecoveryConfirm, loadSessionFromXnat]);
+
   // ─── Error state ───────────────────────────────────────────────
 
   if (initError) {
@@ -2536,11 +2956,44 @@ export default function App() {
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
     >
+      {/* Backup recovery notification banner */}
+      {backupBannerCount > 0 && !backupBannerDismissed && (
+        <div className="shrink-0 bg-blue-950/60 border-b border-blue-800/50 px-3 py-1.5 flex items-center gap-2">
+          <svg className="w-3.5 h-3.5 text-blue-400 shrink-0" viewBox="0 0 20 20" fill="currentColor">
+            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a.75.75 0 000 1.5h.253a.25.25 0 01.244.304l-.459 2.066A1.75 1.75 0 0010.747 15H11a.75.75 0 000-1.5h-.253a.25.25 0 01-.244-.304l.459-2.066A1.75 1.75 0 009.253 9H9z" clipRule="evenodd" />
+          </svg>
+          <span className="text-[11px] text-blue-200">
+            Found {backupBannerCount} backed-up annotation{backupBannerCount !== 1 ? 's' : ''} from a previous session.{' '}
+            <button
+              type="button"
+              onClick={() => setOpenSettingsToBackup(true)}
+              className="underline text-blue-300 hover:text-blue-100 transition-colors"
+            >
+              Open File Backup settings
+            </button>
+            {' '}to review or recover.
+          </span>
+          <button
+            type="button"
+            onClick={() => setBackupBannerDismissed(true)}
+            className="ml-auto text-blue-400 hover:text-blue-200 transition-colors"
+            title="Dismiss"
+          >
+            <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+              <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+            </svg>
+          </button>
+        </div>
+      )}
+
       {/* Full-width toolbar at top, then browser + viewer below */}
       <ViewerPage
         panelImageIds={panelImageIds}
         onApplyProtocol={handleApplyProtocol}
         onToggleMPR={handleToggleMPR}
+        onRecoverBackup={handleRecoverBackup}
+        openSettingsToBackup={openSettingsToBackup}
+        onSettingsToBackupConsumed={() => setOpenSettingsToBackup(false)}
         mprSourceImageIds={mprSourceImageIds}
         leftSlot={
           <>
@@ -2825,6 +3278,32 @@ export default function App() {
                 className="w-full text-left text-xs px-3 py-2 rounded border border-zinc-700 bg-zinc-800 text-zinc-200 hover:bg-zinc-700 transition-colors"
               >
                 Return to session.
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Recovery confirm dialog (styled replacement for window.confirm) */}
+      {recoveryConfirmDialog.open && (
+        <div className="absolute inset-0 z-[130] bg-zinc-950/70 flex items-center justify-center p-4">
+          <div className="w-full max-w-sm rounded-lg border border-zinc-700 bg-zinc-900 shadow-xl">
+            <div className="px-4 py-3 border-b border-zinc-800">
+              <h3 className="text-sm font-semibold text-zinc-100">{recoveryConfirmDialog.title}</h3>
+              <p className="text-xs text-zinc-400 mt-1">{recoveryConfirmDialog.message}</p>
+            </div>
+            <div className="px-4 py-3 flex items-center justify-end gap-2">
+              <button
+                onClick={() => resolveRecoveryConfirmDialog(false)}
+                className="px-3 py-1.5 rounded text-xs bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors"
+              >
+                {recoveryConfirmDialog.cancelLabel}
+              </button>
+              <button
+                onClick={() => resolveRecoveryConfirmDialog(true)}
+                className="px-3 py-1.5 rounded text-xs bg-blue-600 text-white hover:bg-blue-500 transition-colors"
+              >
+                {recoveryConfirmDialog.confirmLabel}
               </button>
             </div>
           </div>

@@ -76,9 +76,6 @@ interface SegmentationStore {
 
   // ─── Auto-Save State ──────────────────────────────────────
 
-  /** Whether auto-save to XNAT is enabled */
-  autoSaveEnabled: boolean;
-
   /** Current auto-save status */
   autoSaveStatus: 'idle' | 'saving' | 'saved' | 'error';
 
@@ -140,9 +137,6 @@ interface SegmentationStore {
   /** Internal: refresh undo/redo availability from HistoryMemo */
   _refreshUndoState: (canUndo: boolean, canRedo: boolean) => void;
 
-  /** Enable or disable auto-save */
-  setAutoSaveEnabled: (enabled: boolean) => void;
-
   /** Internal: update auto-save status */
   _setAutoSaveStatus: (status: 'idle' | 'saving' | 'saved' | 'error') => void;
 
@@ -199,7 +193,6 @@ export const useSegmentationStore = create<SegmentationStore>((set) => ({
   splineType: 'CATMULLROM',
   canUndo: false,
   canRedo: false,
-  autoSaveEnabled: true,
   autoSaveStatus: 'idle',
   lastAutoSaveTime: null,
   xnatOriginMap: {},
@@ -239,8 +232,6 @@ export const useSegmentationStore = create<SegmentationStore>((set) => ({
   togglePanel: () => set((s) => ({ showPanel: !s.showPanel })),
 
   _refreshUndoState: (canUndo, canRedo) => set({ canUndo, canRedo }),
-
-  setAutoSaveEnabled: (enabled) => set({ autoSaveEnabled: enabled }),
 
   _setAutoSaveStatus: (status) =>
     set({

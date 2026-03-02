@@ -57,6 +57,20 @@ export const IPC = {
   EXPORT_SAVE_REPORT: 'export:save-report',
   EXPORT_SAVE_DICOM_RTSTRUCT: 'export:save-dicom-rtstruct',
   EXPORT_SAVE_VIEWPORT_CAPTURE: 'export:save-viewport-capture',
+
+  // Shell (renderer → main)
+  SHELL_OPEN_EXTERNAL: 'shell:open-external',
+
+  // Local backup cache (renderer → main)
+  BACKUP_WRITE_FILE: 'backup:write-file',
+  BACKUP_READ_FILE: 'backup:read-file',
+  BACKUP_DELETE_FILE: 'backup:delete-file',
+  BACKUP_LIST_SESSION: 'backup:list-session',
+  BACKUP_READ_MANIFEST: 'backup:read-manifest',
+  BACKUP_WRITE_MANIFEST: 'backup:write-manifest',
+  BACKUP_DELETE_SESSION: 'backup:delete-session',
+  BACKUP_LIST_ALL_SESSIONS: 'backup:list-all-sessions',
+  BACKUP_GET_CACHE_PATH: 'backup:get-cache-path',
 } as const;
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC];

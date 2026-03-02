@@ -18,6 +18,7 @@ import {
 import { segmentationService } from '../../lib/cornerstone/segmentationService';
 import { rtStructService } from '../../lib/cornerstone/rtStructService';
 import { segmentationManager } from '../../lib/segmentation/segmentationManagerSingleton';
+import { backupService } from '../../lib/backup/backupService';
 import { dicomwebLoader } from '../../lib/cornerstone/dicomwebLoader';
 import { ToolName, TOOL_DISPLAY_NAMES, SEGMENTATION_TOOLS } from '@shared/types/viewer';
 import {
@@ -253,9 +254,8 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
   const splineType = useSegmentationStore((s) => s.splineType);
   const setSplineType = useSegmentationStore((s) => s.setSplineType);
   const defaultColorSequence = usePreferencesStore((s) => s.preferences.annotation.defaultColorSequence);
-  const autoSaveEnabled = useSegmentationStore((s) => s.autoSaveEnabled);
   const autoSaveStatus = useSegmentationStore((s) => s.autoSaveStatus);
-  const setAutoSaveEnabled = useSegmentationStore((s) => s.setAutoSaveEnabled);
+  const backupEnabled = usePreferencesStore((s) => s.preferences.backup.enabled);
   const autoLoadSegOnScanClick = useSegmentationStore((s) => s.autoLoadSegOnScanClick);
   const setAutoLoadSegOnScanClick = useSegmentationStore((s) => s.setAutoLoadSegOnScanClick);
   const xnatOriginMap = useSegmentationStore((s) => s.xnatOriginMap);
@@ -1122,6 +1122,12 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
         if (!mgrStore.hasDirtySegmentations()) {
           useSegmentationStore.getState()._markClean();
         }
+        // Clean up local backup entries for this segmentation
+        try {
+          await backupService.deleteEntriesForSegmentation(panelCtx.sessionId, segmentationId);
+        } catch { /* ignore local backup cleanup errors */ }
+
+        // Clean up legacy XNAT temp files for this source scan
         try {
           const files = await window.electronAPI.xnat.listTempFiles(panelCtx.sessionId);
           const pattern = new RegExp(`^autosave_(?:seg|rtstruct)_${sourceScanId}(?:_\\d{14})?\\.dcm$`);
@@ -1897,56 +1903,37 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
           <span className="text-[10px] text-zinc-400">Automatically display annotations</span>
         </label>
 
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-4">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={autoSaveEnabled}
-                onChange={(e) => setAutoSaveEnabled(e.target.checked)}
-                disabled={!isXnatConnected || !activePanelXnatContext}
-                className="w-3 h-3 rounded border-zinc-600 bg-zinc-800 accent-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
-              />
-              <span className="text-[10px] text-zinc-400">Auto-Save</span>
-            </label>
+        {backupEnabled && autoSaveStatus !== 'idle' && (
+          <div className="flex items-center gap-1">
+            {autoSaveStatus === 'saving' && (
+              <>
+                <svg className="animate-spin h-2.5 w-2.5 text-blue-400" viewBox="0 0 24 24" fill="none">
+                  <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" className="opacity-25" />
+                  <path d="M4 12a8 8 0 018-8" stroke="currentColor" strokeWidth="3" strokeLinecap="round" className="opacity-75" />
+                </svg>
+                <span className="text-[9px] text-blue-400">Backing up...</span>
+              </>
+            )}
+            {autoSaveStatus === 'saved' && (
+              <>
+                <svg className="h-2.5 w-2.5 text-green-400" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
+                  <polyline points="3,8 7,12 13,4" />
+                </svg>
+                <span className="text-[9px] text-green-400">Backed up</span>
+              </>
+            )}
+            {autoSaveStatus === 'error' && (
+              <>
+                <svg className="h-2.5 w-2.5 text-red-400" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="8" cy="8" r="6" />
+                  <line x1="8" y1="5" x2="8" y2="9" />
+                  <circle cx="8" cy="11.5" r="0.5" fill="currentColor" />
+                </svg>
+                <span className="text-[9px] text-red-400">Backup failed</span>
+              </>
+            )}
           </div>
-          {autoSaveEnabled && (
-            <span className="text-[9px] flex items-center gap-1">
-              {autoSaveStatus === 'saving' && (
-                <>
-                  <svg className="animate-spin h-2.5 w-2.5 text-blue-400" viewBox="0 0 24 24" fill="none">
-                    <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" className="opacity-25" />
-                    <path d="M4 12a8 8 0 018-8" stroke="currentColor" strokeWidth="3" strokeLinecap="round" className="opacity-75" />
-                  </svg>
-                  <span className="text-blue-400">Saving...</span>
-                </>
-              )}
-              {autoSaveStatus === 'saved' && (
-                <>
-                  <svg className="h-2.5 w-2.5 text-green-400" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
-                    <polyline points="3,8 7,12 13,4" />
-                  </svg>
-                  <span className="text-green-400">Saved</span>
-                </>
-              )}
-              {autoSaveStatus === 'error' && (
-                <>
-                  <svg className="h-2.5 w-2.5 text-red-400" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
-                    <circle cx="8" cy="8" r="6" />
-                    <line x1="8" y1="5" x2="8" y2="9" />
-                    <circle cx="8" cy="11.5" r="0.5" fill="currentColor" />
-                  </svg>
-                  <span className="text-red-400">Failed</span>
-                </>
-              )}
-            </span>
-          )}
-        </div>
-        {!isXnatConnected || !activePanelXnatContext ? (
-          <div className="text-[9px] text-zinc-600 -mt-1">
-            Auto-save is available after loading an XNAT scan.
-          </div>
-        ) : null}
+        )}
       </div>
 
       {/* Toast notification */}

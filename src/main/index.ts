@@ -1,9 +1,11 @@
-import { app, BrowserWindow, Menu, nativeImage } from 'electron';
+import { app, BrowserWindow, Menu, nativeImage, ipcMain, shell } from 'electron';
 import path from 'path';
 import { registerAuthHandlers } from './ipc/authHandlers';
 import { registerProxyHandlers } from './ipc/proxyHandlers';
 import { registerExportHandlers } from './ipc/exportHandlers';
 import { registerUploadHandlers } from './ipc/uploadHandlers';
+import { registerBackupHandlers } from './ipc/backupHandlers';
+import { IPC } from '../shared/ipcChannels';
 
 // Suppress EPIPE errors from console.log when stdout/stderr pipe is broken.
 // This is common when Electron is launched from a terminal that disconnects.
@@ -178,6 +180,17 @@ app.whenReady().then(() => {
   registerProxyHandlers();
   registerExportHandlers();
   registerUploadHandlers();
+  registerBackupHandlers();
+
+  // Shell: open URL in system browser
+  ipcMain.handle(IPC.SHELL_OPEN_EXTERNAL, async (_event, url: string) => {
+    // Only allow http(s) URLs
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      await shell.openExternal(url);
+      return { ok: true };
+    }
+    return { ok: false, error: 'invalid_url' };
+  });
 
   // Set the macOS dock icon (dev mode only — packaged app uses Info.plist).
   // In dev mode we can only use PNG; macOS won't apply the rounded-square

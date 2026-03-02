@@ -484,10 +484,27 @@ interface ToolbarProps {
   hasImages?: boolean;
   /** Optional content rendered at the far left of the toolbar (e.g. XNAT logo, connection status) */
   leftSlot?: React.ReactNode;
+  /** Called when the user clicks "Recover" for a backup session in Settings. */
+  onRecoverBackup?: (sessionId: string) => Promise<void> | void;
+  /** When true, open Settings directly to the File Backup tab. */
+  openSettingsToBackup?: boolean;
+  /** Called after the open-settings-to-backup request has been consumed. */
+  onSettingsToBackupConsumed?: () => void;
 }
 
-export default function Toolbar({ showDicomPanel = false, onToggleDicomPanel, onApplyProtocol, onToggleMPR, hasImages = false, leftSlot }: ToolbarProps) {
+export default function Toolbar({ showDicomPanel = false, onToggleDicomPanel, onApplyProtocol, onToggleMPR, hasImages = false, leftSlot, onRecoverBackup, openSettingsToBackup, onSettingsToBackupConsumed }: ToolbarProps) {
   const [showSettings, setShowSettings] = useState(false);
+  const [settingsInitialTab, setSettingsInitialTab] = useState<string | undefined>(undefined);
+
+  // Open Settings to Backup tab when requested by parent (e.g. banner link)
+  useEffect(() => {
+    if (openSettingsToBackup) {
+      setSettingsInitialTab('backup');
+      setShowSettings(true);
+      onSettingsToBackupConsumed?.();
+    }
+  }, [openSettingsToBackup, onSettingsToBackupConsumed]);
+
   const activeTool = useViewerStore((s) => s.activeTool);
   const mprActive = useViewerStore((s) => s.mprActive);
   const cine = useViewerStore(
@@ -688,7 +705,7 @@ export default function Toolbar({ showDicomPanel = false, onToggleDicomPanel, on
           title={showSettings ? 'Close settings' : 'Open settings'}
         />
       </div>
-      <SettingsModal open={showSettings} onClose={() => setShowSettings(false)} />
+      <SettingsModal open={showSettings} onClose={() => { setShowSettings(false); setSettingsInitialTab(undefined); }} onRecover={onRecoverBackup} initialTab={settingsInitialTab} />
     </>
   );
 }
