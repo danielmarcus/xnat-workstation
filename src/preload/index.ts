@@ -136,6 +136,32 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke(IPC.EXPORT_SAVE_VIEWPORT_CAPTURE, bounds, defaultName),
   },
 
+  shell: {
+    openExternal: (url: string) =>
+      ipcRenderer.invoke(IPC.SHELL_OPEN_EXTERNAL, url),
+  },
+
+  backup: {
+    writeFile: (sessionId: string, filename: string, base64Data: string) =>
+      ipcRenderer.invoke(IPC.BACKUP_WRITE_FILE, sessionId, filename, base64Data),
+    readFile: (sessionId: string, filename: string) =>
+      ipcRenderer.invoke(IPC.BACKUP_READ_FILE, sessionId, filename),
+    deleteFile: (sessionId: string, filename: string) =>
+      ipcRenderer.invoke(IPC.BACKUP_DELETE_FILE, sessionId, filename),
+    listSession: (sessionId: string) =>
+      ipcRenderer.invoke(IPC.BACKUP_LIST_SESSION, sessionId),
+    readManifest: (sessionId: string) =>
+      ipcRenderer.invoke(IPC.BACKUP_READ_MANIFEST, sessionId),
+    writeManifest: (sessionId: string, manifestJson: string) =>
+      ipcRenderer.invoke(IPC.BACKUP_WRITE_MANIFEST, sessionId, manifestJson),
+    deleteSession: (sessionId: string) =>
+      ipcRenderer.invoke(IPC.BACKUP_DELETE_SESSION, sessionId),
+    listAllSessions: () =>
+      ipcRenderer.invoke(IPC.BACKUP_LIST_ALL_SESSIONS),
+    getCachePath: () =>
+      ipcRenderer.invoke(IPC.BACKUP_GET_CACHE_PATH),
+  },
+
   on: (channel: string, callback: (...args: unknown[]) => void) => {
     const allowedChannels = [IPC.XNAT_SESSION_EXPIRED];
     if (!allowedChannels.includes(channel as any)) {

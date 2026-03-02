@@ -53,8 +53,10 @@ import { usePreferencesStore } from '../../stores/preferencesStore';
 import { useSegmentationStore } from '../../stores/segmentationStore';
 import type { SegmentationSummary, SegmentSummary } from '../../stores/segmentationStore';
 import { useViewerStore } from '../../stores/viewerStore';
+import { useConnectionStore } from '../../stores/connectionStore';
 import { useSegmentationManagerStore } from '../../stores/segmentationManagerStore';
 import { rtStructService } from './rtStructService';
+import { backupService } from '../backup/backupService';
 import { writeDicomDict } from './writeDicomDict';
 // NOTE: We use the tool group ID directly here instead of importing from
 // toolService to avoid a circular dependency (toolService → segmentationService).
@@ -1108,6 +1110,7 @@ let loadInProgressCount = 0;
  * Set via beginManualSave()/endManualSave() from SegmentationPanel.
  */
 let manualSaveInProgress = false;
+let backupInProgress = false;
 let labelmapInterpolationTimer: ReturnType<typeof setTimeout> | null = null;
 let labelmapInterpolationInProgress = false;
 let pendingLabelmapInterpolation: { segmentationId: string; segmentIndex: number | null } | null = null;
@@ -1173,9 +1176,16 @@ function scheduleAutoSave(): void {
   // Don't schedule auto-save while a manual save is in progress
   if (manualSaveInProgress) return;
   if (autoSaveTimer) clearTimeout(autoSaveTimer);
+
+  // Read backup interval from preferences (fallback to AUTO_SAVE_DELAY)
+  const backupPrefs = usePreferencesStore.getState().preferences.backup;
+  const delayMs = backupPrefs.enabled
+    ? backupPrefs.intervalSeconds * 1000
+    : AUTO_SAVE_DELAY;
+
   autoSaveTimer = setTimeout(() => {
     void performAutoSave();
-  }, AUTO_SAVE_DELAY);
+  }, delayMs);
 }
 
 function scheduleLabelmapInterpolation(): void {
@@ -1328,7 +1338,10 @@ function formatTimestamp(): string {
 async function performAutoSave(force = false): Promise<boolean> {
   autoSaveTimer = null;
   const segStore = useSegmentationStore.getState();
-  if (!segStore.autoSaveEnabled && !force) return false;
+  const backupPrefs = usePreferencesStore.getState().preferences.backup;
+
+  // Check backup enabled (from preferences), or force flag (disconnect guard)
+  if (!backupPrefs.enabled && !force) return false;
 
   // Skip if dirty tracking is suppressed (load/creation in progress)
   if (isDirtyTrackingSuppressed()) return false;
@@ -1342,74 +1355,34 @@ async function performAutoSave(force = false): Promise<boolean> {
   // Skip if no actual unsaved changes
   if (!segStore.hasUnsavedChanges) return false;
 
+  // Prevent re-entrancy (Cornerstone exports aren't thread-safe)
+  if (backupInProgress) {
+    console.log('[segmentationService] Auto-save skipped — backup already in progress');
+    return false;
+  }
+
   const xnatContext = useViewerStore.getState().xnatContext;
-  if (!xnatContext) return false; // Not connected to XNAT or no context
-
-  const activeSegId = segStore.activeSegmentationId;
-  if (!activeSegId) return false;
-
-  // Determine source scan: from origin if loaded from XNAT, else from context
-  const origin = segStore.xnatOriginMap[activeSegId];
-  const sourceScanId = origin?.sourceScanId ?? xnatContext.scanId;
-
-  // Determine segmentation type to choose correct export format
-  const segType = getSegmentationType(activeSegId);
+  if (!xnatContext) return false; // No session context
 
   segStore._setAutoSaveStatus('saving');
+  backupInProgress = true;
   try {
-    let base64: string;
-    let tempFilename: string;
-    const ts = formatTimestamp();
-
-    if (segType === 'contour') {
-      if (!segmentationService.hasExportableContent(activeSegId, 'RTSTRUCT')) {
-        segStore._setAutoSaveStatus('idle');
-        return false;
-      }
-      // Contour-only: export as RTSTRUCT
-      base64 = await rtStructService.exportToRtStruct(activeSegId);
-      tempFilename = `autosave_rtstruct_${sourceScanId}_${ts}.dcm`;
-    } else {
-      if (!segmentationService.hasExportableContent(activeSegId, 'SEG')) {
-        segStore._setAutoSaveStatus('idle');
-        return false;
-      }
-      // Labelmap (or both): export as DICOM SEG
-      base64 = await segmentationService.exportToDicomSeg(activeSegId);
-      tempFilename = `autosave_seg_${sourceScanId}_${ts}.dcm`;
-    }
-
-    // Clean up old auto-save files for this source scan before writing new one
-    try {
-      const existingFiles = await window.electronAPI.xnat.listTempFiles(xnatContext.sessionId);
-      const cleanupPattern = new RegExp(`^autosave_(?:seg|rtstruct)_${sourceScanId}(?:_\\d{14})?\\.dcm$`);
-      for (const f of existingFiles.files ?? []) {
-        if (cleanupPattern.test(f.name)) {
-          await window.electronAPI.xnat.deleteTempFile(xnatContext.sessionId, f.name);
-        }
-      }
-    } catch { /* ignore cleanup errors */ }
-
-    const result = await window.electronAPI.xnat.autoSaveTemp(
+    const serverUrl = useConnectionStore.getState().connection?.serverUrl ?? '';
+    const backed = await backupService.backupAllDirtySegmentations(
       xnatContext.sessionId,
-      sourceScanId,
-      base64,
-      tempFilename,
+      serverUrl,
     );
-    if (result.ok) {
+
+    if (backed > 0) {
       segStore._setAutoSaveStatus('saved');
-      segStore._markClean();
-      console.log(`[segmentationService] Auto-saved ${segType} to temp resource for source scan ${sourceScanId} (${tempFilename})`);
+      console.log(`[segmentationService] Local backup: ${backed} segmentation(s) saved`);
       return true;
     } else {
-      console.error('[segmentationService] Auto-save to temp failed:', result.error);
-      segStore._setAutoSaveStatus('error');
+      // No dirty segs with exportable content — return to idle
+      segStore._setAutoSaveStatus('idle');
       return false;
     }
   } catch (err: any) {
-    // "No painted segment data" means the segmentation exists but has no actual
-    // pixel data (user created it but hasn't painted yet). This is not an error —
-    // silently return to idle instead of showing an error status.
     const msg = err instanceof Error ? err.message : String(err);
     if (
       msg.includes('No painted segment data') ||
@@ -1423,8 +1396,83 @@ async function performAutoSave(force = false): Promise<boolean> {
     console.error('[segmentationService] Auto-save failed:', err);
     segStore._setAutoSaveStatus('error');
     return false;
+  } finally {
+    backupInProgress = false;
   }
 }
+
+// ─── Legacy XNAT Temp Auto-Save (preserved for future reintroduction) ────
+//
+// The original auto-save wrote to XNAT's server-side temp resource for a single
+// active segmentation. This has been replaced by the local filesystem backup
+// that backs up ALL dirty segmentations. The code below is kept as reference
+// for adding an optional XNAT temp backend to the backup strategy pattern.
+//
+// async function performAutoSave_xnatTemp(force = false): Promise<boolean> {
+//   autoSaveTimer = null;
+//   const segStore = useSegmentationStore.getState();
+//   if (!segStore.autoSaveEnabled && !force) return false;
+//   if (isDirtyTrackingSuppressed()) return false;
+//   if (loadInProgressCount > 0) return false;
+//   if (!segStore.hasUnsavedChanges) return false;
+//   const xnatContext = useViewerStore.getState().xnatContext;
+//   if (!xnatContext) return false;
+//   const activeSegId = segStore.activeSegmentationId;
+//   if (!activeSegId) return false;
+//   const origin = segStore.xnatOriginMap[activeSegId];
+//   const sourceScanId = origin?.sourceScanId ?? xnatContext.scanId;
+//   const segType = getSegmentationType(activeSegId);
+//   segStore._setAutoSaveStatus('saving');
+//   try {
+//     let base64: string;
+//     let tempFilename: string;
+//     const ts = formatTimestamp();
+//     if (segType === 'contour') {
+//       if (!segmentationService.hasExportableContent(activeSegId, 'RTSTRUCT')) {
+//         segStore._setAutoSaveStatus('idle');
+//         return false;
+//       }
+//       base64 = await rtStructService.exportToRtStruct(activeSegId);
+//       tempFilename = `autosave_rtstruct_${sourceScanId}_${ts}.dcm`;
+//     } else {
+//       if (!segmentationService.hasExportableContent(activeSegId, 'SEG')) {
+//         segStore._setAutoSaveStatus('idle');
+//         return false;
+//       }
+//       base64 = await segmentationService.exportToDicomSeg(activeSegId);
+//       tempFilename = `autosave_seg_${sourceScanId}_${ts}.dcm`;
+//     }
+//     // Clean up old auto-save files
+//     try {
+//       const existingFiles = await window.electronAPI.xnat.listTempFiles(xnatContext.sessionId);
+//       const cleanupPattern = new RegExp(`^autosave_(?:seg|rtstruct)_${sourceScanId}(?:_\\d{14})?\\.dcm$`);
+//       for (const f of existingFiles.files ?? []) {
+//         if (cleanupPattern.test(f.name)) {
+//           await window.electronAPI.xnat.deleteTempFile(xnatContext.sessionId, f.name);
+//         }
+//       }
+//     } catch { /* ignore cleanup errors */ }
+//     const result = await window.electronAPI.xnat.autoSaveTemp(
+//       xnatContext.sessionId, sourceScanId, base64, tempFilename,
+//     );
+//     if (result.ok) {
+//       segStore._setAutoSaveStatus('saved');
+//       segStore._markClean();
+//       return true;
+//     } else {
+//       segStore._setAutoSaveStatus('error');
+//       return false;
+//     }
+//   } catch (err: any) {
+//     const msg = err instanceof Error ? err.message : String(err);
+//     if (msg.includes('No painted segment data') || msg.includes('no segment-frame pairs') || msg.includes('Error inserting pixels in PixelData')) {
+//       segStore._setAutoSaveStatus('idle');
+//       return false;
+//     }
+//     segStore._setAutoSaveStatus('error');
+//     return false;
+//   }
+// }
 
 let initialized = false;
 

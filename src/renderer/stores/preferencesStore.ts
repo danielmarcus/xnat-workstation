@@ -7,6 +7,8 @@ import {
   type AnnotationToolPreferences,
   type HexColor,
   DEFAULT_INTERPOLATION_PREFERENCES,
+  DEFAULT_BACKUP_PREFERENCES,
+  type BackupPreferences,
   type InterpolationAlgorithm,
   type InterpolationPreferences,
   type OverlayCornerId,
@@ -37,6 +39,9 @@ interface PreferencesStore {
   setInterpolationEnabled: (enabled: boolean) => void;
   setInterpolationAlgorithm: (algorithm: InterpolationAlgorithm) => void;
   setLinearThreshold: (threshold: number) => void;
+  // ─── Backup ─────────────────────────────────────────────
+  setBackupEnabled: (enabled: boolean) => void;
+  setBackupIntervalSeconds: (seconds: number) => void;
   resetAll: () => void;
 }
 
@@ -103,6 +108,7 @@ function makeDefaultPreferences(): PreferencesV1 {
       defaultColorSequence: cloneDefaultColorSequence(),
     },
     interpolation: { ...DEFAULT_INTERPOLATION_PREFERENCES },
+    backup: { ...DEFAULT_BACKUP_PREFERENCES },
   };
 }
 
@@ -415,6 +421,27 @@ export const usePreferencesStore = create<PreferencesStore>()(
           },
         })),
 
+      // ─── Backup ──────────────────────────────────────────
+
+      setBackupEnabled: (enabled) =>
+        set((state) => ({
+          preferences: {
+            ...state.preferences,
+            backup: { ...state.preferences.backup, enabled },
+          },
+        })),
+
+      setBackupIntervalSeconds: (seconds) =>
+        set((state) => ({
+          preferences: {
+            ...state.preferences,
+            backup: {
+              ...state.preferences.backup,
+              intervalSeconds: clampNumber(Math.round(seconds), 5, 300),
+            },
+          },
+        })),
+
       resetAll: () =>
         set({
           preferences: makeDefaultPreferences(),
@@ -448,6 +475,19 @@ export const usePreferencesStore = create<PreferencesStore>()(
               : base.preferences.interpolation.linearThreshold,
         };
 
+        // Merge backup preferences with defaults as fallback
+        const incomingBackup = (incoming as Partial<PreferencesV1>).backup;
+        const mergedBackup: BackupPreferences = {
+          enabled:
+            typeof incomingBackup?.enabled === 'boolean'
+              ? incomingBackup.enabled
+              : base.preferences.backup.enabled,
+          intervalSeconds:
+            typeof incomingBackup?.intervalSeconds === 'number' && Number.isFinite(incomingBackup.intervalSeconds)
+              ? clampNumber(Math.round(incomingBackup.intervalSeconds), 5, 300)
+              : base.preferences.backup.intervalSeconds,
+        };
+
         return {
           ...base,
           preferences: {
@@ -457,6 +497,7 @@ export const usePreferencesStore = create<PreferencesStore>()(
             overlay: mergeOverlayPreferences(base.preferences.overlay, incoming.overlay),
             annotation: mergeAnnotationPreferences(base.preferences.annotation, incoming.annotation),
             interpolation: mergedInterpolation,
+            backup: mergedBackup,
           },
         };
       },

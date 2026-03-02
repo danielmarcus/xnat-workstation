@@ -28,9 +28,15 @@ interface ViewerPageProps {
   leftSlot?: React.ReactNode;
   /** Browser sidebar rendered below toolbar, left of viewport grid */
   browserSlot?: React.ReactNode;
+  /** Called when the user clicks "Recover" for a backup session in Settings. */
+  onRecoverBackup?: (sessionId: string) => Promise<void> | void;
+  /** When true, the Settings modal should open to the File Backup tab. */
+  openSettingsToBackup?: boolean;
+  /** Called after the Settings-to-backup request has been consumed. */
+  onSettingsToBackupConsumed?: () => void;
 }
 
-export default function ViewerPage({ panelImageIds, onApplyProtocol, onToggleMPR, mprSourceImageIds, leftSlot, browserSlot }: ViewerPageProps) {
+export default function ViewerPage({ panelImageIds, onApplyProtocol, onToggleMPR, mprSourceImageIds, leftSlot, browserSlot, onRecoverBackup, openSettingsToBackup, onSettingsToBackupConsumed }: ViewerPageProps) {
   const showAnnotationPanel = useAnnotationStore((s) => s.showPanel);
   const showSegPanel = useSegmentationStore((s) => s.showPanel);
   const [showDicomPanel, setShowDicomPanel] = useState(false);
@@ -70,6 +76,9 @@ export default function ViewerPage({ panelImageIds, onApplyProtocol, onToggleMPR
         onToggleMPR={onToggleMPR}
         hasImages={hasImages}
         leftSlot={leftSlot}
+        onRecoverBackup={onRecoverBackup}
+        openSettingsToBackup={openSettingsToBackup}
+        onSettingsToBackupConsumed={onSettingsToBackupConsumed}
       />
       <div className="flex-1 min-h-0 flex relative">
         {/* Optional browser sidebar (rendered by App) */}

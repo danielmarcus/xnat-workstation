@@ -7,13 +7,20 @@ import {
 } from '@shared/types/preferences';
 import { DEFAULT_HOTKEY_MAP } from '../../lib/hotkeys/defaultHotkeyMap';
 import { usePreferencesStore } from '../../stores/preferencesStore';
+import { useViewerStore } from '../../stores/viewerStore';
+import { backupService } from '../../lib/backup/backupService';
+import type { BackupSessionSummary } from '@shared/types/backup';
 import { IconClose } from '../icons';
 
-type SettingsTab = 'hotkeys' | 'overlay' | 'annotation' | 'interpolation';
+type SettingsTab = 'hotkeys' | 'overlay' | 'annotation' | 'interpolation' | 'backup';
 
 interface SettingsModalProps {
   open: boolean;
   onClose: () => void;
+  /** Called when the user clicks "Recover" for a backup session. Returns a Promise that resolves when recovery is complete. */
+  onRecover?: (sessionId: string) => Promise<void> | void;
+  /** Initial tab to open when the modal opens (e.g. 'backup'). */
+  initialTab?: string;
 }
 
 const TAB_ITEMS: Array<{ id: SettingsTab; label: string }> = [
@@ -21,6 +28,7 @@ const TAB_ITEMS: Array<{ id: SettingsTab; label: string }> = [
   { id: 'overlay', label: 'Overlay' },
   { id: 'annotation', label: 'Annotation' },
   { id: 'interpolation', label: 'Interpolation' },
+  { id: 'backup', label: 'File Backup' },
 ];
 
 const CORNER_OPTIONS: Array<{
@@ -112,6 +120,14 @@ function normalizeKeyInput(input: string): string {
   return trimmed;
 }
 
+function formatBytes(bytes: number): string {
+  if (bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
+
 function normalizeHexColor(value: string): string | null {
   const match = value.trim().match(/^#?([0-9a-fA-F]{6})$/);
   if (!match) return null;
@@ -143,7 +159,7 @@ function bindingToDraft(binding: HotkeyBinding): { key: string; modifiers: Requi
   };
 }
 
-export default function SettingsModal({ open, onClose }: SettingsModalProps) {
+export default function SettingsModal({ open, onClose, onRecover, initialTab }: SettingsModalProps) {
   const overrides = usePreferencesStore((s) => s.preferences.hotkeys.overrides);
   const overlayPrefs = usePreferencesStore((s) => s.preferences.overlay);
   const annotationPrefs = usePreferencesStore((s) => s.preferences.annotation);
@@ -165,7 +181,17 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
   const setInterpolationEnabled = usePreferencesStore((s) => s.setInterpolationEnabled);
   const setInterpolationAlgorithm = usePreferencesStore((s) => s.setInterpolationAlgorithm);
   const setLinearThreshold = usePreferencesStore((s) => s.setLinearThreshold);
+  const backupPrefs = usePreferencesStore((s) => s.preferences.backup);
+  const setBackupEnabled = usePreferencesStore((s) => s.setBackupEnabled);
+  const setBackupIntervalSeconds = usePreferencesStore((s) => s.setBackupIntervalSeconds);
   const resetAll = usePreferencesStore((s) => s.resetAll);
+
+  // ─── Backup tab state ──────────────────────────────────────
+  const [backupSessions, setBackupSessions] = useState<BackupSessionSummary[]>([]);
+  const [backupCachePath, setBackupCachePath] = useState<string>('');
+  const [backupLoading, setBackupLoading] = useState(false);
+  const [recoveringSession, setRecoveringSession] = useState<string | null>(null);
+  const currentSessionId = useViewerStore((s) => s.sessionId);
 
   const actionOptions = useMemo(() => {
     const all = new Set<HotkeyAction>(Object.keys(DEFAULT_HOTKEY_MAP) as HotkeyAction[]);
@@ -176,6 +202,14 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
   }, [overrides]);
 
   const [activeTab, setActiveTab] = useState<SettingsTab>('hotkeys');
+
+  // Switch to initialTab when it changes (e.g. banner link opens to 'backup')
+  useEffect(() => {
+    if (initialTab && open) {
+      setActiveTab(initialTab as SettingsTab);
+    }
+  }, [initialTab, open]);
+
   const [selectedAction, setSelectedAction] = useState<HotkeyAction | null>(null);
   const [draftKey, setDraftKey] = useState('');
   const [draftModifiers, setDraftModifiers] = useState<Required<HotkeyModifiers>>({
@@ -186,10 +220,19 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
   });
   const [colorSequenceDraft, setColorSequenceDraft] = useState('');
 
+  // Confirm-delete dialog state (replaces native window.confirm)
+  const [confirmDeleteSession, setConfirmDeleteSession] = useState<{ sessionId: string; label: string } | null>(null);
+
   useEffect(() => {
     if (!open) return;
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') {
+        if (confirmDeleteSession) {
+          setConfirmDeleteSession(null);
+        } else {
+          onClose();
+        }
+      }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
@@ -220,6 +263,27 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
   useEffect(() => {
     setColorSequenceDraft(annotationPrefs.defaultColorSequence.join(', '));
   }, [annotationPrefs.defaultColorSequence]);
+
+  // Load backup sessions and cache path when the backup tab is activated
+  useEffect(() => {
+    if (activeTab !== 'backup' || !open) return;
+    let cancelled = false;
+    setBackupLoading(true);
+    Promise.all([
+      backupService.listAllBackups(),
+      window.electronAPI.backup.getCachePath(),
+    ]).then(([sessions, pathResult]) => {
+      if (cancelled) return;
+      setBackupSessions(sessions);
+      setBackupCachePath(pathResult.ok ? (pathResult.path ?? '') : '');
+      console.log('[Settings] Backup sessions:', sessions.map((s) => s.sessionId), 'currentSessionId:', useViewerStore.getState().sessionId);
+    }).catch(() => {
+      if (!cancelled) setBackupSessions([]);
+    }).finally(() => {
+      if (!cancelled) setBackupLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [activeTab, open]);
 
   const overrideEntries = useMemo(
     () => Object.entries(overrides) as Array<[HotkeyAction, HotkeyBinding[]]>,
@@ -681,6 +745,186 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
                 </div>
               </>
             )}
+
+            {activeTab === 'backup' && (
+              <>
+                <div className="text-xs text-zinc-400">
+                  Configure local file backup for segmentations. When enabled, all unsaved
+                  segmentation changes are periodically written to a local cache, allowing
+                  recovery if the app closes unexpectedly.
+                </div>
+
+                <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-4 space-y-4">
+                  {/* Enable toggle */}
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={backupPrefs.enabled}
+                      onChange={(e) => setBackupEnabled(e.target.checked)}
+                      className="w-3.5 h-3.5 rounded border-zinc-600 bg-zinc-800 accent-blue-500"
+                    />
+                    <span className="text-xs text-zinc-300">Enable local file backup</span>
+                  </label>
+
+                  {/* Frequency slider */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-xs text-zinc-300">Backup frequency</label>
+                      <span className="text-[11px] text-zinc-400 tabular-nums">
+                        {backupPrefs.intervalSeconds}s
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min={5}
+                      max={120}
+                      step={5}
+                      value={backupPrefs.intervalSeconds}
+                      onChange={(e) => setBackupIntervalSeconds(parseInt(e.target.value, 10))}
+                      disabled={!backupPrefs.enabled}
+                      className="w-full h-1 bg-zinc-700 rounded-full appearance-none cursor-pointer accent-blue-500 disabled:opacity-50"
+                    />
+                    <div className="flex justify-between text-[10px] text-zinc-600 mt-0.5">
+                      <span>5s</span>
+                      <span>120s</span>
+                    </div>
+                  </div>
+
+                  {/* Cache location */}
+                  {backupCachePath && (
+                    <div className="space-y-1">
+                      <div className="text-[11px] text-zinc-500">Cache location</div>
+                      <div className="text-[11px] text-zinc-400 font-mono bg-zinc-900/80 rounded px-2 py-1.5 break-all select-text">
+                        {backupCachePath}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Cached backups list — grouped by server */}
+                <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-xs font-medium text-zinc-300">Cached Backups</h3>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setBackupLoading(true);
+                        backupService.listAllBackups().then(setBackupSessions).catch(() => setBackupSessions([])).finally(() => setBackupLoading(false));
+                      }}
+                      className="px-2 py-1 rounded text-[11px] bg-zinc-800 text-zinc-200 hover:bg-zinc-700 transition-colors"
+                    >
+                      Refresh
+                    </button>
+                  </div>
+
+                  {backupLoading ? (
+                    <div className="text-[11px] text-zinc-500">Loading...</div>
+                  ) : backupSessions.length === 0 ? (
+                    <div className="text-[11px] text-zinc-500">No cached backup files.</div>
+                  ) : (
+                    <div className="space-y-4">
+                      {(() => {
+                        // Group sessions by server URL
+                        const byServer = new Map<string, typeof backupSessions>();
+                        for (const s of backupSessions) {
+                          const key = s.serverUrl || 'Unknown Server';
+                          if (!byServer.has(key)) byServer.set(key, []);
+                          byServer.get(key)!.push(s);
+                        }
+                        return Array.from(byServer.entries()).map(([serverUrl, sessions]) => (
+                          <div key={serverUrl} className="space-y-2">
+                            <div className="text-[11px] text-zinc-400 font-medium truncate" title={serverUrl}>
+                              {serverUrl}
+                            </div>
+                            <div className="space-y-1.5 pl-2 border-l border-zinc-800">
+                              {sessions.map((session) => {
+                                const displayLabel = [
+                                  session.projectId && `Project: ${session.projectId}`,
+                                  session.subjectLabel && `Subject: ${session.subjectLabel}`,
+                                  (session.sessionLabel && session.sessionLabel !== session.sessionId)
+                                    ? `Session: ${session.sessionLabel}`
+                                    : `Session: ${session.sessionId}`,
+                                ].filter(Boolean).join('  \u00B7  ');
+
+                                // Build XNAT web URL for this session
+                                const xnatSessionUrl = serverUrl && serverUrl !== 'Unknown Server'
+                                  ? `${serverUrl.replace(/\/$/, '')}/data/experiments/${session.sessionId}?format=html`
+                                  : null;
+
+                                return (
+                                  <div
+                                    key={session.sessionId}
+                                    className="rounded border border-zinc-800 bg-zinc-900/60 px-2.5 py-2 space-y-1"
+                                  >
+                                    <div className="flex items-start justify-between gap-2">
+                                      <div className="min-w-0">
+                                        <div className="text-[11px] text-zinc-300 leading-relaxed" title={session.sessionId}>
+                                          {displayLabel}
+                                        </div>
+                                        <div className="text-[10px] text-zinc-500 flex flex-wrap gap-x-2 mt-0.5">
+                                          <span>{session.entryCount} file{session.entryCount !== 1 ? 's' : ''}</span>
+                                          <span>{formatBytes(session.totalSizeBytes)}</span>
+                                          <span>Last: {new Date(session.lastUpdated).toLocaleString()}</span>
+                                        </div>
+                                      </div>
+                                      <div className="shrink-0 flex items-center gap-1.5">
+                                        {onRecover && (
+                                          <button
+                                            type="button"
+                                            disabled={recoveringSession === session.sessionId}
+                                            onClick={async () => {
+                                              setRecoveringSession(session.sessionId);
+                                              try {
+                                                await onRecover(session.sessionId);
+                                              } finally {
+                                                setRecoveringSession(null);
+                                                onClose();
+                                              }
+                                            }}
+                                            className="px-2 py-1 rounded text-[11px] bg-green-900/50 text-green-300 hover:bg-green-900/70 transition-colors disabled:opacity-50"
+                                            title="Recover these annotations into the currently loaded session"
+                                          >
+                                            {recoveringSession === session.sessionId ? 'Recovering...' : 'Recover'}
+                                          </button>
+                                        )}
+                                        {xnatSessionUrl && (
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              window.electronAPI.shell.openExternal(xnatSessionUrl);
+                                            }}
+                                            className="px-2 py-1 rounded text-[11px] bg-zinc-800 text-blue-300 hover:bg-zinc-700 hover:text-blue-200 transition-colors"
+                                            title="Open session in XNAT"
+                                          >
+                                            Open
+                                          </button>
+                                        )}
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            const label = session.sessionLabel && session.sessionLabel !== session.sessionId
+                                              ? session.sessionLabel
+                                              : session.sessionId;
+                                            setConfirmDeleteSession({ sessionId: session.sessionId, label });
+                                          }}
+                                          className="px-2 py-1 rounded text-[11px] bg-red-900/40 text-red-300 hover:bg-red-900/60 transition-colors"
+                                        >
+                                          Delete
+                                        </button>
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ));
+                      })()}
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
           </div>
 
           <div className="h-12 shrink-0 border-t border-zinc-800 px-4 flex items-center justify-end">
@@ -694,6 +938,42 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
           </div>
         </div>
       </div>
+
+      {/* Styled confirm-delete dialog (replaces native window.confirm) */}
+      {confirmDeleteSession && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/50 rounded-xl">
+          <div className="bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl p-5 max-w-sm mx-4">
+            <h3 className="text-sm font-semibold text-zinc-100 mb-2">Delete Backup</h3>
+            <p className="text-xs text-zinc-400 mb-4">
+              Delete all backup files for <strong className="text-zinc-200">{confirmDeleteSession.label}</strong>? This cannot be undone.
+            </p>
+            <div className="flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirmDeleteSession(null)}
+                className="px-3 py-1.5 rounded text-xs bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const sid = confirmDeleteSession.sessionId;
+                  setConfirmDeleteSession(null);
+                  backupService.deleteSessionBackups(sid).then(() => {
+                    setBackupSessions((prev) => prev.filter((s) => s.sessionId !== sid));
+                  }).catch((err) => {
+                    console.error('[Settings] Failed to delete backup session:', err);
+                  });
+                }}
+                className="px-3 py-1.5 rounded text-xs bg-red-900/60 text-red-200 hover:bg-red-900/80 transition-colors"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

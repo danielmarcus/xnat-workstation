@@ -74,6 +74,20 @@ export const INTERPOLATION_ALGORITHM_DESCRIPTIONS: Record<InterpolationAlgorithm
   linear: 'Blends pixel values linearly between anchors. Adjustable threshold controls fill aggressiveness.',
 };
 
+// ─── Backup Preferences ─────────────────────────────────────────
+
+export interface BackupPreferences {
+  /** Whether local file backup is enabled */
+  enabled: boolean;
+  /** Backup interval in seconds (minimum 5, maximum 300) */
+  intervalSeconds: number;
+}
+
+export const DEFAULT_BACKUP_PREFERENCES: BackupPreferences = {
+  enabled: true,
+  intervalSeconds: 10,
+};
+
 // ─── Top-level Preferences ──────────────────────────────────────
 
 export interface PreferencesV1 {
@@ -83,6 +97,7 @@ export interface PreferencesV1 {
   overlay: OverlayPreferences;
   annotation: AnnotationToolPreferences;
   interpolation: InterpolationPreferences;
+  backup: BackupPreferences;
 }
 
 export const DEFAULT_OVERLAY_CORNERS: Record<OverlayCornerId, OverlayFieldKey[]> = {
@@ -147,4 +162,5 @@ export const DEFAULT_PREFERENCES: PreferencesV1 = {
     defaultColorSequence: DEFAULT_SEGMENT_COLOR_SEQUENCE,
   },
   interpolation: { ...DEFAULT_INTERPOLATION_PREFERENCES },
+  backup: { ...DEFAULT_BACKUP_PREFERENCES },
 };
