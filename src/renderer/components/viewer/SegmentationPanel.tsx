@@ -1933,6 +1933,8 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
                 <span className="text-[9px] text-red-400">Backup failed</span>
               </>
             )}
+          </div>
+        )}
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-4">
             <label className="flex items-center gap-2 cursor-pointer">
@@ -1978,7 +1980,7 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
             </span>
           )}
         </div>
-        {!isXnatConnected || !activePanelXnatContext ? (
+        {(!isXnatConnected || !activePanelXnatContext) && (
           <div className="text-[9px] text-zinc-600 -mt-1">
             Auto-save is available after loading an XNAT scan.
           </div>
