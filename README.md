@@ -1,6 +1,6 @@
 # XNAT Viewer
 
-A desktop DICOM medical image viewer built with Electron that connects to [XNAT](https://www.xnat.org/) imaging repositories. Browse, view, annotate, segment, and export medical imaging studies with a modern interface powered by [Cornerstone3D](https://www.cornerstonejs.org/).
+A desktop DICOM medical image workstation built with Electron that connects to [XNAT](https://www.xnat.org/) imaging repositories. Browse, view, annotate, segment, and export medical imaging studies with a modern interface powered by [Cornerstone3D](https://www.cornerstonejs.org/).
 
 ![Electron](https://img.shields.io/badge/Electron-40-47848F?logo=electron)
 ![React](https://img.shields.io/badge/React-19-61DAFB?logo=react)
