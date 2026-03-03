@@ -10,6 +10,9 @@ import * as sessionManager from '../xnat/sessionManager';
 
 export function registerAuthHandlers(): void {
   ipcMain.handle(IPC.XNAT_BROWSER_LOGIN, async (_event, serverUrl: string) => {
+    if (typeof serverUrl !== 'string' || serverUrl.trim().length === 0) {
+      throw new Error('Invalid payload for xnat:browser-login: serverUrl must be a non-empty string');
+    }
     return sessionManager.browserLogin(serverUrl);
   });
 
