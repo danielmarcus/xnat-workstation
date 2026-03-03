@@ -16,6 +16,19 @@ import fs from 'fs/promises';
 import path from 'path';
 import { IPC } from '../../shared/ipcChannels';
 
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function isViewportBounds(value: unknown): value is { x: number; y: number; width: number; height: number } {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Record<string, unknown>;
+  return isFiniteNumber(candidate.x)
+    && isFiniteNumber(candidate.y)
+    && isFiniteNumber(candidate.width)
+    && isFiniteNumber(candidate.height);
+}
+
 export function registerExportHandlers(): void {
   console.log('[ipc] Export handlers registered');
 
@@ -72,6 +85,9 @@ export function registerExportHandlers(): void {
       try {
         const win = BrowserWindow.getFocusedWindow();
         if (!win) return { ok: false, error: 'No focused window' };
+        if (!isViewportBounds(bounds)) {
+          return { ok: false, error: 'Invalid payload: bounds must include finite x/y/width/height' };
+        }
 
         const x = Math.floor(bounds?.x ?? 0);
         const y = Math.floor(bounds?.y ?? 0);
@@ -134,6 +150,9 @@ export function registerExportHandlers(): void {
       try {
         const win = BrowserWindow.getFocusedWindow();
         if (!win) return { ok: false, error: 'No focused window' };
+        if (!isViewportBounds(bounds)) {
+          return { ok: false, error: 'Invalid payload: bounds must include finite x/y/width/height' };
+        }
 
         const x = Math.floor(bounds?.x ?? 0);
         const y = Math.floor(bounds?.y ?? 0);

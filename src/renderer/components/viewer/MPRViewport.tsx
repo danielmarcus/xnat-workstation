@@ -156,9 +156,13 @@ export default function MPRViewport({ panelId, volumeId, plane }: MPRViewportPro
   const wc = voiState?.windowCenter ?? 0;
 
   return (
-    <div className={`relative w-full h-full bg-black ${cursorClass}`}>
+    <div
+      data-testid={`mpr-viewport:${panelId}`}
+      className={`relative w-full h-full bg-black ${cursorClass}`}
+    >
       <div
         ref={containerRef}
+        data-testid={`mpr-viewport-canvas:${panelId}`}
         className={`w-full h-full ${cursorClass}`}
         onContextMenu={(e) => e.preventDefault()}
       />
@@ -203,7 +207,10 @@ export default function MPRViewport({ panelId, volumeId, plane }: MPRViewportPro
 
       {/* Error overlay */}
       {error && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/80">
+        <div
+          data-testid={`mpr-viewport-error:${panelId}`}
+          className="absolute inset-0 flex items-center justify-center bg-black/80"
+        >
           <div className="bg-red-950 border border-red-800 text-red-200 px-4 py-3 rounded max-w-md">
             <p className="font-semibold text-sm">MPR Error</p>
             <p className="text-xs mt-1">{error}</p>

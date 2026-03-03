@@ -22,6 +22,16 @@ export function registerProxyHandlers(): void {
       path: string,
       options?: { accept?: string },
     ): Promise<ProxiedFetchResult> => {
+      if (typeof path !== 'string' || path.trim().length === 0 || !path.startsWith('/')) {
+        return { ok: false, status: 400, error: 'Invalid payload: path must be a non-empty absolute path' };
+      }
+      if (options && typeof options !== 'object') {
+        return { ok: false, status: 400, error: 'Invalid payload: options must be an object' };
+      }
+      if (options?.accept !== undefined && typeof options.accept !== 'string') {
+        return { ok: false, status: 400, error: 'Invalid payload: options.accept must be a string' };
+      }
+
       const client = sessionManager.getClient();
       if (!client) {
         return { ok: false, status: 401, error: 'Not connected to XNAT' };

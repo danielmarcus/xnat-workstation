@@ -15,27 +15,18 @@ import { matchProtocol, applyProtocol } from './lib/hangingProtocolService';
 import { panelId } from '@shared/types/viewer';
 import { BUILT_IN_PROTOCOLS } from '@shared/types/hangingProtocol';
 import type { XnatScan } from '@shared/types/xnat';
-import { IconOpenFile, IconPin, IconChevronDown, XnatLogo } from './components/icons';
+import { IconOpenFile, XnatLogo } from './components/icons';
 import { volumeService } from './lib/cornerstone/volumeService';
 import {
-  loadPinnedItems,
-  addPinnedItem,
-  removePinnedItem,
-  isPinned as isPinnedCheck,
-  loadRecentSessions,
   saveRecentSession as saveRecentSessionUtil,
-  removeRecentSession,
   migrateOldStorage,
-  type PinnedItem,
-  type RecentSession,
-  type NavigateToTarget,
 } from './lib/pinnedItems';
 import { rtStructService } from './lib/cornerstone/rtStructService';
 import { viewportService } from './lib/cornerstone/viewportService';
-import { imageLoader, cache, metaData } from '@cornerstonejs/core';
+import { imageLoader, cache } from '@cornerstonejs/core';
 import * as dicomParser from 'dicom-parser';
 import { viewportReadyService } from './lib/cornerstone/viewportReadyService';
-import { useSessionDerivedIndexStore, isSegScan, isRtStructScan, isDerivedScan, isSrScan } from './stores/sessionDerivedIndexStore';
+import { useSessionDerivedIndexStore, isSegScan, isRtStructScan, isDerivedScan } from './stores/sessionDerivedIndexStore';
 import { useSegmentationManagerStore } from './stores/segmentationManagerStore';
 import { segmentationManager } from './lib/segmentation/segmentationManagerSingleton';
 import { getSegReferenceInfo } from './lib/dicom/segReferencedSeriesUid';
@@ -44,6 +35,23 @@ import { backupService } from './lib/backup/backupService';
 import { segmentationService } from './lib/cornerstone/segmentationService';
 import AppDialogHost from './components/dialog/AppDialogHost';
 import { showConfirmDialog } from './stores/dialogStore';
+import {
+  isPrimaryImageScan,
+  hasRecoveredSession,
+  markRecoveredSession,
+  clearRecoveredSessions,
+  acquireSegLock,
+  releaseSegLock,
+  clearSegLoadingLocks,
+  findPanelBySeriesUID,
+  findPanelByReferencedSopInstanceUIDs,
+  findSourceScanBySeriesUID,
+  findSourceScanByReferencedSopInstanceUIDs,
+} from './lib/app/appHelpers';
+import { useUnsavedNavigationDialog } from './lib/app/useUnsavedNavigationDialog';
+import { useBookmarks } from './lib/app/useBookmarks';
+import BookmarksDropdown from './components/app/BookmarksDropdown';
+import UnsavedNavigationDialog from './components/app/UnsavedNavigationDialog';
 
 /** DICOM SEG SOP Class UID */
 const SEG_SOP_CLASS_UID = '1.2.840.10008.5.1.4.1.1.66.4';
@@ -52,13 +60,6 @@ const SEG_SOP_CLASS_UID = '1.2.840.10008.5.1.4.1.1.66.4';
 const RTSTRUCT_SOP_CLASS_UID = '1.2.840.10008.5.1.4.1.1.481.3';
 const XNAT_SCAN_DRAG_MIME = 'application/x-xnat-scan';
 const XNAT_SCAN_DRAG_FALLBACK_MIME = 'text/x-xnat-scan';
-
-function isPrimaryImageScan(scan: XnatScan): boolean {
-  if (isDerivedScan(scan) || isSrScan(scan)) return false;
-  const xsiType = (scan.xsiType ?? '').trim().toLowerCase();
-  if (xsiType === 'xnat:otherdicomscandata') return false;
-  return true;
-}
 
 interface XnatScanDragPayload {
   sessionId: string;
@@ -81,10 +82,6 @@ interface BrowserStatusState {
   detail: string;
 }
 
-interface UnsavedNavigationDialogState {
-  open: boolean;
-}
-
 /** State for the styled recovery confirm dialog (replaces window.confirm). */
 interface RecoveryConfirmDialogState {
   open: boolean;
@@ -93,34 +90,9 @@ interface RecoveryConfirmDialogState {
   confirmLabel: string;
   cancelLabel: string;
 }
-
 // isSegScan, isRtStructScan, isDerivedScan imported from sessionDerivedIndexStore
 // getSegReferenceInfo imported from lib/dicom/segReferencedSeriesUid
 
-/** Tracks sessions that have already been checked for auto-save recovery. */
-const recoveredSessions = new Set<string>();
-
-/** Tracks SEG/RTSTRUCT scan IDs with in-progress loads (prevents duplicates from rapid clicks).
- *  Map of scanId → timestamp(ms). Entries older than 30s are considered stale and auto-cleared. */
-const segLoadingLock = new Map<string, number>();
-const SEG_LOCK_STALE_MS = 30_000;
-
-/** Acquire a loading lock for a SEG/RTSTRUCT scan. Returns false if already locked (not stale). */
-function acquireSegLock(scanId: string): boolean {
-  const now = Date.now();
-  const existing = segLoadingLock.get(scanId);
-  if (existing && (now - existing) < SEG_LOCK_STALE_MS) {
-    console.warn(`[App] SEG scan #${scanId} already loading — ignoring duplicate click`);
-    return false;
-  }
-  segLoadingLock.set(scanId, now);
-  return true;
-}
-
-/** Release a loading lock for a SEG/RTSTRUCT scan. */
-function releaseSegLock(scanId: string): void {
-  segLoadingLock.delete(scanId);
-}
 
 /**
  * Check for auto-saved files and prompt recovery.
@@ -131,13 +103,15 @@ function releaseSegLock(scanId: string): void {
  *
  * Called after all scans are loaded in loadSessionFromXnat().
  */
-async function checkForAutoSaveRecovery(
+export async function checkForAutoSaveRecovery(
   sessionId: string,
   scanIdToPanelInfo: Map<string, { pid: string; ids: string[] }>,
-  confirm: (title: string, message: string, confirmLabel?: string, cancelLabel?: string) => Promise<boolean>,
+  confirm: (title: string, message: string, confirmLabel?: string, cancelLabel?: string) => Promise<boolean> =
+    async (title, message, confirmLabel, cancelLabel) =>
+      showConfirmDialog({ title, message, confirmLabel, cancelLabel }),
 ): Promise<void> {
   // Only check once per session to avoid repeated dialog prompts
-  if (recoveredSessions.has(sessionId)) return;
+  if (hasRecoveredSession(sessionId)) return;
 
   const loadedPanelsById: Record<string, string[]> = {};
   for (const panelInfo of scanIdToPanelInfo.values()) {
@@ -325,13 +299,13 @@ async function checkForAutoSaveRecovery(
   }
 
   // Mark recovery as checked — always do this regardless of Phase 2 outcome
-  recoveredSessions.add(sessionId);
+  markRecoveredSession(sessionId);
 
   // ─── Phase 2: Check legacy XNAT temp resource files ─────────────
   try {
     const result = await window.electronAPI.xnat.listTempFiles(sessionId);
     if (!result.ok || !result.files || result.files.length === 0) {
-      recoveredSessions.add(sessionId);
+      markRecoveredSession(sessionId);
       return;
     }
 
@@ -340,7 +314,7 @@ async function checkForAutoSaveRecovery(
       (f) => (f.name.startsWith('autosave_seg_') || f.name.startsWith('autosave_rtstruct_')) && f.name.endsWith('.dcm'),
     );
     if (autoSaveFiles.length === 0) {
-      recoveredSessions.add(sessionId);
+      markRecoveredSession(sessionId);
       return;
     }
 
@@ -486,192 +460,15 @@ async function checkForAutoSaveRecovery(
     }
 
     // Mark this session as checked so the dialog won't fire again
-    recoveredSessions.add(sessionId);
+    markRecoveredSession(sessionId);
   } catch (err) {
     console.error('[App] Auto-save recovery check failed:', err);
     // Non-fatal — don't block session loading
-    recoveredSessions.add(sessionId); // Still mark as checked to avoid retry loops
+    markRecoveredSession(sessionId); // Still mark as checked to avoid retry loops
   }
 }
 
 // getSegReferenceInfo moved to lib/dicom/segReferencedSeriesUid.ts
-
-/**
- * Find which loaded scan's images match a given SeriesInstanceUID.
- * Returns the panelId and imageIds if found.
- */
-function findPanelBySeriesUID(
-  seriesUID: string,
-  panelImageIds: Record<string, string[]>,
-): { panelId: string; imageIds: string[] } | null {
-  for (const [pid, ids] of Object.entries(panelImageIds)) {
-    if (ids.length === 0) continue;
-    // Check the first image's series UID
-    const seriesMeta = metaData.get('generalSeriesModule', ids[0]) as
-      | { seriesInstanceUID?: string } | undefined;
-    if (seriesMeta?.seriesInstanceUID === seriesUID) {
-      return { panelId: pid, imageIds: ids };
-    }
-  }
-  return null;
-}
-
-function toWadouriUri(imageId: string): string {
-  return imageId.startsWith('wadouri:') ? imageId.slice('wadouri:'.length) : imageId;
-}
-
-function extractObjectUidFromImageId(imageId: string): string | null {
-  const uri = toWadouriUri(imageId);
-  const queryStart = uri.indexOf('?');
-  if (queryStart < 0) return null;
-  const params = new URLSearchParams(uri.slice(queryStart + 1));
-  return (
-    params.get('objectUID') ??
-    params.get('objectUid') ??
-    params.get('SOPInstanceUID') ??
-    params.get('sopInstanceUID')
-  );
-}
-
-function findPanelByReferencedSopInstanceUIDs(
-  referencedSopInstanceUIDs: string[],
-  panelImageIds: Record<string, string[]>,
-): { panelId: string; imageIds: string[] } | null {
-  if (referencedSopInstanceUIDs.length === 0) return null;
-  const target = new Set(referencedSopInstanceUIDs);
-
-  for (const [pid, ids] of Object.entries(panelImageIds)) {
-    if (ids.length === 0) continue;
-    for (const imageId of ids) {
-      const fromImageId = extractObjectUidFromImageId(imageId);
-      if (fromImageId && target.has(fromImageId)) {
-        return { panelId: pid, imageIds: ids };
-      }
-
-      const sopCommon = metaData.get('sopCommonModule', imageId) as
-        | { sopInstanceUID?: string }
-        | undefined;
-      if (sopCommon?.sopInstanceUID && target.has(sopCommon.sopInstanceUID)) {
-        return { panelId: pid, imageIds: ids };
-      }
-    }
-  }
-
-  return null;
-}
-
-async function getSeriesUidForImageId(imageId: string): Promise<string | null> {
-  const seriesMeta = metaData.get('generalSeriesModule', imageId) as
-    | { seriesInstanceUID?: string } | undefined;
-  if (seriesMeta?.seriesInstanceUID) return seriesMeta.seriesInstanceUID;
-
-  try {
-    const uri = toWadouriUri(imageId);
-    if (!wadouri.dataSetCacheManager.isLoaded(uri)) {
-      await wadouri.dataSetCacheManager.load(uri, undefined as any, imageId);
-    }
-    const ds = wadouri.dataSetCacheManager.get(uri);
-    return ds?.string?.('x0020000e') ?? null;
-  } catch {
-    return null;
-  }
-}
-
-async function getSopInstanceUidForImageId(imageId: string): Promise<string | null> {
-  const fromImageId = extractObjectUidFromImageId(imageId);
-  if (fromImageId) return fromImageId;
-
-  const sopCommon = metaData.get('sopCommonModule', imageId) as
-    | { sopInstanceUID?: string }
-    | undefined;
-  if (sopCommon?.sopInstanceUID) return sopCommon.sopInstanceUID;
-
-  try {
-    const uri = toWadouriUri(imageId);
-    if (!wadouri.dataSetCacheManager.isLoaded(uri)) {
-      await wadouri.dataSetCacheManager.load(uri, undefined as any, imageId);
-    }
-    const ds = wadouri.dataSetCacheManager.get(uri);
-    return ds?.string?.('x00080018') ?? null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Search through all session scans to find the one whose SeriesInstanceUID
- * matches the given UID. Loads the first image of each candidate scan to
- * check its metadata. Returns the full imageIds array for the matching scan.
- */
-async function findSourceScanBySeriesUID(
-  sessionId: string,
-  targetSeriesUID: string,
-  scans: XnatScan[],
-): Promise<{ scanId: string; imageIds: string[] } | null> {
-  // Only check primary image scans (exclude SEG/RTSTRUCT/SR/other non-image DICOM rows)
-  const candidates = scans.filter((s) => isPrimaryImageScan(s));
-  console.log(`[App] Searching ${candidates.length} scans for SeriesInstanceUID ${targetSeriesUID}`);
-
-  for (const scan of candidates) {
-    try {
-      const ids = await dicomwebLoader.getScanImageIds(sessionId, scan.id);
-      if (ids.length === 0) continue;
-
-      const seriesUID = await getSeriesUidForImageId(ids[0]);
-      if (seriesUID === targetSeriesUID) {
-        console.log(`[App] Found matching source: scan #${scan.id} (${ids.length} images)`);
-        return { scanId: scan.id, imageIds: ids };
-      }
-    } catch (err) {
-      console.warn(`[App] Failed to probe scan #${scan.id}:`, err);
-    }
-  }
-  return null;
-}
-
-async function findSourceScanByReferencedSopInstanceUIDs(
-  sessionId: string,
-  referencedSopInstanceUIDs: string[],
-  scans: XnatScan[],
-): Promise<{ scanId: string; imageIds: string[] } | null> {
-  if (referencedSopInstanceUIDs.length === 0) return null;
-  const target = new Set(referencedSopInstanceUIDs);
-  const candidates = scans.filter((s) => isPrimaryImageScan(s));
-  console.log(
-    `[App] Searching ${candidates.length} scans for referenced SOP Instance UID fallback (${target.size} UID(s))`,
-  );
-
-  for (const scan of candidates) {
-    try {
-      const ids = await dicomwebLoader.getScanImageIds(sessionId, scan.id);
-      if (ids.length === 0) continue;
-
-      // Fast path: UID embedded in wadouri URL query.
-      const fastMatch = ids.some((imageId) => {
-        const uid = extractObjectUidFromImageId(imageId);
-        return !!uid && target.has(uid);
-      });
-      if (fastMatch) {
-        console.log(`[App] Found SOP UID fallback match in source scan #${scan.id} (${ids.length} images)`);
-        return { scanId: scan.id, imageIds: ids };
-      }
-
-      // Slow path: metadata/header probe for non-query imageIds.
-      const probeIds = ids.slice(0, Math.min(ids.length, 8));
-      for (const imageId of probeIds) {
-        const uid = await getSopInstanceUidForImageId(imageId);
-        if (uid && target.has(uid)) {
-          console.log(`[App] Found SOP UID fallback metadata match in source scan #${scan.id}`);
-          return { scanId: scan.id, imageIds: ids };
-        }
-      }
-    } catch (err) {
-      console.warn(`[App] Failed SOP UID fallback probe for scan #${scan.id}:`, err);
-    }
-  }
-
-  return null;
-}
 
 /**
  * Pre-load and cache all source images so their metadata is available.
@@ -679,7 +476,7 @@ async function findSourceScanByReferencedSopInstanceUIDs(
  * without this, metadataProvider.get('instance', imageId) returns undefined
  * and createFromDICOMSegBuffer fails.
  */
-async function preloadImages(imageIds: string[]): Promise<void> {
+export async function preloadImages(imageIds: string[]): Promise<void> {
   console.log(`[App] Pre-loading ${imageIds.length} images for metadata...`);
   let loadedCount = 0;
   const promises = imageIds.map((id) => {
@@ -699,7 +496,7 @@ async function preloadImages(imageIds: string[]): Promise<void> {
   console.log(`[App] Pre-load complete: ${loadedCount}/${imageIds.length} newly loaded`);
 }
 
-async function jumpViewportToReferencedImage(panelId: string, referencedImageId: string | null) {
+export async function jumpViewportToReferencedImage(panelId: string, referencedImageId: string | null) {
   if (!referencedImageId) return;
 
   // The viewport should already be ready (callers await viewportReadyService.whenReady
@@ -730,7 +527,7 @@ async function jumpViewportToReferencedImage(panelId: string, referencedImageId:
 /**
  * Download a DICOM SEG file from XNAT and convert from base64 to ArrayBuffer.
  */
-async function downloadSegArrayBuffer(
+export async function downloadSegArrayBuffer(
   sessionId: string,
   scanId: string,
 ): Promise<ArrayBuffer> {
@@ -825,9 +622,6 @@ export default function App() {
     message: 'Ready',
     detail: 'Select a session or scan to load data.',
   });
-  const [unsavedNavigationDialog, setUnsavedNavigationDialog] = useState<UnsavedNavigationDialogState>({ open: false });
-  const unsavedNavigationResolverRef = useRef<((proceed: boolean) => void) | null>(null);
-
   // ─── Recovery confirm dialog (replaces native window.confirm) ───
   const [recoveryConfirmDialog, setRecoveryConfirmDialog] = useState<RecoveryConfirmDialogState>({
     open: false, title: '', message: '', confirmLabel: 'OK', cancelLabel: 'Cancel',
@@ -854,7 +648,6 @@ export default function App() {
     },
     [],
   );
-
   const [showBrowser, setShowBrowser] = useState(true);
   const [browserWidth, setBrowserWidth] = useState(288);
   const browserWidthRef = useRef(288); // persists width when collapsed
@@ -863,6 +656,11 @@ export default function App() {
   const [backupBannerCount, setBackupBannerCount] = useState(0);
   const [backupBannerDismissed, setBackupBannerDismissed] = useState(false);
   const [openSettingsToBackup, setOpenSettingsToBackup] = useState(false);
+
+  // Connection state
+  const connectionStatus = useConnectionStore((s) => s.status);
+  const connection = useConnectionStore((s) => s.connection);
+  const isConnected = connectionStatus === 'connected';
 
   const setBrowserStatusMessage = useCallback(
     (message: string, tone: BrowserStatusTone = 'info', detail = '') => {
@@ -883,33 +681,21 @@ export default function App() {
     segStore._markClean();
   }, []);
 
-  const resolveUnsavedNavigationDialog = useCallback((proceed: boolean) => {
-    if (proceed) {
-      discardCurrentAnnotations();
-    }
-    const resolver = unsavedNavigationResolverRef.current;
-    unsavedNavigationResolverRef.current = null;
-    setUnsavedNavigationDialog({ open: false });
-    resolver?.(proceed);
-  }, [discardCurrentAnnotations]);
+  const unsavedNavigation = useUnsavedNavigationDialog(discardCurrentAnnotations);
 
-  const promptUnsavedNavigationDialog = useCallback(async (): Promise<boolean> => {
-    if (unsavedNavigationResolverRef.current) {
-      unsavedNavigationResolverRef.current(false);
-      unsavedNavigationResolverRef.current = null;
-    }
-    return new Promise<boolean>((resolve) => {
-      unsavedNavigationResolverRef.current = resolve;
-      setUnsavedNavigationDialog({ open: true });
-    });
-  }, []);
-
-  // ─── Bookmarks (pinned items & recent sessions) ───────────────
-  const [pinnedItems, setPinnedItems] = useState<PinnedItem[]>([]);
-  const [recentSessions, setRecentSessions] = useState<RecentSession[]>([]);
-  const [navigateTo, setNavigateTo] = useState<NavigateToTarget | null>(null);
-  const [showBookmarks, setShowBookmarks] = useState(false);
-  const bookmarksRef = useRef<HTMLDivElement>(null);
+  const {
+    pinnedItems,
+    recentSessions,
+    navigateTo,
+    setNavigateTo,
+    showBookmarks,
+    setShowBookmarks,
+    bookmarksRef,
+    refreshBookmarks,
+    handleTogglePin,
+    handleBookmarkNavigate,
+    handlePromoteRecent,
+  } = useBookmarks(connection?.serverUrl, showBrowser, setShowBrowser);
 
   const recordLoadedOverlay = useCallback((
     projectId: string,
@@ -955,11 +741,6 @@ export default function App() {
    *  clobbering the segmentation. */
   const segLoadingPanelRef = useRef<string | null>(null);
 
-  // Connection state
-  const connectionStatus = useConnectionStore((s) => s.status);
-  const connection = useConnectionStore((s) => s.connection);
-  const isConnected = connectionStatus === 'connected';
-
   useEffect(() => {
     applyPreferences(preferences);
   }, [preferences]);
@@ -996,15 +777,11 @@ export default function App() {
       segStore.hasUnsavedChanges || segmentationManager.hasDirtySegmentations();
     if (!hasUnsaved) return true;
 
-    return promptUnsavedNavigationDialog();
-  }, [promptUnsavedNavigationDialog]);
+    return unsavedNavigation.prompt();
+  }, [unsavedNavigation]);
 
   useEffect(() => {
     return () => {
-      if (unsavedNavigationResolverRef.current) {
-        unsavedNavigationResolverRef.current(false);
-        unsavedNavigationResolverRef.current = null;
-      }
       if (recoveryConfirmResolverRef.current) {
         recoveryConfirmResolverRef.current(false);
         recoveryConfirmResolverRef.current = null;
@@ -1022,8 +799,8 @@ export default function App() {
       useSegmentationStore.getState()._markClean();
       useSessionDerivedIndexStore.getState().clear();
       useSegmentationManagerStore.getState().reset();
-      recoveredSessions.clear();
-      segLoadingLock.clear();
+      clearRecoveredSessions();
+      clearSegLoadingLocks();
       pendingSegLoadRef.current = null;
       segLoadingPanelRef.current = null;
       dicomwebLoader.clearScanImageIdsCache();
@@ -1123,63 +900,6 @@ export default function App() {
     migrateOldStorage();
   }, []);
 
-  // ─── Bookmarks: refresh pins & recents when server changes ────
-  const refreshBookmarks = useCallback(() => {
-    const url = connection?.serverUrl;
-    if (url) {
-      setPinnedItems(loadPinnedItems(url));
-      setRecentSessions(loadRecentSessions(url));
-    } else {
-      setPinnedItems([]);
-      setRecentSessions([]);
-    }
-  }, [connection?.serverUrl]);
-
-  useEffect(() => {
-    refreshBookmarks();
-  }, [refreshBookmarks]);
-
-  // ─── Bookmarks: close dropdown on outside click ───────────────
-  useEffect(() => {
-    if (!showBookmarks) return;
-    function handleClick(e: MouseEvent) {
-      if (bookmarksRef.current && !bookmarksRef.current.contains(e.target as Node)) {
-        setShowBookmarks(false);
-      }
-    }
-    document.addEventListener('mousedown', handleClick);
-    return () => document.removeEventListener('mousedown', handleClick);
-  }, [showBookmarks]);
-
-  // ─── Bookmarks: handlers ──────────────────────────────────────
-  const handleTogglePin = useCallback(
-    (item: PinnedItem) => {
-      const url = connection?.serverUrl;
-      if (!url) return;
-      const id =
-        item.type === 'project' ? item.projectId :
-        item.type === 'subject' ? item.subjectId :
-        item.sessionId;
-      if (isPinnedCheck(pinnedItems, item.type, id)) {
-        removePinnedItem(item.type, id, url);
-      } else {
-        addPinnedItem(item);
-      }
-      refreshBookmarks();
-    },
-    [connection?.serverUrl, pinnedItems, refreshBookmarks],
-  );
-
-  /** Navigate to a pinned or recent item via the bookmarks dropdown. */
-  const handleBookmarkNavigate = useCallback(
-    (target: NavigateToTarget) => {
-      setNavigateTo(target);
-      setShowBookmarks(false);
-      if (!showBrowser) setShowBrowser(true);
-    },
-    [showBrowser],
-  );
-
   // ─── Browser panel resize via drag handle ────────────────────
   const handleResizeStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -1212,25 +932,6 @@ export default function App() {
     document.addEventListener('mousemove', onMouseMove);
     document.addEventListener('mouseup', onMouseUp);
   }, [browserWidth]);
-
-  /** Promote a recent session to a pinned item. */
-  const handlePromoteRecent = useCallback(
-    (recent: RecentSession) => {
-      addPinnedItem({
-        type: 'session',
-        serverUrl: recent.serverUrl,
-        projectId: recent.projectId,
-        projectName: recent.projectName,
-        subjectId: recent.subjectId,
-        subjectLabel: recent.subjectLabel,
-        sessionId: recent.sessionId,
-        sessionLabel: recent.sessionLabel,
-        timestamp: Date.now(),
-      });
-      refreshBookmarks();
-    },
-    [refreshBookmarks],
-  );
 
   /**
    * Load local DICOM files using Cornerstone's file manager.
@@ -1571,7 +1272,7 @@ export default function App() {
       for (const seg of [...useSegmentationStore.getState().segmentations]) {
         segmentationManager.removeSegmentation(seg.segmentationId);
       }
-      segLoadingLock.clear();
+      clearSegLoadingLocks();
       useSessionDerivedIndexStore.getState().clear();
       useSegmentationManagerStore.getState().reset();
       dicomwebLoader.clearScanImageIdsCache(currentSessionId);
@@ -1810,7 +1511,9 @@ export default function App() {
           if (refSeriesUID) {
             const sessionScans = await ensureSessionScans();
             if (sessionScans.length > 0) {
-              const match = await findSourceScanBySeriesUID(sessionId, refSeriesUID, sessionScans);
+              const match = await findSourceScanBySeriesUID(sessionId, refSeriesUID, sessionScans, {
+                getScanImageIds: (sid, sourceScanId) => dicomwebLoader.getScanImageIds(sid, sourceScanId),
+              });
               if (match) {
                 sourceIds = match.imageIds;
                 foundScanId = match.scanId;
@@ -1828,6 +1531,9 @@ export default function App() {
                 sessionId,
                 refInfo.referencedSOPInstanceUIDs,
                 sessionScans,
+                {
+                  getScanImageIds: (sid, sourceScanId) => dicomwebLoader.getScanImageIds(sid, sourceScanId),
+                },
               );
               if (sopMatch) {
                 sourceIds = sopMatch.imageIds;
@@ -2045,7 +1751,9 @@ export default function App() {
           if (parsed.referencedSeriesUID) {
             const sessionScans = await ensureSessionScans();
             if (sessionScans.length > 0) {
-              const match = await findSourceScanBySeriesUID(sessionId, parsed.referencedSeriesUID, sessionScans);
+              const match = await findSourceScanBySeriesUID(sessionId, parsed.referencedSeriesUID, sessionScans, {
+                getScanImageIds: (sid, sourceScanId) => dicomwebLoader.getScanImageIds(sid, sourceScanId),
+              });
               if (match) {
                 sourceIds = match.imageIds;
                 resolvedRtSourceScanId = match.scanId;
@@ -2368,7 +2076,7 @@ export default function App() {
       }
 
       // Clear stale loading locks, derived index, and manager state from previous session
-      segLoadingLock.clear();
+      clearSegLoadingLocks();
       useSessionDerivedIndexStore.getState().clear();
       useSegmentationManagerStore.getState().reset();
 
@@ -2819,7 +2527,7 @@ export default function App() {
 
         // Pre-mark as recovered so checkForAutoSaveRecovery (called at end of
         // loadSessionFromXnat) doesn't double-prompt for the same entries.
-        recoveredSessions.add(sessionId);
+        markRecoveredSession(sessionId);
 
         await loadSessionFromXnat(sessionId, scans, {
           projectId,
@@ -3028,159 +2736,17 @@ export default function App() {
             </label>
             {/* Export — icon only */}
             <ExportDropdown />
-            {/* Bookmarks dropdown — always visible, greyed out when empty */}
-            {(() => {
-              const hasBookmarks = pinnedItems.length > 0 || recentSessions.length > 0;
-              return (
-                <div ref={bookmarksRef} className="relative">
-                  <button
-                    onClick={() => hasBookmarks && setShowBookmarks((v) => !v)}
-                    className={`flex items-center gap-1 text-xs font-medium px-2 py-1.5 rounded whitespace-nowrap transition-colors ${
-                      !hasBookmarks
-                        ? 'bg-zinc-800 text-zinc-600 cursor-default'
-                        : showBookmarks
-                          ? 'bg-amber-600/20 text-amber-300'
-                          : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200'
-                    }`}
-                    title={hasBookmarks ? 'Pinned & Recent' : 'No pinned or recent items'}
-                  >
-                    <IconPin className="w-3.5 h-3.5" filled={pinnedItems.length > 0} />
-                    <IconChevronDown className="w-3 h-3" />
-                  </button>
-
-                  {showBookmarks && hasBookmarks && (
-                    <div className="absolute top-full left-0 mt-1 w-72 bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl z-50 py-1 max-h-80 overflow-y-auto">
-                      {/* Pinned items section */}
-                      {pinnedItems.length > 0 && (
-                        <>
-                          <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
-                            Pinned
-                          </div>
-                          {pinnedItems.map((item) => {
-                            const key =
-                              item.type === 'project' ? `pin-p-${item.projectId}` :
-                              item.type === 'subject' ? `pin-s-${item.subjectId}` :
-                              `pin-x-${item.sessionId}`;
-                            const label =
-                              item.type === 'project' ? item.projectName :
-                              item.type === 'subject' ? `${item.subjectLabel || item.subjectId}` :
-                              `${item.sessionLabel || item.sessionId}`;
-                            const sublabel =
-                              item.type === 'project' ? null :
-                              item.type === 'subject' ? item.projectName :
-                              `${item.subjectLabel || item.subjectId} / ${item.projectName}`;
-                            const icon =
-                              item.type === 'project' ? 'text-blue-400' :
-                              item.type === 'subject' ? 'text-violet-400' :
-                              'text-emerald-400';
-                            const typeLabel =
-                              item.type === 'project' ? 'P' :
-                              item.type === 'subject' ? 'S' : 'E';
-
-                            return (
-                              <div
-                                key={key}
-                                className="flex items-center gap-2 px-3 py-1.5 hover:bg-zinc-800 cursor-pointer group"
-                                onClick={() => {
-                                  const target: NavigateToTarget = {
-                                    type: item.type,
-                                    projectId: item.projectId,
-                                    projectName: item.projectName,
-                                    ...(item.type !== 'project' && {
-                                      subjectId: item.subjectId,
-                                      subjectLabel: item.subjectLabel,
-                                    }),
-                                    ...(item.type === 'session' && {
-                                      sessionId: item.sessionId,
-                                      sessionLabel: item.sessionLabel,
-                                    }),
-                                  };
-                                  handleBookmarkNavigate(target);
-                                }}
-                              >
-                                <span className={`text-[10px] font-bold ${icon} shrink-0 w-4 text-center`}>
-                                  {typeLabel}
-                                </span>
-                                <div className="flex-1 min-w-0">
-                                  <div className="text-xs text-zinc-200 truncate">{label}</div>
-                                  {sublabel && (
-                                    <div className="text-[10px] text-zinc-500 truncate">{sublabel}</div>
-                                  )}
-                                </div>
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleTogglePin(item);
-                                  }}
-                                  className="text-zinc-500 hover:text-red-400 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
-                                  title="Unpin"
-                                >
-                                  <svg className="w-3 h-3" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-                                    <line x1="4" y1="4" x2="12" y2="12" />
-                                    <line x1="12" y1="4" x2="4" y2="12" />
-                                  </svg>
-                                </button>
-                              </div>
-                            );
-                          })}
-                        </>
-                      )}
-
-                      {/* Recent sessions section */}
-                      {recentSessions.length > 0 && (
-                        <>
-                          {pinnedItems.length > 0 && (
-                            <div className="border-t border-zinc-800 my-1" />
-                          )}
-                          <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
-                            Recent
-                          </div>
-                          {recentSessions.map((recent) => (
-                            <div
-                              key={`recent-${recent.sessionId}`}
-                              className="flex items-center gap-2 px-3 py-1.5 hover:bg-zinc-800 cursor-pointer group"
-                              onClick={() => {
-                                handleBookmarkNavigate({
-                                  type: 'session',
-                                  projectId: recent.projectId,
-                                  projectName: recent.projectName,
-                                  subjectId: recent.subjectId,
-                                  subjectLabel: recent.subjectLabel,
-                                  sessionId: recent.sessionId,
-                                  sessionLabel: recent.sessionLabel,
-                                });
-                              }}
-                            >
-                              <span className="text-[10px] font-bold text-emerald-400 shrink-0 w-4 text-center">
-                                E
-                              </span>
-                              <div className="flex-1 min-w-0">
-                                <div className="text-xs text-zinc-200 truncate">
-                                  {recent.sessionLabel || recent.sessionId}
-                                </div>
-                                <div className="text-[10px] text-zinc-500 truncate">
-                                  {recent.subjectLabel || recent.subjectId} / {recent.projectName || recent.projectId}
-                                </div>
-                              </div>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handlePromoteRecent(recent);
-                                }}
-                                className="text-zinc-500 hover:text-amber-400 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
-                                title="Pin this session"
-                              >
-                                <IconPin className="w-3 h-3" />
-                              </button>
-                            </div>
-                          ))}
-                        </>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })()}
+            <div ref={bookmarksRef} className="relative">
+              <BookmarksDropdown
+                pinnedItems={pinnedItems}
+                recentSessions={recentSessions}
+                showBookmarks={showBookmarks}
+                onToggleBookmarks={() => setShowBookmarks(!showBookmarks)}
+                onTogglePin={handleTogglePin}
+                onPromoteRecent={handlePromoteRecent}
+                onNavigate={handleBookmarkNavigate}
+              />
+            </div>
           </>
         }
         browserSlot={
@@ -3240,6 +2806,7 @@ export default function App() {
               </div>
               {/* Drag handle */}
               <div
+                data-testid="browser-resize-handle"
                 className="w-1 shrink-0 cursor-col-resize hover:bg-blue-500/40 active:bg-blue-500/60 transition-colors"
                 onMouseDown={handleResizeStart}
               />
@@ -3247,6 +2814,7 @@ export default function App() {
           ) : (
             /* Collapsed strip — click to reopen browser */
             <div
+              data-testid="browser-collapsed-strip"
               className="w-3 shrink-0 bg-zinc-900 hover:bg-zinc-700 cursor-pointer transition-colors border-r border-zinc-800 flex items-center justify-center group"
               onClick={() => {
                 setBrowserWidth(browserWidthRef.current);
@@ -3270,33 +2838,11 @@ export default function App() {
         </div>
       )}
 
-      {/* Unsaved annotation navigation dialog */}
-      {unsavedNavigationDialog.open && (
-        <div className="absolute inset-0 z-[80] bg-zinc-950/70 flex items-center justify-center p-4">
-          <div className="w-full max-w-md rounded-lg border border-zinc-700 bg-zinc-900 shadow-xl">
-            <div className="px-4 py-3 border-b border-zinc-800">
-              <h3 className="text-sm font-semibold text-zinc-100">Unsaved annotations</h3>
-              <p className="text-xs text-zinc-400 mt-1">
-                You have unsaved annotation changes. Choose how to continue.
-              </p>
-            </div>
-            <div className="px-4 py-3 space-y-2">
-              <button
-                onClick={() => resolveUnsavedNavigationDialog(true)}
-                className="w-full text-left text-xs px-3 py-2 rounded border border-red-900/60 bg-red-900/20 text-red-200 hover:bg-red-900/35 transition-colors"
-              >
-                Continue without saving. Unsaved annotations will be lost.
-              </button>
-              <button
-                onClick={() => resolveUnsavedNavigationDialog(false)}
-                className="w-full text-left text-xs px-3 py-2 rounded border border-zinc-700 bg-zinc-800 text-zinc-200 hover:bg-zinc-700 transition-colors"
-              >
-                Return to session.
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <UnsavedNavigationDialog
+        open={unsavedNavigation.open}
+        onProceedWithoutSaving={() => unsavedNavigation.resolve(true)}
+        onCancel={() => unsavedNavigation.resolve(false)}
+      />
 
       {/* Recovery confirm dialog (styled replacement for window.confirm) */}
       {recoveryConfirmDialog.open && (

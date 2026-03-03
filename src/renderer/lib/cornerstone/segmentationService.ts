@@ -58,6 +58,26 @@ import { useSegmentationManagerStore } from '../../stores/segmentationManagerSto
 import { rtStructService } from './rtStructService';
 import { backupService } from '../backup/backupService';
 import { writeDicomDict } from './writeDicomDict';
+import {
+  hasSegmentPixelsOnSlice,
+  interpolateMorphological,
+  interpolateNearestSlice,
+  interpolateLinearBlend,
+  interpolateSDF,
+} from './segmentationService/interpolation';
+import {
+  findFirstNonZeroRef,
+  getValidSegmentIndices,
+  segmentsToPlainObject,
+  hasUsableColor,
+  sanitizeSegmentIndices,
+  extractLabelmapImageId,
+} from './segmentationService/segmentationHelpers';
+import { applySourceDicomContextToSegDataset } from './segmentationService/dicomContext';
+import {
+  registerSegmentationServiceEventBindings,
+  unregisterSegmentationServiceEventBindings,
+} from './segmentationService/eventBindings';
 // NOTE: We use the tool group ID directly here instead of importing from
 // toolService to avoid a circular dependency (toolService → segmentationService).
 const TOOL_GROUP_ID = 'xnatToolGroup_primary';
@@ -325,110 +345,6 @@ export type LoadedDicomSeg = {
 
 // ─── Helpers ────────────────────────────────────────────────────
 
-function findFirstNonZeroRef(adapterImages: any[]): {
-  referencedImageId: string | null;
-  labelmapImageId: string | null;
-} {
-  for (const img of adapterImages) {
-    if (!img) continue;
-    let pixels: any = null;
-    try {
-      if (img.voxelManager) pixels = img.voxelManager.getScalarData();
-      else if (typeof img.getPixelData === 'function') pixels = img.getPixelData();
-    } catch {
-      pixels = null;
-    }
-    if (!pixels) continue;
-    for (let k = 0; k < pixels.length; k++) {
-      if (pixels[k] !== 0) {
-        return {
-          referencedImageId: img.referencedImageId ?? null,
-          labelmapImageId: img.imageId ?? null,
-        };
-      }
-    }
-  }
-  return { referencedImageId: null, labelmapImageId: null };
-}
-
-function getValidSegmentIndices(seg: any): number[] {
-  if (!seg?.segments) return [];
-  const indices = new Set<number>();
-
-  const pushIfValid = (value: unknown): void => {
-    const idx = Number(value);
-    if (Number.isFinite(idx) && Number.isInteger(idx) && idx > 0) {
-      indices.add(idx);
-    }
-  };
-
-  const addFromEntry = (key: unknown, segment: any): void => {
-    pushIfValid(key);
-    pushIfValid(segment?.segmentIndex);
-  };
-
-  if (seg.segments instanceof Map) {
-    for (const [key, segment] of seg.segments.entries()) {
-      addFromEntry(key, segment);
-    }
-  } else {
-    for (const [key, segment] of Object.entries(seg.segments)) {
-      addFromEntry(key, segment);
-    }
-  }
-
-  return Array.from(indices).sort((a, b) => a - b);
-}
-
-function segmentsToPlainObject(segments: any): Record<number, any> {
-  const out: Record<number, any> = {};
-  if (!segments) return out;
-  if (segments instanceof Map) {
-    for (const [key, segment] of segments.entries()) {
-      const idx = Number((segment as any)?.segmentIndex ?? key);
-      if (!Number.isFinite(idx) || idx <= 0 || !Number.isInteger(idx)) continue;
-      out[idx] = segment;
-    }
-    return out;
-  }
-  for (const [key, segment] of Object.entries(segments)) {
-    const idx = Number((segment as any)?.segmentIndex ?? key);
-    if (!Number.isFinite(idx) || idx <= 0 || !Number.isInteger(idx)) continue;
-    out[idx] = segment as any;
-  }
-  return out;
-}
-
-function hasUsableColor(color: unknown): color is [number, number, number, number?] {
-  if (!Array.isArray(color) || color.length < 3) return false;
-  const r = Number(color[0]);
-  const g = Number(color[1]);
-  const b = Number(color[2]);
-  const a = color.length >= 4 ? Number(color[3]) : 255;
-  if (![r, g, b, a].every((v) => Number.isFinite(v))) return false;
-  // Cornerstone can synthesize [0,0,0,0] for missing LUT entries.
-  if (r === 0 && g === 0 && b === 0 && a === 0) return false;
-  return true;
-}
-
-function sanitizeSegmentIndices(indices: number[]): number[] {
-  const valid = new Set<number>();
-  for (const idx of indices) {
-    if (Number.isFinite(idx) && Number.isInteger(idx) && idx > 0) {
-      valid.add(idx);
-    }
-  }
-  return Array.from(valid).sort((a, b) => a - b);
-}
-
-function extractLabelmapImageId(value: unknown): string | null {
-  if (typeof value === 'string' && value.length > 0) return value;
-  if (value && typeof value === 'object' && typeof (value as any).imageId === 'string') {
-    return (value as any).imageId;
-  }
-  return null;
-}
-
 function getLabelmapImageIdsForSegmentation(segmentationId: string): string[] {
   const seg = csSegmentation.state.getSegmentation(segmentationId);
   const labelmapData: any = (seg?.representationData as any)?.Labelmap;
@@ -513,285 +429,6 @@ async function getCachedLabelmapSliceArrays(segmentationId: string): Promise<{
   }
 
   return { sliceArrays, width, height };
-}
-
-function hasSegmentPixelsOnSlice(
-  scalarData: ArrayLike<number>,
-  segmentIndex: number,
-): boolean {
-  for (let i = 0; i < scalarData.length; i++) {
-    if (Number(scalarData[i]) === segmentIndex) return true;
-  }
-  return false;
-}
-
-/**
- * 1-D squared-Euclidean distance transform (Felzenszwalb–Huttenlocher).
- * Operates in-place on `f` which contains 0 for mask pixels and +Inf for
- * non-mask pixels. On output `f[i]` = squared Euclidean distance to the
- * nearest mask pixel along this 1-D scanline.
- *
- * Reference: P. Felzenszwalb & D. Huttenlocher, "Distance Transforms of
- *            Sampled Functions", Theory of Computing 8 (2012), 415–428.
- */
-function edt1d(f: Float64Array, n: number): void {
-  const v = new Int32Array(n);   // locations of parabolas in lower envelope
-  const z = new Float64Array(n + 1); // boundaries between parabolas
-  let k = 0;
-  v[0] = 0;
-  z[0] = -Infinity;
-  z[1] = Infinity;
-
-  for (let q = 1; q < n; q++) {
-    let s = ((f[q] + q * q) - (f[v[k]] + v[k] * v[k])) / (2 * q - 2 * v[k]);
-    while (s <= z[k]) {
-      k--;
-      s = ((f[q] + q * q) - (f[v[k]] + v[k] * v[k])) / (2 * q - 2 * v[k]);
-    }
-    k++;
-    v[k] = q;
-    z[k] = s;
-    z[k + 1] = Infinity;
-  }
-
-  k = 0;
-  for (let q = 0; q < n; q++) {
-    while (z[k + 1] < q) k++;
-    const dq = q - v[k];
-    f[q] = dq * dq + f[v[k]];
-  }
-}
-
-/**
- * Exact 2-D Euclidean Distance Transform using separable 1-D transforms.
- * Returns a Float32Array of Euclidean distances (not squared) from each
- * non-mask pixel to the nearest mask pixel. Mask pixels get distance 0.
- */
-function euclideanDistanceToMask(
-  mask: Uint8Array,
-  width: number,
-  height: number,
-): Float32Array {
-  const INF = 1e20;
-  const size = width * height;
-
-  // Working buffer holds squared distances.
-  const grid = new Float64Array(size);
-  for (let i = 0; i < size; i++) {
-    grid[i] = mask[i] ? 0 : INF;
-  }
-
-  // Transform columns (along Y for each X).
-  const col = new Float64Array(height);
-  for (let x = 0; x < width; x++) {
-    for (let y = 0; y < height; y++) col[y] = grid[y * width + x];
-    edt1d(col, height);
-    for (let y = 0; y < height; y++) grid[y * width + x] = col[y];
-  }
-
-  // Transform rows (along X for each Y).
-  const row = new Float64Array(width);
-  for (let y = 0; y < height; y++) {
-    const off = y * width;
-    for (let x = 0; x < width; x++) row[x] = grid[off + x];
-    edt1d(row, width);
-    for (let x = 0; x < width; x++) grid[off + x] = row[x];
-  }
-
-  // Take square root → Euclidean distance.
-  const result = new Float32Array(size);
-  for (let i = 0; i < size; i++) {
-    result[i] = Math.sqrt(grid[i]);
-  }
-  return result;
-}
-
-function buildSignedDistanceForSegment(
-  scalarData: ArrayLike<number>,
-  width: number,
-  height: number,
-  segmentIndex: number,
-): Float32Array {
-  const size = width * height;
-  const inside = new Uint8Array(size);
-  const outside = new Uint8Array(size);
-
-  for (let i = 0; i < size; i++) {
-    const isInside = Number(scalarData[i]) === segmentIndex;
-    inside[i] = isInside ? 1 : 0;
-    outside[i] = isInside ? 0 : 1;
-  }
-
-  const distToInside = euclideanDistanceToMask(inside, width, height);
-  const distToOutside = euclideanDistanceToMask(outside, width, height);
-  const signed = new Float32Array(size);
-
-  for (let i = 0; i < size; i++) {
-    signed[i] = inside[i] ? -distToOutside[i] : distToInside[i];
-  }
-
-  return signed;
-}
-
-// ─── Interpolation Algorithm Implementations ─────────────────────
-
-/**
- * Build an "inside distance" field for the Raya-Udupa morphological algorithm.
- * Returns a Float32Array where inside pixels hold their Euclidean distance
- * to the nearest boundary (>0), and outside/boundary pixels hold 0.
- */
-function buildInsideDistanceField(
-  scalarData: ArrayLike<number>,
-  width: number,
-  height: number,
-  segmentIndex: number,
-): Float32Array {
-  const size = width * height;
-  const outside = new Uint8Array(size); // mask of outside pixels
-  for (let i = 0; i < size; i++) {
-    outside[i] = Number(scalarData[i]) === segmentIndex ? 0 : 1;
-  }
-  // EDT of outside mask gives: for each pixel, distance to nearest outside pixel.
-  // Inside pixels distant from boundary get high values; outside pixels get 0.
-  const distToOutside = euclideanDistanceToMask(outside, width, height);
-  return distToOutside;
-}
-
-/**
- * Morphological (Raya-Udupa) interpolation between two anchor slices.
- * Uses inside-distance fields: for each gap pixel, linearly blends the
- * inside-distances from both anchors. Pixel is filled where the blended
- * distance > 0, meaning the point is "inside" the interpolated shape.
- *
- * This produces larger (more volume-preserving) regions than SDF interpolation
- * because it only considers positive inside-distances rather than the full
- * signed distance field.
- */
-function interpolateMorphological(
-  sliceA: ArrayLike<number>,
-  sliceB: ArrayLike<number>,
-  alpha: number,
-  width: number,
-  height: number,
-  segIdx: number,
-): Uint8Array {
-  const size = width * height;
-  const insideDistA = buildInsideDistanceField(sliceA, width, height, segIdx);
-  const insideDistB = buildInsideDistanceField(sliceB, width, height, segIdx);
-  const result = new Uint8Array(size);
-  for (let p = 0; p < size; p++) {
-    const blended = (1 - alpha) * insideDistA[p] + alpha * insideDistB[p];
-    if (blended > 0) {
-      result[p] = segIdx;
-    }
-  }
-  return result;
-}
-
-/**
- * Nearest-slice interpolation. Returns the data from whichever anchor
- * slice is nearest in position (alpha < 0.5 → slice A, else slice B).
- */
-function interpolateNearestSlice(
-  sliceA: ArrayLike<number>,
-  sliceB: ArrayLike<number>,
-  alpha: number,
-  width: number,
-  height: number,
-  segIdx: number,
-): Uint8Array {
-  const size = width * height;
-  const source = alpha < 0.5 ? sliceA : sliceB;
-  const result = new Uint8Array(size);
-  for (let p = 0; p < size; p++) {
-    if (Number(source[p]) === segIdx) {
-      result[p] = segIdx;
-    }
-  }
-  return result;
-}
-
-/**
- * Linear per-pixel blend interpolation. Blends binary presence values from
- * both anchors and fills where the blend meets or exceeds the threshold.
- * Lower threshold = more aggressive fill; 0.5 = standard midpoint.
- */
-function interpolateLinearBlend(
-  sliceA: ArrayLike<number>,
-  sliceB: ArrayLike<number>,
-  alpha: number,
-  width: number,
-  height: number,
-  segIdx: number,
-  threshold: number,
-): Uint8Array {
-  const size = width * height;
-  const result = new Uint8Array(size);
-  for (let p = 0; p < size; p++) {
-    const valA = Number(sliceA[p]) === segIdx ? 1 : 0;
-    const valB = Number(sliceB[p]) === segIdx ? 1 : 0;
-    const blend = (1 - alpha) * valA + alpha * valB;
-    if (blend >= threshold) {
-      result[p] = segIdx;
-    }
-  }
-  return result;
-}
-
-/**
- * SDF interpolation for a single gap slice (factored out from performLabelmapInterpolation).
- * Returns a Uint8Array where filled pixels have value segIdx.
- */
-function interpolateSDF(
-  sliceA: ArrayLike<number>,
-  sliceB: ArrayLike<number>,
-  alpha: number,
-  width: number,
-  height: number,
-  segIdx: number,
-): Uint8Array {
-  const size = width * height;
-  const signedA = buildSignedDistanceForSegment(sliceA, width, height, segIdx);
-  const signedB = buildSignedDistanceForSegment(sliceB, width, height, segIdx);
-  const result = new Uint8Array(size);
-  for (let p = 0; p < size; p++) {
-    const dist = (1 - alpha) * signedA[p] + alpha * signedB[p];
-    if (dist <= 0) {
-      result[p] = segIdx;
-    }
-  }
-  return result;
-}
-
-function applySourceDicomContextToSegDataset(dataset: any, sourceImageId: string): void {
-  if (!dataset || !sourceImageId) return;
-
-  const patient = metaData.get('patientModule', sourceImageId) as any;
-  const study = metaData.get('generalStudyModule', sourceImageId) as any;
-  const patientStudy = metaData.get('patientStudyModule', sourceImageId) as any;
-  const imagePlane = metaData.get('imagePlaneModule', sourceImageId) as any;
-
-  // Keep patient/study identity aligned with the source series.
-  if (patient?.patientName) dataset.PatientName = patient.patientName;
-  if (patient?.patientId) dataset.PatientID = patient.patientId;
-  if (patient?.patientBirthDate) dataset.PatientBirthDate = patient.patientBirthDate;
-  if (patient?.patientSex) dataset.PatientSex = patient.patientSex;
-
-  if (study?.studyInstanceUID) dataset.StudyInstanceUID = study.studyInstanceUID;
-  if (study?.studyDate) dataset.StudyDate = study.studyDate;
-  if (study?.studyTime) dataset.StudyTime = study.studyTime;
-  if (study?.studyID) dataset.StudyID = study.studyID;
-  if (study?.accessionNumber) dataset.AccessionNumber = study.accessionNumber;
-  if (study?.studyDescription) dataset.StudyDescription = study.studyDescription;
-  if (study?.referringPhysicianName) dataset.ReferringPhysicianName = study.referringPhysicianName;
-
-  if (patientStudy?.patientAge) dataset.PatientAge = patientStudy.patientAge;
-  if (patientStudy?.patientWeight) dataset.PatientWeight = patientStudy.patientWeight;
-  if (patientStudy?.patientSize) dataset.PatientSize = patientStudy.patientSize;
-
-  if (imagePlane?.frameOfReferenceUID) {
-    dataset.FrameOfReferenceUID = imagePlane.frameOfReferenceUID;
-  }
 }
 
 // ─── Sync Logic ─────────────────────────────────────────────────
@@ -1574,23 +1211,16 @@ export const segmentationService = {
     if (initialized) return;
 
     const Events = ToolEnums.Events;
-    eventTarget.addEventListener(Events.SEGMENTATION_MODIFIED, onSegmentationEvent);
-    eventTarget.addEventListener(Events.SEGMENTATION_DATA_MODIFIED, onSegmentationEvent);
-    eventTarget.addEventListener(Events.SEGMENTATION_ADDED, onSegmentationEvent);
-    eventTarget.addEventListener(Events.SEGMENTATION_REMOVED, onSegmentationEvent);
-    eventTarget.addEventListener(Events.SEGMENTATION_REPRESENTATION_MODIFIED, onSegmentationEvent);
-    eventTarget.addEventListener(Events.SEGMENTATION_REPRESENTATION_ADDED, onSegmentationEvent);
-    eventTarget.addEventListener(Events.SEGMENTATION_REPRESENTATION_REMOVED, onSegmentationEvent);
-
-    // Auto-save: listen specifically for pixel-data changes (not metadata-only)
-    eventTarget.addEventListener(Events.SEGMENTATION_DATA_MODIFIED, onSegmentationDataModified);
-
-    // Auto-save: listen for contour annotation events (for contour-based segmentations)
-    eventTarget.addEventListener(Events.ANNOTATION_COMPLETED as any, onAnnotationAutoSave);
-    eventTarget.addEventListener(Events.ANNOTATION_MODIFIED as any, onAnnotationAutoSave);
-    eventTarget.addEventListener(Events.ANNOTATION_COMPLETED as any, onAnnotationHistoryEvent);
-    eventTarget.addEventListener(Events.ANNOTATION_MODIFIED as any, onAnnotationHistoryEvent);
-    eventTarget.addEventListener(Events.ANNOTATION_REMOVED as any, onAnnotationHistoryEvent);
+    registerSegmentationServiceEventBindings(
+      eventTarget as any,
+      Events as any,
+      {
+        onSegmentationEvent: onSegmentationEvent as EventListener,
+        onSegmentationDataModified: onSegmentationDataModified as EventListener,
+        onAnnotationAutoSave: onAnnotationAutoSave as EventListener,
+        onAnnotationHistoryEvent: onAnnotationHistoryEvent as EventListener,
+      },
+    );
 
     // Increase undo ring buffer from default 50 to 200 for deep undo history
     if (DefaultHistoryMemo) {
@@ -4520,7 +4150,7 @@ export const segmentationService = {
     //
     // We detect this condition and fully rebuild the DICOM SEG dataset.
     const ds = segDerivation.dataset;
-    applySourceDicomContextToSegDataset(ds, srcImageIds[0]);
+    applySourceDicomContextToSegDataset(ds, srcImageIds[0], metaData.get.bind(metaData));
 
     const dsRowsValid = typeof ds.Rows === 'number' && ds.Rows > 0;
     const dsColsValid = typeof ds.Columns === 'number' && ds.Columns > 0;
@@ -5217,19 +4847,16 @@ export const segmentationService = {
     if (!initialized) return;
 
     const Events = ToolEnums.Events;
-    eventTarget.removeEventListener(Events.SEGMENTATION_MODIFIED, onSegmentationEvent);
-    eventTarget.removeEventListener(Events.SEGMENTATION_DATA_MODIFIED, onSegmentationEvent);
-    eventTarget.removeEventListener(Events.SEGMENTATION_ADDED, onSegmentationEvent);
-    eventTarget.removeEventListener(Events.SEGMENTATION_REMOVED, onSegmentationEvent);
-    eventTarget.removeEventListener(Events.SEGMENTATION_REPRESENTATION_MODIFIED, onSegmentationEvent);
-    eventTarget.removeEventListener(Events.SEGMENTATION_REPRESENTATION_ADDED, onSegmentationEvent);
-    eventTarget.removeEventListener(Events.SEGMENTATION_REPRESENTATION_REMOVED, onSegmentationEvent);
-    eventTarget.removeEventListener(Events.SEGMENTATION_DATA_MODIFIED, onSegmentationDataModified);
-    eventTarget.removeEventListener(Events.ANNOTATION_COMPLETED as any, onAnnotationAutoSave);
-    eventTarget.removeEventListener(Events.ANNOTATION_MODIFIED as any, onAnnotationAutoSave);
-    eventTarget.removeEventListener(Events.ANNOTATION_COMPLETED as any, onAnnotationHistoryEvent);
-    eventTarget.removeEventListener(Events.ANNOTATION_MODIFIED as any, onAnnotationHistoryEvent);
-    eventTarget.removeEventListener(Events.ANNOTATION_REMOVED as any, onAnnotationHistoryEvent);
+    unregisterSegmentationServiceEventBindings(
+      eventTarget as any,
+      Events as any,
+      {
+        onSegmentationEvent: onSegmentationEvent as EventListener,
+        onSegmentationDataModified: onSegmentationDataModified as EventListener,
+        onAnnotationAutoSave: onAnnotationAutoSave as EventListener,
+        onAnnotationHistoryEvent: onAnnotationHistoryEvent as EventListener,
+      },
+    );
 
     // Cancel pending auto-save
     if (autoSaveTimer) {

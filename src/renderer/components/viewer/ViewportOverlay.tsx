@@ -412,7 +412,11 @@ export default function ViewportOverlay({ panelId }: ViewportOverlayProps) {
   if (!shouldRenderOverlay) return null;
 
   return (
-    <div ref={overlayRef} className="absolute inset-0 pointer-events-none select-none">
+    <div
+      ref={overlayRef}
+      data-testid={`viewport-overlay:${panelId}`}
+      className="absolute inset-0 pointer-events-none select-none"
+    >
       {showCrosshairGuides && (() => {
         const { x, y, width, height } = crosshairGuides;
         const gap = 12;
@@ -448,16 +452,19 @@ export default function ViewportOverlay({ panelId }: ViewportOverlayProps) {
       })()}
 
       {showContextOverlay && (
-        <div className="absolute inset-0 p-2 flex flex-col justify-between font-mono text-xs text-white [text-shadow:_0_1px_3px_rgb(0_0_0_/_80%)]">
+        <div
+          data-testid={`viewport-overlay-context:${panelId}`}
+          className="absolute inset-0 p-2 flex flex-col justify-between font-mono text-xs text-white [text-shadow:_0_1px_3px_rgb(0_0_0_/_80%)]"
+        >
           {/* ─── Top Row ───────────────────────────────────────────── */}
           <div className="flex justify-between items-start">
             {/* Top-left */}
-            <div className="flex flex-col gap-0.5">
+            <div data-testid={`viewport-overlay-corner:topLeft:${panelId}`} className="flex flex-col gap-0.5">
               {renderCorner('topLeft')}
             </div>
 
             {/* Top-right */}
-            <div className="flex flex-col gap-0.5 items-end">
+            <div data-testid={`viewport-overlay-corner:topRight:${panelId}`} className="flex flex-col gap-0.5 items-end">
               {renderCorner('topRight')}
             </div>
           </div>
@@ -465,12 +472,12 @@ export default function ViewportOverlay({ panelId }: ViewportOverlayProps) {
           {/* ─── Bottom Row ────────────────────────────────────────── */}
           <div className="flex justify-between items-end">
             {/* Bottom-left */}
-            <div className="flex flex-col gap-0.5">
+            <div data-testid={`viewport-overlay-corner:bottomLeft:${panelId}`} className="flex flex-col gap-0.5">
               {renderCorner('bottomLeft')}
             </div>
 
             {/* Bottom-right */}
-            <div className="flex flex-col gap-0.5 items-end">
+            <div data-testid={`viewport-overlay-corner:bottomRight:${panelId}`} className="flex flex-col gap-0.5 items-end">
               {renderCorner('bottomRight')}
             </div>
           </div>
@@ -478,7 +485,10 @@ export default function ViewportOverlay({ panelId }: ViewportOverlayProps) {
       )}
 
       {showOrientationMarkers && (
-        <div className="absolute inset-0 text-[11px] font-bold text-zinc-300 [text-shadow:_0_1px_2px_rgb(0_0_0_/_80%)]">
+        <div
+          data-testid={`viewport-overlay-orientation:${panelId}`}
+          className="absolute inset-0 text-[11px] font-bold text-zinc-300 [text-shadow:_0_1px_2px_rgb(0_0_0_/_80%)]"
+        >
           <span className="absolute top-1.5 left-1/2 -translate-x-1/2">{ORIENTATION_LABELS[displayOrientation].top}</span>
           <span className="absolute bottom-1.5 left-1/2 -translate-x-1/2">{ORIENTATION_LABELS[displayOrientation].bottom}</span>
           <span className="absolute left-1.5 top-1/2 -translate-y-1/2">{ORIENTATION_LABELS[displayOrientation].left}</span>
@@ -487,7 +497,10 @@ export default function ViewportOverlay({ panelId }: ViewportOverlayProps) {
       )}
 
       {showHorizontalRuler && horizontalRuler && (
-        <div className="absolute left-1/2 -translate-x-1/2 bottom-6 z-20 flex items-center gap-2 text-[11px] text-zinc-200 [text-shadow:_0_1px_2px_rgb(0_0_0_/_85%)]">
+        <div
+          data-testid={`viewport-overlay-horizontal-ruler:${panelId}`}
+          className="absolute left-1/2 -translate-x-1/2 bottom-6 z-20 flex items-center gap-2 text-[11px] text-zinc-200 [text-shadow:_0_1px_2px_rgb(0_0_0_/_85%)]"
+        >
           <div className="relative h-3" style={{ width: `${horizontalRuler.lengthPx}px` }}>
             <div className="absolute left-0 right-0 top-1/2 -translate-y-1/2 h-px bg-zinc-200/90" />
             {Array.from({ length: horizontalRuler.tickCount + 1 }, (_, index) => {
@@ -513,7 +526,10 @@ export default function ViewportOverlay({ panelId }: ViewportOverlayProps) {
       )}
 
       {showVerticalRuler && verticalRuler && (
-        <div className="absolute left-6 top-1/2 -translate-y-1/2 z-20 flex flex-col items-center gap-1 text-[11px] text-zinc-200 [text-shadow:_0_1px_2px_rgb(0_0_0_/_85%)]">
+        <div
+          data-testid={`viewport-overlay-vertical-ruler:${panelId}`}
+          className="absolute left-6 top-1/2 -translate-y-1/2 z-20 flex flex-col items-center gap-1 text-[11px] text-zinc-200 [text-shadow:_0_1px_2px_rgb(0_0_0_/_85%)]"
+        >
           <span className="font-mono">{verticalRuler.label}</span>
           <div className="relative w-3" style={{ height: `${verticalRuler.lengthPx}px` }}>
             <div className="absolute top-0 bottom-0 left-1/2 -translate-x-1/2 w-px bg-zinc-200/90" />
