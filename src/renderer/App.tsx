@@ -113,7 +113,7 @@ interface RecoveryConfirmDialogState {
  *
  * Called after all scans are loaded in loadSessionFromXnat().
  */
-async function checkForAutoSaveRecovery(
+export async function checkForAutoSaveRecovery(
   sessionId: string,
   scanIdToPanelInfo: Map<string, { pid: string; ids: string[] }>,
   confirm: (title: string, message: string, confirmLabel?: string, cancelLabel?: string) => Promise<boolean>,
@@ -484,7 +484,7 @@ async function checkForAutoSaveRecovery(
  * without this, metadataProvider.get('instance', imageId) returns undefined
  * and createFromDICOMSegBuffer fails.
  */
-async function preloadImages(imageIds: string[]): Promise<void> {
+export async function preloadImages(imageIds: string[]): Promise<void> {
   console.log(`[App] Pre-loading ${imageIds.length} images for metadata...`);
   let loadedCount = 0;
   const promises = imageIds.map((id) => {
@@ -504,7 +504,7 @@ async function preloadImages(imageIds: string[]): Promise<void> {
   console.log(`[App] Pre-load complete: ${loadedCount}/${imageIds.length} newly loaded`);
 }
 
-async function jumpViewportToReferencedImage(panelId: string, referencedImageId: string | null) {
+export async function jumpViewportToReferencedImage(panelId: string, referencedImageId: string | null) {
   if (!referencedImageId) return;
 
   // The viewport should already be ready (callers await viewportReadyService.whenReady
@@ -535,7 +535,7 @@ async function jumpViewportToReferencedImage(panelId: string, referencedImageId:
 /**
  * Download a DICOM SEG file from XNAT and convert from base64 to ArrayBuffer.
  */
-async function downloadSegArrayBuffer(
+export async function downloadSegArrayBuffer(
   sessionId: string,
   scanId: string,
 ): Promise<ArrayBuffer> {

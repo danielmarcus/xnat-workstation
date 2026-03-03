@@ -83,6 +83,35 @@ describe('useConnectionStore', () => {
     expect(useConnectionStore.getState().error).toBeNull();
   });
 
+  it('stores explicit login failures as error state', async () => {
+    const api = installElectronApiMocks();
+    api.xnat.browserLogin.mockResolvedValue({
+      success: false,
+      error: 'Invalid credentials',
+    });
+
+    await expect(
+      useConnectionStore.getState().browserLogin('https://xnat.example.com'),
+    ).resolves.toBe(false);
+
+    expect(useConnectionStore.getState().status).toBe('error');
+    expect(useConnectionStore.getState().connection).toBeNull();
+    expect(useConnectionStore.getState().error).toBe('Invalid credentials');
+  });
+
+  it('maps browser login exceptions into error status', async () => {
+    const api = installElectronApiMocks();
+    api.xnat.browserLogin.mockRejectedValue(new Error('login transport failed'));
+
+    await expect(
+      useConnectionStore.getState().browserLogin('https://xnat.example.com'),
+    ).resolves.toBe(false);
+
+    expect(useConnectionStore.getState().status).toBe('error');
+    expect(useConnectionStore.getState().connection).toBeNull();
+    expect(useConnectionStore.getState().error).toBe('login transport failed');
+  });
+
   it('logout always ends disconnected even if IPC throws', async () => {
     const api = installElectronApiMocks();
     useConnectionStore.setState({
@@ -128,5 +157,48 @@ describe('useConnectionStore', () => {
     await useConnectionStore.getState().checkSession();
     expect(useConnectionStore.getState().status).toBe('disconnected');
     expect(useConnectionStore.getState().error).toBe('Connection lost');
+  });
+
+  it('checkSession reconnects when session is valid and current state is not connected', async () => {
+    const api = installElectronApiMocks();
+    api.xnat.validateSession.mockResolvedValue({
+      valid: true,
+      connection: makeConnection(),
+    });
+
+    await useConnectionStore.getState().checkSession();
+    expect(useConnectionStore.getState().status).toBe('connected');
+    expect(useConnectionStore.getState().connection).toEqual(makeConnection());
+    expect(useConnectionStore.getState().error).toBeNull();
+  });
+
+  it('registers session-expired listener and runs startup check when module is imported with electronAPI present', async () => {
+    vi.resetModules();
+    const api = installElectronApiMocks();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const mod = await import('./connectionStore');
+    const bootStore = mod.useConnectionStore;
+
+    expect(api.on).toHaveBeenCalledWith('xnat:session-expired', expect.any(Function));
+    expect(api.xnat.validateSession).toHaveBeenCalledTimes(1);
+
+    bootStore.setState({
+      ...bootStore.getState(),
+      status: 'connected',
+      connection: makeConnection(),
+      error: null,
+    });
+
+    const expiredHandler = api.on.mock.calls.find((call) => call[0] === 'xnat:session-expired')?.[1] as
+      | (() => void)
+      | undefined;
+    expect(expiredHandler).toBeTypeOf('function');
+    expiredHandler?.();
+
+    expect(bootStore.getState().status).toBe('disconnected');
+    expect(bootStore.getState().connection).toBeNull();
+    expect(bootStore.getState().error).toBe('Session expired');
+    warnSpy.mockRestore();
   });
 });

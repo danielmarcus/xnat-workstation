@@ -195,20 +195,30 @@ export default function CornerstoneViewport({ panelId, imageIds }: CornerstoneVi
   }, [panelId, imageIds]);
 
   return (
-    <div className={`relative w-full h-full bg-black ${cursorClass}`}>
+    <div
+      data-testid={`cornerstone-viewport:${panelId}`}
+      className={`relative w-full h-full bg-black ${cursorClass}`}
+    >
       <div
         ref={containerRef}
+        data-testid={`cornerstone-viewport-canvas:${panelId}`}
         className={`w-full h-full ${cursorClass}`}
         onContextMenu={(e) => e.preventDefault()}
       />
       {/* Status overlay — only shown when no images or loading */}
       {(imageIds.length === 0 || status === 'Error') && (
-        <div className="absolute bottom-2 left-2 text-xs text-zinc-400">
+        <div
+          data-testid={`cornerstone-viewport-status:${panelId}`}
+          className="absolute bottom-2 left-2 text-xs text-zinc-400"
+        >
           {status}
         </div>
       )}
       {error && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/80">
+        <div
+          data-testid={`cornerstone-viewport-error:${panelId}`}
+          className="absolute inset-0 flex items-center justify-center bg-black/80"
+        >
           <div className="bg-red-950 border border-red-800 text-red-200 px-4 py-3 rounded max-w-md">
             <p className="font-semibold">Viewer Error</p>
             <p className="text-sm mt-1">{error}</p>
@@ -226,7 +236,10 @@ export default function CornerstoneViewport({ panelId, imageIds }: CornerstoneVi
         const isPendingLoaded = pendingImageId ? cache.isLoaded(pendingImageId) : true;
         if (isPendingLoaded) return null;
         return (
-          <div className="absolute left-1/2 -translate-x-1/2 bottom-2 px-2 py-1 rounded bg-black/50 text-zinc-200 text-[11px] pointer-events-none">
+          <div
+            data-testid={`cornerstone-viewport-pending:${panelId}`}
+            className="absolute left-1/2 -translate-x-1/2 bottom-2 px-2 py-1 rounded bg-black/50 text-zinc-200 text-[11px] pointer-events-none"
+          >
             Slice loading...
           </div>
         );

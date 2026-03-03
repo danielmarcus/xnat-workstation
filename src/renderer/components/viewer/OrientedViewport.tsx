@@ -133,19 +133,29 @@ export default function OrientedViewport({ panelId, imageIds, plane }: OrientedV
   }, [imageIds, panelId, plane]);
 
   return (
-    <div className={`relative w-full h-full bg-black ${cursorClass}`}>
+    <div
+      data-testid={`oriented-viewport:${panelId}`}
+      className={`relative w-full h-full bg-black ${cursorClass}`}
+    >
       <div
         ref={containerRef}
+        data-testid={`oriented-viewport-canvas:${panelId}`}
         className={`w-full h-full ${cursorClass}`}
         onContextMenu={(e) => e.preventDefault()}
       />
       {(imageIds.length === 0 || status === 'Error') && (
-        <div className="absolute bottom-2 left-2 text-xs text-zinc-400">
+        <div
+          data-testid={`oriented-viewport-status:${panelId}`}
+          className="absolute bottom-2 left-2 text-xs text-zinc-400"
+        >
           {status}
         </div>
       )}
       {error && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/80">
+        <div
+          data-testid={`oriented-viewport-error:${panelId}`}
+          className="absolute inset-0 flex items-center justify-center bg-black/80"
+        >
           <div className="bg-red-950 border border-red-800 text-red-200 px-4 py-3 rounded max-w-md">
             <p className="font-semibold text-sm">Viewport Error</p>
             <p className="text-xs mt-1">{error}</p>

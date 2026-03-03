@@ -32,4 +32,14 @@ describe('renderer entrypoint', () => {
     const renderedTree = renderMock.mock.calls[0][0] as React.ReactElement;
     expect(renderedTree.type).toBe(React.StrictMode);
   });
+
+  it('throws a clear error when #root is missing', async () => {
+    document.body.innerHTML = '';
+
+    await expect(import('./main')).rejects.toThrow(
+      'Renderer root element "#root" was not found',
+    );
+    expect(createRootMock).not.toHaveBeenCalled();
+    expect(renderMock).not.toHaveBeenCalled();
+  });
 });

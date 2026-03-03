@@ -102,6 +102,7 @@ export default function ScrollSlider({ panelId }: ScrollSliderProps) {
 
   return (
     <div
+      data-testid={`scroll-slider:${panelId}`}
       className="absolute right-0 top-0 bottom-0 w-6 z-10 flex items-stretch justify-end pointer-events-auto"
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
@@ -109,6 +110,7 @@ export default function ScrollSlider({ panelId }: ScrollSliderProps) {
       {/* Track — all pointer events go here */}
       <div
         ref={trackRef}
+        data-testid={`scroll-slider-track:${panelId}`}
         className={`relative w-2.5 my-3 mr-1 rounded-full transition-opacity duration-150 cursor-pointer ${
           isVisible ? 'opacity-100' : 'opacity-30'
         }`}
@@ -120,6 +122,7 @@ export default function ScrollSlider({ panelId }: ScrollSliderProps) {
       >
         {/* Thumb — pointer-events-none so clicks fall through to track */}
         <div
+          data-testid={`scroll-slider-thumb:${panelId}`}
           className={`absolute left-0 right-0 rounded-full pointer-events-none ${
             isDragging ? 'bg-blue-400' : 'bg-white'
           }`}
@@ -136,6 +139,7 @@ export default function ScrollSlider({ panelId }: ScrollSliderProps) {
       {/* Slice indicator — shows current/total when visible */}
       {isVisible && (
         <div
+          data-testid={`scroll-slider-indicator:${panelId}`}
           className="absolute right-8 bg-black/80 text-white text-[10px] font-mono px-1.5 py-0.5 rounded whitespace-nowrap pointer-events-none"
           style={{ top: `${Math.max(5, Math.min(95, thumbPercent))}%`, transform: 'translateY(-50%)' }}
         >

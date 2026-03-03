@@ -212,6 +212,7 @@ function MPRScrollSlider({ panelId }: { panelId: string }) {
     >
       <div
         ref={trackRef}
+        data-testid={`mpr-scroll-track-${panelId}`}
         className={`relative w-2.5 my-3 mr-1 rounded-full transition-opacity duration-150 cursor-pointer ${
           isVisible ? 'opacity-100' : 'opacity-30'
         }`}
@@ -237,6 +238,7 @@ function MPRScrollSlider({ panelId }: { panelId: string }) {
 
       {isVisible && (
         <div
+          data-testid={`mpr-scroll-value-${panelId}`}
           className="absolute right-8 bg-black/80 text-white text-[10px] font-mono px-1.5 py-0.5 rounded whitespace-nowrap pointer-events-none"
           style={{ top: `${Math.max(5, Math.min(95, thumbPercent))}%`, transform: 'translateY(-50%)' }}
         >
