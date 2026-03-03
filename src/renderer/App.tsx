@@ -32,10 +32,10 @@ import {
 } from './lib/pinnedItems';
 import { rtStructService } from './lib/cornerstone/rtStructService';
 import { viewportService } from './lib/cornerstone/viewportService';
-import { imageLoader, cache, metaData } from '@cornerstonejs/core';
+import { imageLoader, cache } from '@cornerstonejs/core';
 import * as dicomParser from 'dicom-parser';
 import { viewportReadyService } from './lib/cornerstone/viewportReadyService';
-import { useSessionDerivedIndexStore, isSegScan, isRtStructScan, isDerivedScan, isSrScan } from './stores/sessionDerivedIndexStore';
+import { useSessionDerivedIndexStore, isSegScan, isRtStructScan, isDerivedScan } from './stores/sessionDerivedIndexStore';
 import { useSegmentationManagerStore } from './stores/segmentationManagerStore';
 import { segmentationManager } from './lib/segmentation/segmentationManagerSingleton';
 import { getSegReferenceInfo } from './lib/dicom/segReferencedSeriesUid';
@@ -44,6 +44,19 @@ import { backupService } from './lib/backup/backupService';
 import { segmentationService } from './lib/cornerstone/segmentationService';
 import AppDialogHost from './components/dialog/AppDialogHost';
 import { showConfirmDialog } from './stores/dialogStore';
+import {
+  isPrimaryImageScan,
+  hasRecoveredSession,
+  markRecoveredSession,
+  clearRecoveredSessions,
+  acquireSegLock,
+  releaseSegLock,
+  clearSegLoadingLocks,
+  findPanelBySeriesUID,
+  findPanelByReferencedSopInstanceUIDs,
+  findSourceScanBySeriesUID,
+  findSourceScanByReferencedSopInstanceUIDs,
+} from './lib/app/appHelpers';
 
 /** DICOM SEG SOP Class UID */
 const SEG_SOP_CLASS_UID = '1.2.840.10008.5.1.4.1.1.66.4';
@@ -52,13 +65,6 @@ const SEG_SOP_CLASS_UID = '1.2.840.10008.5.1.4.1.1.66.4';
 const RTSTRUCT_SOP_CLASS_UID = '1.2.840.10008.5.1.4.1.1.481.3';
 const XNAT_SCAN_DRAG_MIME = 'application/x-xnat-scan';
 const XNAT_SCAN_DRAG_FALLBACK_MIME = 'text/x-xnat-scan';
-
-function isPrimaryImageScan(scan: XnatScan): boolean {
-  if (isDerivedScan(scan) || isSrScan(scan)) return false;
-  const xsiType = (scan.xsiType ?? '').trim().toLowerCase();
-  if (xsiType === 'xnat:otherdicomscandata') return false;
-  return true;
-}
 
 interface XnatScanDragPayload {
   sessionId: string;
@@ -97,30 +103,6 @@ interface RecoveryConfirmDialogState {
 // isSegScan, isRtStructScan, isDerivedScan imported from sessionDerivedIndexStore
 // getSegReferenceInfo imported from lib/dicom/segReferencedSeriesUid
 
-/** Tracks sessions that have already been checked for auto-save recovery. */
-const recoveredSessions = new Set<string>();
-
-/** Tracks SEG/RTSTRUCT scan IDs with in-progress loads (prevents duplicates from rapid clicks).
- *  Map of scanId → timestamp(ms). Entries older than 30s are considered stale and auto-cleared. */
-const segLoadingLock = new Map<string, number>();
-const SEG_LOCK_STALE_MS = 30_000;
-
-/** Acquire a loading lock for a SEG/RTSTRUCT scan. Returns false if already locked (not stale). */
-function acquireSegLock(scanId: string): boolean {
-  const now = Date.now();
-  const existing = segLoadingLock.get(scanId);
-  if (existing && (now - existing) < SEG_LOCK_STALE_MS) {
-    console.warn(`[App] SEG scan #${scanId} already loading — ignoring duplicate click`);
-    return false;
-  }
-  segLoadingLock.set(scanId, now);
-  return true;
-}
-
-/** Release a loading lock for a SEG/RTSTRUCT scan. */
-function releaseSegLock(scanId: string): void {
-  segLoadingLock.delete(scanId);
-}
 
 /**
  * Check for auto-saved files and prompt recovery.
@@ -137,7 +119,7 @@ async function checkForAutoSaveRecovery(
   confirm: (title: string, message: string, confirmLabel?: string, cancelLabel?: string) => Promise<boolean>,
 ): Promise<void> {
   // Only check once per session to avoid repeated dialog prompts
-  if (recoveredSessions.has(sessionId)) return;
+  if (hasRecoveredSession(sessionId)) return;
 
   const loadedPanelsById: Record<string, string[]> = {};
   for (const panelInfo of scanIdToPanelInfo.values()) {
@@ -486,192 +468,15 @@ async function checkForAutoSaveRecovery(
     }
 
     // Mark this session as checked so the dialog won't fire again
-    recoveredSessions.add(sessionId);
+    markRecoveredSession(sessionId);
   } catch (err) {
     console.error('[App] Auto-save recovery check failed:', err);
     // Non-fatal — don't block session loading
-    recoveredSessions.add(sessionId); // Still mark as checked to avoid retry loops
+    markRecoveredSession(sessionId); // Still mark as checked to avoid retry loops
   }
 }
 
 // getSegReferenceInfo moved to lib/dicom/segReferencedSeriesUid.ts
-
-/**
- * Find which loaded scan's images match a given SeriesInstanceUID.
- * Returns the panelId and imageIds if found.
- */
-function findPanelBySeriesUID(
-  seriesUID: string,
-  panelImageIds: Record<string, string[]>,
-): { panelId: string; imageIds: string[] } | null {
-  for (const [pid, ids] of Object.entries(panelImageIds)) {
-    if (ids.length === 0) continue;
-    // Check the first image's series UID
-    const seriesMeta = metaData.get('generalSeriesModule', ids[0]) as
-      | { seriesInstanceUID?: string } | undefined;
-    if (seriesMeta?.seriesInstanceUID === seriesUID) {
-      return { panelId: pid, imageIds: ids };
-    }
-  }
-  return null;
-}
-
-function toWadouriUri(imageId: string): string {
-  return imageId.startsWith('wadouri:') ? imageId.slice('wadouri:'.length) : imageId;
-}
-
-function extractObjectUidFromImageId(imageId: string): string | null {
-  const uri = toWadouriUri(imageId);
-  const queryStart = uri.indexOf('?');
-  if (queryStart < 0) return null;
-  const params = new URLSearchParams(uri.slice(queryStart + 1));
-  return (
-    params.get('objectUID') ??
-    params.get('objectUid') ??
-    params.get('SOPInstanceUID') ??
-    params.get('sopInstanceUID')
-  );
-}
-
-function findPanelByReferencedSopInstanceUIDs(
-  referencedSopInstanceUIDs: string[],
-  panelImageIds: Record<string, string[]>,
-): { panelId: string; imageIds: string[] } | null {
-  if (referencedSopInstanceUIDs.length === 0) return null;
-  const target = new Set(referencedSopInstanceUIDs);
-
-  for (const [pid, ids] of Object.entries(panelImageIds)) {
-    if (ids.length === 0) continue;
-    for (const imageId of ids) {
-      const fromImageId = extractObjectUidFromImageId(imageId);
-      if (fromImageId && target.has(fromImageId)) {
-        return { panelId: pid, imageIds: ids };
-      }
-
-      const sopCommon = metaData.get('sopCommonModule', imageId) as
-        | { sopInstanceUID?: string }
-        | undefined;
-      if (sopCommon?.sopInstanceUID && target.has(sopCommon.sopInstanceUID)) {
-        return { panelId: pid, imageIds: ids };
-      }
-    }
-  }
-
-  return null;
-}
-
-async function getSeriesUidForImageId(imageId: string): Promise<string | null> {
-  const seriesMeta = metaData.get('generalSeriesModule', imageId) as
-    | { seriesInstanceUID?: string } | undefined;
-  if (seriesMeta?.seriesInstanceUID) return seriesMeta.seriesInstanceUID;
-
-  try {
-    const uri = toWadouriUri(imageId);
-    if (!wadouri.dataSetCacheManager.isLoaded(uri)) {
-      await wadouri.dataSetCacheManager.load(uri, undefined as any, imageId);
-    }
-    const ds = wadouri.dataSetCacheManager.get(uri);
-    return ds?.string?.('x0020000e') ?? null;
-  } catch {
-    return null;
-  }
-}
-
-async function getSopInstanceUidForImageId(imageId: string): Promise<string | null> {
-  const fromImageId = extractObjectUidFromImageId(imageId);
-  if (fromImageId) return fromImageId;
-
-  const sopCommon = metaData.get('sopCommonModule', imageId) as
-    | { sopInstanceUID?: string }
-    | undefined;
-  if (sopCommon?.sopInstanceUID) return sopCommon.sopInstanceUID;
-
-  try {
-    const uri = toWadouriUri(imageId);
-    if (!wadouri.dataSetCacheManager.isLoaded(uri)) {
-      await wadouri.dataSetCacheManager.load(uri, undefined as any, imageId);
-    }
-    const ds = wadouri.dataSetCacheManager.get(uri);
-    return ds?.string?.('x00080018') ?? null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Search through all session scans to find the one whose SeriesInstanceUID
- * matches the given UID. Loads the first image of each candidate scan to
- * check its metadata. Returns the full imageIds array for the matching scan.
- */
-async function findSourceScanBySeriesUID(
-  sessionId: string,
-  targetSeriesUID: string,
-  scans: XnatScan[],
-): Promise<{ scanId: string; imageIds: string[] } | null> {
-  // Only check primary image scans (exclude SEG/RTSTRUCT/SR/other non-image DICOM rows)
-  const candidates = scans.filter((s) => isPrimaryImageScan(s));
-  console.log(`[App] Searching ${candidates.length} scans for SeriesInstanceUID ${targetSeriesUID}`);
-
-  for (const scan of candidates) {
-    try {
-      const ids = await dicomwebLoader.getScanImageIds(sessionId, scan.id);
-      if (ids.length === 0) continue;
-
-      const seriesUID = await getSeriesUidForImageId(ids[0]);
-      if (seriesUID === targetSeriesUID) {
-        console.log(`[App] Found matching source: scan #${scan.id} (${ids.length} images)`);
-        return { scanId: scan.id, imageIds: ids };
-      }
-    } catch (err) {
-      console.warn(`[App] Failed to probe scan #${scan.id}:`, err);
-    }
-  }
-  return null;
-}
-
-async function findSourceScanByReferencedSopInstanceUIDs(
-  sessionId: string,
-  referencedSopInstanceUIDs: string[],
-  scans: XnatScan[],
-): Promise<{ scanId: string; imageIds: string[] } | null> {
-  if (referencedSopInstanceUIDs.length === 0) return null;
-  const target = new Set(referencedSopInstanceUIDs);
-  const candidates = scans.filter((s) => isPrimaryImageScan(s));
-  console.log(
-    `[App] Searching ${candidates.length} scans for referenced SOP Instance UID fallback (${target.size} UID(s))`,
-  );
-
-  for (const scan of candidates) {
-    try {
-      const ids = await dicomwebLoader.getScanImageIds(sessionId, scan.id);
-      if (ids.length === 0) continue;
-
-      // Fast path: UID embedded in wadouri URL query.
-      const fastMatch = ids.some((imageId) => {
-        const uid = extractObjectUidFromImageId(imageId);
-        return !!uid && target.has(uid);
-      });
-      if (fastMatch) {
-        console.log(`[App] Found SOP UID fallback match in source scan #${scan.id} (${ids.length} images)`);
-        return { scanId: scan.id, imageIds: ids };
-      }
-
-      // Slow path: metadata/header probe for non-query imageIds.
-      const probeIds = ids.slice(0, Math.min(ids.length, 8));
-      for (const imageId of probeIds) {
-        const uid = await getSopInstanceUidForImageId(imageId);
-        if (uid && target.has(uid)) {
-          console.log(`[App] Found SOP UID fallback metadata match in source scan #${scan.id}`);
-          return { scanId: scan.id, imageIds: ids };
-        }
-      }
-    } catch (err) {
-      console.warn(`[App] Failed SOP UID fallback probe for scan #${scan.id}:`, err);
-    }
-  }
-
-  return null;
-}
 
 /**
  * Pre-load and cache all source images so their metadata is available.
@@ -1022,8 +827,8 @@ export default function App() {
       useSegmentationStore.getState()._markClean();
       useSessionDerivedIndexStore.getState().clear();
       useSegmentationManagerStore.getState().reset();
-      recoveredSessions.clear();
-      segLoadingLock.clear();
+      clearRecoveredSessions();
+      clearSegLoadingLocks();
       pendingSegLoadRef.current = null;
       segLoadingPanelRef.current = null;
       dicomwebLoader.clearScanImageIdsCache();
@@ -1571,7 +1376,7 @@ export default function App() {
       for (const seg of [...useSegmentationStore.getState().segmentations]) {
         segmentationManager.removeSegmentation(seg.segmentationId);
       }
-      segLoadingLock.clear();
+      clearSegLoadingLocks();
       useSessionDerivedIndexStore.getState().clear();
       useSegmentationManagerStore.getState().reset();
       dicomwebLoader.clearScanImageIdsCache(currentSessionId);
@@ -1810,7 +1615,9 @@ export default function App() {
           if (refSeriesUID) {
             const sessionScans = await ensureSessionScans();
             if (sessionScans.length > 0) {
-              const match = await findSourceScanBySeriesUID(sessionId, refSeriesUID, sessionScans);
+              const match = await findSourceScanBySeriesUID(sessionId, refSeriesUID, sessionScans, {
+                getScanImageIds: (sid, sourceScanId) => dicomwebLoader.getScanImageIds(sid, sourceScanId),
+              });
               if (match) {
                 sourceIds = match.imageIds;
                 foundScanId = match.scanId;
@@ -1828,6 +1635,9 @@ export default function App() {
                 sessionId,
                 refInfo.referencedSOPInstanceUIDs,
                 sessionScans,
+                {
+                  getScanImageIds: (sid, sourceScanId) => dicomwebLoader.getScanImageIds(sid, sourceScanId),
+                },
               );
               if (sopMatch) {
                 sourceIds = sopMatch.imageIds;
@@ -2045,7 +1855,9 @@ export default function App() {
           if (parsed.referencedSeriesUID) {
             const sessionScans = await ensureSessionScans();
             if (sessionScans.length > 0) {
-              const match = await findSourceScanBySeriesUID(sessionId, parsed.referencedSeriesUID, sessionScans);
+              const match = await findSourceScanBySeriesUID(sessionId, parsed.referencedSeriesUID, sessionScans, {
+                getScanImageIds: (sid, sourceScanId) => dicomwebLoader.getScanImageIds(sid, sourceScanId),
+              });
               if (match) {
                 sourceIds = match.imageIds;
                 resolvedRtSourceScanId = match.scanId;
@@ -2368,7 +2180,7 @@ export default function App() {
       }
 
       // Clear stale loading locks, derived index, and manager state from previous session
-      segLoadingLock.clear();
+      clearSegLoadingLocks();
       useSessionDerivedIndexStore.getState().clear();
       useSegmentationManagerStore.getState().reset();
 
@@ -3240,6 +3052,7 @@ export default function App() {
               </div>
               {/* Drag handle */}
               <div
+                data-testid="browser-resize-handle"
                 className="w-1 shrink-0 cursor-col-resize hover:bg-blue-500/40 active:bg-blue-500/60 transition-colors"
                 onMouseDown={handleResizeStart}
               />
@@ -3247,6 +3060,7 @@ export default function App() {
           ) : (
             /* Collapsed strip — click to reopen browser */
             <div
+              data-testid="browser-collapsed-strip"
               className="w-3 shrink-0 bg-zinc-900 hover:bg-zinc-700 cursor-pointer transition-colors border-r border-zinc-800 flex items-center justify-center group"
               onClick={() => {
                 setBrowserWidth(browserWidthRef.current);

@@ -23,6 +23,13 @@ export function registerUploadHandlers(): void {
       sessionId: string,
       scanId: string,
     ) => {
+      if (typeof sessionId !== 'string' || sessionId.trim().length === 0) {
+        return { ok: false, error: 'Invalid payload: sessionId must be a non-empty string' };
+      }
+      if (typeof scanId !== 'string' || scanId.trim().length === 0) {
+        return { ok: false, error: 'Invalid payload: scanId must be a non-empty string' };
+      }
+
       const client = sessionManager.getClient();
       if (!client) {
         return { ok: false, error: 'Not connected to XNAT' };
