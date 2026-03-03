@@ -48,6 +48,22 @@ import {
   IconLabelmapEditContour,
   IconSculptor,
 } from '../icons';
+import {
+  DEFAULT_COLOR_PALETTE,
+  hexToRgbaColor,
+  rgbaStr,
+  isSegScanId,
+  isRtStructScanId,
+  isScanIdCompatibleWithType,
+  nextVersionedLabel,
+} from './segmentationPanelUtils';
+import ExistingSaveDialog, {
+  type ExistingSaveDialogResult,
+  type ExistingSaveDialogState,
+} from './segmentation/ExistingSaveDialog';
+import NameEntryDialog from './segmentation/NameEntryDialog';
+import PanelToast from './segmentation/PanelToast';
+import SavingOverlay from './segmentation/SavingOverlay';
 
 /** Brush-style tools that use brush size */
 const BRUSH_SIZE_TOOLS = new Set<string>([
@@ -136,61 +152,6 @@ function SegToolIcon({ tool }: { tool: ToolName }) {
   }
 }
 
-/** Color palette for quick segment color picking */
-const DEFAULT_COLOR_PALETTE: [number, number, number, number][] = [
-  [220, 50, 50, 255],    // Red
-  [50, 200, 50, 255],    // Green
-  [50, 100, 220, 255],   // Blue
-  [230, 200, 40, 255],   // Yellow
-  [200, 50, 200, 255],   // Magenta
-  [50, 200, 200, 255],   // Cyan
-  [240, 140, 40, 255],   // Orange
-  [150, 80, 200, 255],   // Purple
-  [50, 220, 130, 255],   // Spring Green
-  [255, 130, 130, 255],  // Light Red
-];
-
-function hexToRgbaColor(hex: string): [number, number, number, number] | null {
-  const match = hex.trim().match(/^#?([0-9a-fA-F]{6})$/);
-  if (!match) return null;
-  const raw = match[1];
-  const r = parseInt(raw.slice(0, 2), 16);
-  const g = parseInt(raw.slice(2, 4), 16);
-  const b = parseInt(raw.slice(4, 6), 16);
-  if (!Number.isFinite(r) || !Number.isFinite(g) || !Number.isFinite(b)) return null;
-  return [r, g, b, 255];
-}
-
-/** Convert RGBA array to CSS rgba() string */
-function rgbaStr(c: [number, number, number, number]): string {
-  return `rgba(${c[0]},${c[1]},${c[2]},${c[3] / 255})`;
-}
-
-function isSegScanId(scanId: string): boolean {
-  return /^3\d+$/.test(scanId);
-}
-
-function isRtStructScanId(scanId: string): boolean {
-  return /^4\d+$/.test(scanId);
-}
-
-function isScanIdCompatibleWithType(scanId: string, type: SegmentationDicomType): boolean {
-  return type === 'SEG' ? isSegScanId(scanId) : isRtStructScanId(scanId);
-}
-
-function nextVersionedLabel(rawLabel: string): string {
-  const trimmed = rawLabel.trim() || 'Annotation';
-  const match = trimmed.match(/^(.*?)(?:_(\d+))$/);
-  if (!match) {
-    return `${trimmed}_01`;
-  }
-  const stem = (match[1] ?? '').trim() || 'Annotation';
-  const current = parseInt(match[2], 10);
-  const width = Math.max(2, match[2]?.length ?? 0);
-  const next = Number.isFinite(current) ? current + 1 : 1;
-  return `${stem}_${String(next).padStart(width, '0')}`;
-}
-
 /** Props passed from ViewerPage */
 interface SegmentationPanelProps {
   /** Source imageIds from the active viewport panel — needed to create segmentations */
@@ -203,19 +164,6 @@ interface AvailableOverlayRow {
   label: string;
   loadedSegmentationId: string | null;
   loadStatus: 'idle' | 'loading' | 'loaded' | 'error';
-}
-
-type ExistingSaveDialogResult =
-  | { action: 'overwrite' }
-  | { action: 'create-new'; label: string }
-  | { action: 'cancel' };
-
-interface ExistingSaveDialogState {
-  scanId: string;
-  dicomType: SegmentationDicomType;
-  suggestedLabel: string;
-  newLabel: string;
-  mode: 'choose' | 'name';
 }
 
 interface SegmentNamingDialogState {
@@ -559,7 +507,6 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
   const saveMenuRef = useRef<HTMLDivElement>(null);
   const [existingSaveDialog, setExistingSaveDialog] = useState<ExistingSaveDialogState | null>(null);
   const existingSaveDialogResolverRef = useRef<((result: ExistingSaveDialogResult) => void) | null>(null);
-  const existingSaveInputRef = useRef<HTMLInputElement>(null);
 
   // Auto-dismiss toast
   useEffect(() => {
@@ -598,13 +545,6 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
       }
     };
   }, []);
-
-  useEffect(() => {
-    if (existingSaveDialog?.mode === 'name' && existingSaveInputRef.current) {
-      existingSaveInputRef.current.focus();
-      existingSaveInputRef.current.select();
-    }
-  }, [existingSaveDialog?.mode]);
 
   useEffect(() => {
     segmentationService.updateContourStyle(contourLineWidth);
@@ -1902,213 +1842,41 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
         )}
       </div>
 
-      {/* Toast notification */}
-      {toast && (
-        <div
-          className={`absolute top-2 left-2 right-2 z-[100] px-3 py-2 rounded-lg shadow-lg text-[11px] font-medium transition-opacity ${
-            toast.type === 'success'
-              ? 'bg-green-800/90 text-green-100'
-              : 'bg-red-800/90 text-red-100'
-          }`}
-        >
-          {toast.message}
-        </div>
-      )}
+      <PanelToast toast={toast} />
 
-      {/* Existing-scan save decision dialog */}
-      {existingSaveDialog && (
-        <div className="absolute inset-0 z-50 bg-zinc-950/70 flex items-center justify-center">
-          <div className="bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl p-4 mx-4 w-full max-w-[260px]">
-            {existingSaveDialog.mode === 'choose' ? (
-              <>
-                <div className="text-xs text-zinc-300 leading-relaxed">
-                  This annotation already exists on XNAT as scan <span className="font-semibold text-zinc-100">#{existingSaveDialog.scanId}</span>.
-                </div>
-                <div className="text-[11px] text-zinc-500 mt-1.5">
-                  Choose how you want to save this update:
-                </div>
-                <div className="grid gap-2 mt-3">
-                  <button
-                    onClick={() => resolveExistingSaveDialog({ action: 'overwrite' })}
-                    className="text-[11px] text-zinc-100 px-3 py-1.5 rounded bg-blue-900/35 hover:bg-blue-900/50 transition-colors text-left"
-                  >
-                    Overwrite
-                  </button>
-                  <button
-                    onClick={() => {
-                      setExistingSaveDialog((prev) => prev ? { ...prev, mode: 'name' } : prev);
-                    }}
-                    className="text-[11px] text-zinc-200 px-3 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 transition-colors text-left"
-                  >
-                    Create New
-                  </button>
-                  <button
-                    onClick={() => resolveExistingSaveDialog({ action: 'cancel' })}
-                    className="text-[11px] text-zinc-400 hover:text-zinc-200 px-3 py-1.5 rounded hover:bg-zinc-800 transition-colors text-left"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </>
-            ) : (
-              <>
-                <label className="block text-xs text-zinc-400 mb-1.5">
-                  {existingSaveDialog.dicomType === 'RTSTRUCT' ? 'Structure name' : 'Segmentation name'}
-                </label>
-                <input
-                  ref={existingSaveInputRef}
-                  className="w-full text-xs text-zinc-200 bg-zinc-800 border border-zinc-600 rounded px-2 py-1.5 outline-none focus:border-blue-500 transition-colors"
-                  value={existingSaveDialog.newLabel}
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    setExistingSaveDialog((prev) => prev ? { ...prev, newLabel: value } : prev);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      const finalLabel = existingSaveDialog.newLabel.trim();
-                      if (finalLabel) {
-                        resolveExistingSaveDialog({ action: 'create-new', label: finalLabel });
-                      }
-                    } else if (e.key === 'Escape') {
-                      e.preventDefault();
-                      resolveExistingSaveDialog({ action: 'cancel' });
-                    }
-                  }}
-                  placeholder={existingSaveDialog.suggestedLabel}
-                />
-                <div className="flex justify-end gap-2 mt-3">
-                  <button
-                    onClick={() => {
-                      setExistingSaveDialog((prev) => prev ? { ...prev, mode: 'choose' } : prev);
-                    }}
-                    className="text-[10px] text-zinc-400 hover:text-zinc-200 px-2.5 py-1 rounded hover:bg-zinc-800 transition-colors"
-                  >
-                    Back
-                  </button>
-                  <button
-                    onClick={() => resolveExistingSaveDialog({ action: 'cancel' })}
-                    className="text-[10px] text-zinc-400 hover:text-zinc-200 px-2.5 py-1 rounded hover:bg-zinc-800 transition-colors"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={() => {
-                      const finalLabel = existingSaveDialog.newLabel.trim();
-                      if (!finalLabel) return;
-                      resolveExistingSaveDialog({ action: 'create-new', label: finalLabel });
-                    }}
-                    disabled={!existingSaveDialog.newLabel.trim()}
-                    className="text-[10px] text-blue-400 hover:text-blue-300 px-2.5 py-1 rounded bg-blue-900/30 hover:bg-blue-900/50 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                  >
-                    Create
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      )}
+      <ExistingSaveDialog
+        state={existingSaveDialog}
+        onStateChange={(updater) => setExistingSaveDialog((prev) => updater(prev))}
+        onResolve={resolveExistingSaveDialog}
+      />
 
-      {/* Naming dialog overlay */}
-      {namingDialog && (
-        <div className="absolute inset-0 z-50 bg-zinc-950/70 flex items-center justify-center">
-          <div className="bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl p-4 mx-4 w-full max-w-[220px]">
-            <label className="block text-xs text-zinc-400 mb-1.5">
-              {pendingCreateType === 'RTSTRUCT' ? 'Structure name' : 'Segmentation name'}
-            </label>
-            <input
-              ref={namingInputRef}
-              className="w-full text-xs text-zinc-200 bg-zinc-800 border border-zinc-600 rounded px-2 py-1.5 outline-none focus:border-blue-500 transition-colors"
-              value={namingValue}
-              onChange={(e) => setNamingValue(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  confirmAddAnnotation();
-                } else if (e.key === 'Escape') {
-                  e.preventDefault();
-                  cancelAddAnnotation();
-                }
-              }}
-              placeholder={pendingCreateType === 'RTSTRUCT' ? 'Enter structure name...' : 'Enter segmentation name...'}
-            />
-            <div className="flex justify-end gap-2 mt-3">
-              <button
-                onClick={cancelAddAnnotation}
-                className="text-[10px] text-zinc-400 hover:text-zinc-200 px-2.5 py-1 rounded hover:bg-zinc-800 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={confirmAddAnnotation}
-                disabled={!namingValue.trim()}
-                className="text-[10px] text-blue-400 hover:text-blue-300 px-2.5 py-1 rounded bg-blue-900/30 hover:bg-blue-900/50 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-              >
-                Create
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <NameEntryDialog
+        open={namingDialog}
+        title={pendingCreateType === 'RTSTRUCT' ? 'Structure name' : 'Segmentation name'}
+        value={namingValue}
+        placeholder={pendingCreateType === 'RTSTRUCT' ? 'Enter structure name...' : 'Enter segmentation name...'}
+        confirmLabel="Create"
+        inputRef={namingInputRef}
+        onChange={setNamingValue}
+        onConfirm={confirmAddAnnotation}
+        onCancel={cancelAddAnnotation}
+      />
 
-      {/* Segment/structure naming dialog */}
-      {segmentNamingDialog && (
-        <div className="absolute inset-0 z-50 bg-zinc-950/70 flex items-center justify-center">
-          <div className="bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl p-4 mx-4 w-full max-w-[220px]">
-            <label className="block text-xs text-zinc-400 mb-1.5">
-              {segmentNamingDialog.rowType === 'RTSTRUCT' ? 'Structure name' : 'Segment name'}
-            </label>
-            <input
-              ref={segmentNamingInputRef}
-              className="w-full text-xs text-zinc-200 bg-zinc-800 border border-zinc-600 rounded px-2 py-1.5 outline-none focus:border-blue-500 transition-colors"
-              value={segmentNamingDialog.value}
-              onChange={(e) => {
-                const value = e.target.value;
-                setSegmentNamingDialog((prev) => (prev ? { ...prev, value } : prev));
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  void confirmAddSegment();
-                } else if (e.key === 'Escape') {
-                  e.preventDefault();
-                  cancelAddSegment();
-                }
-              }}
-              placeholder={segmentNamingDialog.defaultName}
-            />
-            <div className="flex justify-end gap-2 mt-3">
-              <button
-                onClick={cancelAddSegment}
-                className="text-[10px] text-zinc-400 hover:text-zinc-200 px-2.5 py-1 rounded hover:bg-zinc-800 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => { void confirmAddSegment(); }}
-                disabled={!segmentNamingDialog.value.trim()}
-                className="text-[10px] text-blue-400 hover:text-blue-300 px-2.5 py-1 rounded bg-blue-900/30 hover:bg-blue-900/50 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-              >
-                Add
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <NameEntryDialog
+        open={segmentNamingDialog !== null}
+        title={segmentNamingDialog?.rowType === 'RTSTRUCT' ? 'Structure name' : 'Segment name'}
+        value={segmentNamingDialog?.value ?? ''}
+        placeholder={segmentNamingDialog?.defaultName ?? ''}
+        confirmLabel="Add"
+        inputRef={segmentNamingInputRef}
+        onChange={(value) => {
+          setSegmentNamingDialog((prev) => (prev ? { ...prev, value } : prev));
+        }}
+        onConfirm={() => { void confirmAddSegment(); }}
+        onCancel={cancelAddSegment}
+      />
 
-      {/* Saving overlay */}
-      {saving && (
-        <div className="absolute inset-0 z-50 bg-zinc-950/60 flex items-center justify-center">
-          <div className="flex items-center gap-2 text-xs text-zinc-300">
-            <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
-              <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" className="opacity-25" />
-              <path d="M4 12a8 8 0 018-8" stroke="currentColor" strokeWidth="3" strokeLinecap="round" className="opacity-75" />
-            </svg>
-            Exporting...
-          </div>
-        </div>
-      )}
+      <SavingOverlay saving={saving} />
     </div>
   );
 }

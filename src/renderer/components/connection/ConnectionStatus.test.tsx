@@ -76,7 +76,7 @@ describe('ConnectionStatus', () => {
     await user.click(screen.getByTitle('Disconnect from XNAT'));
 
     expect(mocks.showConfirmDialog).not.toHaveBeenCalled();
-    expect(mocks.clearServerScopedStorage).toHaveBeenCalledWith('https://xnat.example.com');
+    expect(mocks.clearServerScopedStorage).not.toHaveBeenCalled();
     expect(logout).toHaveBeenCalledTimes(1);
   });
 
@@ -126,6 +126,6 @@ describe('ConnectionStatus', () => {
 
     expect(mocks.showConfirmDialog).toHaveBeenCalledTimes(2);
     expect(logout).toHaveBeenCalledTimes(1);
-    expect(mocks.clearServerScopedStorage).toHaveBeenCalledTimes(1);
+    expect(mocks.clearServerScopedStorage).not.toHaveBeenCalled();
   });
 });

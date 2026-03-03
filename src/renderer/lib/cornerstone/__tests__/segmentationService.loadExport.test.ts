@@ -767,7 +767,7 @@ describe('segmentationService load/export integration (mocked cornerstone)', () 
     expect(segmentationService.getViewportIdsForSegmentation(groupId)).toContain('panel_0');
   });
 
-  it('flushAutoSaveNow writes temp autosaves and clears dirty state on success', async () => {
+  it('flushAutoSaveNow writes local backups for dirty segmentations', async () => {
     segIoMocks.segmentationMap.set('legacy-auto', {
       segmentationId: 'legacy-auto',
       label: 'Auto',
@@ -783,7 +783,6 @@ describe('segmentationService load/export integration (mocked cornerstone)', () 
       ...useSegmentationStore.getState(),
       activeSegmentationId: 'legacy-auto',
       hasUnsavedChanges: true,
-      autoSaveEnabled: false,
       xnatOriginMap: {
         'legacy-auto': {
           scanId: '3001',
@@ -793,6 +792,7 @@ describe('segmentationService load/export integration (mocked cornerstone)', () 
         },
       },
     });
+    useSegmentationManagerStore.getState().markDirty('legacy-auto');
     useViewerStore.setState({
       ...useViewerStore.getState(),
       xnatContext: {
@@ -804,20 +804,19 @@ describe('segmentationService load/export integration (mocked cornerstone)', () 
       } as any,
     });
 
-    const deleteTempFile = vi.fn(async () => ({ ok: true }));
-    const autoSaveTemp = vi.fn(async () => ({ ok: true }));
+    const readManifest = vi.fn(async () => ({ ok: false, error: 'not_found' }));
+    const writeFile = vi.fn(async () => ({ ok: true, sizeBytes: 3 }));
+    const writeManifest = vi.fn(async () => ({ ok: true }));
     vi.stubGlobal('window', {
       electronAPI: {
-        xnat: {
-          listTempFiles: vi.fn(async () => ({
-            ok: true,
-            files: [
-              { name: 'autosave_seg_11_20260301120000.dcm' },
-              { name: 'other_file.dcm' },
-            ],
-          })),
-          deleteTempFile,
-          autoSaveTemp,
+        backup: {
+          readManifest,
+          writeManifest,
+          writeFile,
+          readFile: vi.fn(async () => ({ ok: false, error: 'not_used' })),
+          deleteFile: vi.fn(async () => ({ ok: true })),
+          deleteSession: vi.fn(async () => ({ ok: true })),
+          listAllSessions: vi.fn(async () => ({ ok: true, sessions: [] })),
         },
       },
     });
@@ -828,14 +827,17 @@ describe('segmentationService load/export integration (mocked cornerstone)', () 
     nowSpy.mockRestore();
 
     expect(ok).toBe(true);
-    expect(deleteTempFile).toHaveBeenCalledWith('S1', 'autosave_seg_11_20260301120000.dcm');
-    expect(autoSaveTemp).toHaveBeenCalledWith(
+    expect(readManifest).toHaveBeenCalledWith('S1');
+    expect(writeFile).toHaveBeenCalledWith(
       'S1',
-      '11',
+      expect.stringMatching(/^seg_legacy-auto_\d{14}\.dcm$/),
       'QUJD',
-      expect.stringMatching(/^autosave_seg_11_\d{14}\.dcm$/),
     );
-    expect(useSegmentationStore.getState().hasUnsavedChanges).toBe(false);
+    expect(writeManifest).toHaveBeenCalledWith(
+      'S1',
+      expect.stringContaining('"sessionId": "S1"'),
+    );
+    expect(useSegmentationStore.getState().hasUnsavedChanges).toBe(true);
     exportSpy.mockRestore();
   });
 
@@ -855,8 +857,8 @@ describe('segmentationService load/export integration (mocked cornerstone)', () 
       ...useSegmentationStore.getState(),
       activeSegmentationId: 'legacy-auto',
       hasUnsavedChanges: true,
-      autoSaveEnabled: true,
     });
+    useSegmentationManagerStore.getState().markDirty('legacy-auto');
     useViewerStore.setState({
       ...useViewerStore.getState(),
       xnatContext: {
@@ -867,12 +869,17 @@ describe('segmentationService load/export integration (mocked cornerstone)', () 
         scanId: '11',
       } as any,
     });
+    const writeFile = vi.fn(async () => ({ ok: true, sizeBytes: 3 }));
     vi.stubGlobal('window', {
       electronAPI: {
-        xnat: {
-          listTempFiles: vi.fn(async () => ({ ok: true, files: [] })),
-          deleteTempFile: vi.fn(async () => ({ ok: true })),
-          autoSaveTemp: vi.fn(async () => ({ ok: true })),
+        backup: {
+          readManifest: vi.fn(async () => ({ ok: false, error: 'not_found' })),
+          writeManifest: vi.fn(async () => ({ ok: true })),
+          writeFile,
+          readFile: vi.fn(async () => ({ ok: false, error: 'not_used' })),
+          deleteFile: vi.fn(async () => ({ ok: true })),
+          deleteSession: vi.fn(async () => ({ ok: true })),
+          listAllSessions: vi.fn(async () => ({ ok: true, sessions: [] })),
         },
       },
     });
@@ -886,6 +893,7 @@ describe('segmentationService load/export integration (mocked cornerstone)', () 
     nowSpy.mockRestore();
     expect(ok).toBe(false);
     expect(useSegmentationStore.getState().autoSaveStatus).toBe('idle');
+    expect(writeFile).not.toHaveBeenCalled();
     exportSpy.mockRestore();
   });
 });

@@ -16,5 +16,5 @@
     }
   },
   "include": ["src/main/**/*", "src/preload/**/*", "src/shared/**/*"],
-  "exclude": ["node_modules"]
+  "exclude": ["node_modules", "**/*.test.ts", "**/*.test.tsx"]
 }

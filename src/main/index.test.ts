@@ -52,11 +52,18 @@ const mocks = vi.hoisted(() => {
     BrowserWindow,
     Menu,
     nativeImage,
+    ipcMain: {
+      handle: vi.fn(),
+    },
+    shell: {
+      openExternal: vi.fn(async () => undefined),
+    },
     windowInstances,
     registerAuthHandlers: vi.fn(),
     registerProxyHandlers: vi.fn(),
     registerExportHandlers: vi.fn(),
     registerUploadHandlers: vi.fn(),
+    registerBackupHandlers: vi.fn(),
   };
 });
 
@@ -65,6 +72,8 @@ vi.mock('electron', () => ({
   BrowserWindow: mocks.BrowserWindow,
   Menu: mocks.Menu,
   nativeImage: mocks.nativeImage,
+  ipcMain: mocks.ipcMain,
+  shell: mocks.shell,
 }));
 
 vi.mock('./ipc/authHandlers', () => ({
@@ -81,6 +90,10 @@ vi.mock('./ipc/exportHandlers', () => ({
 
 vi.mock('./ipc/uploadHandlers', () => ({
   registerUploadHandlers: mocks.registerUploadHandlers,
+}));
+
+vi.mock('./ipc/backupHandlers', () => ({
+  registerBackupHandlers: mocks.registerBackupHandlers,
 }));
 
 async function loadMainEntry(): Promise<void> {
@@ -106,6 +119,7 @@ describe('main/index bootstrap', () => {
     expect(mocks.registerProxyHandlers).toHaveBeenCalledTimes(1);
     expect(mocks.registerExportHandlers).toHaveBeenCalledTimes(1);
     expect(mocks.registerUploadHandlers).toHaveBeenCalledTimes(1);
+    expect(mocks.registerBackupHandlers).toHaveBeenCalledTimes(1);
 
     expect(mocks.app.name).toBe('XNAT');
     expect(mocks.Menu.buildFromTemplate).toHaveBeenCalledTimes(1);

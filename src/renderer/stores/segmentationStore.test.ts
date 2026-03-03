@@ -34,8 +34,8 @@ describe('useSegmentationStore', () => {
 
     useSegmentationStore.getState().togglePanel();
     expect(useSegmentationStore.getState().showPanel).toBe(true);
-    useSegmentationStore.getState().setAutoSaveEnabled(false);
-    expect(useSegmentationStore.getState().autoSaveEnabled).toBe(false);
+    useSegmentationStore.getState().setAutoLoadSegOnScanClick(false);
+    expect(useSegmentationStore.getState().autoLoadSegOnScanClick).toBe(false);
 
     useSegmentationStore.getState().setShowViewportContextOverlay(false);
     expect(useSegmentationStore.getState().showViewportContextOverlay).toBe(false);

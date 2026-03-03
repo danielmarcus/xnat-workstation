@@ -527,6 +527,7 @@ describe('App', () => {
     setConnectedConnectionState();
     useSegmentationStore.setState({
       ...useSegmentationStore.getState(),
+      segmentations: [{ segmentationId: 'seg-unsaved' } as any],
       hasUnsavedChanges: true,
     });
 
@@ -641,8 +642,10 @@ describe('App', () => {
     setConnectedConnectionState();
     useSegmentationStore.setState({
       ...useSegmentationStore.getState(),
+      segmentations: [{ segmentationId: 'seg-beforeunload' } as any],
       hasUnsavedChanges: true,
     });
+    mocks.segmentationManager.hasDirtySegmentations.mockReturnValue(true);
 
     render(<App />);
     await screen.findByTestId('viewer-page');

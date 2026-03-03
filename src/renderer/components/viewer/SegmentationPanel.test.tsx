@@ -268,9 +268,7 @@ describe('SegmentationPanel', () => {
     const opacitySlider = container.querySelector('input[type="range"][max="1"]') as HTMLInputElement;
     fireEvent.change(opacitySlider, { target: { value: '0.7' } });
     expect(segPanelMocks.updateStyle).toHaveBeenCalled();
-
-    fireEvent.click(screen.getByLabelText('Show Outline'));
-    expect(segPanelMocks.updateStyle).toHaveBeenCalledTimes(2);
+    expect(screen.queryByLabelText('Show Outline')).not.toBeInTheDocument();
 
   });
 
