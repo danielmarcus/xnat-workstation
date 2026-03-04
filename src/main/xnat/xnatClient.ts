@@ -36,6 +36,45 @@ export class XnatClient {
   /** CSRF token extracted at login — appended as ?XNAT_CSRF= on mutating requests. */
   private csrfToken: string | null = null;
 
+  private isDicomFileEntry(file: any): boolean {
+    const name = String(file?.Name ?? '').toLowerCase();
+    const collection = String(file?.collection ?? '').toLowerCase();
+    const fileFormat = String(file?.file_format ?? '').toLowerCase();
+    const fileContent = String(file?.file_content ?? '').toLowerCase();
+
+    // Prefer explicit XNAT metadata when present.
+    if (fileFormat === 'dicom' || fileContent === 'dicom' || collection === 'dicom') {
+      return true;
+    }
+
+    // Fallback for older resources where only filename hints exist.
+    return name.endsWith('.dcm');
+  }
+
+  private hasDicomPart10Prefix(buffer: Buffer): boolean {
+    return buffer.length >= 132 && buffer.toString('ascii', 128, 132) === 'DICM';
+  }
+
+  private hasFileMetaAtStart(buffer: Buffer): boolean {
+    // Group 0002 tag at offset 0 (Little Endian): bytes [0]=0x02, [1]=0x00.
+    return buffer.length >= 4 && buffer[0] === 0x02 && buffer[1] === 0x00;
+  }
+
+  private looksLikeHtml(buffer: Buffer): boolean {
+    const head = buffer.subarray(0, Math.min(buffer.length, 256)).toString('ascii').toLowerCase();
+    return head.includes('<!doctype html') || head.includes('<html');
+  }
+
+  private normalizeDicomPart10(buffer: Buffer): Buffer {
+    if (this.hasDicomPart10Prefix(buffer)) return buffer;
+    if (!this.hasFileMetaAtStart(buffer)) return buffer;
+
+    // Some exports omit the 128-byte preamble + DICM marker.
+    const preamble = Buffer.alloc(132, 0);
+    preamble.write('DICM', 128, 'ascii');
+    return Buffer.concat([preamble, buffer]);
+  }
+
   constructor(baseUrl: string) {
     // Normalize base URL (remove trailing slash)
     this.baseUrl = baseUrl.replace(/\/+$/, '');
@@ -546,13 +585,14 @@ export class XnatClient {
 
     // Filter to DICOM files only. Do not impose filename-based ordering here;
     // downstream consumers should choose metadata-based stack ordering.
-    const dicomFiles = results
-      .filter((f: any) => {
-        const name = (f.Name || '').toLowerCase();
-        const collection = (f.collection || '').toLowerCase();
-        // Include files from DICOM collection or with .dcm extension
-        return collection === 'dicom' || name.endsWith('.dcm') || !name.includes('.');
-      });
+    let dicomFiles = results.filter((f: any) => this.isDicomFileEntry(f));
+
+    // Compatibility fallback: if XNAT returns exactly one file with weak metadata,
+    // keep behavior permissive so we can still attempt the download path.
+    if (dicomFiles.length === 0 && results.length === 1) {
+      console.warn('[xnatClient] getScanFiles: no explicit DICOM markers, falling back to single-file scan');
+      dicomFiles = results;
+    }
 
     console.log(`[xnatClient] getScanFiles: ${dicomFiles.length} DICOM files after filtering`);
 
@@ -576,12 +616,35 @@ export class XnatClient {
       throw new Error(`No DICOM files found in scan ${scanId}`);
     }
 
-    // Fetch the first DICOM file
-    const uri = fileUris[0];
-    console.log(`[xnatClient] Downloading scan file: ${uri}`);
-    const response = await this.authenticatedFetch(uri);
-    const arrayBuffer = await response.arrayBuffer();
-    return Buffer.from(arrayBuffer);
+    let lastReason = '';
+    for (const uri of fileUris) {
+      console.log(`[xnatClient] Downloading scan file: ${uri}`);
+      const response = await this.authenticatedFetch(uri);
+      const rawBuffer = Buffer.from(await response.arrayBuffer());
+      const buffer = this.normalizeDicomPart10(rawBuffer);
+
+      if (this.hasDicomPart10Prefix(buffer)) {
+        if (buffer.length !== rawBuffer.length) {
+          console.warn(
+            `[xnatClient] Added missing DICOM preamble for scan ${scanId} file ${uri} `
+            + `(${rawBuffer.length} -> ${buffer.length} bytes)`,
+          );
+        }
+        return buffer;
+      }
+
+      if (this.looksLikeHtml(rawBuffer)) {
+        lastReason = `Received HTML instead of DICOM from ${uri}`;
+      } else {
+        const headHex = rawBuffer.subarray(0, Math.min(rawBuffer.length, 8)).toString('hex');
+        lastReason = `Invalid DICOM prefix from ${uri} (first bytes: ${headHex || 'empty'})`;
+      }
+      console.warn(`[xnatClient] Skipping non-DICOM scan file candidate: ${lastReason}`);
+    }
+
+    throw new Error(
+      `No valid DICOM Part 10 file found in scan ${scanId}. ${lastReason || 'All candidates failed.'}`,
+    );
   }
 
   // ─── Upload ───────────────────────────────────────────────────

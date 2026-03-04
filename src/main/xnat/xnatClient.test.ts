@@ -155,8 +155,9 @@ describe('XnatClient', () => {
           Result: [
             { Name: 'image1.dcm', URI: '/a' },
             { Name: 'image2.jpg', URI: '/b' },
-            { Name: 'image3', URI: '/c' },
+            { Name: 'image3', URI: '/c', file_format: 'DICOM' },
             { Name: 'other.bin', URI: '/d', collection: 'DICOM' },
+            { Name: 'notes', URI: '/e' },
           ],
         },
       }),
@@ -166,6 +167,45 @@ describe('XnatClient', () => {
     expect(uris).toEqual(['/a', '/c', '/d']);
     expect(mocks.fetch).toHaveBeenCalledWith(
       expect.stringContaining('/data/experiments/XNAT_E001/scans/11/files?format=json'),
+      expect.any(Object),
+    );
+  });
+
+  it('downloadScanFile skips invalid candidates and normalizes missing DICM preamble', async () => {
+    const client = new XnatClient('https://xnat.example');
+    await client.setAuthFromBrowserLogin({
+      jsessionId: 'J1',
+      username: 'dan',
+      serverCookies: [],
+      csrfToken: null,
+    });
+
+    mocks.fetch
+      .mockResolvedValueOnce(
+        makeJsonResponse({
+          ResultSet: {
+            Result: [
+              { Name: 'candidate-1.dcm', URI: '/bad', file_format: 'DICOM' },
+              { Name: 'candidate-2', URI: '/good', file_format: 'DICOM' },
+            ],
+          },
+        }),
+      )
+      .mockResolvedValueOnce(new Response('<html>login</html>', { status: 200 }))
+      .mockResolvedValueOnce(new Response(new Uint8Array([0x02, 0x00, 0x00, 0x00, 0xaa, 0xbb]), { status: 200 }));
+
+    const buffer = await client.downloadScanFile('XNAT_E001', '301');
+    expect(Buffer.isBuffer(buffer)).toBe(true);
+    expect(buffer.toString('ascii', 128, 132)).toBe('DICM');
+    expect(buffer.length).toBe(132 + 6);
+    expect(mocks.fetch).toHaveBeenNthCalledWith(
+      2,
+      'https://xnat.example/bad',
+      expect.any(Object),
+    );
+    expect(mocks.fetch).toHaveBeenNthCalledWith(
+      3,
+      'https://xnat.example/good',
       expect.any(Object),
     );
   });

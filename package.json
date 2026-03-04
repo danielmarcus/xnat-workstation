@@ -1,6 +1,6 @@
 {
   "name": "xnat-viewer",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "XNAT Desktop Workstation with native Cornerstone3D rendering",
   "main": "dist/main/main/index.js",
   "scripts": {

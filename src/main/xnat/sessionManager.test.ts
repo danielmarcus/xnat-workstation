@@ -120,6 +120,32 @@ describe('sessionManager', () => {
     expect(client.validateSession).toHaveBeenCalled();
   });
 
+  it('overrides stale renderer cookie headers with active session cookies', async () => {
+    vi.resetModules();
+    const sessionManager = await import('./sessionManager');
+
+    await sessionManager.browserLogin('https://xnat.example/');
+    const beforeSendHandler = mocks.onBeforeSendHeaders.mock.calls[0][1];
+    const cb = vi.fn();
+
+    beforeSendHandler(
+      {
+        requestHeaders: {
+          Accept: '*/*',
+          Cookie: 'JSESSIONID=stale; AWSALB=old',
+        },
+      },
+      cb,
+    );
+
+    expect(cb).toHaveBeenCalledWith({
+      requestHeaders: {
+        Accept: '*/*',
+        Cookie: 'JSESSIONID=mock',
+      },
+    });
+  });
+
   it('validateSession reports valid/invalid correctly and logout tears down state', async () => {
     vi.resetModules();
     const sessionManager = await import('./sessionManager');

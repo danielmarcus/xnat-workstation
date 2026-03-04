@@ -240,10 +240,9 @@ function setupWebRequestInterceptor(): void {
       try {
         const authHeaders = client.buildAuthHeaders();
         const requestHeaders = { ...details.requestHeaders } as Record<string, string | string[]>;
-        const hasHeader = (name: string): boolean =>
-          Object.keys(requestHeaders).some((k) => k.toLowerCase() === name.toLowerCase());
-
-        if (!hasHeader('cookie') && authHeaders.Cookie) {
+        if (authHeaders.Cookie) {
+          // Always override Cookie for renderer-side WADO requests so stale
+          // persisted cookies cannot force XNAT login HTML responses.
           requestHeaders.Cookie = authHeaders.Cookie;
         }
 
