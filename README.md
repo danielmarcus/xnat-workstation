@@ -136,6 +136,38 @@ npm run dev
 
 This starts the Vite dev server (port 5173) and launches Electron with hot reload.
 
+### Test
+
+Run the full Vitest suite:
+
+```bash
+npm test
+```
+
+Run tests in watch mode while developing:
+
+```bash
+npm run test:watch
+```
+
+Run tests with coverage output:
+
+```bash
+npm run test:coverage
+```
+
+Run only Cornerstone interface tests:
+
+```bash
+npm run test:cornerstone
+```
+
+Run Cornerstone interface tests with coverage:
+
+```bash
+npm run test:cornerstone:coverage
+```
+
 ### Build
 
 ```bash
