@@ -26,10 +26,8 @@ export class XnatAuthError extends Error {
 export class XnatClient {
   private baseUrl: string;
   private username: string = '';
-  /** JSESSION cookie — used for all XNAT API requests */
+  /** JSESSION cookie ID — used for auth guards (isAuthenticated, etc.) */
   private jsessionId: string | null = null;
-  /** All server cookies (JSESSIONID, ALB sticky-session, etc.) */
-  private serverCookies: ServerCookie[] = [];
   /** Set by markDisconnected() to stop concurrent in-flight requests from retrying */
   private _disconnected = false;
   private scanSopClassUidCache = new Map<string, string | null>();
@@ -93,34 +91,18 @@ export class XnatClient {
     csrfToken?: string | null;
   }): Promise<void> {
     this.username = opts.username;
-    this.serverCookies = opts.serverCookies ?? [];
+    this.jsessionId = opts.jsessionId;
     this.csrfToken = opts.csrfToken ?? null;
-    await this.setAllCookies(opts.jsessionId, this.serverCookies);
-    console.log(
-      `[xnatClient] Browser login complete: user=${this.username}`,
-      this.csrfToken ? `csrf=${this.csrfToken.slice(0, 8)}...` : '(no CSRF token)',
-    );
-  }
 
-  /**
-   * Sync all server cookies to the default session's cookie jar.
-   * Includes JSESSIONID plus any infrastructure cookies (e.g. AWSALB
-   * sticky-session cookies for load-balanced XNAT servers).
-   * Must be awaited before making API calls.
-   */
-  private async setAllCookies(jsessionId: string, cookies: ServerCookie[]): Promise<void> {
-    this.jsessionId = jsessionId;
-
-    // Always set JSESSIONID
+    // Write all login cookies to the cookie jar — the single source of truth.
+    const cookies = opts.serverCookies ?? [];
     await electronSession.defaultSession.cookies.set({
       url: this.baseUrl,
       name: 'JSESSIONID',
-      value: jsessionId,
+      value: opts.jsessionId,
     });
-
-    // Set all other server cookies (ALB sticky-session, XNAT session state, etc.)
     for (const c of cookies) {
-      if (c.name === 'JSESSIONID') continue; // already set above
+      if (c.name === 'JSESSIONID') continue;
       try {
         await electronSession.defaultSession.cookies.set({
           url: this.baseUrl,
@@ -135,7 +117,12 @@ export class XnatClient {
         console.warn(`[xnatClient] Failed to set cookie ${c.name}:`, err);
       }
     }
-    console.log(`[xnatClient] Set ${cookies.length + 1} cookies in default session`);
+
+    console.log(
+      `[xnatClient] Browser login complete: user=${this.username}, `
+      + `${cookies.length + 1} cookies in jar`,
+      this.csrfToken ? `csrf=${this.csrfToken.slice(0, 8)}...` : '(no CSRF token)',
+    );
   }
 
   // ─── Session Validation ────────────────────────────────────────
@@ -148,14 +135,67 @@ export class XnatClient {
     if (!this.jsessionId) return null;
 
     try {
+      // Log all cookies the jar has for this domain
+      const url = new URL(this.baseUrl);
+      const allJarCookies = await electronSession.defaultSession.cookies.get({
+        domain: url.hostname,
+      });
+      const jarSummary = allJarCookies
+        .map((c) => `${c.name}=${c.value.slice(0, 8)}...`)
+        .join(', ');
+      console.log(
+        `[xnatClient] validateSession: cookie jar has ${allJarCookies.length} cookies: ${jarSummary}`,
+      );
+
+      const jarJsession = allJarCookies.find((c) => c.name === 'JSESSIONID');
+      const jarValue = jarJsession?.value ?? '(missing)';
+      const match = jarValue === this.jsessionId ? 'match' : 'MISMATCH';
+      console.log(
+        `[xnatClient] validateSession: jar JSESSIONID=${jarValue.slice(0, 8)}..., `
+        + `expected=${this.jsessionId.slice(0, 8)}... (${match})`,
+      );
+
       const response = await this.xfetch(`${this.baseUrl}/data/JSESSION`, {
         method: 'GET',
       });
 
-      // Drain the response body to release the connection
-      await response.text().catch(() => {});
-      return response.ok ? this.username : null;
-    } catch {
+      const body = await response.text().catch(() => '');
+
+      // Log full response details
+      const contentType = response.headers.get('content-type') ?? '(none)';
+      const setCookie = response.headers.get('set-cookie') ?? '(none)';
+      const returnedId = body.trim();
+      console.log(
+        `[xnatClient] validateSession response: status=${response.status}, `
+        + `content-type=${contentType}, body=${returnedId.slice(0, 40)}, `
+        + `set-cookie=${setCookie.slice(0, 80)}, `
+        + `redirected=${response.redirected}, url=${response.url}`,
+      );
+
+      if (!response.ok) {
+        console.warn(`[xnatClient] validateSession: ${response.status} response`);
+        return null;
+      }
+
+      // XNAT returns 200 with an HTML login page instead of 401 when the
+      // session has expired. GET /data/JSESSION returns the session ID as
+      // plain text when authenticated, so HTML means expired.
+      if (this.looksLikeHtml(Buffer.from(body))) {
+        console.warn('[xnatClient] validateSession: got HTML login page (session expired)');
+        return null;
+      }
+
+      // Check if the server returned the same session we sent
+      if (returnedId && returnedId !== this.jsessionId) {
+        console.warn(
+          `[xnatClient] validateSession: server returned ${returnedId.slice(0, 8)}... `
+          + `but we expected ${this.jsessionId.slice(0, 8)}... — different session!`,
+        );
+      }
+
+      return this.username;
+    } catch (err) {
+      console.warn('[xnatClient] validateSession error:', err);
       return null;
     }
   }
@@ -177,13 +217,16 @@ export class XnatClient {
    * Used by tearDown() for forced expiry where the session is already invalid.
    */
   clearCookies(): void {
-    for (const c of this.serverCookies) {
-      electronSession.defaultSession.cookies.remove(this.baseUrl, c.name).catch(() => {});
-    }
-    electronSession.defaultSession.cookies.remove(this.baseUrl, 'JSESSIONID').catch(() => {});
+    const url = new URL(this.baseUrl);
+    electronSession.defaultSession.cookies.get({ domain: url.hostname })
+      .then((cookies) => {
+        for (const c of cookies) {
+          electronSession.defaultSession.cookies.remove(this.baseUrl, c.name).catch(() => {});
+        }
+      })
+      .catch(() => {});
 
     this.jsessionId = null;
-    this.serverCookies = [];
     this.csrfToken = null;
     this.username = '';
   }
@@ -206,21 +249,6 @@ export class XnatClient {
   }
 
   // ─── Authenticated Requests ────────────────────────────────────
-
-  /**
-   * Build auth headers for XNAT requests.
-   * Includes JSESSIONID plus any infrastructure cookies (ALB sticky-session, etc.).
-   * Used by the webRequest interceptor in sessionManager for renderer requests.
-   */
-  buildAuthHeaders(): Record<string, string> {
-    if (!this.jsessionId) throw new XnatAuthError('Not authenticated');
-    const parts = [`JSESSIONID=${this.jsessionId}`];
-    for (const c of this.serverCookies) {
-      if (c.name === 'JSESSIONID') continue;
-      parts.push(`${c.name}=${c.value}`);
-    }
-    return { Cookie: parts.join('; ') };
-  }
 
   /**
    * Authenticated fetch via Electron's default session cookie jar.
@@ -265,8 +293,30 @@ export class XnatClient {
     if (!this.jsessionId || this._disconnected) throw new XnatAuthError('Not authenticated');
 
     const url = `${this.baseUrl}${endpoint}`;
-    // JSESSIONID cookie is provided by the default session's cookie jar.
+
+    // Log cookie jar state before the request
+    const reqUrl = new URL(url);
+    const jarCookies = await electronSession.defaultSession.cookies.get({
+      domain: reqUrl.hostname,
+    });
+    const jarSummary = jarCookies
+      .map((c) => `${c.name}=${c.value.slice(0, 8)}...`)
+      .join(', ');
+    console.log(
+      `[xnatClient] authenticatedFetch ${endpoint.slice(0, 80)}: `
+      + `jar has ${jarCookies.length} cookies: ${jarSummary}`,
+    );
+
     const response = await this.xfetch(url, options);
+
+    // Log full response details
+    const contentType = response.headers.get('content-type') ?? '(none)';
+    const setCookie = response.headers.get('set-cookie') ?? '(none)';
+    console.log(
+      `[xnatClient] authenticatedFetch response: status=${response.status}, `
+      + `content-type=${contentType}, redirected=${response.redirected}, `
+      + `url=${response.url}, set-cookie=${setCookie.slice(0, 80)}`,
+    );
 
     if (!response.ok) {
       const text = await response.text().catch(() => '');
@@ -274,6 +324,13 @@ export class XnatClient {
         throw new XnatAuthError(`401 ${text}`.trim());
       }
       throw new Error(`XNAT API error: ${response.status} ${text}`.trim());
+    }
+
+    // XNAT returns 200 with an HTML login page instead of 401 when the
+    // session has expired. Detect this before callers try to parse the
+    // response as JSON or DICOM.
+    if (contentType.includes('text/html')) {
+      throw new XnatAuthError('Session expired (received HTML login page)');
     }
 
     return response;
@@ -1213,5 +1270,9 @@ export class XnatClient {
 
   get currentUsername(): string {
     return this.username;
+  }
+
+  get currentJsessionId(): string | null {
+    return this.jsessionId;
   }
 }

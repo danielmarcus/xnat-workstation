@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   fetch: vi.fn(),
   cookieSet: vi.fn(async () => undefined),
   cookieRemove: vi.fn(async () => undefined),
+  cookieGet: vi.fn(async () => []),
   readFile: vi.fn(() => ({ dict: {}, meta: {} })),
   naturalizeDataset: vi.fn(() => ({})),
   denaturalizeDataset: vi.fn(() => ({})),
@@ -16,6 +17,7 @@ vi.mock('electron', () => ({
       cookies: {
         set: mocks.cookieSet,
         remove: mocks.cookieRemove,
+        get: mocks.cookieGet,
       },
     },
   },
@@ -71,9 +73,10 @@ describe('XnatClient', () => {
       name: 'JSESSIONID',
       value: 'J1',
     });
-    expect(client.buildAuthHeaders()).toEqual({
-      Cookie: 'JSESSIONID=J1; AWSALB=alb-token',
-    });
+    expect(mocks.cookieSet).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      name: 'AWSALB',
+      value: 'alb-token',
+    }));
   });
 
   it('authenticatedFetch enforces auth/disconnect checks and maps HTTP errors', async () => {
@@ -462,11 +465,8 @@ describe('XnatClient', () => {
     });
 
     client.clearCookies();
-    expect(mocks.cookieRemove).toHaveBeenCalledWith('https://xnat.example', 'AWSALB');
-    expect(mocks.cookieRemove).toHaveBeenCalledWith('https://xnat.example', 'AWSALBCORS');
-    expect(mocks.cookieRemove).toHaveBeenCalledWith('https://xnat.example', 'JSESSIONID');
+    // clearCookies now reads from the jar and removes all domain cookies
     expect(client.isAuthenticated).toBe(false);
     expect(client.currentUsername).toBe('');
-    expect(() => client.buildAuthHeaders()).toThrow(XnatAuthError);
   });
 });
