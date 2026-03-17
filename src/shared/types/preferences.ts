@@ -39,6 +39,15 @@ export interface AnnotationToolPreferences {
   autoDisplayAnnotations: boolean;
   defaultSegmentOpacity: number;
   defaultColorSequence: HexColor[];
+  scissors: ScissorPreferences;
+}
+
+export type ScissorStrategyMode = 'erase' | 'fill';
+
+export interface ScissorPreferences {
+  defaultStrategy: ScissorStrategyMode;
+  previewEnabled: boolean;
+  previewColor: HexColor;
 }
 
 // ─── Interpolation Preferences ───────────────────────────────────
@@ -160,6 +169,11 @@ export const DEFAULT_PREFERENCES: PreferencesV1 = {
     autoDisplayAnnotations: true,
     defaultSegmentOpacity: 0.5,
     defaultColorSequence: DEFAULT_SEGMENT_COLOR_SEQUENCE,
+    scissors: {
+      defaultStrategy: 'erase',
+      previewEnabled: false,
+      previewColor: '#FFFFFF',
+    },
   },
   interpolation: { ...DEFAULT_INTERPOLATION_PREFERENCES },
   backup: { ...DEFAULT_BACKUP_PREFERENCES },

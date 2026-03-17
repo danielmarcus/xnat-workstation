@@ -98,10 +98,26 @@ describe('usePreferencesStore', () => {
     expect(annotation.autoDisplayAnnotations).toBe(false);
     expect(annotation.defaultSegmentOpacity).toBe(1);
     expect(annotation.defaultColorSequence).toEqual(['#AA00CC', '#00FF00']);
+    expect(annotation.scissors.defaultStrategy).toBe('erase');
+    expect(annotation.scissors.previewEnabled).toBe(false);
+    expect(annotation.scissors.previewColor).toBe('#FFFFFF');
 
     usePreferencesStore.getState().setAnnotationColorSequence(['invalid']);
     annotation = usePreferencesStore.getState().preferences.annotation;
     expect(annotation.defaultColorSequence).toEqual(DEFAULT_SEGMENT_COLOR_SEQUENCE);
+
+    usePreferencesStore.getState().setScissorDefaultStrategy('fill');
+    usePreferencesStore.getState().setScissorPreviewEnabled(true);
+    usePreferencesStore.getState().setScissorPreviewColor('#33AA77');
+
+    annotation = usePreferencesStore.getState().preferences.annotation;
+    expect(annotation.scissors.defaultStrategy).toBe('fill');
+    expect(annotation.scissors.previewEnabled).toBe(true);
+    expect(annotation.scissors.previewColor).toBe('#33AA77');
+
+    usePreferencesStore.getState().setScissorPreviewColor('bad');
+    annotation = usePreferencesStore.getState().preferences.annotation;
+    expect(annotation.scissors.previewColor).toBe('#33AA77');
   });
 
   it('clamps interpolation values and resets all settings', () => {
@@ -146,6 +162,11 @@ describe('usePreferencesStore', () => {
             autoDisplayAnnotations: false,
             defaultSegmentOpacity: -1,
             defaultColorSequence: ['abc123', '#ABC123', 'INVALID'],
+            scissors: {
+              defaultStrategy: 'fill',
+              previewEnabled: true,
+              previewColor: '#00AAFF',
+            },
           },
           interpolation: {
             enabled: false,
@@ -168,6 +189,9 @@ describe('usePreferencesStore', () => {
     expect(merged.preferences.annotation.autoDisplayAnnotations).toBe(false);
     expect(merged.preferences.annotation.defaultSegmentOpacity).toBe(0);
     expect(merged.preferences.annotation.defaultColorSequence).toEqual(['#ABC123']);
+    expect(merged.preferences.annotation.scissors.defaultStrategy).toBe('fill');
+    expect(merged.preferences.annotation.scissors.previewEnabled).toBe(true);
+    expect(merged.preferences.annotation.scissors.previewColor).toBe('#00AAFF');
 
     expect(merged.preferences.interpolation.enabled).toBe(false);
     expect(merged.preferences.interpolation.algorithm).toBe(

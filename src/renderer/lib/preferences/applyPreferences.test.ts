@@ -8,6 +8,7 @@ const mocked = vi.hoisted(() => ({
   setBrushSize: vi.fn(),
   updateStyle: vi.fn(),
   updateContourStyle: vi.fn(),
+  applyScissorPreferences: vi.fn(),
   segmentationState: {
     setShowViewportContextOverlay: vi.fn(),
     setBrushSize: vi.fn(),
@@ -31,6 +32,12 @@ vi.mock('../cornerstone/segmentationService', () => ({
     setBrushSize: mocked.setBrushSize,
     updateStyle: mocked.updateStyle,
     updateContourStyle: mocked.updateContourStyle,
+  },
+}));
+
+vi.mock('../cornerstone/toolService', () => ({
+  toolService: {
+    applyScissorPreferences: mocked.applyScissorPreferences,
   },
 }));
 
@@ -96,6 +103,7 @@ describe('applyPreferences', () => {
     expect(mocked.setBrushSize).toHaveBeenCalledWith(100);
     expect(mocked.updateStyle).toHaveBeenCalledWith(1, false);
     expect(mocked.updateContourStyle).toHaveBeenCalledWith(1);
+    expect(mocked.applyScissorPreferences).toHaveBeenCalledTimes(1);
   });
 
   it('falls back safely to defaults when optional preference sections are missing', () => {
@@ -128,5 +136,6 @@ describe('applyPreferences', () => {
     expect(mocked.updateContourStyle).toHaveBeenCalledWith(
       DEFAULT_PREFERENCES.annotation.defaultContourThickness,
     );
+    expect(mocked.applyScissorPreferences).toHaveBeenCalledTimes(1);
   });
 });

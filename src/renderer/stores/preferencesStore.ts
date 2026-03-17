@@ -6,6 +6,7 @@ import {
   DEFAULT_SEGMENT_COLOR_SEQUENCE,
   type AnnotationToolPreferences,
   type HexColor,
+  type ScissorStrategyMode,
   DEFAULT_INTERPOLATION_PREFERENCES,
   DEFAULT_BACKUP_PREFERENCES,
   type BackupPreferences,
@@ -35,6 +36,9 @@ interface PreferencesStore {
   setAnnotationAutoDisplay: (enabled: boolean) => void;
   setAnnotationSegmentOpacity: (opacity: number) => void;
   setAnnotationColorSequence: (colors: string[]) => void;
+  setScissorDefaultStrategy: (strategy: ScissorStrategyMode) => void;
+  setScissorPreviewEnabled: (enabled: boolean) => void;
+  setScissorPreviewColor: (color: string) => void;
   // ─── Interpolation ─────────────────────────────────────
   setInterpolationEnabled: (enabled: boolean) => void;
   setInterpolationAlgorithm: (algorithm: InterpolationAlgorithm) => void;
@@ -106,6 +110,11 @@ function makeDefaultPreferences(): PreferencesV1 {
       autoDisplayAnnotations: DEFAULT_PREFERENCES.annotation.autoDisplayAnnotations,
       defaultSegmentOpacity: DEFAULT_PREFERENCES.annotation.defaultSegmentOpacity,
       defaultColorSequence: cloneDefaultColorSequence(),
+      scissors: {
+        defaultStrategy: DEFAULT_PREFERENCES.annotation.scissors.defaultStrategy,
+        previewEnabled: DEFAULT_PREFERENCES.annotation.scissors.previewEnabled,
+        previewColor: DEFAULT_PREFERENCES.annotation.scissors.previewColor,
+      },
     },
     interpolation: { ...DEFAULT_INTERPOLATION_PREFERENCES },
     backup: { ...DEFAULT_BACKUP_PREFERENCES },
@@ -213,6 +222,20 @@ function mergeAnnotationPreferences(current: AnnotationToolPreferences, incoming
       Object.prototype.hasOwnProperty.call(candidate, 'defaultColorSequence')
         ? sanitizeColorSequence(candidate.defaultColorSequence)
         : [...current.defaultColorSequence],
+    scissors: {
+      defaultStrategy:
+        candidate.scissors?.defaultStrategy === 'fill'
+          ? 'fill'
+          : candidate.scissors?.defaultStrategy === 'erase'
+            ? 'erase'
+            : current.scissors.defaultStrategy,
+      previewEnabled:
+        typeof candidate.scissors?.previewEnabled === 'boolean'
+          ? candidate.scissors.previewEnabled
+          : current.scissors.previewEnabled,
+      previewColor:
+        sanitizeHexColor(candidate.scissors?.previewColor) ?? current.scissors.previewColor,
+    },
   };
 }
 
@@ -388,6 +411,50 @@ export const usePreferencesStore = create<PreferencesStore>()(
             annotation: {
               ...state.preferences.annotation,
               defaultColorSequence: sanitizeColorSequence(colors),
+            },
+          },
+        })),
+
+      setScissorDefaultStrategy: (strategy) =>
+        set((state) => ({
+          preferences: {
+            ...state.preferences,
+            annotation: {
+              ...state.preferences.annotation,
+              scissors: {
+                ...state.preferences.annotation.scissors,
+                defaultStrategy: strategy === 'fill' ? 'fill' : 'erase',
+              },
+            },
+          },
+        })),
+
+      setScissorPreviewEnabled: (enabled) =>
+        set((state) => ({
+          preferences: {
+            ...state.preferences,
+            annotation: {
+              ...state.preferences.annotation,
+              scissors: {
+                ...state.preferences.annotation.scissors,
+                previewEnabled: enabled,
+              },
+            },
+          },
+        })),
+
+      setScissorPreviewColor: (color) =>
+        set((state) => ({
+          preferences: {
+            ...state.preferences,
+            annotation: {
+              ...state.preferences.annotation,
+              scissors: {
+                ...state.preferences.annotation.scissors,
+                previewColor:
+                  sanitizeHexColor(color)
+                  ?? state.preferences.annotation.scissors.previewColor,
+              },
             },
           },
         })),

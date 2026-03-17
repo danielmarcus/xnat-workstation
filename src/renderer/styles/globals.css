@@ -14,3 +14,13 @@ html, body, #root {
 .crosshair-mode [data-panel-id] canvas {
   cursor: crosshair !important;
 }
+
+[data-testid^="cornerstone-viewport-canvas"],
+[data-testid^="mpr-viewport-canvas"],
+[data-testid^="oriented-viewport-canvas"],
+[data-testid^="cornerstone-viewport-canvas"] canvas,
+[data-testid^="mpr-viewport-canvas"] canvas,
+[data-testid^="oriented-viewport-canvas"] canvas {
+  outline: none !important;
+  box-shadow: none !important;
+}

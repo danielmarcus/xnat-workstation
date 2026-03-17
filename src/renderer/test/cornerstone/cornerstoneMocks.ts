@@ -38,7 +38,9 @@ interface MockToolGroup {
   setToolConfiguration: ReturnType<typeof vi.fn>;
   addViewport: ReturnType<typeof vi.fn>;
   removeViewports: ReturnType<typeof vi.fn>;
+  getToolInstance: ReturnType<typeof vi.fn>;
   setActiveStrategy: ReturnType<typeof vi.fn>;
+  setViewportsCursorByToolName: ReturnType<typeof vi.fn>;
   setToolActive: ReturnType<typeof vi.fn>;
   setToolDisabled: ReturnType<typeof vi.fn>;
   setToolEnabled: ReturnType<typeof vi.fn>;
@@ -91,6 +93,9 @@ export interface CornerstoneMockState {
         Primary: number;
         Secondary: number;
         Auxiliary: number;
+      };
+      KeyboardBindings: {
+        Shift: number;
       };
       SegmentationRepresentations: {
         Labelmap: string;
@@ -245,7 +250,9 @@ function createToolGroup(id: string): MockToolGroup {
     removeViewports: vi.fn((_engineId: string, viewportId: string) => {
       viewports.delete(viewportId);
     }),
+    getToolInstance: vi.fn(() => undefined),
     setActiveStrategy: vi.fn(),
+    setViewportsCursorByToolName: vi.fn(),
     setToolActive: vi.fn(),
     setToolDisabled: vi.fn(),
     setToolEnabled: vi.fn(),
@@ -344,6 +351,9 @@ export function createCornerstoneMockState(): CornerstoneMockState {
         Primary: 1,
         Secondary: 2,
         Auxiliary: 4,
+      },
+      KeyboardBindings: {
+        Shift: 16,
       },
       SegmentationRepresentations: {
         Labelmap: 'Labelmap',

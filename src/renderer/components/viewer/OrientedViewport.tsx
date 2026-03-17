@@ -33,17 +33,6 @@ export default function OrientedViewport({ panelId, imageIds, plane }: OrientedV
   const cursorClass = activeTool === ToolName.Crosshairs ? 'cursor-crosshair' : '';
 
   useEffect(() => {
-    const element = containerRef.current;
-    if (!element) return;
-    const cursor = activeTool === ToolName.Crosshairs ? 'crosshair' : '';
-    element.style.cursor = cursor;
-    const canvas = element.querySelector('canvas') as HTMLCanvasElement | null;
-    if (canvas) {
-      canvas.style.cursor = cursor;
-    }
-  }, [activeTool]);
-
-  useEffect(() => {
     if (!containerRef.current || imageIds.length === 0) return;
 
     let cancelled = false;

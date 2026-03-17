@@ -71,7 +71,7 @@ export default function MPRViewportGrid({ volumeId, sourceImageIds }: MPRViewpor
               key={pid}
               data-panel-id={pid}
               tabIndex={-1}
-              className="relative min-w-0 min-h-0 cursor-pointer"
+              className="relative min-w-0 min-h-0"
               onClick={() => setActiveViewport(pid)}
             >
               {isActive && (
@@ -88,7 +88,7 @@ export default function MPRViewportGrid({ volumeId, sourceImageIds }: MPRViewpor
         <div
           data-panel-id={MPR_STACK_PANEL_ID}
           tabIndex={-1}
-          className="relative min-w-0 min-h-0 cursor-pointer"
+          className="relative min-w-0 min-h-0"
           onClick={() => setActiveViewport(MPR_STACK_PANEL_ID)}
         >
           {MPR_STACK_PANEL_ID === activeViewportId && (

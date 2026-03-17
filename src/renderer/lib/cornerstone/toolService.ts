@@ -119,11 +119,254 @@ const TOOL_NAME_MAP: Record<ToolName, string> = {
 };
 
 const { Primary, Auxiliary, Secondary } = ToolEnums.MouseBindings;
+const { Shift: ShiftModifier } = ToolEnums.KeyboardBindings;
 
 let currentActiveTool: ToolName = ToolName.WindowLevel;
+let scissorShiftPressed = false;
+let modifierListenersInstalled = false;
+const SCISSOR_TOOL_PATCH_FLAG = '__xnatScissorToolPatched';
+
+type ScissorStrategyName = 'FILL_INSIDE' | 'ERASE_INSIDE';
+type ScissorToolName =
+  | ToolName.CircleScissors
+  | ToolName.RectangleScissors
+  | ToolName.SphereScissors;
+
+const SCISSOR_TOOLS = new Set<ToolName>([
+  ToolName.CircleScissors,
+  ToolName.RectangleScissors,
+  ToolName.SphereScissors,
+]);
+
+const SCISSOR_TOOL_NAMES = [
+  CircleScissorsTool.toolName,
+  RectangleScissorsTool.toolName,
+  SphereScissorsTool.toolName,
+] as const;
+
+function isScissorTool(toolName: ToolName): toolName is ScissorToolName {
+  return SCISSOR_TOOLS.has(toolName);
+}
 
 function getToolGroup(): ToolTypes.IToolGroup | undefined {
   return ToolGroupManager.getToolGroup(TOOL_GROUP_ID);
+}
+
+function hexToRgba(hex: string): [number, number, number, number] | null {
+  const match = hex.trim().match(/^#?([0-9a-fA-F]{6})$/);
+  if (!match) return null;
+  const raw = match[1];
+  const r = Number.parseInt(raw.slice(0, 2), 16);
+  const g = Number.parseInt(raw.slice(2, 4), 16);
+  const b = Number.parseInt(raw.slice(4, 6), 16);
+  if (!Number.isFinite(r) || !Number.isFinite(g) || !Number.isFinite(b)) return null;
+  return [r, g, b, 180];
+}
+
+function getPrimaryScissorStrategy(): ScissorStrategyName {
+  const pref = usePreferencesStore.getState().preferences.annotation.scissors.defaultStrategy;
+  return pref === 'fill' ? 'FILL_INSIDE' : 'ERASE_INSIDE';
+}
+
+function getAlternateScissorStrategy(strategy: ScissorStrategyName): ScissorStrategyName {
+  return strategy === 'ERASE_INSIDE' ? 'FILL_INSIDE' : 'ERASE_INSIDE';
+}
+
+function getEffectiveScissorStrategy(): ScissorStrategyName {
+  const primary = getPrimaryScissorStrategy();
+  return scissorShiftPressed ? getAlternateScissorStrategy(primary) : primary;
+}
+
+function getScissorPreviewColor(): [number, number, number, number] {
+  const configured = usePreferencesStore.getState().preferences.annotation.scissors.previewColor;
+  return hexToRgba(configured) ?? [255, 255, 255, 180];
+}
+
+function getScissorDisplayColor(): [number, number, number, number] {
+  const [r, g, b] = getScissorPreviewColor();
+  return [r, g, b, 255];
+}
+
+type ScissorToolInstance = {
+  preMouseDownCallback?: (evt: unknown) => unknown;
+  editData?: {
+    annotation?: {
+      metadata?: {
+        segmentColor?: [number, number, number, number];
+      };
+    };
+    segmentColor?: [number, number, number, number];
+  };
+  [SCISSOR_TOOL_PATCH_FLAG]?: boolean;
+};
+
+function getScissorCursorStrategy(
+  csToolName: string,
+  strategy: ScissorStrategyName,
+): { cursorToolName: string; cursorStrategy: string } {
+  const normalizedToolName = csToolName.replace(/Scissors$/, 'Scissor');
+
+  if (normalizedToolName === 'SphereScissor') {
+    // Sphere scissors has no dedicated SVG cursor in Cornerstone; use circle cursor family.
+    return {
+      cursorToolName: 'CircleScissor',
+      cursorStrategy: strategy === 'ERASE_INSIDE' ? 'ERASE_OUTSIDE' : 'FILL_INSIDE',
+    };
+  }
+  if (normalizedToolName === 'CircleScissor' && strategy === 'ERASE_INSIDE') {
+    // Cornerstone defines CircleScissor.ERASE_OUTSIDE but not ERASE_INSIDE.
+    return { cursorToolName: 'CircleScissor', cursorStrategy: 'ERASE_OUTSIDE' };
+  }
+  return { cursorToolName: normalizedToolName, cursorStrategy: strategy };
+}
+
+function setScissorCursor(
+  toolGroup: ToolTypes.IToolGroup,
+  csToolName: string,
+  strategy: ScissorStrategyName,
+): void {
+  const cursorApi = toolGroup as unknown as {
+    setViewportsCursorByToolName?: (toolName: string, strategy?: string) => void;
+  };
+  const { cursorToolName, cursorStrategy } = getScissorCursorStrategy(csToolName, strategy);
+  cursorApi.setViewportsCursorByToolName?.(cursorToolName, cursorStrategy);
+}
+
+function setToolCursor(
+  toolGroup: ToolTypes.IToolGroup,
+  toolName: string,
+  strategy?: string,
+): void {
+  const cursorApi = toolGroup as unknown as {
+    setViewportsCursorByToolName?: (name: string, cursorStrategy?: string) => void;
+  };
+  cursorApi.setViewportsCursorByToolName?.(toolName, strategy);
+}
+
+function patchScissorToolInstances(toolGroup: ToolTypes.IToolGroup): void {
+  const toolApi = toolGroup as unknown as {
+    getToolInstance?: (toolName: string) => ScissorToolInstance | undefined;
+  };
+  if (typeof toolApi.getToolInstance !== 'function') return;
+
+  for (const toolName of SCISSOR_TOOL_NAMES) {
+    const toolInstance = toolApi.getToolInstance(toolName);
+    if (!toolInstance) continue;
+    if (toolInstance[SCISSOR_TOOL_PATCH_FLAG]) continue;
+    if (typeof toolInstance.preMouseDownCallback !== 'function') continue;
+
+    const originalPreMouseDown = toolInstance.preMouseDownCallback.bind(toolInstance);
+
+    toolInstance.preMouseDownCallback = (evt: unknown) => {
+      const mouseEvent = (evt as { detail?: { event?: { shiftKey?: boolean } } })?.detail?.event;
+      if (typeof mouseEvent?.shiftKey === 'boolean') {
+        scissorShiftPressed = mouseEvent.shiftKey;
+      }
+
+      const strategy = getEffectiveScissorStrategy();
+      toolGroup.setActiveStrategy(toolName, strategy);
+      setScissorCursor(toolGroup, toolName, strategy);
+
+      const result = originalPreMouseDown(evt);
+
+      const prefs = usePreferencesStore.getState().preferences.annotation.scissors;
+      if (prefs.previewEnabled) {
+        const displayColor = getScissorDisplayColor();
+        if (toolInstance.editData?.annotation?.metadata) {
+          toolInstance.editData.annotation.metadata.segmentColor = displayColor;
+        }
+        if (toolInstance.editData) {
+          toolInstance.editData.segmentColor = displayColor;
+        }
+      }
+
+      return result;
+    };
+
+    toolInstance[SCISSOR_TOOL_PATCH_FLAG] = true;
+  }
+}
+
+function applyScissorConfigurations(toolGroup: ToolTypes.IToolGroup): void {
+  const primaryStrategy = getPrimaryScissorStrategy();
+
+  for (const toolName of SCISSOR_TOOL_NAMES) {
+    toolGroup.setToolConfiguration(toolName, {
+      preview: {
+        // Keep Cornerstone preview disabled for scissors; enabling it writes
+        // preview indices that are not committed by scissor tools.
+        enabled: false,
+      },
+      defaultStrategy: primaryStrategy,
+      activeStrategy: primaryStrategy,
+    });
+  }
+
+  patchScissorToolInstances(toolGroup);
+}
+
+function syncActiveScissorStrategy(toolGroup = getToolGroup()): void {
+  if (!toolGroup) return;
+  if (!isScissorTool(currentActiveTool)) return;
+  const csName = TOOL_NAME_MAP[currentActiveTool];
+  const strategy = getEffectiveScissorStrategy();
+  toolGroup.setActiveStrategy(csName, strategy);
+  setScissorCursor(toolGroup, csName, strategy);
+}
+
+function syncPrimaryToolCursor(toolGroup: ToolTypes.IToolGroup, primaryTool: ToolName): void {
+  if (primaryTool === ToolName.Crosshairs) return;
+
+  if (isScissorTool(primaryTool)) {
+    syncActiveScissorStrategy(toolGroup);
+    return;
+  }
+
+  const csToolName = TOOL_NAME_MAP[primaryTool];
+  if (!csToolName) return;
+  const brushStrategy = getBrushStrategyForTool(primaryTool);
+  setToolCursor(toolGroup, csToolName, brushStrategy ?? undefined);
+}
+
+function isShiftKeyEvent(evt: Event): boolean {
+  const key = (evt as KeyboardEvent).key;
+  return key === 'Shift' || key === 'ShiftLeft' || key === 'ShiftRight';
+}
+
+function syncShiftState(nextShiftPressed: boolean): void {
+  if (scissorShiftPressed === nextShiftPressed) return;
+  scissorShiftPressed = nextShiftPressed;
+  syncActiveScissorStrategy();
+}
+
+function onShiftKeyDown(evt: Event): void {
+  if (!isShiftKeyEvent(evt)) return;
+  syncShiftState(true);
+}
+
+function onShiftKeyUp(evt: Event): void {
+  if (!isShiftKeyEvent(evt)) return;
+  syncShiftState(false);
+}
+
+function installModifierListeners(): void {
+  if (modifierListenersInstalled) return;
+  if (typeof window === 'undefined') return;
+  if (typeof window.addEventListener !== 'function') return;
+  window.addEventListener('keydown', onShiftKeyDown);
+  window.addEventListener('keyup', onShiftKeyUp);
+  modifierListenersInstalled = true;
+}
+
+function removeModifierListeners(): void {
+  if (!modifierListenersInstalled) return;
+  if (typeof window === 'undefined') {
+    modifierListenersInstalled = false;
+    return;
+  }
+  window.removeEventListener('keydown', onShiftKeyDown);
+  window.removeEventListener('keyup', onShiftKeyUp);
+  modifierListenersInstalled = false;
 }
 
 function applyInterpolationConfiguration(
@@ -275,20 +518,34 @@ function addAllTools(toolGroup: ToolTypes.IToolGroup): void {
  * default (added but not active) state — no stale bindings to worry about.
  */
 function applyBindings(toolGroup: ToolTypes.IToolGroup, primaryTool: ToolName): void {
+  applyScissorConfigurations(toolGroup);
+
   const brushStrategy = getBrushStrategyForTool(primaryTool);
   if (brushStrategy) {
     toolGroup.setActiveStrategy(BrushTool.toolName, brushStrategy);
   }
 
+  if (isScissorTool(primaryTool)) {
+    toolGroup.setActiveStrategy(TOOL_NAME_MAP[primaryTool], getEffectiveScissorStrategy());
+  }
+
   // 1. Activate the primary tool with Left-click (+ fixed binding if Pan/Zoom)
   const primaryCsName = TOOL_NAME_MAP[primaryTool];
   const primaryBindings: any[] = [{ mouseButton: Primary }];
+  // Cornerstone's active-tool dispatch requires an exact modifier match.
+  // Without a Shift binding, holding Shift prevents scissor preMouseDown events
+  // from reaching the active tool, so no geometry is drawn.
+  if (isScissorTool(primaryTool)) {
+    primaryBindings.push({ mouseButton: Primary, modifierKey: ShiftModifier });
+  }
   if (primaryTool === ToolName.Pan) {
     primaryBindings.push({ mouseButton: Auxiliary });
   } else if (primaryTool === ToolName.Zoom) {
     primaryBindings.push({ mouseButton: Secondary });
   }
   toolGroup.setToolActive(primaryCsName, { bindings: primaryBindings });
+
+  syncPrimaryToolCursor(toolGroup, primaryTool);
 
   // 2. Activate fixed-binding tools (if not already the primary)
   if (primaryTool !== ToolName.Pan) {
@@ -434,8 +691,20 @@ export const toolService = {
     // Apply initial bindings with W/L as primary
     currentActiveTool = ToolName.WindowLevel;
     applyBindings(toolGroup, currentActiveTool);
+    installModifierListeners();
 
     console.log('[toolService] Tool group initialized (no viewports yet)');
+  },
+
+  /**
+   * Apply persisted scissor behavior preferences to the live tool group.
+   * Safe to call before initialize() (no-op if group does not exist).
+   */
+  applyScissorPreferences(): void {
+    const toolGroup = getToolGroup();
+    if (!toolGroup) return;
+    applyScissorConfigurations(toolGroup);
+    syncActiveScissorStrategy(toolGroup);
   },
 
   /**
@@ -449,6 +718,7 @@ export const toolService = {
       return;
     }
     toolGroup.addViewport(viewportId, viewportService.ENGINE_ID);
+    syncPrimaryToolCursor(toolGroup, currentActiveTool);
 
     // Sync the store's brush size to Cornerstone3D now that the tool group
     // has at least one viewport — setBrushSizeForToolGroup is a no-op when
@@ -526,6 +796,13 @@ export const toolService = {
       // Segmentation tools crash if they receive mouse events without a segmentation
       // on the viewport, so we must NOT rebuild until the segmentation is ready.
       if (!activeSegId) {
+        if (isScissorTool(toolName)) {
+          const toolGroup = getToolGroup();
+          if (toolGroup) {
+            setScissorCursor(toolGroup, TOOL_NAME_MAP[toolName], getEffectiveScissorStrategy());
+          }
+        }
+
         try {
           const engine = getRenderingEngine(viewportService.ENGINE_ID);
           const viewport = engine?.getViewport(viewportId);
@@ -642,7 +919,9 @@ export const toolService = {
    */
   destroy(): void {
     try { ToolGroupManager.destroyToolGroup(TOOL_GROUP_ID); } catch { /* ok */ }
+    removeModifierListeners();
     currentActiveTool = ToolName.WindowLevel;
+    scissorShiftPressed = false;
     console.log('[toolService] Tool group destroyed');
   },
 };

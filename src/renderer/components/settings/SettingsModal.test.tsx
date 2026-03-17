@@ -174,6 +174,9 @@ describe('SettingsModal', () => {
     fireEvent.change(annotationSliders[2], { target: { value: '0.8' } });
     await user.click(screen.getByRole('checkbox', { name: 'Default display mask outlines' }));
     await user.click(screen.getByRole('checkbox', { name: 'Automatically display annotations' }));
+    await user.selectOptions(screen.getByLabelText('Default scissors mode'), 'fill');
+    await user.click(screen.getByRole('checkbox', { name: 'Enable scissors preview' }));
+    fireEvent.change(screen.getByLabelText('Preview color'), { target: { value: '#44AA66' } });
 
     const colorInput = screen.getByPlaceholderText('#DC3232, #32C832, #3264DC');
     await user.clear(colorInput);
@@ -187,6 +190,9 @@ describe('SettingsModal', () => {
     expect(prefs.annotation.defaultMaskOutlines).toBe(false);
     expect(prefs.annotation.autoDisplayAnnotations).toBe(false);
     expect(prefs.annotation.defaultColorSequence).toEqual(['#123ABC', '#445566']);
+    expect(prefs.annotation.scissors.defaultStrategy).toBe('fill');
+    expect(prefs.annotation.scissors.previewEnabled).toBe(true);
+    expect(prefs.annotation.scissors.previewColor).toBe('#44AA66');
 
     await user.click(screen.getByRole('button', { name: 'Interpolation' }));
     const enabledToggle = screen.getByRole('checkbox', { name: 'Enable between-slice interpolation' });

@@ -349,6 +349,9 @@ vi.mock('@cornerstonejs/tools', () => ({
       Secondary: 2,
       Auxiliary: 4,
     },
+    KeyboardBindings: {
+      Shift: 16,
+    },
     SegmentationRepresentations: {
       Labelmap: 'Labelmap',
       Contour: 'Contour',
