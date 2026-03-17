@@ -68,9 +68,6 @@ export async function browserLogin(serverUrl: string): Promise<XnatLoginResult> 
   // Start keepalive timer
   startKeepalive();
 
-  // Monitor for JSESSIONID cookie changes — helps diagnose session expiry
-  startCookieMonitor();
-
   // Set up web request interceptor for Cornerstone's direct WADO-URI fetches
   setupWebRequestInterceptor();
 
@@ -160,40 +157,6 @@ function stopKeepalive(): void {
   }
 }
 
-// ─── Cookie Monitor ──────────────────────────────────────────────
-
-let cookieMonitorHandler: ((event: Electron.Event, cookie: Electron.Cookie, cause: string, removed: boolean) => void) | null = null;
-
-function startCookieMonitor(): void {
-  stopCookieMonitor();
-
-  const expectedJsessionId = client?.currentJsessionId;
-  if (!expectedJsessionId) return;
-
-  cookieMonitorHandler = (_event, cookie, cause, removed) => {
-    if (cookie.name !== 'JSESSIONID') return;
-    const action = removed ? 'REMOVED' : 'SET';
-    const value = cookie.value ?? '(empty)';
-    const expected = expectedJsessionId;
-    if (value !== expected) {
-      console.warn(
-        `[sessionManager] Cookie monitor: JSESSIONID ${action} to ${value.slice(0, 8)}... `
-        + `(expected ${expected.slice(0, 8)}...) cause=${cause}`,
-      );
-    }
-  };
-
-  electronSession.defaultSession.cookies.on('changed', cookieMonitorHandler);
-  console.log('[sessionManager] Cookie monitor started');
-}
-
-function stopCookieMonitor(): void {
-  if (cookieMonitorHandler) {
-    electronSession.defaultSession.cookies.removeListener('changed', cookieMonitorHandler);
-    cookieMonitorHandler = null;
-  }
-}
-
 // ─── Tear Down ───────────────────────────────────────────────────
 
 /**
@@ -203,7 +166,6 @@ function stopCookieMonitor(): void {
  */
 function tearDown(): void {
   stopKeepalive();
-  stopCookieMonitor();
   clearWebRequestInterceptor();
   if (client) {
     client.clearCookies();

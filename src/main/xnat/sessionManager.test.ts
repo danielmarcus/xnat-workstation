@@ -56,8 +56,6 @@ vi.mock('electron', () => ({
       },
       cookies: {
         get: vi.fn(async () => []),
-        on: vi.fn(),
-        removeListener: vi.fn(),
       },
     },
   },

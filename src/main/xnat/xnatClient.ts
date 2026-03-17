@@ -135,67 +135,25 @@ export class XnatClient {
     if (!this.jsessionId) return null;
 
     try {
-      // Log all cookies the jar has for this domain
-      const url = new URL(this.baseUrl);
-      const allJarCookies = await electronSession.defaultSession.cookies.get({
-        domain: url.hostname,
-      });
-      const jarSummary = allJarCookies
-        .map((c) => `${c.name}=${c.value.slice(0, 8)}...`)
-        .join(', ');
-      console.log(
-        `[xnatClient] validateSession: cookie jar has ${allJarCookies.length} cookies: ${jarSummary}`,
-      );
-
-      const jarJsession = allJarCookies.find((c) => c.name === 'JSESSIONID');
-      const jarValue = jarJsession?.value ?? '(missing)';
-      const match = jarValue === this.jsessionId ? 'match' : 'MISMATCH';
-      console.log(
-        `[xnatClient] validateSession: jar JSESSIONID=${jarValue.slice(0, 8)}..., `
-        + `expected=${this.jsessionId.slice(0, 8)}... (${match})`,
-      );
-
       const response = await this.xfetch(`${this.baseUrl}/data/JSESSION`, {
         method: 'GET',
       });
 
       const body = await response.text().catch(() => '');
-
-      // Log full response details
-      const contentType = response.headers.get('content-type') ?? '(none)';
-      const setCookie = response.headers.get('set-cookie') ?? '(none)';
-      const returnedId = body.trim();
-      console.log(
-        `[xnatClient] validateSession response: status=${response.status}, `
-        + `content-type=${contentType}, body=${returnedId.slice(0, 40)}, `
-        + `set-cookie=${setCookie.slice(0, 80)}, `
-        + `redirected=${response.redirected}, url=${response.url}`,
-      );
-
-      if (!response.ok) {
-        console.warn(`[xnatClient] validateSession: ${response.status} response`);
-        return null;
-      }
+      if (!response.ok) return null;
 
       // XNAT returns 200 with an HTML login page instead of 401 when the
       // session has expired. GET /data/JSESSION returns the session ID as
       // plain text when authenticated, so HTML means expired.
-      if (this.looksLikeHtml(Buffer.from(body))) {
-        console.warn('[xnatClient] validateSession: got HTML login page (session expired)');
-        return null;
-      }
+      if (this.looksLikeHtml(Buffer.from(body))) return null;
 
-      // Check if the server returned the same session we sent
-      if (returnedId && returnedId !== this.jsessionId) {
-        console.warn(
-          `[xnatClient] validateSession: server returned ${returnedId.slice(0, 8)}... `
-          + `but we expected ${this.jsessionId.slice(0, 8)}... — different session!`,
-        );
-      }
+      // If the server returned a different session ID, our authenticated
+      // session is gone (e.g., expired during sleep).
+      const returnedId = body.trim();
+      if (returnedId && returnedId !== this.jsessionId) return null;
 
       return this.username;
-    } catch (err) {
-      console.warn('[xnatClient] validateSession error:', err);
+    } catch {
       return null;
     }
   }
@@ -293,30 +251,7 @@ export class XnatClient {
     if (!this.jsessionId || this._disconnected) throw new XnatAuthError('Not authenticated');
 
     const url = `${this.baseUrl}${endpoint}`;
-
-    // Log cookie jar state before the request
-    const reqUrl = new URL(url);
-    const jarCookies = await electronSession.defaultSession.cookies.get({
-      domain: reqUrl.hostname,
-    });
-    const jarSummary = jarCookies
-      .map((c) => `${c.name}=${c.value.slice(0, 8)}...`)
-      .join(', ');
-    console.log(
-      `[xnatClient] authenticatedFetch ${endpoint.slice(0, 80)}: `
-      + `jar has ${jarCookies.length} cookies: ${jarSummary}`,
-    );
-
     const response = await this.xfetch(url, options);
-
-    // Log full response details
-    const contentType = response.headers.get('content-type') ?? '(none)';
-    const setCookie = response.headers.get('set-cookie') ?? '(none)';
-    console.log(
-      `[xnatClient] authenticatedFetch response: status=${response.status}, `
-      + `content-type=${contentType}, redirected=${response.redirected}, `
-      + `url=${response.url}, set-cookie=${setCookie.slice(0, 80)}`,
-    );
 
     if (!response.ok) {
       const text = await response.text().catch(() => '');
@@ -329,6 +264,7 @@ export class XnatClient {
     // XNAT returns 200 with an HTML login page instead of 401 when the
     // session has expired. Detect this before callers try to parse the
     // response as JSON or DICOM.
+    const contentType = response.headers.get('content-type') ?? '';
     if (contentType.includes('text/html')) {
       throw new XnatAuthError('Session expired (received HTML login page)');
     }
@@ -1270,9 +1206,5 @@ export class XnatClient {
 
   get currentUsername(): string {
     return this.username;
-  }
-
-  get currentJsessionId(): string | null {
-    return this.jsessionId;
   }
 }
