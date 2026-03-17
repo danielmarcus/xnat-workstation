@@ -148,9 +148,11 @@ export class XnatClient {
       if (this.looksLikeHtml(Buffer.from(body))) return null;
 
       // If the server returned a different session ID, our authenticated
-      // session is gone (e.g., expired during sleep).
+      // session is gone (e.g., expired during sleep). The JSESSIONID cookie
+      // may include a route prefix (e.g., "host3~ABC123") while the server
+      // returns just the core ID ("ABC123"), so check for containment.
       const returnedId = body.trim();
-      if (returnedId && returnedId !== this.jsessionId) return null;
+      if (returnedId && !this.jsessionId.includes(returnedId)) return null;
 
       return this.username;
     } catch {
