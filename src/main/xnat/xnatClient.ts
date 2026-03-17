@@ -139,20 +139,20 @@ export class XnatClient {
         method: 'GET',
       });
 
-      const body = await response.text().catch(() => '');
+      await response.text().catch(() => {});
       if (!response.ok) return null;
 
-      // XNAT returns 200 with an HTML login page instead of 401 when the
-      // session has expired. GET /data/JSESSION returns the session ID as
-      // plain text when authenticated, so HTML means expired.
-      if (this.looksLikeHtml(Buffer.from(body))) return null;
-
-      // If the server returned a different session ID, our authenticated
-      // session is gone (e.g., expired during sleep). The JSESSIONID cookie
-      // may include a route prefix (e.g., "host3~ABC123") while the server
-      // returns just the core ID ("ABC123"), so check for containment.
-      const returnedId = body.trim();
-      if (returnedId && !this.jsessionId.includes(returnedId)) return null;
+      // If the session expired (e.g., during sleep), the server creates a
+      // new anonymous session whose Set-Cookie overwrites the jar. Check
+      // that the jar still has our authenticated JSESSIONID.
+      // No race condition: Chromium writes Set-Cookie to the cookie store
+      // before resolving the response (URLRequestHttpJob::
+      // SaveCookiesAndNotifyHeadersComplete).
+      const jarCookies = await electronSession.defaultSession.cookies.get({
+        url: this.baseUrl,
+        name: 'JSESSIONID',
+      });
+      if (!jarCookies.some(c => c.value === this.jsessionId)) return null;
 
       return this.username;
     } catch {
