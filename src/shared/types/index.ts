@@ -4,6 +4,7 @@ export * from './dicom';
 export * from './xnat';
 export * from './preferences';
 export * from './backup';
+export * from './diagnostics';
 
 import type {
   XnatLoginResult,
@@ -16,6 +17,7 @@ import type {
   XnatScan,
   XnatUploadResult,
 } from './xnat';
+import type { MainDiagnosticsSnapshotResult } from './diagnostics';
 
 export interface ElectronAPI {
   platform: string;
@@ -171,6 +173,9 @@ export interface ElectronAPI {
     ): Promise<{ ok: boolean; error?: string }>;
     listAllSessions(): Promise<{ ok: boolean; sessions?: import('./backup').BackupSessionSummary[]; error?: string }>;
     getCachePath(): Promise<{ ok: boolean; path?: string; error?: string }>;
+  };
+  diagnostics?: {
+    getMainSnapshot(): Promise<MainDiagnosticsSnapshotResult>;
   };
   on(channel: string, callback: (...args: unknown[]) => void): () => void;
 }

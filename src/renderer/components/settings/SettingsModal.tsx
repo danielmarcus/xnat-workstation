@@ -10,9 +10,10 @@ import { usePreferencesStore } from '../../stores/preferencesStore';
 import { useViewerStore } from '../../stores/viewerStore';
 import { backupService } from '../../lib/backup/backupService';
 import type { BackupSessionSummary } from '@shared/types/backup';
+import { buildIssueReport } from '../../lib/diagnostics/issueReport';
 import { IconClose } from '../icons';
 
-type SettingsTab = 'hotkeys' | 'overlay' | 'annotation' | 'interpolation' | 'backup';
+type SettingsTab = 'hotkeys' | 'overlay' | 'annotation' | 'interpolation' | 'backup' | 'issue';
 
 interface SettingsModalProps {
   open: boolean;
@@ -29,6 +30,7 @@ const TAB_ITEMS: Array<{ id: SettingsTab; label: string }> = [
   { id: 'annotation', label: 'Annotation' },
   { id: 'interpolation', label: 'Interpolation' },
   { id: 'backup', label: 'File Backup' },
+  { id: 'issue', label: 'Issue Report' },
 ];
 
 const CORNER_OPTIONS: Array<{
@@ -222,6 +224,10 @@ export default function SettingsModal({ open, onClose, onRecover, initialTab }: 
 
   // Confirm-delete dialog state (replaces native window.confirm)
   const [confirmDeleteSession, setConfirmDeleteSession] = useState<{ sessionId: string; label: string } | null>(null);
+  const [issueNotes, setIssueNotes] = useState('');
+  const [issueReport, setIssueReport] = useState('');
+  const [issueLoading, setIssueLoading] = useState(false);
+  const [issueCopyStatus, setIssueCopyStatus] = useState<'idle' | 'copied' | 'error'>('idle');
 
   useEffect(() => {
     if (!open) return;
@@ -237,6 +243,28 @@ export default function SettingsModal({ open, onClose, onRecover, initialTab }: 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [open, onClose]);
+
+  useEffect(() => {
+    if (activeTab !== 'issue' || !open) return;
+    let cancelled = false;
+    setIssueLoading(true);
+    buildIssueReport(issueNotes)
+      .then((report) => {
+        if (!cancelled) setIssueReport(report);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          const msg = err instanceof Error ? err.message : String(err);
+          setIssueReport(`Failed to generate issue report: ${msg}`);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setIssueLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, open]);
 
   useEffect(() => {
     if (!actionOptions.length) return;
@@ -321,6 +349,33 @@ export default function SettingsModal({ open, onClose, onRecover, initialTab }: 
     const parsed = parseColorSequenceInput(colorSequenceDraft);
     if (parsed.length === 0) return;
     setAnnotationColorSequence(parsed);
+  };
+
+  const refreshIssueReport = async () => {
+    setIssueLoading(true);
+    try {
+      const report = await buildIssueReport(issueNotes);
+      setIssueReport(report);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setIssueReport(`Failed to generate issue report: ${msg}`);
+    } finally {
+      setIssueLoading(false);
+    }
+  };
+
+  const copyIssueReport = async () => {
+    if (!issueReport && !issueNotes.trim()) return;
+    try {
+      const latestReport = await buildIssueReport(issueNotes);
+      setIssueReport(latestReport);
+      await navigator.clipboard.writeText(latestReport);
+      setIssueCopyStatus('copied');
+      window.setTimeout(() => setIssueCopyStatus('idle'), 2000);
+    } catch {
+      setIssueCopyStatus('error');
+      window.setTimeout(() => setIssueCopyStatus('idle'), 3000);
+    }
   };
 
   if (!open) return null;
@@ -922,6 +977,62 @@ export default function SettingsModal({ open, onClose, onRecover, initialTab }: 
                       })()}
                     </div>
                   )}
+                </div>
+              </>
+            )}
+
+            {activeTab === 'issue' && (
+              <>
+                <div className="text-xs text-zinc-400">
+                  Generate a de-identified report for support emails. The report includes app/runtime state,
+                  system details, and recent main/renderer stdout/stderr logs with sensitive values redacted.
+                </div>
+
+                <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-4 space-y-3">
+                  <label className="space-y-1 block">
+                    <span className="text-[11px] text-zinc-500">Optional notes for developers</span>
+                    <textarea
+                      value={issueNotes}
+                      onChange={(e) => setIssueNotes(e.target.value)}
+                      placeholder="Describe what happened, expected behavior, and reproduction steps..."
+                      rows={4}
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-xs text-zinc-200 resize-y"
+                    />
+                  </label>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void refreshIssueReport()}
+                      disabled={issueLoading}
+                      className="px-2.5 py-1.5 rounded bg-zinc-800 text-zinc-200 text-xs hover:bg-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      {issueLoading ? 'Refreshing...' : 'Refresh Report'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void copyIssueReport()}
+                      disabled={!issueReport}
+                      className="px-2.5 py-1.5 rounded bg-blue-600 text-white text-xs hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      Copy Report
+                    </button>
+                    {issueCopyStatus === 'copied' && (
+                      <span className="text-[11px] text-emerald-400">Copied</span>
+                    )}
+                    {issueCopyStatus === 'error' && (
+                      <span className="text-[11px] text-red-400">Copy failed</span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-3">
+                  <div className="text-[11px] text-zinc-500 mb-2">Copy/paste this into an email:</div>
+                  <textarea
+                    readOnly
+                    value={issueReport}
+                    className="w-full h-72 bg-zinc-900 border border-zinc-800 rounded px-2 py-1.5 text-[11px] text-zinc-300 font-mono leading-relaxed resize-y"
+                  />
                 </div>
               </>
             )}
