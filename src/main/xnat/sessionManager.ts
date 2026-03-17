@@ -227,35 +227,33 @@ function setupWebRequestInterceptor(): void {
   const serverUrl = client.serverUrl;
   const filter = { urls: [`${serverUrl}/*`] };
 
-  // Inject auth cookie on outgoing requests from the renderer (Cornerstone
-  // wadouri GETs). Main-process fetches already have cookies via session.fetch().
+  // Inject cookies on outgoing renderer requests (Cornerstone wadouri GETs).
+  // Renderer requests are cross-origin so Chromium won't attach cookies
+  // automatically. Read from the cookie jar — the single source of truth.
   electronSession.defaultSession.webRequest.onBeforeSendHeaders(
     filter,
     (details, callback) => {
-      if (!client) {
-        callback({ requestHeaders: details.requestHeaders });
-        return;
-      }
-
-      try {
-        const authHeaders = client.buildAuthHeaders();
-        const requestHeaders = { ...details.requestHeaders } as Record<string, string | string[]>;
-        if (authHeaders.Cookie) {
-          // Always override Cookie for renderer-side WADO requests so stale
-          // persisted cookies cannot force XNAT login HTML responses.
-          requestHeaders.Cookie = authHeaders.Cookie;
-        }
-
-        callback({ requestHeaders });
-      } catch {
-        callback({ requestHeaders: details.requestHeaders });
-      }
+      electronSession.defaultSession.cookies.get({ url: details.url })
+        .then((cookies) => {
+          if (cookies.length === 0) {
+            callback({ requestHeaders: details.requestHeaders });
+            return;
+          }
+          const cookieHeader = cookies.map((c) => `${c.name}=${c.value}`).join('; ');
+          const requestHeaders = { ...details.requestHeaders } as Record<string, string | string[]>;
+          requestHeaders.Cookie = cookieHeader;
+          callback({ requestHeaders });
+        })
+        .catch(() => {
+          callback({ requestHeaders: details.requestHeaders });
+        });
     },
   );
 
   // Add CORS + CORP headers to XNAT responses.
   // XNAT doesn't send CORS headers, so Cornerstone's XHR (wadouri) requests
-  // would fail. We inject the necessary headers from the main process.
+  // would fail without injected headers. Let all Set-Cookie headers through
+  // so the cookie jar stays current (ALB routing + session cookies in sync).
   electronSession.defaultSession.webRequest.onHeadersReceived(
     filter,
     (details, callback) => {

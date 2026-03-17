@@ -19,7 +19,6 @@ const mocks = vi.hoisted(() => {
     });
     this.disconnect = vi.fn(async () => undefined);
     this.validateSession = vi.fn(async () => this.currentUsername || null);
-    this.buildAuthHeaders = vi.fn(() => ({ Cookie: 'JSESSIONID=mock' }));
     this.clearCookies = vi.fn();
     this.markDisconnected = vi.fn(() => {
       this.isAuthenticated = false;
@@ -54,6 +53,9 @@ vi.mock('electron', () => ({
       webRequest: {
         onBeforeSendHeaders: mocks.onBeforeSendHeaders,
         onHeadersReceived: mocks.onHeadersReceived,
+      },
+      cookies: {
+        get: vi.fn(async () => []),
       },
     },
   },
@@ -108,40 +110,44 @@ describe('sessionManager', () => {
 
     const beforeSendHandler = mocks.onBeforeSendHeaders.mock.calls[0][1];
     const cb = vi.fn();
-    beforeSendHandler({ requestHeaders: { Accept: '*/*' } }, cb);
-    expect(cb).toHaveBeenCalledWith({
-      requestHeaders: {
-        Accept: '*/*',
-        Cookie: 'JSESSIONID=mock',
-      },
-    });
+    beforeSendHandler({ url: 'https://xnat.example/wado', requestHeaders: { Accept: '*/*' } }, cb);
+    // Handler is async (reads from cookie jar) — flush microtasks
+    await vi.advanceTimersByTimeAsync(0);
+    expect(cb).toHaveBeenCalled();
 
     await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
     expect(client.validateSession).toHaveBeenCalled();
   });
 
-  it('overrides stale renderer cookie headers with active session cookies', async () => {
+  it('injects cookies from the jar on renderer requests', async () => {
     vi.resetModules();
-    const sessionManager = await import('./sessionManager');
+    const { session } = await import('electron');
+    const cookieGetMock = session.defaultSession.cookies.get as ReturnType<typeof vi.fn>;
+    cookieGetMock.mockResolvedValue([
+      { name: 'JSESSIONID', value: 'J1' },
+      { name: 'AWSALB', value: 'alb-current' },
+    ]);
 
+    const sessionManager = await import('./sessionManager');
     await sessionManager.browserLogin('https://xnat.example/');
     const beforeSendHandler = mocks.onBeforeSendHeaders.mock.calls[0][1];
     const cb = vi.fn();
 
     beforeSendHandler(
       {
-        requestHeaders: {
-          Accept: '*/*',
-          Cookie: 'JSESSIONID=stale; AWSALB=old',
-        },
+        url: 'https://xnat.example/wado?objectUID=1.2.3',
+        requestHeaders: { Accept: '*/*' },
       },
       cb,
     );
 
+    // Handler is async (reads from cookie jar) — flush microtasks
+    await vi.advanceTimersByTimeAsync(0);
+
     expect(cb).toHaveBeenCalledWith({
       requestHeaders: {
         Accept: '*/*',
-        Cookie: 'JSESSIONID=mock',
+        Cookie: 'JSESSIONID=J1; AWSALB=alb-current',
       },
     });
   });
@@ -211,5 +217,81 @@ describe('sessionManager', () => {
     expect(client.clearCookies).toHaveBeenCalledTimes(1);
     expect(client.markDisconnected).toHaveBeenCalledTimes(1);
     expect(sessionManager.isConnected()).toBe(false);
+  });
+
+  it('sends current ALB cookies from jar, not stale login-time cookies', async () => {
+    // Simulates the ALB refreshing its sticky cookie after login.
+    // The interceptor must read from the jar (which has the refreshed cookie)
+    // rather than an in-memory snapshot from login time.
+    vi.resetModules();
+    const { session } = await import('electron');
+    const cookieGetMock = session.defaultSession.cookies.get as ReturnType<typeof vi.fn>;
+
+    const sessionManager = await import('./sessionManager');
+    await sessionManager.browserLogin('https://xnat.example/');
+    const beforeSendHandler = mocks.onBeforeSendHeaders.mock.calls[0][1];
+
+    // First request: jar has login-time cookies
+    cookieGetMock.mockResolvedValueOnce([
+      { name: 'JSESSIONID', value: 'J1' },
+      { name: 'AWSALB', value: 'alb-from-login' },
+    ]);
+    const cb1 = vi.fn();
+    beforeSendHandler(
+      { url: 'https://xnat.example/wado?objectUID=1', requestHeaders: {} },
+      cb1,
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    expect(cb1).toHaveBeenCalledWith({
+      requestHeaders: { Cookie: 'JSESSIONID=J1; AWSALB=alb-from-login' },
+    });
+
+    // Second request: jar now has ALB cookie refreshed by a prior response
+    cookieGetMock.mockResolvedValueOnce([
+      { name: 'JSESSIONID', value: 'J1' },
+      { name: 'AWSALB', value: 'alb-refreshed-by-server' },
+    ]);
+    const cb2 = vi.fn();
+    beforeSendHandler(
+      { url: 'https://xnat.example/wado?objectUID=2', requestHeaders: {} },
+      cb2,
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    expect(cb2).toHaveBeenCalledWith({
+      requestHeaders: { Cookie: 'JSESSIONID=J1; AWSALB=alb-refreshed-by-server' },
+    });
+  });
+
+  it('passes Set-Cookie through so ALB routing stays current', async () => {
+    vi.resetModules();
+    const sessionManager = await import('./sessionManager');
+    await sessionManager.browserLogin('https://xnat.example/');
+
+    const headerHandler = mocks.onHeadersReceived.mock.calls[0][1];
+    const cb = vi.fn();
+
+    // Simulate a response with ALB + JSESSIONID Set-Cookie headers
+    headerHandler(
+      {
+        responseHeaders: {
+          'Content-Type': ['application/dicom'],
+          'Set-Cookie': [
+            'AWSALB=new-alb-value; Path=/; Expires=Thu, 01 Jan 2099 00:00:00 GMT',
+            'JSESSIONID=J1; Path=/; Secure',
+          ],
+        },
+      },
+      cb,
+    );
+
+    const result = cb.mock.calls[0][0].responseHeaders;
+    // All Set-Cookie headers pass through (single source of truth = jar)
+    expect(result['Set-Cookie']).toEqual([
+      'AWSALB=new-alb-value; Path=/; Expires=Thu, 01 Jan 2099 00:00:00 GMT',
+      'JSESSIONID=J1; Path=/; Secure',
+    ]);
+    // CORS headers injected
+    expect(result['Access-Control-Allow-Origin']).toEqual(['*']);
+    expect(result['Cross-Origin-Resource-Policy']).toEqual(['cross-origin']);
   });
 });
