@@ -162,6 +162,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke(IPC.BACKUP_GET_CACHE_PATH),
   },
 
+  diagnostics: {
+    getMainSnapshot: () =>
+      ipcRenderer.invoke(IPC.DIAGNOSTICS_GET_MAIN_SNAPSHOT),
+  },
+
   on: (channel: string, callback: (...args: unknown[]) => void) => {
     const allowedChannels = [IPC.XNAT_SESSION_EXPIRED];
     if (!allowedChannels.includes(channel as any)) {

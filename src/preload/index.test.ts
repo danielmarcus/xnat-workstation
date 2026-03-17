@@ -83,6 +83,7 @@ describe('preload bridge', () => {
     await api.export.saveDicomSeg('ZmFrZQ==', 'seg.dcm');
     await api.export.saveDicomRtStruct('ZmFrZQ==', 'rtstruct.dcm');
     await api.export.saveViewportCapture({ x: 1, y: 2, width: 3, height: 4 }, 'capture.png');
+    await api.diagnostics.getMainSnapshot();
 
     expect(mocks.invoke).toHaveBeenCalledWith(IPC.XNAT_BROWSER_LOGIN, 'https://xnat.example');
     expect(mocks.invoke).toHaveBeenCalledWith(IPC.XNAT_LOGOUT);
@@ -149,6 +150,7 @@ describe('preload bridge', () => {
       { x: 1, y: 2, width: 3, height: 4 },
       'capture.png',
     );
+    expect(mocks.invoke).toHaveBeenCalledWith(IPC.DIAGNOSTICS_GET_MAIN_SNAPSHOT);
   });
 
   it('allows only whitelisted event channels and unsubscribes listeners', () => {

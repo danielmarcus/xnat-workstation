@@ -5,7 +5,11 @@ import { registerProxyHandlers } from './ipc/proxyHandlers';
 import { registerExportHandlers } from './ipc/exportHandlers';
 import { registerUploadHandlers } from './ipc/uploadHandlers';
 import { registerBackupHandlers } from './ipc/backupHandlers';
+import { registerDiagnosticsHandlers } from './ipc/diagnosticsHandlers';
+import { installMainLogCapture } from './diagnostics/mainLogBuffer';
 import { IPC } from '../shared/ipcChannels';
+
+installMainLogCapture();
 
 // Suppress EPIPE errors from console.log when stdout/stderr pipe is broken.
 // This is common when Electron is launched from a terminal that disconnects.
@@ -181,6 +185,7 @@ app.whenReady().then(() => {
   registerExportHandlers();
   registerUploadHandlers();
   registerBackupHandlers();
+  registerDiagnosticsHandlers();
 
   // Shell: open URL in system browser
   ipcMain.handle(IPC.SHELL_OPEN_EXTERNAL, async (_event, url: string) => {

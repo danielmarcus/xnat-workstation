@@ -71,6 +71,9 @@ export const IPC = {
   BACKUP_DELETE_SESSION: 'backup:delete-session',
   BACKUP_LIST_ALL_SESSIONS: 'backup:list-all-sessions',
   BACKUP_GET_CACHE_PATH: 'backup:get-cache-path',
+
+  // Diagnostics (renderer → main)
+  DIAGNOSTICS_GET_MAIN_SNAPSHOT: 'diagnostics:get-main-snapshot',
 } as const;
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC];

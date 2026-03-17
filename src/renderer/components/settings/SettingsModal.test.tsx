@@ -1,17 +1,77 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_PREFERENCES } from '@shared/types/preferences';
 import SettingsModal from './SettingsModal';
 import { usePreferencesStore } from '../../stores/preferencesStore';
+import type { MainDiagnosticsSnapshot } from '@shared/types/diagnostics';
 
 function resetPreferencesStore(): void {
   usePreferencesStore.setState(usePreferencesStore.getInitialState(), true);
 }
 
+const clipboardWriteTextMock = vi.fn(async () => undefined);
+
 describe('SettingsModal', () => {
   beforeEach(() => {
     resetPreferencesStore();
+    Object.defineProperty(window, 'electronAPI', {
+      configurable: true,
+      value: {
+        diagnostics: {
+          getMainSnapshot: vi.fn(async () => ({
+            ok: true,
+            snapshot: {
+              generatedAt: '2026-03-05T00:00:00.000Z',
+              app: {
+                name: 'XNAT Workstation',
+                version: '0.5.2',
+                isPackaged: false,
+                pid: 100,
+                uptimeSec: 10,
+                windowCount: 1,
+              },
+              runtime: {
+                electron: '40.2.1',
+                chrome: '132.0.0',
+                node: '20.0.0',
+                v8: '12.0',
+                platform: 'darwin',
+                arch: 'arm64',
+              },
+              system: {
+                osType: 'Darwin',
+                osRelease: '24.5.0',
+                osVersion: 'macOS',
+                cpuModel: 'Mock CPU',
+                cpuCount: 8,
+                totalMemoryMB: 16384,
+                freeMemoryMB: 4096,
+                loadAverage: [0.1, 0.2, 0.3],
+                hostnameFingerprint: 'abcdef123456',
+              },
+              process: {
+                rssMB: 350,
+                heapUsedMB: 120,
+                heapTotalMB: 200,
+                externalMB: 4,
+                argv: ['app'],
+              },
+              logs: { stdout: [], stderr: [] },
+            } satisfies MainDiagnosticsSnapshot,
+          })),
+        },
+      },
+    });
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      writable: true,
+      value: {
+        writeText: clipboardWriteTextMock,
+      },
+    });
+    (navigator as any).clipboard = { writeText: clipboardWriteTextMock };
+    clipboardWriteTextMock.mockClear();
   });
 
   it('opens, switches tabs, and closes via Escape/backdrop', async () => {
@@ -152,5 +212,24 @@ describe('SettingsModal', () => {
   it('returns null when closed', () => {
     render(<SettingsModal open={false} onClose={() => {}} />);
     expect(screen.queryByText('Preferences')).not.toBeInTheDocument();
+  });
+
+  it('generates and copies issue report content', async () => {
+    const user = userEvent.setup();
+    render(<SettingsModal open onClose={() => {}} />);
+
+    await user.click(screen.getByRole('button', { name: 'Issue Report' }));
+    expect(await screen.findByText('Copy/paste this into an email:')).toBeInTheDocument();
+
+    const textAreas = screen.getAllByRole('textbox') as HTMLTextAreaElement[];
+    const reportArea = textAreas[textAreas.length - 1];
+    await waitFor(() => {
+      expect(reportArea.value).toContain('XNAT Workstation Issue Report (De-identified)');
+    });
+
+    const copyButton = screen.getByRole('button', { name: 'Copy Report' });
+    expect(copyButton).toBeEnabled();
+    await user.click(copyButton);
+    expect(await screen.findByText(/Copied|Copy failed/)).toBeInTheDocument();
   });
 });

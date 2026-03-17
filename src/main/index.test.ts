@@ -64,6 +64,8 @@ const mocks = vi.hoisted(() => {
     registerExportHandlers: vi.fn(),
     registerUploadHandlers: vi.fn(),
     registerBackupHandlers: vi.fn(),
+    registerDiagnosticsHandlers: vi.fn(),
+    installMainLogCapture: vi.fn(),
   };
 });
 
@@ -96,6 +98,14 @@ vi.mock('./ipc/backupHandlers', () => ({
   registerBackupHandlers: mocks.registerBackupHandlers,
 }));
 
+vi.mock('./ipc/diagnosticsHandlers', () => ({
+  registerDiagnosticsHandlers: mocks.registerDiagnosticsHandlers,
+}));
+
+vi.mock('./diagnostics/mainLogBuffer', () => ({
+  installMainLogCapture: mocks.installMainLogCapture,
+}));
+
 async function loadMainEntry(): Promise<void> {
   vi.resetModules();
   await import('./index');
@@ -120,6 +130,8 @@ describe('main/index bootstrap', () => {
     expect(mocks.registerExportHandlers).toHaveBeenCalledTimes(1);
     expect(mocks.registerUploadHandlers).toHaveBeenCalledTimes(1);
     expect(mocks.registerBackupHandlers).toHaveBeenCalledTimes(1);
+    expect(mocks.registerDiagnosticsHandlers).toHaveBeenCalledTimes(1);
+    expect(mocks.installMainLogCapture).toHaveBeenCalledTimes(1);
 
     expect(mocks.app.name).toBe('XNAT');
     expect(mocks.Menu.buildFromTemplate).toHaveBeenCalledTimes(1);

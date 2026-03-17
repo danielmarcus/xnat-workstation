@@ -1,5 +1,6 @@
 import { IPC } from '../ipcChannels';
 import type { XnatLoginResult, ProxiedFetchResult } from '../types/xnat';
+import type { MainDiagnosticsSnapshotResult } from '../types/diagnostics';
 
 export interface ViewportBounds {
   x: number;
@@ -37,6 +38,10 @@ export interface IpcInvokeContracts {
     request: { bounds: ViewportBounds; defaultName?: string };
     response: ExportResult;
   };
+  [IPC.DIAGNOSTICS_GET_MAIN_SNAPSHOT]: {
+    request: Record<string, never>;
+    response: MainDiagnosticsSnapshotResult;
+  };
 }
 
 export type IpcInvokeChannel = keyof IpcInvokeContracts;
@@ -52,5 +57,6 @@ export const IPC_CHANNELS = {
   dicomwebFetch: IPC.XNAT_DICOMWEB_FETCH,
   downloadScanFile: IPC.XNAT_DOWNLOAD_SCAN_FILE,
   saveViewportCapture: IPC.EXPORT_SAVE_VIEWPORT_CAPTURE,
+  getMainDiagnosticsSnapshot: IPC.DIAGNOSTICS_GET_MAIN_SNAPSHOT,
   sessionExpired: IPC.XNAT_SESSION_EXPIRED,
 } as const;

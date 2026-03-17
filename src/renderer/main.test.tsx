@@ -14,6 +14,10 @@ vi.mock('./App', () => ({
   default: () => <div data-testid="mock-app">Mock App</div>,
 }));
 
+vi.mock('./lib/diagnostics/rendererLogBuffer', () => ({
+  installRendererLogCapture: vi.fn(),
+}));
+
 describe('renderer entrypoint', () => {
   beforeEach(() => {
     vi.resetModules();
