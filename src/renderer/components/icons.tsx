@@ -406,13 +406,12 @@ export function IconLock(props: IconProps) {
   );
 }
 
-/** Lock open — open padlock */
+/** Lock open — open padlock with shackle raised */
 export function IconLockOpen(props: IconProps) {
   return (
     <svg {...defaults(props)}>
-      <rect x="3" y="7" width="10" height="7" rx="1.5" />
-      <path d="M5 7 V5 A3 3 0 0 1 11 5" />
-      <circle cx="8" cy="11" r="1" fill="currentColor" stroke="none" />
+      <rect x="3" y="9" width="10" height="7" rx="1.5" />
+      <path d="M5 9 V4 A3 3 0 0 1 11 4" />
     </svg>
   );
 }

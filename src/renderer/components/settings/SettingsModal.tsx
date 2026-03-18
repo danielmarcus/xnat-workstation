@@ -194,6 +194,9 @@ export default function SettingsModal({ open, onClose, onRecover, initialTab }: 
   const backupPrefs = usePreferencesStore((s) => s.preferences.backup);
   const setBackupEnabled = usePreferencesStore((s) => s.setBackupEnabled);
   const setBackupIntervalSeconds = usePreferencesStore((s) => s.setBackupIntervalSeconds);
+  const deletionPrefs = usePreferencesStore((s) => s.preferences.deletion);
+  const setTrashOnServerDelete = usePreferencesStore((s) => s.setTrashOnServerDelete);
+  const setTrashResourceName = usePreferencesStore((s) => s.setTrashResourceName);
   const resetAll = usePreferencesStore((s) => s.resetAll);
 
   // ─── Backup tab state ──────────────────────────────────────
@@ -907,6 +910,42 @@ export default function SettingsModal({ open, onClose, onRecover, initialTab }: 
                       <div className="text-[11px] text-zinc-500">Cache location</div>
                       <div className="text-[11px] text-zinc-400 font-mono bg-zinc-900/80 rounded px-2 py-1.5 break-all select-text">
                         {backupCachePath}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Server deletion settings */}
+                <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-4 space-y-4">
+                  <div className="text-xs text-zinc-400">
+                    When deleting annotations from XNAT, optionally archive the DICOM file
+                    to a session resource folder before removing the scan.
+                  </div>
+
+                  {/* Trash toggle */}
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={deletionPrefs.trashOnServerDelete}
+                      onChange={(e) => setTrashOnServerDelete(e.target.checked)}
+                      className="w-3.5 h-3.5 rounded border-zinc-600 bg-zinc-800 accent-blue-500"
+                    />
+                    <span className="text-xs text-zinc-300">Archive to session resource before deleting</span>
+                  </label>
+
+                  {/* Resource name */}
+                  {deletionPrefs.trashOnServerDelete && (
+                    <div>
+                      <label className="text-xs text-zinc-300 block mb-1">Resource folder name</label>
+                      <input
+                        type="text"
+                        value={deletionPrefs.trashResourceName}
+                        onChange={(e) => setTrashResourceName(e.target.value)}
+                        placeholder="trash"
+                        className="w-full text-xs text-zinc-200 bg-zinc-800 border border-zinc-600 rounded px-2 py-1.5 outline-none focus:border-blue-500 transition-colors"
+                      />
+                      <div className="text-[10px] text-zinc-600 mt-1">
+                        Files will be copied to the session&apos;s <span className="font-mono">{deletionPrefs.trashResourceName || 'trash'}</span> resource.
                       </div>
                     </div>
                   )}

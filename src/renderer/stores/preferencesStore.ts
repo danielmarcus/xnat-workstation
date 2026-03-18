@@ -9,7 +9,9 @@ import {
   type ScissorStrategyMode,
   DEFAULT_INTERPOLATION_PREFERENCES,
   DEFAULT_BACKUP_PREFERENCES,
+  DEFAULT_DELETION_PREFERENCES,
   type BackupPreferences,
+  type DeletionPreferences,
   type InterpolationAlgorithm,
   type InterpolationPreferences,
   type OverlayCornerId,
@@ -46,6 +48,9 @@ interface PreferencesStore {
   // ─── Backup ─────────────────────────────────────────────
   setBackupEnabled: (enabled: boolean) => void;
   setBackupIntervalSeconds: (seconds: number) => void;
+  // ─── Deletion ─────────────────────────────────────────────
+  setTrashOnServerDelete: (enabled: boolean) => void;
+  setTrashResourceName: (name: string) => void;
   resetAll: () => void;
 }
 
@@ -118,6 +123,7 @@ function makeDefaultPreferences(): PreferencesV1 {
     },
     interpolation: { ...DEFAULT_INTERPOLATION_PREFERENCES },
     backup: { ...DEFAULT_BACKUP_PREFERENCES },
+    deletion: { ...DEFAULT_DELETION_PREFERENCES },
   };
 }
 
@@ -509,6 +515,24 @@ export const usePreferencesStore = create<PreferencesStore>()(
           },
         })),
 
+      // ─── Deletion ──────────────────────────────────────────
+
+      setTrashOnServerDelete: (enabled) =>
+        set((state) => ({
+          preferences: {
+            ...state.preferences,
+            deletion: { ...state.preferences.deletion, trashOnServerDelete: enabled },
+          },
+        })),
+
+      setTrashResourceName: (name) =>
+        set((state) => ({
+          preferences: {
+            ...state.preferences,
+            deletion: { ...state.preferences.deletion, trashResourceName: name.trim() || 'trash' },
+          },
+        })),
+
       resetAll: () =>
         set({
           preferences: makeDefaultPreferences(),
@@ -555,6 +579,19 @@ export const usePreferencesStore = create<PreferencesStore>()(
               : base.preferences.backup.intervalSeconds,
         };
 
+        // Merge deletion preferences with defaults as fallback
+        const incomingDeletion = (incoming as Partial<PreferencesV1>).deletion;
+        const mergedDeletion: DeletionPreferences = {
+          trashOnServerDelete:
+            typeof incomingDeletion?.trashOnServerDelete === 'boolean'
+              ? incomingDeletion.trashOnServerDelete
+              : base.preferences.deletion.trashOnServerDelete,
+          trashResourceName:
+            typeof incomingDeletion?.trashResourceName === 'string' && incomingDeletion.trashResourceName.trim()
+              ? incomingDeletion.trashResourceName.trim()
+              : base.preferences.deletion.trashResourceName,
+        };
+
         return {
           ...base,
           preferences: {
@@ -565,6 +602,7 @@ export const usePreferencesStore = create<PreferencesStore>()(
             annotation: mergeAnnotationPreferences(base.preferences.annotation, incoming.annotation),
             interpolation: mergedInterpolation,
             backup: mergedBackup,
+            deletion: mergedDeletion,
           },
         };
       },

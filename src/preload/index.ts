@@ -105,6 +105,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     listTempFiles: (sessionId: string) =>
       ipcRenderer.invoke(IPC.XNAT_LIST_TEMP_FILES, sessionId),
 
+    deleteScan: (sessionId: string, scanId: string, trashResourceName?: string) =>
+      ipcRenderer.invoke(IPC.XNAT_DELETE_SCAN, sessionId, scanId, trashResourceName),
+
     deleteTempFile: (sessionId: string, filename: string) =>
       ipcRenderer.invoke(IPC.XNAT_DELETE_TEMP_FILE, sessionId, filename),
 

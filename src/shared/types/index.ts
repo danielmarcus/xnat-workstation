@@ -98,6 +98,11 @@ export interface ElectronAPI {
     listTempFiles(
       sessionId: string,
     ): Promise<{ ok: boolean; files?: Array<{ name: string; uri: string; size: number }>; error?: string }>;
+    deleteScan(
+      sessionId: string,
+      scanId: string,
+      trashResourceName?: string,
+    ): Promise<{ ok: boolean; error?: string }>;
     deleteTempFile(
       sessionId: string,
       filename: string,

@@ -1241,6 +1241,72 @@ export class XnatClient {
   }
 
   /**
+   * Delete an entire scan from an image session.
+   *
+   * If `trashResourceName` is provided, the scan's DICOM files are first copied
+   * to a session-level resource folder (e.g. "trash") before the scan is removed.
+   */
+  async deleteScan(
+    sessionId: string,
+    scanId: string,
+    trashResourceName?: string,
+  ): Promise<void> {
+    if (!this.jsessionId || this._disconnected) throw new XnatAuthError('Not authenticated');
+
+    const encSession = encodeURIComponent(sessionId);
+    const encScan = encodeURIComponent(scanId);
+    const scanBase = `${this.baseUrl}/data/experiments/${encSession}/scans/${encScan}`;
+
+    // ─── Optionally copy DICOM files to a trash resource ───
+    if (trashResourceName) {
+      try {
+        // List files in the scan's DICOM resource
+        const listUrl = `${scanBase}/resources/DICOM/files?format=json`;
+        const listResp = await this.xfetch(listUrl, { method: 'GET' });
+        if (listResp.ok) {
+          const listData = await listResp.json().catch(() => ({ ResultSet: { Result: [] } }));
+          const files: Array<{ Name: string; URI: string }> = listData?.ResultSet?.Result ?? [];
+          const encTrash = encodeURIComponent(trashResourceName);
+
+          for (const file of files) {
+            // Download the file content
+            const fileUrl = `${this.baseUrl}${file.URI}`;
+            const fileResp = await this.xfetch(fileUrl, { method: 'GET' });
+            if (!fileResp.ok) continue;
+            const fileBuffer = Buffer.from(await fileResp.arrayBuffer());
+
+            // Upload to the trash resource — use scan ID prefix to avoid name collisions
+            const trashFilename = `scan-${scanId}_${file.Name}`;
+            const putUrl = `${this.baseUrl}/data/experiments/${encSession}`
+              + `/resources/${encTrash}/files/${encodeURIComponent(trashFilename)}`
+              + `?format=DICOM&content=TRASH&overwrite=true`;
+            await this.xfetch(putUrl, {
+              method: 'PUT',
+              body: fileBuffer,
+              headers: { 'Content-Type': 'application/octet-stream' },
+            });
+          }
+          console.log(`[xnatClient] Copied ${files.length} file(s) from scan ${scanId} to resource "${trashResourceName}"`);
+        }
+      } catch (err) {
+        // Log but don't fail — trash is best-effort
+        console.warn(`[xnatClient] Failed to copy scan ${scanId} files to trash:`, err);
+      }
+    }
+
+    // ─── Delete the scan ───
+    const deleteUrl = `${scanBase}?removeFiles=true`;
+    const resp = await this.xfetch(deleteUrl, { method: 'DELETE' });
+
+    if (!resp.ok && resp.status !== 404) {
+      const text = await resp.text().catch(() => '');
+      throw new Error(`Failed to delete scan ${scanId}: ${resp.status} ${text}`.trim());
+    }
+
+    console.log(`[xnatClient] Deleted scan ${scanId} from session ${sessionId}`);
+  }
+
+  /**
    * Download a file from the session-level "temp" resource.
    */
   async downloadTempFile(

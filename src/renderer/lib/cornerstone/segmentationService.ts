@@ -878,6 +878,9 @@ async function performLabelmapInterpolation(): Promise<void> {
   let segmentIndex = Number(pending?.segmentIndex ?? segStore.activeSegmentIndex);
   if (!Number.isInteger(segmentIndex) || segmentIndex <= 0) return;
 
+  // Don't interpolate on a locked segment
+  if (segmentationService.getSegmentLocked(activeSegId, segmentIndex)) return;
+
   // For multi-layer groups, resolve to the sub-seg and use segment index 1
   let effectiveSegId = activeSegId;
   let effectiveSegIndex = segmentIndex;
@@ -1837,6 +1840,9 @@ export const segmentationService = {
         }
         store.clearXnatOrigin(segmentationId);
 
+        // Clean up manager store (loadedBySourceScan, presentation, localOrigin, dirty)
+        useSegmentationManagerStore.getState().cleanupRemovedSegmentation(segmentationId);
+
         console.log(`[segmentationService] Removed group segmentation: ${segmentationId} (${allSubSegIds.length} sub-segs)`);
       } catch (err) {
         console.error('[segmentationService] Failed to remove group segmentation:', err);
@@ -1871,6 +1877,9 @@ export const segmentationService = {
         store.setActiveSegmentation(null);
       }
       store.clearXnatOrigin(segmentationId);
+
+      // Clean up manager store (loadedBySourceScan, presentation, localOrigin, dirty)
+      useSegmentationManagerStore.getState().cleanupRemovedSegmentation(segmentationId);
 
       console.log(`[segmentationService] Removed segmentation: ${segmentationId}`);
     } catch (err) {
@@ -2560,10 +2569,13 @@ export const segmentationService = {
       const subSegId = resolveSubSegId(segmentationId, segmentIndex);
       if (!subSegId) return;
       const isLocked = csSegmentation.segmentLocking.isSegmentIndexLocked(subSegId, 1);
-      csSegmentation.segmentLocking.setSegmentIndexLocked(subSegId, 1, !isLocked);
+      const newLocked = !isLocked;
+      csSegmentation.segmentLocking.setSegmentIndexLocked(subSegId, 1, newLocked);
       // Update metadata
       const meta = segmentMetaMap.get(segmentationId)?.get(segmentIndex);
-      if (meta) meta.locked = !isLocked;
+      if (meta) meta.locked = newLocked;
+      // Update presentation cache BEFORE sync so syncSegmentations reads the correct value
+      useSegmentationManagerStore.getState().setPresentation(segmentationId, segmentIndex, { locked: newLocked });
       syncSegmentations();
       return;
     }
@@ -2573,11 +2585,14 @@ export const segmentationService = {
       segmentationId,
       segmentIndex,
     );
+    const newLocked = !isLocked;
     csSegmentation.segmentLocking.setSegmentIndexLocked(
       segmentationId,
       segmentIndex,
-      !isLocked,
+      newLocked,
     );
+    // Update presentation cache BEFORE sync so syncSegmentations reads the correct value
+    useSegmentationManagerStore.getState().setPresentation(segmentationId, segmentIndex, { locked: newLocked });
     syncSegmentations();
   },
 
@@ -2647,6 +2662,18 @@ export const segmentationService = {
     } catch {
       return false; // default unlocked
     }
+  },
+
+  /**
+   * Check whether the currently active segment is locked.
+   * Returns true if the active segmentation + active segment index are locked.
+   */
+  isActiveSegmentLocked(): boolean {
+    const segStore = useSegmentationStore.getState();
+    const activeSegId = segStore.activeSegmentationId;
+    const activeSegIdx = segStore.activeSegmentIndex;
+    if (!activeSegId || !activeSegIdx || activeSegIdx <= 0) return false;
+    return this.getSegmentLocked(activeSegId, activeSegIdx);
   },
 
   /**

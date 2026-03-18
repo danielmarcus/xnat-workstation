@@ -88,6 +88,8 @@ interface SegmentationManagerState {
   setActiveSegmentationForPanel: (panelId: string, segId: string | null) => void;
   setActiveSegmentIndexForPanel: (panelId: string, segIdx: number) => void;
   setLocalOrigin: (segId: string, compositeKey: string) => void;
+  /** Remove a loaded overlay entry and clean up associated state for a deleted segmentation */
+  cleanupRemovedSegmentation: (segmentationId: string) => void;
   clearPanel: (panelId: string) => void;
   /** Check if any segmentation is dirty */
   hasDirtySegmentations: () => boolean;
@@ -222,6 +224,44 @@ export const useSegmentationManagerStore = create<SegmentationManagerState>((set
     set((s) => ({
       localOriginBySegId: { ...s.localOriginBySegId, [segId]: compositeKey },
     })),
+
+  cleanupRemovedSegmentation: (segmentationId) =>
+    set((s) => {
+      // Remove from loadedBySourceScan — iterate all source scans and remove
+      // entries whose segmentationId matches the deleted one.
+      const nextLoaded: Record<string, Record<string, LoadedOverlayInfo>> = {};
+      for (const [sourceKey, derivedMap] of Object.entries(s.loadedBySourceScan)) {
+        const filtered: Record<string, LoadedOverlayInfo> = {};
+        for (const [derivedId, info] of Object.entries(derivedMap)) {
+          if (info.segmentationId !== segmentationId) {
+            filtered[derivedId] = info;
+          }
+        }
+        if (Object.keys(filtered).length > 0) {
+          nextLoaded[sourceKey] = filtered;
+        }
+      }
+
+      // Remove presentation cache
+      const { [segmentationId]: _p, ...restPresentation } = s.presentation;
+
+      // Remove local origin
+      const { [segmentationId]: _l, ...restLocalOrigin } = s.localOriginBySegId;
+
+      // Remove dirty state
+      const { [segmentationId]: _d, ...restDirty } = s.dirtySegIds;
+
+      // Remove manual save timestamp
+      const { [segmentationId]: _m, ...restManualSave } = s.lastManualSaveAt;
+
+      return {
+        loadedBySourceScan: nextLoaded,
+        presentation: restPresentation,
+        localOriginBySegId: restLocalOrigin,
+        dirtySegIds: restDirty,
+        lastManualSaveAt: restManualSave,
+      };
+    }),
 
   clearPanel: (panelId) =>
     set((s) => {
