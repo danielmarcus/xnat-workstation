@@ -179,11 +179,14 @@ export default function ViewportOverlay({ panelId }: ViewportOverlayProps) {
   const nativeOrientation = useViewerStore((s) => s.panelNativeOrientationMap[panelId] ?? 'AXIAL');
   const setPanelOrientation = useViewerStore((s) => s.setPanelOrientation);
   const subjectLabel = useViewerStore(
-    (s) =>
-      s.panelSubjectLabelMap[panelId]
-      ?? s.panelXnatContextMap[panelId]?.subjectId
-      ?? s.xnatContext?.subjectId
-      ?? '',
+    (s) => {
+      // Prefer this panel's explicit label.
+      if (s.panelSubjectLabelMap[panelId]) return s.panelSubjectLabelMap[panelId];
+      // Fall back to the label from any other panel (same session = same subject).
+      const labels = Object.values(s.panelSubjectLabelMap);
+      if (labels.length > 0) return labels[0];
+      return '';
+    },
   );
   const sessionLabel = useViewerStore(
     (s) => s.panelSessionLabelMap[panelId] ?? s.xnatContext?.sessionLabel ?? '',

@@ -59,6 +59,19 @@ vi.mock('@cornerstonejs/core', () => ({
   metaData: {
     get: metaDataGetMock,
   },
+  Enums: {
+    ViewportType: { STACK: 'STACK' },
+  },
+}));
+
+vi.mock('@cornerstonejs/dicom-image-loader', () => ({
+  wadouri: {
+    dataSetCacheManager: {
+      isLoaded: vi.fn(() => false),
+      get: vi.fn(() => null),
+      load: vi.fn(async () => undefined),
+    },
+  },
 }));
 
 vi.mock('../viewportService', () => ({
@@ -100,6 +113,10 @@ describe('crosshairSyncService', () => {
     viewerStoreMock.reset();
     getPanelDisplayPointForWorldMock.mockReturnValue([1, 1]);
     getWorldPointFromClientPointMock.mockReturnValue([0, 0, 0]);
+    // Invalidate any leftover metadata-loaded state from previous tests.
+    crosshairSyncService.invalidatePanel('panel_0');
+    crosshairSyncService.invalidatePanel('panel_1');
+    crosshairSyncService.invalidatePanel('panel_2');
   });
 
   it('publishes crosshair point, jumps matching viewport, and syncs requested index from viewport state', () => {
@@ -111,6 +128,7 @@ describe('crosshairSyncService', () => {
     });
 
     const targetViewport = {
+      type: 'orthogonal',
       jumpToWorld: vi.fn(() => true),
       getCurrentImageIdIndex: vi.fn(() => 2),
       render: vi.fn(),
@@ -138,6 +156,7 @@ describe('crosshairSyncService', () => {
     });
 
     const targetViewport = {
+      type: 'orthogonal',
       jumpToWorld: vi.fn(() => true),
     };
     getViewportForPanelMock.mockReturnValue(targetViewport);
@@ -163,8 +182,12 @@ describe('crosshairSyncService', () => {
     });
 
     getViewportForPanelMock.mockReturnValue({
+      type: 'orthogonal',
       jumpToWorld: vi.fn(() => false),
     });
+
+    // Mark target panel metadata as loaded so stack fallback works synchronously.
+    crosshairSyncService._markMetadataLoaded('panel_1');
 
     crosshairSyncService.syncFromViewport('panel_0', [0, 0, 9]);
 
@@ -190,6 +213,7 @@ describe('crosshairSyncService', () => {
 
     const setCamera = vi.fn();
     const targetViewport = {
+      type: 'orthogonal',
       jumpToWorld: vi.fn(() => true),
       getCurrentImageIdIndex: vi.fn(() => 0),
       getCamera: vi.fn(() => ({
@@ -211,14 +235,34 @@ describe('crosshairSyncService', () => {
     expect(targetViewport.render).toHaveBeenCalled();
   });
 
-  it('uses series UID fallback when target frame UID is missing', () => {
+  it('proceeds with sync when target frame-of-reference UID is missing (lenient matching)', () => {
+    // When FOR metadata is unavailable (e.g. wadouri image not yet decoded),
+    // sync should proceed rather than silently skipping the panel.
     setMetadata({
       'imagePlaneModule|img-source': { frameOfReferenceUID: 'FOR-1' },
       'generalSeriesModule|img-source': { seriesInstanceUID: 'SER-1' },
-      'imagePlaneModule|img-target-a': {},
-      'generalSeriesModule|img-target-a': { seriesInstanceUID: 'SER-1' },
+      'imagePlaneModule|img-target-a': {},  // No FOR available
+      'generalSeriesModule|img-target-a': { seriesInstanceUID: 'SER-2' },  // Different series — should still sync
     });
     const targetViewport = {
+      type: 'orthogonal',
+      jumpToWorld: vi.fn(() => true),
+    };
+    getViewportForPanelMock.mockReturnValue(targetViewport);
+
+    crosshairSyncService.syncFromViewport('panel_0', [3, 2, 1]);
+    expect(targetViewport.jumpToWorld).toHaveBeenCalledWith([3, 2, 1]);
+  });
+
+  it('proceeds with sync when source frame-of-reference UID is missing', () => {
+    setMetadata({
+      'imagePlaneModule|img-source': {},  // No FOR available
+      'generalSeriesModule|img-source': { seriesInstanceUID: 'SER-1' },
+      'imagePlaneModule|img-target-a': { frameOfReferenceUID: 'FOR-1' },
+      'generalSeriesModule|img-target-a': { seriesInstanceUID: 'SER-2' },
+    });
+    const targetViewport = {
+      type: 'orthogonal',
       jumpToWorld: vi.fn(() => true),
     };
     getViewportForPanelMock.mockReturnValue(targetViewport);
@@ -246,6 +290,7 @@ describe('crosshairSyncService', () => {
       });
 
       const targetViewport = {
+        type: 'orthogonal',
         jumpToWorld: vi.fn(() => true),
         getCurrentImageIdIndex: vi.fn(() => 1),
         render: vi.fn(),
@@ -280,11 +325,13 @@ describe('crosshairSyncService', () => {
       });
 
       const viewportA = {
+        type: 'orthogonal',
         jumpToWorld: vi.fn(() => true),
         getCurrentImageIdIndex: vi.fn(() => 0),
         render: vi.fn(),
       };
       const viewportB = {
+        type: 'orthogonal',
         jumpToWorld: vi.fn(() => true),
         getCurrentImageIdIndex: vi.fn(() => 2),
         render: vi.fn(),
@@ -326,8 +373,8 @@ describe('crosshairSyncService', () => {
         'generalSeriesModule|flair-0': { seriesInstanceUID: 'SER-FLAIR' },
       });
 
-      const vpT2 = { jumpToWorld: vi.fn(() => true), getCurrentImageIdIndex: vi.fn(() => 0), render: vi.fn() };
-      const vpFlair = { jumpToWorld: vi.fn(() => true), getCurrentImageIdIndex: vi.fn(() => 0), render: vi.fn() };
+      const vpT2 = { type: 'orthogonal', jumpToWorld: vi.fn(() => true), getCurrentImageIdIndex: vi.fn(() => 0), render: vi.fn() };
+      const vpFlair = { type: 'orthogonal', jumpToWorld: vi.fn(() => true), getCurrentImageIdIndex: vi.fn(() => 0), render: vi.fn() };
       getViewportForPanelMock.mockImplementation((panelId: string) => {
         if (panelId === 'panel_1') return vpT2;
         if (panelId === 'panel_2') return vpFlair;
@@ -372,6 +419,7 @@ describe('crosshairSyncService', () => {
         'generalSeriesModule|coarse-0': { seriesInstanceUID: 'SER-COARSE' },
       });
 
+      crosshairSyncService._markMetadataLoaded('panel_1');
       getViewportForPanelMock.mockReturnValue({ jumpToWorld: vi.fn(() => false) });
 
       // Click at z=3 in fine scan → nearest coarse slice is z=2 (index 1) or z=4 (index 2)
@@ -409,6 +457,7 @@ describe('crosshairSyncService', () => {
       }
       setMetadata(meta);
 
+      crosshairSyncService._markMetadataLoaded('panel_1');
       getViewportForPanelMock.mockReturnValue({ jumpToWorld: vi.fn(() => false) });
 
       // Click at z=5 (thick-1) → target should land on thin-5 (z=5, index 5)
@@ -448,6 +497,7 @@ describe('crosshairSyncService', () => {
       };
       setMetadata(meta);
 
+      crosshairSyncService._markMetadataLoaded('panel_1');
       getViewportForPanelMock.mockReturnValue({ jumpToWorld: vi.fn(() => false) });
 
       // Click at world x=12 → nearest target slice is x=10 (index 2)
@@ -483,6 +533,7 @@ describe('crosshairSyncService', () => {
         'generalSeriesModule|short-0': { seriesInstanceUID: 'SER-SHORT' },
       });
 
+      crosshairSyncService._markMetadataLoaded('panel_1');
       getViewportForPanelMock.mockReturnValue({ jumpToWorld: vi.fn(() => false) });
 
       // Click at z=80, beyond the short scan's last slice at z=50
@@ -508,7 +559,7 @@ describe('crosshairSyncService', () => {
         'generalSeriesModule|knee-0': { seriesInstanceUID: 'SER-KNEE' },
       });
 
-      const targetViewport = { jumpToWorld: vi.fn(() => true), render: vi.fn() };
+      const targetViewport = { type: 'orthogonal', jumpToWorld: vi.fn(() => true), render: vi.fn() };
       getViewportForPanelMock.mockReturnValue(targetViewport);
 
       crosshairSyncService.syncFromViewport('panel_0', [0, 0, 50]);
@@ -551,11 +602,13 @@ describe('crosshairSyncService', () => {
       });
 
       const vpT2 = {
+        type: 'orthogonal',
         jumpToWorld: vi.fn(() => true),
         getCurrentImageIdIndex: vi.fn(() => 1),
         render: vi.fn(),
       };
       const vpPET = {
+        type: 'orthogonal',
         jumpToWorld: vi.fn(() => true),
         getCurrentImageIdIndex: vi.fn(() => 0),
         render: vi.fn(),
