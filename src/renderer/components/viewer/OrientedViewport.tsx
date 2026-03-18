@@ -36,6 +36,7 @@ export default function OrientedViewport({ panelId, imageIds, plane }: OrientedV
     if (!containerRef.current || imageIds.length === 0) return;
 
     let cancelled = false;
+    let disposeEvents: (() => void) | null = null;
     const element = containerRef.current;
 
     async function setup() {
@@ -59,7 +60,7 @@ export default function OrientedViewport({ panelId, imageIds, plane }: OrientedV
 
         mprService.createViewport(panelId, element, plane);
         toolService.addViewport(panelId);
-        wireEvents(element, panelId);
+        disposeEvents = wireEvents(element, panelId);
 
         setStatus(`Loading ${imageIds.length} images...`);
         await mprService.setVolume(panelId, volumeId);
@@ -107,6 +108,7 @@ export default function OrientedViewport({ panelId, imageIds, plane }: OrientedV
     return () => {
       cancelled = true;
       resizeObserver.disconnect();
+      disposeEvents?.();
 
       useViewerStore.getState().stopCine(panelId);
       toolService.removeViewport(panelId);
@@ -169,7 +171,7 @@ function syncSliceState(panelId: string): void {
   }
 }
 
-function wireEvents(element: HTMLDivElement, panelId: string): void {
+function wireEvents(element: HTMLDivElement, panelId: string): () => void {
   const Events = Enums.Events;
 
   element.addEventListener(Events.VOI_MODIFIED, ((e: Event) => {
@@ -201,10 +203,12 @@ function wireEvents(element: HTMLDivElement, panelId: string): void {
     }
   }, { passive: false });
 
-  wireCrosshairPointerHandlers({
+  const disposeCrosshair = wireCrosshairPointerHandlers({
     element,
     panelId,
     isCrosshairActive: () => useViewerStore.getState().activeTool === ToolName.Crosshairs,
     onWorldPoint: (point) => crosshairSyncService.syncFromViewport(panelId, point),
   });
+
+  return disposeCrosshair;
 }

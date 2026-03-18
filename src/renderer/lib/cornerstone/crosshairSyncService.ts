@@ -1,6 +1,9 @@
 import { metaData } from '@cornerstonejs/core';
+import { wadouri } from '@cornerstonejs/dicom-image-loader';
 import { useViewerStore } from '../../stores/viewerStore';
 import { viewportService } from './viewportService';
+import { mprService } from './mprService';
+import { pLimit } from '../util/pLimit';
 import {
   getPanelDisplayPointForWorld,
   getViewportForPanel,
@@ -114,12 +117,43 @@ function getFrameOfReferenceUid(imageId: string): string | null {
   return plane?.frameOfReferenceUID ?? null;
 }
 
+/**
+ * Parse a DICOM multi-valued numeric string (e.g. "1.0\\2.0\\3.0") into an
+ * array of numbers. Returns null if parsing fails.
+ */
+function parseDicomNumericString(value: string | undefined | null, expectedLength: number): number[] | null {
+  if (!value) return null;
+  const parts = value.split('\\').map(Number);
+  if (parts.length < expectedLength || !parts.every(Number.isFinite)) return null;
+  return parts;
+}
+
 function getImagePlane(imageId: string): { ipp: Point3; normal: Point3 } | null {
+  // Primary path: Cornerstone metadata provider (available after image decode).
   const imagePlane = metaData.get('imagePlaneModule', imageId) as
     | { imagePositionPatient?: number[]; imageOrientationPatient?: number[] }
     | undefined;
-  const ipp = imagePlane?.imagePositionPatient;
-  const iop = imagePlane?.imageOrientationPatient;
+  let ipp = imagePlane?.imagePositionPatient;
+  let iop = imagePlane?.imageOrientationPatient;
+
+  // Fallback: read directly from the wadouri dataset cache.
+  // After dataSetCacheManager.load(), the raw DICOM dataset is cached but the
+  // Cornerstone metadata provider may not yet expose imagePlaneModule.
+  if (!Array.isArray(ipp) || ipp.length < 3 || !Array.isArray(iop) || iop.length < 6) {
+    try {
+      const uri = toWadouriUri(imageId);
+      if (wadouri.dataSetCacheManager.isLoaded(uri)) {
+        const dataSet = wadouri.dataSetCacheManager.get(uri);
+        const rawIpp = parseDicomNumericString(dataSet?.string?.('x00200032'), 3);
+        const rawIop = parseDicomNumericString(dataSet?.string?.('x00200037'), 6);
+        if (rawIpp) ipp = rawIpp;
+        if (rawIop) iop = rawIop;
+      }
+    } catch {
+      // Ignore dataset cache errors.
+    }
+  }
+
   if (!Array.isArray(ipp) || ipp.length < 3 || !Array.isArray(iop) || iop.length < 6) return null;
   const position: Point3 = [Number(ipp[0]), Number(ipp[1]), Number(ipp[2])];
   const row: Point3 = [Number(iop[0]), Number(iop[1]), Number(iop[2])];
@@ -148,14 +182,114 @@ function findNearestStackIndex(imageIds: string[], world: Point3): number | null
   return bestIndex >= 0 ? bestIndex : null;
 }
 
+// ---------------------------------------------------------------------------
+// Metadata pre-loading for stack viewports
+// ---------------------------------------------------------------------------
+
+/** Tracks which panels have had their image metadata pre-loaded. */
+const metadataLoadedPanels = new Set<string>();
+
+/** In-flight metadata pre-load promises (avoids duplicate concurrent loads). */
+const metadataLoadInFlight = new Map<string, Promise<void>>();
+
+function toWadouriUri(imageId: string): string {
+  return imageId.startsWith('wadouri:') ? imageId.slice(8) : imageId;
+}
+
+/**
+ * Pre-load DICOM headers for all images in a stack so that imagePlaneModule
+ * metadata (imagePositionPatient, imageOrientationPatient) is available for
+ * geometric operations like crosshair sync.
+ *
+ * Uses the wadouri dataSetCacheManager — the same mechanism used by
+ * sortImageIdsByDicomMetadata in dicomwebLoader.
+ */
+async function ensureStackMetadata(panelId: string, imageIds: string[]): Promise<void> {
+  if (metadataLoadedPanels.has(panelId)) return;
+
+  const existing = metadataLoadInFlight.get(panelId);
+  if (existing) {
+    await existing;
+    return;
+  }
+
+  const promise = (async () => {
+    const limit = pLimit(12);
+    let loaded = 0;
+    await Promise.all(
+      imageIds.map((imageId) =>
+        limit(async () => {
+          try {
+            const uri = toWadouriUri(imageId);
+            if (!wadouri.dataSetCacheManager.isLoaded(uri)) {
+              await wadouri.dataSetCacheManager.load(uri, undefined as any, imageId);
+            }
+            loaded++;
+          } catch {
+            // Partial failures are tolerable; we'll still get most slices.
+          }
+        }),
+      ),
+    );
+    metadataLoadedPanels.add(panelId);
+  })();
+
+  metadataLoadInFlight.set(panelId, promise);
+  try {
+    await promise;
+  } finally {
+    metadataLoadInFlight.delete(panelId);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Sync service
+// ---------------------------------------------------------------------------
+
+/**
+ * Synchronously sync a single target panel using geometric slice matching.
+ * Returns true if the sync succeeded, false if metadata was insufficient.
+ */
+function syncStackPanel(
+  panelId: string,
+  imageIds: string[],
+  worldPoint: Point3,
+  store: ReturnType<typeof useViewerStore.getState>,
+): boolean {
+  const targetIndex = findNearestStackIndex(imageIds, worldPoint);
+  if (targetIndex == null) return false;
+
+  store._requestImageIndex(panelId, targetIndex, imageIds.length);
+  viewportService.scrollToIndex(panelId, targetIndex);
+
+  // Pan the viewport to keep the crosshair point visible in-plane.
+  const viewport = getViewportForPanel(panelId) as AnyViewport | null;
+  if (viewport) {
+    keepPointVisibleByPanning(panelId, viewport, worldPoint);
+    viewport.render?.();
+  }
+  return true;
+}
+
 export const crosshairSyncService = {
   /**
+   * Call when a panel's images change (e.g. scan unloaded) so that stale
+   * metadata-loaded state is cleared.
+   */
+  invalidatePanel(panelId: string): void {
+    metadataLoadedPanels.delete(panelId);
+  },
+
+  /**
    * Publish crosshair coordinate globally and sync compatible viewports.
-   * Primary path uses viewport-native world navigation (`jumpToWorld`) to avoid
-   * orientation-specific math and preserve consistent geometric behavior.
-   * Legacy stack-index fallback remains for non-jumpable targets.
+   *
+   * For MPR/volume viewports: uses viewport-native `jumpToWorld`.
+   * For stack viewports: uses geometric slice matching via imagePlaneModule
+   * metadata. If metadata hasn't been pre-loaded yet, triggers an async
+   * pre-load and retries.
    */
   syncFromViewport(sourcePanelId: string, worldPoint: Point3): void {
+    try {
     const store = useViewerStore.getState();
     store.setCrosshairWorldPoint(worldPoint, sourcePanelId);
 
@@ -176,33 +310,53 @@ export const crosshairSyncService = {
         if (!panelSeriesUid || (sourceSeriesUid && panelSeriesUid !== sourceSeriesUid)) continue;
       }
 
-      // Best-practice path: use viewport-native world navigation.
-      if (typeof targetViewport.jumpToWorld === 'function') {
-        try {
-          const jumped = targetViewport.jumpToWorld(worldPoint);
-          if (jumped) {
-            keepPointVisibleByPanning(panelId, targetViewport, worldPoint);
-            targetViewport.render?.();
-            // Keep stack requested-index state in sync so slider/status remain stable.
-            if (typeof targetViewport.getCurrentImageIdIndex === 'function') {
-              const idx = targetViewport.getCurrentImageIdIndex();
-              if (Number.isFinite(idx) && imageIds.length > 0) {
-                const clamped = Math.max(0, Math.min(imageIds.length - 1, Number(idx)));
-                store._requestImageIndex(panelId, clamped, imageIds.length);
+      // Determine whether the target is a volume (MPR/oriented) or stack viewport.
+      const vpType = (targetViewport as any)?.type as string | undefined;
+      const isVolumeViewport = vpType != null && vpType !== 'stack';
+
+      if (isVolumeViewport) {
+        // Volume viewports have full metadata in the volume — jumpToWorld works reliably.
+        if (typeof targetViewport.jumpToWorld === 'function') {
+          try {
+            const jumped = targetViewport.jumpToWorld(worldPoint);
+            if (jumped) {
+              keepPointVisibleByPanning(panelId, targetViewport, worldPoint);
+              targetViewport.render?.();
+              if (typeof targetViewport.getCurrentImageIdIndex === 'function') {
+                const idx = targetViewport.getCurrentImageIdIndex();
+                if (Number.isFinite(idx) && imageIds.length > 0) {
+                  const clamped = Math.max(0, Math.min(imageIds.length - 1, Number(idx)));
+                  store._requestImageIndex(panelId, clamped, imageIds.length);
+                }
               }
+              continue;
             }
-            continue;
+          } catch (err) {
+            console.warn('[crosshairSync] volume jumpToWorld error', panelId, err);
+            // Fall through to stack-index fallback.
           }
-        } catch {
-          // Fall through to stack-index fallback.
         }
       }
 
-      // Fallback for legacy/non-jumpable targets.
-      const targetIndex = findNearestStackIndex(imageIds, worldPoint);
-      if (targetIndex == null) continue;
-      store._requestImageIndex(panelId, targetIndex, imageIds.length);
-      viewportService.scrollToIndex(panelId, targetIndex);
+      // Stack viewport path: use geometric slice matching.
+      // This requires imagePlaneModule metadata for all images.
+      // If metadata hasn't been pre-loaded yet, trigger async pre-load
+      // and retry — the initial sync with partial metadata is unreliable.
+      if (!metadataLoadedPanels.has(panelId)) {
+        ensureStackMetadata(panelId, imageIds).then(() => {
+          const latestStore = useViewerStore.getState();
+          const latestPoint = latestStore.crosshairWorldPoint;
+          if (!latestPoint) return;
+          const latestImageIds = latestStore.panelImageIdsMap[panelId];
+          if (!latestImageIds || latestImageIds.length === 0) return;
+          syncStackPanel(panelId, latestImageIds, latestPoint, latestStore);
+        });
+      } else {
+        syncStackPanel(panelId, imageIds, worldPoint, store);
+      }
+    }
+    } catch (err) {
+      console.error('[crosshairSync] syncFromViewport ERROR', err);
     }
   },
 };

@@ -44,6 +44,7 @@ export default function CornerstoneViewport({ panelId, imageIds }: CornerstoneVi
     if (!containerRef.current || imageIds.length === 0) return;
 
     let cancelled = false;
+    let disposeEvents: (() => void) | null = null;
     const element = containerRef.current;
 
     async function setup() {
@@ -76,7 +77,7 @@ export default function CornerstoneViewport({ panelId, imageIds }: CornerstoneVi
         if (cancelled) return;
 
         // Wire Cornerstone events to stores (scoped by panelId)
-        wireEvents(element, panelId);
+        disposeEvents = wireEvents(element, panelId);
 
         // Load images
         setStatus(`Loading ${imageIds.length} images...`);
@@ -169,6 +170,7 @@ export default function CornerstoneViewport({ panelId, imageIds }: CornerstoneVi
     return () => {
       cancelled = true;
       resizeObserver.disconnect();
+      disposeEvents?.();
 
       // Stop cine if playing for this panel
       useViewerStore.getState().stopCine(panelId);
@@ -239,7 +241,7 @@ export default function CornerstoneViewport({ panelId, imageIds }: CornerstoneVi
 
 // ─── Event Wiring ──────────────────────────────────────────────
 
-function wireEvents(element: HTMLDivElement, panelId: string): void {
+function wireEvents(element: HTMLDivElement, panelId: string): () => void {
   const Events = Enums.Events;
 
   // VOI changed (user dragged W/L or preset applied)
@@ -319,10 +321,12 @@ function wireEvents(element: HTMLDivElement, panelId: string): void {
     }
   }, { passive: false });
 
-  wireCrosshairPointerHandlers({
+  const disposeCrosshair = wireCrosshairPointerHandlers({
     element,
     panelId,
     isCrosshairActive: () => useViewerStore.getState().activeTool === ToolName.Crosshairs,
     onWorldPoint: (point) => crosshairSyncService.syncFromViewport(panelId, point),
   });
+
+  return disposeCrosshair;
 }
