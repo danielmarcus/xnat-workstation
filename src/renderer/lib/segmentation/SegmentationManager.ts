@@ -17,6 +17,12 @@ import { rtStructService } from '../cornerstone/rtStructService';
 import { useSegmentationManagerStore, type RGBA } from '../../stores/segmentationManagerStore';
 import { useSegmentationStore } from '../../stores/segmentationStore';
 import { useViewerStore } from '../../stores/viewerStore';
+import {
+  ToolName,
+  SEGMENTATION_TOOLS,
+  LABELMAP_SEG_TOOLS,
+  CONTOUR_SEG_TOOLS,
+} from '@shared/types/viewer';
 
 /** Dependencies injected from App.tsx to avoid circular imports */
 export interface ManagerDeps {
@@ -641,6 +647,27 @@ export class SegmentationManager {
     // Activation can fail if the segmentation exists globally but is not currently
     // represented on this viewport (e.g., after scan switching / viewport recreation).
     void this.ensureAttachedAndActivate(viewportId, segmentationId, segmentIndex);
+
+    // Deactivate tool if locked OR incompatible with the new segmentation type.
+    const segStore = useSegmentationStore.getState();
+    const activeTool = segStore.activeSegTool;
+    if (activeTool !== null && SEGMENTATION_TOOLS.has(activeTool as ToolName)) {
+      const locked = segmentationService.getSegmentLocked(segmentationId, segmentIndex);
+      const dicomType =
+        segStore.dicomTypeBySegmentationId[segmentationId]
+        ?? segmentationService.getPreferredDicomType(segmentationId);
+      const isToolIncompatible =
+        (dicomType === 'RTSTRUCT'
+          && LABELMAP_SEG_TOOLS.has(activeTool as ToolName)
+          && !CONTOUR_SEG_TOOLS.has(activeTool as ToolName))
+        || (dicomType === 'SEG'
+          && CONTOUR_SEG_TOOLS.has(activeTool as ToolName)
+          && !LABELMAP_SEG_TOOLS.has(activeTool as ToolName));
+
+      if (locked || isToolIncompatible) {
+        useViewerStore.getState().setActiveTool(ToolName.WindowLevel);
+      }
+    }
   }
 
   /** Ensure representation exists on the viewport, then activate deterministically. */
@@ -721,6 +748,24 @@ export class SegmentationManager {
    */
   userToggledLock(segmentationId: string, segmentIndex: number): void {
     segmentationService.toggleSegmentLocked(segmentationId, segmentIndex);
+
+    // Read the actual post-toggle lock state from Cornerstone rather than
+    // inferring from the cache (which can be uninitialized or out of sync).
+    const newLocked = segmentationService.getSegmentLocked(segmentationId, segmentIndex);
+    useSegmentationManagerStore.getState().setPresentation(segmentationId, segmentIndex, { locked: newLocked });
+
+    // If locking the currently active segment, switch Cornerstone back to
+    // WindowLevel so the tool is fully deactivated (not just the store cleared).
+    if (newLocked) {
+      const segStore = useSegmentationStore.getState();
+      if (
+        segStore.activeSegmentationId === segmentationId &&
+        segStore.activeSegmentIndex === segmentIndex &&
+        segStore.activeSegTool !== null
+      ) {
+        useViewerStore.getState().setActiveTool(ToolName.WindowLevel);
+      }
+    }
   }
 
   /**

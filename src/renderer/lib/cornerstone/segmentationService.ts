@@ -542,10 +542,11 @@ function syncSegmentations(): void {
           }
         }
 
-        // Locked
-        const cachedLocked = cachedPresentation?.locked?.[segmentIndex];
-        let locked = meta?.locked ?? false;
-        if (typeof cachedLocked === 'boolean') locked = cachedLocked;
+        // Locked — read directly from Cornerstone to avoid stale-cache lag
+        let locked = false;
+        try {
+          locked = csSegmentation.segmentLocking.isSegmentIndexLocked(subSegId, 1);
+        } catch { /* default false */ }
 
         segments.push({
           segmentIndex,
@@ -645,14 +646,18 @@ function syncSegmentations(): void {
             }
           }
 
-          const cachedLocked = useSegmentationManagerStore.getState().presentation[seg.segmentationId]?.locked?.[idx];
+          // Locked — read directly from Cornerstone to avoid stale-cache lag
+          let locked = false;
+          try {
+            locked = csSegmentation.segmentLocking.isSegmentIndexLocked(seg.segmentationId, idx);
+          } catch { /* default false */ }
 
           segments.push({
             segmentIndex: idx,
             label: segment.label || `Segment ${idx}`,
             color,
             visible,
-            locked: typeof cachedLocked === 'boolean' ? cachedLocked : (segment.locked ?? false),
+            locked,
           });
         }
       }
@@ -3183,7 +3188,7 @@ export const segmentationService = {
           const segLabel = meta.SegmentLabel || meta.SegmentDescription || `Segment ${i}`;
           segments[i] = {
             label: segLabel,
-            locked: false,
+            locked: true,
             active: i === 1,
             segmentIndex: i,
             cachedStats: {},
@@ -3338,13 +3343,16 @@ export const segmentationService = {
               1: {
                 label: segLabel,
                 segmentIndex: 1,
-                locked: false,
+                locked: true,
                 active: segmentIndex === 1,
                 cachedStats: {},
               } as any,
             },
           },
         }]);
+
+        // Lock loaded segments by default — user must unlock to edit
+        csSegmentation.segmentLocking.setSegmentIndexLocked(subSegId, 1, true);
 
         // Track source imageIds on the sub-seg
         sourceImageIdsMap.set(subSegId, [...effectiveBaseSourceImageIds]);
@@ -3355,7 +3363,7 @@ export const segmentationService = {
         metaMapForGroup.set(segmentIndex, {
           label: segLabel,
           color: segColor,
-          locked: false,
+          locked: true,
         });
 
         console.log(`[segmentationService] Created sub-seg ${subSegId} for adapter segment ${segIdx} → group index ${segmentIndex}: "${segLabel}"`);
@@ -3443,12 +3451,12 @@ export const segmentationService = {
           (seg.segments as any)[idx] = {
             segmentIndex: idx,
             label: idx === 0 ? 'Background' : `Segment ${idx}`,
-            locked: false,
+            locked: idx !== 0,
             cachedStats: {},
             active: idx === activeIdx,
           };
         } else if (seg.segments[idx].locked === undefined) {
-          (seg.segments[idx] as any).locked = seg.segments[idx].locked ?? false;
+          (seg.segments[idx] as any).locked = idx !== 0;
           (seg.segments[idx] as any).cachedStats = seg.segments[idx].cachedStats ?? {};
           (seg.segments[idx] as any).active = seg.segments[idx].active ?? (idx === activeIdx);
         }

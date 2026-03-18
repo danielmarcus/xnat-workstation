@@ -58,19 +58,22 @@ type MockViewerState = {
   panelScanMap: Record<string, string>;
   panelXnatContextMap: Record<string, any>;
   xnatContext: any;
+  setActiveTool: ReturnType<typeof vi.fn>;
 };
 
 const mockViewerStore = vi.hoisted(() => {
+  const setActiveTool = vi.fn();
   const initial: MockViewerState = {
     layoutConfig: { panelCount: 1 },
     panelScanMap: {},
     panelXnatContextMap: {},
     xnatContext: null,
+    setActiveTool,
   };
   let state: MockViewerState = { ...initial };
   return {
     getInitialState: () => ({ ...initial }),
-    reset: () => { state = { ...initial }; },
+    reset: () => { setActiveTool.mockClear(); state = { ...initial }; },
     getState: () => state,
     setState: (next: Partial<MockViewerState>) => {
       state = { ...state, ...next };
@@ -265,13 +268,60 @@ describe('SegmentationManager', () => {
     expect(useSegmentationManagerStore.getState().presentation['seg-1']?.visibility[1]).toBe(false);
   });
 
-  it('toggles lock state and persists the post-toggle state from segmentation service', () => {
+  it('toggles lock state, persists state, and deactivates Cornerstone tool when locking active segment', () => {
     const manager = new SegmentationManager();
     segmentationServiceMock.getSegmentLocked.mockReturnValueOnce(true);
+
+    // Set up: seg-1 segment 3 is active with a brush tool selected
+    useSegmentationStore.setState({
+      ...useSegmentationStore.getState(),
+      activeSegmentationId: 'seg-1',
+      activeSegmentIndex: 3,
+      activeSegTool: 'Brush',
+    });
 
     manager.userToggledLock('seg-1', 3);
     expect(segmentationServiceMock.toggleSegmentLocked).toHaveBeenCalledWith('seg-1', 3);
     expect(useSegmentationManagerStore.getState().presentation['seg-1']?.locked[3]).toBe(true);
+    expect(mockViewerStore.getState().setActiveTool).toHaveBeenCalledWith('WindowLevel');
+  });
+
+  it('deactivates tool when selecting a locked segment', () => {
+    const manager = new SegmentationManager();
+    segmentationServiceMock.getSegmentLocked.mockReturnValue(true);
+    useSegmentationStore.setState({
+      ...useSegmentationStore.getState(),
+      activeSegTool: 'Brush',
+    });
+
+    manager.userSelectedSegmentation('panel_0', 'seg-1', 1);
+    expect(mockViewerStore.getState().setActiveTool).toHaveBeenCalledWith('WindowLevel');
+  });
+
+  it('deactivates labelmap tool when switching to a contour segmentation', () => {
+    const manager = new SegmentationManager();
+    segmentationServiceMock.getSegmentLocked.mockReturnValue(false);
+    useSegmentationStore.setState({
+      ...useSegmentationStore.getState(),
+      activeSegTool: 'Brush',
+      dicomTypeBySegmentationId: { 'rt-1': 'RTSTRUCT' },
+    });
+
+    manager.userSelectedSegmentation('panel_0', 'rt-1', 1);
+    expect(mockViewerStore.getState().setActiveTool).toHaveBeenCalledWith('WindowLevel');
+  });
+
+  it('deactivates contour tool when switching to a labelmap segmentation', () => {
+    const manager = new SegmentationManager();
+    segmentationServiceMock.getSegmentLocked.mockReturnValue(false);
+    useSegmentationStore.setState({
+      ...useSegmentationStore.getState(),
+      activeSegTool: 'FreehandContour',
+      dicomTypeBySegmentationId: { 'seg-1': 'SEG' },
+    });
+
+    manager.userSelectedSegmentation('panel_0', 'seg-1', 1);
+    expect(mockViewerStore.getState().setActiveTool).toHaveBeenCalledWith('WindowLevel');
   });
 
   it('creates new segmentations/structures and records local origins', async () => {

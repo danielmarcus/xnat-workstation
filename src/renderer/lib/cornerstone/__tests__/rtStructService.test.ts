@@ -97,6 +97,9 @@ vi.mock('@cornerstonejs/tools', () => ({
     triggerSegmentationEvents: {
       triggerSegmentationDataModified: rtStructMocks.triggerSegmentationDataModified,
     },
+    segmentLocking: {
+      setSegmentIndexLocked: vi.fn(),
+    },
   },
   annotation: {
     state: {
