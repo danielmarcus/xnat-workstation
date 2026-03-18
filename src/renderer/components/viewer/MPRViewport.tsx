@@ -66,6 +66,7 @@ export default function MPRViewport({ panelId, volumeId, plane }: MPRViewportPro
     if (!containerRef.current) return;
 
     let cancelled = false;
+    let disposeEvents: (() => void) | null = null;
     const element = containerRef.current;
 
     async function setup() {
@@ -91,7 +92,7 @@ export default function MPRViewport({ panelId, volumeId, plane }: MPRViewportPro
         if (cancelled) return;
 
         // Wire events
-        wireEvents(element, panelId);
+        disposeEvents = wireEvents(element, panelId);
 
         // Set the volume on this viewport
         await mprService.setVolume(panelId, volumeId);
@@ -139,6 +140,7 @@ export default function MPRViewport({ panelId, volumeId, plane }: MPRViewportPro
     return () => {
       cancelled = true;
       resizeObserver.disconnect();
+      disposeEvents?.();
 
       // Remove from tool group before destroying viewport
       mprToolService.removeViewport(panelId);
@@ -223,7 +225,7 @@ export default function MPRViewport({ panelId, volumeId, plane }: MPRViewportPro
 
 // ─── Event Wiring ──────────────────────────────────────────────
 
-function wireEvents(element: HTMLDivElement, panelId: string): void {
+function wireEvents(element: HTMLDivElement, panelId: string): () => void {
   const Events = Enums.Events;
 
   // VOI changed (user dragged W/L)
@@ -265,10 +267,12 @@ function wireEvents(element: HTMLDivElement, panelId: string): void {
     }
   }, { passive: false });
 
-  wireCrosshairPointerHandlers({
+  const disposeCrosshair = wireCrosshairPointerHandlers({
     element,
     panelId,
     isCrosshairActive: () => useViewerStore.getState().activeTool === ToolName.Crosshairs,
     onWorldPoint: (point) => crosshairSyncService.syncFromViewport(panelId, point),
   });
+
+  return disposeCrosshair;
 }
