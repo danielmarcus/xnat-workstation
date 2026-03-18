@@ -61,6 +61,10 @@ import ExistingSaveDialog, {
   type ExistingSaveDialogResult,
   type ExistingSaveDialogState,
 } from './segmentation/ExistingSaveDialog';
+import DeleteConfirmDialog, {
+  type DeleteConfirmDialogResult,
+  type DeleteConfirmDialogState,
+} from './segmentation/DeleteConfirmDialog';
 import NameEntryDialog from './segmentation/NameEntryDialog';
 import PanelToast from './segmentation/PanelToast';
 import SavingOverlay from './segmentation/SavingOverlay';
@@ -216,6 +220,8 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
   const sessionScans = useViewerStore((s) => s.sessionScans);
   const viewerSessionId = useViewerStore((s) => s.sessionId);
   const connectionStatus = useConnectionStore((s) => s.status);
+  const connectionInfo = useConnectionStore((s) => s.connection);
+  const deletionPrefs = usePreferencesStore((s) => s.preferences.deletion);
   const sourceSeriesUidByScanId = useSessionDerivedIndexStore((s) => s.sourceSeriesUidByScanId);
   const derivedRefSeriesUidByScanId = useSessionDerivedIndexStore((s) => s.derivedRefSeriesUidByScanId);
   const resolveAssociationsForSession = useSessionDerivedIndexStore((s) => s.resolveAssociationsForSession);
@@ -507,6 +513,8 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
   const saveMenuRef = useRef<HTMLDivElement>(null);
   const [existingSaveDialog, setExistingSaveDialog] = useState<ExistingSaveDialogState | null>(null);
   const existingSaveDialogResolverRef = useRef<((result: ExistingSaveDialogResult) => void) | null>(null);
+  const [deleteConfirmDialog, setDeleteConfirmDialog] = useState<DeleteConfirmDialogState | null>(null);
+  const deleteConfirmResolverRef = useRef<((result: DeleteConfirmDialogResult) => void) | null>(null);
 
   // Auto-dismiss toast
   useEffect(() => {
@@ -635,7 +643,10 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
     setSegmentNamingDialog(null);
   }, []);
 
-  const handleRemoveSegmentation = useCallback((segId: string) => {
+  // ─── Delete confirmation flow ──────────────────────────────────
+
+  /** Perform local-only removal of a segmentation and clean up UI state. */
+  const doLocalRemoval = useCallback((segId: string) => {
     segmentationManager.removeSegmentation(segId);
     setExpandedIds((prev) => {
       const next = new Set(prev);
@@ -643,6 +654,96 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
       return next;
     });
   }, []);
+
+  /** Resolve the delete-confirm dialog (callback passed to the dialog component). */
+  const resolveDeleteConfirmDialog = useCallback((result: DeleteConfirmDialogResult) => {
+    deleteConfirmResolverRef.current?.(result);
+    deleteConfirmResolverRef.current = null;
+    setDeleteConfirmDialog(null);
+  }, []);
+
+  /** Show the delete-confirm dialog and wait for the user's choice. */
+  const promptDeleteConfirm = useCallback(
+    (state: DeleteConfirmDialogState): Promise<DeleteConfirmDialogResult> => {
+      return new Promise<DeleteConfirmDialogResult>((resolve) => {
+        deleteConfirmResolverRef.current = resolve;
+        setDeleteConfirmDialog(state);
+      });
+    },
+    [],
+  );
+
+  /**
+   * Handle removing a segmentation. If it has an XNAT origin, show the
+   * delete-confirm dialog; otherwise remove locally immediately.
+   */
+  const handleRemoveSegmentation = useCallback(
+    async (segId: string) => {
+      const origin = useSegmentationStore.getState().xnatOriginMap[segId];
+
+      // Not saved to XNAT — just remove locally.
+      // origin.scanId is '' for locally-created annotations that haven't been uploaded yet.
+      if (!origin?.scanId) {
+        doLocalRemoval(segId);
+        return;
+      }
+
+      // Determine dicom type and label for the dialog
+      const seg = useSegmentationStore.getState().segmentations.find((s) => s.segmentationId === segId);
+      const dicomType = useSegmentationStore.getState().dicomTypeBySegmentationId[segId] ?? 'SEG';
+      const xnatHost = connectionInfo?.serverUrl ?? '';
+
+      const result = await promptDeleteConfirm({
+        segmentationId: segId,
+        segmentLabel: seg?.label ?? 'Annotation',
+        scanId: origin.scanId,
+        xnatHost,
+        dicomType,
+      });
+
+      if (result.action === 'cancel') return;
+
+      if (result.action === 'delete-from-xnat') {
+        try {
+          setSaving(true);
+          const trashResource = deletionPrefs.trashOnServerDelete
+            ? deletionPrefs.trashResourceName
+            : undefined;
+          const resp = await window.electronAPI.xnat.deleteScan(
+            origin.sessionId,
+            origin.scanId,
+            trashResource,
+          );
+          if (!resp.ok) {
+            setToast({ message: resp.error ?? 'Failed to delete from XNAT', type: 'error' });
+            return;
+          }
+
+          // Refresh session scan list so the deleted scan no longer appears
+          if (viewerSessionId) {
+            try {
+              const refreshedScans = await window.electronAPI.xnat.getScans(viewerSessionId);
+              setSessionData(viewerSessionId, refreshedScans);
+            } catch {
+              // Best-effort refresh
+            }
+          }
+
+          setToast({ message: `Scan #${origin.scanId} deleted from XNAT`, type: 'success' });
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          setToast({ message: msg, type: 'error' });
+          return;
+        } finally {
+          setSaving(false);
+        }
+      }
+
+      // Both "local-only" and "delete-from-xnat" remove locally
+      doLocalRemoval(segId);
+    },
+    [doLocalRemoval, promptDeleteConfirm, connectionInfo, deletionPrefs, viewerSessionId, setSessionData],
+  );
 
   const handleToggleExpand = useCallback((segId: string) => {
     setExpandedIds((prev) => {
@@ -1571,7 +1672,7 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
                                   segment.segmentIndex,
                                 );
                               }}
-                              className="text-zinc-500 hover:text-zinc-300 transition-colors p-0.5 shrink-0"
+                              className={`${segment.locked ? 'text-amber-400 hover:text-amber-300' : 'text-zinc-500 hover:text-zinc-300'} transition-colors p-0.5 shrink-0`}
                               title={segment.locked ? 'Unlock segment' : 'Lock segment'}
                             >
                               {segment.locked ? (
@@ -1585,6 +1686,14 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
+                                // If this is the last segment and the segmentation is saved to XNAT,
+                                // treat as a full segmentation delete (shows confirm dialog).
+                                const isLastSegment = seg.segments.length <= 1;
+                                const hasXnatOrigin = !!xnatOriginMap[seg.segmentationId];
+                                if (isLastSegment && hasXnatOrigin) {
+                                  void handleRemoveSegmentation(seg.segmentationId);
+                                  return;
+                                }
                                 const removedSelectedComponent =
                                   segmentationManager.removeSelectedContourComponents(
                                     seg.segmentationId,
@@ -1848,6 +1957,11 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
         state={existingSaveDialog}
         onStateChange={(updater) => setExistingSaveDialog((prev) => updater(prev))}
         onResolve={resolveExistingSaveDialog}
+      />
+
+      <DeleteConfirmDialog
+        state={deleteConfirmDialog}
+        onResolve={resolveDeleteConfirmDialog}
       />
 
       <NameEntryDialog

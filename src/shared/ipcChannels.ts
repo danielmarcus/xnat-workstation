@@ -38,6 +38,9 @@ export const IPC = {
   XNAT_OVERWRITE_DICOM_RTSTRUCT: 'xnat:overwrite-dicom-rtstruct',
   XNAT_PREPARE_DICOM_UPLOAD: 'xnat:prepare-dicom-upload',
 
+  // XNAT scan deletion (renderer → main)
+  XNAT_DELETE_SCAN: 'xnat:delete-scan',
+
   // XNAT temp resource (auto-save, renderer → main)
   XNAT_AUTOSAVE_TEMP: 'xnat:autosave-temp',
   XNAT_LIST_TEMP_FILES: 'xnat:list-temp-files',

@@ -106,6 +106,12 @@ export class SafePaintFillTool extends PaintFillTool {
       const { segmentationId } = activeSegmentationRepresentation;
       const activeSegmentIndex = csSegmentation.segmentIndex.getActiveSegmentIndex(segmentationId);
       if (!activeSegmentIndex || activeSegmentIndex <= 0) return true;
+
+      // Block paint fill if the active segment is locked
+      if (csSegmentation.segmentLocking.isSegmentIndexLocked(segmentationId, activeSegmentIndex)) {
+        return true; // consume event, do nothing
+      }
+
       this.doneEditMemo();
 
       const segmentsLocked = csSegmentation.segmentLocking.getLockedSegmentIndices(segmentationId);

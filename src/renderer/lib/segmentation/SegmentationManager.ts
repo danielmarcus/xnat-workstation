@@ -721,11 +721,6 @@ export class SegmentationManager {
    */
   userToggledLock(segmentationId: string, segmentIndex: number): void {
     segmentationService.toggleSegmentLocked(segmentationId, segmentIndex);
-
-    // Read the actual post-toggle lock state from Cornerstone rather than
-    // inferring from the cache (which can be uninitialized or out of sync).
-    const newLocked = segmentationService.getSegmentLocked(segmentationId, segmentIndex);
-    useSegmentationManagerStore.getState().setPresentation(segmentationId, segmentIndex, { locked: newLocked });
   }
 
   /**

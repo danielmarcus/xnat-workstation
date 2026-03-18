@@ -97,6 +97,20 @@ export const DEFAULT_BACKUP_PREFERENCES: BackupPreferences = {
   intervalSeconds: 10,
 };
 
+// ─── Deletion Preferences ───────────────────────────────────────
+
+export interface DeletionPreferences {
+  /** When deleting from XNAT, copy the DICOM file to a session resource first */
+  trashOnServerDelete: boolean;
+  /** Session resource name used for trashed files (e.g. 'trash') */
+  trashResourceName: string;
+}
+
+export const DEFAULT_DELETION_PREFERENCES: DeletionPreferences = {
+  trashOnServerDelete: false,
+  trashResourceName: 'trash',
+};
+
 // ─── Top-level Preferences ──────────────────────────────────────
 
 export interface PreferencesV1 {
@@ -107,6 +121,7 @@ export interface PreferencesV1 {
   annotation: AnnotationToolPreferences;
   interpolation: InterpolationPreferences;
   backup: BackupPreferences;
+  deletion: DeletionPreferences;
 }
 
 export const DEFAULT_OVERLAY_CORNERS: Record<OverlayCornerId, OverlayFieldKey[]> = {
@@ -177,4 +192,5 @@ export const DEFAULT_PREFERENCES: PreferencesV1 = {
   },
   interpolation: { ...DEFAULT_INTERPOLATION_PREFERENCES },
   backup: { ...DEFAULT_BACKUP_PREFERENCES },
+  deletion: { ...DEFAULT_DELETION_PREFERENCES },
 };

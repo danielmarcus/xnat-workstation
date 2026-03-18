@@ -126,6 +126,32 @@ let scissorShiftPressed = false;
 let modifierListenersInstalled = false;
 const SCISSOR_TOOL_PATCH_FLAG = '__xnatScissorToolPatched';
 
+// ─── Segment lock guard ────────────────────────────────────────
+// Prevents segmentation tools from receiving pointer events when the active
+// segment is locked.  Installed as a capturing pointerdown listener on each
+// viewport element so it fires before Cornerstone's own handlers.
+const lockGuardInstalled = new WeakSet<Element>();
+
+/** Tools that read but don't modify segment data — exempt from lock guard. */
+const LOCK_EXEMPT_TOOLS = new Set<ToolName>([
+  ToolName.SegmentSelect,
+  ToolName.SegmentBidirectional,
+]);
+
+function installLockGuard(element: Element | null): void {
+  if (!element || lockGuardInstalled.has(element)) return;
+  lockGuardInstalled.add(element);
+  element.addEventListener('pointerdown', ((e: PointerEvent) => {
+    if (!SEGMENTATION_TOOLS.has(currentActiveTool)) return;
+    if (LOCK_EXEMPT_TOOLS.has(currentActiveTool)) return;
+    if (segmentationService.isActiveSegmentLocked()) {
+      e.stopImmediatePropagation();
+      e.preventDefault();
+      console.debug('[toolService] Blocked pointer event — active segment is locked');
+    }
+  }) as EventListener, true); // capturing phase
+}
+
 type ScissorStrategyName = 'FILL_INSIDE' | 'ERASE_INSIDE';
 type ScissorToolName =
   | ToolName.CircleScissors
@@ -460,9 +486,14 @@ function rebuildToolGroup(primaryTool: ToolName): ToolTypes.IToolGroup | undefin
     usePreferencesStore.getState().preferences.interpolation.enabled,
   );
 
-  // Re-add viewports
+  // Re-add viewports and install lock guards
+  const engine = getRenderingEngine(viewportService.ENGINE_ID);
   for (const vpId of viewportIds) {
     toolGroup.addViewport(vpId, viewportService.ENGINE_ID);
+    try {
+      const vp = engine?.getViewport(vpId);
+      if (vp) installLockGuard(vp.element);
+    } catch { /* ok */ }
   }
 
   // Restore the brush size from the store — addAllTools creates fresh tool
@@ -719,6 +750,14 @@ export const toolService = {
     }
     toolGroup.addViewport(viewportId, viewportService.ENGINE_ID);
     syncPrimaryToolCursor(toolGroup, currentActiveTool);
+
+    // Install lock guard on the viewport's DOM element so pointer events
+    // are blocked when the active segment is locked.
+    try {
+      const engine = getRenderingEngine(viewportService.ENGINE_ID);
+      const vp = engine?.getViewport(viewportId);
+      if (vp) installLockGuard(vp.element);
+    } catch { /* viewport may not be rendered yet — guard installed lazily */ }
 
     // Sync the store's brush size to Cornerstone3D now that the tool group
     // has at least one viewport — setBrushSizeForToolGroup is a no-op when

@@ -289,6 +289,27 @@ export function registerUploadHandlers(): void {
     },
   );
 
+  // ─── Delete scan from XNAT session ─────────────────────────────
+  ipcMain.handle(
+    IPC.XNAT_DELETE_SCAN,
+    async (_event, sessionId: string, scanId: string, trashResourceName?: string) => {
+      const client = sessionManager.getClient();
+      if (!client) {
+        return { ok: false, error: 'Not connected to XNAT' };
+      }
+
+      try {
+        await client.deleteScan(sessionId, scanId, trashResourceName);
+        return { ok: true };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error('[uploadHandlers] Delete scan failed:', msg);
+        sessionManager.handleAuthFailure(err);
+        return { ok: false, error: msg };
+      }
+    },
+  );
+
   // ─── Download temp resource file ───────────────────────────────
   ipcMain.handle(
     IPC.XNAT_DOWNLOAD_TEMP_FILE,
