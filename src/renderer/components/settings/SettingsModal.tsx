@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { HotkeyAction, HotkeyBinding, HotkeyModifiers } from '@shared/types/hotkeys';
-import type { OverlayCornerId, OverlayFieldKey, InterpolationAlgorithm } from '@shared/types/preferences';
+import type {
+  OverlayCornerId,
+  OverlayFieldKey,
+  InterpolationAlgorithm,
+  ScissorStrategyMode,
+} from '@shared/types/preferences';
 import {
   INTERPOLATION_ALGORITHM_LABELS,
   INTERPOLATION_ALGORITHM_DESCRIPTIONS,
@@ -180,6 +185,9 @@ export default function SettingsModal({ open, onClose, onRecover, initialTab }: 
   const setAnnotationAutoDisplay = usePreferencesStore((s) => s.setAnnotationAutoDisplay);
   const setAnnotationSegmentOpacity = usePreferencesStore((s) => s.setAnnotationSegmentOpacity);
   const setAnnotationColorSequence = usePreferencesStore((s) => s.setAnnotationColorSequence);
+  const setScissorDefaultStrategy = usePreferencesStore((s) => s.setScissorDefaultStrategy);
+  const setScissorPreviewEnabled = usePreferencesStore((s) => s.setScissorPreviewEnabled);
+  const setScissorPreviewColor = usePreferencesStore((s) => s.setScissorPreviewColor);
   const setInterpolationEnabled = usePreferencesStore((s) => s.setInterpolationEnabled);
   const setInterpolationAlgorithm = usePreferencesStore((s) => s.setInterpolationAlgorithm);
   const setLinearThreshold = usePreferencesStore((s) => s.setLinearThreshold);
@@ -725,6 +733,54 @@ export default function SettingsModal({ open, onClose, onRecover, initialTab }: 
                       Apply Sequence
                     </button>
                   </div>
+                </div>
+
+                <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-4 space-y-3">
+                  <div className="text-xs text-zinc-300">Scissors</div>
+                  <label className="space-y-1 block">
+                    <span className="text-[11px] text-zinc-500">Default scissors mode</span>
+                    <select
+                      aria-label="Default scissors mode"
+                      value={annotationPrefs.scissors.defaultStrategy}
+                      onChange={(e) =>
+                        setScissorDefaultStrategy(e.target.value as ScissorStrategyMode)
+                      }
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-xs text-zinc-200"
+                    >
+                      <option value="erase">Erase inside</option>
+                      <option value="fill">Fill inside</option>
+                    </select>
+                  </label>
+
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={annotationPrefs.scissors.previewEnabled}
+                      onChange={(e) => setScissorPreviewEnabled(e.target.checked)}
+                      className="w-3.5 h-3.5 rounded border-zinc-600 bg-zinc-800 accent-blue-500"
+                    />
+                    <span className="text-xs text-zinc-300">Enable scissors preview</span>
+                  </label>
+
+                  <label className="space-y-1 block">
+                    <span className="text-[11px] text-zinc-500">Preview color</span>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="color"
+                        aria-label="Preview color"
+                        value={annotationPrefs.scissors.previewColor}
+                        onChange={(e) => setScissorPreviewColor(e.target.value)}
+                        className="h-8 w-12 rounded border border-zinc-700 bg-zinc-800"
+                      />
+                      <div className="text-[11px] text-zinc-400 font-mono">
+                        {annotationPrefs.scissors.previewColor}
+                      </div>
+                    </div>
+                  </label>
+
+                  <p className="text-[11px] text-zinc-500">
+                    Hold Shift while using a scissors tool to temporarily toggle to the alternate mode.
+                  </p>
                 </div>
               </>
             )}

@@ -78,6 +78,8 @@ describe('ViewportGrid', () => {
     expect(screen.getByTestId('cs-panel_0')).toBeInTheDocument();
     expect(screen.getByTestId('cs-panel_1')).toBeInTheDocument();
     expect(container.firstChild).toHaveClass('crosshair-mode');
+    expect(container.querySelector('[data-panel-id="panel_0"]')).not.toHaveClass('cursor-pointer');
+    expect(container.querySelector('[data-panel-id="panel_1"]')).not.toHaveClass('cursor-pointer');
 
     fireEvent.click(container.querySelector('[data-panel-id="panel_1"]') as HTMLElement);
     expect(setActiveViewport).toHaveBeenCalledWith('panel_1');

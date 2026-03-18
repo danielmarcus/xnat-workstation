@@ -83,6 +83,8 @@ describe('MPRViewportGrid', () => {
     expect(screen.getByTestId('stack-viewport-mpr_stack')).toBeInTheDocument();
     expect(screen.getByTestId('overlay-mpr_stack')).toBeInTheDocument();
     expect(screen.getByTestId('scroll-slider-mpr_stack')).toBeInTheDocument();
+    expect(container.querySelector('[data-panel-id="mpr_panel_0"]')).not.toHaveClass('cursor-pointer');
+    expect(container.querySelector('[data-panel-id="mpr_stack"]')).not.toHaveClass('cursor-pointer');
   });
 
   it('updates active viewport id on panel clicks', () => {

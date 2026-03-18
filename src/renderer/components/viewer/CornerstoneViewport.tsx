@@ -39,17 +39,6 @@ export default function CornerstoneViewport({ panelId, imageIds }: CornerstoneVi
   const requestedImageIndex = useViewerStore((s) => s.viewports[panelId]?.requestedImageIndex ?? null);
   const cursorClass = activeTool === ToolName.Crosshairs ? 'cursor-crosshair' : '';
 
-  useEffect(() => {
-    const element = containerRef.current;
-    if (!element) return;
-    const cursor = activeTool === ToolName.Crosshairs ? 'crosshair' : '';
-    element.style.cursor = cursor;
-    const canvas = element.querySelector('canvas') as HTMLCanvasElement | null;
-    if (canvas) {
-      canvas.style.cursor = cursor;
-    }
-  }, [activeTool]);
-
   // ─── Setup / Teardown ──────────────────────────────────────
   useEffect(() => {
     if (!containerRef.current || imageIds.length === 0) return;
