@@ -40,7 +40,7 @@ export interface ElectronAPI {
     getScanFiles(
       sessionId: string,
       scanId: string,
-    ): Promise<{ ok: boolean; files: string[]; serverUrl?: string; error?: string }>;
+    ): Promise<{ ok: boolean; files: Array<{ uri: string; instanceNumber?: number }>; serverUrl?: string; error?: string }>;
     getProjectSessions(
       projectId: string,
     ): Promise<Array<{ subjectId: string; modality: string }>>;

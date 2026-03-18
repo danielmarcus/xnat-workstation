@@ -17,12 +17,6 @@ const TAG_SOP_INSTANCE_UID = '00080018';
 const TAG_INSTANCE_NUMBER = '00200013';
 type Vec3 = [number, number, number];
 
-type ScanImageIdOrder = 'filename' | 'dicomMetadata';
-
-interface GetScanImageIdsOptions {
-  order?: ScanImageIdOrder;
-}
-
 interface ScanImageIdsCacheEntry {
   imageIds: string[];
 }
@@ -177,12 +171,8 @@ function compareNullableNumbers(a: number | null, b: number | null): number {
   return a - b;
 }
 
-function scanCacheKey(
-  sessionId: string,
-  scanId: string,
-  order: ScanImageIdOrder | undefined,
-): string {
-  return `${sessionId}|${scanId}|${order ?? 'filename'}`;
+function scanCacheKey(sessionId: string, scanId: string): string {
+  return `${sessionId}|${scanId}`;
 }
 
 const scanImageIdsCache = new Map<string, ScanImageIdsCacheEntry>();
@@ -320,11 +310,12 @@ export const dicomwebLoader = {
   },
 
   /**
-   * Fetch DICOM file URIs for a scan via XNAT REST API, then build wadouri:
+   * Fetch DICOM file entries for a scan via XNAT REST API, then build wadouri:
    * image IDs pointing directly to each file on the XNAT server.
    *
-   * This is used by the XNAT browser (scan-level loading) — it doesn't need
-   * QIDO-RS because XNAT provides the file list directly via REST.
+   * Ordering: uses InstanceNumber from the XNAT catalog XML when available
+   * (single lightweight HTTP request). Falls back to filename alphanumeric
+   * sort only when InstanceNumber is entirely absent.
    *
    * @param sessionId - XNAT experiment/session ID (e.g. "XNAT_E00001")
    * @param scanId - Scan number within the session (e.g. "1")
@@ -332,10 +323,8 @@ export const dicomwebLoader = {
   async getScanImageIds(
     sessionId: string,
     scanId: string,
-    options: GetScanImageIdsOptions = {},
   ): Promise<string[]> {
-    const order = options.order;
-    const key = scanCacheKey(sessionId, scanId, order);
+    const key = scanCacheKey(sessionId, scanId);
 
     const cached = scanImageIdsCache.get(key);
     if (cached) {
@@ -361,34 +350,35 @@ export const dicomwebLoader = {
 
       const baseUrl = result.serverUrl.replace(/\/+$/, '');
 
-      // Build wadouri: image IDs — each file URI is a path like
-      // /data/experiments/.../scans/.../resources/DICOM/files/xxx.dcm
-      // The webRequest interceptor will inject auth headers automatically.
-      const imageIds = result.files.map(
-        (uri) => `wadouri:${baseUrl}${uri}`,
-      );
+      // Build enriched entries with wadouri imageIds.
+      const entries = result.files.map((f) => ({
+        imageId: `wadouri:${baseUrl}${f.uri}`,
+        instanceNumber: f.instanceNumber,
+      }));
 
-      // Always apply deterministic filename ordering first.
-      imageIds.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-
-      let finalIds = imageIds;
-      if (order === 'dicomMetadata' && imageIds.length > 1) {
-        try {
-          finalIds = await sortImageIdsByDicomMetadata(
-            imageIds,
-            `scan ${sessionId}/${scanId}`,
-          );
-        } catch (err) {
-          console.warn(
-            `[dicomwebLoader] Metadata ordering failed for scan ${sessionId}/${scanId}; using filename order`,
-            err,
-          );
-          finalIds = imageIds;
-        }
+      // Sort by InstanceNumber when available (from XNAT catalog XML),
+      // with filename as tiebreaker. Fall back to pure filename sort
+      // only when InstanceNumber is entirely absent.
+      const hasInstanceNumbers = entries.some((e) => e.instanceNumber != null);
+      if (hasInstanceNumbers) {
+        entries.sort((a, b) => {
+          const instA = a.instanceNumber ?? Number.MAX_SAFE_INTEGER;
+          const instB = b.instanceNumber ?? Number.MAX_SAFE_INTEGER;
+          if (instA !== instB) return instA - instB;
+          return a.imageId.localeCompare(b.imageId, undefined, { numeric: true });
+        });
+        console.log(
+          `[dicomwebLoader] Ordered ${entries.length} images by InstanceNumber for scan ${sessionId}/${scanId}`,
+        );
+      } else {
+        entries.sort((a, b) => a.imageId.localeCompare(b.imageId, undefined, { numeric: true }));
+        console.log(
+          `[dicomwebLoader] Ordered ${entries.length} images by filename for scan ${sessionId}/${scanId} (no InstanceNumber available)`,
+        );
       }
 
+      const finalIds = entries.map((e) => e.imageId);
       scanImageIdsCache.set(key, { imageIds: [...finalIds] });
-      console.log(`[dicomwebLoader] Built ${finalIds.length} imageIds for scan ${sessionId}/${scanId}`);
       return finalIds;
     })();
 

@@ -48,6 +48,11 @@ function makeJsonResponse(body: unknown, status = 200): Response {
   });
 }
 
+/** Mock a 404 for the catalog XML endpoint (getScanCatalogEntries fallback). */
+function mockCatalog404(): void {
+  mocks.fetch.mockResolvedValueOnce(new Response('Not Found', { status: 404 }));
+}
+
 describe('XnatClient', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -152,6 +157,7 @@ describe('XnatClient', () => {
       csrfToken: null,
     });
 
+    mockCatalog404(); // catalog endpoint returns 404, falls back to /files
     mocks.fetch.mockResolvedValueOnce(
       makeJsonResponse({
         ResultSet: {
@@ -165,9 +171,9 @@ describe('XnatClient', () => {
         },
       }),
     );
-    const uris = await client.getScanFiles('XNAT_E001', '11');
+    const entries = await client.getScanFiles('XNAT_E001', '11');
 
-    expect(uris).toEqual(['/a', '/c', '/d']);
+    expect(entries).toEqual([{ uri: '/a' }, { uri: '/c' }, { uri: '/d' }]);
     expect(mocks.fetch).toHaveBeenCalledWith(
       expect.stringContaining('/data/experiments/XNAT_E001/scans/11/files?format=json'),
       expect.any(Object),
@@ -183,6 +189,7 @@ describe('XnatClient', () => {
       csrfToken: null,
     });
 
+    mockCatalog404(); // catalog endpoint returns 404, falls back to /files
     mocks.fetch
       .mockResolvedValueOnce(
         makeJsonResponse({
@@ -201,13 +208,14 @@ describe('XnatClient', () => {
     expect(Buffer.isBuffer(buffer)).toBe(true);
     expect(buffer.toString('ascii', 128, 132)).toBe('DICM');
     expect(buffer.length).toBe(132 + 6);
+    // Call 1: catalog 404, call 2: /files, call 3: /bad, call 4: /good
     expect(mocks.fetch).toHaveBeenNthCalledWith(
-      2,
+      3,
       'https://xnat.example/bad',
       expect.any(Object),
     );
     expect(mocks.fetch).toHaveBeenNthCalledWith(
-      3,
+      4,
       'https://xnat.example/good',
       expect.any(Object),
     );
@@ -230,6 +238,7 @@ describe('XnatClient', () => {
           },
         }),
       )
+      .mockResolvedValueOnce(new Response('Not Found', { status: 404 })) // catalog 404
       .mockResolvedValueOnce(
         makeJsonResponse({
           ResultSet: {

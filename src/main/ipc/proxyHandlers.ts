@@ -137,8 +137,8 @@ export function registerProxyHandlers(): void {
       const client = sessionManager.getClient();
       if (!client) return { ok: false, error: 'Not connected', files: [] };
       try {
-        const uris = await client.getScanFiles(sessionId, scanId);
-        return { ok: true, files: uris, serverUrl: client.serverUrl };
+        const entries = await client.getScanFiles(sessionId, scanId);
+        return { ok: true, files: entries, serverUrl: client.serverUrl };
       } catch (err) {
         console.error('[proxy] getScanFiles error:', err);
         sessionManager.handleAuthFailure(err);

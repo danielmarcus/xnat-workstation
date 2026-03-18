@@ -42,7 +42,7 @@ function setElectronApi(partial?: Partial<Window['electronAPI']['xnat']>): void 
       electronAPI: {
         xnat: {
           dicomwebFetch: vi.fn(async () => ({ ok: true, status: 200, data: [] })),
-          getScanFiles: vi.fn(async () => ({ ok: true, files: [], serverUrl: 'https://xnat.example' })),
+          getScanFiles: vi.fn(async () => ({ ok: true, files: [] as Array<{ uri: string; instanceNumber?: number }>, serverUrl: 'https://xnat.example' })),
           ...partial,
         },
       },
@@ -109,10 +109,14 @@ describe('dicomwebLoader', () => {
     const getScanFiles = vi.fn(async () => ({
       ok: true,
       serverUrl: 'https://xnat.example/',
-      files: ['/c/10.dcm', '/c/2.dcm'],
+      files: [
+        { uri: '/c/10.dcm' },
+        { uri: '/c/2.dcm' },
+      ],
     }));
     setElectronApi({ getScanFiles });
 
+    // Without instanceNumber, falls back to filename sort
     const first = await dicomwebLoader.getScanImageIds('sess-1', '11');
     expect(first).toEqual([
       'wadouri:https://xnat.example/c/2.dcm',
@@ -128,46 +132,63 @@ describe('dicomwebLoader', () => {
     expect(getScanFiles).toHaveBeenCalledTimes(2);
   });
 
-  it('orders scan image ids by DICOM metadata when requested and falls back on ordering errors', async () => {
+  it('orders scan image ids by InstanceNumber from catalog when available', async () => {
     setElectronApi({
       getScanFiles: vi.fn(async () => ({
         ok: true,
         serverUrl: 'https://xnat.example',
-        files: ['/scan/img-b.dcm', '/scan/img-a.dcm'],
+        files: [
+          { uri: '/scan/img-b.dcm', instanceNumber: 2 },
+          { uri: '/scan/img-a.dcm', instanceNumber: 1 },
+        ],
       })),
     });
 
-    const idA = 'wadouri:https://xnat.example/scan/img-a.dcm';
-    const idB = 'wadouri:https://xnat.example/scan/img-b.dcm';
-    dicomwebMocks.metadataMap.set(`imagePlaneModule|${idA}`, {
-      imagePositionPatient: [0, 0, 10],
-      rowCosines: [1, 0, 0],
-      columnCosines: [0, 1, 0],
-    });
-    dicomwebMocks.metadataMap.set(`imagePlaneModule|${idB}`, {
-      imagePositionPatient: [0, 0, 0],
-      rowCosines: [1, 0, 0],
-      columnCosines: [0, 1, 0],
-    });
-    dicomwebMocks.metadataMap.set(`generalImageModule|${idA}`, { instanceNumber: 2 });
-    dicomwebMocks.metadataMap.set(`generalImageModule|${idB}`, { instanceNumber: 1 });
+    const ordered = await dicomwebLoader.getScanImageIds('sess-2', '22');
+    expect(ordered).toEqual([
+      'wadouri:https://xnat.example/scan/img-a.dcm',
+      'wadouri:https://xnat.example/scan/img-b.dcm',
+    ]);
+  });
 
-    const ordered = await dicomwebLoader.getScanImageIds('sess-2', '22', { order: 'dicomMetadata' });
-    expect(ordered).toEqual([idB, idA]);
-
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    dicomwebLoader.clearScanImageIdsCache('sess-2');
-    dicomwebMocks.metaDataGet.mockImplementation(() => {
-      throw new Error('metadata failed');
+  it('falls back to filename sort when instanceNumber is absent from all entries', async () => {
+    setElectronApi({
+      getScanFiles: vi.fn(async () => ({
+        ok: true,
+        serverUrl: 'https://xnat.example',
+        files: [
+          { uri: '/scan/img-b.dcm' },
+          { uri: '/scan/img-a.dcm' },
+        ],
+      })),
     });
 
-    const fallback = await dicomwebLoader.getScanImageIds('sess-2', '22', { order: 'dicomMetadata' });
-    expect(fallback).toEqual([idA, idB]);
-    expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining('Metadata ordering failed for scan sess-2/22; using filename order'),
-      expect.any(Error),
-    );
-    warnSpy.mockRestore();
+    const ordered = await dicomwebLoader.getScanImageIds('sess-2b', '22');
+    expect(ordered).toEqual([
+      'wadouri:https://xnat.example/scan/img-a.dcm',
+      'wadouri:https://xnat.example/scan/img-b.dcm',
+    ]);
+  });
+
+  it('sorts entries without instanceNumber to the end when some have it', async () => {
+    setElectronApi({
+      getScanFiles: vi.fn(async () => ({
+        ok: true,
+        serverUrl: 'https://xnat.example',
+        files: [
+          { uri: '/scan/c.dcm' },
+          { uri: '/scan/a.dcm', instanceNumber: 2 },
+          { uri: '/scan/b.dcm', instanceNumber: 1 },
+        ],
+      })),
+    });
+
+    const ordered = await dicomwebLoader.getScanImageIds('sess-2c', '22');
+    expect(ordered).toEqual([
+      'wadouri:https://xnat.example/scan/b.dcm',
+      'wadouri:https://xnat.example/scan/a.dcm',
+      'wadouri:https://xnat.example/scan/c.dcm',
+    ]);
   });
 
   it('orders arbitrary image ids by metadata and returns identity for trivial inputs', async () => {
@@ -194,12 +215,13 @@ describe('dicomwebLoader', () => {
 
   it('throws clear scan-file errors for failed lookups and empty scans', async () => {
     setElectronApi({
-      getScanFiles: vi.fn(async () => ({ ok: false, error: 'not connected' })),
+      getScanFiles: vi.fn(async () => ({ ok: false, error: 'not connected', files: [] })),
     });
     await expect(dicomwebLoader.getScanImageIds('sess-3', '33')).rejects.toThrow(
       'Failed to get scan files: not connected',
     );
 
+    dicomwebLoader.clearScanImageIdsCache();
     setElectronApi({
       getScanFiles: vi.fn(async () => ({ ok: true, serverUrl: 'https://xnat.example', files: [] })),
     });

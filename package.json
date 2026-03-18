@@ -28,6 +28,7 @@
     "@cornerstonejs/dicom-image-loader": "^4.16.1",
     "@cornerstonejs/polymorphic-segmentation": "^4.16.1",
     "@cornerstonejs/tools": "^4.16.1",
+    "@xmldom/xmldom": "^0.8.11",
     "dicom-parser": "^1.8.21",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",

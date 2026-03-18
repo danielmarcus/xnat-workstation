@@ -501,7 +501,6 @@ describe('App', () => {
       expect(mocks.dicomwebLoader.getScanImageIds).toHaveBeenCalledWith(
         'S1',
         '11',
-        expect.any(Object),
       );
     });
     expect(useViewerStore.getState().activeViewportId).toBe('panel_1');

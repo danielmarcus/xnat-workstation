@@ -286,7 +286,7 @@ describe('XnatBrowser', () => {
     await user.click(await screen.findByText('Session-1'));
 
     await waitFor(() => {
-      expect(mocks.getScanImageIds).toHaveBeenCalledWith('SESS1', '11', { order: 'dicomMetadata' });
+      expect(mocks.getScanImageIds).toHaveBeenCalledWith('SESS1', '11');
       expect(mocks.loadAndCacheImage).toHaveBeenCalled();
     });
 

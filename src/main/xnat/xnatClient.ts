@@ -13,6 +13,7 @@
  */
 import { session as electronSession } from 'electron';
 import { data as dcmjsData } from 'dcmjs';
+import { DOMParser } from '@xmldom/xmldom';
 import type { ServerCookie } from './browserLogin';
 
 /** Typed auth error so callers can detect auth failures without string matching. */
@@ -495,13 +496,14 @@ export class XnatClient {
     }
 
     try {
-      let fileUris = await this.getScanFiles(sessionId, scanId);
-      if (fileUris.length === 0) {
-        fileUris = await this.getScanFilesFromAllResources(sessionId, scanId);
+      let fileEntries = await this.getScanFiles(sessionId, scanId);
+      if (fileEntries.length === 0) {
+        const legacyUris = await this.getScanFilesFromAllResources(sessionId, scanId);
+        fileEntries = legacyUris.map((uri) => ({ uri }));
       }
       // SOPClassUID is series-level; sampling the first 1-2 files is typically sufficient.
-      const candidateUris = fileUris.slice(0, 2);
-      for (const uri of candidateUris) {
+      const candidateUris = fileEntries.slice(0, 2);
+      for (const { uri } of candidateUris) {
         try {
           const response = await this.authenticatedFetch(uri);
           const arrayBuffer = await response.arrayBuffer();
@@ -563,10 +565,81 @@ export class XnatClient {
   }
 
   /**
-   * Get DICOM file URIs for a scan.
-   * Returns paths relative to the XNAT base URL that can be used as wadouri: sources.
+   * Fetch the DICOM catalog XML for a scan's DICOM resource.
+   * Returns structured entries with URI and instanceNumber — a single
+   * lightweight HTTP request, no DICOM file downloads required.
+   * Returns an empty array if the catalog endpoint is unavailable.
    */
-  async getScanFiles(sessionId: string, scanId: string): Promise<string[]> {
+  async getScanCatalogEntries(
+    sessionId: string,
+    scanId: string,
+  ): Promise<Array<{ uri: string; instanceNumber?: number; uid?: string }>> {
+    const endpoint = `/data/experiments/${encodeURIComponent(sessionId)}/scans/${encodeURIComponent(scanId)}/resources/DICOM`;
+    try {
+      const response = await this.authenticatedFetch(endpoint, {
+        headers: { Accept: 'text/xml' },
+      });
+      const xml = await response.text();
+      const doc = new DOMParser().parseFromString(xml, 'text/xml');
+
+      const entries: Array<{ uri: string; instanceNumber?: number; uid?: string }> = [];
+      // getElementsByTagName with namespace prefix may not work in all parsers;
+      // iterate all elements and match by local name.
+      const allElements = doc.getElementsByTagName('*');
+      for (let i = 0; i < allElements.length; i++) {
+        const el = allElements[i];
+        if (el.localName !== 'entry') continue;
+        const format = el.getAttribute('format') ?? '';
+        if (format.toUpperCase() !== 'DICOM') continue;
+        const uri = el.getAttribute('URI');
+        if (!uri) continue;
+
+        const instStr = el.getAttribute('instanceNumber');
+        const instNum = instStr != null ? Number(instStr) : undefined;
+
+        entries.push({
+          uri,
+          instanceNumber: instNum != null && Number.isFinite(instNum) ? instNum : undefined,
+          uid: el.getAttribute('UID') ?? undefined,
+        });
+      }
+
+      console.log(`[xnatClient] getScanCatalogEntries: ${entries.length} DICOM entries from catalog for scan ${scanId}`);
+      return entries;
+    } catch (err) {
+      // Catalog endpoint may not be available on older XNAT installations.
+      console.warn(`[xnatClient] getScanCatalogEntries failed for scan ${scanId}:`, err instanceof Error ? err.message : err);
+      return [];
+    }
+  }
+
+  /**
+   * Get DICOM file entries for a scan.
+   * Prefers the catalog XML endpoint (includes instanceNumber without downloading files).
+   * Falls back to the /files REST endpoint if the catalog is unavailable.
+   */
+  async getScanFiles(
+    sessionId: string,
+    scanId: string,
+  ): Promise<Array<{ uri: string; instanceNumber?: number }>> {
+    // Try catalog endpoint first — lightweight, includes instanceNumber.
+    const catalogEntries = await this.getScanCatalogEntries(sessionId, scanId);
+    if (catalogEntries.length > 0) {
+      const filesPath = `/data/experiments/${encodeURIComponent(sessionId)}/scans/${encodeURIComponent(scanId)}/resources/DICOM/files/`;
+      return catalogEntries.map((e) => ({
+        uri: `${filesPath}${e.uri}`,
+        instanceNumber: e.instanceNumber,
+      }));
+    }
+
+    // Fallback to /files endpoint (no instanceNumber available).
+    return this._getScanFilesLegacy(sessionId, scanId);
+  }
+
+  /**
+   * Legacy file listing via /files endpoint. Returns URIs without instanceNumber.
+   */
+  private async _getScanFilesLegacy(sessionId: string, scanId: string): Promise<Array<{ uri: string; instanceNumber?: number }>> {
     const endpoint = `/data/experiments/${encodeURIComponent(sessionId)}/scans/${encodeURIComponent(scanId)}/files`;
     console.log(`[xnatClient] getScanFiles: ${endpoint}`);
 
@@ -591,12 +664,8 @@ export class XnatClient {
 
     console.log(`[xnatClient] getScanFiles: ${dicomFiles.length} DICOM files after filtering`);
 
-    // Return the URI paths — these are relative to the XNAT base URL
-    const uris = dicomFiles.map((f: any) => f.URI as string);
-    if (uris.length > 0) {
-      console.log('[xnatClient] getScanFiles: first URI:', uris[0]);
-    }
-    return uris;
+    // Return entries without instanceNumber (not available from /files endpoint).
+    return dicomFiles.map((f: any) => ({ uri: f.URI as string }));
   }
 
   // ─── Download ─────────────────────────────────────────────────
@@ -606,13 +675,13 @@ export class XnatClient {
    * Returns the first file as a Buffer (SEG scans typically have one file).
    */
   async downloadScanFile(sessionId: string, scanId: string): Promise<Buffer> {
-    const fileUris = await this.getScanFiles(sessionId, scanId);
-    if (fileUris.length === 0) {
+    const fileEntries = await this.getScanFiles(sessionId, scanId);
+    if (fileEntries.length === 0) {
       throw new Error(`No DICOM files found in scan ${scanId}`);
     }
 
     let lastReason = '';
-    for (const uri of fileUris) {
+    for (const { uri } of fileEntries) {
       console.log(`[xnatClient] Downloading scan file: ${uri}`);
       const response = await this.authenticatedFetch(uri);
       const rawBuffer = Buffer.from(await response.arrayBuffer());

@@ -1281,9 +1281,7 @@ export default function App() {
     let targetPanel = useViewerStore.getState().activeViewportId;
     const ensureSourceScanOnPanel = async (panelId: string, sourceScanId: string): Promise<string[]> => {
       segmentationManager.removeSegmentationsFromViewport(panelId);
-      const ids = await dicomwebLoader.getScanImageIds(sessionId, sourceScanId, {
-        order: 'filename',
-      });
+      const ids = await dicomwebLoader.getScanImageIds(sessionId, sourceScanId);
       setPanelImageIds((prev) => ({ ...prev, [panelId]: ids }));
       useViewerStore.getState().setPanelXnatContext(panelId, {
         projectId: context.projectId,
@@ -1826,9 +1824,7 @@ export default function App() {
           return;
         }
 
-        const ids = await dicomwebLoader.getScanImageIds(sessionId, scanId, {
-          order: 'filename',
-        });
+        const ids = await dicomwebLoader.getScanImageIds(sessionId, scanId);
 
         // Re-check after async: a deferred SEG load may have started while
         // we were fetching image IDs
@@ -2153,9 +2149,7 @@ export default function App() {
         // Fetch imageIds for all assigned panels in parallel
         const loadPromises = Array.from(assignments.entries()).map(
           async ([panelIdx, scan]) => {
-            const ids = await dicomwebLoader.getScanImageIds(sessionId, scan.id, {
-              order: 'filename',
-            });
+            const ids = await dicomwebLoader.getScanImageIds(sessionId, scan.id);
             return { panelIdx, ids, scanId: scan.id };
           }
         );
@@ -2336,9 +2330,7 @@ export default function App() {
         // Fetch imageIds in parallel
         const loadPromises = Array.from(assignments.entries()).map(
           async ([panelIdx, scan]) => {
-            const ids = await dicomwebLoader.getScanImageIds(storedSessionId, scan.id, {
-              order: 'filename',
-            });
+            const ids = await dicomwebLoader.getScanImageIds(storedSessionId, scan.id);
             return { panelIdx, ids };
           }
         );

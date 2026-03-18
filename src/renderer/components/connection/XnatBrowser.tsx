@@ -505,9 +505,7 @@ export default function XnatBrowser({
 
     void thumbLoadRef.current(async () => {
       try {
-        const imageIds = await dicomwebLoader.getScanImageIds(sessionId, scanId, {
-          order: 'dicomMetadata',
-        });
+        const imageIds = await dicomwebLoader.getScanImageIds(sessionId, scanId);
         if (!imageIds.length) {
           throw new Error('No images found');
         }
