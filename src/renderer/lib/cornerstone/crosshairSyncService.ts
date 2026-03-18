@@ -197,12 +197,11 @@ function toWadouriUri(imageId: string): string {
 }
 
 /**
- * Pre-load DICOM headers for all images in a stack so that imagePlaneModule
- * metadata (imagePositionPatient, imageOrientationPatient) is available for
- * geometric operations like crosshair sync.
+ * Ensure imagePlaneModule metadata is available for all images in a stack.
  *
- * Uses the wadouri dataSetCacheManager — the same mechanism used by
- * sortImageIdsByDicomMetadata in dicomwebLoader.
+ * When imagePreloadService has pre-loaded the images, metadata is already
+ * available and this function returns quickly. Otherwise falls back to
+ * downloading DICOM headers via the wadouri dataset cache.
  */
 async function ensureStackMetadata(panelId: string, imageIds: string[]): Promise<void> {
   if (metadataLoadedPanels.has(panelId)) return;
@@ -213,18 +212,26 @@ async function ensureStackMetadata(panelId: string, imageIds: string[]): Promise
     return;
   }
 
+  // Quick check: if most images already have metadata (from image preload),
+  // we can mark as loaded immediately without any downloads.
+  const missingMetadata = imageIds.filter((id) => !getImagePlane(id));
+  if (missingMetadata.length === 0) {
+    metadataLoadedPanels.add(panelId);
+    return;
+  }
+
+  // Fallback: download headers for images still missing metadata.
+  // This handles the case where the preload hasn't completed yet.
   const promise = (async () => {
     const limit = pLimit(12);
-    let loaded = 0;
     await Promise.all(
-      imageIds.map((imageId) =>
+      missingMetadata.map((imageId) =>
         limit(async () => {
           try {
             const uri = toWadouriUri(imageId);
             if (!wadouri.dataSetCacheManager.isLoaded(uri)) {
               await wadouri.dataSetCacheManager.load(uri, undefined as any, imageId);
             }
-            loaded++;
           } catch {
             // Partial failures are tolerable; we'll still get most slices.
           }
@@ -280,6 +287,11 @@ export const crosshairSyncService = {
     metadataLoadedPanels.delete(panelId);
   },
 
+  /** Mark a panel's metadata as already loaded (for testing). */
+  _markMetadataLoaded(panelId: string): void {
+    metadataLoadedPanels.add(panelId);
+  },
+
   /**
    * Publish crosshair coordinate globally and sync compatible viewports.
    *
@@ -295,19 +307,19 @@ export const crosshairSyncService = {
 
     const sourceIds = store.panelImageIdsMap[sourcePanelId] ?? [];
     const sourceForUid = sourceIds[0] ? getFrameOfReferenceUid(sourceIds[0]) : null;
-    const sourceSeriesUid = sourceIds[0] ? getSeriesUid(sourceIds[0]) : null;
 
     for (const [panelId, imageIds] of Object.entries(store.panelImageIdsMap)) {
       if (panelId === sourcePanelId || imageIds.length === 0) continue;
       const targetViewport = getViewportForPanel(panelId) as AnyViewport | null;
       if (!targetViewport) continue;
 
-      // Prefer FrameOfReference matching. Fall back to Series UID matching when needed.
+      // Only skip if both FORs are known and genuinely differ (different anatomy).
+      // When either FOR is unavailable (metadata not yet decoded), proceed with
+      // sync rather than silently skipping — avoids race conditions with wadouri.
       const targetForUid = imageIds[0] ? getFrameOfReferenceUid(imageIds[0]) : null;
-      if (sourceForUid && targetForUid && sourceForUid !== targetForUid) continue;
-      if (sourceForUid && !targetForUid) {
-        const panelSeriesUid = imageIds[0] ? getSeriesUid(imageIds[0]) : null;
-        if (!panelSeriesUid || (sourceSeriesUid && panelSeriesUid !== sourceSeriesUid)) continue;
+      if (sourceForUid && targetForUid && sourceForUid !== targetForUid) {
+        console.warn(`[crosshairSync] Skipping ${panelId}: FOR mismatch (${sourceForUid} vs ${targetForUid})`);
+        continue;
       }
 
       // Determine whether the target is a volume (MPR/oriented) or stack viewport.

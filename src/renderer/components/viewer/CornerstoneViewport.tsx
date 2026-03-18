@@ -19,6 +19,7 @@ import { toolService } from '../../lib/cornerstone/toolService';
 import { metadataService } from '../../lib/cornerstone/metadataService';
 import { viewportReadyService } from '../../lib/cornerstone/viewportReadyService';
 import { crosshairSyncService } from '../../lib/cornerstone/crosshairSyncService';
+import { imagePreloadService } from '../../lib/cornerstone/imagePreloadService';
 import { wireCrosshairPointerHandlers } from '../../lib/cornerstone/crosshairGeometry';
 import { segmentationManager } from '../../lib/segmentation/segmentationManagerSingleton';
 import { useViewerStore } from '../../stores/viewerStore';
@@ -84,6 +85,10 @@ export default function CornerstoneViewport({ panelId, imageIds }: CornerstoneVi
         await viewportService.loadStack(panelId, imageIds);
 
         if (cancelled) return;
+
+        // Eagerly pre-load all remaining images in background for smooth
+        // scrolling and instant crosshair sync.
+        imagePreloadService.startPreload(panelId, imageIds);
 
         // Ensure the rendering engine knows the current element size,
         // then reset camera to fit-to-canvas. This fixes zoom issues when
@@ -171,6 +176,7 @@ export default function CornerstoneViewport({ panelId, imageIds }: CornerstoneVi
       cancelled = true;
       resizeObserver.disconnect();
       disposeEvents?.();
+      imagePreloadService.cancelPreload(panelId);
 
       // Stop cine if playing for this panel
       useViewerStore.getState().stopCine(panelId);

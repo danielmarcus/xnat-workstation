@@ -380,4 +380,79 @@ describe('toolService', () => {
     toolService.destroy();
     expect(() => toolService.removeViewport('panel_0')).not.toThrow();
   });
+
+  describe('tool state tracking (round-trip switching)', () => {
+    it('WindowLevel is Active after switching from Brush to WindowLevel', () => {
+      toolService.initialize();
+
+      useSegmentationStore.setState({
+        activeSegmentationId: 'seg-1',
+        activeSegmentIndex: 1,
+        segmentations: [{ segmentationId: 'seg-1', label: 'Seg 1', segments: [], isActive: true }],
+      });
+
+      toolService.setActiveTool(ToolName.Brush);
+      let group = cs.getLastToolGroup();
+      expect(group?.__toolStates.get('Brush')).toBe('Active');
+
+      toolService.setActiveTool(ToolName.WindowLevel);
+      group = cs.getLastToolGroup();
+      expect(group?.__toolStates.get('WindowLevel')).toBe('Active');
+    });
+
+    it('Brush is Active after Brush → Crosshairs → Brush round-trip', () => {
+      toolService.initialize();
+
+      useSegmentationStore.setState({
+        activeSegmentationId: 'seg-1',
+        activeSegmentIndex: 1,
+        segmentations: [{ segmentationId: 'seg-1', label: 'Seg 1', segments: [], isActive: true }],
+      });
+
+      toolService.setActiveTool(ToolName.Brush);
+      let group = cs.getLastToolGroup();
+      expect(group?.__toolStates.get('Brush')).toBe('Active');
+
+      toolService.setActiveTool(ToolName.Crosshairs);
+      group = cs.getLastToolGroup();
+      // Crosshairs maps to WindowLevel as the Cornerstone tool
+      expect(group?.__toolStates.get('WindowLevel')).toBe('Active');
+
+      toolService.setActiveTool(ToolName.Brush);
+      group = cs.getLastToolGroup();
+      expect(group?.__toolStates.get('Brush')).toBe('Active');
+    });
+
+    it('only one tool is Active for the Primary mouse button after any switch', () => {
+      toolService.initialize();
+
+      useSegmentationStore.setState({
+        activeSegmentationId: 'seg-1',
+        activeSegmentIndex: 1,
+        segmentations: [{ segmentationId: 'seg-1', label: 'Seg 1', segments: [], isActive: true }],
+      });
+
+      const tools: ToolName[] = [
+        ToolName.Brush,
+        ToolName.WindowLevel,
+        ToolName.Crosshairs,
+        ToolName.Length,
+      ];
+
+      for (const tool of tools) {
+        toolService.setActiveTool(tool);
+        const group = cs.getLastToolGroup();
+        if (!group) continue;
+
+        // Count how many tools are in Active state
+        const activeTools = [...group.__toolStates.entries()]
+          .filter(([, state]) => state === 'Active');
+
+        // Pan and Zoom are always Active (fixed bindings on Auxiliary/Secondary).
+        // The primary tool + Pan + Zoom = at most 3 Active tools.
+        // But we should never have MORE Active tools than that.
+        expect(activeTools.length).toBeLessThanOrEqual(3);
+      }
+    });
+  });
 });
