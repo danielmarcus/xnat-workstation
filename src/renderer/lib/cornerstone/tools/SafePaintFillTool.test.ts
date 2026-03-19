@@ -81,6 +81,7 @@ vi.mock('@cornerstonejs/tools', () => ({
     },
     segmentLocking: {
       getLockedSegmentIndices: toolMocks.getLockedSegmentIndices,
+      isSegmentIndexLocked: vi.fn(() => false),
     },
     state: {
       getSegmentation: toolMocks.getSegmentation,

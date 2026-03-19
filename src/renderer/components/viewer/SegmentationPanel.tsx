@@ -88,6 +88,7 @@ const SEG_PANEL_TOOLS: ToolName[] = [
   ToolName.RegionSegmentPlus,
   ToolName.RectangleROIThreshold,
   ToolName.CircleROIThreshold,
+  ToolName.LabelmapEditWithContour,
 ];
 
 const STRUCT_PANEL_TOOLS: ToolName[] = [
@@ -95,7 +96,6 @@ const STRUCT_PANEL_TOOLS: ToolName[] = [
   ToolName.SplineContour,
   ToolName.LivewireContour,
   ToolName.Sculptor,
-  ToolName.LabelmapEditWithContour,
 ];
 
 function IconThresholdBrush({ className }: { className?: string }) {

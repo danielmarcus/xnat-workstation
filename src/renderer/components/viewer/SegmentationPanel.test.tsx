@@ -200,6 +200,13 @@ describe('SegmentationPanel', () => {
               visible: true,
               locked: false,
             },
+            {
+              segmentIndex: 2,
+              label: 'Right Lung',
+              color: [0, 255, 0, 255],
+              visible: true,
+              locked: false,
+            },
           ],
         },
       ],
@@ -234,9 +241,9 @@ describe('SegmentationPanel', () => {
       ...useSegmentationManagerStore.getState(),
       presentation: {
         'seg-1': {
-          color: { 1: [255, 0, 0, 255] },
-          visibility: { 1: true },
-          locked: { 1: false },
+          color: { 1: [255, 0, 0, 255], 2: [0, 255, 0, 255] },
+          visibility: { 1: true, 2: true },
+          locked: { 1: false, 2: false },
         },
       },
     });
@@ -246,15 +253,15 @@ describe('SegmentationPanel', () => {
     fireEvent.click(screen.getByText('Lung Mask'));
     expect(segPanelMocks.segmentationManager.userSelectedSegmentation).toHaveBeenCalledWith('panel_0', 'seg-1', 1);
 
-    fireEvent.click(screen.getByTitle('Hide segment'));
-    fireEvent.click(screen.getByTitle('Lock segment'));
-    fireEvent.click(screen.getByTitle('Delete segment'));
+    fireEvent.click(screen.getAllByTitle('Hide segment')[0]);
+    fireEvent.click(screen.getAllByTitle('Lock segment')[0]);
+    fireEvent.click(screen.getAllByTitle('Delete segment')[0]);
     expect(segPanelMocks.segmentationManager.userToggledVisibility).toHaveBeenCalled();
     expect(segPanelMocks.segmentationManager.userToggledLock).toHaveBeenCalled();
     expect(segPanelMocks.segmentationManager.removeSegment).toHaveBeenCalledWith('seg-1', 1);
 
-    fireEvent.click(screen.getByTitle('Change color'));
-    fireEvent.click(screen.getByTitle('Color 1'));
+    fireEvent.click(screen.getAllByTitle('Change color')[0]);
+    fireEvent.click(screen.getAllByTitle('Color 1')[0]);
     expect(segPanelMocks.segmentationManager.userChangedSegmentColor).toHaveBeenCalledWith(
       'seg-1',
       1,

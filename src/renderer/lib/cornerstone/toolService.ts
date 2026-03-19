@@ -49,6 +49,8 @@ import {
   LabelMapEditWithContourTool,
   Enums as ToolEnums,
   segmentation as csSegmentation,
+  annotation as csAnnotation,
+  utilities as csToolsUtilities,
 } from '@cornerstonejs/tools';
 import SafePaintFillTool from './tools/SafePaintFillTool';
 import type { Types as ToolTypes } from '@cornerstonejs/tools';
@@ -66,6 +68,7 @@ import { useSegmentationStore } from '../../stores/segmentationStore';
 import { segmentationService } from './segmentationService';
 import { useViewerStore } from '../../stores/viewerStore';
 import { segmentationManager } from '../segmentation/segmentationManagerSingleton';
+import { showConfirmDialog } from '../../stores/dialogStore';
 
 const TOOL_GROUP_ID = 'xnatToolGroup_primary';
 const CONTOUR_INTERPOLATION_TOOL_NAMES = [
@@ -509,6 +512,63 @@ function rebuildToolGroup(primaryTool: ToolName): ToolTypes.IToolGroup | undefin
 }
 
 /**
+ * Extend the Sculptor tool to discover spline/livewire contour annotations
+ * and convert them to freehand before sculpting.
+ */
+function patchSculptorForAllContours(toolGroup: ToolTypes.IToolGroup): void {
+  const sculptorInstance = (toolGroup as any).getToolInstance?.(SculptorTool.toolName);
+  if (!sculptorInstance?.configuration?.referencedToolNames) return;
+
+  // Add spline/livewire so Sculptor can discover their annotations
+  sculptorInstance.configuration.referencedToolNames.push(
+    SplineContourSegmentationTool.toolName,
+    LivewireContourSegmentationTool.toolName,
+  );
+
+  // Intercept clicks on spline/livewire — show conversion dialog
+  const originalPreMouseDown = sculptorInstance.preMouseDownCallback;
+
+  sculptorInstance.preMouseDownCallback = (evt: any) => {
+    const result = originalPreMouseDown?.call(sculptorInstance, evt);
+
+    const activeUID = sculptorInstance.commonData?.activeAnnotationUID;
+    if (!activeUID) return result;
+
+    const annotation = csAnnotation.state.getAnnotation(activeUID);
+    const toolName = annotation?.metadata?.toolName;
+
+    if (
+      toolName === SplineContourSegmentationTool.toolName ||
+      toolName === LivewireContourSegmentationTool.toolName
+    ) {
+      // Cancel the in-progress sculpt — need async dialog first
+      sculptorInstance.commonData.activeAnnotationUID = null;
+      sculptorInstance.isActive = false;
+
+      const displayName = toolName.includes('Spline') ? 'spline' : 'livewire';
+      showConfirmDialog({
+        title: 'Convert contour for sculpting',
+        message:
+          `Sculpting will permanently convert this ${displayName} contour to freehand. ` +
+          `You will no longer be able to edit it as a ${displayName}.\n\n` +
+          `Continue?`,
+        confirmLabel: 'Convert & Sculpt',
+        cancelLabel: 'Cancel',
+      }).then((confirmed) => {
+        if (!confirmed) return;
+        csToolsUtilities.contourSegmentation.convertContourSegmentationAnnotation(
+          annotation as any,
+        );
+      });
+
+      return false; // consume event, don't sculpt
+    }
+
+    return result;
+  };
+}
+
+/**
  * Add all tools to a tool group (used during initial creation and recreation).
  */
 function addAllTools(toolGroup: ToolTypes.IToolGroup): void {
@@ -536,6 +596,7 @@ function addAllTools(toolGroup: ToolTypes.IToolGroup): void {
   toolGroup.addTool(SplineContourSegmentationTool.toolName);
   toolGroup.addTool(LivewireContourSegmentationTool.toolName);
   toolGroup.addTool(SculptorTool.toolName);
+  patchSculptorForAllContours(toolGroup);
   toolGroup.addTool(LabelMapEditWithContourTool.toolName);
   toolGroup.addTool(RegionSegmentTool.toolName);
   toolGroup.addTool(RegionSegmentPlusTool.toolName);
