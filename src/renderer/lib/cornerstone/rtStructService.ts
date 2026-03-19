@@ -394,7 +394,7 @@ async function loadRtStructAsContours(
     segments[segmentIndex] = {
       segmentIndex,
       label: roi.name,
-      locked: false,
+      locked: true,
       active: segmentIndex === 1,
       cachedStats: {},
     };
@@ -416,6 +416,11 @@ async function loadRtStructAsContours(
       },
     },
   ]);
+
+  // Lock loaded segments by default — user must unlock to edit
+  for (let roiIdx = 0; roiIdx < parsed.rois.length; roiIdx++) {
+    csSegmentation.segmentLocking.setSegmentIndexLocked(segmentationId, roiIdx + 1, true);
+  }
 
   // Create contour annotations for each ROI
   for (let roiIdx = 0; roiIdx < parsed.rois.length; roiIdx++) {

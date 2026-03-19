@@ -1340,6 +1340,12 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
   const toolPanelAnnotationType = overlaysLoading ? null : activeAnnotationType;
   const toolPanelTools = overlaysLoading ? [] : activeAnnotationTools;
 
+  const isActiveSegmentLocked = useMemo(() => {
+    if (!activeSegId) return false;
+    const seg = segmentations.find((s) => s.segmentationId === activeSegId);
+    return seg?.segments.find((s) => s.segmentIndex === activeSegIndex)?.locked ?? false;
+  }, [segmentations, activeSegId, activeSegIndex]);
+
   const handleToolSelect = useCallback((tool: ToolName) => {
     if (!activeSegId || !activeAnnotationType) return;
     setActiveTool(tool);
@@ -1774,13 +1780,18 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
                   return (
                     <button
                       key={tool}
+                      disabled={isActiveSegmentLocked}
                       onClick={() => handleToolSelect(tool)}
                       className={`flex items-center gap-1.5 px-2 py-1 rounded text-[10px] transition-colors ${
-                        isActive
-                          ? 'bg-blue-600 text-white'
-                          : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700 hover:text-white'
+                        isActiveSegmentLocked
+                          ? 'bg-zinc-800/50 text-zinc-600 cursor-not-allowed'
+                          : isActive
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700 hover:text-white'
                       }`}
-                      title={TOOL_DISPLAY_NAMES[tool]}
+                      title={isActiveSegmentLocked
+                        ? `${TOOL_DISPLAY_NAMES[tool]} (segment locked)`
+                        : TOOL_DISPLAY_NAMES[tool]}
                     >
                       <SegToolIcon tool={tool} />
                       <span className="truncate">{TOOL_DISPLAY_NAMES[tool]}</span>
@@ -1788,6 +1799,9 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
                   );
                 })}
               </div>
+            )}
+            {isActiveSegmentLocked && toolPanelAnnotationType && (
+              <div className="text-[10px] text-amber-400/70 mt-1">Unlock segment to edit</div>
             )}
           </div>
         </div>

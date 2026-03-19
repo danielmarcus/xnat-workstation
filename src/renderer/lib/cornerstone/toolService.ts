@@ -798,6 +798,19 @@ export const toolService = {
     // Handle segmentation tool activation
     if (SEGMENTATION_TOOLS.has(toolName)) {
       const segStore = useSegmentationStore.getState();
+
+      // Guard: prevent activating segmentation tools when active segment is locked
+      const activeSegs = segStore.segmentations.find(
+        (s) => s.segmentationId === segStore.activeSegmentationId,
+      );
+      const activeSeg = activeSegs?.segments.find(
+        (s) => s.segmentIndex === segStore.activeSegmentIndex,
+      );
+      if (activeSeg?.locked) {
+        console.warn('[toolService] Cannot activate segmentation tool: active segment is locked');
+        return;
+      }
+
       const viewportId = useViewerStore.getState().activeViewportId;
       segStore.setActiveSegTool(toolName);
 

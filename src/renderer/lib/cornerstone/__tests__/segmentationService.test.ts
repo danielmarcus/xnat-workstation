@@ -120,6 +120,7 @@ describe('segmentationService', () => {
     cs.setSegmentColor('panel_0', 'seg-1', 2, [0, 255, 0, 255]);
     cs.setSegmentVisibility('panel_0', 'seg-1', 1, true);
     cs.setSegmentVisibility('panel_0', 'seg-1', 2, false);
+    cs.setSegmentLocked('seg-1', 2, true);
 
     segmentationService.sync();
 
