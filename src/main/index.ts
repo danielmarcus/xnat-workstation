@@ -135,6 +135,20 @@ function buildAppMenu(): void {
         ]),
       ],
     },
+    // Help menu
+    {
+      label: 'Help',
+      submenu: [
+        {
+          label: 'Quick Start Guide',
+          click: () => mainWindow?.webContents.send(IPC.HELP_OPEN_GUIDE),
+        },
+        {
+          label: 'Report an Issue',
+          click: () => mainWindow?.webContents.send(IPC.HELP_OPEN_ISSUE_REPORT),
+        },
+      ],
+    },
   ];
 
   const menu = Menu.buildFromTemplate(template);

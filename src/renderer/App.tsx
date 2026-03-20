@@ -656,6 +656,20 @@ export default function App() {
   const [backupBannerCount, setBackupBannerCount] = useState(0);
   const [backupBannerDismissed, setBackupBannerDismissed] = useState(false);
   const [openSettingsToBackup, setOpenSettingsToBackup] = useState(false);
+  const [openHelpGuide, setOpenHelpGuide] = useState(false);
+  const [openSettingsToIssue, setOpenSettingsToIssue] = useState(false);
+
+  // Listen for Help menu IPC events from the main process
+  useEffect(() => {
+    const api = (window as any).electronAPI;
+    if (!api?.on) return;
+    const unsubGuide = api.on('help:open-guide', () => setOpenHelpGuide(true));
+    const unsubIssue = api.on('help:open-issue-report', () => setOpenSettingsToIssue(true));
+    return () => {
+      unsubGuide?.();
+      unsubIssue?.();
+    };
+  }, []);
 
   // Connection state
   const connectionStatus = useConnectionStore((s) => s.status);
@@ -2708,6 +2722,10 @@ export default function App() {
         onRecoverBackup={handleRecoverBackup}
         openSettingsToBackup={openSettingsToBackup}
         onSettingsToBackupConsumed={() => setOpenSettingsToBackup(false)}
+        openHelpGuide={openHelpGuide}
+        onHelpGuideConsumed={() => setOpenHelpGuide(false)}
+        openSettingsToIssue={openSettingsToIssue}
+        onSettingsToIssueConsumed={() => setOpenSettingsToIssue(false)}
         mprSourceImageIds={mprSourceImageIds}
         leftSlot={
           <>
