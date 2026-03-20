@@ -56,6 +56,7 @@ describe('registerUploadHandlers', () => {
       IPC.XNAT_AUTOSAVE_TEMP,
       IPC.XNAT_LIST_TEMP_FILES,
       IPC.XNAT_DELETE_TEMP_FILE,
+      IPC.XNAT_DELETE_SCAN,
       IPC.XNAT_DOWNLOAD_TEMP_FILE,
       IPC.XNAT_UPLOAD_DICOM_RTSTRUCT,
     ]);

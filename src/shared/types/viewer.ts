@@ -79,7 +79,6 @@ export const CONTOUR_SEG_TOOLS = new Set<ToolName>([
   ToolName.SplineContour,
   ToolName.LivewireContour,
   ToolName.Sculptor,
-  ToolName.LabelmapEditWithContour,
 ]);
 
 /** Labelmap-based segmentation tools (directly modify labelmap pixel data) */
@@ -95,6 +94,7 @@ export const LABELMAP_SEG_TOOLS = new Set<ToolName>([
   ToolName.RegionSegmentPlus,
   ToolName.RectangleROIThreshold,
   ToolName.CircleROIThreshold,
+  ToolName.LabelmapEditWithContour,
 ]);
 
 /** Human-readable display names for all tools */
@@ -130,7 +130,7 @@ export const TOOL_DISPLAY_NAMES: Record<ToolName, string> = {
   [ToolName.SegmentBidirectional]: 'Segment Bidir.',
   [ToolName.RectangleROIThreshold]: 'Rect Threshold',
   [ToolName.CircleROIThreshold]: 'Circle Threshold',
-  [ToolName.LabelmapEditWithContour]: 'Contour Edit',
+  [ToolName.LabelmapEditWithContour]: 'Contour Fill',
 };
 
 /** Window/Level preset definition */
