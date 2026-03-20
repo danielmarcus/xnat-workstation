@@ -8,7 +8,7 @@
  *   XNAT_AUTOSAVE_TEMP, XNAT_LIST_TEMP_FILES, XNAT_DELETE_TEMP_FILE, XNAT_DOWNLOAD_TEMP_FILE
  *
  * main → renderer (send/on):
- *   XNAT_SESSION_EXPIRED
+ *   XNAT_SESSION_EXPIRED, HELP_OPEN_GUIDE, HELP_OPEN_ISSUE_REPORT
  */
 export const IPC = {
   // Auth (renderer → main)
@@ -77,6 +77,10 @@ export const IPC = {
 
   // Diagnostics (renderer → main)
   DIAGNOSTICS_GET_MAIN_SNAPSHOT: 'diagnostics:get-main-snapshot',
+
+  // Help menu (main → renderer)
+  HELP_OPEN_GUIDE: 'help:open-guide',
+  HELP_OPEN_ISSUE_REPORT: 'help:open-issue-report',
 } as const;
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC];
