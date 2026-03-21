@@ -171,7 +171,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
 
   on: (channel: string, callback: (...args: unknown[]) => void) => {
-    const allowedChannels = [IPC.XNAT_SESSION_EXPIRED, IPC.HELP_OPEN_GUIDE, IPC.HELP_OPEN_ISSUE_REPORT];
+    const allowedChannels = [IPC.XNAT_SESSION_EXPIRED];
     if (!allowedChannels.includes(channel as any)) {
       console.warn(`[preload] Blocked IPC listener for unknown channel: ${channel}`);
       return () => {};
