@@ -10,7 +10,6 @@ import type { LayoutType } from '@shared/types/viewer';
 import { BUILT_IN_PROTOCOLS } from '@shared/types/hangingProtocol';
 import AnnotationToolDropdown from './AnnotationToolDropdown';
 import SettingsModal from '../settings/SettingsModal';
-import HelpModal from '../help/HelpModal';
 import {
   IconWindowLevel,
   IconCrosshairs,
@@ -491,17 +490,9 @@ interface ToolbarProps {
   openSettingsToBackup?: boolean;
   /** Called after the open-settings-to-backup request has been consumed. */
   onSettingsToBackupConsumed?: () => void;
-  /** When true, open the Quick Start Guide modal. */
-  openHelpGuide?: boolean;
-  /** Called after the help guide request has been consumed. */
-  onHelpGuideConsumed?: () => void;
-  /** When true, open Settings to the Issue Report tab. */
-  openSettingsToIssue?: boolean;
-  /** Called after the settings-to-issue request has been consumed. */
-  onSettingsToIssueConsumed?: () => void;
 }
 
-export default function Toolbar({ showDicomPanel = false, onToggleDicomPanel, onApplyProtocol, onToggleMPR, hasImages = false, leftSlot, onRecoverBackup, openSettingsToBackup, onSettingsToBackupConsumed, openHelpGuide, onHelpGuideConsumed, openSettingsToIssue, onSettingsToIssueConsumed }: ToolbarProps) {
+export default function Toolbar({ showDicomPanel = false, onToggleDicomPanel, onApplyProtocol, onToggleMPR, hasImages = false, leftSlot, onRecoverBackup, openSettingsToBackup, onSettingsToBackupConsumed }: ToolbarProps) {
   const [showSettings, setShowSettings] = useState(false);
   const [settingsInitialTab, setSettingsInitialTab] = useState<string | undefined>(undefined);
 
@@ -513,27 +504,6 @@ export default function Toolbar({ showDicomPanel = false, onToggleDicomPanel, on
       onSettingsToBackupConsumed?.();
     }
   }, [openSettingsToBackup, onSettingsToBackupConsumed]);
-
-  const [showHelpGuide, setShowHelpGuide] = useState(false);
-
-  // Open Quick Start Guide when requested by parent (Help menu)
-  useEffect(() => {
-    if (openHelpGuide) {
-      setShowSettings(false); // close Settings if open
-      setShowHelpGuide(true);
-      onHelpGuideConsumed?.();
-    }
-  }, [openHelpGuide, onHelpGuideConsumed]);
-
-  // Open Settings to Issue Report tab when requested by parent (Help menu)
-  useEffect(() => {
-    if (openSettingsToIssue) {
-      setShowHelpGuide(false); // close Quick Start Guide if open
-      setSettingsInitialTab('issue');
-      setShowSettings(true);
-      onSettingsToIssueConsumed?.();
-    }
-  }, [openSettingsToIssue, onSettingsToIssueConsumed]);
 
   const activeTool = useViewerStore((s) => s.activeTool);
   const mprActive = useViewerStore((s) => s.mprActive);
@@ -740,7 +710,6 @@ export default function Toolbar({ showDicomPanel = false, onToggleDicomPanel, on
         </div>
       </div>
       <SettingsModal open={showSettings} onClose={() => { setShowSettings(false); setSettingsInitialTab(undefined); }} onRecover={onRecoverBackup} initialTab={settingsInitialTab} />
-      <HelpModal open={showHelpGuide} onClose={() => setShowHelpGuide(false)} />
     </>
   );
 }

@@ -34,17 +34,9 @@ interface ViewerPageProps {
   openSettingsToBackup?: boolean;
   /** Called after the Settings-to-backup request has been consumed. */
   onSettingsToBackupConsumed?: () => void;
-  /** When true, open the Quick Start Guide modal. */
-  openHelpGuide?: boolean;
-  /** Called after the help guide request has been consumed. */
-  onHelpGuideConsumed?: () => void;
-  /** When true, open Settings to the Issue Report tab. */
-  openSettingsToIssue?: boolean;
-  /** Called after the settings-to-issue request has been consumed. */
-  onSettingsToIssueConsumed?: () => void;
 }
 
-export default function ViewerPage({ panelImageIds, onApplyProtocol, onToggleMPR, mprSourceImageIds, leftSlot, browserSlot, onRecoverBackup, openSettingsToBackup, onSettingsToBackupConsumed, openHelpGuide, onHelpGuideConsumed, openSettingsToIssue, onSettingsToIssueConsumed }: ViewerPageProps) {
+export default function ViewerPage({ panelImageIds, onApplyProtocol, onToggleMPR, mprSourceImageIds, leftSlot, browserSlot, onRecoverBackup, openSettingsToBackup, onSettingsToBackupConsumed }: ViewerPageProps) {
   const showAnnotationPanel = useAnnotationStore((s) => s.showPanel);
   const showSegPanel = useSegmentationStore((s) => s.showPanel);
   const [showDicomPanel, setShowDicomPanel] = useState(false);
@@ -87,10 +79,6 @@ export default function ViewerPage({ panelImageIds, onApplyProtocol, onToggleMPR
         onRecoverBackup={onRecoverBackup}
         openSettingsToBackup={openSettingsToBackup}
         onSettingsToBackupConsumed={onSettingsToBackupConsumed}
-        openHelpGuide={openHelpGuide}
-        onHelpGuideConsumed={onHelpGuideConsumed}
-        openSettingsToIssue={openSettingsToIssue}
-        onSettingsToIssueConsumed={onSettingsToIssueConsumed}
       />
       <div className="flex-1 min-h-0 flex relative">
         {/* Optional browser sidebar (rendered by App) */}
