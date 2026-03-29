@@ -117,6 +117,41 @@ function getFrameOfReferenceUid(imageId: string): string | null {
   return plane?.frameOfReferenceUID ?? null;
 }
 
+function normalizeSubjectKey(value: string | undefined | null): string | null {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim().toLowerCase();
+  return normalized.length > 0 ? normalized : null;
+}
+
+function getPanelSubjectKey(
+  store: ReturnType<typeof useViewerStore.getState>,
+  panelId: string,
+): string | null {
+  const panelCtx = store.panelXnatContextMap?.[panelId] as { subjectId?: string } | undefined;
+  return normalizeSubjectKey(panelCtx?.subjectId)
+    ?? normalizeSubjectKey(store.panelSubjectLabelMap?.[panelId]);
+}
+
+function panelsShareKnownSubject(
+  store: ReturnType<typeof useViewerStore.getState>,
+  sourcePanelId: string,
+  targetPanelId: string,
+): boolean {
+  const sourceSubject = getPanelSubjectKey(store, sourcePanelId);
+  const targetSubject = getPanelSubjectKey(store, targetPanelId);
+  return sourceSubject != null && targetSubject != null && sourceSubject === targetSubject;
+}
+
+function panelsHaveDifferentKnownSubjects(
+  store: ReturnType<typeof useViewerStore.getState>,
+  sourcePanelId: string,
+  targetPanelId: string,
+): boolean {
+  const sourceSubject = getPanelSubjectKey(store, sourcePanelId);
+  const targetSubject = getPanelSubjectKey(store, targetPanelId);
+  return sourceSubject != null && targetSubject != null && sourceSubject !== targetSubject;
+}
+
 /**
  * Parse a DICOM multi-valued numeric string (e.g. "1.0\\2.0\\3.0") into an
  * array of numbers. Returns null if parsing fails.
@@ -257,22 +292,32 @@ async function ensureStackMetadata(panelId: string, imageIds: string[]): Promise
  * Synchronously sync a single target panel using geometric slice matching.
  * Returns true if the sync succeeded, false if metadata was insufficient.
  */
-function syncStackPanel(
+function syncPanelByGeometry(
   panelId: string,
   imageIds: string[],
   worldPoint: Point3,
   store: ReturnType<typeof useViewerStore.getState>,
+  options?: { panToWorld?: boolean },
 ): boolean {
   const targetIndex = findNearestStackIndex(imageIds, worldPoint);
   if (targetIndex == null) return false;
 
   store._requestImageIndex(panelId, targetIndex, imageIds.length);
-  viewportService.scrollToIndex(panelId, targetIndex);
-
-  // Pan the viewport to keep the crosshair point visible in-plane.
   const viewport = getViewportForPanel(panelId) as AnyViewport | null;
+  const vpType = (viewport as { type?: string } | null)?.type;
+  const isVolumeViewport = vpType != null && vpType !== 'stack';
+
+  if (isVolumeViewport) {
+    mprService.scrollToIndex(panelId, targetIndex);
+  } else {
+    viewportService.scrollToIndex(panelId, targetIndex);
+  }
+
+  // Only pan in world space when the source/target coordinate systems are compatible.
   if (viewport) {
-    keepPointVisibleByPanning(panelId, viewport, worldPoint);
+    if (options?.panToWorld !== false) {
+      keepPointVisibleByPanning(panelId, viewport, worldPoint);
+    }
     viewport.render?.();
   }
   return true;
@@ -313,11 +358,22 @@ export const crosshairSyncService = {
       const targetViewport = getViewportForPanel(panelId) as AnyViewport | null;
       if (!targetViewport) continue;
 
+      if (panelsHaveDifferentKnownSubjects(store, sourcePanelId, panelId)) {
+        console.warn(`[crosshairSync] Skipping ${panelId}: subject mismatch`);
+        continue;
+      }
+
       // Only skip if both FORs are known and genuinely differ (different anatomy).
       // When either FOR is unavailable (metadata not yet decoded), proceed with
       // sync rather than silently skipping — avoids race conditions with wadouri.
       const targetForUid = imageIds[0] ? getFrameOfReferenceUid(imageIds[0]) : null;
-      if (sourceForUid && targetForUid && sourceForUid !== targetForUid) {
+      const allowCrossSessionGeometryFallback =
+        sourceForUid != null &&
+        targetForUid != null &&
+        sourceForUid !== targetForUid &&
+        panelsShareKnownSubject(store, sourcePanelId, panelId);
+
+      if (sourceForUid && targetForUid && sourceForUid !== targetForUid && !allowCrossSessionGeometryFallback) {
         console.warn(`[crosshairSync] Skipping ${panelId}: FOR mismatch (${sourceForUid} vs ${targetForUid})`);
         continue;
       }
@@ -326,7 +382,7 @@ export const crosshairSyncService = {
       const vpType = (targetViewport as any)?.type as string | undefined;
       const isVolumeViewport = vpType != null && vpType !== 'stack';
 
-      if (isVolumeViewport) {
+      if (isVolumeViewport && !allowCrossSessionGeometryFallback) {
         // Volume viewports have full metadata in the volume — jumpToWorld works reliably.
         if (typeof targetViewport.jumpToWorld === 'function') {
           try {
@@ -361,10 +417,25 @@ export const crosshairSyncService = {
           if (!latestPoint) return;
           const latestImageIds = latestStore.panelImageIdsMap[panelId];
           if (!latestImageIds || latestImageIds.length === 0) return;
-          syncStackPanel(panelId, latestImageIds, latestPoint, latestStore);
+          const latestSourcePanelId = latestStore.crosshairSourcePanelId;
+          const latestSourceIds = latestSourcePanelId
+            ? (latestStore.panelImageIdsMap[latestSourcePanelId] ?? [])
+            : [];
+          const latestSourceForUid = latestSourceIds[0] ? getFrameOfReferenceUid(latestSourceIds[0]) : null;
+          const latestTargetForUid = latestImageIds[0] ? getFrameOfReferenceUid(latestImageIds[0]) : null;
+          const panToWorld = !(
+            latestSourcePanelId
+            && latestSourceForUid
+            && latestTargetForUid
+            && latestSourceForUid !== latestTargetForUid
+            && panelsShareKnownSubject(latestStore, latestSourcePanelId, panelId)
+          );
+          syncPanelByGeometry(panelId, latestImageIds, latestPoint, latestStore, { panToWorld });
         });
       } else {
-        syncStackPanel(panelId, imageIds, worldPoint, store);
+        syncPanelByGeometry(panelId, imageIds, worldPoint, store, {
+          panToWorld: !allowCrossSessionGeometryFallback,
+        });
       }
     }
     } catch (err) {

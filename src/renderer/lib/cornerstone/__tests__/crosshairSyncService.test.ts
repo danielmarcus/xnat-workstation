@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const metaDataGetMock = vi.hoisted(() => vi.fn());
 const scrollToIndexMock = vi.hoisted(() => vi.fn());
+const mprScrollToIndexMock = vi.hoisted(() => vi.fn());
 const getPanelDisplayPointForWorldMock = vi.hoisted(() => vi.fn());
 const getViewportForPanelMock = vi.hoisted(() => vi.fn());
 const getWorldPointFromClientPointMock = vi.hoisted(() => vi.fn());
@@ -10,6 +11,8 @@ const getWorldPointFromClientPointMock = vi.hoisted(() => vi.fn());
 type ViewerState = {
   panelImageIdsMap: Record<string, string[]>;
   viewports: Record<string, { imageIndex: number; requestedImageIndex: number | null; totalImages: number }>;
+  panelXnatContextMap: Record<string, { subjectId: string; sessionId: string }>;
+  panelSubjectLabelMap: Record<string, string>;
   crosshairWorldPoint: [number, number, number] | null;
   crosshairSourcePanelId: string | null;
   setCrosshairWorldPoint: (point: [number, number, number], sourcePanelId: string) => void;
@@ -23,6 +26,8 @@ const viewerStoreMock = vi.hoisted(() => {
       panel_1: ['img-target-a', 'img-target-b', 'img-target-c'],
     },
     viewports: {},
+    panelXnatContextMap: {},
+    panelSubjectLabelMap: {},
     crosshairWorldPoint: null,
     crosshairSourcePanelId: null,
     setCrosshairWorldPoint(point, sourcePanelId) {
@@ -77,6 +82,13 @@ vi.mock('@cornerstonejs/dicom-image-loader', () => ({
 vi.mock('../viewportService', () => ({
   viewportService: {
     scrollToIndex: scrollToIndexMock,
+  },
+}));
+
+vi.mock('../mprService', () => ({
+  mprService: {
+    getViewport: vi.fn(() => null),
+    scrollToIndex: mprScrollToIndexMock,
   },
 }));
 
@@ -192,7 +204,7 @@ describe('crosshairSyncService', () => {
     crosshairSyncService.syncFromViewport('panel_0', [0, 0, 9]);
 
     expect(viewerStoreMock.getState().viewports.panel_1?.requestedImageIndex).toBe(1);
-    expect(scrollToIndexMock).toHaveBeenCalledWith('panel_1', 1);
+    expect(mprScrollToIndexMock).toHaveBeenCalledWith('panel_1', 1);
   });
 
   it('keeps jumped point visible by in-plane camera pan when offscreen', () => {
@@ -386,6 +398,88 @@ describe('crosshairSyncService', () => {
       expect(vpT2.jumpToWorld).toHaveBeenCalledWith([5, 10, 15]);
       expect(vpFlair.jumpToWorld).toHaveBeenCalledWith([5, 10, 15]);
     });
+  });
+
+  it('syncs same-subject panels across different sessions by slice geometry when FOR UIDs differ', () => {
+    viewerStoreMock.setState({
+      panelImageIdsMap: {
+        panel_0: ['sess1-0', 'sess1-1', 'sess1-2'],
+        panel_1: ['sess2-0', 'sess2-1', 'sess2-2', 'sess2-3'],
+      },
+      panelXnatContextMap: {
+        panel_0: { subjectId: 'SUB-1', sessionId: 'SESS-1' },
+        panel_1: { subjectId: 'SUB-1', sessionId: 'SESS-2' },
+      },
+    });
+
+    const axialPlane = (z: number, forUid: string): PlaneMeta => ({
+      frameOfReferenceUID: forUid,
+      imagePositionPatient: [0, 0, z],
+      imageOrientationPatient: [1, 0, 0, 0, 1, 0],
+    });
+
+    setMetadata({
+      'imagePlaneModule|sess1-0': axialPlane(0, 'FOR-SESS-1'),
+      'imagePlaneModule|sess1-1': axialPlane(5, 'FOR-SESS-1'),
+      'imagePlaneModule|sess1-2': axialPlane(10, 'FOR-SESS-1'),
+      'generalSeriesModule|sess1-0': { seriesInstanceUID: 'SER-SESS-1' },
+      'imagePlaneModule|sess2-0': axialPlane(0, 'FOR-SESS-2'),
+      'imagePlaneModule|sess2-1': axialPlane(4, 'FOR-SESS-2'),
+      'imagePlaneModule|sess2-2': axialPlane(8, 'FOR-SESS-2'),
+      'imagePlaneModule|sess2-3': axialPlane(12, 'FOR-SESS-2'),
+      'generalSeriesModule|sess2-0': { seriesInstanceUID: 'SER-SESS-2' },
+    });
+
+    crosshairSyncService._markMetadataLoaded('panel_1');
+    const targetViewport = {
+      type: 'stack',
+      jumpToWorld: vi.fn(() => true),
+      getCamera: vi.fn(),
+      setCamera: vi.fn(),
+      render: vi.fn(),
+    };
+    getViewportForPanelMock.mockReturnValue(targetViewport);
+
+    crosshairSyncService.syncFromViewport('panel_0', [0, 0, 9]);
+
+    expect(targetViewport.jumpToWorld).not.toHaveBeenCalled();
+    expect(viewerStoreMock.getState().viewports.panel_1?.requestedImageIndex).toBe(2);
+    expect(scrollToIndexMock).toHaveBeenCalledWith('panel_1', 2);
+    expect(targetViewport.setCamera).not.toHaveBeenCalled();
+    expect(targetViewport.render).toHaveBeenCalled();
+  });
+
+  it('still skips panels from different known subjects when FOR UIDs differ', () => {
+    viewerStoreMock.setState({
+      panelImageIdsMap: {
+        panel_0: ['sub1-0'],
+        panel_1: ['sub2-0'],
+      },
+      panelXnatContextMap: {
+        panel_0: { subjectId: 'SUB-1', sessionId: 'SESS-1' },
+        panel_1: { subjectId: 'SUB-2', sessionId: 'SESS-9' },
+      },
+    });
+
+    setMetadata({
+      'imagePlaneModule|sub1-0': { frameOfReferenceUID: 'FOR-1' },
+      'generalSeriesModule|sub1-0': { seriesInstanceUID: 'SER-1' },
+      'imagePlaneModule|sub2-0': { frameOfReferenceUID: 'FOR-2' },
+      'generalSeriesModule|sub2-0': { seriesInstanceUID: 'SER-2' },
+    });
+
+    const targetViewport = {
+      type: 'stack',
+      jumpToWorld: vi.fn(() => true),
+      render: vi.fn(),
+    };
+    getViewportForPanelMock.mockReturnValue(targetViewport);
+
+    crosshairSyncService.syncFromViewport('panel_0', [0, 0, 10]);
+
+    expect(targetViewport.jumpToWorld).not.toHaveBeenCalled();
+    expect(scrollToIndexMock).not.toHaveBeenCalled();
+    expect(viewerStoreMock.getState().viewports.panel_1).toBeUndefined();
   });
 
   describe('different slice spacing and count', () => {
