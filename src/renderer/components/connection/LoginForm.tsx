@@ -120,7 +120,7 @@ export default function LoginForm() {
   const hasRecent = recentConnections.length > 0;
 
   return (
-    <div className="h-full flex items-center justify-center bg-zinc-950">
+    <div data-testid="login-form" className="h-full flex items-center justify-center bg-zinc-950">
       <div className="w-full max-w-sm px-6">
         {/* Header */}
         <div className="text-center mb-8">
@@ -210,6 +210,7 @@ export default function LoginForm() {
           <button
             type="submit"
             disabled={isConnecting || !serverUrl.trim()}
+            data-testid="login-submit"
             className="w-full bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-700 disabled:text-zinc-500 text-white font-medium text-sm rounded-md px-4 py-2.5 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-zinc-950"
           >
             {isConnecting ? (

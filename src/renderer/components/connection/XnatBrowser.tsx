@@ -874,7 +874,7 @@ export default function XnatBrowser({
   }[level].length;
 
   return (
-    <div className="h-full flex flex-col">
+    <div data-testid="xnat-browser" data-level={level} className="h-full flex flex-col">
       {/* Breadcrumb */}
       <div className="flex items-center gap-1 px-3 py-2 text-xs text-zinc-400 border-b border-zinc-800 bg-zinc-900/50 shrink-0 flex-wrap min-h-[36px]">
         <button

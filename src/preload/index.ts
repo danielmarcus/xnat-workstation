@@ -170,6 +170,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke(IPC.DIAGNOSTICS_GET_MAIN_SNAPSHOT),
   },
 
+  // E2E testing: direct login bypass (only registered when E2E_TESTING=1)
+  e2e: {
+    directLogin: (serverUrl: string, username: string, password: string) =>
+      ipcRenderer.invoke('e2e:direct-login', serverUrl, username, password),
+  },
+
   on: (channel: string, callback: (...args: unknown[]) => void) => {
     const allowedChannels = [IPC.XNAT_SESSION_EXPIRED];
     if (!allowedChannels.includes(channel as any)) {
