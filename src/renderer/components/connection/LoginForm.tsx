@@ -8,7 +8,8 @@
  */
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useConnectionStore } from '../../stores/connectionStore';
-import { IconServer, XnatLogo } from '../icons';
+import { IconServer, IconSettings, XnatLogo } from '../icons';
+import SettingsModal from '../settings/SettingsModal';
 
 // ─── Recent Connections ──────────────────────────────────────────
 
@@ -62,6 +63,7 @@ export default function LoginForm() {
   const [recentConnections] = useState(loadRecent);
   const [serverUrl, setServerUrl] = useState('');
   const [showRecent, setShowRecent] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const isConnecting = status === 'connecting';
@@ -120,7 +122,18 @@ export default function LoginForm() {
   const hasRecent = recentConnections.length > 0;
 
   return (
-    <div data-testid="login-form" className="h-full flex items-center justify-center bg-zinc-950">
+    <div data-testid="login-form" className="h-full flex items-center justify-center bg-zinc-950 relative">
+      {/* Settings button — top-right corner */}
+      <button
+        type="button"
+        onClick={() => setShowSettings(true)}
+        className="absolute top-4 right-4 p-2 text-zinc-600 hover:text-zinc-300 transition-colors rounded-md hover:bg-zinc-800/50"
+        title="Settings"
+      >
+        <IconSettings className="w-4 h-4" />
+      </button>
+      <SettingsModal open={showSettings} onClose={() => setShowSettings(false)} />
+
       <div className="w-full max-w-sm px-6">
         {/* Header */}
         <div className="text-center mb-8">
