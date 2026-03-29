@@ -18,7 +18,11 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:cornerstone": "vitest run src/renderer/lib/cornerstone/__tests__",
-    "test:cornerstone:coverage": "vitest run --coverage src/renderer/lib/cornerstone/__tests__"
+    "test:cornerstone:coverage": "vitest run --coverage src/renderer/lib/cornerstone/__tests__",
+    "test:e2e": "npx playwright test --config playwright.config.ts",
+    "test:e2e:headed": "npx playwright test --config playwright.config.ts --headed",
+    "test:e2e:debug": "PWDEBUG=1 npx playwright test --config playwright.config.ts",
+    "test:e2e:report": "npx playwright show-report e2e/playwright-report"
   },
   "author": "",
   "license": "MIT",
@@ -35,6 +39,7 @@
     "zustand": "^5.0.11"
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.1.0",
     "@testing-library/user-event": "^14.5.2",
@@ -45,6 +50,7 @@
     "@vitest/coverage-v8": "^2.1.8",
     "autoprefixer": "^10.4.24",
     "concurrently": "^9.2.1",
+    "dotenv": "^17.3.1",
     "electron": "^40.2.1",
     "electron-builder": "^26.8.1",
     "jsdom": "^25.0.1",

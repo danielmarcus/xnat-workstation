@@ -123,6 +123,136 @@ export function isConnected(): boolean {
   return client !== null && client.isAuthenticated;
 }
 
+/**
+ * Direct login for E2E testing — authenticates via XNAT REST API
+ * without opening a browser popup. Gated behind E2E_TESTING=1.
+ *
+ * Calls POST /data/JSESSION with Basic Auth, then fetches the username
+ * and sets up the full connection state (XnatClient, keepalive, interceptor).
+ */
+export async function directLogin(
+  serverUrl: string,
+  username: string,
+  password: string,
+): Promise<XnatLoginResult> {
+  if (process.env.E2E_TESTING !== '1') {
+    return { success: false, error: 'directLogin is only available in E2E testing mode' };
+  }
+
+  // Disconnect existing connection first
+  if (client) {
+    await logout();
+  }
+
+  const baseUrl = serverUrl.replace(/\/+$/, '');
+  const authHeader = 'Basic ' + Buffer.from(`${username}:${password}`).toString('base64');
+
+  try {
+    // Clear all existing cookies for this server to avoid HttpOnly conflicts
+    // when setAuthFromBrowserLogin() calls cookies.set() later.
+    const existingCookies = await electronSession.defaultSession.cookies.get({ url: baseUrl });
+    for (const c of existingCookies) {
+      try {
+        await electronSession.defaultSession.cookies.remove(baseUrl, c.name);
+      } catch { /* ignore */ }
+    }
+
+    // Authenticate via XNAT REST API.
+    // Try POST /data/JSESSION with Basic Auth first; if the server
+    // returns 500 (some XNAT deployments behind ALBs reject this),
+    // fall back to POST /data/services/auth with form-encoded body.
+    let jsessionId: string | undefined;
+
+    const sessionResp = await electronSession.defaultSession.fetch(
+      `${baseUrl}/data/JSESSION`,
+      {
+        method: 'POST',
+        headers: { Authorization: authHeader },
+      },
+    );
+
+    if (sessionResp.ok) {
+      jsessionId = (await sessionResp.text()).trim();
+    } else {
+      // Fallback: form-based auth via /data/services/auth
+      const formBody = new URLSearchParams({ username, password });
+      const authResp = await electronSession.defaultSession.fetch(
+        `${baseUrl}/data/services/auth`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: formBody.toString(),
+        },
+      );
+      if (!authResp.ok) {
+        return { success: false, error: `Authentication failed: ${authResp.status}` };
+      }
+      jsessionId = (await authResp.text()).trim();
+    }
+
+    if (!jsessionId) {
+      return { success: false, error: 'Authentication returned empty session ID' };
+    }
+
+    // Fetch username (using the server-set HttpOnly session cookie)
+    const userResp = await electronSession.defaultSession.fetch(
+      `${baseUrl}/xapi/users/username`,
+    );
+    const fetchedUsername = userResp.ok ? (await userResp.text()).trim() : username;
+
+    // Fetch CSRF token from the root page
+    let csrfToken: string | null = null;
+    try {
+      const rootResp = await electronSession.defaultSession.fetch(`${baseUrl}/`);
+      if (rootResp.ok) {
+        const html = await rootResp.text();
+        const match = html.match(/var\s+csrfToken\s*=\s*['"]([^'"]+)['"]/);
+        csrfToken = match?.[1] || null;
+      }
+    } catch {
+      // Non-fatal — CSRF token will be missing but GETs still work
+    }
+
+    // Clear all cookies set by the HTTP requests above. The server sets
+    // JSESSIONID as HttpOnly, but XnatClient.setAuthFromBrowserLogin()
+    // calls cookies.set() without HttpOnly — Chromium rejects that with
+    // EXCLUDE_OVERWRITE_HTTP_ONLY. Removing first avoids the conflict.
+    const staleHttpCookies = await electronSession.defaultSession.cookies.get({ url: baseUrl });
+    for (const c of staleHttpCookies) {
+      try {
+        await electronSession.defaultSession.cookies.remove(baseUrl, c.name);
+      } catch { /* ignore */ }
+    }
+
+    // Create client with pre-fetched auth
+    const newClient = new XnatClient(baseUrl);
+    await newClient.setAuthFromBrowserLogin({
+      jsessionId,
+      username: fetchedUsername,
+      csrfToken,
+    });
+
+    client = newClient;
+    connectionInfo = {
+      serverUrl: client.serverUrl,
+      username: client.currentUsername,
+      connectedAt: Date.now(),
+    };
+
+    resetSessionExpiredFlag();
+    startKeepalive();
+    setupWebRequestInterceptor();
+
+    console.log(`[sessionManager] E2E direct login: connected to ${connectionInfo.serverUrl} as ${connectionInfo.username}`);
+    return { success: true, connection: connectionInfo };
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
 // ─── Keepalive ───────────────────────────────────────────────────
 
 function startKeepalive(): void {

@@ -28,5 +28,13 @@ export function registerAuthHandlers(): void {
     return sessionManager.getConnectionInfo();
   });
 
+  // E2E testing: direct login without browser popup
+  if (process.env.E2E_TESTING === '1') {
+    ipcMain.handle('e2e:direct-login', async (_event, serverUrl: string, username: string, password: string) => {
+      return sessionManager.directLogin(serverUrl, username, password);
+    });
+    console.log('[ipc] E2E direct-login handler registered');
+  }
+
   console.log('[ipc] Auth handlers registered');
 }

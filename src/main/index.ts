@@ -149,11 +149,17 @@ function createWindow(): void {
 
   const appIcon = loadIcon('icon.png');
 
+  const isE2E = process.env.E2E_TESTING === '1';
+
   mainWindow = new BrowserWindow({
     width: 1600,
     height: 900,
     minWidth: 800,
     minHeight: 600,
+    // E2E: create hidden, then showInactive() to avoid stealing focus.
+    // Cornerstone3D needs a visible window with real dimensions for WebGL,
+    // so we can't leave it hidden — but showInactive() avoids activation.
+    show: !isE2E,
     title: 'XNAT Workstation',
     icon: appIcon.isEmpty() ? undefined : appIcon,
     backgroundColor: '#09090b',
@@ -165,12 +171,21 @@ function createWindow(): void {
     },
   });
 
-  if (isDev) {
+  if (isDev && !isE2E) {
     mainWindow.loadURL(devServerUrl);
     mainWindow.webContents.openDevTools();
   } else {
-    // In production: dist/main/main/index.js -> ../../renderer/index.html
+    // In production / E2E: dist/main/main/index.js -> ../../renderer/index.html
     mainWindow.loadFile(path.join(__dirname, '..', '..', 'renderer', 'index.html'));
+  }
+
+  // E2E: show the window without stealing focus once the page is ready.
+  // showInactive() makes the window visible (so WebGL/canvas work) but
+  // does not activate the app or bring it to front.
+  if (isE2E) {
+    mainWindow.once('ready-to-show', () => {
+      mainWindow?.showInactive();
+    });
   }
 
   mainWindow.on('closed', () => {
@@ -201,9 +216,14 @@ app.whenReady().then(() => {
   // In dev mode we can only use PNG; macOS won't apply the rounded-square
   // treatment but the icon is still correct. Production uses .icns from
   // the app bundle which gets full macOS styling automatically.
+  // In E2E mode, hide the dock icon so the app doesn't appear in cmd-tab.
   if (process.platform === 'darwin' && app.dock) {
-    const dockIcon = loadIcon('icon.png');
-    if (!dockIcon.isEmpty()) app.dock.setIcon(dockIcon);
+    if (process.env.E2E_TESTING === '1') {
+      app.dock.hide();
+    } else {
+      const dockIcon = loadIcon('icon.png');
+      if (!dockIcon.isEmpty()) app.dock.setIcon(dockIcon);
+    }
   }
 
   // Configure macOS About panel metadata.

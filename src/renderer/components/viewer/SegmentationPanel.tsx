@@ -1352,7 +1352,7 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
   }, [activeAnnotationType, activeSegId, setActiveTool]);
 
   return (
-    <div className="w-64 shrink-0 min-h-0 border-l border-zinc-800 bg-zinc-950 flex flex-col overflow-hidden relative">
+    <div data-testid="segmentation-panel" className="w-64 shrink-0 min-h-0 border-l border-zinc-800 bg-zinc-950 flex flex-col overflow-hidden relative">
       {/* Header */}
       <div className="px-3 py-2 border-b border-zinc-800 flex items-center justify-between min-h-[36px]">
         <h3 className="text-xs font-semibold text-zinc-300">
@@ -1366,6 +1366,7 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
             className={`flex items-center justify-center gap-0.5 transition-colors px-1 py-1 rounded border ${TYPE_ACCENTS.SEG.text} ${TYPE_ACCENTS.SEG.border} ${TYPE_ACCENTS.SEG.bgHover} disabled:opacity-30 disabled:cursor-not-allowed`}
             title="Create a segmentation annotation"
             aria-label="Add segmentation"
+            data-testid="add-segmentation-btn"
           >
             <IconPlus className="w-2.5 h-2.5" />
             <IconSegmentationAnnotation className="w-3.5 h-3.5" />
