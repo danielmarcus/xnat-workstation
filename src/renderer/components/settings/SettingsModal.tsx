@@ -18,7 +18,10 @@ import type { BackupSessionSummary } from '@shared/types/backup';
 import { buildIssueReport } from '../../lib/diagnostics/issueReport';
 import { IconClose } from '../icons';
 
-type SettingsTab = 'hotkeys' | 'overlay' | 'annotation' | 'interpolation' | 'backup' | 'issue';
+declare const __APP_VERSION__: string;
+const APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev';
+
+type SettingsTab = 'hotkeys' | 'overlay' | 'annotation' | 'interpolation' | 'backup' | 'issue' | 'about';
 
 interface SettingsModalProps {
   open: boolean;
@@ -36,6 +39,10 @@ const TAB_ITEMS: Array<{ id: SettingsTab; label: string }> = [
   { id: 'interpolation', label: 'Interpolation' },
   { id: 'backup', label: 'File Backup' },
   { id: 'issue', label: 'Issue Report' },
+];
+
+const DOC_ITEMS: Array<{ id: SettingsTab; label: string }> = [
+  { id: 'about', label: 'About' },
 ];
 
 const CORNER_OPTIONS: Array<{
@@ -405,6 +412,23 @@ export default function SettingsModal({ open, onClose, onRecover, initialTab }: 
           <div className="px-2 py-2 text-[11px] uppercase tracking-wide text-zinc-500">Settings</div>
           <div className="space-y-1">
             {TAB_ITEMS.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveTab(tab.id)}
+                className={`w-full text-left px-2.5 py-2 rounded text-xs transition-colors ${
+                  activeTab === tab.id
+                    ? 'bg-blue-600/20 text-blue-300'
+                    : 'text-zinc-300 hover:bg-zinc-800 hover:text-white'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+          <div className="px-2 py-2 mt-2 text-[11px] uppercase tracking-wide text-zinc-500 border-t border-zinc-800 pt-3">Documentation</div>
+          <div className="space-y-1">
+            {DOC_ITEMS.map((tab) => (
               <button
                 key={tab.id}
                 type="button"
@@ -1074,6 +1098,47 @@ export default function SettingsModal({ open, onClose, onRecover, initialTab }: 
                   )}
                 </div>
               </>
+            )}
+
+            {activeTab === 'about' && (
+              <div className="space-y-4">
+                <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-5 space-y-4">
+                  <div>
+                    <h3 className="text-sm font-semibold text-zinc-100">XNAT Workstation</h3>
+                    <p className="text-xs text-zinc-500 mt-1">Version {APP_VERSION}</p>
+                  </div>
+                  <p className="text-xs text-zinc-300 leading-relaxed">
+                    XNAT Workstation is provided with the XNAT project with contributions from{' '}
+                    <button
+                      type="button"
+                      onClick={() => window.electronAPI.shell.openExternal('https://www.mir.wustl.edu/research/research-centers/computational-imaging-research-center-circ/labs/marcus-lab/')}
+                      className="text-blue-400 hover:text-blue-300 underline underline-offset-2"
+                    >
+                      Washington University
+                    </button>
+                    {' '}and{' '}
+                    <button
+                      type="button"
+                      onClick={() => window.electronAPI.shell.openExternal('https://www.embarklabs.ai')}
+                      className="text-blue-400 hover:text-blue-300 underline underline-offset-2"
+                    >
+                      Embark Labs
+                    </button>
+                    .
+                  </p>
+                  <p className="text-xs text-zinc-300 leading-relaxed">
+                    Email{' '}
+                    <button
+                      type="button"
+                      onClick={() => window.electronAPI.shell.openExternal('mailto:info@xnat.org')}
+                      className="text-blue-400 hover:text-blue-300 underline underline-offset-2"
+                    >
+                      info@xnat.org
+                    </button>
+                    {' '}if you'd like to get in touch.
+                  </p>
+                </div>
+              </div>
             )}
 
             {activeTab === 'issue' && (
