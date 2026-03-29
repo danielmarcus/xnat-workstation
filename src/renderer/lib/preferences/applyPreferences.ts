@@ -36,6 +36,7 @@ export function applyPreferences(preferences: PreferencesV1): void {
   const colorSequence = (annotationPrefs.defaultColorSequence ?? DEFAULT_PREFERENCES.annotation.defaultColorSequence)
     .map((hex) => hexToRgba(hex))
     .filter((color): color is [number, number, number, number] => color !== null);
+  const updatePrefs = preferences.updates ?? DEFAULT_PREFERENCES.updates;
 
   hotkeyService.setHotkeyMap(DEFAULT_HOTKEY_MAP);
   hotkeyService.mergeOverrides(hotkeyOverrides);
@@ -53,4 +54,12 @@ export function applyPreferences(preferences: PreferencesV1): void {
   segmentationService.updateStyle(segmentOpacity, annotationPrefs.defaultMaskOutlines);
   segmentationService.updateContourStyle(contourThickness);
   toolService.applyScissorPreferences();
+
+  const updaterSync = window.electronAPI?.updater?.configure?.({
+    enabled: updatePrefs.enabled,
+    autoDownload: updatePrefs.autoDownload,
+  });
+  updaterSync?.catch((error) => {
+    console.error('[Preferences] Failed to sync updater preferences:', error);
+  });
 }

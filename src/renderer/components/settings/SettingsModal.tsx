@@ -6,6 +6,7 @@ import type {
   InterpolationAlgorithm,
   ScissorStrategyMode,
 } from '@shared/types/preferences';
+import type { UpdateStatus } from '@shared/types';
 import {
   INTERPOLATION_ALGORITHM_LABELS,
   INTERPOLATION_ALGORITHM_DESCRIPTIONS,
@@ -18,7 +19,7 @@ import type { BackupSessionSummary } from '@shared/types/backup';
 import { buildIssueReport } from '../../lib/diagnostics/issueReport';
 import { IconClose } from '../icons';
 
-type SettingsTab = 'hotkeys' | 'overlay' | 'annotation' | 'interpolation' | 'backup' | 'issue';
+type SettingsTab = 'hotkeys' | 'overlay' | 'annotation' | 'updates' | 'interpolation' | 'backup' | 'issue';
 
 interface SettingsModalProps {
   open: boolean;
@@ -33,6 +34,7 @@ const TAB_ITEMS: Array<{ id: SettingsTab; label: string }> = [
   { id: 'hotkeys', label: 'Hotkeys' },
   { id: 'overlay', label: 'Overlay' },
   { id: 'annotation', label: 'Annotation' },
+  { id: 'updates', label: 'Updates' },
   { id: 'interpolation', label: 'Interpolation' },
   { id: 'backup', label: 'File Backup' },
   { id: 'issue', label: 'Issue Report' },
@@ -166,10 +168,43 @@ function bindingToDraft(binding: HotkeyBinding): { key: string; modifiers: Requi
   };
 }
 
+function formatUpdateStatus(status: UpdateStatus | null): string {
+  if (!status) return 'Loading updater status...';
+  switch (status.phase) {
+    case 'disabled':
+      return 'Automatic update checks are disabled.';
+    case 'idle':
+      return 'Automatic update checks are enabled.';
+    case 'checking':
+      return 'Checking for updates...';
+    case 'available':
+      return status.availableVersion
+        ? `Update ${status.availableVersion} is available.`
+        : 'An update is available.';
+    case 'downloading':
+      return status.downloadProgressPercent === null
+        ? 'Downloading update...'
+        : `Downloading update... ${Math.round(status.downloadProgressPercent)}%`;
+    case 'downloaded':
+      return status.downloadedVersion
+        ? `Update ${status.downloadedVersion} is ready to install.`
+        : 'An update is ready to install.';
+    case 'upToDate':
+      return 'You are running the latest version.';
+    case 'unsupported':
+      return 'Auto-update is only available in packaged builds.';
+    case 'error':
+      return status.error ? `Update error: ${status.error}` : 'Update check failed.';
+    default:
+      return status.message ?? 'Updater status unavailable.';
+  }
+}
+
 export default function SettingsModal({ open, onClose, onRecover, initialTab }: SettingsModalProps) {
   const overrides = usePreferencesStore((s) => s.preferences.hotkeys.overrides);
   const overlayPrefs = usePreferencesStore((s) => s.preferences.overlay);
   const annotationPrefs = usePreferencesStore((s) => s.preferences.annotation);
+  const updatePrefs = usePreferencesStore((s) => s.preferences.updates);
   const interpPrefs = usePreferencesStore((s) => s.preferences.interpolation);
   const setHotkeyOverride = usePreferencesStore((s) => s.setHotkeyOverride);
   const clearHotkeyOverride = usePreferencesStore((s) => s.clearHotkeyOverride);
@@ -188,6 +223,8 @@ export default function SettingsModal({ open, onClose, onRecover, initialTab }: 
   const setScissorDefaultStrategy = usePreferencesStore((s) => s.setScissorDefaultStrategy);
   const setScissorPreviewEnabled = usePreferencesStore((s) => s.setScissorPreviewEnabled);
   const setScissorPreviewColor = usePreferencesStore((s) => s.setScissorPreviewColor);
+  const setUpdateChecksEnabled = usePreferencesStore((s) => s.setUpdateChecksEnabled);
+  const setUpdateAutoDownloadEnabled = usePreferencesStore((s) => s.setUpdateAutoDownloadEnabled);
   const setInterpolationEnabled = usePreferencesStore((s) => s.setInterpolationEnabled);
   const setInterpolationAlgorithm = usePreferencesStore((s) => s.setInterpolationAlgorithm);
   const setLinearThreshold = usePreferencesStore((s) => s.setLinearThreshold);
@@ -239,6 +276,8 @@ export default function SettingsModal({ open, onClose, onRecover, initialTab }: 
   const [issueReport, setIssueReport] = useState('');
   const [issueLoading, setIssueLoading] = useState(false);
   const [issueCopyStatus, setIssueCopyStatus] = useState<'idle' | 'copied' | 'error'>('idle');
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
+  const [updateBusy, setUpdateBusy] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -276,6 +315,47 @@ export default function SettingsModal({ open, onClose, onRecover, initialTab }: 
       cancelled = true;
     };
   }, [activeTab, open]);
+
+  useEffect(() => {
+    if (activeTab !== 'updates' || !open) return;
+    const updaterApi = window.electronAPI?.updater;
+    if (!updaterApi) {
+      setUpdateStatus(null);
+      return;
+    }
+
+    let cancelled = false;
+    updaterApi.getState()
+      .then((status) => {
+        if (!cancelled) setUpdateStatus(status);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        const message = error instanceof Error ? error.message : String(error);
+        setUpdateStatus({
+          phase: 'error',
+          currentVersion: 'unknown',
+          enabled: updatePrefs.enabled,
+          autoDownload: updatePrefs.autoDownload,
+          isPackaged: false,
+          availableVersion: null,
+          downloadedVersion: null,
+          downloadProgressPercent: null,
+          lastCheckedAt: null,
+          message: 'Failed to load updater state.',
+          error: message,
+        });
+      });
+
+    const unsubscribe = updaterApi.onStatus((status) => {
+      if (!cancelled) setUpdateStatus(status);
+    }) ?? (() => {});
+
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, [activeTab, open, updatePrefs.autoDownload, updatePrefs.enabled]);
 
   useEffect(() => {
     if (!actionOptions.length) return;
@@ -386,6 +466,29 @@ export default function SettingsModal({ open, onClose, onRecover, initialTab }: 
     } catch {
       setIssueCopyStatus('error');
       window.setTimeout(() => setIssueCopyStatus('idle'), 3000);
+    }
+  };
+
+  const checkForUpdatesNow = async () => {
+    const updaterApi = window.electronAPI?.updater;
+    if (!updaterApi) return;
+    setUpdateBusy(true);
+    try {
+      const result = await updaterApi.checkForUpdates();
+      setUpdateStatus(result.status);
+    } finally {
+      setUpdateBusy(false);
+    }
+  };
+
+  const installDownloadedUpdate = async () => {
+    const updaterApi = window.electronAPI?.updater;
+    if (!updaterApi) return;
+    setUpdateBusy(true);
+    try {
+      await updaterApi.quitAndInstall();
+    } finally {
+      setUpdateBusy(false);
     }
   };
 
@@ -783,6 +886,89 @@ export default function SettingsModal({ open, onClose, onRecover, initialTab }: 
 
                   <p className="text-[11px] text-zinc-500">
                     Hold Shift while using a scissors tool to temporarily toggle to the alternate mode.
+                  </p>
+                </div>
+              </>
+            )}
+
+            {activeTab === 'updates' && (
+              <>
+                <div className="text-xs text-zinc-400">
+                  Configure background update checks for packaged releases. Manual checks are always available.
+                </div>
+
+                <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-4 space-y-4">
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div className="rounded border border-zinc-800 bg-zinc-900/60 px-3 py-2">
+                      <div className="text-[11px] text-zinc-500">Current version</div>
+                      <div className="text-sm text-zinc-100 font-mono">
+                        {updateStatus?.currentVersion ?? 'Loading...'}
+                      </div>
+                    </div>
+                    <div className="rounded border border-zinc-800 bg-zinc-900/60 px-3 py-2">
+                      <div className="text-[11px] text-zinc-500">Last checked</div>
+                      <div className="text-sm text-zinc-100">
+                        {updateStatus?.lastCheckedAt
+                          ? new Date(updateStatus.lastCheckedAt).toLocaleString()
+                          : 'Not checked yet'}
+                      </div>
+                    </div>
+                  </div>
+
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={updatePrefs.enabled}
+                      onChange={(e) => setUpdateChecksEnabled(e.target.checked)}
+                      className="w-3.5 h-3.5 rounded border-zinc-600 bg-zinc-800 accent-blue-500"
+                    />
+                    <span className="text-xs text-zinc-300">Enable automatic update checks</span>
+                  </label>
+
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={updatePrefs.autoDownload}
+                      onChange={(e) => setUpdateAutoDownloadEnabled(e.target.checked)}
+                      className="w-3.5 h-3.5 rounded border-zinc-600 bg-zinc-800 accent-blue-500"
+                    />
+                    <span className="text-xs text-zinc-300">Download updates automatically when found</span>
+                  </label>
+
+                  <div className="rounded border border-zinc-800 bg-zinc-900/60 px-3 py-2 space-y-1">
+                    <div className="text-[11px] text-zinc-500">Status</div>
+                    <div className="text-xs text-zinc-200">{formatUpdateStatus(updateStatus)}</div>
+                    {updateStatus?.availableVersion && (
+                      <div className="text-[11px] text-zinc-400">
+                        Available version: <span className="font-mono">{updateStatus.availableVersion}</span>
+                      </div>
+                    )}
+                    {updateStatus?.error && (
+                      <div className="text-[11px] text-red-400">{updateStatus.error}</div>
+                    )}
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void checkForUpdatesNow()}
+                      disabled={updateBusy}
+                      className="px-2.5 py-1.5 rounded bg-zinc-800 text-zinc-200 text-xs hover:bg-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      {updateBusy && updateStatus?.phase === 'checking' ? 'Checking...' : 'Check Now'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void installDownloadedUpdate()}
+                      disabled={updateBusy || updateStatus?.phase !== 'downloaded'}
+                      className="px-2.5 py-1.5 rounded bg-blue-600 text-white text-xs hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      Restart and Install
+                    </button>
+                  </div>
+
+                  <p className="text-[11px] text-zinc-500">
+                    Automatic updates require packaged builds published with update metadata. Development builds will report that updates are unavailable.
                   </p>
                 </div>
               </>

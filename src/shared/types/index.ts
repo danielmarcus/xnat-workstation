@@ -5,6 +5,7 @@ export * from './xnat';
 export * from './preferences';
 export * from './backup';
 export * from './diagnostics';
+export * from './updater';
 
 import type {
   XnatLoginResult,
@@ -18,6 +19,13 @@ import type {
   XnatUploadResult,
 } from './xnat';
 import type { MainDiagnosticsSnapshotResult } from './diagnostics';
+import type {
+  CheckForUpdatesResponse,
+  ConfigureUpdaterRequest,
+  ConfigureUpdaterResponse,
+  QuitAndInstallResponse,
+  UpdateStatus,
+} from './updater';
 
 export interface ElectronAPI {
   platform: string;
@@ -181,6 +189,13 @@ export interface ElectronAPI {
   };
   diagnostics?: {
     getMainSnapshot(): Promise<MainDiagnosticsSnapshotResult>;
+  };
+  updater?: {
+    getState(): Promise<UpdateStatus>;
+    configure(config: ConfigureUpdaterRequest): Promise<ConfigureUpdaterResponse>;
+    checkForUpdates(): Promise<CheckForUpdatesResponse>;
+    quitAndInstall(): Promise<QuitAndInstallResponse>;
+    onStatus(callback: (status: UpdateStatus) => void): () => void;
   };
   on(channel: string, callback: (...args: unknown[]) => void): () => void;
 }

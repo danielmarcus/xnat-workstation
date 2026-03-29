@@ -18,6 +18,8 @@ import {
   type OverlayFieldKey,
   type OverlayPreferences,
   type PreferencesV1,
+  DEFAULT_UPDATE_PREFERENCES,
+  type UpdatePreferences,
 } from '@shared/types/preferences';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
@@ -41,6 +43,8 @@ interface PreferencesStore {
   setScissorDefaultStrategy: (strategy: ScissorStrategyMode) => void;
   setScissorPreviewEnabled: (enabled: boolean) => void;
   setScissorPreviewColor: (color: string) => void;
+  setUpdateChecksEnabled: (enabled: boolean) => void;
+  setUpdateAutoDownloadEnabled: (enabled: boolean) => void;
   // ─── Interpolation ─────────────────────────────────────
   setInterpolationEnabled: (enabled: boolean) => void;
   setInterpolationAlgorithm: (algorithm: InterpolationAlgorithm) => void;
@@ -121,9 +125,28 @@ function makeDefaultPreferences(): PreferencesV1 {
         previewColor: DEFAULT_PREFERENCES.annotation.scissors.previewColor,
       },
     },
+    updates: { ...DEFAULT_UPDATE_PREFERENCES },
     interpolation: { ...DEFAULT_INTERPOLATION_PREFERENCES },
     backup: { ...DEFAULT_BACKUP_PREFERENCES },
     deletion: { ...DEFAULT_DELETION_PREFERENCES },
+  };
+}
+
+function mergeUpdatePreferences(current: UpdatePreferences, incoming: unknown): UpdatePreferences {
+  if (!incoming || typeof incoming !== 'object') {
+    return { ...current };
+  }
+
+  const candidate = incoming as Partial<UpdatePreferences>;
+  return {
+    enabled:
+      typeof candidate.enabled === 'boolean'
+        ? candidate.enabled
+        : current.enabled,
+    autoDownload:
+      typeof candidate.autoDownload === 'boolean'
+        ? candidate.autoDownload
+        : current.autoDownload,
   };
 }
 
@@ -465,6 +488,28 @@ export const usePreferencesStore = create<PreferencesStore>()(
           },
         })),
 
+      setUpdateChecksEnabled: (enabled) =>
+        set((state) => ({
+          preferences: {
+            ...state.preferences,
+            updates: {
+              ...state.preferences.updates,
+              enabled,
+            },
+          },
+        })),
+
+      setUpdateAutoDownloadEnabled: (enabled) =>
+        set((state) => ({
+          preferences: {
+            ...state.preferences,
+            updates: {
+              ...state.preferences.updates,
+              autoDownload: enabled,
+            },
+          },
+        })),
+
       // ─── Interpolation ────────────────────────────────────
 
       setInterpolationEnabled: (enabled) =>
@@ -600,6 +645,7 @@ export const usePreferencesStore = create<PreferencesStore>()(
             },
             overlay: mergeOverlayPreferences(base.preferences.overlay, incoming.overlay),
             annotation: mergeAnnotationPreferences(base.preferences.annotation, incoming.annotation),
+            updates: mergeUpdatePreferences(base.preferences.updates, incoming.updates),
             interpolation: mergedInterpolation,
             backup: mergedBackup,
             deletion: mergedDeletion,

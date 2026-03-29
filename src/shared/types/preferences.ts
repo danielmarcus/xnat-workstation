@@ -1,4 +1,11 @@
 import type { HotkeyMap } from './hotkeys';
+import {
+  DEFAULT_UPDATE_PREFERENCES,
+  type UpdatePreferences,
+} from './updater';
+
+export { DEFAULT_UPDATE_PREFERENCES };
+export type { UpdatePreferences };
 
 export type OverlayCornerId = 'topLeft' | 'topRight' | 'bottomLeft' | 'bottomRight';
 export type HexColor = `#${string}`;
@@ -119,6 +126,7 @@ export interface PreferencesV1 {
   };
   overlay: OverlayPreferences;
   annotation: AnnotationToolPreferences;
+  updates: UpdatePreferences;
   interpolation: InterpolationPreferences;
   backup: BackupPreferences;
   deletion: DeletionPreferences;
@@ -190,6 +198,7 @@ export const DEFAULT_PREFERENCES: PreferencesV1 = {
       previewColor: '#FFFFFF',
     },
   },
+  updates: { ...DEFAULT_UPDATE_PREFERENCES },
   interpolation: { ...DEFAULT_INTERPOLATION_PREFERENCES },
   backup: { ...DEFAULT_BACKUP_PREFERENCES },
   deletion: { ...DEFAULT_DELETION_PREFERENCES },

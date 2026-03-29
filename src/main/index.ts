@@ -6,8 +6,10 @@ import { registerExportHandlers } from './ipc/exportHandlers';
 import { registerUploadHandlers } from './ipc/uploadHandlers';
 import { registerBackupHandlers } from './ipc/backupHandlers';
 import { registerDiagnosticsHandlers } from './ipc/diagnosticsHandlers';
+import { registerUpdateHandlers } from './ipc/updateHandlers';
 import { installMainLogCapture } from './diagnostics/mainLogBuffer';
 import { IPC } from '../shared/ipcChannels';
+import { autoUpdateService } from './updater/autoUpdateService';
 
 installMainLogCapture();
 
@@ -186,6 +188,8 @@ app.whenReady().then(() => {
   registerUploadHandlers();
   registerBackupHandlers();
   registerDiagnosticsHandlers();
+  registerUpdateHandlers();
+  autoUpdateService.initialize();
 
   // Shell: open URL in system browser
   ipcMain.handle(IPC.SHELL_OPEN_EXTERNAL, async (_event, url: string) => {
@@ -225,6 +229,10 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit();
   }
+});
+
+app.on('before-quit', () => {
+  autoUpdateService.dispose();
 });
 
 app.on('activate', () => {

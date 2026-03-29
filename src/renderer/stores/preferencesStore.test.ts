@@ -121,11 +121,16 @@ describe('usePreferencesStore', () => {
   });
 
   it('clamps interpolation values and resets all settings', () => {
+    usePreferencesStore.getState().setUpdateChecksEnabled(false);
+    usePreferencesStore.getState().setUpdateAutoDownloadEnabled(false);
     usePreferencesStore.getState().setInterpolationEnabled(false);
     usePreferencesStore.getState().setInterpolationAlgorithm('linear');
     usePreferencesStore.getState().setLinearThreshold(-5);
 
     let interpolation = usePreferencesStore.getState().preferences.interpolation;
+    let updates = usePreferencesStore.getState().preferences.updates;
+    expect(updates.enabled).toBe(false);
+    expect(updates.autoDownload).toBe(false);
     expect(interpolation.enabled).toBe(false);
     expect(interpolation.algorithm).toBe('linear');
     expect(interpolation.linearThreshold).toBe(0);
@@ -168,6 +173,10 @@ describe('usePreferencesStore', () => {
               previewColor: '#00AAFF',
             },
           },
+          updates: {
+            enabled: false,
+            autoDownload: false,
+          },
           interpolation: {
             enabled: false,
             algorithm: 'not-a-real-algorithm',
@@ -192,11 +201,32 @@ describe('usePreferencesStore', () => {
     expect(merged.preferences.annotation.scissors.defaultStrategy).toBe('fill');
     expect(merged.preferences.annotation.scissors.previewEnabled).toBe(true);
     expect(merged.preferences.annotation.scissors.previewColor).toBe('#00AAFF');
+    expect(merged.preferences.updates.enabled).toBe(false);
+    expect(merged.preferences.updates.autoDownload).toBe(false);
 
     expect(merged.preferences.interpolation.enabled).toBe(false);
     expect(merged.preferences.interpolation.algorithm).toBe(
       DEFAULT_INTERPOLATION_PREFERENCES.algorithm,
     );
     expect(merged.preferences.interpolation.linearThreshold).toBe(1);
+  });
+
+  it('falls back to default updater preferences when persisted values are malformed', () => {
+    const merge = persistApi().getOptions().merge;
+    const currentState = usePreferencesStore.getInitialState();
+
+    const merged = merge(
+      {
+        preferences: {
+          updates: {
+            enabled: 'yes',
+            autoDownload: null,
+          },
+        },
+      },
+      currentState,
+    ) as ReturnType<typeof usePreferencesStore.getState>;
+
+    expect(merged.preferences.updates).toEqual(DEFAULT_PREFERENCES.updates);
   });
 });
