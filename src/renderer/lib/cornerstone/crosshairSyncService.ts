@@ -390,7 +390,17 @@ export const crosshairSyncService = {
             if (jumped) {
               keepPointVisibleByPanning(panelId, targetViewport, worldPoint);
               targetViewport.render?.();
-              if (typeof targetViewport.getCurrentImageIdIndex === 'function') {
+              // Use the volume viewport's own slice geometry for index tracking.
+              // imageIds.length reflects acquisition slices, but oriented viewports
+              // have a different slice count along the reoriented axis.
+              const vp = targetViewport as any;
+              if (typeof vp.getSliceIndex === 'function' && typeof vp.getNumberOfSlices === 'function') {
+                const idx = vp.getSliceIndex() as number;
+                const total = vp.getNumberOfSlices() as number;
+                if (Number.isFinite(idx) && total > 0) {
+                  store._requestImageIndex(panelId, Math.max(0, idx), total);
+                }
+              } else if (typeof targetViewport.getCurrentImageIdIndex === 'function') {
                 const idx = targetViewport.getCurrentImageIdIndex();
                 if (Number.isFinite(idx) && imageIds.length > 0) {
                   const clamped = Math.max(0, Math.min(imageIds.length - 1, Number(idx)));
@@ -401,9 +411,13 @@ export const crosshairSyncService = {
             }
           } catch (err) {
             console.warn('[crosshairSync] volume jumpToWorld error', panelId, err);
-            // Fall through to stack-index fallback.
           }
         }
+        // Do not fall through to geometric slice matching for volume viewports.
+        // The acquisition-plane geometry is in a different coordinate frame than
+        // the reoriented view, so stack-index fallback would scroll to the wrong
+        // position (often resulting in a black viewport).
+        continue;
       }
 
       // Stack viewport path: use geometric slice matching.

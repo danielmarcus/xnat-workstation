@@ -178,7 +178,7 @@ describe('crosshairSyncService', () => {
     expect(scrollToIndexMock).not.toHaveBeenCalled();
   });
 
-  it('falls back to nearest stack index when jumpToWorld is unavailable/unsuccessful', () => {
+  it('skips volume viewport when jumpToWorld fails instead of falling back to stack geometry', () => {
     const plane = (z: number): PlaneMeta => ({
       frameOfReferenceUID: 'FOR-1',
       imagePositionPatient: [0, 0, z],
@@ -198,13 +198,14 @@ describe('crosshairSyncService', () => {
       jumpToWorld: vi.fn(() => false),
     });
 
-    // Mark target panel metadata as loaded so stack fallback works synchronously.
     crosshairSyncService._markMetadataLoaded('panel_1');
 
     crosshairSyncService.syncFromViewport('panel_0', [0, 0, 9]);
 
-    expect(viewerStoreMock.getState().viewports.panel_1?.requestedImageIndex).toBe(1);
-    expect(mprScrollToIndexMock).toHaveBeenCalledWith('panel_1', 1);
+    // Volume viewports should not fall back to acquisition-plane geometry
+    // because the coordinate frame differs from the reoriented view.
+    expect(viewerStoreMock.getState().viewports.panel_1?.requestedImageIndex).toBeUndefined();
+    expect(mprScrollToIndexMock).not.toHaveBeenCalled();
   });
 
   it('keeps jumped point visible by in-plane camera pan when offscreen', () => {

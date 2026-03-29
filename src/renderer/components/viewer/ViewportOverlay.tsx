@@ -205,6 +205,21 @@ export default function ViewportOverlay({ panelId }: ViewportOverlayProps) {
   });
   const overlay = useMetadataStore((s) => s.overlays[panelId] ?? EMPTY_OVERLAY);
   const crosshairPoint = useViewerStore((s) => s.crosshairWorldPoint);
+  const crosshairSourcePanelId = useViewerStore((s) => s.crosshairSourcePanelId);
+  const crosshairSubjectMismatch = useViewerStore((s) => {
+    if (!s.crosshairSourcePanelId || s.crosshairSourcePanelId === panelId) return false;
+    const normalize = (v: string | undefined | null) => {
+      if (typeof v !== 'string') return null;
+      const t = v.trim().toLowerCase();
+      return t.length > 0 ? t : null;
+    };
+    const getSubject = (pid: string) =>
+      normalize((s.panelXnatContextMap?.[pid] as { subjectId?: string } | undefined)?.subjectId)
+      ?? normalize(s.panelSubjectLabelMap?.[pid]);
+    const source = getSubject(s.crosshairSourcePanelId);
+    const target = getSubject(panelId);
+    return source != null && target != null && source !== target;
+  });
   const activeTool = useViewerStore((s) => s.activeTool);
   const displayOrientation: MPRPlane =
     (panelOrientation === 'STACK' ? nativeOrientation : panelOrientation) as MPRPlane;
@@ -217,7 +232,7 @@ export default function ViewportOverlay({ panelId }: ViewportOverlayProps) {
   const cornerFields = overlayPrefs.corners ?? DEFAULT_OVERLAY_CORNERS;
 
   const crosshairGuides =
-    activeTool === ToolName.Crosshairs && crosshairPoint
+    activeTool === ToolName.Crosshairs && crosshairPoint && !crosshairSubjectMismatch
       ? getCrosshairDisplayPoint(panelId, crosshairPoint)
       : null;
   const showCrosshairGuides = crosshairGuides !== null;
@@ -226,7 +241,7 @@ export default function ViewportOverlay({ panelId }: ViewportOverlayProps) {
     && (showContextOverlay || showCrosshairGuides || showHorizontalRuler || showVerticalRuler || showOrientationMarkers);
 
   const crosshairText =
-    activeTool === ToolName.Crosshairs && crosshairPoint
+    activeTool === ToolName.Crosshairs && crosshairPoint && !crosshairSubjectMismatch
       ? `${crosshairPoint[0].toFixed(1)}, ${crosshairPoint[1].toFixed(1)}, ${crosshairPoint[2].toFixed(1)}`
       : null;
 
