@@ -160,6 +160,25 @@ function RefreshIcon({ spinning }: { spinning?: boolean }) {
   );
 }
 
+function ExternalLinkIcon() {
+  return (
+    <svg
+      className="w-3.5 h-3.5"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M9.5 2.5H13.5V6.5" />
+      <path d="M7 9L13.5 2.5" />
+      <path d="M13 9.5V12.5C13 13.0523 12.5523 13.5 12 13.5H3.5C2.94772 13.5 2.5 13.0523 2.5 12.5V4C2.5 3.44772 2.94772 3 3.5 3H6.5" />
+    </svg>
+  );
+}
+
 // ─── Loading Spinner ──────────────────────────────────────────────
 
 function Spinner() {
@@ -290,6 +309,57 @@ export default function XnatBrowser({
 
   const connection = useConnectionStore((s) => s.connection);
   const pins = pinnedItemsProp ?? [];
+  const serverUrl = connection?.serverUrl ?? '';
+  const normalizedServerUrl = serverUrl.replace(/\/$/, '');
+
+  const buildXnatEntityUrl = useCallback(
+    (type: 'project' | 'subject' | 'session', ids: { projectId?: string; subjectId?: string; sessionId?: string }) => {
+      if (!normalizedServerUrl) return null;
+
+      if (type === 'project' && ids.projectId) {
+        return `${normalizedServerUrl}/data/projects/${encodeURIComponent(ids.projectId)}?format=html`;
+      }
+      if (type === 'subject' && ids.projectId && ids.subjectId) {
+        return `${normalizedServerUrl}/data/projects/${encodeURIComponent(ids.projectId)}/subjects/${encodeURIComponent(ids.subjectId)}?format=html`;
+      }
+      if (type === 'session' && ids.sessionId) {
+        return `${normalizedServerUrl}/data/experiments/${encodeURIComponent(ids.sessionId)}?format=html`;
+      }
+
+      return null;
+    },
+    [normalizedServerUrl],
+  );
+
+  const openXnatEntity = useCallback(async (url: string | null) => {
+    if (!url) return;
+
+    const result = await window.electronAPI.shell.openExternal(url);
+    if (!result.ok) {
+      console.error('[XnatBrowser] Failed to open XNAT entity URL:', result.error ?? url);
+    }
+  }, []);
+
+  const renderExternalLinkAction = useCallback(
+    (url: string | null, label: string) => {
+      if (!url) return null;
+
+      return (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            void openXnatEntity(url);
+          }}
+          className="p-1 rounded text-zinc-600 hover:text-sky-300 hover:bg-zinc-800 transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
+          title={`Open ${label} in XNAT`}
+          aria-label={`Open ${label} in XNAT`}
+        >
+          <ExternalLinkIcon />
+        </button>
+      );
+    },
+    [openXnatEntity],
+  );
 
   const downloadDerivedScanFile = useCallback(async (sessionId: string, scanId: string) => {
     const result = await window.electronAPI.xnat.downloadScanFile(sessionId, scanId);
@@ -827,8 +897,6 @@ export default function XnatBrowser({
   }, [level, selectedProject, selectedSubject, selectedSession, maybeResolveSessionAssociations]);
 
   // ─── Pin Helpers ───────────────────────────────────────────────
-  const serverUrl = connection?.serverUrl ?? '';
-
   function makePinItem(type: 'project', project: XnatProject): PinnedItem;
   function makePinItem(type: 'subject', subject: XnatSubject): PinnedItem;
   function makePinItem(type: 'session', session: XnatSession): PinnedItem;
@@ -1019,20 +1087,24 @@ export default function XnatBrowser({
                 )}
                 renderAction={onTogglePin ? (p) => {
                   const pinned = isPinned(pins, 'project', p.id);
+                  const projectUrl = buildXnatEntityUrl('project', { projectId: p.id });
                   return (
-                    <button
-                      onClick={() => onTogglePin(makePinItem('project', p))}
-                      className={`p-1 rounded transition-colors ${
-                        pinned
-                          ? 'text-amber-400 hover:text-amber-300 opacity-100'
-                          : 'text-zinc-600 hover:text-amber-400 opacity-0 group-hover:opacity-100'
-                      }`}
-                      title={pinned ? 'Unpin' : 'Pin'}
-                    >
-                      <IconPin className="w-3 h-3" filled={pinned} />
-                    </button>
+                    <div className="flex items-center gap-1">
+                      {renderExternalLinkAction(projectUrl, 'project')}
+                      <button
+                        onClick={() => onTogglePin(makePinItem('project', p))}
+                        className={`p-1 rounded transition-colors ${
+                          pinned
+                            ? 'text-amber-400 hover:text-amber-300 opacity-100'
+                            : 'text-zinc-600 hover:text-amber-400 opacity-0 group-hover:opacity-100'
+                        }`}
+                        title={pinned ? 'Unpin' : 'Pin'}
+                      >
+                        <IconPin className="w-3 h-3" filled={pinned} />
+                      </button>
+                    </div>
                   );
-                } : undefined}
+                } : (p) => renderExternalLinkAction(buildXnatEntityUrl('project', { projectId: p.id }), 'project')}
                 onSelect={selectProject}
                 emptyMessage={q ? `No projects matching "${search}"` : 'No accessible projects found'}
               />
@@ -1063,20 +1135,30 @@ export default function XnatBrowser({
                 }}
                 renderAction={onTogglePin ? (s) => {
                   const pinned = isPinned(pins, 'subject', s.id);
+                  const subjectUrl = buildXnatEntityUrl('subject', {
+                    projectId: selectedProject?.id,
+                    subjectId: s.id,
+                  });
                   return (
-                    <button
-                      onClick={() => onTogglePin(makePinItem('subject', s))}
-                      className={`p-1 rounded transition-colors ${
-                        pinned
-                          ? 'text-amber-400 hover:text-amber-300 opacity-100'
-                          : 'text-zinc-600 hover:text-amber-400 opacity-0 group-hover:opacity-100'
-                      }`}
-                      title={pinned ? 'Unpin' : 'Pin'}
-                    >
-                      <IconPin className="w-3 h-3" filled={pinned} />
-                    </button>
+                    <div className="flex items-center gap-1">
+                      {renderExternalLinkAction(subjectUrl, 'subject')}
+                      <button
+                        onClick={() => onTogglePin(makePinItem('subject', s))}
+                        className={`p-1 rounded transition-colors ${
+                          pinned
+                            ? 'text-amber-400 hover:text-amber-300 opacity-100'
+                            : 'text-zinc-600 hover:text-amber-400 opacity-0 group-hover:opacity-100'
+                        }`}
+                        title={pinned ? 'Unpin' : 'Pin'}
+                      >
+                        <IconPin className="w-3 h-3" filled={pinned} />
+                      </button>
+                    </div>
                   );
-                } : undefined}
+                } : (s) => renderExternalLinkAction(buildXnatEntityUrl('subject', {
+                  projectId: selectedProject?.id,
+                  subjectId: s.id,
+                }), 'subject')}
                 onSelect={selectSubject}
                 emptyMessage={q ? `No subjects matching "${search}"` : 'No subjects found'}
               />
@@ -1095,6 +1177,7 @@ export default function XnatBrowser({
                     const sessionError = sessionScansErrorById[session.id];
                     const sessionScans = getSourceScansForSession(session.id);
                     const isPinnedSession = isPinned(pins, 'session', session.id);
+                    const sessionUrl = buildXnatEntityUrl('session', { sessionId: session.id });
 
                     return (
                       <div key={session.id}>
@@ -1136,6 +1219,7 @@ export default function XnatBrowser({
                             </div>
                           </div>
                           <div className="shrink-0 flex items-center gap-1.5">
+                            {renderExternalLinkAction(sessionUrl, 'session')}
                             {onTogglePin && (
                               <button
                                 onClick={(e) => {
