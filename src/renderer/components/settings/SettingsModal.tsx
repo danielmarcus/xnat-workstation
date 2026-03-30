@@ -1032,7 +1032,7 @@ export default function SettingsModal({ open, onClose, onRecover, initialTab }: 
                                   >
                                     <div className="flex items-start justify-between gap-2">
                                       <div className="min-w-0">
-                                        <div className="text-[11px] text-zinc-300 leading-relaxed" title={session.sessionId}>
+                                        <div className="text-[11px] text-zinc-300 leading-relaxed">
                                           {displayLabel}
                                         </div>
                                         <div className="text-[10px] text-zinc-500 flex flex-wrap gap-x-2 mt-0.5">
@@ -1056,7 +1056,7 @@ export default function SettingsModal({ open, onClose, onRecover, initialTab }: 
                                               }
                                             }}
                                             className="px-2 py-1 rounded text-[11px] bg-green-900/50 text-green-300 hover:bg-green-900/70 transition-colors disabled:opacity-50"
-                                            title="Recover these annotations into the currently loaded session"
+
                                           >
                                             {recoveringSession === session.sessionId ? 'Recovering...' : 'Recover'}
                                           </button>
@@ -1068,7 +1068,7 @@ export default function SettingsModal({ open, onClose, onRecover, initialTab }: 
                                               window.electronAPI.shell.openExternal(xnatSessionUrl);
                                             }}
                                             className="px-2 py-1 rounded text-[11px] bg-zinc-800 text-blue-300 hover:bg-zinc-700 hover:text-blue-200 transition-colors"
-                                            title="Open session in XNAT"
+
                                           >
                                             Open
                                           </button>

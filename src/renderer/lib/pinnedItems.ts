@@ -59,6 +59,8 @@ export interface NavigateToTarget {
   subjectLabel?: string;
   sessionId?: string;
   sessionLabel?: string;
+  /** Navigate the browser tree without auto-loading the session. */
+  skipAutoLoad?: boolean;
 }
 
 // ─── Constants ────────────────────────────────────────────────────

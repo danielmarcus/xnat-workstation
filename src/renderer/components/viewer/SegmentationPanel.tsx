@@ -231,6 +231,7 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
   const localOriginBySegId = useSegmentationManagerStore((s) => s.localOriginBySegId);
   const loadStatusByDerivedScan = useSegmentationManagerStore((s) => s.loadStatus);
   const dirtySegIds = useSegmentationManagerStore((s) => s.dirtySegIds);
+  const recoveredSegIds = useSegmentationManagerStore((s) => s.recoveredSegIds);
   const presentation = useSegmentationManagerStore((s) => s.presentation);
 
   const activeSourceScanId = panelScanMap[activeViewportId] ?? null;
@@ -978,6 +979,12 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
       const result = await saveDicomByType(dicomType, base64, defaultName);
       if (result.ok && result.path) {
         setToast({ message: `Saved to ${result.path.split('/').pop()}`, type: 'success' });
+        const mgrState = useSegmentationManagerStore.getState();
+        const recoveredInfo = mgrState.recoveredSegIds[segmentationId];
+        mgrState.clearRecovered(segmentationId);
+        if (recoveredInfo && typeof recoveredInfo === 'object') {
+          backupService.deleteBackupEntry(recoveredInfo.sessionId, recoveredInfo.filename).catch(() => {});
+        }
       } else if (result.error) {
         setToast({ message: `Save failed: ${result.error}`, type: 'error' });
       }
@@ -1148,7 +1155,10 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
         }
 
         const mgrStore = useSegmentationManagerStore.getState();
+        // If this was a recovered segmentation, delete the original backup file
+        const recoveredInfo = mgrStore.recoveredSegIds[segmentationId];
         mgrStore.clearDirty(segmentationId);
+        mgrStore.clearRecovered(segmentationId);
         if (!mgrStore.hasDirtySegmentations()) {
           useSegmentationStore.getState()._markClean();
         }
@@ -1156,6 +1166,12 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
         try {
           await backupService.deleteEntriesForSegmentation(panelCtx.sessionId, segmentationId);
         } catch { /* ignore local backup cleanup errors */ }
+        // Also delete the original backup file if this was recovered (different segmentation ID)
+        if (recoveredInfo && typeof recoveredInfo === 'object') {
+          try {
+            await backupService.deleteBackupEntry(recoveredInfo.sessionId, recoveredInfo.filename);
+          } catch { /* ignore */ }
+        }
 
         // Clean up legacy XNAT temp files for this source scan
         try {
@@ -1457,14 +1473,18 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
               const origin = xnatOriginMap[seg.segmentationId];
               const rowDicomType = resolveSegRowDicomType(seg.segmentationId);
               const displayDicomType = rowDicomType;
-              const suffix = origin?.scanId ? `#${origin.scanId}` : 'unsaved';
+              const isDirty = !!dirtySegIds[seg.segmentationId];
+              const isRecovered = !!recoveredSegIds[seg.segmentationId];
+              const suffix = isDirty ? 'unsaved' : (origin?.scanId ? `#${origin.scanId}` : 'unsaved');
 
               return (
                 <div key={seg.segmentationId}>
                   {/* Segmentation row */}
                   <div
                     className={`group flex items-center gap-1.5 px-2 py-1.5 cursor-pointer transition-colors ${
-                      isActiveSeg ? 'bg-zinc-800/60' : 'hover:bg-zinc-800/40'
+                      isRecovered
+                        ? 'bg-amber-900/30 border-l-2 border-amber-500'
+                        : isActiveSeg ? 'bg-zinc-800/60' : 'hover:bg-zinc-800/40'
                     }`}
                     onClick={() => handleSelectSegmentationRow(seg.segmentationId)}
                   >
@@ -1504,7 +1524,7 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
                         title="Double-click to rename"
                       >
                         {seg.label}
-                        <span className="text-zinc-500 text-[10px] ml-1">({suffix})</span>
+                        <span className={`text-[10px] ml-1 ${isRecovered ? 'text-amber-400 font-medium' : 'text-zinc-500'}`}>({suffix})</span>
                       </span>
                     )}
 
@@ -1524,7 +1544,11 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
                           setSaveMenuOpen(saveMenuOpen === seg.segmentationId ? null : seg.segmentationId);
                         }}
                         disabled={saving}
-                        className="opacity-0 group-hover:opacity-100 text-zinc-500 hover:text-blue-400 transition-all p-0.5 rounded hover:bg-blue-900/20 disabled:opacity-30"
+                        className={`transition-all p-0.5 rounded disabled:opacity-30 ${
+                          isRecovered
+                            ? 'opacity-100 text-amber-400 hover:text-amber-300 hover:bg-amber-900/30'
+                            : 'opacity-0 group-hover:opacity-100 text-zinc-500 hover:text-blue-400 hover:bg-blue-900/20'
+                        }`}
                         title="Save segmentation"
                       >
                         <IconSave className="w-3.5 h-3.5" />
@@ -1931,8 +1955,8 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
         )}
       </div>
 
-      {/* Backup status indicators */}
-      <div className="border-t border-zinc-800 px-3 py-2 space-y-2 shrink-0">
+      {/* Backup status indicators — fixed height to avoid shifting the toolbox */}
+      <div className="border-t border-zinc-800 px-3 py-1.5 shrink-0 h-7 flex items-center">
         {backupEnabled && autoSaveStatus !== 'idle' && (
           <div className="flex items-center gap-1">
             {autoSaveStatus === 'saving' && (

@@ -58,6 +58,10 @@ interface SegmentationManagerState {
   /** Dirty tracking per segmentation ID */
   dirtySegIds: Record<string, boolean>;
 
+  /** Segmentation IDs recovered from backup (for UI highlighting until saved).
+   *  Value contains the backup session/filename so the entry can be deleted on save. */
+  recoveredSegIds: Record<string, { sessionId: string; filename: string } | true>;
+
   /** Timestamp of last manual save per segmentation ID */
   lastManualSaveAt: Record<string, number | null>;
 
@@ -83,6 +87,8 @@ interface SegmentationManagerState {
   setPresentation: (segId: string, segIdx: number, patch: Partial<{ color: RGBA; visible: boolean; locked: boolean }>) => void;
   markDirty: (segId: string) => void;
   clearDirty: (segId: string) => void;
+  markRecovered: (segId: string, backupInfo?: { sessionId: string; filename: string }) => void;
+  clearRecovered: (segId: string) => void;
   recordManualSave: (segId: string) => void;
   recordTempSaved: (sourceScanId: string) => void;
   setActiveSegmentationForPanel: (panelId: string, segId: string | null) => void;
@@ -106,6 +112,7 @@ const INITIAL_STATE = {
   loadStatus: {} as Record<string, LoadStatus>,
   presentation: {} as Record<string, PresentationState>,
   dirtySegIds: {} as Record<string, boolean>,
+  recoveredSegIds: {} as Record<string, { sessionId: string; filename: string } | true>,
   lastManualSaveAt: {} as Record<string, number | null>,
   lastTempSaveAtBySourceScan: {} as Record<string, number | null>,
   activeSegmentationIdByPanel: {} as Record<string, string | null>,
@@ -196,9 +203,19 @@ export const useSegmentationManagerStore = create<SegmentationManagerState>((set
       return { dirtySegIds: rest };
     }),
 
+  markRecovered: (segId, backupInfo) =>
+    set((s) => ({ recoveredSegIds: { ...s.recoveredSegIds, [segId]: backupInfo ?? true } })),
+
+  clearRecovered: (segId) =>
+    set((s) => {
+      const { [segId]: _, ...rest } = s.recoveredSegIds;
+      return { recoveredSegIds: rest };
+    }),
+
   recordManualSave: (segId) =>
     set((s) => ({
       dirtySegIds: (() => { const { [segId]: _, ...rest } = s.dirtySegIds; return rest; })(),
+      recoveredSegIds: (() => { const { [segId]: _, ...rest } = s.recoveredSegIds; return rest; })(),
       lastManualSaveAt: { ...s.lastManualSaveAt, [segId]: Date.now() },
     })),
 
@@ -251,6 +268,9 @@ export const useSegmentationManagerStore = create<SegmentationManagerState>((set
       // Remove dirty state
       const { [segmentationId]: _d, ...restDirty } = s.dirtySegIds;
 
+      // Remove recovered state
+      const { [segmentationId]: _r, ...restRecovered } = s.recoveredSegIds;
+
       // Remove manual save timestamp
       const { [segmentationId]: _m, ...restManualSave } = s.lastManualSaveAt;
 
@@ -259,6 +279,7 @@ export const useSegmentationManagerStore = create<SegmentationManagerState>((set
         presentation: restPresentation,
         localOriginBySegId: restLocalOrigin,
         dirtySegIds: restDirty,
+        recoveredSegIds: restRecovered,
         lastManualSaveAt: restManualSave,
       };
     }),

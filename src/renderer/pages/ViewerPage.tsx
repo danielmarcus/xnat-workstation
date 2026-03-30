@@ -68,7 +68,7 @@ export default function ViewerPage({ panelImageIds, onApplyProtocol, onToggleMPR
   }, []);
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col flex-1 min-h-0">
       <Toolbar
         showDicomPanel={showDicomPanel}
         onToggleDicomPanel={toggleDicomPanel}

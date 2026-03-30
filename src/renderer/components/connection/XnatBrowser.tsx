@@ -434,8 +434,8 @@ export default function XnatBrowser({
           const data = await window.electronAPI.xnat.getScans(target.sessionId);
           setScans(data);
           maybeResolveSessionAssociations(target.sessionId, data);
-          // Auto-load session
-          if (onLoadSession && data.length > 0) {
+          // Auto-load session unless explicitly skipped
+          if (onLoadSession && data.length > 0 && !target.skipAutoLoad) {
             onLoadSession(target.sessionId, data, {
               projectId: target.projectId,
               subjectId: target.subjectId!,
