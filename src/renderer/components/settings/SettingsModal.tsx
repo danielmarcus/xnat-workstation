@@ -1032,8 +1032,34 @@ export default function SettingsModal({ open, onClose, onRecover, initialTab }: 
                                   >
                                     <div className="flex items-start justify-between gap-2">
                                       <div className="min-w-0">
-                                        <div className="text-[11px] text-zinc-300 leading-relaxed">
+                                        <div className="text-[11px] text-zinc-300 leading-relaxed flex items-center gap-1">
                                           {displayLabel}
+                                          {xnatSessionUrl && (
+                                            <button
+                                              type="button"
+                                              title="Open session in XNAT"
+                                              aria-label="Open session in XNAT"
+                                              onClick={() => {
+                                                window.electronAPI.shell.openExternal(xnatSessionUrl);
+                                              }}
+                                              className="inline-flex items-center text-blue-400 hover:text-blue-300 transition-colors shrink-0"
+                                            >
+                                              <svg
+                                                className="w-3.5 h-3.5"
+                                                viewBox="0 0 16 16"
+                                                fill="none"
+                                                stroke="currentColor"
+                                                strokeWidth="1.5"
+                                                strokeLinecap="round"
+                                                strokeLinejoin="round"
+                                                aria-hidden="true"
+                                              >
+                                                <path d="M9.5 2.5H13.5V6.5" />
+                                                <path d="M7 9L13.5 2.5" />
+                                                <path d="M13 9.5V12.5C13 13.0523 12.5523 13.5 12 13.5H3.5C2.94772 13.5 2.5 13.0523 2.5 12.5V4C2.5 3.44772 2.94772 3 3.5 3H6.5" />
+                                              </svg>
+                                            </button>
+                                          )}
                                         </div>
                                         <div className="text-[10px] text-zinc-500 flex flex-wrap gap-x-2 mt-0.5">
                                           <span>{session.entryCount} file{session.entryCount !== 1 ? 's' : ''}</span>
@@ -1059,18 +1085,6 @@ export default function SettingsModal({ open, onClose, onRecover, initialTab }: 
 
                                           >
                                             {recoveringSession === session.sessionId ? 'Recovering...' : 'Recover'}
-                                          </button>
-                                        )}
-                                        {xnatSessionUrl && (
-                                          <button
-                                            type="button"
-                                            onClick={() => {
-                                              window.electronAPI.shell.openExternal(xnatSessionUrl);
-                                            }}
-                                            className="px-2 py-1 rounded text-[11px] bg-zinc-800 text-blue-300 hover:bg-zinc-700 hover:text-blue-200 transition-colors"
-
-                                          >
-                                            Open
                                           </button>
                                         )}
                                         <button
