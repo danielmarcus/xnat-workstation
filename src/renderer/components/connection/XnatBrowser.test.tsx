@@ -35,7 +35,7 @@ vi.mock('@cornerstonejs/core', async (importOriginal) => {
   };
 });
 
-function setElectronApiMock(overrides?: Partial<ElectronAPI['xnat']>): ElectronAPI['xnat'] {
+function setElectronApiMock(overrides?: Partial<ElectronAPI['xnat']>): ElectronAPI {
   const xnat = {
     browserLogin: vi.fn(),
     logout: vi.fn(),
@@ -56,10 +56,15 @@ function setElectronApiMock(overrides?: Partial<ElectronAPI['xnat']>): ElectronA
     prepareDicomForUpload: vi.fn(),
     autoSaveTemp: vi.fn(),
     listTempFiles: vi.fn(),
+    deleteScan: vi.fn(),
     deleteTempFile: vi.fn(),
     downloadTempFile: vi.fn(),
     ...overrides,
   } as unknown as ElectronAPI['xnat'];
+
+  const shell = {
+    openExternal: vi.fn(async () => ({ ok: true })),
+  };
 
   Object.defineProperty(window, 'electronAPI', {
     configurable: true,
@@ -67,12 +72,13 @@ function setElectronApiMock(overrides?: Partial<ElectronAPI['xnat']>): ElectronA
     value: {
       xnat,
       export: {},
+      shell,
       platform: 'darwin',
       on: vi.fn(() => () => undefined),
     },
   });
 
-  return xnat;
+  return window.electronAPI;
 }
 
 function resetStores(): void {
@@ -154,7 +160,7 @@ describe('XnatBrowser', () => {
 
   it('drills down project -> subject -> session and loads source scans with context', async () => {
     const onLoadScan = vi.fn();
-    const xnat = setElectronApiMock({
+    const electronApi = setElectronApiMock({
       getProjects: vi.fn(async () => [{ id: 'P1', name: 'Project One', subjectCount: 1, sessionCount: 1 }]),
       getSubjects: vi.fn(async () => [{ id: 'SUB1', label: 'Subject-001', projectId: 'P1' }]),
       getSessions: vi.fn(async () => [{ id: 'SESS1', label: 'Session-1', projectId: 'P1', subjectId: 'SUB1', scanCount: 2 }]),
@@ -168,12 +174,23 @@ describe('XnatBrowser', () => {
     const user = userEvent.setup();
     render(<XnatBrowser onLoadScan={onLoadScan} />);
 
+    await user.click(await screen.findByTitle('Open project in XNAT'));
+    expect(electronApi.shell.openExternal).toHaveBeenCalledWith('https://xnat.example/data/projects/P1?format=html');
+
     await user.click(await screen.findByText('Project One'));
+
+    await user.click(await screen.findByTitle('Open subject in XNAT'));
+    expect(electronApi.shell.openExternal).toHaveBeenCalledWith('https://xnat.example/data/projects/P1/subjects/SUB1?format=html');
+
     await user.click(await screen.findByText('Subject-001'));
+
+    await user.click(await screen.findByTitle('Open session in XNAT'));
+    expect(electronApi.shell.openExternal).toHaveBeenCalledWith('https://xnat.example/data/experiments/SESS1?format=html');
+
     await user.click(await screen.findByText('Session-1'));
 
     await waitFor(() => {
-      expect(xnat.getScans).toHaveBeenCalledWith('SESS1');
+      expect(electronApi.xnat.getScans).toHaveBeenCalledWith('SESS1');
     });
     expect(screen.getByText('Axial')).toBeInTheDocument();
     expect(screen.queryByText('#3001 Seg Overlay')).not.toBeInTheDocument();
@@ -196,7 +213,7 @@ describe('XnatBrowser', () => {
     const onLoadScan = vi.fn();
     const onLoadSession = vi.fn();
     const onNavigateComplete = vi.fn();
-    const xnat = setElectronApiMock({
+    const electronApi = setElectronApiMock({
       getProjects: vi.fn(async () => []),
       getScans: vi.fn(async () => [
         { id: '21', type: 'MR', modality: 'MR', seriesDescription: 'T1' },
@@ -239,7 +256,7 @@ describe('XnatBrowser', () => {
     expect(screen.queryByText('#4001 RTSTRUCT')).not.toBeInTheDocument();
 
     await user.click(screen.getByTitle('Refresh scans'));
-    await waitFor(() => expect(xnat.getScans).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(electronApi.xnat.getScans).toHaveBeenCalledTimes(2));
 
     fireEvent.click(getClickableContaining(/T1/), { shiftKey: true });
     expect(onLoadScan).toHaveBeenLastCalledWith(
@@ -254,7 +271,7 @@ describe('XnatBrowser', () => {
   it('supports pinning, search filtering, grid thumbnails, and scan drag payload contracts', async () => {
     const onLoadScan = vi.fn();
     const onTogglePin = vi.fn();
-    const xnat = setElectronApiMock({
+    const electronApi = setElectronApiMock({
       getProjects: vi.fn(async () => [{ id: 'P1', name: 'Project One', subjectCount: 1, sessionCount: 1 }]),
       getSubjects: vi.fn(async () => [{ id: 'SUB1', label: 'Subject-001', projectId: 'P1' }]),
       getSessions: vi.fn(async () => [{ id: 'SESS1', label: 'Session-1', projectId: 'P1', subjectId: 'SUB1', scanCount: 1 }]),
@@ -318,6 +335,6 @@ describe('XnatBrowser', () => {
     );
 
     await user.click(screen.getByTitle('Refresh sessions'));
-    expect(xnat.getSessions).toHaveBeenCalledWith('P1', 'SUB1');
+    expect(electronApi.xnat.getSessions).toHaveBeenCalledWith('P1', 'SUB1');
   });
 });
