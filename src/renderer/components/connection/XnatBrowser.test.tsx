@@ -209,12 +209,15 @@ describe('XnatBrowser', () => {
     );
   });
 
-  it('honors navigateTo session targets, auto-loads session, and refreshes scan level', async () => {
+  it('honors navigateTo session targets, auto-loads session, and shows expanded session at sessions level', async () => {
     const onLoadScan = vi.fn();
     const onLoadSession = vi.fn();
     const onNavigateComplete = vi.fn();
     const electronApi = setElectronApiMock({
       getProjects: vi.fn(async () => []),
+      getSessions: vi.fn(async () => [
+        { id: 'SESS9', label: 'Pinned Session', projectId: 'P9', subjectId: 'SUB9', scanCount: 2 },
+      ]),
       getScans: vi.fn(async () => [
         { id: '21', type: 'MR', modality: 'MR', seriesDescription: 'T1' },
         { id: '4001', type: 'RTSTRUCT', modality: 'RTSTRUCT', xsiType: 'xnat:otherDicomScanData', seriesDescription: 'RTSTRUCT' },
@@ -242,6 +245,8 @@ describe('XnatBrowser', () => {
     );
 
     await waitFor(() => expect(onNavigateComplete).toHaveBeenCalledTimes(1));
+
+    // Should auto-load the session
     expect(onLoadSession).toHaveBeenCalledWith(
       'SESS9',
       expect.arrayContaining([expect.objectContaining({ id: '21' })]),
@@ -251,13 +256,18 @@ describe('XnatBrowser', () => {
         sessionLabel: 'Pinned Session',
       }),
     );
+
+    // Should be at sessions level (not scans) with the session expanded showing its scans
+    expect(electronApi.xnat.getSessions).toHaveBeenCalledWith('P9', 'SUB9');
     expect(screen.getByText('Pinned Session')).toBeInTheDocument();
     expect(screen.getByText('T1')).toBeInTheDocument();
     expect(screen.queryByText('#4001 RTSTRUCT')).not.toBeInTheDocument();
 
-    await user.click(screen.getByTitle('Refresh scans'));
-    await waitFor(() => expect(electronApi.xnat.getScans).toHaveBeenCalledTimes(2));
+    // Refresh at sessions level
+    await user.click(screen.getByTitle('Refresh sessions'));
+    await waitFor(() => expect(electronApi.xnat.getSessions).toHaveBeenCalledTimes(2));
 
+    // Clicking a scan in the expanded session still works
     fireEvent.click(getClickableContaining(/T1/), { shiftKey: true });
     expect(onLoadScan).toHaveBeenLastCalledWith(
       'SESS9',
@@ -336,5 +346,76 @@ describe('XnatBrowser', () => {
 
     await user.click(screen.getByTitle('Refresh sessions'));
     expect(electronApi.xnat.getSessions).toHaveBeenCalledWith('P1', 'SUB1');
+  });
+
+  it('breadcrumb navigation fetches correct data after navigateTo switches session', async () => {
+    const onLoadSession = vi.fn();
+    const onNavigateComplete = vi.fn();
+
+    // First render: drill down into Project A / Subject A / Session A normally
+    const electronApi = setElectronApiMock({
+      getProjects: vi.fn(async () => [{ id: 'PA', name: 'Project A', subjectCount: 1, sessionCount: 1 }]),
+      getSubjects: vi.fn(async () => [{ id: 'SUBA', label: 'Subject-A', projectId: 'PA' }]),
+      getSessions: vi.fn(async () => [{ id: 'SESSA', label: 'Session-A', projectId: 'PA', subjectId: 'SUBA', scanCount: 1 }]),
+      getScans: vi.fn(async () => [{ id: '1', type: 'CT', modality: 'CT', seriesDescription: 'CT-A' }]),
+      getProjectSessions: vi.fn(async () => []),
+    });
+
+    const user = userEvent.setup();
+    const { rerender } = render(
+      <XnatBrowser onLoadSession={onLoadSession} onNavigateComplete={onNavigateComplete} />,
+    );
+
+    // Drill down: Project A -> Subject A (sessions level)
+    await user.click(await screen.findByText('Project A'));
+    await user.click(await screen.findByText('Subject-A'));
+    await screen.findByText('Session-A');
+
+    // Now simulate pinned navigation to a different session in a different project/subject
+    electronApi.xnat.getScans = vi.fn(async () => [
+      { id: '2', type: 'MR', modality: 'MR', seriesDescription: 'MR-B' },
+    ]) as unknown as ElectronAPI['xnat']['getScans'];
+    electronApi.xnat.getSessions = vi.fn(async () => [
+      { id: 'SESSB', label: 'Session-B', projectId: 'PB', subjectId: 'SUBB', scanCount: 1 },
+    ]) as unknown as ElectronAPI['xnat']['getSessions'];
+    electronApi.xnat.getSubjects = vi.fn(async () => [
+      { id: 'SUBB', label: 'Subject-B', projectId: 'PB' },
+    ]) as unknown as ElectronAPI['xnat']['getSubjects'];
+
+    rerender(
+      <XnatBrowser
+        onLoadSession={onLoadSession}
+        onNavigateComplete={onNavigateComplete}
+        navigateTo={{
+          type: 'session',
+          serverUrl: 'https://xnat.example',
+          projectId: 'PB',
+          projectName: 'Project B',
+          subjectId: 'SUBB',
+          subjectLabel: 'Subject-B',
+          sessionId: 'SESSB',
+          sessionLabel: 'Session-B',
+          timestamp: Date.now(),
+        }}
+      />,
+    );
+
+    // Wait for pinned navigation to complete - now at sessions level with Session-B expanded
+    await waitFor(() => expect(onNavigateComplete).toHaveBeenCalled());
+
+    // navigateTo should have fetched sessions for the new subject (not stale Subject A)
+    expect(electronApi.xnat.getSessions).toHaveBeenCalledWith('PB', 'SUBB');
+    expect(screen.getByText('Session-B')).toBeInTheDocument();
+    // Expanded session should show its scans
+    expect(screen.getByText('MR-B')).toBeInTheDocument();
+
+    // Click project breadcrumb to navigate up to subjects level
+    await user.click(screen.getByText('Project B'));
+
+    // Verify that getSubjects was called with Project B (not stale Project A)
+    await waitFor(() => {
+      expect(electronApi.xnat.getSubjects).toHaveBeenCalledWith('PB');
+    });
+    expect(await screen.findByText('Subject-B')).toBeInTheDocument();
   });
 });

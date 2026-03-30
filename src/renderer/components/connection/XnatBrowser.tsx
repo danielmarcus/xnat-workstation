@@ -420,23 +420,33 @@ export default function XnatBrowser({
           setSelectedProject(project);
           setSelectedSubject(subject);
           setSelectedSession(null);
+          setSubjects([]);
           setLevel('sessions');
           const data = await window.electronAPI.xnat.getSessions(target.projectId, target.subjectId);
           setSessions(data);
         } else if (target.type === 'session' && target.subjectId != null && target.sessionId != null) {
           const project: XnatProject = { id: target.projectId, name: target.projectName };
           const subject: XnatSubject = { id: target.subjectId, label: target.subjectLabel ?? '', projectId: target.projectId };
-          const session: XnatSession = { id: target.sessionId, label: target.sessionLabel ?? '', projectId: target.projectId, subjectId: target.subjectId };
           setSelectedProject(project);
           setSelectedSubject(subject);
-          setSelectedSession(session);
-          setLevel('scans');
-          const data = await window.electronAPI.xnat.getScans(target.sessionId);
-          setScans(data);
-          maybeResolveSessionAssociations(target.sessionId, data);
+          setSelectedSession(null);
+          setSubjects([]);
+          setSessions([]);
+          setLevel('sessions');
+
+          // Fetch the sessions list for this subject
+          const sessionsData = await window.electronAPI.xnat.getSessions(target.projectId, target.subjectId);
+          setSessions(sessionsData);
+
+          // Expand the target session and eagerly load its scans
+          setExpandedSessionIds({ [target.sessionId]: true });
+          const scansData = await window.electronAPI.xnat.getScans(target.sessionId);
+          setSessionScansById((prev) => ({ ...prev, [target.sessionId!]: scansData }));
+          maybeResolveSessionAssociations(target.sessionId, scansData);
+
           // Auto-load session unless explicitly skipped
-          if (onLoadSession && data.length > 0 && !target.skipAutoLoad) {
-            onLoadSession(target.sessionId, data, {
+          if (onLoadSession && scansData.length > 0 && !target.skipAutoLoad) {
+            onLoadSession(target.sessionId, scansData, {
               projectId: target.projectId,
               subjectId: target.subjectId!,
               sessionLabel: target.sessionLabel!,
@@ -1206,13 +1216,13 @@ export default function XnatBrowser({
                           <div className="min-w-0 flex-1">
                             <div className="text-sm text-zinc-200 font-medium truncate">
                               {session.label}
+                            </div>
+                            <div className="text-[11px] text-zinc-600 tabular-nums flex items-center gap-1.5">
                               {session.modality?.trim() && (
-                                <span className="ml-2 text-[10px] bg-zinc-700/80 text-zinc-300 px-1.5 py-0.5 rounded font-normal">
+                                <span className="text-[10px] bg-zinc-700/80 text-zinc-300 px-1.5 py-0.5 rounded">
                                   {session.modality.trim()}
                                 </span>
                               )}
-                            </div>
-                            <div className="text-[11px] text-zinc-600 tabular-nums">
                               {session.date && <span>{session.date}</span>}
                               {session.date && session.scanCount != null && ' · '}
                               {session.scanCount != null && `${session.scanCount} scans`}
