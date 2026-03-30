@@ -679,6 +679,14 @@ export default function App() {
       }
     }
     segStore._markClean();
+
+    // Delete local backup files for this session since the user confirmed discard
+    const currentSessionId = useViewerStore.getState().sessionId;
+    if (currentSessionId) {
+      backupService.deleteSessionBackups(currentSessionId).catch((err) => {
+        console.warn('[App] Failed to delete backup after discard:', err);
+      });
+    }
   }, []);
 
   const unsavedNavigation = useUnsavedNavigationDialog(discardCurrentAnnotations);
@@ -845,11 +853,10 @@ export default function App() {
     backupService.listAllBackups().then((sessions) => {
       // Only count entries for the currently connected server
       const matching = sessions.filter((s) => s.serverUrl === connectedServerUrl);
-      const totalEntries = matching.reduce((sum, s) => sum + s.entryCount, 0);
-      setBackupBannerCount(totalEntries);
+      setBackupBannerCount(matching.length);
       setBackupBannerDismissed(false);
-      if (totalEntries > 0) {
-        console.log(`[App] Found ${totalEntries} backed-up annotation(s) for ${connectedServerUrl}`);
+      if (matching.length > 0) {
+        console.log(`[App] Found ${matching.length} session(s) with backed-up annotations for ${connectedServerUrl}`);
       }
     }).catch(() => { /* ignore */ });
   }, [connectedServerUrl]);
@@ -2054,6 +2061,7 @@ export default function App() {
       sessionId: string,
       scans: XnatScan[],
       context: { projectId: string; subjectId: string; sessionLabel: string; projectName?: string; subjectLabel?: string },
+      options?: { useHangingProtocol?: boolean; targetScanId?: string },
     ) => {
       if (!isConnected) return;
 
@@ -2099,8 +2107,26 @@ export default function App() {
           console.log(`[App] Found ${rtStructScans.length} RTSTRUCT scan(s) — will auto-load as contour overlays`);
         }
 
-        // Match imaging scans to a hanging protocol
-        const { protocol, assignments, unmatched } = matchProtocol(imagingScans);
+        // Match imaging scans to a hanging protocol only when explicitly requested.
+        // Default to single layout — user can apply a protocol via the toolbar.
+        let protocolResult: ReturnType<typeof matchProtocol>;
+        if (options?.targetScanId) {
+          // Force a specific scan into panel 0 (used by recovery)
+          const targetScan = imagingScans.find((s) => s.id === options.targetScanId);
+          const singleProtocol = BUILT_IN_PROTOCOLS.find((p) => p.id === 'single')!;
+          const assignments = new Map<number, XnatScan>();
+          if (targetScan) assignments.set(0, targetScan);
+          protocolResult = {
+            protocol: singleProtocol,
+            assignments,
+            unmatched: imagingScans.filter((s) => s.id !== options.targetScanId),
+          };
+        } else if (options?.useHangingProtocol) {
+          protocolResult = matchProtocol(imagingScans);
+        } else {
+          protocolResult = matchProtocol(imagingScans, [BUILT_IN_PROTOCOLS.find((p) => p.id === 'single')!]);
+        }
+        const { protocol, assignments, unmatched } = protocolResult;
         console.log(
           `Matched protocol "${protocol.name}" (${protocol.layout}) — ` +
           `${assignments.size} assigned, ${unmatched.length} unmatched`
@@ -2482,11 +2508,13 @@ export default function App() {
   // ─── Recover backup from Settings → File Backup ─────────────────
   const handleRecoverBackup = useCallback(async (sessionId: string) => {
     try {
+      console.log(`[App] handleRecoverBackup: starting recovery for session ${sessionId}, current session: ${useViewerStore.getState().sessionId}`);
       const manifest = await backupService.getManifestForSession(sessionId);
       if (!manifest || manifest.entries.length === 0) {
         console.warn('[App] No backup entries to recover for', sessionId);
         return;
       }
+      console.log(`[App] handleRecoverBackup: ${manifest.entries.length} entries to recover`);
 
       // Build scanId → panelId + imageIds mapping from viewerStore
       let store = useViewerStore.getState();
@@ -2517,16 +2545,26 @@ export default function App() {
           return;
         }
 
+        // Discard current annotations before loading the new session so the
+        // unsaved-navigation prompt doesn't fire during recovery.
+        const segStore = useSegmentationStore.getState();
+        for (const seg of [...segStore.segmentations]) {
+          try { segmentationManager.removeSegmentation(seg.segmentationId); } catch { /* ok */ }
+        }
+        segStore._markClean();
+
         // Pre-mark as recovered so checkForAutoSaveRecovery (called at end of
         // loadSessionFromXnat) doesn't double-prompt for the same entries.
         markRecoveredSession(sessionId);
 
+        // Load the session with the specific source scan that the backup references
+        const targetScanId = manifest.entries[0]?.sourceScanId;
         await loadSessionFromXnat(sessionId, scans, {
           projectId,
           subjectId,
           sessionLabel: manifest.sessionLabel ?? sessionId,
           subjectLabel: manifest.subjectLabel,
-        });
+        }, { targetScanId });
 
         // Re-read store after session load
         store = useViewerStore.getState();
@@ -2544,7 +2582,49 @@ export default function App() {
         }
       }
 
+      // Remove existing segmentations for the source scans being recovered so
+      // the backup replaces them instead of appearing as duplicates.
+      // Capture the XNAT-derived scan IDs so we can register the recovered
+      // segmentation as the loaded overlay (preventing "available overlay" duplicates).
+      const recoverySourceScans = new Set(manifest.entries.map((e) => e.sourceScanId));
+      const derivedScanIdBySourceScan = new Map<string, string>();
+      {
+        const segStoreNow = useSegmentationStore.getState();
+        const originMap = segStoreNow.xnatOriginMap;
+        const localOriginMap = useSegmentationManagerStore.getState().localOriginBySegId;
+        for (const seg of [...segStoreNow.segmentations]) {
+          const xnatOrigin = originMap[seg.segmentationId];
+          if (xnatOrigin && recoverySourceScans.has(xnatOrigin.sourceScanId)) {
+            // Remember the XNAT annotation scan ID for this source scan
+            derivedScanIdBySourceScan.set(xnatOrigin.sourceScanId, xnatOrigin.scanId);
+            try {
+              segmentationManager.removeSegmentation(seg.segmentationId);
+              console.log(`[App] Removed XNAT segmentation ${seg.segmentationId} for source scan ${xnatOrigin.sourceScanId} before recovery`);
+            } catch (err) {
+              console.warn('[App] Failed to remove existing segmentation before recovery:', err);
+            }
+            continue;
+          }
+          // Check localOriginBySegId: composite key is "projectId/sessionId/scanId"
+          const localKey = localOriginMap[seg.segmentationId];
+          if (localKey) {
+            const parts = localKey.split('/');
+            const localSourceScan = parts[parts.length - 1];
+            if (recoverySourceScans.has(localSourceScan)) {
+              try {
+                segmentationManager.removeSegmentation(seg.segmentationId);
+                console.log(`[App] Removed local segmentation ${seg.segmentationId} for source scan ${localSourceScan} before recovery`);
+              } catch (err) {
+                console.warn('[App] Failed to remove existing segmentation before recovery:', err);
+              }
+            }
+          }
+        }
+      }
+
       let recoveredCount = 0;
+      const recoveredSegIds: string[] = [];
+      const recoveredBackupInfo = new Map<string, { sessionId: string; filename: string }>();
       for (const entry of manifest.entries) {
         const isRtStruct = entry.format === 'RTSTRUCT';
 
@@ -2594,10 +2674,28 @@ export default function App() {
           if (panelContext?.projectId) {
             const compositeKey = `${panelContext.projectId}/${panelContext.sessionId}/${entry.sourceScanId}`;
             useSegmentationManagerStore.getState().setLocalOrigin(recoveredSegId, compositeKey);
+
+            // Register the recovered seg as the loaded overlay for the XNAT-derived
+            // scan so it doesn't appear as a separate "available overlay" in the panel.
+            // Also set the XNAT origin so the save dialog offers overwrite vs new.
+            const derivedScanId = derivedScanIdBySourceScan.get(entry.sourceScanId);
+            if (derivedScanId) {
+              useSegmentationManagerStore.getState().recordLoaded(compositeKey, derivedScanId, {
+                segmentationId: recoveredSegId,
+                loadedAt: Date.now(),
+              });
+              useSegmentationManagerStore.getState().setLoadStatus(derivedScanId, 'loaded');
+              useSegmentationStore.getState().setXnatOrigin(recoveredSegId, {
+                scanId: derivedScanId,
+                sourceScanId: entry.sourceScanId,
+                projectId: panelContext.projectId,
+                sessionId: panelContext.sessionId,
+              });
+            }
           }
 
-          // Delete the recovered backup entry
-          await backupService.deleteBackupEntry(sessionId, entry.filename).catch(() => {});
+          recoveredSegIds.push(recoveredSegId);
+          recoveredBackupInfo.set(recoveredSegId, { sessionId, filename: entry.filename });
           recoveredCount++;
         } catch (err) {
           console.error(`[App] Recovery: failed to load "${entry.filename}":`, err);
@@ -2610,19 +2708,47 @@ export default function App() {
         const segStore = useSegmentationStore.getState();
         if (!segStore.showPanel) segStore.togglePanel();
 
+        // Navigate the browser panel to the recovered session with scans visible,
+        // but skip auto-loading to avoid reloading XNAT annotations on top of
+        // the just-recovered backup.
+        if (manifest.projectId && manifest.subjectId) {
+          setNavigateTo({
+            type: 'session',
+            projectId: manifest.projectId,
+            projectName: manifest.projectId,
+            subjectId: manifest.subjectId,
+            subjectLabel: manifest.subjectLabel ?? undefined,
+            sessionId: manifest.sessionId,
+            sessionLabel: manifest.sessionLabel ?? manifest.sessionId,
+            skipAutoLoad: true,
+          });
+        }
+
         // Dismiss the backup banner since we recovered
         setBackupBannerDismissed(true);
 
-        // Force re-sync after a microtask to ensure the panel is rendered
-        await new Promise((r) => setTimeout(r, 100));
+        // Force re-sync after a microtask to ensure the panel is rendered.
+        // The delay also ensures that the async clearAllDirty() triggered by
+        // _markClean() inside loadSegFromArrayBuffer has already completed,
+        // so the markDirty/markRecovered calls below are not wiped out.
+        await new Promise((r) => setTimeout(r, 150));
         segmentationService.sync();
+
+        // Mark recovered segmentations as dirty (unsaved) and recovered (UI highlight)
+        // AFTER the async _markClean/clearAllDirty cycle has settled.
+        const mgrStore = useSegmentationManagerStore.getState();
+        for (const segId of recoveredSegIds) {
+          mgrStore.markDirty(segId);
+          mgrStore.markRecovered(segId, recoveredBackupInfo.get(segId));
+        }
+        useSegmentationStore.getState()._markDirty();
       }
 
       console.log(`[App] Settings recovery: ${recoveredCount}/${manifest.entries.length} entries recovered`);
     } catch (err) {
       console.error('[App] Settings recovery failed:', err);
     }
-  }, [promptRecoveryConfirm, loadSessionFromXnat]);
+  }, [promptRecoveryConfirm, loadSessionFromXnat, setNavigateTo]);
 
   // ─── Error state ───────────────────────────────────────────────
 
@@ -2677,15 +2803,14 @@ export default function App() {
             <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a.75.75 0 000 1.5h.253a.25.25 0 01.244.304l-.459 2.066A1.75 1.75 0 0010.747 15H11a.75.75 0 000-1.5h-.253a.25.25 0 01-.244-.304l.459-2.066A1.75 1.75 0 009.253 9H9z" clipRule="evenodd" />
           </svg>
           <span className="text-[11px] text-blue-200">
-            Found {backupBannerCount} backed-up annotation{backupBannerCount !== 1 ? 's' : ''} from a previous session.{' '}
+            There {backupBannerCount === 1 ? 'is' : 'are'} {backupBannerCount} session{backupBannerCount !== 1 ? 's' : ''} with annotations that have not been saved.{' '}
             <button
               type="button"
               onClick={() => setOpenSettingsToBackup(true)}
               className="underline text-blue-300 hover:text-blue-100 transition-colors"
             >
-              Open File Backup settings
+              Review now
             </button>
-            {' '}to review or recover.
           </span>
           <button
             type="button"
