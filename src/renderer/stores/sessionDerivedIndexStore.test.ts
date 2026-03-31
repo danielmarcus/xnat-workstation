@@ -38,6 +38,7 @@ vi.mock('../lib/cornerstone/rtStructService', () => ({
 }));
 
 import {
+  inferSourceScanIdFromConvention,
   isDerivedScan,
   isRtStructScan,
   isSegScan,
@@ -142,9 +143,17 @@ describe('useSessionDerivedIndexStore deterministic transitions', () => {
     const cleared = useSessionDerivedIndexStore.getState();
     expect(cleared.derivedIndex).toEqual({});
     expect(cleared.unmapped).toEqual([]);
-    expect(cleared.sourceSeriesUidByScanId).toEqual({});
-    expect(cleared.derivedRefSeriesUidByScanId).toEqual({});
+    // UID caches are preserved across clear() so re-expanding skips downloads
+    expect(cleared.sourceSeriesUidByScanId).toEqual({
+      'sess-1/1': 'UID-A',
+      'sess-1/2': 'UID-B',
+    });
+    expect(cleared.derivedRefSeriesUidByScanId).toEqual({
+      'sess-1/3001': 'UID-A',
+      'sess-1/4001': 'UID-MISSING',
+    });
     expect(cleared.resolvedSessionIds.size).toBe(0);
+    expect(cleared.provisionalMappings).toEqual({});
   });
 
   it('ensureSourceSeriesUid returns cached values and resolves via metadata/cache probing', async () => {
@@ -280,5 +289,287 @@ describe('useSessionDerivedIndexStore deterministic transitions', () => {
     // Session already resolved, so resolver should rebuild from cache without new I/O.
     expect(getScanImageIds).toHaveBeenCalledTimes(1);
     expect(downloadScanFile).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ─── Scan ID Convention Heuristic ─────────────────────────────────────────────
+
+describe('inferSourceScanIdFromConvention', () => {
+  it('maps SEG scan IDs following 30xx convention', () => {
+    expect(inferSourceScanIdFromConvention(seg('3001'))).toBe('1');
+    expect(inferSourceScanIdFromConvention(seg('3011'))).toBe('11');
+    expect(inferSourceScanIdFromConvention(seg('3002'))).toBe('2');
+    expect(inferSourceScanIdFromConvention(seg('30100'))).toBe('100');
+  });
+
+  it('maps SEG scan IDs with collision prefixes (31xx, 32xx)', () => {
+    expect(inferSourceScanIdFromConvention(seg('3101'))).toBe('1');
+    expect(inferSourceScanIdFromConvention(seg('3211'))).toBe('11');
+    expect(inferSourceScanIdFromConvention(seg('3901'))).toBe('1');
+  });
+
+  it('maps RTSTRUCT scan IDs following 40xx convention', () => {
+    expect(inferSourceScanIdFromConvention(rtstruct('4001'))).toBe('1');
+    expect(inferSourceScanIdFromConvention(rtstruct('4011'))).toBe('11');
+    expect(inferSourceScanIdFromConvention(rtstruct('4211'))).toBe('11');
+  });
+
+  it('returns null for non-matching scan IDs', () => {
+    // Non-numeric
+    expect(inferSourceScanIdFromConvention(seg('ABC'))).toBeNull();
+    // Too short (only 2 digits — no suffix)
+    expect(inferSourceScanIdFromConvention(seg('30'))).toBeNull();
+    // Wrong prefix digit for SEG
+    expect(inferSourceScanIdFromConvention(seg('4001'))).toBeNull();
+    // Wrong prefix digit for RTSTRUCT
+    expect(inferSourceScanIdFromConvention(rtstruct('3001'))).toBeNull();
+    // Source scan (not derived)
+    expect(inferSourceScanIdFromConvention(source('3001'))).toBeNull();
+    // Arbitrary non-convention ID
+    expect(inferSourceScanIdFromConvention(seg('999'))).toBeNull();
+    expect(inferSourceScanIdFromConvention(seg('1001'))).toBeNull();
+  });
+
+  it('requires scan to be classified as the correct derived type', () => {
+    // A scan with ID 3001 but not classified as SEG
+    expect(inferSourceScanIdFromConvention({ id: '3001', type: 'CT' })).toBeNull();
+    // A scan with ID 4001 but not classified as RTSTRUCT
+    expect(inferSourceScanIdFromConvention({ id: '4001', type: 'CT' })).toBeNull();
+  });
+});
+
+describe('buildProvisionalIndex', () => {
+  beforeEach(() => {
+    resetStore();
+  });
+
+  it('instantly maps convention scans and seeds provisional UIDs', () => {
+    const scans = [source('1'), source('2'), seg('3001'), rtstruct('4002')];
+    useSessionDerivedIndexStore.getState().buildProvisionalIndex('sess-1', scans);
+
+    const state = useSessionDerivedIndexStore.getState();
+
+    // derivedIndex should have the mappings
+    expect(state.derivedIndex['1']?.segScans.map((s) => s.id)).toEqual(['3001']);
+    expect(state.derivedIndex['2']?.rtStructScans.map((s) => s.id)).toEqual(['4002']);
+
+    // provisionalMappings tracked
+    expect(state.provisionalMappings['sess-1/3001']).toBe('1');
+    expect(state.provisionalMappings['sess-1/4002']).toBe('2');
+
+    // Provisional UIDs seeded in UID maps
+    expect(state.sourceSeriesUidByScanId['sess-1/1']).toBe('provisional:1');
+    expect(state.sourceSeriesUidByScanId['sess-1/2']).toBe('provisional:2');
+    expect(state.derivedRefSeriesUidByScanId['sess-1/3001']).toBe('provisional:1');
+    expect(state.derivedRefSeriesUidByScanId['sess-1/4002']).toBe('provisional:2');
+  });
+
+  it('skips derived scans whose inferred source does not exist', () => {
+    // Source scan 5 doesn't exist, so seg 3005 should not be mapped
+    const scans = [source('1'), seg('3005')];
+    useSessionDerivedIndexStore.getState().buildProvisionalIndex('sess-1', scans);
+
+    const state = useSessionDerivedIndexStore.getState();
+    expect(Object.keys(state.provisionalMappings)).toEqual([]);
+    expect(state.derivedIndex['5']).toBeUndefined();
+  });
+
+  it('skips non-convention derived scans', () => {
+    const scans = [source('1'), seg('999')];
+    useSessionDerivedIndexStore.getState().buildProvisionalIndex('sess-1', scans);
+
+    const state = useSessionDerivedIndexStore.getState();
+    expect(Object.keys(state.provisionalMappings)).toEqual([]);
+  });
+
+  it('does not overwrite existing real UIDs for source scans', () => {
+    // Pre-populate a real UID for source scan 1
+    useSessionDerivedIndexStore.getState().setSourceSeriesUid('sess-1', '1', 'REAL-UID-A');
+
+    const scans = [source('1'), seg('3001')];
+    useSessionDerivedIndexStore.getState().buildProvisionalIndex('sess-1', scans);
+
+    const state = useSessionDerivedIndexStore.getState();
+    // Source UID should still be the real one
+    expect(state.sourceSeriesUidByScanId['sess-1/1']).toBe('REAL-UID-A');
+    // Derived ref UID gets provisional (will be overwritten by real resolution)
+    expect(state.derivedRefSeriesUidByScanId['sess-1/3001']).toBe('provisional:1');
+  });
+});
+
+describe('provisional + UID resolution integration', () => {
+  beforeEach(() => {
+    resetStore();
+    vi.clearAllMocks();
+
+    mocked.metaDataGet.mockReturnValue(undefined);
+    mocked.dataSetIsLoaded.mockReturnValue(false);
+    mocked.dataSetLoad.mockResolvedValue(undefined);
+    mocked.dataSetString.mockReturnValue(null);
+    mocked.dataSetGet.mockImplementation(() => ({
+      string: mocked.dataSetString,
+    }));
+    mocked.getSegReferenceInfo.mockReturnValue({
+      referencedSeriesUID: null,
+      referencedSOPInstanceUIDs: [],
+    });
+    mocked.parseRtStruct.mockReturnValue({
+      referencedSeriesUID: null,
+    });
+  });
+
+  it('provisional mapping confirmed by UID resolution — counts remain correct', async () => {
+    const scans = [source('1'), seg('3001')];
+    const getScanImageIds = vi.fn(async () => ['wadouri:https://xnat/img.dcm?objectUID=SOP-1']);
+    const downloadScanFile = vi.fn(async () => new ArrayBuffer(16));
+
+    mocked.metaDataGet.mockImplementation((type: string) =>
+      type === 'generalSeriesModule' ? { seriesInstanceUID: 'SER-A' } : undefined,
+    );
+    mocked.getSegReferenceInfo.mockReturnValue({
+      referencedSeriesUID: 'SER-A',
+      referencedSOPInstanceUIDs: [],
+    });
+
+    await useSessionDerivedIndexStore.getState().resolveAssociationsForSession(
+      'sess-1', scans, getScanImageIds, downloadScanFile,
+    );
+
+    const state = useSessionDerivedIndexStore.getState();
+    // SEG correctly mapped to source 1
+    expect(state.derivedIndex['1']?.segScans.map((s) => s.id)).toEqual(['3001']);
+    // Provisional entries cleaned up
+    expect(Object.keys(state.provisionalMappings)).toEqual([]);
+    // Real UIDs in place
+    expect(state.sourceSeriesUidByScanId['sess-1/1']).toBe('SER-A');
+    expect(state.derivedRefSeriesUidByScanId['sess-1/3001']).toBe('SER-A');
+    expect(state.resolvedSessionIds.has('sess-1')).toBe(true);
+  });
+
+  it('provisional mapping corrected when UID says different source', async () => {
+    // Convention says SEG 3001 → source 1, but UID resolution reveals it
+    // actually references source 2's SeriesInstanceUID.
+    const scans = [source('1'), source('2'), seg('3001')];
+    const getScanImageIds = vi.fn(async () => ['wadouri:https://xnat/img.dcm']);
+    const downloadScanFile = vi.fn(async () => new ArrayBuffer(16));
+
+    // Source 1 gets SER-A, source 2 gets SER-B
+    mocked.metaDataGet.mockImplementation((type: string, imageId: string) => {
+      if (type !== 'generalSeriesModule') return undefined;
+      return undefined; // force dataset path
+    });
+    mocked.dataSetGet.mockImplementation(() => ({
+      string: (tag: string) => {
+        // Will be called for both source scans; return different UIDs based on call order.
+        // The mock tracks calls — source 1 first, source 2 second.
+        return null;
+      },
+    }));
+
+    // Directly seed source UIDs to control the test
+    useSessionDerivedIndexStore.getState().setSourceSeriesUid('sess-1', '1', 'SER-A');
+    useSessionDerivedIndexStore.getState().setSourceSeriesUid('sess-1', '2', 'SER-B');
+
+    // SEG references source 2 (SER-B), not source 1 as convention suggests
+    mocked.getSegReferenceInfo.mockReturnValue({
+      referencedSeriesUID: 'SER-B',
+      referencedSOPInstanceUIDs: [],
+    });
+
+    await useSessionDerivedIndexStore.getState().resolveAssociationsForSession(
+      'sess-1', scans, getScanImageIds, downloadScanFile,
+    );
+
+    const state = useSessionDerivedIndexStore.getState();
+    // SEG should be mapped to source 2 (corrected from provisional source 1)
+    expect(state.derivedIndex['2']?.segScans.map((s) => s.id)).toEqual(['3001']);
+    // Source 1 should have no SEG
+    expect(state.derivedIndex['1']?.segScans ?? []).toEqual([]);
+    expect(state.resolvedSessionIds.has('sess-1')).toBe(true);
+  });
+
+  it('mixed session: convention scans + external scans both resolve', async () => {
+    // 3001 follows convention (SEG for source 1)
+    // 999 is an external SEG with non-convention ID
+    const scans = [source('1'), source('2'), seg('3001'), seg('999')];
+    const getScanImageIds = vi.fn(async () => ['wadouri:https://xnat/img.dcm']);
+    const downloadScanFile = vi.fn(async () => new ArrayBuffer(16));
+
+    useSessionDerivedIndexStore.getState().setSourceSeriesUid('sess-1', '1', 'SER-A');
+    useSessionDerivedIndexStore.getState().setSourceSeriesUid('sess-1', '2', 'SER-B');
+
+    let callCount = 0;
+    mocked.getSegReferenceInfo.mockImplementation(() => {
+      callCount++;
+      if (callCount === 1) {
+        // First call: seg 3001 references source 1 (convention match)
+        return { referencedSeriesUID: 'SER-A', referencedSOPInstanceUIDs: [] };
+      }
+      // Second call: seg 999 references source 2
+      return { referencedSeriesUID: 'SER-B', referencedSOPInstanceUIDs: [] };
+    });
+
+    await useSessionDerivedIndexStore.getState().resolveAssociationsForSession(
+      'sess-1', scans, getScanImageIds, downloadScanFile,
+    );
+
+    const state = useSessionDerivedIndexStore.getState();
+    expect(state.derivedIndex['1']?.segScans.map((s) => s.id)).toEqual(['3001']);
+    expect(state.derivedIndex['2']?.segScans.map((s) => s.id)).toEqual(['999']);
+    expect(state.resolvedSessionIds.has('sess-1')).toBe(true);
+  });
+
+  it('session with no convention scans behaves as before', async () => {
+    // All derived scans have non-convention IDs
+    const scans = [source('1'), seg('999'), rtstruct('888')];
+    const getScanImageIds = vi.fn(async () => ['wadouri:https://xnat/img.dcm']);
+    const downloadScanFile = vi.fn(async () => new ArrayBuffer(16));
+
+    useSessionDerivedIndexStore.getState().setSourceSeriesUid('sess-1', '1', 'SER-A');
+
+    mocked.getSegReferenceInfo.mockReturnValue({
+      referencedSeriesUID: 'SER-A',
+      referencedSOPInstanceUIDs: [],
+    });
+    mocked.parseRtStruct.mockReturnValue({
+      referencedSeriesUID: 'SER-A',
+    });
+
+    await useSessionDerivedIndexStore.getState().resolveAssociationsForSession(
+      'sess-1', scans, getScanImageIds, downloadScanFile,
+    );
+
+    const state = useSessionDerivedIndexStore.getState();
+    expect(state.derivedIndex['1']?.segScans.map((s) => s.id)).toEqual(['999']);
+    expect(state.derivedIndex['1']?.rtStructScans.map((s) => s.id)).toEqual(['888']);
+    // No provisional entries should exist
+    expect(Object.keys(state.provisionalMappings)).toEqual([]);
+    expect(state.resolvedSessionIds.has('sess-1')).toBe(true);
+  });
+
+  it('provisional UIDs do not prevent real UID resolution', async () => {
+    const scans = [source('1'), seg('3001')];
+    const getScanImageIds = vi.fn(async () => ['wadouri:https://xnat/img.dcm']);
+    const downloadScanFile = vi.fn(async () => new ArrayBuffer(16));
+
+    mocked.metaDataGet.mockImplementation((type: string) =>
+      type === 'generalSeriesModule' ? { seriesInstanceUID: 'SER-REAL' } : undefined,
+    );
+    mocked.getSegReferenceInfo.mockReturnValue({
+      referencedSeriesUID: 'SER-REAL',
+      referencedSOPInstanceUIDs: [],
+    });
+
+    await useSessionDerivedIndexStore.getState().resolveAssociationsForSession(
+      'sess-1', scans, getScanImageIds, downloadScanFile,
+    );
+
+    const state = useSessionDerivedIndexStore.getState();
+    // Real UIDs should be in place, not provisional
+    expect(state.sourceSeriesUidByScanId['sess-1/1']).toBe('SER-REAL');
+    expect(state.derivedRefSeriesUidByScanId['sess-1/3001']).toBe('SER-REAL');
+    // Downloads should still happen (provisional doesn't short-circuit)
+    expect(downloadScanFile).toHaveBeenCalledTimes(1);
+    expect(getScanImageIds).toHaveBeenCalledTimes(1);
   });
 });

@@ -83,6 +83,37 @@ export function isSrScan(scan: XnatScan): boolean {
   return norm(scan.modality) === 'sr' || norm(scan.type) === 'sr';
 }
 
+/**
+ * Infer the source scan ID from the derived scan's ID using the app's naming
+ * convention: SEG scans use prefix 3x (30xx, 31xx, …) and RTSTRUCT scans use
+ * prefix 4x (40xx, 41xx, …), where the suffix is the zero-padded source scan
+ * number. Returns null if the scan doesn't match the convention or isn't
+ * classified as the expected type.
+ */
+export function inferSourceScanIdFromConvention(scan: XnatScan): string | null {
+  const id = scan.id;
+  // Must be at least 3 digits (prefix digit + suffix of 2+)
+  if (!/^\d{3,}$/.test(id)) return null;
+
+  const firstDigit = id.charCodeAt(0) - 48; // '0' = 48
+
+  if (firstDigit === 3 && isSegScan(scan)) {
+    // SEG convention: 3Nxx where N is 0-9, xx is zero-padded source scan ID
+    const suffix = id.slice(2); // skip the 2-char prefix (e.g. "30", "31")
+    return String(parseInt(suffix, 10)); // strip leading zeros
+  }
+
+  if (firstDigit === 4 && isRtStructScan(scan)) {
+    // RTSTRUCT convention: 4Nxx where N is 0-9, xx is zero-padded source scan ID
+    const suffix = id.slice(2);
+    return String(parseInt(suffix, 10));
+  }
+
+  return null;
+}
+
+const PROVISIONAL_UID_PREFIX = 'provisional:';
+
 interface SessionDerivedIndexState {
   /** Maps sourceScanId → { segScans, rtStructScans } */
   derivedIndex: Record<string, DerivedScanIndex>;
@@ -99,11 +130,22 @@ interface SessionDerivedIndexState {
   /** Sessions that have completed UID resolution */
   resolvedSessionIds: Set<string>;
 
+  /** Derived scans mapped via scan-ID convention heuristic (sessionId/derivedScanId → sourceScanId) */
+  provisionalMappings: Record<string, string>;
+
   /**
    * Build a baseline derived index from a list of scans without any scan-number
    * conventions. Derived scans remain unmapped until UID associations are resolved.
    */
   buildDerivedIndex: (scans: XnatScan[]) => void;
+
+  /**
+   * Instantly map derived scans to source scans using the scan-ID naming
+   * convention (30xx→SEG, 40xx→RTSTRUCT). Seeds provisional placeholder UIDs
+   * into the UID maps so overlay counts render immediately. UID resolution
+   * later overwrites these with real UIDs and corrects any mismatches.
+   */
+  buildProvisionalIndex: (sessionId: string, scans: XnatScan[]) => void;
 
   /**
    * Add a lazily-resolved mapping (e.g., after downloading and parsing a SEG file).
@@ -196,6 +238,54 @@ export const useSessionDerivedIndexStore = create<SessionDerivedIndexState>((set
   sourceSeriesUidByScanId: {},
   derivedRefSeriesUidByScanId: {},
   resolvedSessionIds: new Set(),
+  provisionalMappings: {},
+
+  buildProvisionalIndex: (sessionId, scans) => {
+    const sourceIds = new Set(scans.filter((s) => !isDerivedScan(s)).map((s) => s.id));
+    const derivedScans = scans.filter((s) => isDerivedScan(s));
+    const newProvisional: Record<string, string> = {};
+    const newSourceUids: Record<string, string> = {};
+    const newDerivedRefUids: Record<string, string> = {};
+
+    for (const derived of derivedScans) {
+      const inferredSourceId = inferSourceScanIdFromConvention(derived);
+      if (!inferredSourceId || !sourceIds.has(inferredSourceId)) continue;
+
+      const derivedKey = sessionScanKey(sessionId, derived.id);
+      const sourceKey = sessionScanKey(sessionId, inferredSourceId);
+
+      // Track as provisional so UID resolution can correct if wrong
+      newProvisional[derivedKey] = inferredSourceId;
+
+      // Seed placeholder UIDs so overlayCountsBySessionSourceScanId picks them up
+      const placeholderUid = `${PROVISIONAL_UID_PREFIX}${inferredSourceId}`;
+      if (!get().sourceSeriesUidByScanId[sourceKey]) {
+        newSourceUids[sourceKey] = placeholderUid;
+      }
+      newDerivedRefUids[derivedKey] = placeholderUid;
+    }
+
+    if (Object.keys(newProvisional).length === 0) return;
+
+    set((s) => ({
+      provisionalMappings: { ...s.provisionalMappings, ...newProvisional },
+      sourceSeriesUidByScanId: { ...s.sourceSeriesUidByScanId, ...newSourceUids },
+      derivedRefSeriesUidByScanId: { ...s.derivedRefSeriesUidByScanId, ...newDerivedRefUids },
+    }));
+
+    // Also populate the derivedIndex for overlayCountsBySourceScanId consumers
+    for (const derived of derivedScans) {
+      const derivedKey = sessionScanKey(sessionId, derived.id);
+      const inferredSourceId = newProvisional[derivedKey];
+      if (inferredSourceId) {
+        get().addMapping(inferredSourceId, derived);
+      }
+    }
+
+    console.log(
+      `[sessionDerivedIndex] Provisional index: ${Object.keys(newProvisional).length} convention-based mappings for session ${sessionId}`,
+    );
+  },
 
   buildDerivedIndex: (scans) => {
     const index: Record<string, DerivedScanIndex> = {};
@@ -269,11 +359,11 @@ export const useSessionDerivedIndexStore = create<SessionDerivedIndexState>((set
     const state = get();
     const { sourceSeriesUidByScanId, derivedRefSeriesUidByScanId } = state;
 
-    // Build reverse map: seriesUid → sourceScanId
+    // Build reverse map: seriesUid → sourceScanId (skip provisional placeholders)
     const seriesUidToSourceScanId: Record<string, string> = {};
     for (const scanId of allScans.map((s) => s.id)) {
       const uid = sourceSeriesUidByScanId[sessionScanKey(sessionId, scanId)];
-      if (!uid) continue;
+      if (!uid || uid.startsWith(PROVISIONAL_UID_PREFIX)) continue;
       seriesUidToSourceScanId[uid] = scanId;
     }
 
@@ -296,9 +386,9 @@ export const useSessionDerivedIndexStore = create<SessionDerivedIndexState>((set
 
       let sourceScanId: string | null = null;
 
-      // Primary: UID-based matching
+      // Primary: UID-based matching (skip provisional placeholders)
       const refUid = derivedRefSeriesUidByScanId[sessionScanKey(sessionId, scan.id)];
-      if (refUid && seriesUidToSourceScanId[refUid]) {
+      if (refUid && !refUid.startsWith(PROVISIONAL_UID_PREFIX) && seriesUidToSourceScanId[refUid]) {
         sourceScanId = seriesUidToSourceScanId[refUid];
         uidMatches++;
       }
@@ -325,9 +415,9 @@ export const useSessionDerivedIndexStore = create<SessionDerivedIndexState>((set
 
   ensureSourceSeriesUid: async (sessionId, scanId, getScanImageIds) => {
     const cacheKey = sessionScanKey(sessionId, scanId);
-    // Return cached value if present
+    // Return cached value if present (provisional placeholders don't count)
     const cached = get().sourceSeriesUidByScanId[cacheKey];
-    if (cached) return cached;
+    if (cached && !cached.startsWith(PROVISIONAL_UID_PREFIX)) return cached;
 
     try {
       const imageIds = await getScanImageIds(sessionId, scanId);
@@ -385,9 +475,9 @@ export const useSessionDerivedIndexStore = create<SessionDerivedIndexState>((set
     sourceSopUidToSeriesUid,
   ) => {
     const cacheKey = sessionScanKey(sessionId, derivedScanId);
-    // Return cached value if present
+    // Return cached value if present (provisional placeholders don't count)
     const cached = get().derivedRefSeriesUidByScanId[cacheKey];
-    if (cached) return cached;
+    if (cached && !cached.startsWith(PROVISIONAL_UID_PREFIX)) return cached;
 
     try {
       const arrayBuffer = await downloadScanFile(sessionId, derivedScanId);
@@ -431,11 +521,14 @@ export const useSessionDerivedIndexStore = create<SessionDerivedIndexState>((set
     const sourceScans = scans.filter((s) => !isDerivedScan(s));
     const derivedScans = scans.filter((s) => isDerivedScan(s));
 
+    const hasRealUid = (uid: string | undefined): boolean =>
+      Boolean(uid) && !uid!.startsWith(PROVISIONAL_UID_PREFIX);
+
     const hasMissingSourceUid = sourceScans.some(
-      (scan) => !state.sourceSeriesUidByScanId[sessionScanKey(sessionId, scan.id)],
+      (scan) => !hasRealUid(state.sourceSeriesUidByScanId[sessionScanKey(sessionId, scan.id)]),
     );
     const hasMissingDerivedRefUid = derivedScans.some(
-      (scan) => !state.derivedRefSeriesUidByScanId[sessionScanKey(sessionId, scan.id)],
+      (scan) => !hasRealUid(state.derivedRefSeriesUidByScanId[sessionScanKey(sessionId, scan.id)]),
     );
 
     // Idempotent + context refresh:
@@ -463,18 +556,17 @@ export const useSessionDerivedIndexStore = create<SessionDerivedIndexState>((set
     const promise = (async () => {
       const startTime = Date.now();
 
+      // Instant provisional mapping from scan ID convention — renders badge
+      // counts immediately while real UID resolution runs in the background.
+      get().buildProvisionalIndex(sessionId, scans);
+
       console.log(
         `[sessionDerivedIndex] Resolving UID associations for session ${sessionId}: ` +
         `${sourceScans.length} source scans, ${derivedScans.length} derived scans`
       );
 
-      // Phase 1: Resolve source scan SeriesInstanceUIDs (concurrency 5)
-      const limit5 = pLimit(5);
-      await Promise.all(
-        sourceScans.map((s) =>
-          limit5(() => get().ensureSourceSeriesUid(sessionId, s.id, getScanImageIds))
-        )
-      );
+      const limitSource = pLimit(8);
+      const limitDerived = pLimit(8);
 
       // Reuse downloaded derived files across phases.
       const derivedFileCache = new Map<string, ArrayBuffer>();
@@ -487,29 +579,55 @@ export const useSessionDerivedIndexStore = create<SessionDerivedIndexState>((set
         return buf;
       };
 
-      // Phase 2a: Resolve derived scan referenced SeriesInstanceUIDs (concurrency 3)
-      // using direct referenced-series linkage only.
-      const limit3 = pLimit(3);
-      await Promise.all(
-        derivedScans.map((s) =>
-          limit3(() =>
-            get().ensureDerivedReferencedSeriesUid(
-              sessionId,
-              s.id,
-              s,
-              downloadDerivedCached,
-            )
+      // Helper: try to incrementally map a derived scan to its source as soon
+      // as its referenced UID resolves. If the matching source UID hasn't been
+      // resolved yet (phases run in parallel), the final rebuildFromUids catches it.
+      const tryIncrementalMap = (derivedScan: XnatScan) => {
+        const refUid = get().derivedRefSeriesUidByScanId[sessionScanKey(sessionId, derivedScan.id)];
+        if (!refUid) return;
+        const { sourceSeriesUidByScanId } = get();
+        for (const src of sourceScans) {
+          const srcUid = sourceSeriesUidByScanId[sessionScanKey(sessionId, src.id)];
+          if (srcUid === refUid) {
+            get().addMapping(src.id, derivedScan);
+            return;
+          }
+        }
+      };
+
+      // Phases 1 & 2a run in parallel — source UID resolution and derived file
+      // downloads are independent. Derived scans are incrementally mapped to
+      // source scans as their UIDs resolve.
+      await Promise.all([
+        // Phase 1: Resolve source scan SeriesInstanceUIDs
+        Promise.all(
+          sourceScans.map((s) =>
+            limitSource(() => get().ensureSourceSeriesUid(sessionId, s.id, getScanImageIds))
           )
-        )
-      );
+        ),
+        // Phase 2a: Resolve derived scan referenced SeriesInstanceUIDs
+        Promise.all(
+          derivedScans.map((s) =>
+            limitDerived(async () => {
+              await get().ensureDerivedReferencedSeriesUid(
+                sessionId,
+                s.id,
+                s,
+                downloadDerivedCached,
+              );
+              tryIncrementalMap(s);
+            })
+          )
+        ),
+      ]);
 
       // Phase 2b (conditional): only if there are SEG scans that still lack
       // referenced series UIDs, build SOP->Series lookup and retry those scans.
-      const unresolvedSegScans = derivedScans.filter(
-        (s) =>
-          isSegScan(s) &&
-          !get().derivedRefSeriesUidByScanId[sessionScanKey(sessionId, s.id)],
-      );
+      const unresolvedSegScans = derivedScans.filter((s) => {
+        if (!isSegScan(s)) return false;
+        const refUid = get().derivedRefSeriesUidByScanId[sessionScanKey(sessionId, s.id)];
+        return !refUid || refUid.startsWith(PROVISIONAL_UID_PREFIX);
+      });
 
       if (unresolvedSegScans.length > 0) {
         console.log(
@@ -520,7 +638,7 @@ export const useSessionDerivedIndexStore = create<SessionDerivedIndexState>((set
         const sourceSopUidToSeriesUid = new Map<string, string>();
         await Promise.all(
           sourceScans.map((s) =>
-            limit5(async () => {
+            limitSource(async () => {
               const seriesUid = get().sourceSeriesUidByScanId[sessionScanKey(sessionId, s.id)];
               if (!seriesUid) return;
               const imageIds = await getScanImageIds(sessionId, s.id);
@@ -536,21 +654,49 @@ export const useSessionDerivedIndexStore = create<SessionDerivedIndexState>((set
 
         await Promise.all(
           unresolvedSegScans.map((s) =>
-            limit3(() =>
-              get().ensureDerivedReferencedSeriesUid(
+            limitDerived(async () => {
+              await get().ensureDerivedReferencedSeriesUid(
                 sessionId,
                 s.id,
                 s,
                 downloadDerivedCached,
                 sourceSopUidToSeriesUid,
-              ),
-            ),
+              );
+              tryIncrementalMap(s);
+            }),
           ),
         );
       }
 
-      // Phase 3: Rebuild index from UIDs
+      // Final rebuild: catches any derived scans that resolved before their
+      // matching source scan (due to parallel execution) and ensures consistency.
+      // rebuildFromUids uses only real UIDs, so it naturally corrects any
+      // provisional mappings that were wrong.
       get().rebuildFromUids(sessionId, scans);
+
+      // Clean up provisional tracking and any leftover placeholder UIDs for
+      // this session. Real UIDs from ensureSourceSeriesUid/ensureDerivedReferencedSeriesUid
+      // have already overwritten provisionals; remove any that weren't overwritten.
+      set((s) => {
+        const nextProvisional = { ...s.provisionalMappings };
+        const nextSourceUids = { ...s.sourceSeriesUidByScanId };
+        const nextDerivedRefUids = { ...s.derivedRefSeriesUidByScanId };
+        for (const scan of scans) {
+          const key = sessionScanKey(sessionId, scan.id);
+          delete nextProvisional[key];
+          if (nextSourceUids[key]?.startsWith(PROVISIONAL_UID_PREFIX)) {
+            delete nextSourceUids[key];
+          }
+          if (nextDerivedRefUids[key]?.startsWith(PROVISIONAL_UID_PREFIX)) {
+            delete nextDerivedRefUids[key];
+          }
+        }
+        return {
+          provisionalMappings: nextProvisional,
+          sourceSeriesUidByScanId: nextSourceUids,
+          derivedRefSeriesUidByScanId: nextDerivedRefUids,
+        };
+      });
 
       // Mark as resolved only when all derived scans have referenced SeriesInstanceUIDs.
       // This avoids "sticky partial" sessions where one transient failure suppresses retries.
@@ -586,11 +732,13 @@ export const useSessionDerivedIndexStore = create<SessionDerivedIndexState>((set
     }
   },
 
-  clear: () => set({
+  clear: () => set((s) => ({
     derivedIndex: {},
     unmapped: [],
-    sourceSeriesUidByScanId: {},
-    derivedRefSeriesUidByScanId: {},
+    // Preserve UID caches so re-expanding a session skips expensive downloads.
+    sourceSeriesUidByScanId: s.sourceSeriesUidByScanId,
+    derivedRefSeriesUidByScanId: s.derivedRefSeriesUidByScanId,
     resolvedSessionIds: new Set(),
-  }),
+    provisionalMappings: {},
+  })),
 }));
