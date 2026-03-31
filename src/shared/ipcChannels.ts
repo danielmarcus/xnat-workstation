@@ -77,6 +77,13 @@ export const IPC = {
 
   // Diagnostics (renderer → main)
   DIAGNOSTICS_GET_MAIN_SNAPSHOT: 'diagnostics:get-main-snapshot',
+
+  // Auto-update (renderer → main / main → renderer)
+  UPDATER_GET_STATE: 'updater:get-state',
+  UPDATER_CONFIGURE: 'updater:configure',
+  UPDATER_CHECK_FOR_UPDATES: 'updater:check-for-updates',
+  UPDATER_QUIT_AND_INSTALL: 'updater:quit-and-install',
+  UPDATER_STATUS: 'updater:status',
 } as const;
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC];

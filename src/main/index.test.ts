@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => {
   const app = {
     name: '',
     isPackaged: false,
+    getVersion: vi.fn(() => '0.5.2'),
     whenReady: vi.fn(() => Promise.resolve()),
     on: vi.fn((event: string, cb: () => void) => {
       appHandlers[event] = cb;
@@ -65,6 +66,11 @@ const mocks = vi.hoisted(() => {
     registerUploadHandlers: vi.fn(),
     registerBackupHandlers: vi.fn(),
     registerDiagnosticsHandlers: vi.fn(),
+    registerUpdateHandlers: vi.fn(),
+    autoUpdateService: {
+      initialize: vi.fn(),
+      dispose: vi.fn(),
+    },
     installMainLogCapture: vi.fn(),
   };
 });
@@ -102,6 +108,14 @@ vi.mock('./ipc/diagnosticsHandlers', () => ({
   registerDiagnosticsHandlers: mocks.registerDiagnosticsHandlers,
 }));
 
+vi.mock('./ipc/updateHandlers', () => ({
+  registerUpdateHandlers: mocks.registerUpdateHandlers,
+}));
+
+vi.mock('./updater/autoUpdateService', () => ({
+  autoUpdateService: mocks.autoUpdateService,
+}));
+
 vi.mock('./diagnostics/mainLogBuffer', () => ({
   installMainLogCapture: mocks.installMainLogCapture,
 }));
@@ -131,6 +145,8 @@ describe('main/index bootstrap', () => {
     expect(mocks.registerUploadHandlers).toHaveBeenCalledTimes(1);
     expect(mocks.registerBackupHandlers).toHaveBeenCalledTimes(1);
     expect(mocks.registerDiagnosticsHandlers).toHaveBeenCalledTimes(1);
+    expect(mocks.registerUpdateHandlers).toHaveBeenCalledTimes(1);
+    expect(mocks.autoUpdateService.initialize).toHaveBeenCalledTimes(1);
     expect(mocks.installMainLogCapture).toHaveBeenCalledTimes(1);
 
     expect(mocks.app.name).toBe('XNAT');
@@ -163,5 +179,8 @@ describe('main/index bootstrap', () => {
     } else {
       expect(mocks.app.quit).not.toHaveBeenCalled();
     }
+
+    mocks.appHandlers['before-quit']?.();
+    expect(mocks.autoUpdateService.dispose).toHaveBeenCalledTimes(1);
   });
 });

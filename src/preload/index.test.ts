@@ -84,6 +84,10 @@ describe('preload bridge', () => {
     await api.export.saveDicomRtStruct('ZmFrZQ==', 'rtstruct.dcm');
     await api.export.saveViewportCapture({ x: 1, y: 2, width: 3, height: 4 }, 'capture.png');
     await api.diagnostics.getMainSnapshot();
+    await api.updater.getState();
+    await api.updater.configure({ enabled: true, autoDownload: false });
+    await api.updater.checkForUpdates();
+    await api.updater.quitAndInstall();
 
     expect(mocks.invoke).toHaveBeenCalledWith(IPC.XNAT_BROWSER_LOGIN, 'https://xnat.example');
     expect(mocks.invoke).toHaveBeenCalledWith(IPC.XNAT_LOGOUT);
@@ -151,6 +155,10 @@ describe('preload bridge', () => {
       'capture.png',
     );
     expect(mocks.invoke).toHaveBeenCalledWith(IPC.DIAGNOSTICS_GET_MAIN_SNAPSHOT);
+    expect(mocks.invoke).toHaveBeenCalledWith(IPC.UPDATER_GET_STATE);
+    expect(mocks.invoke).toHaveBeenCalledWith(IPC.UPDATER_CONFIGURE, { enabled: true, autoDownload: false });
+    expect(mocks.invoke).toHaveBeenCalledWith(IPC.UPDATER_CHECK_FOR_UPDATES);
+    expect(mocks.invoke).toHaveBeenCalledWith(IPC.UPDATER_QUIT_AND_INSTALL);
   });
 
   it('allows only whitelisted event channels and unsubscribes listeners', () => {
@@ -178,5 +186,19 @@ describe('preload bridge', () => {
     );
     expect(() => off()).not.toThrow();
     warnSpy.mockRestore();
+  });
+
+  it('subscribes and unsubscribes updater status listeners', () => {
+    const api = mocks.exposed.api;
+    const callback = vi.fn();
+    const off = api.updater.onStatus(callback);
+
+    expect(mocks.on).toHaveBeenCalledWith(IPC.UPDATER_STATUS, expect.any(Function));
+    const wrapped = mocks.getOnHandler(IPC.UPDATER_STATUS);
+    wrapped?.({} as any, { phase: 'checking' });
+    expect(callback).toHaveBeenCalledWith({ phase: 'checking' });
+
+    off();
+    expect(mocks.removeListener).toHaveBeenCalledWith(IPC.UPDATER_STATUS, expect.any(Function));
   });
 });

@@ -34,6 +34,7 @@
     "@cornerstonejs/tools": "^4.16.1",
     "@xmldom/xmldom": "^0.8.11",
     "dicom-parser": "^1.8.21",
+    "electron-updater": "^6.8.3",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "zustand": "^5.0.11"

@@ -1,6 +1,13 @@
 import { IPC } from '../ipcChannels';
 import type { XnatLoginResult, ProxiedFetchResult } from '../types/xnat';
 import type { MainDiagnosticsSnapshotResult } from '../types/diagnostics';
+import type {
+  CheckForUpdatesResponse,
+  ConfigureUpdaterRequest,
+  ConfigureUpdaterResponse,
+  QuitAndInstallResponse,
+  UpdateStatus,
+} from '../types/updater';
 
 export interface ViewportBounds {
   x: number;
@@ -42,6 +49,22 @@ export interface IpcInvokeContracts {
     request: Record<string, never>;
     response: MainDiagnosticsSnapshotResult;
   };
+  [IPC.UPDATER_GET_STATE]: {
+    request: Record<string, never>;
+    response: UpdateStatus;
+  };
+  [IPC.UPDATER_CONFIGURE]: {
+    request: ConfigureUpdaterRequest;
+    response: ConfigureUpdaterResponse;
+  };
+  [IPC.UPDATER_CHECK_FOR_UPDATES]: {
+    request: Record<string, never>;
+    response: CheckForUpdatesResponse;
+  };
+  [IPC.UPDATER_QUIT_AND_INSTALL]: {
+    request: Record<string, never>;
+    response: QuitAndInstallResponse;
+  };
 }
 
 export type IpcInvokeChannel = keyof IpcInvokeContracts;
@@ -58,5 +81,10 @@ export const IPC_CHANNELS = {
   downloadScanFile: IPC.XNAT_DOWNLOAD_SCAN_FILE,
   saveViewportCapture: IPC.EXPORT_SAVE_VIEWPORT_CAPTURE,
   getMainDiagnosticsSnapshot: IPC.DIAGNOSTICS_GET_MAIN_SNAPSHOT,
+  getUpdaterState: IPC.UPDATER_GET_STATE,
+  configureUpdater: IPC.UPDATER_CONFIGURE,
+  checkForUpdates: IPC.UPDATER_CHECK_FOR_UPDATES,
+  quitAndInstallUpdate: IPC.UPDATER_QUIT_AND_INSTALL,
+  updaterStatus: IPC.UPDATER_STATUS,
   sessionExpired: IPC.XNAT_SESSION_EXPIRED,
 } as const;

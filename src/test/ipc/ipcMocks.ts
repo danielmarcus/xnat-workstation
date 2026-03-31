@@ -116,6 +116,13 @@ export function createWindowElectronApiMock() {
       saveDicomRtStruct: vi.fn(),
       saveViewportCapture: vi.fn(),
     },
+    updater: {
+      getState: vi.fn(),
+      configure: vi.fn(),
+      checkForUpdates: vi.fn(),
+      quitAndInstall: vi.fn(),
+      onStatus: vi.fn(),
+    },
     on: vi.fn(),
   };
 }
