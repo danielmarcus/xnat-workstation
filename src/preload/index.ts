@@ -170,6 +170,24 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke(IPC.DIAGNOSTICS_GET_MAIN_SNAPSHOT),
   },
 
+  updater: {
+    getState: () =>
+      ipcRenderer.invoke(IPC.UPDATER_GET_STATE),
+    configure: (config: { enabled: boolean; autoDownload: boolean }) =>
+      ipcRenderer.invoke(IPC.UPDATER_CONFIGURE, config),
+    checkForUpdates: () =>
+      ipcRenderer.invoke(IPC.UPDATER_CHECK_FOR_UPDATES),
+    quitAndInstall: () =>
+      ipcRenderer.invoke(IPC.UPDATER_QUIT_AND_INSTALL),
+    onStatus: (callback: (status: unknown) => void) => {
+      const wrappedCallback = (_event: Electron.IpcRendererEvent, status: unknown) => callback(status);
+      ipcRenderer.on(IPC.UPDATER_STATUS, wrappedCallback);
+      return () => {
+        ipcRenderer.removeListener(IPC.UPDATER_STATUS, wrappedCallback);
+      };
+    },
+  },
+
   // E2E testing: direct login bypass (only registered when E2E_TESTING=1)
   e2e: {
     directLogin: (serverUrl: string, username: string, password: string) =>

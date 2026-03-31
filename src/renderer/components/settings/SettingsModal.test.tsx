@@ -5,12 +5,18 @@ import { DEFAULT_PREFERENCES } from '@shared/types/preferences';
 import SettingsModal from './SettingsModal';
 import { usePreferencesStore } from '../../stores/preferencesStore';
 import type { MainDiagnosticsSnapshot } from '@shared/types/diagnostics';
+import type { UpdateStatus } from '@shared/types';
 
 function resetPreferencesStore(): void {
   usePreferencesStore.setState(usePreferencesStore.getInitialState(), true);
 }
 
 const clipboardWriteTextMock = vi.fn(async () => undefined);
+const updaterGetStateMock = vi.fn<[], Promise<UpdateStatus>>();
+const updaterConfigureMock = vi.fn();
+const updaterCheckMock = vi.fn();
+const updaterQuitAndInstallMock = vi.fn();
+const updaterOnStatusMock = vi.fn();
 
 describe('SettingsModal', () => {
   beforeEach(() => {
@@ -61,6 +67,13 @@ describe('SettingsModal', () => {
             } satisfies MainDiagnosticsSnapshot,
           })),
         },
+        updater: {
+          getState: updaterGetStateMock,
+          configure: updaterConfigureMock,
+          checkForUpdates: updaterCheckMock,
+          quitAndInstall: updaterQuitAndInstallMock,
+          onStatus: updaterOnStatusMock,
+        },
       },
     });
     Object.defineProperty(navigator, 'clipboard', {
@@ -72,6 +85,42 @@ describe('SettingsModal', () => {
     });
     (navigator as any).clipboard = { writeText: clipboardWriteTextMock };
     clipboardWriteTextMock.mockClear();
+    updaterGetStateMock.mockReset();
+    updaterConfigureMock.mockReset();
+    updaterCheckMock.mockReset();
+    updaterQuitAndInstallMock.mockReset();
+    updaterOnStatusMock.mockReset();
+    updaterGetStateMock.mockResolvedValue({
+      phase: 'upToDate',
+      currentVersion: '0.5.2',
+      enabled: true,
+      autoDownload: true,
+      isPackaged: true,
+      availableVersion: null,
+      downloadedVersion: null,
+      downloadProgressPercent: null,
+      lastCheckedAt: '2026-03-05T12:00:00.000Z',
+      message: 'You are running the latest version.',
+      error: null,
+    });
+    updaterCheckMock.mockResolvedValue({
+      ok: true,
+      status: {
+        phase: 'checking',
+        currentVersion: '0.5.2',
+        enabled: true,
+        autoDownload: true,
+        isPackaged: true,
+        availableVersion: null,
+        downloadedVersion: null,
+        downloadProgressPercent: null,
+        lastCheckedAt: '2026-03-05T12:30:00.000Z',
+        message: 'Checking for updates...',
+        error: null,
+      } satisfies UpdateStatus,
+    });
+    updaterQuitAndInstallMock.mockResolvedValue({ ok: true });
+    updaterOnStatusMock.mockImplementation(() => () => {});
   });
 
   it('opens, switches tabs, and closes via Escape/backdrop', async () => {
@@ -207,12 +256,52 @@ describe('SettingsModal', () => {
     expect(prefs.interpolation.algorithm).toBe('linear');
     expect(prefs.interpolation.linearThreshold).toBeCloseTo(0.85);
 
+    await user.click(screen.getByRole('button', { name: 'Updates' }));
+    await user.click(screen.getByRole('checkbox', { name: 'Enable automatic update checks' }));
+    await user.click(screen.getByRole('checkbox', { name: 'Download updates automatically when found' }));
+
+    prefs = usePreferencesStore.getState().preferences;
+    expect(prefs.updates.enabled).toBe(false);
+    expect(prefs.updates.autoDownload).toBe(false);
+
     await user.click(screen.getByRole('button', { name: 'Reset All Preferences' }));
     prefs = usePreferencesStore.getState().preferences;
     expect(prefs.overlay.showViewportContextOverlay).toBe(DEFAULT_PREFERENCES.overlay.showViewportContextOverlay);
     expect(prefs.annotation.defaultBrushSize).toBe(DEFAULT_PREFERENCES.annotation.defaultBrushSize);
     expect(prefs.annotation.defaultColorSequence).toEqual(DEFAULT_PREFERENCES.annotation.defaultColorSequence);
+    expect(prefs.updates).toEqual(DEFAULT_PREFERENCES.updates);
     expect(prefs.interpolation).toEqual(DEFAULT_PREFERENCES.interpolation);
+  });
+
+  it('shows updater status and supports manual update actions', async () => {
+    const user = userEvent.setup();
+    updaterGetStateMock.mockResolvedValueOnce({
+      phase: 'downloaded',
+      currentVersion: '0.5.2',
+      enabled: true,
+      autoDownload: true,
+      isPackaged: true,
+      availableVersion: '0.5.3',
+      downloadedVersion: '0.5.3',
+      downloadProgressPercent: 100,
+      lastCheckedAt: '2026-03-05T12:00:00.000Z',
+      message: 'Update downloaded.',
+      error: null,
+    });
+
+    render(<SettingsModal open onClose={() => {}} />);
+    await user.click(screen.getByRole('button', { name: 'Updates' }));
+
+    expect(await screen.findByText('Current version')).toBeInTheDocument();
+    expect(screen.getByText('Update 0.5.3 is ready to install.')).toBeInTheDocument();
+    expect(updaterGetStateMock).toHaveBeenCalledTimes(1);
+    expect(updaterOnStatusMock).toHaveBeenCalledTimes(1);
+
+    await user.click(screen.getByRole('button', { name: 'Restart and Install' }));
+    expect(updaterQuitAndInstallMock).toHaveBeenCalledTimes(1);
+
+    await user.click(screen.getByRole('button', { name: 'Check Now' }));
+    expect(updaterCheckMock).toHaveBeenCalledTimes(1);
   });
 
   it('returns null when closed', () => {

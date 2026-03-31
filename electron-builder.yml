@@ -1,8 +1,14 @@
 appId: com.xnat.workstation
 productName: XNAT Workstation
+artifactName: XNAT-Workstation-${version}-${arch}.${ext}
 directories:
   buildResources: build
   output: release
+publish:
+  provider: github
+  owner: danielmarcus
+  repo: xnat-workstation
+  releaseType: release
 files:
   - dist/**/*
   - package.json
