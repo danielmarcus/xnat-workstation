@@ -187,6 +187,31 @@ Creates distributable installers in `release/`:
 - **Windows** — NSIS installer, portable EXE
 - **Linux** — AppImage, DEB
 
+### GitHub Actions CI and Releases
+
+This repo can be managed through GitHub Actions in `.github/workflows/`:
+
+- `ci.yml` runs `npm test` and `npm run build` on pull requests and pushes to `main` and `codex/*`.
+- `release.yml` publishes release artifacts when you push a version tag like `v0.5.4`.
+
+Required GitHub Actions secrets:
+
+- `MACOS_CERT_P12_BASE64` — base64-encoded Developer ID Application `.p12`
+- `MACOS_CERT_PASSWORD` — password for the macOS signing certificate
+- `APPLE_API_KEY_P8_BASE64` — base64-encoded App Store Connect API key `.p8`
+- `APPLE_API_KEY_ID` — App Store Connect API key ID
+- `APPLE_API_ISSUER` — App Store Connect issuer UUID
+- `WIN_CSC_P12_BASE64` — base64-encoded Windows code-signing `.p12` or `.pfx`
+- `WIN_CSC_KEY_PASSWORD` — password for the Windows signing certificate
+
+Recommended release flow:
+
+1. Update the app version in `package.json` and `package-lock.json`.
+2. Merge the release-ready PR into `main`.
+3. Push a tag like `v0.5.4`.
+4. Let `release.yml` publish the signed macOS release and Linux artifacts automatically.
+5. Enable the Windows job once the DigiCert signing certificate secrets are configured.
+
 ### Signed macOS Package (Developer ID)
 
 To avoid Gatekeeper "unidentified developer" warnings, build with Apple signing + notarization credentials:
