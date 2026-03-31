@@ -35,6 +35,7 @@ win:
     - nsis
     - portable
 linux:
+  maintainer: Daniel Marcus <dmarcus@wustl.edu>
   target:
     - AppImage
     - deb
