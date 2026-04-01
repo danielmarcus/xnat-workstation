@@ -299,14 +299,29 @@ jobs:
           SM_LOG_LEVEL: TRACE
         run: npm run package:win -- --publish "${{ steps.publish_mode.outputs.mode }}"
 
+      - name: Collect DigiCert trace logs on failure
+        if: failure() && steps.windows_signing.outputs.ready == 'true'
+        shell: pwsh
+        run: |
+          $destination = Join-Path $env:RUNNER_TEMP 'digicert-logs'
+          New-Item -ItemType Directory -Path $destination -Force | Out-Null
+
+          $smtoolsLog = Join-Path $env:RUNNER_TEMP 'smtools.log'
+          if (Test-Path $smtoolsLog) {
+            Copy-Item -Path $smtoolsLog -Destination $destination -Force
+          }
+
+          $signingManagerLogDir = Join-Path $env:USERPROFILE '.signingmanager\logs'
+          if (Test-Path $signingManagerLogDir) {
+            Copy-Item -Path (Join-Path $signingManagerLogDir '*') -Destination $destination -Recurse -Force
+          }
+
       - name: Upload DigiCert trace logs on failure
         if: failure() && steps.windows_signing.outputs.ready == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: xnat-workstation-windows-digicert-logs
-          path: |
-            ${{ runner.temp }}\smtools.log
-            C:\Users\runneradmin\.signingmanager\logs\**
+          path: ${{ runner.temp }}\digicert-logs
           if-no-files-found: warn
 
       - name: Upload Windows artifacts for manual dry runs
