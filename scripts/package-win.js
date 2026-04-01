@@ -32,7 +32,7 @@ const executable = path.join(
   process.cwd(),
   'node_modules',
   '.bin',
-  process.platform === 'win32' ? 'electron-builder.cmd' : 'electron-builder',
+  'electron-builder.cmd',
 );
 
 const result = spawnSync(
@@ -41,6 +41,7 @@ const result = spawnSync(
   {
     stdio: 'inherit',
     env: process.env,
+    shell: true,
   },
 );
 
