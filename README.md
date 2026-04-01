@@ -212,7 +212,7 @@ Required GitHub Actions variables:
 
 Optional GitHub Actions variables:
 
-- `SM_KEYPAIR_ALIAS` — preferred DigiCert keypair alias for `smctl windows certsync`
+- `SM_KEYPAIR_ALIAS` — DigiCert keypair alias used for `smctl windows certsync`
 - `WIN_CSC_SUBJECT_NAME` — fallback Windows certificate subject name if you prefer subject lookup over thumbprint
 
 Recommended release flow:
@@ -227,7 +227,7 @@ Recommended release flow:
 
 Windows signing is handled in GitHub Actions on `windows-latest`; no local Windows machine is required.
 
-The release workflow uses DigiCert's GitHub Action to install KeyLocker tooling, runs `smctl healthcheck`, syncs the certificate into the Windows user certificate store with `smctl windows certsync`, and then packages the app with Electron Builder using the synced certificate thumbprint or subject name.
+The release workflow uses DigiCert's GitHub Action to install KeyLocker tooling, runs `smctl healthcheck`, syncs the certificate into the Windows user certificate store with `smctl windows certsync --keypair-alias=...`, and then packages the app with Electron Builder using the synced certificate thumbprint or subject name.
 
 `npm run package:win` is intended for Windows CI or a Windows developer machine that already has the DigiCert KeyLocker environment configured. It expects:
 
