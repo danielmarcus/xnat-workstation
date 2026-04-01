@@ -201,8 +201,19 @@ Required GitHub Actions secrets:
 - `APPLE_API_KEY_P8_BASE64` — base64-encoded App Store Connect API key `.p8`
 - `APPLE_API_KEY_ID` — App Store Connect API key ID
 - `APPLE_API_ISSUER` — App Store Connect issuer UUID
-- `WIN_CSC_P12_BASE64` — base64-encoded Windows code-signing `.p12` or `.pfx`
-- `WIN_CSC_KEY_PASSWORD` — password for the Windows signing certificate
+- `SM_API_KEY` — DigiCert KeyLocker API key for a service user
+- `SM_CLIENT_CERT_FILE_B64` — base64-encoded DigiCert KeyLocker service-user client certificate `.p12`
+- `SM_CLIENT_CERT_PASSWORD` — password for the DigiCert service-user client certificate
+- `SM_CODE_SIGNING_CERT_SHA1_HASH` — Windows code-signing certificate thumbprint from DigiCert
+
+Required GitHub Actions variables:
+
+- `SM_HOST` — DigiCert ONE / KeyLocker environment URL
+
+Optional GitHub Actions variables:
+
+- `SM_KEYPAIR_ALIAS` — preferred DigiCert keypair alias for `smctl windows certsync`
+- `WIN_CSC_SUBJECT_NAME` — fallback Windows certificate subject name if you prefer subject lookup over thumbprint
 
 Recommended release flow:
 
@@ -210,7 +221,23 @@ Recommended release flow:
 2. Merge the release-ready PR into `main`.
 3. Push a tag like `v0.5.4`.
 4. Let `release.yml` publish the signed macOS release and Linux artifacts automatically.
-5. Enable the Windows job once the DigiCert signing certificate secrets are configured.
+5. Enable the Windows job once the DigiCert KeyLocker secrets and variables are configured.
+
+### Windows Packaging with DigiCert KeyLocker
+
+Windows signing is handled in GitHub Actions on `windows-latest`; no local Windows machine is required.
+
+The release workflow uses DigiCert's GitHub Action to install KeyLocker tooling, runs `smctl healthcheck`, syncs the certificate into the Windows user certificate store with `smctl windows certsync`, and then packages the app with Electron Builder using the synced certificate thumbprint or subject name.
+
+`npm run package:win` is intended for Windows CI or a Windows developer machine that already has the DigiCert KeyLocker environment configured. It expects:
+
+- `SM_HOST`
+- `SM_API_KEY`
+- `SM_CLIENT_CERT_FILE`
+- `SM_CLIENT_CERT_PASSWORD`
+- `WIN_CSC_CERT_SHA1` or `WIN_CSC_SUBJECT_NAME`
+
+The `.p7b` from DigiCert is not used directly by the build. With KeyLocker, the private key remains in DigiCert's service; the GitHub Actions Windows runner signs through DigiCert after the service-user client certificate and code-signing certificate thumbprint are configured.
 
 ### Signed macOS Package (Developer ID)
 
