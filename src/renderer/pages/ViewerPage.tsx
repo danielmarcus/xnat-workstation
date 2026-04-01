@@ -30,13 +30,23 @@ interface ViewerPageProps {
   browserSlot?: React.ReactNode;
   /** Called when the user clicks "Recover" for a backup session in Settings. */
   onRecoverBackup?: (sessionId: string) => Promise<void> | void;
-  /** When true, the Settings modal should open to the File Backup tab. */
-  openSettingsToBackup?: boolean;
-  /** Called after the Settings-to-backup request has been consumed. */
-  onSettingsToBackupConsumed?: () => void;
+  /** When set, the Settings modal should open to the requested tab. */
+  settingsInitialTabRequest?: string;
+  /** Called after a Settings-tab request has been consumed. */
+  onSettingsInitialTabRequestConsumed?: () => void;
 }
 
-export default function ViewerPage({ panelImageIds, onApplyProtocol, onToggleMPR, mprSourceImageIds, leftSlot, browserSlot, onRecoverBackup, openSettingsToBackup, onSettingsToBackupConsumed }: ViewerPageProps) {
+export default function ViewerPage({
+  panelImageIds,
+  onApplyProtocol,
+  onToggleMPR,
+  mprSourceImageIds,
+  leftSlot,
+  browserSlot,
+  onRecoverBackup,
+  settingsInitialTabRequest,
+  onSettingsInitialTabRequestConsumed,
+}: ViewerPageProps) {
   const showAnnotationPanel = useAnnotationStore((s) => s.showPanel);
   const showSegPanel = useSegmentationStore((s) => s.showPanel);
   const [showDicomPanel, setShowDicomPanel] = useState(false);
@@ -77,8 +87,8 @@ export default function ViewerPage({ panelImageIds, onApplyProtocol, onToggleMPR
         hasImages={hasImages}
         leftSlot={leftSlot}
         onRecoverBackup={onRecoverBackup}
-        openSettingsToBackup={openSettingsToBackup}
-        onSettingsToBackupConsumed={onSettingsToBackupConsumed}
+        settingsInitialTabRequest={settingsInitialTabRequest}
+        onSettingsInitialTabRequestConsumed={onSettingsInitialTabRequestConsumed}
       />
       <div className="flex-1 min-h-0 flex relative">
         {/* Optional browser sidebar (rendered by App) */}

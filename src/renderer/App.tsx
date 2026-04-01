@@ -15,6 +15,7 @@ import { matchProtocol, applyProtocol } from './lib/hangingProtocolService';
 import { panelId } from '@shared/types/viewer';
 import { BUILT_IN_PROTOCOLS } from '@shared/types/hangingProtocol';
 import type { XnatScan } from '@shared/types/xnat';
+import type { UpdateStatus } from '@shared/types';
 import { IconOpenFile, XnatLogo } from './components/icons';
 import { volumeService } from './lib/cornerstone/volumeService';
 import {
@@ -92,6 +93,39 @@ interface RecoveryConfirmDialogState {
 }
 // isSegScan, isRtStructScan, isDerivedScan imported from sessionDerivedIndexStore
 // getSegReferenceInfo imported from lib/dicom/segReferencedSeriesUid
+
+function isUpdateBannerPhase(phase: UpdateStatus['phase'] | undefined): phase is 'available' | 'downloading' | 'downloaded' {
+  return phase === 'available' || phase === 'downloading' || phase === 'downloaded';
+}
+
+function getUpdateBannerVersion(status: UpdateStatus | null): string | null {
+  if (!status || !isUpdateBannerPhase(status.phase)) return null;
+  return status.downloadedVersion ?? status.availableVersion ?? null;
+}
+
+function getUpdateBannerMessage(status: UpdateStatus | null): string | null {
+  if (!status || !isUpdateBannerPhase(status.phase)) return null;
+  const version = getUpdateBannerVersion(status);
+  switch (status.phase) {
+    case 'available':
+      return version
+        ? `Update ${version} is available.`
+        : 'An update is available.';
+    case 'downloading':
+      if (status.downloadProgressPercent === null) {
+        return version
+          ? `Update ${version} is downloading in the background.`
+          : 'An update is downloading in the background.';
+      }
+      return version
+        ? `Update ${version} is downloading in the background (${Math.round(status.downloadProgressPercent)}%).`
+        : `An update is downloading in the background (${Math.round(status.downloadProgressPercent)}%).`;
+    case 'downloaded':
+      return version
+        ? `Update ${version} is ready to install. Restart the app to apply it now.`
+        : 'An update is ready to install. Restart the app to apply it now.';
+  }
+}
 
 
 /**
@@ -655,7 +689,10 @@ export default function App() {
   const preferences = usePreferencesStore((s) => s.preferences);
   const [backupBannerCount, setBackupBannerCount] = useState(0);
   const [backupBannerDismissed, setBackupBannerDismissed] = useState(false);
-  const [openSettingsToBackup, setOpenSettingsToBackup] = useState(false);
+  const [settingsInitialTabRequest, setSettingsInitialTabRequest] = useState<string | undefined>(undefined);
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
+  const [updateBannerDismissed, setUpdateBannerDismissed] = useState(false);
+  const [updateBannerBusy, setUpdateBannerBusy] = useState(false);
 
   // Connection state
   const connectionStatus = useConnectionStore((s) => s.status);
@@ -752,6 +789,48 @@ export default function App() {
   useEffect(() => {
     applyPreferences(preferences);
   }, [preferences]);
+
+  useEffect(() => {
+    const updaterApi = window.electronAPI?.updater;
+    if (!updaterApi) return;
+
+    let cancelled = false;
+    updaterApi.getState()
+      .then((status) => {
+        if (!cancelled) setUpdateStatus(status);
+      })
+      .catch(() => {});
+
+    const unsubscribe = updaterApi.onStatus((status) => {
+      if (!cancelled) setUpdateStatus(status);
+    }) ?? (() => {});
+
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, []);
+
+  const updateBannerKey = updateStatus && isUpdateBannerPhase(updateStatus.phase)
+    ? `${updateStatus.phase}:${getUpdateBannerVersion(updateStatus) ?? 'unknown'}`
+    : null;
+
+  useEffect(() => {
+    if (updateBannerKey) {
+      setUpdateBannerDismissed(false);
+    }
+  }, [updateBannerKey]);
+
+  const installDownloadedUpdate = useCallback(async () => {
+    const updaterApi = window.electronAPI?.updater;
+    if (!updaterApi) return;
+    setUpdateBannerBusy(true);
+    try {
+      await updaterApi.quitAndInstall();
+    } finally {
+      setUpdateBannerBusy(false);
+    }
+  }, []);
 
   useEffect(() => {
     if (connectionStatus === 'connected') {
@@ -2806,7 +2885,7 @@ export default function App() {
             There {backupBannerCount === 1 ? 'is' : 'are'} {backupBannerCount} session{backupBannerCount !== 1 ? 's' : ''} with annotations that have not been saved.{' '}
             <button
               type="button"
-              onClick={() => setOpenSettingsToBackup(true)}
+              onClick={() => setSettingsInitialTabRequest('backup')}
               className="underline text-blue-300 hover:text-blue-100 transition-colors"
             >
               Review now
@@ -2825,14 +2904,63 @@ export default function App() {
         </div>
       )}
 
+      {updateStatus && isUpdateBannerPhase(updateStatus.phase) && !updateBannerDismissed && (
+        <div className="shrink-0 bg-blue-950/60 border-b border-blue-800/50 px-3 py-1.5 flex items-center gap-2">
+          <svg className="w-3.5 h-3.5 text-blue-400 shrink-0" viewBox="0 0 20 20" fill="currentColor">
+            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a.75.75 0 000 1.5h.253a.25.25 0 01.244.304l-.459 2.066A1.75 1.75 0 0010.747 15H11a.75.75 0 000-1.5h-.253a.25.25 0 01-.244-.304l.459-2.066A1.75 1.75 0 009.253 9H9z" clipRule="evenodd" />
+          </svg>
+          <span className="text-[11px] text-blue-200">
+            {getUpdateBannerMessage(updateStatus)}{' '}
+            {updateStatus.phase === 'downloaded' ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => void installDownloadedUpdate()}
+                  disabled={updateBannerBusy}
+                  className="underline text-blue-300 hover:text-blue-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {updateBannerBusy ? 'Restarting...' : 'Restart and Install'}
+                </button>
+                {' · '}
+                <button
+                  type="button"
+                  onClick={() => setSettingsInitialTabRequest('updates')}
+                  className="underline text-blue-300 hover:text-blue-100 transition-colors"
+                >
+                  Review in Settings
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setSettingsInitialTabRequest('updates')}
+                className="underline text-blue-300 hover:text-blue-100 transition-colors"
+              >
+                Review in Settings
+              </button>
+            )}
+          </span>
+          <button
+            type="button"
+            onClick={() => setUpdateBannerDismissed(true)}
+            className="ml-auto text-blue-400 hover:text-blue-200 transition-colors"
+            title="Dismiss"
+          >
+            <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+              <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+            </svg>
+          </button>
+        </div>
+      )}
+
       {/* Full-width toolbar at top, then browser + viewer below */}
       <ViewerPage
         panelImageIds={panelImageIds}
         onApplyProtocol={handleApplyProtocol}
         onToggleMPR={handleToggleMPR}
         onRecoverBackup={handleRecoverBackup}
-        openSettingsToBackup={openSettingsToBackup}
-        onSettingsToBackupConsumed={() => setOpenSettingsToBackup(false)}
+        settingsInitialTabRequest={settingsInitialTabRequest}
+        onSettingsInitialTabRequestConsumed={() => setSettingsInitialTabRequest(undefined)}
         mprSourceImageIds={mprSourceImageIds}
         leftSlot={
           <>
