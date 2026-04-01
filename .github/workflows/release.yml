@@ -12,7 +12,7 @@ on:
         type: boolean
         default: false
       build_windows:
-        description: Attempt Windows packaging if signing secrets are configured
+        description: Attempt Windows packaging if DigiCert KeyLocker is configured
         required: false
         type: boolean
         default: false
@@ -198,17 +198,22 @@ jobs:
         id: windows_signing
         shell: pwsh
         env:
-          WIN_CSC_P12_BASE64: ${{ secrets.WIN_CSC_P12_BASE64 }}
-          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+          SM_HOST: ${{ vars.SM_HOST }}
+          SM_API_KEY: ${{ secrets.SM_API_KEY }}
+          SM_CLIENT_CERT_FILE_B64: ${{ secrets.SM_CLIENT_CERT_FILE_B64 }}
+          SM_CLIENT_CERT_PASSWORD: ${{ secrets.SM_CLIENT_CERT_PASSWORD }}
+          SM_CODE_SIGNING_CERT_SHA1_HASH: ${{ secrets.SM_CODE_SIGNING_CERT_SHA1_HASH }}
+          WIN_CSC_SUBJECT_NAME: ${{ vars.WIN_CSC_SUBJECT_NAME }}
         run: |
-          if ([string]::IsNullOrWhiteSpace($env:WIN_CSC_P12_BASE64) -or [string]::IsNullOrWhiteSpace($env:WIN_CSC_KEY_PASSWORD)) {
+          $hasCertSelector = -not [string]::IsNullOrWhiteSpace($env:SM_CODE_SIGNING_CERT_SHA1_HASH) -or -not [string]::IsNullOrWhiteSpace($env:WIN_CSC_SUBJECT_NAME)
+          if ([string]::IsNullOrWhiteSpace($env:SM_HOST) -or [string]::IsNullOrWhiteSpace($env:SM_API_KEY) -or [string]::IsNullOrWhiteSpace($env:SM_CLIENT_CERT_FILE_B64) -or [string]::IsNullOrWhiteSpace($env:SM_CLIENT_CERT_PASSWORD) -or -not $hasCertSelector) {
             "ready=false" >> $env:GITHUB_OUTPUT
             exit 0
           }
 
           [IO.File]::WriteAllBytes(
-            "$env:RUNNER_TEMP\windows-signing.p12",
-            [Convert]::FromBase64String($env:WIN_CSC_P12_BASE64)
+            "$env:RUNNER_TEMP\sm-client-cert.p12",
+            [Convert]::FromBase64String($env:SM_CLIENT_CERT_FILE_B64)
           )
           "ready=true" >> $env:GITHUB_OUTPUT
 
@@ -216,17 +221,48 @@ jobs:
         if: github.event_name == 'workflow_dispatch' && inputs.build_windows && steps.windows_signing.outputs.ready != 'true'
         shell: pwsh
         run: |
-          Write-Error "Missing WIN_CSC_P12_BASE64 or WIN_CSC_KEY_PASSWORD."
+          Write-Error "Missing DigiCert KeyLocker configuration. Set SM_HOST, SM_API_KEY, SM_CLIENT_CERT_FILE_B64, SM_CLIENT_CERT_PASSWORD, and SM_CODE_SIGNING_CERT_SHA1_HASH or WIN_CSC_SUBJECT_NAME."
           exit 1
+
+      - name: Set up DigiCert KeyLocker tools
+        if: steps.windows_signing.outputs.ready == 'true'
+        uses: digicert/code-signing-software-trust-action@v1
+        env:
+          SM_HOST: ${{ vars.SM_HOST }}
+          SM_API_KEY: ${{ secrets.SM_API_KEY }}
+          SM_CLIENT_CERT_FILE: ${{ runner.temp }}\sm-client-cert.p12
+          SM_CLIENT_CERT_PASSWORD: ${{ secrets.SM_CLIENT_CERT_PASSWORD }}
+
+      - name: Verify DigiCert client connectivity
+        if: steps.windows_signing.outputs.ready == 'true'
+        shell: pwsh
+        run: smctl healthcheck
+
+      - name: Sync Windows certificate store
+        if: steps.windows_signing.outputs.ready == 'true'
+        shell: pwsh
+        env:
+          SM_KEYPAIR_ALIAS: ${{ vars.SM_KEYPAIR_ALIAS }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:SM_KEYPAIR_ALIAS)) {
+            smctl windows certsync
+          }
+          else {
+            smctl windows certsync --keypair-alias="$env:SM_KEYPAIR_ALIAS"
+          }
 
       - name: Build and publish Windows artifacts
         if: steps.windows_signing.outputs.ready == 'true'
         shell: pwsh
         env:
-          CSC_LINK: ${{ runner.temp }}\windows-signing.p12
-          CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm run package -- --win --publish "${{ steps.publish_mode.outputs.mode }}"
+          SM_HOST: ${{ vars.SM_HOST }}
+          SM_API_KEY: ${{ secrets.SM_API_KEY }}
+          SM_CLIENT_CERT_FILE: ${{ runner.temp }}\sm-client-cert.p12
+          SM_CLIENT_CERT_PASSWORD: ${{ secrets.SM_CLIENT_CERT_PASSWORD }}
+          WIN_CSC_CERT_SHA1: ${{ secrets.SM_CODE_SIGNING_CERT_SHA1_HASH }}
+          WIN_CSC_SUBJECT_NAME: ${{ vars.WIN_CSC_SUBJECT_NAME }}
+        run: npm run package:win -- --publish "${{ steps.publish_mode.outputs.mode }}"
 
       - name: Upload Windows artifacts for manual dry runs
         if: steps.windows_signing.outputs.ready == 'true' && steps.publish_mode.outputs.mode != 'always'
