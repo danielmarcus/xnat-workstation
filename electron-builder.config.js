@@ -16,6 +16,11 @@ if (windowsCertificateSha1 || windowsCertificateSubjectName) {
   if (windowsCertificateSubjectName) {
     win.signtoolOptions.certificateSubjectName = windowsCertificateSubjectName;
   }
+
+  // KeyLocker signing is more reliable with explicit RFC 3161 + SHA-256 settings.
+  win.signtoolOptions.rfc3161TimeStampServer = 'http://timestamp.digicert.com';
+  win.signtoolOptions.timeStampServer = null;
+  win.signtoolOptions.signingHashAlgorithms = ['sha256'];
 }
 
 module.exports = {
