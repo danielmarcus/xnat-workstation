@@ -259,6 +259,7 @@ jobs:
           SM_API_KEY: ${{ secrets.SM_API_KEY }}
           SM_CLIENT_CERT_FILE: ${{ runner.temp }}\sm-client-cert.p12
           SM_CLIENT_CERT_PASSWORD: ${{ secrets.SM_CLIENT_CERT_PASSWORD }}
+          SM_LOG_LEVEL: TRACE
 
       - name: Verify DigiCert client connectivity
         if: steps.windows_signing.outputs.ready == 'true'
@@ -268,6 +269,7 @@ jobs:
           SM_API_KEY: ${{ secrets.SM_API_KEY }}
           SM_CLIENT_CERT_FILE: ${{ runner.temp }}\sm-client-cert.p12
           SM_CLIENT_CERT_PASSWORD: ${{ secrets.SM_CLIENT_CERT_PASSWORD }}
+          SM_LOG_LEVEL: TRACE
         run: smctl healthcheck
 
       - name: Sync Windows certificate store
@@ -279,6 +281,7 @@ jobs:
           SM_CLIENT_CERT_FILE: ${{ runner.temp }}\sm-client-cert.p12
           SM_CLIENT_CERT_PASSWORD: ${{ secrets.SM_CLIENT_CERT_PASSWORD }}
           SM_KEYPAIR_ALIAS: ${{ vars.SM_KEYPAIR_ALIAS }}
+          SM_LOG_LEVEL: TRACE
         run: |
           smctl windows certsync --keypair-alias="$env:SM_KEYPAIR_ALIAS"
 
@@ -293,7 +296,18 @@ jobs:
           SM_CLIENT_CERT_PASSWORD: ${{ secrets.SM_CLIENT_CERT_PASSWORD }}
           WIN_CSC_CERT_SHA1: ${{ secrets.SM_CODE_SIGNING_CERT_SHA1_HASH }}
           WIN_CSC_SUBJECT_NAME: ${{ vars.WIN_CSC_SUBJECT_NAME }}
+          SM_LOG_LEVEL: TRACE
         run: npm run package:win -- --publish "${{ steps.publish_mode.outputs.mode }}"
+
+      - name: Upload DigiCert trace logs on failure
+        if: failure() && steps.windows_signing.outputs.ready == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: xnat-workstation-windows-digicert-logs
+          path: |
+            ${{ runner.temp }}\smtools.log
+            C:\Users\runneradmin\.signingmanager\logs\**
+          if-no-files-found: warn
 
       - name: Upload Windows artifacts for manual dry runs
         if: steps.windows_signing.outputs.ready == 'true' && steps.publish_mode.outputs.mode != 'always'
