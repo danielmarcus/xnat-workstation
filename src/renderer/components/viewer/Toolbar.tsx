@@ -486,24 +486,34 @@ interface ToolbarProps {
   leftSlot?: React.ReactNode;
   /** Called when the user clicks "Recover" for a backup session in Settings. */
   onRecoverBackup?: (sessionId: string) => Promise<void> | void;
-  /** When true, open Settings directly to the File Backup tab. */
-  openSettingsToBackup?: boolean;
-  /** Called after the open-settings-to-backup request has been consumed. */
-  onSettingsToBackupConsumed?: () => void;
+  /** When set, open Settings directly to the requested tab. */
+  settingsInitialTabRequest?: string;
+  /** Called after the open-settings request has been consumed. */
+  onSettingsInitialTabRequestConsumed?: () => void;
 }
 
-export default function Toolbar({ showDicomPanel = false, onToggleDicomPanel, onApplyProtocol, onToggleMPR, hasImages = false, leftSlot, onRecoverBackup, openSettingsToBackup, onSettingsToBackupConsumed }: ToolbarProps) {
+export default function Toolbar({
+  showDicomPanel = false,
+  onToggleDicomPanel,
+  onApplyProtocol,
+  onToggleMPR,
+  hasImages = false,
+  leftSlot,
+  onRecoverBackup,
+  settingsInitialTabRequest,
+  onSettingsInitialTabRequestConsumed,
+}: ToolbarProps) {
   const [showSettings, setShowSettings] = useState(false);
   const [settingsInitialTab, setSettingsInitialTab] = useState<string | undefined>(undefined);
 
-  // Open Settings to Backup tab when requested by parent (e.g. banner link)
+  // Open Settings to a specific tab when requested by parent (e.g. banner link)
   useEffect(() => {
-    if (openSettingsToBackup) {
-      setSettingsInitialTab('backup');
+    if (settingsInitialTabRequest) {
+      setSettingsInitialTab(settingsInitialTabRequest);
       setShowSettings(true);
-      onSettingsToBackupConsumed?.();
+      onSettingsInitialTabRequestConsumed?.();
     }
-  }, [openSettingsToBackup, onSettingsToBackupConsumed]);
+  }, [settingsInitialTabRequest, onSettingsInitialTabRequestConsumed]);
 
   const activeTool = useViewerStore((s) => s.activeTool);
   const mprActive = useViewerStore((s) => s.mprActive);

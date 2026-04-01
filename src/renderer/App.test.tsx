@@ -17,6 +17,7 @@ import { useSegmentationManagerStore } from './stores/segmentationManagerStore';
 import { clearRecoveredSessions } from './lib/app/appHelpers';
 import { cache, imageLoader, metaData } from '@cornerstonejs/core';
 import { BUILT_IN_PROTOCOLS } from '@shared/types/hangingProtocol';
+import type { UpdateStatus } from '@shared/types';
 
 const mocks = vi.hoisted(() => ({
   initCornerstone: vi.fn(),
@@ -77,6 +78,14 @@ const mocks = vi.hoisted(() => ({
     referencedSeriesUID: null,
     referencedSOPInstanceUIDs: [],
   })),
+  updater: {
+    getState: vi.fn(),
+    configure: vi.fn(),
+    checkForUpdates: vi.fn(),
+    quitAndInstall: vi.fn(),
+    onStatus: vi.fn(),
+  },
+  updaterStatusCallback: null as ((status: UpdateStatus) => void) | null,
 }));
 
 vi.mock('./pages/ViewerPage', () => ({
@@ -85,14 +94,17 @@ vi.mock('./pages/ViewerPage', () => ({
     browserSlot,
     onApplyProtocol,
     onToggleMPR,
+    settingsInitialTabRequest,
   }: {
     leftSlot: ReactNode;
     browserSlot: ReactNode;
     onApplyProtocol?: (protocolId: string) => void;
     onToggleMPR?: () => void;
+    settingsInitialTabRequest?: string;
   }) => (
     <div data-testid="viewer-page">
       <div data-testid="left-slot">{leftSlot}</div>
+      <div data-testid="settings-tab-request">{settingsInitialTabRequest ?? ''}</div>
       <div data-testid="panel-drop-target" data-panel-id="panel_1">panel target</div>
       <button onClick={() => onApplyProtocol?.(BUILT_IN_PROTOCOLS[0]?.id ?? 'default')}>Trigger Apply Protocol</button>
       <button onClick={() => onToggleMPR?.()}>Trigger Toggle MPR</button>
@@ -321,6 +333,32 @@ function setConnectedConnectionState(): void {
 }
 
 function setElectronApiMock(): void {
+  mocks.updaterStatusCallback = null;
+  mocks.updater.getState.mockResolvedValue({
+    phase: 'idle',
+    currentVersion: '0.5.4',
+    enabled: true,
+    autoDownload: true,
+    isPackaged: true,
+    availableVersion: null,
+    downloadedVersion: null,
+    downloadProgressPercent: null,
+    lastCheckedAt: null,
+    message: 'Automatic update checks are enabled.',
+    error: null,
+  } satisfies UpdateStatus);
+  mocks.updater.configure.mockResolvedValue({ ok: true });
+  mocks.updater.checkForUpdates.mockResolvedValue({ ok: true });
+  mocks.updater.quitAndInstall.mockResolvedValue({ ok: true });
+  mocks.updater.onStatus.mockImplementation((callback: (status: UpdateStatus) => void) => {
+    mocks.updaterStatusCallback = callback;
+    return () => {
+      if (mocks.updaterStatusCallback === callback) {
+        mocks.updaterStatusCallback = null;
+      }
+    };
+  });
+
   Object.defineProperty(window, 'electronAPI', {
     value: {
       xnat: {
@@ -330,6 +368,7 @@ function setElectronApiMock(): void {
         downloadScanFile: vi.fn(async () => ({ ok: true, data: '' })),
         getScans: vi.fn(async () => []),
       },
+      updater: mocks.updater,
       on: vi.fn(() => () => {}),
     },
     configurable: true,
@@ -344,6 +383,12 @@ function createDicomFile(contents: string, name: string): File {
     value: async () => new TextEncoder().encode(contents).buffer,
   });
   return file;
+}
+
+function emitUpdaterStatus(status: UpdateStatus): void {
+  act(() => {
+    mocks.updaterStatusCallback?.(status);
+  });
 }
 
 describe('App', () => {
@@ -455,6 +500,64 @@ describe('App', () => {
 
     await user.click(screen.getByTitle('Pin this session'));
     expect(mocks.addPinnedItem).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows an update banner and routes to the Updates settings tab when an update is downloading', async () => {
+    const user = userEvent.setup();
+    setConnectedConnectionState();
+
+    render(<App />);
+    expect(await screen.findByTestId('viewer-page')).toBeInTheDocument();
+
+    emitUpdaterStatus({
+      phase: 'downloading',
+      currentVersion: '0.5.4',
+      enabled: true,
+      autoDownload: true,
+      isPackaged: true,
+      availableVersion: '0.5.5',
+      downloadedVersion: null,
+      downloadProgressPercent: 42,
+      lastCheckedAt: new Date().toISOString(),
+      message: 'Downloading update... 42%',
+      error: null,
+    });
+
+    expect(
+      screen.getByText('Update 0.5.5 is downloading in the background (42%).'),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Review in Settings' }));
+
+    expect(screen.getByTestId('settings-tab-request')).toHaveTextContent('updates');
+  });
+
+  it('shows a restart-and-install banner action when an update is downloaded', async () => {
+    const user = userEvent.setup();
+    setConnectedConnectionState();
+
+    render(<App />);
+    expect(await screen.findByTestId('viewer-page')).toBeInTheDocument();
+
+    emitUpdaterStatus({
+      phase: 'downloaded',
+      currentVersion: '0.5.4',
+      enabled: true,
+      autoDownload: true,
+      isPackaged: true,
+      availableVersion: '0.5.5',
+      downloadedVersion: '0.5.5',
+      downloadProgressPercent: 100,
+      lastCheckedAt: new Date().toISOString(),
+      message: 'Update downloaded.',
+      error: null,
+    });
+
+    expect(screen.getByText(/Update 0\.5\.5 is ready to install\./)).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Restart and Install' }));
+
+    expect(mocks.updater.quitAndInstall).toHaveBeenCalledTimes(1);
   });
 
   it('shows drag overlay for file drags, but not for xnat scan drags', async () => {
