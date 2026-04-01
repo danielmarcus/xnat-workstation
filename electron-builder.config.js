@@ -6,12 +6,16 @@ const win = {
   target: ['nsis', 'portable'],
 };
 
-if (windowsCertificateSha1) {
-  win.certificateSha1 = windowsCertificateSha1;
-}
+if (windowsCertificateSha1 || windowsCertificateSubjectName) {
+  win.signtoolOptions = {};
 
-if (windowsCertificateSubjectName) {
-  win.certificateSubjectName = windowsCertificateSubjectName;
+  if (windowsCertificateSha1) {
+    win.signtoolOptions.certificateSha1 = windowsCertificateSha1;
+  }
+
+  if (windowsCertificateSubjectName) {
+    win.signtoolOptions.certificateSubjectName = windowsCertificateSubjectName;
+  }
 }
 
 module.exports = {
