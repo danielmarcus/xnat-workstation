@@ -56,6 +56,12 @@ module.exports = {
     notarize: true,
   },
   win,
+  nsis: {
+    artifactName: 'XNAT-Workstation-${version}-${arch}-setup.${ext}',
+  },
+  portable: {
+    artifactName: 'XNAT-Workstation-${version}-${arch}-portable.${ext}',
+  },
   linux: {
     maintainer: 'Daniel Marcus <dmarcus@wustl.edu>',
     target: ['AppImage', 'deb'],
