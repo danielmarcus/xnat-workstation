@@ -123,8 +123,8 @@ Annotation list panel with search, visibility toggles, and delete.
 ### Setup
 
 ```bash
-git clone https://github.com/danielmarcus/xnat-viewer.git
-cd xnat-viewer
+git clone https://github.com/danielmarcus/xnat-workstation.git
+cd xnat-workstation
 npm install
 ```
 
