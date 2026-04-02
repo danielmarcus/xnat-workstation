@@ -99,7 +99,7 @@ function ToolIcon({ tool }: { tool: ToolName }) {
   }
 }
 
-export default function AnnotationToolDropdown() {
+export default function AnnotationToolDropdown({ hideLabel = false }: { hideLabel?: boolean } = {}) {
   const [open, setOpen] = useState(false);
   const [dropdownPos, setDropdownPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -155,7 +155,7 @@ export default function AnnotationToolDropdown() {
         title={isAnnotationActive ? `Measure: ${TOOL_DISPLAY_NAMES[activeTool]}` : 'Annotation & measurement tools'}
       >
         {isAnnotationActive && <ToolIcon tool={activeTool} />}
-        Measure
+        {!hideLabel && 'Measure'}
         <svg
           className={`w-3 h-3 transition-transform ${open ? 'rotate-180' : ''}`}
           viewBox="0 0 12 12"
