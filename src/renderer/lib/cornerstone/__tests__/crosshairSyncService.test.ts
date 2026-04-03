@@ -3,7 +3,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const metaDataGetMock = vi.hoisted(() => vi.fn());
 const scrollToIndexMock = vi.hoisted(() => vi.fn());
+const stackGetViewportMock = vi.hoisted(() => vi.fn(() => null));
 const mprScrollToIndexMock = vi.hoisted(() => vi.fn());
+const mprGetViewportMock = vi.hoisted(() => vi.fn(() => null));
+const mprGetSliceInfoMock = vi.hoisted(() => vi.fn(() => ({ sliceIndex: 0, totalSlices: 0 })));
 const getPanelDisplayPointForWorldMock = vi.hoisted(() => vi.fn());
 const getViewportForPanelMock = vi.hoisted(() => vi.fn());
 const getWorldPointFromClientPointMock = vi.hoisted(() => vi.fn());
@@ -81,13 +84,15 @@ vi.mock('@cornerstonejs/dicom-image-loader', () => ({
 
 vi.mock('../viewportService', () => ({
   viewportService: {
+    getViewport: stackGetViewportMock,
     scrollToIndex: scrollToIndexMock,
   },
 }));
 
 vi.mock('../mprService', () => ({
   mprService: {
-    getViewport: vi.fn(() => null),
+    getViewport: mprGetViewportMock,
+    getSliceInfo: mprGetSliceInfoMock,
     scrollToIndex: mprScrollToIndexMock,
   },
 }));
@@ -123,6 +128,9 @@ describe('crosshairSyncService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     viewerStoreMock.reset();
+    stackGetViewportMock.mockReturnValue(null);
+    mprGetViewportMock.mockReturnValue(null);
+    mprGetSliceInfoMock.mockReturnValue({ sliceIndex: 0, totalSlices: 0 });
     getPanelDisplayPointForWorldMock.mockReturnValue([1, 1]);
     getWorldPointFromClientPointMock.mockReturnValue([0, 0, 0]);
     // Invalidate any leftover metadata-loaded state from previous tests.
@@ -157,6 +165,65 @@ describe('crosshairSyncService', () => {
     expect(targetViewport.jumpToWorld).toHaveBeenCalledWith([10, 20, 30]);
     expect(state.viewports.panel_1?.requestedImageIndex).toBe(2);
     expect(scrollToIndexMock).not.toHaveBeenCalled();
+  });
+
+  it('syncs from the center of the source panel when requested', () => {
+    setMetadata({
+      'imagePlaneModule|img-source': { frameOfReferenceUID: 'FOR-1' },
+      'generalSeriesModule|img-source': { seriesInstanceUID: 'SER-1' },
+      'imagePlaneModule|img-target-a': { frameOfReferenceUID: 'FOR-1' },
+      'generalSeriesModule|img-target-a': { seriesInstanceUID: 'SER-1' },
+    });
+
+    const panelEl = document.createElement('div');
+    panelEl.setAttribute('data-panel-id', 'panel_0');
+    Object.defineProperty(panelEl, 'getBoundingClientRect', {
+      value: () => ({ left: 10, top: 20, width: 120, height: 80 }),
+    });
+    document.body.appendChild(panelEl);
+
+    const targetViewport = {
+      type: 'orthogonal',
+      jumpToWorld: vi.fn(() => true),
+      getCurrentImageIdIndex: vi.fn(() => 1),
+      render: vi.fn(),
+    };
+    getViewportForPanelMock.mockImplementation((panelId: string) => (
+      panelId === 'panel_1' ? targetViewport : null
+    ));
+    getWorldPointFromClientPointMock.mockReturnValue([7, 8, 9]);
+
+    crosshairSyncService.syncFromPanelCenter('panel_0');
+
+    expect(getWorldPointFromClientPointMock).toHaveBeenCalledWith('panel_0', 70, 60);
+    expect(targetViewport.jumpToWorld).toHaveBeenCalledWith([7, 8, 9]);
+    expect(viewerStoreMock.getState().crosshairWorldPoint).toEqual([7, 8, 9]);
+  });
+
+  it('syncs from an explicit client point inside the source panel', () => {
+    setMetadata({
+      'imagePlaneModule|img-source': { frameOfReferenceUID: 'FOR-1' },
+      'generalSeriesModule|img-source': { seriesInstanceUID: 'SER-1' },
+      'imagePlaneModule|img-target-a': { frameOfReferenceUID: 'FOR-1' },
+      'generalSeriesModule|img-target-a': { seriesInstanceUID: 'SER-1' },
+    });
+
+    const targetViewport = {
+      type: 'orthogonal',
+      jumpToWorld: vi.fn(() => true),
+      getCurrentImageIdIndex: vi.fn(() => 1),
+      render: vi.fn(),
+    };
+    getViewportForPanelMock.mockImplementation((panelId: string) => (
+      panelId === 'panel_1' ? targetViewport : null
+    ));
+    getWorldPointFromClientPointMock.mockReturnValue([4, 5, 6]);
+
+    crosshairSyncService.syncFromClientPoint('panel_0', 123, 456);
+
+    expect(getWorldPointFromClientPointMock).toHaveBeenCalledWith('panel_0', 123, 456);
+    expect(targetViewport.jumpToWorld).toHaveBeenCalledWith([4, 5, 6]);
+    expect(viewerStoreMock.getState().crosshairWorldPoint).toEqual([4, 5, 6]);
   });
 
   it('skips target panels that do not match frame-of-reference/series compatibility', () => {

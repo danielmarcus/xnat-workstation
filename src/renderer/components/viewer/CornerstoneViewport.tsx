@@ -249,6 +249,7 @@ export default function CornerstoneViewport({ panelId, imageIds }: CornerstoneVi
 
 function wireEvents(element: HTMLDivElement, panelId: string): () => void {
   const Events = Enums.Events;
+  let pendingShiftScrollSync: { clientX: number; clientY: number } | null = null;
 
   // VOI changed (user dragged W/L or preset applied)
   element.addEventListener(Events.VOI_MODIFIED, ((e: Event) => {
@@ -280,6 +281,12 @@ function wireEvents(element: HTMLDivElement, panelId: string): () => void {
         useViewerStore.getState().setPanelNativeOrientation(panelId, nativeOrientation);
       }
     }
+
+    if (pendingShiftScrollSync) {
+      const { clientX, clientY } = pendingShiftScrollSync;
+      pendingShiftScrollSync = null;
+      crosshairSyncService.syncFromClientPoint(panelId, clientX, clientY);
+    }
   }) as EventListener);
 
   // Camera modified (zoom, pan, rotation changed)
@@ -300,7 +307,11 @@ function wireEvents(element: HTMLDivElement, panelId: string): () => void {
 
     e.preventDefault();
 
-    wheelAccum += e.deltaY;
+    const scrollDelta =
+      Math.abs(e.deltaY) >= Math.abs(e.deltaX)
+        ? e.deltaY
+        : (e.shiftKey ? e.deltaX : 0);
+    wheelAccum += scrollDelta;
 
     if (Math.abs(wheelAccum) >= WHEEL_THRESHOLD) {
       const steps = Math.trunc(wheelAccum / WHEEL_THRESHOLD);
@@ -321,6 +332,7 @@ function wireEvents(element: HTMLDivElement, panelId: string): () => void {
         0;
       const targetIndex = Math.max(0, Math.min(total - 1, baseIndex + steps));
       if (targetIndex !== baseIndex) {
+        pendingShiftScrollSync = e.shiftKey ? { clientX: e.clientX, clientY: e.clientY } : null;
         state._requestImageIndex(panelId, targetIndex, total);
         viewportService.scrollToIndex(panelId, targetIndex);
       }

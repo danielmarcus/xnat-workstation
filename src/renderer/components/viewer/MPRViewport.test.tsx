@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   removeViewport: vi.fn(),
   resize: vi.fn(),
   syncFromViewport: vi.fn(),
+  syncFromClientPoint: vi.fn(),
   wireCrosshairPointerHandlers: vi.fn(),
 }));
 
@@ -64,6 +65,7 @@ vi.mock('../../lib/cornerstone/viewportService', () => ({
 vi.mock('../../lib/cornerstone/crosshairSyncService', () => ({
   crosshairSyncService: {
     syncFromViewport: mocks.syncFromViewport,
+    syncFromClientPoint: mocks.syncFromClientPoint,
   },
 }));
 
@@ -209,6 +211,48 @@ describe('MPRViewport', () => {
       }),
     );
     expect(mocks.scroll).toHaveBeenCalledTimes(1);
+  });
+
+  it('syncs compatible viewports after the shifted MPR scroll updates the slice', async () => {
+    render(<MPRViewport panelId={panelId} volumeId="vol-1" plane="SAGITTAL" />);
+    await waitFor(() => expect(mocks.createViewport).toHaveBeenCalled());
+
+    const canvas = screen.getByTestId(`mpr-viewport-canvas:${panelId}`);
+
+    fireEvent(
+      canvas,
+      new WheelEvent('wheel', {
+        deltaY: 120,
+        shiftKey: true,
+        cancelable: true,
+      }),
+    );
+    expect(mocks.syncFromClientPoint).not.toHaveBeenCalled();
+
+    fireEvent(canvas, new CustomEvent('CAMERA_MODIFIED'));
+
+    expect(mocks.syncFromClientPoint).toHaveBeenCalledWith(panelId, 0, 0);
+  });
+
+  it('uses horizontal wheel deltas for shift-scroll MPR trackpad gestures', async () => {
+    render(<MPRViewport panelId={panelId} volumeId="vol-1" plane="SAGITTAL" />);
+    await waitFor(() => expect(mocks.createViewport).toHaveBeenCalled());
+
+    const canvas = screen.getByTestId(`mpr-viewport-canvas:${panelId}`);
+
+    fireEvent(
+      canvas,
+      new WheelEvent('wheel', {
+        deltaX: -120,
+        deltaY: 0,
+        shiftKey: true,
+        cancelable: true,
+      }),
+    );
+
+    expect(mocks.scroll).toHaveBeenCalledWith(panelId, -2);
+    fireEvent(canvas, new CustomEvent('CAMERA_MODIFIED'));
+    expect(mocks.syncFromClientPoint).toHaveBeenCalledWith(panelId, 0, 0);
   });
 
   it('shows MPR error overlay when setup fails and performs cleanup on unmount', async () => {

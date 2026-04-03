@@ -338,6 +338,38 @@ export const crosshairSyncService = {
   },
 
   /**
+   * Sync from a client-space point inside the source panel.
+   * Used for cursor-anchored shift-scroll anatomical alignment.
+   */
+  syncFromClientPoint(sourcePanelId: string, clientX: number, clientY: number): void {
+    const worldPoint = getWorldPointFromClientPoint(sourcePanelId, clientX, clientY);
+    if (!worldPoint) return;
+
+    crosshairSyncService.syncFromViewport(sourcePanelId, worldPoint);
+  },
+
+  /**
+   * Sync from the visual center of a panel's currently displayed slice.
+   * Used for temporary "hold Shift while scrolling" slice sync.
+   */
+  syncFromPanelCenter(sourcePanelId: string): void {
+    const panelEl = document.querySelector(`[data-panel-id="${sourcePanelId}"]`) as HTMLElement | null;
+    if (!panelEl) return;
+
+    const rect = panelEl.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
+
+    const worldPoint = getWorldPointFromClientPoint(
+      sourcePanelId,
+      rect.left + rect.width / 2,
+      rect.top + rect.height / 2,
+    );
+    if (!worldPoint) return;
+
+    crosshairSyncService.syncFromViewport(sourcePanelId, worldPoint);
+  },
+
+  /**
    * Publish crosshair coordinate globally and sync compatible viewports.
    *
    * For MPR/volume viewports: uses viewport-native `jumpToWorld`.
