@@ -48,6 +48,10 @@ function toWadouriUri(imageId: string): string {
   return imageId.startsWith('wadouri:') ? imageId.slice(8) : imageId;
 }
 
+function toFrameImageId(imageId: string, frameNumber: number): string {
+  return `${imageId}&frame=${frameNumber}`;
+}
+
 function parseNumber(value: unknown): number | null {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
   if (typeof value === 'string' && value.trim().length > 0) {
@@ -177,6 +181,20 @@ function scanCacheKey(sessionId: string, scanId: string): string {
 
 const scanImageIdsCache = new Map<string, ScanImageIdsCacheEntry>();
 const scanImageIdsInFlight = new Map<string, Promise<string[]>>();
+
+async function getNumberOfFramesForImageId(imageId: string): Promise<number> {
+  const uri = toWadouriUri(imageId);
+  try {
+    if (!wadouri.dataSetCacheManager.isLoaded(uri)) {
+      await wadouri.dataSetCacheManager.load(uri, undefined as any, imageId);
+    }
+    const dataSet = wadouri.dataSetCacheManager.get(uri);
+    const parsed = parseInt(String(dataSet?.string?.('x00280008') ?? ''), 10);
+    return Number.isFinite(parsed) && parsed > 1 ? parsed : 1;
+  } catch {
+    return 1;
+  }
+}
 
 async function sortImageIdsByDicomMetadata(
   imageIds: string[],
@@ -377,7 +395,27 @@ export const dicomwebLoader = {
         );
       }
 
-      const finalIds = entries.map((e) => e.imageId);
+      let finalIds = entries.map((e) => e.imageId);
+
+      // Some modalities (for example breast tomosynthesis) can arrive as a
+      // single multi-frame DICOM object rather than many single-frame files.
+      // Expand that one object into frame-addressable wadouri ids so the stack
+      // viewport can scroll through every frame instead of showing 1/1.
+      if (finalIds.length === 1) {
+        const baseImageId = finalIds[0];
+        const numberOfFrames = await getNumberOfFramesForImageId(baseImageId);
+        if (numberOfFrames > 1) {
+          finalIds = Array.from(
+            { length: numberOfFrames },
+            (_, frameIndex) => toFrameImageId(baseImageId, frameIndex + 1),
+          );
+          console.log(
+            `[dicomwebLoader] Expanded single-file multiframe scan ${sessionId}/${scanId} `
+            + `into ${numberOfFrames} frame imageIds`,
+          );
+        }
+      }
+
       scanImageIdsCache.set(key, { imageIds: [...finalIds] });
       return finalIds;
     })();

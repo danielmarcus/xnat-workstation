@@ -51,11 +51,23 @@ describe('xnatBrowserUtils', () => {
 
   it('filters source scans by excluding derived and structured-report rows', () => {
     expect(isBrowsableSourceScan(makeScan({ modality: 'CT', type: 'AXIAL' }))).toBe(true);
+    expect(
+      isBrowsableSourceScan(
+        makeScan({
+          xsiType: 'xnat:otherDicomScanData',
+          modality: 'MG',
+          type: 'Breast Tomosynthesis',
+          seriesDescription: 'R CC Breast Tomosynthesis Image',
+        }),
+      ),
+    ).toBe(true);
     expect(isBrowsableSourceScan(makeScan({ type: 'SEG', xsiType: 'xnat:segScanData' }))).toBe(false);
     expect(isBrowsableSourceScan(makeScan({ type: 'RTSTRUCT', xsiType: 'xnat:otherDicomScanData' }))).toBe(false);
     expect(isBrowsableSourceScan(makeScan({ type: 'SR' }))).toBe(false);
     expect(isBrowsableSourceScan(makeScan({ sopClassUID: '1.2.840.10008.5.1.4.1.1.88.33' }))).toBe(false);
-    expect(isBrowsableSourceScan(makeScan({ xsiType: 'xnat:otherDicomScanData', type: 'Secondary Capture' }))).toBe(false);
+    expect(isBrowsableSourceScan(makeScan({ xsiType: 'xnat:otherDicomScanData', type: 'Secondary Capture' }))).toBe(true);
+    expect(isBrowsableSourceScan(makeScan({ xsiType: 'xnat:otherDicomScanData', modality: 'PR' }))).toBe(false);
+    expect(isBrowsableSourceScan(makeScan({ xsiType: 'xnat:otherDicomScanData', type: 'RTDOSE' }))).toBe(false);
   });
 
   it('extracts numeric values safely from scalar and array inputs', () => {

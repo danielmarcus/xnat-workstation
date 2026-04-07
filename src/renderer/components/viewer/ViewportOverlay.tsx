@@ -7,6 +7,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { metaData } from '@cornerstonejs/core';
+import { wadouri } from '@cornerstonejs/dicom-image-loader';
 import {
   DEFAULT_OVERLAY_CORNERS,
   type OverlayCornerId,
@@ -56,6 +57,142 @@ const ORIENTATION_LABELS: Record<MPRPlane, { top: string; bottom: string; left: 
   CORONAL: { top: 'S', bottom: 'I', left: 'R', right: 'L' },
 };
 const PIXEL_SPACING_CACHE = new Map<string, { row: number; col: number } | null>();
+const PATIENT_ORIENTATION_CACHE = new Map<string, { top: string; bottom: string; left: string; right: string } | null>();
+
+function toWadouriUri(imageId: string): string {
+  return imageId.startsWith('wadouri:') ? imageId.slice(8) : imageId;
+}
+
+function oppositeOrientationToken(token: string): string {
+  const map: Record<string, string> = {
+    A: 'P',
+    P: 'A',
+    R: 'L',
+    L: 'R',
+    H: 'F',
+    F: 'H',
+    S: 'I',
+    I: 'S',
+  };
+  return token
+    .toUpperCase()
+    .split('')
+    .map((char) => map[char] ?? '')
+    .join('');
+}
+
+export function getOrientationMarkersFromPatientOrientation(raw: string): { top: string; bottom: string; left: string; right: string } | null {
+  const parts = raw
+    .split('\\')
+    .map((part) => part.trim().toUpperCase())
+    .filter((part) => part.length > 0);
+  if (parts.length < 2) return null;
+  const vertical = parts[0];
+  const horizontal = parts[1];
+  const bottom = oppositeOrientationToken(vertical);
+  const right = oppositeOrientationToken(horizontal);
+  if (!bottom || !right) return null;
+  return {
+    top: vertical,
+    bottom,
+    left: horizontal,
+    right,
+  };
+}
+
+function getStringTagValue(dataSet: { string?: (tag: string) => string | undefined } | undefined, tag: string): string {
+  return dataSet?.string?.(tag)?.trim() ?? '';
+}
+
+export function getCcMammographyOrientationMarkers(
+  patientMarkers: { top: string; bottom: string; left: string; right: string } | null,
+): { top: string; bottom: string; left: string; right: string } {
+  return {
+    top: 'H',
+    bottom: 'F',
+    left: patientMarkers?.left ?? 'L',
+    right: patientMarkers?.right ?? 'R',
+  };
+}
+
+function isMammographyImage(imageId: string | null): boolean {
+  if (!imageId) return false;
+  try {
+    const uri = toWadouriUri(imageId);
+    const dataSet = wadouri.dataSetCacheManager.get(uri);
+    return getStringTagValue(dataSet, 'x00080060').toUpperCase() === 'MG';
+  } catch {
+    return false;
+  }
+}
+
+function getMammographyOrientationMarkers(
+  imageId: string | null,
+  patientMarkers: { top: string; bottom: string; left: string; right: string } | null,
+  seriesDescription: string,
+): { top: string; bottom: string; left: string; right: string } | null {
+  if (!imageId) return null;
+
+  try {
+    const uri = toWadouriUri(imageId);
+    const dataSet = wadouri.dataSetCacheManager.get(uri);
+    const modality = getStringTagValue(dataSet, 'x00080060').toUpperCase();
+    if (modality !== 'MG') return null;
+
+    const viewPosition = getStringTagValue(dataSet, 'x00185101').toUpperCase();
+    const normalizedSeriesDescription = seriesDescription.trim().toUpperCase();
+    const isCcView =
+      viewPosition === 'CC'
+      || /\bCC\b/.test(normalizedSeriesDescription)
+      || normalizedSeriesDescription.includes('CRANIO-CAUDAL')
+      || normalizedSeriesDescription.includes('CRANIO CAUDAL');
+
+    if (isCcView) {
+      return getCcMammographyOrientationMarkers(patientMarkers);
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function getPatientOrientationMarkers(imageId: string | null): { top: string; bottom: string; left: string; right: string } | null {
+  if (!imageId) return null;
+  if (PATIENT_ORIENTATION_CACHE.has(imageId)) {
+    return PATIENT_ORIENTATION_CACHE.get(imageId) ?? null;
+  }
+
+  try {
+    const instance = metaData.get('instance', imageId) as
+      | { PatientOrientation?: unknown; patientOrientation?: unknown }
+      | undefined;
+    let raw = instance?.PatientOrientation ?? instance?.patientOrientation;
+    if (Array.isArray(raw)) {
+      raw = raw.join('\\');
+    }
+    if (typeof raw !== 'string' || raw.trim().length === 0) {
+      const uri = toWadouriUri(imageId);
+      const dataSet = wadouri.dataSetCacheManager.get(uri);
+      raw = dataSet?.string?.('x00200020');
+    }
+    if (typeof raw !== 'string' || raw.trim().length === 0) {
+      PATIENT_ORIENTATION_CACHE.set(imageId, null);
+      return null;
+    }
+
+    const markers = getOrientationMarkersFromPatientOrientation(raw);
+    if (!markers) {
+      PATIENT_ORIENTATION_CACHE.set(imageId, null);
+      return null;
+    }
+    PATIENT_ORIENTATION_CACHE.set(imageId, markers);
+    return markers;
+  } catch {
+    PATIENT_ORIENTATION_CACHE.set(imageId, null);
+    return null;
+  }
+}
 
 function toPositiveNumber(value: unknown): number | null {
   if (typeof value === 'number' && Number.isFinite(value) && value > 0) return value;
@@ -236,9 +373,6 @@ export default function ViewportOverlay({ panelId }: ViewportOverlayProps) {
       ? getCrosshairDisplayPoint(panelId, crosshairPoint)
       : null;
   const showCrosshairGuides = crosshairGuides !== null;
-  const shouldRenderOverlay =
-    viewport.totalImages > 0
-    && (showContextOverlay || showCrosshairGuides || showHorizontalRuler || showVerticalRuler || showOrientationMarkers);
 
   const crosshairText =
     activeTool === ToolName.Crosshairs && crosshairPoint && !crosshairSubjectMismatch
@@ -252,6 +386,18 @@ export default function ViewportOverlay({ panelId }: ViewportOverlayProps) {
     const clamped = Math.max(0, Math.min(panelImageIds.length - 1, preferred));
     return panelImageIds[clamped] ?? null;
   }, [panelImageIds, viewport.imageIndex, viewport.requestedImageIndex]);
+  const isMammographyView = useMemo(() => isMammographyImage(currentImageId), [currentImageId]);
+  const effectiveShowOrientationMarkers = showOrientationMarkers && !isMammographyView;
+
+  const shouldRenderOverlay =
+    viewport.totalImages > 0
+    && (
+      showContextOverlay
+      || showCrosshairGuides
+      || showHorizontalRuler
+      || showVerticalRuler
+      || effectiveShowOrientationMarkers
+    );
 
   useEffect(() => {
     if (!shouldRenderOverlay) return;
@@ -327,10 +473,20 @@ export default function ViewportOverlay({ panelId }: ViewportOverlayProps) {
 
   const horizontalRuler = rulers.horizontal;
   const verticalRuler = rulers.vertical;
+  const orientationMarkers = useMemo(() => {
+    if (panelOrientation === 'STACK') {
+      const patientMarkers = getPatientOrientationMarkers(currentImageId);
+      return getMammographyOrientationMarkers(currentImageId, patientMarkers, overlay.seriesDescription || scanSeriesDescription)
+        ?? patientMarkers
+        ?? ORIENTATION_LABELS[displayOrientation];
+    }
+    return ORIENTATION_LABELS[displayOrientation];
+  }, [currentImageId, displayOrientation, overlay.seriesDescription, panelOrientation, scanSeriesDescription]);
 
   const renderField = (field: OverlayFieldKey): React.ReactNode | null => {
     switch (field) {
       case 'orientationSelector':
+        if (isMammographyView) return null;
         return (
           <div className="pointer-events-auto">
             <select
@@ -502,15 +658,15 @@ export default function ViewportOverlay({ panelId }: ViewportOverlayProps) {
         </div>
       )}
 
-      {showOrientationMarkers && (
+      {effectiveShowOrientationMarkers && (
         <div
           data-testid={`viewport-overlay-orientation:${panelId}`}
           className="absolute inset-0 text-[11px] font-bold text-zinc-300 [text-shadow:_0_1px_2px_rgb(0_0_0_/_80%)]"
         >
-          <span className="absolute top-1.5 left-1/2 -translate-x-1/2">{ORIENTATION_LABELS[displayOrientation].top}</span>
-          <span className="absolute bottom-1.5 left-1/2 -translate-x-1/2">{ORIENTATION_LABELS[displayOrientation].bottom}</span>
-          <span className="absolute left-1.5 top-1/2 -translate-y-1/2">{ORIENTATION_LABELS[displayOrientation].left}</span>
-          <span className="absolute right-1.5 top-1/2 -translate-y-1/2">{ORIENTATION_LABELS[displayOrientation].right}</span>
+          <span className="absolute top-1.5 left-1/2 -translate-x-1/2">{orientationMarkers.top}</span>
+          <span className="absolute bottom-1.5 left-1/2 -translate-x-1/2">{orientationMarkers.bottom}</span>
+          <span className="absolute left-1.5 top-1/2 -translate-y-1/2">{orientationMarkers.left}</span>
+          <span className="absolute right-1.5 top-1/2 -translate-y-1/2">{orientationMarkers.right}</span>
         </div>
       )}
 

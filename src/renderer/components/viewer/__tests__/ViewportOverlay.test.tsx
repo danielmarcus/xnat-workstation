@@ -5,7 +5,10 @@ import { useSegmentationStore } from '../../../stores/segmentationStore';
 import { useMetadataStore } from '../../../stores/metadataStore';
 import { useViewerStore } from '../../../stores/viewerStore';
 import { ToolName } from '@shared/types/viewer';
-import ViewportOverlay from '../ViewportOverlay';
+import ViewportOverlay, {
+  getCcMammographyOrientationMarkers,
+  getOrientationMarkersFromPatientOrientation,
+} from '../ViewportOverlay';
 import {
   OVERLAY_METADATA_FIXTURE,
   OVERLAY_PREFS_ALL_OFF,
@@ -15,16 +18,35 @@ import {
 import { expectOverlayContains, expectOverlayHidden, expectOverlayVisible } from '../../../test/overlay/overlayAsserts';
 import { renderWithOverlayStores } from '../../../test/overlay/renderWithStores';
 
+const overlayCoreMocks = vi.hoisted(() => ({
+  get: vi.fn((module: string) => {
+    if (module === 'instance') return {};
+    return { rowPixelSpacing: 0.8, columnPixelSpacing: 0.8 };
+  }),
+}));
+
+const overlayDicomMocks = vi.hoisted(() => ({
+  getDataSet: vi.fn(() => undefined),
+}));
+
 vi.mock('@cornerstonejs/core', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@cornerstonejs/core')>();
   return {
     ...actual,
     metaData: {
       ...actual.metaData,
-      get: vi.fn(() => ({ rowPixelSpacing: 0.8, columnPixelSpacing: 0.8 })),
+      get: overlayCoreMocks.get,
     },
   };
 });
+
+vi.mock('@cornerstonejs/dicom-image-loader', () => ({
+  wadouri: {
+    dataSetCacheManager: {
+      get: overlayDicomMocks.getDataSet,
+    },
+  },
+}));
 
 vi.mock('../../../lib/cornerstone/crosshairGeometry', () => ({
   getPanelDisplayPointForWorld: vi.fn(() => ({ x: 100, y: 80, width: 400, height: 320 })),
@@ -49,6 +71,13 @@ describe('ViewportOverlay', () => {
   beforeEach(() => {
     usePreferencesStore.setState(usePreferencesStore.getInitialState(), true);
     useSegmentationStore.setState(useSegmentationStore.getInitialState(), true);
+    overlayCoreMocks.get.mockReset();
+    overlayCoreMocks.get.mockImplementation((module: string) => {
+      if (module === 'instance') return {};
+      return { rowPixelSpacing: 0.8, columnPixelSpacing: 0.8 };
+    });
+    overlayDicomMocks.getDataSet.mockReset();
+    overlayDicomMocks.getDataSet.mockReturnValue(undefined);
   });
 
   it('does not render when overlay and marker/ruler flags are off', () => {
@@ -200,6 +229,7 @@ describe('ViewportOverlay', () => {
         panelId: OVERLAY_TEST_PANEL_ID,
         metadata: OVERLAY_METADATA_FIXTURE,
         overlayPrefs: OVERLAY_PREFS_ALL_ON,
+        panelImageIds: ['wadouri:https://example.org/mammo/tomo.dcm&frame=1'],
       },
     );
 
@@ -216,6 +246,84 @@ describe('ViewportOverlay', () => {
     expect(screen.queryByTestId(`viewport-overlay-horizontal-ruler:${OVERLAY_TEST_PANEL_ID}`)).not.toBeInTheDocument();
     expect(screen.queryByTestId(`viewport-overlay-vertical-ruler:${OVERLAY_TEST_PANEL_ID}`)).not.toBeInTheDocument();
     expect(screen.queryByTestId(`viewport-overlay-orientation:${OVERLAY_TEST_PANEL_ID}`)).not.toBeInTheDocument();
+  });
+
+  it('maps patient-orientation strings to overlay edge markers for projection images', () => {
+    expect(getOrientationMarkersFromPatientOrientation('P\\L')).toEqual({
+      top: 'P',
+      bottom: 'A',
+      left: 'L',
+      right: 'R',
+    });
+    expect(getOrientationMarkersFromPatientOrientation('A\\R')).toEqual({
+      top: 'A',
+      bottom: 'P',
+      left: 'R',
+      right: 'L',
+    });
+  });
+
+  it('uses head-foot markers for cranio-caudal mammography views', () => {
+    expect(getCcMammographyOrientationMarkers({
+      top: 'P',
+      bottom: 'A',
+      left: 'L',
+      right: 'R',
+    })).toEqual({
+      top: 'H',
+      bottom: 'F',
+      left: 'L',
+      right: 'R',
+    });
+  });
+
+  it('hides orientation markers for mammography stacks', () => {
+    overlayDicomMocks.getDataSet.mockReturnValue({
+      string: (tag: string) => {
+        if (tag === 'x00080060') return 'MG';
+        if (tag === 'x00185101') return 'CC';
+        return undefined;
+      },
+    });
+
+    renderWithOverlayStores(
+      <ViewportOverlay panelId={OVERLAY_TEST_PANEL_ID} />,
+      {
+        panelId: OVERLAY_TEST_PANEL_ID,
+        metadata: OVERLAY_METADATA_FIXTURE,
+        overlayPrefs: OVERLAY_PREFS_ALL_ON,
+      },
+    );
+
+    expect(screen.queryByTestId(`viewport-overlay-orientation:${OVERLAY_TEST_PANEL_ID}`)).not.toBeInTheDocument();
+  });
+
+  it('hides the orientation selector for mammography stacks', () => {
+    overlayDicomMocks.getDataSet.mockReturnValue({
+      string: (tag: string) => (tag === 'x00080060' ? 'MG' : undefined),
+    });
+
+    renderWithOverlayStores(
+      <ViewportOverlay panelId={OVERLAY_TEST_PANEL_ID} />,
+      {
+        panelId: OVERLAY_TEST_PANEL_ID,
+        metadata: OVERLAY_METADATA_FIXTURE,
+        overlayPrefs: {
+          ...OVERLAY_PREFS_ALL_ON,
+          corners: {
+            topLeft: ['orientationSelector'],
+            topRight: [],
+            bottomLeft: [],
+            bottomRight: [],
+          },
+        } as any,
+        viewport: {
+          totalImages: 5,
+        },
+      },
+    );
+
+    expect(screen.queryByTitle('Viewport orientation')).not.toBeInTheDocument();
   });
 
   it('renders horizontal and vertical rulers independently when enabled one at a time', () => {

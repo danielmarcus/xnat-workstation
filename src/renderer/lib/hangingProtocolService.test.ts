@@ -107,4 +107,54 @@ describe('hangingProtocolService', () => {
     const result = applyProtocol(scans, protocol);
     expect(result.assignments.get(0)?.id).toBe('large');
   });
+
+  it('matches the mammography 4-up protocol into the requested 2x2 view order', () => {
+    const scans = [
+      scan('r-cc', { modality: 'MG', seriesDescription: 'R CC Breast Tomosynthesis Image', frames: 53 }),
+      scan('l-cc', { modality: 'MG', seriesDescription: 'L CC Breast Tomosynthesis Image', frames: 51 }),
+      scan('r-mlo', { modality: 'MG', seriesDescription: 'R MLO Breast Tomosynthesis Image', frames: 55 }),
+      scan('l-mlo', { modality: 'MG', seriesDescription: 'L MLO Breast Tomosynthesis Image', frames: 54 }),
+      scan('extra', { modality: 'MG', seriesDescription: 'Synthetic 2D C-View', frames: 1 }),
+    ];
+
+    const result = matchProtocol(scans);
+    expect(result.protocol.id).toBe('mg-tomosynthesis-4up');
+    expect(result.protocol.layout).toBe('2x2');
+    expect(result.assignments.get(0)?.id).toBe('r-cc');
+    expect(result.assignments.get(1)?.id).toBe('l-cc');
+    expect(result.assignments.get(2)?.id).toBe('r-mlo');
+    expect(result.assignments.get(3)?.id).toBe('l-mlo');
+    expect(result.unmatched.map((s) => s.id)).toEqual(['extra']);
+  });
+
+  it('keeps the standard mammography 4-up protocol for non-tomosynthesis MG views', () => {
+    const scans = [
+      scan('r-cc', { modality: 'MG', seriesDescription: 'R CC Mammogram', frames: 1 }),
+      scan('l-cc', { modality: 'MG', seriesDescription: 'L CC Mammogram', frames: 1 }),
+      scan('r-mlo', { modality: 'MG', seriesDescription: 'R MLO Mammogram', frames: 1 }),
+      scan('l-mlo', { modality: 'MG', seriesDescription: 'L MLO Mammogram', frames: 1 }),
+    ];
+
+    const result = matchProtocol(scans);
+    expect(result.protocol.id).toBe('mg-screening-4up');
+    expect(result.protocol.layout).toBe('2x2');
+    expect(result.assignments.get(0)?.id).toBe('r-cc');
+    expect(result.assignments.get(1)?.id).toBe('l-cc');
+    expect(result.assignments.get(2)?.id).toBe('r-mlo');
+    expect(result.assignments.get(3)?.id).toBe('l-mlo');
+  });
+
+  it('does not apply the mammography 4-up protocol when a required view is missing', () => {
+    const scans = [
+      scan('r-cc', { modality: 'MG', seriesDescription: 'R CC Breast Tomosynthesis Image', frames: 53 }),
+      scan('l-cc', { modality: 'MG', seriesDescription: 'L CC Breast Tomosynthesis Image', frames: 51 }),
+      scan('r-mlo', { modality: 'MG', seriesDescription: 'R MLO Breast Tomosynthesis Image', frames: 55 }),
+    ];
+
+    const result = matchProtocol(scans);
+    expect(result.protocol.id).not.toBe('mg-screening-4up');
+    expect(result.protocol.id).toBe('two-series');
+    expect(result.protocol.layout).toBe('1x2');
+    expect(result.assignments.size).toBe(2);
+  });
 });

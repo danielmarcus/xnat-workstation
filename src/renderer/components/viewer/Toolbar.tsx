@@ -405,10 +405,12 @@ function WLPresetsDropdown({ hideLabel = false }: { hideLabel?: boolean }) {
 function ProtocolPickerDropdown({
   onApplyProtocol,
   currentProtocolId,
+  disabled = false,
   hideLabel = false,
 }: {
   onApplyProtocol: (protocolId: string) => void;
   currentProtocolId: string | null;
+  disabled?: boolean;
   hideLabel?: boolean;
 }) {
   const [open, setOpen] = useState(false);
@@ -430,6 +432,7 @@ function ProtocolPickerDropdown({
   }, [open]);
 
   const handleToggle = useCallback(() => {
+    if (disabled) return;
     if (!open && buttonRef.current) {
       const rect = buttonRef.current.getBoundingClientRect();
       const dropdownWidth = 220;
@@ -437,19 +440,22 @@ function ProtocolPickerDropdown({
       setDropdownPos({ top: rect.bottom + 4, left: Math.min(rect.left, maxLeft) });
     }
     setOpen((v) => !v);
-  }, [open]);
+  }, [disabled, open]);
 
   return (
     <div className="relative">
       <button
         ref={buttonRef}
         onClick={handleToggle}
+        disabled={disabled}
         className={`flex items-center gap-1 text-xs font-medium px-2 py-1.5 rounded transition-colors ${
-          open
-            ? 'bg-blue-600 text-white'
-            : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700 hover:text-white'
+          disabled
+            ? 'bg-zinc-800 text-zinc-600 cursor-not-allowed'
+            : open
+              ? 'bg-blue-600 text-white'
+              : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700 hover:text-white'
         }`}
-        title="Hanging protocol"
+        title={disabled ? 'No applicable hanging protocols' : 'Hanging protocol'}
       >
         <IconProtocol className="w-3.5 h-3.5" />
         {!hideLabel && <span>Protocol</span>}
@@ -532,6 +538,7 @@ export default function Toolbar({
   );
   const currentProtocol = useViewerStore((s) => s.currentProtocol);
   const hasSessionData = useViewerStore((s) => s.sessionScans !== null);
+  const sessionScans = useViewerStore((s) => s.sessionScans);
   const setActiveTool = useViewerStore((s) => s.setActiveTool);
   const resetViewport = useViewerStore((s) => s.resetViewport);
   const toggleInvert = useViewerStore((s) => s.toggleInvert);
@@ -563,12 +570,13 @@ export default function Toolbar({
       </div>
 
       {/* ─── Protocol Picker ──────────────────────────────── */}
-      {hasSessionData && onApplyProtocol && !mprActive && (
+      {onApplyProtocol && !mprActive && (
         <>
           <Separator />
           <ProtocolPickerDropdown
             onApplyProtocol={onApplyProtocol}
             currentProtocolId={currentProtocol?.id ?? null}
+            disabled={!hasSessionData || !sessionScans || sessionScans.length === 0}
             hideLabel={textCollapsed}
           />
         </>
