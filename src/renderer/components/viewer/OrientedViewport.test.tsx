@@ -25,6 +25,7 @@ const mocks = vi.hoisted(() => ({
   attachVisibleSegsToViewport: vi.fn(async () => undefined),
   wireCrosshairPointerHandlers: vi.fn(),
   syncFromViewport: vi.fn(),
+  syncFromClientPoint: vi.fn(),
 }));
 
 vi.mock('@cornerstonejs/core', async (importOriginal) => {
@@ -98,6 +99,7 @@ vi.mock('../../lib/cornerstone/crosshairGeometry', () => ({
 vi.mock('../../lib/cornerstone/crosshairSyncService', () => ({
   crosshairSyncService: {
     syncFromViewport: mocks.syncFromViewport,
+    syncFromClientPoint: mocks.syncFromClientPoint,
   },
 }));
 
@@ -232,6 +234,48 @@ describe('OrientedViewport', () => {
       }),
     );
     expect(mocks.mprScroll).toHaveBeenCalledTimes(1);
+  });
+
+  it('syncs compatible viewports after the shifted oriented scroll updates the slice', async () => {
+    render(<OrientedViewport panelId={panelId} imageIds={['img-1', 'img-2']} plane="SAGITTAL" />);
+    await waitFor(() => expect(mocks.mprCreateViewport).toHaveBeenCalled());
+
+    const canvas = screen.getByTestId(`oriented-viewport-canvas:${panelId}`);
+
+    fireEvent(
+      canvas,
+      new WheelEvent('wheel', {
+        deltaY: 130,
+        shiftKey: true,
+        cancelable: true,
+      }),
+    );
+    expect(mocks.syncFromClientPoint).not.toHaveBeenCalled();
+
+    fireEvent(canvas, new CustomEvent('CAMERA_MODIFIED'));
+
+    expect(mocks.syncFromClientPoint).toHaveBeenCalledWith(panelId, 0, 0);
+  });
+
+  it('uses horizontal wheel deltas for shift-scroll oriented trackpad gestures', async () => {
+    render(<OrientedViewport panelId={panelId} imageIds={['img-1', 'img-2']} plane="SAGITTAL" />);
+    await waitFor(() => expect(mocks.mprCreateViewport).toHaveBeenCalled());
+
+    const canvas = screen.getByTestId(`oriented-viewport-canvas:${panelId}`);
+
+    fireEvent(
+      canvas,
+      new WheelEvent('wheel', {
+        deltaX: 130,
+        deltaY: 0,
+        shiftKey: true,
+        cancelable: true,
+      }),
+    );
+
+    expect(mocks.mprScroll).toHaveBeenCalledWith(panelId, 2);
+    fireEvent(canvas, new CustomEvent('CAMERA_MODIFIED'));
+    expect(mocks.syncFromClientPoint).toHaveBeenCalledWith(panelId, 0, 0);
   });
 
   it('shows error overlay when setup fails', async () => {

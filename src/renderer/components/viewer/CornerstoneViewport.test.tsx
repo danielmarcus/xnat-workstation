@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
   getEpoch: vi.fn(() => 7),
   markReady: vi.fn(),
   syncCrosshair: vi.fn(),
+  syncFromClientPoint: vi.fn(),
   wireCrosshairPointerHandlers: vi.fn(),
   removeSegsFromViewport: vi.fn(),
   attachVisibleSegsToViewport: vi.fn(async () => undefined),
@@ -81,6 +82,7 @@ vi.mock('../../lib/cornerstone/viewportReadyService', () => ({
 vi.mock('../../lib/cornerstone/crosshairSyncService', () => ({
   crosshairSyncService: {
     syncFromViewport: mocks.syncCrosshair,
+    syncFromClientPoint: mocks.syncFromClientPoint,
   },
 }));
 
@@ -239,6 +241,78 @@ describe('CornerstoneViewport', () => {
     );
     expect(mocks.scrollToIndex).toHaveBeenCalledWith(panelId, 0);
     expect(useViewerStore.getState().viewports[panelId].requestedImageIndex).toBe(0);
+  });
+
+  it('syncs compatible viewports after the shifted stack scroll renders the new slice', async () => {
+    mocks.getViewport.mockReturnValue({
+      getCurrentImageIdIndex: () => 0,
+      getImageIds: () => ['img-1', 'img-2', 'img-3'],
+      getCurrentImageId: () => 'img-1',
+      getImageData: () => ({ dimensions: [320, 240] }),
+      getProperties: () => ({ voiRange: { lower: 20, upper: 120 } }),
+      resetCamera: vi.fn(),
+      render: vi.fn(),
+    });
+
+    render(<CornerstoneViewport panelId={panelId} imageIds={['img-1', 'img-2', 'img-3']} />);
+    await waitFor(() => expect(mocks.createViewport).toHaveBeenCalled());
+
+    const canvas = screen.getByTestId(`cornerstone-viewport-canvas:${panelId}`);
+
+    fireEvent(
+      canvas,
+      new WheelEvent('wheel', {
+        deltaY: 120,
+        shiftKey: true,
+        cancelable: true,
+      }),
+    );
+    expect(mocks.syncFromClientPoint).not.toHaveBeenCalled();
+
+    fireEvent(
+      canvas,
+      new CustomEvent('STACK_NEW_IMAGE', {
+        detail: { imageIdIndex: 2, imageId: 'img-3' },
+      }),
+    );
+
+    expect(mocks.syncFromClientPoint).toHaveBeenCalledWith(panelId, 0, 0);
+  });
+
+  it('uses horizontal wheel deltas for shift-scroll trackpad gestures', async () => {
+    mocks.getViewport.mockReturnValue({
+      getCurrentImageIdIndex: () => 1,
+      getImageIds: () => ['img-1', 'img-2', 'img-3', 'img-4'],
+      getCurrentImageId: () => 'img-2',
+      getImageData: () => ({ dimensions: [320, 240] }),
+      getProperties: () => ({ voiRange: { lower: 20, upper: 120 } }),
+      resetCamera: vi.fn(),
+      render: vi.fn(),
+    });
+
+    render(<CornerstoneViewport panelId={panelId} imageIds={['img-1', 'img-2', 'img-3', 'img-4']} />);
+    await waitFor(() => expect(mocks.createViewport).toHaveBeenCalled());
+
+    const canvas = screen.getByTestId(`cornerstone-viewport-canvas:${panelId}`);
+
+    fireEvent(
+      canvas,
+      new WheelEvent('wheel', {
+        deltaX: 120,
+        deltaY: 0,
+        shiftKey: true,
+        cancelable: true,
+      }),
+    );
+
+    expect(mocks.scrollToIndex).toHaveBeenCalledWith(panelId, 3);
+    fireEvent(
+      canvas,
+      new CustomEvent('STACK_NEW_IMAGE', {
+        detail: { imageIdIndex: 3, imageId: 'img-4' },
+      }),
+    );
+    expect(mocks.syncFromClientPoint).toHaveBeenCalledWith(panelId, 0, 0);
   });
 
   it('shows error UI when setup fails and skips ready signaling', async () => {

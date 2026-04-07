@@ -173,6 +173,7 @@ function syncSliceState(panelId: string): void {
 
 function wireEvents(element: HTMLDivElement, panelId: string): () => void {
   const Events = Enums.Events;
+  let pendingShiftScrollSync: { clientX: number; clientY: number } | null = null;
 
   element.addEventListener(Events.VOI_MODIFIED, ((e: Event) => {
     const detail = (e as CustomEvent).detail;
@@ -186,6 +187,12 @@ function wireEvents(element: HTMLDivElement, panelId: string): () => void {
 
   element.addEventListener(Events.CAMERA_MODIFIED, (() => {
     syncSliceState(panelId);
+
+    if (pendingShiftScrollSync) {
+      const { clientX, clientY } = pendingShiftScrollSync;
+      pendingShiftScrollSync = null;
+      crosshairSyncService.syncFromClientPoint(panelId, clientX, clientY);
+    }
   }) as EventListener);
 
   let wheelAccum = 0;
@@ -194,11 +201,18 @@ function wireEvents(element: HTMLDivElement, panelId: string): () => void {
   element.addEventListener('wheel', (e: WheelEvent) => {
     if (e.ctrlKey || e.metaKey) return;
     e.preventDefault();
-    wheelAccum += e.deltaY;
+    const scrollDelta =
+      Math.abs(e.deltaY) >= Math.abs(e.deltaX)
+        ? e.deltaY
+        : (e.shiftKey ? e.deltaX : 0);
+    wheelAccum += scrollDelta;
 
     if (Math.abs(wheelAccum) >= WHEEL_THRESHOLD) {
       const steps = Math.trunc(wheelAccum / WHEEL_THRESHOLD);
       wheelAccum -= steps * WHEEL_THRESHOLD;
+      pendingShiftScrollSync = e.shiftKey && steps !== 0
+        ? { clientX: e.clientX, clientY: e.clientY }
+        : null;
       mprService.scroll(panelId, steps);
     }
   }, { passive: false });

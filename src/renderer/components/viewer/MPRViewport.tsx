@@ -216,6 +216,7 @@ export default function MPRViewport({ panelId, volumeId, plane }: MPRViewportPro
 
 function wireEvents(element: HTMLDivElement, panelId: string): () => void {
   const Events = Enums.Events;
+  let pendingShiftScrollSync: { clientX: number; clientY: number } | null = null;
 
   // VOI changed (user dragged W/L)
   element.addEventListener(Events.VOI_MODIFIED, ((e: Event) => {
@@ -237,6 +238,12 @@ function wireEvents(element: HTMLDivElement, panelId: string): () => void {
 
     // Update zoom
     useViewerStore.getState()._updateZoom(panelId, mprService.getZoom(panelId));
+
+    if (pendingShiftScrollSync) {
+      const { clientX, clientY } = pendingShiftScrollSync;
+      pendingShiftScrollSync = null;
+      crosshairSyncService.syncFromClientPoint(panelId, clientX, clientY);
+    }
   }) as EventListener);
 
   // ─── Trackpad / smooth scroll support ───────────────────────
@@ -247,11 +254,18 @@ function wireEvents(element: HTMLDivElement, panelId: string): () => void {
     if (e.ctrlKey || e.metaKey) return;
     e.preventDefault();
 
-    wheelAccum += e.deltaY;
+    const scrollDelta =
+      Math.abs(e.deltaY) >= Math.abs(e.deltaX)
+        ? e.deltaY
+        : (e.shiftKey ? e.deltaX : 0);
+    wheelAccum += scrollDelta;
 
     if (Math.abs(wheelAccum) >= WHEEL_THRESHOLD) {
       const steps = Math.trunc(wheelAccum / WHEEL_THRESHOLD);
       wheelAccum -= steps * WHEEL_THRESHOLD;
+      pendingShiftScrollSync = e.shiftKey && steps !== 0
+        ? { clientX: e.clientX, clientY: e.clientY }
+        : null;
       mprService.scroll(panelId, steps);
     }
   }, { passive: false });
