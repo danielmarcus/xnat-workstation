@@ -35,6 +35,13 @@ function scanMatchesMatcher(scan: XnatScan, matcher: ScanMatcher): boolean {
     if (!matched) return false;
   }
 
+  // Description contains ALL of the strings (case-insensitive)
+  if (matcher.descriptionContainsAll && matcher.descriptionContainsAll.length > 0) {
+    const desc = (scan.seriesDescription ?? '').toLowerCase();
+    const matched = matcher.descriptionContainsAll.every((s) => desc.includes(s.toLowerCase()));
+    if (!matched) return false;
+  }
+
   // Type contains ANY of the strings (case-insensitive)
   if (matcher.typeContains && matcher.typeContains.length > 0) {
     const type = (scan.type ?? '').toLowerCase();

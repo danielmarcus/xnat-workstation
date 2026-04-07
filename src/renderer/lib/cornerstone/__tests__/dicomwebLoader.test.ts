@@ -191,6 +191,25 @@ describe('dicomwebLoader', () => {
     ]);
   });
 
+  it('expands a single multiframe DICOM file into frame-addressable image ids', async () => {
+    setElectronApi({
+      getScanFiles: vi.fn(async () => ({
+        ok: true,
+        serverUrl: 'https://xnat.example',
+        files: [{ uri: '/scan/tomo.dcm', instanceNumber: 474 }],
+      })),
+    });
+
+    dicomwebMocks.uriDataSetMap.set('https://xnat.example/scan/tomo.dcm', {
+      string: (tag: string) => (tag === 'x00280008' ? '53' : undefined),
+    });
+
+    const ordered = await dicomwebLoader.getScanImageIds('sess-tomo', '474');
+    expect(ordered).toHaveLength(53);
+    expect(ordered[0]).toBe('wadouri:https://xnat.example/scan/tomo.dcm&frame=1');
+    expect(ordered[52]).toBe('wadouri:https://xnat.example/scan/tomo.dcm&frame=53');
+  });
+
   it('orders arbitrary image ids by metadata and returns identity for trivial inputs', async () => {
     setElectronApi();
 

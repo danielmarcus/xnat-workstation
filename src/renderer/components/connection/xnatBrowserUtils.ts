@@ -18,6 +18,15 @@ const NON_THUMB_MODALITIES = new Set([
   'PR',
 ]);
 
+const NON_BROWSABLE_SOURCE_MODALITIES = new Set([
+  'RTPLAN',
+  'RTDOSE',
+  'RTRECORD',
+  'REG',
+  'KO',
+  'PR',
+]);
+
 const NON_THUMB_SOP_CLASS_UID_PREFIXES = [
   '1.2.840.10008.5.1.4.1.1.88.',  // SR family
   '1.2.840.10008.5.1.4.1.1.11.',  // Presentation State family
@@ -89,10 +98,11 @@ export function isStructuredReportScan(scan: XnatScan): boolean {
 }
 
 export function isBrowsableSourceScan(scan: XnatScan): boolean {
-  const xsiType = (scan.xsiType ?? '').trim().toLowerCase();
-  // xnat:otherDicomScanData may include RTSTRUCT (handled as derived) and
-  // other non-primary SOP classes. Filter non-derived "other DICOM" for now.
-  if (xsiType === 'xnat:otherdicomscandata' && !isRtStructScan(scan)) return false;
+  const modality = (scan.modality ?? '').trim().toUpperCase();
+  const type = (scan.type ?? '').trim().toUpperCase();
+  if (NON_BROWSABLE_SOURCE_MODALITIES.has(modality) || NON_BROWSABLE_SOURCE_MODALITIES.has(type)) {
+    return false;
+  }
   return !isDerivedScan(scan) && !isStructuredReportScan(scan);
 }
 

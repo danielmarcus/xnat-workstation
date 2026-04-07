@@ -1,3 +1,4 @@
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { NavigateToTarget, PinnedItem, RecentSession } from '../../lib/pinnedItems';
 import { IconChevronDown, IconPin } from '../icons';
 
@@ -21,11 +22,39 @@ export default function BookmarksDropdown({
   onNavigate,
 }: BookmarksDropdownProps) {
   const hasBookmarks = pinnedItems.length > 0 || recentSessions.length > 0;
+  const [dropdownPos, setDropdownPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!showBookmarks) return;
+    function handleClickOutside(e: MouseEvent) {
+      if (
+        buttonRef.current?.contains(e.target as Node) ||
+        dropdownRef.current?.contains(e.target as Node)
+      ) return;
+      onToggleBookmarks();
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [onToggleBookmarks, showBookmarks]);
+
+  const handleToggle = useCallback(() => {
+    if (!hasBookmarks) return;
+    if (!showBookmarks && buttonRef.current) {
+      const rect = buttonRef.current.getBoundingClientRect();
+      const dropdownWidth = 288;
+      const maxLeft = window.innerWidth - dropdownWidth - 8;
+      setDropdownPos({ top: rect.bottom + 4, left: Math.min(rect.left, maxLeft) });
+    }
+    onToggleBookmarks();
+  }, [hasBookmarks, onToggleBookmarks, showBookmarks]);
 
   return (
     <>
       <button
-        onClick={() => hasBookmarks && onToggleBookmarks()}
+        ref={buttonRef}
+        onClick={handleToggle}
         className={`flex items-center gap-1 text-xs font-medium px-2 py-1.5 rounded whitespace-nowrap transition-colors ${
           !hasBookmarks
             ? 'bg-zinc-800 text-zinc-600 cursor-default'
@@ -40,7 +69,11 @@ export default function BookmarksDropdown({
       </button>
 
       {showBookmarks && hasBookmarks && (
-        <div className="absolute top-full left-0 mt-1 w-72 bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl z-50 py-1 max-h-80 overflow-y-auto">
+        <div
+          ref={dropdownRef}
+          className="fixed z-50 w-72 bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl py-1 max-h-80 overflow-y-auto"
+          style={{ top: dropdownPos.top, left: dropdownPos.left }}
+        >
           {pinnedItems.length > 0 && (
             <>
               <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">

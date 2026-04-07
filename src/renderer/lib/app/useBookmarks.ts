@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   addPinnedItem,
   isPinned as isPinnedCheck,
@@ -19,7 +19,6 @@ export function useBookmarks(
   const [recentSessions, setRecentSessions] = useState<RecentSession[]>([]);
   const [navigateTo, setNavigateTo] = useState<NavigateToTarget | null>(null);
   const [showBookmarks, setShowBookmarks] = useState(false);
-  const bookmarksRef = useRef<HTMLDivElement>(null);
 
   const refreshBookmarks = useCallback(() => {
     if (serverUrl) {
@@ -34,17 +33,6 @@ export function useBookmarks(
   useEffect(() => {
     refreshBookmarks();
   }, [refreshBookmarks]);
-
-  useEffect(() => {
-    if (!showBookmarks) return;
-    function handleClick(e: MouseEvent) {
-      if (bookmarksRef.current && !bookmarksRef.current.contains(e.target as Node)) {
-        setShowBookmarks(false);
-      }
-    }
-    document.addEventListener('mousedown', handleClick);
-    return () => document.removeEventListener('mousedown', handleClick);
-  }, [showBookmarks]);
 
   const handleTogglePin = useCallback(
     (item: PinnedItem) => {
@@ -94,7 +82,6 @@ export function useBookmarks(
     setNavigateTo,
     showBookmarks,
     setShowBookmarks,
-    bookmarksRef,
     refreshBookmarks,
     handleTogglePin,
     handleBookmarkNavigate,

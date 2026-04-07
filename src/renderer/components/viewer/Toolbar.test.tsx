@@ -135,6 +135,27 @@ describe('Toolbar', () => {
     expect(setActiveTool).toHaveBeenCalledWith(ToolName.WindowLevel);
   });
 
+  it('keeps the protocol picker visible but disabled when there is no session data', async () => {
+    const user = userEvent.setup();
+    const onApplyProtocol = vi.fn();
+
+    useViewerStore.setState({
+      ...useViewerStore.getState(),
+      sessionScans: null,
+    });
+
+    render(<Toolbar hasImages onApplyProtocol={onApplyProtocol} />);
+
+    const protocolButton = screen.getByRole('button', { name: /protocol/i });
+    expect(protocolButton).toBeDisabled();
+    expect(protocolButton).toHaveAttribute('title', 'No applicable hanging protocols');
+
+    await user.click(protocolButton);
+
+    expect(screen.queryByRole('button', { name: new RegExp(BUILT_IN_PROTOCOLS[0].name) })).not.toBeInTheDocument();
+    expect(onApplyProtocol).not.toHaveBeenCalled();
+  });
+
   it('handles undo/redo enablement and settings modal lifecycle', async () => {
     const user = userEvent.setup();
 

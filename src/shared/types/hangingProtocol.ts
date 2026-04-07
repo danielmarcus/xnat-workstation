@@ -13,6 +13,8 @@ import type { XnatScan } from './xnat';
 export interface ScanMatcher {
   /** Match scan seriesDescription (case-insensitive substring) */
   descriptionContains?: string[];
+  /** Match scan seriesDescription containing ALL strings (case-insensitive) */
+  descriptionContainsAll?: string[];
   /** Match scan modality exactly */
   modality?: string;
   /** Match scan type (case-insensitive substring) */
@@ -64,6 +66,84 @@ export interface ProtocolResult {
 // ─── Built-in Protocols ──────────────────────────────────────────
 
 export const BUILT_IN_PROTOCOLS: HangingProtocol[] = [
+  {
+    id: 'mg-tomosynthesis-4up',
+    name: 'Tomosynthesis 4-Up',
+    modality: 'MG',
+    layout: '2x2',
+    priority: 25,
+    rules: [
+      {
+        panelIndex: 0,
+        label: 'R CC Tomo',
+        matcher: {
+          descriptionContains: ['r cc', 'right cc', 'rcc'],
+          descriptionContainsAll: ['tomo'],
+        },
+        required: true,
+      },
+      {
+        panelIndex: 1,
+        label: 'L CC Tomo',
+        matcher: {
+          descriptionContains: ['l cc', 'left cc', 'lcc'],
+          descriptionContainsAll: ['tomo'],
+        },
+        required: true,
+      },
+      {
+        panelIndex: 2,
+        label: 'R MLO Tomo',
+        matcher: {
+          descriptionContains: ['r mlo', 'right mlo', 'rmlo'],
+          descriptionContainsAll: ['tomo'],
+        },
+        required: true,
+      },
+      {
+        panelIndex: 3,
+        label: 'L MLO Tomo',
+        matcher: {
+          descriptionContains: ['l mlo', 'left mlo', 'lmlo'],
+          descriptionContainsAll: ['tomo'],
+        },
+        required: true,
+      },
+    ],
+  },
+  {
+    id: 'mg-screening-4up',
+    name: 'Mammography 4-Up',
+    modality: 'MG',
+    layout: '2x2',
+    priority: 20,
+    rules: [
+      {
+        panelIndex: 0,
+        label: 'R CC',
+        matcher: { descriptionContains: ['r cc', 'right cc', 'rcc'] },
+        required: true,
+      },
+      {
+        panelIndex: 1,
+        label: 'L CC',
+        matcher: { descriptionContains: ['l cc', 'left cc', 'lcc'] },
+        required: true,
+      },
+      {
+        panelIndex: 2,
+        label: 'R MLO',
+        matcher: { descriptionContains: ['r mlo', 'right mlo', 'rmlo'] },
+        required: true,
+      },
+      {
+        panelIndex: 3,
+        label: 'L MLO',
+        matcher: { descriptionContains: ['l mlo', 'left mlo', 'lmlo'] },
+        required: true,
+      },
+    ],
+  },
   {
     id: 'ct-contrast',
     name: 'CT Pre/Post Contrast',

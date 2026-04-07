@@ -735,7 +735,6 @@ export default function App() {
     setNavigateTo,
     showBookmarks,
     setShowBookmarks,
-    bookmarksRef,
     refreshBookmarks,
     handleTogglePin,
     handleBookmarkNavigate,
@@ -2981,7 +2980,7 @@ export default function App() {
             </label>
             {/* Export — icon only */}
             <ExportDropdown />
-            <div ref={bookmarksRef} className="relative">
+            <div className="relative">
               <BookmarksDropdown
                 pinnedItems={pinnedItems}
                 recentSessions={recentSessions}
