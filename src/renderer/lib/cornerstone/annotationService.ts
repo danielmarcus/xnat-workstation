@@ -125,6 +125,13 @@ function onAnnotationEvent(): void {
   syncAnnotations();
 }
 
+function onAnnotationSelectionChange(evt: Event): void {
+  const detail = (evt as CustomEvent<{ selection?: string[] }>).detail;
+  const selection = Array.isArray(detail?.selection) ? detail.selection : [];
+  const selectedUid = selection.length > 0 ? selection[selection.length - 1] ?? null : null;
+  annotationService.selectAnnotation(selectedUid);
+}
+
 let initialized = false;
 
 export const annotationService = {
@@ -138,6 +145,7 @@ export const annotationService = {
     eventTarget.addEventListener(Events.ANNOTATION_COMPLETED, onAnnotationEvent);
     eventTarget.addEventListener(Events.ANNOTATION_MODIFIED, onAnnotationEvent);
     eventTarget.addEventListener(Events.ANNOTATION_REMOVED, onAnnotationEvent);
+    eventTarget.addEventListener(Events.ANNOTATION_SELECTION_CHANGE, onAnnotationSelectionChange);
 
     initialized = true;
     console.log('[annotationService] Initialized — listening for annotation events');
@@ -198,6 +206,7 @@ export const annotationService = {
     eventTarget.removeEventListener(Events.ANNOTATION_COMPLETED, onAnnotationEvent);
     eventTarget.removeEventListener(Events.ANNOTATION_MODIFIED, onAnnotationEvent);
     eventTarget.removeEventListener(Events.ANNOTATION_REMOVED, onAnnotationEvent);
+    eventTarget.removeEventListener(Events.ANNOTATION_SELECTION_CHANGE, onAnnotationSelectionChange);
 
     initialized = false;
     console.log('[annotationService] Disposed');

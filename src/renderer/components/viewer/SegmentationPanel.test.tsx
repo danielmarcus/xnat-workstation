@@ -359,4 +359,68 @@ describe('SegmentationPanel', () => {
 
     expect(await screen.findByText(/Uploaded SEG as scan 3011/)).toBeInTheDocument();
   });
+
+  it('keeps tools disabled when switching from an editable annotation to a locked annotation', async () => {
+    useSegmentationStore.setState({
+      ...useSegmentationStore.getState(),
+      segmentations: [
+        {
+          segmentationId: 'seg-editable',
+          label: 'Editable Seg',
+          isActive: true,
+          segments: [
+            {
+              segmentIndex: 1,
+              label: 'Editable Segment',
+              color: [255, 0, 0, 255],
+              visible: true,
+              locked: false,
+            },
+          ],
+        },
+        {
+          segmentationId: 'seg-locked',
+          label: 'Locked Seg',
+          isActive: false,
+          segments: [
+            {
+              segmentIndex: 1,
+              label: 'Locked Segment',
+              color: [0, 255, 0, 255],
+              visible: true,
+              locked: true,
+            },
+          ],
+        },
+      ],
+      activeSegmentationId: 'seg-editable',
+      activeSegmentIndex: 1,
+      activeSegTool: 'Brush',
+      dicomTypeBySegmentationId: {
+        'seg-editable': 'SEG',
+        'seg-locked': 'SEG',
+      },
+    });
+    useViewerStore.setState({
+      ...useViewerStore.getState(),
+      activeViewportId: 'panel_0',
+    });
+
+    render(<SegmentationPanel sourceImageIds={['wadouri:scan-1']} />);
+
+    const brushButton = screen.getByRole('button', { name: 'Brush' });
+    expect(brushButton).toBeEnabled();
+
+    fireEvent.click(screen.getByText('Locked Seg'));
+
+    await waitFor(() => {
+      expect(segPanelMocks.segmentationManager.userSelectedSegmentation).toHaveBeenCalledWith(
+        'panel_0',
+        'seg-locked',
+        1,
+      );
+    });
+    expect(brushButton).toBeDisabled();
+    expect(screen.getByText('Unlock segment to edit')).toBeInTheDocument();
+  });
 });

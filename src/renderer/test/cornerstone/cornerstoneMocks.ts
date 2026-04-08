@@ -76,6 +76,16 @@ export interface CornerstoneMockState {
           canUndo: boolean;
           canRedo: boolean;
           size: number;
+          position: number;
+          undoAvailable: number;
+          redoAvailable: number;
+          ring: Array<{ restoreMemo?: (undo?: boolean) => void } | Array<{ restoreMemo?: (undo?: boolean) => void }> | undefined>;
+          isRecordingGrouped: boolean;
+          push: ReturnType<typeof vi.fn>;
+          undo: ReturnType<typeof vi.fn>;
+          redo: ReturnType<typeof vi.fn>;
+          startGroupRecording: ReturnType<typeof vi.fn>;
+          endGroupRecording: ReturnType<typeof vi.fn>;
         };
       };
       uuidv4: ReturnType<typeof vi.fn>;
@@ -108,8 +118,16 @@ export interface CornerstoneMockState {
     annotation: {
       state: {
         getAllAnnotations: ReturnType<typeof vi.fn>;
+        getAnnotation: ReturnType<typeof vi.fn>;
+        addAnnotation: ReturnType<typeof vi.fn>;
         removeAnnotation: ReturnType<typeof vi.fn>;
         removeAllAnnotations: ReturnType<typeof vi.fn>;
+      };
+      selection: {
+        getAnnotationsSelected: ReturnType<typeof vi.fn>;
+        setAnnotationSelected: ReturnType<typeof vi.fn>;
+        deselectAnnotation: ReturnType<typeof vi.fn>;
+        isAnnotationSelected: ReturnType<typeof vi.fn>;
       };
     };
     segmentation: {
@@ -117,6 +135,9 @@ export interface CornerstoneMockState {
         getSegmentations: ReturnType<typeof vi.fn>;
         getSegmentation: ReturnType<typeof vi.fn>;
         getViewportIdsWithSegmentation: ReturnType<typeof vi.fn>;
+      };
+      activeSegmentation: {
+        setActiveSegmentation: ReturnType<typeof vi.fn>;
       };
       config: {
         color: {
@@ -149,6 +170,7 @@ export interface CornerstoneMockState {
       };
     };
     utilities: {
+      triggerAnnotationRenderForViewportIds: ReturnType<typeof vi.fn>;
       segmentation: {
         triggerSegmentationRender: ReturnType<typeof vi.fn>;
         setBrushSizeForToolGroup: ReturnType<typeof vi.fn>;
@@ -278,6 +300,7 @@ export function createCornerstoneMockState(): CornerstoneMockState {
   const engines = new Map<string, MockRenderingEngine>();
 
   const annotations: any[] = [];
+  const selectedAnnotationUIDs = new Set<string>();
   const segmentations: any[] = [];
   const viewportIdsBySegmentation = new Map<string, string[]>();
   const colorsByKey = new Map<string, RGBA>();
@@ -289,6 +312,87 @@ export function createCornerstoneMockState(): CornerstoneMockState {
     canUndo: false,
     canRedo: false,
     size: 50,
+    position: -1,
+    undoAvailable: 0,
+    redoAvailable: 0,
+    ring: new Array(50),
+    isRecordingGrouped: false,
+    push: vi.fn((item: { restoreMemo?: (undo?: boolean) => void; createMemo?: () => { restoreMemo?: (undo?: boolean) => void } | undefined }) => {
+      const memo = item?.restoreMemo ? item : item?.createMemo?.();
+      if (!memo) return undefined;
+      if (historyMemo.isRecordingGrouped) {
+        const lastMemo = historyMemo.ring[historyMemo.position];
+        if (Array.isArray(lastMemo)) {
+          lastMemo.push(memo);
+          historyMemo.canUndo = historyMemo.undoAvailable > 0;
+          historyMemo.canRedo = historyMemo.redoAvailable > 0;
+          return memo;
+        }
+      }
+
+      historyMemo.redoAvailable = 0;
+      if (historyMemo.undoAvailable < historyMemo.size) {
+        historyMemo.undoAvailable++;
+      }
+      historyMemo.position = (historyMemo.position + 1) % historyMemo.size;
+      historyMemo.ring[historyMemo.position] = memo;
+      historyMemo.canUndo = historyMemo.undoAvailable > 0;
+      historyMemo.canRedo = false;
+      return memo;
+    }),
+    undo: vi.fn((items = 1) => {
+      while (items > 0 && historyMemo.undoAvailable > 0) {
+        const memo = historyMemo.ring[historyMemo.position];
+        const memos = Array.isArray(memo) ? [...memo].reverse() : memo ? [memo] : [];
+        for (const subMemo of memos) {
+          subMemo.restoreMemo?.(true);
+        }
+        items--;
+        historyMemo.redoAvailable++;
+        historyMemo.undoAvailable--;
+        historyMemo.position = (historyMemo.position - 1 + historyMemo.size) % historyMemo.size;
+      }
+      historyMemo.canUndo = historyMemo.undoAvailable > 0;
+      historyMemo.canRedo = historyMemo.redoAvailable > 0;
+    }),
+    redo: vi.fn((items = 1) => {
+      while (items > 0 && historyMemo.redoAvailable > 0) {
+        const nextPosition = (historyMemo.position + 1) % historyMemo.size;
+        const memo = historyMemo.ring[nextPosition];
+        const memos = Array.isArray(memo) ? [...memo].reverse() : memo ? [memo] : [];
+        for (const subMemo of memos) {
+          subMemo.restoreMemo?.(false);
+        }
+        items--;
+        historyMemo.position = nextPosition;
+        historyMemo.undoAvailable++;
+        historyMemo.redoAvailable--;
+      }
+      historyMemo.canUndo = historyMemo.undoAvailable > 0;
+      historyMemo.canRedo = historyMemo.redoAvailable > 0;
+    }),
+    startGroupRecording: vi.fn(() => {
+      historyMemo.isRecordingGrouped = true;
+      historyMemo.redoAvailable = 0;
+      if (historyMemo.undoAvailable < historyMemo.size) {
+        historyMemo.undoAvailable++;
+      }
+      historyMemo.position = (historyMemo.position + 1) % historyMemo.size;
+      historyMemo.ring[historyMemo.position] = [];
+      historyMemo.canUndo = historyMemo.undoAvailable > 0;
+      historyMemo.canRedo = false;
+    }),
+    endGroupRecording: vi.fn(() => {
+      historyMemo.isRecordingGrouped = false;
+      const lastMemo = historyMemo.ring[historyMemo.position];
+      if (Array.isArray(lastMemo) && lastMemo.length === 0) {
+        historyMemo.ring[historyMemo.position] = undefined;
+        historyMemo.position = (historyMemo.position - 1 + historyMemo.size) % historyMemo.size;
+        historyMemo.undoAvailable = Math.max(0, historyMemo.undoAvailable - 1);
+        historyMemo.canUndo = historyMemo.undoAvailable > 0;
+        historyMemo.canRedo = historyMemo.redoAvailable > 0;
+      }
+    }),
   };
 
   const core = {
@@ -374,6 +478,7 @@ export function createCornerstoneMockState(): CornerstoneMockState {
         ANNOTATION_COMPLETED: 'ANNOTATION_COMPLETED',
         ANNOTATION_MODIFIED: 'ANNOTATION_MODIFIED',
         ANNOTATION_REMOVED: 'ANNOTATION_REMOVED',
+        ANNOTATION_SELECTION_CHANGE: 'ANNOTATION_SELECTION_CHANGE',
         SEGMENTATION_MODIFIED: 'SEGMENTATION_MODIFIED',
         SEGMENTATION_DATA_MODIFIED: 'SEGMENTATION_DATA_MODIFIED',
         SEGMENTATION_ADDED: 'SEGMENTATION_ADDED',
@@ -386,15 +491,70 @@ export function createCornerstoneMockState(): CornerstoneMockState {
     annotation: {
       state: {
         getAllAnnotations: vi.fn(() => annotations),
+        getAnnotation: vi.fn((uid: string) =>
+          annotations.find((entry) => entry.annotationUID === uid) ?? null),
+        addAnnotation: vi.fn((annotation: any) => {
+          annotations.push(annotation);
+        }),
         removeAnnotation: vi.fn((uid: string) => {
           const idx = annotations.findIndex((entry) => entry.annotationUID === uid);
           if (idx >= 0) {
             annotations.splice(idx, 1);
           }
+          selectedAnnotationUIDs.delete(uid);
         }),
         removeAllAnnotations: vi.fn(() => {
           annotations.length = 0;
+          selectedAnnotationUIDs.clear();
         }),
+      },
+      selection: {
+        getAnnotationsSelected: vi.fn(() => Array.from(selectedAnnotationUIDs)),
+        setAnnotationSelected: vi.fn((uid: string, selected = true, preserveSelected = false) => {
+          const detail = { added: [] as string[], removed: [] as string[], selection: [] as string[] };
+
+          if (!preserveSelected) {
+            for (const existingUid of Array.from(selectedAnnotationUIDs)) {
+              if (existingUid === uid && selected) continue;
+              selectedAnnotationUIDs.delete(existingUid);
+              detail.removed.push(existingUid);
+              const annotation = annotations.find((entry) => entry.annotationUID === existingUid);
+              if (annotation) annotation.isSelected = false;
+            }
+          }
+
+          if (selected) {
+            if (!selectedAnnotationUIDs.has(uid)) {
+              selectedAnnotationUIDs.add(uid);
+              detail.added.push(uid);
+            }
+            const annotation = annotations.find((entry) => entry.annotationUID === uid);
+            if (annotation) annotation.isSelected = true;
+          } else if (selectedAnnotationUIDs.delete(uid)) {
+            detail.removed.push(uid);
+            const annotation = annotations.find((entry) => entry.annotationUID === uid);
+            if (annotation) annotation.isSelected = false;
+          }
+
+          detail.selection.push(...Array.from(selectedAnnotationUIDs));
+          if (detail.added.length > 0 || detail.removed.length > 0) {
+            eventTarget.dispatch('ANNOTATION_SELECTION_CHANGE', detail);
+          }
+        }),
+        deselectAnnotation: vi.fn((uid?: string) => {
+          if (uid) {
+            selectedAnnotationUIDs.delete(uid);
+            const annotation = annotations.find((entry) => entry.annotationUID === uid);
+            if (annotation) annotation.isSelected = false;
+            return;
+          }
+          for (const selectedUid of Array.from(selectedAnnotationUIDs)) {
+            const annotation = annotations.find((entry) => entry.annotationUID === selectedUid);
+            if (annotation) annotation.isSelected = false;
+          }
+          selectedAnnotationUIDs.clear();
+        }),
+        isAnnotationSelected: vi.fn((uid: string) => selectedAnnotationUIDs.has(uid)),
       },
     },
     segmentation: {
@@ -404,6 +564,9 @@ export function createCornerstoneMockState(): CornerstoneMockState {
           segmentations.find((entry) => entry.segmentationId === segmentationId) ?? null),
         getViewportIdsWithSegmentation: vi.fn((segmentationId: string) =>
           viewportIdsBySegmentation.get(segmentationId) ?? []),
+      },
+      activeSegmentation: {
+        setActiveSegmentation: vi.fn(),
       },
       config: {
         color: {
@@ -445,6 +608,7 @@ export function createCornerstoneMockState(): CornerstoneMockState {
       },
     },
     utilities: {
+      triggerAnnotationRenderForViewportIds: vi.fn(),
       segmentation: {
         triggerSegmentationRender: vi.fn(),
         setBrushSizeForToolGroup: vi.fn(),
@@ -484,6 +648,7 @@ export function createCornerstoneMockState(): CornerstoneMockState {
     setAnnotations(next) {
       annotations.length = 0;
       annotations.push(...next);
+      selectedAnnotationUIDs.clear();
     },
     setSegmentations(next) {
       segmentations.length = 0;
@@ -522,6 +687,7 @@ export function createCornerstoneMockState(): CornerstoneMockState {
     reset() {
       eventTarget.clear();
       annotations.length = 0;
+      selectedAnnotationUIDs.clear();
       segmentations.length = 0;
       viewportIdsBySegmentation.clear();
       colorsByKey.clear();
@@ -536,6 +702,11 @@ export function createCornerstoneMockState(): CornerstoneMockState {
       historyMemo.canUndo = false;
       historyMemo.canRedo = false;
       historyMemo.size = 50;
+      historyMemo.position = -1;
+      historyMemo.undoAvailable = 0;
+      historyMemo.redoAvailable = 0;
+      historyMemo.ring = new Array(historyMemo.size);
+      historyMemo.isRecordingGrouped = false;
       vi.clearAllMocks();
     },
   };

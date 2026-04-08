@@ -1,6 +1,7 @@
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useSegmentationManagerStore } from '../../../stores/segmentationManagerStore';
 import { useSegmentationStore } from '../../../stores/segmentationStore';
+import { useViewerStore } from '../../../stores/viewerStore';
 import {
   createAdaptersModuleMock,
   createCoreModuleMock,
@@ -11,11 +12,22 @@ import { expectListenersRegistered, expectNoListenersLeft } from '../../../test/
 import { resetCornerstoneMocks } from '../../../test/cornerstone/resetCornerstoneMocks';
 
 const cs = createCornerstoneMockState();
+const showAlertDialogMock = vi.fn(() => Promise.resolve());
 
 let segmentationService: (typeof import('../segmentationService'))['segmentationService'];
 const Events = cs.tools.Enums.Events;
 
-beforeAll(async () => {
+async function importSegmentationService(): Promise<void> {
+  vi.resetModules();
+  vi.doMock('../../../stores/segmentationStore', () => ({
+    useSegmentationStore,
+  }));
+  vi.doMock('../../../stores/segmentationManagerStore', () => ({
+    useSegmentationManagerStore,
+  }));
+  vi.doMock('../../../stores/viewerStore', () => ({
+    useViewerStore,
+  }));
   vi.doMock('@cornerstonejs/core', () => createCoreModuleMock(cs));
   vi.doMock('@cornerstonejs/tools', () => createToolsModuleMock(cs));
   vi.doMock('@cornerstonejs/adapters', () => createAdaptersModuleMock(cs));
@@ -29,19 +41,142 @@ beforeAll(async () => {
       parseRtStruct: vi.fn(() => ({ referencedSeriesUID: null })),
     },
   }));
+  vi.doMock('../../../stores/dialogStore', () => ({
+    showAlertDialog: showAlertDialogMock,
+  }));
 
   ({ segmentationService } = await import('../segmentationService'));
-});
+}
 
 function resetStores(): void {
   useSegmentationStore.setState(useSegmentationStore.getInitialState(), true);
   useSegmentationManagerStore.setState(useSegmentationManagerStore.getInitialState(), true);
+  useViewerStore.setState(useViewerStore.getInitialState(), true);
+}
+
+function setupContourCopyPasteScenario() {
+  const render = vi.fn();
+  const completedSpy = vi.fn();
+  useViewerStore.setState({
+    activeViewportId: 'panel_0',
+    viewports: {
+      panel_0: {
+        imageIndex: 1,
+        requestedImageIndex: null,
+        totalImages: 2,
+        camera: null,
+        voi: null,
+        invert: false,
+        flipH: false,
+        flipV: false,
+        rotation: 0,
+        zoom: 1,
+        pan: null,
+      },
+    },
+    panelImageIdsMap: {
+      panel_0: ['img-1', 'img-2'],
+    },
+  });
+  cs.setEnabledElement('panel_0', {
+    viewport: {
+      render,
+      getCurrentImageId: vi.fn(() => 'img-2'),
+      getCurrentImageIdIndex: vi.fn(() => 1),
+      getViewReference: vi.fn(() => ({
+        viewPlaneNormal: [0, 0, 1],
+        viewUp: [0, -1, 0],
+      })),
+      getCamera: vi.fn(() => ({
+        viewPlaneNormal: [0, 0, 1],
+        viewUp: [0, -1, 0],
+      })),
+    },
+  } as any);
+  cs.core.metaData.get.mockImplementation((type: string, imageId: string) => {
+    if (type === 'imagePlaneModule') {
+      if (imageId === 'img-1') {
+        return {
+          imagePositionPatient: [0, 0, 1],
+          rowCosines: [1, 0, 0],
+          columnCosines: [0, 1, 0],
+          frameOfReferenceUID: 'frame-1',
+        };
+      }
+      if (imageId === 'img-2') {
+        return {
+          imagePositionPatient: [0, 0, 6],
+          rowCosines: [1, 0, 0],
+          columnCosines: [0, 1, 0],
+          frameOfReferenceUID: 'frame-1',
+        };
+      }
+    }
+    return undefined;
+  });
+
+  const contourSegmentation = {
+    segmentationId: 'rt-1',
+    label: 'Structure Set',
+    segments: {
+      1: { label: 'Tumor', locked: false },
+    },
+    representationData: {
+      Contour: { annotationUIDsMap: new Map([[1, new Set(['ann-1'])]]) },
+    },
+  };
+  cs.setSegmentations([contourSegmentation]);
+  cs.setViewportIdsForSegmentation('rt-1', ['panel_0']);
+  cs.setAnnotations([
+    {
+      annotationUID: 'ann-1',
+      metadata: {
+        toolName: 'PlanarFreehandContourSegmentationTool',
+        referencedImageId: 'img-1',
+        FrameOfReferenceUID: 'frame-1',
+      },
+      data: {
+        contour: {
+          polyline: [
+            [1, 1, 1],
+            [3, 1, 1],
+            [2, 4, 1],
+          ],
+          closed: true,
+        },
+        segmentation: {
+          segmentationId: 'rt-1',
+          segmentIndex: 1,
+        },
+        handles: {
+          points: [],
+          activeHandleIndex: null,
+          textBox: {
+            worldPosition: [2, 2, 1],
+            worldBoundingBox: {
+              topLeft: [1, 1, 1],
+              topRight: [3, 1, 1],
+              bottomLeft: [1, 3, 1],
+              bottomRight: [3, 3, 1],
+            },
+          },
+        },
+      },
+    },
+  ]);
+  cs.eventTarget.addEventListener(Events.ANNOTATION_COMPLETED, completedSpy);
+  segmentationService.initialize();
+  cs.tools.annotation.selection.setAnnotationSelected('ann-1', true, false);
+
+  return { contourSegmentation, completedSpy };
 }
 
 describe('segmentationService', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     resetCornerstoneMocks(cs);
     resetStores();
+    showAlertDialogMock.mockClear();
+    await importSegmentationService();
     segmentationService.dispose();
   });
 
@@ -64,6 +199,7 @@ describe('segmentationService', () => {
       Events.ANNOTATION_COMPLETED,
       Events.ANNOTATION_MODIFIED,
       Events.ANNOTATION_REMOVED,
+      Events.ANNOTATION_SELECTION_CHANGE,
     ]);
 
     segmentationService.dispose();
@@ -174,5 +310,165 @@ describe('segmentationService', () => {
     cs.setSegmentations([]);
     expect(() => segmentationService.sync()).not.toThrow();
     expect(useSegmentationStore.getState().segmentations).toEqual([]);
+  });
+
+  it('syncs contour selection from viewport clicks into the active segmentation state', () => {
+    useViewerStore.setState({ activeViewportId: 'panel_0' });
+    cs.setSegmentations([
+      {
+        segmentationId: 'rt-1',
+        label: 'Structure Set',
+        segments: {
+          2: { label: 'Tumor', locked: false },
+        },
+        representationData: {
+          Contour: { annotationUIDsMap: new Map([[2, new Set(['ann-2'])]]) },
+        },
+      },
+    ]);
+    cs.setViewportIdsForSegmentation('rt-1', ['panel_0']);
+    cs.setAnnotations([
+      {
+        annotationUID: 'ann-2',
+        metadata: {
+          toolName: 'PlanarFreehandContourSegmentationTool',
+          referencedImageId: 'img-2',
+          FrameOfReferenceUID: 'frame-1',
+        },
+        data: {
+          contour: {
+            polyline: [
+              [1, 1, 2],
+              [2, 1, 2],
+              [1, 2, 2],
+            ],
+            closed: true,
+          },
+          segmentation: {
+            segmentationId: 'rt-1',
+            segmentIndex: 2,
+          },
+          handles: { points: [], activeHandleIndex: null },
+        },
+      },
+    ]);
+
+    segmentationService.initialize();
+    cs.eventTarget.dispatch(Events.ANNOTATION_SELECTION_CHANGE, { selection: ['ann-2'] });
+
+    expect(useSegmentationStore.getState().activeSegmentationId).toBe('rt-1');
+    expect(useSegmentationStore.getState().activeSegmentIndex).toBe(2);
+    expect(cs.tools.segmentation.segmentIndex.setActiveSegmentIndex).toHaveBeenCalledWith('rt-1', 2);
+    expect(cs.tools.segmentation.activeSegmentation.setActiveSegmentation).toHaveBeenCalledWith('panel_0', 'rt-1');
+  });
+
+  it('copies the selected contour annotation, pastes it with interpolation metadata, and supports undo/redo', () => {
+    const { contourSegmentation, completedSpy } = setupContourCopyPasteScenario();
+
+    expect(segmentationService.copySelectedContourAnnotation()).toBe(true);
+    expect(segmentationService.pasteCopiedContourAnnotationToActiveSlice()).toBe(true);
+
+    expect(cs.tools.annotation.state.addAnnotation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        annotationUID: 'mock-uuid',
+        metadata: expect.objectContaining({
+          referencedImageId: 'img-2',
+          sliceIndex: 1,
+          viewPlaneNormal: [0, 0, 1],
+          viewUp: [0, -1, 0],
+        }),
+        data: expect.objectContaining({
+          contour: expect.objectContaining({
+            polyline: [
+              [1, 1, 6],
+              [3, 1, 6],
+              [2, 4, 6],
+            ],
+          }),
+        }),
+      }),
+      'panel_0',
+    );
+    expect(cs.core.utilities.HistoryMemo.DefaultHistoryMemo.canUndo).toBe(true);
+    expect(
+      contourSegmentation.representationData.Contour.annotationUIDsMap.get(1)?.has('mock-uuid'),
+    ).toBe(true);
+    expect(useSegmentationStore.getState().activeSegmentationId).toBe('rt-1');
+    expect(useSegmentationStore.getState().activeSegmentIndex).toBe(1);
+    expect(cs.tools.annotation.selection.getAnnotationsSelected()).toEqual(['mock-uuid']);
+    expect(useSegmentationStore.getState().hasUnsavedChanges).toBe(true);
+    expect(completedSpy).toHaveBeenCalledTimes(1);
+
+    segmentationService.undo();
+
+    expect(cs.tools.annotation.state.getAnnotation('mock-uuid')).toBeNull();
+    expect(
+      contourSegmentation.representationData.Contour.annotationUIDsMap.get(1)?.has('mock-uuid'),
+    ).toBe(false);
+    expect(cs.tools.annotation.selection.getAnnotationsSelected()).toEqual([]);
+
+    segmentationService.redo();
+
+    expect(cs.tools.annotation.state.getAnnotation('mock-uuid')).toMatchObject({
+      annotationUID: 'mock-uuid',
+      metadata: expect.objectContaining({
+        referencedImageId: 'img-2',
+        sliceIndex: 1,
+      }),
+    });
+    expect(
+      contourSegmentation.representationData.Contour.annotationUIDsMap.get(1)?.has('mock-uuid'),
+    ).toBe(true);
+    expect(cs.tools.annotation.selection.getAnnotationsSelected()).toEqual(['mock-uuid']);
+    expect(completedSpy).toHaveBeenCalledTimes(2);
+    cs.eventTarget.removeEventListener(Events.ANNOTATION_COMPLETED, completedSpy);
+  });
+
+  it('blocks undo when the newest annotation history entry belongs to a locked annotation', () => {
+    const { contourSegmentation, completedSpy } = setupContourCopyPasteScenario();
+
+    expect(segmentationService.copySelectedContourAnnotation()).toBe(true);
+    expect(segmentationService.pasteCopiedContourAnnotationToActiveSlice()).toBe(true);
+    cs.setSegmentLocked('rt-1', 1, true);
+
+    segmentationService.undo();
+
+    expect(cs.tools.annotation.state.getAnnotation('mock-uuid')).toMatchObject({
+      annotationUID: 'mock-uuid',
+    });
+    expect(
+      contourSegmentation.representationData.Contour.annotationUIDsMap.get(1)?.has('mock-uuid'),
+    ).toBe(true);
+    expect(showAlertDialogMock).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Undo blocked',
+      message: 'Unlock Tumor before applying undo.',
+    }));
+    cs.eventTarget.removeEventListener(Events.ANNOTATION_COMPLETED, completedSpy);
+  });
+
+  it('blocks redo when the next redo history entry references a locked annotation', () => {
+    const { contourSegmentation, completedSpy } = setupContourCopyPasteScenario();
+
+    expect(segmentationService.copySelectedContourAnnotation()).toBe(true);
+    expect(segmentationService.pasteCopiedContourAnnotationToActiveSlice()).toBe(true);
+
+    segmentationService.undo();
+    expect(cs.tools.annotation.state.getAnnotation('mock-uuid')).toBeNull();
+
+    cs.setSegmentLocked('rt-1', 1, true);
+    segmentationService.redo();
+
+    expect(cs.tools.annotation.state.getAnnotation('mock-uuid')).toBeNull();
+    expect(
+      contourSegmentation.representationData.Contour.annotationUIDsMap.get(1)?.has('mock-uuid'),
+    ).toBe(false);
+    expect(showAlertDialogMock).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Redo blocked',
+      message: expect.stringContaining('Unlock the locked annotations before applying redo:'),
+    }));
+    expect(showAlertDialogMock).toHaveBeenCalledWith(expect.objectContaining({
+      message: expect.stringContaining('- Tumor'),
+    }));
+    cs.eventTarget.removeEventListener(Events.ANNOTATION_COMPLETED, completedSpy);
   });
 });

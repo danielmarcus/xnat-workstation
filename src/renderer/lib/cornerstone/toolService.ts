@@ -681,6 +681,13 @@ function applyBindings(toolGroup: ToolTypes.IToolGroup, primaryTool: ToolName): 
     toolGroup.setToolEnabled(SegmentBidirectionalTool.toolName);
   }
 
+  // 6. Keep contour component selection available on plain clicks even when a
+  // different primary tool is active. This lets users activate an annotation
+  // directly from the viewport before copying, pasting, or editing it.
+  if (primaryTool !== ToolName.SegmentSelect) {
+    toolGroup.setToolEnabled(SegmentSelectTool.toolName);
+  }
+
   console.log(`[toolService] applyBindings(${primaryTool})`);
 }
 

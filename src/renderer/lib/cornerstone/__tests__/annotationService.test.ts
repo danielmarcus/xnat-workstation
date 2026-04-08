@@ -43,6 +43,7 @@ describe('annotationService', () => {
       Events.ANNOTATION_COMPLETED,
       Events.ANNOTATION_MODIFIED,
       Events.ANNOTATION_REMOVED,
+      Events.ANNOTATION_SELECTION_CHANGE,
     ]);
 
     annotationService.dispose();
@@ -211,5 +212,34 @@ describe('annotationService', () => {
     annotationService.selectAnnotation(null);
     expect(annotations[1]?.highlighted).toBe(false);
     expect(useAnnotationStore.getState().selectedUID).toBeNull();
+  });
+
+  it('syncs store selection when viewport annotation selection changes', () => {
+    const annotations = [
+      {
+        annotationUID: 'ann-length',
+        highlighted: false,
+        metadata: { toolName: 'Length' },
+        data: { cachedStats: { target: { length: 10, unit: 'mm' } } },
+      },
+      {
+        annotationUID: 'ann-angle',
+        highlighted: false,
+        metadata: { toolName: 'Angle' },
+        data: { cachedStats: { target: { angle: 20 } } },
+      },
+    ];
+    cs.setAnnotations(annotations);
+
+    annotationService.initialize();
+    cs.eventTarget.dispatch(Events.ANNOTATION_SELECTION_CHANGE, { selection: ['ann-angle'] });
+
+    expect(useAnnotationStore.getState().selectedUID).toBe('ann-angle');
+    expect(annotations[1]?.highlighted).toBe(true);
+    expect(annotations[0]?.highlighted).toBe(false);
+
+    cs.eventTarget.dispatch(Events.ANNOTATION_SELECTION_CHANGE, { selection: [] });
+    expect(useAnnotationStore.getState().selectedUID).toBeNull();
+    expect(annotations[1]?.highlighted).toBe(false);
   });
 });

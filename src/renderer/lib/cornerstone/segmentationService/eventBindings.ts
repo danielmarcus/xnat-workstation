@@ -3,6 +3,7 @@ type SegmentationServiceHandlers = {
   onSegmentationDataModified: EventListener;
   onAnnotationAutoSave: EventListener;
   onAnnotationHistoryEvent: EventListener;
+  onAnnotationSelectionChange: EventListener;
 };
 
 type EventTargetLike = {
@@ -21,6 +22,7 @@ type ToolEvents = {
   ANNOTATION_COMPLETED: string;
   ANNOTATION_MODIFIED: string;
   ANNOTATION_REMOVED: string;
+  ANNOTATION_SELECTION_CHANGE: string;
 };
 
 function getBindings(
@@ -41,6 +43,7 @@ function getBindings(
     { event: events.ANNOTATION_COMPLETED, handler: handlers.onAnnotationHistoryEvent },
     { event: events.ANNOTATION_MODIFIED, handler: handlers.onAnnotationHistoryEvent },
     { event: events.ANNOTATION_REMOVED, handler: handlers.onAnnotationHistoryEvent },
+    { event: events.ANNOTATION_SELECTION_CHANGE, handler: handlers.onAnnotationSelectionChange },
   ];
 }
 

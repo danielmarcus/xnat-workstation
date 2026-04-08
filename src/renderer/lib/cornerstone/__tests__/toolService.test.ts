@@ -169,6 +169,7 @@ describe('toolService', () => {
     const group = cs.getLastToolGroup();
     expect(group?.setActiveStrategy).toHaveBeenCalledWith('Brush', 'FILL_INSIDE_CIRCLE');
     expect(segmentationManagerMock.userSelectedSegmentation).toHaveBeenCalledWith('panel_0', 'seg-1', 2);
+    expect(group?.setToolEnabled).toHaveBeenCalledWith('SegmentSelect');
 
     const segStoreState = useSegmentationStore.getState();
     expect(segStoreState.activeSegTool).toBe(ToolName.Brush);

@@ -105,6 +105,14 @@ export class CanvasInteractor {
   }
 
   /**
+   * Click a point on the canvas.
+   */
+  async click(point: RelativePoint, options?: { button?: 'left' | 'right' | 'middle' }) {
+    const abs = await toAbsolute(this.canvasLocator, point);
+    await this.page.mouse.click(abs.x, abs.y, options);
+  }
+
+  /**
    * Scroll (mouse wheel) at the center of the canvas.
    */
   async scroll(deltaY: number, position?: RelativePoint) {
