@@ -28,11 +28,8 @@ test.describe('Save & Upload', () => {
     await viewer.waitForImageLoaded();
 
     // ── Ensure segmentation panel is open ──
+    await viewer.openSegmentationPanel();
     const segPanel = page.locator('[data-testid="segmentation-panel"]');
-    if (!await segPanel.isVisible().catch(() => false)) {
-      await page.locator('[data-testid="toolbar"] button', { hasText: 'Annotate' }).click();
-      await expect(segPanel).toBeVisible({ timeout: 5_000 });
-    }
 
     await page.locator('[data-testid="add-segmentation-btn"]').click();
     await page.waitForTimeout(500);

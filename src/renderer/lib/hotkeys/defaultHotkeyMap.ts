@@ -4,8 +4,8 @@
  * Conventions:
  * - Single lowercase letters for frequent tools (OHIF-inspired)
  * - Ctrl+Z / Ctrl+Shift+Z reserved for undo/redo
- * - Other Ctrl combos that conflict with Electron/OS defaults avoided
- *   (Ctrl+C/V/X/A/S/W/Q)
+ * - System-like edit combos reserved where they map to viewer semantics
+ *   (Ctrl+C/V/Z/Shift+Z)
  * - Arrow keys + PageUp/Down for slice navigation (standard DICOM viewer)
  * - Numbers 1-4 for layout switching
  * - Ctrl+1..5 for W/L presets (avoids conflict with layout keys)
@@ -67,6 +67,8 @@ export const DEFAULT_HOTKEY_MAP: HotkeyMap = {
   // ─── Edit Actions ──────────────────────────────────────────
   'edit.undo': [{ key: 'z', modifiers: { ctrl: true } }],
   'edit.redo': [{ key: 'z', modifiers: { ctrl: true, shift: true } }],
+  'edit.copy': [{ key: 'c', modifiers: { ctrl: true } }],
+  'edit.paste': [{ key: 'v', modifiers: { ctrl: true } }],
   'edit.delete': [{ key: 'Delete' }, { key: 'Backspace' }],
 
   // ─── W/L Presets (Ctrl+number) ──────────────────────────────

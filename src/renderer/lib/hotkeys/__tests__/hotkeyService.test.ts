@@ -61,6 +61,8 @@ const segmentationServiceMock = {
   setBrushSize: vi.fn(),
   undo: vi.fn(),
   redo: vi.fn(),
+  copySelectedContourAnnotation: vi.fn(() => true),
+  pasteCopiedContourAnnotationToActiveSlice: vi.fn(() => true),
   deleteSelectedContourComponents: vi.fn(),
 };
 
@@ -217,6 +219,8 @@ describe('hotkeyService', () => {
       'panel.toggleSegmentation': [{ key: '9' }],
       'edit.undo': [{ key: 'u' }],
       'edit.redo': [{ key: 'r' }],
+      'edit.copy': [{ key: 'c', modifiers: { ctrl: true } }],
+      'edit.paste': [{ key: 'v', modifiers: { ctrl: true } }],
       'edit.delete': [{ key: 'Delete' }],
       'brush.increase': [{ key: '=' }],
       'brush.decrease': [{ key: '[' }],
@@ -235,6 +239,8 @@ describe('hotkeyService', () => {
     dispatchKey({ key: '9' });
     dispatchKey({ key: 'u' });
     dispatchKey({ key: 'r' });
+    dispatchKey({ key: 'c', ctrl: true });
+    dispatchKey({ key: 'v', ctrl: true });
     dispatchKey({ key: 'Delete' });
     dispatchKey({ key: '=' });
     dispatchKey({ key: '[' });
@@ -251,6 +257,8 @@ describe('hotkeyService', () => {
     expect(segmentationState.togglePanel).toHaveBeenCalledTimes(1);
     expect(segmentationServiceMock.undo).toHaveBeenCalledTimes(1);
     expect(segmentationServiceMock.redo).toHaveBeenCalledTimes(1);
+    expect(segmentationServiceMock.copySelectedContourAnnotation).toHaveBeenCalledTimes(1);
+    expect(segmentationServiceMock.pasteCopiedContourAnnotationToActiveSlice).toHaveBeenCalledTimes(1);
     expect(segmentationServiceMock.deleteSelectedContourComponents).toHaveBeenCalledTimes(1);
     expect(segmentationServiceMock.setBrushSize).toHaveBeenCalled();
     expect(segmentationState.setBrushSize).toHaveBeenCalled();

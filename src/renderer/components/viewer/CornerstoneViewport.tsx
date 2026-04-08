@@ -14,6 +14,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { Enums, cache } from '@cornerstonejs/core';
+import { annotation as csAnnotation } from '@cornerstonejs/tools';
 import { viewportService } from '../../lib/cornerstone/viewportService';
 import { toolService } from '../../lib/cornerstone/toolService';
 import { metadataService } from '../../lib/cornerstone/metadataService';
@@ -344,7 +345,86 @@ function wireEvents(element: HTMLDivElement, panelId: string): () => void {
     panelId,
     isCrosshairActive: () => useViewerStore.getState().activeTool === ToolName.Crosshairs,
     onWorldPoint: (point) => crosshairSyncService.syncFromViewport(panelId, point),
-  });
+  }) ?? (() => {});
 
-  return disposeCrosshair;
+  const onClick = (event: MouseEvent) => {
+    if (event.button !== 0 || event.defaultPrevented) return;
+    selectContourAnnotationAtCanvasPoint(panelId, element, event.clientX, event.clientY);
+  };
+  element.addEventListener('click', onClick);
+
+  return () => {
+    element.removeEventListener('click', onClick);
+    disposeCrosshair();
+  };
+}
+
+function selectContourAnnotationAtCanvasPoint(
+  panelId: string,
+  element: HTMLDivElement,
+  clientX: number,
+  clientY: number,
+): void {
+  const viewport = viewportService.getViewport(panelId) as
+    | {
+        getCurrentImageId?: () => string | null;
+        worldToCanvas?: (point: [number, number, number]) => [number, number];
+      }
+    | undefined;
+  const currentImageId = viewport?.getCurrentImageId?.();
+  if (!currentImageId || typeof viewport?.worldToCanvas !== 'function') return;
+
+  const rect = element.getBoundingClientRect();
+  const clickPoint: [number, number] = [clientX - rect.left, clientY - rect.top];
+
+  let nearest: { annotationUID: string; distance: number } | null = null;
+  for (const annotation of csAnnotation.state.getAllAnnotations()) {
+    const referencedImageId = annotation?.metadata?.referencedImageId;
+    const polyline = annotation?.data?.contour?.polyline;
+    if (referencedImageId !== currentImageId || !Array.isArray(polyline) || polyline.length < 2) {
+      continue;
+    }
+
+    const canvasPoints = polyline
+      .map((point: unknown) => {
+        if (!Array.isArray(point) || point.length < 3) return null;
+        return viewport.worldToCanvas?.([Number(point[0]), Number(point[1]), Number(point[2])]);
+      })
+      .filter((point): point is [number, number] => Array.isArray(point) && point.length >= 2);
+    if (canvasPoints.length < 2) continue;
+
+    let minDistance = Number.POSITIVE_INFINITY;
+    for (let i = 0; i < canvasPoints.length; i++) {
+      const a = canvasPoints[i];
+      const b = canvasPoints[(i + 1) % canvasPoints.length];
+      minDistance = Math.min(minDistance, distanceToSegment(clickPoint, a, b));
+    }
+
+    if (minDistance <= 12 && (!nearest || minDistance < nearest.distance)) {
+      nearest = { annotationUID: annotation.annotationUID, distance: minDistance };
+    }
+  }
+
+  if (nearest?.annotationUID) {
+    csAnnotation.selection.setAnnotationSelected?.(nearest.annotationUID, true, false);
+  }
+}
+
+function distanceToSegment(
+  point: [number, number],
+  a: [number, number],
+  b: [number, number],
+): number {
+  const abX = b[0] - a[0];
+  const abY = b[1] - a[1];
+  const apX = point[0] - a[0];
+  const apY = point[1] - a[1];
+  const lengthSquared = abX * abX + abY * abY;
+  if (lengthSquared === 0) {
+    return Math.hypot(apX, apY);
+  }
+  const t = Math.max(0, Math.min(1, (apX * abX + apY * abY) / lengthSquared));
+  const closestX = a[0] + abX * t;
+  const closestY = a[1] + abY * t;
+  return Math.hypot(point[0] - closestX, point[1] - closestY);
 }

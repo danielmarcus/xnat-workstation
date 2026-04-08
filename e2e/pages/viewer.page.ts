@@ -44,6 +44,10 @@ export class ViewerPage {
     return this.page.locator('[data-testid="toolbar"]');
   }
 
+  get segmentationPanel() {
+    return this.page.locator('[data-testid="segmentation-panel"]');
+  }
+
   // ─── Toolbar Actions ───────────────────────────────────────────
 
   /** Select a tool by its title attribute */
@@ -65,6 +69,25 @@ export class ViewerPage {
 
   async resetViewport() {
     await this.selectTool('Reset viewport');
+  }
+
+  async openSegmentationPanel(timeout = 10_000) {
+    if (await this.segmentationPanel.isVisible().catch(() => false)) {
+      return;
+    }
+
+    const annotationToolsTrigger = this.toolbar.locator('button[title="Annotation tools"]');
+    if (await annotationToolsTrigger.isVisible().catch(() => false)) {
+      await annotationToolsTrigger.click();
+    }
+
+    const segmentationToggle = this.page.locator(
+      'button[title="Show segmentation panel"], button[title="Hide segmentation panel"]',
+    ).first();
+
+    await segmentationToggle.waitFor({ state: 'visible', timeout });
+    await segmentationToggle.click();
+    await this.segmentationPanel.waitFor({ state: 'visible', timeout });
   }
 
   // ─── Wait Helpers ──────────────────────────────────────────────

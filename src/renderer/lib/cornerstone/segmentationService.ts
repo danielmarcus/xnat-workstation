@@ -78,6 +78,7 @@ import {
   registerSegmentationServiceEventBindings,
   unregisterSegmentationServiceEventBindings,
 } from './segmentationService/eventBindings';
+import { showAlertDialog } from '../../stores/dialogStore';
 // NOTE: We use the tool group ID directly here instead of importing from
 // toolService to avoid a circular dependency (toolService → segmentationService).
 const TOOL_GROUP_ID = 'xnatToolGroup_primary';
@@ -115,6 +116,27 @@ let segmentationCounter = 0;
  * All segmentation/contour tools automatically push memos here via BaseTool.doneEditMemo().
  */
 const { DefaultHistoryMemo } = (csUtilities as any).HistoryMemo;
+
+type HistoryMemoRecord = {
+  restoreMemo?: (undo?: boolean) => void;
+  id?: string;
+  operationType?: string;
+  segmentationId?: string;
+  segmentIndex?: number;
+  label?: string;
+  createMemo?: () => HistoryMemoRecord | undefined;
+};
+
+type HistoryMemoEntry = HistoryMemoRecord | HistoryMemoRecord[] | undefined;
+
+type LockableHistoryTarget = {
+  segmentationId: string;
+  segmentIndex: number;
+  label: string;
+};
+
+let originalHistoryPush: ((item: unknown) => HistoryMemoRecord | undefined) | null = null;
+let historyTrackingInstalled = false;
 
 /**
  * Tracks the original source imageIds for each segmentation, keyed by segmentationId.
@@ -231,6 +253,181 @@ function findViewportsWithGroup(groupId: string): string[] {
     }
   }
   return Array.from(vpSet);
+}
+
+function getSegmentDisplayLabel(segmentationId: string, segmentIndex: number): string {
+  if (isMultiLayerGroup(segmentationId)) {
+    return segmentMetaMap.get(segmentationId)?.get(segmentIndex)?.label ?? `Segment ${segmentIndex}`;
+  }
+
+  const segmentation = csSegmentation.state.getSegmentation(segmentationId) as
+    | { segments?: Record<number, { label?: string }> }
+    | undefined;
+  return segmentation?.segments?.[segmentIndex]?.label ?? `Segment ${segmentIndex}`;
+}
+
+function isSegmentLockedInternal(segmentationId: string, segmentIndex: number): boolean {
+  if (isMultiLayerGroup(segmentationId)) {
+    const subSegId = resolveSubSegId(segmentationId, segmentIndex);
+    if (!subSegId) return false;
+    try {
+      return csSegmentation.segmentLocking.isSegmentIndexLocked(subSegId, 1);
+    } catch {
+      return false;
+    }
+  }
+
+  try {
+    return csSegmentation.segmentLocking.isSegmentIndexLocked(segmentationId, segmentIndex);
+  } catch {
+    return false;
+  }
+}
+
+function toHistoryMemoRecords(entry: HistoryMemoEntry): HistoryMemoRecord[] {
+  if (!entry) return [];
+  if (Array.isArray(entry)) {
+    return entry.filter((memo): memo is HistoryMemoRecord => !!memo && typeof memo === 'object');
+  }
+  return typeof entry === 'object' ? [entry] : [];
+}
+
+function getHistoryRingSize(): number {
+  const explicitSize = Number(DefaultHistoryMemo?.size);
+  if (Number.isInteger(explicitSize) && explicitSize > 0) {
+    return explicitSize;
+  }
+  const ringLength = Array.isArray(DefaultHistoryMemo?.ring) ? DefaultHistoryMemo.ring.length : 0;
+  return ringLength > 0 ? ringLength : 0;
+}
+
+function getTopUndoHistoryEntry(): HistoryMemoEntry {
+  if (!DefaultHistoryMemo?.canUndo || !Array.isArray(DefaultHistoryMemo?.ring)) {
+    return undefined;
+  }
+
+  const size = getHistoryRingSize();
+  const position = Number(DefaultHistoryMemo.position);
+  if (!Number.isInteger(position) || size <= 0) {
+    return undefined;
+  }
+
+  const normalizedPosition = ((position % size) + size) % size;
+  return DefaultHistoryMemo.ring[normalizedPosition] as HistoryMemoEntry;
+}
+
+function getTopRedoHistoryEntry(): HistoryMemoEntry {
+  if (!DefaultHistoryMemo?.canRedo || !Array.isArray(DefaultHistoryMemo?.ring)) {
+    return undefined;
+  }
+
+  const size = getHistoryRingSize();
+  const position = Number(DefaultHistoryMemo.position);
+  if (!Number.isInteger(position) || size <= 0) {
+    return undefined;
+  }
+
+  const nextPosition = (position + 1 + size) % size;
+  return DefaultHistoryMemo.ring[nextPosition] as HistoryMemoEntry;
+}
+
+function enrichHistoryMemoRecord(memo: unknown): void {
+  if (!memo || typeof memo !== 'object') return;
+
+  const record = memo as HistoryMemoRecord;
+  if (
+    typeof record.segmentationId === 'string'
+    && Number.isInteger(record.segmentIndex)
+    && Number(record.segmentIndex) > 0
+  ) {
+    record.label = record.label || getSegmentDisplayLabel(record.segmentationId, Number(record.segmentIndex));
+    return;
+  }
+
+  if (record.operationType !== 'annotation' || typeof record.id !== 'string') {
+    return;
+  }
+
+  const annotation = csAnnotation.state.getAnnotation?.(record.id);
+  const segmentationId = annotation?.data?.segmentation?.segmentationId;
+  const segmentIndex = Number(annotation?.data?.segmentation?.segmentIndex);
+  if (typeof segmentationId !== 'string' || !Number.isInteger(segmentIndex) || segmentIndex <= 0) {
+    return;
+  }
+
+  record.segmentationId = segmentationId;
+  record.segmentIndex = segmentIndex;
+  record.label = getSegmentDisplayLabel(segmentationId, segmentIndex);
+}
+
+function getLockedHistoryTargets(entry: HistoryMemoEntry): LockableHistoryTarget[] {
+  const deduped = new Map<string, LockableHistoryTarget>();
+
+  for (const memo of toHistoryMemoRecords(entry)) {
+    enrichHistoryMemoRecord(memo);
+    const segmentationId = memo.segmentationId;
+    const segmentIndex = Number(memo.segmentIndex);
+    if (typeof segmentationId !== 'string' || !Number.isInteger(segmentIndex) || segmentIndex <= 0) {
+      continue;
+    }
+    if (!isSegmentLockedInternal(segmentationId, segmentIndex)) {
+      continue;
+    }
+
+    const key = `${segmentationId}|${segmentIndex}`;
+    deduped.set(key, {
+      segmentationId,
+      segmentIndex,
+      label: memo.label || getSegmentDisplayLabel(segmentationId, segmentIndex),
+    });
+  }
+
+  return Array.from(deduped.values());
+}
+
+function showHistoryBlockedDialog(action: 'undo' | 'redo', targets: LockableHistoryTarget[]): void {
+  if (targets.length === 0) return;
+
+  const title = action === 'undo' ? 'Undo blocked' : 'Redo blocked';
+  const names = targets.map((target) => target.label);
+  const uniqueNames = Array.from(new Set(names));
+  const message = action === 'undo'
+    ? (
+      uniqueNames.length === 1
+        ? `Unlock ${uniqueNames[0]} before applying undo.`
+        : `Unlock these annotations before applying undo:\n${uniqueNames.map((name) => `- ${name}`).join('\n')}`
+    )
+    : `Unlock the locked annotations before applying redo:\n${uniqueNames.map((name) => `- ${name}`).join('\n')}`;
+
+  void showAlertDialog({
+    title,
+    message,
+    confirmLabel: 'OK',
+  });
+}
+
+function installHistoryMemoTracking(): void {
+  if (historyTrackingInstalled || !DefaultHistoryMemo || typeof DefaultHistoryMemo.push !== 'function') {
+    return;
+  }
+
+  originalHistoryPush = DefaultHistoryMemo.push.bind(DefaultHistoryMemo);
+  DefaultHistoryMemo.push = ((item: unknown) => {
+    const memo = originalHistoryPush?.(item);
+    enrichHistoryMemoRecord(memo);
+    return memo;
+  }) as typeof DefaultHistoryMemo.push;
+  historyTrackingInstalled = true;
+}
+
+function uninstallHistoryMemoTracking(): void {
+  if (!historyTrackingInstalled || !DefaultHistoryMemo || !originalHistoryPush) {
+    return;
+  }
+
+  DefaultHistoryMemo.push = originalHistoryPush as typeof DefaultHistoryMemo.push;
+  originalHistoryPush = null;
+  historyTrackingInstalled = false;
 }
 
 /**
@@ -708,6 +905,401 @@ function renderAllSegmentationViewports(): void {
     const enabledElement = getEnabledElementByViewportId(viewportId) as any;
     enabledElement?.viewport?.render?.();
   }
+}
+
+type Point3 = CoreTypes.Point3;
+
+interface ContourClipboardEntry {
+  toolName: string;
+  segmentationId: string;
+  segmentIndex: number;
+  referencedImageId: string;
+  frameOfReferenceUID: string | null;
+  polyline: Point3[];
+  closed: boolean;
+  handles: Record<string, unknown> | null;
+}
+
+let contourClipboard: ContourClipboardEntry | null = null;
+
+function toPoint3(value: unknown): Point3 | null {
+  if (!Array.isArray(value) || value.length < 3) return null;
+  const point = value.slice(0, 3).map((entry) => Number(entry)) as number[];
+  if (point.some((entry) => !Number.isFinite(entry))) return null;
+  return [point[0], point[1], point[2]] as Point3;
+}
+
+function addPoint3(a: Point3, b: Point3): Point3 {
+  return [a[0] + b[0], a[1] + b[1], a[2] + b[2]] as Point3;
+}
+
+function subtractPoint3(a: Point3, b: Point3): Point3 {
+  return [a[0] - b[0], a[1] - b[1], a[2] - b[2]] as Point3;
+}
+
+function dotPoint3(a: Point3, b: Point3): number {
+  return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+}
+
+function emitToolEvent(type: string, detail: Record<string, unknown>): void {
+  const target = eventTarget as EventTarget & {
+    dispatch?: (eventType: string, eventDetail?: unknown) => void;
+  };
+
+  if (typeof target.dispatchEvent === 'function' && typeof CustomEvent === 'function') {
+    target.dispatchEvent(new CustomEvent(type, { detail }));
+    return;
+  }
+
+  target.dispatch?.(type, detail);
+}
+
+function addContourAnnotationToSegmentation(annotation: any): void {
+  try {
+    if (csToolUtilities.contourSegmentation?.addContourSegmentationAnnotation) {
+      csToolUtilities.contourSegmentation.addContourSegmentationAnnotation(annotation);
+      return;
+    }
+  } catch (err) {
+    console.debug('[segmentationService] addContourSegmentationAnnotation failed:', err);
+  }
+
+  const segmentationId = annotation?.data?.segmentation?.segmentationId;
+  const segmentIndex = Number(annotation?.data?.segmentation?.segmentIndex);
+  const annotationUID = annotation?.annotationUID;
+  if (!segmentationId || !Number.isInteger(segmentIndex) || segmentIndex <= 0 || !annotationUID) {
+    return;
+  }
+
+  const segmentation = csSegmentation.state.getSegmentation(segmentationId);
+  const contourData = (segmentation?.representationData as any)?.Contour;
+  if (!(contourData?.annotationUIDsMap instanceof Map)) {
+    return;
+  }
+
+  if (!contourData.annotationUIDsMap.has(segmentIndex)) {
+    contourData.annotationUIDsMap.set(segmentIndex, new Set<string>());
+  }
+  contourData.annotationUIDsMap.get(segmentIndex)?.add(annotationUID);
+}
+
+function removeContourAnnotationFromSegmentation(annotation: any): void {
+  try {
+    if (csToolUtilities.contourSegmentation?.removeContourSegmentationAnnotation) {
+      csToolUtilities.contourSegmentation.removeContourSegmentationAnnotation(annotation);
+      return;
+    }
+  } catch (err) {
+    console.debug('[segmentationService] removeContourSegmentationAnnotation failed:', err);
+  }
+
+  const segmentationId = annotation?.data?.segmentation?.segmentationId;
+  const segmentIndex = Number(annotation?.data?.segmentation?.segmentIndex);
+  const annotationUID = annotation?.annotationUID;
+  if (!segmentationId || !Number.isInteger(segmentIndex) || segmentIndex <= 0 || !annotationUID) {
+    return;
+  }
+
+  const segmentation = csSegmentation.state.getSegmentation(segmentationId);
+  const contourData = (segmentation?.representationData as any)?.Contour;
+  const annotationUIDs = contourData?.annotationUIDsMap?.get?.(segmentIndex);
+  if (!(annotationUIDs instanceof Set)) {
+    return;
+  }
+
+  annotationUIDs.delete(annotationUID);
+  if (annotationUIDs.size === 0) {
+    contourData.annotationUIDsMap.delete(segmentIndex);
+  }
+}
+
+function crossPoint3(a: Point3, b: Point3): Point3 {
+  return [
+    a[1] * b[2] - a[2] * b[1],
+    a[2] * b[0] - a[0] * b[2],
+    a[0] * b[1] - a[1] * b[0],
+  ] as Point3;
+}
+
+function normalizePoint3(point: Point3): Point3 | null {
+  const magnitude = Math.hypot(point[0], point[1], point[2]);
+  if (!Number.isFinite(magnitude) || magnitude === 0) return null;
+  return [point[0] / magnitude, point[1] / magnitude, point[2] / magnitude] as Point3;
+}
+
+function clonePolyline(polyline: unknown): Point3[] {
+  if (!Array.isArray(polyline)) return [];
+  return polyline
+    .map((point) => toPoint3(point))
+    .filter((point): point is Point3 => point !== null);
+}
+
+function cloneHandlesWithOffset(handles: unknown, delta: Point3): Record<string, unknown> | null {
+  if (!handles || typeof handles !== 'object') return null;
+
+  const next: Record<string, unknown> = { ...(handles as Record<string, unknown>) };
+  const rawPoints = (handles as { points?: unknown[] }).points;
+  if (Array.isArray(rawPoints)) {
+    next.points = rawPoints.map((point) => {
+      const normalized = toPoint3(point);
+      return normalized ? addPoint3(normalized, delta) : point;
+    });
+  }
+
+  const textBox = (handles as { textBox?: Record<string, unknown> }).textBox;
+  if (textBox && typeof textBox === 'object') {
+    const nextTextBox: Record<string, unknown> = { ...textBox };
+    const worldPosition = toPoint3(textBox.worldPosition);
+    if (worldPosition) {
+      nextTextBox.worldPosition = addPoint3(worldPosition, delta);
+    }
+    const worldBoundingBox = textBox.worldBoundingBox;
+    if (worldBoundingBox && typeof worldBoundingBox === 'object') {
+      const nextBoundingBox: Record<string, unknown> = { ...worldBoundingBox };
+      for (const key of ['topLeft', 'topRight', 'bottomLeft', 'bottomRight'] as const) {
+        const normalized = toPoint3((worldBoundingBox as Record<string, unknown>)[key]);
+        if (normalized) {
+          nextBoundingBox[key] = addPoint3(normalized, delta);
+        }
+      }
+      nextTextBox.worldBoundingBox = nextBoundingBox;
+    }
+    next.textBox = nextTextBox;
+  }
+
+  return next;
+}
+
+function isContourAnnotation(annotation: any): annotation is {
+  annotationUID: string;
+  metadata: { toolName?: string; referencedImageId?: string; FrameOfReferenceUID?: string };
+  data: {
+    contour?: { polyline?: unknown[]; closed?: boolean };
+    segmentation?: { segmentationId?: string; segmentIndex?: number };
+    handles?: Record<string, unknown>;
+  };
+} {
+  const polyline = clonePolyline(annotation?.data?.contour?.polyline);
+  const segmentationId = annotation?.data?.segmentation?.segmentationId;
+  const segmentIndex = Number(annotation?.data?.segmentation?.segmentIndex);
+  return (
+    typeof annotation?.annotationUID === 'string' &&
+    typeof segmentationId === 'string' &&
+    segmentationId.length > 0 &&
+    Number.isInteger(segmentIndex) &&
+    segmentIndex > 0 &&
+    polyline.length >= 3
+  );
+}
+
+function getSelectedContourAnnotation(): {
+  annotationUID: string;
+  annotation: any;
+} | null {
+  const selected = csAnnotation.selection.getAnnotationsSelected?.() ?? [];
+  for (let i = selected.length - 1; i >= 0; i--) {
+    const annotationUID = selected[i];
+    const annotation = csAnnotation.state.getAnnotation?.(annotationUID);
+    if (!isContourAnnotation(annotation)) continue;
+    return { annotationUID, annotation };
+  }
+  return null;
+}
+
+function getCurrentImageIdForActiveViewport(): string | null {
+  const viewerState = useViewerStore.getState();
+  const viewportId = viewerState.activeViewportId;
+  const enabledElement = getEnabledElementByViewportId(viewportId) as
+    | { viewport?: { getCurrentImageId?: () => string | undefined } }
+    | undefined;
+  const currentImageId = enabledElement?.viewport?.getCurrentImageId?.();
+  if (typeof currentImageId === 'string' && currentImageId.length > 0) {
+    return currentImageId;
+  }
+
+  const imageIds = viewerState.panelImageIdsMap[viewportId];
+  if (!Array.isArray(imageIds) || imageIds.length === 0) return null;
+
+  const viewportState = viewerState.viewports[viewportId];
+  const requestedIndex = viewportState?.requestedImageIndex;
+  const currentIndex = viewportState?.imageIndex ?? 0;
+  const index = Number.isInteger(requestedIndex) ? requestedIndex : currentIndex;
+  const clamped = Math.max(0, Math.min(imageIds.length - 1, index));
+  return imageIds[clamped] ?? null;
+}
+
+function getActiveViewportContextForContourPaste(targetImageId: string): {
+  viewportId: string;
+  annotationGroupSelector: unknown;
+  viewport:
+    | {
+        element?: Element;
+        getCurrentImageIdIndex?: () => number;
+        getViewReference?: (options?: { sliceIndex?: number }) => Record<string, unknown> | undefined;
+        getCamera?: () => { viewPlaneNormal?: unknown; viewUp?: unknown } | undefined;
+        render?: () => void;
+      }
+    | null;
+  metadata: Record<string, unknown>;
+} | null {
+  const viewportId = useViewerStore.getState().activeViewportId;
+  if (!viewportId) return null;
+
+  const enabledElement = getEnabledElementByViewportId(viewportId) as
+    | {
+      viewport?: {
+        element?: Element;
+        getCurrentImageIdIndex?: () => number;
+        getViewReference?: (options?: { sliceIndex?: number }) => Record<string, unknown> | undefined;
+        getCamera?: () => { viewPlaneNormal?: unknown; viewUp?: unknown } | undefined;
+        render?: () => void;
+      };
+      }
+    | undefined;
+  const viewport = enabledElement?.viewport ?? null;
+  const storeSliceIndex = useViewerStore.getState().viewports[viewportId]?.imageIndex;
+  const sliceIndex = viewport?.getCurrentImageIdIndex?.();
+  const normalizedSliceIndex = Number.isInteger(sliceIndex)
+    ? Number(sliceIndex)
+    : (Number.isInteger(storeSliceIndex) ? Number(storeSliceIndex) : null);
+  const viewReference = normalizedSliceIndex != null
+    ? viewport?.getViewReference?.({ sliceIndex: normalizedSliceIndex })
+    : viewport?.getViewReference?.();
+  const camera = viewport?.getCamera?.();
+  const imagePlane = getImagePlaneInfo(targetImageId);
+
+  const metadata: Record<string, unknown> = {
+    referencedImageId: targetImageId,
+  };
+
+  const frameOfReferenceUID =
+    imagePlane?.frameOfReferenceUID
+    ?? (typeof viewReference?.FrameOfReferenceUID === 'string' ? viewReference.FrameOfReferenceUID : null);
+  if (frameOfReferenceUID) {
+    metadata.FrameOfReferenceUID = frameOfReferenceUID;
+  }
+
+  const viewPlaneNormal =
+    toPoint3((viewReference as { viewPlaneNormal?: unknown } | undefined)?.viewPlaneNormal)
+    ?? toPoint3(camera?.viewPlaneNormal);
+  if (viewPlaneNormal) {
+    metadata.viewPlaneNormal = viewPlaneNormal;
+  }
+
+  const viewUp =
+    toPoint3((viewReference as { viewUp?: unknown } | undefined)?.viewUp)
+    ?? toPoint3(camera?.viewUp);
+  if (viewUp) {
+    metadata.viewUp = viewUp;
+  }
+
+  const referencedSliceIndex = Number.isInteger((viewReference as { sliceIndex?: unknown } | undefined)?.sliceIndex)
+    ? Number((viewReference as { sliceIndex?: number }).sliceIndex)
+    : normalizedSliceIndex;
+  if (referencedSliceIndex != null) {
+    metadata.sliceIndex = referencedSliceIndex;
+  }
+
+  return {
+    viewportId,
+    annotationGroupSelector: viewport?.element ?? viewportId,
+    viewport,
+    metadata,
+  };
+}
+
+function getImagePlaneInfo(imageId: string): {
+  imagePositionPatient: Point3;
+  normal: Point3;
+  frameOfReferenceUID: string | null;
+} | null {
+  const plane = metaData.get('imagePlaneModule', imageId) as
+    | {
+        imagePositionPatient?: unknown;
+        rowCosines?: unknown;
+        columnCosines?: unknown;
+        frameOfReferenceUID?: string;
+      }
+    | undefined;
+  const imagePositionPatient = toPoint3(plane?.imagePositionPatient);
+  const rowCosines = toPoint3(plane?.rowCosines);
+  const columnCosines = toPoint3(plane?.columnCosines);
+  if (!imagePositionPatient || !rowCosines || !columnCosines) return null;
+
+  const normal = normalizePoint3(crossPoint3(rowCosines, columnCosines));
+  if (!normal) return null;
+
+  return {
+    imagePositionPatient,
+    normal,
+    frameOfReferenceUID: plane?.frameOfReferenceUID ?? null,
+  };
+}
+
+function pushContourPasteHistoryMemo(annotation: any, annotationGroupSelector: unknown, viewportId: string): void {
+  const segmentationId = annotation?.data?.segmentation?.segmentationId;
+  const segmentIndex = Number(annotation?.data?.segmentation?.segmentIndex);
+  if (!segmentationId || !Number.isInteger(segmentIndex) || segmentIndex <= 0) {
+    return;
+  }
+
+  let deleting = false;
+  DefaultHistoryMemo?.push?.({
+    id: annotation.annotationUID,
+    operationType: 'annotation',
+    segmentationId,
+    segmentIndex,
+    label: getSegmentDisplayLabel(segmentationId, segmentIndex),
+    restoreMemo: () => {
+      if (!deleting) {
+        deleting = true;
+        const currentAnnotation = csAnnotation.state.getAnnotation?.(annotation.annotationUID) ?? annotation;
+        currentAnnotation.highlighted = false;
+        currentAnnotation.isSelected = false;
+        removeContourAnnotationFromSegmentation(currentAnnotation);
+        csAnnotation.selection.setAnnotationSelected?.(annotation.annotationUID, false, false);
+        csAnnotation.state.removeAnnotation(annotation.annotationUID);
+        return;
+      }
+
+      deleting = false;
+      annotation.highlighted = true;
+      annotation.isSelected = true;
+      annotation.invalidated = true;
+      addContourAnnotationToSegmentation(annotation);
+      csAnnotation.state.addAnnotation?.(annotation, annotationGroupSelector);
+      csAnnotation.selection.setAnnotationSelected?.(annotation.annotationUID, true, false);
+      useSegmentationStore.getState().setActiveSegmentation(segmentationId);
+      csSegmentation.segmentIndex.setActiveSegmentIndex?.(segmentationId, segmentIndex);
+      try {
+        csSegmentation.activeSegmentation.setActiveSegmentation?.(viewportId, segmentationId);
+      } catch (err) {
+        console.debug('[segmentationService] Failed to reactivate pasted contour segmentation:', err);
+      }
+      emitToolEvent(ToolEnums.Events.ANNOTATION_COMPLETED, { annotation });
+    },
+  });
+}
+
+function syncSelectedContourAnnotation(evt?: Event): void {
+  const detail = (evt as CustomEvent<{ selection?: string[] }> | undefined)?.detail;
+  const selectedFromEvent = Array.isArray(detail?.selection)
+    ? detail.selection[detail.selection.length - 1] ?? null
+    : null;
+  const resolvedSelection = selectedFromEvent
+    ? { annotationUID: selectedFromEvent, annotation: csAnnotation.state.getAnnotation?.(selectedFromEvent) }
+    : getSelectedContourAnnotation();
+  if (!resolvedSelection || !isContourAnnotation(resolvedSelection.annotation)) return;
+
+  const segmentationId = resolvedSelection.annotation.data.segmentation.segmentationId!;
+  const segmentIndex = Number(resolvedSelection.annotation.data.segmentation.segmentIndex);
+  if (!Number.isInteger(segmentIndex) || segmentIndex <= 0) return;
+  if (getSegmentationType(segmentationId) === 'labelmap') return;
+
+  const viewerState = useViewerStore.getState();
+  useSegmentationStore.getState().setActiveSegmentation(segmentationId);
+  segmentationService.setActiveSegmentIndex(segmentationId, segmentIndex);
+  segmentationService.activateOnViewport(viewerState.activeViewportId, segmentationId);
 }
 
 // ─── Segmentation Type Detection ─────────────────────────────────
@@ -1227,6 +1819,7 @@ export const segmentationService = {
         onSegmentationDataModified: onSegmentationDataModified as EventListener,
         onAnnotationAutoSave: onAnnotationAutoSave as EventListener,
         onAnnotationHistoryEvent: onAnnotationHistoryEvent as EventListener,
+        onAnnotationSelectionChange: syncSelectedContourAnnotation as EventListener,
       },
     );
 
@@ -1234,6 +1827,7 @@ export const segmentationService = {
     if (DefaultHistoryMemo) {
       DefaultHistoryMemo.size = 200;
     }
+    installHistoryMemoTracking();
 
     initialized = true;
     console.log('[segmentationService] Initialized — listening for segmentation events');
@@ -1737,6 +2331,148 @@ export const segmentationService = {
       console.error('[segmentationService] Failed to remove segment:', err);
     }
     syncSegmentations();
+  },
+
+  /**
+   * Copy the currently selected contour annotation component.
+   * Returns true when a contour annotation is available for paste.
+   */
+  copySelectedContourAnnotation(): boolean {
+    const selected = getSelectedContourAnnotation();
+    if (!selected) return false;
+
+    const { annotation } = selected;
+    const segmentationId = annotation.data.segmentation.segmentationId!;
+    const segmentIndex = Number(annotation.data.segmentation.segmentIndex);
+    const referencedImageId = annotation.metadata?.referencedImageId;
+    if (
+      typeof referencedImageId !== 'string' ||
+      referencedImageId.length === 0 ||
+      !Number.isInteger(segmentIndex) ||
+      segmentIndex <= 0
+    ) {
+      return false;
+    }
+
+    contourClipboard = {
+      toolName: annotation.metadata?.toolName ?? 'PlanarFreehandContourSegmentationTool',
+      segmentationId,
+      segmentIndex,
+      referencedImageId,
+      frameOfReferenceUID: annotation.metadata?.FrameOfReferenceUID ?? null,
+      polyline: clonePolyline(annotation.data.contour?.polyline),
+      closed: annotation.data.contour?.closed !== false,
+      handles: cloneHandlesWithOffset(annotation.data.handles, [0, 0, 0]),
+    };
+    return contourClipboard.polyline.length >= 3;
+  },
+
+  /**
+   * Paste the copied contour annotation onto the currently displayed stack slice.
+   * Returns true when a new contour annotation was created.
+   */
+  pasteCopiedContourAnnotationToActiveSlice(): boolean {
+    if (!contourClipboard) return false;
+    if (this.getSegmentLocked(contourClipboard.segmentationId, contourClipboard.segmentIndex)) {
+      return false;
+    }
+
+    const targetImageId = getCurrentImageIdForActiveViewport();
+    if (!targetImageId) return false;
+    const viewportContext = getActiveViewportContextForContourPaste(targetImageId);
+    if (!viewportContext) return false;
+
+    const delta: Point3 = [0, 0, 0];
+    if (targetImageId !== contourClipboard.referencedImageId) {
+      const sourcePlane = getImagePlaneInfo(contourClipboard.referencedImageId);
+      const targetPlane = getImagePlaneInfo(targetImageId);
+      if (!sourcePlane || !targetPlane) return false;
+      if (
+        contourClipboard.frameOfReferenceUID &&
+        targetPlane.frameOfReferenceUID &&
+        contourClipboard.frameOfReferenceUID !== targetPlane.frameOfReferenceUID
+      ) {
+        return false;
+      }
+      if (Math.abs(dotPoint3(sourcePlane.normal, targetPlane.normal)) < 0.999) {
+        return false;
+      }
+      const translation = subtractPoint3(
+        targetPlane.imagePositionPatient,
+        sourcePlane.imagePositionPatient,
+      );
+      delta[0] = translation[0];
+      delta[1] = translation[1];
+      delta[2] = translation[2];
+    }
+
+    const annotationUID = csUtilities.uuidv4();
+    const translatedPolyline = contourClipboard.polyline.map((point) => addPoint3(point, delta));
+    const translatedHandles =
+      cloneHandlesWithOffset(contourClipboard.handles, delta)
+      ?? {
+        points: [],
+        activeHandleIndex: null,
+      };
+
+    const nextAnnotation: any = {
+      annotationUID,
+      metadata: {
+        toolName: contourClipboard.toolName,
+        ...viewportContext.metadata,
+      },
+      data: {
+        contour: {
+          polyline: translatedPolyline,
+          closed: contourClipboard.closed,
+        },
+        segmentation: {
+          segmentationId: contourClipboard.segmentationId,
+          segmentIndex: contourClipboard.segmentIndex,
+        },
+        handles: translatedHandles,
+      },
+      highlighted: true,
+      isSelected: true,
+      isLocked: false,
+      isVisible: true,
+      invalidated: false,
+      autoGenerated: false,
+      interpolationUID: '',
+    };
+
+    try {
+      csAnnotation.state.addAnnotation?.(nextAnnotation, viewportContext.annotationGroupSelector);
+      addContourAnnotationToSegmentation(nextAnnotation);
+      pushContourPasteHistoryMemo(
+        nextAnnotation,
+        viewportContext.annotationGroupSelector,
+        viewportContext.viewportId,
+      );
+
+      csAnnotation.selection.setAnnotationSelected?.(annotationUID, true, false);
+      useSegmentationStore.getState().setActiveSegmentation(contourClipboard.segmentationId);
+      this.setActiveSegmentIndex(contourClipboard.segmentationId, contourClipboard.segmentIndex);
+      this.activateOnViewport(viewportContext.viewportId, contourClipboard.segmentationId);
+      emitToolEvent(ToolEnums.Events.ANNOTATION_COMPLETED, { annotation: nextAnnotation });
+
+      syncSegmentations();
+      refreshUndoState();
+      useSegmentationStore.getState()._markDirty();
+      useSegmentationManagerStore.getState().markDirty(contourClipboard.segmentationId);
+      scheduleAutoSave();
+
+      const viewportIds = csSegmentation.state.getViewportIdsWithSegmentation(contourClipboard.segmentationId);
+      const triggerAnnotationRenderForViewportIds = (csToolUtilities as any).triggerAnnotationRenderForViewportIds;
+      if (typeof triggerAnnotationRenderForViewportIds === 'function' && viewportIds.length > 0) {
+        triggerAnnotationRenderForViewportIds(viewportIds);
+      }
+      renderAllSegmentationViewports();
+      return true;
+    } catch (err) {
+      console.error('[segmentationService] Failed to paste copied contour annotation:', err);
+      return false;
+    }
   },
 
   /**
@@ -2649,24 +3385,7 @@ export const segmentationService = {
    * Read the current lock state of a segment from Cornerstone.
    */
   getSegmentLocked(segmentationId: string, segmentIndex: number): boolean {
-    if (isMultiLayerGroup(segmentationId)) {
-      const subSegId = resolveSubSegId(segmentationId, segmentIndex);
-      if (!subSegId) return false;
-      try {
-        return csSegmentation.segmentLocking.isSegmentIndexLocked(subSegId, 1);
-      } catch {
-        return false;
-      }
-    }
-
-    try {
-      return csSegmentation.segmentLocking.isSegmentIndexLocked(
-        segmentationId,
-        segmentIndex,
-      );
-    } catch {
-      return false; // default unlocked
-    }
+    return isSegmentLockedInternal(segmentationId, segmentIndex);
   },
 
   /**
@@ -4788,6 +5507,13 @@ export const segmentationService = {
    * Uses Cornerstone3D's DefaultHistoryMemo ring buffer.
    */
   undo(): void {
+    const lockedTargets = getLockedHistoryTargets(getTopUndoHistoryEntry());
+    if (lockedTargets.length > 0) {
+      showHistoryBlockedDialog('undo', lockedTargets);
+      refreshUndoState();
+      return;
+    }
+
     try {
       DefaultHistoryMemo?.undo?.();
     } catch (err) {
@@ -4802,6 +5528,13 @@ export const segmentationService = {
    * Redo a previously undone edit.
    */
   redo(): void {
+    const lockedTargets = getLockedHistoryTargets(getTopRedoHistoryEntry());
+    if (lockedTargets.length > 0) {
+      showHistoryBlockedDialog('redo', lockedTargets);
+      refreshUndoState();
+      return;
+    }
+
     try {
       DefaultHistoryMemo?.redo?.();
     } catch (err) {
@@ -4890,6 +5623,7 @@ export const segmentationService = {
         onSegmentationDataModified: onSegmentationDataModified as EventListener,
         onAnnotationAutoSave: onAnnotationAutoSave as EventListener,
         onAnnotationHistoryEvent: onAnnotationHistoryEvent as EventListener,
+        onAnnotationSelectionChange: syncSelectedContourAnnotation as EventListener,
       },
     );
 
@@ -4903,6 +5637,7 @@ export const segmentationService = {
       labelmapInterpolationTimer = null;
     }
     labelmapInterpolationInProgress = false;
+    uninstallHistoryMemoTracking();
 
     // Clean up module-level state
     sourceImageIdsMap.clear();

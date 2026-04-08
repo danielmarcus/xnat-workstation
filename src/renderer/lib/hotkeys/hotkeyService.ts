@@ -218,6 +218,10 @@ function dispatchAction(action: HotkeyAction): boolean {
     case 'edit.redo':
       segmentationService.redo();
       return true;
+    case 'edit.copy':
+      return segmentationService.copySelectedContourAnnotation();
+    case 'edit.paste':
+      return segmentationService.pasteCopiedContourAnnotationToActiveSlice();
     case 'edit.delete':
       segmentationService.deleteSelectedContourComponents();
       return true;

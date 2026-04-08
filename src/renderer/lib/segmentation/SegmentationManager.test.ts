@@ -324,6 +324,40 @@ describe('SegmentationManager', () => {
     expect(mockViewerStore.getState().setActiveTool).toHaveBeenCalledWith('WindowLevel');
   });
 
+  it('deactivates editing when switching from an unlocked annotation to a locked annotation', () => {
+    const manager = new SegmentationManager();
+    segmentationServiceMock.getSegmentLocked.mockImplementation((segmentationId: string) => segmentationId === 'rt-2');
+
+    useSegmentationStore.setState({
+      ...useSegmentationStore.getState(),
+      activeSegmentationId: 'rt-1',
+      activeSegmentIndex: 1,
+      activeSegTool: 'FreehandContour',
+      dicomTypeBySegmentationId: {
+        'rt-1': 'RTSTRUCT',
+        'rt-2': 'RTSTRUCT',
+      },
+      segmentations: [
+        {
+          segmentationId: 'rt-1',
+          label: 'RT 1',
+          isActive: true,
+          segments: [{ segmentIndex: 1, label: 'A', color: [255, 0, 0, 255], visible: true, locked: false }],
+        },
+        {
+          segmentationId: 'rt-2',
+          label: 'RT 2',
+          isActive: false,
+          segments: [{ segmentIndex: 1, label: 'B', color: [0, 255, 0, 255], visible: true, locked: true }],
+        },
+      ],
+    });
+
+    manager.userSelectedSegmentation('panel_0', 'rt-2', 1);
+
+    expect(mockViewerStore.getState().setActiveTool).toHaveBeenCalledWith('WindowLevel');
+  });
+
   it('creates new segmentations/structures and records local origins', async () => {
     const manager = new SegmentationManager();
     seedViewerPanelContext();
