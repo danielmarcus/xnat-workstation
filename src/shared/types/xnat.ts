@@ -12,6 +12,8 @@ export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'er
 export interface XnatConnectionInfo {
   serverUrl: string;
   username: string;
+  firstName?: string;
+  lastName?: string;
   connectedAt: number; // timestamp in ms
 }
 

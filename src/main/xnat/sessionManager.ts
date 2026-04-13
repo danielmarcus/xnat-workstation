@@ -53,12 +53,15 @@ export async function browserLogin(serverUrl: string): Promise<XnatLoginResult> 
   // Create client and set pre-fetched auth credentials directly
   const newClient = new XnatClient(serverUrl);
   await newClient.setAuthFromBrowserLogin(loginResult);
+  const profile = await newClient.getCurrentUserProfile();
 
   client = newClient;
 
   connectionInfo = {
     serverUrl: client.serverUrl,
     username: client.currentUsername,
+    firstName: profile.firstName,
+    lastName: profile.lastName,
     connectedAt: Date.now(),
   };
 
@@ -231,11 +234,14 @@ export async function directLogin(
       username: fetchedUsername,
       csrfToken,
     });
+    const profile = await newClient.getCurrentUserProfile();
 
     client = newClient;
     connectionInfo = {
       serverUrl: client.serverUrl,
       username: client.currentUsername,
+      firstName: profile.firstName,
+      lastName: profile.lastName,
       connectedAt: Date.now(),
     };
 
