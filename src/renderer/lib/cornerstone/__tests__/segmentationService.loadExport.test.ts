@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { useConnectionStore } from '../../../stores/connectionStore';
 import { useSegmentationManagerStore } from '../../../stores/segmentationManagerStore';
 import { useSegmentationStore } from '../../../stores/segmentationStore';
 import { useViewerStore } from '../../../stores/viewerStore';
@@ -180,6 +181,27 @@ const segIoMocks = vi.hoisted(() => {
       const bytes = new Uint8Array([65, 66, 67]);
       return bytes.buffer;
     }),
+    collectSourceDicomReferences: vi.fn((imageIds: string[]) => imageIds.map((imageId, index) => ({
+      imageId,
+      studyInstanceUID: 'STUDY-1',
+      seriesInstanceUID: 'SER-1',
+      sopInstanceUID: `SOP-${index + 1}`,
+      sopClassUID: '1.2.840.10008.5.1.4.1.1.2',
+      numberOfFrames: 1,
+    }))),
+    requireSingleStudyReference: vi.fn((refs: Array<Record<string, unknown>>) => refs[0]),
+    serializeDerivedDicomDataset: vi.fn((dataset: any) => ({
+      arrayBuffer: new Uint8Array([65, 66, 67]).buffer,
+      parsedDataset: dataset,
+      parsedMeta: {
+        MediaStorageSOPClassUID: dataset.SOPClassUID,
+        MediaStorageSOPInstanceUID: dataset.SOPInstanceUID,
+        TransferSyntaxUID: '1.2.840.10008.1.2.1',
+        ImplementationClassUID: '2.25.80302813137786398554742050926734630921603366648225212145404',
+        ImplementationVersionName: 'XNATWS-test',
+        FileMetaInformationVersion: new Uint8Array([0, 1]).buffer,
+      },
+    })),
     parseDicom: vi.fn((bytes: Uint8Array) => ({
       uint16: (tag: string) => {
         if (tag === 'x00280010') return 2;
@@ -414,9 +436,16 @@ vi.mock('../writeDicomDict', () => ({
   writeDicomDict: segIoMocks.writeDicomDict,
 }));
 
+vi.mock('../dicomExportHelpers', () => ({
+  collectSourceDicomReferences: segIoMocks.collectSourceDicomReferences,
+  requireSingleStudyReference: segIoMocks.requireSingleStudyReference,
+  serializeDerivedDicomDataset: segIoMocks.serializeDerivedDicomDataset,
+}));
+
 import { segmentationService } from '../segmentationService';
 
 function resetStores(): void {
+  useConnectionStore.setState(useConnectionStore.getInitialState(), true);
   useSegmentationStore.setState(useSegmentationStore.getInitialState(), true);
   useSegmentationManagerStore.setState(useSegmentationManagerStore.getInitialState(), true);
   useViewerStore.setState(useViewerStore.getInitialState(), true);
@@ -489,13 +518,75 @@ describe('segmentationService load/export integration (mocked cornerstone)', () 
   });
 
   it('exports loaded group segmentation through temporary legacy path and returns base64 payload', async () => {
+    useConnectionStore.setState({
+      ...useConnectionStore.getState(),
+      connection: {
+        serverUrl: 'https://xnat.example',
+        username: 'jdoe',
+        firstName: 'Jane',
+        lastName: 'Doe',
+        connectedAt: 1,
+      },
+    });
+
     const loaded = await segmentationService.loadDicomSeg(new ArrayBuffer(8), ['src-1', 'src-2']);
     const base64 = await segmentationService.exportToDicomSeg(loaded.segmentationId);
 
     expect(base64).toBe('QUJD');
     expect(segIoMocks.adaptersGenerateSegmentation).toHaveBeenCalled();
-    expect(segIoMocks.denaturalizeDataset).toHaveBeenCalled();
-    expect(segIoMocks.writeDicomDict).toHaveBeenCalled();
+    expect(segIoMocks.adaptersGenerateSegmentation).toHaveBeenCalledWith(
+      expect.any(Array),
+      expect.objectContaining({
+        metadata: expect.arrayContaining([
+          null,
+          expect.objectContaining({ SegmentDescription: 'Liver' }),
+          expect.objectContaining({ SegmentDescription: 'Tumor' }),
+        ]),
+      }),
+      expect.any(Object),
+    );
+    expect(segIoMocks.serializeDerivedDicomDataset).toHaveBeenCalledWith(
+      expect.objectContaining({
+        OperatorsName: 'Doe, Jane',
+        StudyInstanceUID: 'STUDY-1',
+        Modality: 'SEG',
+        SeriesDescription: 'Loaded SEG',
+      }),
+      expect.objectContaining({ kind: 'SEG' }),
+    );
+  });
+
+  it('appends the current user to an existing SEG OperatorsName value', async () => {
+    useConnectionStore.setState({
+      ...useConnectionStore.getState(),
+      connection: {
+        serverUrl: 'https://xnat.example',
+        username: 'jdoe',
+        firstName: 'Jane',
+        lastName: 'Doe',
+        connectedAt: 1,
+      },
+    });
+    segIoMocks.adaptersGenerateSegmentation.mockReturnValueOnce({
+      dataset: {
+        SOPClassUID: '1.2.3',
+        SOPInstanceUID: '1.2.3.4',
+        NumberOfFrames: 2,
+        Rows: 2,
+        Columns: 2,
+        OperatorsName: 'Existing User',
+        PixelData: new Uint8Array([255]).buffer,
+        PerFrameFunctionalGroupsSequence: [{}, {}],
+      },
+    } as any);
+
+    const loaded = await segmentationService.loadDicomSeg(new ArrayBuffer(8), ['src-1', 'src-2']);
+    await segmentationService.exportToDicomSeg(loaded.segmentationId);
+
+    expect(segIoMocks.serializeDerivedDicomDataset).toHaveBeenCalledWith(
+      expect.objectContaining({ OperatorsName: 'Existing User\\Doe, Jane' }),
+      expect.objectContaining({ kind: 'SEG' }),
+    );
   });
 
   it('rejects load when source image IDs are empty', async () => {
@@ -586,7 +677,7 @@ describe('segmentationService load/export integration (mocked cornerstone)', () 
     await segmentationService.ensureContourRepresentation('panel_0', contourId);
     segIoMocks.viewportIdsBySeg.set(contourId, new Set(['panel_0']));
 
-    segIoMocks.selectionGetAnnotationsSelected.mockReturnValue(['ann-1', 'ann-2', 'ann-3']);
+    segIoMocks.selectionGetAnnotationsSelected.mockReturnValue(['ann-1', 'ann-2', 'ann-3'] as string[]);
     segIoMocks.annotationGetAnnotation.mockImplementation((uid: string) => {
       if (uid === 'ann-1') {
         return {

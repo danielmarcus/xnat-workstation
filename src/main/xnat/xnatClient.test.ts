@@ -148,6 +148,61 @@ describe('XnatClient', () => {
     expect(headers.get('User-Agent')).toBe('XNATDesktopClient');
   });
 
+  it('retrieves current user first/last name from the XAPI profile endpoint when available', async () => {
+    const client = new XnatClient('https://xnat.example');
+    await client.setAuthFromBrowserLogin({
+      jsessionId: 'J1',
+      username: 'dan',
+      serverCookies: [],
+      csrfToken: null,
+    });
+
+    mocks.fetch.mockResolvedValueOnce(makeJsonResponse({
+      firstName: 'Jane',
+      lastName: 'Doe',
+    }));
+
+    await expect(client.getCurrentUserProfile()).resolves.toEqual({
+      firstName: 'Jane',
+      lastName: 'Doe',
+    });
+    expect(mocks.fetch).toHaveBeenCalledWith(
+      'https://xnat.example/xapi/users/dan',
+      expect.any(Object),
+    );
+  });
+
+  it('falls back to the legacy users listing when the XAPI profile lookup fails', async () => {
+    const client = new XnatClient('https://xnat.example');
+    await client.setAuthFromBrowserLogin({
+      jsessionId: 'J1',
+      username: 'dan',
+      serverCookies: [],
+      csrfToken: null,
+    });
+
+    mocks.fetch
+      .mockResolvedValueOnce(new Response('Not Found', { status: 404 }))
+      .mockResolvedValueOnce(makeJsonResponse({
+        ResultSet: {
+          Result: [
+            { login: 'someone-else', firstname: 'Other', lastname: 'User' },
+            { login: 'dan', firstname: 'Jane', lastname: 'Doe' },
+          ],
+        },
+      }));
+
+    await expect(client.getCurrentUserProfile()).resolves.toEqual({
+      firstName: 'Jane',
+      lastName: 'Doe',
+    });
+    expect(mocks.fetch).toHaveBeenNthCalledWith(
+      2,
+      'https://xnat.example/data/users?format=json',
+      expect.any(Object),
+    );
+  });
+
   it('filters DICOM resources in getScanFiles', async () => {
     const client = new XnatClient('https://xnat.example');
     await client.setAuthFromBrowserLogin({
@@ -344,6 +399,7 @@ describe('XnatClient', () => {
       )
       .mockResolvedValueOnce(makeJsonResponse({ ResultSet: { Result: [] } }))
       .mockResolvedValueOnce(new Response('', { status: 200 }))
+      .mockResolvedValueOnce(new Response('', { status: 200 }))
       .mockResolvedValueOnce(new Response('', { status: 200 }));
 
     const segUpload = await client.uploadDicomSegAsScan(
@@ -357,6 +413,13 @@ describe('XnatClient', () => {
     );
     expect(segUpload.scanId).toBe('3011');
     expect(segUpload.url).toContain('/data/experiments/E1/scans/3011');
+    expect(mocks.fetch).toHaveBeenNthCalledWith(
+      5,
+      'https://xnat.example/data/experiments/E1/scans/3011?pullDataFromHeaders=true',
+      expect.objectContaining({
+        method: 'PUT',
+      }),
+    );
 
     mocks.fetch
       .mockResolvedValueOnce(
@@ -390,9 +453,17 @@ describe('XnatClient', () => {
 
     mocks.fetch
       .mockResolvedValueOnce(new Response('delete failed', { status: 500 }))
+      .mockResolvedValueOnce(new Response('', { status: 200 }))
       .mockResolvedValueOnce(new Response('', { status: 200 }));
     const segOverwrite = await client.overwriteDicomSegInScan('E1', '17', Buffer.from([1, 2, 3]), 'Seg Series');
     expect(segOverwrite.scanId).toBe('17');
+    expect(mocks.fetch).toHaveBeenNthCalledWith(
+      11,
+      'https://xnat.example/data/experiments/E1/scans/17?pullDataFromHeaders=true',
+      expect.objectContaining({
+        method: 'PUT',
+      }),
+    );
 
     mocks.fetch
       .mockResolvedValueOnce(new Response('', { status: 404 }))
@@ -400,6 +471,13 @@ describe('XnatClient', () => {
     await expect(
       client.overwriteDicomRtStructInScan('E1', '18', Buffer.from([1, 2, 3]), 'RT Series'),
     ).rejects.toThrow('Failed to overwrite RTSTRUCT in scan 18: 500 upload failed');
+    expect(mocks.fetch).toHaveBeenNthCalledWith(
+      13,
+      'https://xnat.example/data/experiments/E1/scans/18/resources/secondary/files/rtstruct.dcm?format=DICOM&content=secondary&label=secondary',
+      expect.objectContaining({
+        method: 'PUT',
+      }),
+    );
   });
 
   it('auto-saves temp DICOM data and maps permission errors', async () => {
@@ -419,6 +497,69 @@ describe('XnatClient', () => {
     await expect(
       client.autoSaveToTemp('XNAT_E001', '11', Buffer.from([1, 2]), 'autosave_seg_11.dcm'),
     ).rejects.toThrow('Permission denied: you do not have write access to this session');
+  });
+
+  it('uploads RTSTRUCT resources with secondary content and label metadata', async () => {
+    const client = new XnatClient('https://xnat.example');
+    await client.setAuthFromBrowserLogin({
+      jsessionId: 'J1',
+      username: 'dan',
+      serverCookies: [],
+      csrfToken: null,
+    });
+
+    mocks.fetch
+      .mockResolvedValueOnce(
+        makeJsonResponse({
+          items: [
+            {
+              data_fields: {
+                ID: 'E1',
+                project: 'P1',
+                subject_ID: 'S1',
+                label: 'Session 1',
+              },
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(makeJsonResponse({ ResultSet: { Result: [] } }))
+      .mockResolvedValueOnce(new Response('', { status: 200 }))
+      .mockResolvedValueOnce(new Response('', { status: 200 }))
+      .mockResolvedValueOnce(new Response('', { status: 200 }));
+
+    await client.uploadDicomRtStructAsScan(
+      'P1',
+      'S1',
+      'E1',
+      'Session 1',
+      '11',
+      Buffer.from([1, 2, 3]),
+      'My RT',
+    );
+
+    expect(mocks.fetch).toHaveBeenNthCalledWith(
+      4,
+      'https://xnat.example/data/projects/P1/subjects/S1/experiments/Session%201/scans/4011/resources/secondary/files/rtstruct.dcm?format=DICOM&content=secondary&label=secondary',
+      expect.objectContaining({
+        method: 'PUT',
+      }),
+    );
+
+    mocks.fetch
+      .mockResolvedValueOnce(new Response('', { status: 404 }))
+      .mockResolvedValueOnce(new Response('', { status: 200 }))
+      .mockResolvedValueOnce(new Response('', { status: 200 }));
+
+    await client.overwriteDicomRtStructInScan('E1', '18', Buffer.from([1, 2, 3]), 'RT Series');
+
+    expect(mocks.fetch).toHaveBeenNthCalledWith(
+      7,
+      'https://xnat.example/data/experiments/E1/scans/18/resources/secondary/files/rtstruct.dcm?format=DICOM&content=secondary&label=secondary',
+      expect.objectContaining({
+        method: 'PUT',
+      }),
+    );
   });
 
   it('handles temp-resource list/delete/download behaviors', async () => {

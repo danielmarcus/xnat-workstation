@@ -57,7 +57,6 @@ import { useConnectionStore } from '../../stores/connectionStore';
 import { useSegmentationManagerStore } from '../../stores/segmentationManagerStore';
 import { rtStructService } from './rtStructService';
 import { backupService } from '../backup/backupService';
-import { writeDicomDict } from './writeDicomDict';
 import {
   hasSegmentPixelsOnSlice,
   interpolateMorphological,
@@ -74,6 +73,15 @@ import {
   extractLabelmapImageId,
 } from './segmentationService/segmentationHelpers';
 import { applySourceDicomContextToSegDataset } from './segmentationService/dicomContext';
+import {
+  serializeDerivedDicomDataset,
+  requireSingleStudyReference,
+  collectSourceDicomReferences,
+} from './dicomExportHelpers';
+import {
+  formatOperatorsNameForConnection,
+  upsertOperatorsName,
+} from './operatorsName';
 import {
   registerSegmentationServiceEventBindings,
   unregisterSegmentationServiceEventBindings,
@@ -110,6 +118,18 @@ function isValidColorTuple(color: unknown): color is [number, number, number, nu
 }
 
 let segmentationCounter = 0;
+
+const SEGMENTED_PROPERTY_CATEGORY_CODE = Object.freeze({
+  CodeValue: '91723000',
+  CodingSchemeDesignator: 'SCT',
+  CodeMeaning: 'Anatomical structure',
+});
+
+const SEGMENTED_PROPERTY_TYPE_CODE = Object.freeze({
+  CodeValue: '85756007',
+  CodingSchemeDesignator: 'SCT',
+  CodeMeaning: 'Tissue',
+});
 
 /**
  * Cornerstone3D's built-in undo/redo ring buffer.
@@ -4638,19 +4658,12 @@ export const segmentationService = {
 
         segmentMetadata.push({
           SegmentLabel: segment.label || `Segment ${idx}`,
+          SegmentDescription: segment.label || `Segment ${idx}`,
           SegmentNumber: idx,
           SegmentAlgorithmType: 'SEMIAUTOMATIC',
           SegmentAlgorithmName: 'XNAT Workstation',
-          SegmentedPropertyCategoryCodeSequence: {
-            CodeValue: 'T-D0050',
-            CodingSchemeDesignator: 'SRT',
-            CodeMeaning: 'Tissue',
-          },
-          SegmentedPropertyTypeCodeSequence: {
-            CodeValue: 'T-D0050',
-            CodingSchemeDesignator: 'SRT',
-            CodeMeaning: 'Tissue',
-          },
+          SegmentedPropertyCategoryCodeSequence: SEGMENTED_PROPERTY_CATEGORY_CODE,
+          SegmentedPropertyTypeCodeSequence: SEGMENTED_PROPERTY_TYPE_CODE,
           RecommendedDisplayCIELabValue: cieLabValues,
         });
       }
@@ -4904,7 +4917,79 @@ export const segmentationService = {
     //
     // We detect this condition and fully rebuild the DICOM SEG dataset.
     const ds = segDerivation.dataset;
-    applySourceDicomContextToSegDataset(ds, srcImageIds[0], metaData.get.bind(metaData));
+    const sourceRefs = collectSourceDicomReferences(srcImageIds, metaData.get.bind(metaData));
+    const primarySourceRef = requireSingleStudyReference(sourceRefs, 'DICOM SEG export');
+    applySourceDicomContextToSegDataset(ds, primarySourceRef.imageId, metaData.get.bind(metaData));
+    if (!ds.StudyInstanceUID && primarySourceRef.studyInstanceUID) ds.StudyInstanceUID = primarySourceRef.studyInstanceUID;
+    if (!ds.PatientName && primarySourceRef.patientName) ds.PatientName = primarySourceRef.patientName;
+    if (!ds.PatientID && primarySourceRef.patientId) ds.PatientID = primarySourceRef.patientId;
+    if (!ds.PatientBirthDate && primarySourceRef.patientBirthDate) ds.PatientBirthDate = primarySourceRef.patientBirthDate;
+    if (!ds.PatientSex && primarySourceRef.patientSex) ds.PatientSex = primarySourceRef.patientSex;
+    if (!ds.StudyDate && primarySourceRef.studyDate) ds.StudyDate = primarySourceRef.studyDate;
+    if (!ds.StudyTime && primarySourceRef.studyTime) ds.StudyTime = primarySourceRef.studyTime;
+    if (!ds.StudyID && primarySourceRef.studyID) ds.StudyID = primarySourceRef.studyID;
+    if (!ds.AccessionNumber && primarySourceRef.accessionNumber) ds.AccessionNumber = primarySourceRef.accessionNumber;
+    if (!ds.StudyDescription && primarySourceRef.studyDescription) ds.StudyDescription = primarySourceRef.studyDescription;
+    if (!ds.ReferringPhysicianName && primarySourceRef.referringPhysicianName) {
+      ds.ReferringPhysicianName = primarySourceRef.referringPhysicianName;
+    }
+    if (!ds.FrameOfReferenceUID && primarySourceRef.frameOfReferenceUID) {
+      ds.FrameOfReferenceUID = primarySourceRef.frameOfReferenceUID;
+    }
+    const primaryImagePlane = metaData.get('imagePlaneModule', primarySourceRef.imageId) as any;
+    ds.SharedFunctionalGroupsSequence ||= {};
+    ds.SharedFunctionalGroupsSequence.PixelMeasuresSequence ||= {};
+    if (
+      !Array.isArray(ds.SharedFunctionalGroupsSequence.PixelMeasuresSequence.PixelSpacing)
+      && Number.isFinite(primaryImagePlane?.rowPixelSpacing)
+      && Number.isFinite(primaryImagePlane?.columnPixelSpacing)
+    ) {
+      ds.SharedFunctionalGroupsSequence.PixelMeasuresSequence.PixelSpacing = [
+        primaryImagePlane.rowPixelSpacing,
+        primaryImagePlane.columnPixelSpacing,
+      ];
+    }
+    if (
+      !ds.SharedFunctionalGroupsSequence.PixelMeasuresSequence.SliceThickness
+      && Number.isFinite(primaryImagePlane?.sliceThickness)
+      && primaryImagePlane.sliceThickness > 0
+    ) {
+      ds.SharedFunctionalGroupsSequence.PixelMeasuresSequence.SliceThickness = primaryImagePlane.sliceThickness;
+    }
+    if (
+      !ds.SharedFunctionalGroupsSequence.PixelMeasuresSequence.SliceThickness
+      && Number.isFinite(primaryImagePlane?.spacingBetweenSlices)
+      && primaryImagePlane.spacingBetweenSlices > 0
+    ) {
+      ds.SharedFunctionalGroupsSequence.PixelMeasuresSequence.SliceThickness = primaryImagePlane.spacingBetweenSlices;
+    }
+    if (!ds.SharedFunctionalGroupsSequence.PixelMeasuresSequence.SliceThickness) {
+      ds.SharedFunctionalGroupsSequence.PixelMeasuresSequence.SliceThickness = 1;
+    }
+    if (
+      !ds.SharedFunctionalGroupsSequence.PixelMeasuresSequence.SpacingBetweenSlices
+      && Number.isFinite(primaryImagePlane?.spacingBetweenSlices)
+      && primaryImagePlane.spacingBetweenSlices > 0
+    ) {
+      ds.SharedFunctionalGroupsSequence.PixelMeasuresSequence.SpacingBetweenSlices = primaryImagePlane.spacingBetweenSlices;
+    }
+    ds.SharedFunctionalGroupsSequence.PlaneOrientationSequence ||= {};
+    if (
+      !Array.isArray(ds.SharedFunctionalGroupsSequence.PlaneOrientationSequence.ImageOrientationPatient)
+      && Array.isArray(primaryImagePlane?.imageOrientationPatient)
+      && primaryImagePlane.imageOrientationPatient.length >= 6
+    ) {
+      ds.SharedFunctionalGroupsSequence.PlaneOrientationSequence.ImageOrientationPatient = [
+        ...primaryImagePlane.imageOrientationPatient,
+      ];
+    }
+    const operatorsName = upsertOperatorsName(
+      ds.OperatorsName,
+      formatOperatorsNameForConnection(useConnectionStore.getState().connection),
+    );
+    if (operatorsName) {
+      ds.OperatorsName = operatorsName;
+    }
 
     const dsRowsValid = typeof ds.Rows === 'number' && ds.Rows > 0;
     const dsColsValid = typeof ds.Columns === 'number' && ds.Columns > 0;
@@ -4993,121 +5078,9 @@ export const segmentationService = {
 
     console.log(`[segmentationService] DICOM SEG: Rows=${ds.Rows}, Columns=${ds.Columns}, Frames=${ds.NumberOfFrames}, PixelData=${ds.PixelData?.byteLength ?? 0} bytes`);
 
-    // Step 6: Serialize to ArrayBuffer via dcmjs.
-    //
-    // We use dcmjs DicomMetaDictionary.denaturalizeDataset() to convert the
-    // human-readable dataset from generateSegmentation() into a tag-keyed
-    // DICOM JSON structure, then DicomDict.write() to produce binary.
-    //
-    // We also avoid datasetToBlob/datasetToBuffer which depend on Node.js
-    // Buffer — unavailable in Electron's renderer with context isolation.
+    // Step 6: Finalize and serialize the derived SEG with shared DICOM validation.
     const dataset = segDerivation.dataset;
-    const { DicomMetaDictionary, DicomDict } = dcmjsData as any;
-
-    // --- Pre-denaturalization cleanup ---
-    //
-    // dcmjs generateSegmentation / SegmentationDerivation can leave values
-    // in the dataset that cause problems during serialization:
-    //
-    //  1. `undefined` values → denaturalizeValue throws "undefined values"
-    //  2. NaN numbers → denaturalizeValue converts to string "NaN" →
-    //     parseInt("NaN") in toInt() throws "Not a number: NaN"
-    //  3. Empty strings "" for numeric VR tags (US, UL, etc.) — these come
-    //     from dcmjs DerivedDataset.assignFromReference() which does
-    //     `dataset[tag] = referencedDataset[tag] || ""`. When writeUint16
-    //     receives the string "" via toInt(""), parseInt("") returns NaN,
-    //     and DataView.setUint16(offset, NaN) silently writes 0.
-    //
-    // Strategy: Remove undefined properties entirely (denaturalizeDataset
-    // skips them), convert NaN to 0, and delete empty-string values for
-    // known numeric-VR tags so they are omitted from the file rather than
-    // written as corrupt 0 values.
-
-    // Known DICOM tags with numeric VR (US, UL, SS, SL, FL, FD) that
-    // dcmjs assignFromReference may set to "" if missing from the reference.
-    // We delete these empty-string values so they don't produce NaN writes.
-    const NUMERIC_VR_TAGS = new Set([
-      'Rows', 'Columns', 'BitsAllocated', 'BitsStored', 'HighBit',
-      'PixelRepresentation', 'SamplesPerPixel', 'NumberOfFrames',
-      'PlanarConfiguration', 'SmallestImagePixelValue', 'LargestImagePixelValue',
-      'WindowCenter', 'WindowWidth', 'RescaleIntercept', 'RescaleSlope',
-      'InstanceNumber', 'AcquisitionNumber', 'SeriesNumber',
-      'RecommendedDisplayCIELabValue', 'MaximumFractionalValue',
-      'LossyImageCompressionRatio', 'LossyImageCompressionMethod',
-    ]);
-
-    const sanitizeNaturalized = (obj: any, path = ''): void => {
-      if (obj == null || typeof obj !== 'object') return;
-      for (const key of Object.keys(obj)) {
-        if (key === '_vrMap' || key === '_meta') continue;
-        const val = obj[key];
-        if (val === undefined) {
-          // Remove undefined properties — denaturalizeDataset skips them
-          delete obj[key];
-          continue;
-        }
-        if (typeof val === 'number' && isNaN(val)) {
-          console.warn(`[segmentationService] Sanitized NaN in ${path}${key} → 0`);
-          obj[key] = 0;
-        } else if (val === '' && NUMERIC_VR_TAGS.has(key)) {
-          // Empty string for a numeric tag would serialize as NaN → 0.
-          // Delete it so the tag is simply omitted from the file.
-          console.warn(`[segmentationService] Removed empty-string numeric tag: ${path}${key}`);
-          delete obj[key];
-        } else if (Array.isArray(val)) {
-          for (let i = 0; i < val.length; i++) {
-            if (typeof val[i] === 'number' && isNaN(val[i])) {
-              val[i] = 0;
-            } else if (val[i] === undefined) {
-              val[i] = '';
-            } else if (typeof val[i] === 'object' && val[i] !== null) {
-              sanitizeNaturalized(val[i], `${path}${key}[${i}].`);
-            }
-          }
-        } else if (typeof val === 'object' && !(val instanceof ArrayBuffer) && !(ArrayBuffer.isView(val))) {
-          sanitizeNaturalized(val, `${path}${key}.`);
-        }
-      }
-    };
-
-    // --- Post-denaturalization sanitization ---
-    // Catches empty-string Value entries for numeric VRs in the
-    // tag-keyed denaturalized structure. These would cause parseInt("") → NaN.
-    const NUMERIC_VR_TYPES = new Set(['US', 'UL', 'SS', 'SL', 'FL', 'FD', 'IS', 'DS']);
-
-    const sanitizeDenaturalized = (dict: any): void => {
-      if (dict == null || typeof dict !== 'object') return;
-      for (const tagKey of Object.keys(dict)) {
-        const entry = dict[tagKey];
-        if (entry == null || typeof entry !== 'object') continue;
-        if (Array.isArray(entry.Value)) {
-          const isNumericVR = NUMERIC_VR_TYPES.has(entry.vr);
-          for (let i = 0; i < entry.Value.length; i++) {
-            const v = entry.Value[i];
-            if (typeof v === 'number' && isNaN(v)) {
-              entry.Value[i] = 0;
-            } else if (v === 'NaN' || v === 'undefined' || v === 'null') {
-              entry.Value[i] = isNumericVR ? 0 : '';
-            } else if (v === '' && isNumericVR) {
-              // Empty string in a numeric VR → parseInt("") → NaN → 0.
-              // Replace with 0 explicitly.
-              entry.Value[i] = 0;
-            } else if (typeof v === 'string' && isNumericVR && isNaN(parseInt(v, 10))) {
-              // Non-parseable string in a numeric VR — dcmjs toInt() would
-              // throw "Not a number: NaN". Replace with 0.
-              entry.Value[i] = 0;
-            } else if (v === undefined || v === null) {
-              entry.Value[i] = isNumericVR ? 0 : '';
-            } else if (typeof v === 'object') {
-              sanitizeDenaturalized(v);
-            }
-          }
-        }
-      }
-    };
-
-    // Ensure critical tags are correct numbers (not strings, not empty)
-    // BEFORE sanitization runs. These MUST be valid integers for a valid SEG.
+    dataset.Modality = 'SEG';
     dataset.Rows = rows;
     dataset.Columns = columns;
     if (typeof dataset.BitsAllocated !== 'number' || dataset.BitsAllocated <= 0) {
@@ -5126,70 +5099,32 @@ export const segmentationService = {
       dataset.PixelRepresentation = 0;
     }
 
-    // Set up file meta information (same logic as dcmjs datasetToDict)
-    const fileMetaVersionBuf = new Uint8Array(2);
-    fileMetaVersionBuf[1] = 1;
-
-    const transferSyntaxUID =
-      dataset._meta?.TransferSyntaxUID?.Value?.[0] ??
-      '1.2.840.10008.1.2.1'; // Explicit VR Little Endian
-
-    dataset._meta = {
-      MediaStorageSOPClassUID: dataset.SOPClassUID || '1.2.840.10008.5.1.4.1.1.66.4',
-      MediaStorageSOPInstanceUID: dataset.SOPInstanceUID,
-      ImplementationVersionName: 'dcmjs-0.0',
-      TransferSyntaxUID: transferSyntaxUID,
-      ImplementationClassUID:
-        '2.25.80302813137786398554742050926734630921603366648225212145404',
-      FileMetaInformationVersion: fileMetaVersionBuf.buffer,
-    };
-
-    // Sanitize the naturalized dataset
-    sanitizeNaturalized(dataset);
-
-    // Final verification: Rows/Columns must still be correct after sanitization
-    if (dataset.Rows !== rows) dataset.Rows = rows;
-    if (dataset.Columns !== columns) dataset.Columns = columns;
-
-    // Denaturalize (convert human-readable property names to DICOM tag keys)
-    const denaturalizedMeta = DicomMetaDictionary.denaturalizeDataset(dataset._meta);
-    const denaturalizedDict = DicomMetaDictionary.denaturalizeDataset(dataset);
-
-    // Sanitize the denaturalized structures
-    sanitizeDenaturalized(denaturalizedMeta);
-    sanitizeDenaturalized(denaturalizedDict);
-
-    // Verify critical tags in denaturalized dict (Rows = 00280010, Columns = 00280011)
-    const rowsTag = denaturalizedDict['00280010'];
-    const colsTag = denaturalizedDict['00280011'];
-    if (rowsTag?.Value?.[0] != null) {
-      const rv = typeof rowsTag.Value[0] === 'string' ? parseInt(rowsTag.Value[0], 10) : rowsTag.Value[0];
-      if (isNaN(rv) || rv !== rows) {
-        console.warn(`[segmentationService] Fixing denaturalized Rows: ${rowsTag.Value[0]} → ${rows}`);
-        rowsTag.Value[0] = rows;
-      }
-    }
-    if (colsTag?.Value?.[0] != null) {
-      const cv = typeof colsTag.Value[0] === 'string' ? parseInt(colsTag.Value[0], 10) : colsTag.Value[0];
-      if (isNaN(cv) || cv !== columns) {
-        console.warn(`[segmentationService] Fixing denaturalized Columns: ${colsTag.Value[0]} → ${columns}`);
-        colsTag.Value[0] = columns;
-      }
-    }
-
-    // Write to ArrayBuffer via dcmjs DicomDict.
-    //
-    // dcmjs's internal VR write methods compute byte counts via arithmetic
-    // that can produce NaN (e.g., writing a malformed value where the length
-    // calculation involves undefined fields). These NaN byte counts are then
-    // passed to writeUint16/writeUint32, which call toInt() and throw
-    // "Not a number: NaN". Dataset sanitization above handles Value arrays,
-    // but cannot prevent NaN in dcmjs's internal length arithmetic.
-    //
-    // Workaround: use writeDicomDict() which temporarily guards the write
-    // calls on the stream instance used by DicomDict.write(). This is scoped
-    // to a single call and restores immediately.
-    const arrayBuffer = writeDicomDict(DicomDict, denaturalizedMeta, denaturalizedDict);
+    const { arrayBuffer } = serializeDerivedDicomDataset(dataset, {
+      kind: 'SEG',
+      callerTag: 'segmentationService',
+      defaultSOPClassUID: '1.2.840.10008.5.1.4.1.1.66.4',
+      requiredDatasetFields: [
+        'SOPClassUID',
+        'SOPInstanceUID',
+        'StudyInstanceUID',
+        'SeriesInstanceUID',
+        'Modality',
+        'Rows',
+        'Columns',
+        'NumberOfFrames',
+        'PixelData',
+        'SegmentSequence',
+        'PerFrameFunctionalGroupsSequence',
+        'SharedFunctionalGroupsSequence',
+      ],
+      expectedDatasetValues: {
+        Modality: 'SEG',
+        StudyInstanceUID: primarySourceRef.studyInstanceUID,
+        Rows: rows,
+        Columns: columns,
+      },
+      includeContentDateTime: true,
+    });
 
     // ─── Binary validation ───
     // Parse the just-written ArrayBuffer with dicom-parser to verify that
@@ -5319,19 +5254,12 @@ export const segmentationService = {
 
       segmentMetadata.push({
         SegmentLabel: meta?.label ?? `Segment ${idx}`,
+        SegmentDescription: meta?.label ?? `Segment ${idx}`,
         SegmentNumber: idx,
         SegmentAlgorithmType: 'SEMIAUTOMATIC',
         SegmentAlgorithmName: 'XNAT Workstation',
-        SegmentedPropertyCategoryCodeSequence: {
-          CodeValue: 'T-D0050',
-          CodingSchemeDesignator: 'SRT',
-          CodeMeaning: 'Tissue',
-        },
-        SegmentedPropertyTypeCodeSequence: {
-          CodeValue: 'T-D0050',
-          CodingSchemeDesignator: 'SRT',
-          CodeMeaning: 'Tissue',
-        },
+        SegmentedPropertyCategoryCodeSequence: SEGMENTED_PROPERTY_CATEGORY_CODE,
+        SegmentedPropertyTypeCodeSequence: SEGMENTED_PROPERTY_TYPE_CODE,
         RecommendedDisplayCIELabValue: cieLabValues,
       });
     }

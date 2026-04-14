@@ -18,6 +18,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "test:dicom:compliance": "vitest run src/renderer/lib/cornerstone/__tests__/dicomExportHelpers.test.ts src/renderer/lib/cornerstone/__tests__/rtStructService.test.ts src/renderer/lib/cornerstone/__tests__/segmentationService.loadExport.test.ts src/renderer/lib/cornerstone/__tests__/dicomExternalCompliance.test.ts",
     "test:cornerstone": "vitest run src/renderer/lib/cornerstone/__tests__",
     "test:cornerstone:coverage": "vitest run --coverage src/renderer/lib/cornerstone/__tests__",
     "test:e2e": "npx playwright test --config playwright.config.ts",

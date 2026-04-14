@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { useConnectionStore } from '../../../stores/connectionStore';
 import { useSegmentationStore } from '../../../stores/segmentationStore';
 
 const rtStructMocks = vi.hoisted(() => {
@@ -8,9 +9,25 @@ const rtStructMocks = vi.hoisted(() => {
 
   const generateRTSSFromContour = vi.fn((_seg: unknown) => ({
     _meta: { FileMetaInformationVersion: { Value: [0, 1], vr: 'OB' } },
+    SOPClassUID: '1.2.840.10008.5.1.4.1.1.481.3',
+    SOPInstanceUID: '1.2.3.4',
+    SeriesInstanceUID: '2.3.4.5',
+    StructureSetROISequence: [{ ROINumber: 1, ROIName: 'ROI 1' }],
+    RTROIObservationsSequence: [{ ObservationNumber: 1, ReferencedROINumber: 1 }],
     ReferencedFrameOfReferenceSequence: [],
     ROIContourSequence: [
-      { ReferencedROINumber: 1, ROIDisplayColor: [1, 2, 3] },
+      {
+        ReferencedROINumber: 1,
+        ROIDisplayColor: [1, 2, 3],
+        ContourSequence: [
+          {
+            ContourImageSequence: [{
+              ReferencedSOPClassUID: '1.2.840.10008.5.1.4.1.1.2',
+              ReferencedSOPInstanceUID: 'SOP-1',
+            }],
+          },
+        ],
+      },
     ],
   }));
 
@@ -60,6 +77,32 @@ const rtStructMocks = vi.hoisted(() => {
       const bytes = new Uint8Array([65, 66]); // "AB"
       return bytes.buffer;
     }),
+    parseReferencedFrameNumber: vi.fn((imageId: string) => {
+      const match = imageId.match(/[?&]frame=(\d+)/);
+      return match ? Number(match[1]) : null;
+    }),
+    collectSourceDicomReferences: vi.fn((imageIds: string[]) => imageIds.map((imageId) => ({
+      imageId,
+      studyInstanceUID: 'STUDY-1',
+      seriesInstanceUID: 'SER-1',
+      frameOfReferenceUID: 'FOR-1',
+      sopClassUID: '1.2.840.10008.5.1.4.1.1.2',
+      sopInstanceUID: 'SOP-1',
+      numberOfFrames: 1,
+    }))),
+    requireSingleStudyReference: vi.fn((refs: Array<Record<string, unknown>>) => refs[0]),
+    serializeDerivedDicomDataset: vi.fn((dataset: any) => ({
+      arrayBuffer: new Uint8Array([65, 66]).buffer,
+      parsedDataset: dataset,
+      parsedMeta: {
+        MediaStorageSOPClassUID: dataset.SOPClassUID,
+        MediaStorageSOPInstanceUID: dataset.SOPInstanceUID,
+        TransferSyntaxUID: '1.2.840.10008.1.2.1',
+        ImplementationClassUID: '2.25.80302813137786398554742050926734630921603366648225212145404',
+        ImplementationVersionName: 'XNATWS-test',
+        FileMetaInformationVersion: new Uint8Array([0, 1]).buffer,
+      },
+    })),
     generateRTSSFromContour,
   };
 });
@@ -150,6 +193,13 @@ vi.mock('../writeDicomDict', () => ({
   writeDicomDict: rtStructMocks.writeDicomDict,
 }));
 
+vi.mock('../dicomExportHelpers', () => ({
+  collectSourceDicomReferences: rtStructMocks.collectSourceDicomReferences,
+  parseReferencedFrameNumber: rtStructMocks.parseReferencedFrameNumber,
+  requireSingleStudyReference: rtStructMocks.requireSingleStudyReference,
+  serializeDerivedDicomDataset: rtStructMocks.serializeDerivedDicomDataset,
+}));
+
 import { rtStructService } from '../rtStructService';
 
 type MockDataSet = {
@@ -177,6 +227,7 @@ function ds({
 describe('rtStructService', () => {
   beforeEach(() => {
     rtStructMocks.reset();
+    useConnectionStore.setState(useConnectionStore.getInitialState(), true);
     useSegmentationStore.setState(useSegmentationStore.getInitialState(), true);
     vi.stubGlobal('btoa', (value: string) => Buffer.from(value, 'binary').toString('base64'));
   });
@@ -301,6 +352,16 @@ describe('rtStructService', () => {
 
   it('exports contour segmentation to base64 RTSTRUCT and applies source metadata + segment colors', async () => {
     const segmentationId = 'seg-rt-1';
+    useConnectionStore.setState({
+      ...useConnectionStore.getState(),
+      connection: {
+        serverUrl: 'https://xnat.example',
+        username: 'jdoe',
+        firstName: 'Jane',
+        lastName: 'Doe',
+        connectedAt: 1,
+      },
+    });
     rtStructMocks.segmentations.set(segmentationId, {
       segmentationId,
       representationData: {
@@ -310,6 +371,30 @@ describe('rtStructService', () => {
       },
       segments: { 1: { segmentIndex: 1, label: 'A' } },
     });
+    rtStructMocks.generateRTSSFromContour.mockReturnValueOnce({
+      _meta: { FileMetaInformationVersion: { Value: [0, 1], vr: 'OB' } },
+      SOPClassUID: '1.2.840.10008.5.1.4.1.1.481.3',
+      SOPInstanceUID: '1.2.3.4',
+      SeriesInstanceUID: '2.3.4.5',
+      OperatorsName: 'Existing User',
+      StructureSetROISequence: [{ ROINumber: 1, ROIName: 'ROI 1' }],
+      RTROIObservationsSequence: [{ ObservationNumber: 1, ReferencedROINumber: 1 }],
+      ReferencedFrameOfReferenceSequence: [],
+      ROIContourSequence: [
+        {
+          ReferencedROINumber: 1,
+          ROIDisplayColor: [1, 2, 3],
+          ContourSequence: [
+            {
+              ContourImageSequence: [{
+                ReferencedSOPClassUID: '1.2.840.10008.5.1.4.1.1.2',
+                ReferencedSOPInstanceUID: 'SOP-1',
+              }],
+            },
+          ],
+        },
+      ],
+    } as any);
     rtStructMocks.metadataMap.set('patientModule|img-1', { patientName: 'Doe^Jane', patientId: 'PID-1' });
     rtStructMocks.metadataMap.set('generalStudyModule|img-1', { studyInstanceUID: 'STUDY-1' });
     rtStructMocks.metadataMap.set('generalSeriesModule|img-1', { seriesInstanceUID: 'SER-1' });
@@ -335,8 +420,36 @@ describe('rtStructService', () => {
       expect.objectContaining({ segmentationId }),
       expect.objectContaining({ metadataProvider: expect.any(Object) }),
     );
-    expect(rtStructMocks.denaturalizeDataset).toHaveBeenCalled();
-    expect(rtStructMocks.writeDicomDict).toHaveBeenCalled();
+    expect(rtStructMocks.serializeDerivedDicomDataset).toHaveBeenCalledWith(
+      expect.objectContaining({
+        OperatorsName: 'Existing User\\Doe, Jane',
+        StudyInstanceUID: 'STUDY-1',
+        FrameOfReferenceUID: 'FOR-1',
+        Modality: 'RTSTRUCT',
+        RTROIObservationsSequence: [
+          expect.objectContaining({ ROIInterpreter: '' }),
+        ],
+        ReferencedFrameOfReferenceSequence: [
+          expect.objectContaining({
+            FrameOfReferenceUID: 'FOR-1',
+            RTReferencedStudySequence: [
+              expect.objectContaining({
+                ReferencedSOPInstanceUID: 'STUDY-1',
+                RTReferencedSeriesSequence: [
+                  expect.objectContaining({
+                    SeriesInstanceUID: 'SER-1',
+                    ContourImageSequence: [
+                      expect.objectContaining({ ReferencedSOPInstanceUID: 'SOP-1' }),
+                    ],
+                  }),
+                ],
+              }),
+            ],
+          }),
+        ],
+      }),
+      expect.objectContaining({ kind: 'RTSTRUCT' }),
+    );
   });
 
   it('throws clear export errors for missing segmentation or missing contour representation', async () => {

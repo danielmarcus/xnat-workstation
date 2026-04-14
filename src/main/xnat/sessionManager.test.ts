@@ -3,6 +3,10 @@ import { IPC } from '../../shared/ipcChannels';
 
 const mocks = vi.hoisted(() => {
   const clientInstances: any[] = [];
+  const currentUserProfile = {
+    firstName: undefined as string | undefined,
+    lastName: undefined as string | undefined,
+  };
   class MockXnatAuthError extends Error {
     constructor(message: string) {
       super(message);
@@ -18,6 +22,7 @@ const mocks = vi.hoisted(() => {
       this.currentUsername = opts.username;
     });
     this.disconnect = vi.fn(async () => undefined);
+    this.getCurrentUserProfile = vi.fn(async () => ({ ...currentUserProfile }));
     this.validateSession = vi.fn(async () => this.currentUsername || null);
     this.clearCookies = vi.fn();
     this.markDisconnected = vi.fn(() => {
@@ -31,6 +36,7 @@ const mocks = vi.hoisted(() => {
     XnatClient,
     XnatAuthError: MockXnatAuthError,
     clientInstances,
+    currentUserProfile,
     openBrowserLogin: vi.fn(),
     windows,
     onBeforeSendHeaders: vi.fn(),
@@ -68,6 +74,8 @@ describe('sessionManager', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.clientInstances.length = 0;
+    mocks.currentUserProfile.firstName = undefined;
+    mocks.currentUserProfile.lastName = undefined;
     mocks.openBrowserLogin.mockResolvedValue({
       jsessionId: 'jsession',
       username: 'dan',
@@ -99,6 +107,7 @@ describe('sessionManager', () => {
       serverCookies: [],
       csrfToken: null,
     });
+    expect(client.getCurrentUserProfile).toHaveBeenCalledTimes(1);
     expect(mocks.onBeforeSendHeaders).toHaveBeenCalledWith(
       { urls: ['https://xnat.example/*'] },
       expect.any(Function),
@@ -117,6 +126,21 @@ describe('sessionManager', () => {
 
     await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
     expect(client.validateSession).toHaveBeenCalled();
+  });
+
+  it('includes optional first and last name in connection info when the profile lookup succeeds', async () => {
+    mocks.currentUserProfile.firstName = 'Jane';
+    mocks.currentUserProfile.lastName = 'Doe';
+
+    vi.resetModules();
+    const sessionManager = await import('./sessionManager');
+
+    const result = await sessionManager.browserLogin('https://xnat.example/');
+    expect(result.connection).toMatchObject({
+      username: 'dan',
+      firstName: 'Jane',
+      lastName: 'Doe',
+    });
   });
 
   it('injects cookies from the jar on renderer requests', async () => {

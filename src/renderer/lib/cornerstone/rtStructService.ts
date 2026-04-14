@@ -21,10 +21,63 @@ import {
   Enums as ToolEnums,
   utilities as csToolUtilities,
 } from '@cornerstonejs/tools';
-import { data as dcmjsData } from 'dcmjs';
+import { useConnectionStore } from '../../stores/connectionStore';
 import { useSegmentationStore } from '../../stores/segmentationStore';
 import { segmentationService } from './segmentationService';
-import { writeDicomDict } from './writeDicomDict';
+import {
+  formatOperatorsNameForConnection,
+  upsertOperatorsName,
+} from './operatorsName';
+import {
+  collectSourceDicomReferences,
+  parseReferencedFrameNumber,
+  requireSingleStudyReference,
+  serializeDerivedDicomDataset,
+} from './dicomExportHelpers';
+
+function parsePositiveInt(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) return Math.trunc(value);
+  if (typeof value === 'string' && value.trim().length > 0) {
+    const parsed = Number.parseInt(value, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  }
+  return null;
+}
+
+function resolveFrameModule(imageId: string): {
+  sopClassUID: string;
+  sopInstanceUID: string;
+  frameNumber: number;
+  numberOfFrames: number;
+} | undefined {
+  const sop = metaData.get('sopCommonModule', imageId) as
+    | { sopClassUID?: string; sopInstanceUID?: string; numberOfFrames?: unknown }
+    | undefined;
+  if (!sop?.sopClassUID || !sop?.sopInstanceUID) return undefined;
+
+  const multiframe = metaData.get('multiframeModule', imageId) as
+    | { numberOfFrames?: unknown }
+    | undefined;
+  const instance = metaData.get('instance', imageId) as
+    | { NumberOfFrames?: unknown; numberOfFrames?: unknown }
+    | undefined;
+  const frameNumber = parseReferencedFrameNumber(imageId) ?? 1;
+  const explicitNumberOfFrames =
+    parsePositiveInt(multiframe?.numberOfFrames)
+    ?? parsePositiveInt(instance?.NumberOfFrames)
+    ?? parsePositiveInt(instance?.numberOfFrames)
+    ?? parsePositiveInt(sop.numberOfFrames);
+
+  return {
+    sopClassUID: sop.sopClassUID,
+    sopInstanceUID: sop.sopInstanceUID,
+    frameNumber,
+    numberOfFrames:
+      explicitNumberOfFrames && explicitNumberOfFrames > 1
+        ? explicitNumberOfFrames
+        : (frameNumber > 1 ? Math.max(2, frameNumber) : 1),
+  };
+}
 
 // ─── Bridge: register a global 'frameModule' metadata provider ──────────
 //
@@ -35,16 +88,7 @@ import { writeDicomDict } from './writeDicomDict';
 // provider that bridges the gap.
 metaData.addProvider((type: string, imageId: string) => {
   if (type !== 'frameModule') return undefined;
-  const sop = metaData.get('sopCommonModule', imageId) as
-    | { sopClassUID?: string; sopInstanceUID?: string }
-    | undefined;
-  if (!sop) return undefined;
-  return {
-    sopClassUID: sop.sopClassUID ?? '',
-    sopInstanceUID: sop.sopInstanceUID ?? '',
-    frameNumber: 1,
-    numberOfFrames: 1,
-  };
+  return resolveFrameModule(imageId);
 }, 100); // priority 100 — low enough to not override real providers
 
 // ─── Types ──────────────────────────────────────────────────────
@@ -699,6 +743,290 @@ function applyCurrentSegmentColorsToRtStructDataset(dataset: any, segmentationId
   }
 }
 
+function toStructureSetLabel(value: string | undefined): string {
+  const trimmed = value?.trim() || 'RTSTRUCT';
+  return trimmed.slice(0, 16);
+}
+
+function normalizeContourImageSequenceItems(sequence: any): Array<Record<string, unknown>> {
+  if (Array.isArray(sequence)) {
+    return sequence.filter((item) => item && typeof item === 'object');
+  }
+  if (sequence && typeof sequence === 'object') {
+    return [sequence];
+  }
+  return [];
+}
+
+function contourImageReferenceKey(item: { ReferencedSOPInstanceUID?: unknown; ReferencedFrameNumber?: unknown }): string {
+  const sopInstanceUID = typeof item.ReferencedSOPInstanceUID === 'string'
+    ? item.ReferencedSOPInstanceUID
+    : '';
+  const referencedFrameNumber = parsePositiveInt(item.ReferencedFrameNumber);
+  return `${sopInstanceUID}|${referencedFrameNumber ?? ''}`;
+}
+
+function collectContourImageReferencesFromRtStruct(dataset: any): Array<Record<string, unknown>> {
+  const references: Array<Record<string, unknown>> = [];
+  const seen = new Set<string>();
+  const roiContourSequence = Array.isArray(dataset?.ROIContourSequence) ? dataset.ROIContourSequence : [];
+
+  for (const roiContour of roiContourSequence) {
+    const contourSequence = Array.isArray(roiContour?.ContourSequence) ? roiContour.ContourSequence : [];
+    for (const contour of contourSequence) {
+      const contourImageItems = normalizeContourImageSequenceItems(contour?.ContourImageSequence);
+      if (contourImageItems.length === 0) {
+        throw new Error('RTSTRUCT contour is missing ContourImageSequence.');
+      }
+      for (const contourImageItem of contourImageItems) {
+        if (typeof contourImageItem.ReferencedSOPInstanceUID !== 'string' || !contourImageItem.ReferencedSOPInstanceUID) {
+          throw new Error('RTSTRUCT contour image reference is missing ReferencedSOPInstanceUID.');
+        }
+        const normalizedRef: Record<string, unknown> = {
+          ReferencedSOPClassUID:
+            typeof contourImageItem.ReferencedSOPClassUID === 'string'
+              ? contourImageItem.ReferencedSOPClassUID
+              : undefined,
+          ReferencedSOPInstanceUID: contourImageItem.ReferencedSOPInstanceUID,
+        };
+        const referencedFrameNumber = parsePositiveInt(contourImageItem.ReferencedFrameNumber);
+        if (referencedFrameNumber) {
+          normalizedRef.ReferencedFrameNumber = referencedFrameNumber;
+        }
+
+        const key = contourImageReferenceKey(normalizedRef);
+        if (!seen.has(key)) {
+          seen.add(key);
+          references.push(normalizedRef);
+        }
+      }
+    }
+  }
+
+  return references;
+}
+
+function matchSourceReferenceToContourImage(
+  contourImageRef: Record<string, unknown>,
+  refsBySopInstanceUID: Map<string, ReturnType<typeof collectSourceDicomReferences>>,
+) {
+  const sopInstanceUID = contourImageRef.ReferencedSOPInstanceUID as string;
+  const referencedFrameNumber = parsePositiveInt(contourImageRef.ReferencedFrameNumber);
+  const matches = refsBySopInstanceUID.get(sopInstanceUID) ?? [];
+  if (matches.length === 0) {
+    throw new Error(`RTSTRUCT contour references unknown SOP Instance UID ${sopInstanceUID}.`);
+  }
+
+  if (referencedFrameNumber) {
+    const exactMatch = matches.find((ref) => ref.referencedFrameNumber === referencedFrameNumber);
+    if (exactMatch) return exactMatch;
+    if (matches.length === 1 && matches[0]?.numberOfFrames <= 1 && referencedFrameNumber === 1) {
+      return matches[0];
+    }
+    throw new Error(
+      `RTSTRUCT contour references frame ${referencedFrameNumber} of SOP Instance UID ${sopInstanceUID}, but no matching source frame metadata was found.`,
+    );
+  }
+
+  if (matches.length === 1) {
+    return matches[0];
+  }
+
+  const singleFrameMatches = matches.filter((ref) => ref.numberOfFrames <= 1);
+  if (singleFrameMatches.length === 1) {
+    return singleFrameMatches[0];
+  }
+
+  throw new Error(
+    `RTSTRUCT contour reference for SOP Instance UID ${sopInstanceUID} is ambiguous without ReferencedFrameNumber.`,
+  );
+}
+
+function buildReferencedSeriesSequence(
+  contourImageReferences: Array<Record<string, unknown>>,
+  refsBySopInstanceUID: Map<string, ReturnType<typeof collectSourceDicomReferences>>,
+): any[] {
+  const seriesMap = new Map<string, { instances: Map<string, Record<string, unknown>> }>();
+
+  for (const contourImageReference of contourImageReferences) {
+    const sourceRef = matchSourceReferenceToContourImage(contourImageReference, refsBySopInstanceUID);
+    if (!sourceRef.seriesInstanceUID) {
+      throw new Error('RTSTRUCT source image reference is missing SeriesInstanceUID.');
+    }
+
+    if (!seriesMap.has(sourceRef.seriesInstanceUID)) {
+      seriesMap.set(sourceRef.seriesInstanceUID, { instances: new Map() });
+    }
+
+    const instanceMap = seriesMap.get(sourceRef.seriesInstanceUID)!;
+    const key = contourImageReferenceKey(contourImageReference);
+    if (!instanceMap.instances.has(key)) {
+      instanceMap.instances.set(key, {
+        ReferencedSOPClassUID:
+          contourImageReference.ReferencedSOPClassUID ?? sourceRef.sopClassUID,
+        ReferencedSOPInstanceUID: contourImageReference.ReferencedSOPInstanceUID,
+        ...(parsePositiveInt(contourImageReference.ReferencedFrameNumber)
+          ? { ReferencedFrameNumber: parsePositiveInt(contourImageReference.ReferencedFrameNumber) }
+          : {}),
+      });
+    }
+  }
+
+  return Array.from(seriesMap.entries()).map(([seriesInstanceUID, entry]) => ({
+    SeriesInstanceUID: seriesInstanceUID,
+    ReferencedInstanceSequence: Array.from(entry.instances.values()),
+  }));
+}
+
+function buildReferencedFrameOfReferenceSequence(
+  contourImageReferences: Array<Record<string, unknown>>,
+  refsBySopInstanceUID: Map<string, ReturnType<typeof collectSourceDicomReferences>>,
+): any[] {
+  const frameMap = new Map<
+    string,
+    Map<
+      string,
+      Map<
+        string,
+        Map<string, Record<string, unknown>>
+      >
+    >
+  >();
+
+  for (const contourImageReference of contourImageReferences) {
+    const sourceRef = matchSourceReferenceToContourImage(contourImageReference, refsBySopInstanceUID);
+    if (!sourceRef.frameOfReferenceUID) {
+      throw new Error('RTSTRUCT source image reference is missing FrameOfReferenceUID.');
+    }
+    if (!sourceRef.studyInstanceUID) {
+      throw new Error('RTSTRUCT source image reference is missing StudyInstanceUID.');
+    }
+    if (!sourceRef.seriesInstanceUID) {
+      throw new Error('RTSTRUCT source image reference is missing SeriesInstanceUID.');
+    }
+
+    if (!frameMap.has(sourceRef.frameOfReferenceUID)) {
+      frameMap.set(sourceRef.frameOfReferenceUID, new Map());
+    }
+    const studyMap = frameMap.get(sourceRef.frameOfReferenceUID)!;
+    if (!studyMap.has(sourceRef.studyInstanceUID)) {
+      studyMap.set(sourceRef.studyInstanceUID, new Map());
+    }
+    const seriesMap = studyMap.get(sourceRef.studyInstanceUID)!;
+    if (!seriesMap.has(sourceRef.seriesInstanceUID)) {
+      seriesMap.set(sourceRef.seriesInstanceUID, new Map());
+    }
+    const contourImageMap = seriesMap.get(sourceRef.seriesInstanceUID)!;
+    const key = contourImageReferenceKey(contourImageReference);
+    if (!contourImageMap.has(key)) {
+      contourImageMap.set(key, {
+        ReferencedSOPClassUID:
+          contourImageReference.ReferencedSOPClassUID ?? sourceRef.sopClassUID,
+        ReferencedSOPInstanceUID: contourImageReference.ReferencedSOPInstanceUID,
+        ...(parsePositiveInt(contourImageReference.ReferencedFrameNumber)
+          ? { ReferencedFrameNumber: parsePositiveInt(contourImageReference.ReferencedFrameNumber) }
+          : {}),
+      });
+    }
+  }
+
+  return Array.from(frameMap.entries()).map(([frameOfReferenceUID, studyMap]) => ({
+    FrameOfReferenceUID: frameOfReferenceUID,
+    RTReferencedStudySequence: Array.from(studyMap.entries()).map(([studyInstanceUID, seriesMap]) => ({
+      ReferencedSOPClassUID: '1.2.840.10008.3.1.2.3.1',
+      ReferencedSOPInstanceUID: studyInstanceUID,
+      RTReferencedSeriesSequence: Array.from(seriesMap.entries()).map(([seriesInstanceUID, contourImageMap]) => ({
+        SeriesInstanceUID: seriesInstanceUID,
+        ContourImageSequence: Array.from(contourImageMap.values()),
+      })),
+    })),
+  }));
+}
+
+function validateRtStructDataset(dataset: any): void {
+  const structureSetROISequence = Array.isArray(dataset?.StructureSetROISequence)
+    ? dataset.StructureSetROISequence
+    : [];
+  const roiContourSequence = Array.isArray(dataset?.ROIContourSequence)
+    ? dataset.ROIContourSequence
+    : [];
+  const rtRoiObservationsSequence = Array.isArray(dataset?.RTROIObservationsSequence)
+    ? dataset.RTROIObservationsSequence
+    : [];
+
+  if (structureSetROISequence.length === 0) {
+    throw new Error('RTSTRUCT is missing StructureSetROISequence.');
+  }
+  if (roiContourSequence.length === 0) {
+    throw new Error('RTSTRUCT is missing ROIContourSequence.');
+  }
+  if (rtRoiObservationsSequence.length === 0) {
+    throw new Error('RTSTRUCT is missing RTROIObservationsSequence.');
+  }
+
+  const structureSetRoiNumbers = new Set(
+    structureSetROISequence
+      .map((item: any) => Number(item?.ROINumber))
+      .filter((value: number) => Number.isFinite(value) && value > 0),
+  );
+  const roiContourNumbers = new Set(
+    roiContourSequence
+      .map((item: any) => Number(item?.ReferencedROINumber))
+      .filter((value: number) => Number.isFinite(value) && value > 0),
+  );
+  const observationNumbers = new Set(
+    rtRoiObservationsSequence
+      .map((item: any) => Number(item?.ReferencedROINumber))
+      .filter((value: number) => Number.isFinite(value) && value > 0),
+  );
+
+  if (
+    structureSetRoiNumbers.size === 0
+    || structureSetRoiNumbers.size !== roiContourNumbers.size
+    || structureSetRoiNumbers.size !== observationNumbers.size
+  ) {
+    throw new Error('RTSTRUCT ROI sequences are not aligned by ROI number.');
+  }
+
+  for (const roiNumber of structureSetRoiNumbers) {
+    if (!roiContourNumbers.has(roiNumber) || !observationNumbers.has(roiNumber)) {
+      throw new Error(`RTSTRUCT ROI ${roiNumber} is missing a matching contour or observation entry.`);
+    }
+  }
+
+  const referencedFrameOfReferenceSequence = Array.isArray(dataset?.ReferencedFrameOfReferenceSequence)
+    ? dataset.ReferencedFrameOfReferenceSequence
+    : [];
+  if (referencedFrameOfReferenceSequence.length === 0) {
+    throw new Error('RTSTRUCT is missing ReferencedFrameOfReferenceSequence.');
+  }
+
+  for (const frameRef of referencedFrameOfReferenceSequence) {
+    const referencedStudySequence = Array.isArray(frameRef?.RTReferencedStudySequence)
+      ? frameRef.RTReferencedStudySequence
+      : [];
+    if (referencedStudySequence.length === 0) {
+      throw new Error('RTSTRUCT FrameOfReference item is missing RTReferencedStudySequence.');
+    }
+    for (const referencedStudy of referencedStudySequence) {
+      const referencedSeriesSequence = Array.isArray(referencedStudy?.RTReferencedSeriesSequence)
+        ? referencedStudy.RTReferencedSeriesSequence
+        : [];
+      if (referencedSeriesSequence.length === 0) {
+        throw new Error('RTSTRUCT study reference is missing RTReferencedSeriesSequence.');
+      }
+      for (const referencedSeries of referencedSeriesSequence) {
+        const contourImageSequence = normalizeContourImageSequenceItems(referencedSeries?.ContourImageSequence);
+        if (contourImageSequence.length === 0) {
+          throw new Error('RTSTRUCT referenced series is missing ContourImageSequence.');
+        }
+      }
+    }
+  }
+
+  collectContourImageReferencesFromRtStruct(dataset);
+}
+
 // ─── Export ─────────────────────────────────────────────────────
 
 /**
@@ -763,7 +1091,11 @@ async function exportToRtStruct(segmentationId: string): Promise<string> {
   console.log('[rtStructService] Exporting RTSTRUCT for segmentation:', segmentationId);
 
   const trackedSourceIds = segmentationService.getTrackedSourceImageIds(segmentationId);
-  const sourceImageIdForMetadata = trackedSourceIds?.[0] ?? null;
+  if (!trackedSourceIds || trackedSourceIds.length === 0) {
+    throw new Error('[rtStructService] RTSTRUCT export requires tracked source image IDs.');
+  }
+  const sourceRefs = collectSourceDicomReferences(trackedSourceIds, metaData.get.bind(metaData));
+  const primarySourceRef = requireSingleStudyReference(sourceRefs, 'RTSTRUCT export');
 
   // Build a custom metadataProvider that bridges gaps between what the
   // adapters' referencedMetadataProvider expects and what our DICOMweb
@@ -778,18 +1110,7 @@ async function exportToRtStruct(segmentationId: string): Promise<string> {
       const imageId = args[0] as string;
 
       if (type === 'frameModule') {
-        // The adapter needs sopClassUID + sopInstanceUID from frameModule.
-        // Our loader puts them in sopCommonModule.
-        const sopModule = metaData.get('sopCommonModule', imageId) as any;
-        if (sopModule) {
-          return {
-            sopClassUID: sopModule.sopClassUID,
-            sopInstanceUID: sopModule.sopInstanceUID,
-            frameNumber: 1,
-            numberOfFrames: 1,
-          };
-        }
-        return undefined;
+        return resolveFrameModule(imageId);
       }
 
       // For all other module types, delegate to Cornerstone's provider chain
@@ -805,34 +1126,113 @@ async function exportToRtStruct(segmentationId: string): Promise<string> {
   const rtssDataset: any = generateContourFn(seg, {
     metadataProvider: exportMetadataProvider,
   });
-  if (sourceImageIdForMetadata) {
-    applySourceDicomContextToRtStructDataset(rtssDataset, sourceImageIdForMetadata);
+  applySourceDicomContextToRtStructDataset(rtssDataset, primarySourceRef.imageId);
+  if (!rtssDataset.StudyInstanceUID && primarySourceRef.studyInstanceUID) {
+    rtssDataset.StudyInstanceUID = primarySourceRef.studyInstanceUID;
+  }
+  if (!rtssDataset.PatientName && primarySourceRef.patientName) {
+    rtssDataset.PatientName = primarySourceRef.patientName;
+  }
+  if (!rtssDataset.PatientID && primarySourceRef.patientId) {
+    rtssDataset.PatientID = primarySourceRef.patientId;
+  }
+  if (!rtssDataset.PatientBirthDate && primarySourceRef.patientBirthDate) {
+    rtssDataset.PatientBirthDate = primarySourceRef.patientBirthDate;
+  }
+  if (!rtssDataset.PatientSex && primarySourceRef.patientSex) {
+    rtssDataset.PatientSex = primarySourceRef.patientSex;
+  }
+  if (!rtssDataset.StudyDate && primarySourceRef.studyDate) {
+    rtssDataset.StudyDate = primarySourceRef.studyDate;
+  }
+  if (!rtssDataset.StudyTime && primarySourceRef.studyTime) {
+    rtssDataset.StudyTime = primarySourceRef.studyTime;
+  }
+  if (!rtssDataset.StudyID && primarySourceRef.studyID) {
+    rtssDataset.StudyID = primarySourceRef.studyID;
+  }
+  if (!rtssDataset.AccessionNumber && primarySourceRef.accessionNumber) {
+    rtssDataset.AccessionNumber = primarySourceRef.accessionNumber;
+  }
+  if (!rtssDataset.StudyDescription && primarySourceRef.studyDescription) {
+    rtssDataset.StudyDescription = primarySourceRef.studyDescription;
+  }
+  if (!rtssDataset.ReferringPhysicianName && primarySourceRef.referringPhysicianName) {
+    rtssDataset.ReferringPhysicianName = primarySourceRef.referringPhysicianName;
+  }
+  if (!rtssDataset.FrameOfReferenceUID && primarySourceRef.frameOfReferenceUID) {
+    rtssDataset.FrameOfReferenceUID = primarySourceRef.frameOfReferenceUID;
+  }
+  const operatorsName = upsertOperatorsName(
+    rtssDataset.OperatorsName,
+    formatOperatorsNameForConnection(useConnectionStore.getState().connection),
+  );
+  if (operatorsName) {
+    rtssDataset.OperatorsName = operatorsName;
   }
   applyCurrentSegmentColorsToRtStructDataset(rtssDataset, segmentationId);
+  if (Array.isArray(rtssDataset.RTROIObservationsSequence)) {
+    for (const observation of rtssDataset.RTROIObservationsSequence) {
+      if (observation && typeof observation === 'object' && observation.ROIInterpreter == null) {
+        observation.ROIInterpreter = '';
+      }
+    }
+  }
+  rtssDataset.Modality = 'RTSTRUCT';
+  const segmentationLabel =
+    (seg as any).config?.label
+    || (seg as any).label
+    || 'RT Structure Set';
+  rtssDataset.StructureSetLabel = toStructureSetLabel(rtssDataset.StructureSetLabel || segmentationLabel);
+  rtssDataset.StructureSetName = rtssDataset.StructureSetName || segmentationLabel;
+  rtssDataset.StructureSetDescription =
+    rtssDataset.StructureSetDescription || segmentationLabel;
+  rtssDataset.SeriesDescription = rtssDataset.SeriesDescription || segmentationLabel;
+  rtssDataset.PositionReferenceIndicator = rtssDataset.PositionReferenceIndicator ?? '';
 
-  // Serialize to DICOM binary via dcmjs
-  //
-  // The adapter's _meta (from metaRTSSContour constant) is ALREADY in
-  // denaturalized format (tag-keyed with {Value, vr} objects). Do NOT
-  // call denaturalizeDataset on it again — that would corrupt the
-  // ArrayBuffer in FileMetaInformationVersion and cause DataView errors.
-  //
-  // The dataset body (everything except _meta) IS in naturalized format
-  // and needs denaturalization.
-  const meta = rtssDataset._meta || {};
-  delete rtssDataset._meta;
+  const refsBySopInstanceUID = new Map<string, typeof sourceRefs>();
+  for (const sourceRef of sourceRefs) {
+    if (!sourceRef.sopInstanceUID) continue;
+    const existing = refsBySopInstanceUID.get(sourceRef.sopInstanceUID) ?? [];
+    existing.push(sourceRef);
+    refsBySopInstanceUID.set(sourceRef.sopInstanceUID, existing);
+  }
 
-  const denaturalizedDataset = dcmjsData.DicomMetaDictionary.denaturalizeDataset(rtssDataset);
-
-  // _meta is already denaturalized — use directly as the file meta header.
-  // Use NaN-guarded write: dcmjs internals can hit "Not a number" errors
-  // in WriteBufferStream when the dataset has empty/undefined numeric fields.
-  const arrayBuffer: ArrayBuffer = writeDicomDict(
-    dcmjsData.DicomDict,
-    meta,
-    denaturalizedDataset,
-    'rtStructService',
+  const contourImageReferences = collectContourImageReferencesFromRtStruct(rtssDataset);
+  rtssDataset.ReferencedFrameOfReferenceSequence = buildReferencedFrameOfReferenceSequence(
+    contourImageReferences,
+    refsBySopInstanceUID,
   );
+  if (!rtssDataset.FrameOfReferenceUID && rtssDataset.ReferencedFrameOfReferenceSequence.length === 1) {
+    rtssDataset.FrameOfReferenceUID = rtssDataset.ReferencedFrameOfReferenceSequence[0]?.FrameOfReferenceUID;
+  }
+  validateRtStructDataset(rtssDataset);
+
+  const { arrayBuffer } = serializeDerivedDicomDataset(rtssDataset, {
+    kind: 'RTSTRUCT',
+    callerTag: 'rtStructService',
+    defaultSOPClassUID: '1.2.840.10008.5.1.4.1.1.481.3',
+    requiredDatasetFields: [
+      'SOPClassUID',
+      'SOPInstanceUID',
+      'StudyInstanceUID',
+      'SeriesInstanceUID',
+      'FrameOfReferenceUID',
+      'Modality',
+      'StructureSetLabel',
+      'StructureSetDate',
+      'StructureSetTime',
+      'StructureSetROISequence',
+      'ROIContourSequence',
+      'RTROIObservationsSequence',
+      'ReferencedFrameOfReferenceSequence',
+    ],
+    expectedDatasetValues: {
+      Modality: 'RTSTRUCT',
+      StudyInstanceUID: primarySourceRef.studyInstanceUID,
+    },
+    includeStructureSetDateTime: true,
+  });
 
   // Convert to base64 for IPC transport
   const bytes = new Uint8Array(arrayBuffer);

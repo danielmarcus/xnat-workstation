@@ -292,6 +292,73 @@ export class XnatClient {
   }
 
   /**
+   * Best-effort lookup of the authenticated user's first/last name.
+   * Falls back gracefully when the server does not expose profile details.
+   */
+  async getCurrentUserProfile(): Promise<{ firstName?: string; lastName?: string }> {
+    if (!this.username) return {};
+
+    const clean = (value: unknown): string | undefined => {
+      if (typeof value !== 'string') return undefined;
+      const trimmed = value.trim();
+      return trimmed || undefined;
+    };
+
+    const extractProfile = (record: any): { firstName?: string; lastName?: string } => {
+      if (!record || typeof record !== 'object') return {};
+
+      const firstName = clean(
+        record.firstName
+        ?? record.firstname
+        ?? record.first_name
+        ?? record.givenName
+        ?? record.given_name,
+      );
+      const lastName = clean(
+        record.lastName
+        ?? record.lastname
+        ?? record.last_name
+        ?? record.familyName
+        ?? record.family_name,
+      );
+
+      return { firstName, lastName };
+    };
+
+    try {
+      const response = await this.authenticatedFetch(
+        `/xapi/users/${encodeURIComponent(this.username)}`,
+      );
+      const text = await response.text();
+      if (text.trim()) {
+        const profile = extractProfile(JSON.parse(text));
+        if (profile.firstName || profile.lastName) {
+          return profile;
+        }
+      }
+    } catch {
+      // Fall back to legacy user listing below.
+    }
+
+    try {
+      const data = await this.jsonRequest<{ ResultSet?: { Result?: any[] } }>('/data/users');
+      const results = data?.ResultSet?.Result ?? [];
+      const match = results.find((entry) => {
+        const login = String(entry?.login ?? entry?.username ?? entry?.xdat_user_login?.login ?? '').trim();
+        return login === this.username;
+      });
+      const profile = extractProfile(match);
+      if (profile.firstName || profile.lastName) {
+        return profile;
+      }
+    } catch {
+      // Optional metadata only — ignore profile lookup failures.
+    }
+
+    return {};
+  }
+
+  /**
    * Get accessible projects.
    */
   async getProjects(): Promise<Array<{
@@ -714,13 +781,31 @@ export class XnatClient {
   // ─── Upload ───────────────────────────────────────────────────
 
   /**
-   * Ask XNAT to re-extract experiment/scan metadata from archived DICOM headers.
+   * Ask XNAT to re-extract metadata for a specific scan from archived DICOM headers.
    * This makes scan-level DICOM attributes visible in the XNAT UI after manual
    * resource uploads that bypass the normal session importer flow.
    */
-  private async pullDataFromHeaders(sessionId: string): Promise<void> {
-    // Temporarily disabled per product request while server-side behavior is investigated.
-    void sessionId;
+  private async pullDataFromHeaders(sessionId: string, scanId: string): Promise<void> {
+    const response = await this.authenticatedFetch(
+      `/data/experiments/${encodeURIComponent(sessionId)}`
+        + `/scans/${encodeURIComponent(scanId)}?pullDataFromHeaders=true`,
+      { method: 'PUT' },
+    );
+    await response.text().catch(() => {});
+  }
+
+  private async deleteScanResourceFiles(
+    basePath: string,
+    resourceLabel: string,
+    warningPrefix: string,
+  ): Promise<void> {
+    const deleteUrl = `${this.baseUrl}${basePath}/resources/${encodeURIComponent(resourceLabel)}/files`;
+    const deleteResp = await this.xfetch(deleteUrl, {
+      method: 'DELETE',
+    });
+    if (!deleteResp.ok && deleteResp.status !== 404) {
+      console.warn(`${warningPrefix} could not delete ${resourceLabel} files (${deleteResp.status}), continuing`);
+    }
   }
 
   /**
@@ -922,10 +1007,10 @@ export class XnatClient {
     }
 
     try {
-      await this.pullDataFromHeaders(targetSessionId);
+      await this.pullDataFromHeaders(targetSessionId, targetScanId);
     } catch (err) {
       console.warn(
-        `[xnatClient] SEG upload succeeded but pullDataFromHeaders failed for ${targetSessionId}:`,
+        `[xnatClient] SEG upload succeeded but scan-level pullDataFromHeaders failed for ${targetSessionId}/${targetScanId}:`,
         err,
       );
     }
@@ -991,7 +1076,12 @@ export class XnatClient {
       throw new Error(`Failed to create RTSTRUCT scan ${targetScanId}: ${createResp.status} ${text}`.trim());
     }
 
-    const fileUrl = `${this.baseUrl}${basePath}/resources/DICOM/files/rtstruct.dcm?format=DICOM&content=RTSTRUCT`;
+    const rtStructFileParams = new URLSearchParams({
+      format: 'DICOM',
+      content: 'secondary',
+      label: 'secondary',
+    });
+    const fileUrl = `${this.baseUrl}${basePath}/resources/secondary/files/rtstruct.dcm?${rtStructFileParams.toString()}`;
     const fileResp = await this.xfetch(fileUrl, {
       method: 'PUT',
       headers: {
@@ -1005,10 +1095,10 @@ export class XnatClient {
     }
 
     try {
-      await this.pullDataFromHeaders(targetSessionId);
+      await this.pullDataFromHeaders(targetSessionId, targetScanId);
     } catch (err) {
       console.warn(
-        `[xnatClient] RTSTRUCT upload succeeded but pullDataFromHeaders failed for ${targetSessionId}:`,
+        `[xnatClient] RTSTRUCT upload succeeded but scan-level pullDataFromHeaders failed for ${targetSessionId}/${targetScanId}:`,
         err,
       );
     }
@@ -1066,10 +1156,10 @@ export class XnatClient {
 
     // Best-effort metadata refresh so DICOM-derived scan attributes are repopulated in XNAT.
     try {
-      await this.pullDataFromHeaders(sessionId);
+      await this.pullDataFromHeaders(sessionId, targetScanId);
     } catch (err) {
       console.warn(
-        `[xnatClient] SEG overwrite succeeded but pullDataFromHeaders failed for session ${sessionId}:`,
+        `[xnatClient] SEG overwrite succeeded but scan-level pullDataFromHeaders failed for ${sessionId}/${targetScanId}:`,
         err,
       );
     }
@@ -1099,16 +1189,15 @@ export class XnatClient {
     const basePath = `/data/experiments/${encodeURIComponent(sessionId)}`
       + `/scans/${encodeURIComponent(targetScanId)}`;
 
-    const deleteUrl = `${this.baseUrl}${basePath}/resources/DICOM/files`;
-    const deleteResp = await this.xfetch(deleteUrl, {
-      method: 'DELETE',
-    });
-    if (!deleteResp.ok && deleteResp.status !== 404) {
-      console.warn(`[xnatClient] RTSTRUCT overwrite: could not delete old files (${deleteResp.status}), continuing`);
-    }
+    await this.deleteScanResourceFiles(basePath, 'secondary', '[xnatClient] RTSTRUCT overwrite:');
 
     const dicomWithScanNumber = this.withUploadMetadata(dicomBuffer, targetScanId, seriesDescription);
-    const fileUrl = `${this.baseUrl}${basePath}/resources/DICOM/files/rtstruct.dcm?format=DICOM&content=RTSTRUCT`;
+    const rtStructFileParams = new URLSearchParams({
+      format: 'DICOM',
+      content: 'secondary',
+      label: 'secondary',
+    });
+    const fileUrl = `${this.baseUrl}${basePath}/resources/secondary/files/rtstruct.dcm?${rtStructFileParams.toString()}`;
     const fileResp = await this.xfetch(fileUrl, {
       method: 'PUT',
       headers: {
@@ -1123,10 +1212,10 @@ export class XnatClient {
     }
 
     try {
-      await this.pullDataFromHeaders(sessionId);
+      await this.pullDataFromHeaders(sessionId, targetScanId);
     } catch (err) {
       console.warn(
-        `[xnatClient] RTSTRUCT overwrite succeeded but pullDataFromHeaders failed for session ${sessionId}:`,
+        `[xnatClient] RTSTRUCT overwrite succeeded but scan-level pullDataFromHeaders failed for ${sessionId}/${targetScanId}:`,
         err,
       );
     }
