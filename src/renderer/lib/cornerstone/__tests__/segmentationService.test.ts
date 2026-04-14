@@ -1,4 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('@cornerstonejs/dicom-image-loader', () => ({
+  wadouri: {
+    dataSetCacheManager: {
+      isLoaded: () => false,
+      get: () => null,
+    },
+  },
+}));
+
 import { useSegmentationManagerStore } from '../../../stores/segmentationManagerStore';
 import { useSegmentationStore } from '../../../stores/segmentationStore';
 import { useViewerStore } from '../../../stores/viewerStore';

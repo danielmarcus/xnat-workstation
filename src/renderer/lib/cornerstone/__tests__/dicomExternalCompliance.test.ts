@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { data as dcmjsData } from 'dcmjs';
@@ -18,7 +19,7 @@ vi.mock('@cornerstonejs/dicom-image-loader', () => ({
 
 const { adaptersSEG } = adaptersPkg as any;
 
-const fixtureRoot = join(process.cwd(), 'test-fixtures', 'dicom-compliance');
+const fixtureRoot = mkdtempSync(join(tmpdir(), 'xnatws-dicom-compliance-'));
 const dciodvfyBin = process.env.DCIODVFY_BIN || '/tmp/dicom3tools_macexe_20250128115421/dciodvfy';
 let segArrayBuffer: ArrayBuffer;
 let rtStructArrayBuffer: ArrayBuffer;
