@@ -20,7 +20,8 @@ vi.mock('@cornerstonejs/dicom-image-loader', () => ({
 const { adaptersSEG } = adaptersPkg as any;
 
 const fixtureRoot = mkdtempSync(join(tmpdir(), 'xnatws-dicom-compliance-'));
-const dciodvfyBin = process.env.DCIODVFY_BIN || '/tmp/dicom3tools_macexe_20250128115421/dciodvfy';
+const dciodvfyBin =
+  process.env.DCIODVFY_BIN || process.env.DCIODVFY_FALLBACK_BIN || 'dciodvfy';
 let segArrayBuffer: ArrayBuffer;
 let rtStructArrayBuffer: ArrayBuffer;
 let segSummary: ReturnType<typeof summarizeDicomArrayBufferForCompliance>;
