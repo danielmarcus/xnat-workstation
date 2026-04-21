@@ -9,6 +9,7 @@ import { useSegmentationStore } from '../../stores/segmentationStore';
 import { useViewerStore } from '../../stores/viewerStore';
 import { segmentationManager } from '../segmentation/segmentationManagerSingleton';
 import { segmentationService } from '../cornerstone/segmentationService';
+import * as contourRep from '../cornerstone/contourRepresentation';
 import { toolService } from '../cornerstone/toolService';
 import { ToolName } from '@shared/types/viewer';
 
@@ -293,14 +294,7 @@ export function installRendererE2eHooks(): void {
 
             const annotationGroupSelector = viewport?.element ?? panelId;
             csAnnotation.state.addAnnotation?.(annotation, annotationGroupSelector);
-            const segmentation = csSegmentation.state.getSegmentation(segmentationId);
-            const contourData = (segmentation?.representationData as any)?.Contour;
-            if (contourData?.annotationUIDsMap instanceof Map) {
-              if (!contourData.annotationUIDsMap.has(segmentIndex)) {
-                contourData.annotationUIDsMap.set(segmentIndex, new Set<string>());
-              }
-              contourData.annotationUIDsMap.get(segmentIndex)?.add(annotationUID);
-            }
+            contourRep.attachAnnotationUID(segmentationId, segmentIndex, annotationUID);
 
             segmentationService.setActiveSegmentIndex(segmentationId, segmentIndex);
             segmentationService.activateOnViewport(panelId, segmentationId);
@@ -392,14 +386,7 @@ export function installRendererE2eHooks(): void {
       const annotationGroupSelector = viewport?.element ?? panelId;
       csAnnotation.state.addAnnotation?.(annotation, annotationGroupSelector);
 
-      const segmentation = csSegmentation.state.getSegmentation(segmentationId);
-      const contourData = (segmentation?.representationData as any)?.Contour;
-      if (contourData?.annotationUIDsMap instanceof Map) {
-        if (!contourData.annotationUIDsMap.has(segmentIndex)) {
-          contourData.annotationUIDsMap.set(segmentIndex, new Set<string>());
-        }
-        contourData.annotationUIDsMap.get(segmentIndex)?.add(annotationUID);
-      }
+      contourRep.attachAnnotationUID(segmentationId, segmentIndex, annotationUID);
 
       segmentationService.setActiveSegmentIndex(segmentationId, segmentIndex);
       segmentationService.activateOnViewport(panelId, segmentationId);

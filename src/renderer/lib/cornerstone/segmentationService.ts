@@ -56,6 +56,8 @@ import { useViewerStore } from '../../stores/viewerStore';
 import { useConnectionStore } from '../../stores/connectionStore';
 import { useSegmentationManagerStore } from '../../stores/segmentationManagerStore';
 import { rtStructService } from './rtStructService';
+import * as contourRep from './contourRepresentation';
+import * as sourceImageTracking from './sourceImageTracking';
 import { backupService } from '../backup/backupService';
 import {
   hasSegmentPixelsOnSlice,
@@ -158,12 +160,8 @@ type LockableHistoryTarget = {
 let originalHistoryPush: ((item: unknown) => HistoryMemoRecord | undefined) | null = null;
 let historyTrackingInstalled = false;
 
-/**
- * Tracks the original source imageIds for each segmentation, keyed by segmentationId.
- * Needed for DICOM SEG export — the adapter requires source images to extract
- * DICOM metadata (StudyInstanceUID, SeriesInstanceUID, etc.).
- */
-const sourceImageIdsMap = new Map<string, string[]>();
+// Source-image ID tracking moved to `./sourceImageTracking`. See that module
+// for the typed API; the prior module-level `sourceImageIdsMap` is gone.
 
 /**
  * Tracks loaded DICOM SEG colors per segmentation, keyed by segmentationId.
@@ -517,7 +515,7 @@ async function addSubSegToViewport(
     if (viewport && typeof viewport.getAllVolumeIds !== 'function') {
       const viewportImageIds = viewport.getImageIds?.() as string[] | undefined;
       if (Array.isArray(viewportImageIds)) {
-        const srcIds = sourceImageIdsMap.get(subSegId) ?? [];
+        const srcIds = sourceImageTracking.getSourceImageIds(subSegId) ?? [];
         const count = Math.min(srcIds.length, viewportImageIds.length);
         for (let i = 0; i < count; i++) {
           const vpImgId = viewportImageIds[i];
@@ -574,7 +572,7 @@ function getLabelmapImageIdsForSegmentation(segmentationId: string): string[] {
   const mapLike = labelmapData.imageIdReferenceMap;
   if (!mapLike) return [];
 
-  const sourceOrder = sourceImageIdsMap.get(segmentationId) ?? [];
+  const sourceOrder = sourceImageTracking.getSourceImageIds(segmentationId) ?? [];
   const bySource = new Map<string, string>();
 
   if (mapLike instanceof Map) {
@@ -935,9 +933,35 @@ interface ContourClipboardEntry {
   segmentIndex: number;
   referencedImageId: string;
   frameOfReferenceUID: string | null;
+  /**
+   * Rendered polyline in world coordinates. For freehand sources this is
+   * the source of truth; for spline sources it is a fallback used only if
+   * spline reconstruction fails.
+   */
   polyline: Point3[];
   closed: boolean;
   handles: Record<string, unknown> | null;
+  /**
+   * Spline-specific reconstruction data. Populated iff the source
+   * annotation was drawn with a spline tool (i.e. its `data.spline` field
+   * was present). Cornerstone's `SplineROITool.renderAnnotationInstance`
+   * requires `data.spline.{type,instance}` to exist at render time and
+   * regenerates the rendered polyline from `data.handles.points` on every
+   * render. To roundtrip a spline we therefore need to capture:
+   *   - the spline type string,
+   *   - a constructor reference (to build a fresh instance on paste),
+   *   - the control points in world coordinates (the real source of truth).
+   * The constructor is pulled from `instance.constructor` at copy time so
+   * we don't depend on Cornerstone's private `_getSplineConfig` API.
+   */
+  spline: {
+    type: string;
+    resolution: unknown;
+    // Constructor reference for the spline class (e.g. CardinalSpline).
+    // `new (...)` reconstructs an empty instance on paste.
+    SplineClass: new () => unknown;
+    controlPointsWorld: Point3[];
+  } | null;
 }
 
 let contourClipboard: ContourClipboardEntry | null = null;
@@ -975,62 +999,11 @@ function emitToolEvent(type: string, detail: Record<string, unknown>): void {
 }
 
 function addContourAnnotationToSegmentation(annotation: any): void {
-  try {
-    if (csToolUtilities.contourSegmentation?.addContourSegmentationAnnotation) {
-      csToolUtilities.contourSegmentation.addContourSegmentationAnnotation(annotation);
-      return;
-    }
-  } catch (err) {
-    console.debug('[segmentationService] addContourSegmentationAnnotation failed:', err);
-  }
-
-  const segmentationId = annotation?.data?.segmentation?.segmentationId;
-  const segmentIndex = Number(annotation?.data?.segmentation?.segmentIndex);
-  const annotationUID = annotation?.annotationUID;
-  if (!segmentationId || !Number.isInteger(segmentIndex) || segmentIndex <= 0 || !annotationUID) {
-    return;
-  }
-
-  const segmentation = csSegmentation.state.getSegmentation(segmentationId);
-  const contourData = (segmentation?.representationData as any)?.Contour;
-  if (!(contourData?.annotationUIDsMap instanceof Map)) {
-    return;
-  }
-
-  if (!contourData.annotationUIDsMap.has(segmentIndex)) {
-    contourData.annotationUIDsMap.set(segmentIndex, new Set<string>());
-  }
-  contourData.annotationUIDsMap.get(segmentIndex)?.add(annotationUID);
+  contourRep.addAnnotation(annotation);
 }
 
 function removeContourAnnotationFromSegmentation(annotation: any): void {
-  try {
-    if (csToolUtilities.contourSegmentation?.removeContourSegmentationAnnotation) {
-      csToolUtilities.contourSegmentation.removeContourSegmentationAnnotation(annotation);
-      return;
-    }
-  } catch (err) {
-    console.debug('[segmentationService] removeContourSegmentationAnnotation failed:', err);
-  }
-
-  const segmentationId = annotation?.data?.segmentation?.segmentationId;
-  const segmentIndex = Number(annotation?.data?.segmentation?.segmentIndex);
-  const annotationUID = annotation?.annotationUID;
-  if (!segmentationId || !Number.isInteger(segmentIndex) || segmentIndex <= 0 || !annotationUID) {
-    return;
-  }
-
-  const segmentation = csSegmentation.state.getSegmentation(segmentationId);
-  const contourData = (segmentation?.representationData as any)?.Contour;
-  const annotationUIDs = contourData?.annotationUIDsMap?.get?.(segmentIndex);
-  if (!(annotationUIDs instanceof Set)) {
-    return;
-  }
-
-  annotationUIDs.delete(annotationUID);
-  if (annotationUIDs.size === 0) {
-    contourData.annotationUIDsMap.delete(segmentIndex);
-  }
+  contourRep.removeAnnotation(annotation);
 }
 
 function crossPoint3(a: Point3, b: Point3): Point3 {
@@ -1090,6 +1063,21 @@ function cloneHandlesWithOffset(handles: unknown, delta: Point3): Record<string,
   return next;
 }
 
+/**
+ * Identity predicate for contour-segmentation annotations.
+ *
+ * Delegates tool-class + segmentation-metadata checks to
+ * `contourRep.isContourSegmentationAnnotation`. Intentionally does NOT
+ * check polyline length — callers that need a drawable/copyable shape
+ * (e.g. `copySelectedContourAnnotation`) must enforce `polyline.length >= 3`
+ * themselves.
+ *
+ * Prior behavior (pre-step-2): required `polyline.length >= 3`. That check
+ * caused in-progress contours (splines mid-draw, freehand before the 3rd
+ * point) to be silently treated as "not a contour", skipping selection
+ * sync and other bookkeeping. The check moved to callers that actually
+ * need completeness.
+ */
 function isContourAnnotation(annotation: any): annotation is {
   annotationUID: string;
   metadata: { toolName?: string; referencedImageId?: string; FrameOfReferenceUID?: string };
@@ -1099,17 +1087,7 @@ function isContourAnnotation(annotation: any): annotation is {
     handles?: Record<string, unknown>;
   };
 } {
-  const polyline = clonePolyline(annotation?.data?.contour?.polyline);
-  const segmentationId = annotation?.data?.segmentation?.segmentationId;
-  const segmentIndex = Number(annotation?.data?.segmentation?.segmentIndex);
-  return (
-    typeof annotation?.annotationUID === 'string' &&
-    typeof segmentationId === 'string' &&
-    segmentationId.length > 0 &&
-    Number.isInteger(segmentIndex) &&
-    segmentIndex > 0 &&
-    polyline.length >= 3
-  );
+  return contourRep.isContourSegmentationAnnotation(annotation);
 }
 
 function getSelectedContourAnnotation(): {
@@ -1340,7 +1318,7 @@ function getSegmentationType(segmentationId: string): 'labelmap' | 'contour' | '
   const hasLabelmap = !!(repData?.Labelmap?.imageIds?.length > 0 || repData?.Labelmap?.imageIdReferenceMap?.size > 0);
   // Treat an explicit contour representation as contour-capable even if it's
   // currently empty (new RTSTRUCT rows intentionally start with zero structures).
-  const hasContour = repData?.Contour != null;
+  const hasContour = contourRep.hasContourRepresentationKey(segmentationId);
 
   if (hasLabelmap && hasContour) return 'both';
   if (hasContour) return 'contour';
@@ -1849,6 +1827,11 @@ export const segmentationService = {
     }
     installHistoryMemoTracking();
 
+    // Wire source-image-ID auto-cleanup. Subscribes to SEGMENTATION_REMOVED
+    // so tracked entries for real Cornerstone segmentations are reaped even
+    // if an orchestrating code path forgets to call clearSourceImageIds.
+    sourceImageTracking.initialize();
+
     initialized = true;
     console.log('[segmentationService] Initialized — listening for segmentation events');
   },
@@ -1946,7 +1929,7 @@ export const segmentationService = {
     groupLabelMap.set(segmentationId, segLabel);
 
     // Track source imageIds for DICOM SEG export
-    sourceImageIdsMap.set(segmentationId, [...sourceImageIds]);
+    sourceImageTracking.setSourceImageIds(segmentationId, [...sourceImageIds]);
 
     // Store: set active segmentation.
     const store = useSegmentationStore.getState();
@@ -1985,17 +1968,12 @@ export const segmentationService = {
       const segmentationId = `rtstruct_${Date.now()}_${segmentationCounter}`;
       const segLabel = label || `Structure ${segmentationCounter}`;
 
-      const annotationUIDsMap = new Map<number, Set<string>>();
-      if (createDefaultSegment) {
-        annotationUIDsMap.set(1, new Set<string>());
-      }
-
       csSegmentation.addSegmentations([
         {
           segmentationId,
           representation: {
             type: ToolEnums.SegmentationRepresentations.Contour,
-            data: { annotationUIDsMap } as any,
+            data: contourRep.buildInitialContourData(createDefaultSegment ? [1] : []) as any,
           },
           config: {
             label: segLabel,
@@ -2030,7 +2008,7 @@ export const segmentationService = {
         }
       }
 
-      sourceImageIdsMap.set(segmentationId, [...sourceImageIds]);
+      sourceImageTracking.setSourceImageIds(segmentationId, [...sourceImageIds]);
 
       const store = useSegmentationStore.getState();
       store.setActiveSegmentation(segmentationId);
@@ -2093,10 +2071,7 @@ export const segmentationService = {
         else (live as any).segments = {};
       }
 
-      const contourData = (seg.representationData as any)?.Contour;
-      if (contourData?.annotationUIDsMap instanceof Map) {
-        contourData.annotationUIDsMap.clear();
-      }
+      contourRep.clearAllAnnotationUIDs(segmentationId);
 
       try {
         csSegmentation.segmentIndex.setActiveSegmentIndex(segmentationId, 0);
@@ -2150,12 +2125,7 @@ export const segmentationService = {
       };
 
       // Ensure contour annotation map has an entry for this segment
-      const contourData = (seg.representationData as any)?.Contour;
-      if (contourData?.annotationUIDsMap instanceof Map) {
-        if (!contourData.annotationUIDsMap.has(nextIndex)) {
-          contourData.annotationUIDsMap.set(nextIndex, new Set<string>());
-        }
-      }
+      contourRep.ensureSegmentEntry(segmentationId, nextIndex);
 
       // Set active segment index in Cornerstone
       csSegmentation.segmentIndex.setActiveSegmentIndex(segmentationId, nextIndex);
@@ -2265,7 +2235,7 @@ export const segmentationService = {
     }
 
     // Track source imageIds on the sub-seg (for export resolution).
-    sourceImageIdsMap.set(subSegId, [...dims.sourceImageIds]);
+    sourceImageTracking.setSourceImageIds(subSegId, [...dims.sourceImageIds]);
 
     // Update group registry.
     subSegIds.push(subSegId);
@@ -2317,7 +2287,7 @@ export const segmentationService = {
       }
       // Clean up maps
       subSegToGroupMap.delete(subSegId);
-      sourceImageIdsMap.delete(subSegId);
+      sourceImageTracking.clearSourceImageIds(subSegId);
       const groupArr = subSegGroupMap.get(segmentationId);
       if (groupArr) {
         groupArr[segmentIndex - 1] = null; // null-out the slot
@@ -2331,7 +2301,7 @@ export const segmentationService = {
         segmentMetaMap.delete(segmentationId);
         groupDimensionsMap.delete(segmentationId);
         groupLabelMap.delete(segmentationId);
-        sourceImageIdsMap.delete(segmentationId);
+        sourceImageTracking.clearSourceImageIds(segmentationId);
         const store = useSegmentationStore.getState();
         if (store.activeSegmentationId === segmentationId) {
           store.setActiveSegmentation(null);
@@ -2374,17 +2344,50 @@ export const segmentationService = {
       return false;
     }
 
+    // Completeness guard: copy requires a drawable polyline. This was
+    // previously enforced transitively via `isContourAnnotation` rejecting
+    // annotations with <3 points, but that check now lives only here (and
+    // other completeness-dependent sites) so in-progress contours stay
+    // visible to selection sync.
+    const polyline = clonePolyline(annotation.data.contour?.polyline);
+    if (polyline.length < 3) return false;
+
+    // Capture spline-specific reconstruction data if the source is a spline.
+    // Presence of `data.spline.instance` is the identity marker (Cornerstone's
+    // SplineROITool sets it in `addNewAnnotation`/`createAnnotation`). Without
+    // this, pasting a spline-tool annotation used to throw on render because
+    // paste built an annotation missing `data.spline`.
+    const sourceSpline = (annotation.data as any)?.spline;
+    const sourceControlPoints = (annotation.data?.handles as { points?: unknown })?.points;
+    const splineInstance = sourceSpline?.instance;
+    const splineConstructor = splineInstance?.constructor as (new () => unknown) | undefined;
+    const controlPointsWorld = Array.isArray(sourceControlPoints)
+      ? (sourceControlPoints.map(toPoint3).filter((p): p is Point3 => p !== null))
+      : [];
+    const spline = splineInstance
+      && typeof splineConstructor === 'function'
+      && typeof sourceSpline.type === 'string'
+      && controlPointsWorld.length >= 3
+      ? {
+          type: sourceSpline.type as string,
+          resolution: sourceSpline.resolution,
+          SplineClass: splineConstructor,
+          controlPointsWorld,
+        }
+      : null;
+
     contourClipboard = {
       toolName: annotation.metadata?.toolName ?? 'PlanarFreehandContourSegmentationTool',
       segmentationId,
       segmentIndex,
       referencedImageId,
       frameOfReferenceUID: annotation.metadata?.FrameOfReferenceUID ?? null,
-      polyline: clonePolyline(annotation.data.contour?.polyline),
+      polyline,
       closed: annotation.data.contour?.closed !== false,
       handles: cloneHandlesWithOffset(annotation.data.handles, [0, 0, 0]),
+      spline,
     };
-    return contourClipboard.polyline.length >= 3;
+    return true;
   },
 
   /**
@@ -2435,10 +2438,48 @@ export const segmentationService = {
         activeHandleIndex: null,
       };
 
+    // Reconstruct spline state if the source was a spline tool. Cornerstone's
+    // SplineROITool.renderAnnotationInstance requires `data.spline.{type,
+    // instance}` at render time and regenerates the rendered polyline from
+    // the control points in `data.handles.points` via `_updateSplineInstance`.
+    //
+    // If reconstruction fails (e.g. the captured constructor is no longer a
+    // valid spline class after a Cornerstone upgrade), fall back to pasting
+    // as a freehand contour — the rendered polyline is still correct; the
+    // user loses spline-edit affordances but the workflow doesn't break.
+    let pastedToolName = contourClipboard.toolName;
+    let splineData: { type: string; instance: unknown; resolution: unknown } | null = null;
+    let splineHandlePoints: Point3[] | null = null;
+    if (contourClipboard.spline) {
+      try {
+        const newInstance = new contourClipboard.spline.SplineClass();
+        splineData = {
+          type: contourClipboard.spline.type,
+          instance: newInstance,
+          resolution: contourClipboard.spline.resolution,
+        };
+        splineHandlePoints = contourClipboard.spline.controlPointsWorld.map(
+          (point) => addPoint3(point, delta),
+        );
+      } catch (err) {
+        console.warn(
+          '[segmentationService] Spline reconstruction on paste failed; falling back to freehand contour:',
+          err,
+        );
+        pastedToolName = 'PlanarFreehandContourSegmentationTool';
+        splineData = null;
+        splineHandlePoints = null;
+      }
+    }
+
+    const finalHandles: Record<string, unknown> = splineHandlePoints
+      ? { ...translatedHandles, points: splineHandlePoints }
+      : translatedHandles;
+
     const nextAnnotation: any = {
       annotationUID,
       metadata: {
-        toolName: contourClipboard.toolName,
+        toolName: pastedToolName,
         ...viewportContext.metadata,
       },
       data: {
@@ -2450,7 +2491,8 @@ export const segmentationService = {
           segmentationId: contourClipboard.segmentationId,
           segmentIndex: contourClipboard.segmentIndex,
         },
-        handles: translatedHandles,
+        handles: finalHandles,
+        ...(splineData ? { spline: splineData } : {}),
       },
       highlighted: true,
       isSelected: true,
@@ -2583,14 +2625,14 @@ export const segmentationService = {
           // Remove from Cornerstone state
           try { csSegmentation.removeSegmentation(subSegId); } catch { /* ok */ }
           subSegToGroupMap.delete(subSegId);
-          sourceImageIdsMap.delete(subSegId);
+          sourceImageTracking.clearSourceImageIds(subSegId);
         }
         // Clean up group maps
         subSegGroupMap.delete(segmentationId);
         segmentMetaMap.delete(segmentationId);
         groupDimensionsMap.delete(segmentationId);
         groupLabelMap.delete(segmentationId);
-        sourceImageIdsMap.delete(segmentationId);
+        sourceImageTracking.clearSourceImageIds(segmentationId);
         loadedColorsMap.delete(segmentationId);
         groupViewportAttachments.delete(segmentationId);
         metadataPreloadPromises.delete(segmentationId);
@@ -2630,7 +2672,7 @@ export const segmentationService = {
       }
 
       csSegmentation.removeSegmentation(segmentationId);
-      sourceImageIdsMap.delete(segmentationId);
+      sourceImageTracking.clearSourceImageIds(segmentationId);
       loadedColorsMap.delete(segmentationId);
 
       const store = useSegmentationStore.getState();
@@ -4002,7 +4044,7 @@ export const segmentationService = {
         sourceImageIds: [...effectiveBaseSourceImageIds],
       });
       groupLabelMap.set(segmentationId, groupLabel);
-      sourceImageIdsMap.set(segmentationId, [...effectiveBaseSourceImageIds]);
+      sourceImageTracking.setSourceImageIds(segmentationId, [...effectiveBaseSourceImageIds]);
 
       const genericMeta = (csUtilities as any).genericMetadataProvider;
       let refGeneralSeriesMeta: any = null;
@@ -4094,7 +4136,7 @@ export const segmentationService = {
         csSegmentation.segmentLocking.setSegmentIndexLocked(subSegId, 1, true);
 
         // Track source imageIds on the sub-seg
-        sourceImageIdsMap.set(subSegId, [...effectiveBaseSourceImageIds]);
+        sourceImageTracking.setSourceImageIds(subSegId, [...effectiveBaseSourceImageIds]);
 
         // Update group registry
         subSegIds.push(subSegId);
@@ -4169,11 +4211,7 @@ export const segmentationService = {
       // 1. Ensure Contour representation data exists on the segmentation.
       //    This is normally set at creation time, but check again in case
       //    the segmentation was created before contour support was added.
-      if (!seg.representationData.Contour) {
-        (seg.representationData as any).Contour = {
-          annotationUIDsMap: new Map(),
-        };
-      }
+      contourRep.ensureContourRepresentation(segmentationId);
 
       // 2. Ensure segments array has entries with all required properties.
       const activeIdxRaw = useSegmentationStore.getState().activeSegmentIndex;
@@ -4291,7 +4329,7 @@ export const segmentationService = {
       throw new Error(`[segmentationService] Segmentation not found: ${segmentationId}`);
     }
 
-    const storedSrcImageIds = sourceImageIdsMap.get(segmentationId);
+    const storedSrcImageIds = sourceImageTracking.getSourceImageIds(segmentationId);
     if (!storedSrcImageIds || storedSrcImageIds.length === 0) {
       throw new Error(
         '[segmentationService] No source imageIds tracked for this segmentation. ' +
@@ -5200,7 +5238,7 @@ export const segmentationService = {
    */
   async _exportGroupToDicomSeg(groupId: string): Promise<string> {
     const dims = groupDimensionsMap.get(groupId);
-    const srcImageIds = dims?.sourceImageIds ?? sourceImageIdsMap.get(groupId) ?? [];
+    const srcImageIds = dims?.sourceImageIds ?? sourceImageTracking.getSourceImageIds(groupId) ?? [];
     if (srcImageIds.length === 0) {
       throw new Error('[segmentationService] No source imageIds for group export.');
     }
@@ -5319,7 +5357,7 @@ export const segmentationService = {
       }]);
 
       // Track source image IDs for the temp seg
-      sourceImageIdsMap.set(tempSegId, [...srcImageIds]);
+      sourceImageTracking.setSourceImageIds(tempSegId, [...srcImageIds]);
 
       // Delegate to the legacy export path
       const result = await this.exportToDicomSeg(tempSegId);
@@ -5328,7 +5366,7 @@ export const segmentationService = {
     } finally {
       // Clean up temporary segmentation
       try { csSegmentation.removeSegmentation(tempSegId); } catch { /* ok */ }
-      sourceImageIdsMap.delete(tempSegId);
+      sourceImageTracking.clearSourceImageIds(tempSegId);
       // Clean up temporary labelmap images from cache
       for (const lmId of tempLmImageIds) {
         try { cache.removeImageLoadObject(lmId); } catch { /* ok */ }
@@ -5341,7 +5379,7 @@ export const segmentationService = {
    * Called by rtStructService when loading RTSTRUCT contours.
    */
   trackSourceImageIds(segmentationId: string, imageIds: string[]): void {
-    sourceImageIdsMap.set(segmentationId, [...imageIds]);
+    sourceImageTracking.setSourceImageIds(segmentationId, [...imageIds]);
   },
 
   /**
@@ -5349,7 +5387,7 @@ export const segmentationService = {
    * Used by RTSTRUCT export to copy source DICOM identity fields.
    */
   getTrackedSourceImageIds(segmentationId: string): string[] | null {
-    const ids = sourceImageIdsMap.get(segmentationId);
+    const ids = sourceImageTracking.getSourceImageIds(segmentationId);
     return ids ? [...ids] : null;
   },
 
@@ -5402,14 +5440,7 @@ export const segmentationService = {
     const checkLabelmap = targetType === 'SEG' || targetType == null;
 
     if (checkContour) {
-      const contourData = (seg.representationData as any)?.Contour;
-      if (contourData?.annotationUIDsMap instanceof Map) {
-        for (const uids of contourData.annotationUIDsMap.values()) {
-          if (uids && typeof uids.size === 'number' && uids.size > 0) {
-            return true;
-          }
-        }
-      }
+      if (contourRep.hasAnyAnnotations(segmentationId)) return true;
       if (targetType === 'RTSTRUCT') return false;
     }
 
@@ -5567,8 +5598,9 @@ export const segmentationService = {
     labelmapInterpolationInProgress = false;
     uninstallHistoryMemoTracking();
 
-    // Clean up module-level state
-    sourceImageIdsMap.clear();
+    // Clean up module-level state. sourceImageTracking.dispose() both
+    // unsubscribes its auto-cleanup listener and clears its map.
+    sourceImageTracking.dispose();
     loadedColorsMap.clear();
     subSegGroupMap.clear();
     subSegToGroupMap.clear();
