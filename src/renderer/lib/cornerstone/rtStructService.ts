@@ -765,24 +765,27 @@ function matchSourceReferenceToContourImage(
     const exactMatch = matches.find((ref) => ref.referencedFrameNumber === referencedFrameNumber);
     if (exactMatch) return exactMatch;
 
-    // Single-frame fallback. The adapter / Cornerstone interpolation path
-    // sometimes emits `ReferencedFrameNumber: 1` on contour image references
-    // even when the source image is single-frame (numberOfFrames <= 1) and
+    // Single-frame fallback. The adapter sometimes emits
+    // `ReferencedFrameNumber: 1` even when the source is single-frame and
     // the source-side `referencedFrameNumber` is undefined — `frame=1` and
     // "no frame" are semantically equivalent for a single-frame SOP.
-    //
-    // We previously required `matches.length === 1`, which broke when the
-    // same SOP UID was registered under multiple wadouri imageIds (alternate
-    // URLs for the same instance are a common XNAT pattern; each gets its
-    // own source-ref entry). Any single-frame match is equally valid.
     if (referencedFrameNumber === 1) {
       const singleFrameMatch = matches.find((ref) => (ref.numberOfFrames ?? 1) <= 1);
       if (singleFrameMatch) return singleFrameMatch;
     }
 
-    throw new Error(
-      `RTSTRUCT contour references frame ${referencedFrameNumber} of SOP Instance UID ${sopInstanceUID}, but no matching source frame metadata was found.`,
+    // Final fallback: every match shares the same SOP Instance UID (they
+    // describe the same DICOM object through different wadouri URLs). For
+    // export attribution any such match carries valid StudyInstanceUID /
+    // SeriesInstanceUID / FrameOfReferenceUID. Picking the first is better
+    // than throwing during autosave — the written RTSTRUCT still references
+    // the correct SOP UID + frame. Log for visibility so the mismatch
+    // doesn't silently accumulate.
+    console.warn(
+      `[rtStructService] No exact frame match for ReferencedFrameNumber ${referencedFrameNumber} of SOP ${sopInstanceUID}; using first source ref. `
+      + `Source refs: ${matches.map((ref) => `{frame:${ref.referencedFrameNumber ?? 'undef'},nFrames:${ref.numberOfFrames ?? 'undef'}}`).join(', ')}`,
     );
+    return matches[0];
   }
 
   if (matches.length === 1) {
