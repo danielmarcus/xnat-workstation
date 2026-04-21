@@ -58,6 +58,7 @@ import { useSegmentationManagerStore } from '../../stores/segmentationManagerSto
 import { rtStructService } from './rtStructService';
 import * as contourRep from './contourRepresentation';
 import * as sourceImageTracking from './sourceImageTracking';
+import * as mlg from './multiLayerGroup';
 import { backupService } from '../backup/backupService';
 import {
   hasSegmentPixelsOnSlice,
@@ -177,105 +178,23 @@ const loadedColorsMap = new Map<string, Map<number, [number, number, number, num
 // one per segment. Each sub-seg has its own set of binary (0/1) Uint8Array
 // labelmap images, enabling overlapping segments.
 
-/** Per-segment metadata stored at the group level. */
-interface SegmentMeta {
-  label: string;
-  color: [number, number, number, number];
-  locked: boolean;
-}
-
-/** Image dimensions + source IDs for creating new sub-seg labelmap images. */
-interface GroupDimensions {
-  rows: number;
-  columns: number;
-  rowPixelSpacing: number;
-  columnPixelSpacing: number;
-  sourceImageIds: string[];
-}
-
-/**
- * Maps group ID (logical segmentation shown in UI) → ordered sub-seg IDs.
- * Array index + 1 = logical segment index. Null entries = removed segments.
- */
-const subSegGroupMap = new Map<string, (string | null)[]>();
-
-/**
- * Reverse lookup: Cornerstone sub-segmentation ID → { groupId, segmentIndex }.
- */
-const subSegToGroupMap = new Map<string, { groupId: string; segmentIndex: number }>();
-
-/**
- * Per-segment metadata (label, color, locked) keyed by group ID + segment index.
- */
-const segmentMetaMap = new Map<string, Map<number, SegmentMeta>>();
-
-/**
- * Image dimensions for creating new sub-seg labelmap images on demand.
- */
-const groupDimensionsMap = new Map<string, GroupDimensions>();
-
-/** Group label storage (separate from segments). */
-const groupLabelMap = new Map<string, string>();
-
-/**
- * Viewport attachment tracking for multi-layer groups.
- * Records which viewports a group was added to via addToViewport(),
- * even before any sub-segs exist. Without this, the first addSegment()
- * cannot discover the target viewports because findViewportsWithGroup()
- * iterates sub-segs — which are empty until the first segment is created.
- */
-const groupViewportAttachments = new Map<string, Set<string>>();
-
-/**
- * Background metadata pre-load promises per group.
- * Started in createStackSegmentation() and awaited lazily in addSegment()
- * so the UI doesn't block on first creation.
- */
-const metadataPreloadPromises = new Map<string, Promise<void>>();
-
-/** Returns true if a segmentationId is a multi-layer group. */
-function isMultiLayerGroup(segmentationId: string): boolean {
-  return subSegGroupMap.has(segmentationId);
-}
-
-/** Returns non-null sub-seg IDs for a group. */
-function getActiveSubSegIds(segmentationId: string): string[] {
-  const arr = subSegGroupMap.get(segmentationId);
-  if (!arr) return [];
-  return arr.filter((id): id is string => id !== null);
-}
-
-/** Resolve a group ID + logical segment index to the sub-seg ID. */
-function resolveSubSegId(groupId: string, segmentIndex: number): string | null {
-  const arr = subSegGroupMap.get(groupId);
-  if (!arr) return null;
-  return arr[segmentIndex - 1] ?? null;
-}
-
-/** Find viewport IDs that have any sub-seg of a group attached. */
+// Multi-layer group types + state moved to `./multiLayerGroup`. The local
+// convenience wrappers below delegate to that module; keeping them (rather
+// than calling `mlg.isMultiLayerGroup(...)` etc. everywhere) preserves the
+// ~24 existing call sites unchanged.
+const isMultiLayerGroup = mlg.isMultiLayerGroup;
+const getActiveSubSegIds = mlg.getActiveSubSegIds;
+const resolveSubSegId = mlg.resolveSubSegId;
 function findViewportsWithGroup(groupId: string): string[] {
-  const subSegIds = getActiveSubSegIds(groupId);
-  const vpSet = new Set<string>();
-  for (const subSegId of subSegIds) {
-    for (const vpId of csSegmentation.state.getViewportIdsWithSegmentation(subSegId)) {
-      vpSet.add(vpId);
-    }
-  }
-  // Fall back to recorded viewport attachments — the group may have been added
-  // to viewports before any sub-segs existed (e.g. panel-created segmentations
-  // where the first segment is added separately).
-  if (vpSet.size === 0) {
-    const recorded = groupViewportAttachments.get(groupId);
-    if (recorded) {
-      for (const vpId of recorded) vpSet.add(vpId);
-    }
-  }
-  return Array.from(vpSet);
+  return mlg.findViewportsWithGroup(
+    groupId,
+    (subSegId) => csSegmentation.state.getViewportIdsWithSegmentation(subSegId),
+  );
 }
 
 function getSegmentDisplayLabel(segmentationId: string, segmentIndex: number): string {
   if (isMultiLayerGroup(segmentationId)) {
-    return segmentMetaMap.get(segmentationId)?.get(segmentIndex)?.label ?? `Segment ${segmentIndex}`;
+    return mlg.getSegmentMetaMap(segmentationId)?.get(segmentIndex)?.label ?? `Segment ${segmentIndex}`;
   }
 
   const segmentation = csSegmentation.state.getSegmentation(segmentationId) as
@@ -693,7 +612,7 @@ function syncSegmentations(): void {
     const activeVpId = useViewerStore.getState().activeViewportId;
 
     // ─── Pass 1: Multi-layer groups ────────────────────────────
-    for (const [groupId, subSegArr] of subSegGroupMap) {
+    for (const [groupId, subSegArr] of mlg.iterateGroups()) {
       const segments: SegmentSummary[] = [];
       const priorSummary = existingSummaries.find((s) => s.segmentationId === groupId);
       const priorColorByIndex = new Map<number, [number, number, number, number]>(
@@ -707,7 +626,7 @@ function syncSegmentations(): void {
         processedSubSegIds.add(subSegId);
 
         const segmentIndex = i + 1; // 1-based
-        const meta = segmentMetaMap.get(groupId)?.get(segmentIndex);
+        const meta = mlg.getSegmentMetaMap(groupId)?.get(segmentIndex);
 
         // Color: try Cornerstone API on the sub-seg (segment index 1), then meta, then default
         let color: [number, number, number, number] =
@@ -776,7 +695,7 @@ function syncSegmentations(): void {
 
       summaries.push({
         segmentationId: groupId,
-        label: groupLabelMap.get(groupId) ?? 'Segmentation',
+        label: mlg.getGroupLabel(groupId) ?? 'Segmentation',
         segments,
         isActive: groupId === store.activeSegmentationId,
       });
@@ -785,7 +704,7 @@ function syncSegmentations(): void {
     // ─── Pass 2: Legacy (non-group) segmentations ──────────────
     for (const seg of allSegmentations) {
       if (processedSubSegIds.has(seg.segmentationId)) continue;
-      if (subSegGroupMap.has(seg.segmentationId)) continue; // group ID itself (no CS object)
+      if (mlg.isMultiLayerGroup(seg.segmentationId)) continue; // group ID itself (no CS object)
 
       const segments: SegmentSummary[] = [];
       const priorSummary = existingSummaries.find((s) => s.segmentationId === seg.segmentationId);
@@ -1383,7 +1302,7 @@ function onSegmentationDataModified(evt?: Event): void {
     // Resolve sub-seg ID to group ID for dirty tracking
     let resolvedSegId = detail?.segmentationId ?? null;
     if (resolvedSegId) {
-      const groupInfo = subSegToGroupMap.get(resolvedSegId);
+      const groupInfo = mlg.getGroupInfoForSubSeg(resolvedSegId);
       if (groupInfo) {
         resolvedSegId = groupInfo.groupId;
       }
@@ -1391,7 +1310,7 @@ function onSegmentationDataModified(evt?: Event): void {
 
     if (detail?.segmentationId) {
       // For interpolation, use the resolved group ID so it can look up the right sub-seg
-      const groupInfo = subSegToGroupMap.get(detail.segmentationId);
+      const groupInfo = mlg.getGroupInfoForSubSeg(detail.segmentationId);
       pendingLabelmapInterpolation = {
         segmentationId: groupInfo ? groupInfo.groupId : detail.segmentationId,
         segmentIndex: groupInfo
@@ -1790,7 +1709,7 @@ export const segmentationService = {
    */
   setLabel(segmentationId: string, label: string): void {
     if (isMultiLayerGroup(segmentationId)) {
-      groupLabelMap.set(segmentationId, label);
+      mlg.setGroupLabel(segmentationId, label);
       syncSegmentations();
       return;
     }
@@ -1905,8 +1824,8 @@ export const segmentationService = {
         imageLoader.loadAndCacheImage(id).catch((err: any) => {
           console.warn(`[segmentationService] Failed to pre-load image ${id}:`, err);
         }),
-      )).then(() => { metadataPreloadPromises.delete(segmentationId); });
-      metadataPreloadPromises.set(segmentationId, preloadPromise);
+      )).then(() => { mlg.removePreloadPromise(segmentationId); });
+      mlg.setPreloadPromise(segmentationId, preloadPromise);
 
       // If creating a default segment, we must await now because addSegment
       // needs metadata synchronously within this call.
@@ -1917,16 +1836,16 @@ export const segmentationService = {
 
     // Step 3: Initialize the multi-layer group (no labelmap images yet —
     // those are created per-segment in addSegment()).
-    subSegGroupMap.set(segmentationId, []);
-    segmentMetaMap.set(segmentationId, new Map());
-    groupDimensionsMap.set(segmentationId, {
+    mlg.initGroupSlots(segmentationId);
+    mlg.initSegmentMetaMap(segmentationId);
+    mlg.setGroupDimensions(segmentationId, {
       rows,
       columns,
       rowPixelSpacing,
       columnPixelSpacing,
       sourceImageIds: [...sourceImageIds],
     });
-    groupLabelMap.set(segmentationId, segLabel);
+    mlg.setGroupLabel(segmentationId, segLabel);
 
     // Track source imageIds for DICOM SEG export
     sourceImageTracking.setSourceImageIds(segmentationId, [...sourceImageIds]);
@@ -2152,18 +2071,18 @@ export const segmentationService = {
 
     // Ensure background metadata pre-load is complete before creating
     // labelmap images (each needs imagePlaneModule from its source image).
-    const preloadPromise = metadataPreloadPromises.get(segmentationId);
+    const preloadPromise = mlg.getPreloadPromise(segmentationId);
     if (preloadPromise) {
       await preloadPromise;
     }
 
-    const dims = groupDimensionsMap.get(segmentationId);
+    const dims = mlg.getGroupDimensions(segmentationId);
     if (!dims) {
       throw new Error(`[segmentationService] No dimensions stored for group: ${segmentationId}`);
     }
 
     // Determine next segment index from existing sub-segs.
-    const subSegIds = subSegGroupMap.get(segmentationId)!;
+    const subSegIds = mlg.getGroupSlots(segmentationId)!;
     const nextIndex = subSegIds.length + 1;
     const segmentLabel = label.trim() || `Segment ${nextIndex}`;
     const segColor = color || DEFAULT_COLORS[(nextIndex - 1) % DEFAULT_COLORS.length];
@@ -2239,8 +2158,8 @@ export const segmentationService = {
 
     // Update group registry.
     subSegIds.push(subSegId);
-    subSegToGroupMap.set(subSegId, { groupId: segmentationId, segmentIndex: nextIndex });
-    segmentMetaMap.get(segmentationId)!.set(nextIndex, {
+    mlg.setGroupInfoForSubSeg(subSegId, { groupId: segmentationId, segmentIndex: nextIndex });
+    mlg.getSegmentMetaMap(segmentationId)!.set(nextIndex, {
       label: segmentLabel,
       color: segColor,
       locked: false,
@@ -2286,21 +2205,21 @@ export const segmentationService = {
         console.error('[segmentationService] Failed to remove sub-seg:', err);
       }
       // Clean up maps
-      subSegToGroupMap.delete(subSegId);
+      mlg.removeGroupInfoForSubSeg(subSegId);
       sourceImageTracking.clearSourceImageIds(subSegId);
-      const groupArr = subSegGroupMap.get(segmentationId);
+      const groupArr = mlg.getGroupSlots(segmentationId);
       if (groupArr) {
         groupArr[segmentIndex - 1] = null; // null-out the slot
       }
-      segmentMetaMap.get(segmentationId)?.delete(segmentIndex);
+      mlg.getSegmentMetaMap(segmentationId)?.delete(segmentIndex);
 
       // If all sub-segs are removed, clean up the entire group
       const remaining = getActiveSubSegIds(segmentationId);
       if (remaining.length === 0) {
-        subSegGroupMap.delete(segmentationId);
-        segmentMetaMap.delete(segmentationId);
-        groupDimensionsMap.delete(segmentationId);
-        groupLabelMap.delete(segmentationId);
+        mlg.removeGroupSlots(segmentationId);
+        mlg.removeSegmentMetaMap(segmentationId);
+        mlg.removeGroupDimensions(segmentationId);
+        mlg.removeGroupLabel(segmentationId);
         sourceImageTracking.clearSourceImageIds(segmentationId);
         const store = useSegmentationStore.getState();
         if (store.activeSegmentationId === segmentationId) {
@@ -2624,18 +2543,18 @@ export const segmentationService = {
           }
           // Remove from Cornerstone state
           try { csSegmentation.removeSegmentation(subSegId); } catch { /* ok */ }
-          subSegToGroupMap.delete(subSegId);
+          mlg.removeGroupInfoForSubSeg(subSegId);
           sourceImageTracking.clearSourceImageIds(subSegId);
         }
         // Clean up group maps
-        subSegGroupMap.delete(segmentationId);
-        segmentMetaMap.delete(segmentationId);
-        groupDimensionsMap.delete(segmentationId);
-        groupLabelMap.delete(segmentationId);
+        mlg.removeGroupSlots(segmentationId);
+        mlg.removeSegmentMetaMap(segmentationId);
+        mlg.removeGroupDimensions(segmentationId);
+        mlg.removeGroupLabel(segmentationId);
         sourceImageTracking.clearSourceImageIds(segmentationId);
         loadedColorsMap.delete(segmentationId);
-        groupViewportAttachments.delete(segmentationId);
-        metadataPreloadPromises.delete(segmentationId);
+        mlg.removeGroupViewportAttachments(segmentationId);
+        mlg.removePreloadPromise(segmentationId);
 
         const store = useSegmentationStore.getState();
         if (store.activeSegmentationId === segmentationId) {
@@ -2715,18 +2634,15 @@ export const segmentationService = {
       // ─── Multi-layer path: attach each sub-seg as an independent actor ───
       // Record viewport attachment so addSegment() can discover the target
       // viewports even before any sub-segs exist (first segment case).
-      if (!groupViewportAttachments.has(segmentationId)) {
-        groupViewportAttachments.set(segmentationId, new Set());
-      }
-      groupViewportAttachments.get(segmentationId)!.add(viewportId);
+      mlg.attachGroupToViewport(segmentationId, viewportId);
 
       const subSegIds = getActiveSubSegIds(segmentationId);
-      const metaMap = segmentMetaMap.get(segmentationId);
+      const metaMap = mlg.getSegmentMetaMap(segmentationId);
       const store = useSegmentationStore.getState();
       const activeSegIdx = store.activeSegmentIndex;
 
       for (const subSegId of subSegIds) {
-        const info = subSegToGroupMap.get(subSegId);
+        const info = mlg.getGroupInfoForSubSeg(subSegId);
         if (!info) continue;
         const meta = metaMap?.get(info.segmentIndex);
         const segColor = meta?.color ?? DEFAULT_COLORS[(info.segmentIndex - 1) % DEFAULT_COLORS.length];
@@ -2984,7 +2900,7 @@ export const segmentationService = {
       }
 
       // Get the color for this segment from metadata
-      const meta = segmentMetaMap.get(segmentationId)?.get(segmentIndex);
+      const meta = mlg.getSegmentMetaMap(segmentationId)?.get(segmentIndex);
       const segColor = meta?.color ?? DEFAULT_COLORS[(segmentIndex - 1) % DEFAULT_COLORS.length];
 
       // Switch the active Cornerstone segmentation to this sub-seg on all viewports
@@ -3092,7 +3008,7 @@ export const segmentationService = {
       const subSegId = resolveSubSegId(segmentationId, segmentIndex);
       if (!subSegId) return;
       // Update metadata
-      const metaMap = segmentMetaMap.get(segmentationId);
+      const metaMap = mlg.getSegmentMetaMap(segmentationId);
       if (metaMap) {
         const existing = metaMap.get(segmentIndex);
         if (existing) existing.color = color;
@@ -3146,7 +3062,7 @@ export const segmentationService = {
    */
   renameSegmentation(segmentationId: string, newLabel: string): void {
     if (isMultiLayerGroup(segmentationId)) {
-      groupLabelMap.set(segmentationId, newLabel);
+      mlg.setGroupLabel(segmentationId, newLabel);
       syncSegmentations();
       return;
     }
@@ -3161,7 +3077,7 @@ export const segmentationService = {
    */
   renameSegment(segmentationId: string, segmentIndex: number, newLabel: string): void {
     if (isMultiLayerGroup(segmentationId)) {
-      const metaMap = segmentMetaMap.get(segmentationId);
+      const metaMap = mlg.getSegmentMetaMap(segmentationId);
       const meta = metaMap?.get(segmentIndex);
       if (meta) meta.label = newLabel;
       syncSegmentations();
@@ -3375,7 +3291,7 @@ export const segmentationService = {
       const newLocked = !isLocked;
       csSegmentation.segmentLocking.setSegmentIndexLocked(subSegId, 1, newLocked);
       // Update metadata
-      const meta = segmentMetaMap.get(segmentationId)?.get(segmentIndex);
+      const meta = mlg.getSegmentMetaMap(segmentationId)?.get(segmentIndex);
       if (meta) meta.locked = newLocked;
       // Update presentation cache BEFORE sync so syncSegmentations reads the correct value
       useSegmentationManagerStore.getState().setPresentation(segmentationId, segmentIndex, { locked: newLocked });
@@ -4034,16 +3950,16 @@ export const segmentationService = {
       const loadRowSpacing = Number(loadPlane?.rowPixelSpacing) || 1;
       const loadColSpacing = Number(loadPlane?.columnPixelSpacing) || 1;
 
-      subSegGroupMap.set(segmentationId, []);
-      segmentMetaMap.set(segmentationId, new Map());
-      groupDimensionsMap.set(segmentationId, {
+      mlg.initGroupSlots(segmentationId);
+      mlg.initSegmentMetaMap(segmentationId);
+      mlg.setGroupDimensions(segmentationId, {
         rows: sourceRows,
         columns: sourceCols,
         rowPixelSpacing: loadRowSpacing,
         columnPixelSpacing: loadColSpacing,
         sourceImageIds: [...effectiveBaseSourceImageIds],
       });
-      groupLabelMap.set(segmentationId, groupLabel);
+      mlg.setGroupLabel(segmentationId, groupLabel);
       sourceImageTracking.setSourceImageIds(segmentationId, [...effectiveBaseSourceImageIds]);
 
       const genericMeta = (csUtilities as any).genericMetadataProvider;
@@ -4054,8 +3970,8 @@ export const segmentationService = {
       }
 
       const pixelCount = sourceRows * sourceCols;
-      const subSegIds = subSegGroupMap.get(segmentationId)!;
-      const metaMapForGroup = segmentMetaMap.get(segmentationId)!;
+      const subSegIds = mlg.getGroupSlots(segmentationId)!;
+      const metaMapForGroup = mlg.getSegmentMetaMap(segmentationId)!;
 
       // ─── Create per-segment sub-segmentations with binary labelmaps ───
       for (const segIdx of sortedSegIndices) {
@@ -4140,7 +4056,7 @@ export const segmentationService = {
 
         // Update group registry
         subSegIds.push(subSegId);
-        subSegToGroupMap.set(subSegId, { groupId: segmentationId, segmentIndex });
+        mlg.setGroupInfoForSubSeg(subSegId, { groupId: segmentationId, segmentIndex });
         metaMapForGroup.set(segmentIndex, {
           label: segLabel,
           color: segColor,
@@ -5237,14 +5153,14 @@ export const segmentationService = {
    * Higher-indexed segments win at overlap pixels.
    */
   async _exportGroupToDicomSeg(groupId: string): Promise<string> {
-    const dims = groupDimensionsMap.get(groupId);
+    const dims = mlg.getGroupDimensions(groupId);
     const srcImageIds = dims?.sourceImageIds ?? sourceImageTracking.getSourceImageIds(groupId) ?? [];
     if (srcImageIds.length === 0) {
       throw new Error('[segmentationService] No source imageIds for group export.');
     }
 
-    const subSegArr = subSegGroupMap.get(groupId) ?? [];
-    const metaMap = segmentMetaMap.get(groupId);
+    const subSegArr = mlg.getGroupSlots(groupId) ?? [];
+    const metaMap = mlg.getSegmentMetaMap(groupId);
     const { rows, columns } = dims ?? { rows: 512, columns: 512 };
     const sliceCount = srcImageIds.length;
     const pixelsPerSlice = rows * columns;
@@ -5351,7 +5267,7 @@ export const segmentationService = {
           data: { imageIds: tempLmImageIds } as any,
         },
         config: {
-          label: groupLabelMap.get(groupId) ?? 'Segmentation',
+          label: mlg.getGroupLabel(groupId) ?? 'Segmentation',
           segments,
         },
       }]);
@@ -5602,11 +5518,11 @@ export const segmentationService = {
     // unsubscribes its auto-cleanup listener and clears its map.
     sourceImageTracking.dispose();
     loadedColorsMap.clear();
-    subSegGroupMap.clear();
-    subSegToGroupMap.clear();
-    segmentMetaMap.clear();
-    groupDimensionsMap.clear();
-    groupLabelMap.clear();
+    // NOTE: mlg.clearAll() also clears `groupViewportAttachments` and
+    // `metadataPreloadPromises`, which were NOT cleared in the pre-facade
+    // dispose code. Pre-facade this was a dispose-time state leak; the
+    // facade's teardown is symmetric across all 7 maps.
+    mlg.clearAll();
     segmentationCounter = 0;
 
     initialized = false;
