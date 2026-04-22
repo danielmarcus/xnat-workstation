@@ -402,7 +402,16 @@ describe('external DICOM compliance', () => {
     expect(segSummary.segmentCount).toBe(1);
   });
 
-  it('validates generated SEG and RTSTRUCT fixtures with dciodvfy', () => {
+  // Skip the external-validator test on dev machines without the binary, but
+  // still fail loudly in CI (where `CI=true` is always set and dicom3tools is
+  // installed by .github/workflows/ci.yml). This prevents dev-machine false
+  // positives without weakening CI coverage — a CI-side regression still
+  // surfaces via the hard `expect(commandAvailable(...)).toBe(true)` below.
+  const dciodvfyAvailable = commandAvailable(dciodvfyBin);
+  const inCi = Boolean(process.env.CI);
+  const skipExternalValidator = !dciodvfyAvailable && !inCi;
+
+  it.skipIf(skipExternalValidator)('validates generated SEG and RTSTRUCT fixtures with dciodvfy', () => {
     expect(commandAvailable(dciodvfyBin)).toBe(true);
 
     for (const fixtureName of ['fixture-seg.dcm', 'fixture-rtstruct.dcm']) {

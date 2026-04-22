@@ -21,9 +21,11 @@ import {
   Enums as ToolEnums,
   utilities as csToolUtilities,
 } from '@cornerstonejs/tools';
+import { adaptersRT } from '@cornerstonejs/adapters';
 import { useConnectionStore } from '../../stores/connectionStore';
 import { useSegmentationStore } from '../../stores/segmentationStore';
 import { segmentationService } from './segmentationService';
+import * as contourRep from './contourRepresentation';
 import {
   formatOperatorsNameForConnection,
   upsertOperatorsName,
@@ -34,15 +36,12 @@ import {
   requireSingleStudyReference,
   serializeDerivedDicomDataset,
 } from './dicomExportHelpers';
-
-function parsePositiveInt(value: unknown): number | null {
-  if (typeof value === 'number' && Number.isFinite(value) && value > 0) return Math.trunc(value);
-  if (typeof value === 'string' && value.trim().length > 0) {
-    const parsed = Number.parseInt(value, 10);
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-  }
-  return null;
-}
+import {
+  parsePositiveInt,
+  collectContourImageReferencesFromRtStruct,
+  contourImageReferenceKey,
+  validateRtStructDataset,
+} from './dicomValidation';
 
 function resolveFrameModule(imageId: string): {
   sopClassUID: string;
@@ -427,7 +426,7 @@ async function loadRtStructAsContours(
 
   // Build segments config: one segment per ROI (1-indexed)
   const segments: Record<number, any> = {};
-  const annotationUIDsMap = new Map<number, Set<string>>();
+  const segmentIndices: number[] = [];
   let firstReferencedImageId: string | null = null;
 
   // Register segmentation with Cornerstone
@@ -442,7 +441,7 @@ async function loadRtStructAsContours(
       active: segmentIndex === 1,
       cachedStats: {},
     };
-    annotationUIDsMap.set(segmentIndex, new Set<string>());
+    segmentIndices.push(segmentIndex);
   }
 
   csSegmentation.addSegmentations([
@@ -450,9 +449,7 @@ async function loadRtStructAsContours(
       segmentationId,
       representation: {
         type: ToolEnums.SegmentationRepresentations.Contour,
-        data: {
-          annotationUIDsMap,
-        } as any,
+        data: contourRep.buildInitialContourData(segmentIndices) as any,
       },
       config: {
         label: segLabel,
@@ -470,7 +467,6 @@ async function loadRtStructAsContours(
   for (let roiIdx = 0; roiIdx < parsed.rois.length; roiIdx++) {
     const roi = parsed.rois[roiIdx];
     const segmentIndex = roiIdx + 1;
-    const annotationUIDSet = annotationUIDsMap.get(segmentIndex)!;
 
     for (const contour of roi.contours) {
       // Convert flat points to Point3 array
@@ -543,7 +539,10 @@ async function loadRtStructAsContours(
 
       // Register annotation with Cornerstone's annotation state
       csAnnotation.state.addAnnotation(ann, viewportId);
-      annotationUIDSet.add(annotationUID);
+      // Bulk-load attribution: preserves pre-facade behavior of map-only
+      // attribution (no csToolUtilities.contourSegmentation helper call).
+      // See contourRepresentation.attachAnnotationUID for rationale.
+      contourRep.attachAnnotationUID(segmentationId, segmentIndex, annotationUID);
     }
   }
 
@@ -748,63 +747,8 @@ function toStructureSetLabel(value: string | undefined): string {
   return trimmed.slice(0, 16);
 }
 
-function normalizeContourImageSequenceItems(sequence: any): Array<Record<string, unknown>> {
-  if (Array.isArray(sequence)) {
-    return sequence.filter((item) => item && typeof item === 'object');
-  }
-  if (sequence && typeof sequence === 'object') {
-    return [sequence];
-  }
-  return [];
-}
-
-function contourImageReferenceKey(item: { ReferencedSOPInstanceUID?: unknown; ReferencedFrameNumber?: unknown }): string {
-  const sopInstanceUID = typeof item.ReferencedSOPInstanceUID === 'string'
-    ? item.ReferencedSOPInstanceUID
-    : '';
-  const referencedFrameNumber = parsePositiveInt(item.ReferencedFrameNumber);
-  return `${sopInstanceUID}|${referencedFrameNumber ?? ''}`;
-}
-
-function collectContourImageReferencesFromRtStruct(dataset: any): Array<Record<string, unknown>> {
-  const references: Array<Record<string, unknown>> = [];
-  const seen = new Set<string>();
-  const roiContourSequence = Array.isArray(dataset?.ROIContourSequence) ? dataset.ROIContourSequence : [];
-
-  for (const roiContour of roiContourSequence) {
-    const contourSequence = Array.isArray(roiContour?.ContourSequence) ? roiContour.ContourSequence : [];
-    for (const contour of contourSequence) {
-      const contourImageItems = normalizeContourImageSequenceItems(contour?.ContourImageSequence);
-      if (contourImageItems.length === 0) {
-        throw new Error('RTSTRUCT contour is missing ContourImageSequence.');
-      }
-      for (const contourImageItem of contourImageItems) {
-        if (typeof contourImageItem.ReferencedSOPInstanceUID !== 'string' || !contourImageItem.ReferencedSOPInstanceUID) {
-          throw new Error('RTSTRUCT contour image reference is missing ReferencedSOPInstanceUID.');
-        }
-        const normalizedRef: Record<string, unknown> = {
-          ReferencedSOPClassUID:
-            typeof contourImageItem.ReferencedSOPClassUID === 'string'
-              ? contourImageItem.ReferencedSOPClassUID
-              : undefined,
-          ReferencedSOPInstanceUID: contourImageItem.ReferencedSOPInstanceUID,
-        };
-        const referencedFrameNumber = parsePositiveInt(contourImageItem.ReferencedFrameNumber);
-        if (referencedFrameNumber) {
-          normalizedRef.ReferencedFrameNumber = referencedFrameNumber;
-        }
-
-        const key = contourImageReferenceKey(normalizedRef);
-        if (!seen.has(key)) {
-          seen.add(key);
-          references.push(normalizedRef);
-        }
-      }
-    }
-  }
-
-  return references;
-}
+// normalizeContourImageSequenceItems, contourImageReferenceKey, and
+// collectContourImageReferencesFromRtStruct moved to `./dicomValidation`.
 
 function matchSourceReferenceToContourImage(
   contourImageRef: Record<string, unknown>,
@@ -820,12 +764,28 @@ function matchSourceReferenceToContourImage(
   if (referencedFrameNumber) {
     const exactMatch = matches.find((ref) => ref.referencedFrameNumber === referencedFrameNumber);
     if (exactMatch) return exactMatch;
-    if (matches.length === 1 && matches[0]?.numberOfFrames <= 1 && referencedFrameNumber === 1) {
-      return matches[0];
+
+    // Single-frame fallback. The adapter sometimes emits
+    // `ReferencedFrameNumber: 1` even when the source is single-frame and
+    // the source-side `referencedFrameNumber` is undefined — `frame=1` and
+    // "no frame" are semantically equivalent for a single-frame SOP.
+    if (referencedFrameNumber === 1) {
+      const singleFrameMatch = matches.find((ref) => (ref.numberOfFrames ?? 1) <= 1);
+      if (singleFrameMatch) return singleFrameMatch;
     }
-    throw new Error(
-      `RTSTRUCT contour references frame ${referencedFrameNumber} of SOP Instance UID ${sopInstanceUID}, but no matching source frame metadata was found.`,
+
+    // Final fallback: every match shares the same SOP Instance UID (they
+    // describe the same DICOM object through different wadouri URLs). For
+    // export attribution any such match carries valid StudyInstanceUID /
+    // SeriesInstanceUID / FrameOfReferenceUID. Picking the first is better
+    // than throwing during autosave — the written RTSTRUCT still references
+    // the correct SOP UID + frame. Log for visibility so the mismatch
+    // doesn't silently accumulate.
+    console.warn(
+      `[rtStructService] No exact frame match for ReferencedFrameNumber ${referencedFrameNumber} of SOP ${sopInstanceUID}; using first source ref. `
+      + `Source refs: ${matches.map((ref) => `{frame:${ref.referencedFrameNumber ?? 'undef'},nFrames:${ref.numberOfFrames ?? 'undef'}}`).join(', ')}`,
     );
+    return matches[0];
   }
 
   if (matches.length === 1) {
@@ -943,89 +903,7 @@ function buildReferencedFrameOfReferenceSequence(
   }));
 }
 
-function validateRtStructDataset(dataset: any): void {
-  const structureSetROISequence = Array.isArray(dataset?.StructureSetROISequence)
-    ? dataset.StructureSetROISequence
-    : [];
-  const roiContourSequence = Array.isArray(dataset?.ROIContourSequence)
-    ? dataset.ROIContourSequence
-    : [];
-  const rtRoiObservationsSequence = Array.isArray(dataset?.RTROIObservationsSequence)
-    ? dataset.RTROIObservationsSequence
-    : [];
-
-  if (structureSetROISequence.length === 0) {
-    throw new Error('RTSTRUCT is missing StructureSetROISequence.');
-  }
-  if (roiContourSequence.length === 0) {
-    throw new Error('RTSTRUCT is missing ROIContourSequence.');
-  }
-  if (rtRoiObservationsSequence.length === 0) {
-    throw new Error('RTSTRUCT is missing RTROIObservationsSequence.');
-  }
-
-  const structureSetRoiNumbers = new Set(
-    structureSetROISequence
-      .map((item: any) => Number(item?.ROINumber))
-      .filter((value: number) => Number.isFinite(value) && value > 0),
-  );
-  const roiContourNumbers = new Set(
-    roiContourSequence
-      .map((item: any) => Number(item?.ReferencedROINumber))
-      .filter((value: number) => Number.isFinite(value) && value > 0),
-  );
-  const observationNumbers = new Set(
-    rtRoiObservationsSequence
-      .map((item: any) => Number(item?.ReferencedROINumber))
-      .filter((value: number) => Number.isFinite(value) && value > 0),
-  );
-
-  if (
-    structureSetRoiNumbers.size === 0
-    || structureSetRoiNumbers.size !== roiContourNumbers.size
-    || structureSetRoiNumbers.size !== observationNumbers.size
-  ) {
-    throw new Error('RTSTRUCT ROI sequences are not aligned by ROI number.');
-  }
-
-  for (const roiNumber of structureSetRoiNumbers) {
-    if (!roiContourNumbers.has(roiNumber) || !observationNumbers.has(roiNumber)) {
-      throw new Error(`RTSTRUCT ROI ${roiNumber} is missing a matching contour or observation entry.`);
-    }
-  }
-
-  const referencedFrameOfReferenceSequence = Array.isArray(dataset?.ReferencedFrameOfReferenceSequence)
-    ? dataset.ReferencedFrameOfReferenceSequence
-    : [];
-  if (referencedFrameOfReferenceSequence.length === 0) {
-    throw new Error('RTSTRUCT is missing ReferencedFrameOfReferenceSequence.');
-  }
-
-  for (const frameRef of referencedFrameOfReferenceSequence) {
-    const referencedStudySequence = Array.isArray(frameRef?.RTReferencedStudySequence)
-      ? frameRef.RTReferencedStudySequence
-      : [];
-    if (referencedStudySequence.length === 0) {
-      throw new Error('RTSTRUCT FrameOfReference item is missing RTReferencedStudySequence.');
-    }
-    for (const referencedStudy of referencedStudySequence) {
-      const referencedSeriesSequence = Array.isArray(referencedStudy?.RTReferencedSeriesSequence)
-        ? referencedStudy.RTReferencedSeriesSequence
-        : [];
-      if (referencedSeriesSequence.length === 0) {
-        throw new Error('RTSTRUCT study reference is missing RTReferencedSeriesSequence.');
-      }
-      for (const referencedSeries of referencedSeriesSequence) {
-        const contourImageSequence = normalizeContourImageSequenceItems(referencedSeries?.ContourImageSequence);
-        if (contourImageSequence.length === 0) {
-          throw new Error('RTSTRUCT referenced series is missing ContourImageSequence.');
-        }
-      }
-    }
-  }
-
-  collectContourImageReferencesFromRtStruct(dataset);
-}
+// validateRtStructDataset moved to `./dicomValidation`.
 
 // ─── Export ─────────────────────────────────────────────────────
 
@@ -1044,34 +922,23 @@ function validateRtStructDataset(dataset: any): void {
  * Labelmap path entirely.
  */
 async function exportToRtStruct(segmentationId: string): Promise<string> {
-  // Import the RTSS adapter functions via the package exports map:
-  //   @cornerstonejs/adapters/cornerstone3D/RTStruct/RTSS → named exports
-  let generateContourFn: any = null;
-
-  // Approach 1: top-level import → adaptersRT.Cornerstone3D.RTSS
-  try {
-    const adaptersModule = await import('@cornerstonejs/adapters');
-    const rtss = (adaptersModule as any).adaptersRT?.Cornerstone3D?.RTSS;
-    if (rtss?.generateRTSSFromContour) generateContourFn = rtss.generateRTSSFromContour;
-  } catch {
-    // Fall through
-  }
-
-  // Approach 2: wildcard subpath import (works with Vite's resolution)
-  if (!generateContourFn) {
-    try {
-      // @ts-ignore — the exports map maps this correctly
-      const rtssModule = await import('@cornerstonejs/adapters/cornerstone3D/RTStruct/RTSS');
-      generateContourFn = rtssModule.generateRTSSFromContour;
-    } catch {
-      // Fall through
-    }
-  }
-
-  if (!generateContourFn) {
+  // Resolve the RTSS adapter via the statically-imported `adaptersRT`.
+  // The package exports map guarantees `adaptersRT.Cornerstone3D.RTSS` is
+  // the `./RTStruct` module which re-exports everything from `./RTSS`,
+  // including `generateRTSSFromContour`.
+  //
+  // Previously this resolution was done via two sequential `await import()`
+  // calls wrapped in try/catch-swallow blocks. Both paths could silently
+  // fail for unrelated reasons (bundler issues, network glitches) and the
+  // only surfaced error was a generic "could not find" at export time.
+  // A static import fails at module load instead, making dev-time
+  // breakage obvious.
+  const generateContourFn = (adaptersRT as any)?.Cornerstone3D?.RTSS?.generateRTSSFromContour;
+  if (typeof generateContourFn !== 'function') {
     throw new Error(
-      '[rtStructService] Could not find generateRTSSFromContour in @cornerstonejs/adapters. ' +
-      'RTSTRUCT export requires this function.',
+      '[rtStructService] `adaptersRT.Cornerstone3D.RTSS.generateRTSSFromContour` ' +
+      'is missing from @cornerstonejs/adapters. The package export shape may ' +
+      'have changed; rtStructService.ts needs an update.',
     );
   }
 
@@ -1081,7 +948,7 @@ async function exportToRtStruct(segmentationId: string): Promise<string> {
   }
 
   // Ensure the segmentation has a Contour representation with annotations
-  if (!seg.representationData?.Contour?.annotationUIDsMap) {
+  if (!contourRep.hasContourRepresentation(segmentationId)) {
     throw new Error(
       '[rtStructService] Segmentation has no contour representation. ' +
       'Draw contours or load an RTSTRUCT before exporting.',

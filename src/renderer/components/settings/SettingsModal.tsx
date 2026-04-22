@@ -235,6 +235,7 @@ export default function SettingsModal({ open, onClose, onRecover, initialTab }: 
   const setInterpolationEnabled = usePreferencesStore((s) => s.setInterpolationEnabled);
   const setInterpolationAlgorithm = usePreferencesStore((s) => s.setInterpolationAlgorithm);
   const setLinearThreshold = usePreferencesStore((s) => s.setLinearThreshold);
+  const setAutoAcceptInterpolated = usePreferencesStore((s) => s.setAutoAcceptInterpolated);
   const backupPrefs = usePreferencesStore((s) => s.preferences.backup);
   const setBackupEnabled = usePreferencesStore((s) => s.setBackupEnabled);
   const setBackupIntervalSeconds = usePreferencesStore((s) => s.setBackupIntervalSeconds);
@@ -1066,6 +1067,31 @@ export default function SettingsModal({ open, onClose, onRecover, initialTab }: 
                       </div>
                     </div>
                   )}
+                </div>
+
+                {/* Contour (RTSTRUCT) interpolation acceptance */}
+                <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-4 space-y-2">
+                  <div className="text-[11px] text-zinc-500 uppercase tracking-wide">
+                    Contour (RTSTRUCT) Interpolation
+                  </div>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={interpPrefs.autoAcceptInterpolated}
+                      onChange={(e) => setAutoAcceptInterpolated(e.target.checked)}
+                      disabled={!interpPrefs.enabled}
+                      className="w-3.5 h-3.5 rounded border-zinc-600 bg-zinc-800 accent-blue-500 disabled:opacity-50"
+                    />
+                    <span className="text-xs text-zinc-300">
+                      Auto-accept interpolated contours
+                    </span>
+                  </label>
+                  <p className="text-[11px] text-zinc-500 leading-relaxed">
+                    When on, interpolated contours appear as solid lines and are saved with the
+                    RTSTRUCT. When off, they appear dashed (provisional) until clicked to accept.
+                    Manual save prompts you to accept any unaccepted contours; auto-save excludes
+                    them.
+                  </p>
                 </div>
               </>
             )}

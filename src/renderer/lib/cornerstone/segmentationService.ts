@@ -56,6 +56,10 @@ import { useViewerStore } from '../../stores/viewerStore';
 import { useConnectionStore } from '../../stores/connectionStore';
 import { useSegmentationManagerStore } from '../../stores/segmentationManagerStore';
 import { rtStructService } from './rtStructService';
+import * as contourRep from './contourRepresentation';
+import * as sourceImageTracking from './sourceImageTracking';
+import * as mlg from './multiLayerGroup';
+import * as interpolationAcceptance from './interpolationAcceptance';
 import { backupService } from '../backup/backupService';
 import {
   hasSegmentPixelsOnSlice,
@@ -158,12 +162,8 @@ type LockableHistoryTarget = {
 let originalHistoryPush: ((item: unknown) => HistoryMemoRecord | undefined) | null = null;
 let historyTrackingInstalled = false;
 
-/**
- * Tracks the original source imageIds for each segmentation, keyed by segmentationId.
- * Needed for DICOM SEG export — the adapter requires source images to extract
- * DICOM metadata (StudyInstanceUID, SeriesInstanceUID, etc.).
- */
-const sourceImageIdsMap = new Map<string, string[]>();
+// Source-image ID tracking moved to `./sourceImageTracking`. See that module
+// for the typed API; the prior module-level `sourceImageIdsMap` is gone.
 
 /**
  * Tracks loaded DICOM SEG colors per segmentation, keyed by segmentationId.
@@ -179,105 +179,23 @@ const loadedColorsMap = new Map<string, Map<number, [number, number, number, num
 // one per segment. Each sub-seg has its own set of binary (0/1) Uint8Array
 // labelmap images, enabling overlapping segments.
 
-/** Per-segment metadata stored at the group level. */
-interface SegmentMeta {
-  label: string;
-  color: [number, number, number, number];
-  locked: boolean;
-}
-
-/** Image dimensions + source IDs for creating new sub-seg labelmap images. */
-interface GroupDimensions {
-  rows: number;
-  columns: number;
-  rowPixelSpacing: number;
-  columnPixelSpacing: number;
-  sourceImageIds: string[];
-}
-
-/**
- * Maps group ID (logical segmentation shown in UI) → ordered sub-seg IDs.
- * Array index + 1 = logical segment index. Null entries = removed segments.
- */
-const subSegGroupMap = new Map<string, (string | null)[]>();
-
-/**
- * Reverse lookup: Cornerstone sub-segmentation ID → { groupId, segmentIndex }.
- */
-const subSegToGroupMap = new Map<string, { groupId: string; segmentIndex: number }>();
-
-/**
- * Per-segment metadata (label, color, locked) keyed by group ID + segment index.
- */
-const segmentMetaMap = new Map<string, Map<number, SegmentMeta>>();
-
-/**
- * Image dimensions for creating new sub-seg labelmap images on demand.
- */
-const groupDimensionsMap = new Map<string, GroupDimensions>();
-
-/** Group label storage (separate from segments). */
-const groupLabelMap = new Map<string, string>();
-
-/**
- * Viewport attachment tracking for multi-layer groups.
- * Records which viewports a group was added to via addToViewport(),
- * even before any sub-segs exist. Without this, the first addSegment()
- * cannot discover the target viewports because findViewportsWithGroup()
- * iterates sub-segs — which are empty until the first segment is created.
- */
-const groupViewportAttachments = new Map<string, Set<string>>();
-
-/**
- * Background metadata pre-load promises per group.
- * Started in createStackSegmentation() and awaited lazily in addSegment()
- * so the UI doesn't block on first creation.
- */
-const metadataPreloadPromises = new Map<string, Promise<void>>();
-
-/** Returns true if a segmentationId is a multi-layer group. */
-function isMultiLayerGroup(segmentationId: string): boolean {
-  return subSegGroupMap.has(segmentationId);
-}
-
-/** Returns non-null sub-seg IDs for a group. */
-function getActiveSubSegIds(segmentationId: string): string[] {
-  const arr = subSegGroupMap.get(segmentationId);
-  if (!arr) return [];
-  return arr.filter((id): id is string => id !== null);
-}
-
-/** Resolve a group ID + logical segment index to the sub-seg ID. */
-function resolveSubSegId(groupId: string, segmentIndex: number): string | null {
-  const arr = subSegGroupMap.get(groupId);
-  if (!arr) return null;
-  return arr[segmentIndex - 1] ?? null;
-}
-
-/** Find viewport IDs that have any sub-seg of a group attached. */
+// Multi-layer group types + state moved to `./multiLayerGroup`. The local
+// convenience wrappers below delegate to that module; keeping them (rather
+// than calling `mlg.isMultiLayerGroup(...)` etc. everywhere) preserves the
+// ~24 existing call sites unchanged.
+const isMultiLayerGroup = mlg.isMultiLayerGroup;
+const getActiveSubSegIds = mlg.getActiveSubSegIds;
+const resolveSubSegId = mlg.resolveSubSegId;
 function findViewportsWithGroup(groupId: string): string[] {
-  const subSegIds = getActiveSubSegIds(groupId);
-  const vpSet = new Set<string>();
-  for (const subSegId of subSegIds) {
-    for (const vpId of csSegmentation.state.getViewportIdsWithSegmentation(subSegId)) {
-      vpSet.add(vpId);
-    }
-  }
-  // Fall back to recorded viewport attachments — the group may have been added
-  // to viewports before any sub-segs existed (e.g. panel-created segmentations
-  // where the first segment is added separately).
-  if (vpSet.size === 0) {
-    const recorded = groupViewportAttachments.get(groupId);
-    if (recorded) {
-      for (const vpId of recorded) vpSet.add(vpId);
-    }
-  }
-  return Array.from(vpSet);
+  return mlg.findViewportsWithGroup(
+    groupId,
+    (subSegId) => csSegmentation.state.getViewportIdsWithSegmentation(subSegId),
+  );
 }
 
 function getSegmentDisplayLabel(segmentationId: string, segmentIndex: number): string {
   if (isMultiLayerGroup(segmentationId)) {
-    return segmentMetaMap.get(segmentationId)?.get(segmentIndex)?.label ?? `Segment ${segmentIndex}`;
+    return mlg.getSegmentMetaMap(segmentationId)?.get(segmentIndex)?.label ?? `Segment ${segmentIndex}`;
   }
 
   const segmentation = csSegmentation.state.getSegmentation(segmentationId) as
@@ -517,7 +435,7 @@ async function addSubSegToViewport(
     if (viewport && typeof viewport.getAllVolumeIds !== 'function') {
       const viewportImageIds = viewport.getImageIds?.() as string[] | undefined;
       if (Array.isArray(viewportImageIds)) {
-        const srcIds = sourceImageIdsMap.get(subSegId) ?? [];
+        const srcIds = sourceImageTracking.getSourceImageIds(subSegId) ?? [];
         const count = Math.min(srcIds.length, viewportImageIds.length);
         for (let i = 0; i < count; i++) {
           const vpImgId = viewportImageIds[i];
@@ -574,7 +492,7 @@ function getLabelmapImageIdsForSegmentation(segmentationId: string): string[] {
   const mapLike = labelmapData.imageIdReferenceMap;
   if (!mapLike) return [];
 
-  const sourceOrder = sourceImageIdsMap.get(segmentationId) ?? [];
+  const sourceOrder = sourceImageTracking.getSourceImageIds(segmentationId) ?? [];
   const bySource = new Map<string, string>();
 
   if (mapLike instanceof Map) {
@@ -695,7 +613,7 @@ function syncSegmentations(): void {
     const activeVpId = useViewerStore.getState().activeViewportId;
 
     // ─── Pass 1: Multi-layer groups ────────────────────────────
-    for (const [groupId, subSegArr] of subSegGroupMap) {
+    for (const [groupId, subSegArr] of mlg.iterateGroups()) {
       const segments: SegmentSummary[] = [];
       const priorSummary = existingSummaries.find((s) => s.segmentationId === groupId);
       const priorColorByIndex = new Map<number, [number, number, number, number]>(
@@ -709,7 +627,7 @@ function syncSegmentations(): void {
         processedSubSegIds.add(subSegId);
 
         const segmentIndex = i + 1; // 1-based
-        const meta = segmentMetaMap.get(groupId)?.get(segmentIndex);
+        const meta = mlg.getSegmentMetaMap(groupId)?.get(segmentIndex);
 
         // Color: try Cornerstone API on the sub-seg (segment index 1), then meta, then default
         let color: [number, number, number, number] =
@@ -778,7 +696,7 @@ function syncSegmentations(): void {
 
       summaries.push({
         segmentationId: groupId,
-        label: groupLabelMap.get(groupId) ?? 'Segmentation',
+        label: mlg.getGroupLabel(groupId) ?? 'Segmentation',
         segments,
         isActive: groupId === store.activeSegmentationId,
       });
@@ -787,7 +705,7 @@ function syncSegmentations(): void {
     // ─── Pass 2: Legacy (non-group) segmentations ──────────────
     for (const seg of allSegmentations) {
       if (processedSubSegIds.has(seg.segmentationId)) continue;
-      if (subSegGroupMap.has(seg.segmentationId)) continue; // group ID itself (no CS object)
+      if (mlg.isMultiLayerGroup(seg.segmentationId)) continue; // group ID itself (no CS object)
 
       const segments: SegmentSummary[] = [];
       const priorSummary = existingSummaries.find((s) => s.segmentationId === seg.segmentationId);
@@ -935,18 +853,53 @@ interface ContourClipboardEntry {
   segmentIndex: number;
   referencedImageId: string;
   frameOfReferenceUID: string | null;
+  /**
+   * Rendered polyline in world coordinates. For freehand sources this is
+   * the source of truth; for spline sources it is a fallback used only if
+   * spline reconstruction fails.
+   */
   polyline: Point3[];
   closed: boolean;
   handles: Record<string, unknown> | null;
+  /**
+   * Spline-specific reconstruction data. Populated iff the source
+   * annotation was drawn with a spline tool (i.e. its `data.spline` field
+   * was present). Cornerstone's `SplineROITool.renderAnnotationInstance`
+   * requires `data.spline.{type,instance}` to exist at render time and
+   * regenerates the rendered polyline from `data.handles.points` on every
+   * render. To roundtrip a spline we therefore need to capture:
+   *   - the spline type string,
+   *   - a constructor reference (to build a fresh instance on paste),
+   *   - the control points in world coordinates (the real source of truth).
+   * The constructor is pulled from `instance.constructor` at copy time so
+   * we don't depend on Cornerstone's private `_getSplineConfig` API.
+   */
+  spline: {
+    type: string;
+    resolution: unknown;
+    // Constructor reference for the spline class (e.g. CardinalSpline).
+    // `new (...)` reconstructs an empty instance on paste.
+    SplineClass: new () => unknown;
+    controlPointsWorld: Point3[];
+  } | null;
 }
 
 let contourClipboard: ContourClipboardEntry | null = null;
 
 function toPoint3(value: unknown): Point3 | null {
-  if (!Array.isArray(value) || value.length < 3) return null;
-  const point = value.slice(0, 3).map((entry) => Number(entry)) as number[];
-  if (point.some((entry) => !Number.isFinite(entry))) return null;
-  return [point[0], point[1], point[2]] as Point3;
+  // Accept both regular arrays and typed-array-like inputs. Cornerstone's
+  // contour-interpolation pipeline emits polyline points as Float32Array(3)
+  // via gl-matrix's vec3.create(), which `Array.isArray` rejects. Anything
+  // with a numeric `length >= 3` and indexable numeric entries 0/1/2 is a
+  // valid Point3 source (regular arrays, Float32Array, Float64Array, etc.).
+  if (value == null || typeof value !== 'object') return null;
+  const view = value as ArrayLike<unknown>;
+  if (typeof view.length !== 'number' || view.length < 3) return null;
+  const x = Number(view[0]);
+  const y = Number(view[1]);
+  const z = Number(view[2]);
+  if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) return null;
+  return [x, y, z] as Point3;
 }
 
 function addPoint3(a: Point3, b: Point3): Point3 {
@@ -975,62 +928,11 @@ function emitToolEvent(type: string, detail: Record<string, unknown>): void {
 }
 
 function addContourAnnotationToSegmentation(annotation: any): void {
-  try {
-    if (csToolUtilities.contourSegmentation?.addContourSegmentationAnnotation) {
-      csToolUtilities.contourSegmentation.addContourSegmentationAnnotation(annotation);
-      return;
-    }
-  } catch (err) {
-    console.debug('[segmentationService] addContourSegmentationAnnotation failed:', err);
-  }
-
-  const segmentationId = annotation?.data?.segmentation?.segmentationId;
-  const segmentIndex = Number(annotation?.data?.segmentation?.segmentIndex);
-  const annotationUID = annotation?.annotationUID;
-  if (!segmentationId || !Number.isInteger(segmentIndex) || segmentIndex <= 0 || !annotationUID) {
-    return;
-  }
-
-  const segmentation = csSegmentation.state.getSegmentation(segmentationId);
-  const contourData = (segmentation?.representationData as any)?.Contour;
-  if (!(contourData?.annotationUIDsMap instanceof Map)) {
-    return;
-  }
-
-  if (!contourData.annotationUIDsMap.has(segmentIndex)) {
-    contourData.annotationUIDsMap.set(segmentIndex, new Set<string>());
-  }
-  contourData.annotationUIDsMap.get(segmentIndex)?.add(annotationUID);
+  contourRep.addAnnotation(annotation);
 }
 
 function removeContourAnnotationFromSegmentation(annotation: any): void {
-  try {
-    if (csToolUtilities.contourSegmentation?.removeContourSegmentationAnnotation) {
-      csToolUtilities.contourSegmentation.removeContourSegmentationAnnotation(annotation);
-      return;
-    }
-  } catch (err) {
-    console.debug('[segmentationService] removeContourSegmentationAnnotation failed:', err);
-  }
-
-  const segmentationId = annotation?.data?.segmentation?.segmentationId;
-  const segmentIndex = Number(annotation?.data?.segmentation?.segmentIndex);
-  const annotationUID = annotation?.annotationUID;
-  if (!segmentationId || !Number.isInteger(segmentIndex) || segmentIndex <= 0 || !annotationUID) {
-    return;
-  }
-
-  const segmentation = csSegmentation.state.getSegmentation(segmentationId);
-  const contourData = (segmentation?.representationData as any)?.Contour;
-  const annotationUIDs = contourData?.annotationUIDsMap?.get?.(segmentIndex);
-  if (!(annotationUIDs instanceof Set)) {
-    return;
-  }
-
-  annotationUIDs.delete(annotationUID);
-  if (annotationUIDs.size === 0) {
-    contourData.annotationUIDsMap.delete(segmentIndex);
-  }
+  contourRep.removeAnnotation(annotation);
 }
 
 function crossPoint3(a: Point3, b: Point3): Point3 {
@@ -1090,6 +992,21 @@ function cloneHandlesWithOffset(handles: unknown, delta: Point3): Record<string,
   return next;
 }
 
+/**
+ * Identity predicate for contour-segmentation annotations.
+ *
+ * Delegates tool-class + segmentation-metadata checks to
+ * `contourRep.isContourSegmentationAnnotation`. Intentionally does NOT
+ * check polyline length — callers that need a drawable/copyable shape
+ * (e.g. `copySelectedContourAnnotation`) must enforce `polyline.length >= 3`
+ * themselves.
+ *
+ * Prior behavior (pre-step-2): required `polyline.length >= 3`. That check
+ * caused in-progress contours (splines mid-draw, freehand before the 3rd
+ * point) to be silently treated as "not a contour", skipping selection
+ * sync and other bookkeeping. The check moved to callers that actually
+ * need completeness.
+ */
 function isContourAnnotation(annotation: any): annotation is {
   annotationUID: string;
   metadata: { toolName?: string; referencedImageId?: string; FrameOfReferenceUID?: string };
@@ -1099,17 +1016,7 @@ function isContourAnnotation(annotation: any): annotation is {
     handles?: Record<string, unknown>;
   };
 } {
-  const polyline = clonePolyline(annotation?.data?.contour?.polyline);
-  const segmentationId = annotation?.data?.segmentation?.segmentationId;
-  const segmentIndex = Number(annotation?.data?.segmentation?.segmentIndex);
-  return (
-    typeof annotation?.annotationUID === 'string' &&
-    typeof segmentationId === 'string' &&
-    segmentationId.length > 0 &&
-    Number.isInteger(segmentIndex) &&
-    segmentIndex > 0 &&
-    polyline.length >= 3
-  );
+  return contourRep.isContourSegmentationAnnotation(annotation);
 }
 
 function getSelectedContourAnnotation(): {
@@ -1340,7 +1247,7 @@ function getSegmentationType(segmentationId: string): 'labelmap' | 'contour' | '
   const hasLabelmap = !!(repData?.Labelmap?.imageIds?.length > 0 || repData?.Labelmap?.imageIdReferenceMap?.size > 0);
   // Treat an explicit contour representation as contour-capable even if it's
   // currently empty (new RTSTRUCT rows intentionally start with zero structures).
-  const hasContour = repData?.Contour != null;
+  const hasContour = contourRep.hasContourRepresentationKey(segmentationId);
 
   if (hasLabelmap && hasContour) return 'both';
   if (hasContour) return 'contour';
@@ -1405,7 +1312,7 @@ function onSegmentationDataModified(evt?: Event): void {
     // Resolve sub-seg ID to group ID for dirty tracking
     let resolvedSegId = detail?.segmentationId ?? null;
     if (resolvedSegId) {
-      const groupInfo = subSegToGroupMap.get(resolvedSegId);
+      const groupInfo = mlg.getGroupInfoForSubSeg(resolvedSegId);
       if (groupInfo) {
         resolvedSegId = groupInfo.groupId;
       }
@@ -1413,7 +1320,7 @@ function onSegmentationDataModified(evt?: Event): void {
 
     if (detail?.segmentationId) {
       // For interpolation, use the resolved group ID so it can look up the right sub-seg
-      const groupInfo = subSegToGroupMap.get(detail.segmentationId);
+      const groupInfo = mlg.getGroupInfoForSubSeg(detail.segmentationId);
       pendingLabelmapInterpolation = {
         segmentationId: groupInfo ? groupInfo.groupId : detail.segmentationId,
         segmentIndex: groupInfo
@@ -1812,7 +1719,7 @@ export const segmentationService = {
    */
   setLabel(segmentationId: string, label: string): void {
     if (isMultiLayerGroup(segmentationId)) {
-      groupLabelMap.set(segmentationId, label);
+      mlg.setGroupLabel(segmentationId, label);
       syncSegmentations();
       return;
     }
@@ -1848,6 +1755,15 @@ export const segmentationService = {
       DefaultHistoryMemo.size = 200;
     }
     installHistoryMemoTracking();
+
+    // Wire source-image-ID auto-cleanup. Subscribes to SEGMENTATION_REMOVED
+    // so tracked entries for real Cornerstone segmentations are reaped even
+    // if an orchestrating code path forgets to call clearSourceImageIds.
+    sourceImageTracking.initialize();
+
+    // Wire interpolation-acceptance policies (auto-accept on generation
+    // when the preference is enabled; click-to-accept always).
+    interpolationAcceptance.initialize();
 
     initialized = true;
     console.log('[segmentationService] Initialized — listening for segmentation events');
@@ -1922,8 +1838,8 @@ export const segmentationService = {
         imageLoader.loadAndCacheImage(id).catch((err: any) => {
           console.warn(`[segmentationService] Failed to pre-load image ${id}:`, err);
         }),
-      )).then(() => { metadataPreloadPromises.delete(segmentationId); });
-      metadataPreloadPromises.set(segmentationId, preloadPromise);
+      )).then(() => { mlg.removePreloadPromise(segmentationId); });
+      mlg.setPreloadPromise(segmentationId, preloadPromise);
 
       // If creating a default segment, we must await now because addSegment
       // needs metadata synchronously within this call.
@@ -1934,19 +1850,19 @@ export const segmentationService = {
 
     // Step 3: Initialize the multi-layer group (no labelmap images yet —
     // those are created per-segment in addSegment()).
-    subSegGroupMap.set(segmentationId, []);
-    segmentMetaMap.set(segmentationId, new Map());
-    groupDimensionsMap.set(segmentationId, {
+    mlg.initGroupSlots(segmentationId);
+    mlg.initSegmentMetaMap(segmentationId);
+    mlg.setGroupDimensions(segmentationId, {
       rows,
       columns,
       rowPixelSpacing,
       columnPixelSpacing,
       sourceImageIds: [...sourceImageIds],
     });
-    groupLabelMap.set(segmentationId, segLabel);
+    mlg.setGroupLabel(segmentationId, segLabel);
 
     // Track source imageIds for DICOM SEG export
-    sourceImageIdsMap.set(segmentationId, [...sourceImageIds]);
+    sourceImageTracking.setSourceImageIds(segmentationId, [...sourceImageIds]);
 
     // Store: set active segmentation.
     const store = useSegmentationStore.getState();
@@ -1985,17 +1901,12 @@ export const segmentationService = {
       const segmentationId = `rtstruct_${Date.now()}_${segmentationCounter}`;
       const segLabel = label || `Structure ${segmentationCounter}`;
 
-      const annotationUIDsMap = new Map<number, Set<string>>();
-      if (createDefaultSegment) {
-        annotationUIDsMap.set(1, new Set<string>());
-      }
-
       csSegmentation.addSegmentations([
         {
           segmentationId,
           representation: {
             type: ToolEnums.SegmentationRepresentations.Contour,
-            data: { annotationUIDsMap } as any,
+            data: contourRep.buildInitialContourData(createDefaultSegment ? [1] : []) as any,
           },
           config: {
             label: segLabel,
@@ -2030,7 +1941,7 @@ export const segmentationService = {
         }
       }
 
-      sourceImageIdsMap.set(segmentationId, [...sourceImageIds]);
+      sourceImageTracking.setSourceImageIds(segmentationId, [...sourceImageIds]);
 
       const store = useSegmentationStore.getState();
       store.setActiveSegmentation(segmentationId);
@@ -2093,10 +2004,7 @@ export const segmentationService = {
         else (live as any).segments = {};
       }
 
-      const contourData = (seg.representationData as any)?.Contour;
-      if (contourData?.annotationUIDsMap instanceof Map) {
-        contourData.annotationUIDsMap.clear();
-      }
+      contourRep.clearAllAnnotationUIDs(segmentationId);
 
       try {
         csSegmentation.segmentIndex.setActiveSegmentIndex(segmentationId, 0);
@@ -2150,12 +2058,7 @@ export const segmentationService = {
       };
 
       // Ensure contour annotation map has an entry for this segment
-      const contourData = (seg.representationData as any)?.Contour;
-      if (contourData?.annotationUIDsMap instanceof Map) {
-        if (!contourData.annotationUIDsMap.has(nextIndex)) {
-          contourData.annotationUIDsMap.set(nextIndex, new Set<string>());
-        }
-      }
+      contourRep.ensureSegmentEntry(segmentationId, nextIndex);
 
       // Set active segment index in Cornerstone
       csSegmentation.segmentIndex.setActiveSegmentIndex(segmentationId, nextIndex);
@@ -2182,18 +2085,18 @@ export const segmentationService = {
 
     // Ensure background metadata pre-load is complete before creating
     // labelmap images (each needs imagePlaneModule from its source image).
-    const preloadPromise = metadataPreloadPromises.get(segmentationId);
+    const preloadPromise = mlg.getPreloadPromise(segmentationId);
     if (preloadPromise) {
       await preloadPromise;
     }
 
-    const dims = groupDimensionsMap.get(segmentationId);
+    const dims = mlg.getGroupDimensions(segmentationId);
     if (!dims) {
       throw new Error(`[segmentationService] No dimensions stored for group: ${segmentationId}`);
     }
 
     // Determine next segment index from existing sub-segs.
-    const subSegIds = subSegGroupMap.get(segmentationId)!;
+    const subSegIds = mlg.getGroupSlots(segmentationId)!;
     const nextIndex = subSegIds.length + 1;
     const segmentLabel = label.trim() || `Segment ${nextIndex}`;
     const segColor = color || DEFAULT_COLORS[(nextIndex - 1) % DEFAULT_COLORS.length];
@@ -2265,12 +2168,12 @@ export const segmentationService = {
     }
 
     // Track source imageIds on the sub-seg (for export resolution).
-    sourceImageIdsMap.set(subSegId, [...dims.sourceImageIds]);
+    sourceImageTracking.setSourceImageIds(subSegId, [...dims.sourceImageIds]);
 
     // Update group registry.
     subSegIds.push(subSegId);
-    subSegToGroupMap.set(subSegId, { groupId: segmentationId, segmentIndex: nextIndex });
-    segmentMetaMap.get(segmentationId)!.set(nextIndex, {
+    mlg.setGroupInfoForSubSeg(subSegId, { groupId: segmentationId, segmentIndex: nextIndex });
+    mlg.getSegmentMetaMap(segmentationId)!.set(nextIndex, {
       label: segmentLabel,
       color: segColor,
       locked: false,
@@ -2316,22 +2219,22 @@ export const segmentationService = {
         console.error('[segmentationService] Failed to remove sub-seg:', err);
       }
       // Clean up maps
-      subSegToGroupMap.delete(subSegId);
-      sourceImageIdsMap.delete(subSegId);
-      const groupArr = subSegGroupMap.get(segmentationId);
+      mlg.removeGroupInfoForSubSeg(subSegId);
+      sourceImageTracking.clearSourceImageIds(subSegId);
+      const groupArr = mlg.getGroupSlots(segmentationId);
       if (groupArr) {
         groupArr[segmentIndex - 1] = null; // null-out the slot
       }
-      segmentMetaMap.get(segmentationId)?.delete(segmentIndex);
+      mlg.getSegmentMetaMap(segmentationId)?.delete(segmentIndex);
 
       // If all sub-segs are removed, clean up the entire group
       const remaining = getActiveSubSegIds(segmentationId);
       if (remaining.length === 0) {
-        subSegGroupMap.delete(segmentationId);
-        segmentMetaMap.delete(segmentationId);
-        groupDimensionsMap.delete(segmentationId);
-        groupLabelMap.delete(segmentationId);
-        sourceImageIdsMap.delete(segmentationId);
+        mlg.removeGroupSlots(segmentationId);
+        mlg.removeSegmentMetaMap(segmentationId);
+        mlg.removeGroupDimensions(segmentationId);
+        mlg.removeGroupLabel(segmentationId);
+        sourceImageTracking.clearSourceImageIds(segmentationId);
         const store = useSegmentationStore.getState();
         if (store.activeSegmentationId === segmentationId) {
           store.setActiveSegmentation(null);
@@ -2359,7 +2262,9 @@ export const segmentationService = {
    */
   copySelectedContourAnnotation(): boolean {
     const selected = getSelectedContourAnnotation();
-    if (!selected) return false;
+    if (!selected) {
+      return false;
+    }
 
     const { annotation } = selected;
     const segmentationId = annotation.data.segmentation.segmentationId!;
@@ -2371,8 +2276,65 @@ export const segmentationService = {
       !Number.isInteger(segmentIndex) ||
       segmentIndex <= 0
     ) {
+      console.debug('[segmentationService] copy: missing required metadata', {
+        referencedImageId,
+        segmentIndex,
+        segmentationId,
+        toolName: annotation.metadata?.toolName,
+      });
       return false;
     }
+
+    // Completeness guard: copy requires a drawable polyline. This was
+    // previously enforced transitively via `isContourAnnotation` rejecting
+    // annotations with <3 points, but that check now lives only here (and
+    // other completeness-dependent sites) so in-progress contours stay
+    // visible to selection sync.
+    const polyline = clonePolyline(annotation.data.contour?.polyline);
+    if (polyline.length < 3) {
+      const raw = annotation.data.contour?.polyline;
+      console.debug('[segmentationService] copy: polyline too short', {
+        polylineLength: polyline.length,
+        rawPolylineIsArray: Array.isArray(raw),
+        rawPolylineLength: Array.isArray(raw) ? raw.length : 'n/a',
+        rawFirstEntry: Array.isArray(raw) && raw.length > 0 ? raw[0] : 'n/a',
+        toolName: annotation.metadata?.toolName,
+        annotationUID: annotation.annotationUID,
+        autoGenerated: annotation.autoGenerated,
+        interpolationUID: annotation.interpolationUID,
+        parentAnnotationUID: annotation.parentAnnotationUID,
+        isLocked: annotation.isLocked,
+        handlesPoints: (annotation.data?.handles as any)?.points?.length,
+        contourClosed: annotation.data.contour?.closed,
+        referencedImageId: annotation.metadata?.referencedImageId,
+        sliceIndex: annotation.metadata?.sliceIndex,
+      });
+      return false;
+    }
+
+    // Capture spline-specific reconstruction data if the source is a spline.
+    // Presence of `data.spline.instance` is the identity marker (Cornerstone's
+    // SplineROITool sets it in `addNewAnnotation`/`createAnnotation`). Without
+    // this, pasting a spline-tool annotation used to throw on render because
+    // paste built an annotation missing `data.spline`.
+    const sourceSpline = (annotation.data as any)?.spline;
+    const sourceControlPoints = (annotation.data?.handles as { points?: unknown })?.points;
+    const splineInstance = sourceSpline?.instance;
+    const splineConstructor = splineInstance?.constructor as (new () => unknown) | undefined;
+    const controlPointsWorld = Array.isArray(sourceControlPoints)
+      ? (sourceControlPoints.map(toPoint3).filter((p): p is Point3 => p !== null))
+      : [];
+    const spline = splineInstance
+      && typeof splineConstructor === 'function'
+      && typeof sourceSpline.type === 'string'
+      && controlPointsWorld.length >= 3
+      ? {
+          type: sourceSpline.type as string,
+          resolution: sourceSpline.resolution,
+          SplineClass: splineConstructor,
+          controlPointsWorld,
+        }
+      : null;
 
     contourClipboard = {
       toolName: annotation.metadata?.toolName ?? 'PlanarFreehandContourSegmentationTool',
@@ -2380,11 +2342,12 @@ export const segmentationService = {
       segmentIndex,
       referencedImageId,
       frameOfReferenceUID: annotation.metadata?.FrameOfReferenceUID ?? null,
-      polyline: clonePolyline(annotation.data.contour?.polyline),
+      polyline,
       closed: annotation.data.contour?.closed !== false,
       handles: cloneHandlesWithOffset(annotation.data.handles, [0, 0, 0]),
+      spline,
     };
-    return contourClipboard.polyline.length >= 3;
+    return true;
   },
 
   /**
@@ -2392,29 +2355,70 @@ export const segmentationService = {
    * Returns true when a new contour annotation was created.
    */
   pasteCopiedContourAnnotationToActiveSlice(): boolean {
-    if (!contourClipboard) return false;
+    if (!contourClipboard) {
+      console.debug('[segmentationService] paste: no clipboard');
+      return false;
+    }
+    // Guard against stale clipboard: the source segmentation may have been
+    // deleted/unloaded since copy. Continuing would throw inside Cornerstone's
+    // `addContourSegmentationAnnotation` (it reads `segmentation.representationData`
+    // without null-checking). Clear the clipboard so future paste attempts
+    // fail with a clean "no clipboard" rather than the same throw.
+    if (!csSegmentation.state.getSegmentation(contourClipboard.segmentationId)) {
+      console.debug('[segmentationService] paste: clipboard segmentation no longer exists', {
+        segmentationId: contourClipboard.segmentationId,
+      });
+      contourClipboard = null;
+      return false;
+    }
     if (this.getSegmentLocked(contourClipboard.segmentationId, contourClipboard.segmentIndex)) {
+      console.debug('[segmentationService] paste: segment locked', {
+        segmentationId: contourClipboard.segmentationId,
+        segmentIndex: contourClipboard.segmentIndex,
+      });
       return false;
     }
 
     const targetImageId = getCurrentImageIdForActiveViewport();
-    if (!targetImageId) return false;
+    if (!targetImageId) {
+      console.debug('[segmentationService] paste: no target imageId for active viewport');
+      return false;
+    }
     const viewportContext = getActiveViewportContextForContourPaste(targetImageId);
-    if (!viewportContext) return false;
+    if (!viewportContext) {
+      console.debug('[segmentationService] paste: no viewport context for', targetImageId);
+      return false;
+    }
 
     const delta: Point3 = [0, 0, 0];
     if (targetImageId !== contourClipboard.referencedImageId) {
       const sourcePlane = getImagePlaneInfo(contourClipboard.referencedImageId);
       const targetPlane = getImagePlaneInfo(targetImageId);
-      if (!sourcePlane || !targetPlane) return false;
+      if (!sourcePlane || !targetPlane) {
+        console.debug('[segmentationService] paste: plane lookup failed', {
+          sourceHasPlane: !!sourcePlane,
+          targetHasPlane: !!targetPlane,
+          sourceImageId: contourClipboard.referencedImageId,
+          targetImageId,
+        });
+        return false;
+      }
       if (
         contourClipboard.frameOfReferenceUID &&
         targetPlane.frameOfReferenceUID &&
         contourClipboard.frameOfReferenceUID !== targetPlane.frameOfReferenceUID
       ) {
+        console.debug('[segmentationService] paste: FrameOfReferenceUID mismatch', {
+          clipboard: contourClipboard.frameOfReferenceUID,
+          target: targetPlane.frameOfReferenceUID,
+        });
         return false;
       }
       if (Math.abs(dotPoint3(sourcePlane.normal, targetPlane.normal)) < 0.999) {
+        console.debug('[segmentationService] paste: plane normals disagree', {
+          sourceNormal: sourcePlane.normal,
+          targetNormal: targetPlane.normal,
+        });
         return false;
       }
       const translation = subtractPoint3(
@@ -2435,10 +2439,48 @@ export const segmentationService = {
         activeHandleIndex: null,
       };
 
+    // Reconstruct spline state if the source was a spline tool. Cornerstone's
+    // SplineROITool.renderAnnotationInstance requires `data.spline.{type,
+    // instance}` at render time and regenerates the rendered polyline from
+    // the control points in `data.handles.points` via `_updateSplineInstance`.
+    //
+    // If reconstruction fails (e.g. the captured constructor is no longer a
+    // valid spline class after a Cornerstone upgrade), fall back to pasting
+    // as a freehand contour — the rendered polyline is still correct; the
+    // user loses spline-edit affordances but the workflow doesn't break.
+    let pastedToolName = contourClipboard.toolName;
+    let splineData: { type: string; instance: unknown; resolution: unknown } | null = null;
+    let splineHandlePoints: Point3[] | null = null;
+    if (contourClipboard.spline) {
+      try {
+        const newInstance = new contourClipboard.spline.SplineClass();
+        splineData = {
+          type: contourClipboard.spline.type,
+          instance: newInstance,
+          resolution: contourClipboard.spline.resolution,
+        };
+        splineHandlePoints = contourClipboard.spline.controlPointsWorld.map(
+          (point) => addPoint3(point, delta),
+        );
+      } catch (err) {
+        console.warn(
+          '[segmentationService] Spline reconstruction on paste failed; falling back to freehand contour:',
+          err,
+        );
+        pastedToolName = 'PlanarFreehandContourSegmentationTool';
+        splineData = null;
+        splineHandlePoints = null;
+      }
+    }
+
+    const finalHandles: Record<string, unknown> = splineHandlePoints
+      ? { ...translatedHandles, points: splineHandlePoints }
+      : translatedHandles;
+
     const nextAnnotation: any = {
       annotationUID,
       metadata: {
-        toolName: contourClipboard.toolName,
+        toolName: pastedToolName,
         ...viewportContext.metadata,
       },
       data: {
@@ -2450,7 +2492,8 @@ export const segmentationService = {
           segmentationId: contourClipboard.segmentationId,
           segmentIndex: contourClipboard.segmentIndex,
         },
-        handles: translatedHandles,
+        handles: finalHandles,
+        ...(splineData ? { spline: splineData } : {}),
       },
       highlighted: true,
       isSelected: true,
@@ -2582,18 +2625,18 @@ export const segmentationService = {
           }
           // Remove from Cornerstone state
           try { csSegmentation.removeSegmentation(subSegId); } catch { /* ok */ }
-          subSegToGroupMap.delete(subSegId);
-          sourceImageIdsMap.delete(subSegId);
+          mlg.removeGroupInfoForSubSeg(subSegId);
+          sourceImageTracking.clearSourceImageIds(subSegId);
         }
         // Clean up group maps
-        subSegGroupMap.delete(segmentationId);
-        segmentMetaMap.delete(segmentationId);
-        groupDimensionsMap.delete(segmentationId);
-        groupLabelMap.delete(segmentationId);
-        sourceImageIdsMap.delete(segmentationId);
+        mlg.removeGroupSlots(segmentationId);
+        mlg.removeSegmentMetaMap(segmentationId);
+        mlg.removeGroupDimensions(segmentationId);
+        mlg.removeGroupLabel(segmentationId);
+        sourceImageTracking.clearSourceImageIds(segmentationId);
         loadedColorsMap.delete(segmentationId);
-        groupViewportAttachments.delete(segmentationId);
-        metadataPreloadPromises.delete(segmentationId);
+        mlg.removeGroupViewportAttachments(segmentationId);
+        mlg.removePreloadPromise(segmentationId);
 
         const store = useSegmentationStore.getState();
         if (store.activeSegmentationId === segmentationId) {
@@ -2630,7 +2673,7 @@ export const segmentationService = {
       }
 
       csSegmentation.removeSegmentation(segmentationId);
-      sourceImageIdsMap.delete(segmentationId);
+      sourceImageTracking.clearSourceImageIds(segmentationId);
       loadedColorsMap.delete(segmentationId);
 
       const store = useSegmentationStore.getState();
@@ -2673,18 +2716,15 @@ export const segmentationService = {
       // ─── Multi-layer path: attach each sub-seg as an independent actor ───
       // Record viewport attachment so addSegment() can discover the target
       // viewports even before any sub-segs exist (first segment case).
-      if (!groupViewportAttachments.has(segmentationId)) {
-        groupViewportAttachments.set(segmentationId, new Set());
-      }
-      groupViewportAttachments.get(segmentationId)!.add(viewportId);
+      mlg.attachGroupToViewport(segmentationId, viewportId);
 
       const subSegIds = getActiveSubSegIds(segmentationId);
-      const metaMap = segmentMetaMap.get(segmentationId);
+      const metaMap = mlg.getSegmentMetaMap(segmentationId);
       const store = useSegmentationStore.getState();
       const activeSegIdx = store.activeSegmentIndex;
 
       for (const subSegId of subSegIds) {
-        const info = subSegToGroupMap.get(subSegId);
+        const info = mlg.getGroupInfoForSubSeg(subSegId);
         if (!info) continue;
         const meta = metaMap?.get(info.segmentIndex);
         const segColor = meta?.color ?? DEFAULT_COLORS[(info.segmentIndex - 1) % DEFAULT_COLORS.length];
@@ -2942,7 +2982,7 @@ export const segmentationService = {
       }
 
       // Get the color for this segment from metadata
-      const meta = segmentMetaMap.get(segmentationId)?.get(segmentIndex);
+      const meta = mlg.getSegmentMetaMap(segmentationId)?.get(segmentIndex);
       const segColor = meta?.color ?? DEFAULT_COLORS[(segmentIndex - 1) % DEFAULT_COLORS.length];
 
       // Switch the active Cornerstone segmentation to this sub-seg on all viewports
@@ -3050,7 +3090,7 @@ export const segmentationService = {
       const subSegId = resolveSubSegId(segmentationId, segmentIndex);
       if (!subSegId) return;
       // Update metadata
-      const metaMap = segmentMetaMap.get(segmentationId);
+      const metaMap = mlg.getSegmentMetaMap(segmentationId);
       if (metaMap) {
         const existing = metaMap.get(segmentIndex);
         if (existing) existing.color = color;
@@ -3104,7 +3144,7 @@ export const segmentationService = {
    */
   renameSegmentation(segmentationId: string, newLabel: string): void {
     if (isMultiLayerGroup(segmentationId)) {
-      groupLabelMap.set(segmentationId, newLabel);
+      mlg.setGroupLabel(segmentationId, newLabel);
       syncSegmentations();
       return;
     }
@@ -3119,7 +3159,7 @@ export const segmentationService = {
    */
   renameSegment(segmentationId: string, segmentIndex: number, newLabel: string): void {
     if (isMultiLayerGroup(segmentationId)) {
-      const metaMap = segmentMetaMap.get(segmentationId);
+      const metaMap = mlg.getSegmentMetaMap(segmentationId);
       const meta = metaMap?.get(segmentIndex);
       if (meta) meta.label = newLabel;
       syncSegmentations();
@@ -3333,7 +3373,7 @@ export const segmentationService = {
       const newLocked = !isLocked;
       csSegmentation.segmentLocking.setSegmentIndexLocked(subSegId, 1, newLocked);
       // Update metadata
-      const meta = segmentMetaMap.get(segmentationId)?.get(segmentIndex);
+      const meta = mlg.getSegmentMetaMap(segmentationId)?.get(segmentIndex);
       if (meta) meta.locked = newLocked;
       // Update presentation cache BEFORE sync so syncSegmentations reads the correct value
       useSegmentationManagerStore.getState().setPresentation(segmentationId, segmentIndex, { locked: newLocked });
@@ -3992,17 +4032,17 @@ export const segmentationService = {
       const loadRowSpacing = Number(loadPlane?.rowPixelSpacing) || 1;
       const loadColSpacing = Number(loadPlane?.columnPixelSpacing) || 1;
 
-      subSegGroupMap.set(segmentationId, []);
-      segmentMetaMap.set(segmentationId, new Map());
-      groupDimensionsMap.set(segmentationId, {
+      mlg.initGroupSlots(segmentationId);
+      mlg.initSegmentMetaMap(segmentationId);
+      mlg.setGroupDimensions(segmentationId, {
         rows: sourceRows,
         columns: sourceCols,
         rowPixelSpacing: loadRowSpacing,
         columnPixelSpacing: loadColSpacing,
         sourceImageIds: [...effectiveBaseSourceImageIds],
       });
-      groupLabelMap.set(segmentationId, groupLabel);
-      sourceImageIdsMap.set(segmentationId, [...effectiveBaseSourceImageIds]);
+      mlg.setGroupLabel(segmentationId, groupLabel);
+      sourceImageTracking.setSourceImageIds(segmentationId, [...effectiveBaseSourceImageIds]);
 
       const genericMeta = (csUtilities as any).genericMetadataProvider;
       let refGeneralSeriesMeta: any = null;
@@ -4012,8 +4052,8 @@ export const segmentationService = {
       }
 
       const pixelCount = sourceRows * sourceCols;
-      const subSegIds = subSegGroupMap.get(segmentationId)!;
-      const metaMapForGroup = segmentMetaMap.get(segmentationId)!;
+      const subSegIds = mlg.getGroupSlots(segmentationId)!;
+      const metaMapForGroup = mlg.getSegmentMetaMap(segmentationId)!;
 
       // ─── Create per-segment sub-segmentations with binary labelmaps ───
       for (const segIdx of sortedSegIndices) {
@@ -4094,11 +4134,11 @@ export const segmentationService = {
         csSegmentation.segmentLocking.setSegmentIndexLocked(subSegId, 1, true);
 
         // Track source imageIds on the sub-seg
-        sourceImageIdsMap.set(subSegId, [...effectiveBaseSourceImageIds]);
+        sourceImageTracking.setSourceImageIds(subSegId, [...effectiveBaseSourceImageIds]);
 
         // Update group registry
         subSegIds.push(subSegId);
-        subSegToGroupMap.set(subSegId, { groupId: segmentationId, segmentIndex });
+        mlg.setGroupInfoForSubSeg(subSegId, { groupId: segmentationId, segmentIndex });
         metaMapForGroup.set(segmentIndex, {
           label: segLabel,
           color: segColor,
@@ -4169,11 +4209,7 @@ export const segmentationService = {
       // 1. Ensure Contour representation data exists on the segmentation.
       //    This is normally set at creation time, but check again in case
       //    the segmentation was created before contour support was added.
-      if (!seg.representationData.Contour) {
-        (seg.representationData as any).Contour = {
-          annotationUIDsMap: new Map(),
-        };
-      }
+      contourRep.ensureContourRepresentation(segmentationId);
 
       // 2. Ensure segments array has entries with all required properties.
       const activeIdxRaw = useSegmentationStore.getState().activeSegmentIndex;
@@ -4291,7 +4327,7 @@ export const segmentationService = {
       throw new Error(`[segmentationService] Segmentation not found: ${segmentationId}`);
     }
 
-    const storedSrcImageIds = sourceImageIdsMap.get(segmentationId);
+    const storedSrcImageIds = sourceImageTracking.getSourceImageIds(segmentationId);
     if (!storedSrcImageIds || storedSrcImageIds.length === 0) {
       throw new Error(
         '[segmentationService] No source imageIds tracked for this segmentation. ' +
@@ -5199,14 +5235,14 @@ export const segmentationService = {
    * Higher-indexed segments win at overlap pixels.
    */
   async _exportGroupToDicomSeg(groupId: string): Promise<string> {
-    const dims = groupDimensionsMap.get(groupId);
-    const srcImageIds = dims?.sourceImageIds ?? sourceImageIdsMap.get(groupId) ?? [];
+    const dims = mlg.getGroupDimensions(groupId);
+    const srcImageIds = dims?.sourceImageIds ?? sourceImageTracking.getSourceImageIds(groupId) ?? [];
     if (srcImageIds.length === 0) {
       throw new Error('[segmentationService] No source imageIds for group export.');
     }
 
-    const subSegArr = subSegGroupMap.get(groupId) ?? [];
-    const metaMap = segmentMetaMap.get(groupId);
+    const subSegArr = mlg.getGroupSlots(groupId) ?? [];
+    const metaMap = mlg.getSegmentMetaMap(groupId);
     const { rows, columns } = dims ?? { rows: 512, columns: 512 };
     const sliceCount = srcImageIds.length;
     const pixelsPerSlice = rows * columns;
@@ -5313,13 +5349,13 @@ export const segmentationService = {
           data: { imageIds: tempLmImageIds } as any,
         },
         config: {
-          label: groupLabelMap.get(groupId) ?? 'Segmentation',
+          label: mlg.getGroupLabel(groupId) ?? 'Segmentation',
           segments,
         },
       }]);
 
       // Track source image IDs for the temp seg
-      sourceImageIdsMap.set(tempSegId, [...srcImageIds]);
+      sourceImageTracking.setSourceImageIds(tempSegId, [...srcImageIds]);
 
       // Delegate to the legacy export path
       const result = await this.exportToDicomSeg(tempSegId);
@@ -5328,7 +5364,7 @@ export const segmentationService = {
     } finally {
       // Clean up temporary segmentation
       try { csSegmentation.removeSegmentation(tempSegId); } catch { /* ok */ }
-      sourceImageIdsMap.delete(tempSegId);
+      sourceImageTracking.clearSourceImageIds(tempSegId);
       // Clean up temporary labelmap images from cache
       for (const lmId of tempLmImageIds) {
         try { cache.removeImageLoadObject(lmId); } catch { /* ok */ }
@@ -5341,7 +5377,7 @@ export const segmentationService = {
    * Called by rtStructService when loading RTSTRUCT contours.
    */
   trackSourceImageIds(segmentationId: string, imageIds: string[]): void {
-    sourceImageIdsMap.set(segmentationId, [...imageIds]);
+    sourceImageTracking.setSourceImageIds(segmentationId, [...imageIds]);
   },
 
   /**
@@ -5349,7 +5385,7 @@ export const segmentationService = {
    * Used by RTSTRUCT export to copy source DICOM identity fields.
    */
   getTrackedSourceImageIds(segmentationId: string): string[] | null {
-    const ids = sourceImageIdsMap.get(segmentationId);
+    const ids = sourceImageTracking.getSourceImageIds(segmentationId);
     return ids ? [...ids] : null;
   },
 
@@ -5402,14 +5438,7 @@ export const segmentationService = {
     const checkLabelmap = targetType === 'SEG' || targetType == null;
 
     if (checkContour) {
-      const contourData = (seg.representationData as any)?.Contour;
-      if (contourData?.annotationUIDsMap instanceof Map) {
-        for (const uids of contourData.annotationUIDsMap.values()) {
-          if (uids && typeof uids.size === 'number' && uids.size > 0) {
-            return true;
-          }
-        }
-      }
+      if (contourRep.hasAnyAnnotations(segmentationId)) return true;
       if (targetType === 'RTSTRUCT') return false;
     }
 
@@ -5567,14 +5596,16 @@ export const segmentationService = {
     labelmapInterpolationInProgress = false;
     uninstallHistoryMemoTracking();
 
-    // Clean up module-level state
-    sourceImageIdsMap.clear();
+    // Clean up module-level state. sourceImageTracking.dispose() both
+    // unsubscribes its auto-cleanup listener and clears its map.
+    sourceImageTracking.dispose();
+    interpolationAcceptance.dispose();
     loadedColorsMap.clear();
-    subSegGroupMap.clear();
-    subSegToGroupMap.clear();
-    segmentMetaMap.clear();
-    groupDimensionsMap.clear();
-    groupLabelMap.clear();
+    // NOTE: mlg.clearAll() also clears `groupViewportAttachments` and
+    // `metadataPreloadPromises`, which were NOT cleared in the pre-facade
+    // dispose code. Pre-facade this was a dispose-time state leak; the
+    // facade's teardown is symmetric across all 7 maps.
+    mlg.clearAll();
     segmentationCounter = 0;
 
     initialized = false;
