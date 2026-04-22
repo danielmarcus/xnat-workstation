@@ -68,12 +68,21 @@ export interface InterpolationPreferences {
   algorithm: InterpolationAlgorithm;
   /** Blend threshold for the 'linear' algorithm (0–1, default 0.5). Lower = more aggressive fill. */
   linearThreshold: number;
+  /**
+   * For contour (RTSTRUCT) interpolation: when true, auto-generated
+   * interpolated contours are promoted to "accepted" (solid, saveable)
+   * immediately on generation. When false (default), they render as
+   * dashed/provisional and the user must click each one to accept, or
+   * accept in bulk via the dialog shown at manual save time.
+   */
+  autoAcceptInterpolated: boolean;
 }
 
 export const DEFAULT_INTERPOLATION_PREFERENCES: InterpolationPreferences = {
   enabled: true,
   algorithm: 'morphological',
   linearThreshold: 0.5,
+  autoAcceptInterpolated: false,
 };
 
 export const INTERPOLATION_ALGORITHM_LABELS: Record<InterpolationAlgorithm, string> = {

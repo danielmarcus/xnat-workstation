@@ -59,6 +59,7 @@ import { rtStructService } from './rtStructService';
 import * as contourRep from './contourRepresentation';
 import * as sourceImageTracking from './sourceImageTracking';
 import * as mlg from './multiLayerGroup';
+import * as interpolationAcceptance from './interpolationAcceptance';
 import { backupService } from '../backup/backupService';
 import {
   hasSegmentPixelsOnSlice,
@@ -1751,6 +1752,10 @@ export const segmentationService = {
     // if an orchestrating code path forgets to call clearSourceImageIds.
     sourceImageTracking.initialize();
 
+    // Wire interpolation-acceptance policies (auto-accept on generation
+    // when the preference is enabled; click-to-accept always).
+    interpolationAcceptance.initialize();
+
     initialized = true;
     console.log('[segmentationService] Initialized — listening for segmentation events');
   },
@@ -2248,7 +2253,13 @@ export const segmentationService = {
    */
   copySelectedContourAnnotation(): boolean {
     const selected = getSelectedContourAnnotation();
-    if (!selected) return false;
+    if (!selected) {
+      const selectedUids = csAnnotation.selection.getAnnotationsSelected?.() ?? [];
+      console.debug('[segmentationService] copy: no selected contour annotation', {
+        selectedUids,
+      });
+      return false;
+    }
 
     const { annotation } = selected;
     const segmentationId = annotation.data.segmentation.segmentationId!;
@@ -2260,6 +2271,12 @@ export const segmentationService = {
       !Number.isInteger(segmentIndex) ||
       segmentIndex <= 0
     ) {
+      console.debug('[segmentationService] copy: missing required metadata', {
+        referencedImageId,
+        segmentIndex,
+        segmentationId,
+        toolName: annotation.metadata?.toolName,
+      });
       return false;
     }
 
@@ -2269,7 +2286,13 @@ export const segmentationService = {
     // other completeness-dependent sites) so in-progress contours stay
     // visible to selection sync.
     const polyline = clonePolyline(annotation.data.contour?.polyline);
-    if (polyline.length < 3) return false;
+    if (polyline.length < 3) {
+      console.debug('[segmentationService] copy: polyline too short', {
+        polylineLength: polyline.length,
+        toolName: annotation.metadata?.toolName,
+      });
+      return false;
+    }
 
     // Capture spline-specific reconstruction data if the source is a spline.
     // Presence of `data.spline.instance` is the identity marker (Cornerstone's
@@ -2314,29 +2337,58 @@ export const segmentationService = {
    * Returns true when a new contour annotation was created.
    */
   pasteCopiedContourAnnotationToActiveSlice(): boolean {
-    if (!contourClipboard) return false;
+    if (!contourClipboard) {
+      console.debug('[segmentationService] paste: no clipboard');
+      return false;
+    }
     if (this.getSegmentLocked(contourClipboard.segmentationId, contourClipboard.segmentIndex)) {
+      console.debug('[segmentationService] paste: segment locked', {
+        segmentationId: contourClipboard.segmentationId,
+        segmentIndex: contourClipboard.segmentIndex,
+      });
       return false;
     }
 
     const targetImageId = getCurrentImageIdForActiveViewport();
-    if (!targetImageId) return false;
+    if (!targetImageId) {
+      console.debug('[segmentationService] paste: no target imageId for active viewport');
+      return false;
+    }
     const viewportContext = getActiveViewportContextForContourPaste(targetImageId);
-    if (!viewportContext) return false;
+    if (!viewportContext) {
+      console.debug('[segmentationService] paste: no viewport context for', targetImageId);
+      return false;
+    }
 
     const delta: Point3 = [0, 0, 0];
     if (targetImageId !== contourClipboard.referencedImageId) {
       const sourcePlane = getImagePlaneInfo(contourClipboard.referencedImageId);
       const targetPlane = getImagePlaneInfo(targetImageId);
-      if (!sourcePlane || !targetPlane) return false;
+      if (!sourcePlane || !targetPlane) {
+        console.debug('[segmentationService] paste: plane lookup failed', {
+          sourceHasPlane: !!sourcePlane,
+          targetHasPlane: !!targetPlane,
+          sourceImageId: contourClipboard.referencedImageId,
+          targetImageId,
+        });
+        return false;
+      }
       if (
         contourClipboard.frameOfReferenceUID &&
         targetPlane.frameOfReferenceUID &&
         contourClipboard.frameOfReferenceUID !== targetPlane.frameOfReferenceUID
       ) {
+        console.debug('[segmentationService] paste: FrameOfReferenceUID mismatch', {
+          clipboard: contourClipboard.frameOfReferenceUID,
+          target: targetPlane.frameOfReferenceUID,
+        });
         return false;
       }
       if (Math.abs(dotPoint3(sourcePlane.normal, targetPlane.normal)) < 0.999) {
+        console.debug('[segmentationService] paste: plane normals disagree', {
+          sourceNormal: sourcePlane.normal,
+          targetNormal: targetPlane.normal,
+        });
         return false;
       }
       const translation = subtractPoint3(
@@ -5517,6 +5569,7 @@ export const segmentationService = {
     // Clean up module-level state. sourceImageTracking.dispose() both
     // unsubscribes its auto-cleanup listener and clears its map.
     sourceImageTracking.dispose();
+    interpolationAcceptance.dispose();
     loadedColorsMap.clear();
     // NOTE: mlg.clearAll() also clears `groupViewportAttachments` and
     // `metadataPreloadPromises`, which were NOT cleared in the pre-facade
