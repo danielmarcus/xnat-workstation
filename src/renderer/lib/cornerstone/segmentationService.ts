@@ -105,6 +105,23 @@ import {
   syncSelectedContourAnnotation,
   wireContourClipboard,
 } from './segmentationService/contourClipboard';
+import {
+  beginManualSave,
+  beginSegLoad,
+  cancelAutoSave,
+  decrementSuppression,
+  endManualSave,
+  endSegLoad,
+  incrementSuppression,
+  isDirtyTrackingSuppressed,
+  onAnnotationAutoSave,
+  onSegmentationDataModified,
+  performAutoSave,
+  runWithDirtyTrackingSuppressed,
+  scheduleAutoSave,
+  setDirtyTrackingSuppressedFor,
+  wireAutoSave,
+} from './segmentationService/autoSave';
 // NOTE: We use the tool group ID directly here instead of importing from
 // toolService to avoid a circular dependency (toolService → segmentationService).
 const TOOL_GROUP_ID = 'xnatToolGroup_primary';
@@ -688,416 +705,6 @@ function getSegmentationType(segmentationId: string): 'labelmap' | 'contour' | '
   return 'labelmap';
 }
 
-// ─── Auto-Save Logic ─────────────────────────────────────────────
-
-let autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
-const AUTO_SAVE_DELAY = 10_000; // 10 seconds after last edit
-const LABELMAP_INTERPOLATION_DELAY = 250;
-
-/**
- * Reference counter for suppressing _markDirty() and scheduleAutoSave() calls.
- * Incremented during load operations (addToViewport, loadDicomSeg) where Cornerstone
- * fires SEGMENTATION_DATA_MODIFIED events internally during initialization,
- * which would falsely mark the state as dirty.
- * Using a counter instead of a boolean prevents race conditions when
- * multiple async load operations overlap (e.g., loadDicomSeg + addToViewport).
- */
-let suppressDirtyTrackingCount = 0;
-let suppressDirtyTrackingUntilMs = 0;
-
-function isDirtyTrackingSuppressed(): boolean {
-  return suppressDirtyTrackingCount > 0 || Date.now() < suppressDirtyTrackingUntilMs;
-}
-
-function setDirtyTrackingSuppressedFor(ms: number): void {
-  if (ms <= 0) return;
-  suppressDirtyTrackingUntilMs = Math.max(suppressDirtyTrackingUntilMs, Date.now() + ms);
-}
-
-/**
- * Reference counter for SEG/RTSTRUCT load operations in progress.
- * When > 0, performAutoSave() is blocked to prevent exporting incomplete
- * segmentation data (which causes "Error inserting pixels in PixelData").
- * Incremented by beginSegLoad(), decremented by endSegLoad().
- */
-let loadInProgressCount = 0;
-
-/**
- * Flag indicating a manual save/export is in progress.
- * When true, performAutoSave() is blocked and onSegmentationDataModified()
- * won't schedule auto-save. This prevents a race where a brush stroke during
- * the async export window (between cancelAutoSave and export completion)
- * triggers a competing auto-save that writes partial data.
- * Set via beginManualSave()/endManualSave() from SegmentationPanel.
- */
-let manualSaveInProgress = false;
-let backupInProgress = false;
-let labelmapInterpolationTimer: ReturnType<typeof setTimeout> | null = null;
-let labelmapInterpolationInProgress = false;
-let pendingLabelmapInterpolation: { segmentationId: string; segmentIndex: number | null } | null = null;
-
-/** Called when segmentation pixel data changes — debounces auto-save and marks dirty. */
-function onSegmentationDataModified(evt?: Event): void {
-  if (!isDirtyTrackingSuppressed()) {
-    const detail = (evt as CustomEvent | undefined)?.detail as
-      | { segmentationId?: string; segmentIndex?: number }
-      | undefined;
-
-    // Resolve sub-seg ID to group ID for dirty tracking
-    let resolvedSegId = detail?.segmentationId ?? null;
-    if (resolvedSegId) {
-      const groupInfo = mlg.getGroupInfoForSubSeg(resolvedSegId);
-      if (groupInfo) {
-        resolvedSegId = groupInfo.groupId;
-      }
-    }
-
-    if (detail?.segmentationId) {
-      // For interpolation, use the resolved group ID so it can look up the right sub-seg
-      const groupInfo = mlg.getGroupInfoForSubSeg(detail.segmentationId);
-      pendingLabelmapInterpolation = {
-        segmentationId: groupInfo ? groupInfo.groupId : detail.segmentationId,
-        segmentIndex: groupInfo
-          ? groupInfo.segmentIndex
-          : (Number.isInteger(detail.segmentIndex) ? Number(detail.segmentIndex) : null),
-      };
-    }
-    useSegmentationStore.getState()._markDirty();
-    const dirtySegId =
-      resolvedSegId
-      ?? useSegmentationStore.getState().activeSegmentationId
-      ?? null;
-    if (dirtySegId) {
-      useSegmentationManagerStore.getState().markDirty(dirtySegId);
-    }
-    scheduleAutoSave();
-    if (!labelmapInterpolationInProgress) {
-      scheduleLabelmapInterpolation();
-    }
-  }
-}
-
-/** Called when an annotation is completed/modified — triggers auto-save for contour segmentations. */
-function onAnnotationAutoSave(): void {
-  // Only schedule if there's an active segmentation that has contour data
-  const segStore = useSegmentationStore.getState();
-  const activeSegId = segStore.activeSegmentationId;
-  if (!activeSegId) return;
-  const segType = getSegmentationType(activeSegId);
-  if (segType === 'contour' || segType === 'both') {
-    if (!isDirtyTrackingSuppressed()) {
-      segStore._markDirty();
-      useSegmentationManagerStore.getState().markDirty(activeSegId);
-      scheduleAutoSave();
-    }
-  }
-}
-
-function scheduleAutoSave(): void {
-  // Don't schedule auto-save while a manual save is in progress
-  if (manualSaveInProgress) return;
-  if (autoSaveTimer) clearTimeout(autoSaveTimer);
-
-  // Read backup interval from preferences (fallback to AUTO_SAVE_DELAY)
-  const backupPrefs = usePreferencesStore.getState().preferences.backup;
-  const delayMs = backupPrefs.enabled
-    ? backupPrefs.intervalSeconds * 1000
-    : AUTO_SAVE_DELAY;
-
-  autoSaveTimer = setTimeout(() => {
-    void performAutoSave();
-  }, delayMs);
-}
-
-function scheduleLabelmapInterpolation(): void {
-  if (labelmapInterpolationTimer) clearTimeout(labelmapInterpolationTimer);
-  labelmapInterpolationTimer = setTimeout(() => {
-    void performLabelmapInterpolation();
-  }, LABELMAP_INTERPOLATION_DELAY);
-}
-
-async function performLabelmapInterpolation(): Promise<void> {
-  labelmapInterpolationTimer = null;
-  if (labelmapInterpolationInProgress) return;
-  if (isDirtyTrackingSuppressed()) return;
-  if (loadInProgressCount > 0) return;
-
-  // Read interpolation settings from preferences store (canonical source)
-  const prefState = usePreferencesStore.getState();
-  const interpPrefs = prefState.preferences.interpolation;
-  if (!interpPrefs.enabled) return;
-
-  const segStore = useSegmentationStore.getState();
-  const pending = pendingLabelmapInterpolation;
-  pendingLabelmapInterpolation = null;
-  let activeSegId = pending?.segmentationId ?? segStore.activeSegmentationId;
-  if (!activeSegId) return;
-
-  let segmentIndex = Number(pending?.segmentIndex ?? segStore.activeSegmentIndex);
-  if (!Number.isInteger(segmentIndex) || segmentIndex <= 0) return;
-
-  // Don't interpolate on a locked segment
-  if (segmentationService.getSegmentLocked(activeSegId, segmentIndex)) return;
-
-  // For multi-layer groups, resolve to the sub-seg and use segment index 1
-  let effectiveSegId = activeSegId;
-  let effectiveSegIndex = segmentIndex;
-  if (isMultiLayerGroup(activeSegId)) {
-    const subSegId = resolveSubSegId(activeSegId, segmentIndex);
-    if (!subSegId) return;
-    effectiveSegId = subSegId;
-    effectiveSegIndex = 1; // sub-segs are binary (0/1)
-  }
-
-  const segType = getSegmentationType(effectiveSegId);
-  if (segType === 'contour') return;
-
-  const labelmapData = await getCachedLabelmapSliceArrays(effectiveSegId);
-  if (!labelmapData) return;
-  const { sliceArrays, width, height } = labelmapData;
-  if (sliceArrays.length < 3) return;
-
-  const anchors: number[] = [];
-  for (let i = 0; i < sliceArrays.length; i++) {
-    if (hasSegmentPixelsOnSlice(sliceArrays[i], effectiveSegIndex)) {
-      anchors.push(i);
-    }
-  }
-  if (anchors.length < 2) return;
-
-  labelmapInterpolationInProgress = true;
-  const algorithm = interpPrefs.algorithm;
-  const linearThreshold = interpPrefs.linearThreshold;
-
-  try {
-    const modifiedSlices = new Set<number>();
-    const pixelsPerSlice = width * height;
-
-    for (let i = 0; i < anchors.length - 1; i++) {
-      const a = anchors[i];
-      const b = anchors[i + 1];
-      const gap = b - a - 1;
-      if (gap <= 0) continue;
-
-      for (let s = a + 1; s < b; s++) {
-        const alpha = (s - a) / (b - a);
-        const slice = sliceArrays[s] as any;
-
-        // Dispatch to the selected algorithm
-        let interpolated: Uint8Array;
-        switch (algorithm) {
-          case 'morphological':
-            interpolated = interpolateMorphological(sliceArrays[a], sliceArrays[b], alpha, width, height, effectiveSegIndex);
-            break;
-          case 'nearestSlice':
-            interpolated = interpolateNearestSlice(sliceArrays[a], sliceArrays[b], alpha, width, height, effectiveSegIndex);
-            break;
-          case 'linear':
-            interpolated = interpolateLinearBlend(sliceArrays[a], sliceArrays[b], alpha, width, height, effectiveSegIndex, linearThreshold);
-            break;
-          case 'sdf':
-          default:
-            interpolated = interpolateSDF(sliceArrays[a], sliceArrays[b], alpha, width, height, effectiveSegIndex);
-            break;
-        }
-
-        // Apply interpolated result to the gap slice
-        let changed = false;
-        for (let p = 0; p < pixelsPerSlice; p++) {
-          const currentValue = Number(slice[p]);
-          // Skip pixels that belong to a different segment
-          if (currentValue !== 0 && currentValue !== effectiveSegIndex) continue;
-          // Fill empty pixels where the algorithm says there should be data
-          if (interpolated[p] === effectiveSegIndex && currentValue === 0) {
-            slice[p] = effectiveSegIndex;
-            changed = true;
-          }
-        }
-
-        if (changed) {
-          modifiedSlices.add(s);
-        }
-      }
-    }
-
-    if (modifiedSlices.size === 0) return;
-
-    csSegmentation.triggerSegmentationEvents.triggerSegmentationDataModified(
-      effectiveSegId,
-      Array.from(modifiedSlices).sort((x, y) => x - y),
-      effectiveSegIndex,
-    );
-    const viewportIds = csSegmentation.state.getViewportIdsWithSegmentation(effectiveSegId);
-    for (const viewportId of viewportIds) {
-      csToolUtilities.segmentation.triggerSegmentationRender(viewportId);
-      const enabledElement = getEnabledElementByViewportId(viewportId) as any;
-      enabledElement?.viewport?.render?.();
-    }
-  } catch (err) {
-    console.error('[segmentationService] Labelmap interpolation failed:', err);
-  } finally {
-    labelmapInterpolationInProgress = false;
-  }
-}
-
-/** Cancel any pending auto-save (e.g. when a manual save starts). */
-function cancelAutoSave(): void {
-  if (autoSaveTimer) {
-    clearTimeout(autoSaveTimer);
-    autoSaveTimer = null;
-  }
-}
-
-/** Format current time as yyyymmddhhmmss for auto-save temp filenames. */
-function formatTimestamp(): string {
-  const d = new Date();
-  return d.getFullYear().toString() +
-    String(d.getMonth() + 1).padStart(2, '0') +
-    String(d.getDate()).padStart(2, '0') +
-    String(d.getHours()).padStart(2, '0') +
-    String(d.getMinutes()).padStart(2, '0') +
-    String(d.getSeconds()).padStart(2, '0');
-}
-
-async function performAutoSave(force = false): Promise<boolean> {
-  autoSaveTimer = null;
-  const segStore = useSegmentationStore.getState();
-  const backupPrefs = usePreferencesStore.getState().preferences.backup;
-
-  // Check backup enabled (from preferences), or force flag (disconnect guard)
-  if (!backupPrefs.enabled && !force) return false;
-
-  // Skip if dirty tracking is suppressed (load/creation in progress)
-  if (isDirtyTrackingSuppressed()) return false;
-
-  // Skip if a SEG/RTSTRUCT load is in progress (prevents PixelData corruption)
-  if (loadInProgressCount > 0) {
-    console.log('[segmentationService] Auto-save skipped — SEG load in progress');
-    return false;
-  }
-
-  // Skip if no actual unsaved changes
-  if (!segStore.hasUnsavedChanges) return false;
-
-  // Prevent re-entrancy (Cornerstone exports aren't thread-safe)
-  if (backupInProgress) {
-    console.log('[segmentationService] Auto-save skipped — backup already in progress');
-    return false;
-  }
-
-  const xnatContext = useViewerStore.getState().xnatContext;
-  if (!xnatContext) return false; // No session context
-
-  segStore._setAutoSaveStatus('saving');
-  backupInProgress = true;
-  try {
-    const serverUrl = useConnectionStore.getState().connection?.serverUrl ?? '';
-    const backed = await backupService.backupAllDirtySegmentations(
-      xnatContext.sessionId,
-      serverUrl,
-    );
-
-    if (backed > 0) {
-      segStore._setAutoSaveStatus('saved');
-      console.log(`[segmentationService] Local backup: ${backed} segmentation(s) saved`);
-      return true;
-    } else {
-      // No dirty segs with exportable content — return to idle
-      segStore._setAutoSaveStatus('idle');
-      return false;
-    }
-  } catch (err: any) {
-    const msg = err instanceof Error ? err.message : String(err);
-    if (
-      msg.includes('No painted segment data') ||
-      msg.includes('no segment-frame pairs') ||
-      msg.includes('Error inserting pixels in PixelData')
-    ) {
-      console.log('[segmentationService] Auto-save skipped — no painted pixels yet');
-      segStore._setAutoSaveStatus('idle');
-      return false;
-    }
-    console.error('[segmentationService] Auto-save failed:', err);
-    segStore._setAutoSaveStatus('error');
-    return false;
-  } finally {
-    backupInProgress = false;
-  }
-}
-
-// ─── Legacy XNAT Temp Auto-Save (preserved for future reintroduction) ────
-//
-// The original auto-save wrote to XNAT's server-side temp resource for a single
-// active segmentation. This has been replaced by the local filesystem backup
-// that backs up ALL dirty segmentations. The code below is kept as reference
-// for adding an optional XNAT temp backend to the backup strategy pattern.
-//
-// async function performAutoSave_xnatTemp(force = false): Promise<boolean> {
-//   autoSaveTimer = null;
-//   const segStore = useSegmentationStore.getState();
-//   if (!segStore.autoSaveEnabled && !force) return false;
-//   if (isDirtyTrackingSuppressed()) return false;
-//   if (loadInProgressCount > 0) return false;
-//   if (!segStore.hasUnsavedChanges) return false;
-//   const xnatContext = useViewerStore.getState().xnatContext;
-//   if (!xnatContext) return false;
-//   const activeSegId = segStore.activeSegmentationId;
-//   if (!activeSegId) return false;
-//   const origin = segStore.xnatOriginMap[activeSegId];
-//   const sourceScanId = origin?.sourceScanId ?? xnatContext.scanId;
-//   const segType = getSegmentationType(activeSegId);
-//   segStore._setAutoSaveStatus('saving');
-//   try {
-//     let base64: string;
-//     let tempFilename: string;
-//     const ts = formatTimestamp();
-//     if (segType === 'contour') {
-//       if (!segmentationService.hasExportableContent(activeSegId, 'RTSTRUCT')) {
-//         segStore._setAutoSaveStatus('idle');
-//         return false;
-//       }
-//       base64 = await rtStructService.exportToRtStruct(activeSegId);
-//       tempFilename = `autosave_rtstruct_${sourceScanId}_${ts}.dcm`;
-//     } else {
-//       if (!segmentationService.hasExportableContent(activeSegId, 'SEG')) {
-//         segStore._setAutoSaveStatus('idle');
-//         return false;
-//       }
-//       base64 = await segmentationService.exportToDicomSeg(activeSegId);
-//       tempFilename = `autosave_seg_${sourceScanId}_${ts}.dcm`;
-//     }
-//     // Clean up old auto-save files
-//     try {
-//       const existingFiles = await window.electronAPI.xnat.listTempFiles(xnatContext.sessionId);
-//       const cleanupPattern = new RegExp(`^autosave_(?:seg|rtstruct)_${sourceScanId}(?:_\\d{14})?\\.dcm$`);
-//       for (const f of existingFiles.files ?? []) {
-//         if (cleanupPattern.test(f.name)) {
-//           await window.electronAPI.xnat.deleteTempFile(xnatContext.sessionId, f.name);
-//         }
-//       }
-//     } catch { /* ignore cleanup errors */ }
-//     const result = await window.electronAPI.xnat.autoSaveTemp(
-//       xnatContext.sessionId, sourceScanId, base64, tempFilename,
-//     );
-//     if (result.ok) {
-//       segStore._setAutoSaveStatus('saved');
-//       segStore._markClean();
-//       return true;
-//     } else {
-//       segStore._setAutoSaveStatus('error');
-//       return false;
-//     }
-//   } catch (err: any) {
-//     const msg = err instanceof Error ? err.message : String(err);
-//     if (msg.includes('No painted segment data') || msg.includes('no segment-frame pairs') || msg.includes('Error inserting pixels in PixelData')) {
-//       segStore._setAutoSaveStatus('idle');
-//       return false;
-//     }
-//     segStore._setAutoSaveStatus('error');
-//     return false;
-//   }
-// }
-
 let initialized = false;
 
 // ─── Public API ─────────────────────────────────────────────────
@@ -1108,11 +715,11 @@ export const segmentationService = {
    * Useful for non-user-initiated representation/style updates.
    */
   runWithDirtyTrackingSuppressed<T>(fn: () => T): T {
-    suppressDirtyTrackingCount++;
+    incrementSuppression();
     try {
       return fn();
     } finally {
-      suppressDirtyTrackingCount--;
+      decrementSuppression();
     }
   },
 
@@ -1208,6 +815,15 @@ export const segmentationService = {
       renderAllSegmentationViewports,
     });
 
+    // Wire the auto-save subsystem with the orchestrator-side helpers it
+    // needs. Same DI pattern as contour-clipboard above.
+    wireAutoSave({
+      getSegmentationType,
+      getSegmentLocked: (segmentationId, segmentIndex) =>
+        segmentationService.getSegmentLocked(segmentationId, segmentIndex),
+      getCachedLabelmapSliceArrays,
+    });
+
     // Wire source-image-ID auto-cleanup. Subscribes to SEGMENTATION_REMOVED
     // so tracked entries for real Cornerstone segmentations are reaped even
     // if an orchestrating code path forgets to call clearSourceImageIds.
@@ -1245,7 +861,7 @@ export const segmentationService = {
     // Suppress dirty tracking — Cornerstone fires SEGMENTATION_DATA_MODIFIED
     // during addSegmentations() which would falsely schedule auto-save for
     // an empty (unpainted) segmentation.
-    suppressDirtyTrackingCount++;
+    incrementSuppression();
     try {
     segmentationCounter++;
     const segmentationId = `seg_${Date.now()}_${segmentationCounter}`;
@@ -1334,7 +950,7 @@ export const segmentationService = {
     syncSegmentations();
     return segmentationId;
     } finally {
-      suppressDirtyTrackingCount--;
+      decrementSuppression();
     }
   },
 
@@ -1347,7 +963,7 @@ export const segmentationService = {
     label?: string,
     createDefaultSegment = false,
   ): Promise<string> {
-    suppressDirtyTrackingCount++;
+    incrementSuppression();
     try {
       segmentationCounter++;
       const segmentationId = `rtstruct_${Date.now()}_${segmentationCounter}`;
@@ -1407,7 +1023,7 @@ export const segmentationService = {
       syncSegmentations();
       return segmentationId;
     } finally {
-      suppressDirtyTrackingCount--;
+      decrementSuppression();
     }
   },
 
@@ -1592,7 +1208,7 @@ export const segmentationService = {
     }
 
     // Register as an independent Cornerstone segmentation (segment index 1).
-    suppressDirtyTrackingCount++;
+    incrementSuppression();
     try {
       csSegmentation.addSegmentations([
         {
@@ -1616,7 +1232,7 @@ export const segmentationService = {
         },
       ]);
     } finally {
-      suppressDirtyTrackingCount--;
+      decrementSuppression();
     }
 
     // Track source imageIds on the sub-seg (for export resolution).
@@ -1885,7 +1501,7 @@ export const segmentationService = {
    */
   async addToViewport(viewportId: string, segmentationId: string): Promise<void> {
     setDirtyTrackingSuppressedFor(400);
-    suppressDirtyTrackingCount++;
+    incrementSuppression();
     try {
     // Verify viewport exists.
     try {
@@ -2048,7 +1664,7 @@ export const segmentationService = {
 
     syncSegmentations();
     } finally {
-      suppressDirtyTrackingCount--;
+      decrementSuppression();
     }
   },
 
@@ -2718,7 +2334,7 @@ export const segmentationService = {
   ): Promise<LoadedDicomSeg> {
     // Suppress dirty tracking during load — Cornerstone fires data-modified events
     // internally during segmentation registration, which would falsely mark as dirty.
-    suppressDirtyTrackingCount++;
+    incrementSuppression();
     segmentationCounter++;
     const segmentationId = `seg_dicom_${Date.now()}_${segmentationCounter}`;
 
@@ -3379,7 +2995,7 @@ export const segmentationService = {
       console.error('[segmentationService] Failed to load DICOM SEG:', err);
       throw err;
     } finally {
-      suppressDirtyTrackingCount--;
+      decrementSuppression();
     }
   },
 
@@ -4718,14 +4334,14 @@ export const segmentationService = {
    * incomplete data (which causes PixelData size mismatch errors).
    * Must be paired with endSegLoad() in a try/finally.
    */
-  beginSegLoad(): void { loadInProgressCount++; },
+  beginSegLoad,
 
   /**
    * Signal that a SEG/RTSTRUCT load operation has completed.
    * Call this AFTER the double-rAF + _markClean() pattern to ensure
    * auto-save remains suppressed until all async renders complete.
    */
-  endSegLoad(): void { loadInProgressCount = Math.max(0, loadInProgressCount - 1); },
+  endSegLoad,
 
   /**
    * Signal that a manual save/export is starting.
@@ -4733,18 +4349,13 @@ export const segmentationService = {
    * scheduled until endManualSave() is called. Must be paired with
    * endManualSave() in a try/finally to prevent permanently blocking auto-save.
    */
-  beginManualSave(): void {
-    manualSaveInProgress = true;
-    cancelAutoSave();
-  },
+  beginManualSave,
 
   /**
    * Signal that a manual save/export has completed (or failed).
    * Re-enables auto-save scheduling. Always call in a finally block.
    */
-  endManualSave(): void {
-    manualSaveInProgress = false;
-  },
+  endManualSave,
 
   /**
    * Force a re-sync of segmentation summaries (e.g. after viewport changes).
@@ -4770,16 +4381,11 @@ export const segmentationService = {
       },
     );
 
-    // Cancel pending auto-save
-    if (autoSaveTimer) {
-      clearTimeout(autoSaveTimer);
-      autoSaveTimer = null;
-    }
-    if (labelmapInterpolationTimer) {
-      clearTimeout(labelmapInterpolationTimer);
-      labelmapInterpolationTimer = null;
-    }
-    labelmapInterpolationInProgress = false;
+    // Cancel pending auto-save (the labelmap-interpolation timer lives in
+    // autoSave.ts and clears itself when the next event handler fires; no
+    // explicit teardown needed since dispose() is followed by re-init or
+    // process exit).
+    cancelAutoSave();
     uninstallHistoryMemoTracking();
 
     // Clean up module-level state. sourceImageTracking.dispose() both
