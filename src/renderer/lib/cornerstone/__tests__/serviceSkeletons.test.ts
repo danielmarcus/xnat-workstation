@@ -1,0 +1,95 @@
+/**
+ * Skeleton tests for the new Phase 0 services.
+ *
+ * Phase 0 verifies that:
+ *   - Each service exports the expected method shape.
+ *   - Unimplemented methods throw a clear error mentioning the service name
+ *     and method, so accidental consumption fails loudly rather than silently
+ *     returning undefined.
+ *
+ * Behavioral tests land alongside the implementations in subsequent phases.
+ */
+import { describe, it, expect } from 'vitest';
+import { containerService } from '../containerService';
+import { undoService } from '../undoService';
+import { viewportLayoutService } from '../viewportLayoutService';
+import { transportContractService } from '../transportContractService';
+
+describe('Phase 0 service skeletons', () => {
+  describe('containerService', () => {
+    it('exposes the expected method names', () => {
+      const expected = [
+        'createContainer',
+        'deleteContainer',
+        'renameContainer',
+        'createMember',
+        'deleteMember',
+        'renameMember',
+        'recolorMember',
+        'setRoiType',
+        'getActiveContainer',
+        'getActiveMember',
+        'setActiveMember',
+        'approveContainer',
+        'revokeApproval',
+        'getApprovalHistory',
+      ];
+      for (const name of expected) {
+        expect(typeof (containerService as unknown as Record<string, unknown>)[name]).toBe('function');
+      }
+    });
+
+    it('throws a clear error from unimplemented methods', () => {
+      expect(() => containerService.getActiveMember()).toThrowError(/containerService.*not yet implemented/);
+    });
+  });
+
+  describe('undoService', () => {
+    it('exposes the expected method names', () => {
+      const expected = ['record', 'undo', 'redo', 'canUndo', 'canRedo', 'clear', 'getHistory'];
+      for (const name of expected) {
+        expect(typeof (undoService as unknown as Record<string, unknown>)[name]).toBe('function');
+      }
+    });
+
+    it('throws a clear error from unimplemented methods', () => {
+      expect(() => undoService.canUndo('c-1')).toThrowError(/undoService.*not yet implemented/);
+    });
+  });
+
+  describe('viewportLayoutService', () => {
+    it('exposes the expected method names', () => {
+      const expected = ['listPresets', 'getPreset', 'applyPreset', 'getCurrentPresetId'];
+      for (const name of expected) {
+        expect(typeof (viewportLayoutService as unknown as Record<string, unknown>)[name]).toBe('function');
+      }
+    });
+
+    it('throws a clear error from unimplemented methods', () => {
+      expect(() => viewportLayoutService.listPresets()).toThrowError(/viewportLayoutService.*not yet implemented/);
+    });
+  });
+
+  describe('transportContractService', () => {
+    it('exposes the expected method names', () => {
+      const expected = [
+        'setTransportAdapter',
+        'notifyDirty',
+        'cancelPendingSave',
+        'saveNow',
+        'saveAll',
+        'notifyExternalChange',
+        'resolveConflict',
+        'ingestLoadedContainer',
+        'ingestParseError',
+      ];
+      for (const name of expected) {
+        expect(typeof (transportContractService as unknown as Record<string, unknown>)[name]).toBe('function');
+      }
+    });
+
+    it('throws a clear error from unimplemented methods', () => {
+      expect(() => transportContractService.notifyDirty('c-1')).toThrowError(/transportContractService.*not yet implemented/);
+    });
+  });
+});
