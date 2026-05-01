@@ -20,6 +20,7 @@ import { useMemo } from 'react';
 import { usePreferencesStore } from '../../stores/preferencesStore';
 import { viewportService } from '../../lib/cornerstone/viewportService';
 import CornerstoneViewport from './CornerstoneViewport';
+import VolumeViewport from './VolumeViewport';
 
 interface ViewportProps {
   panelId: string;
@@ -39,15 +40,8 @@ export default function Viewport({ panelId, imageIds }: ViewportProps) {
     return viewportService.resolveViewportType(imageIds);
   }, [multiViewportEnabled, imageIds]);
 
-  if (multiViewportEnabled && resolvedType) {
-    // Phase 1.4 shim: log the decision but render the legacy component so
-    // existing behavior is preserved end-to-end. The volume branch becomes
-    // a real volume viewport in a subsequent commit.
-    if (resolvedType === 'volume') {
-      console.debug(
-        `[Viewport] panel=${panelId} resolved=volume — rendering legacy stack path until volume-mode wireup lands`,
-      );
-    }
+  if (multiViewportEnabled && resolvedType === 'volume') {
+    return <VolumeViewport panelId={panelId} imageIds={imageIds} />;
   }
 
   return <CornerstoneViewport panelId={panelId} imageIds={imageIds} />;
