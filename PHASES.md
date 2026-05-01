@@ -162,6 +162,21 @@ A separate workstream tracked in `docs/multiviewport-annotation-*.md`. Phase num
     - **#1837 (Vite MIME-type error on contour→stack-labelmap)**: closed; root cause is Vite bundler config. Our [vite.config.ts](vite.config.ts) already has the recommended `assetsInclude: ['**/*.wasm']`, `worker: { format: 'es' }`, and `optimizeDeps.exclude` for `@cornerstonejs/polymorphic-segmentation`. **Not affected.**
     - **#1188 (segmentation MPR mismatch)**: closed without merged fix; metadata-conformance issue on the SEG side. Not blocking but adds risk to MPR rendering of imported SEGs; verify with real fixtures in MV-Phase 1.
     - **Verdict**: hold at 4.16.1; upgrading to 4.22.3 buys nothing relevant. Real fixture-based regression testing happens in MV-Phase 1.
-- ⏳ **0.8** Acceptance: app builds, runs, looks identical; all 565 existing tests pass.
+- ✅ **0.8** Acceptance: app builds, runs, looks identical; all 565 existing tests pass.
 
-### MV-Phase 1+: see docs/multiviewport-annotation-design.md §7
+### MV-Phase 1: Viewport unification (In progress)
+**Goal:** volume default; one tool group; MPR mode consolidated. Behind `multiViewport.enabled` flag.
+
+- ✅ **1.1** Stack-eligibility predicate (`viewportService/stackEligibility.ts`): pure-logic decision between volume and stack based on modality (US/XA/RF/NM/DX/CR/MG → stack), multi-frame cine without spatial dim → stack, single image → stack, otherwise → volume. 19 tests.
+- ✅ **1.2** Reference-counted shared-volume cache in `volumeService` keyed on `(scanId, FrameOfReferenceUID)`. Two viewports reformatting the same scan now share one ImageVolume. 9 tests.
+- ✅ **1.3** New `viewportService` methods: `createVolumeViewport`, `setVolume`, `getVolumeViewport`, `resolveViewportType`, and the high-level `createViewportForImages` that picks volume-vs-stack and hooks into the shared-volume cache.
+- ✅ **1.4** `Viewport.tsx` introduced as the unified rendering surface. Reads `multiViewport.enabled` + applies eligibility. ViewportGrid migrated to import `Viewport` instead of `CornerstoneViewport`.
+- ✅ **1.4b** `VolumeViewport.tsx`: minimum-viable ORTHOGRAPHIC volume mode with shared-volume acquire/release, tool-group attach, segmentation overlay attach. Slice navigation, cine, click-select annotations are deferred to subsequent commits.
+- ✅ **1.5** `viewportLayoutService` preset implementations (1x1, 1x2, 2x1, 2x2, mpr-2x2, custom). Data model + applyPreset/getCurrentPresetId. Grid-instantiation wiring deferred to Phase 2 alongside the MPRViewportGrid replacement.
+- ⏳ **1.6** CrosshairsTool to primary tool group. **Deferred** — requires all viewports to be volume mode (CrosshairsTool has known rendering issues on stack viewports). Comes alongside the volume-mode wireup of slice nav / events / crosshair sync that the minimum VolumeViewport doesn't yet handle.
+- ⏳ **1.7** Volume-mode rendering completion: slice navigation, cine playback, click-to-select annotations, full event wiring on volume viewports. The current VolumeViewport mounts and attaches segmentations but does not yet replicate CornerstoneViewport's full event surface.
+- ⏳ **1.8** Acceptance: signals 3 (brush on stack visible on MPR), 6 (rapid layout switch), G7 (undo from closed panel). Performance: 4-panel CT load ≤ baseline + 30%.
+
+**Status (2026-05-01)**: structural foundation complete (1.1–1.5). The remaining work (1.6–1.8) requires fleshing out VolumeViewport's event surface and CrosshairsTool wiring; both depend on the same volume-mode-everywhere assumption. Pause point: feature-flag-gated path is functional for mount/load/unmount + segmentation overlays but lacks slice navigation in volume mode.
+
+### MV-Phase 2+: see docs/multiviewport-annotation-design.md §7
