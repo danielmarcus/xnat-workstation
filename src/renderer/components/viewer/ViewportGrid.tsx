@@ -10,7 +10,7 @@
  */
 import { useViewerStore } from '../../stores/viewerStore';
 import { panelId } from '@shared/types/viewer';
-import CornerstoneViewport from './CornerstoneViewport';
+import Viewport from './Viewport';
 import OrientedViewport from './OrientedViewport';
 import ViewportOverlay from './ViewportOverlay';
 import ScrollSlider from './ScrollSlider';
@@ -76,7 +76,7 @@ export default function ViewportGrid({ panelImageIds }: ViewportGridProps) {
                 {shouldUseOrientedView ? (
                   <OrientedViewport panelId={pid} imageIds={imageIds} plane={orientation} />
                 ) : (
-                  <CornerstoneViewport panelId={pid} imageIds={imageIds} />
+                  <Viewport panelId={pid} imageIds={imageIds} />
                 )}
                 <ViewportOverlay panelId={pid} />
                 <ScrollSlider panelId={pid} />
