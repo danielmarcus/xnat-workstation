@@ -13,6 +13,12 @@ import {
   Enums,
   type Types,
 } from '@cornerstonejs/core';
+import {
+  eligibleViewportType,
+  readEligibilityMetadata,
+  type ViewportTypeKind,
+} from './viewportService/stackEligibility';
+import { volumeService } from './volumeService';
 
 const ENGINE_ID = 'xnatRenderingEngine';
 
@@ -37,6 +43,29 @@ function getStackViewport(viewportId: string): Types.IStackViewport | null {
     return engine.getViewport(viewportId) as Types.IStackViewport;
   } catch {
     return null;
+  }
+}
+
+function getVolumeViewport(viewportId: string): Types.IVolumeViewport | null {
+  const engine = getEngine();
+  if (!engine) return null;
+  try {
+    return engine.getViewport(viewportId) as Types.IVolumeViewport;
+  } catch {
+    return null;
+  }
+}
+
+/** Orientation for volume viewports. */
+export type VolumeOrientation = 'AXIAL' | 'SAGITTAL' | 'CORONAL';
+
+function orientationAxisFor(orientation: VolumeOrientation): Enums.OrientationAxis {
+  switch (orientation) {
+    case 'SAGITTAL': return Enums.OrientationAxis.SAGITTAL;
+    case 'CORONAL': return Enums.OrientationAxis.CORONAL;
+    case 'AXIAL':
+    default:
+      return Enums.OrientationAxis.AXIAL;
   }
 }
 
@@ -111,6 +140,142 @@ export const viewportService = {
    */
   getViewport(viewportId: string): Types.IStackViewport | null {
     return getStackViewport(viewportId);
+  },
+
+  /**
+   * Get a VolumeViewport instance by ID. Returns null if the viewport is
+   * stack-typed or not enabled.
+   */
+  getVolumeViewport(viewportId: string): Types.IVolumeViewport | null {
+    return getVolumeViewport(viewportId);
+  },
+
+  // ─── Volume viewport creation (Phase 1.3) ──────────────────────
+  //
+  // The new path for the multi-viewport rewrite. Creates an
+  // ORTHOGRAPHIC viewport with a specified orientation. Callers
+  // should already have called volumeService.acquireSharedVolume()
+  // to get the volumeId.
+
+  /**
+   * Create an ORTHOGRAPHIC volume viewport. Caller is responsible for
+   * calling `setVolume()` afterwards (or directly `setVolumes()` on the
+   * viewport) to bind the volume.
+   */
+  createVolumeViewport(
+    viewportId: string,
+    element: HTMLDivElement,
+    orientation: VolumeOrientation = 'AXIAL',
+  ): void {
+    const engine = ensureEngine();
+
+    if (elements.has(viewportId)) {
+      try { engine.disableElement(viewportId); } catch { /* ok */ }
+    }
+
+    elements.set(viewportId, element);
+
+    const viewportInput: Types.PublicViewportInput = {
+      viewportId,
+      type: Enums.ViewportType.ORTHOGRAPHIC,
+      element,
+      defaultOptions: {
+        orientation: orientationAxisFor(orientation),
+      },
+    };
+    engine.enableElement(viewportInput);
+
+    console.log('[viewportService] Volume viewport created:', viewportId, orientation);
+  },
+
+  /**
+   * Bind a volume to a previously-created volume viewport. The volume
+   * must already exist in the Cornerstone cache (via
+   * volumeService.create() or volumeService.acquireSharedVolume()).
+   */
+  async setVolume(viewportId: string, volumeId: string): Promise<void> {
+    const viewport = getVolumeViewport(viewportId);
+    if (!viewport) {
+      console.error('[viewportService] No volume viewport for setVolume:', viewportId);
+      return;
+    }
+    await viewport.setVolumes([{ volumeId }]);
+    viewport.render();
+  },
+
+  /**
+   * Determine the appropriate viewport type for a series, by reading the
+   * representative imageId's metadata and applying the stack-eligibility
+   * rules from `./viewportService/stackEligibility`.
+   *
+   * Returns 'volume' when no metadata is yet available — callers should
+   * either defer the decision or fall through to a load that will populate
+   * the cache.
+   */
+  resolveViewportType(imageIds: string[]): ViewportTypeKind {
+    if (imageIds.length === 0) return 'stack';
+    const meta = readEligibilityMetadata(imageIds[0]);
+    if (!meta) {
+      // Metadata not yet cached. The optimistic default is volume, since
+      // the stack-eligibility predicate's negative-list (US, XA, RF, NM,
+      // DX, CR, MG) is small and explicitly tracked.
+      return 'volume';
+    }
+    return eligibleViewportType(meta, imageIds.length);
+  },
+
+  /**
+   * High-level convenience: create a viewport for the given images, picking
+   * volume vs stack via the eligibility predicate. Loads images directly.
+   *
+   * For volume viewports, uses `volumeService.acquireSharedVolume()` to get a
+   * shared, refcounted volume keyed on `(scanId, frameOfReferenceUID)`. The
+   * caller is responsible for calling `volumeService.releaseSharedVolume()`
+   * on viewport teardown.
+   *
+   * For stack viewports, calls `loadStack()` directly.
+   *
+   * Returns the chosen viewport type so the caller knows which teardown
+   * pattern to use.
+   *
+   * @param viewportId - Panel ID for the new viewport.
+   * @param element - DOM element to attach to.
+   * @param imageIds - Source images.
+   * @param scanIdentity - Required for volume viewports: stable scan id +
+   *                      frame-of-reference UID for the shared-volume cache.
+   * @param orientation - Volume orientation (ignored for stack viewports).
+   */
+  async createViewportForImages(
+    viewportId: string,
+    element: HTMLDivElement,
+    imageIds: string[],
+    scanIdentity: { scanId: string; frameOfReferenceUID: string } | null,
+    orientation: VolumeOrientation = 'AXIAL',
+  ): Promise<ViewportTypeKind> {
+    const kind = this.resolveViewportType(imageIds);
+
+    if (kind === 'volume' && scanIdentity) {
+      const { volumeId, isNew } = await volumeService.acquireSharedVolume(
+        scanIdentity.scanId,
+        scanIdentity.frameOfReferenceUID,
+        imageIds,
+      );
+      this.createVolumeViewport(viewportId, element, orientation);
+      await this.setVolume(viewportId, volumeId);
+      if (isNew) {
+        // Fire-and-forget: streaming load fills the volume incrementally
+        // while the user is already interacting (per design §1.1).
+        void volumeService.load(volumeId);
+      }
+      return 'volume';
+    }
+
+    // Fall through to stack: either eligibility says stack, or no scan
+    // identity was supplied (which means we can't share the volume — caller
+    // must use the legacy createViewport path or supply identity).
+    this.createViewport(viewportId, element);
+    await this.loadStack(viewportId, imageIds);
+    return 'stack';
   },
 
   /**
