@@ -53,13 +53,100 @@ export interface ViewportLayoutService {
   getCurrentPresetId(): LayoutPresetId | null;
 }
 
-function notImplemented(method: string): never {
-  throw new Error(`[viewportLayoutService] ${method} not yet implemented (multi-viewport rewrite is in Phase 0)`);
-}
+// ─── Built-in preset definitions ─────────────────────────────────
+
+const BUILTIN_PRESETS: LayoutPreset[] = [
+  {
+    id: '1x1',
+    rows: 1,
+    cols: 1,
+    slots: [],
+    autoLink: false,
+  },
+  {
+    id: '1x2',
+    rows: 1,
+    cols: 2,
+    slots: [],
+    autoLink: false,
+  },
+  {
+    id: '2x1',
+    rows: 2,
+    cols: 1,
+    slots: [],
+    autoLink: false,
+  },
+  {
+    id: '2x2',
+    rows: 2,
+    cols: 2,
+    slots: [],
+    autoLink: false,
+  },
+  {
+    id: 'mpr-2x2',
+    rows: 2,
+    cols: 2,
+    slots: [
+      { index: 0, orientation: 'AXIAL' },
+      { index: 1, orientation: 'SAGITTAL' },
+      { index: 2, orientation: 'CORONAL' },
+      { index: 3, orientation: '3d' },
+    ],
+    // Per design §1.3: MPR preset auto-links panels of the same source scan
+    // via crosshair sync. The fourth slot (3D rendering) participates in
+    // sync but is read-only on the camera side.
+    autoLink: true,
+  },
+  {
+    id: 'custom',
+    rows: 0,
+    cols: 0,
+    slots: [],
+    autoLink: false,
+  },
+];
+
+let currentPresetId: LayoutPresetId | null = null;
 
 export const viewportLayoutService: ViewportLayoutService = {
-  listPresets: () => notImplemented('listPresets'),
-  getPreset: () => notImplemented('getPreset'),
-  applyPreset: () => notImplemented('applyPreset'),
-  getCurrentPresetId: () => notImplemented('getCurrentPresetId'),
+  listPresets() {
+    // Return clones so callers can't mutate the canonical definitions.
+    return BUILTIN_PRESETS.map((preset) => ({
+      ...preset,
+      slots: preset.slots.map((slot) => ({ ...slot })),
+    }));
+  },
+
+  getPreset(id) {
+    const preset = BUILTIN_PRESETS.find((p) => p.id === id);
+    if (!preset) return null;
+    return {
+      ...preset,
+      slots: preset.slots.map((slot) => ({ ...slot })),
+    };
+  },
+
+  applyPreset(id) {
+    const preset = BUILTIN_PRESETS.find((p) => p.id === id);
+    if (!preset) {
+      throw new Error(`[viewportLayoutService] Unknown preset: ${id}`);
+    }
+    // Phase 1: record the preset id. The actual grid-instantiation wiring
+    // (which viewports to create at which orientations, with which volumes)
+    // lands when ViewportGrid + the MPR preset replace MPRViewportGrid in
+    // Phase 2 work. Setting the preset id enables the rest of the app
+    // to observe the choice.
+    currentPresetId = id;
+  },
+
+  getCurrentPresetId() {
+    return currentPresetId;
+  },
 };
+
+/** Test-only: reset the recorded preset to null. */
+export function _resetCurrentPreset(): void {
+  currentPresetId = null;
+}

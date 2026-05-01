@@ -65,9 +65,9 @@ describe('Phase 0 service skeletons', () => {
       }
     });
 
-    it('throws a clear error from unimplemented methods', () => {
-      expect(() => viewportLayoutService.listPresets()).toThrowError(/viewportLayoutService.*not yet implemented/);
-    });
+    // Behavioral tests for the implementation live in viewportLayoutService.test.ts;
+    // skeleton tests above only verify the export shape. As of Phase 1.5 the
+    // service is no longer a stub.
   });
 
   describe('transportContractService', () => {
