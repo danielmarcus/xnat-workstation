@@ -148,4 +148,128 @@ export const volumeService = {
       // Volume may not exist in cache — ignore
     }
   },
+
+  // ─── Shared-volume cache (Phase 1.2) ────────────────────────────
+  //
+  // Keyed on (scanId, FrameOfReferenceUID). Two viewports reformatting the
+  // same source scan share the same ImageVolume. Reference-counted so the
+  // cache entry is destroyed only when the last viewport releases.
+  //
+  // Pattern:
+  //   const { volumeId, isNew } = await volumeService.acquireSharedVolume(
+  //     scanId, foruid, imageIds,
+  //   );
+  //   if (isNew) await volumeService.load(volumeId);
+  //   // ... use the volume on viewports ...
+  //   volumeService.releaseSharedVolume(scanId, foruid);
+
+  /**
+   * Acquire a shared volume for a (scanId, FrameOfReferenceUID) pair.
+   *
+   * If an entry already exists, increments its refcount and returns the
+   * existing volumeId with `isNew: false`. The caller should NOT call
+   * load() in that case — the volume is already loaded or loading.
+   *
+   * If no entry exists, creates a new volume in the Cornerstone cache and
+   * returns `isNew: true`. The caller is responsible for calling load()
+   * on the returned volumeId.
+   *
+   * @param scanId - Stable identifier for the source scan.
+   * @param frameOfReferenceUID - DICOM FoR UID for the volume.
+   * @param imageIds - Source images (used only on first acquire).
+   * @returns volumeId and isNew flag.
+   */
+  async acquireSharedVolume(
+    scanId: string,
+    frameOfReferenceUID: string,
+    imageIds: string[],
+  ): Promise<{ volumeId: string; isNew: boolean }> {
+    const key = `${scanId}::${frameOfReferenceUID}`;
+    const existing = sharedVolumes.get(key);
+    if (existing) {
+      existing.refCount += 1;
+      console.log(
+        `[volumeService] Shared volume reused: ${existing.volumeId} (refCount=${existing.refCount})`,
+      );
+      return { volumeId: existing.volumeId, isNew: false };
+    }
+
+    const volumeId = `${VOLUME_SCHEME}:xnat_shared_${scanId}_${frameOfReferenceUID}`;
+    const volume = await volumeLoader.createAndCacheVolume(volumeId, { imageIds });
+    volumeRefs.set(volumeId, { load: () => volume.load(), imageIds });
+    sharedVolumes.set(key, { volumeId, refCount: 1, imageIds: [...imageIds] });
+    console.log(
+      `[volumeService] Shared volume created: ${volumeId} (${imageIds.length} images, refCount=1)`,
+    );
+    return { volumeId, isNew: true };
+  },
+
+  /**
+   * Release a previously-acquired shared volume. Decrements the refcount;
+   * when it reaches 0, the volume is removed from the cache.
+   */
+  releaseSharedVolume(scanId: string, frameOfReferenceUID: string): void {
+    const key = `${scanId}::${frameOfReferenceUID}`;
+    const entry = sharedVolumes.get(key);
+    if (!entry) {
+      console.warn(`[volumeService] releaseSharedVolume: unknown key ${key}`);
+      return;
+    }
+
+    entry.refCount -= 1;
+    if (entry.refCount > 0) {
+      console.log(
+        `[volumeService] Shared volume released: ${entry.volumeId} (refCount=${entry.refCount})`,
+      );
+      return;
+    }
+
+    // refCount === 0: drop from cache
+    sharedVolumes.delete(key);
+    volumeRefs.delete(entry.volumeId);
+    try {
+      cache.removeVolumeLoadObject(entry.volumeId);
+      console.log(`[volumeService] Shared volume destroyed: ${entry.volumeId}`);
+    } catch {
+      // Volume may not exist in cache — ignore
+    }
+  },
+
+  /**
+   * Peek at the volumeId for a (scanId, FoR) pair without acquiring.
+   * Returns null if no shared volume exists for that key.
+   */
+  getSharedVolumeId(scanId: string, frameOfReferenceUID: string): string | null {
+    const key = `${scanId}::${frameOfReferenceUID}`;
+    return sharedVolumes.get(key)?.volumeId ?? null;
+  },
+
+  /**
+   * Read the current refcount for a shared volume. Returns 0 if no entry
+   * exists. Test-only.
+   */
+  _getSharedVolumeRefCount(scanId: string, frameOfReferenceUID: string): number {
+    const key = `${scanId}::${frameOfReferenceUID}`;
+    return sharedVolumes.get(key)?.refCount ?? 0;
+  },
+
+  /**
+   * Drop the entire shared-volume cache. Test-only / app-teardown helper.
+   */
+  _clearSharedVolumes(): void {
+    for (const entry of sharedVolumes.values()) {
+      volumeRefs.delete(entry.volumeId);
+      try { cache.removeVolumeLoadObject(entry.volumeId); } catch { /* ok */ }
+    }
+    sharedVolumes.clear();
+  },
 };
+
+/** Reference-counted shared-volume cache. */
+interface SharedVolumeEntry {
+  volumeId: string;
+  refCount: number;
+  imageIds: string[];
+}
+
+const sharedVolumes = new Map<string, SharedVolumeEntry>();
