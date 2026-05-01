@@ -10,10 +10,12 @@ import {
   DEFAULT_INTERPOLATION_PREFERENCES,
   DEFAULT_BACKUP_PREFERENCES,
   DEFAULT_DELETION_PREFERENCES,
+  DEFAULT_MULTIVIEWPORT_PREFERENCES,
   type BackupPreferences,
   type DeletionPreferences,
   type InterpolationAlgorithm,
   type InterpolationPreferences,
+  type MultiViewportPreferences,
   type OverlayCornerId,
   type OverlayFieldKey,
   type OverlayPreferences,
@@ -56,6 +58,8 @@ interface PreferencesStore {
   // ─── Deletion ─────────────────────────────────────────────
   setTrashOnServerDelete: (enabled: boolean) => void;
   setTrashResourceName: (name: string) => void;
+  // ─── Multi-Viewport ───────────────────────────────────────
+  setMultiViewportEnabled: (enabled: boolean) => void;
   resetAll: () => void;
 }
 
@@ -130,6 +134,7 @@ function makeDefaultPreferences(): PreferencesV1 {
     interpolation: { ...DEFAULT_INTERPOLATION_PREFERENCES },
     backup: { ...DEFAULT_BACKUP_PREFERENCES },
     deletion: { ...DEFAULT_DELETION_PREFERENCES },
+    multiViewport: { ...DEFAULT_MULTIVIEWPORT_PREFERENCES },
   };
 }
 
@@ -590,6 +595,16 @@ export const usePreferencesStore = create<PreferencesStore>()(
           },
         })),
 
+      // ─── Multi-Viewport ────────────────────────────────────
+
+      setMultiViewportEnabled: (enabled) =>
+        set((state) => ({
+          preferences: {
+            ...state.preferences,
+            multiViewport: { ...state.preferences.multiViewport, enabled },
+          },
+        })),
+
       resetAll: () =>
         set({
           preferences: makeDefaultPreferences(),
@@ -653,6 +668,17 @@ export const usePreferencesStore = create<PreferencesStore>()(
               : base.preferences.deletion.trashResourceName,
         };
 
+        // Merge multi-viewport preferences with defaults as fallback.
+        // Persisted state from before the multi-viewport rewrite has no
+        // multiViewport key; default to disabled in that case.
+        const incomingMultiViewport = (incoming as Partial<PreferencesV1>).multiViewport;
+        const mergedMultiViewport: MultiViewportPreferences = {
+          enabled:
+            typeof incomingMultiViewport?.enabled === 'boolean'
+              ? incomingMultiViewport.enabled
+              : base.preferences.multiViewport.enabled,
+        };
+
         return {
           ...base,
           preferences: {
@@ -665,6 +691,7 @@ export const usePreferencesStore = create<PreferencesStore>()(
             interpolation: mergedInterpolation,
             backup: mergedBackup,
             deletion: mergedDeletion,
+            multiViewport: mergedMultiViewport,
           },
         };
       },

@@ -127,6 +127,23 @@ export const DEFAULT_DELETION_PREFERENCES: DeletionPreferences = {
   trashResourceName: 'trash',
 };
 
+// ─── Multi-Viewport ──────────────────────────────────────
+
+/**
+ * Multi-viewport annotation rewrite (see docs/multiviewport-annotation-design.md).
+ * Phase 0+ behavior is gated on `enabled`. While disabled, the legacy code
+ * paths run unchanged. Removed at the end of Phase 6 once the rewrite is the
+ * only path.
+ */
+export interface MultiViewportPreferences {
+  /** Master switch for the multi-viewport rewrite. Default `false` until the rewrite is verified end-to-end. */
+  enabled: boolean;
+}
+
+export const DEFAULT_MULTIVIEWPORT_PREFERENCES: MultiViewportPreferences = {
+  enabled: false,
+};
+
 // ─── Top-level Preferences ──────────────────────────────────────
 
 export interface PreferencesV1 {
@@ -139,6 +156,7 @@ export interface PreferencesV1 {
   interpolation: InterpolationPreferences;
   backup: BackupPreferences;
   deletion: DeletionPreferences;
+  multiViewport: MultiViewportPreferences;
 }
 
 export const DEFAULT_OVERLAY_CORNERS: Record<OverlayCornerId, OverlayFieldKey[]> = {
@@ -211,4 +229,5 @@ export const DEFAULT_PREFERENCES: PreferencesV1 = {
   interpolation: { ...DEFAULT_INTERPOLATION_PREFERENCES },
   backup: { ...DEFAULT_BACKUP_PREFERENCES },
   deletion: { ...DEFAULT_DELETION_PREFERENCES },
+  multiViewport: { ...DEFAULT_MULTIVIEWPORT_PREFERENCES },
 };
