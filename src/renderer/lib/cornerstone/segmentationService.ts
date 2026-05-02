@@ -34,7 +34,7 @@
  *   sync()                    — Force re-sync to store
  *   dispose()                 — Remove event listeners
  */
-import { eventTarget, metaData, imageLoader, cache, utilities as csUtilities, getEnabledElementByViewportId } from '@cornerstonejs/core';
+import { eventTarget, metaData, imageLoader, cache, utilities as csUtilities, getEnabledElementByViewportId, getRenderingEngine } from '@cornerstonejs/core';
 import type { Types as CoreTypes } from '@cornerstonejs/core';
 import {
   annotation as csAnnotation,
@@ -126,6 +126,10 @@ import { resetVisibilityAdapter, wireVisibility } from './segmentationService/vi
 import { cornerstoneVisibilityAdapter } from './segmentationService/cornerstoneVisibilityAdapter';
 import { createStylingService, type StylingService } from './segmentationService/styling';
 import { createCornerstoneStylingDeps } from './segmentationService/cornerstoneStylingDeps';
+import {
+  decideDrawingRouting,
+  type DrawingRoutingDecision,
+} from './segmentationService/drawingRouting';
 // NOTE: We use the tool group ID directly here instead of importing from
 // toolService to avoid a circular dependency (toolService → segmentationService).
 const TOOL_GROUP_ID = 'xnatToolGroup_primary';
@@ -2351,6 +2355,78 @@ export const segmentationService = {
     const activeSegIdx = segStore.activeSegmentIndex;
     if (!activeSegId || !activeSegIdx || activeSegIdx <= 0) return false;
     return this.getSegmentLocked(activeSegId, activeSegIdx);
+  },
+
+  /**
+   * Phase 2.5: B3 drawing-routing decision for a (viewport, active container)
+   * pair. Returns `{ kind: 'allow' }` or `{ kind: 'block', reason, hintMessage }`.
+   *
+   * Caller (toolService lock-guard) should consult this on pointerdown when
+   * the active tool is a drawing tool, gated on `multiViewport.enabled`.
+   *
+   * Permissive on missing metadata (returns 'allow') — see drawingRouting.ts
+   * for the full rule set.
+   */
+  shouldBlockDrawingOnViewport(viewportId: string): DrawingRoutingDecision {
+    const activeSegId = useSegmentationStore.getState().activeSegmentationId;
+    if (!activeSegId) {
+      return decideDrawingRouting({
+        activeContainerIdentity: null,
+        viewportIdentity: null,
+        anyForMatchedViewportOpen: true,
+      });
+    }
+
+    const activeContainerIdentity = cornerstoneVisibilityAdapter.getSegmentationSourceIdentity(activeSegId);
+    const viewportIdentity = cornerstoneVisibilityAdapter.getViewportSourceIdentity(viewportId);
+
+    let anyForMatchedViewportOpen = true;
+    if (activeContainerIdentity) {
+      anyForMatchedViewportOpen = false;
+      try {
+        // ENGINE_ID hardcoded — same string used by viewportService and
+        // toolService. Hardcoded here to avoid pulling viewportService into
+        // segmentationService's import graph (it is unused otherwise).
+        const engine = getRenderingEngine('xnatRenderingEngine');
+        if (engine) {
+          for (const vp of engine.getViewports()) {
+            const vpId = (vp as { id?: string }).id;
+            if (!vpId) continue;
+            const vpIdent = cornerstoneVisibilityAdapter.getViewportSourceIdentity(vpId);
+            if (vpIdent?.frameOfReferenceUID === activeContainerIdentity.frameOfReferenceUID) {
+              anyForMatchedViewportOpen = true;
+              break;
+            }
+          }
+        }
+      } catch {
+        // If enumeration fails, assume permissive (don't block on errors).
+        anyForMatchedViewportOpen = true;
+      }
+    }
+
+    let activeContainerSeriesDescription: string | null = null;
+    if (activeContainerIdentity) {
+      try {
+        const sourceIds = sourceImageTracking.getSourceImageIds(activeSegId);
+        const firstId = sourceIds?.[0];
+        if (firstId) {
+          const series = metaData.get('generalSeriesModule', firstId) as
+            | { seriesDescription?: string }
+            | undefined;
+          activeContainerSeriesDescription = series?.seriesDescription ?? null;
+        }
+      } catch {
+        // Description is best-effort; absence yields a generic hint.
+      }
+    }
+
+    return decideDrawingRouting({
+      activeContainerIdentity,
+      viewportIdentity,
+      anyForMatchedViewportOpen,
+      activeContainerSeriesDescription,
+    });
   },
 
   /**

@@ -140,9 +140,11 @@ const { Shift: ShiftModifier } = ToolEnums.KeyboardBindings;
 
 let currentActiveTool: ToolName = ToolName.WindowLevel;
 
-// ─── Segment lock guard ────────────────────────────────────────
+// ─── Segment lock guard + B3 drawing-routing guard ─────────────────────
 // Prevents segmentation tools from receiving pointer events when the active
-// segment is locked.  Installed as a capturing pointerdown listener on each
+// segment is locked (existing behavior) or — under multiViewport.enabled —
+// when the active container is non-native to the focused viewport (Phase 2.5
+// B3 drawing routing). Installed as a capturing pointerdown listener on each
 // viewport element so it fires before Cornerstone's own handlers.
 const lockGuardInstalled = new WeakSet<Element>();
 
@@ -152,16 +154,35 @@ const LOCK_EXEMPT_TOOLS = new Set<ToolName>([
   ToolName.SegmentBidirectional,
 ]);
 
-function installLockGuard(element: Element | null): void {
+function installLockGuard(element: Element | null, viewportId: string): void {
   if (!element || lockGuardInstalled.has(element)) return;
   lockGuardInstalled.add(element);
   element.addEventListener('pointerdown', ((e: PointerEvent) => {
     if (!SEGMENTATION_TOOLS.has(currentActiveTool)) return;
     if (LOCK_EXEMPT_TOOLS.has(currentActiveTool)) return;
+
+    // Existing behavior: segment-lock guard.
     if (segmentationService.isActiveSegmentLocked()) {
       e.stopImmediatePropagation();
       e.preventDefault();
       console.debug('[toolService] Blocked pointer event — active segment is locked');
+      return;
+    }
+
+    // Phase 2.5: B3 drawing-routing block. Only active when multi-viewport
+    // is enabled; legacy path is unaffected. The decision call is cheap
+    // (mostly metadata lookups), but skip it under the flag-off path.
+    if (!usePreferencesStore.getState().preferences.multiViewport.enabled) return;
+    const decision = segmentationService.shouldBlockDrawingOnViewport(viewportId);
+    if (decision.kind === 'block') {
+      e.stopImmediatePropagation();
+      e.preventDefault();
+      // Phase 2.5b will surface this hint inline at the viewport.
+      // For now the message goes to console.warn so it's visible during
+      // dev / E2E verification.
+      console.warn(
+        `[toolService] Blocked draw on ${viewportId} (${decision.reason}): ${decision.hintMessage}`,
+      );
     }
   }) as EventListener, true); // capturing phase
 }
@@ -293,7 +314,7 @@ function rebuildToolGroup(primaryTool: ToolName): ToolTypes.IToolGroup | undefin
     toolGroup.addViewport(vpId, viewportService.ENGINE_ID);
     try {
       const vp = engine?.getViewport(vpId);
-      if (vp) installLockGuard(vp.element);
+      if (vp) installLockGuard(vp.element, vpId);
     } catch { /* ok */ }
   }
 
@@ -640,7 +661,7 @@ export const toolService = {
     try {
       const engine = getRenderingEngine(viewportService.ENGINE_ID);
       const vp = engine?.getViewport(viewportId);
-      if (vp) installLockGuard(vp.element);
+      if (vp) installLockGuard(vp.element, viewportId);
     } catch { /* viewport may not be rendered yet — guard installed lazily */ }
 
     // Sync the store's brush size to Cornerstone3D now that the tool group
