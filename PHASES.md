@@ -231,7 +231,8 @@ The design's Phase 2 bullet list (design §7.4) compresses two distinct workstre
 The undo + transport work needs a Container abstraction over Cornerstone segmentation/annotation state. The Phase 0 types in `src/renderer/types/annotation.ts` exist, but no segmentation in the running app has a `Container` object — the codebase keys everything off `csSegmentationId`. To make A8 ("undo is per-container") and E2 ("queue-next-save per-container") meaningful subjects, 2.6 must land before 2.7 / 2.8.
 
 - ✅ **2.6** Container-bridge scaffolding (`src/renderer/lib/cornerstone/containerBridge.ts`). Minimal `csSegmentationId → Container` 1:1 lookup with auto-track listener on `SEGMENTATION_ADDED` / `_REMOVED` (no segmentation creation-site changes required). Kind inferred from prefix (`rtstruct_*` → RTSTRUCT, else SEG). Bookkeeping setters (`setDirty`, `setSaveInFlight`, `setVersionToken`) staged for 2.7 / 2.8 consumption. 33 unit tests.
-- ⏳ **2.7** `undoService` impl backed by container bridge. Replace scattered `DefaultHistoryMemo.undo()` direct calls (segmentationService.ts:4277-4313) with `undoService.undo(activeContainerId)`. Cornerstone HistoryMemo stays as the storage layer; undoService is the per-container facade.
+- ✅ **2.7a** `undoService` impl + record-side wiring (passive). Per-container undo/redo stacks with depth cap UNDO_HISTORY_LIMIT (100, oldest dropped first), §A8 cross-container isolation, save-is-not-a-barrier semantics, and explicit `clear()` for E3/H6 reload. `historyMemo.ts` extended to mirror enriched memos into `undoService.record(...)` when the segmentationId resolves through `containerBridge`. Behavior-neutral — dispatch unchanged. 17 unit tests.
+- ✅ **2.7b** Dispatch swap. `segmentationService.undo() / .redo() / .getUndoState()` and `refreshUndoState()` prefer `undoService` for the active container; fall back to `DefaultHistoryMemo` only when no container is active (loose annotations / measurements). When containerId is set but undoService has no entries, the dispatch is a no-op rather than reaching into the global ring — preserves §A8 isolation. The lock-block check still consults `DefaultHistoryMemo`'s top entry (same memo lives in both rings during 2.7's transitional period). Full suite: 760 passing.
 - ⏳ **2.8** `segmentationService/transport.ts` queue-next-save coordinator. Wraps `autoSave.ts` to enforce E2 "if saveInFlight, defer next save until completion."
 
 **Pre-existing dirty/save bugs to watch for in 2.7 / 2.8** (handed off from the Phase 1 deferred-task agent — don't fix as part of 2.6, but worth knowing for the next phases):
@@ -240,6 +241,8 @@ The undo + transport work needs a Container abstraction over Cornerstone segment
 
 **If 2.7 / 2.8 naturally fixes either**: swap the `markSegmentationDirty(...)` calls in spec 10 for the real brush-induced dirty path and verify Signal 6 still passes. That's the success signal that the container abstraction did the right thing.
 
+**2.7 audit (2026-05-02)**: 2.7a/2.7b touched undoService, historyMemo.ts's record-side wiring, and segmentationService's undo/redo/getUndoState/refreshUndoState dispatch. None of that path crosses autoSave's dirty pipeline or the export's labelmap-pixel pipeline. **Neither bug is fixed by 2.7**; both remain candidates for 2.8 (which explicitly reworks the dirty path via queue-next-save coordination).
+
 #### E2E acceptance specs
 
 - ⏳ **2.9** E2E specs for signals achievable without cross-series fixtures: signals 1 (axial→sagittal/coronal live update; mostly Phase 1 PolySeg territory — verify), 12 (drawing block on non-native viewport — exercises 2.5a), 14 (queue-next-save — exercises 2.8), 15 (undo past save point — exercises 2.7).
@@ -247,5 +250,5 @@ The undo + transport work needs a Container abstraction over Cornerstone segment
 - ⏳ Signals 9 (T1+T2 cross-series with dashed stroke), 10 (breath-hold A2c off-by-default), 11 (different FoR, list visible but no canvas render) **need fixtures Phase 1 deferred** (`e2e/fixtures/dicom/cross-series` and `breath-hold-pair`). Service-integration coverage with synthetic metadata is the stand-in until fixtures land.
 - ⏳ Signal 8 (canvas selection sync) is partial — Phase 2 can deliver canvas-canvas sync via a global selection set; full signal needs Phase 3 list panel hover/click sync (D7.8).
 
-**Status (2026-05-02)**: Workstream A complete (2.1 → 2.5b). Workstream B 2.6 (container-bridge scaffolding) complete; 2.7 (undoService) and 2.8 (transport.ts queue-next-save) outstanding. E2E specs (2.9) outstanding. Test suite at 744 passing (was 610 at end of Phase 1). All commits behind `multiViewport.enabled`; legacy path verified unaffected by Phase 1 health check (Item 1 above).
+**Status (2026-05-02)**: Workstream A complete (2.1 → 2.5b). Workstream B 2.6 (container-bridge) and 2.7 (undoService impl + dispatch swap) complete; 2.8 (transport.ts queue-next-save) outstanding. E2E specs (2.9) outstanding. Test suite at 760 passing (was 610 at end of Phase 1). All commits behind `multiViewport.enabled`; legacy path verified unaffected by Phase 1 health check (Item 1 above).
 
