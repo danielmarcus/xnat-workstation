@@ -1,9 +1,16 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import {
+  classifyAnnotationOnViewport,
   classifyForEligibility,
+  classifySegmentationOnViewport,
+  isAnnotationRenderableOnViewport,
   isCrossSeries,
+  isSegmentationRenderableOnViewport,
+  resetVisibilityAdapter,
   shouldRenderByDefault,
+  wireVisibility,
   type SourceIdentityForEligibility,
+  type VisibilityMetadataAdapter,
 } from './visibility';
 
 function ident(partial: Partial<SourceIdentityForEligibility> = {}): SourceIdentityForEligibility {
@@ -154,5 +161,144 @@ describe('isCrossSeries', () => {
   it('false for native and cross-FoR', () => {
     expect(isCrossSeries('native')).toBe(false);
     expect(isCrossSeries('cross-FoR')).toBe(false);
+  });
+});
+
+// ─── Adapter-driven classify* helpers (Phase 2.3) ──────────────────────
+
+interface SyntheticState {
+  viewports: Map<string, SourceIdentityForEligibility>;
+  segmentations: Map<string, SourceIdentityForEligibility>;
+  annotations: Map<string, SourceIdentityForEligibility>;
+}
+
+function syntheticAdapter(state: SyntheticState): VisibilityMetadataAdapter {
+  return {
+    getViewportSourceIdentity: (id) => state.viewports.get(id) ?? null,
+    getSegmentationSourceIdentity: (id) => state.segmentations.get(id) ?? null,
+    getAnnotationSourceIdentity: (id) => state.annotations.get(id) ?? null,
+  };
+}
+
+describe('classify* / isRenderable* (adapter-driven)', () => {
+  afterEach(() => {
+    resetVisibilityAdapter();
+  });
+
+  it('classifySegmentationOnViewport returns native for matching identities', () => {
+    wireVisibility(syntheticAdapter({
+      viewports: new Map([['vp1', ident({ seriesUID: 'S1', frameOfReferenceUID: 'F1' })]]),
+      segmentations: new Map([['seg1', ident({ seriesUID: 'S1', frameOfReferenceUID: 'F1' })]]),
+      annotations: new Map(),
+    }));
+    expect(classifySegmentationOnViewport('seg1', 'vp1')).toBe('native');
+  });
+
+  it('classifySegmentationOnViewport returns A2b for same-FoR-different-series, no AcquisitionNumber', () => {
+    wireVisibility(syntheticAdapter({
+      viewports: new Map([['vp1', ident({ seriesUID: 'T1', frameOfReferenceUID: 'F1' })]]),
+      segmentations: new Map([['seg1', ident({ seriesUID: 'T2', frameOfReferenceUID: 'F1' })]]),
+      annotations: new Map(),
+    }));
+    expect(classifySegmentationOnViewport('seg1', 'vp1')).toBe('cross-series-A2b');
+  });
+
+  it('classifySegmentationOnViewport returns A2c for same-FoR-different-series-different-AcquisitionNumber', () => {
+    wireVisibility(syntheticAdapter({
+      viewports: new Map([['vp1', ident({ seriesUID: 'BH1', frameOfReferenceUID: 'F1', acquisitionNumber: 1 })]]),
+      segmentations: new Map([['seg1', ident({ seriesUID: 'BH2', frameOfReferenceUID: 'F1', acquisitionNumber: 2 })]]),
+      annotations: new Map(),
+    }));
+    expect(classifySegmentationOnViewport('seg1', 'vp1')).toBe('cross-series-A2c');
+  });
+
+  it('classifySegmentationOnViewport returns cross-FoR for different FoR', () => {
+    wireVisibility(syntheticAdapter({
+      viewports: new Map([['vp1', ident({ frameOfReferenceUID: 'F1' })]]),
+      segmentations: new Map([['seg1', ident({ frameOfReferenceUID: 'F2' })]]),
+      annotations: new Map(),
+    }));
+    expect(classifySegmentationOnViewport('seg1', 'vp1')).toBe('cross-FoR');
+  });
+
+  it('classifySegmentationOnViewport returns null when viewport identity unknown', () => {
+    wireVisibility(syntheticAdapter({
+      viewports: new Map(),
+      segmentations: new Map([['seg1', ident()]]),
+      annotations: new Map(),
+    }));
+    expect(classifySegmentationOnViewport('seg1', 'vp-unknown')).toBeNull();
+  });
+
+  it('classifySegmentationOnViewport returns null when segmentation identity unknown', () => {
+    wireVisibility(syntheticAdapter({
+      viewports: new Map([['vp1', ident()]]),
+      segmentations: new Map(),
+      annotations: new Map(),
+    }));
+    expect(classifySegmentationOnViewport('seg-unknown', 'vp1')).toBeNull();
+  });
+
+  it('classifyAnnotationOnViewport mirrors segmentation behavior', () => {
+    wireVisibility(syntheticAdapter({
+      viewports: new Map([['vp1', ident({ seriesUID: 'S1', frameOfReferenceUID: 'F1' })]]),
+      segmentations: new Map(),
+      annotations: new Map([['ann1', ident({ seriesUID: 'S1', frameOfReferenceUID: 'F1' })]]),
+    }));
+    expect(classifyAnnotationOnViewport('ann1', 'vp1')).toBe('native');
+  });
+
+  it('classifyAnnotationOnViewport returns null for loose annotation with no source', () => {
+    wireVisibility(syntheticAdapter({
+      viewports: new Map([['vp1', ident()]]),
+      segmentations: new Map(),
+      annotations: new Map(),
+    }));
+    expect(classifyAnnotationOnViewport('ann-loose', 'vp1')).toBeNull();
+  });
+
+  it('isSegmentationRenderableOnViewport returns true for native regardless of policy', () => {
+    wireVisibility(syntheticAdapter({
+      viewports: new Map([['vp1', ident({ seriesUID: 'S1', frameOfReferenceUID: 'F1' })]]),
+      segmentations: new Map([['seg1', ident({ seriesUID: 'S1', frameOfReferenceUID: 'F1' })]]),
+      annotations: new Map(),
+    }));
+    expect(isSegmentationRenderableOnViewport('seg1', 'vp1', { enabled: false, a2cOptedIn: false })).toBe(true);
+  });
+
+  it('isSegmentationRenderableOnViewport returns false for A2c without opt-in (Phase 2 default)', () => {
+    wireVisibility(syntheticAdapter({
+      viewports: new Map([['vp1', ident({ seriesUID: 'BH1', frameOfReferenceUID: 'F1', acquisitionNumber: 1 })]]),
+      segmentations: new Map([['seg1', ident({ seriesUID: 'BH2', frameOfReferenceUID: 'F1', acquisitionNumber: 2 })]]),
+      annotations: new Map(),
+    }));
+    expect(isSegmentationRenderableOnViewport('seg1', 'vp1', { enabled: true, a2cOptedIn: false })).toBe(false);
+  });
+
+  it('isSegmentationRenderableOnViewport returns false when classification is unknown (better to omit than misrender)', () => {
+    wireVisibility(syntheticAdapter({
+      viewports: new Map(),
+      segmentations: new Map(),
+      annotations: new Map(),
+    }));
+    expect(isSegmentationRenderableOnViewport('seg-unknown', 'vp-unknown', { enabled: true, a2cOptedIn: true })).toBe(false);
+  });
+
+  it('isAnnotationRenderableOnViewport mirrors segmentation logic', () => {
+    wireVisibility(syntheticAdapter({
+      viewports: new Map([['vp1', ident({ seriesUID: 'T1', frameOfReferenceUID: 'F1' })]]),
+      segmentations: new Map(),
+      annotations: new Map([['ann1', ident({ seriesUID: 'T2', frameOfReferenceUID: 'F1' })]]),
+    }));
+    expect(isAnnotationRenderableOnViewport('ann1', 'vp1', { enabled: true, a2cOptedIn: false })).toBe(true);
+    expect(isAnnotationRenderableOnViewport('ann1', 'vp1', { enabled: false, a2cOptedIn: false })).toBe(false);
+  });
+
+  it('without wireVisibility (NULL_ADAPTER), classify* returns null and isRenderable* returns false', () => {
+    // Don't wire — adapter stays NULL_ADAPTER from module init / afterEach reset.
+    expect(classifySegmentationOnViewport('any', 'any')).toBeNull();
+    expect(classifyAnnotationOnViewport('any', 'any')).toBeNull();
+    expect(isSegmentationRenderableOnViewport('any', 'any', { enabled: true, a2cOptedIn: true })).toBe(false);
+    expect(isAnnotationRenderableOnViewport('any', 'any', { enabled: true, a2cOptedIn: true })).toBe(false);
   });
 });

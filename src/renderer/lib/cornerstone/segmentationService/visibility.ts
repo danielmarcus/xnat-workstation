@@ -135,3 +135,112 @@ export function shouldRenderByDefault(
 export function isCrossSeries(eligibility: EligibilityClass): boolean {
   return eligibility === 'cross-series-A2b' || eligibility === 'cross-series-A2c';
 }
+
+// ─── Metadata adapter (DI seam for Cornerstone) ──────────────────────────
+//
+// `visibility.ts` stays Cornerstone-free at the file-level imports. The
+// adapter contract is implemented by `cornerstoneVisibilityAdapter.ts` and
+// wired in `segmentationService.initialize()`. Tests inject a synthetic
+// adapter via `wireVisibility()` to drive the high-level classify* helpers.
+
+export interface VisibilityMetadataAdapter {
+  /** Source identity of the series currently displayed on a viewport. */
+  getViewportSourceIdentity(viewportId: string): SourceIdentityForEligibility | null;
+  /**
+   * Source identity tagged on a Cornerstone segmentation (its native series).
+   * Returns null when the segmentation is unknown or has no source-image
+   * lineage (e.g., a freshly-created empty SEG before first paint).
+   */
+  getSegmentationSourceIdentity(segmentationId: string): SourceIdentityForEligibility | null;
+  /**
+   * Source identity tagged on a Cornerstone contour annotation. Reads from
+   * `annotation.metadata.referencedImageId` + DICOM tags. Returns null for
+   * loose annotations with no referencedImageId.
+   */
+  getAnnotationSourceIdentity(annotationUID: string): SourceIdentityForEligibility | null;
+}
+
+const NULL_ADAPTER: VisibilityMetadataAdapter = {
+  getViewportSourceIdentity: () => null,
+  getSegmentationSourceIdentity: () => null,
+  getAnnotationSourceIdentity: () => null,
+};
+
+let adapter: VisibilityMetadataAdapter = NULL_ADAPTER;
+
+/**
+ * Inject the metadata adapter. Called once from `segmentationService.initialize()`
+ * with the real Cornerstone-backed adapter; tests inject synthetic stubs.
+ *
+ * Phase 2.3 entry point. Until called, classify* functions return null because
+ * the default `NULL_ADAPTER` reports "unknown" for every lookup.
+ */
+export function wireVisibility(injected: VisibilityMetadataAdapter): void {
+  adapter = injected;
+}
+
+/** Reset to the no-op adapter. Used by test teardown to avoid bleed-over. */
+export function resetVisibilityAdapter(): void {
+  adapter = NULL_ADAPTER;
+}
+
+// ─── High-level classify* helpers ────────────────────────────────────────
+
+/**
+ * Classify the eligibility of a Cornerstone segmentation on a viewport. Returns
+ * null when either side's source identity is unknown (e.g., the viewport
+ * hasn't loaded its first imageId, or the segmentation has no lineage).
+ */
+export function classifySegmentationOnViewport(
+  segmentationId: string,
+  viewportId: string,
+): EligibilityClass | null {
+  const member = adapter.getSegmentationSourceIdentity(segmentationId);
+  const viewport = adapter.getViewportSourceIdentity(viewportId);
+  if (!member || !viewport) return null;
+  return classifyForEligibility(member, viewport);
+}
+
+/**
+ * Classify the eligibility of a Cornerstone contour annotation on a viewport.
+ * Returns null when either side's source identity is unknown.
+ */
+export function classifyAnnotationOnViewport(
+  annotationUID: string,
+  viewportId: string,
+): EligibilityClass | null {
+  const member = adapter.getAnnotationSourceIdentity(annotationUID);
+  const viewport = adapter.getViewportSourceIdentity(viewportId);
+  if (!member || !viewport) return null;
+  return classifyForEligibility(member, viewport);
+}
+
+/**
+ * Should the segmentation render on the viewport given the current cross-
+ * series policy? Combines `classifySegmentationOnViewport` and
+ * `shouldRenderByDefault`. Returns false when classification is unknown
+ * (better to omit than to render with the wrong styling).
+ */
+export function isSegmentationRenderableOnViewport(
+  segmentationId: string,
+  viewportId: string,
+  policy: CrossSeriesRenderingPolicy,
+): boolean {
+  const eligibility = classifySegmentationOnViewport(segmentationId, viewportId);
+  if (eligibility === null) return false;
+  return shouldRenderByDefault(eligibility, policy);
+}
+
+/**
+ * Should the contour annotation render on the viewport? Mirrors
+ * `isSegmentationRenderableOnViewport`.
+ */
+export function isAnnotationRenderableOnViewport(
+  annotationUID: string,
+  viewportId: string,
+  policy: CrossSeriesRenderingPolicy,
+): boolean {
+  const eligibility = classifyAnnotationOnViewport(annotationUID, viewportId);
+  if (eligibility === null) return false;
+  return shouldRenderByDefault(eligibility, policy);
+}

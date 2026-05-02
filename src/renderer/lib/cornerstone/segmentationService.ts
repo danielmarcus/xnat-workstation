@@ -122,6 +122,8 @@ import {
   setDirtyTrackingSuppressedFor,
   wireAutoSave,
 } from './segmentationService/autoSave';
+import { resetVisibilityAdapter, wireVisibility } from './segmentationService/visibility';
+import { cornerstoneVisibilityAdapter } from './segmentationService/cornerstoneVisibilityAdapter';
 // NOTE: We use the tool group ID directly here instead of importing from
 // toolService to avoid a circular dependency (toolService → segmentationService).
 const TOOL_GROUP_ID = 'xnatToolGroup_primary';
@@ -832,6 +834,12 @@ export const segmentationService = {
     // Wire interpolation-acceptance policies (auto-accept on generation
     // when the preference is enabled; click-to-accept always).
     interpolationAcceptance.initialize();
+
+    // Phase 2.3: wire the FoR-eligibility metadata adapter so the
+    // visibility classify* helpers can resolve series identities for the
+    // currently-displayed slice on each viewport, segmentation source,
+    // and contour annotation.
+    wireVisibility(cornerstoneVisibilityAdapter);
 
     initialized = true;
     console.log('[segmentationService] Initialized — listening for segmentation events');
@@ -4392,6 +4400,7 @@ export const segmentationService = {
     // unsubscribes its auto-cleanup listener and clears its map.
     sourceImageTracking.dispose();
     interpolationAcceptance.dispose();
+    resetVisibilityAdapter();
     loadedColorsMap.clear();
     // NOTE: mlg.clearAll() also clears `groupViewportAttachments` and
     // `metadataPreloadPromises`, which were NOT cleared in the pre-facade
