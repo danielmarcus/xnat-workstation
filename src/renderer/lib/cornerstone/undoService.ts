@@ -11,10 +11,22 @@
  *
  * See docs/multiviewport-annotation-design.md §4.2.
  *
- * Phase 0: skeleton with method shapes only. Implementation lands in
- * Phase 2 when consumers replace scattered Cornerstone HistoryMemo usage.
+ * Phase 2.7a: implementation. The record path is wired from
+ * `segmentationService/historyMemo.ts` — when Cornerstone tools push a
+ * memo to `DefaultHistoryMemo` and the memo has a `segmentationId` that
+ * resolves through `containerBridge` to a containerId, we mirror it
+ * here as a `HistoryEntry`. The dispatch path swap (segmentationService.
+ * undo/redo → undoService.undo/redo) lands in Phase 2.7b.
+ *
+ * Concurrency: `record` is synchronous and lock-free. Underlying tool
+ * pushes are also synchronous from Cornerstone's perspective — they
+ * happen on the main thread inside event handlers. No racing risk.
  */
-import type { ContainerHistory, HistoryEntry } from '../../types/annotation';
+import {
+  UNDO_HISTORY_LIMIT,
+  type ContainerHistory,
+  type HistoryEntry,
+} from '../../types/annotation';
 
 export interface UndoService {
   /** Push a new entry onto the active container's undo stack; clears redo. */
@@ -51,16 +63,82 @@ export interface UndoService {
   getHistory(containerId: string): ContainerHistory | null;
 }
 
-function notImplemented(method: string): never {
-  throw new Error(`[undoService] ${method} not yet implemented (multi-viewport rewrite is in Phase 0)`);
+// ─── Module state ────────────────────────────────────────────────
+
+const histories = new Map<string, ContainerHistory>();
+
+function getOrCreate(containerId: string): ContainerHistory {
+  let h = histories.get(containerId);
+  if (!h) {
+    h = { containerId, undoStack: [], redoStack: [] };
+    histories.set(containerId, h);
+  }
+  return h;
 }
 
+function safeInvoke(label: string, fn: () => void): void {
+  try {
+    fn();
+  } catch (err) {
+    console.warn(`[undoService] ${label} threw`, err);
+  }
+}
+
+// ─── Public surface ──────────────────────────────────────────────
+
 export const undoService: UndoService = {
-  record: () => notImplemented('record'),
-  undo: () => notImplemented('undo'),
-  redo: () => notImplemented('redo'),
-  canUndo: () => notImplemented('canUndo'),
-  canRedo: () => notImplemented('canRedo'),
-  clear: () => notImplemented('clear'),
-  getHistory: () => notImplemented('getHistory'),
+  record(containerId, entry) {
+    if (!containerId || !entry) return;
+    const h = getOrCreate(containerId);
+    h.undoStack.push(entry);
+    // Cap depth at UNDO_HISTORY_LIMIT — drop oldest, never newest (per §A8).
+    if (h.undoStack.length > UNDO_HISTORY_LIMIT) {
+      h.undoStack.splice(0, h.undoStack.length - UNDO_HISTORY_LIMIT);
+    }
+    // A new edit invalidates the redo stack (standard editor convention).
+    if (h.redoStack.length > 0) {
+      h.redoStack.length = 0;
+    }
+  },
+
+  undo(containerId) {
+    const h = histories.get(containerId);
+    if (!h || h.undoStack.length === 0) return null;
+    const entry = h.undoStack.pop()!;
+    safeInvoke('invert', entry.invert);
+    h.redoStack.push(entry);
+    return entry;
+  },
+
+  redo(containerId) {
+    const h = histories.get(containerId);
+    if (!h || h.redoStack.length === 0) return null;
+    const entry = h.redoStack.pop()!;
+    safeInvoke('apply', entry.apply);
+    h.undoStack.push(entry);
+    return entry;
+  },
+
+  canUndo(containerId) {
+    const h = histories.get(containerId);
+    return !!h && h.undoStack.length > 0;
+  },
+
+  canRedo(containerId) {
+    const h = histories.get(containerId);
+    return !!h && h.redoStack.length > 0;
+  },
+
+  clear(containerId) {
+    histories.delete(containerId);
+  },
+
+  getHistory(containerId) {
+    return histories.get(containerId) ?? null;
+  },
 };
+
+/** Drop every container's history. Used by tests + service.dispose(). */
+export function clearAllHistories(): void {
+  histories.clear();
+}

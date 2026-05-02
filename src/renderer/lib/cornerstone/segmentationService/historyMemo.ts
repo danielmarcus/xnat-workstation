@@ -20,6 +20,9 @@ import { utilities as csUtilities } from '@cornerstonejs/core';
 import { annotation as csAnnotation, segmentation as csSegmentation } from '@cornerstonejs/tools';
 import { showAlertDialog } from '../../../stores/dialogStore';
 import * as mlg from '../multiLayerGroup';
+import * as containerBridge from '../containerBridge';
+import { undoService } from '../undoService';
+import type { HistoryEntry } from '../../../types/annotation';
 
 /**
  * Cornerstone3D's built-in undo/redo ring buffer.
@@ -216,9 +219,52 @@ export function installHistoryMemoTracking(): void {
   DefaultHistoryMemo.push = ((item: unknown) => {
     const memo = originalHistoryPush?.(item);
     enrichHistoryMemoRecord(memo);
+    // Phase 2.7a: mirror the memo into the per-container undoService when
+    // it resolves to a known container. Loose memos (no segmentationId)
+    // stay in DefaultHistoryMemo only — the dispatch swap in 2.7b keeps
+    // a fallback path for them.
+    routeMemoToUndoService(memo);
     return memo;
   }) as typeof DefaultHistoryMemo.push;
   historyTrackingInstalled = true;
+}
+
+/**
+ * Build a `HistoryEntry` from an enriched memo and record it on the
+ * memo's container. The entry's apply/invert wrap `memo.restoreMemo()` so
+ * the undo path mirrors what `DefaultHistoryMemo.undo()` would do.
+ *
+ * Phase 2.7a is record-only — undoService doesn't dispatch yet (the public
+ * `segmentationService.undo()/.redo()` still call DefaultHistoryMemo).
+ * Phase 2.7b swaps dispatch.
+ */
+function routeMemoToUndoService(memo: unknown): void {
+  if (!memo || typeof memo !== 'object') return;
+  const records = Array.isArray(memo)
+    ? (memo.filter((m): m is HistoryMemoRecord => !!m && typeof m === 'object'))
+    : [memo as HistoryMemoRecord];
+
+  for (const record of records) {
+    const segId = record.segmentationId;
+    if (typeof segId !== 'string' || segId.length === 0) continue;
+    const containerId = containerBridge.getContainerId(segId);
+    if (!containerId) continue;
+
+    const entry: HistoryEntry = {
+      description:
+        record.label
+        ?? (record.operationType
+          ? `${record.operationType}${record.id ? ` ${record.id}` : ''}`
+          : `Edit on ${segId}`),
+      apply: () => record.restoreMemo?.(false),
+      invert: () => record.restoreMemo?.(true),
+      // Phase 3 will populate scopeMemberIds from segmentIndex once members
+      // exist as first-class objects; for now leave empty (no consumers).
+      scopeMemberIds: [],
+      at: Date.now(),
+    };
+    undoService.record(containerId, entry);
+  }
 }
 
 export function uninstallHistoryMemoTracking(): void {

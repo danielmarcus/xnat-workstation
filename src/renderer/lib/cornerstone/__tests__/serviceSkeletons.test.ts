@@ -52,9 +52,9 @@ describe('Phase 0 service skeletons', () => {
       }
     });
 
-    it('throws a clear error from unimplemented methods', () => {
-      expect(() => undoService.canUndo('c-1')).toThrowError(/undoService.*not yet implemented/);
-    });
+    // Behavioral tests for the implementation live in undoService.test.ts;
+    // skeleton tests above only verify the export shape. As of Phase 2.7a
+    // the service is no longer a stub.
   });
 
   describe('viewportLayoutService', () => {
