@@ -1,37 +1,29 @@
 /**
- * Image Viewing E2E Tests
+ * Image Viewing E2E Tests (local-fixture)
  *
- * Tests loading images, viewport interactions (scroll, W/L, pan, zoom, reset).
+ * Tests viewport interactions (scroll, W/L, pan, zoom, reset) on a
+ * stack-mode viewport loaded from a local synthetic CT fixture. No
+ * XNAT round-trip — keeps PHI out of failure artifacts.
+ *
+ * Stack-mode (multiViewport.enabled = false) is the path under test
+ * here; the volume-mode equivalent lives in 07/08.
  */
-import { test, expect } from '../fixtures/auth';
-import { XnatBrowserPage } from '../pages/xnat-browser.page';
+import { test, expect } from '../fixtures/electron-app';
 import { ViewerPage } from '../pages/viewer.page';
-import { getE2EConfig, type E2EConfig } from '../helpers/env';
+import { loadFixtureScan, FIXTURE_NAMES } from '../helpers/fixture-load';
 
-let config: E2EConfig;
-
-test.describe('Image Viewing', () => {
-  test.beforeAll(() => { config = getE2EConfig(); });
-
-  // Load an image before each test
-  test.beforeEach(async ({ authenticatedPage: page }) => {
-    const browser = new XnatBrowserPage(page);
-
-    // Navigate back to projects if needed
-    const level = await browser.currentLevel();
-    if (level !== 'projects') {
-      await browser.navigateToProjects();
-    }
-
-    await browser.navigateAndLoadScan(
-      config.testProject,
-      config.testSubject,
-      config.testSession,
-      config.testScan,
+test.describe('Image Viewing (local fixture)', () => {
+  test.beforeEach(async ({ page }) => {
+    const result = await loadFixtureScan(page, FIXTURE_NAMES.CT_AXIAL_300, {
+      multiViewportEnabled: false,
+    });
+    test.skip(
+      result === null,
+      `Fixture '${FIXTURE_NAMES.CT_AXIAL_300}' is not present locally — run 'git lfs pull'.`,
     );
   });
 
-  test('image loads in viewport', async ({ authenticatedPage: page }) => {
+  test('image loads in viewport', async ({ page }) => {
     const viewer = new ViewerPage(page);
     await viewer.waitForImageLoaded();
 
@@ -39,7 +31,7 @@ test.describe('Image Viewing', () => {
     await expect(viewer.viewportError).toBeHidden();
   });
 
-  test('scroll changes slice', async ({ authenticatedPage: page }) => {
+  test('scroll changes slice', async ({ page }) => {
     const viewer = new ViewerPage(page);
     await viewer.waitForImageLoaded();
 
@@ -52,7 +44,7 @@ test.describe('Image Viewing', () => {
     expect(afterText).not.toBe(initialText);
   });
 
-  test('window/level tool changes rendering', async ({ authenticatedPage: page }) => {
+  test('window/level tool changes rendering', async ({ page }) => {
     const viewer = new ViewerPage(page);
     await viewer.waitForImageLoaded();
 
@@ -66,7 +58,7 @@ test.describe('Image Viewing', () => {
     expect(afterWL).not.toBe(initialWL);
   });
 
-  test('pan tool works without error', async ({ authenticatedPage: page }) => {
+  test('pan tool works without error', async ({ page }) => {
     const viewer = new ViewerPage(page);
     await viewer.waitForImageLoaded();
 
@@ -76,7 +68,7 @@ test.describe('Image Viewing', () => {
     await expect(viewer.viewportError).toBeHidden();
   });
 
-  test('zoom tool works without error', async ({ authenticatedPage: page }) => {
+  test('zoom tool works without error', async ({ page }) => {
     const viewer = new ViewerPage(page);
     await viewer.waitForImageLoaded();
 
@@ -86,7 +78,7 @@ test.describe('Image Viewing', () => {
     await expect(viewer.viewportError).toBeHidden();
   });
 
-  test('reset changes viewport state back', async ({ authenticatedPage: page }) => {
+  test('reset changes viewport state back', async ({ page }) => {
     const viewer = new ViewerPage(page);
     await viewer.waitForImageLoaded();
 

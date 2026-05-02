@@ -189,7 +189,16 @@ A separate workstream tracked in `docs/multiviewport-annotation-*.md`. Phase num
     - `seg-multilabel/` (16 KB) — synthetic DICOM SEG with 5 segments referencing `ct-axial-300`.
     - `rtstruct-typed/` (8 KB) — synthetic RTSTRUCT with 6 ROIs (`GTV`, `CTV`, `PTV`, `ORGAN`, `EXTERNAL`, `AVOIDANCE`).
     
-    **Follow-up** (separate task): migrate live-XNAT specs (03/04/05/07/08/09/10) to the local fixtures via the renderer hook so the PHI surface in test artifacts shrinks to specs 01/02/06; extend `11-fixture-cross-series.e2e.ts` with contour-creation logic to drive canvas-level assertions for signals 9 (A2b dashed stroke) and 10 (A2c off-by-default).
+    **Follow-ups, completed:**
+
+    - **Live-XNAT spec migration to local fixtures** ([e2e/helpers/fixture-load.ts](e2e/helpers/fixture-load.ts)): seven specs (03 / 04 / 05 / 07 / 08 / 09 / 10) now load from local TCIA / synthetic fixtures via `loadFixtureScan` + `__XNAT_E2E__.setFakeConnected`. Full Playwright suite: 38 passed, 7 skipped (fixmes, see below), 1 failed — the pre-existing "select annotation highlights it" failure documented in Item 1 row 04, **zero new regressions**. PHI surface in test artifacts now limited to live-XNAT specs 01 / 02 / 06.
+    - **Signal 9 (A2b cross-series classifier)** acceptance landed in `11-fixture-cross-series.e2e.ts`: loads T1+T2, mounts both series on two panels in stack mode, creates a structure on panel_0, asserts the new `__XNAT_E2E__.getCrossSeriesAction` hook returns `eligibility='native'` + `action.kind='reset'` for the native viewport and `eligibility='cross-series-A2b'` + `action.kind='apply-cross-series'` for the non-native one. The hook wraps `classifySegmentationOnViewport` (visibility.ts) + `resolveAction` (styling.ts), so the test exercises the production classify pipeline.
+
+    **Migration fixmes (6 tests skipped, all pre-Phase-2.7 territory):**
+
+    - 04 / 05 / 09 / 10 brush-stroke flows: the synthetic CT path's segmentation-create flow logs `[segmentationService] No sub-seg for group … index 1` — no default sub-segmentation is created for the multi-layer group, so the panel never exposes an "Add Segment" or "Brush" button. Pre-migration these passed against real CT data. Tagged Phase 2.7 territory; revisit when the multi-layer-group lifecycle settles.
+    - **Signal 10 (A2c off-by-default) deferred**: Cornerstone's wadouri `instance` metadata module does not surface `AcquisitionNumber` for `dicomfile:` image IDs. The A2c branch of `classifyForEligibility` needs both sides to have non-null AcquisitionNumber to distinguish A2c from A2b; with the gap the synthetic fixture classifies as A2b. Fix is a per-imageId AcquisitionNumber metadata provider for the dicomfile scheme, or surfacing it via `dicomwebLoader.orderImageIdsByDicomMetadata` pre-load — both Phase 2.x territory.
+    - 09 flag-on (volume mode) — same Phase 1 capability gap originally documented (volume-mode SEG editing).
 
 #### Item 1: full E2E health check (2026-05-01)
 

@@ -1,30 +1,24 @@
 /**
- * Annotations E2E Tests
+ * Annotations E2E Tests (local-fixture)
  *
  * Tests creating, selecting, deleting, and clearing annotations
  * using measurement tools from the Measure dropdown.
  *
  * The annotation list panel is toggled with the 'O' hotkey.
  */
-import { test, expect } from '../fixtures/auth';
-import { XnatBrowserPage } from '../pages/xnat-browser.page';
+import { test, expect } from '../fixtures/electron-app';
 import { ViewerPage } from '../pages/viewer.page';
-import { getE2EConfig, type E2EConfig } from '../helpers/env';
+import { loadFixtureScan, FIXTURE_NAMES } from '../helpers/fixture-load';
 
-let config: E2EConfig;
-
-test.describe('Annotations', () => {
-  test.beforeAll(() => { config = getE2EConfig(); });
-
+test.describe('Annotations (local fixture)', () => {
   // Load an image before each test and ensure clean annotation state
-  test.beforeEach(async ({ authenticatedPage: page }) => {
-    const browser = new XnatBrowserPage(page);
-    const level = await browser.currentLevel();
-    if (level !== 'projects') {
-      await browser.navigateToProjects();
-    }
-    await browser.navigateAndLoadScan(
-      config.testProject, config.testSubject, config.testSession, config.testScan,
+  test.beforeEach(async ({ page }) => {
+    const result = await loadFixtureScan(page, FIXTURE_NAMES.CT_AXIAL_300, {
+      multiViewportEnabled: false,
+    });
+    test.skip(
+      result === null,
+      `Fixture '${FIXTURE_NAMES.CT_AXIAL_300}' is not present locally — run 'git lfs pull'.`,
     );
     const viewer = new ViewerPage(page);
     await viewer.waitForImageLoaded();
@@ -45,7 +39,7 @@ test.describe('Annotations', () => {
     }
   });
 
-  test('length measurement creates annotation', async ({ authenticatedPage: page }) => {
+  test('length measurement creates annotation', async ({ page }) => {
     const viewer = new ViewerPage(page);
 
     // Open the Measure dropdown and select Length
@@ -67,7 +61,7 @@ test.describe('Annotations', () => {
     await expect(annotationPanel.locator('li').first()).toContainText('Length');
   });
 
-  test('elliptical ROI creates annotation with area', async ({ authenticatedPage: page }) => {
+  test('elliptical ROI creates annotation with area', async ({ page }) => {
     const viewer = new ViewerPage(page);
 
     // Open Measure dropdown and select Ellipse ROI
@@ -87,7 +81,7 @@ test.describe('Annotations', () => {
     await expect(annotationPanel.locator('li').first()).toContainText('Ellipse');
   });
 
-  test('select annotation highlights it', async ({ authenticatedPage: page }) => {
+  test('select annotation highlights it', async ({ page }) => {
     const viewer = new ViewerPage(page);
 
     // Create a Length annotation
@@ -104,7 +98,7 @@ test.describe('Annotations', () => {
     await expect(annotationItem).toHaveClass(/bg-blue-900/);
   });
 
-  test('delete annotation removes it', async ({ authenticatedPage: page }) => {
+  test('delete annotation removes it', async ({ page }) => {
     const viewer = new ViewerPage(page);
 
     // Create a Length annotation
@@ -126,7 +120,7 @@ test.describe('Annotations', () => {
     await expect(count).toHaveText('0');
   });
 
-  test('clear all removes all annotations', async ({ authenticatedPage: page }) => {
+  test('clear all removes all annotations', async ({ page }) => {
     const viewer = new ViewerPage(page);
 
     // Create two annotations

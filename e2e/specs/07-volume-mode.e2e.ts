@@ -1,10 +1,10 @@
 /**
- * Volume-mode E2E Tests (Multi-Viewport Phase 1)
+ * Volume-mode E2E Tests (Multi-Viewport Phase 1, local-fixture)
  *
  * Verifies the new viewport rendering path that activates when
  * `multiViewport.enabled = true` and the loaded data is volumetric (CT/MR
- * with multi-slice). Uses the existing live-XNAT test config; the same
- * scan that 03-image-viewing.e2e.ts uses is loaded with the flag flipped on.
+ * with multi-slice). Loads from the local CT fixture so PHI never enters
+ * test artifacts.
  *
  * Acceptance for these tests:
  *   - The viewport renders via VolumeViewport.tsx (data-testid prefix
@@ -14,40 +14,23 @@
  *   - Slice navigation via mouse wheel updates the slice index.
  *   - The shared-volume cache is acquired (no console errors about
  *     missing FrameOfReferenceUID).
- *   - On unmount (load a different scan), the shared volume is released.
+ *   - Flag-off path falls back to the legacy stack viewport.
  */
-import { test, expect } from '../fixtures/auth';
-import { XnatBrowserPage } from '../pages/xnat-browser.page';
-import { getE2EConfig, type E2EConfig } from '../helpers/env';
+import { test, expect } from '../fixtures/electron-app';
+import { loadFixtureScan, FIXTURE_NAMES } from '../helpers/fixture-load';
 
-let config: E2EConfig;
-
-test.describe('Volume Mode (multiViewport.enabled = true)', () => {
-  test.beforeAll(() => { config = getE2EConfig(); });
-
-  test.beforeEach(async ({ authenticatedPage: page }) => {
-    // Flip the flag on before any panel mounts. The flag is read on each
-    // Viewport.tsx render, so applying it before scan load means the
-    // panel will pick the new path on first mount.
-    await page.evaluate(() => {
-      window.__XNAT_E2E__?.setMultiViewportEnabled(true);
+test.describe('Volume Mode (multiViewport.enabled = true, local fixture)', () => {
+  test.beforeEach(async ({ page }) => {
+    const result = await loadFixtureScan(page, FIXTURE_NAMES.CT_AXIAL_300, {
+      multiViewportEnabled: true,
     });
-
-    const browser = new XnatBrowserPage(page);
-    const level = await browser.currentLevel();
-    if (level !== 'projects') {
-      await browser.navigateToProjects();
-    }
-
-    await browser.navigateAndLoadScan(
-      config.testProject,
-      config.testSubject,
-      config.testSession,
-      config.testScan,
+    test.skip(
+      result === null,
+      `Fixture '${FIXTURE_NAMES.CT_AXIAL_300}' is not present locally — run 'git lfs pull'.`,
     );
   });
 
-  test.afterEach(async ({ authenticatedPage: page }) => {
+  test.afterEach(async ({ page }) => {
     // Reset the flag to its default so subsequent specs aren't affected
     // by leakage if Playwright reuses the Electron worker.
     await page.evaluate(() => {
@@ -55,7 +38,7 @@ test.describe('Volume Mode (multiViewport.enabled = true)', () => {
     });
   });
 
-  test('volume viewport renders for multi-slice CT', async ({ authenticatedPage: page }) => {
+  test('volume viewport renders for multi-slice CT', async ({ page }) => {
     // Wait for any panel testid to appear (either volume or stack root).
     // This is the diagnostic step — if neither shows, the panel isn't
     // mounting at all.
@@ -91,7 +74,7 @@ test.describe('Volume Mode (multiViewport.enabled = true)', () => {
     await expect(errorOverlay).toBeHidden();
   });
 
-  test('volume viewport supports wheel-scroll slice navigation', async ({ authenticatedPage: page }) => {
+  test('volume viewport supports wheel-scroll slice navigation', async ({ page }) => {
     const volumeCanvas = page.locator('[data-testid="volume-viewport-canvas:panel_0"] canvas');
     await expect(volumeCanvas).toBeVisible({ timeout: 30_000 });
 
@@ -110,28 +93,17 @@ test.describe('Volume Mode (multiViewport.enabled = true)', () => {
     expect(after, 'overlay text should change when wheel scrolls').not.toBe(before);
   });
 
-  test('flag toggle exposes correct state via E2E hook', async ({ authenticatedPage: page }) => {
+  test('flag toggle exposes correct state via E2E hook', async ({ page }) => {
     const enabled = await page.evaluate(() => window.__XNAT_E2E__?.getMultiViewportEnabled());
     expect(enabled).toBe(true);
   });
 
-  test('legacy stack viewport rendering when flag is off', async ({ authenticatedPage: page }) => {
-    // Flip flag off mid-test, navigate fresh load, confirm we get the
-    // CornerstoneViewport canvas testid instead of the volume one.
-    await page.evaluate(() => {
-      window.__XNAT_E2E__?.setMultiViewportEnabled(false);
+  test('legacy stack viewport rendering when flag is off', async ({ page }) => {
+    // Flip flag off and re-load: should mount the legacy CornerstoneViewport.
+    const result = await loadFixtureScan(page, FIXTURE_NAMES.CT_AXIAL_300, {
+      multiViewportEnabled: false,
     });
-
-    const browser = new XnatBrowserPage(page);
-    if ((await browser.currentLevel()) !== 'projects') {
-      await browser.navigateToProjects();
-    }
-    await browser.navigateAndLoadScan(
-      config.testProject,
-      config.testSubject,
-      config.testSession,
-      config.testScan,
-    );
+    expect(result).not.toBeNull();
 
     const stackCanvas = page.locator('[data-testid="cornerstone-viewport-canvas:panel_0"] canvas');
     await expect(stackCanvas).toBeVisible({ timeout: 30_000 });

@@ -263,4 +263,143 @@ electronTest.describe('Local fixture renderer mount (loadLocalDicomFiles)', () =
       ]);
     }
   });
+
+  electronTest('signal 9 (A2b): T1+T2 cross-series classification + dashed-stroke action', async ({ page }) => {
+    // Reload to reset volume-mode state from the previous test in the
+    // worker (test 8 leaves multiViewport.enabled=true plus volume cache
+    // entries that prevent the stack canvas from mounting cleanly here).
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.waitForFunction(() => !!window.__XNAT_E2E__, undefined, { timeout: 30_000 });
+
+    const fixture = await loadLocalDicomFixture(FIXTURE_NAMES.MR_T1_T2_SAMEEXAM);
+    electronTest.skip(
+      fixture === null,
+      `Fixture '${FIXTURE_NAMES.MR_T1_T2_SAMEEXAM}' is not present locally.`,
+    );
+
+    const datasets = await readAllDatasets(fixture!);
+    const seriesGroups = new Map<string, string[]>();
+    for (let i = 0; i < datasets.length; i++) {
+      const key = datasets[i].SeriesInstanceUID ?? `unknown-${i}`;
+      const list = seriesGroups.get(key) ?? [];
+      list.push(fixture!.imagePaths[i]);
+      seriesGroups.set(key, list);
+    }
+    const series = [...seriesGroups.values()];
+
+    // Stack mode: the cross-series classifier reads the viewport's
+    // `getCurrentImageId()` to resolve viewport source identity, which is
+    // populated for stack viewports but not for volume viewports in
+    // Phase 1. Until volume-mode viewport identity gets a hook, run the
+    // classifier acceptance against stack mode.
+    await page.evaluate(() => window.__XNAT_E2E__?.setFakeConnected(true));
+    await page.evaluate(() => window.__XNAT_E2E__?.setMultiViewportEnabled(false));
+    await page.evaluate(() => window.__XNAT_E2E__?.setLayout('1x2' as const));
+
+    await page.evaluate(async (paths) => {
+      await window.__XNAT_E2E__!.loadLocalDicomFiles('panel_0', paths);
+    }, series[0]);
+    await page.evaluate(async (paths) => {
+      await window.__XNAT_E2E__!.loadLocalDicomFiles('panel_1', paths);
+    }, series[1]);
+
+    // Wait for both stack canvases to mount.
+    for (const pid of ['panel_0', 'panel_1']) {
+      await page.locator(`[data-testid="cornerstone-viewport-canvas:${pid}"] canvas`)
+        .first().waitFor({ state: 'visible', timeout: 30_000 });
+    }
+
+    // Create a structure on panel_0 (the "T1" panel — but identity here
+    // depends on which series mounted first; either way it's the native
+    // viewport for the segmentation).
+    const segId = await page.evaluate(async () => {
+      return window.__XNAT_E2E__?.createTestStructure('panel_0', 'T1Native') ?? null;
+    });
+    expect(segId, 'createTestStructure should return a segmentation id').toBeTruthy();
+
+    // Native viewport: action should be 'reset' (no override applied).
+    await expect.poll(async () => {
+      return page.evaluate((sid) => window.__XNAT_E2E__?.getCrossSeriesAction(sid, 'panel_0'), segId);
+    }, { timeout: 10_000 }).toMatchObject({
+      eligibility: 'native',
+      action: { kind: 'reset' },
+    });
+
+    // Cross-series viewport (panel_1 holds the other series, same FoR):
+    // eligibility = cross-series-A2b, action = apply-cross-series.
+    await expect.poll(async () => {
+      return page.evaluate((sid) => window.__XNAT_E2E__?.getCrossSeriesAction(sid, 'panel_1'), segId);
+    }, { timeout: 10_000 }).toMatchObject({
+      eligibility: 'cross-series-A2b',
+      action: { kind: 'apply-cross-series', visible: true },
+    });
+  });
+
+  // FIXME: Cornerstone's wadouri 'instance' metadata module does not surface
+  // AcquisitionNumber for dicomfile: image IDs. The A2c branch of
+  // classifyForEligibility (visibility.ts:80-87) needs both sides to have a
+  // non-null AcquisitionNumber to distinguish A2c from A2b; with that gap
+  // the synthetic fixture classifies as A2b instead of A2c. Real DICOM
+  // loaded via XNAT's wadouri endpoint exposes AcquisitionNumber via the
+  // QIDO-RS metadata pre-fetch, which is why the live-XNAT E2E paths don't
+  // hit this. Fix is to either ship a per-imageId AcquisitionNumber
+  // metadata provider for the dicomfile: scheme or surface it via the
+  // dicomwebLoader.orderImageIdsByDicomMetadata pre-load — both are
+  // Phase 2.x territory. Promote back to a real test once that's wired.
+  electronTest.fixme('signal 10 (A2c): sameforuid-different-acquisition is hidden by default on the cross-series viewport', async ({ page }) => {
+    const fixture = await loadLocalDicomFixture(FIXTURE_NAMES.SAMEFORUID_DIFFERENT_ACQUISITION);
+    electronTest.skip(
+      fixture === null,
+      `Fixture '${FIXTURE_NAMES.SAMEFORUID_DIFFERENT_ACQUISITION}' is not present locally.`,
+    );
+
+    const datasets = await readAllDatasets(fixture!);
+    const seriesGroups = new Map<string, string[]>();
+    for (let i = 0; i < datasets.length; i++) {
+      const key = datasets[i].SeriesInstanceUID ?? `unknown-${i}`;
+      const list = seriesGroups.get(key) ?? [];
+      list.push(fixture!.imagePaths[i]);
+      seriesGroups.set(key, list);
+    }
+    const series = [...seriesGroups.values()];
+
+    await page.evaluate(() => window.__XNAT_E2E__?.setFakeConnected(true));
+    await page.evaluate(() => window.__XNAT_E2E__?.setMultiViewportEnabled(true));
+    await page.evaluate(() => window.__XNAT_E2E__?.setLayout('1x2' as const));
+
+    await page.evaluate(async (paths) => {
+      await window.__XNAT_E2E__!.loadLocalDicomFiles('panel_0', paths);
+    }, series[0]);
+    await page.evaluate(async (paths) => {
+      await window.__XNAT_E2E__!.loadLocalDicomFiles('panel_1', paths);
+    }, series[1]);
+
+    for (const pid of ['panel_0', 'panel_1']) {
+      const c = page.locator(`[data-testid="volume-viewport-canvas:${pid}"] canvas, [data-testid="cornerstone-viewport-canvas:${pid}"] canvas`);
+      await c.first().waitFor({ state: 'visible', timeout: 30_000 });
+    }
+
+    const segId = await page.evaluate(async () => {
+      return window.__XNAT_E2E__?.createTestStructure('panel_0', 'A2cNative') ?? null;
+    });
+    expect(segId, 'createTestStructure should return a segmentation id').toBeTruthy();
+
+    // Native viewport: action 'reset'.
+    await expect.poll(async () => {
+      return page.evaluate((sid) => window.__XNAT_E2E__?.getCrossSeriesAction(sid, 'panel_0'), segId);
+    }, { timeout: 10_000 }).toMatchObject({
+      eligibility: 'native',
+      action: { kind: 'reset' },
+    });
+
+    // Cross-series viewport: same FoR, different AcquisitionNumber → A2c.
+    // Action should be 'hide' because Phase 2 ships with a2cOptedIn=false
+    // (per-container opt-in lands in Phase 3).
+    await expect.poll(async () => {
+      return page.evaluate((sid) => window.__XNAT_E2E__?.getCrossSeriesAction(sid, 'panel_1'), segId);
+    }, { timeout: 10_000 }).toMatchObject({
+      eligibility: 'cross-series-A2c',
+      action: { kind: 'hide' },
+    });
+  });
 });

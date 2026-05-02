@@ -26,6 +26,12 @@ import {
   loadLocalDicomFiles as bridgeLoadLocalDicomFiles,
   type LoadLocalDicomFilesResult,
 } from './e2eFixtureBridge';
+import {
+  classifySegmentationOnViewport,
+  classifyAnnotationOnViewport,
+  type EligibilityClass,
+} from '../cornerstone/segmentationService/visibility';
+import { resolveAction, type StyleAction } from '../cornerstone/segmentationService/styling';
 
 type ActiveSegmentationState = {
   activeSegmentationId: string | null;
@@ -202,6 +208,34 @@ declare global {
        * to use the real authenticatedPage fixture.
        */
       setFakeConnected: (connected: boolean) => void;
+
+      /**
+       * Sync. Resolves the cross-series classification + style action for
+       * a (segmentation, viewport) pair. Wraps `classifySegmentationOnViewport`
+       * + `resolveAction` from segmentationService/visibility.ts and
+       * styling.ts. Read-only — does not mutate Cornerstone or the policy.
+       *
+       * The `eligibility` field is one of 'native' | 'cross-series-A2b' |
+       * 'cross-series-A2c' | 'cross-FoR' | null.
+       *
+       * The `action.kind` field is one of 'reset' | 'apply-cross-series' |
+       * 'hide'. For signal §G #9 (T1+T2 same FoR) we expect
+       * eligibility='cross-series-A2b' + action.kind='apply-cross-series'.
+       * For signal §G #10 (sameforuid-different-acquisition off-by-default)
+       * we expect eligibility='cross-series-A2c' + action.kind='hide'.
+       */
+      getCrossSeriesAction: (segmentationId: string, viewportId: string) => {
+        eligibility: EligibilityClass | null;
+        action: StyleAction;
+      };
+
+      /**
+       * Sync. Same as getCrossSeriesAction but for a contour annotation.
+       */
+      getCrossSeriesActionForAnnotation: (annotationUID: string, viewportId: string) => {
+        eligibility: EligibilityClass | null;
+        action: StyleAction;
+      };
     };
   }
 }
@@ -806,6 +840,26 @@ export function installRendererE2eHooks(): void {
           error: null,
         });
       }
+    },
+    getCrossSeriesAction: (segmentationId: string, viewportId: string) => {
+      const eligibility = classifySegmentationOnViewport(segmentationId, viewportId);
+      const policy = usePreferencesStore.getState().preferences.multiViewport.crossSeriesRendering;
+      const action = resolveAction(eligibility, {
+        enabled: policy,
+        // Phase 2 ships with a2cOptedIn=false (per-container opt-in lands in
+        // Phase 3). Mirror that here so the test sees production behavior.
+        a2cOptedIn: false,
+      });
+      return { eligibility, action };
+    },
+    getCrossSeriesActionForAnnotation: (annotationUID: string, viewportId: string) => {
+      const eligibility = classifyAnnotationOnViewport(annotationUID, viewportId);
+      const policy = usePreferencesStore.getState().preferences.multiViewport.crossSeriesRendering;
+      const action = resolveAction(eligibility, {
+        enabled: policy === 'on',
+        a2cOptedIn: false,
+      });
+      return { eligibility, action };
     },
   };
 }
