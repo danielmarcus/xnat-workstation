@@ -124,6 +124,8 @@ import {
 } from './segmentationService/autoSave';
 import { resetVisibilityAdapter, wireVisibility } from './segmentationService/visibility';
 import { cornerstoneVisibilityAdapter } from './segmentationService/cornerstoneVisibilityAdapter';
+import { createStylingService, type StylingService } from './segmentationService/styling';
+import { createCornerstoneStylingDeps } from './segmentationService/cornerstoneStylingDeps';
 // NOTE: We use the tool group ID directly here instead of importing from
 // toolService to avoid a circular dependency (toolService → segmentationService).
 const TOOL_GROUP_ID = 'xnatToolGroup_primary';
@@ -709,6 +711,63 @@ function getSegmentationType(segmentationId: string): 'labelmap' | 'contour' | '
 
 let initialized = false;
 
+// ─── Phase 2.4 D9 visibility styling ────────────────────────────
+//
+// Created in initialize(); reset in dispose(). Reacts to
+//   - SEGMENTATION_REPRESENTATION_ADDED / _MODIFIED: re-classify the
+//     (segmentation, viewport) pair and apply native / cross-series /
+//     hidden styles per resolveAction in styling.ts.
+//   - preferencesStore subscription: re-apply globally when the
+//     `multiViewport.crossSeriesRendering` toggle flips.
+//
+// All of this is gated on `multiViewport.enabled`. When the flag is off,
+// the handler/subscription run but exit early — no Cornerstone state is
+// mutated. This keeps the legacy code path identical to its pre-Phase-2
+// behavior.
+let visibilityStyling: StylingService | null = null;
+let crossSeriesPrefUnsubscribe: (() => void) | null = null;
+
+function isMultiViewportEnabled(): boolean {
+  try {
+    return usePreferencesStore.getState().preferences.multiViewport.enabled;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Apply D9 styling for every (segmentation, viewport) pair currently known
+ * to Cornerstone. Used by the preferencesStore subscription to react to a
+ * `crossSeriesRendering` toggle flip.
+ */
+function applyVisibilityStylingGlobally(): void {
+  if (!visibilityStyling || !isMultiViewportEnabled()) return;
+  const pairs: Array<{ segmentationId: string; viewportId: string }> = [];
+  for (const seg of csSegmentation.state.getSegmentations()) {
+    for (const vpId of csSegmentation.state.getViewportIdsWithSegmentation(seg.segmentationId)) {
+      pairs.push({ segmentationId: seg.segmentationId, viewportId: vpId });
+    }
+  }
+  visibilityStyling.applyForAllPairs(pairs);
+  renderAllSegmentationViewports();
+}
+
+/**
+ * Cornerstone fires SEGMENTATION_REPRESENTATION_ADDED with detail
+ * `{ segmentationId, viewportId, type? }` when a representation attaches.
+ * SEGMENTATION_REPRESENTATION_MODIFIED fires on subsequent style/visibility
+ * changes. We treat both as "re-evaluate this pair" — the operation is
+ * idempotent.
+ */
+function onSegmentationRepresentationAddedOrModified(evt: Event): void {
+  if (!visibilityStyling || !isMultiViewportEnabled()) return;
+  const detail = (evt as CustomEvent<{ segmentationId?: string; viewportId?: string }>).detail;
+  const segmentationId = detail?.segmentationId;
+  const viewportId = detail?.viewportId;
+  if (!segmentationId || !viewportId) return;
+  visibilityStyling.applyForSegmentationViewport(segmentationId, viewportId);
+}
+
 // ─── Public API ─────────────────────────────────────────────────
 
 export const segmentationService = {
@@ -840,6 +899,30 @@ export const segmentationService = {
     // currently-displayed slice on each viewport, segmentation source,
     // and contour annotation.
     wireVisibility(cornerstoneVisibilityAdapter);
+
+    // Phase 2.4b: build the D9 visibility-styling service and subscribe
+    // to (a) per-viewport-per-segmentation lifecycle events and (b)
+    // preferencesStore changes to the cross-series toggle. Gated on
+    // multiViewport.enabled inside the handlers so the legacy path stays
+    // untouched.
+    visibilityStyling = createStylingService(
+      createCornerstoneStylingDeps({ getSegmentationType }),
+    );
+    eventTarget.addEventListener(
+      Events.SEGMENTATION_REPRESENTATION_ADDED,
+      onSegmentationRepresentationAddedOrModified as EventListener,
+    );
+    eventTarget.addEventListener(
+      Events.SEGMENTATION_REPRESENTATION_MODIFIED,
+      onSegmentationRepresentationAddedOrModified as EventListener,
+    );
+    crossSeriesPrefUnsubscribe = usePreferencesStore.subscribe((state, prevState) => {
+      const next = state.preferences.multiViewport.crossSeriesRendering;
+      const prev = prevState?.preferences.multiViewport.crossSeriesRendering;
+      if (next !== prev) {
+        applyVisibilityStylingGlobally();
+      }
+    });
 
     initialized = true;
     console.log('[segmentationService] Initialized — listening for segmentation events');
@@ -4401,6 +4484,22 @@ export const segmentationService = {
     sourceImageTracking.dispose();
     interpolationAcceptance.dispose();
     resetVisibilityAdapter();
+
+    // Phase 2.4b teardown: detach styling event listeners and unsubscribe
+    // from the preferencesStore.
+    eventTarget.removeEventListener(
+      ToolEnums.Events.SEGMENTATION_REPRESENTATION_ADDED,
+      onSegmentationRepresentationAddedOrModified as EventListener,
+    );
+    eventTarget.removeEventListener(
+      ToolEnums.Events.SEGMENTATION_REPRESENTATION_MODIFIED,
+      onSegmentationRepresentationAddedOrModified as EventListener,
+    );
+    if (crossSeriesPrefUnsubscribe) {
+      crossSeriesPrefUnsubscribe();
+      crossSeriesPrefUnsubscribe = null;
+    }
+    visibilityStyling = null;
     loadedColorsMap.clear();
     // NOTE: mlg.clearAll() also clears `groupViewportAttachments` and
     // `metadataPreloadPromises`, which were NOT cleared in the pre-facade
