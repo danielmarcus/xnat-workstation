@@ -14,6 +14,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { Enums, cache } from '@cornerstonejs/core';
+import { ViewportHint } from './ViewportHint';
 import { annotation as csAnnotation } from '@cornerstonejs/tools';
 import { viewportService } from '../../lib/cornerstone/viewportService';
 import { toolService } from '../../lib/cornerstone/toolService';
@@ -242,6 +243,7 @@ export default function CornerstoneViewport({ panelId, imageIds }: CornerstoneVi
           </div>
         );
       })()}
+      <ViewportHint viewportId={panelId} />
     </div>
   );
 }

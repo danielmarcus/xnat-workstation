@@ -24,3 +24,11 @@ html, body, #root {
   outline: none !important;
   box-shadow: none !important;
 }
+
+/* Phase 2.5b: short fade-in for transient drawing-block hints. The
+ * transform is left to Tailwind's `-translate-x-1/2` so the keyframe
+ * doesn't fight the centering — opacity alone is enough animation. */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}

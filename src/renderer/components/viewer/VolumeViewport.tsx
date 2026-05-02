@@ -31,6 +31,7 @@ import { segmentationManager } from '../../lib/segmentation/segmentationManagerS
 import { useViewerStore } from '../../stores/viewerStore';
 import { useMetadataStore } from '../../stores/metadataStore';
 import { ToolName } from '@shared/types/viewer';
+import { ViewportHint } from './ViewportHint';
 
 interface VolumeViewportProps {
   panelId: string;
@@ -245,6 +246,7 @@ export default function VolumeViewport({ panelId, imageIds, orientation = 'AXIAL
           </div>
         );
       })()}
+      <ViewportHint viewportId={panelId} />
     </div>
   );
 }

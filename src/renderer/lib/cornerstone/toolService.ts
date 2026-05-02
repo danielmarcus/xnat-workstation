@@ -65,6 +65,7 @@ import {
 import { viewportService } from './viewportService';
 import { usePreferencesStore } from '../../stores/preferencesStore';
 import { useSegmentationStore } from '../../stores/segmentationStore';
+import { useViewportHintStore } from '../../stores/viewportHintStore';
 import { segmentationService } from './segmentationService';
 import { useViewerStore } from '../../stores/viewerStore';
 import { segmentationManager } from '../segmentation/segmentationManagerSingleton';
@@ -177,10 +178,11 @@ function installLockGuard(element: Element | null, viewportId: string): void {
     if (decision.kind === 'block') {
       e.stopImmediatePropagation();
       e.preventDefault();
-      // Phase 2.5b will surface this hint inline at the viewport.
-      // For now the message goes to console.warn so it's visible during
-      // dev / E2E verification.
-      console.warn(
+      // Phase 2.5b: surface the hint inline at the affected viewport via
+      // viewportHintStore; the ViewportHint overlay component renders it
+      // with auto-fade. Console log retained for dev / E2E visibility.
+      useViewportHintStore.getState().setHint(viewportId, decision.hintMessage);
+      console.debug(
         `[toolService] Blocked draw on ${viewportId} (${decision.reason}): ${decision.hintMessage}`,
       );
     }
