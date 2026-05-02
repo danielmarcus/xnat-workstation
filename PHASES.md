@@ -202,4 +202,34 @@ None of the three pre-existing failures match the cheap-selector-update pattern 
 
 **Status (2026-05-01, end of Phase 1 work)**: Functional Phase 1 cut behind `multiViewport.enabled`. Volume rendering, shared-volume cache, oriented panels, MPR preset routing, full event surface on VolumeViewport, primary-group CrosshairsTool registration, E2E coverage of the headline signal. Remaining items (signals 6 / G7 / performance, real DICOM fixtures) are deferred but tracked. Phase 2 work (cross-series rendering A2b, single-source-of-truth undo, list-panel UX) can begin without blocking on these deferrals.
 
-### MV-Phase 2+: see docs/multiviewport-annotation-design.md §7
+### MV-Phase 2: Annotation behavior (In progress)
+**Goal:** cross-series rendering, single source of truth, undo, dirty/save. Behind `multiViewport.enabled` flag.
+
+The design's Phase 2 bullet list (design §7.4) compresses two distinct workstreams: (A) FoR/visibility/drawing-routing — self-contained pure-logic + Cornerstone hooks; (B) undo/save coordination — Container-dependent. Sub-phasing makes the dependency explicit so each PR is small and revertable.
+
+#### Workstream A — FoR / visibility / drawing routing
+
+- ✅ **2.1** A2c FoR-eligibility heuristic (`segmentationService/visibility.ts`). Pure-logic classifier `classifyForEligibility(member, viewport) → 'native' | 'cross-series-A2b' | 'cross-series-A2c' | 'cross-FoR'`. Same FoR + different `AcquisitionNumber` → A2c (off by default); same → A2b (on with flag); "when uncertain, prefer A2b." 18 tests.
+- ✅ **2.2** `multiViewport.crossSeriesRendering` preference (default `true`). Refined `shouldRenderByDefault` to take `CrossSeriesRenderingPolicy = { enabled, a2cOptedIn }`; A2c stays hidden in Phase 2 (a2cOptedIn=false) until per-container opt-in lands in Phase 3 list panel. 7 new preferences-store tests.
+- ✅ **2.3** Visibility metadata adapter + high-level helpers `classifySegmentationOnViewport` / `classifyAnnotationOnViewport` / `isSegmentationRenderableOnViewport` / `isAnnotationRenderableOnViewport`. Adapter is a factory taking 4 lookup deps (`metaData.get`, viewport `getCurrentImageId`, segmentation source-image lookup via `sourceImageTracking`, annotation referencedImageId). Wired into `segmentationService.initialize() / dispose()`. 30 tests.
+- ✅ **2.4a** Standalone `styling.ts` module (Phase 2.4 D9 non-native rendering). Pure logic + DI; `resolveAction(eligibility, policy) → reset | apply-cross-series | hide`. Style constants: dashed contour outline (cadence "6,3"), reduced fill alpha for labelmap. **Honest scope note:** Cornerstone's LabelmapStyle has no `outlineDash`, so cross-series labelmaps differentiate via reduced fill opacity alone — dashed outlines apply to contours only. 15 tests.
+- ✅ **2.4b** Wire styling via `SEGMENTATION_REPRESENTATION_ADDED` / `_MODIFIED` events + preferencesStore subscription on the cross-series toggle. All gated on `multiViewport.enabled`; legacy path unaffected.
+- ✅ **2.5a** B3 drawing-routing block via lock-guard extension. `decideDrawingRouting` returns allow / block-no-FoR-matched / block-cross-FoR / block-cross-series with hint message. Wired into `toolService.installLockGuard` (now takes `viewportId`); console.warn hint placeholder.
+- ⏳ **2.5b** Visual hint UI for the B3 block. Inline non-modal banner at the affected viewport, auto-fades after ~2.5s. Reads from a small Zustand store keyed by viewportId.
+
+#### Workstream B — Undo / save coordination (Container-dependent)
+
+The undo + transport work needs a Container abstraction over Cornerstone segmentation/annotation state. The Phase 0 types in `src/renderer/types/annotation.ts` exist, but no segmentation in the running app has a `Container` object — the codebase keys everything off `csSegmentationId`. To make A8 ("undo is per-container") and E2 ("queue-next-save per-container") meaningful subjects, 2.6 must land before 2.7 / 2.8.
+
+- ⏳ **2.6** Container-bridge scaffolding — minimal `csSegmentationId | rtstructStructureSetUID → Container` 1:1 lookup. Not the full CRUD (that's Phase 3); just enough for undo/transport to scope by container.
+- ⏳ **2.7** `undoService` impl backed by container bridge. Replace scattered `DefaultHistoryMemo.undo()` direct calls (segmentationService.ts:4277-4313) with `undoService.undo(activeContainerId)`. Cornerstone HistoryMemo stays as the storage layer; undoService is the per-container facade.
+- ⏳ **2.8** `segmentationService/transport.ts` queue-next-save coordinator. Wraps `autoSave.ts` to enforce E2 "if saveInFlight, defer next save until completion."
+
+#### E2E acceptance specs
+
+- ⏳ **2.9** E2E specs for signals achievable without cross-series fixtures: signals 1 (axial→sagittal/coronal live update; mostly Phase 1 PolySeg territory — verify), 12 (drawing block on non-native viewport — exercises 2.5a), 14 (queue-next-save — exercises 2.8), 15 (undo past save point — exercises 2.7).
+- ⏳ Signals 9 (T1+T2 cross-series with dashed stroke), 10 (breath-hold A2c off-by-default), 11 (different FoR, list visible but no canvas render) **need fixtures Phase 1 deferred** (`e2e/fixtures/dicom/cross-series` and `breath-hold-pair`). Service-integration coverage with synthetic metadata is the stand-in until fixtures land.
+- ⏳ Signal 8 (canvas selection sync) is partial — Phase 2 can deliver canvas-canvas sync via a global selection set; full signal needs Phase 3 list panel hover/click sync (D7.8).
+
+**Status (2026-05-01)**: Workstream A is mostly complete (2.1 → 2.5a, 2.5b deferred). Workstream B (2.6 → 2.8) and E2E specs (2.9) outstanding. Test suite at 692 passing (was 610 at end of Phase 1). All commits behind `multiViewport.enabled`; legacy path verified unaffected by Phase 1 health check (Item 1 above).
+
