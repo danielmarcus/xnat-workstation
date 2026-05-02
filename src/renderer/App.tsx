@@ -24,6 +24,7 @@ import {
 } from './lib/pinnedItems';
 import { rtStructService } from './lib/cornerstone/rtStructService';
 import { viewportService } from './lib/cornerstone/viewportService';
+import { viewportLayoutService } from './lib/cornerstone/viewportLayoutService';
 import { imageLoader, cache } from '@cornerstonejs/core';
 import * as dicomParser from 'dicom-parser';
 import { viewportReadyService } from './lib/cornerstone/viewportReadyService';
@@ -2507,12 +2508,68 @@ export default function App() {
 
   /**
    * Toggle MPR mode on the active panel's image stack.
-   * Enters MPR: creates a 3D volume and shows 2×2 orthogonal views.
-   * Exits MPR: destroys volume and restores prior layout.
+   *
+   * Two paths gated on `multiViewport.enabled`:
+   *   - Flag OFF (legacy): enterMPR creates a 3D volume and switches to
+   *     MPRViewportGrid (2×2 orthogonal views).
+   *   - Flag ON (multi-viewport rewrite): apply the mpr-2x2 preset via
+   *     viewportLayoutService, switch to 2×2 layout, set
+   *     panelOrientationMap so panels 0/1/2 render via Viewport →
+   *     VolumeViewport with AXIAL/SAGITTAL/CORONAL orientations and
+   *     panel 3 stays as the source-stack reference. Volume is shared
+   *     across panels via the (scanId, FoR) cache.
    */
   const handleToggleMPR = useCallback(async () => {
     const store = useViewerStore.getState();
+    const flagEnabled = usePreferencesStore.getState().preferences.multiViewport.enabled;
 
+    if (flagEnabled) {
+      const isMprPresetActive = viewportLayoutService.getCurrentPresetId() === 'mpr-2x2';
+
+      if (isMprPresetActive) {
+        // Exit: clear orientations on panels 0/1/2 (back to STACK).
+        store.setPanelOrientation(panelId(0), 'STACK');
+        store.setPanelOrientation(panelId(1), 'STACK');
+        store.setPanelOrientation(panelId(2), 'STACK');
+        viewportLayoutService.applyPreset('2x2');
+        return;
+      }
+
+      // Enter: ensure 2×2 layout, then propagate the active scan to
+      // panels 0/1/2 with axial/sagittal/coronal orientations (panel 3
+      // stays as source-stack reference, mirroring the legacy MPR
+      // layout). Per design §1.3, the shared-volume cache means all
+      // three oriented panels share one ImageVolume.
+      const activePanelId = store.activeViewportId ?? panelId(0);
+      const activeImageIds = panelImageIds[activePanelId] ?? [];
+      if (activeImageIds.length < 2) {
+        console.warn('[App] Need at least 2 slices for MPR preset');
+        return;
+      }
+
+      if (store.layoutConfig.panelCount < 4) {
+        store.setLayout('2x2');
+      }
+
+      // Propagate scan + orientation to panels 0/1/2.
+      // panel_3 keeps whatever it currently has (or empty); the legacy
+      // reference-panel decision (drop vs. native-stack) is documented
+      // as an open question in design §10.
+      const orientations: Array<'AXIAL' | 'SAGITTAL' | 'CORONAL'> = ['AXIAL', 'SAGITTAL', 'CORONAL'];
+      for (let i = 0; i < orientations.length; i++) {
+        const target = panelId(i);
+        if (target !== activePanelId) {
+          // Best-effort: copy the active panel's image set to the target panel.
+          // The store handles _initPanel + image-id propagation.
+          store.setPanelImageIds(target, activeImageIds);
+        }
+        store.setPanelOrientation(target, orientations[i]);
+      }
+      viewportLayoutService.applyPreset('mpr-2x2');
+      return;
+    }
+
+    // Legacy path
     if (store.mprActive) {
       store.exitMPR();
       return;
