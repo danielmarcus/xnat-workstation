@@ -16,7 +16,7 @@
  * the shared volume (refcount-aware), tears down panel state.
  */
 import { useEffect, useRef, useState } from 'react';
-import { Enums, cache } from '@cornerstonejs/core';
+import { Enums, cache, imageLoader } from '@cornerstonejs/core';
 import { annotation as csAnnotation } from '@cornerstonejs/tools';
 import { metaData } from '@cornerstonejs/core';
 import { viewportService } from '../../lib/cornerstone/viewportService';
@@ -35,6 +35,14 @@ import { ToolName } from '@shared/types/viewer';
 interface VolumeViewportProps {
   panelId: string;
   imageIds: string[];
+}
+
+function readFrameOfReferenceUID(imageId: string): string | null {
+  const planeMeta = metaData.get('imagePlaneModule', imageId) as
+    | { frameOfReferenceUID?: string }
+    | undefined;
+  const value = planeMeta?.frameOfReferenceUID;
+  return typeof value === 'string' && value.length > 0 ? value : null;
 }
 
 export default function VolumeViewport({ panelId, imageIds }: VolumeViewportProps) {
@@ -67,11 +75,20 @@ export default function VolumeViewport({ panelId, imageIds }: VolumeViewportProp
         }
         if (cancelled) return;
 
-        // Resolve FrameOfReferenceUID from first image plane metadata
-        const planeMeta = metaData.get('imagePlaneModule', imageIds[0]) as
-          | { frameOfReferenceUID?: string }
-          | undefined;
-        const frameOfReferenceUID = planeMeta?.frameOfReferenceUID ?? '';
+        // Resolve FrameOfReferenceUID from first image plane metadata.
+        // Cornerstone's metadata cache may be empty until the image is
+        // actually loaded — pre-load the first image so plane metadata
+        // (including FoR) becomes available.
+        let frameOfReferenceUID = readFrameOfReferenceUID(imageIds[0]);
+        if (!frameOfReferenceUID) {
+          try {
+            await imageLoader.loadAndCacheImage(imageIds[0]);
+          } catch (loadErr) {
+            console.warn(`[VolumeViewport:${panelId}] Failed to pre-load first image for FoR:`, loadErr);
+          }
+          if (cancelled) return;
+          frameOfReferenceUID = readFrameOfReferenceUID(imageIds[0]);
+        }
         if (!frameOfReferenceUID) {
           setError('No FrameOfReferenceUID on source image — cannot create volume viewport.');
           return;

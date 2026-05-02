@@ -7,6 +7,7 @@ import {
 } from '@cornerstonejs/tools';
 import { useSegmentationStore } from '../../stores/segmentationStore';
 import { useViewerStore } from '../../stores/viewerStore';
+import { usePreferencesStore } from '../../stores/preferencesStore';
 import { segmentationManager } from '../segmentation/segmentationManagerSingleton';
 import { segmentationService } from '../cornerstone/segmentationService';
 import * as contourRep from '../cornerstone/contourRepresentation';
@@ -35,6 +36,8 @@ let lockAwareUndoRedoCounter = 0;
 declare global {
   interface Window {
     __XNAT_E2E__?: {
+      setMultiViewportEnabled: (enabled: boolean) => void;
+      getMultiViewportEnabled: () => boolean;
       getSegmentationCount: () => number;
       getSegmentationIdByLabel: (label: string) => string | null;
       getActiveSegmentationState: () => ActiveSegmentationState;
@@ -148,6 +151,12 @@ export function installRendererE2eHooks(): void {
   }
 
   window.__XNAT_E2E__ = {
+    // ─── Multi-viewport rewrite hooks (Phase 1) ───────────────────
+    setMultiViewportEnabled: (enabled: boolean) => {
+      usePreferencesStore.getState().setMultiViewportEnabled(enabled);
+    },
+    getMultiViewportEnabled: () => usePreferencesStore.getState().preferences.multiViewport.enabled,
+
     getSegmentationCount: () => useSegmentationStore.getState().segmentations.length,
     getSegmentationIdByLabel: (label: string) => (
       useSegmentationStore.getState().segmentations.find((segmentation) => segmentation.label === label)?.segmentationId
