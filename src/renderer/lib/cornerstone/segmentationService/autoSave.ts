@@ -47,6 +47,8 @@ import {
   interpolateLinearBlend,
   interpolateSDF,
 } from './interpolation';
+import * as containerBridge from '../containerBridge';
+import * as transport from './transport';
 
 // ─── Module-state ────────────────────────────────────────────────
 
@@ -438,6 +440,19 @@ export function onSegmentationDataModified(evt?: Event): void {
     if (!labelmapInterpolationInProgress) {
       scheduleLabelmapInterpolation();
     }
+
+    // Phase 2.8b: also notify the per-container queue-next-save
+    // coordinator when multi-viewport is enabled. Both pipelines run in
+    // parallel during the transitional period — legacy autoSave handles
+    // the actual backup; transport.ts records per-container dirty state
+    // for the Phase 3 list panel D7.4 indicators (and lights up §E2
+    // queue-next-save semantics once a SaveAdapter is installed).
+    if (dirtySegId && usePreferencesStore.getState().preferences.multiViewport.enabled) {
+      const containerId = containerBridge.getContainerId(dirtySegId);
+      if (containerId) {
+        transport.notifyDirty(containerId);
+      }
+    }
   }
 }
 
@@ -453,6 +468,15 @@ export function onAnnotationAutoSave(): void {
       segStore._markDirty();
       useSegmentationManagerStore.getState().markDirty(activeSegId);
       scheduleAutoSave();
+
+      // Phase 2.8b: same per-container notification under the flag as
+      // onSegmentationDataModified above — see comment there.
+      if (usePreferencesStore.getState().preferences.multiViewport.enabled) {
+        const containerId = containerBridge.getContainerId(activeSegId);
+        if (containerId) {
+          transport.notifyDirty(containerId);
+        }
+      }
     }
   }
 }

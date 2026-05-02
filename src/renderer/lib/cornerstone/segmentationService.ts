@@ -125,6 +125,7 @@ import {
 } from './segmentationService/autoSave';
 import { resetVisibilityAdapter, wireVisibility } from './segmentationService/visibility';
 import { undoService, clearAllHistories as clearAllUndoHistories } from './undoService';
+import * as transportCoordinator from './segmentationService/transport';
 import { cornerstoneVisibilityAdapter } from './segmentationService/cornerstoneVisibilityAdapter';
 import { createStylingService, type StylingService } from './segmentationService/styling';
 import { createCornerstoneStylingDeps } from './segmentationService/cornerstoneStylingDeps';
@@ -4612,6 +4613,7 @@ export const segmentationService = {
     sourceImageTracking.dispose();
     containerBridge.dispose();
     clearAllUndoHistories();
+    transportCoordinator.clearAll();
     interpolationAcceptance.dispose();
     resetVisibilityAdapter();
 
