@@ -124,6 +124,7 @@ import {
   wireAutoSave,
 } from './segmentationService/autoSave';
 import { resetVisibilityAdapter, wireVisibility } from './segmentationService/visibility';
+import { undoService, clearAllHistories as clearAllUndoHistories } from './undoService';
 import { cornerstoneVisibilityAdapter } from './segmentationService/cornerstoneVisibilityAdapter';
 import { createStylingService, type StylingService } from './segmentationService/styling';
 import { createCornerstoneStylingDeps } from './segmentationService/cornerstoneStylingDeps';
@@ -667,12 +668,24 @@ function onAnnotationHistoryEvent(): void {
   refreshUndoState();
 }
 
-/** Push canUndo/canRedo booleans into the Zustand store. */
+/**
+ * Push canUndo/canRedo booleans into the Zustand store.
+ *
+ * Phase 2.7b: prefers the per-container undoService for the active
+ * container; falls back to DefaultHistoryMemo (the legacy global ring)
+ * for the no-active-container case (loose annotations / measurements).
+ * The two paths never double-count an entry — memos with a containerId
+ * land only in undoService, memos without land only in DefaultHistoryMemo.
+ */
 function refreshUndoState(): void {
-  useSegmentationStore.getState()._refreshUndoState(
-    !!DefaultHistoryMemo?.canUndo,
-    !!DefaultHistoryMemo?.canRedo,
-  );
+  const containerId = containerBridge.getActiveContainerId();
+  const canUndo = containerId
+    ? undoService.canUndo(containerId)
+    : !!DefaultHistoryMemo?.canUndo;
+  const canRedo = containerId
+    ? undoService.canRedo(containerId)
+    : !!DefaultHistoryMemo?.canRedo;
+  useSegmentationStore.getState()._refreshUndoState(canUndo, canRedo);
 }
 
 function renderAllSegmentationViewports(): void {
@@ -4436,7 +4449,17 @@ export const segmentationService = {
 
   /**
    * Undo the last segmentation/contour edit.
-   * Uses Cornerstone3D's DefaultHistoryMemo ring buffer.
+   *
+   * Phase 2.7b dispatch: prefers the per-container undoService for the
+   * active container so undo is scoped to the structure-set the user is
+   * currently editing (§A8). Falls back to Cornerstone's
+   * DefaultHistoryMemo ring buffer when no container is active — that
+   * path still handles loose annotations / measurements that aren't
+   * bound to a container.
+   *
+   * Lock-blocking still consults DefaultHistoryMemo's top entry — it's
+   * the same entry that undoService is about to invert (we record into
+   * both rings; only the dispatch path differs).
    */
   undo(): void {
     const lockedTargets = getLockedHistoryTargets(getTopUndoHistoryEntry());
@@ -4446,8 +4469,17 @@ export const segmentationService = {
       return;
     }
 
+    const containerId = containerBridge.getActiveContainerId();
     try {
-      DefaultHistoryMemo?.undo?.();
+      if (containerId && undoService.canUndo(containerId)) {
+        undoService.undo(containerId);
+      } else if (!containerId) {
+        // No active container — legacy path for loose annotations.
+        DefaultHistoryMemo?.undo?.();
+      }
+      // If containerId is set but undoService.canUndo is false, this is a
+      // no-op: don't reach into the global ring (it may contain entries
+      // for other containers, undoing those would violate §A8 isolation).
     } catch (err) {
       console.warn('[segmentationService] Undo failed:', err);
     }
@@ -4457,7 +4489,7 @@ export const segmentationService = {
   },
 
   /**
-   * Redo a previously undone edit.
+   * Redo a previously undone edit. Same dispatch rules as undo() above.
    */
   redo(): void {
     const lockedTargets = getLockedHistoryTargets(getTopRedoHistoryEntry());
@@ -4467,8 +4499,13 @@ export const segmentationService = {
       return;
     }
 
+    const containerId = containerBridge.getActiveContainerId();
     try {
-      DefaultHistoryMemo?.redo?.();
+      if (containerId && undoService.canRedo(containerId)) {
+        undoService.redo(containerId);
+      } else if (!containerId) {
+        DefaultHistoryMemo?.redo?.();
+      }
     } catch (err) {
       console.warn('[segmentationService] Redo failed:', err);
     }
@@ -4479,8 +4516,17 @@ export const segmentationService = {
 
   /**
    * Get current undo/redo availability (for external callers).
+   *
+   * Phase 2.7b: same active-container preference as undo()/redo().
    */
   getUndoState(): { canUndo: boolean; canRedo: boolean } {
+    const containerId = containerBridge.getActiveContainerId();
+    if (containerId) {
+      return {
+        canUndo: undoService.canUndo(containerId),
+        canRedo: undoService.canRedo(containerId),
+      };
+    }
     return {
       canUndo: !!DefaultHistoryMemo?.canUndo,
       canRedo: !!DefaultHistoryMemo?.canRedo,
@@ -4565,6 +4611,7 @@ export const segmentationService = {
     // unsubscribes its auto-cleanup listener and clears its map.
     sourceImageTracking.dispose();
     containerBridge.dispose();
+    clearAllUndoHistories();
     interpolationAcceptance.dispose();
     resetVisibilityAdapter();
 
