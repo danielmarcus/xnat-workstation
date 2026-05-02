@@ -138,10 +138,28 @@ export const DEFAULT_DELETION_PREFERENCES: DeletionPreferences = {
 export interface MultiViewportPreferences {
   /** Master switch for the multi-viewport rewrite. Default `false` until the rewrite is verified end-to-end. */
   enabled: boolean;
+  /**
+   * Master toggle for cross-series rendering (requirements §A2b/§D11).
+   *
+   * When `true` (default), structures classified as A2b — same FoR, different
+   * series, anatomy presumed consistent (e.g., T1 + T2 of one MR exam) —
+   * render on the sibling series' viewport with the D9 visual flag.
+   *
+   * When `false`, all cross-series rendering (both A2b and A2c) is suppressed;
+   * only native (A2a) structures render. The list panel still lists
+   * cross-series structures with the appropriate indicator (D7.4).
+   *
+   * Note: A2c (breath-hold / 4D-CT phase) is *off by default* even when this
+   * toggle is `true` — the user must opt in per-structure-set via the list
+   * panel (Phase 3 work). This master toggle is the global kill switch above
+   * that per-container opt-in.
+   */
+  crossSeriesRendering: boolean;
 }
 
 export const DEFAULT_MULTIVIEWPORT_PREFERENCES: MultiViewportPreferences = {
   enabled: false,
+  crossSeriesRendering: true,
 };
 
 // ─── Top-level Preferences ──────────────────────────────────────

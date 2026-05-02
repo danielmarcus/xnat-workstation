@@ -104,24 +104,44 @@ describe('classifyForEligibility', () => {
 });
 
 describe('shouldRenderByDefault', () => {
-  it('native always renders, regardless of toggle', () => {
-    expect(shouldRenderByDefault('native', true)).toBe(true);
-    expect(shouldRenderByDefault('native', false)).toBe(true);
+  const ON_OPTED_IN = { enabled: true, a2cOptedIn: true };
+  const ON_NOT_OPTED_IN = { enabled: true, a2cOptedIn: false };
+  const OFF = { enabled: false, a2cOptedIn: false };
+  const OFF_BUT_OPTED_IN = { enabled: false, a2cOptedIn: true };
+
+  it('native always renders, regardless of policy', () => {
+    expect(shouldRenderByDefault('native', ON_OPTED_IN)).toBe(true);
+    expect(shouldRenderByDefault('native', ON_NOT_OPTED_IN)).toBe(true);
+    expect(shouldRenderByDefault('native', OFF)).toBe(true);
   });
 
-  it('cross-FoR never renders, regardless of toggle (would need SRO; v1 out of scope)', () => {
-    expect(shouldRenderByDefault('cross-FoR', true)).toBe(false);
-    expect(shouldRenderByDefault('cross-FoR', false)).toBe(false);
+  it('cross-FoR never renders, regardless of policy (would need SRO; v1 out of scope)', () => {
+    expect(shouldRenderByDefault('cross-FoR', ON_OPTED_IN)).toBe(false);
+    expect(shouldRenderByDefault('cross-FoR', ON_NOT_OPTED_IN)).toBe(false);
+    expect(shouldRenderByDefault('cross-FoR', OFF)).toBe(false);
   });
 
-  it('A2b renders when crossSeriesEnabled, hidden when toggled off', () => {
-    expect(shouldRenderByDefault('cross-series-A2b', true)).toBe(true);
-    expect(shouldRenderByDefault('cross-series-A2b', false)).toBe(false);
+  it('A2b renders when global toggle on, regardless of A2c opt-in', () => {
+    expect(shouldRenderByDefault('cross-series-A2b', ON_OPTED_IN)).toBe(true);
+    expect(shouldRenderByDefault('cross-series-A2b', ON_NOT_OPTED_IN)).toBe(true);
   });
 
-  it('A2c renders only when crossSeriesEnabled (the user opt-in)', () => {
-    expect(shouldRenderByDefault('cross-series-A2c', true)).toBe(true);
-    expect(shouldRenderByDefault('cross-series-A2c', false)).toBe(false);
+  it('A2b is hidden when global toggle off, even with A2c opt-in', () => {
+    expect(shouldRenderByDefault('cross-series-A2b', OFF)).toBe(false);
+    expect(shouldRenderByDefault('cross-series-A2b', OFF_BUT_OPTED_IN)).toBe(false);
+  });
+
+  it('A2c renders only when BOTH global on AND opted in (Phase 3 surface)', () => {
+    expect(shouldRenderByDefault('cross-series-A2c', ON_OPTED_IN)).toBe(true);
+    expect(shouldRenderByDefault('cross-series-A2c', ON_NOT_OPTED_IN)).toBe(false);
+    expect(shouldRenderByDefault('cross-series-A2c', OFF)).toBe(false);
+    expect(shouldRenderByDefault('cross-series-A2c', OFF_BUT_OPTED_IN)).toBe(false);
+  });
+
+  it('Phase 2 default policy (a2cOptedIn=false) keeps A2c hidden even on T1+T2-style sites', () => {
+    // A breath-hold pair classified A2c with the global toggle on but no
+    // per-container opt-in — Phase 2 expectation is hidden.
+    expect(shouldRenderByDefault('cross-series-A2c', ON_NOT_OPTED_IN)).toBe(false);
   });
 });
 

@@ -60,6 +60,7 @@ interface PreferencesStore {
   setTrashResourceName: (name: string) => void;
   // ─── Multi-Viewport ───────────────────────────────────────
   setMultiViewportEnabled: (enabled: boolean) => void;
+  setCrossSeriesRendering: (enabled: boolean) => void;
   resetAll: () => void;
 }
 
@@ -605,6 +606,14 @@ export const usePreferencesStore = create<PreferencesStore>()(
           },
         })),
 
+      setCrossSeriesRendering: (enabled) =>
+        set((state) => ({
+          preferences: {
+            ...state.preferences,
+            multiViewport: { ...state.preferences.multiViewport, crossSeriesRendering: enabled },
+          },
+        })),
+
       resetAll: () =>
         set({
           preferences: makeDefaultPreferences(),
@@ -671,12 +680,19 @@ export const usePreferencesStore = create<PreferencesStore>()(
         // Merge multi-viewport preferences with defaults as fallback.
         // Persisted state from before the multi-viewport rewrite has no
         // multiViewport key; default to disabled in that case.
+        // crossSeriesRendering was added in Phase 2.2; missing key defaults
+        // to `true` (the default for sessions that already had multi-viewport
+        // enabled before the toggle existed).
         const incomingMultiViewport = (incoming as Partial<PreferencesV1>).multiViewport;
         const mergedMultiViewport: MultiViewportPreferences = {
           enabled:
             typeof incomingMultiViewport?.enabled === 'boolean'
               ? incomingMultiViewport.enabled
               : base.preferences.multiViewport.enabled,
+          crossSeriesRendering:
+            typeof incomingMultiViewport?.crossSeriesRendering === 'boolean'
+              ? incomingMultiViewport.crossSeriesRendering
+              : base.preferences.multiViewport.crossSeriesRendering,
         };
 
         return {

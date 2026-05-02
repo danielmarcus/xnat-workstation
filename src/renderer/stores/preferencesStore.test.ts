@@ -300,4 +300,83 @@ describe('usePreferencesStore', () => {
       expect(usePreferencesStore.getState().preferences.multiViewport.enabled).toBe(false);
     });
   });
+
+  describe('multiViewport.crossSeriesRendering toggle', () => {
+    it('defaults to true (A2b siblings render by default per requirement §A2b)', () => {
+      const state = usePreferencesStore.getState().preferences;
+      expect(state.multiViewport.crossSeriesRendering).toBe(true);
+    });
+
+    it('toggles on and off via setCrossSeriesRendering', () => {
+      usePreferencesStore.getState().setCrossSeriesRendering(false);
+      expect(usePreferencesStore.getState().preferences.multiViewport.crossSeriesRendering).toBe(false);
+
+      usePreferencesStore.getState().setCrossSeriesRendering(true);
+      expect(usePreferencesStore.getState().preferences.multiViewport.crossSeriesRendering).toBe(true);
+    });
+
+    it('is independent of the multiViewport.enabled flag', () => {
+      usePreferencesStore.getState().setMultiViewportEnabled(true);
+      usePreferencesStore.getState().setCrossSeriesRendering(false);
+      expect(usePreferencesStore.getState().preferences.multiViewport.enabled).toBe(true);
+      expect(usePreferencesStore.getState().preferences.multiViewport.crossSeriesRendering).toBe(false);
+    });
+
+    it('persists across merge from legacy state without the crossSeriesRendering key', () => {
+      const merge = persistApi().getOptions().merge;
+      const currentState = usePreferencesStore.getInitialState();
+
+      // Persisted state from before Phase 2.2 has multiViewport.enabled but no
+      // crossSeriesRendering key — must merge to the default-true value.
+      const merged = merge(
+        {
+          preferences: {
+            multiViewport: { enabled: true },
+          },
+        },
+        currentState,
+      ) as ReturnType<typeof usePreferencesStore.getState>;
+
+      expect(merged.preferences.multiViewport.enabled).toBe(true);
+      expect(merged.preferences.multiViewport.crossSeriesRendering).toBe(true);
+    });
+
+    it('preserves user-disabled value through merge', () => {
+      const merge = persistApi().getOptions().merge;
+      const currentState = usePreferencesStore.getInitialState();
+
+      const merged = merge(
+        {
+          preferences: {
+            multiViewport: { enabled: true, crossSeriesRendering: false },
+          },
+        },
+        currentState,
+      ) as ReturnType<typeof usePreferencesStore.getState>;
+
+      expect(merged.preferences.multiViewport.crossSeriesRendering).toBe(false);
+    });
+
+    it('falls back to default-true for malformed persisted crossSeriesRendering value', () => {
+      const merge = persistApi().getOptions().merge;
+      const currentState = usePreferencesStore.getInitialState();
+
+      const merged = merge(
+        {
+          preferences: {
+            multiViewport: { enabled: true, crossSeriesRendering: 'yes' },
+          },
+        },
+        currentState,
+      ) as ReturnType<typeof usePreferencesStore.getState>;
+
+      expect(merged.preferences.multiViewport.crossSeriesRendering).toBe(true);
+    });
+
+    it('resets to default-true on resetAll', () => {
+      usePreferencesStore.getState().setCrossSeriesRendering(false);
+      usePreferencesStore.getState().resetAll();
+      expect(usePreferencesStore.getState().preferences.multiViewport.crossSeriesRendering).toBe(true);
+    });
+  });
 });

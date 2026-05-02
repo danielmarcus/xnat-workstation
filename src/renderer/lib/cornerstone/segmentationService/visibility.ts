@@ -88,31 +88,44 @@ export function classifyForEligibility(
 }
 
 /**
- * Decide whether the eligibility class should render *by default*, given the
- * user's "show structures from related series" toggle (requirements §D11).
+ * Cross-series rendering policy resolved for a particular (member, viewport)
+ * pair. `enabled` is the global master toggle (Phase 2.2 preference;
+ * `preferencesStore.multiViewport.crossSeriesRendering`). `a2cOptedIn` is the
+ * per-container opt-in for breath-hold/4D-CT siblings — Phase 2 always passes
+ * `false` here; Phase 3 wires the list-panel toggle that lets the user
+ * explicitly enable A2c rendering for a given structure-set.
+ */
+export interface CrossSeriesRenderingPolicy {
+  /** Master toggle. When false, no cross-series rendering at all. */
+  enabled: boolean;
+  /** Per-container A2c opt-in. Phase 3 surface; pass `false` in Phase 2. */
+  a2cOptedIn: boolean;
+}
+
+/**
+ * Decide whether the eligibility class should render given the resolved
+ * cross-series policy (requirements §A2b / §A2c / §D11).
  *
  *   - native → always renders.
- *   - cross-series-A2b → renders by default; suppressed if `crossSeriesEnabled`
- *     is false (the toggle scopes A2b too, even though it defaults on).
- *   - cross-series-A2c → off by default; renders only if `crossSeriesEnabled`
- *     is true (the explicit user opt-in).
+ *   - cross-series-A2b → renders when the global toggle is on (default true);
+ *     hidden when the user has flipped the master switch off.
+ *   - cross-series-A2c → renders only when both the global toggle is on AND
+ *     the user has opted in for the structure-set. Phase 2 callers always
+ *     pass `a2cOptedIn: false`, so A2c structures stay hidden until the
+ *     Phase 3 list-panel control lights up.
  *   - cross-FoR → never renders (would require an SRO; v1 out of scope).
- *
- * The caller is responsible for passing the appropriate `crossSeriesEnabled`
- * value — it may be a per-container/per-session override or the global
- * preference (Phase 2.2 wires the global preference into the calling layer).
  */
 export function shouldRenderByDefault(
   eligibility: EligibilityClass,
-  crossSeriesEnabled: boolean,
+  policy: CrossSeriesRenderingPolicy,
 ): boolean {
   switch (eligibility) {
     case 'native':
       return true;
     case 'cross-series-A2b':
-      return crossSeriesEnabled;
+      return policy.enabled;
     case 'cross-series-A2c':
-      return crossSeriesEnabled;
+      return policy.enabled && policy.a2cOptedIn;
     case 'cross-FoR':
       return false;
   }
