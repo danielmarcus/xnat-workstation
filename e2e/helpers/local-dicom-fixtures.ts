@@ -20,12 +20,20 @@
 import { promises as fs } from 'fs';
 import path from 'path';
 
-/** Canonical fixture-set names. Keep in sync with e2e/fixtures/dicom/README.md. */
+/**
+ * Canonical fixture-set names. Keep in sync with e2e/fixtures/dicom/README.md.
+ *
+ * `SAMEFORUID_DIFFERENT_ACQUISITION` is the metadata-shape name for what the
+ * design doc originally called `breath-hold-pair`. The A2c heuristic reads
+ * shared FrameOfReferenceUID + differing AcquisitionNumber, not anatomy
+ * displacement, so any pair with that metadata shape (breath-hold, 4D-CT
+ * phases, repeat acquisitions) exercises the same code path. The
+ * 4dct-phases scenario from the design is covered by the same fixture.
+ */
 export const FIXTURE_NAMES = {
   CT_AXIAL_300: 'ct-axial-300',
   MR_T1_T2_SAMEEXAM: 'mr-t1-t2-sameexam',
-  FOURDCT_PHASES: '4dct-phases',
-  BREATH_HOLD_PAIR: 'breath-hold-pair',
+  SAMEFORUID_DIFFERENT_ACQUISITION: 'sameforuid-different-acquisition',
   CROSS_FOR_CT_MR: 'cross-for-ct-mr',
   RTSTRUCT_TYPED: 'rtstruct-typed',
   SEG_MULTILABEL: 'seg-multilabel',

@@ -95,6 +95,17 @@ describe('loadLocalDicomFixture', () => {
     const result = await loadLocalDicomFixture(FIXTURE_NAMES.CINE_US);
     expect(result).toBeNull();
   });
+
+  it('discovers files under the SAMEFORUID_DIFFERENT_ACQUISITION slot', async () => {
+    const dir = path.join(tempRoot, FIXTURE_NAMES.SAMEFORUID_DIFFERENT_ACQUISITION);
+    await writeFile(path.join(dir, 'phase00-001.dcm'));
+    await writeFile(path.join(dir, 'phase50-001.dcm'));
+
+    const result = await loadLocalDicomFixture(FIXTURE_NAMES.SAMEFORUID_DIFFERENT_ACQUISITION);
+    expect(result).not.toBeNull();
+    expect(result!.name).toBe(FIXTURE_NAMES.SAMEFORUID_DIFFERENT_ACQUISITION);
+    expect(result!.imagePaths).toHaveLength(2);
+  });
 });
 
 describe('listAvailableFixtures', () => {
