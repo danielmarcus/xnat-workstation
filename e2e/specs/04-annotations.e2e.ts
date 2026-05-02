@@ -49,7 +49,7 @@ test.describe('Annotations', () => {
     const viewer = new ViewerPage(page);
 
     // Open the Measure dropdown and select Length
-    await page.locator('button', { hasText: 'Measure' }).click();
+    await page.locator('button[title*="easure" i], button[title="Annotation & measurement tools"]').first().click();
     await page.locator('button', { hasText: 'Length' }).click();
 
     // Draw a line on the viewport
@@ -71,7 +71,7 @@ test.describe('Annotations', () => {
     const viewer = new ViewerPage(page);
 
     // Open Measure dropdown and select Ellipse ROI
-    await page.locator('button', { hasText: 'Measure' }).click();
+    await page.locator('button[title*="easure" i], button[title="Annotation & measurement tools"]').first().click();
     await page.locator('button', { hasText: 'Ellipse ROI' }).click();
 
     // Draw an ellipse on the viewport
@@ -91,7 +91,7 @@ test.describe('Annotations', () => {
     const viewer = new ViewerPage(page);
 
     // Create a Length annotation
-    await page.locator('button', { hasText: 'Measure' }).click();
+    await page.locator('button[title*="easure" i], button[title="Annotation & measurement tools"]').first().click();
     await page.locator('button', { hasText: 'Length' }).click();
     await viewer.canvas.drawLine({ x: 0.3, y: 0.3 }, { x: 0.7, y: 0.7 });
     await page.waitForTimeout(1000);
@@ -108,7 +108,7 @@ test.describe('Annotations', () => {
     const viewer = new ViewerPage(page);
 
     // Create a Length annotation
-    await page.locator('button', { hasText: 'Measure' }).click();
+    await page.locator('button[title*="easure" i], button[title="Annotation & measurement tools"]').first().click();
     await page.locator('button', { hasText: 'Length' }).click();
     await viewer.canvas.drawLine({ x: 0.3, y: 0.3 }, { x: 0.7, y: 0.7 });
     await page.waitForTimeout(1000);
@@ -130,7 +130,7 @@ test.describe('Annotations', () => {
     const viewer = new ViewerPage(page);
 
     // Create two annotations
-    await page.locator('button', { hasText: 'Measure' }).click();
+    await page.locator('button[title*="easure" i], button[title="Annotation & measurement tools"]').first().click();
     await page.locator('button', { hasText: 'Length' }).click();
 
     await viewer.canvas.drawLine({ x: 0.2, y: 0.2 }, { x: 0.5, y: 0.5 });
