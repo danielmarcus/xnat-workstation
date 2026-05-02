@@ -215,7 +215,7 @@ The design's Phase 2 bullet list (design §7.4) compresses two distinct workstre
 - ✅ **2.4a** Standalone `styling.ts` module (Phase 2.4 D9 non-native rendering). Pure logic + DI; `resolveAction(eligibility, policy) → reset | apply-cross-series | hide`. Style constants: dashed contour outline (cadence "6,3"), reduced fill alpha for labelmap. **Honest scope note:** Cornerstone's LabelmapStyle has no `outlineDash`, so cross-series labelmaps differentiate via reduced fill opacity alone — dashed outlines apply to contours only. 15 tests.
 - ✅ **2.4b** Wire styling via `SEGMENTATION_REPRESENTATION_ADDED` / `_MODIFIED` events + preferencesStore subscription on the cross-series toggle. All gated on `multiViewport.enabled`; legacy path unaffected.
 - ✅ **2.5a** B3 drawing-routing block via lock-guard extension. `decideDrawingRouting` returns allow / block-no-FoR-matched / block-cross-FoR / block-cross-series with hint message. Wired into `toolService.installLockGuard` (now takes `viewportId`); console.warn hint placeholder.
-- ⏳ **2.5b** Visual hint UI for the B3 block. Inline non-modal banner at the affected viewport, auto-fades after ~2.5s. Reads from a small Zustand store keyed by viewportId.
+- ✅ **2.5b** Visual hint UI for the B3 block. New `viewportHintStore` (Zustand, per-viewport transient hint with TTL-based auto-clear; revision counter prevents stale-clear). New `<ViewportHint>` overlay component mounted on `VolumeViewport` and `CornerstoneViewport`. Lock-guard's block branch now routes the hint message into the store. Inline amber-on-dark, top-center, `pointer-events: none`, fade-in animation. 18 tests (11 store + 7 component).
 
 #### Workstream B — Undo / save coordination (Container-dependent)
 
@@ -231,5 +231,5 @@ The undo + transport work needs a Container abstraction over Cornerstone segment
 - ⏳ Signals 9 (T1+T2 cross-series with dashed stroke), 10 (breath-hold A2c off-by-default), 11 (different FoR, list visible but no canvas render) **need fixtures Phase 1 deferred** (`e2e/fixtures/dicom/cross-series` and `breath-hold-pair`). Service-integration coverage with synthetic metadata is the stand-in until fixtures land.
 - ⏳ Signal 8 (canvas selection sync) is partial — Phase 2 can deliver canvas-canvas sync via a global selection set; full signal needs Phase 3 list panel hover/click sync (D7.8).
 
-**Status (2026-05-01)**: Workstream A is mostly complete (2.1 → 2.5a, 2.5b deferred). Workstream B (2.6 → 2.8) and E2E specs (2.9) outstanding. Test suite at 692 passing (was 610 at end of Phase 1). All commits behind `multiViewport.enabled`; legacy path verified unaffected by Phase 1 health check (Item 1 above).
+**Status (2026-05-02)**: Workstream A complete (2.1 → 2.5b). Workstream B (2.6 → 2.8) and E2E specs (2.9) outstanding. Test suite at 710 passing (was 610 at end of Phase 1). All commits behind `multiViewport.enabled`; legacy path verified unaffected by Phase 1 health check (Item 1 above).
 
