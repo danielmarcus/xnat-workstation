@@ -6,6 +6,7 @@ import {
   PlanarFreehandContourSegmentationTool,
 } from '@cornerstonejs/tools';
 import { useSegmentationStore } from '../../stores/segmentationStore';
+import { useSegmentationManagerStore } from '../../stores/segmentationManagerStore';
 import { useViewerStore } from '../../stores/viewerStore';
 import { usePreferencesStore } from '../../stores/preferencesStore';
 import { segmentationManager } from '../segmentation/segmentationManagerSingleton';
@@ -17,7 +18,9 @@ import {
 } from '../cornerstone/segmentationService/historyMemo';
 import * as contourRep from '../cornerstone/contourRepresentation';
 import { toolService } from '../cornerstone/toolService';
-import { LayoutType, ToolName } from '@shared/types/viewer';
+import { volumeService } from '../cornerstone/volumeService';
+import { viewportLayoutService } from '../cornerstone/viewportLayoutService';
+import { LayoutType, ToolName, panelId as makePanelId } from '@shared/types/viewer';
 
 type ActiveSegmentationState = {
   activeSegmentationId: string | null;
@@ -42,6 +45,46 @@ type UndoStackInfo = {
   topEntryDescription: string | null;
 };
 
+type DirtyState = {
+  /** segmentationStore.hasUnsavedChanges (single global flag, design §A9/E1). */
+  globalDirty: boolean;
+  /** segmentationManagerStore.dirtySegIds keys whose value is true. */
+  perSegmentationDirty: string[];
+};
+
+type SegmentationSnapshotEntry = {
+  segmentationId: string;
+  label: string;
+  /** Number of segments per csSegmentation.state.getSegmentation(...).segments. */
+  segmentCount: number;
+  /** Viewport ids the segmentation currently has a representation on. */
+  viewportIds: string[];
+  /** Number of contour annotations in csAnnotation.state tied to this segmentationId. */
+  contourAnnotationCount: number;
+  /** Slice indices that have at least one contour annotation. */
+  contourSliceIndices: number[];
+};
+
+type ActiveByPanelEntry = {
+  panelId: string;
+  /** True iff `panelId` is in the current layoutConfig.panelCount. */
+  isCurrentLayoutPanel: boolean;
+  segmentationId: string | null;
+  segmentIndex: number;
+};
+
+type ToggleMprResult = {
+  /** True if multiViewport.enabled was set when toggleMpr ran. */
+  flagEnabled: boolean;
+  /**
+   * For flag-off: viewerStore.mprActive after the toggle.
+   * For flag-on: true iff the mpr-2x2 preset is the current preset id.
+   */
+  entered: boolean;
+  /** Why the toggle was a no-op when applicable; null on success. */
+  reason: string | null;
+};
+
 let lockAwareUndoRedoCounter = 0;
 
 declare global {
@@ -62,6 +105,48 @@ declare global {
       createTestContour: (panelId: string, segmentationId: string, segmentIndex?: number) => string | null;
       closePanel: (panelId: string) => boolean;
       getUndoStackInfo: () => UndoStackInfo;
+
+      // ─── Layout-switching hooks (Signal 6) ─────────────────────
+      /** Sync. Drives the same setLayout the toolbar dropdown calls. */
+      setLayout: (layout: LayoutType) => void;
+      /**
+       * Async. Mirrors App.tsx handleToggleMPR exactly:
+       *  - flag-off: enterMPR via volumeService.create + viewerStore.enterMPR
+       *    (legacy MPRViewportGrid path). Exit is exitMPR.
+       *  - flag-on:  viewportLayoutService.applyPreset('mpr-2x2') + setLayout
+       *    + per-panel orientation propagation. Exit clears orientations and
+       *    applies '2x2'.
+       *
+       * Returns the resulting state so callers can assert without polling.
+       */
+      toggleMpr: () => Promise<ToggleMprResult>;
+      /**
+       * Sync. Returns the union of segmentationStore.hasUnsavedChanges (the
+       * single global dirty flag per design §A9 / §E1) and
+       * segmentationManagerStore.dirtySegIds. The "single dirty flag" half of
+       * Signal 6 asserts on this shape — exactly one segmentation marked
+       * dirty, no phantoms keyed off removed panels.
+       */
+      getDirtyState: () => DirtyState;
+      /**
+       * Sync. Per-segmentation snapshot that survives layout churn. Used by
+       * Signal 6 for the "no structures lost, no duplicates" assertion: take
+       * a snapshot before the rapid layout sequence, take another after,
+       * compare segmentCount + contourAnnotationCount + segmentationId set.
+       *
+       * Excludes Cornerstone's internal multi-layer-group sub-segmentations
+       * (whose ids contain "_layer_") so the snapshot matches the user-facing
+       * segmentation list that segmentationStore exposes.
+       */
+      getSegmentationSnapshot: () => SegmentationSnapshotEntry[];
+      /**
+       * Sync. Per-panel active-segmentation table from
+       * segmentationManagerStore. The `isCurrentLayoutPanel` flag exposes
+       * the "no stale highlights" half of Signal 6: any entry where
+       * `isCurrentLayoutPanel === false` is a leftover from a panel that
+       * has since been destroyed by setLayout.
+       */
+      getActiveByPanel: () => ActiveByPanelEntry[];
     };
   }
 }
@@ -192,6 +277,153 @@ function getUndoStackInfo(): UndoStackInfo {
     canRedo: !!memo?.canRedo,
     topEntryDescription: describeUndoEntry(getTopUndoHistoryEntry()),
   };
+}
+
+function getDirtyState(): DirtyState {
+  const segStore = useSegmentationStore.getState();
+  const mgrStore = useSegmentationManagerStore.getState();
+  const perSegmentationDirty = Object.entries(mgrStore.dirtySegIds)
+    .filter(([, isDirty]) => !!isDirty)
+    .map(([segId]) => segId);
+  return {
+    globalDirty: segStore.hasUnsavedChanges,
+    perSegmentationDirty,
+  };
+}
+
+function getSegmentationSnapshot(): SegmentationSnapshotEntry[] {
+  // The user-facing list lives in segmentationStore.segmentations (synced
+  // from csSegmentation by segmentationService) and excludes
+  // multi-layer-group sub-segmentations. Use it as the structural source of
+  // truth so the snapshot matches what the segmentation panel shows.
+  const segStore = useSegmentationStore.getState();
+  const allAnnotations = csAnnotation.state.getAllAnnotations() as any[];
+
+  return segStore.segmentations.map((segment) => {
+    let viewportIds: string[] = [];
+    try {
+      viewportIds = segmentationService.getViewportIdsForSegmentation(segment.segmentationId) ?? [];
+    } catch {
+      // Sub-segmentations of a multi-layer group get listed by some Cornerstone APIs
+      // and not others; treat lookup failures as "no attachment".
+      viewportIds = [];
+    }
+
+    const matchingAnnotations = allAnnotations.filter((annotation) => (
+      annotation?.data?.segmentation?.segmentationId === segment.segmentationId
+      && typeof annotation?.metadata?.toolName === 'string'
+      && annotation.metadata.toolName.includes('Contour')
+    ));
+    const sliceIndices = Array.from(new Set(
+      matchingAnnotations
+        .map((annotation: any) => annotation?.metadata?.sliceIndex)
+        .filter((sliceIndex: unknown): sliceIndex is number => Number.isInteger(sliceIndex)),
+    )).sort((a, b) => a - b);
+
+    return {
+      segmentationId: segment.segmentationId,
+      label: segment.label,
+      segmentCount: segment.segments.length,
+      viewportIds: [...viewportIds].sort(),
+      contourAnnotationCount: matchingAnnotations.length,
+      contourSliceIndices: sliceIndices,
+    };
+  });
+}
+
+function getActiveByPanel(): ActiveByPanelEntry[] {
+  const viewerState = useViewerStore.getState();
+  const mgrStore = useSegmentationManagerStore.getState();
+  const currentPanelIds = new Set(
+    Array.from({ length: viewerState.layoutConfig.panelCount }, (_, i) => makePanelId(i)),
+  );
+  const allPanelIds = new Set<string>([
+    ...currentPanelIds,
+    ...Object.keys(mgrStore.activeSegmentationIdByPanel),
+    ...Object.keys(mgrStore.activeSegmentIndexByPanel),
+  ]);
+  return Array.from(allPanelIds).sort().map((pid) => ({
+    panelId: pid,
+    isCurrentLayoutPanel: currentPanelIds.has(pid),
+    segmentationId: mgrStore.activeSegmentationIdByPanel[pid] ?? null,
+    segmentIndex: mgrStore.activeSegmentIndexByPanel[pid] ?? 0,
+  }));
+}
+
+async function toggleMpr(): Promise<ToggleMprResult> {
+  const flagEnabled = usePreferencesStore.getState().preferences.multiViewport.enabled;
+  const store = useViewerStore.getState();
+
+  // ── Flag ON: viewportLayoutService preset path (App.tsx:2526-2569) ──
+  if (flagEnabled) {
+    const isMprPresetActive = viewportLayoutService.getCurrentPresetId() === 'mpr-2x2';
+    if (isMprPresetActive) {
+      // Exit: clear orientations on panels 0/1/2 (back to STACK), then 2x2.
+      store.setPanelOrientation(makePanelId(0), 'STACK');
+      store.setPanelOrientation(makePanelId(1), 'STACK');
+      store.setPanelOrientation(makePanelId(2), 'STACK');
+      viewportLayoutService.applyPreset('2x2');
+      return { flagEnabled, entered: false, reason: null };
+    }
+
+    const activePanelId = store.activeViewportId ?? makePanelId(0);
+    const activeImageIds = store.panelImageIdsMap[activePanelId] ?? [];
+    if (activeImageIds.length < 2) {
+      return { flagEnabled, entered: false, reason: 'fewer than 2 slices on active panel' };
+    }
+    if (store.layoutConfig.panelCount < 4) {
+      store.setLayout('2x2');
+    }
+    const orientations: Array<'AXIAL' | 'SAGITTAL' | 'CORONAL'> = ['AXIAL', 'SAGITTAL', 'CORONAL'];
+    for (let i = 0; i < orientations.length; i++) {
+      const target = makePanelId(i);
+      if (target !== activePanelId) {
+        store.setPanelImageIds(target, activeImageIds);
+      }
+      store.setPanelOrientation(target, orientations[i]);
+    }
+    viewportLayoutService.applyPreset('mpr-2x2');
+    return { flagEnabled, entered: true, reason: null };
+  }
+
+  // ── Flag OFF: legacy MPRViewportGrid path (App.tsx:2471-2580) ──
+  if (store.mprActive) {
+    store.exitMPR();
+    return { flagEnabled, entered: false, reason: null };
+  }
+  const activePanelId = store.activeViewportId ?? makePanelId(0);
+  const activeImageIds = store.panelImageIdsMap[activePanelId] ?? [];
+  if (activeImageIds.length < 2) {
+    return { flagEnabled, entered: false, reason: 'fewer than 2 slices on active panel' };
+  }
+
+  const volumeId = volumeService.generateId();
+  try {
+    await volumeService.create(volumeId, activeImageIds);
+  } catch (err) {
+    return { flagEnabled, entered: false, reason: `volume create failed: ${(err as Error)?.message ?? err}` };
+  }
+
+  useViewerStore.getState().setActiveViewport(activePanelId);
+  useViewerStore.getState().enterMPR(activePanelId, volumeId);
+
+  // Kick off the async load but don't wait — Signal 6 cares about the
+  // mode-switch transition surviving rapid sequencing, not about whether
+  // every voxel finished streaming. The MPR component handles its own
+  // load progress; if the test then exits MPR before load completes,
+  // exitMPR() destroys the volume in the cache (viewerStore.exitMPR
+  // teardown). Mirror what the toolbar button triggers.
+  void volumeService.load(volumeId, (p) => {
+    const percent = p.total > 0 ? Math.round((p.loaded / p.total) * 100) : 0;
+    useViewerStore.getState()._updateMPRVolumeProgress({ ...p, percent });
+  }).then(() => {
+    useViewerStore.getState()._updateMPRVolumeProgress(null);
+  }).catch(() => {
+    // Mirror App.tsx: on load failure, exit MPR.
+    useViewerStore.getState().exitMPR();
+  });
+
+  return { flagEnabled, entered: true, reason: null };
 }
 
 export function installRendererE2eHooks(): void {
@@ -467,5 +699,14 @@ export function installRendererE2eHooks(): void {
       return true;
     },
     getUndoStackInfo,
+
+    // ─── Layout-switching hooks (Signal 6) ───────────────────────
+    setLayout: (layout: LayoutType) => {
+      useViewerStore.getState().setLayout(layout);
+    },
+    toggleMpr,
+    getDirtyState,
+    getSegmentationSnapshot,
+    getActiveByPanel,
   };
 }
