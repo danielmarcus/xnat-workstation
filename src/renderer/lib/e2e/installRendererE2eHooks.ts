@@ -9,6 +9,7 @@ import { useSegmentationStore } from '../../stores/segmentationStore';
 import { useSegmentationManagerStore } from '../../stores/segmentationManagerStore';
 import { useViewerStore } from '../../stores/viewerStore';
 import { usePreferencesStore } from '../../stores/preferencesStore';
+import { useConnectionStore } from '../../stores/connectionStore';
 import { segmentationManager } from '../segmentation/segmentationManagerSingleton';
 import { segmentationService } from '../cornerstone/segmentationService';
 import {
@@ -21,6 +22,10 @@ import { toolService } from '../cornerstone/toolService';
 import { volumeService } from '../cornerstone/volumeService';
 import { viewportLayoutService } from '../cornerstone/viewportLayoutService';
 import { LayoutType, ToolName, panelId as makePanelId } from '@shared/types/viewer';
+import {
+  loadLocalDicomFiles as bridgeLoadLocalDicomFiles,
+  type LoadLocalDicomFilesResult,
+} from './e2eFixtureBridge';
 
 type ActiveSegmentationState = {
   activeSegmentationId: string | null;
@@ -170,6 +175,33 @@ declare global {
        * page.reload() doesn't race against a beforeunload prompt.
        */
       markAllSegmentationsClean: () => void;
+
+      /**
+       * Async. Loads DICOM files from absolute disk paths into the named
+       * panel via the local-fixture bridge. Reads bytes through an IPC
+       * channel that's only registered when the main process is launched
+       * with `E2E_TESTING=1`; reads are restricted to the configured
+       * fixture root. Replaces whatever was previously loaded in the
+       * panel. Returns the resolved image IDs so the spec can assert.
+       *
+       * Mirrors the local-file-import path App.tsx already uses for
+       * drag-and-drop / file-picker imports — same wadouri.fileManager
+       * registration, same dicomwebLoader.orderImageIdsByDicomMetadata,
+       * same setPanelImageIds wire-up — so the fixture flows through
+       * production code paths.
+       */
+      loadLocalDicomFiles: (panelId: string, paths: string[]) => Promise<LoadLocalDicomFilesResult>;
+      /**
+       * Sync. Forces the connection store into the 'connected' state
+       * with a synthetic connection object so the viewer gate
+       * (App.tsx isConnected) opens without an XNAT round-trip. For
+       * local-fixture E2E specs that don't need real XNAT auth.
+       *
+       * Use only when the spec is exercising local-fixture flows; specs
+       * that test XNAT integration (login, browse, upload) must continue
+       * to use the real authenticatedPage fixture.
+       */
+      setFakeConnected: (connected: boolean) => void;
     };
   }
 }
@@ -753,6 +785,27 @@ export function installRendererE2eHooks(): void {
       // in _markClean) clears all per-id dirty entries on the manager
       // store.
       useSegmentationStore.getState()._markClean();
+    },
+    loadLocalDicomFiles: (panelId: string, paths: string[]) =>
+      bridgeLoadLocalDicomFiles(panelId, paths),
+    setFakeConnected: (connected: boolean) => {
+      if (connected) {
+        useConnectionStore.setState({
+          status: 'connected',
+          connection: {
+            serverUrl: 'http://e2e-fixture.local',
+            username: 'e2e-fixture',
+            connectedAt: Date.now(),
+          },
+          error: null,
+        });
+      } else {
+        useConnectionStore.setState({
+          status: 'disconnected',
+          connection: null,
+          error: null,
+        });
+      }
     },
   };
 }

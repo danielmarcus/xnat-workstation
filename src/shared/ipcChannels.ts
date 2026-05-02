@@ -84,6 +84,10 @@ export const IPC = {
   UPDATER_CHECK_FOR_UPDATES: 'updater:check-for-updates',
   UPDATER_QUIT_AND_INSTALL: 'updater:quit-and-install',
   UPDATER_STATUS: 'updater:status',
+
+  // Local DICOM fixture reads (renderer → main, E2E only — registered only when E2E_TESTING=1).
+  // Reads are restricted to the configured fixture root via path validation in the handler.
+  LOCAL_E2E_READ_DICOM_FILE: 'local-e2e:read-dicom-file',
 } as const;
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC];

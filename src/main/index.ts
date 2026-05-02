@@ -7,6 +7,7 @@ import { registerUploadHandlers } from './ipc/uploadHandlers';
 import { registerBackupHandlers } from './ipc/backupHandlers';
 import { registerDiagnosticsHandlers } from './ipc/diagnosticsHandlers';
 import { registerUpdateHandlers } from './ipc/updateHandlers';
+import { registerLocalE2eHandlers } from './ipc/localE2eHandlers';
 import { installMainLogCapture } from './diagnostics/mainLogBuffer';
 import { IPC } from '../shared/ipcChannels';
 import { autoUpdateService } from './updater/autoUpdateService';
@@ -204,6 +205,9 @@ app.whenReady().then(() => {
   registerBackupHandlers();
   registerDiagnosticsHandlers();
   registerUpdateHandlers();
+  if (process.env.E2E_TESTING === '1') {
+    registerLocalE2eHandlers();
+  }
   autoUpdateService.initialize();
 
   // Shell: open URL in system browser

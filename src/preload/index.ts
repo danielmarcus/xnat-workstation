@@ -170,6 +170,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke(IPC.DIAGNOSTICS_GET_MAIN_SNAPSHOT),
   },
 
+  localE2e: {
+    readDicomFile: (absPath: string) =>
+      ipcRenderer.invoke(IPC.LOCAL_E2E_READ_DICOM_FILE, absPath),
+  },
+
   updater: {
     getState: () =>
       ipcRenderer.invoke(IPC.UPDATER_GET_STATE),

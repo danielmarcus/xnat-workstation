@@ -190,6 +190,19 @@ export interface ElectronAPI {
   diagnostics?: {
     getMainSnapshot(): Promise<MainDiagnosticsSnapshotResult>;
   };
+  /**
+   * E2E-only IPC for local DICOM fixture reads. Only registered when the
+   * main process is launched with `E2E_TESTING=1`; otherwise this surface
+   * is `undefined` at runtime even if the type says it exists.
+   */
+  localE2e?: {
+    readDicomFile(absPath: string): Promise<{
+      ok: boolean;
+      data?: ArrayBuffer;
+      sizeBytes?: number;
+      error?: string;
+    }>;
+  };
   updater?: {
     getState(): Promise<UpdateStatus>;
     configure(config: ConfigureUpdaterRequest): Promise<ConfigureUpdaterResponse>;

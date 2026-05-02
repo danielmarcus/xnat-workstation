@@ -1,33 +1,22 @@
 /**
  * Fixture-Pipeline Acceptance (Multi-Viewport Phase 2 prep)
  *
- * Exercises the local DICOM fixture pipeline end-to-end at the level the
- * current harness supports: discovery via `loadLocalDicomFixture` plus
- * metadata-shape validation of the discovered files. When fixtures are
- * absent the spec skips cleanly so this passes in environments without
- * data on disk (fresh clones, CI without fixture volumes mounted).
+ * Exercises the local DICOM fixture pipeline end-to-end:
  *
- * Scope (intentional):
  *   - Helper integration: `loadLocalDicomFixture` returns absolute paths
  *     and the file count is plausible.
- *   - Metadata-shape verification (the property each fixture is named for):
- *       MR_T1_T2_SAMEEXAM           — two distinct series, shared FoR.
- *       SAMEFORUID_DIFFERENT_ACQUISITION — two distinct series, shared
- *                                      FoR, different `AcquisitionNumber`.
+ *   - Metadata-shape verification (the property each fixture is named for).
+ *   - Renderer-mount via the `__XNAT_E2E__.loadLocalDicomFiles` hook —
+ *     drives the production wadouri.fileManager + setPanelImageIds path
+ *     and asserts both panels mount a visible canvas. This proves the
+ *     fixture flows through the same code path the XNAT browser uses,
+ *     no XNAT round-trip required.
  *
- * Out of scope (deferred follow-ups, see PHASES.md):
- *   - Mounting fixture paths into a running viewport. The renderer's
- *     `__XNAT_E2E__` surface currently only loads via the XNAT browser
- *     flow; a `loadLocalDicomFiles(panelId, paths)` hook is needed before
- *     this spec can drive the canvas.
- *   - Asserting the A2b dashed-stroke style on the non-native viewport
- *     (signal 9) and A2c off-by-default behavior (signal 10). Both
- *     depend on the renderer hook above.
- *
- * The spec runs without Electron — it's a Node-level pipeline check
- * hosted in the Playwright runner. No XNAT credentials required.
+ * When fixtures are absent the spec skips cleanly. The renderer-mount
+ * test launches the Electron app; the metadata-shape tests don't.
  */
 import { test, expect } from '@playwright/test';
+import { test as electronTest } from '../fixtures/electron-app';
 import { promises as fs } from 'fs';
 import dcmjs from 'dcmjs';
 import {
@@ -112,5 +101,67 @@ test.describe('Local DICOM fixture pipeline', () => {
       acquisitionNumbers.size,
       'A2c heuristic requires distinct AcquisitionNumber values across series',
     ).toBeGreaterThanOrEqual(2);
+  });
+});
+
+electronTest.describe('Local fixture renderer mount (loadLocalDicomFiles)', () => {
+  electronTest('mr-t1-t2-sameexam mounts both series via __XNAT_E2E__.loadLocalDicomFiles', async ({ page }) => {
+    const fixture = await loadLocalDicomFixture(FIXTURE_NAMES.MR_T1_T2_SAMEEXAM);
+    electronTest.skip(
+      fixture === null,
+      `Fixture '${FIXTURE_NAMES.MR_T1_T2_SAMEEXAM}' is not present locally — populate e2e/fixtures/dicom/${FIXTURE_NAMES.MR_T1_T2_SAMEEXAM}/ or set XNAT_E2E_FIXTURE_ROOT.`,
+    );
+
+    // Partition by SeriesInstanceUID so we can mount the two series on
+    // separate panels. Both share FoR, which is what the cross-series
+    // pipeline needs to flag the non-native viewport.
+    const datasets = await readAllDatasets(fixture!);
+    const seriesGroups = new Map<string, string[]>();
+    for (let i = 0; i < datasets.length; i++) {
+      const key = datasets[i].SeriesInstanceUID ?? `unknown-${i}`;
+      const list = seriesGroups.get(key) ?? [];
+      list.push(fixture!.imagePaths[i]);
+      seriesGroups.set(key, list);
+    }
+    const series = [...seriesGroups.values()];
+    expect(series.length).toBeGreaterThanOrEqual(2);
+
+    // Open the viewer gate without an XNAT round-trip and switch to a
+    // 1×2 layout so both panels exist before we mount.
+    await page.evaluate(() => window.__XNAT_E2E__?.setFakeConnected(true));
+    await page.evaluate(() => window.__XNAT_E2E__?.setMultiViewportEnabled(true));
+    await page.evaluate(() => window.__XNAT_E2E__?.setLayout('1x2' as const));
+
+    // Mount each series on its own panel. The hook drives wadouri.fileManager
+    // + setPanelImageIds — same code path as drag-and-drop import.
+    const panel0Result = await page.evaluate(
+      async (paths) => {
+        const result = await window.__XNAT_E2E__!.loadLocalDicomFiles('panel_0', paths);
+        return { imageIdCount: result.imageIds.length, panelId: result.panelId };
+      },
+      series[0],
+    );
+    expect(panel0Result.imageIdCount).toBe(series[0].length);
+
+    const panel1Result = await page.evaluate(
+      async (paths) => {
+        const result = await window.__XNAT_E2E__!.loadLocalDicomFiles('panel_1', paths);
+        return { imageIdCount: result.imageIds.length, panelId: result.panelId };
+      },
+      series[1],
+    );
+    expect(panel1Result.imageIdCount).toBe(series[1].length);
+
+    // Both panels should mount a viewport canvas. Whether it's the volume
+    // or stack root depends on the same eligibility predicate the XNAT
+    // path uses; we accept either.
+    for (const pid of ['panel_0', 'panel_1']) {
+      const volumeCanvas = page.locator(`[data-testid="volume-viewport-canvas:${pid}"] canvas`);
+      const stackCanvas = page.locator(`[data-testid="cornerstone-viewport-canvas:${pid}"] canvas`);
+      await Promise.race([
+        volumeCanvas.first().waitFor({ state: 'visible', timeout: 30_000 }),
+        stackCanvas.first().waitFor({ state: 'visible', timeout: 30_000 }),
+      ]);
+    }
   });
 });

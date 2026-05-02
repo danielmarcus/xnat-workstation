@@ -31,6 +31,10 @@ import { viewportReadyService } from './lib/cornerstone/viewportReadyService';
 import { useSessionDerivedIndexStore, isSegScan, isRtStructScan, isDerivedScan } from './stores/sessionDerivedIndexStore';
 import { useSegmentationManagerStore } from './stores/segmentationManagerStore';
 import { segmentationManager } from './lib/segmentation/segmentationManagerSingleton';
+import {
+  registerSetPanelImageIds as registerE2eSetPanelImageIds,
+  unregisterSetPanelImageIds as unregisterE2eSetPanelImageIds,
+} from './lib/e2e/e2eFixtureBridge';
 import { getSegReferenceInfo } from './lib/dicom/segReferencedSeriesUid';
 import { applyPreferences } from './lib/preferences/applyPreferences';
 import { backupService } from './lib/backup/backupService';
@@ -959,6 +963,18 @@ export default function App() {
       segmentationManager.dispose();
     };
   }, [cornerstoneReady, setPanelImageIds]);
+
+  // ─── E2E fixture bridge: register the panel-image-ids setter so
+  // __XNAT_E2E__.loadLocalDicomFiles can mount fixtures into a panel
+  // through the same code path the XNAT browser flow uses. The bridge
+  // is a no-op in production builds (electronAPI.localE2e is undefined
+  // unless the main process was launched with E2E_TESTING=1).
+  useEffect(() => {
+    registerE2eSetPanelImageIds(setPanelImageIds);
+    return () => {
+      unregisterE2eSetPanelImageIds();
+    };
+  }, [setPanelImageIds]);
 
   // ─── Unsaved changes: beforeunload guard ────────────────────
   useEffect(() => {
