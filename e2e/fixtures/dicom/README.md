@@ -51,13 +51,18 @@ Each populated fixture below documents its source so the data is reproducible. W
 
 ### `mr-t1-t2-sameexam/`
 
-- **Source**: TBD — a TCIA collection with paired T1 and T2 MR sequences in a single exam (candidates: Brain-Tumor-Progression, IvyGAP, RIDER NEURO MRI). Pick the smallest subject whose exam contains both sequences sharing `FrameOfReferenceUID`.
-- **Subject ID**: TBD (record after selection).
-- **Series**: one T1, one T2; ≤ ~30 slices each.
-- **Verified metadata shape**:
-  - Both series have the same `(0020,0052) FrameOfReferenceUID`.
-  - Both series have distinct `(0020,000E) SeriesInstanceUID`.
-  - Both series have distinct `(0008,103E) SeriesDescription` (e.g., contains "T1" / "T2").
+- **Source**: TCIA [ACRIN-NSCLC-FDG-PET](https://www.cancerimagingarchive.net/collection/acrin-nsclc-fdg-pet/) collection.
+- **Subject**: `ACRIN-NSCLC-FDG-PET-099`, exam `12-27-1959-NA-HEADBRAIN-75971` (date shifted by TCIA's standard de-identification offset; 1959 is not the real date of service).
+- **Series**: 8 consecutive middle slices (instance numbers 11–18) from each of:
+  - `8.000000-AX T1-71203` → `t1-slice11.dcm` … `t1-slice18.dcm` (320×288)
+  - `3.000000-AXIAL T2-42350` → `t2-slice11.dcm` … `t2-slice18.dcm` (640×552)
+- **De-identification**: TCIA's standard scrub. `PatientID` = `ACRIN-NSCLC-FDG-PET-099`; `PatientBirthDate` empty; `AccessionNumber` empty; no `InstitutionName` leak.
+- **Verified metadata shape** (run `npx playwright test e2e/specs/11-fixture-cross-series.e2e.ts` to re-verify):
+  - Both series share `FrameOfReferenceUID = 1.3.6.1.4.1.14519.5.2.1.7009.2403.148825602828489783665973633187`.
+  - Distinct `SeriesInstanceUID` (T1 ends in `…363359237027027485077590071203`; T2 ends in `…329086580059504263013465742350`).
+  - Distinct `SeriesDescription` ("AX T1" / "AXIAL T2"); both `Modality = MR`.
+- **Storage**: tracked via Git LFS.
+- **Re-acquiring**: download the full collection via the NBIA Data Retriever using the TCIA collection page above; re-subset by copying the same instance numbers.
 
 ### `sameforuid-different-acquisition/`
 

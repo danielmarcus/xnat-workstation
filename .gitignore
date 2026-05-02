@@ -44,5 +44,8 @@ PLAN.md
 e2e/test-results/
 e2e/playwright-report/
 
+# Local staging area for DICOM data (use e2e/fixtures/dicom/ for committed fixtures)
+data/
+
 # Bundled binaries
 extraResources/
