@@ -147,6 +147,29 @@ declare global {
        * has since been destroyed by setLayout.
        */
       getActiveByPanel: () => ActiveByPanelEntry[];
+      /**
+       * Async. Calls segmentationService.exportToDicomSeg(segId) and
+       * returns the base64 string (or null on failure). Same code path
+       * the segmentation panel's "Save → Upload to XNAT" runs; lets
+       * Signal 6 assert "save once produces correct file" by comparing
+       * encoded length before vs. after the rapid layout sequence.
+       */
+      exportSegmentationToBase64: (segmentationId: string) => Promise<string | null>;
+      /**
+       * Sync. Marks a segmentation dirty via both the global flag and
+       * the per-id manager store — the same two writes the autoSave
+       * event handler does (autoSave.ts:429+434). Used for the flag-on
+       * Signal 6 variant where the contour-creation path bypasses the
+       * ANNOTATION_COMPLETED autosave handler.
+       */
+      markSegmentationDirty: (segmentationId: string) => void;
+      /**
+       * Sync. Calls segmentationStore._markClean() — same call the
+       * post-save path makes (segmentationService.ts:433). For test
+       * teardown after using markSegmentationDirty, so the next test's
+       * page.reload() doesn't race against a beforeunload prompt.
+       */
+      markAllSegmentationsClean: () => void;
     };
   }
 }
@@ -708,5 +731,28 @@ export function installRendererE2eHooks(): void {
     getDirtyState,
     getSegmentationSnapshot,
     getActiveByPanel,
+    exportSegmentationToBase64: async (segmentationId: string) => {
+      try {
+        return await segmentationService.exportToDicomSeg(segmentationId);
+      } catch (err) {
+        // Surface the reason on the global so the spec can read it after
+        // a null return — silent catch in tests is a footgun.
+        (window as unknown as { __XNAT_E2E_LAST_EXPORT_ERROR__?: string }).__XNAT_E2E_LAST_EXPORT_ERROR__ =
+          err instanceof Error ? `${err.message}\n${err.stack ?? ''}` : String(err);
+        return null;
+      }
+    },
+    markSegmentationDirty: (segmentationId: string) => {
+      // Same two writes autoSave.ts:429+434 does on a real edit.
+      useSegmentationStore.getState()._markDirty();
+      useSegmentationManagerStore.getState().markDirty(segmentationId);
+    },
+    markAllSegmentationsClean: () => {
+      // Mirrors segmentationService.ts:433 (post-save) — clears the
+      // global hasUnsavedChanges flag and (via the import-side-effect
+      // in _markClean) clears all per-id dirty entries on the manager
+      // store.
+      useSegmentationStore.getState()._markClean();
+    },
   };
 }
