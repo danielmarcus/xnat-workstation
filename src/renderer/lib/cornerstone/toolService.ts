@@ -400,6 +400,17 @@ function addAllTools(toolGroup: ToolTypes.IToolGroup): void {
   toolGroup.addTool(RegionSegmentPlusTool.toolName);
   toolGroup.addTool(SegmentSelectTool.toolName);
   toolGroup.addTool(SegmentBidirectionalTool.toolName);
+  // Cornerstone's CrosshairsTool is registered in the primary tool group
+  // (Phase 1.6 — design §1.3). It is NOT bound as the active tool today;
+  // the custom pointer handlers in crosshairGeometry.ts continue to do
+  // the actual crosshair work because Cornerstone's CrosshairsTool has
+  // rendering issues on stack viewports. Once stack mode is reserved
+  // exclusively for non-volumetric data and volume viewports are the
+  // norm, TOOL_NAME_MAP[ToolName.Crosshairs] can be flipped from
+  // WindowLevelTool.toolName to CrosshairsTool.toolName and this becomes
+  // the active crosshair handler. Keeping it registered now means that
+  // flip is a one-line change without any tool-group re-init.
+  toolGroup.addTool(CrosshairsTool.toolName);
 }
 
 /**
