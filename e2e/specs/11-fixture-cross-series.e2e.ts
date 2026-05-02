@@ -27,10 +27,17 @@ import {
 
 interface NaturalizedDataset {
   Modality?: string;
+  SOPClassUID?: string;
   SeriesInstanceUID?: string;
   SeriesDescription?: string;
   FrameOfReferenceUID?: string;
   AcquisitionNumber?: number | string;
+  NumberOfFrames?: number | string;
+  SegmentationType?: string;
+  SegmentSequence?: unknown;
+  ApprovalStatus?: string;
+  StructureSetROISequence?: unknown;
+  RTROIObservationsSequence?: unknown;
 }
 
 async function readDataset(filePath: string): Promise<NaturalizedDataset> {
@@ -101,6 +108,98 @@ test.describe('Local DICOM fixture pipeline', () => {
       acquisitionNumbers.size,
       'A2c heuristic requires distinct AcquisitionNumber values across series',
     ).toBeGreaterThanOrEqual(2);
+  });
+
+  test('ct-axial-300: single CT series with ≥ 30 axial slices', async () => {
+    const fixture = await loadLocalDicomFixture(FIXTURE_NAMES.CT_AXIAL_300);
+    test.skip(
+      fixture === null,
+      `Fixture '${FIXTURE_NAMES.CT_AXIAL_300}' is not present locally.`,
+    );
+    expect(fixture!.imagePaths.length).toBeGreaterThanOrEqual(30);
+
+    const datasets = await readAllDatasets(fixture!);
+    const seriesUIDs = uniqueDefined(datasets.map((d) => d.SeriesInstanceUID));
+    expect(seriesUIDs.size).toBe(1);
+
+    const modalities = uniqueDefined(datasets.map((d) => d.Modality));
+    expect(modalities.has('CT')).toBe(true);
+  });
+
+  test('cine-us: single multi-frame US instance with NumberOfFrames > 1', async () => {
+    const fixture = await loadLocalDicomFixture(FIXTURE_NAMES.CINE_US);
+    test.skip(
+      fixture === null,
+      `Fixture '${FIXTURE_NAMES.CINE_US}' is not present locally.`,
+    );
+    expect(fixture!.imagePaths.length).toBe(1);
+
+    const dataset = await readDataset(fixture!.imagePaths[0]);
+    expect(dataset.Modality).toBe('US');
+    const numberOfFrames = Number(dataset.NumberOfFrames ?? 1);
+    expect(numberOfFrames).toBeGreaterThan(1);
+  });
+
+  test('cross-for-ct-mr: two series, distinct modality and distinct FoR', async () => {
+    const fixture = await loadLocalDicomFixture(FIXTURE_NAMES.CROSS_FOR_CT_MR);
+    test.skip(
+      fixture === null,
+      `Fixture '${FIXTURE_NAMES.CROSS_FOR_CT_MR}' is not present locally.`,
+    );
+
+    const datasets = await readAllDatasets(fixture!);
+    const modalities = uniqueDefined(datasets.map((d) => d.Modality));
+    expect(modalities.has('CT')).toBe(true);
+    expect(modalities.has('MR')).toBe(true);
+
+    const forUIDs = uniqueDefined(datasets.map((d) => d.FrameOfReferenceUID));
+    expect(
+      forUIDs.size,
+      'A2d heuristic requires distinct FrameOfReferenceUID across series',
+    ).toBeGreaterThanOrEqual(2);
+  });
+
+  test('seg-multilabel: DICOM SEG with ≥ 5 segments', async () => {
+    const fixture = await loadLocalDicomFixture(FIXTURE_NAMES.SEG_MULTILABEL);
+    test.skip(
+      fixture === null,
+      `Fixture '${FIXTURE_NAMES.SEG_MULTILABEL}' is not present locally.`,
+    );
+    expect(fixture!.imagePaths.length).toBe(1);
+
+    const dataset = await readDataset(fixture!.imagePaths[0]);
+    expect(dataset.SOPClassUID).toBe('1.2.840.10008.5.1.4.1.1.66.4');
+    expect(dataset.Modality).toBe('SEG');
+
+    const segments = Array.isArray(dataset.SegmentSequence)
+      ? dataset.SegmentSequence
+      : dataset.SegmentSequence !== undefined
+        ? [dataset.SegmentSequence]
+        : [];
+    expect(segments.length).toBeGreaterThanOrEqual(5);
+  });
+
+  test('rtstruct-typed: RTSTRUCT covering all canonical RTROIInterpretedType values', async () => {
+    const fixture = await loadLocalDicomFixture(FIXTURE_NAMES.RTSTRUCT_TYPED);
+    test.skip(
+      fixture === null,
+      `Fixture '${FIXTURE_NAMES.RTSTRUCT_TYPED}' is not present locally.`,
+    );
+    expect(fixture!.imagePaths.length).toBe(1);
+
+    const dataset = await readDataset(fixture!.imagePaths[0]);
+    expect(dataset.SOPClassUID).toBe('1.2.840.10008.5.1.4.1.1.481.3');
+    expect(dataset.Modality).toBe('RTSTRUCT');
+
+    const observations = Array.isArray(dataset.RTROIObservationsSequence)
+      ? (dataset.RTROIObservationsSequence as Array<{ RTROIInterpretedType?: string }>)
+      : [];
+    const types = new Set(
+      observations.map((o) => o.RTROIInterpretedType).filter((t): t is string => !!t),
+    );
+    for (const expected of ['GTV', 'CTV', 'PTV', 'ORGAN', 'EXTERNAL', 'AVOIDANCE']) {
+      expect(types.has(expected), `RTSTRUCT must contain ${expected}`).toBe(true);
+    }
   });
 });
 

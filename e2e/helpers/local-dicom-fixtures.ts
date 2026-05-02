@@ -29,6 +29,9 @@ import path from 'path';
  * displacement, so any pair with that metadata shape (breath-hold, 4D-CT
  * phases, repeat acquisitions) exercises the same code path. The
  * 4dct-phases scenario from the design is covered by the same fixture.
+ *
+ * All seven fixture slots are now populated — see
+ * `e2e/fixtures/dicom/README.md` for provenance.
  */
 export const FIXTURE_NAMES = {
   CT_AXIAL_300: 'ct-axial-300',
