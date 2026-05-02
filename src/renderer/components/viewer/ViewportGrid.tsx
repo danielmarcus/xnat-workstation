@@ -9,6 +9,7 @@
  * by hotkeyService — see src/renderer/lib/hotkeys/hotkeyService.ts.
  */
 import { useViewerStore } from '../../stores/viewerStore';
+import { usePreferencesStore } from '../../stores/preferencesStore';
 import { panelId } from '@shared/types/viewer';
 import Viewport from './Viewport';
 import OrientedViewport from './OrientedViewport';
@@ -30,6 +31,9 @@ export default function ViewportGrid({ panelImageIds }: ViewportGridProps) {
   const sessionScans = useViewerStore((s) => s.sessionScans);
   const panelXnatContextMap = useViewerStore((s) => s.panelXnatContextMap);
   const panelScanMap = useViewerStore((s) => s.panelScanMap);
+  const multiViewportEnabled = usePreferencesStore(
+    (s) => s.preferences.multiViewport.enabled,
+  );
 
   useEffect(() => {
     const el = document.querySelector(`[data-panel-id="${activeViewportId}"]`) as HTMLElement | null;
@@ -74,7 +78,18 @@ export default function ViewportGrid({ panelImageIds }: ViewportGridProps) {
             {imageIds.length > 0 ? (
               <>
                 {shouldUseOrientedView ? (
-                  <OrientedViewport panelId={pid} imageIds={imageIds} plane={orientation} />
+                  multiViewportEnabled ? (
+                    // New path: oriented panels go through Viewport →
+                    // VolumeViewport with the orientation prop. Per design
+                    // §1.3, this replaces OrientedViewport when the flag is on.
+                    <Viewport
+                      panelId={pid}
+                      imageIds={imageIds}
+                      orientation={orientation === 'STACK' ? undefined : orientation}
+                    />
+                  ) : (
+                    <OrientedViewport panelId={pid} imageIds={imageIds} plane={orientation} />
+                  )
                 ) : (
                   <Viewport panelId={pid} imageIds={imageIds} />
                 )}

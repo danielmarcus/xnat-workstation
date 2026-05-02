@@ -35,6 +35,11 @@ import { ToolName } from '@shared/types/viewer';
 interface VolumeViewportProps {
   panelId: string;
   imageIds: string[];
+  /**
+   * Volume orientation. Default 'AXIAL'. When the panel is part of an MPR
+   * preset slot, ViewportGrid passes 'SAGITTAL' or 'CORONAL' here.
+   */
+  orientation?: 'AXIAL' | 'SAGITTAL' | 'CORONAL';
 }
 
 function readFrameOfReferenceUID(imageId: string): string | null {
@@ -45,7 +50,7 @@ function readFrameOfReferenceUID(imageId: string): string | null {
   return typeof value === 'string' && value.length > 0 ? value : null;
 }
 
-export default function VolumeViewport({ panelId, imageIds }: VolumeViewportProps) {
+export default function VolumeViewport({ panelId, imageIds, orientation = 'AXIAL' }: VolumeViewportProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
   const scanId = useViewerStore((s) => s.panelScanMap[panelId] ?? '');
@@ -102,7 +107,7 @@ export default function VolumeViewport({ panelId, imageIds }: VolumeViewportProp
           element,
           imageIds,
           { scanId, frameOfReferenceUID },
-          'AXIAL',
+          orientation,
         );
 
         if (cancelled) return;
@@ -197,7 +202,7 @@ export default function VolumeViewport({ panelId, imageIds }: VolumeViewportProp
       useViewerStore.getState()._destroyPanel(panelId);
       useMetadataStore.getState()._clearOverlay(panelId);
     };
-  }, [panelId, imageIds, scanId]);
+  }, [panelId, imageIds, scanId, orientation]);
 
   return (
     <div

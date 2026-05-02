@@ -25,9 +25,17 @@ import VolumeViewport from './VolumeViewport';
 interface ViewportProps {
   panelId: string;
   imageIds: string[];
+  /**
+   * Optional volume orientation. When set to a non-AXIAL value, the panel is
+   * part of an MPR layout slot — Viewport routes through VolumeViewport
+   * (when the flag is on) or OrientedViewport (legacy fallback). When
+   * undefined or 'AXIAL', the panel renders in the default axial volume
+   * orientation (or stack mode if eligibility says so).
+   */
+  orientation?: 'AXIAL' | 'SAGITTAL' | 'CORONAL';
 }
 
-export default function Viewport({ panelId, imageIds }: ViewportProps) {
+export default function Viewport({ panelId, imageIds, orientation }: ViewportProps) {
   const multiViewportEnabled = usePreferencesStore(
     (s) => s.preferences.multiViewport.enabled,
   );
@@ -41,7 +49,7 @@ export default function Viewport({ panelId, imageIds }: ViewportProps) {
   }, [multiViewportEnabled, imageIds]);
 
   if (multiViewportEnabled && resolvedType === 'volume') {
-    return <VolumeViewport panelId={panelId} imageIds={imageIds} />;
+    return <VolumeViewport panelId={panelId} imageIds={imageIds} orientation={orientation ?? 'AXIAL'} />;
   }
 
   return <CornerstoneViewport panelId={panelId} imageIds={imageIds} />;
