@@ -294,6 +294,16 @@ test.describe('Signal 6 — rapid layout switching: 2×2 → 1×1 → MPR → 2�
   test.beforeAll(() => { config = getE2EConfig(); });
 
   test.beforeEach(async ({ authenticatedPage: page }) => {
+    // Pre-reload cleanup: prior specs (notably 09-undo-after-close) leave
+    // a dirty segmentation in the store, which triggers App.tsx's
+    // beforeunload prompt on reload — Playwright's default beforeunload
+    // handler then races with the explicit dialog handler and surfaces as
+    // "Protocol error (Page.handleJavaScriptDialog): No dialog is
+    // showing". Clearing dirty here makes the reload silent.
+    await page.evaluate(() => {
+      (window as any).__XNAT_E2E__?.markAllSegmentationsClean?.();
+    }).catch(() => { /* page may not have the hook installed yet on first run */ });
+
     // Hard-reset renderer state. Mirrors 09-undo-after-close.e2e.ts: the
     // suite leaves segmentations / labelmap reps / tool-group bindings in
     // place across specs; rapid layout churn is sensitive to that
