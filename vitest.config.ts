@@ -10,7 +10,10 @@ export default defineConfig({
     },
   },
   test: {
-    include: ['src/**/*.test.{ts,tsx}'],
+    include: [
+      'src/**/*.test.{ts,tsx}',
+      'e2e/helpers/**/__tests__/**/*.test.ts',
+    ],
     environment: 'node',
     environmentMatchGlobs: [
       ['src/renderer/lib/cornerstone/**/__tests__/**/*.test.{ts,tsx}', 'node'],
