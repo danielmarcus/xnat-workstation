@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // with the right arguments. The service's behavior is covered by
 // containerService.test.ts.
 const setMemberVisibilityMock = vi.hoisted(() => vi.fn());
+const setMemberLockMock = vi.hoisted(() => vi.fn());
 const setActiveMemberMock = vi.hoisted(() => vi.fn());
 const renameMemberMock = vi.hoisted(() => vi.fn());
 const deleteMemberMock = vi.hoisted(() => vi.fn());
@@ -23,6 +24,7 @@ const setRoiTypeMock = vi.hoisted(() => vi.fn());
 vi.mock('../../lib/cornerstone/containerService', () => ({
   containerService: {
     setMemberVisibility: setMemberVisibilityMock,
+    setMemberLock: setMemberLockMock,
     setActiveMember: setActiveMemberMock,
     renameMember: renameMemberMock,
     deleteMember: deleteMemberMock,
@@ -33,9 +35,26 @@ vi.mock('../../lib/cornerstone/containerService', () => ({
   },
 }));
 
+const saveContainerMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+const revertContainerMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+const exportContainerMock = vi.hoisted(() => vi.fn().mockResolvedValue(null));
+const saveAllDirtyMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+
+vi.mock('../../lib/cornerstone/containerActions', () => ({
+  saveContainer: saveContainerMock,
+  revertContainer: revertContainerMock,
+  exportContainer: exportContainerMock,
+  saveAllDirty: saveAllDirtyMock,
+}));
+
 import ContainerListPanel from './ContainerListPanel';
 import { useContainerStore } from '../../stores/containerStore';
 import { useContainerSelectionStore } from '../../stores/containerSelectionStore';
+import { useTransportStore } from '../../stores/transportStore';
+import {
+  resetVisibilityAdapter,
+  wireVisibility,
+} from '../../lib/cornerstone/segmentationService/visibility';
 import type { Container, Member } from '../../types/annotation';
 
 function makeMember(partial: Partial<Member> = {}): Member {
@@ -93,6 +112,8 @@ beforeEach(() => {
   useContainerStore.getState()._replaceAll(new Map());
   useContainerSelectionStore.getState().setActive(null);
   useContainerSelectionStore.getState().clearSelection();
+  useTransportStore.getState().clear();
+  resetVisibilityAdapter();
   setMemberVisibilityMock.mockReset();
   setActiveMemberMock.mockReset();
   renameMemberMock.mockReset();
@@ -101,12 +122,18 @@ beforeEach(() => {
   approveContainerMock.mockReset();
   revokeApprovalMock.mockReset();
   setRoiTypeMock.mockReset();
+  saveContainerMock.mockReset().mockResolvedValue(undefined);
+  revertContainerMock.mockReset().mockResolvedValue(undefined);
+  exportContainerMock.mockReset().mockResolvedValue(null);
+  saveAllDirtyMock.mockReset().mockResolvedValue(undefined);
 });
 
 afterEach(() => {
   useContainerStore.getState()._replaceAll(new Map());
   useContainerSelectionStore.getState().setActive(null);
   useContainerSelectionStore.getState().clearSelection();
+  useTransportStore.getState().clear();
+  resetVisibilityAdapter();
 });
 
 describe('empty state', () => {
@@ -156,6 +183,29 @@ describe('container row rendering', () => {
     expect(approved?.getAttribute('title')).toContain('dr.smith');
     expect(screen.queryByTestId('container-approved:c2')).toBeNull();
   });
+
+  it('expand/collapse hides member rows when collapsed (D7.1)', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [makeMember({ id: 'm1', name: 'Tumor' })],
+      }),
+    );
+    render(<ContainerListPanel />);
+    // Default expanded.
+    expect(screen.queryByTestId('member-row:m1')).not.toBeNull();
+    const toggle = screen.getByTestId('container-toggle:c1');
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+
+    // Collapse — member rows go away.
+    fireEvent.click(toggle);
+    expect(screen.queryByTestId('member-row:m1')).toBeNull();
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+
+    // Re-expand.
+    fireEvent.click(toggle);
+    expect(screen.queryByTestId('member-row:m1')).not.toBeNull();
+  });
 });
 
 describe('member row rendering', () => {
@@ -191,6 +241,52 @@ describe('member row rendering', () => {
     render(<ContainerListPanel />);
     expect(screen.queryByTestId('member-locked:m1')).not.toBeNull();
     expect(screen.queryByTestId('member-locked:m2')).toBeNull();
+    // Unlocked members surface a hover-only toggle (D7.2/C5).
+    expect(screen.queryByTestId('member-lock-toggle:m2')).not.toBeNull();
+  });
+
+  it('clicking the lock toggle calls setMemberLock', () => {
+    setMemberLockMock.mockReset();
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [
+          makeMember({ id: 'm-locked', locked: true }),
+          makeMember({ id: 'm-unlocked', locked: false }),
+        ],
+      }),
+    );
+    render(<ContainerListPanel />);
+    fireEvent.click(screen.getByTestId('member-locked:m-locked'));
+    expect(setMemberLockMock).toHaveBeenCalledWith('m-locked', false);
+    fireEvent.click(screen.getByTestId('member-lock-toggle:m-unlocked'));
+    expect(setMemberLockMock).toHaveBeenCalledWith('m-unlocked', true);
+  });
+
+  it('lock toggle is hidden on approved containers (read-only indicator instead)', () => {
+    setMemberLockMock.mockReset();
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        approval: {
+          approved: true,
+          reviewerName: 'Dr. Smith',
+          reviewedAt: 1,
+          history: [],
+        },
+        members: [
+          makeMember({ id: 'm1', locked: true }),
+          makeMember({ id: 'm2', locked: false }),
+        ],
+      }),
+    );
+    render(<ContainerListPanel />);
+    // m1 still shows the icon (read-only) — matches "container approved" state.
+    expect(screen.queryByTestId('member-locked:m1')).not.toBeNull();
+    expect(screen.queryByTestId('member-locked:m1')?.tagName).toBe('SPAN');
+    // m2 is unlocked but on an approved container — no toggle, no indicator.
+    expect(screen.queryByTestId('member-locked:m2')).toBeNull();
+    expect(screen.queryByTestId('member-lock-toggle:m2')).toBeNull();
   });
 
   it('renders different visibility-mode glyphs for hidden / outlined / filled', () => {
@@ -1396,5 +1492,430 @@ describe('provenance indicator (D7.2)', () => {
     );
     render(<ContainerListPanel />);
     expect(screen.queryByTestId('member-provenance:m1')?.textContent).toBe('AI');
+  });
+});
+
+// ─── Phase 3.8 cleanup: D7.4 / D7.9 indicators ────────────────────────
+
+describe('container row transport indicators (D7.4 / D7.9)', () => {
+  it('renders the load-in-flight spinner when transport is loading', () => {
+    setContainers(makeContainer({ id: 'c1' }));
+    act(() => useTransportStore.getState().beginLoad('c1'));
+    render(<ContainerListPanel />);
+    expect(screen.queryByTestId('container-load-inflight:c1')).not.toBeNull();
+  });
+
+  it('renders save-in-flight spinner when saving (not loading)', () => {
+    setContainers(makeContainer({ id: 'c1' }));
+    act(() => useTransportStore.getState().beginSave('c1'));
+    render(<ContainerListPanel />);
+    expect(screen.queryByTestId('container-save-inflight:c1')).not.toBeNull();
+    expect(screen.queryByTestId('container-load-inflight:c1')).toBeNull();
+  });
+
+  it('renders parse-error indicator when Container.parseError is set', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        parseError: { message: 'Bad SEG header', at: 0 },
+      }),
+    );
+    render(<ContainerListPanel />);
+    const badge = screen.queryByTestId('container-parse-error:c1');
+    expect(badge).not.toBeNull();
+    expect(badge?.getAttribute('title')).toContain('Bad SEG header');
+  });
+
+  it('renders conflict indicator when externalChangePending', () => {
+    setContainers(makeContainer({ id: 'c1' }));
+    act(() => useTransportStore.getState().noteExternalChange('c1'));
+    render(<ContainerListPanel />);
+    expect(screen.queryByTestId('container-conflict:c1')).not.toBeNull();
+  });
+
+  it('renders transient-error indicator when last save was a transient failure', () => {
+    setContainers(makeContainer({ id: 'c1' }));
+    act(() =>
+      useTransportStore.getState().finishSaveTransientFailure('c1', {
+        kind: 'transient',
+        message: 'Network blip',
+        at: Date.now(),
+      }),
+    );
+    render(<ContainerListPanel />);
+    const badge = screen.queryByTestId('container-transient-error:c1');
+    expect(badge).not.toBeNull();
+    expect(badge?.getAttribute('title')).toContain('Network blip');
+  });
+
+  it('renders permanent-error indicator when last save was a permanent failure', () => {
+    setContainers(makeContainer({ id: 'c1' }));
+    act(() =>
+      useTransportStore.getState().finishSavePermanentFailure('c1', {
+        kind: 'permanent',
+        message: 'Forbidden',
+        at: Date.now(),
+      }),
+    );
+    render(<ContainerListPanel />);
+    const badge = screen.queryByTestId('container-permanent-error:c1');
+    expect(badge).not.toBeNull();
+    expect(badge?.getAttribute('title')).toContain('Forbidden');
+  });
+});
+
+describe('member row eligibility indicators (D7.4)', () => {
+  function wireSourceIdentities(
+    member: { seriesUID: string; foRUID: string; acq: number | null } | null,
+    viewport: { seriesUID: string; foRUID: string; acq: number | null } | null,
+  ) {
+    wireVisibility({
+      getViewportSourceIdentity: () =>
+        viewport
+          ? {
+              seriesUID: viewport.seriesUID,
+              frameOfReferenceUID: viewport.foRUID,
+              acquisitionNumber: viewport.acq,
+            }
+          : null,
+      getSegmentationSourceIdentity: () =>
+        member
+          ? {
+              seriesUID: member.seriesUID,
+              frameOfReferenceUID: member.foRUID,
+              acquisitionNumber: member.acq,
+            }
+          : null,
+      getAnnotationSourceIdentity: () =>
+        member
+          ? {
+              seriesUID: member.seriesUID,
+              frameOfReferenceUID: member.foRUID,
+              acquisitionNumber: member.acq,
+            }
+          : null,
+    });
+  }
+
+  it('does NOT render indicator on native (same series) members', () => {
+    wireSourceIdentities(
+      { seriesUID: 'sX', foRUID: 'forA', acq: 1 },
+      { seriesUID: 'sX', foRUID: 'forA', acq: 1 },
+    );
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [makeMember({ id: 'm1', csSegmentationId: 'seg_1' })],
+      }),
+    );
+    render(<ContainerListPanel />);
+    expect(screen.queryByTestId('member-eligibility:m1')).toBeNull();
+  });
+
+  it('renders cross-series-A2b badge on different series, same FoR', () => {
+    wireSourceIdentities(
+      { seriesUID: 'sX', foRUID: 'forA', acq: 1 },
+      { seriesUID: 'sY', foRUID: 'forA', acq: 1 },
+    );
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [makeMember({ id: 'm1', csSegmentationId: 'seg_1' })],
+      }),
+    );
+    render(<ContainerListPanel />);
+    const badge = screen.queryByTestId('member-eligibility:m1');
+    expect(badge).not.toBeNull();
+    expect(badge?.getAttribute('data-eligibility')).toBe('cross-series-A2b');
+    expect(badge?.textContent).toContain('X-S');
+  });
+
+  it('renders cross-series-A2c badge when AcquisitionNumbers differ', () => {
+    wireSourceIdentities(
+      { seriesUID: 'sX', foRUID: 'forA', acq: 1 },
+      { seriesUID: 'sY', foRUID: 'forA', acq: 2 },
+    );
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [makeMember({ id: 'm1', csSegmentationId: 'seg_1' })],
+      }),
+    );
+    render(<ContainerListPanel />);
+    const badge = screen.queryByTestId('member-eligibility:m1');
+    expect(badge?.getAttribute('data-eligibility')).toBe('cross-series-A2c');
+    expect(badge?.textContent).toContain('A2c');
+  });
+
+  it('renders cross-FoR badge when FoR differs', () => {
+    wireSourceIdentities(
+      { seriesUID: 'sX', foRUID: 'forA', acq: 1 },
+      { seriesUID: 'sY', foRUID: 'forB', acq: 1 },
+    );
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [makeMember({ id: 'm1', csSegmentationId: 'seg_1' })],
+      }),
+    );
+    render(<ContainerListPanel />);
+    const badge = screen.queryByTestId('member-eligibility:m1');
+    expect(badge?.getAttribute('data-eligibility')).toBe('cross-FoR');
+    expect(badge?.textContent).toContain('FoR');
+  });
+
+  it('skips classification when adapter is not wired', () => {
+    // resetVisibilityAdapter is in beforeEach — no wireSourceIdentities call.
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [makeMember({ id: 'm1', csSegmentationId: 'seg_1' })],
+      }),
+    );
+    render(<ContainerListPanel />);
+    expect(screen.queryByTestId('member-eligibility:m1')).toBeNull();
+  });
+});
+
+describe('member row auto-interpolated marker (D7.4 / B5)', () => {
+  it('renders the marker when interpolationState is "has-interpolated"', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [makeMember({ id: 'm1', interpolationState: 'has-interpolated' })],
+      }),
+    );
+    render(<ContainerListPanel />);
+    expect(screen.queryByTestId('member-auto-interpolated:m1')).not.toBeNull();
+  });
+
+  it('does NOT render the marker when interpolationState is "none"', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [makeMember({ id: 'm1', interpolationState: 'none' })],
+      }),
+    );
+    render(<ContainerListPanel />);
+    expect(screen.queryByTestId('member-auto-interpolated:m1')).toBeNull();
+  });
+});
+
+// ─── Phase 3.8 cleanup: container-level Save / Revert / Export (D7.6) ──
+
+describe('container action menu (D7.6)', () => {
+  let originalConfirm: typeof window.confirm;
+  beforeEach(() => {
+    originalConfirm = window.confirm;
+    window.confirm = vi.fn().mockReturnValue(true);
+  });
+  afterEach(() => {
+    window.confirm = originalConfirm;
+  });
+
+  it('opens the popover with Save / Revert / Export when "⋯" clicked', () => {
+    setContainers(makeContainer({ id: 'c1', dirty: true }));
+    render(<ContainerListPanel />);
+    act(() => fireEvent.click(screen.getByTestId('container-menu:c1')));
+    expect(screen.queryByTestId('container-menu-popover:c1')).not.toBeNull();
+    expect(screen.queryByTestId('container-menu-save:c1')).not.toBeNull();
+    expect(screen.queryByTestId('container-menu-revert:c1')).not.toBeNull();
+    expect(screen.queryByTestId('container-menu-export:c1')).not.toBeNull();
+  });
+
+  it('Save calls containerActions.saveContainer', () => {
+    setContainers(makeContainer({ id: 'c1', dirty: true }));
+    render(<ContainerListPanel />);
+    act(() => fireEvent.click(screen.getByTestId('container-menu:c1')));
+    act(() => fireEvent.click(screen.getByTestId('container-menu-save:c1')));
+    expect(saveContainerMock).toHaveBeenCalledWith('c1');
+  });
+
+  it('Save is disabled when not dirty', () => {
+    setContainers(makeContainer({ id: 'c1', dirty: false }));
+    render(<ContainerListPanel />);
+    act(() => fireEvent.click(screen.getByTestId('container-menu:c1')));
+    expect(
+      (screen.getByTestId('container-menu-save:c1') as HTMLButtonElement).disabled,
+    ).toBe(true);
+  });
+
+  it('Save is disabled when approved (edit-locked)', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        dirty: true,
+        approval: { approved: true, reviewerName: null, reviewedAt: 0, history: [] },
+      }),
+    );
+    render(<ContainerListPanel />);
+    act(() => fireEvent.click(screen.getByTestId('container-menu:c1')));
+    expect(
+      (screen.getByTestId('container-menu-save:c1') as HTMLButtonElement).disabled,
+    ).toBe(true);
+  });
+
+  it('Revert calls containerActions.revertContainer after confirm', () => {
+    setContainers(makeContainer({ id: 'c1', dirty: true }));
+    render(<ContainerListPanel />);
+    act(() => fireEvent.click(screen.getByTestId('container-menu:c1')));
+    act(() => fireEvent.click(screen.getByTestId('container-menu-revert:c1')));
+    expect(revertContainerMock).toHaveBeenCalledWith('c1');
+  });
+
+  it('Revert does NOT call when user cancels', () => {
+    window.confirm = vi.fn().mockReturnValue(false);
+    setContainers(makeContainer({ id: 'c1', dirty: true }));
+    render(<ContainerListPanel />);
+    act(() => fireEvent.click(screen.getByTestId('container-menu:c1')));
+    act(() => fireEvent.click(screen.getByTestId('container-menu-revert:c1')));
+    expect(revertContainerMock).not.toHaveBeenCalled();
+  });
+
+  it('Export calls containerActions.exportContainer', () => {
+    setContainers(makeContainer({ id: 'c1' }));
+    render(<ContainerListPanel />);
+    act(() => fireEvent.click(screen.getByTestId('container-menu:c1')));
+    act(() => fireEvent.click(screen.getByTestId('container-menu-export:c1')));
+    expect(exportContainerMock).toHaveBeenCalledWith('c1');
+  });
+});
+
+// ─── Phase 3.8 cleanup: bulk operations (D7.5 / D7.6) ─────────────────
+
+describe('bulk action bar (D7.5 / D7.6)', () => {
+  let originalConfirm: typeof window.confirm;
+  beforeEach(() => {
+    originalConfirm = window.confirm;
+    window.confirm = vi.fn().mockReturnValue(true);
+  });
+  afterEach(() => {
+    window.confirm = originalConfirm;
+  });
+
+  it('only renders when selection has at least one member', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [makeMember({ id: 'm1' }), makeMember({ id: 'm2' })],
+      }),
+    );
+    const { rerender } = render(<ContainerListPanel />);
+    expect(screen.queryByTestId('bulk-action-bar')).toBeNull();
+    act(() => useContainerSelectionStore.getState().setSelection('m1'));
+    rerender(<ContainerListPanel />);
+    expect(screen.queryByTestId('bulk-action-bar')).not.toBeNull();
+  });
+
+  it('Hide applies setMemberVisibility(hidden) to every selected member', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [makeMember({ id: 'm1' }), makeMember({ id: 'm2' })],
+      }),
+    );
+    act(() =>
+      useContainerSelectionStore.getState().setSelectionSet(['m1', 'm2']),
+    );
+    render(<ContainerListPanel />);
+    fireEvent.click(screen.getByTestId('bulk-hide'));
+    expect(setMemberVisibilityMock).toHaveBeenCalledWith('m1', 'hidden');
+    expect(setMemberVisibilityMock).toHaveBeenCalledWith('m2', 'hidden');
+  });
+
+  it('Show applies setMemberVisibility(filled) to every selected member', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [makeMember({ id: 'm1' }), makeMember({ id: 'm2' })],
+      }),
+    );
+    act(() =>
+      useContainerSelectionStore.getState().setSelectionSet(['m1', 'm2']),
+    );
+    render(<ContainerListPanel />);
+    fireEvent.click(screen.getByTestId('bulk-show'));
+    expect(setMemberVisibilityMock).toHaveBeenCalledWith('m1', 'filled');
+    expect(setMemberVisibilityMock).toHaveBeenCalledWith('m2', 'filled');
+  });
+
+  it('Lock applies setMemberLock(true) only to non-approved containers', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [makeMember({ id: 'm1' })],
+      }),
+      makeContainer({
+        id: 'c2',
+        approval: { approved: true, reviewerName: null, reviewedAt: 0, history: [] },
+        members: [makeMember({ id: 'm2' })],
+      }),
+    );
+    act(() =>
+      useContainerSelectionStore.getState().setSelectionSet(['m1', 'm2']),
+    );
+    render(<ContainerListPanel />);
+    fireEvent.click(screen.getByTestId('bulk-lock'));
+    expect(setMemberLockMock).toHaveBeenCalledWith('m1', true);
+    expect(setMemberLockMock).not.toHaveBeenCalledWith('m2', true);
+  });
+
+  it('Delete prompts confirm and calls deleteMember per editable member', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [makeMember({ id: 'm1' }), makeMember({ id: 'm2' })],
+      }),
+    );
+    act(() =>
+      useContainerSelectionStore.getState().setSelectionSet(['m1', 'm2']),
+    );
+    render(<ContainerListPanel />);
+    fireEvent.click(screen.getByTestId('bulk-delete'));
+    expect(deleteMemberMock).toHaveBeenCalledWith('m1');
+    expect(deleteMemberMock).toHaveBeenCalledWith('m2');
+    // Selection cleared after delete.
+    expect(useContainerSelectionStore.getState().selectionSet.size).toBe(0);
+  });
+
+  it('Delete cancelled does NOT call deleteMember', () => {
+    window.confirm = vi.fn().mockReturnValue(false);
+    setContainers(
+      makeContainer({ id: 'c1', members: [makeMember({ id: 'm1' })] }),
+    );
+    act(() => useContainerSelectionStore.getState().setSelectionSet(['m1']));
+    render(<ContainerListPanel />);
+    fireEvent.click(screen.getByTestId('bulk-delete'));
+    expect(deleteMemberMock).not.toHaveBeenCalled();
+  });
+
+  it('Clear-selection button empties the selection set', () => {
+    setContainers(
+      makeContainer({ id: 'c1', members: [makeMember({ id: 'm1' })] }),
+    );
+    act(() => useContainerSelectionStore.getState().setSelectionSet(['m1']));
+    render(<ContainerListPanel />);
+    fireEvent.click(screen.getByTestId('bulk-clear'));
+    expect(useContainerSelectionStore.getState().selectionSet.size).toBe(0);
+  });
+});
+
+// ─── Phase 3.8 cleanup: session-level Save All (D7.6) ─────────────────
+
+describe('session save-all (D7.6)', () => {
+  it('renders only when at least one container is dirty', () => {
+    setContainers(makeContainer({ id: 'c1', dirty: false }));
+    const { rerender } = render(<ContainerListPanel />);
+    expect(screen.queryByTestId('session-save-all')).toBeNull();
+    setContainers(makeContainer({ id: 'c1', dirty: true }));
+    rerender(<ContainerListPanel />);
+    expect(screen.queryByTestId('session-save-all')).not.toBeNull();
+  });
+
+  it('clicking calls containerActions.saveAllDirty', () => {
+    setContainers(makeContainer({ id: 'c1', dirty: true }));
+    render(<ContainerListPanel />);
+    fireEvent.click(screen.getByTestId('session-save-all'));
+    expect(saveAllDirtyMock).toHaveBeenCalled();
   });
 });

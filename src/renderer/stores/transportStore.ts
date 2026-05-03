@@ -23,6 +23,14 @@ export interface TransportRecord {
   versionToken: VersionToken | null;
   /** H4/E2: a save round-trip is in flight. */
   saveInFlight: boolean;
+  /**
+   * D7.9: transport is fetching/parsing the container payload (e.g.,
+   * downloading a DICOM SEG / RTSTRUCT and ingesting it). Surfaces the
+   * loading-spinner state on the container row. Cleared when the load
+   * completes (either to a normal record or, on parse failure, set on
+   * Container.parseError instead).
+   */
+  loadInFlight: boolean;
   /** ms since epoch of the last successful save, or null if never saved. */
   lastSavedAt: number | null;
   /** Most recent transport outcome category, or null if no outcome yet. */
@@ -57,6 +65,12 @@ interface TransportStore {
 
   /** Mark a save as in flight for a container. Idempotent. */
   beginSave: (containerId: string) => void;
+
+  /** Mark a transport load as in flight (D7.9). Idempotent. */
+  beginLoad: (containerId: string) => void;
+
+  /** Clear loadInFlight (D7.9 — call from transport after parse success or failure). */
+  finishLoad: (containerId: string) => void;
 
   /**
    * Mark a save complete with a new version token (H5 success path).
@@ -93,6 +107,7 @@ function emptyRecord(): TransportRecord {
   return {
     versionToken: null,
     saveInFlight: false,
+    loadInFlight: false,
     lastSavedAt: null,
     lastOutcome: null,
     lastError: null,
@@ -117,6 +132,20 @@ export const useTransportStore = create<TransportStore>((set, get) => ({
       records: withRecord(state.records, containerId, {
         saveInFlight: true,
         lastError: null,
+      }),
+    })),
+
+  beginLoad: (containerId) =>
+    set((state) => ({
+      records: withRecord(state.records, containerId, {
+        loadInFlight: true,
+      }),
+    })),
+
+  finishLoad: (containerId) =>
+    set((state) => ({
+      records: withRecord(state.records, containerId, {
+        loadInFlight: false,
       }),
     })),
 

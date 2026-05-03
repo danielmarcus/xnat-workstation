@@ -106,6 +106,17 @@ export interface ContainerService {
   setMemberVisibility(memberId: string, mode: VisibilityMode): void;
 
   /**
+   * Toggle the per-member session-only lock (C5). Mirrors to Cornerstone's
+   * `segmentLocking.setSegmentIndexLocked` so the existing tool-side
+   * guard (toolService — refuses to activate segmentation tools when the
+   * active segment is locked) stays in sync. Session-only — does NOT
+   * mark the container dirty (per §D7.10). Refused on approved
+   * containers — the §D7.11 container-level lock supersedes the
+   * per-member lock.
+   */
+  setMemberLock(memberId: string, locked: boolean): void;
+
+  /**
    * Stamp a member's provenance (D7.2). Used by the interpolation
    * stamping module (Phase 4.1) and by the manual-edit detector (Phase
    * 4.4) which flips an interpolated member back to `'manual'` once the
@@ -130,6 +141,21 @@ export interface ContainerService {
     memberId: string,
     state: Member['interpolationState'],
   ): void;
+
+  /**
+   * Phase 4.5: clear `interpolationState` to `'none'` on every member
+   * of the given container. Called from `transport.ts` on save success
+   * per design §B5: "marker fades after manual edit or save."
+   *
+   * Provenance is intentionally NOT cleared here — it tracks geometry
+   * source, which the save event does not change. (Reload defaults to
+   * `'imported'`, which is where signal 22's "provenance survives where
+   * DICOM permits" lands.)
+   *
+   * Session-only — does NOT mark the container dirty (per §D7.10).
+   * Idempotent: members already at `'none'` are unchanged.
+   */
+  clearContainerInterpolationStates(containerId: string): void;
 
   // ─── Active state resolution ──────────────────────────────────────────
 
@@ -182,6 +208,8 @@ export interface MemberCrudDeps {
     segmentIndex: number,
     color: [number, number, number, number],
   ) => void;
+  /** Toggle segment lock in Cornerstone state (C5). */
+  setSegmentLocked: (segmentationId: string, segmentIndex: number, locked: boolean) => void;
 }
 
 interface ContainerServiceDeps extends MemberVisibilityDeps, MemberCrudDeps {}
@@ -195,6 +223,7 @@ const NOOP_DEPS: ContainerServiceDeps = {
   removeSegment: () => undefined,
   renameSegment: () => undefined,
   setSegmentColor: () => undefined,
+  setSegmentLocked: () => undefined,
 };
 
 let deps: ContainerServiceDeps = NOOP_DEPS;
@@ -450,6 +479,38 @@ export const containerService: ContainerService = {
   },
 
   /**
+   * Flip the per-member lock (C5). Refused on approved containers — the
+   * §D7.11 container-level lock supersedes any per-member lock; flipping
+   * `member.locked` underneath an approved container would silently
+   * un-lock geometry edits that the approval is meant to prevent. Lock
+   * state is session-only per §D7.10 — explicitly does NOT mark the
+   * container dirty.
+   */
+  setMemberLock(memberId: string, locked: boolean): void {
+    if (!memberId) return;
+    const found = findMemberContainer(memberId);
+    if (!found) {
+      throw new Error(`[containerService] setMemberLock: unknown memberId ${memberId}`);
+    }
+    const { container, member } = found;
+    assertNotApproved(container, 'setMemberLock');
+    if (member.locked === locked) return;
+
+    member.locked = locked;
+    member.modifiedAt = Date.now();
+
+    if (member.csSegmentationId && Number.isInteger(member.segmentIndex) && member.segmentIndex! > 0) {
+      try {
+        deps.setSegmentLocked(member.csSegmentationId, member.segmentIndex!, locked);
+      } catch (err) {
+        console.warn('[containerService] setSegmentLocked failed', { memberId, locked, err });
+      }
+    }
+
+    containerBridge.notifyChange(container.id);
+  },
+
+  /**
    * Stamp a member's provenance. Idempotent on no-op (same value). Does
    * NOT mark the container dirty — see interface comment for rationale
    * (provenance is re-inferred at load for `'manual'`/`'interpolated'`).
@@ -489,6 +550,29 @@ export const containerService: ContainerService = {
     member.interpolationState = state;
     member.modifiedAt = Date.now();
     containerBridge.notifyChange(container.id);
+  },
+
+  /**
+   * Bulk-clear `interpolationState` on every member of a container.
+   * Phase 4.5 / signal 22: the auto-marker fades on save success.
+   * No-op when the container is unknown or has no members in
+   * `'has-interpolated'`. Session-only mutation — does NOT mark the
+   * container dirty.
+   */
+  clearContainerInterpolationStates(containerId: string): void {
+    if (!containerId) return;
+    const container = containerBridge.getContainer(containerId);
+    if (!container) return;
+    let changed = false;
+    const now = Date.now();
+    for (const member of container.members) {
+      if (member.interpolationState === 'has-interpolated') {
+        member.interpolationState = 'none';
+        member.modifiedAt = now;
+        changed = true;
+      }
+    }
+    if (changed) containerBridge.notifyChange(containerId);
   },
 
   // ─── Active state resolution ──────────────────────────────────────────
