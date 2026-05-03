@@ -60,6 +60,10 @@ import * as contourRep from './contourRepresentation';
 import * as sourceImageTracking from './sourceImageTracking';
 import * as containerBridge from './containerBridge';
 import * as containerStoreSync from './containerStoreSync';
+import {
+  wireContainerService,
+  resetContainerServiceWiring,
+} from './containerService';
 import * as mlg from './multiLayerGroup';
 import * as interpolationAcceptance from './interpolationAcceptance';
 import { backupService } from '../backup/backupService';
@@ -919,6 +923,59 @@ export const segmentationService = {
     // React components to subscribe to. Subscribes to bridge mutations
     // and pushes immutable snapshots into useContainerStore.
     containerStoreSync.initialize();
+
+    // Phase 3.4: wire Cornerstone-backed deps for containerService's
+    // member-visibility cycling (D7.3). The DI seam keeps containerService
+    // free of @cornerstonejs/* imports so its tests stay light.
+    wireContainerService({
+      setSegmentStyle: (segId, segIdx, kind, styles) => {
+        try {
+          csSegmentation.segmentationStyle.setStyle(
+            {
+              type: kind === 'Labelmap'
+                ? ToolEnums.SegmentationRepresentations.Labelmap
+                : ToolEnums.SegmentationRepresentations.Contour,
+              segmentationId: segId,
+              segmentIndex: segIdx,
+            },
+            styles as never,
+            false,
+          );
+        } catch (err) {
+          console.warn('[containerService] setSegmentStyle failed', { segId, segIdx, kind, err });
+        }
+      },
+      setSegmentVisibility: (vpId, segId, segIdx, kind, visible) => {
+        try {
+          csSegmentation.config.visibility.setSegmentIndexVisibility(
+            vpId,
+            {
+              segmentationId: segId,
+              type: kind === 'Labelmap'
+                ? ToolEnums.SegmentationRepresentations.Labelmap
+                : ToolEnums.SegmentationRepresentations.Contour,
+            },
+            segIdx,
+            visible,
+          );
+        } catch (err) {
+          console.warn('[containerService] setSegmentVisibility failed', { vpId, segId, segIdx, kind, err });
+        }
+      },
+      getViewportIdsWithSegmentation: (segId) => {
+        try {
+          return csSegmentation.state.getViewportIdsWithSegmentation(segId) ?? [];
+        } catch {
+          return [];
+        }
+      },
+      getRepresentationKinds: (segId) => {
+        const t = getSegmentationType(segId);
+        if (t === 'labelmap') return ['Labelmap'];
+        if (t === 'contour') return ['Contour'];
+        return ['Labelmap', 'Contour'];
+      },
+    });
 
     // Wire interpolation-acceptance policies (auto-accept on generation
     // when the preference is enabled; click-to-accept always).
@@ -4618,6 +4675,7 @@ export const segmentationService = {
     // unsubscribes its auto-cleanup listener and clears its map.
     sourceImageTracking.dispose();
     containerStoreSync.dispose();
+    resetContainerServiceWiring();
     containerBridge.dispose();
     clearAllUndoHistories();
     transportCoordinator.clearAll();

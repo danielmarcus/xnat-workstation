@@ -33,7 +33,12 @@ import type {
   Member,
   RGB,
   RTROIInterpretedType,
+  VisibilityMode,
 } from '../../types/annotation';
+import {
+  applyMemberVisibilityMode,
+  type MemberVisibilityDeps,
+} from './segmentationService/memberVisibility';
 
 export interface CreateContainerInput {
   kind: ContainerKind;
@@ -83,6 +88,15 @@ export interface ContainerService {
   /** Set ROI type on an RTSTRUCT member; no-op for non-RTSTRUCT members. */
   setRoiType(memberId: string, roiType: RTROIInterpretedType): void;
 
+  /**
+   * Set the visibility mode (D7.3) on a member. Updates the bridge's
+   * Container.members[member].visibility AND pushes through to
+   * Cornerstone (per-segment style + per-segment visibility on attached
+   * viewports). Visibility-mode is session-only state and does NOT mark
+   * the container dirty (per §D7.10).
+   */
+  setMemberVisibility(memberId: string, mode: VisibilityMode): void;
+
   // ─── Active state resolution ──────────────────────────────────────────
 
   /**
@@ -109,10 +123,52 @@ export interface ContainerService {
   getApprovalHistory(containerId: string): ApprovalEvent[];
 }
 
+// ─── Phase 3.4: Cornerstone deps for member visibility ─────────────────
+
+let memberVisibilityDeps: MemberVisibilityDeps = {
+  setSegmentStyle: () => undefined,
+  setSegmentVisibility: () => undefined,
+  getViewportIdsWithSegmentation: () => [],
+  getRepresentationKinds: () => [],
+};
+
+/**
+ * Inject the Cornerstone-backed deps used by `setMemberVisibility`.
+ * Called once at `segmentationService.initialize()` with real
+ * Cornerstone APIs; tests pass synthetic stubs to avoid module-level
+ * Cornerstone mocks.
+ */
+export function wireContainerService(deps: MemberVisibilityDeps): void {
+  memberVisibilityDeps = deps;
+}
+
+/** Reset the deps to a no-op stub. Used by test teardown. */
+export function resetContainerServiceWiring(): void {
+  memberVisibilityDeps = {
+    setSegmentStyle: () => undefined,
+    setSegmentVisibility: () => undefined,
+    getViewportIdsWithSegmentation: () => [],
+    getRepresentationKinds: () => [],
+  };
+}
+
 // ─── Phase 3.1 implementations ──────────────────────────────────────────
 
 function notImplementedYet(method: string, phase: string): never {
   throw new Error(`[containerService] ${method} not yet implemented (lands in ${phase})`);
+}
+
+function findMemberContainer(
+  memberId: string,
+): { container: Container; member: Member } | null {
+  if (!memberId) return null;
+  for (const { containerId } of containerBridge.listAll()) {
+    const container = containerBridge.getContainer(containerId);
+    if (!container) continue;
+    const member = container.members.find((m) => m.id === memberId);
+    if (member) return { container, member };
+  }
+  return null;
 }
 
 export const containerService: ContainerService = {
@@ -153,6 +209,38 @@ export const containerService: ContainerService = {
   renameMember: () => notImplementedYet('renameMember', 'Phase 3.2'),
   recolorMember: () => notImplementedYet('recolorMember', 'Phase 3.2'),
   setRoiType: () => notImplementedYet('setRoiType', 'Phase 3.8 ROI type badge'),
+
+  /**
+   * Set the visibility mode on a member (D7.3) — updates bridge state
+   * AND applies through to Cornerstone. Idempotent on no-op (same mode).
+   * Visibility mode is session-only (D7.10) so does NOT mark the
+   * container dirty.
+   */
+  setMemberVisibility(memberId: string, mode: VisibilityMode): void {
+    if (!memberId) return;
+    const found = findMemberContainer(memberId);
+    if (!found) {
+      throw new Error(`[containerService] setMemberVisibility: unknown memberId ${memberId}`);
+    }
+    const { container, member } = found;
+    if (member.visibility === mode) return;
+
+    member.visibility = mode;
+    member.modifiedAt = Date.now();
+
+    if (member.csSegmentationId && Number.isInteger(member.segmentIndex) && member.segmentIndex! > 0) {
+      applyMemberVisibilityMode(
+        memberVisibilityDeps,
+        member.csSegmentationId,
+        member.segmentIndex!,
+        mode,
+      );
+    }
+
+    // Notify the store sync so the UI re-renders. Visibility-mode is
+    // session-only per §D7.10 — explicitly NOT calling `dirty = true`.
+    containerBridge.notifyChange(container.id);
+  },
 
   // ─── Active state resolution ──────────────────────────────────────────
 

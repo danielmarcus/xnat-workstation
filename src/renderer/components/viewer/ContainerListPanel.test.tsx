@@ -5,8 +5,20 @@
  * useContainerStore. No bridge interaction — these tests verify the
  * UI shell renders state correctly.
  */
-import { render, screen } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { act, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+// Mock containerService.setMemberVisibility — we just verify the panel
+// calls it with the right next-mode. The service's behavior is covered
+// by containerService.test.ts.
+const setMemberVisibilityMock = vi.hoisted(() => vi.fn());
+
+vi.mock('../../lib/cornerstone/containerService', () => ({
+  containerService: {
+    setMemberVisibility: setMemberVisibilityMock,
+  },
+}));
+
 import ContainerListPanel from './ContainerListPanel';
 import { useContainerStore } from '../../stores/containerStore';
 import type { Container, Member } from '../../types/annotation';
@@ -63,6 +75,7 @@ function setContainers(...containers: Container[]): void {
 
 beforeEach(() => {
   useContainerStore.getState()._replaceAll(new Map());
+  setMemberVisibilityMock.mockReset();
 });
 
 afterEach(() => {
@@ -214,5 +227,78 @@ describe('kind badge color', () => {
     expect(segRow.querySelector('span')?.className).toContain('text-cyan-400');
     expect(rtRow.querySelector('span')?.className).toContain('text-violet-400');
     expect(poiRow.querySelector('span')?.className).toContain('text-amber-400');
+  });
+});
+
+// ─── Phase 3.4: visibility-mode click cycling ──────────────────────────
+
+describe('visibility-mode click cycling', () => {
+  it('clicking the visibility glyph calls setMemberVisibility with the next mode', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [makeMember({ id: 'm1', visibility: 'filled' })],
+      }),
+    );
+    render(<ContainerListPanel />);
+    act(() => {
+      fireEvent.click(screen.getByTestId('member-visibility:m1'));
+    });
+    expect(setMemberVisibilityMock).toHaveBeenCalledWith('m1', 'outlined');
+  });
+
+  it('cycle goes filled → outlined → hidden → filled', () => {
+    const cases: Array<['filled' | 'outlined' | 'hidden', 'filled' | 'outlined' | 'hidden']> = [
+      ['filled', 'outlined'],
+      ['outlined', 'hidden'],
+      ['hidden', 'filled'],
+    ];
+    for (const [from, to] of cases) {
+      setMemberVisibilityMock.mockReset();
+      setContainers(
+        makeContainer({
+          id: 'c1',
+          members: [makeMember({ id: 'm1', visibility: from })],
+        }),
+      );
+      const { unmount } = render(<ContainerListPanel />);
+      act(() => {
+        fireEvent.click(screen.getByTestId('member-visibility:m1'));
+      });
+      expect(setMemberVisibilityMock).toHaveBeenCalledWith('m1', to);
+      unmount();
+    }
+  });
+
+  it('the click does not bubble to the row (event.stopPropagation)', () => {
+    // Future: when row click selects, the visibility click should NOT
+    // also select. Currently the row has no click handler, so we verify
+    // stopPropagation is wired by ensuring only the visibility call was
+    // made (no other side effects we can observe yet — this test guards
+    // the wiring for Phase 3.5).
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [makeMember({ id: 'm1', visibility: 'filled' })],
+      }),
+    );
+    render(<ContainerListPanel />);
+    act(() => {
+      fireEvent.click(screen.getByTestId('member-visibility:m1'));
+    });
+    expect(setMemberVisibilityMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('button is accessible — has aria-label and title with current mode', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [makeMember({ id: 'm1', visibility: 'outlined' })],
+      }),
+    );
+    render(<ContainerListPanel />);
+    const btn = screen.getByTestId('member-visibility:m1');
+    expect(btn.getAttribute('aria-label')).toBe('visibility outlined');
+    expect(btn.getAttribute('title')).toContain('outlined');
   });
 });

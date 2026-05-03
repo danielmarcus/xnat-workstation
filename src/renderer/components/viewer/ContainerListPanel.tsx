@@ -18,7 +18,9 @@
  * (w-64 right-side rail, dark theme, zinc-* tones, xs typography).
  */
 import { useContainerStore } from '../../stores/containerStore';
-import type { Container, Member, RGB } from '../../types/annotation';
+import { containerService } from '../../lib/cornerstone/containerService';
+import { nextVisibilityMode } from '../../lib/cornerstone/segmentationService/memberVisibility';
+import type { Container, Member, RGB, VisibilityMode } from '../../types/annotation';
 
 export default function ContainerListPanel() {
   const containers = useContainerStore((s) => s.containers);
@@ -141,16 +143,19 @@ function MemberRow({ member }: { member: Member }) {
       >
         {member.name}
       </span>
-      <span
-        className="text-[10px] text-zinc-600 tabular-nums"
-        title={
-          member.segmentIndex !== null
-            ? `segment ${member.segmentIndex}`
-            : undefined
-        }
+      <button
+        type="button"
+        data-testid={`member-visibility:${member.id}`}
+        className="text-[10px] text-zinc-500 hover:text-zinc-200 transition-colors px-0.5"
+        title={`Visibility: ${member.visibility} (click to cycle)`}
+        aria-label={`visibility ${member.visibility}`}
+        onClick={(e) => {
+          e.stopPropagation();
+          containerService.setMemberVisibility(member.id, nextVisibilityMode(member.visibility));
+        }}
       >
-        {member.visibility === 'hidden' ? '○' : member.visibility === 'outlined' ? '◐' : '●'}
-      </span>
+        {visibilityGlyph(member.visibility)}
+      </button>
       {member.locked && (
         <span
           data-testid={`member-locked:${member.id}`}
@@ -169,6 +174,17 @@ function MemberRow({ member }: { member: Member }) {
 
 function rgbCss(color: RGB): string {
   return `rgb(${color[0]}, ${color[1]}, ${color[2]})`;
+}
+
+function visibilityGlyph(mode: VisibilityMode): string {
+  switch (mode) {
+    case 'hidden':
+      return '○';
+    case 'outlined':
+      return '◐';
+    case 'filled':
+      return '●';
+  }
 }
 
 function kindColor(kind: Container['kind']): string {

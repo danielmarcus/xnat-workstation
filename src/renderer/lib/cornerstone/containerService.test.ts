@@ -316,3 +316,79 @@ describe('not-yet-implemented methods', () => {
     expect(() => containerService.setRoiType('m', 'GTV')).toThrow(/Phase 3\.8/);
   });
 });
+
+// ─── Phase 3.4: setMemberVisibility ────────────────────────────────────
+
+describe('setMemberVisibility', () => {
+  function injectMember(
+    csSegId: string,
+    memberId: string,
+    visibility: import('../../types/annotation').VisibilityMode = 'filled',
+  ): { containerId: string; csSegmentationId: string } {
+    const containerId = containerBridge.register(csSegId);
+    const container = containerBridge.getContainer(containerId)!;
+    container.members.push({
+      id: memberId,
+      name: 'M',
+      color: [255, 0, 0],
+      visibility,
+      locked: false,
+      provenance: 'manual',
+      roiType: null,
+      roiNumber: null,
+      interpolationState: null,
+      segmentIndex: 1,
+      segmentDescription: null,
+      segmentedPropertyCategory: null,
+      segmentedPropertyType: null,
+      poiPoints: null,
+      algebra: null,
+      algebraSources: null,
+      algebraOutOfDate: false,
+      algebraManualOverride: false,
+      csAnnotationUIDs: null,
+      csSegmentationId: csSegId,
+      createdAt: 0,
+      modifiedAt: 0,
+    });
+    return { containerId, csSegmentationId: csSegId };
+  }
+
+  it('mutates the member’s visibility field on the bridge', () => {
+    const { containerId } = injectMember('seg_1', 'm1', 'filled');
+    containerService.setMemberVisibility('m1', 'outlined');
+    const c = containerBridge.getContainer(containerId)!;
+    expect(c.members[0].visibility).toBe('outlined');
+  });
+
+  it('updates modifiedAt on the member', () => {
+    injectMember('seg_1', 'm1', 'filled');
+    const before = containerBridge.getContainer(containerBridge.getContainerId('seg_1')!)!.members[0].modifiedAt;
+    containerService.setMemberVisibility('m1', 'hidden');
+    const after = containerBridge.getContainer(containerBridge.getContainerId('seg_1')!)!.members[0].modifiedAt;
+    expect(after).toBeGreaterThanOrEqual(before);
+  });
+
+  it('does NOT mark the container dirty (visibility is session-only per §D7.10)', () => {
+    const { containerId } = injectMember('seg_1', 'm1', 'filled');
+    containerBridge.setDirty(containerId, false);
+    containerService.setMemberVisibility('m1', 'hidden');
+    expect(containerBridge.getContainer(containerId)?.dirty).toBe(false);
+  });
+
+  it('idempotent on no-op (same mode)', () => {
+    injectMember('seg_1', 'm1', 'outlined');
+    const before = containerBridge.getContainer(containerBridge.getContainerId('seg_1')!)!.members[0].modifiedAt;
+    containerService.setMemberVisibility('m1', 'outlined');
+    const after = containerBridge.getContainer(containerBridge.getContainerId('seg_1')!)!.members[0].modifiedAt;
+    expect(after).toBe(before); // no mutation
+  });
+
+  it('throws on unknown memberId', () => {
+    expect(() => containerService.setMemberVisibility('unknown', 'hidden')).toThrow(/unknown/);
+  });
+
+  it('skips empty memberId without throwing', () => {
+    expect(() => containerService.setMemberVisibility('', 'hidden')).not.toThrow();
+  });
+});
