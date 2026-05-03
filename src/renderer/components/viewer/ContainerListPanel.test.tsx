@@ -771,3 +771,142 @@ describe('delete with confirm (D7.6)', () => {
     expect(screen.queryByTestId('member-menu-popover:m1')).toBeNull();
   });
 });
+
+// ─── Phase 3.7a: filter by member name (D7.7) ──────────────────────────
+
+describe('filter / search (D7.7)', () => {
+  it('filter input is hidden when no containers exist', () => {
+    render(<ContainerListPanel />);
+    expect(screen.queryByTestId('container-filter')).toBeNull();
+  });
+
+  it('filter input appears when at least one container exists', () => {
+    setContainers(makeContainer({ id: 'c1', members: [makeMember({ id: 'm1' })] }));
+    render(<ContainerListPanel />);
+    expect(screen.queryByTestId('container-filter')).not.toBeNull();
+  });
+
+  it('typing a filter narrows visible members by name (case-insensitive substring)', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [
+          makeMember({ id: 'm1', name: 'GTV' }),
+          makeMember({ id: 'm2', name: 'CTV', segmentIndex: 2 }),
+          makeMember({ id: 'm3', name: 'PTV', segmentIndex: 3 }),
+          makeMember({ id: 'm4', name: 'Brain', segmentIndex: 4 }),
+        ],
+      }),
+    );
+    render(<ContainerListPanel />);
+
+    act(() => {
+      fireEvent.change(screen.getByTestId('container-filter'), { target: { value: 'tv' } });
+    });
+    expect(screen.queryByTestId('member-row:m1')).not.toBeNull();
+    expect(screen.queryByTestId('member-row:m2')).not.toBeNull();
+    expect(screen.queryByTestId('member-row:m3')).not.toBeNull();
+    expect(screen.queryByTestId('member-row:m4')).toBeNull();
+  });
+
+  it('hides containers whose members all fail the filter', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [makeMember({ id: 'm1', name: 'Tumor' })],
+      }),
+      makeContainer({
+        id: 'c2',
+        members: [makeMember({ id: 'm2', name: 'Edema' })],
+      }),
+    );
+    render(<ContainerListPanel />);
+
+    act(() => {
+      fireEvent.change(screen.getByTestId('container-filter'), { target: { value: 'tumor' } });
+    });
+    expect(screen.queryByTestId('container-row:c1')).not.toBeNull();
+    expect(screen.queryByTestId('container-row:c2')).toBeNull();
+  });
+
+  it('shows the no-matches placeholder when filter matches nothing', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [makeMember({ id: 'm1', name: 'Tumor' })],
+      }),
+    );
+    render(<ContainerListPanel />);
+
+    act(() => {
+      fireEvent.change(screen.getByTestId('container-filter'), { target: { value: 'nonexistent' } });
+    });
+    expect(screen.queryByTestId('container-panel-no-matches')).not.toBeNull();
+    expect(screen.queryByTestId('container-row:c1')).toBeNull();
+  });
+
+  it('clear button resets the filter', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [
+          makeMember({ id: 'm1', name: 'Tumor' }),
+          makeMember({ id: 'm2', name: 'Edema', segmentIndex: 2 }),
+        ],
+      }),
+    );
+    render(<ContainerListPanel />);
+    act(() => {
+      fireEvent.change(screen.getByTestId('container-filter'), { target: { value: 'tumor' } });
+    });
+    expect(screen.queryByTestId('member-row:m2')).toBeNull();
+
+    act(() => {
+      fireEvent.click(screen.getByTestId('container-filter-clear'));
+    });
+    expect(screen.queryByTestId('member-row:m1')).not.toBeNull();
+    expect(screen.queryByTestId('member-row:m2')).not.toBeNull();
+  });
+
+  it('clear button is hidden when filter is empty', () => {
+    setContainers(makeContainer({ id: 'c1', members: [makeMember({ id: 'm1' })] }));
+    render(<ContainerListPanel />);
+    expect(screen.queryByTestId('container-filter-clear')).toBeNull();
+  });
+
+  it('whitespace-only filter is treated as empty', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [makeMember({ id: 'm1', name: 'Tumor' })],
+      }),
+    );
+    render(<ContainerListPanel />);
+    act(() => {
+      fireEvent.change(screen.getByTestId('container-filter'), { target: { value: '   ' } });
+    });
+    expect(screen.queryByTestId('member-row:m1')).not.toBeNull();
+  });
+
+  it('filter does not mutate visibility / lock state of hidden-by-filter members', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [
+          makeMember({ id: 'm1', name: 'Tumor', visibility: 'filled', locked: true }),
+          makeMember({ id: 'm2', name: 'Edema', visibility: 'hidden', locked: false, segmentIndex: 2 }),
+        ],
+      }),
+    );
+    render(<ContainerListPanel />);
+    act(() => {
+      fireEvent.change(screen.getByTestId('container-filter'), { target: { value: 'tumor' } });
+    });
+    // The container store hasn't been mutated — filter is purely a display
+    // concern (filter state is local panel state).
+    const c = useContainerStore.getState().containers.get('c1')!;
+    expect(c.members.find((m) => m.id === 'm1')?.visibility).toBe('filled');
+    expect(c.members.find((m) => m.id === 'm1')?.locked).toBe(true);
+    expect(c.members.find((m) => m.id === 'm2')?.visibility).toBe('hidden');
+  });
+});

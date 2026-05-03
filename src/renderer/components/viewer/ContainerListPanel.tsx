@@ -28,6 +28,25 @@ export default function ContainerListPanel() {
   const containers = useContainerStore((s) => s.containers);
   const containerList = Array.from(containers.values());
 
+  const [filter, setFilter] = useState('');
+  const trimmedFilter = filter.trim().toLowerCase();
+
+  // Filter by member name (D7.7). Containers with no matching members are
+  // hidden; matching members are kept in their original container.
+  // Filter is non-destructive — does NOT mutate visibility / lock state
+  // per §D7.7 ("hidden-by-filter rows do not have their visibility or
+  // lock state modified").
+  const visibleContainers = trimmedFilter
+    ? containerList
+        .map((c) => ({
+          ...c,
+          members: c.members.filter((m) =>
+            m.name.toLowerCase().includes(trimmedFilter),
+          ),
+        }))
+        .filter((c) => c.members.length > 0)
+    : containerList;
+
   return (
     <div
       data-testid="container-panel"
@@ -45,6 +64,32 @@ export default function ContainerListPanel() {
         </h3>
       </div>
 
+      {containerList.length > 0 && (
+        <div className="px-3 py-2 border-b border-zinc-800/70 relative">
+          <input
+            type="text"
+            data-testid="container-filter"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            placeholder="Filter members…"
+            className="w-full text-xs bg-zinc-900 text-zinc-200 placeholder:text-zinc-600 border border-zinc-800 focus:border-blue-500 rounded px-2 py-1 outline-none"
+            aria-label="Filter members by name"
+          />
+          {filter && (
+            <button
+              type="button"
+              data-testid="container-filter-clear"
+              onClick={() => setFilter('')}
+              className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] text-zinc-500 hover:text-zinc-200 px-1"
+              title="Clear filter"
+              aria-label="clear filter"
+            >
+              ×
+            </button>
+          )}
+        </div>
+      )}
+
       <div className="flex-1 overflow-y-auto">
         {containerList.length === 0 ? (
           <div
@@ -57,9 +102,16 @@ export default function ContainerListPanel() {
               Create a new structure-set or load one from XNAT.
             </span>
           </div>
+        ) : visibleContainers.length === 0 ? (
+          <div
+            data-testid="container-panel-no-matches"
+            className="p-4 text-xs text-zinc-600 text-center leading-relaxed"
+          >
+            No matches for “{filter}”.
+          </div>
         ) : (
           <ul className="py-0.5">
-            {containerList.map((container) => (
+            {visibleContainers.map((container) => (
               <ContainerRow key={container.id} container={container} />
             ))}
           </ul>
