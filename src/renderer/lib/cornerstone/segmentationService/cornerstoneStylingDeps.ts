@@ -17,6 +17,7 @@ import {
   segmentation as csSegmentation,
 } from '@cornerstonejs/tools';
 import { usePreferencesStore } from '../../../stores/preferencesStore';
+import * as containerBridge from '../containerBridge';
 import { classifySegmentationOnViewport } from './visibility';
 import type {
   CrossSeriesRenderingPolicy,
@@ -91,13 +92,17 @@ export function createCornerstoneStylingDeps(orchestratorDeps: {
     classify(segmentationId, viewportId): EligibilityClass | null {
       return classifySegmentationOnViewport(segmentationId, viewportId);
     },
-    readPolicy(): CrossSeriesRenderingPolicy {
+    readPolicy(segmentationId: string): CrossSeriesRenderingPolicy {
       const mv = usePreferencesStore.getState().preferences.multiViewport;
+      const containerId = segmentationId
+        ? containerBridge.getContainerId(segmentationId)
+        : null;
+      const a2cOptedIn = containerId
+        ? !!containerBridge.getContainer(containerId)?.a2cOptedIn
+        : false;
       return {
         enabled: mv.crossSeriesRendering,
-        // Per-container A2c opt-in lands in Phase 3 list-panel work; Phase 2
-        // always reports false here so A2c structures stay hidden.
-        a2cOptedIn: false,
+        a2cOptedIn,
       };
     },
   };

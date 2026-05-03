@@ -135,8 +135,17 @@ export interface StylingDeps {
    */
   classify: (segmentationId: string, viewportId: string) => EligibilityClass | null;
 
-  /** Read the current cross-series rendering policy from preferencesStore. */
-  readPolicy: () => CrossSeriesRenderingPolicy;
+  /**
+   * Read the cross-series rendering policy for a specific segmentation.
+   *
+   * The `enabled` flag comes from the global `multiViewport.crossSeriesRendering`
+   * preference; the `a2cOptedIn` flag comes from the per-container
+   * `Container.a2cOptedIn` field (Phase 3.7b — the user's opt-in for
+   * breath-hold / 4D-CT phase pairs). Phase 2.4 callers passed
+   * `a2cOptedIn: false` hardcoded; the segmentation-aware signature here
+   * lets each call resolve the correct opt-in state per container.
+   */
+  readPolicy: (segmentationId: string) => CrossSeriesRenderingPolicy;
 }
 
 // ─── Pure resolution: eligibility → action ──────────────────────────────
@@ -201,7 +210,7 @@ export function createStylingService(deps: StylingDeps): StylingService {
   return {
     applyForSegmentationViewport(segmentationId, viewportId) {
       const eligibility = deps.classify(segmentationId, viewportId);
-      const policy = deps.readPolicy();
+      const policy = deps.readPolicy(segmentationId);
       const action = resolveAction(eligibility, policy);
       const kinds = deps.getRepresentationKinds(segmentationId);
       for (const kind of kinds) {

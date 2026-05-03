@@ -230,6 +230,7 @@ function buildContainer(name: string, kind: ContainerKind): Container {
     saveInFlight: false,
     versionToken: null,
     parseError: null,
+    a2cOptedIn: false,
   };
 }
 

@@ -37,6 +37,14 @@ export interface Container {
   versionToken: VersionToken | null;
   /** Non-null when the container failed to parse on load (D7.9). */
   parseError: ParseError | null;
+  /**
+   * Per-container opt-in for A2c cross-series rendering (§A2c, §D11).
+   * Default `false`. When `true`, members of this container that classify
+   * as `cross-series-A2c` on a given viewport will render (subject to
+   * the master `crossSeriesRendering` preference). Session-only — does
+   * not persist into saved DICOM (the toggle is presentation state).
+   */
+  a2cOptedIn: boolean;
 }
 
 // ─── Member ──────────────────────────────────────────────────────────────

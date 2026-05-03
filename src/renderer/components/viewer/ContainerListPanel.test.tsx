@@ -15,6 +15,7 @@ const setMemberVisibilityMock = vi.hoisted(() => vi.fn());
 const setActiveMemberMock = vi.hoisted(() => vi.fn());
 const renameMemberMock = vi.hoisted(() => vi.fn());
 const deleteMemberMock = vi.hoisted(() => vi.fn());
+const setA2cOptedInMock = vi.hoisted(() => vi.fn());
 
 vi.mock('../../lib/cornerstone/containerService', () => ({
   containerService: {
@@ -22,6 +23,7 @@ vi.mock('../../lib/cornerstone/containerService', () => ({
     setActiveMember: setActiveMemberMock,
     renameMember: renameMemberMock,
     deleteMember: deleteMemberMock,
+    setA2cOptedIn: setA2cOptedInMock,
   },
 }));
 
@@ -70,6 +72,7 @@ function makeContainer(partial: Partial<Container> = {}): Container {
     saveInFlight: false,
     versionToken: null,
     parseError: null,
+    a2cOptedIn: false,
     ...partial,
   };
 }
@@ -88,6 +91,7 @@ beforeEach(() => {
   setActiveMemberMock.mockReset();
   renameMemberMock.mockReset();
   deleteMemberMock.mockReset();
+  setA2cOptedInMock.mockReset();
 });
 
 afterEach(() => {
@@ -908,5 +912,50 @@ describe('filter / search (D7.7)', () => {
     expect(c.members.find((m) => m.id === 'm1')?.visibility).toBe('filled');
     expect(c.members.find((m) => m.id === 'm1')?.locked).toBe(true);
     expect(c.members.find((m) => m.id === 'm2')?.visibility).toBe('hidden');
+  });
+});
+
+// ─── Phase 3.7b: A2c per-container opt-in toggle ───────────────────────
+
+describe('A2c per-container opt-in toggle (§A2c, §D11)', () => {
+  it('renders an A2c button per container row', () => {
+    setContainers(makeContainer({ id: 'c1' }));
+    render(<ContainerListPanel />);
+    expect(screen.queryByTestId('container-a2c-toggle:c1')).not.toBeNull();
+  });
+
+  it('reflects the off state when a2cOptedIn is false', () => {
+    setContainers(makeContainer({ id: 'c1', a2cOptedIn: false }));
+    render(<ContainerListPanel />);
+    const btn = screen.getByTestId('container-a2c-toggle:c1');
+    expect(btn.getAttribute('aria-pressed')).toBe('false');
+    expect(btn.getAttribute('aria-label')).toContain('off');
+  });
+
+  it('reflects the on state when a2cOptedIn is true', () => {
+    setContainers(makeContainer({ id: 'c1', a2cOptedIn: true }));
+    render(<ContainerListPanel />);
+    const btn = screen.getByTestId('container-a2c-toggle:c1');
+    expect(btn.getAttribute('aria-pressed')).toBe('true');
+    expect(btn.getAttribute('aria-label')).toContain('on');
+    expect(btn.className).toMatch(/orange/);
+  });
+
+  it('clicking the toggle calls setA2cOptedIn with the inverted value', () => {
+    setContainers(makeContainer({ id: 'c1', a2cOptedIn: false }));
+    render(<ContainerListPanel />);
+    act(() => {
+      fireEvent.click(screen.getByTestId('container-a2c-toggle:c1'));
+    });
+    expect(setA2cOptedInMock).toHaveBeenCalledWith('c1', true);
+  });
+
+  it('toggle off → on inverts correctly when starting from on', () => {
+    setContainers(makeContainer({ id: 'c1', a2cOptedIn: true }));
+    render(<ContainerListPanel />);
+    act(() => {
+      fireEvent.click(screen.getByTestId('container-a2c-toggle:c1'));
+    });
+    expect(setA2cOptedInMock).toHaveBeenCalledWith('c1', false);
   });
 });

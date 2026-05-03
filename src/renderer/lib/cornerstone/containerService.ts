@@ -128,6 +128,15 @@ export interface ContainerService {
 
   /** Read the approval audit history for a container. */
   getApprovalHistory(containerId: string): ApprovalEvent[];
+
+  /**
+   * Toggle the per-container A2c cross-series opt-in (§A2c, §D11).
+   * When `true`, the container's members render on viewports that
+   * classify as `cross-series-A2c` (subject to the master
+   * `crossSeriesRendering` preference). Session-only — does not mark
+   * the container dirty since the toggle is presentation state.
+   */
+  setA2cOptedIn(containerId: string, optedIn: boolean): void;
 }
 
 // ─── Phase 3.4 / 3.6: Cornerstone deps wired by segmentationService ────
@@ -506,5 +515,26 @@ export const containerService: ContainerService = {
     if (!containerId) return [];
     const container = containerBridge.getContainer(containerId);
     return container ? [...container.approval.history] : [];
+  },
+
+  /**
+   * Toggle the per-container A2c cross-series opt-in. Updates the bridge
+   * and notifies the store so the UI reflects the new state. Session-only
+   * (D7.10) — does NOT mark the container dirty.
+   *
+   * The styling pipeline (Phase 2.4) reads this on every
+   * SEGMENTATION_REPRESENTATION_ADDED / _MODIFIED event via
+   * cornerstoneStylingDeps.readPolicy(segmentationId), so toggling the
+   * opt-in re-evaluates render decisions on the next style pass.
+   */
+  setA2cOptedIn(containerId: string, optedIn: boolean): void {
+    if (!containerId) return;
+    const container = containerBridge.getContainer(containerId);
+    if (!container) {
+      throw new Error(`[containerService] setA2cOptedIn: unknown containerId ${containerId}`);
+    }
+    if (container.a2cOptedIn === optedIn) return;
+    container.a2cOptedIn = optedIn;
+    containerBridge.notifyChange(containerId);
   },
 };

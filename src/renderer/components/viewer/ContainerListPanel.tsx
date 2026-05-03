@@ -138,6 +138,32 @@ function ContainerRow({ container }: { container: Container }) {
         <span className="flex-1 text-xs text-zinc-200 truncate" title={container.name}>
           {container.name}
         </span>
+        <button
+          type="button"
+          data-testid={`container-a2c-toggle:${container.id}`}
+          aria-pressed={container.a2cOptedIn}
+          aria-label={`A2c cross-series rendering ${container.a2cOptedIn ? 'on' : 'off'}`}
+          title={
+            container.a2cOptedIn
+              ? 'A2c cross-series rendering: ON. Click to hide breath-hold / 4D-CT phase siblings.'
+              : 'A2c cross-series rendering: OFF (default per §A2c). Click to show breath-hold / 4D-CT phase siblings.'
+          }
+          onClick={(e) => {
+            e.stopPropagation();
+            try {
+              containerService.setA2cOptedIn(container.id, !container.a2cOptedIn);
+            } catch (err) {
+              console.warn('[ContainerListPanel] setA2cOptedIn failed', err);
+            }
+          }}
+          className={`text-[9px] font-mono px-1 py-0 rounded border transition-colors ${
+            container.a2cOptedIn
+              ? 'bg-orange-900/40 border-orange-600 text-orange-300 hover:bg-orange-900/60'
+              : 'bg-zinc-900/30 border-zinc-700 text-zinc-500 hover:text-zinc-300 hover:border-zinc-600'
+          }`}
+        >
+          A2c
+        </button>
         {container.dirty && (
           <span
             data-testid={`container-dirty:${container.id}`}

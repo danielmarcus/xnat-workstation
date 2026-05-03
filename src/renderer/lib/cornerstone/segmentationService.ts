@@ -750,6 +750,7 @@ let initialized = false;
 // behavior.
 let visibilityStyling: StylingService | null = null;
 let crossSeriesPrefUnsubscribe: (() => void) | null = null;
+let containerBridgeStylingUnsubscribe: (() => void) | null = null;
 
 function isMultiViewportEnabled(): boolean {
   try {
@@ -1021,6 +1022,24 @@ export const segmentationService = {
       if (next !== prev) {
         applyVisibilityStylingGlobally();
       }
+    });
+
+    // Phase 3.7b: when a container's a2cOptedIn (or any other field
+    // affecting the styling decision) changes, re-apply styling for
+    // every (segmentation, viewport) pair the affected container owns.
+    // Bulk events (containerId === null) re-apply globally.
+    containerBridgeStylingUnsubscribe = containerBridge.subscribe((containerId) => {
+      if (containerId === null) {
+        applyVisibilityStylingGlobally();
+        return;
+      }
+      const csSegId = containerBridge.getCsSegmentationId(containerId);
+      if (!csSegId || !visibilityStyling || !isMultiViewportEnabled()) return;
+      const vpIds = csSegmentation.state.getViewportIdsWithSegmentation(csSegId);
+      for (const vpId of vpIds) {
+        visibilityStyling.applyForSegmentationViewport(csSegId, vpId);
+      }
+      renderAllSegmentationViewports();
     });
 
     initialized = true;
@@ -4704,6 +4723,10 @@ export const segmentationService = {
       ToolEnums.Events.SEGMENTATION_REPRESENTATION_MODIFIED,
       onSegmentationRepresentationAddedOrModified as EventListener,
     );
+    if (containerBridgeStylingUnsubscribe) {
+      containerBridgeStylingUnsubscribe();
+      containerBridgeStylingUnsubscribe = null;
+    }
     if (crossSeriesPrefUnsubscribe) {
       crossSeriesPrefUnsubscribe();
       crossSeriesPrefUnsubscribe = null;

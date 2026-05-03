@@ -602,6 +602,46 @@ describe('member CRUD (Phase 3.6)', () => {
   });
 });
 
+// ─── Phase 3.7b: setA2cOptedIn ──────────────────────────────────────────
+
+describe('setA2cOptedIn', () => {
+  it('flips the container’s a2cOptedIn flag', () => {
+    const id = containerBridge.register('seg_1');
+    expect(containerBridge.getContainer(id)?.a2cOptedIn).toBe(false);
+    containerService.setA2cOptedIn(id, true);
+    expect(containerBridge.getContainer(id)?.a2cOptedIn).toBe(true);
+    containerService.setA2cOptedIn(id, false);
+    expect(containerBridge.getContainer(id)?.a2cOptedIn).toBe(false);
+  });
+
+  it('does NOT mark the container dirty (presentation state per §D7.10)', () => {
+    const id = containerBridge.register('seg_1');
+    containerBridge.setDirty(id, false);
+    containerService.setA2cOptedIn(id, true);
+    expect(containerBridge.getContainer(id)?.dirty).toBe(false);
+  });
+
+  it('idempotent on no-op', () => {
+    const id = containerBridge.register('seg_1');
+    containerService.setA2cOptedIn(id, true);
+    let notifyCount = 0;
+    const unsub = containerBridge.subscribe(() => {
+      notifyCount++;
+    });
+    containerService.setA2cOptedIn(id, true); // no-op
+    unsub();
+    expect(notifyCount).toBe(0);
+  });
+
+  it('throws on unknown containerId', () => {
+    expect(() => containerService.setA2cOptedIn('unknown', true)).toThrow(/unknown/);
+  });
+
+  it('skips empty containerId', () => {
+    expect(() => containerService.setA2cOptedIn('', true)).not.toThrow();
+  });
+});
+
 // ─── Phase 3.4: setMemberVisibility ────────────────────────────────────
 
 describe('setMemberVisibility', () => {

@@ -72,7 +72,7 @@ function makeDeps(opts: {
     }),
     getRepresentationKinds: () => opts.representationKinds ?? ['Labelmap'],
     classify: opts.classify,
-    readPolicy: () => opts.policy,
+    readPolicy: (_segId: string) => opts.policy,
   };
   return { deps, calls };
 }
