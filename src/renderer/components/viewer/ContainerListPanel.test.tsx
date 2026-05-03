@@ -959,3 +959,133 @@ describe('A2c per-container opt-in toggle (§A2c, §D11)', () => {
     expect(setA2cOptedInMock).toHaveBeenCalledWith('c1', false);
   });
 });
+
+// ─── Phase 3.7c: sort options ──────────────────────────────────────────
+
+describe('sort (D7.7)', () => {
+  function rowOrder(): string[] {
+    const rows = document.querySelectorAll('[data-testid^="member-row:"]');
+    return Array.from(rows).map((r) => r.getAttribute('data-testid')!.replace('member-row:', ''));
+  }
+
+  it('default order keeps the bridge order (creation order = segmentIndex)', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [
+          makeMember({ id: 'm1', name: 'Tumor', segmentIndex: 1 }),
+          makeMember({ id: 'm3', name: 'Apple', segmentIndex: 3 }),
+          makeMember({ id: 'm2', name: 'Brain', segmentIndex: 2 }),
+        ],
+      }),
+    );
+    render(<ContainerListPanel />);
+    expect(rowOrder()).toEqual(['m1', 'm3', 'm2']);
+  });
+
+  it('alphabetical sort orders members by name', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [
+          makeMember({ id: 'm1', name: 'Tumor', segmentIndex: 1 }),
+          makeMember({ id: 'm2', name: 'Apple', segmentIndex: 2 }),
+          makeMember({ id: 'm3', name: 'Brain', segmentIndex: 3 }),
+        ],
+      }),
+    );
+    render(<ContainerListPanel />);
+    act(() => {
+      fireEvent.change(screen.getByTestId('container-sort'), { target: { value: 'alphabetical' } });
+    });
+    expect(rowOrder()).toEqual(['m2', 'm3', 'm1']);
+  });
+
+  it('segmentIndex sort orders members by index ascending', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [
+          makeMember({ id: 'm1', name: 'A', segmentIndex: 5 }),
+          makeMember({ id: 'm2', name: 'B', segmentIndex: 1 }),
+          makeMember({ id: 'm3', name: 'C', segmentIndex: 3 }),
+        ],
+      }),
+    );
+    render(<ContainerListPanel />);
+    act(() => {
+      fireEvent.change(screen.getByTestId('container-sort'), { target: { value: 'segmentIndex' } });
+    });
+    expect(rowOrder()).toEqual(['m2', 'm3', 'm1']);
+  });
+
+  it('sort dropdown is hidden when no containers exist', () => {
+    render(<ContainerListPanel />);
+    expect(screen.queryByTestId('container-sort')).toBeNull();
+  });
+
+  it('sort does not mutate the persisted Container.members order', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [
+          makeMember({ id: 'm1', name: 'Z', segmentIndex: 1 }),
+          makeMember({ id: 'm2', name: 'A', segmentIndex: 2 }),
+        ],
+      }),
+    );
+    render(<ContainerListPanel />);
+    act(() => {
+      fireEvent.change(screen.getByTestId('container-sort'), { target: { value: 'alphabetical' } });
+    });
+    // Bridge order unchanged.
+    const c = useContainerStore.getState().containers.get('c1')!;
+    expect(c.members.map((m) => m.id)).toEqual(['m1', 'm2']);
+  });
+
+  it('sort applies independently within each container', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [
+          makeMember({ id: 'm1', name: 'Z', segmentIndex: 1 }),
+          makeMember({ id: 'm2', name: 'A', segmentIndex: 2 }),
+        ],
+      }),
+      makeContainer({
+        id: 'c2',
+        members: [
+          makeMember({ id: 'm3', name: 'M', segmentIndex: 1 }),
+          makeMember({ id: 'm4', name: 'B', segmentIndex: 2 }),
+        ],
+      }),
+    );
+    render(<ContainerListPanel />);
+    act(() => {
+      fireEvent.change(screen.getByTestId('container-sort'), { target: { value: 'alphabetical' } });
+    });
+    // Both containers are alphabetized, but their members stay segregated.
+    expect(rowOrder()).toEqual(['m2', 'm1', 'm4', 'm3']);
+  });
+
+  it('sort + filter compose: filter narrows, sort orders the survivors', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [
+          makeMember({ id: 'm1', name: 'Tumor large', segmentIndex: 1 }),
+          makeMember({ id: 'm2', name: 'Tumor small', segmentIndex: 2 }),
+          makeMember({ id: 'm3', name: 'Brain', segmentIndex: 3 }),
+        ],
+      }),
+    );
+    render(<ContainerListPanel />);
+    act(() => {
+      fireEvent.change(screen.getByTestId('container-filter'), { target: { value: 'tumor' } });
+    });
+    act(() => {
+      fireEvent.change(screen.getByTestId('container-sort'), { target: { value: 'alphabetical' } });
+    });
+    expect(rowOrder()).toEqual(['m1', 'm2']);
+  });
+});

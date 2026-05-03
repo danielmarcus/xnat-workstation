@@ -24,28 +24,47 @@ import { containerService } from '../../lib/cornerstone/containerService';
 import { nextVisibilityMode } from '../../lib/cornerstone/segmentationService/memberVisibility';
 import type { Container, Member, RGB, VisibilityMode } from '../../types/annotation';
 
+type SortOrder = 'default' | 'alphabetical' | 'segmentIndex';
+
+const SORT_LABEL: Record<SortOrder, string> = {
+  default: 'Creation order',
+  alphabetical: 'Alphabetical',
+  segmentIndex: 'Segment index',
+};
+
+function sortMembersInPlace(members: Member[], order: SortOrder): Member[] {
+  if (order === 'default') return members;
+  const sorted = [...members];
+  if (order === 'alphabetical') {
+    sorted.sort((a, b) => a.name.localeCompare(b.name));
+  } else if (order === 'segmentIndex') {
+    sorted.sort((a, b) => (a.segmentIndex ?? 0) - (b.segmentIndex ?? 0));
+  }
+  return sorted;
+}
+
 export default function ContainerListPanel() {
   const containers = useContainerStore((s) => s.containers);
   const containerList = Array.from(containers.values());
 
   const [filter, setFilter] = useState('');
+  const [sortOrder, setSortOrder] = useState<SortOrder>('default');
   const trimmedFilter = filter.trim().toLowerCase();
 
-  // Filter by member name (D7.7). Containers with no matching members are
-  // hidden; matching members are kept in their original container.
-  // Filter is non-destructive — does NOT mutate visibility / lock state
-  // per §D7.7 ("hidden-by-filter rows do not have their visibility or
-  // lock state modified").
-  const visibleContainers = trimmedFilter
-    ? containerList
-        .map((c) => ({
-          ...c,
-          members: c.members.filter((m) =>
-            m.name.toLowerCase().includes(trimmedFilter),
-          ),
-        }))
-        .filter((c) => c.members.length > 0)
-    : containerList;
+  // Filter by member name + optional sort (both per §D7.7). Both are
+  // non-destructive — filter does NOT mutate visibility/lock state per
+  // §D7.7; sort is presentation-only and does NOT mutate the persisted
+  // Z-order on Container.members[] (which lives on the container per
+  // §B7 default order).
+  const visibleContainers = containerList
+    .map((c) => {
+      let members = trimmedFilter
+        ? c.members.filter((m) => m.name.toLowerCase().includes(trimmedFilter))
+        : c.members;
+      members = sortMembersInPlace(members, sortOrder);
+      return { ...c, members };
+    })
+    .filter((c) => !trimmedFilter || c.members.length > 0);
 
   return (
     <div
@@ -65,28 +84,50 @@ export default function ContainerListPanel() {
       </div>
 
       {containerList.length > 0 && (
-        <div className="px-3 py-2 border-b border-zinc-800/70 relative">
-          <input
-            type="text"
-            data-testid="container-filter"
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            placeholder="Filter members…"
-            className="w-full text-xs bg-zinc-900 text-zinc-200 placeholder:text-zinc-600 border border-zinc-800 focus:border-blue-500 rounded px-2 py-1 outline-none"
-            aria-label="Filter members by name"
-          />
-          {filter && (
-            <button
-              type="button"
-              data-testid="container-filter-clear"
-              onClick={() => setFilter('')}
-              className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] text-zinc-500 hover:text-zinc-200 px-1"
-              title="Clear filter"
-              aria-label="clear filter"
+        <div className="px-3 py-2 border-b border-zinc-800/70 flex flex-col gap-2">
+          <div className="relative">
+            <input
+              type="text"
+              data-testid="container-filter"
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              placeholder="Filter members…"
+              className="w-full text-xs bg-zinc-900 text-zinc-200 placeholder:text-zinc-600 border border-zinc-800 focus:border-blue-500 rounded px-2 py-1 outline-none"
+              aria-label="Filter members by name"
+            />
+            {filter && (
+              <button
+                type="button"
+                data-testid="container-filter-clear"
+                onClick={() => setFilter('')}
+                className="absolute right-1 top-1/2 -translate-y-1/2 text-[10px] text-zinc-500 hover:text-zinc-200 px-1"
+                title="Clear filter"
+                aria-label="clear filter"
+              >
+                ×
+              </button>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <label
+              htmlFor="container-sort"
+              className="text-[10px] text-zinc-500"
             >
-              ×
-            </button>
-          )}
+              Sort:
+            </label>
+            <select
+              id="container-sort"
+              data-testid="container-sort"
+              value={sortOrder}
+              onChange={(e) => setSortOrder(e.target.value as SortOrder)}
+              className="flex-1 text-[11px] bg-zinc-900 text-zinc-300 border border-zinc-800 rounded px-1 py-0.5 outline-none focus:border-blue-500"
+              aria-label="Sort members"
+            >
+              <option value="default">{SORT_LABEL.default}</option>
+              <option value="alphabetical">{SORT_LABEL.alphabetical}</option>
+              <option value="segmentIndex">{SORT_LABEL.segmentIndex}</option>
+            </select>
+          </div>
         </div>
       )}
 
