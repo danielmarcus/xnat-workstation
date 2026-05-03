@@ -52,6 +52,38 @@ const csToContainer = new Map<string, string>();   // csSegmentationId → conta
 const containers = new Map<string, Container>();    // containerId → Container
 let containerCounter = 0;
 
+// ─── Change-notification surface (Phase 3.2) ────────────────────
+
+/**
+ * Listeners receive the affected containerId on every bridge mutation
+ * (register / unregister / setDirty / setSaveInFlight / setVersionToken).
+ * Phase 3.2's containerStore subscribes here to keep its reactive snapshot
+ * in sync. `null` means a multi-container event (currently only `clearAll`).
+ */
+type ChangeListener = (containerId: string | null) => void;
+const changeListeners = new Set<ChangeListener>();
+
+/**
+ * Subscribe to bridge mutations. Returns an unsubscribe function.
+ * The listener receives the affected containerId or null for bulk events.
+ */
+export function subscribe(listener: ChangeListener): () => void {
+  changeListeners.add(listener);
+  return () => {
+    changeListeners.delete(listener);
+  };
+}
+
+function emitChange(containerId: string | null): void {
+  for (const listener of changeListeners) {
+    try {
+      listener(containerId);
+    } catch (err) {
+      console.warn('[containerBridge] change listener threw', err);
+    }
+  }
+}
+
 // ─── Public API ──────────────────────────────────────────────────
 
 export interface RegisterOpts {
@@ -78,6 +110,7 @@ export function register(csSegId: string, opts: RegisterOpts = {}): string {
   const container = buildContainer(name, kind);
   csToContainer.set(csSegId, container.id);
   containers.set(container.id, container);
+  emitChange(container.id);
   return container.id;
 }
 
@@ -87,6 +120,7 @@ export function unregister(csSegId: string): void {
   if (!containerId) return;
   csToContainer.delete(csSegId);
   containers.delete(containerId);
+  emitChange(containerId);
 }
 
 /** Resolve csSegmentationId → containerId, or null if not registered. */
@@ -144,19 +178,37 @@ export function listAll(): Array<{ csSegmentationId: string; containerId: string
  */
 export function setDirty(containerId: string, dirty: boolean): void {
   const c = containers.get(containerId);
-  if (c) c.dirty = dirty;
+  if (!c || c.dirty === dirty) return;
+  c.dirty = dirty;
+  emitChange(containerId);
 }
 
 /** Set the saveInFlight flag (E2 queue-next-save coordination). */
 export function setSaveInFlight(containerId: string, inFlight: boolean): void {
   const c = containers.get(containerId);
-  if (c) c.saveInFlight = inFlight;
+  if (!c || c.saveInFlight === inFlight) return;
+  c.saveInFlight = inFlight;
+  emitChange(containerId);
 }
 
 /** Apply a fresh version token after a successful save. */
 export function setVersionToken(containerId: string, token: Container['versionToken']): void {
   const c = containers.get(containerId);
-  if (c) c.versionToken = token;
+  if (!c || c.versionToken === token) return;
+  c.versionToken = token;
+  emitChange(containerId);
+}
+
+/**
+ * Notify subscribers that a container's state changed via a non-bridge
+ * code path (e.g., containerService.renameContainer mutates approval/name
+ * directly on the Container object). Components reading through the
+ * containerStore need to re-derive their snapshot.
+ */
+export function notifyChange(containerId: string): void {
+  if (!containerId) return;
+  if (!containers.has(containerId)) return;
+  emitChange(containerId);
 }
 
 // ─── Internals ───────────────────────────────────────────────────
@@ -256,7 +308,14 @@ export function dispose(): void {
 
 /** Drop every entry. Used by tests + service.dispose(). */
 export function clearAll(): void {
+  if (csToContainer.size === 0 && containers.size === 0) return;
   csToContainer.clear();
   containers.clear();
   containerCounter = 0;
+  emitChange(null);
+}
+
+/** Drop every change listener. Used by test teardown. */
+export function clearChangeListeners(): void {
+  changeListeners.clear();
 }

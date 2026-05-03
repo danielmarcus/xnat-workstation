@@ -59,6 +59,7 @@ import { rtStructService } from './rtStructService';
 import * as contourRep from './contourRepresentation';
 import * as sourceImageTracking from './sourceImageTracking';
 import * as containerBridge from './containerBridge';
+import * as containerStoreSync from './containerStoreSync';
 import * as mlg from './multiLayerGroup';
 import * as interpolationAcceptance from './interpolationAcceptance';
 import { backupService } from '../backup/backupService';
@@ -913,6 +914,11 @@ export const segmentationService = {
     // undoService (Phase 2.7) and transport.ts (Phase 2.8) can scope by
     // containerId. Subscribes to SEGMENTATION_ADDED / _REMOVED.
     containerBridge.initialize();
+
+    // Phase 3.2: containerStore mirrors the bridge's Container state for
+    // React components to subscribe to. Subscribes to bridge mutations
+    // and pushes immutable snapshots into useContainerStore.
+    containerStoreSync.initialize();
 
     // Wire interpolation-acceptance policies (auto-accept on generation
     // when the preference is enabled; click-to-accept always).
@@ -4611,6 +4617,7 @@ export const segmentationService = {
     // Clean up module-level state. sourceImageTracking.dispose() both
     // unsubscribes its auto-cleanup listener and clears its map.
     sourceImageTracking.dispose();
+    containerStoreSync.dispose();
     containerBridge.dispose();
     clearAllUndoHistories();
     transportCoordinator.clearAll();

@@ -143,6 +143,7 @@ export const containerService: ContainerService = {
     container.name = trimmed;
     // Renaming is a persisted-state mutation, so the container becomes dirty.
     container.dirty = true;
+    containerBridge.notifyChange(containerId);
   },
 
   // ─── Member CRUD (Phase 3.2 / 3.6) ────────────────────────────────────
@@ -220,6 +221,7 @@ export const containerService: ContainerService = {
       history: [...container.approval.history, event],
     };
     container.dirty = true;
+    containerBridge.notifyChange(containerId);
   },
 
   /**
@@ -249,6 +251,7 @@ export const containerService: ContainerService = {
       history: [...container.approval.history, event],
     };
     container.dirty = true;
+    containerBridge.notifyChange(containerId);
   },
 
   /**
