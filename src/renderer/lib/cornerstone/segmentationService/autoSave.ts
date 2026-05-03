@@ -18,7 +18,8 @@
  * Public API:
  *   - State manipulation:
  *       incrementSuppression / decrementSuppression / runWithDirtyTrackingSuppressed
- *       setDirtyTrackingSuppressedFor / isDirtyTrackingSuppressed
+ *       setDirtyTrackingSuppressedFor(segId, ms) / isDirtyTrackingSuppressed(segId?)
+ *       clearAllSuppressionDeadlines (test helper)
  *       beginSegLoad / endSegLoad
  *       beginManualSave / endManualSave
  *   - Save lifecycle:
@@ -63,9 +64,30 @@ const LABELMAP_INTERPOLATION_DELAY = 250;
  * which would falsely mark the state as dirty.
  * Using a counter instead of a boolean prevents race conditions when
  * multiple async load operations overlap (e.g., loadDicomSeg + addToViewport).
+ *
+ * The counter is the *blanket* suppression: when > 0, ALL events are suppressed.
+ * Used by `runWithDirtyTrackingSuppressed` to scope a synchronous block.
  */
 let suppressDirtyTrackingCount = 0;
-let suppressDirtyTrackingUntilMs = 0;
+
+/**
+ * Per-segmentation deadline map for time-based suppression.
+ *
+ * Operations like `addToViewport` / `removeSegmentationsFromViewport` /
+ * `restorePresentationState` schedule async `SEGMENTATION_DATA_MODIFIED` events
+ * that fire AFTER the operation returns. To swallow only those, we record an
+ * expiry deadline keyed on the segmentationId being mutated. The handler
+ * checks `isDirtyTrackingSuppressed(detail.segmentationId)` and only the
+ * matching segmentation's events get dropped — unrelated user edits on other
+ * segmentations during the same window are NOT swallowed.
+ *
+ * Replaces an earlier global wall-clock window
+ * (`suppressDirtyTrackingUntilMs`) which dropped legitimate edits when one
+ * operation's grace period happened to span another segmentation's user
+ * action — most visibly in tests, where a layout transition + segmentation
+ * create + brush stroke all completed inside a single 1500ms window.
+ */
+const suppressedSegmentationsUntilMs = new Map<string, number>();
 
 /**
  * Reference counter for SEG/RTSTRUCT load operations in progress.
@@ -120,13 +142,54 @@ export function wireAutoSave(injected: AutoSaveDeps): void {
 
 // ─── Suppression API ─────────────────────────────────────────────
 
-export function isDirtyTrackingSuppressed(): boolean {
-  return suppressDirtyTrackingCount > 0 || Date.now() < suppressDirtyTrackingUntilMs;
+/**
+ * True if dirty tracking is currently suppressed.
+ *
+ * - Without `segmentationId`: returns true only when the blanket counter is
+ *   active (`runWithDirtyTrackingSuppressed`). Used by paths that don't
+ *   know which segmentation an event belongs to (e.g. `performAutoSave`,
+ *   `performLabelmapInterpolation`).
+ * - With `segmentationId`: also returns true when that specific
+ *   segmentation has an active per-seg deadline. Used by event handlers
+ *   that can attribute the event to a specific segmentation.
+ *
+ * The per-seg map is lazily cleaned up: an expired entry is deleted on the
+ * first read after expiry, so the map size tracks "currently-suppressed
+ * segmentations" without a separate sweep timer.
+ */
+export function isDirtyTrackingSuppressed(segmentationId?: string): boolean {
+  if (suppressDirtyTrackingCount > 0) return true;
+  if (!segmentationId) return false;
+  const until = suppressedSegmentationsUntilMs.get(segmentationId);
+  if (until === undefined) return false;
+  if (until <= Date.now()) {
+    suppressedSegmentationsUntilMs.delete(segmentationId);
+    return false;
+  }
+  return true;
 }
 
-export function setDirtyTrackingSuppressedFor(ms: number): void {
-  if (ms <= 0) return;
-  suppressDirtyTrackingUntilMs = Math.max(suppressDirtyTrackingUntilMs, Date.now() + ms);
+/**
+ * Suppress dirty tracking for a specific segmentation for `ms` milliseconds.
+ *
+ * Use this around operations that trigger asynchronous
+ * `SEGMENTATION_DATA_MODIFIED` events for `segmentationId` *after* the
+ * mutating call returns (representation attach/detach, color/visibility
+ * restore). Only events whose `evt.detail.segmentationId` matches the
+ * suppressed id will be dropped — concurrent user edits on other
+ * segmentations are unaffected.
+ *
+ * Calls extend the existing deadline (Math.max), never shrink it.
+ */
+export function setDirtyTrackingSuppressedFor(segmentationId: string, ms: number): void {
+  if (!segmentationId || ms <= 0) return;
+  const prev = suppressedSegmentationsUntilMs.get(segmentationId) ?? 0;
+  suppressedSegmentationsUntilMs.set(segmentationId, Math.max(prev, Date.now() + ms));
+}
+
+/** Clear all per-segmentation suppression deadlines. Test/teardown helper. */
+export function clearAllSuppressionDeadlines(): void {
+  suppressedSegmentationsUntilMs.clear();
 }
 
 export function incrementSuppression(): void {
@@ -404,25 +467,29 @@ async function performLabelmapInterpolation(): Promise<void> {
 
 /** Called when segmentation pixel data changes — debounces auto-save and marks dirty. */
 export function onSegmentationDataModified(evt?: Event): void {
-  if (!isDirtyTrackingSuppressed()) {
-    const detail = (evt as CustomEvent | undefined)?.detail as
-      | { segmentationId?: string; segmentIndex?: number }
-      | undefined;
-
-    // Resolve sub-seg ID to group ID for dirty tracking
-    let resolvedSegId = detail?.segmentationId ?? null;
-    if (resolvedSegId) {
-      const groupInfo = mlg.getGroupInfoForSubSeg(resolvedSegId);
-      if (groupInfo) {
-        resolvedSegId = groupInfo.groupId;
-      }
+  const detail = (evt as CustomEvent | undefined)?.detail as
+    | { segmentationId?: string; segmentIndex?: number }
+    | undefined;
+  // Resolve sub-seg ID to group ID early; suppression is recorded against
+  // the GROUP id (the user-facing segmentationId), not the synthetic
+  // sub-seg id Cornerstone fires the event for.
+  let resolvedSegId = detail?.segmentationId ?? null;
+  if (resolvedSegId) {
+    const groupInfo = mlg.getGroupInfoForSubSeg(resolvedSegId);
+    if (groupInfo) {
+      resolvedSegId = groupInfo.groupId;
     }
+  }
+  // Pass the resolved id so the per-seg suppression check can match.
+  // Falls back to the global blanket counter when the event has no id.
+  if (!isDirtyTrackingSuppressed(resolvedSegId ?? undefined)) {
 
     if (detail?.segmentationId) {
-      // For interpolation, use the resolved group ID so it can look up the right sub-seg
+      // Reuse the resolution we already did above so we don't double-look-up
+      // multi-layer-group → sub-seg metadata.
       const groupInfo = mlg.getGroupInfoForSubSeg(detail.segmentationId);
       pendingLabelmapInterpolation = {
-        segmentationId: groupInfo ? groupInfo.groupId : detail.segmentationId,
+        segmentationId: resolvedSegId ?? detail.segmentationId,
         segmentIndex: groupInfo
           ? groupInfo.segmentIndex
           : (Number.isInteger(detail.segmentIndex) ? Number(detail.segmentIndex) : null),
@@ -464,7 +531,7 @@ export function onAnnotationAutoSave(): void {
   if (!activeSegId) return;
   const segType = deps.getSegmentationType(activeSegId);
   if (segType === 'contour' || segType === 'both') {
-    if (!isDirtyTrackingSuppressed()) {
+    if (!isDirtyTrackingSuppressed(activeSegId)) {
       segStore._markDirty();
       useSegmentationManagerStore.getState().markDirty(activeSegId);
       scheduleAutoSave();

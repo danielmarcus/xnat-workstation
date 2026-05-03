@@ -845,12 +845,16 @@ export const segmentationService = {
   },
 
   /**
-   * Suppress dirty tracking for a short post-operation window.
-   * Use for operations that trigger SEGMENTATION_DATA_MODIFIED asynchronously
-   * after the mutating call returns (e.g. viewport representation detach/attach).
+   * Suppress dirty tracking for a specific segmentation for a short
+   * post-operation window. Use for operations that trigger
+   * SEGMENTATION_DATA_MODIFIED asynchronously after the mutating call
+   * returns (e.g. viewport representation detach/attach, color/visibility
+   * restore). Only events whose `evt.detail.segmentationId` matches
+   * `segmentationId` are dropped — concurrent edits on other segmentations
+   * are unaffected.
    */
-  suppressDirtyTrackingFor(ms: number): void {
-    setDirtyTrackingSuppressedFor(ms);
+  suppressDirtyTrackingFor(segmentationId: string, ms: number): void {
+    setDirtyTrackingSuppressedFor(segmentationId, ms);
   },
 
   /**
@@ -1811,7 +1815,10 @@ export const segmentationService = {
    * For multi-layer groups, attaches all sub-segmentations as independent actors.
    */
   async addToViewport(viewportId: string, segmentationId: string): Promise<void> {
-    setDirtyTrackingSuppressedFor(400);
+    // Async SEGMENTATION_DATA_MODIFIED events fire AFTER this method returns;
+    // suppress dirty marks for THIS segmentation specifically (so a concurrent
+    // user edit on a different segmentation is not also swallowed).
+    setDirtyTrackingSuppressedFor(segmentationId, 400);
     incrementSuppression();
     try {
     // Verify viewport exists.
@@ -1997,10 +2004,10 @@ export const segmentationService = {
    * reattached by SegmentationManager when the user switches back.
    */
   removeSegmentationsFromViewport(viewportId: string): void {
-    // Representation removals can trigger async SEGMENTATION_DATA_MODIFIED events
-    // after this method returns. Keep dirty tracking suppressed briefly so scan
-    // navigation doesn't create false unsaved changes / autosave attempts.
-    setDirtyTrackingSuppressedFor(1500);
+    // Representation removals can trigger async SEGMENTATION_DATA_MODIFIED
+    // events after this method returns. Suppress dirty tracking for the
+    // specific segmentations being detached — NOT globally — so a concurrent
+    // user edit on a segmentation that's NOT being detached is unaffected.
     this.runWithDirtyTrackingSuppressed(() => {
       try {
         const allSegmentations = csSegmentation.state.getSegmentations();
@@ -2008,6 +2015,10 @@ export const segmentationService = {
         for (const seg of allSegmentations) {
           const viewportIds = csSegmentation.state.getViewportIdsWithSegmentation(seg.segmentationId);
           if (viewportIds.includes(viewportId)) {
+            // Per-seg async-event grace window (matches the previous global 1500ms,
+            // but scoped to this specific segmentation id).
+            setDirtyTrackingSuppressedFor(seg.segmentationId, 1500);
+
             // Remove representations from this viewport only — keep the global object
             try {
               csSegmentation.removeLabelmapRepresentation(viewportId, seg.segmentationId);
