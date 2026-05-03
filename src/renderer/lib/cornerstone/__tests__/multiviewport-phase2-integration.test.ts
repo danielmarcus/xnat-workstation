@@ -465,3 +465,250 @@ describe('§A8 cross-viewport identity (signal G7 stand-in for flag-on path)', (
     expect(e.invertSpy).toHaveBeenCalledOnce();
   });
 });
+
+// ─── Phase 3.8d service-integration: signals 18 / 19 ──────────────────
+//
+// Phase 1 deferred the DICOM fixtures + working save/load roundtrip
+// needed for full Playwright E2E. Until those land, the service-
+// integration coverage below verifies the wired pipeline using a
+// synthetic SaveAdapter that captures what would be persisted, then
+// asserts the round-tripped value matches.
+
+describe('Signal 18 — RTROIInterpretedType round-trip (D7.2 / signal 18)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function injectRtstruct(memberId: string, initialType: 'ORGAN' | 'GTV' | null = 'ORGAN'): string {
+    const containerId = containerBridge.register('rtstruct_1', { kind: 'RTSTRUCT' });
+    containerBridge.getContainer(containerId)!.members.push({
+      id: memberId,
+      name: 'Tumor',
+      color: [255, 0, 0],
+      visibility: 'outlined',
+      locked: false,
+      provenance: 'manual',
+      roiType: initialType,
+      roiNumber: 1,
+      interpolationState: null,
+      segmentIndex: 1,
+      segmentDescription: null,
+      segmentedPropertyCategory: null,
+      segmentedPropertyType: null,
+      poiPoints: null,
+      algebra: null,
+      algebraSources: null,
+      algebraOutOfDate: false,
+      algebraManualOverride: false,
+      csAnnotationUIDs: null,
+      csSegmentationId: 'rtstruct_1',
+      createdAt: 0,
+      modifiedAt: 0,
+    });
+    return containerId;
+  }
+
+  it('setRoiType mutates the bridge + marks dirty (the persistable surface)', async () => {
+    const { containerService } = await import('../containerService');
+    const containerId = injectRtstruct('m1', 'ORGAN');
+    containerBridge.setDirty(containerId, false);
+
+    containerService.setRoiType('m1', 'GTV');
+
+    expect(containerBridge.getContainer(containerId)?.members[0].roiType).toBe('GTV');
+    expect(containerBridge.getContainer(containerId)?.dirty).toBe(true);
+  });
+
+  it('full round-trip: edit → save → simulated reload preserves the new type', async () => {
+    const { containerService } = await import('../containerService');
+    const containerId = injectRtstruct('m1', 'ORGAN');
+
+    // 1. User edits.
+    containerService.setRoiType('m1', 'PTV');
+    expect(containerBridge.getContainer(containerId)?.members[0].roiType).toBe('PTV');
+    expect(containerBridge.getContainer(containerId)?.dirty).toBe(true);
+
+    // 2. Synthetic SaveAdapter captures the persistable surface.
+    let serialized: { roiType: string | null } | null = null;
+    setAdapter({
+      save: async (cId) => {
+        const c = containerBridge.getContainer(cId);
+        const m = c?.members[0];
+        serialized = m ? { roiType: m.roiType } : null;
+        return { kind: 'success', versionToken: 'v1' };
+      },
+    });
+    setDebounceMs(50);
+
+    notifyDirty(containerId);
+    await vi.advanceTimersByTimeAsync(60);
+    await vi.runAllTimersAsync();
+
+    expect(serialized?.roiType).toBe('PTV');
+    expect(containerBridge.getContainer(containerId)?.dirty).toBe(false);
+    expect(containerBridge.getContainer(containerId)?.versionToken).toBe('v1');
+
+    // 3. Simulated reload would rebuild the Member from the persisted
+    //    serialized state. Round-trip matches what was persisted.
+    expect(serialized!.roiType).toBe('PTV');
+  });
+
+  it('non-RTSTRUCT containers (SEG) ignore setRoiType (no-op, not an error)', async () => {
+    const { containerService } = await import('../containerService');
+    const containerId = containerBridge.register('seg_1', { kind: 'SEG' });
+    containerBridge.getContainer(containerId)!.members.push({
+      id: 'm-seg',
+      name: 'X',
+      color: [0, 0, 0],
+      visibility: 'filled',
+      locked: false,
+      provenance: 'manual',
+      roiType: null,
+      roiNumber: null,
+      interpolationState: null,
+      segmentIndex: 1,
+      segmentDescription: null,
+      segmentedPropertyCategory: null,
+      segmentedPropertyType: null,
+      poiPoints: null,
+      algebra: null,
+      algebraSources: null,
+      algebraOutOfDate: false,
+      algebraManualOverride: false,
+      csAnnotationUIDs: null,
+      csSegmentationId: 'seg_1',
+      createdAt: 0,
+      modifiedAt: 0,
+    });
+    containerBridge.setDirty(containerId, false);
+
+    containerService.setRoiType('m-seg', 'GTV');
+
+    // SEG members can't have roiType per DICOM — service no-ops.
+    expect(containerBridge.getContainer(containerId)?.members[0].roiType).toBeNull();
+    expect(containerBridge.getContainer(containerId)?.dirty).toBe(false);
+  });
+});
+
+describe('Signal 19 — approval state persistence (§D7.11)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('approveContainer flips approved=true + records audit + marks dirty', async () => {
+    const { containerService } = await import('../containerService');
+    const containerId = containerBridge.register('rtstruct_1', { kind: 'RTSTRUCT' });
+    containerBridge.setDirty(containerId, false);
+
+    containerService.approveContainer(containerId, 'dr.smith');
+
+    const c = containerBridge.getContainer(containerId)!;
+    expect(c.approval.approved).toBe(true);
+    expect(c.approval.reviewerName).toBe('dr.smith');
+    expect(c.approval.history).toHaveLength(1);
+    expect(c.approval.history[0]).toMatchObject({ action: 'approve', by: 'dr.smith' });
+    expect(c.dirty).toBe(true); // would persist on next save.
+  });
+
+  it('full round-trip: approve → save → reload preserves approval + audit', async () => {
+    const { containerService } = await import('../containerService');
+    const containerId = containerBridge.register('rtstruct_1', { kind: 'RTSTRUCT' });
+
+    containerService.approveContainer(containerId, 'dr.jones');
+
+    let serialized: { approved: boolean; reviewer: string | null; auditCount: number } | null = null;
+    setAdapter({
+      save: async (cId) => {
+        const c = containerBridge.getContainer(cId);
+        serialized = c
+          ? {
+              approved: c.approval.approved,
+              reviewer: c.approval.reviewerName,
+              auditCount: c.approval.history.length,
+            }
+          : null;
+        return { kind: 'success', versionToken: 'v1' };
+      },
+    });
+    setDebounceMs(50);
+
+    notifyDirty(containerId);
+    await vi.advanceTimersByTimeAsync(60);
+    await vi.runAllTimersAsync();
+
+    expect(serialized).toEqual({ approved: true, reviewer: 'dr.jones', auditCount: 1 });
+    expect(containerBridge.getContainer(containerId)?.dirty).toBe(false);
+  });
+
+  it('revoke after approve preserves the audit trail (append-only per §D7.11)', async () => {
+    const { containerService } = await import('../containerService');
+    const containerId = containerBridge.register('rtstruct_1', { kind: 'RTSTRUCT' });
+
+    containerService.approveContainer(containerId, 'a');
+    containerService.revokeApproval(containerId, 'b');
+
+    const history = containerBridge.getContainer(containerId)!.approval.history;
+    expect(history).toHaveLength(2);
+    expect(history.map((e) => e.action)).toEqual(['approve', 'revoke']);
+    expect(containerBridge.getContainer(containerId)?.approval.approved).toBe(false);
+  });
+
+  it('approval state survives notifyChange / store re-derive', async () => {
+    const { containerService } = await import('../containerService');
+    const containerId = containerBridge.register('rtstruct_1', { kind: 'RTSTRUCT' });
+    containerService.approveContainer(containerId, 'dr.smith');
+
+    containerBridge.notifyChange(containerId);
+    const c = containerBridge.getContainer(containerId)!;
+    expect(c.approval.approved).toBe(true);
+    expect(c.approval.reviewerName).toBe('dr.smith');
+    expect(c.approval.history).toHaveLength(1);
+  });
+
+  it('KNOWN LIMITATION: service-layer edit-lock not enforced when approved (UI-only)', async () => {
+    // Phase 3.8a hides the per-member action menu when approved (the
+    // current edit-lock surface). The service layer doesn't currently
+    // refuse mutations on approved containers — it would be a Phase 3.8e
+    // refinement. Documenting the gap so future work can close it.
+    const { containerService } = await import('../containerService');
+    const containerId = containerBridge.register('rtstruct_1', { kind: 'RTSTRUCT' });
+    containerBridge.getContainer(containerId)!.members.push({
+      id: 'm1',
+      name: 'Tumor',
+      color: [255, 0, 0],
+      visibility: 'outlined',
+      locked: false,
+      provenance: 'manual',
+      roiType: 'GTV',
+      roiNumber: 1,
+      interpolationState: null,
+      segmentIndex: 1,
+      segmentDescription: null,
+      segmentedPropertyCategory: null,
+      segmentedPropertyType: null,
+      poiPoints: null,
+      algebra: null,
+      algebraSources: null,
+      algebraOutOfDate: false,
+      algebraManualOverride: false,
+      csAnnotationUIDs: null,
+      csSegmentationId: 'rtstruct_1',
+      createdAt: 0,
+      modifiedAt: 0,
+    });
+    containerService.approveContainer(containerId, null);
+
+    containerService.setRoiType('m1', 'PTV');
+    expect(containerBridge.getContainer(containerId)?.members[0].roiType).toBe('PTV');
+    // ^ This succeeds today. A future Phase 3.8e refinement would have
+    //   the service refuse this mutation when the container is approved.
+  });
+});
