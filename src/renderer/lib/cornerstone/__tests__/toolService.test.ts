@@ -424,6 +424,29 @@ describe('toolService', () => {
       expect(group?.__toolStates.get('Brush')).toBe('Active');
     });
 
+    it('Phase 5.2: ensures a Contour representation exists when activating LabelmapEditWithContour on an existing labelmap segmentation', async () => {
+      toolService.initialize();
+      segmentationServiceMock.ensureContourRepresentation.mockClear();
+
+      useSegmentationStore.setState({
+        activeSegmentationId: 'seg-1',
+        activeSegmentIndex: 1,
+        segmentations: [{ segmentationId: 'seg-1', label: 'Seg 1', segments: [], isActive: true }],
+      });
+
+      toolService.setActiveTool(ToolName.LabelmapEditWithContour);
+      // Pre-flight is async (ensureContourRepresentation returns a promise);
+      // wait one microtask tick so the .then() callback runs before assertions.
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(segmentationServiceMock.ensureContourRepresentation).toHaveBeenCalledWith(
+        'panel_0',
+        'seg-1',
+      );
+      expect(toolService.getActiveTool()).toBe(ToolName.LabelmapEditWithContour);
+    });
+
     it('only one tool is Active for the Primary mouse button after any switch', () => {
       toolService.initialize();
 

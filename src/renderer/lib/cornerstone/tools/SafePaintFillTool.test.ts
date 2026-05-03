@@ -153,6 +153,139 @@ describe('SafePaintFillTool', () => {
     expect(toolMocks.triggerSegmentationDataModified).toHaveBeenCalledWith('seg-1', [0], 3);
   });
 
+  it('G16: a single fill records all voxel changes in one memo; one restoreMemo(true) reverts the entire fill', () => {
+    // Acceptance signal G16 (requirements §G):
+    //   "3D paint-fill on axial appears resampled on sagittal MPR; one undo
+    //    reverts the entire fill as one entry."
+    //
+    // The cross-MPR resampling is a property of C1 (voxel coherence —
+    // labelmap is shared 3D voxel grid; sagittal viewport reads the same
+    // grid the axial fill wrote). The novel G16 invariant for Phase 5 is
+    // the single-undo-reverts-entire-fill claim. This test exercises that
+    // directly: a flood that writes N voxels yields a memo with N changes,
+    // and one call to restoreMemo(isUndo=true) calls setAtIndex(oldValue)
+    // N times — which is what segmentationService.undo() does for a
+    // SafePaintFill memo.
+    const viewport = new toolMocks.BaseVolumeViewport('vp-1');
+    toolMocks.getEnabledElement.mockReturnValue({ viewport });
+
+    const setAtIndexCalls: Array<{ index: number; value: number }> = [];
+    const sharedVoxelManager = {
+      getAtIndex: vi.fn(() => 0),
+      setAtIndex: vi.fn((index: number, value: number) => {
+        setAtIndexCalls.push({ index, value });
+      }),
+    };
+    toolMocks.cacheGetVolume.mockReturnValueOnce({
+      dimensions: [10, 10, 1],
+      direction: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+      imageData: {},
+      voxelManager: sharedVoxelManager,
+    });
+
+    const tool = new SafePaintFillTool() as any;
+    tool.getFixedDimension = vi.fn(() => 2);
+    // Five voxels at known plane positions, all background (clickedLabel = 0).
+    // Place them mid-plane so the edge-connected guard does not fire.
+    const filled: Array<[number, number]> = [
+      [4, 4],
+      [5, 4],
+      [4, 5],
+      [5, 5],
+      [4, 6],
+    ];
+    tool.generateHelpers = vi.fn(() => ({
+      floodFillGetter: (x: number, y: number) => {
+        if (filled.some(([fx, fy]) => fx === x && fy === y)) return 0;
+        return undefined;
+      },
+      getLabelValue: () => 0,
+      getScalarDataPositionFromPlane: (x: number, y: number) => x * 100 + y,
+      inPlaneSeedPoint: [4, 4],
+      fixedDimensionValue: 0,
+    }));
+    tool.getFramesModified = vi.fn(() => [0]);
+
+    tool.preMouseDownCallback?.({
+      detail: {
+        currentPoints: { world: [0, 0, 0] },
+        element: document.createElement('div'),
+      },
+    });
+
+    // All five voxels were written under the active segment (3, from mock).
+    expect(setAtIndexCalls).toHaveLength(filled.length);
+    expect(setAtIndexCalls.every((c) => c.value === 3)).toBe(true);
+
+    // Memo records every change with its old/new values for revert.
+    expect(tool.memo).toBeTruthy();
+    expect(tool.memo.changes).toHaveLength(filled.length);
+    for (const change of tool.memo.changes) {
+      expect(change.oldValue).toBe(0);
+      expect(change.newValue).toBe(3);
+    }
+
+    // Single undo reverts the entire fill — the load-bearing G16 claim.
+    setAtIndexCalls.length = 0;
+    tool.memo.restoreMemo(true);
+    expect(setAtIndexCalls).toHaveLength(filled.length);
+    expect(setAtIndexCalls.every((c) => c.value === 0)).toBe(true);
+    expect(toolMocks.triggerSegmentationDataModified).toHaveBeenCalledWith(
+      'seg-1',
+      [0],
+    );
+
+    // And redo (restoreMemo(false)) re-applies in one step.
+    setAtIndexCalls.length = 0;
+    tool.memo.restoreMemo(false);
+    expect(setAtIndexCalls).toHaveLength(filled.length);
+    expect(setAtIndexCalls.every((c) => c.value === 3)).toBe(true);
+  });
+
+  it('G21 backstop: refuses the fill when the active segment is locked (defense in depth alongside the toolService pointerdown guard)', async () => {
+    // Acceptance signal G21 (requirements §G):
+    //   "Region-segment / smart brush ... locked segment blocks at
+    //    gesture-start with a hint."
+    //
+    // SafePaintFillTool checks isSegmentIndexLocked(segmentationId,
+    // activeSegmentIndex) at preMouseDown and returns early when the
+    // active segment is locked. This is independent from the toolService
+    // pointerdown lock guard — it ensures the fill does not run even if
+    // the gesture reaches the tool by some other path. The same defense
+    // applies symmetrically to the SafePaintFillTool branch of G21
+    // (paint-fill is a labelmap editor and §C5 requires every editor
+    // refuse a locked-segment write).
+    const tools = (await import('@cornerstonejs/tools')) as any;
+    tools.segmentation.segmentLocking.isSegmentIndexLocked.mockReturnValueOnce(true);
+
+    const viewport = new toolMocks.BaseVolumeViewport('vp-1');
+    toolMocks.getEnabledElement.mockReturnValue({ viewport });
+
+    const tool = new SafePaintFillTool() as any;
+    tool.getFixedDimension = vi.fn(() => 2);
+    tool.generateHelpers = vi.fn(() => ({
+      floodFillGetter: () => 0,
+      getLabelValue: () => 0,
+      getScalarDataPositionFromPlane: () => 0,
+      inPlaneSeedPoint: [1, 1],
+      fixedDimensionValue: 0,
+    }));
+    tool.getFramesModified = vi.fn(() => [0]);
+
+    const result = tool.preMouseDownCallback?.({
+      detail: {
+        currentPoints: { world: [0, 0, 0] },
+        element: document.createElement('div'),
+      },
+    });
+
+    // Tool consumes the event but performs no work — the lock check
+    // returns early before cacheGetVolume / voxel writes are reached.
+    expect(result).toBe(true);
+    expect(toolMocks.cacheGetVolume).not.toHaveBeenCalled();
+    expect(tool.memo).toBeFalsy();
+  });
+
   it('suppresses edge-connected oversized background fills to avoid accidental full-slice paint', () => {
     const viewport = {
       id: 'vp-stack',

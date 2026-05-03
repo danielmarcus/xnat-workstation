@@ -108,9 +108,21 @@ const TOOL_NAME_MAP: Record<ToolName, string> = {
   [ToolName.Probe]: ProbeTool.toolName,
   [ToolName.ArrowAnnotate]: ArrowAnnotateTool.toolName,
   [ToolName.PlanarFreehandROI]: PlanarFreehandROITool.toolName,
-  // Crosshair sync is handled via custom pointer handlers (crosshairGeometry.ts),
-  // NOT Cornerstone's CrosshairsTool (which has rendering issues on stack viewports).
-  // Map it to WindowLevel so the tool group has valid bindings when Crosshairs is active.
+  // Crosshair sync is handled via custom pointer handlers
+  // (crosshairGeometry.ts + crosshairSyncService.ts), NOT Cornerstone's
+  // CrosshairsTool — Cornerstone's tool has rendering issues on stack
+  // viewports, and stack mode survives for non-volumetric modalities
+  // (US/XA/RF/NM/DX/CR/MG, multi-frame cine, single-image — see
+  // stackEligibility.ts). Map Crosshairs to WindowLevel so the tool
+  // group has valid bindings when Crosshairs is the primary tool; the
+  // custom handlers do the actual cross-panel sync work for both stack
+  // and volume viewports.
+  //
+  // Phase 6.5 ("flip CrosshairsTool to its own slot now that stack
+  // viewports are gone") was retired: stack viewports are NOT gone —
+  // they're the surviving renderer for non-volumetric data. Flipping
+  // here would break crosshair sync on US/XA/cine panels. The custom-
+  // handler design serves all viewport types and stays.
   [ToolName.Crosshairs]: WindowLevelTool.toolName,
   // Labelmap segmentation tools — Brush/Eraser/ThresholdBrush all map to BrushTool
   [ToolName.Brush]: BrushTool.toolName,
@@ -484,7 +496,7 @@ function applyBindings(toolGroup: ToolTypes.IToolGroup, primaryTool: ToolName): 
   }
 
   // StackScroll — keep Disabled because we handle wheel/trackpad scrolling
-  // ourselves in CornerstoneViewport's custom wheel handler. StackScrollTool
+  // ourselves in StackViewport's custom wheel handler. StackScrollTool
   // has no visual annotations, so Enabled mode provides no benefit and risks
   // consuming wheel events on some Cornerstone3D versions.
   if (primaryTool !== ToolName.StackScroll) {
@@ -814,6 +826,15 @@ export const toolService = {
                     useSegmentationStore.getState().activeSegmentIndex,
                   );
                   segmentationService.setActiveSegmentIndex(segId, paintIdx);
+                  // Phase 5.2: LabelmapEditWithContour rasterizes a polyline into
+                  // the labelmap, but the underlying Cornerstone tool needs a
+                  // Contour representation alongside Labelmap to attribute the
+                  // in-progress polyline. Pre-create it here so the rasterizer
+                  // doesn't race the tool's own onViewportAddedToToolGroup
+                  // path (which fires before our listeners are wired).
+                  if (toolName === ToolName.LabelmapEditWithContour) {
+                    await segmentationService.ensureContourRepresentation(viewportId, segId);
+                  }
                 }
               }
 
@@ -841,8 +862,12 @@ export const toolService = {
         const paintIdx = getSafePaintSegmentIndex(segStore.activeSegmentIndex);
         segmentationManager.userSelectedSegmentation(viewportId, segId, paintIdx);
 
-        // Ensure contour representation for contour tools
-        if (CONTOUR_SEG_TOOLS.has(toolName)) {
+        // Ensure contour representation for tools that need it. Contour tools
+        // (Freehand / Spline / Livewire / Sculptor) own a contour-typed
+        // segmentation; LabelmapEditWithContour edits a labelmap but uses a
+        // freehand polyline as input scaffolding and needs a Contour rep
+        // attached alongside the Labelmap so the rasterizer can find it.
+        if (CONTOUR_SEG_TOOLS.has(toolName) || toolName === ToolName.LabelmapEditWithContour) {
           segmentationService.ensureContourRepresentation(viewportId, segId).then(() => {
             currentActiveTool = toolName;
             rebuildToolGroup(toolName);
