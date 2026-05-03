@@ -128,7 +128,7 @@ electronTest.describe('RTSTRUCT round-trip acceptance (G13 / G18 / G19 / G22)', 
     const paths = fixture!.imagePaths;
 
     await page.evaluate((p) => window.__XNAT_E2E__!.loadLocalDicomFiles('panel_0', p), paths);
-    await page.locator(`[data-testid="cornerstone-viewport-canvas:panel_0"] canvas`).first().waitFor({ state: 'visible', timeout: 30_000 });
+    await page.locator(`[data-testid="stack-viewport-canvas:panel_0"] canvas`).first().waitFor({ state: 'visible', timeout: 30_000 });
 
     const segId = await page.evaluate(
       (panel) => window.__XNAT_E2E__!.createTestStructure(panel, 'G18 GTV'),
@@ -173,7 +173,7 @@ electronTest.describe('RTSTRUCT round-trip acceptance (G13 / G18 / G19 / G22)', 
     const paths = fixture!.imagePaths;
 
     await page.evaluate((p) => window.__XNAT_E2E__!.loadLocalDicomFiles('panel_0', p), paths);
-    await page.locator(`[data-testid="cornerstone-viewport-canvas:panel_0"] canvas`).first().waitFor({ state: 'visible', timeout: 30_000 });
+    await page.locator(`[data-testid="stack-viewport-canvas:panel_0"] canvas`).first().waitFor({ state: 'visible', timeout: 30_000 });
 
     const segId = await page.evaluate(
       (panel) => window.__XNAT_E2E__!.createTestStructure(panel, 'G19 Approved Set'),
@@ -210,7 +210,7 @@ electronTest.describe('RTSTRUCT round-trip acceptance (G13 / G18 / G19 / G22)', 
     const paths = fixture!.imagePaths;
 
     await page.evaluate((p) => window.__XNAT_E2E__!.loadLocalDicomFiles('panel_0', p), paths);
-    await page.locator(`[data-testid="cornerstone-viewport-canvas:panel_0"] canvas`).first().waitFor({ state: 'visible', timeout: 30_000 });
+    await page.locator(`[data-testid="stack-viewport-canvas:panel_0"] canvas`).first().waitFor({ state: 'visible', timeout: 30_000 });
 
     const segId = await page.evaluate(
       (panel) => window.__XNAT_E2E__!.createTestStructure(panel, 'G13 GeometryTest'),
@@ -281,7 +281,7 @@ electronTest.describe('RTSTRUCT round-trip acceptance (G13 / G18 / G19 / G22)', 
     const paths = fixture!.imagePaths;
 
     await page.evaluate((p) => window.__XNAT_E2E__!.loadLocalDicomFiles('panel_0', p), paths);
-    await page.locator(`[data-testid="cornerstone-viewport-canvas:panel_0"] canvas`).first().waitFor({ state: 'visible', timeout: 30_000 });
+    await page.locator(`[data-testid="stack-viewport-canvas:panel_0"] canvas`).first().waitFor({ state: 'visible', timeout: 30_000 });
 
     const segId = await page.evaluate(
       (panel) => window.__XNAT_E2E__!.createTestStructure(panel, 'G22 Provenance'),

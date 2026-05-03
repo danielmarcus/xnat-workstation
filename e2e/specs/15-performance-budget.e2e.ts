@@ -72,7 +72,7 @@ electronTest.describe('Performance budget: 4-panel CT load', () => {
 
     // Wait for all four canvases to be visible from the warm-up.
     for (const pid of ['panel_0', 'panel_1', 'panel_2', 'panel_3']) {
-      const stack = page.locator(`[data-testid="cornerstone-viewport-canvas:${pid}"] canvas`);
+      const stack = page.locator(`[data-testid="stack-viewport-canvas:${pid}"] canvas`);
       const volume = page.locator(`[data-testid="volume-viewport-canvas:${pid}"] canvas`);
       await Promise.race([
         stack.first().waitFor({ state: 'visible', timeout: 30_000 }),
@@ -96,7 +96,7 @@ electronTest.describe('Performance budget: 4-panel CT load', () => {
     ]);
 
     for (const pid of ['panel_0', 'panel_1', 'panel_2', 'panel_3']) {
-      const stack = page.locator(`[data-testid="cornerstone-viewport-canvas:${pid}"] canvas`);
+      const stack = page.locator(`[data-testid="stack-viewport-canvas:${pid}"] canvas`);
       const volume = page.locator(`[data-testid="volume-viewport-canvas:${pid}"] canvas`);
       await Promise.race([
         stack.first().waitFor({ state: 'visible', timeout: 30_000 }),

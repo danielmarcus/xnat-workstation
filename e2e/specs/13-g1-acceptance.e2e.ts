@@ -74,7 +74,7 @@ electronTest.describe('Acceptance G1: contour on axial visible across MPR orient
     await page.evaluate((p) => window.__XNAT_E2E__!.loadLocalDicomFiles('panel_2', p), paths);
 
     // Wait for at least panel_0's canvas to mount before toggling MPR.
-    const initialCanvas = page.locator(`[data-testid="cornerstone-viewport-canvas:panel_0"] canvas, [data-testid="volume-viewport-canvas:panel_0"] canvas`);
+    const initialCanvas = page.locator(`[data-testid="stack-viewport-canvas:panel_0"] canvas, [data-testid="volume-viewport-canvas:panel_0"] canvas`);
     await initialCanvas.first().waitFor({ state: 'visible', timeout: 30_000 });
 
     const mprResult = await page.evaluate(() => window.__XNAT_E2E__!.toggleMpr());
@@ -84,7 +84,7 @@ electronTest.describe('Acceptance G1: contour on axial visible across MPR orient
     // Wait for the three orientation panels to mount their volume canvases.
     for (const pid of [PANEL_AXIAL, PANEL_SAGITTAL, PANEL_CORONAL]) {
       const volume = page.locator(`[data-testid="volume-viewport-canvas:${pid}"] canvas`);
-      const stack = page.locator(`[data-testid="cornerstone-viewport-canvas:${pid}"] canvas`);
+      const stack = page.locator(`[data-testid="stack-viewport-canvas:${pid}"] canvas`);
       await Promise.race([
         volume.first().waitFor({ state: 'visible', timeout: 45_000 }),
         stack.first().waitFor({ state: 'visible', timeout: 45_000 }),

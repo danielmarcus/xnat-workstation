@@ -8,8 +8,8 @@
  *
  * Acceptance for these tests:
  *   - The viewport renders via VolumeViewport.tsx (data-testid prefix
- *     "volume-viewport") rather than CornerstoneViewport (prefix
- *     "cornerstone-viewport").
+ *     "volume-viewport") rather than StackViewport (prefix
+ *     "stack-viewport").
  *   - The volume viewport canvas appears, no error overlay.
  *   - Slice navigation via mouse wheel updates the slice index.
  *   - The shared-volume cache is acquired (no console errors about
@@ -43,7 +43,7 @@ test.describe('Volume Mode (multiViewport.enabled = true, local fixture)', () =>
     // This is the diagnostic step — if neither shows, the panel isn't
     // mounting at all.
     const volumeRoot = page.locator('[data-testid="volume-viewport:panel_0"]');
-    const stackRoot = page.locator('[data-testid="cornerstone-viewport:panel_0"]');
+    const stackRoot = page.locator('[data-testid="stack-viewport:panel_0"]');
 
     await Promise.race([
       volumeRoot.waitFor({ state: 'attached', timeout: 30_000 }),
@@ -64,7 +64,7 @@ test.describe('Volume Mode (multiViewport.enabled = true, local fixture)', () =>
 
     await expect(
       volumeRoot,
-      'with the flag on and a multi-slice CT, the panel should render via VolumeViewport, not the legacy CornerstoneViewport',
+      'with the flag on and a multi-slice CT, the panel should render via VolumeViewport, not the legacy StackViewport',
     ).toBeAttached();
 
     const volumeCanvas = page.locator('[data-testid="volume-viewport-canvas:panel_0"] canvas');
@@ -99,13 +99,13 @@ test.describe('Volume Mode (multiViewport.enabled = true, local fixture)', () =>
   });
 
   test('legacy stack viewport rendering when flag is off', async ({ page }) => {
-    // Flip flag off and re-load: should mount the legacy CornerstoneViewport.
+    // Flip flag off and re-load: should mount the legacy StackViewport.
     const result = await loadFixtureScan(page, FIXTURE_NAMES.CT_AXIAL_300, {
       multiViewportEnabled: false,
     });
     expect(result).not.toBeNull();
 
-    const stackCanvas = page.locator('[data-testid="cornerstone-viewport-canvas:panel_0"] canvas');
+    const stackCanvas = page.locator('[data-testid="stack-viewport-canvas:panel_0"] canvas');
     await expect(stackCanvas).toBeVisible({ timeout: 30_000 });
   });
 });

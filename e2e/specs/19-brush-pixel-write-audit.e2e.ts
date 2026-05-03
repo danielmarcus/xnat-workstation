@@ -35,7 +35,7 @@ import dcmjs from 'dcmjs';
 
 function panelCanvas(page: Page, panelId: string): Locator {
   return page.locator(
-    `[data-testid="cornerstone-viewport-canvas:${panelId}"] canvas, [data-testid="volume-viewport-canvas:${panelId}"] canvas`,
+    `[data-testid="stack-viewport-canvas:${panelId}"] canvas, [data-testid="volume-viewport-canvas:${panelId}"] canvas`,
   ).first();
 }
 

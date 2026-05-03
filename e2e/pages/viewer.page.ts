@@ -19,19 +19,19 @@ export class ViewerPage {
   // ─── Viewport Locators ─────────────────────────────────────────
 
   get viewport() {
-    return this.page.locator(`[data-testid="cornerstone-viewport:${this.panelId}"]`);
+    return this.page.locator(`[data-testid="stack-viewport:${this.panelId}"]`);
   }
 
   get viewportCanvas() {
-    return this.page.locator(`[data-testid="cornerstone-viewport-canvas:${this.panelId}"] canvas`);
+    return this.page.locator(`[data-testid="stack-viewport-canvas:${this.panelId}"] canvas`);
   }
 
   get viewportStatus() {
-    return this.page.locator(`[data-testid="cornerstone-viewport-status:${this.panelId}"]`);
+    return this.page.locator(`[data-testid="stack-viewport-status:${this.panelId}"]`);
   }
 
   get viewportError() {
-    return this.page.locator(`[data-testid="cornerstone-viewport-error:${this.panelId}"]`);
+    return this.page.locator(`[data-testid="stack-viewport-error:${this.panelId}"]`);
   }
 
   get viewportOverlay() {

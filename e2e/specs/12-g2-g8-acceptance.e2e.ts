@@ -75,7 +75,7 @@ electronTest.describe('Acceptance G2 + G8: two panels on the same series', () =>
     // Both panels mount a canvas (volume or stack — accept either).
     for (const pid of [PANEL_A, PANEL_B]) {
       const volume = page.locator(`[data-testid="volume-viewport-canvas:${pid}"] canvas`);
-      const stack = page.locator(`[data-testid="cornerstone-viewport-canvas:${pid}"] canvas`);
+      const stack = page.locator(`[data-testid="stack-viewport-canvas:${pid}"] canvas`);
       await Promise.race([
         volume.first().waitFor({ state: 'visible', timeout: 30_000 }),
         stack.first().waitFor({ state: 'visible', timeout: 30_000 }),
@@ -165,7 +165,7 @@ electronTest.describe('Acceptance G2 + G8: two panels on the same series', () =>
 
     for (const pid of [PANEL_A, PANEL_B]) {
       const volume = page.locator(`[data-testid="volume-viewport-canvas:${pid}"] canvas`);
-      const stack = page.locator(`[data-testid="cornerstone-viewport-canvas:${pid}"] canvas`);
+      const stack = page.locator(`[data-testid="stack-viewport-canvas:${pid}"] canvas`);
       await Promise.race([
         volume.first().waitFor({ state: 'visible', timeout: 30_000 }),
         stack.first().waitFor({ state: 'visible', timeout: 30_000 }),

@@ -119,7 +119,7 @@ electronTest.describe('Cross-series acceptance (G10 / G11 / G12)', () => {
 
     for (const pid of ['panel_0', 'panel_1']) {
       await page
-        .locator(`[data-testid="cornerstone-viewport-canvas:${pid}"] canvas`)
+        .locator(`[data-testid="stack-viewport-canvas:${pid}"] canvas`)
         .first()
         .waitFor({ state: 'visible', timeout: 30_000 });
     }
@@ -177,7 +177,7 @@ electronTest.describe('Cross-series acceptance (G10 / G11 / G12)', () => {
 
     for (const pid of ['panel_0', 'panel_1']) {
       await page
-        .locator(`[data-testid="cornerstone-viewport-canvas:${pid}"] canvas`)
+        .locator(`[data-testid="stack-viewport-canvas:${pid}"] canvas`)
         .first()
         .waitFor({ state: 'visible', timeout: 30_000 });
     }
@@ -227,7 +227,7 @@ electronTest.describe('Cross-series acceptance (G10 / G11 / G12)', () => {
 
     for (const pid of ['panel_0', 'panel_1']) {
       await page
-        .locator(`[data-testid="cornerstone-viewport-canvas:${pid}"] canvas`)
+        .locator(`[data-testid="stack-viewport-canvas:${pid}"] canvas`)
         .first()
         .waitFor({ state: 'visible', timeout: 30_000 });
     }

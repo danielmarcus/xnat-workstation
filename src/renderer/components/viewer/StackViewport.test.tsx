@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import CornerstoneViewport from './CornerstoneViewport';
+import StackViewport from './StackViewport';
 import { useViewerStore } from '../../stores/viewerStore';
 import { useMetadataStore } from '../../stores/metadataStore';
 
@@ -117,7 +117,7 @@ beforeAll(() => {
   });
 });
 
-describe('CornerstoneViewport', () => {
+describe('StackViewport', () => {
   const panelId = 'panel_0';
 
   beforeEach(() => {
@@ -142,7 +142,7 @@ describe('CornerstoneViewport', () => {
     const stopCine = vi.fn();
     useViewerStore.setState({ ...useViewerStore.getState(), stopCine });
 
-    const view = render(<CornerstoneViewport panelId={panelId} imageIds={['img-1', 'img-2']} />);
+    const view = render(<StackViewport panelId={panelId} imageIds={['img-1', 'img-2']} />);
 
     await waitFor(() => {
       expect(mocks.createViewport).toHaveBeenCalledWith(
@@ -198,10 +198,10 @@ describe('CornerstoneViewport', () => {
     });
     mocks.getZoom.mockReturnValue(175);
 
-    render(<CornerstoneViewport panelId={panelId} imageIds={['img-1', 'img-2', 'img-3']} />);
+    render(<StackViewport panelId={panelId} imageIds={['img-1', 'img-2', 'img-3']} />);
     await waitFor(() => expect(mocks.createViewport).toHaveBeenCalled());
 
-    const canvas = screen.getByTestId(`cornerstone-viewport-canvas:${panelId}`);
+    const canvas = screen.getByTestId(`stack-viewport-canvas:${panelId}`);
 
     fireEvent(
       canvas,
@@ -254,10 +254,10 @@ describe('CornerstoneViewport', () => {
       render: vi.fn(),
     });
 
-    render(<CornerstoneViewport panelId={panelId} imageIds={['img-1', 'img-2', 'img-3']} />);
+    render(<StackViewport panelId={panelId} imageIds={['img-1', 'img-2', 'img-3']} />);
     await waitFor(() => expect(mocks.createViewport).toHaveBeenCalled());
 
-    const canvas = screen.getByTestId(`cornerstone-viewport-canvas:${panelId}`);
+    const canvas = screen.getByTestId(`stack-viewport-canvas:${panelId}`);
 
     fireEvent(
       canvas,
@@ -290,10 +290,10 @@ describe('CornerstoneViewport', () => {
       render: vi.fn(),
     });
 
-    render(<CornerstoneViewport panelId={panelId} imageIds={['img-1', 'img-2', 'img-3', 'img-4']} />);
+    render(<StackViewport panelId={panelId} imageIds={['img-1', 'img-2', 'img-3', 'img-4']} />);
     await waitFor(() => expect(mocks.createViewport).toHaveBeenCalled());
 
-    const canvas = screen.getByTestId(`cornerstone-viewport-canvas:${panelId}`);
+    const canvas = screen.getByTestId(`stack-viewport-canvas:${panelId}`);
 
     fireEvent(
       canvas,
@@ -320,10 +320,10 @@ describe('CornerstoneViewport', () => {
     mocks.loadStack.mockRejectedValueOnce(err);
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
 
-    render(<CornerstoneViewport panelId={panelId} imageIds={['img-1']} />);
+    render(<StackViewport panelId={panelId} imageIds={['img-1']} />);
 
     await waitFor(() => {
-      expect(screen.getByTestId(`cornerstone-viewport-error:${panelId}`)).toBeInTheDocument();
+      expect(screen.getByTestId(`stack-viewport-error:${panelId}`)).toBeInTheDocument();
     });
     expect(screen.getByText('load exploded')).toBeInTheDocument();
     expect(mocks.markReady).not.toHaveBeenCalled();
@@ -343,13 +343,13 @@ describe('CornerstoneViewport', () => {
     });
     mocks.cacheIsLoaded.mockReturnValue(false);
 
-    render(<CornerstoneViewport panelId={panelId} imageIds={['img-1', 'img-2']} />);
+    render(<StackViewport panelId={panelId} imageIds={['img-1', 'img-2']} />);
     await waitFor(() => expect(mocks.createViewport).toHaveBeenCalled());
 
     act(() => {
       useViewerStore.getState()._requestImageIndex(panelId, 1, 2);
     });
 
-    expect(screen.getByTestId(`cornerstone-viewport-pending:${panelId}`)).toHaveTextContent('Slice loading...');
+    expect(screen.getByTestId(`stack-viewport-pending:${panelId}`)).toHaveTextContent('Slice loading...');
   });
 });

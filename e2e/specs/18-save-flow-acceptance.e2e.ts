@@ -64,7 +64,7 @@ electronTest.describe('Save-flow acceptance (G14 / G15)', () => {
     const paths = fixture!.imagePaths;
 
     await page.evaluate((p) => window.__XNAT_E2E__!.loadLocalDicomFiles('panel_0', p), paths);
-    const stack = page.locator(`[data-testid="cornerstone-viewport-canvas:panel_0"] canvas`);
+    const stack = page.locator(`[data-testid="stack-viewport-canvas:panel_0"] canvas`);
     const volume = page.locator(`[data-testid="volume-viewport-canvas:panel_0"] canvas`);
     await Promise.race([
       stack.first().waitFor({ state: 'visible', timeout: 30_000 }),
@@ -140,7 +140,7 @@ electronTest.describe('Save-flow acceptance (G14 / G15)', () => {
 
     await page.evaluate((p) => window.__XNAT_E2E__!.loadLocalDicomFiles('panel_0', p), paths);
     {
-      const stack = page.locator(`[data-testid="cornerstone-viewport-canvas:panel_0"] canvas`);
+      const stack = page.locator(`[data-testid="stack-viewport-canvas:panel_0"] canvas`);
       const volume = page.locator(`[data-testid="volume-viewport-canvas:panel_0"] canvas`);
       await Promise.race([
         stack.first().waitFor({ state: 'visible', timeout: 30_000 }),

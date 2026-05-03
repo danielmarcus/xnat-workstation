@@ -97,7 +97,7 @@ electronTest.describe('A12 stress: rapid layout churn during concurrent loads', 
     // mid-mount; createTestStructure needs panel_0 to have a stable
     // viewport with imageIds available.
     await page.evaluate(() => window.__XNAT_E2E__!.setLayout('1x1' as const));
-    const stack = page.locator(`[data-testid="cornerstone-viewport-canvas:panel_0"] canvas`);
+    const stack = page.locator(`[data-testid="stack-viewport-canvas:panel_0"] canvas`);
     const volume = page.locator(`[data-testid="volume-viewport-canvas:panel_0"] canvas`);
     await Promise.race([
       stack.first().waitFor({ state: 'visible', timeout: 30_000 }),

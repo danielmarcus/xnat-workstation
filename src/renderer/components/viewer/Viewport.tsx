@@ -3,12 +3,12 @@
  *
  * Phase 1.4: introduces this component as the future single rendering surface
  * for both volume and stack viewports. Grid components import `Viewport` and
- * stop importing `CornerstoneViewport` / `OrientedViewport` directly.
+ * stop importing `StackViewport` / `OrientedViewport` directly.
  *
  * Until the volume-mode rendering wireup lands (segmentation attachment,
  * event subscriptions, crosshair sync — all the responsibilities currently
- * in CornerstoneViewport at 430 lines), this component delegates to the
- * legacy `CornerstoneViewport` regardless of the viewport-type decision.
+ * in StackViewport at 430 lines), this component delegates to the
+ * legacy `StackViewport` regardless of the viewport-type decision.
  * The flag check + eligibility resolution still happens here so the
  * decision is observable in logs and ready for the next commit to switch
  * the volume branch to the new path.
@@ -19,7 +19,7 @@
 import { useMemo } from 'react';
 import { usePreferencesStore } from '../../stores/preferencesStore';
 import { viewportService } from '../../lib/cornerstone/viewportService';
-import CornerstoneViewport from './CornerstoneViewport';
+import StackViewport from './StackViewport';
 import VolumeViewport from './VolumeViewport';
 
 interface ViewportProps {
@@ -52,5 +52,5 @@ export default function Viewport({ panelId, imageIds, orientation }: ViewportPro
     return <VolumeViewport panelId={panelId} imageIds={imageIds} orientation={orientation ?? 'AXIAL'} />;
   }
 
-  return <CornerstoneViewport panelId={panelId} imageIds={imageIds} />;
+  return <StackViewport panelId={panelId} imageIds={imageIds} />;
 }

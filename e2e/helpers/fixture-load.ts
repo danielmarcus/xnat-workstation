@@ -22,7 +22,7 @@ import {
 export interface LoadFixtureScanOptions {
   /** Default 'panel_0'. */
   panelId?: string;
-  /** Default false → stack mode (legacy CornerstoneViewport).
+  /** Default false → stack mode (legacy StackViewport).
    *  Set true → volume mode (Viewport → VolumeViewport). */
   multiViewportEnabled?: boolean;
   /** Slice the fixture's image paths before passing them to the
@@ -89,7 +89,7 @@ export async function loadFixtureScan(
 
   // Wait for whichever canvas root is mounted on the panel — either
   // the legacy stack viewport or the new volume viewport.
-  const stackCanvas = page.locator(`[data-testid="cornerstone-viewport-canvas:${panelId}"] canvas`);
+  const stackCanvas = page.locator(`[data-testid="stack-viewport-canvas:${panelId}"] canvas`);
   const volumeCanvas = page.locator(`[data-testid="volume-viewport-canvas:${panelId}"] canvas`);
   await Promise.race([
     stackCanvas.first().waitFor({ state: 'visible', timeout: canvasTimeout }),

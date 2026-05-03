@@ -1,5 +1,5 @@
 /**
- * CornerstoneViewport — thin React wrapper that delegates all Cornerstone3D
+ * StackViewport — thin React wrapper that delegates all Cornerstone3D
  * operations to the service layer and wires viewport events to Zustand stores.
  *
  * Each instance manages one panel (identified by panelId). Multiple instances
@@ -30,12 +30,12 @@ import { useViewerStore } from '../../stores/viewerStore';
 import { useMetadataStore } from '../../stores/metadataStore';
 import { ToolName } from '@shared/types/viewer';
 
-interface CornerstoneViewportProps {
+interface StackViewportProps {
   panelId: string;
   imageIds: string[];
 }
 
-export default function CornerstoneViewport({ panelId, imageIds }: CornerstoneViewportProps) {
+export default function StackViewport({ panelId, imageIds }: StackViewportProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<string>('Initializing...');
   const [error, setError] = useState<string | null>(null);
@@ -160,7 +160,7 @@ export default function CornerstoneViewport({ panelId, imageIds }: CornerstoneVi
           await segmentationManager.attachVisibleSegmentationsToViewport(panelId);
         }
       } catch (err) {
-        console.error(`[CornerstoneViewport:${panelId}] Setup error:`, err);
+        console.error(`[StackViewport:${panelId}] Setup error:`, err);
         if (!cancelled) {
           setError(err instanceof Error ? err.message : String(err));
           setStatus('Error');
@@ -197,19 +197,19 @@ export default function CornerstoneViewport({ panelId, imageIds }: CornerstoneVi
 
   return (
     <div
-      data-testid={`cornerstone-viewport:${panelId}`}
+      data-testid={`stack-viewport:${panelId}`}
       className={`relative w-full h-full bg-black ${cursorClass}`}
     >
       <div
         ref={containerRef}
-        data-testid={`cornerstone-viewport-canvas:${panelId}`}
+        data-testid={`stack-viewport-canvas:${panelId}`}
         className={`w-full h-full ${cursorClass}`}
         onContextMenu={(e) => e.preventDefault()}
       />
       {/* Status overlay — only shown when no images or loading */}
       {(imageIds.length === 0 || status === 'Error') && (
         <div
-          data-testid={`cornerstone-viewport-status:${panelId}`}
+          data-testid={`stack-viewport-status:${panelId}`}
           className="absolute bottom-2 left-2 text-xs text-zinc-400"
         >
           {status}
@@ -217,7 +217,7 @@ export default function CornerstoneViewport({ panelId, imageIds }: CornerstoneVi
       )}
       {error && (
         <div
-          data-testid={`cornerstone-viewport-error:${panelId}`}
+          data-testid={`stack-viewport-error:${panelId}`}
           className="absolute inset-0 flex items-center justify-center bg-black/80"
         >
           <div className="bg-red-950 border border-red-800 text-red-200 px-4 py-3 rounded max-w-md">
@@ -238,7 +238,7 @@ export default function CornerstoneViewport({ panelId, imageIds }: CornerstoneVi
         if (isPendingLoaded) return null;
         return (
           <div
-            data-testid={`cornerstone-viewport-pending:${panelId}`}
+            data-testid={`stack-viewport-pending:${panelId}`}
             className="absolute left-1/2 -translate-x-1/2 bottom-2 px-2 py-1 rounded bg-black/50 text-zinc-200 text-[11px] pointer-events-none"
           >
             Slice loading...

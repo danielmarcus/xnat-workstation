@@ -256,7 +256,7 @@ electronTest.describe('Local fixture renderer mount (loadLocalDicomFiles)', () =
     // path uses; we accept either.
     for (const pid of ['panel_0', 'panel_1']) {
       const volumeCanvas = page.locator(`[data-testid="volume-viewport-canvas:${pid}"] canvas`);
-      const stackCanvas = page.locator(`[data-testid="cornerstone-viewport-canvas:${pid}"] canvas`);
+      const stackCanvas = page.locator(`[data-testid="stack-viewport-canvas:${pid}"] canvas`);
       await Promise.race([
         volumeCanvas.first().waitFor({ state: 'visible', timeout: 30_000 }),
         stackCanvas.first().waitFor({ state: 'visible', timeout: 30_000 }),
@@ -305,7 +305,7 @@ electronTest.describe('Local fixture renderer mount (loadLocalDicomFiles)', () =
 
     // Wait for both stack canvases to mount.
     for (const pid of ['panel_0', 'panel_1']) {
-      await page.locator(`[data-testid="cornerstone-viewport-canvas:${pid}"] canvas`)
+      await page.locator(`[data-testid="stack-viewport-canvas:${pid}"] canvas`)
         .first().waitFor({ state: 'visible', timeout: 30_000 });
     }
 
@@ -375,7 +375,7 @@ electronTest.describe('Local fixture renderer mount (loadLocalDicomFiles)', () =
     }, series[1]);
 
     for (const pid of ['panel_0', 'panel_1']) {
-      const c = page.locator(`[data-testid="volume-viewport-canvas:${pid}"] canvas, [data-testid="cornerstone-viewport-canvas:${pid}"] canvas`);
+      const c = page.locator(`[data-testid="volume-viewport-canvas:${pid}"] canvas, [data-testid="stack-viewport-canvas:${pid}"] canvas`);
       await c.first().waitFor({ state: 'visible', timeout: 30_000 });
     }
 

@@ -5,7 +5,7 @@
  * stack-eligibility predicate returns 'volume'. Renders an ORTHOGRAPHIC
  * volume viewport backed by the shared-volume cache (per design §1.5).
  *
- * Mirrors the event/state surface of `CornerstoneViewport.tsx` but with
+ * Mirrors the event/state surface of `StackViewport.tsx` but with
  * volume-specific event names and APIs:
  *   - VOLUME_NEW_IMAGE (instead of STACK_NEW_IMAGE) for slice changes.
  *   - viewport.scroll(delta) for wheel handling — same API on both types.

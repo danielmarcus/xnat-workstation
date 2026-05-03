@@ -36,18 +36,18 @@ type UndoStackInfo = {
 };
 
 function panelCanvas(page: Page, panelId: string): Locator {
-  // Stack mode (CornerstoneViewport) and volume mode (VolumeViewport) use
+  // Stack mode (StackViewport) and volume mode (VolumeViewport) use
   // different testid prefixes. Match either so the spec doesn't have to
   // know which path the flag selected for this panel.
   return page.locator(
-    `[data-testid="cornerstone-viewport-canvas:${panelId}"] canvas, `
+    `[data-testid="stack-viewport-canvas:${panelId}"] canvas, `
     + `[data-testid="volume-viewport-canvas:${panelId}"] canvas`,
   );
 }
 
 function panelRoot(page: Page, panelId: string): Locator {
   return page.locator(
-    `[data-testid="cornerstone-viewport:${panelId}"], `
+    `[data-testid="stack-viewport:${panelId}"], `
     + `[data-testid="volume-viewport:${panelId}"]`,
   );
 }
@@ -83,7 +83,7 @@ async function loadScanIntoPanel(page: Page, panelId: string, multiViewportEnabl
 async function waitForCanvasReady(page: Page, panelId: string) {
   await expect(panelCanvas(page, panelId)).toBeVisible({ timeout: 30_000 });
   // Wait for any "loading" status indicator to clear
-  const status = page.locator(`[data-testid="cornerstone-viewport-status:${panelId}"]`);
+  const status = page.locator(`[data-testid="stack-viewport-status:${panelId}"]`);
   if (await status.isVisible({ timeout: 500 }).catch(() => false)) {
     await status.waitFor({ state: 'hidden', timeout: 30_000 });
   }

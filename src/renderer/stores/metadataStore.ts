@@ -1,7 +1,7 @@
 /**
  * Metadata Store — holds DICOM overlay metadata per panel.
  *
- * Updated on each STACK_NEW_IMAGE event by the CornerstoneViewport component
+ * Updated on each STACK_NEW_IMAGE event by the StackViewport component
  * via metadataService.getOverlayData(). Keyed by panelId (e.g. 'panel_0').
  */
 import { create } from 'zustand';

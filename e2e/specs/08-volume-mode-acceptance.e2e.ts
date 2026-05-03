@@ -58,7 +58,7 @@ test.describe('Volume-Mode Acceptance (local fixture, multiViewport.enabled = tr
     });
     expect(result).not.toBeNull();
 
-    const stackCanvas = page.locator('[data-testid="cornerstone-viewport-canvas:panel_0"] canvas');
+    const stackCanvas = page.locator('[data-testid="stack-viewport-canvas:panel_0"] canvas');
     await expect(stackCanvas).toBeVisible({ timeout: 30_000 });
 
     const volumeRoot = page.locator('[data-testid="volume-viewport:panel_0"]');

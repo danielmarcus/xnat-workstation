@@ -3,7 +3,7 @@
  * hover-to-highlight (Phase 3.5c-canvas, D7.8 canvas-side).
  *
  * Extracts the duplicated `selectContourAnnotationAtCanvasPoint` logic
- * from `CornerstoneViewport.tsx` and `VolumeViewport.tsx`. Both components
+ * from `StackViewport.tsx` and `VolumeViewport.tsx`. Both components
  * had near-identical implementations: filter annotations to the current
  * slice, project the polyline through `viewport.worldToCanvas`, find the
  * nearest segment to the click/hover point. The pure logic now lives here
