@@ -114,6 +114,20 @@ declare global {
       getLockAwareUndoRedoCounter: () => number;
       createTestStructure: (panelId: string, label: string) => Promise<string>;
       createTestContour: (panelId: string, segmentationId: string, segmentIndex?: number) => string | null;
+      /**
+       * Sync. Drive a panel's viewport to a specific slice index. Wraps
+       * Cornerstone's `viewport.setImageIdIndex` and renders. Returns
+       * true when the call landed on a viewport with the API; false when
+       * the panel has no enabled element (yet) or the viewport doesn't
+       * expose `setImageIdIndex` (e.g., a placeholder div).
+       *
+       * Acceptance signal G2 needs precise per-panel slice positioning,
+       * which `page.mouse.wheel` does not give without knowing the
+       * slice-per-tick mapping.
+       */
+      setSliceIndex: (panelId: string, sliceIndex: number) => boolean;
+      /** Sync. Read a panel's current slice index, or null if unknown. */
+      getSliceIndex: (panelId: string) => number | null;
       closePanel: (panelId: string) => boolean;
       getUndoStackInfo: () => UndoStackInfo;
 
@@ -574,6 +588,50 @@ export function installRendererE2eHooks(): void {
       return true;
     },
     getLockAwareUndoRedoCounter: () => lockAwareUndoRedoCounter,
+    setSliceIndex: (panelId: string, sliceIndex: number) => {
+      const enabledElement = getEnabledElementByViewportId(panelId) as
+        | {
+            viewport?: {
+              setImageIdIndex?: (i: number) => unknown;
+              setSliceIndex?: (i: number) => unknown;
+              render?: () => void;
+            };
+          }
+        | undefined;
+      const viewport = enabledElement?.viewport;
+      if (!viewport) return false;
+      // Stack viewports use setImageIdIndex; volume viewports use setSliceIndex.
+      // Try the stack API first since it's the common case for the local
+      // fixture (CT-axial-300 mounts as a stack viewport by default).
+      if (typeof viewport.setImageIdIndex === 'function') {
+        viewport.setImageIdIndex(sliceIndex);
+        viewport.render?.();
+        return true;
+      }
+      if (typeof viewport.setSliceIndex === 'function') {
+        viewport.setSliceIndex(sliceIndex);
+        viewport.render?.();
+        return true;
+      }
+      return false;
+    },
+    getSliceIndex: (panelId: string) => {
+      const enabledElement = getEnabledElementByViewportId(panelId) as
+        | {
+            viewport?: {
+              getCurrentImageIdIndex?: () => number;
+              getSliceIndex?: () => number;
+            };
+          }
+        | undefined;
+      const viewport = enabledElement?.viewport;
+      const stackIdx = viewport?.getCurrentImageIdIndex?.();
+      if (Number.isInteger(stackIdx) && Number(stackIdx) >= 0) return Number(stackIdx);
+      const volumeIdx = viewport?.getSliceIndex?.();
+      if (Number.isInteger(volumeIdx) && Number(volumeIdx) >= 0) return Number(volumeIdx);
+      const storeIdx = useViewerStore.getState().viewports[panelId]?.imageIndex;
+      return Number.isInteger(storeIdx) ? Number(storeIdx) : null;
+    },
     createTestStructure: async (panelId: string, label: string) => {
       const sourceImageIds = useViewerStore.getState().panelImageIdsMap[panelId] ?? [];
       if (sourceImageIds.length === 0) {

@@ -28,6 +28,13 @@ type SetPanelImageIdsFn = (updater: SetPanelImageIdsUpdater) => void;
 
 let registeredSetter: SetPanelImageIdsFn | null = null;
 
+// Per-path → wadouri image ID cache. Mounting the same fixture twice (e.g.
+// two panels on the same series for G2 / G8 acceptance specs) must produce
+// identical image IDs so contour annotations rendered against one panel's
+// imageId are recognised on the other. Without this, `wadouri.fileManager.add`
+// hands out a fresh `dicomfile:N` per call.
+const pathToImageId = new Map<string, string>();
+
 export function registerSetPanelImageIds(fn: SetPanelImageIdsFn): void {
   registeredSetter = fn;
 }
@@ -99,13 +106,33 @@ export async function loadLocalDicomFiles(
     throw new Error('loadLocalDicomFiles: paths array is empty');
   }
 
-  const buffers = await Promise.all(paths.map(readDicomBytes));
-  let imageIds = buffers.map((buffer, index) => {
-    const blob = new Blob([buffer], { type: 'application/dicom' });
-    const file = new File([blob], basenameOf(paths[index]), {
-      type: 'application/dicom',
-    });
-    return wadouri.fileManager.add(file);
+  // Reuse cached image IDs when the same path is mounted again. Required
+  // for two-panels-same-series G2 / G8 specs: contour annotations key on
+  // referencedImageId, so panel A and panel B must resolve identical IDs.
+  const uncachedPaths: string[] = [];
+  const uncachedIndices: number[] = [];
+  for (let i = 0; i < paths.length; i++) {
+    if (!pathToImageId.has(paths[i])) {
+      uncachedPaths.push(paths[i]);
+      uncachedIndices.push(i);
+    }
+  }
+  if (uncachedPaths.length > 0) {
+    const buffers = await Promise.all(uncachedPaths.map(readDicomBytes));
+    for (let j = 0; j < uncachedPaths.length; j++) {
+      const buffer = buffers[j];
+      const blob = new Blob([buffer], { type: 'application/dicom' });
+      const file = new File([blob], basenameOf(uncachedPaths[j]), {
+        type: 'application/dicom',
+      });
+      const id = wadouri.fileManager.add(file);
+      pathToImageId.set(uncachedPaths[j], id);
+    }
+  }
+  let imageIds = paths.map((p) => {
+    const id = pathToImageId.get(p);
+    if (!id) throw new Error(`loadLocalDicomFiles: missing cache entry for ${p}`);
+    return id;
   });
 
   // Pre-load every image through the standard image-loader path. For
