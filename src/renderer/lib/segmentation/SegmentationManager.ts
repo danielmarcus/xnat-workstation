@@ -946,9 +946,11 @@ export class SegmentationManager {
     if (!cached) return;
 
     // Color/visibility/lock restoration can emit asynchronous segmentation events.
-    // Suppress dirty tracking briefly so scan switching doesn't create false
-    // unsaved-change warnings or auto-save attempts.
-    segmentationService.suppressDirtyTrackingFor(600);
+    // Suppress dirty tracking for THIS segmentation briefly so scan switching
+    // doesn't create false unsaved-change warnings or auto-save attempts —
+    // scoped to `segmentationId` so a concurrent edit on another segmentation
+    // is not also swallowed.
+    segmentationService.suppressDirtyTrackingFor(segmentationId, 600);
     segmentationService.runWithDirtyTrackingSuppressed(() => {
       // Restore colors
       for (const [idxStr, rgba] of Object.entries(cached.color)) {

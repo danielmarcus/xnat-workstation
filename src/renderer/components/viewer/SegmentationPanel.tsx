@@ -577,7 +577,16 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
     try {
       const segId = pendingCreateType === 'RTSTRUCT'
         ? await segmentationManager.createNewStructure(activeViewportId, sourceImageIds, name)
-        : await segmentationManager.createNewSegmentation(activeViewportId, sourceImageIds, name);
+        // Pass createDefaultSegment=true so the new SEG group has a sub-
+        // segmentation that brush / paint-fill / scissors can target
+        // immediately after creation. Without this, the multi-layer-group
+        // path leaves the group with zero sub-segs; tools fire
+        // SEGMENTATION_DATA_MODIFIED events but no labelmap pixels are
+        // written, and a subsequent exportToDicomSeg fails with
+        // "nonZeroPixels=0 / no painted segment data". Matches the
+        // toolService auto-create-on-brush-activate path which already
+        // passes true.
+        : await segmentationManager.createNewSegmentation(activeViewportId, sourceImageIds, name, true);
       setDicomType(segId, pendingCreateType);
       // Set as the active segmentation so subsequent tool activation finds it
       useSegmentationStore.getState().setActiveSegmentation(segId);

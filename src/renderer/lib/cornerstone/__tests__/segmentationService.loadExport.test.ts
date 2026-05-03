@@ -642,7 +642,7 @@ describe('segmentationService load/export integration (mocked cornerstone)', () 
     segmentationService.redo();
     expect(segmentationService.getUndoState()).toEqual({ canUndo: false, canRedo: false });
 
-    segmentationService.suppressDirtyTrackingFor(250);
+    segmentationService.suppressDirtyTrackingFor(segId, 250);
     segmentationService.runWithDirtyTrackingSuppressed(() => {
       segmentationService.removeSegmentationsFromViewport('panel_0');
     });

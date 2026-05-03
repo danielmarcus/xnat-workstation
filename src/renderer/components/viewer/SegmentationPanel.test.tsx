@@ -154,10 +154,16 @@ describe('SegmentationPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Create' }));
 
     await waitFor(() => {
+      // createDefaultSegment=true so the new SEG group has an editable
+      // sub-segmentation that brush / paint-fill / scissors can target
+      // immediately. Without this, tools fire SEGMENTATION_DATA_MODIFIED
+      // events but no labelmap pixels are written, and a subsequent
+      // exportToDicomSeg fails with "nonZeroPixels=0".
       expect(segPanelMocks.segmentationManager.createNewSegmentation).toHaveBeenCalledWith(
         'panel_0',
         ['wadouri:scan-1'],
         'My Seg',
+        true,
       );
     });
 
