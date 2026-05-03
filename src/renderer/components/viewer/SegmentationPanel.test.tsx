@@ -122,72 +122,14 @@ describe('SegmentationPanel', () => {
     );
   });
 
-  it('renders empty panel state and disables add actions without source images', () => {
+  it('renders empty panel state when no segmentations exist', () => {
     render(<SegmentationPanel sourceImageIds={[]} />);
 
     expect(screen.getByText('No annotations yet.')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Add segmentation' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Add structure' })).toBeDisabled();
     expect(screen.getByText('Select an annotation row to enable tools.')).toBeInTheDocument();
-  });
-
-  it('creates segmentation/structure annotations and stores per-row dicom types', async () => {
-    useViewerStore.setState({
-      ...useViewerStore.getState(),
-      activeViewportId: 'panel_0',
-      panelScanMap: { panel_0: '11' },
-      panelXnatContextMap: {
-        panel_0: {
-          projectId: 'P1',
-          subjectId: 'SUB1',
-          sessionId: 'SESS1',
-          sessionLabel: 'Session 1',
-          scanId: '11',
-        },
-      },
-    });
-
-    const { rerender } = render(<SegmentationPanel sourceImageIds={['wadouri:scan-1']} />);
-
-    fireEvent.click(screen.getByRole('button', { name: 'Add segmentation' }));
-    fireEvent.change(screen.getByPlaceholderText('Enter segmentation name...'), { target: { value: 'My Seg' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Create' }));
-
-    await waitFor(() => {
-      // createDefaultSegment=true so the new SEG group has an editable
-      // sub-segmentation that brush / paint-fill / scissors can target
-      // immediately. Without this, tools fire SEGMENTATION_DATA_MODIFIED
-      // events but no labelmap pixels are written, and a subsequent
-      // exportToDicomSeg fails with "nonZeroPixels=0".
-      expect(segPanelMocks.segmentationManager.createNewSegmentation).toHaveBeenCalledWith(
-        'panel_0',
-        ['wadouri:scan-1'],
-        'My Seg',
-        true,
-      );
-    });
-
-    expect(useSegmentationStore.getState().dicomTypeBySegmentationId['seg-new']).toBe('SEG');
-    expect(useSegmentationStore.getState().xnatOriginMap['seg-new']).toEqual({
-      scanId: '',
-      sourceScanId: '11',
-      projectId: 'P1',
-      sessionId: 'SESS1',
-    });
-
-    rerender(<SegmentationPanel sourceImageIds={['wadouri:scan-1']} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Add structure' }));
-    fireEvent.change(screen.getByPlaceholderText('Enter structure name...'), { target: { value: 'My RT' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Create' }));
-
-    await waitFor(() => {
-      expect(segPanelMocks.segmentationManager.createNewStructure).toHaveBeenCalledWith(
-        'panel_0',
-        ['wadouri:scan-1'],
-        'My RT',
-      );
-    });
-    expect(useSegmentationStore.getState().dicomTypeBySegmentationId['rt-new']).toBe('RTSTRUCT');
+    // Add SEG / Add structure buttons live in the toolbar after Phase 6
+    // / Stage 2B.1 — they are no longer in the panel header. Coverage
+    // for the Add flow lives in AddAnnotationButtons.test.tsx.
   });
 
   it('handles row interactions, style controls, and segment actions', async () => {

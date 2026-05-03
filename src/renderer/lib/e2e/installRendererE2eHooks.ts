@@ -19,7 +19,6 @@ import {
 } from '../cornerstone/segmentationService/historyMemo';
 import * as contourRep from '../cornerstone/contourRepresentation';
 import { toolService } from '../cornerstone/toolService';
-import { volumeService } from '../cornerstone/volumeService';
 import { viewportLayoutService } from '../cornerstone/viewportLayoutService';
 import { LayoutType, ToolName, panelId as makePanelId } from '@shared/types/viewer';
 import {
@@ -94,8 +93,8 @@ type ToggleMprResult = {
   /** True if multiViewport.enabled was set when toggleMpr ran. */
   flagEnabled: boolean;
   /**
-   * For flag-off: viewerStore.mprActive after the toggle.
-   * For flag-on: true iff the mpr-2x2 preset is the current preset id.
+   * True iff the mpr-2x2 preset is the current preset id after the toggle.
+   * The legacy `mprActive` field on viewerStore was removed in Phase 6.4.
    */
   entered: boolean;
   /** Why the toggle was a no-op when applicable; null on success. */
@@ -159,12 +158,11 @@ declare global {
       /** Sync. Drives the same setLayout the toolbar dropdown calls. */
       setLayout: (layout: LayoutType) => void;
       /**
-       * Async. Mirrors App.tsx handleToggleMPR exactly:
-       *  - flag-off: enterMPR via volumeService.create + viewerStore.enterMPR
-       *    (legacy MPRViewportGrid path). Exit is exitMPR.
-       *  - flag-on:  viewportLayoutService.applyPreset('mpr-2x2') + setLayout
-       *    + per-panel orientation propagation. Exit clears orientations and
-       *    applies '2x2'.
+       * Async. Mirrors App.tsx handleToggleMPR. After Phase 6.4 the legacy
+       * enterMPR / MPRViewportGrid path is gone; only the
+       * `viewportLayoutService.applyPreset('mpr-2x2')` + setLayout +
+       * per-panel orientation propagation path remains. Exit clears
+       * orientations and applies '2x2'.
        *
        * Returns the resulting state so callers can assert without polling.
        */
@@ -605,75 +603,35 @@ async function toggleMpr(): Promise<ToggleMprResult> {
   const flagEnabled = usePreferencesStore.getState().preferences.multiViewport.enabled;
   const store = useViewerStore.getState();
 
-  // ── Flag ON: viewportLayoutService preset path (App.tsx:2526-2569) ──
-  if (flagEnabled) {
-    const isMprPresetActive = viewportLayoutService.getCurrentPresetId() === 'mpr-2x2';
-    if (isMprPresetActive) {
-      // Exit: clear orientations on panels 0/1/2 (back to STACK), then 2x2.
-      store.setPanelOrientation(makePanelId(0), 'STACK');
-      store.setPanelOrientation(makePanelId(1), 'STACK');
-      store.setPanelOrientation(makePanelId(2), 'STACK');
-      viewportLayoutService.applyPreset('2x2');
-      return { flagEnabled, entered: false, reason: null };
-    }
-
-    const activePanelId = store.activeViewportId ?? makePanelId(0);
-    const activeImageIds = store.panelImageIdsMap[activePanelId] ?? [];
-    if (activeImageIds.length < 2) {
-      return { flagEnabled, entered: false, reason: 'fewer than 2 slices on active panel' };
-    }
-    if (store.layoutConfig.panelCount < 4) {
-      store.setLayout('2x2');
-    }
-    const orientations: Array<'AXIAL' | 'SAGITTAL' | 'CORONAL'> = ['AXIAL', 'SAGITTAL', 'CORONAL'];
-    for (let i = 0; i < orientations.length; i++) {
-      const target = makePanelId(i);
-      if (target !== activePanelId) {
-        store.setPanelImageIds(target, activeImageIds);
-      }
-      store.setPanelOrientation(target, orientations[i]);
-    }
-    viewportLayoutService.applyPreset('mpr-2x2');
-    return { flagEnabled, entered: true, reason: null };
-  }
-
-  // ── Flag OFF: legacy MPRViewportGrid path (App.tsx:2471-2580) ──
-  if (store.mprActive) {
-    store.exitMPR();
+  // After Phase 6.4 the only MPR path is viewportLayoutService's mpr-2x2
+  // preset; the legacy enterMPR / MPRViewportGrid path is gone.
+  const isMprPresetActive = viewportLayoutService.getCurrentPresetId() === 'mpr-2x2';
+  if (isMprPresetActive) {
+    // Exit: clear orientations on panels 0/1/2 (back to STACK), then 2x2.
+    store.setPanelOrientation(makePanelId(0), 'STACK');
+    store.setPanelOrientation(makePanelId(1), 'STACK');
+    store.setPanelOrientation(makePanelId(2), 'STACK');
+    viewportLayoutService.applyPreset('2x2');
     return { flagEnabled, entered: false, reason: null };
   }
+
   const activePanelId = store.activeViewportId ?? makePanelId(0);
   const activeImageIds = store.panelImageIdsMap[activePanelId] ?? [];
   if (activeImageIds.length < 2) {
     return { flagEnabled, entered: false, reason: 'fewer than 2 slices on active panel' };
   }
-
-  const volumeId = volumeService.generateId();
-  try {
-    await volumeService.create(volumeId, activeImageIds);
-  } catch (err) {
-    return { flagEnabled, entered: false, reason: `volume create failed: ${(err as Error)?.message ?? err}` };
+  if (store.layoutConfig.panelCount < 4) {
+    store.setLayout('2x2');
   }
-
-  useViewerStore.getState().setActiveViewport(activePanelId);
-  useViewerStore.getState().enterMPR(activePanelId, volumeId);
-
-  // Kick off the async load but don't wait — Signal 6 cares about the
-  // mode-switch transition surviving rapid sequencing, not about whether
-  // every voxel finished streaming. The MPR component handles its own
-  // load progress; if the test then exits MPR before load completes,
-  // exitMPR() destroys the volume in the cache (viewerStore.exitMPR
-  // teardown). Mirror what the toolbar button triggers.
-  void volumeService.load(volumeId, (p) => {
-    const percent = p.total > 0 ? Math.round((p.loaded / p.total) * 100) : 0;
-    useViewerStore.getState()._updateMPRVolumeProgress({ ...p, percent });
-  }).then(() => {
-    useViewerStore.getState()._updateMPRVolumeProgress(null);
-  }).catch(() => {
-    // Mirror App.tsx: on load failure, exit MPR.
-    useViewerStore.getState().exitMPR();
-  });
-
+  const orientations: Array<'AXIAL' | 'SAGITTAL' | 'CORONAL'> = ['AXIAL', 'SAGITTAL', 'CORONAL'];
+  for (let i = 0; i < orientations.length; i++) {
+    const target = makePanelId(i);
+    if (target !== activePanelId) {
+      store.setPanelImageIds(target, activeImageIds);
+    }
+    store.setPanelOrientation(target, orientations[i]);
+  }
+  viewportLayoutService.applyPreset('mpr-2x2');
   return { flagEnabled, entered: true, reason: null };
 }
 
@@ -839,7 +797,7 @@ export function installRendererE2eHooks(): void {
       if (!currentImageId) return null;
 
       const canvas = document.querySelector(
-        `[data-testid="cornerstone-viewport-canvas:${panelId}"] canvas`,
+        `[data-testid="stack-viewport-canvas:${panelId}"] canvas`,
       ) as HTMLCanvasElement | null;
 
       if (canvas && typeof viewport?.canvasToWorld === 'function') {

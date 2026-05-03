@@ -5,20 +5,15 @@ import { useViewerStore } from '../../stores/viewerStore';
 
 const mocks = vi.hoisted(() => ({
   scrollToIndex: vi.fn(),
-  mprScrollToIndex: vi.fn(),
   setPointerCapture: vi.fn(),
   releasePointerCapture: vi.fn(),
 }));
 
 vi.mock('../../lib/cornerstone/viewportService', () => ({
   viewportService: {
+    // After Phase 6.4, viewportService.scrollToIndex handles both stack
+    // and volume viewports — there is no separate mprService routing.
     scrollToIndex: mocks.scrollToIndex,
-  },
-}));
-
-vi.mock('../../lib/cornerstone/mprService', () => ({
-  mprService: {
-    scrollToIndex: mocks.mprScrollToIndex,
   },
 }));
 
@@ -45,13 +40,6 @@ function seedPanelState(panelId: string): void {
         invert: false,
         imageWidth: 512,
         imageHeight: 512,
-      },
-    },
-    mprViewports: {
-      [panelId]: {
-        sliceIndex: 0,
-        totalSlices: 0,
-        plane: 'AXIAL',
       },
     },
   });
@@ -166,16 +154,16 @@ describe('ScrollSlider', () => {
     expect(mocks.releasePointerCapture).toHaveBeenCalledWith(1);
   });
 
-  it('routes oriented viewport interactions through mprService', () => {
+  it('routes oriented (volume-mode) viewport scrolls through viewportService.scrollToIndex (Phase 6.4: unified slice nav)', () => {
     useViewerStore.setState({
       ...useViewerStore.getState(),
       panelOrientationMap: { [panelId]: 'AXIAL' },
       viewports: {
         [panelId]: {
           viewportId: panelId,
-          imageIndex: 0,
+          imageIndex: 2,
           requestedImageIndex: null,
-          totalImages: 0,
+          totalImages: 11,
           windowWidth: 0,
           windowCenter: 0,
           zoomPercent: 100,
@@ -185,13 +173,6 @@ describe('ScrollSlider', () => {
           invert: false,
           imageWidth: 0,
           imageHeight: 0,
-        },
-      },
-      mprViewports: {
-        [panelId]: {
-          sliceIndex: 2,
-          totalSlices: 11,
-          plane: 'AXIAL',
         },
       },
     });
@@ -211,7 +192,9 @@ describe('ScrollSlider', () => {
     } as DOMRect);
 
     dispatchPointer(track, 'pointerdown', 90, 2);
-    expect(mocks.mprScrollToIndex).toHaveBeenCalledWith(panelId, 9);
-    expect(mocks.scrollToIndex).not.toHaveBeenCalled();
+    // Volume viewports update viewports[pid].totalImages too (via
+    // VolumeViewport._updateImageIndex), so the same scroll path that
+    // serves stack viewports serves volume/oriented viewports too.
+    expect(mocks.scrollToIndex).toHaveBeenCalledWith(panelId, 9);
   });
 });

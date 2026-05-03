@@ -1,13 +1,12 @@
 /**
- * ViewerPage — composes Toolbar + ViewportGrid + AnnotationListPanel
- * into a full-height viewer layout.
- * Supports multi-panel layouts (1×1, 1×2, 2×1, 2×2).
- * Conditionally renders MPRViewportGrid when MPR mode is active.
+ * ViewerPage — composes Toolbar + ViewportGrid + side panels into a
+ * full-height viewer layout. Supports 1×1, 1×2, 2×1, 2×2 layouts and
+ * the mpr-2x2 preset (axial/sagittal/coronal panels backed by a shared
+ * volume) routed through the standard ViewportGrid.
  */
 import { useEffect, useState, useCallback } from 'react';
 import Toolbar from '../components/viewer/Toolbar';
 import ViewportGrid from '../components/viewer/ViewportGrid';
-import MPRViewportGrid from '../components/viewer/MPRViewportGrid';
 import AnnotationListPanel from '../components/viewer/AnnotationListPanel';
 import SegmentationPanel from '../components/viewer/SegmentationPanel';
 import ContainerListPanel from '../components/viewer/ContainerListPanel';
@@ -25,7 +24,6 @@ interface ViewerPageProps {
   panelImageIds: Record<string, string[]>;
   onApplyProtocol?: (protocolId: string) => void;
   onToggleMPR?: () => void;
-  mprSourceImageIds?: string[];
   /** Content rendered at the far left of the toolbar (XNAT logo, connection, etc.) */
   leftSlot?: React.ReactNode;
   /** Browser sidebar rendered below toolbar, left of viewport grid */
@@ -42,7 +40,6 @@ export default function ViewerPage({
   panelImageIds,
   onApplyProtocol,
   onToggleMPR,
-  mprSourceImageIds,
   leftSlot,
   browserSlot,
   onRecoverBackup,
@@ -56,9 +53,6 @@ export default function ViewerPage({
   );
   const [showDicomPanel, setShowDicomPanel] = useState(false);
 
-  const mprActive = useViewerStore((s) => s.mprActive);
-  const mprVolumeId = useViewerStore((s) => s.mprVolumeId);
-
   const toggleDicomPanel = useCallback(() => setShowDicomPanel((v) => !v), []);
   const closeDicomPanel = useCallback(() => setShowDicomPanel(false), []);
 
@@ -70,7 +64,7 @@ export default function ViewerPage({
   useHotkeys();
 
   // Initialize the shared tool group and annotation service once on mount.
-  // Individual CornerstoneViewport instances add/remove themselves.
+  // Individual viewport instances add/remove themselves.
   useEffect(() => {
     toolService.initialize();
     annotationService.initialize();
@@ -100,29 +94,21 @@ export default function ViewerPage({
         {browserSlot}
         <div className="flex-1 min-w-0 relative flex">
           <div className="flex-1 min-w-0 relative">
-            {mprActive && mprVolumeId ? (
-              <MPRViewportGrid
-                volumeId={mprVolumeId}
-                sourceImageIds={mprSourceImageIds ?? []}
-              />
-            ) : (
-              <ViewportGrid panelImageIds={panelImageIds} />
-            )}
+            <ViewportGrid panelImageIds={panelImageIds} />
           </div>
-          {!mprActive && showAnnotationPanel && <AnnotationListPanel />}
-          {!mprActive && showSegPanel && (
+          {showAnnotationPanel && <AnnotationListPanel />}
+          {showSegPanel && (
             <SegmentationPanel
               sourceImageIds={panelImageIds[activeViewportId] ?? []}
             />
           )}
           {/*
             Phase 3.3: ContainerListPanel mounts alongside legacy panels
-            when multiViewport.enabled is true. Both visible during the
-            transitional period — Phase 6 collapses to ContainerListPanel
-            only.
+            when multiViewport.enabled is true. Phase 6.2 collapses to
+            ContainerListPanel only.
           */}
-          {!mprActive && showMultiViewport && <ContainerListPanel />}
-          {!mprActive && showDicomPanel && <DicomHeaderPanel onClose={closeDicomPanel} />}
+          {showMultiViewport && <ContainerListPanel />}
+          {showDicomPanel && <DicomHeaderPanel onClose={closeDicomPanel} />}
         </div>
       </div>
     </div>

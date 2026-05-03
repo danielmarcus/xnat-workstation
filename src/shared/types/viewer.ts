@@ -198,36 +198,10 @@ export function panelId(index: number): string {
   return `panel_${index}`;
 }
 
-/** Generate MPR panel ID from index: mpr_panel_0, mpr_panel_1, etc. */
-export function mprPanelId(index: number): string {
-  return `mpr_panel_${index}`;
-}
-
-// ─── MPR (Multiplanar Reconstruction) ─────────────────────────
+// ─── Multiplanar reconstruction (MPR) types ─────────────────────────
 
 /** Orientation axis for MPR planes */
 export type MPRPlane = 'AXIAL' | 'SAGITTAL' | 'CORONAL';
 
 /** Per-viewport viewing orientation (stack/original or orthographic plane) */
 export type ViewportOrientation = 'STACK' | MPRPlane;
-
-/** Fixed MPR panel assignments: 3 orthogonal planes */
-export const MPR_PANELS: { panelIndex: number; plane: MPRPlane; label: string }[] = [
-  { panelIndex: 0, plane: 'AXIAL', label: 'Axial' },
-  { panelIndex: 1, plane: 'SAGITTAL', label: 'Sagittal' },
-  { panelIndex: 2, plane: 'CORONAL', label: 'Coronal' },
-];
-
-/** MPR-specific viewport state tracked in the Zustand store */
-export interface MPRViewportState {
-  sliceIndex: number;
-  totalSlices: number;
-  plane: MPRPlane;
-}
-
-/** Volume loading progress */
-export interface VolumeLoadProgress {
-  loaded: number;
-  total: number;
-  percent: number;
-}

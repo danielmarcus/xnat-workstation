@@ -13,30 +13,24 @@
 import { useCallback, useRef, useState } from 'react';
 import { useViewerStore } from '../../stores/viewerStore';
 import { viewportService } from '../../lib/cornerstone/viewportService';
-import { mprService } from '../../lib/cornerstone/mprService';
 
 interface ScrollSliderProps {
   panelId: string;
 }
 
 export default function ScrollSlider({ panelId }: ScrollSliderProps) {
-  const orientation = useViewerStore((s) => s.panelOrientationMap[panelId] ?? 'STACK');
   // Use separate primitive selectors to avoid creating new objects (infinite re-render pitfall)
   const imageIndex = useViewerStore((s) => s.viewports[panelId]?.imageIndex ?? 0);
   const requestedImageIndex = useViewerStore((s) => s.viewports[panelId]?.requestedImageIndex ?? null);
   const totalImages = useViewerStore((s) => s.viewports[panelId]?.totalImages ?? 0);
-  const mprSliceIndex = useViewerStore((s) => s.mprViewports[panelId]?.sliceIndex ?? 0);
-  const mprTotalSlices = useViewerStore((s) => s.mprViewports[panelId]?.totalSlices ?? 0);
   const requestImageIndex = useViewerStore((s) => s._requestImageIndex);
   const [isDragging, setIsDragging] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
   const trackRef = useRef<HTMLDivElement>(null);
   const draggingRef = useRef(false); // Non-reactive ref for pointer events
 
-  const isOriented = orientation !== 'STACK';
-  const total = isOriented ? mprTotalSlices : totalImages;
-  const currentIndex = isOriented ? mprSliceIndex : imageIndex;
-  const displayIndex = isOriented ? currentIndex : (requestedImageIndex ?? currentIndex);
+  const total = totalImages;
+  const displayIndex = requestedImageIndex ?? imageIndex;
   const thumbPercent = total > 1 ? (displayIndex / (total - 1)) * 100 : 0;
 
   // All hooks must be declared before any early return (Rules of Hooks)
@@ -48,14 +42,10 @@ export default function ScrollSlider({ panelId }: ScrollSliderProps) {
       const percent = Math.max(0, Math.min(1, (clientY - rect.top) / rect.height));
       const index = Math.round(percent * (total - 1));
       if (index === displayIndex) return;
-      if (isOriented) {
-        mprService.scrollToIndex(panelId, index);
-      } else {
-        requestImageIndex(panelId, index, total);
-        viewportService.scrollToIndex(panelId, index);
-      }
+      requestImageIndex(panelId, index, total);
+      viewportService.scrollToIndex(panelId, index);
     },
-    [displayIndex, isOriented, panelId, requestImageIndex, total],
+    [displayIndex, panelId, requestImageIndex, total],
   );
 
   const handlePointerDown = useCallback(

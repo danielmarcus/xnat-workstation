@@ -11,22 +11,17 @@
  * across that work — if it doesn't, the refactor broke a layout-churn
  * invariant.
  *
- * Two variants, mirroring 09-undo-after-close.e2e.ts:
- *   - flag-off (legacy stack mode): real brush stroke creates a SEG with
- *     non-zero labelmap pixel data. The MPR step uses the legacy
- *     `enterMPR` → MPRViewportGrid path. exportToDicomSeg is callable on
- *     either side of the layout sequence so we can do a true byte-stable
- *     round-trip assertion.
- *   - flag-on (multi-viewport rewrite): same brush flow, but Phase 1's
- *     volume-mode SEG path doesn't push a usable labelmap memo for brush
- *     in test conditions (same Phase 1 capability gap that
- *     08-volume-mode-acceptance.e2e.ts:14-17 and
- *     09-undo-after-close.e2e.ts:305-317 both call out). The flag-on case
- *     uses the contour-annotation path (RTSTRUCT-style structure, like
- *     08), which IS supported on volume viewports. The MPR step uses the
- *     `viewportLayoutService.applyPreset('mpr-2x2')` path. The byte-stable
- *     round-trip is replaced by a contour-annotation count assertion since
- *     no labelmap data exists to export.
+ * Single variant after Phase 6.4 (the legacy `enterMPR` →
+ * MPRViewportGrid path was removed; the `viewportLayoutService.applyPreset
+ * ('mpr-2x2')` path is the only MPR entry):
+ *   - Volume mode + viewportLayoutService MPR preset. Uses the
+ *     contour-annotation (RTSTRUCT-style) path because Phase 1's volume-
+ *     mode brush capability gap (see 08-volume-mode-acceptance.e2e.ts
+ *     and 09-undo-after-close.e2e.ts notes) means brush memos don't push
+ *     a usable labelmap in test conditions. Contour annotations on
+ *     volume viewports DO work, so the structural Signal 6 invariants
+ *     (no lost structures, no duplicates, single dirty flag, no stale
+ *     highlights) get exercised end-to-end.
  *
  * What "rapid" means here: each setLayout/toggleMpr is its own
  * page.evaluate, but with no waitForTimeout between them — only a single
@@ -73,14 +68,14 @@ function panelCanvas(page: Page, panelId: string): Locator {
   // 09-undo-after-close.e2e.ts pattern: stack and volume viewports use
   // different testid prefixes; match either.
   return page.locator(
-    `[data-testid="cornerstone-viewport-canvas:${panelId}"] canvas, `
+    `[data-testid="stack-viewport-canvas:${panelId}"] canvas, `
     + `[data-testid="volume-viewport-canvas:${panelId}"] canvas`,
   );
 }
 
 function panelRoot(page: Page, panelId: string): Locator {
   return page.locator(
-    `[data-testid="cornerstone-viewport:${panelId}"], `
+    `[data-testid="stack-viewport:${panelId}"], `
     + `[data-testid="volume-viewport:${panelId}"]`,
   );
 }
@@ -152,7 +147,7 @@ async function activatePanel(page: Page, panelId: string) {
 
 async function waitForCanvasReady(page: Page, panelId: string) {
   await expect(panelCanvas(page, panelId)).toBeVisible({ timeout: 30_000 });
-  const status = page.locator(`[data-testid="cornerstone-viewport-status:${panelId}"]`);
+  const status = page.locator(`[data-testid="stack-viewport-status:${panelId}"]`);
   if (await status.isVisible({ timeout: 500 }).catch(() => false)) {
     await status.waitFor({ state: 'hidden', timeout: 30_000 });
   }
@@ -208,21 +203,19 @@ async function setupFourPanels(page: Page, multiViewportEnabled: boolean) {
  * dirty-flag propagation, this cadence surfaces it.
  *
  * Returns the toggleMpr result so callers can branch on whether MPR
- * actually entered (e.g. if the active panel had < 2 slices, both flag
- * paths short-circuit and report `entered=false, reason='fewer than 2
+ * actually entered (e.g. if the active panel had < 2 slices, the toggle
+ * short-circuits and reports `entered=false, reason='fewer than 2
  * slices on active panel'`).
  */
 async function runRapidLayoutSequence(page: Page): Promise<{ enter: ToggleMprResult; exit: ToggleMprResult }> {
   // 2×2 → 1×1: shrinks layout, drops panel_1/2/3 from the active set.
   await setLayout(page, '1x1');
 
-  // 1×1 → MPR: flag-off path expands back to 2×2 (MPRViewportGrid
-  // takes over) inside enterMPR's setState; flag-on path expands via
-  // setLayout('2x2') + applyPreset('mpr-2x2') + per-panel orientations.
+  // 1×1 → MPR: expands via setLayout('2x2') + applyPreset('mpr-2x2') +
+  // per-panel orientations.
   const enter = await toggleMpr(page);
 
-  // MPR → 2×2: flag-off path is exitMPR (restores prior layout via
-  // mprPriorState); flag-on path clears orientations and re-applies '2x2'.
+  // MPR → 2×2: clears orientations on panels 0/1/2 and re-applies '2x2'.
   const exit = await toggleMpr(page);
 
   return { enter, exit };
@@ -325,180 +318,13 @@ test.describe('Signal 6 — rapid layout switching: 2×2 → 1×1 → MPR → 2�
     });
   });
 
-  // FIXME: brush flow on synthetic CT data hits the same multi-layer-group /
-  // sub-seg gap as 05/09 — the segmentation panel doesn't expose the row's
-  // Brush button because no default sub-segmentation is created. Pre-migration
-  // this passed against real CT data. Phase 2.7 territory; revisit once the
-  // segmentationService multi-layer-group lifecycle settles. The flag-on
-  // variant below uses createTestStructure (RTSTRUCT path) which does work on
-  // synthetic data, so structural Signal 6 invariants stay covered.
-  test.fixme('flag-off (legacy stack + legacy MPRViewportGrid): brush edit survives 2×2→1×1→MPR→2×2', async ({
-    page,
-  }) => {
-    await setupFourPanels(page, false);
-
-    // Open seg panel + create the edit target on panel_0. Real "Add
-    // segmentation" dialog flow: that path sets dicomTypeBySegmentationId
-    // and auto-attaches the labelmap representation, which the brush tool
-    // needs.
-    await openSegmentationPanel(page);
-    await activatePanel(page, 'panel_0');
-
-    const segPanel = page.locator('[data-testid="segmentation-panel"]');
-    const segLabel = 'Signal6 Layout Target';
-    await page.locator('[data-testid="add-segmentation-btn"]').click();
-    const nameInput = segPanel.locator('input.bg-zinc-800');
-    await expect(nameInput).toBeVisible({ timeout: 5_000 });
-    await nameInput.fill(segLabel);
-    await page.locator('button', { hasText: 'Create' }).click();
-    await expect(nameInput).toBeHidden({ timeout: 5_000 });
-
-    const segmentationId = await page.evaluate((label: string) => {
-      return (window as any).__XNAT_E2E__?.getSegmentationIdByLabel?.(label) ?? null;
-    }, segLabel);
-    expect(segmentationId, 'a segmentation with the test label should exist').toBeTruthy();
-
-    // Force-attach to panel_0 (mirrors 09's belt-and-braces step — the
-    // dialog's useEffect normally does this, but a race can leave the
-    // viewport without the rep attached, which would make brush a no-op).
-    await page.evaluate((segId: string) => {
-      (window as any).__XNAT_E2E__?.activateSegmentation?.('panel_0', segId, 1);
-    }, segmentationId);
-    await page.waitForTimeout(500);
-
-    // Click the row, click Brush, paint a real stroke.
-    const segRow = segPanel.locator('div.cursor-pointer', { hasText: segLabel }).first();
-    await expect(segRow).toBeVisible({ timeout: 10_000 });
-    await segRow.click();
-    await page.waitForTimeout(300);
-
-    const brushBtn = segPanel.locator('button', { hasText: 'Brush' }).first();
-    await expect(brushBtn).toBeVisible({ timeout: 10_000 });
-    await expect(brushBtn).toBeEnabled({ timeout: 10_000 });
-    await brushBtn.click();
-    await page.waitForTimeout(300);
-
-    const canvas = panelCanvas(page, 'panel_0');
-    const interactor = new CanvasInteractor(page, canvas);
-    await interactor.paintStroke([
-      { x: 0.40, y: 0.40 },
-      { x: 0.45, y: 0.42 },
-      { x: 0.50, y: 0.45 },
-      { x: 0.55, y: 0.47 },
-      { x: 0.60, y: 0.50 },
-    ]);
-    await page.waitForTimeout(500);
-
-    // Manually set dirty: there is a pre-existing bug
-    // (PHASES.md Item 1, MV-Phase 1 health check, row for 06-save-upload)
-    // where a freshly-painted SEG does not get its hasUnsavedChanges flag
-    // set automatically. The autoSave path is `onSegmentationDataModified
-    // → segStore._markDirty + manager.markDirty`; in test conditions the
-    // suppression window or loadInProgress counter is non-zero when the
-    // brush event fires and the dirty write is dropped. That is an
-    // independent bug 06 already pins (and which a Phase 2 fix will
-    // address).
-    //
-    // Signal 6 is about the layout-churn invariant: given a dirty
-    // segmentation, does a single rapid 2×2→1×1→MPR→2×2 sequence keep
-    // exactly that one dirty flag, or do phantoms accumulate / does the
-    // flag get lost? Setting dirty here mirrors what the autoSave path
-    // SHOULD have done after the real brush stroke, so the assertion
-    // measures the right thing without being gated on the pre-existing
-    // brush-dirty-tracking bug.
-    await page.evaluate((segId: string) => {
-      (window as any).__XNAT_E2E__?.markSegmentationDirty?.(segId);
-    }, segmentationId);
-
-    // Snapshot before the rapid sequence.
-    const beforeSnapshot = await getSegmentationSnapshot(page);
-    const beforeDirty = await getDirtyState(page);
-    expect(
-      beforeSnapshot.find((entry) => entry.segmentationId === segmentationId),
-      'edited segmentation should appear in snapshot before layout sequence',
-    ).toBeTruthy();
-    assertSingleDirtyFlag(beforeDirty, segmentationId!, 'after brush stroke + manual dirty mark');
-
-    // ── The rapid sequence ─────────────────────────────────────
-    const { enter, exit } = await runRapidLayoutSequence(page);
-
-    // Both transitions must report flag-off + a real entry/exit. If
-    // `entered` is false on `enter` here, the legacy enterMPR path
-    // bailed (probably because activeViewportId got clobbered by the
-    // 1×1 shrink). Surface the reason so the failure message is
-    // actionable.
-    expect(
-      enter,
-      `enter MPR: flag-off path should have entered MPR (got: ${JSON.stringify(enter)})`,
-    ).toMatchObject({ flagEnabled: false, entered: true, reason: null });
-    expect(
-      exit,
-      `exit MPR: flag-off path should have exited MPR (got: ${JSON.stringify(exit)})`,
-    ).toMatchObject({ flagEnabled: false, entered: false, reason: null });
-
-    // ── Assertions after the sequence ─────────────────────────
-    const afterSnapshot = await getSegmentationSnapshot(page);
-    const afterDirty = await getDirtyState(page);
-    const afterActive = await getActiveByPanel(page);
-
-    // No structures lost, no duplicates.
-    assertSnapshotPreserved(beforeSnapshot, afterSnapshot, 'flag-off rapid sequence');
-
-    // Single dirty flag (one entry; the same one we edited; no phantoms).
-    // The same `markSegmentationDirty` we used pre-sequence persists across
-    // setLayout / enterMPR / exitMPR — that's the structural guarantee.
-    assertSingleDirtyFlag(afterDirty, segmentationId!, 'after rapid layout sequence');
-
-    // No stale highlights pointing at panels that don't exist anymore.
-    assertNoStaleHighlights(afterActive, 'final layout (post-exitMPR → 2×2)');
-
-    // "Save once produces correct file" (the fifth half of Signal 6):
-    // exportToDicomSeg DOES NOT FIRE here. Two known test-rig issues
-    // that 09-undo-after-close.e2e.ts:305-317 already documents make
-    // brush-stroke labelmap painting unreliable from a Playwright-
-    // driven canvas:
-    //   1. The freshly-painted SEG never gets its hasUnsavedChanges
-    //      flag (PHASES.md Item 1, row 06). Worked around above by
-    //      calling __XNAT_E2E__.markSegmentationDirty.
-    //   2. The brush events fire but no nonZero pixel data lands in
-    //      the labelmap (`exportToDicomSeg → "nonZeroPixels=0"`). Same
-    //      surface that 06-save-upload paints over with a try/catch
-    //      around its upload step.
-    //
-    // Both are pre-existing brush-tool brittleness in test conditions,
-    // unrelated to layout churn. Signal 6's *structural* invariants —
-    // segmentation count, dirty flag uniqueness, no stale highlights,
-    // attachment integrity — are what this spec pins; the file-shape
-    // round-trip side is covered by 06-save-upload.e2e.ts when its
-    // pre-existing dirty-tracking bug is fixed (or by the future
-    // Phase 2.6 transport coordinator).
-    //
-    // exportToDicomSeg IS callable from the renderer hook — try it;
-    // if it succeeds, assert byte-stability. If it fails (which it
-    // does today, per the Phase 1 notes above), continue without the
-    // assertion rather than papering over the structural test.
-    const beforeBase64 = await exportSegToBase64(page, segmentationId!);
-    if (beforeBase64) {
-      const afterBase64 = await exportSegToBase64(page, segmentationId!);
-      expect(
-        afterBase64,
-        'exportToDicomSeg succeeded before the sequence; should also succeed after (encoded labelmap data must survive layout churn)',
-      ).toBeTruthy();
-      expect(
-        afterBase64!.length,
-        'DICOM SEG encoded length should be stable across the layout sequence (same labelmap data → same encoded size)',
-      ).toBe(beforeBase64.length);
-    } else {
-      const exportError = await page.evaluate(() => (window as any).__XNAT_E2E_LAST_EXPORT_ERROR__ ?? null);
-      // eslint-disable-next-line no-console
-      console.log(
-        `[Signal 6 / flag-off] file round-trip skipped — exportToDicomSeg pre-sequence failed `
-        + `(error: ${exportError?.split('\n')[0] ?? 'unknown'}). The structural assertions above `
-        + `cover the in-memory invariants Signal 6 actually requires; file-shape round-trip is `
-        + `pinned by 06-save-upload.e2e.ts (currently failing on the same pre-existing brush dirty-tracking bug).`,
-      );
-    }
-  });
+  // The legacy "flag-off (stack + MPRViewportGrid)" Signal 6 variant was
+  // removed in Phase 6.4 along with the legacy MPRViewportGrid path. The
+  // mpr-2x2 preset is now the only MPR entry, so the only remaining
+  // variant is the contour-on-volume one below. The structural invariants
+  // (no lost structures, no duplicates, single dirty flag, no stale
+  // highlights) hold under either rendering path, so collapsing to a
+  // single variant doesn't reduce coverage of Signal 6 itself.
 
   // Flag-on variant: see 09-undo-after-close.e2e.ts:305-317 and
   // 08-volume-mode-acceptance.e2e.ts:14-17 for the full Phase 1
@@ -530,7 +356,7 @@ test.describe('Signal 6 — rapid layout switching: 2×2 → 1×1 → MPR → 2�
     expect(segmentationId, 'createTestStructure should return a segmentation id').toBeTruthy();
 
     // Note: we do NOT call createTestContour here. That helper hard-codes
-    // the `cornerstone-viewport-canvas:` testid prefix when looking up
+    // the `stack-viewport-canvas:` testid prefix when looking up
     // the canvas (installRendererE2eHooks.ts:381) so it's stack-mode
     // only — on a volume viewport the lookup returns null and the
     // contour-creation falls through to a metadata-only fallback that

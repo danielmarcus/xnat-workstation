@@ -4,9 +4,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const metaDataGetMock = vi.hoisted(() => vi.fn());
 const scrollToIndexMock = vi.hoisted(() => vi.fn());
 const stackGetViewportMock = vi.hoisted(() => vi.fn(() => null));
-const mprScrollToIndexMock = vi.hoisted(() => vi.fn());
-const mprGetViewportMock = vi.hoisted(() => vi.fn(() => null));
-const mprGetSliceInfoMock = vi.hoisted(() => vi.fn(() => ({ sliceIndex: 0, totalSlices: 0 })));
 const getPanelDisplayPointForWorldMock = vi.hoisted(() => vi.fn());
 const getViewportForPanelMock = vi.hoisted(() => vi.fn());
 const getWorldPointFromClientPointMock = vi.hoisted(() => vi.fn());
@@ -89,14 +86,6 @@ vi.mock('../viewportService', () => ({
   },
 }));
 
-vi.mock('../mprService', () => ({
-  mprService: {
-    getViewport: mprGetViewportMock,
-    getSliceInfo: mprGetSliceInfoMock,
-    scrollToIndex: mprScrollToIndexMock,
-  },
-}));
-
 vi.mock('../crosshairGeometry', () => ({
   getPanelDisplayPointForWorld: getPanelDisplayPointForWorldMock,
   getViewportForPanel: getViewportForPanelMock,
@@ -129,8 +118,6 @@ describe('crosshairSyncService', () => {
     vi.clearAllMocks();
     viewerStoreMock.reset();
     stackGetViewportMock.mockReturnValue(null);
-    mprGetViewportMock.mockReturnValue(null);
-    mprGetSliceInfoMock.mockReturnValue({ sliceIndex: 0, totalSlices: 0 });
     getPanelDisplayPointForWorldMock.mockReturnValue([1, 1]);
     getWorldPointFromClientPointMock.mockReturnValue([0, 0, 0]);
     // Invalidate any leftover metadata-loaded state from previous tests.
@@ -272,7 +259,6 @@ describe('crosshairSyncService', () => {
     // Volume viewports should not fall back to acquisition-plane geometry
     // because the coordinate frame differs from the reoriented view.
     expect(viewerStoreMock.getState().viewports.panel_1?.requestedImageIndex).toBeUndefined();
-    expect(mprScrollToIndexMock).not.toHaveBeenCalled();
   });
 
   it('keeps jumped point visible by in-plane camera pan when offscreen', () => {

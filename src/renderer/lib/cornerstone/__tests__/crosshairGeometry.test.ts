@@ -2,19 +2,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const geometryMocks = vi.hoisted(() => ({
-  getMprViewport: vi.fn(),
+  getVolumeViewport: vi.fn(),
   getStackViewport: vi.fn(),
-}));
-
-vi.mock('../mprService', () => ({
-  mprService: {
-    getViewport: geometryMocks.getMprViewport,
-  },
 }));
 
 vi.mock('../viewportService', () => ({
   viewportService: {
     getViewport: geometryMocks.getStackViewport,
+    getVolumeViewport: geometryMocks.getVolumeViewport,
   },
 }));
 
@@ -72,15 +67,15 @@ describe('crosshairGeometry', () => {
     document.body.innerHTML = '';
   });
 
-  it('prefers MPR viewport and falls back to stack viewport', () => {
-    const mprViewport = { canvasToWorld: vi.fn(), worldToCanvas: vi.fn() };
+  it('prefers volume viewport (oriented MPR panel) and falls back to stack viewport', () => {
+    const volumeViewport = { canvasToWorld: vi.fn(), worldToCanvas: vi.fn() };
     const stackViewport = { canvasToWorld: vi.fn(), worldToCanvas: vi.fn() };
 
-    geometryMocks.getMprViewport.mockReturnValue(mprViewport);
+    geometryMocks.getVolumeViewport.mockReturnValue(volumeViewport);
     geometryMocks.getStackViewport.mockReturnValue(stackViewport);
-    expect(getViewportForPanel('panel_0')).toBe(mprViewport);
+    expect(getViewportForPanel('panel_0')).toBe(volumeViewport);
 
-    geometryMocks.getMprViewport.mockReturnValue(null);
+    geometryMocks.getVolumeViewport.mockReturnValue(null);
     expect(getViewportForPanel('panel_0')).toBe(stackViewport);
   });
 
@@ -90,7 +85,7 @@ describe('crosshairGeometry', () => {
       canvasToWorld: vi.fn(([x, y]: [number, number]) => [x + 1, y + 2, 3]),
       worldToCanvas: vi.fn(([x, y]: [number, number, number]) => [x * 2, y * 2]),
     };
-    geometryMocks.getMprViewport.mockReturnValue(viewport);
+    geometryMocks.getVolumeViewport.mockReturnValue(viewport);
     geometryMocks.getStackViewport.mockReturnValue(null);
 
     expect(getWorldPointFromClientPoint('panel_0', 30, 50)).toEqual([21, 32, 3]);
@@ -104,12 +99,12 @@ describe('crosshairGeometry', () => {
   });
 
   it('returns null for missing panel/viewport and out-of-bounds world projections', () => {
-    geometryMocks.getMprViewport.mockReturnValue(null);
+    geometryMocks.getVolumeViewport.mockReturnValue(null);
     geometryMocks.getStackViewport.mockReturnValue(null);
     expect(getWorldPointFromClientPoint('missing', 10, 20)).toBeNull();
 
     makePanel('panel_1');
-    geometryMocks.getMprViewport.mockReturnValue({
+    geometryMocks.getVolumeViewport.mockReturnValue({
       canvasToWorld: vi.fn(() => [1, 2, 3]),
       worldToCanvas: vi.fn(() => [999, 999]),
     });
@@ -122,7 +117,7 @@ describe('crosshairGeometry', () => {
       canvasToWorld: vi.fn(([x, y]: [number, number]) => [x, y, 1]),
       worldToCanvas: vi.fn(([x, y]: [number, number, number]) => [x, y]),
     };
-    geometryMocks.getMprViewport.mockReturnValue(viewport);
+    geometryMocks.getVolumeViewport.mockReturnValue(viewport);
     geometryMocks.getStackViewport.mockReturnValue(null);
 
     const onWorldPoint = vi.fn();

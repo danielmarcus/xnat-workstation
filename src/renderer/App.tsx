@@ -17,7 +17,6 @@ import { BUILT_IN_PROTOCOLS } from '@shared/types/hangingProtocol';
 import type { XnatScan } from '@shared/types/xnat';
 import type { UpdateStatus } from '@shared/types';
 import { IconOpenFile, XnatLogo } from './components/icons';
-import { volumeService } from './lib/cornerstone/volumeService';
 import {
   saveRecentSession as saveRecentSessionUtil,
   migrateOldStorage,
@@ -793,7 +792,7 @@ export default function App() {
    * Pending DICOM SEG load — when loading a SEG that requires loading new
    * source images into a panel, we can't load the SEG immediately because
    * setPanelImageIds triggers a React state update that destroys and recreates
-   * the CornerstoneViewport. The segmentation would be destroyed during the
+   * the StackViewport. The segmentation would be destroyed during the
    * re-render cycle. Instead, we store the pending load here and process it
    * in a useEffect after the new panelImageIds have settled and the viewport
    * has been re-created.
@@ -1292,7 +1291,7 @@ export default function App() {
    * Process pending DICOM SEG loads after the viewport has been recreated.
    *
    * When a SEG scan requires loading new source images, setPanelImageIds
-   * triggers CornerstoneViewport to destroy and recreate the viewport.
+   * triggers StackViewport to destroy and recreate the viewport.
    * The SEG must be loaded AFTER this recreation settles. We watch for
    * panelImageIds changes and process any pending SEG load.
    */
@@ -1308,7 +1307,7 @@ export default function App() {
     pendingSegLoadRef.current = null;
 
     // Give the viewport time to fully initialize after the React re-render.
-    // The CornerstoneViewport useEffect creates the viewport, loads images,
+    // The StackViewport useEffect creates the viewport, loads images,
     // and resets the camera — we need to wait for all of that to complete.
     const loadSeg = async () => {
       segLoadingPanelRef.current = pending.panelId;
@@ -1319,7 +1318,7 @@ export default function App() {
       );
       try {
         // Use the deterministic viewport-ready barrier via manager.
-        // The epoch was bumped when setPanelImageIds was called; CornerstoneViewport
+        // The epoch was bumped when setPanelImageIds was called; StackViewport
         // will call markReady after loadStack + render succeeds.
         const epoch = panelEpochRef.current[pending.panelId] ?? viewportReadyService.getEpoch(pending.panelId);
 
@@ -2052,9 +2051,6 @@ export default function App() {
 
         if (options?.openInMpr && isPrimaryImageScan(effectiveScan)) {
           const viewerStore = useViewerStore.getState();
-          if (viewerStore.mprActive) {
-            viewerStore.exitMPR();
-          }
 
           setBrowserStatusMessage(
             'Opening 2x2 orientation view...',
@@ -2565,120 +2561,60 @@ export default function App() {
     [setBrowserStatusMessage],
   );
 
-  const enterMprForPanel = useCallback(async (sourcePanelId: string, sourceImageIds: string[]) => {
-    const store = useViewerStore.getState();
-    if (sourceImageIds.length < 2) {
-      console.warn('[App] Need at least 2 slices for MPR');
-      return false;
-    }
-
-    if (store.mprActive) {
-      store.exitMPR();
-    }
-
-    const volumeId = volumeService.generateId();
-    try {
-      await volumeService.create(volumeId, sourceImageIds);
-      console.log('[App] Volume created in cache:', volumeId);
-    } catch (err) {
-      console.error('[App] Volume creation failed:', err);
-      return false;
-    }
-
-    useViewerStore.getState().setActiveViewport(sourcePanelId);
-    useViewerStore.getState().enterMPR(sourcePanelId, volumeId);
-
-    try {
-      await volumeService.load(volumeId, (p) => {
-        const percent = p.total > 0 ? Math.round((p.loaded / p.total) * 100) : 0;
-        useViewerStore.getState()._updateMPRVolumeProgress({ ...p, percent });
-      });
-      useViewerStore.getState()._updateMPRVolumeProgress(null);
-      console.log('[App] Volume loaded for MPR');
-      return true;
-    } catch (err) {
-      console.error('[App] Volume loading failed:', err);
-      useViewerStore.getState().exitMPR();
-      return false;
-    }
-  }, []);
-
   /**
    * Toggle MPR mode on the active panel's image stack.
    *
-   * Two paths gated on `multiViewport.enabled`:
-   *   - Flag OFF (legacy): enterMPR creates a 3D volume and switches to
-   *     MPRViewportGrid (2×2 orthogonal views).
-   *   - Flag ON (multi-viewport rewrite): apply the mpr-2x2 preset via
-   *     viewportLayoutService, switch to 2×2 layout, set
-   *     panelOrientationMap so panels 0/1/2 render via Viewport →
-   *     VolumeViewport with AXIAL/SAGITTAL/CORONAL orientations and
-   *     panel 3 stays as the source-stack reference. Volume is shared
-   *     across panels via the (scanId, FoR) cache.
+   * Applies the mpr-2x2 preset via viewportLayoutService, switches to
+   * the 2×2 layout, and sets panelOrientationMap so panels 0/1/2
+   * render via Viewport → VolumeViewport with AXIAL/SAGITTAL/CORONAL
+   * orientations; panel 3 stays as the source-stack reference. Volume
+   * is shared across panels via the (scanId, FoR) cache.
    */
   const handleToggleMPR = useCallback(async () => {
     const store = useViewerStore.getState();
-    const flagEnabled = usePreferencesStore.getState().preferences.multiViewport.enabled;
+    const isMprPresetActive = viewportLayoutService.getCurrentPresetId() === 'mpr-2x2';
 
-    if (flagEnabled) {
-      const isMprPresetActive = viewportLayoutService.getCurrentPresetId() === 'mpr-2x2';
-
-      if (isMprPresetActive) {
-        // Exit: clear orientations on panels 0/1/2 (back to STACK).
-        store.setPanelOrientation(panelId(0), 'STACK');
-        store.setPanelOrientation(panelId(1), 'STACK');
-        store.setPanelOrientation(panelId(2), 'STACK');
-        viewportLayoutService.applyPreset('2x2');
-        return;
-      }
-
-      // Enter: ensure 2×2 layout, then propagate the active scan to
-      // panels 0/1/2 with axial/sagittal/coronal orientations (panel 3
-      // stays as source-stack reference, mirroring the legacy MPR
-      // layout). Per design §1.3, the shared-volume cache means all
-      // three oriented panels share one ImageVolume.
-      const activePanelId = store.activeViewportId ?? panelId(0);
-      const activeImageIds = panelImageIds[activePanelId] ?? [];
-      if (activeImageIds.length < 2) {
-        console.warn('[App] Need at least 2 slices for MPR preset');
-        return;
-      }
-
-      if (store.layoutConfig.panelCount < 4) {
-        store.setLayout('2x2');
-      }
-
-      // Propagate scan + orientation to panels 0/1/2.
-      // panel_3 keeps whatever it currently has (or empty); the legacy
-      // reference-panel decision (drop vs. native-stack) is documented
-      // as an open question in design §10.
-      const orientations: Array<'AXIAL' | 'SAGITTAL' | 'CORONAL'> = ['AXIAL', 'SAGITTAL', 'CORONAL'];
-      for (let i = 0; i < orientations.length; i++) {
-        const target = panelId(i);
-        if (target !== activePanelId) {
-          // Best-effort: copy the active panel's image set to the target panel.
-          // The store handles _initPanel + image-id propagation.
-          store.setPanelImageIds(target, activeImageIds);
-        }
-        store.setPanelOrientation(target, orientations[i]);
-      }
-      viewportLayoutService.applyPreset('mpr-2x2');
+    if (isMprPresetActive) {
+      // Exit: clear orientations on panels 0/1/2 (back to STACK).
+      store.setPanelOrientation(panelId(0), 'STACK');
+      store.setPanelOrientation(panelId(1), 'STACK');
+      store.setPanelOrientation(panelId(2), 'STACK');
+      viewportLayoutService.applyPreset('2x2');
       return;
     }
 
-    // Legacy path
-    if (store.mprActive) {
-      store.exitMPR();
+    // Enter: ensure 2×2 layout, then propagate the active scan to
+    // panels 0/1/2 with axial/sagittal/coronal orientations (panel 3
+    // stays as source-stack reference). Per design §1.3, the
+    // shared-volume cache means all three oriented panels share one
+    // ImageVolume.
+    const activePanelId = store.activeViewportId ?? panelId(0);
+    const activeImageIds = panelImageIds[activePanelId] ?? [];
+    if (activeImageIds.length < 2) {
+      console.warn('[App] Need at least 2 slices for MPR preset');
       return;
     }
 
-    const activeImageIds = panelImageIds[store.activeViewportId] ?? [];
-    await enterMprForPanel(store.activeViewportId, activeImageIds);
-  }, [panelImageIds, enterMprForPanel]);
+    if (store.layoutConfig.panelCount < 4) {
+      store.setLayout('2x2');
+    }
 
-  // Derive sourceImageIds for MPR mode (from the panel that launched MPR)
-  const mprSourcePanelId = useViewerStore((s) => s.mprSourcePanelId);
-  const mprSourceImageIds = mprSourcePanelId ? panelImageIds[mprSourcePanelId] ?? [] : [];
+    // Propagate scan + orientation to panels 0/1/2. panel_3 keeps
+    // whatever it currently has (or empty); the reference-panel
+    // decision (drop vs. native-stack) is documented as an open
+    // question in design §10.
+    const orientations: Array<'AXIAL' | 'SAGITTAL' | 'CORONAL'> = ['AXIAL', 'SAGITTAL', 'CORONAL'];
+    for (let i = 0; i < orientations.length; i++) {
+      const target = panelId(i);
+      if (target !== activePanelId) {
+        // Best-effort: copy the active panel's image set to the target panel.
+        // The store handles _initPanel + image-id propagation.
+        store.setPanelImageIds(target, activeImageIds);
+      }
+      store.setPanelOrientation(target, orientations[i]);
+    }
+    viewportLayoutService.applyPreset('mpr-2x2');
+  }, [panelImageIds]);
 
   // Handle drag-and-drop
   const handleDrop = useCallback(
@@ -3114,7 +3050,6 @@ export default function App() {
         onRecoverBackup={handleRecoverBackup}
         settingsInitialTabRequest={settingsInitialTabRequest}
         onSettingsInitialTabRequestConsumed={() => setSettingsInitialTabRequest(undefined)}
-        mprSourceImageIds={mprSourceImageIds}
         leftSlot={
           <>
             <XnatLogo className="w-7 h-7 shrink-0" />

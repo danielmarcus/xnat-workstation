@@ -1395,27 +1395,12 @@ export default function SegmentationPanel({ sourceImageIds }: SegmentationPanelP
           <span className="text-zinc-500 font-normal ml-1.5">{listItemCount}</span>
         </h3>
         <div className="flex items-center gap-1">
-          <button
-            onClick={() => openAddAnnotationDialog('SEG')}
-            disabled={sourceImageIds.length === 0}
-            className={`flex items-center justify-center gap-0.5 transition-colors px-1 py-1 rounded border ${TYPE_ACCENTS.SEG.text} ${TYPE_ACCENTS.SEG.border} ${TYPE_ACCENTS.SEG.bgHover} disabled:opacity-30 disabled:cursor-not-allowed`}
-            title="Create a segmentation annotation"
-            aria-label="Add segmentation"
-            data-testid="add-segmentation-btn"
-          >
-            <IconPlus className="w-2.5 h-2.5" />
-            <IconSegmentationAnnotation className="w-3.5 h-3.5" />
-          </button>
-          <button
-            onClick={() => openAddAnnotationDialog('RTSTRUCT')}
-            disabled={sourceImageIds.length === 0}
-            className={`flex items-center justify-center gap-0.5 transition-colors px-1 py-1 rounded border ${TYPE_ACCENTS.RTSTRUCT.text} ${TYPE_ACCENTS.RTSTRUCT.border} ${TYPE_ACCENTS.RTSTRUCT.bgHover} disabled:opacity-30 disabled:cursor-not-allowed`}
-            title="Create a structure annotation"
-            aria-label="Add structure"
-          >
-            <IconPlus className="w-2.5 h-2.5" />
-            <IconStructureAnnotation className="w-3.5 h-3.5" />
-          </button>
+          {/*
+            Phase 6 / Stage 2B.1: Add SEG / Add structure buttons moved
+            to the toolbar (`AddAnnotationButtons`). Save All stays in
+            the panel header until Stage 2B.2 moves Upload-to-XNAT into
+            ContainerListPanel's per-container ⋯ menu.
+          */}
           <button
             onClick={() => { void handleSaveAllModified(); }}
             disabled={

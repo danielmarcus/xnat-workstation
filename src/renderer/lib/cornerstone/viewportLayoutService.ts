@@ -1,19 +1,17 @@
 /**
  * Viewport Layout Service — layout presets for the standard viewport grid.
  *
- * Replaces the parallel `MPRViewportGrid` ↔ `ViewportGrid` switch with a
- * layout-preset selector on a single grid. Per design §1.3 / §3.
+ * The `ViewportGrid` is the single rendering surface; this service tells
+ * App-level wiring which preset to apply (panel count, panel orientations,
+ * auto-link). Per design §1.3 / §3.
  *
- * Built-in presets (v1):
+ * Built-in presets:
  *   - "1×1"             — single panel
  *   - "1×2", "2×1"      — two panels
  *   - "2×2"             — four panels, independent
- *   - "MPR-2×2"         — 2×2 with axial / sagittal / coronal volume panels +
+ *   - "mpr-2×2"         — 2×2 with axial / sagittal / coronal volume panels +
  *                         3D volume rendering panel in the 4th slot
  *   - "custom"          — user-arranged grid, geometry stored on the layout
- *
- * Phase 0: skeleton. Layout-preset rendering integrates in Phase 1 alongside
- * the viewport unification work.
  */
 import type { ViewportOrientation } from '@shared/types/viewer';
 
@@ -133,11 +131,10 @@ export const viewportLayoutService: ViewportLayoutService = {
     if (!preset) {
       throw new Error(`[viewportLayoutService] Unknown preset: ${id}`);
     }
-    // Phase 1: record the preset id. The actual grid-instantiation wiring
-    // (which viewports to create at which orientations, with which volumes)
-    // lands when ViewportGrid + the MPR preset replace MPRViewportGrid in
-    // Phase 2 work. Setting the preset id enables the rest of the app
-    // to observe the choice.
+    // Record the preset id. App.tsx's `handleToggleMPR` reads it to
+    // decide whether the MPR toggle should enter or exit; viewportGrid
+    // reads `viewerStore.layoutConfig` directly (the layout shape is set
+    // separately via `setLayout`).
     currentPresetId = id;
   },
 

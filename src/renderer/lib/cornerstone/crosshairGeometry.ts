@@ -1,4 +1,3 @@
-import { mprService } from './mprService';
 import { viewportService } from './viewportService';
 import { useViewerStore } from '../../stores/viewerStore';
 
@@ -133,12 +132,14 @@ function worldToPanelPoint(
 }
 
 export function getViewportForPanel(panelId: string): AnyViewport | null {
-  const mprViewport = mprService.getViewport(panelId) as AnyViewport | null;
+  // Volume viewports (oriented MPR panels under the mpr-2x2 preset) and
+  // stack viewports both live in the shared rendering engine. Prefer the
+  // volume viewport when present — during orientation transitions
+  // panelOrientationMap can lag a frame, so the rendering-engine lookup
+  // is the authoritative source. Stack viewport is the fallback.
+  const volumeViewport = viewportService.getVolumeViewport(panelId) as AnyViewport | null;
   const stackViewport = viewportService.getViewport(panelId) as AnyViewport | null;
-  // Prefer MPR viewport whenever available. During orientation transitions,
-  // panelOrientationMap can lag a frame and point to the wrong service.
-  // MPR service is authoritative for oriented panels; stack service is fallback.
-  return mprViewport ?? stackViewport ?? null;
+  return volumeViewport ?? stackViewport ?? null;
 }
 
 export function getWorldPointFromClientPoint(

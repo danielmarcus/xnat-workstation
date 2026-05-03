@@ -45,6 +45,13 @@ interface ToolGroup {
   tools: ToolName[];
 }
 
+/** Tools whose footprint is governed by the brush-size slider. */
+const BRUSH_SIZE_TOOLS = new Set<ToolName>([
+  ToolName.Brush,
+  ToolName.Eraser,
+  ToolName.ThresholdBrush,
+]);
+
 /** Ordered groups of segmentation tools */
 const SEG_TOOL_GROUPS: ToolGroup[] = [
   {
@@ -237,6 +244,11 @@ export default function SegmentationToolDropdown() {
           className="fixed z-50 bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl p-2 min-w-[200px]"
           style={{ top: dropdownPos.top, left: dropdownPos.left }}
         >
+          {/* Brush-size slider — visible only when a brush-style tool is
+              the active primary. Phase 6 / Stage 2B.3 moved this here from
+              the legacy SegmentationPanel so the slider lives next to the
+              tool that uses it. */}
+          {BRUSH_SIZE_TOOLS.has(activeTool) && <BrushSizeSlider />}
           {SEG_TOOL_GROUPS.map((group, groupIdx) => (
             <div key={group.label}>
               {/* Section divider (not before first group) */}
@@ -287,5 +299,47 @@ export default function SegmentationToolDropdown() {
         </div>
       )}
     </>
+  );
+}
+
+/**
+ * Brush-size slider rendered inside `SegmentationToolDropdown` when a
+ * brush-style tool is the active primary. Lifted from
+ * `SegmentationPanel` in Phase 6 / Stage 2B.3 so the size affordance
+ * lives next to the tool that uses it.
+ */
+function BrushSizeSlider() {
+  const brushSize = useSegmentationStore((s) => s.brushSize);
+  const setBrushSize = useSegmentationStore((s) => s.setBrushSize);
+  const handleChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const val = parseInt(e.target.value, 10);
+      setBrushSize(val);
+      segmentationService.setBrushSize(val);
+    },
+    [setBrushSize],
+  );
+
+  return (
+    <div
+      data-testid="brush-size-slider"
+      className="px-2.5 py-1.5 mb-1 border-b border-zinc-700/60"
+    >
+      <div className="flex items-center justify-between mb-1">
+        <label className="text-[10px] uppercase tracking-wider text-zinc-500">
+          Brush Size
+        </label>
+        <span className="text-[10px] text-zinc-300 tabular-nums">{brushSize}px</span>
+      </div>
+      <input
+        type="range"
+        min={1}
+        max={50}
+        value={brushSize}
+        onChange={handleChange}
+        aria-label="Brush size"
+        className="w-full h-1 bg-zinc-700 rounded-full appearance-none cursor-pointer accent-blue-500"
+      />
+    </div>
   );
 }

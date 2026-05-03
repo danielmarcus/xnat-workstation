@@ -18,7 +18,6 @@ import { useViewerStore } from '../../stores/viewerStore';
 import { useSegmentationStore } from '../../stores/segmentationStore';
 import { useAnnotationStore } from '../../stores/annotationStore';
 import { viewportService } from '../cornerstone/viewportService';
-import { mprService } from '../cornerstone/mprService';
 import { segmentationService } from '../cornerstone/segmentationService';
 
 // ─── Reverse Lookup Table ─────────────────────────────────────────
@@ -143,7 +142,6 @@ function dispatchAction(action: HotkeyAction): boolean {
   // ─── Layout switching ───────────────────────────────────────
   const layoutType = LAYOUT_ACTION_MAP[action];
   if (layoutType) {
-    if (viewerState.mprActive) return false; // Layout locked in MPR
     viewerState.setLayout(layoutType);
     return true;
   }
@@ -173,7 +171,6 @@ function dispatchAction(action: HotkeyAction): boolean {
       viewportService.zoomBy(viewerState.activeViewportId, 1 / 1.2);
       return true;
     case 'viewport.toggleCine':
-      if (viewerState.mprActive) return false;
       viewerState.toggleCine();
       return true;
 
@@ -256,59 +253,17 @@ function dispatchAction(action: HotkeyAction): boolean {
 }
 
 /**
- * Handle slice navigation for both stack and MPR viewports.
- * Replicates the logic from ViewportGrid.tsx and MPRViewportGrid.tsx.
+ * Handle slice navigation. After Phase 6.4 the stack and volume viewports
+ * share one slice-progress slice in the store (`viewports[pid]`):
+ * VolumeViewport calls `_updateImageIndex(pid, sliceIndex, total)` too,
+ * and `viewportService.scrollToIndex` dispatches `setImageIdIndex`
+ * (stack) or `setSliceIndex` (volume) per viewport type.
  */
 function handleSliceNavigation(
   action: HotkeyAction,
   viewerState: ReturnType<typeof useViewerStore.getState>,
 ): boolean {
   const pid = viewerState.activeViewportId;
-
-  // MPR panel (volume viewport)
-  if (pid.startsWith('mpr_panel_')) {
-    const mprState = viewerState.mprViewports[pid];
-    if (!mprState || mprState.totalSlices <= 1) return false;
-
-    let delta = 0;
-    let jumpTo: number | null = null;
-
-    switch (action) {
-      case 'slice.prev':     delta = -1;  break;
-      case 'slice.next':     delta = 1;   break;
-      case 'slice.prevPage': delta = -10; break;
-      case 'slice.nextPage': delta = 10;  break;
-      case 'slice.first':    jumpTo = 0;  break;
-      case 'slice.last':     jumpTo = mprState.totalSlices - 1; break;
-    }
-
-    if (jumpTo !== null) {
-      mprService.scrollToIndex(pid, jumpTo);
-    } else if (delta !== 0) {
-      mprService.scroll(pid, delta);
-    }
-    return true;
-  }
-
-  // Oriented viewport (AXIAL/SAGITTAL/CORONAL → uses volume viewport via mprService)
-  const panelOrientation = viewerState.panelOrientationMap[pid];
-  if (panelOrientation && panelOrientation !== 'STACK') {
-    let delta = 0;
-    switch (action) {
-      case 'slice.prev':     delta = -1;  break;
-      case 'slice.next':     delta = 1;   break;
-      case 'slice.prevPage': delta = -10; break;
-      case 'slice.nextPage': delta = 10;  break;
-      case 'slice.first':    mprService.scrollToIndex(pid, 0); return true;
-      case 'slice.last':     mprService.scroll(pid, 999999); return true; // jump to end
-    }
-    if (delta !== 0) {
-      mprService.scroll(pid, delta);
-    }
-    return true;
-  }
-
-  // Stack viewport
   const vp = viewerState.viewports[pid];
   if (!vp || vp.totalImages <= 1) return false;
 

@@ -1,18 +1,17 @@
 /**
  * ViewportGrid — CSS grid layout that renders N panels based on the current
- * layout selection (1×1, 1×2, 2×1, 2×2).
+ * layout selection (1×1, 1×2, 2×1, 2×2, mpr-2x2).
  *
- * Each panel contains a CornerstoneViewport + ViewportOverlay + ScrollSlider.
- * Clicking a panel sets it as active (blue border highlight).
+ * Each panel renders a `Viewport`, which routes between stack-mode
+ * (StackViewport) and volume-mode (VolumeViewport) by source-image
+ * eligibility plus the panel's orientation (STACK vs. AXIAL/SAGITTAL/CORONAL).
  *
  * Keyboard shortcuts (including slice navigation) are handled globally
  * by hotkeyService — see src/renderer/lib/hotkeys/hotkeyService.ts.
  */
 import { useViewerStore } from '../../stores/viewerStore';
-import { usePreferencesStore } from '../../stores/preferencesStore';
 import { panelId } from '@shared/types/viewer';
 import Viewport from './Viewport';
-import OrientedViewport from './OrientedViewport';
 import ViewportOverlay from './ViewportOverlay';
 import ScrollSlider from './ScrollSlider';
 import { ToolName } from '@shared/types/viewer';
@@ -31,9 +30,6 @@ export default function ViewportGrid({ panelImageIds }: ViewportGridProps) {
   const sessionScans = useViewerStore((s) => s.sessionScans);
   const panelXnatContextMap = useViewerStore((s) => s.panelXnatContextMap);
   const panelScanMap = useViewerStore((s) => s.panelScanMap);
-  const multiViewportEnabled = usePreferencesStore(
-    (s) => s.preferences.multiViewport.enabled,
-  );
 
   useEffect(() => {
     const el = document.querySelector(`[data-panel-id="${activeViewportId}"]`) as HTMLElement | null;
@@ -56,8 +52,6 @@ export default function ViewportGrid({ panelImageIds }: ViewportGridProps) {
         const imageIds = panelImageIds[pid] ?? [];
         const isActive = pid === activeViewportId;
         const orientation = panelOrientationMap[pid] ?? 'STACK';
-        const canUseOrientedView = imageIds.length > 1;
-        const shouldUseOrientedView = canUseOrientedView && orientation !== 'STACK';
         const loadingScanId = panelXnatContextMap[pid]?.scanId || panelScanMap[pid] || '';
         const loadingScanLabel = sessionScans?.find((scan) => scan.id === loadingScanId)?.seriesDescription?.trim() ?? '';
         const loadingMessage = loadingScanId
@@ -77,22 +71,11 @@ export default function ViewportGrid({ panelImageIds }: ViewportGridProps) {
             )}
             {imageIds.length > 0 ? (
               <>
-                {shouldUseOrientedView ? (
-                  multiViewportEnabled ? (
-                    // New path: oriented panels go through Viewport →
-                    // VolumeViewport with the orientation prop. Per design
-                    // §1.3, this replaces OrientedViewport when the flag is on.
-                    <Viewport
-                      panelId={pid}
-                      imageIds={imageIds}
-                      orientation={orientation === 'STACK' ? undefined : orientation}
-                    />
-                  ) : (
-                    <OrientedViewport panelId={pid} imageIds={imageIds} plane={orientation} />
-                  )
-                ) : (
-                  <Viewport panelId={pid} imageIds={imageIds} />
-                )}
+                <Viewport
+                  panelId={pid}
+                  imageIds={imageIds}
+                  orientation={orientation === 'STACK' ? undefined : orientation}
+                />
                 <ViewportOverlay panelId={pid} />
                 <ScrollSlider panelId={pid} />
               </>

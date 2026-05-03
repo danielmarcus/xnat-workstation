@@ -48,7 +48,6 @@ describe('Toolbar', () => {
       ...useViewerStore.getState(),
       activeViewportId: 'panel_0',
       activeTool: ToolName.WindowLevel,
-      mprActive: false,
       cineStates: { panel_0: { isPlaying: false, fps: 15 } },
       sessionScans: [],
       setActiveTool,
@@ -190,14 +189,21 @@ describe('Toolbar', () => {
     expect(screen.queryByText('Preferences')).not.toBeInTheDocument();
   });
 
-  it('renders mpr hints and disabled controls in MPR mode, including left slot', async () => {
+  it('renders MPR toggle button with active label when the mpr-2x2 preset is engaged (Phase 6.4: navigation/cine no longer gated)', async () => {
     const user = userEvent.setup();
     const onToggleMPR = vi.fn();
+    // After Phase 6.4 the toolbar derives "MPR active" from the panel
+    // orientation map (panels 0/1/2 hold AXIAL/SAGITTAL/CORONAL when the
+    // mpr-2x2 preset is engaged). Set those orientations directly.
     useViewerStore.setState({
       ...useViewerStore.getState(),
-      mprActive: true,
       activeViewportId: 'panel_0',
       cineStates: { panel_0: { isPlaying: true, fps: 25 } },
+      panelOrientationMap: {
+        panel_0: 'AXIAL',
+        panel_1: 'SAGITTAL',
+        panel_2: 'CORONAL',
+      },
     });
 
     render(
@@ -209,9 +215,9 @@ describe('Toolbar', () => {
     );
 
     expect(screen.getByTestId('left-slot-marker')).toBeInTheDocument();
-    expect(screen.getByText(/Crosshairs: left-click/)).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Pan' })).not.toBeInTheDocument();
-    expect(screen.queryByTitle('15 FPS')).not.toBeInTheDocument();
+    // Navigation tools (Pan etc.) and cine controls remain available now
+    // — MPR is just a layout, not a separate mode.
+    expect(screen.getByRole('button', { name: 'Pan' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'MPR' })).toHaveAttribute('title', 'Exit MPR mode');
 
     await user.click(screen.getByRole('button', { name: 'MPR' }));

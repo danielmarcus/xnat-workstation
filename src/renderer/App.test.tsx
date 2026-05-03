@@ -1468,7 +1468,13 @@ describe('App', () => {
     expect(screen.getByText('Protocol applied')).toBeInTheDocument();
   });
 
-  it('toggles MPR mode from toolbar callback and invokes volume service', async () => {
+  it('toggles MPR mode from toolbar callback by setting AXIAL/SAGITTAL/CORONAL orientations on panels 0/1/2', async () => {
+    // After Phase 6.4 the App-level handleToggleMPR no longer drives
+    // volumeService.create/load directly — the volume is created lazily
+    // by VolumeViewport when an oriented panel mounts. The user-visible
+    // side effect of toggling MPR is the panel-orientation update +
+    // viewportLayoutService preset switch. This test asserts that side
+    // effect.
     const user = userEvent.setup();
     setConnectedConnectionState();
     mocks.dicomwebLoader.getScanImageIds.mockResolvedValue(['img-1', 'img-2', 'img-3']);
@@ -1482,8 +1488,10 @@ describe('App', () => {
 
     await user.click(screen.getByRole('button', { name: 'Trigger Toggle MPR' }));
     await waitFor(() => {
-      expect(mocks.volumeService.create).toHaveBeenCalled();
-      expect(mocks.volumeService.load).toHaveBeenCalled();
+      const orientationMap = useViewerStore.getState().panelOrientationMap;
+      expect(orientationMap.panel_0).toBe('AXIAL');
+      expect(orientationMap.panel_1).toBe('SAGITTAL');
+      expect(orientationMap.panel_2).toBe('CORONAL');
     });
   });
 });

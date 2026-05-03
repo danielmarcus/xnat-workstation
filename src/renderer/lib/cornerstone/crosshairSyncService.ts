@@ -2,7 +2,6 @@ import { metaData } from '@cornerstonejs/core';
 import { wadouri } from '@cornerstonejs/dicom-image-loader';
 import { useViewerStore } from '../../stores/viewerStore';
 import { viewportService } from './viewportService';
-import { mprService } from './mprService';
 import { pLimit } from '../util/pLimit';
 import {
   getPanelDisplayPointForWorld,
@@ -304,14 +303,9 @@ function syncPanelByGeometry(
 
   store._requestImageIndex(panelId, targetIndex, imageIds.length);
   const viewport = getViewportForPanel(panelId) as AnyViewport | null;
-  const vpType = (viewport as { type?: string } | null)?.type;
-  const isVolumeViewport = vpType != null && vpType !== 'stack';
-
-  if (isVolumeViewport) {
-    mprService.scrollToIndex(panelId, targetIndex);
-  } else {
-    viewportService.scrollToIndex(panelId, targetIndex);
-  }
+  // viewportService.scrollToIndex handles both stack (setImageIdIndex) and
+  // volume (setSliceIndex) viewports in one call.
+  viewportService.scrollToIndex(panelId, targetIndex);
 
   // Only pan in world space when the source/target coordinate systems are compatible.
   if (viewport) {

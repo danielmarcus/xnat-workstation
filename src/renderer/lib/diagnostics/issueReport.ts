@@ -61,7 +61,6 @@ export async function buildIssueReport(userNotes: string): Promise<string> {
     `- Connected duration: ${formatConnectionAge(connection.connection?.connectedAt)}`,
     `- Active viewport: ${viewer.activeViewportId}`,
     `- Layout: ${viewer.layout}`,
-    `- MPR active: ${viewer.mprActive}`,
     `- Loaded panels: ${loadedPanels.length}`,
     `- Segmentations loaded: ${segmentation.segmentations.length}`,
     `- Active segmentation present: ${segmentation.activeSegmentationId ? 'yes' : 'no'}`,

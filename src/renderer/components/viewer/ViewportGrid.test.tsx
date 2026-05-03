@@ -4,13 +4,13 @@ import { ToolName } from '@shared/types/viewer';
 import ViewportGrid from './ViewportGrid';
 import { useViewerStore } from '../../stores/viewerStore';
 
-vi.mock('./CornerstoneViewport', () => ({
-  default: ({ panelId }: { panelId: string }) => <div data-testid={`cs-${panelId}`}>CS {panelId}</div>,
-}));
-
-vi.mock('./OrientedViewport', () => ({
-  default: ({ panelId, plane }: { panelId: string; plane: string }) => (
-    <div data-testid={`oriented-${panelId}`}>Oriented {panelId}:{plane}</div>
+// ViewportGrid renders panels through `Viewport`, which routes between
+// stack-mode (StackViewport) and volume-mode (VolumeViewport)
+// internally. The test stubs `Viewport` directly so it can observe the
+// orientation prop that ViewportGrid passes down.
+vi.mock('./Viewport', () => ({
+  default: ({ panelId, orientation }: { panelId: string; orientation?: string }) => (
+    <div data-testid={`viewport-${panelId}`}>VP {panelId}{orientation ? `:${orientation}` : ''}</div>
   ),
 }));
 
@@ -45,7 +45,7 @@ describe('ViewportGrid', () => {
     expect(screen.getByText('Loading #11 CTA Head')).toBeInTheDocument();
   });
 
-  it('uses oriented viewport when orientation is non-stack and panel has multiple images', () => {
+  it('passes orientation prop to Viewport when the panel orientation is non-STACK', () => {
     useViewerStore.setState({
       ...useViewerStore.getState(),
       layoutConfig: { rows: 1, cols: 1, panelCount: 1 },
@@ -54,13 +54,12 @@ describe('ViewportGrid', () => {
     });
 
     render(<ViewportGrid panelImageIds={{ panel_0: ['img-1', 'img-2'] }} />);
-    expect(screen.getByTestId('oriented-panel_0')).toHaveTextContent('AXIAL');
-    expect(screen.queryByTestId('cs-panel_0')).not.toBeInTheDocument();
+    expect(screen.getByTestId('viewport-panel_0')).toHaveTextContent('AXIAL');
     expect(screen.getByTestId('overlay-panel_0')).toBeInTheDocument();
     expect(screen.getByTestId('slider-panel_0')).toBeInTheDocument();
   });
 
-  it('uses cornerstone viewport for stack mode and updates active viewport on click', () => {
+  it('omits the orientation prop for STACK panels and updates active viewport on click', () => {
     const setActiveViewport = vi.fn();
     useViewerStore.setState({
       ...useViewerStore.getState(),
@@ -75,8 +74,10 @@ describe('ViewportGrid', () => {
       <ViewportGrid panelImageIds={{ panel_0: ['img-1'], panel_1: ['img-2'] }} />,
     );
 
-    expect(screen.getByTestId('cs-panel_0')).toBeInTheDocument();
-    expect(screen.getByTestId('cs-panel_1')).toBeInTheDocument();
+    // panel_0 (no orientation set, defaults to STACK) renders without the
+    // orientation suffix; panel_1 (SAGITTAL) renders with it.
+    expect(screen.getByTestId('viewport-panel_0')).toHaveTextContent(/^VP panel_0$/);
+    expect(screen.getByTestId('viewport-panel_1')).toHaveTextContent('SAGITTAL');
     expect(container.firstChild).toHaveClass('crosshair-mode');
     expect(container.querySelector('[data-panel-id="panel_0"]')).not.toHaveClass('cursor-pointer');
     expect(container.querySelector('[data-panel-id="panel_1"]')).not.toHaveClass('cursor-pointer');
