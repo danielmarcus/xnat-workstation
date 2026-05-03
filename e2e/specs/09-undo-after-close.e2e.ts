@@ -277,21 +277,26 @@ test.describe('Signal G7 — undo after closed-panel brush stroke (local fixture
 
   test.afterEach(async ({ page }) => {
     // Restore single-panel layout + flag-off so subsequent specs aren't
-    // affected by Electron worker reuse.
+    // affected by Electron worker reuse. Also explicitly clear unsaved
+    // state — the test paints a SEG but never saves; without the clean
+    // a follow-up `page.reload()` (in the next beforeEach) trips the
+    // `beforeunload` unsaved-changes dialog and the next test fails
+    // with "No dialog is showing" before it can assert anything.
     await page.evaluate(() => {
       window.__XNAT_E2E__?.closePanel('panel_1');
+      window.__XNAT_E2E__?.markAllSegmentationsClean?.();
       window.__XNAT_E2E__?.setMultiViewportEnabled(false);
     });
   });
 
-  // FIXME: with the synthetic CT path, the segmentation panel doesn't render
-  // a clickable row for a freshly-created segmentation — same multi-layer
-  // group / sub-seg gap that affects 05's locked-annotation tests. The G7
-  // contract is verified pre-migration on real CT data; once Phase 2.7
-  // settles the multi-layer group lifecycle (or once a synthetic CT fixture
-  // with labelmap-friendly geometry exists), promote this back. Skipping
-  // here keeps the Phase 1 G7 closure intact in PHASES.md.
-  test.fixme('flag-off (legacy stack mode): brush memo survives panel close and undoes', async ({ page }) => {
+  // The original "synthetic CT path doesn't render the row" diagnosis
+  // was misattributed to a Cornerstone multi-layer-group gap. The actual
+  // root cause was that `loadLocalDicomFiles` set panelScanMap but not
+  // panelXnatContextMap, so SegmentationPanel's `visibleSegmentationIds`
+  // filter (keyed on `${projectId}/${sessionId}/${scanId}`) excluded the
+  // freshly-created seg. Fixed 2026-05-03 by synthesising a fixture XNAT
+  // context in the e2e fixture bridge.
+  test('flag-off (legacy stack mode): brush memo survives panel close and undoes', async ({ page }) => {
     await setupTwoPanelsWithScan(page, false);
     await runG7AcceptanceFlow(page);
   });
@@ -305,7 +310,13 @@ test.describe('Signal G7 — undo after closed-panel brush stroke (local fixture
   // When Phase 2 wires volume-labelmap representations (design §7.4 —
   // Workstream B's container bridge + undoService), promote this back to
   // a real test.
-  test.fixme('flag-on (volume mode): brush memo survives panel close and undoes — pending volume-mode SEG editing in Phase 2', async ({ page }) => {
+  test('flag-on (volume mode): brush memo survives panel close and undoes', async ({ page }) => {
+    // Phase 2 wired the container bridge + volume-labelmap representation
+    // path (`addSubSegToViewport` calls `convertStackToVolumeLabelmap` for
+    // viewports that expose `getAllVolumeIds`). Promoted from `test.fixme`
+    // 2026-05-03 to verify whether the original Phase 1 capability gap
+    // still applies. If it does, this test surfaces it as a real failure
+    // rather than a silent fixme — consistent with the rest of the audit.
     await page.evaluate(() => {
       window.__XNAT_E2E__?.setMultiViewportEnabled(true);
     });

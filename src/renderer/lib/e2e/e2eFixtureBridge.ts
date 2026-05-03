@@ -166,7 +166,25 @@ export async function loadLocalDicomFiles(
   // VolumeViewport.tsx gates on a non-empty scanId in panelScanMap.
   // Setting one here lets the fixture flow through the same volume
   // creation path the XNAT browser uses.
-  useViewerStore.getState().setPanelScan(panelId, syntheticScanId(paths));
+  const scanId = syntheticScanId(paths);
+  useViewerStore.getState().setPanelScan(panelId, scanId);
+
+  // SegmentationPanel filters its row list by `visibleSegmentationIds`
+  // which is keyed on `${projectId}/${sessionId}/${sourceScanId}`. Without
+  // a synthetic panelXnatContext, locally-created segmentations land in
+  // `localOriginBySegId` keyed on a composite that doesn't match anything
+  // and the row never renders — blocking any E2E that drives the panel
+  // UI on local fixtures (notably G7's Add segmentation → Brush flow).
+  // The synthesised context here is stable for a given path-set (mirrors
+  // syntheticScanId's hash) so two panels mounting the same fixture see
+  // the same composite key.
+  useViewerStore.getState().setPanelXnatContext(panelId, {
+    projectId: 'fixture-project',
+    subjectId: 'fixture-subject',
+    sessionId: `fixture-session-${scanId}`,
+    sessionLabel: 'Fixture Session',
+    scanId,
+  });
 
   return { panelId, imageIds, sourcePaths: [...paths] };
 }
