@@ -337,7 +337,26 @@ export const containerService: ContainerService = {
     deps.setSegmentColor(member.csSegmentationId, member.segmentIndex!, colorRgba);
     containerBridge.setDirty(container.id, true);
   },
-  setRoiType: () => notImplementedYet('setRoiType', 'Phase 3.8 ROI type badge'),
+  /**
+   * Set the DICOM RTROIInterpretedType on an RTSTRUCT member (D7.2,
+   * signal 18). No-op for non-RTSTRUCT members. Marks the container
+   * dirty so the new type persists on next save (RTROIInterpretedType
+   * is a DICOM RTSTRUCT field that round-trips per signal 18).
+   */
+  setRoiType(memberId: string, roiType: RTROIInterpretedType): void {
+    if (!memberId) return;
+    const found = findMemberContainer(memberId);
+    if (!found) {
+      throw new Error(`[containerService] setRoiType: unknown memberId ${memberId}`);
+    }
+    const { container, member } = found;
+    if (container.kind !== 'RTSTRUCT') return; // No-op for SEG / POI.
+    if (member.roiType === roiType) return;
+    member.roiType = roiType;
+    member.modifiedAt = Date.now();
+    container.dirty = true;
+    containerBridge.notifyChange(container.id);
+  },
 
   /**
    * Set the visibility mode on a member (D7.3) — updates bridge state

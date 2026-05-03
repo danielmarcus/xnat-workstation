@@ -309,9 +309,6 @@ describe('not-yet-implemented methods', () => {
     ).toThrow(/Phase 3\.6/);
   });
 
-  it('setRoiType throws with phase pointer', () => {
-    expect(() => containerService.setRoiType('m', 'GTV')).toThrow(/Phase 3\.8/);
-  });
 });
 
 // ─── Phase 3.5a: setActiveMember ──────────────────────────────────────
@@ -639,6 +636,97 @@ describe('setA2cOptedIn', () => {
 
   it('skips empty containerId', () => {
     expect(() => containerService.setA2cOptedIn('', true)).not.toThrow();
+  });
+});
+
+// ─── Phase 3.8b: setRoiType ─────────────────────────────────────────────
+
+describe('setRoiType', () => {
+  function injectRtstructMember(
+    csSegId: string,
+    memberId: string,
+    initial: import('../../types/annotation').RTROIInterpretedType | null = null,
+  ): string {
+    const containerId = containerBridge.register(csSegId, { kind: 'RTSTRUCT' });
+    containerBridge.getContainer(containerId)!.members.push({
+      id: memberId,
+      name: 'M',
+      color: [255, 0, 0],
+      visibility: 'outlined',
+      locked: false,
+      provenance: 'manual',
+      roiType: initial,
+      roiNumber: 1,
+      interpolationState: null,
+      segmentIndex: 1,
+      segmentDescription: null,
+      segmentedPropertyCategory: null,
+      segmentedPropertyType: null,
+      poiPoints: null,
+      algebra: null,
+      algebraSources: null,
+      algebraOutOfDate: false,
+      algebraManualOverride: false,
+      csAnnotationUIDs: null,
+      csSegmentationId: csSegId,
+      createdAt: 0,
+      modifiedAt: 0,
+    });
+    return containerId;
+  }
+
+  it('updates roiType on RTSTRUCT member', () => {
+    const id = injectRtstructMember('rtstruct_1', 'm1');
+    containerService.setRoiType('m1', 'GTV');
+    expect(containerBridge.getContainer(id)!.members[0].roiType).toBe('GTV');
+  });
+
+  it('marks the container dirty (RTROIInterpretedType round-trips per signal 18)', () => {
+    const id = injectRtstructMember('rtstruct_1', 'm1');
+    containerBridge.setDirty(id, false);
+    containerService.setRoiType('m1', 'PTV');
+    expect(containerBridge.getContainer(id)?.dirty).toBe(true);
+  });
+
+  it('idempotent on no-op (same type)', () => {
+    const id = injectRtstructMember('rtstruct_1', 'm1', 'GTV');
+    containerBridge.setDirty(id, false);
+    containerService.setRoiType('m1', 'GTV');
+    expect(containerBridge.getContainer(id)?.dirty).toBe(false);
+  });
+
+  it('no-op for non-RTSTRUCT containers (kind=SEG)', () => {
+    const containerId = containerBridge.register('seg_1', { kind: 'SEG' });
+    containerBridge.getContainer(containerId)!.members.push({
+      id: 'm-seg',
+      name: 'X',
+      color: [0, 0, 0],
+      visibility: 'filled',
+      locked: false,
+      provenance: 'manual',
+      roiType: null,
+      roiNumber: null,
+      interpolationState: null,
+      segmentIndex: 1,
+      segmentDescription: null,
+      segmentedPropertyCategory: null,
+      segmentedPropertyType: null,
+      poiPoints: null,
+      algebra: null,
+      algebraSources: null,
+      algebraOutOfDate: false,
+      algebraManualOverride: false,
+      csAnnotationUIDs: null,
+      csSegmentationId: 'seg_1',
+      createdAt: 0,
+      modifiedAt: 0,
+    });
+    containerService.setRoiType('m-seg', 'GTV');
+    expect(containerBridge.getContainer(containerId)?.members[0].roiType).toBeNull();
+  });
+
+  it('throws on unknown memberId', () => {
+    expect(() => containerService.setRoiType('unknown', 'GTV')).toThrow(/unknown/);
   });
 });
 

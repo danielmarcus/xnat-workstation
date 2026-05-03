@@ -16,6 +16,8 @@ const setActiveMemberMock = vi.hoisted(() => vi.fn());
 const renameMemberMock = vi.hoisted(() => vi.fn());
 const deleteMemberMock = vi.hoisted(() => vi.fn());
 const setA2cOptedInMock = vi.hoisted(() => vi.fn());
+const approveContainerMock = vi.hoisted(() => vi.fn());
+const revokeApprovalMock = vi.hoisted(() => vi.fn());
 
 vi.mock('../../lib/cornerstone/containerService', () => ({
   containerService: {
@@ -24,6 +26,8 @@ vi.mock('../../lib/cornerstone/containerService', () => ({
     renameMember: renameMemberMock,
     deleteMember: deleteMemberMock,
     setA2cOptedIn: setA2cOptedInMock,
+    approveContainer: approveContainerMock,
+    revokeApproval: revokeApprovalMock,
   },
 }));
 
@@ -92,6 +96,8 @@ beforeEach(() => {
   renameMemberMock.mockReset();
   deleteMemberMock.mockReset();
   setA2cOptedInMock.mockReset();
+  approveContainerMock.mockReset();
+  revokeApprovalMock.mockReset();
 });
 
 afterEach(() => {
@@ -1087,5 +1093,215 @@ describe('sort (D7.7)', () => {
       fireEvent.change(screen.getByTestId('container-sort'), { target: { value: 'alphabetical' } });
     });
     expect(rowOrder()).toEqual(['m1', 'm2']);
+  });
+});
+
+// ─── Phase 3.8a: approval workflow UI (D7.11) ──────────────────────────
+
+describe('approval workflow (D7.11)', () => {
+  let originalConfirm: typeof window.confirm;
+  beforeEach(() => {
+    originalConfirm = window.confirm;
+  });
+  afterEach(() => {
+    window.confirm = originalConfirm;
+  });
+
+  it('not approved → Approve button visible, Revoke + badge hidden', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        approval: { approved: false, reviewerName: null, reviewedAt: null, history: [] },
+      }),
+    );
+    render(<ContainerListPanel />);
+    expect(screen.queryByTestId('container-approve:c1')).not.toBeNull();
+    expect(screen.queryByTestId('container-revoke:c1')).toBeNull();
+    expect(screen.queryByTestId('container-approved:c1')).toBeNull();
+  });
+
+  it('approved → Revoke + badge visible, Approve hidden', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        approval: { approved: true, reviewerName: 'dr.smith', reviewedAt: 0, history: [] },
+      }),
+    );
+    render(<ContainerListPanel />);
+    expect(screen.queryByTestId('container-approve:c1')).toBeNull();
+    expect(screen.queryByTestId('container-revoke:c1')).not.toBeNull();
+    expect(screen.queryByTestId('container-approved:c1')?.textContent).toContain('approved');
+  });
+
+  it('clicking Approve calls containerService.approveContainer', () => {
+    setContainers(makeContainer({ id: 'c1' }));
+    render(<ContainerListPanel />);
+    act(() => {
+      fireEvent.click(screen.getByTestId('container-approve:c1'));
+    });
+    expect(approveContainerMock).toHaveBeenCalledWith('c1', null);
+  });
+
+  it('clicking Revoke prompts confirm before calling revokeApproval', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        approval: { approved: true, reviewerName: 'a', reviewedAt: 0, history: [] },
+      }),
+    );
+    window.confirm = vi.fn().mockReturnValue(true);
+    render(<ContainerListPanel />);
+    act(() => {
+      fireEvent.click(screen.getByTestId('container-revoke:c1'));
+    });
+    expect(window.confirm).toHaveBeenCalled();
+    expect(revokeApprovalMock).toHaveBeenCalledWith('c1', null);
+  });
+
+  it('cancelled Revoke does NOT call revokeApproval', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        approval: { approved: true, reviewerName: 'a', reviewedAt: 0, history: [] },
+      }),
+    );
+    window.confirm = vi.fn().mockReturnValue(false);
+    render(<ContainerListPanel />);
+    act(() => {
+      fireEvent.click(screen.getByTestId('container-revoke:c1'));
+    });
+    expect(revokeApprovalMock).not.toHaveBeenCalled();
+  });
+
+  it('approved container hides the per-member action menu (edit-locked per §D7.11)', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        approval: { approved: true, reviewerName: 'a', reviewedAt: 0, history: [] },
+        members: [makeMember({ id: 'm1' })],
+      }),
+    );
+    render(<ContainerListPanel />);
+    expect(screen.queryByTestId('member-menu:m1')).toBeNull();
+  });
+
+  it('un-approved container shows the per-member action menu', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        approval: { approved: false, reviewerName: null, reviewedAt: null, history: [] },
+        members: [makeMember({ id: 'm1' })],
+      }),
+    );
+    render(<ContainerListPanel />);
+    expect(screen.queryByTestId('member-menu:m1')).not.toBeNull();
+  });
+
+  it('Approve / Revoke clicks do not bubble to the row click handler', () => {
+    setContainers(makeContainer({ id: 'c1' }));
+    render(<ContainerListPanel />);
+    act(() => {
+      fireEvent.click(screen.getByTestId('container-approve:c1'));
+    });
+    expect(useContainerSelectionStore.getState().selectionSet.size).toBe(0);
+  });
+});
+
+// ─── Phase 3.8b: ROI type badge + provenance indicator (D7.2) ──────────
+
+describe('ROI type badge (D7.2 RTSTRUCT)', () => {
+  it('renders a badge when roiType is set', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        kind: 'RTSTRUCT',
+        members: [makeMember({ id: 'm1', roiType: 'GTV' })],
+      }),
+    );
+    render(<ContainerListPanel />);
+    const badge = screen.queryByTestId('member-roi-type:m1');
+    expect(badge).not.toBeNull();
+    expect(badge?.textContent).toBe('GTV');
+  });
+
+  it('hides the badge when roiType is null', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [makeMember({ id: 'm1', roiType: null })],
+      }),
+    );
+    render(<ContainerListPanel />);
+    expect(screen.queryByTestId('member-roi-type:m1')).toBeNull();
+  });
+
+  it('GTV / CTV / PTV / ORGAN / EXTERNAL / AVOIDANCE get distinct color hints', () => {
+    const types: Array<['GTV' | 'CTV' | 'PTV' | 'ORGAN' | 'EXTERNAL' | 'AVOIDANCE', RegExp]> = [
+      ['GTV', /rose/],
+      ['CTV', /orange/],
+      ['PTV', /amber/],
+      ['ORGAN', /emerald/],
+      ['EXTERNAL', /blue/],
+      ['AVOIDANCE', /red/],
+    ];
+    for (const [type, color] of types) {
+      setContainers(
+        makeContainer({
+          id: 'c1',
+          kind: 'RTSTRUCT',
+          members: [makeMember({ id: `m-${type}`, roiType: type })],
+        }),
+      );
+      const { unmount } = render(<ContainerListPanel />);
+      const badge = screen.queryByTestId(`member-roi-type:m-${type}`);
+      expect(badge?.className).toMatch(color);
+      unmount();
+    }
+  });
+});
+
+describe('provenance indicator (D7.2)', () => {
+  it('manual provenance does not render an indicator', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [makeMember({ id: 'm1', provenance: 'manual' })],
+      }),
+    );
+    render(<ContainerListPanel />);
+    expect(screen.queryByTestId('member-provenance:m1')).toBeNull();
+  });
+
+  it('interpolated provenance renders ~', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [makeMember({ id: 'm1', provenance: 'interpolated' })],
+      }),
+    );
+    render(<ContainerListPanel />);
+    expect(screen.queryByTestId('member-provenance:m1')?.textContent).toBe('~');
+  });
+
+  it('imported provenance renders ↓', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [makeMember({ id: 'm1', provenance: 'imported' })],
+      }),
+    );
+    render(<ContainerListPanel />);
+    expect(screen.queryByTestId('member-provenance:m1')?.textContent).toBe('↓');
+  });
+
+  it('auto-segmented renders AI', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [makeMember({ id: 'm1', provenance: 'auto-segmented' })],
+      }),
+    );
+    render(<ContainerListPanel />);
+    expect(screen.queryByTestId('member-provenance:m1')?.textContent).toBe('AI');
   });
 });

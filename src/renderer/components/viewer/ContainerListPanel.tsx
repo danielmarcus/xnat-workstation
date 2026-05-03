@@ -165,6 +165,25 @@ export default function ContainerListPanel() {
 // ─── Row components ────────────────────────────────────────────────
 
 function ContainerRow({ container }: { container: Container }) {
+  const onApprove = () => {
+    try {
+      containerService.approveContainer(container.id, null);
+    } catch (err) {
+      console.warn('[ContainerListPanel] approve failed', err);
+    }
+  };
+
+  const onRevoke = () => {
+    if (typeof window !== 'undefined' && !window.confirm(`Revoke approval on "${container.name}"?`)) {
+      return;
+    }
+    try {
+      containerService.revokeApproval(container.id, null);
+    } catch (err) {
+      console.warn('[ContainerListPanel] revoke failed', err);
+    }
+  };
+
   return (
     <li
       data-testid={`container-row:${container.id}`}
@@ -213,18 +232,47 @@ function ContainerRow({ container }: { container: Container }) {
             aria-label="unsaved changes"
           />
         )}
-        {container.approval.approved && (
-          <span
-            data-testid={`container-approved:${container.id}`}
-            className="text-[9px] uppercase font-semibold text-emerald-400"
-            title={
-              container.approval.reviewerName
-                ? `Approved by ${container.approval.reviewerName}`
-                : 'Approved'
-            }
+        {container.approval.approved ? (
+          <>
+            <span
+              data-testid={`container-approved:${container.id}`}
+              className="text-[9px] uppercase font-semibold text-emerald-400"
+              title={
+                container.approval.reviewerName
+                  ? `Approved by ${container.approval.reviewerName}`
+                  : 'Approved'
+              }
+            >
+              ✓ approved
+            </span>
+            <button
+              type="button"
+              data-testid={`container-revoke:${container.id}`}
+              className="text-[9px] uppercase font-semibold text-zinc-500 hover:text-amber-300 transition-colors px-1"
+              title="Revoke approval (requires confirmation)"
+              aria-label="revoke approval"
+              onClick={(e) => {
+                e.stopPropagation();
+                onRevoke();
+              }}
+            >
+              revoke
+            </button>
+          </>
+        ) : (
+          <button
+            type="button"
+            data-testid={`container-approve:${container.id}`}
+            className="text-[9px] uppercase font-semibold text-zinc-500 hover:text-emerald-400 transition-colors px-1 border border-zinc-700 hover:border-emerald-500 rounded"
+            title="Approve container — locks all members from edits per §D7.11"
+            aria-label="approve container"
+            onClick={(e) => {
+              e.stopPropagation();
+              onApprove();
+            }}
           >
-            ✓ approved
-          </span>
+            approve
+          </button>
         )}
       </div>
 
@@ -238,7 +286,11 @@ function ContainerRow({ container }: { container: Container }) {
       ) : (
         <ul>
           {container.members.map((member) => (
-            <MemberRow key={member.id} member={member} />
+            <MemberRow
+              key={member.id}
+              member={member}
+              containerApproved={container.approval.approved}
+            />
           ))}
         </ul>
       )}
@@ -246,7 +298,13 @@ function ContainerRow({ container }: { container: Container }) {
   );
 }
 
-function MemberRow({ member }: { member: Member }) {
+function MemberRow({
+  member,
+  containerApproved,
+}: {
+  member: Member;
+  containerApproved: boolean;
+}) {
   const isSelected = useContainerSelectionStore((s) => s.selectionSet.has(member.id));
   const isActive = useContainerSelectionStore((s) => s.activeMemberId === member.id);
   const isHovered = useContainerSelectionStore((s) => s.hoverMemberId === member.id);
@@ -368,12 +426,30 @@ function MemberRow({ member }: { member: Member }) {
         />
       ) : (
         <span
-          className={`flex-1 text-xs truncate ${
+          className={`flex-1 text-xs truncate flex items-center gap-1 ${
             isActive ? 'text-amber-200 font-medium' : 'text-zinc-300'
           }`}
           title={member.name}
         >
-          {member.name}
+          <span className="truncate">{member.name}</span>
+          {member.roiType && (
+            <span
+              data-testid={`member-roi-type:${member.id}`}
+              className={`text-[8px] uppercase font-mono px-1 rounded shrink-0 ${roiTypeColor(member.roiType)}`}
+              title={`ROI type: ${member.roiType}`}
+            >
+              {member.roiType}
+            </span>
+          )}
+          {member.provenance !== 'manual' && (
+            <span
+              data-testid={`member-provenance:${member.id}`}
+              className="text-[8px] uppercase text-zinc-500 shrink-0"
+              title={`Provenance: ${member.provenance}`}
+            >
+              {provenanceGlyph(member.provenance)}
+            </span>
+          )}
         </span>
       )}
       <button
@@ -400,21 +476,23 @@ function MemberRow({ member }: { member: Member }) {
         </span>
       )}
       <div ref={menuRef} className="relative">
-        <button
-          type="button"
-          data-testid={`member-menu:${member.id}`}
-          className="text-[12px] text-zinc-500 hover:text-zinc-200 transition-colors px-0.5 leading-none"
-          title="Member actions"
-          aria-label="member actions"
-          aria-haspopup="menu"
-          aria-expanded={menuOpen}
-          onClick={(e) => {
-            e.stopPropagation();
-            setMenuOpen((v) => !v);
-          }}
-        >
-          ⋯
-        </button>
+        {!containerApproved && (
+          <button
+            type="button"
+            data-testid={`member-menu:${member.id}`}
+            className="text-[12px] text-zinc-500 hover:text-zinc-200 transition-colors px-0.5 leading-none"
+            title="Member actions"
+            aria-label="member actions"
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
+            onClick={(e) => {
+              e.stopPropagation();
+              setMenuOpen((v) => !v);
+            }}
+          >
+            ⋯
+          </button>
+        )}
         {menuOpen && (
           <div
             data-testid={`member-menu-popover:${member.id}`}
@@ -472,5 +550,55 @@ function kindColor(kind: Container['kind']): string {
       return 'text-cyan-400';
     case 'POI':
       return 'text-amber-400';
+  }
+}
+
+/**
+ * Per-DICOM-RTROIInterpretedType color hint. The radiotherapy GTV/CTV/PTV
+ * triad gets warm tones (treatment volumes); ORGAN/EXTERNAL gets cool tones
+ * (anatomic structures); AVOIDANCE gets red (organ at risk); everything
+ * else falls back to neutral zinc.
+ */
+function roiTypeColor(roiType: NonNullable<Member['roiType']>): string {
+  switch (roiType) {
+    case 'GTV':
+      return 'bg-rose-900/50 text-rose-200';
+    case 'CTV':
+      return 'bg-orange-900/50 text-orange-200';
+    case 'PTV':
+      return 'bg-amber-900/50 text-amber-200';
+    case 'ORGAN':
+      return 'bg-emerald-900/50 text-emerald-200';
+    case 'EXTERNAL':
+      return 'bg-blue-900/50 text-blue-200';
+    case 'AVOIDANCE':
+      return 'bg-red-900/60 text-red-200';
+    case 'MARKER':
+    case 'ISOCENTER':
+      return 'bg-purple-900/50 text-purple-200';
+    default:
+      return 'bg-zinc-800 text-zinc-400';
+  }
+}
+
+/**
+ * Provenance glyph per §D7.2. Manual is the default and not rendered;
+ * the others get distinct single-character markers.
+ */
+function provenanceGlyph(provenance: Member['provenance']): string {
+  switch (provenance) {
+    case 'interpolated':
+      return '~';
+    case 'imported':
+      return '↓';
+    case 'auto-segmented':
+      return 'AI';
+    case 'algebra':
+      return 'ƒ';
+    case 'deformably-mapped':
+      return 'def';
+    case 'manual':
+    default:
+      return '';
   }
 }
