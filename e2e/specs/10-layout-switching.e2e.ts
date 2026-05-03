@@ -132,10 +132,9 @@ async function exportSegToBase64(page: Page, segmentationId: string): Promise<st
   }, segmentationId);
 }
 
-async function loadFixtureIntoActivePanel(page: Page, multiViewportEnabled: boolean): Promise<boolean> {
+async function loadFixtureIntoActivePanel(page: Page): Promise<boolean> {
   const result = await loadFixtureScan(page, FIXTURE_NAMES.CT_AXIAL_300, {
     panelId: 'panel_0',
-    multiViewportEnabled,
   });
   return result !== null;
 }
@@ -180,9 +179,9 @@ async function openSegmentationPanel(page: Page) {
   await panel.waitFor({ state: 'visible', timeout: 10_000 });
 }
 
-async function setupFourPanels(page: Page, multiViewportEnabled: boolean) {
+async function setupFourPanels(page: Page) {
   // Initial scan loads into panel_0.
-  const ok = await loadFixtureIntoActivePanel(page, multiViewportEnabled);
+  const ok = await loadFixtureIntoActivePanel(page);
   expect(ok, 'fixture must be present locally').toBe(true);
   await waitForCanvasReady(page, 'panel_0');
 
@@ -297,50 +296,38 @@ test.describe('Signal 6 — rapid layout switching: 2×2 → 1×1 → MPR → 2�
     await page.waitForFunction(() => !!window.__XNAT_E2E__, undefined, { timeout: 30_000 });
     await page.evaluate(() => {
       window.__XNAT_E2E__?.setFakeConnected(true);
-      window.__XNAT_E2E__?.setMultiViewportEnabled(false);
     });
     await expect(page.locator('[data-testid="login-form"]')).toBeHidden({ timeout: 30_000 });
   });
 
   test.afterEach(async ({ page }) => {
-    // Restore single-panel layout + flag-off so subsequent specs aren't
-    // affected by Electron worker reuse. Clear the dirty flag too — the
-    // tests above mark segmentations dirty as part of the precondition
-    // setup; a leftover dirty flag would make the next beforeEach reload
-    // race against an unsaved-changes confirm dialog.
+    // Restore single-panel layout so subsequent specs aren't affected
+    // by Electron worker reuse. Clear the dirty flag too — the tests
+    // above mark segmentations dirty as part of the precondition setup;
+    // a leftover dirty flag would make the next beforeEach reload race
+    // against an unsaved-changes confirm dialog.
     await page.evaluate(async () => {
       const e2e = (window as any).__XNAT_E2E__;
       if (!e2e) return;
       try { await e2e.toggleMpr?.(); } catch { /* best-effort */ }
       e2e.markAllSegmentationsClean?.();
       e2e.setLayout?.('1x1');
-      e2e.setMultiViewportEnabled?.(false);
     });
   });
 
-  // The legacy "flag-off (stack + MPRViewportGrid)" Signal 6 variant was
-  // removed in Phase 6.4 along with the legacy MPRViewportGrid path. The
-  // mpr-2x2 preset is now the only MPR entry, so the only remaining
-  // variant is the contour-on-volume one below. The structural invariants
-  // (no lost structures, no duplicates, single dirty flag, no stale
-  // highlights) hold under either rendering path, so collapsing to a
-  // single variant doesn't reduce coverage of Signal 6 itself.
-
-  // Flag-on variant: see 09-undo-after-close.e2e.ts:305-317 and
-  // 08-volume-mode-acceptance.e2e.ts:14-17 for the full Phase 1
-  // capability gap (volume-mode brush doesn't push a labelmap memo or
-  // pixel data). Promote to a real labelmap-data variant when MV-Phase
-  // 2.6/2.7 wires volume-labelmap representations. Until then the
-  // RTSTRUCT-style contour path IS supported on volume viewports, so
-  // we exercise the layout sequence against that.
-  test('flag-on (volume mode + viewportLayoutService MPR preset): contour structure survives 2×2→1×1→MPR→2×2', async ({
+  // After Phase 6.4 the legacy `enterMPR` / MPRViewportGrid path is
+  // gone; `viewportLayoutService.applyPreset('mpr-2x2')` is the only
+  // MPR entry. After Phase 6.6 the multiViewport.enabled flag is gone
+  // too. The single test below uses the contour-annotation
+  // (RTSTRUCT-style) path because the volume-mode brush capability gap
+  // (see 08-volume-mode-acceptance.e2e.ts and 09-undo-after-close.e2e.ts
+  // notes) means brush memos don't push a usable labelmap in test
+  // conditions. Contour annotations on volume viewports DO work, so the
+  // structural Signal 6 invariants get exercised end-to-end.
+  test('volume mode + viewportLayoutService MPR preset: contour structure survives 2×2→1×1→MPR→2×2', async ({
     page,
   }) => {
-    await page.evaluate(() => {
-      (window as any).__XNAT_E2E__?.setMultiViewportEnabled?.(true);
-    });
-
-    await setupFourPanels(page, true);
+    await setupFourPanels(page);
     await activatePanel(page, 'panel_0');
 
     // Wait for the volume viewport to mount on panel_0 (the flag-on

@@ -38,7 +38,6 @@ electronTest.describe('A12 stress: rapid layout churn during concurrent loads', 
     await page.waitForFunction(() => !!window.__XNAT_E2E__, undefined, { timeout: 30_000 });
     await page.evaluate(() => {
       window.__XNAT_E2E__?.setFakeConnected(true);
-      window.__XNAT_E2E__?.setMultiViewportEnabled(true);
       window.__XNAT_E2E__?.setLayout('1x1' as const);
     });
     await expect(page.locator('[data-testid="login-form"]')).toBeHidden({ timeout: 30_000 });
@@ -49,7 +48,6 @@ electronTest.describe('A12 stress: rapid layout churn during concurrent loads', 
       const e2e = window.__XNAT_E2E__;
       e2e?.markAllSegmentationsClean?.();
       e2e?.setLayout?.('1x1' as const);
-      e2e?.setMultiViewportEnabled?.(false);
     });
     await page.reload({ waitUntil: 'domcontentloaded' });
   });

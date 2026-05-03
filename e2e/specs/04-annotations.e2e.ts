@@ -14,7 +14,6 @@ test.describe('Annotations (local fixture)', () => {
   // Load an image before each test and ensure clean annotation state
   test.beforeEach(async ({ page }) => {
     const result = await loadFixtureScan(page, FIXTURE_NAMES.CT_AXIAL_300, {
-      multiViewportEnabled: false,
     });
     test.skip(
       result === null,

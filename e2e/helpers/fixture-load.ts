@@ -22,9 +22,6 @@ import {
 export interface LoadFixtureScanOptions {
   /** Default 'panel_0'. */
   panelId?: string;
-  /** Default false → stack mode (legacy StackViewport).
-   *  Set true → volume mode (Viewport → VolumeViewport). */
-  multiViewportEnabled?: boolean;
   /** Slice the fixture's image paths before passing them to the
    *  hook. Useful for keeping per-test loads small without committing
    *  multiple fixture variants. Default: all paths. */
@@ -38,7 +35,6 @@ export interface LoadedFixtureScanResult {
   panelId: string;
   imagePaths: string[];
   imageIds: string[];
-  multiViewportEnabled: boolean;
 }
 
 /**
@@ -55,7 +51,6 @@ export async function loadFixtureScan(
   if (!fixture) return null;
 
   const panelId = opts.panelId ?? 'panel_0';
-  const multiViewportEnabled = opts.multiViewportEnabled ?? false;
   const canvasTimeout = opts.canvasTimeout ?? 30_000;
 
   const imagePaths = fixture.imagePaths.slice(
@@ -72,9 +67,6 @@ export async function loadFixtureScan(
     timeout: 30_000,
   });
 
-  await page.evaluate((enabled) => {
-    window.__XNAT_E2E__?.setMultiViewportEnabled(enabled);
-  }, multiViewportEnabled);
   await page.evaluate(() => window.__XNAT_E2E__?.setFakeConnected(true));
 
   // Drive the load. The bridge handles wadouri.fileManager registration
@@ -101,7 +93,6 @@ export async function loadFixtureScan(
     panelId,
     imagePaths,
     imageIds: result.imageIds,
-    multiViewportEnabled,
   };
 }
 

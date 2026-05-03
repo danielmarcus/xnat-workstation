@@ -67,11 +67,9 @@ function countNonZeroBytes(base64: string): { totalBytes: number; nonZero: numbe
 
 async function activateContourFillAndDraw(
   page: Page,
-  multiViewportEnabled: boolean,
 ): Promise<{ segmentationId: string; nonZero: number; totalBytes: number }> {
   const result = await loadFixtureScan(page, FIXTURE_NAMES.CT_AXIAL_300, {
     panelId: 'panel_0',
-    multiViewportEnabled,
   });
   expect(result, 'fixture must be present').not.toBeNull();
   await panelCanvas(page, 'panel_0').waitFor({ state: 'visible', timeout: 30_000 });
@@ -79,7 +77,7 @@ async function activateContourFillAndDraw(
   await openSegmentationPanel(page);
 
   const segPanel = page.locator('[data-testid="segmentation-panel"]');
-  const segLabel = `Contour Fill ${multiViewportEnabled ? 'flag-on' : 'flag-off'}`;
+  const segLabel = 'Contour Fill';
   await page.locator('[data-testid="add-segmentation-btn"]').click();
   const nameInput = segPanel.locator('input.bg-zinc-800');
   await expect(nameInput).toBeVisible({ timeout: 5_000 });
@@ -141,35 +139,23 @@ electronTest.describe('§C3 Contour Fill (LabelmapEditWithContour) — Phase 5.2
   electronTest.beforeEach(async ({ page }) => {
     await page.reload({ waitUntil: 'domcontentloaded' });
     await page.waitForFunction(() => !!window.__XNAT_E2E__, undefined, { timeout: 30_000 });
-    await page.evaluate(() => {
-      window.__XNAT_E2E__?.setMultiViewportEnabled(false);
-    });
   });
 
   electronTest.afterEach(async ({ page }) => {
     await page.evaluate(() => {
       window.__XNAT_E2E__?.markAllSegmentationsClean?.();
       window.__XNAT_E2E__?.setLayout?.('1x1' as const);
-      window.__XNAT_E2E__?.setMultiViewportEnabled(false);
     });
   });
 
-  electronTest('flag-off: Contour Fill rasterizes the enclosed region into the active segment', async ({ page }) => {
-    const { totalBytes, nonZero } = await activateContourFillAndDraw(page, false);
+  // After Phase 6.6 the multiViewport.enabled flag is gone — the
+  // historical flag-off / flag-on variants collapse to one test.
+  electronTest('Contour Fill rasterizes the enclosed region into the active segment', async ({ page }) => {
+    const { totalBytes, nonZero } = await activateContourFillAndDraw(page);
     expect(totalBytes, 'PixelData must be non-empty').toBeGreaterThan(0);
     expect(
       nonZero,
       'Contour Fill must rasterize voxels inside the closed contour into the active segment',
-    ).toBeGreaterThan(0);
-  });
-
-  electronTest('flag-on: Contour Fill rasterizes the enclosed region into the active segment', async ({ page }) => {
-    await page.evaluate(() => window.__XNAT_E2E__?.setMultiViewportEnabled(true));
-    const { totalBytes, nonZero } = await activateContourFillAndDraw(page, true);
-    expect(totalBytes, 'flag-on PixelData must be non-empty').toBeGreaterThan(0);
-    expect(
-      nonZero,
-      'flag-on Contour Fill must rasterize voxels inside the closed contour into the active segment',
     ).toBeGreaterThan(0);
   });
 });

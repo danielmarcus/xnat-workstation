@@ -33,7 +33,6 @@ electronTest.describe('Acceptance G2 + G8: two panels on the same series', () =>
     // expected `setImageIdIndex` / `getCurrentImageIdIndex` API surface.
     await page.evaluate(() => {
       window.__XNAT_E2E__?.setFakeConnected(true);
-      window.__XNAT_E2E__?.setMultiViewportEnabled(false);
       window.__XNAT_E2E__?.setLayout('1x2' as const);
     });
     await expect(page.locator('[data-testid="login-form"]')).toBeHidden({ timeout: 30_000 });
@@ -44,7 +43,6 @@ electronTest.describe('Acceptance G2 + G8: two panels on the same series', () =>
       const e2e = window.__XNAT_E2E__;
       e2e?.markAllSegmentationsClean?.();
       e2e?.setLayout?.('1x1' as const);
-      e2e?.setMultiViewportEnabled?.(false);
     });
     await page.reload({ waitUntil: 'domcontentloaded' });
   });

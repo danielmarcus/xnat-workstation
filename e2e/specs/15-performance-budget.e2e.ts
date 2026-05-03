@@ -34,7 +34,6 @@ electronTest.describe('Performance budget: 4-panel CT load', () => {
     await page.waitForFunction(() => !!window.__XNAT_E2E__, undefined, { timeout: 30_000 });
     await page.evaluate(() => {
       window.__XNAT_E2E__?.setFakeConnected(true);
-      window.__XNAT_E2E__?.setMultiViewportEnabled(true);
       window.__XNAT_E2E__?.setLayout('2x2' as const);
     });
     await expect(page.locator('[data-testid="login-form"]')).toBeHidden({ timeout: 30_000 });
@@ -44,7 +43,6 @@ electronTest.describe('Performance budget: 4-panel CT load', () => {
     await page.evaluate(() => {
       window.__XNAT_E2E__?.markAllSegmentationsClean?.();
       window.__XNAT_E2E__?.setLayout?.('1x1' as const);
-      window.__XNAT_E2E__?.setMultiViewportEnabled?.(false);
     });
     await page.reload({ waitUntil: 'domcontentloaded' });
   });

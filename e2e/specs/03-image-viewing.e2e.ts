@@ -5,7 +5,7 @@
  * stack-mode viewport loaded from a local synthetic CT fixture. No
  * XNAT round-trip — keeps PHI out of failure artifacts.
  *
- * Stack-mode (multiViewport.enabled = false) is the path under test
+ * Stack-mode is the path under test
  * here; the volume-mode equivalent lives in 07/08.
  */
 import { test, expect } from '../fixtures/electron-app';
@@ -15,7 +15,6 @@ import { loadFixtureScan, FIXTURE_NAMES } from '../helpers/fixture-load';
 test.describe('Image Viewing (local fixture)', () => {
   test.beforeEach(async ({ page }) => {
     const result = await loadFixtureScan(page, FIXTURE_NAMES.CT_AXIAL_300, {
-      multiViewportEnabled: false,
     });
     test.skip(
       result === null,

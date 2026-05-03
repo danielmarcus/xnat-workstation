@@ -69,7 +69,6 @@ test.describe('Segmentations (local fixture)', () => {
   // Load an image before each test
   test.beforeEach(async ({ page }) => {
     const result = await loadFixtureScan(page, FIXTURE_NAMES.CT_AXIAL_300, {
-      multiViewportEnabled: false,
     });
     test.skip(
       result === null,

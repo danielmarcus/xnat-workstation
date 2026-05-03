@@ -74,7 +74,6 @@ electronTest.describe('RTSTRUCT round-trip acceptance (G13 / G18 / G19 / G22)', 
     await page.waitForFunction(() => !!window.__XNAT_E2E__, undefined, { timeout: 30_000 });
     await page.evaluate(() => {
       window.__XNAT_E2E__?.setFakeConnected(true);
-      window.__XNAT_E2E__?.setMultiViewportEnabled(false);
       window.__XNAT_E2E__?.setLayout('1x1' as const);
     });
     await expect(page.locator('[data-testid="login-form"]')).toBeHidden({ timeout: 30_000 });

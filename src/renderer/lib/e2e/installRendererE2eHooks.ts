@@ -115,8 +115,6 @@ let testSaveAdapterStats: null | {
 declare global {
   interface Window {
     __XNAT_E2E__?: {
-      setMultiViewportEnabled: (enabled: boolean) => void;
-      getMultiViewportEnabled: () => boolean;
       getSegmentationCount: () => number;
       getSegmentationIdByLabel: (label: string) => string | null;
       getActiveSegmentationState: () => ActiveSegmentationState;
@@ -643,13 +641,6 @@ export function installRendererE2eHooks(): void {
   }
 
   window.__XNAT_E2E__ = {
-    // ─── Multi-viewport rewrite hooks ─────────────────────────────
-    // Phase 6.6 deleted the `multiViewport.enabled` flag — these
-    // remain as no-op shims so existing E2E specs that still call
-    // them keep working. New specs should not call them.
-    setMultiViewportEnabled: () => undefined,
-    getMultiViewportEnabled: () => true,
-
     getSegmentationCount: () => useSegmentationStore.getState().segmentations.length,
     getSegmentationIdByLabel: (label: string) => (
       useSegmentationStore.getState().segmentations.find((segmentation) => segmentation.label === label)?.segmentationId

@@ -97,23 +97,18 @@ electronTest.describe('G16 positive: Paint Fill floods enclosed interior; single
   electronTest.beforeEach(async ({ page }) => {
     await page.reload({ waitUntil: 'domcontentloaded' });
     await page.waitForFunction(() => !!window.__XNAT_E2E__, undefined, { timeout: 30_000 });
-    await page.evaluate(() => {
-      window.__XNAT_E2E__?.setMultiViewportEnabled(false);
-    });
   });
 
   electronTest.afterEach(async ({ page }) => {
     await page.evaluate(() => {
       window.__XNAT_E2E__?.markAllSegmentationsClean?.();
       window.__XNAT_E2E__?.setLayout?.('1x1' as const);
-      window.__XNAT_E2E__?.setMultiViewportEnabled(false);
     });
   });
 
   electronTest('Paint Fill floods the enclosed interior; one Ctrl+Z reverts only the fill', async ({ page }) => {
     const result = await loadFixtureScan(page, FIXTURE_NAMES.CT_AXIAL_ANATOMY, {
       panelId: 'panel_0',
-      multiViewportEnabled: false,
     });
     expect(result, 'fixture must be present').not.toBeNull();
     await panelCanvas(page, 'panel_0').waitFor({ state: 'visible', timeout: 30_000 });

@@ -76,7 +76,6 @@ electronTest.describe('Cross-series acceptance (G10 / G11 / G12)', () => {
     // and exercises the classifier deterministically.
     await page.evaluate(() => {
       window.__XNAT_E2E__?.setFakeConnected(true);
-      window.__XNAT_E2E__?.setMultiViewportEnabled(false);
       window.__XNAT_E2E__?.setLayout('1x2' as const);
     });
     await expect(page.locator('[data-testid="login-form"]')).toBeHidden({ timeout: 30_000 });
@@ -86,7 +85,6 @@ electronTest.describe('Cross-series acceptance (G10 / G11 / G12)', () => {
     await page.evaluate(() => {
       window.__XNAT_E2E__?.markAllSegmentationsClean?.();
       window.__XNAT_E2E__?.setLayout?.('1x1' as const);
-      window.__XNAT_E2E__?.setMultiViewportEnabled?.(false);
     });
     await page.reload({ waitUntil: 'domcontentloaded' });
   });

@@ -21,10 +21,9 @@ async function getSegmentationCount(page: Page): Promise<number> {
   return page.evaluate(() => window.__XNAT_E2E__?.getSegmentationCount() ?? 0);
 }
 
-test.describe('Volume-Mode Acceptance (local fixture, multiViewport.enabled = true)', () => {
+test.describe('Volume-Mode Acceptance (local fixture)', () => {
   test.beforeEach(async ({ page }) => {
     const result = await loadFixtureScan(page, FIXTURE_NAMES.CT_AXIAL_300, {
-      multiViewportEnabled: true,
     });
     test.skip(
       result === null,
@@ -33,7 +32,6 @@ test.describe('Volume-Mode Acceptance (local fixture, multiViewport.enabled = tr
   });
 
   test.afterEach(async ({ page }) => {
-    await page.evaluate(() => window.__XNAT_E2E__?.setMultiViewportEnabled(false));
   });
 
   test('signal 3: segmentation visible across volume panels of the same scan (shared-volume cache)', async ({ page }) => {
@@ -54,7 +52,6 @@ test.describe('Volume-Mode Acceptance (local fixture, multiViewport.enabled = tr
 
   test('legacy fallback when flag is off — same fixture, no volume viewport', async ({ page }) => {
     const result = await loadFixtureScan(page, FIXTURE_NAMES.CT_AXIAL_300, {
-      multiViewportEnabled: false,
     });
     expect(result).not.toBeNull();
 

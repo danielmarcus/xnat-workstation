@@ -228,7 +228,6 @@ electronTest.describe('Local fixture renderer mount (loadLocalDicomFiles)', () =
     // Open the viewer gate without an XNAT round-trip and switch to a
     // 1×2 layout so both panels exist before we mount.
     await page.evaluate(() => window.__XNAT_E2E__?.setFakeConnected(true));
-    await page.evaluate(() => window.__XNAT_E2E__?.setMultiViewportEnabled(true));
     await page.evaluate(() => window.__XNAT_E2E__?.setLayout('1x2' as const));
 
     // Mount each series on its own panel. The hook drives wadouri.fileManager
@@ -266,7 +265,7 @@ electronTest.describe('Local fixture renderer mount (loadLocalDicomFiles)', () =
 
   electronTest('signal 9 (A2b): T1+T2 cross-series classification + dashed-stroke action', async ({ page }) => {
     // Reload to reset volume-mode state from the previous test in the
-    // worker (test 8 leaves multiViewport.enabled=true plus volume cache
+    // worker (test 8 leaves volume cache
     // entries that prevent the stack canvas from mounting cleanly here).
     await page.reload({ waitUntil: 'domcontentloaded' });
     await page.waitForFunction(() => !!window.__XNAT_E2E__, undefined, { timeout: 30_000 });
@@ -293,7 +292,6 @@ electronTest.describe('Local fixture renderer mount (loadLocalDicomFiles)', () =
     // Phase 1. Until volume-mode viewport identity gets a hook, run the
     // classifier acceptance against stack mode.
     await page.evaluate(() => window.__XNAT_E2E__?.setFakeConnected(true));
-    await page.evaluate(() => window.__XNAT_E2E__?.setMultiViewportEnabled(false));
     await page.evaluate(() => window.__XNAT_E2E__?.setLayout('1x2' as const));
 
     await page.evaluate(async (paths) => {
@@ -364,7 +362,6 @@ electronTest.describe('Local fixture renderer mount (loadLocalDicomFiles)', () =
     const series = [...seriesGroups.values()];
 
     await page.evaluate(() => window.__XNAT_E2E__?.setFakeConnected(true));
-    await page.evaluate(() => window.__XNAT_E2E__?.setMultiViewportEnabled(true));
     await page.evaluate(() => window.__XNAT_E2E__?.setLayout('1x2' as const));
 
     await page.evaluate(async (paths) => {

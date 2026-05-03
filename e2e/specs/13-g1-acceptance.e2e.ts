@@ -5,7 +5,7 @@
  *    three axial slices. Sagittal and coronal show three correctly placed
  *    line segments updating live as you draw."
  *
- * The MV-Phase 1 mpr-2x2 preset (volume mode, multiViewport.enabled=true)
+ * The MV-Phase 1 mpr-2x2 preset (volume mode)
  * is the production path: panel_0=axial, panel_1=sagittal, panel_2=coronal,
  * all sharing one volume. Contour annotations live in the global Cornerstone
  * annotation state keyed by `(segmentationId, segmentIndex)` + world-space
@@ -32,11 +32,10 @@ const PANEL_CORONAL = 'panel_2';
 electronTest.describe('Acceptance G1: contour on axial visible across MPR orientations', () => {
   electronTest.beforeEach(async ({ page }) => {
     await page.waitForFunction(() => !!window.__XNAT_E2E__, undefined, { timeout: 30_000 });
-    // G1 lives in the volume + MPR path. multiViewport.enabled routes to
+    // G1 lives in the volume + MPR path. toggleMpr() routes to
     // viewportLayoutService.applyPreset('mpr-2x2') in toggleMpr.
     await page.evaluate(() => {
       window.__XNAT_E2E__?.setFakeConnected(true);
-      window.__XNAT_E2E__?.setMultiViewportEnabled(true);
       window.__XNAT_E2E__?.setLayout('1x1' as const);
     });
     await expect(page.locator('[data-testid="login-form"]')).toBeHidden({ timeout: 30_000 });
@@ -49,7 +48,6 @@ electronTest.describe('Acceptance G1: contour on axial visible across MPR orient
       try { await e2e.toggleMpr?.(); } catch { /* best-effort exit */ }
       e2e.markAllSegmentationsClean?.();
       e2e.setLayout?.('1x1' as const);
-      e2e.setMultiViewportEnabled?.(false);
     });
     await page.reload({ waitUntil: 'domcontentloaded' });
   });

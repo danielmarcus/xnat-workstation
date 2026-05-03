@@ -17,12 +17,11 @@
  * setLayout transition the toolbar dropdown drives). Press Ctrl-Z. Assert
  * the memo flipped from undo→redo.
  *
- * Two variants:
- *   - flag-off: legacy stack-mode rendering path (multiViewport.enabled
- *     false). Pinned today.
- *   - flag-on:  new volume-mode path (multiViewport.enabled true). Also
- *     pinned today; if Phase 1's VolumeViewport unmount path leaks the
- *     memo or breaks brush attachment, this variant fails loudly.
+ * After Phase 6.6 the multiViewport.enabled flag is gone — viewport
+ * routing is unconditional. The single test below exercises the
+ * production path (`viewportService.resolveViewportType` decides
+ * stack vs. volume per modality+slice-count); the historical
+ * flag-off / flag-on variants collapsed to one.
  */
 import { test, expect } from '../fixtures/electron-app';
 import type { Page, Locator } from '@playwright/test';
@@ -72,10 +71,9 @@ async function activatePanel(page: Page, panelId: string) {
   await page.waitForTimeout(200);
 }
 
-async function loadScanIntoPanel(page: Page, panelId: string, multiViewportEnabled: boolean): Promise<boolean> {
+async function loadScanIntoPanel(page: Page, panelId: string): Promise<boolean> {
   const result = await loadFixtureScan(page, FIXTURE_NAMES.CT_AXIAL_300, {
     panelId,
-    multiViewportEnabled,
   });
   return result !== null;
 }
@@ -106,9 +104,9 @@ async function openSegmentationPanel(page: Page) {
   await panel.waitFor({ state: 'visible', timeout: 10_000 });
 }
 
-async function setupTwoPanelsWithScan(page: Page, multiViewportEnabled: boolean) {
+async function setupTwoPanelsWithScan(page: Page) {
   // Initial scan loads into panel_0.
-  const ok0 = await loadScanIntoPanel(page, 'panel_0', multiViewportEnabled);
+  const ok0 = await loadScanIntoPanel(page, 'panel_0');
   expect(ok0, 'fixture must be present locally').toBe(true);
   await waitForCanvasReady(page, 'panel_0');
 
@@ -119,7 +117,7 @@ async function setupTwoPanelsWithScan(page: Page, multiViewportEnabled: boolean)
   await activatePanel(page, 'panel_1');
 
   // Load same fixture into panel_1.
-  const ok1 = await loadScanIntoPanel(page, 'panel_1', multiViewportEnabled);
+  const ok1 = await loadScanIntoPanel(page, 'panel_1');
   expect(ok1, 'fixture must be present locally').toBe(true);
   await waitForCanvasReady(page, 'panel_1');
 }
@@ -268,11 +266,6 @@ test.describe('Signal G7 — undo after closed-panel brush stroke (local fixture
     await page.reload({ waitUntil: 'domcontentloaded' });
     // Wait for the renderer hooks to install before any other interaction.
     await page.waitForFunction(() => !!window.__XNAT_E2E__, undefined, { timeout: 30_000 });
-
-    // Default flag = off; flag-on test re-sets it before fixture load.
-    await page.evaluate(() => {
-      window.__XNAT_E2E__?.setMultiViewportEnabled(false);
-    });
   });
 
   test.afterEach(async ({ page }) => {
@@ -285,7 +278,6 @@ test.describe('Signal G7 — undo after closed-panel brush stroke (local fixture
     await page.evaluate(() => {
       window.__XNAT_E2E__?.closePanel('panel_1');
       window.__XNAT_E2E__?.markAllSegmentationsClean?.();
-      window.__XNAT_E2E__?.setMultiViewportEnabled(false);
     });
   });
 
@@ -296,31 +288,8 @@ test.describe('Signal G7 — undo after closed-panel brush stroke (local fixture
   // filter (keyed on `${projectId}/${sessionId}/${scanId}`) excluded the
   // freshly-created seg. Fixed 2026-05-03 by synthesising a fixture XNAT
   // context in the e2e fixture bridge.
-  test('flag-off (legacy stack mode): brush memo survives panel close and undoes', async ({ page }) => {
-    await setupTwoPanelsWithScan(page, false);
-    await runG7AcceptanceFlow(page);
-  });
-
-  // Flag-on (volume-mode) variant: deliberately deferred. In volume mode,
-  // SegmentationManager.createNewSegmentation produces a stack-labelmap
-  // representation which doesn't render writable pixel data on a
-  // VolumeViewport, so a real brush stroke fires its mouse events but
-  // BaseTool.doneEditMemo() never pushes a memo onto DefaultHistoryMemo.
-  // This is a Phase 1 capability gap, not a regression of the G7 contract.
-  // When Phase 2 wires volume-labelmap representations (design §7.4 —
-  // Workstream B's container bridge + undoService), promote this back to
-  // a real test.
-  test('flag-on (volume mode): brush memo survives panel close and undoes', async ({ page }) => {
-    // Phase 2 wired the container bridge + volume-labelmap representation
-    // path (`addSubSegToViewport` calls `convertStackToVolumeLabelmap` for
-    // viewports that expose `getAllVolumeIds`). Promoted from `test.fixme`
-    // 2026-05-03 to verify whether the original Phase 1 capability gap
-    // still applies. If it does, this test surfaces it as a real failure
-    // rather than a silent fixme — consistent with the rest of the audit.
-    await page.evaluate(() => {
-      window.__XNAT_E2E__?.setMultiViewportEnabled(true);
-    });
-    await setupTwoPanelsWithScan(page, true);
+  test('brush memo survives panel close and undoes (G7 cross-viewport identity)', async ({ page }) => {
+    await setupTwoPanelsWithScan(page);
     await runG7AcceptanceFlow(page);
   });
 });

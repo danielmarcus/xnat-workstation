@@ -54,7 +54,7 @@ async function openSegmentationPanel(page: Page) {
   await panel.waitFor({ state: 'visible', timeout: 10_000 });
 }
 
-async function paintAndExport(page: Page, multiViewportEnabled: boolean): Promise<{
+async function paintAndExport(page: Page): Promise<{
   hasUnsavedChanges: boolean;
   dirtyIds: string[];
   pixelDataBytes: number;
@@ -63,7 +63,6 @@ async function paintAndExport(page: Page, multiViewportEnabled: boolean): Promis
 }> {
   const result = await loadFixtureScan(page, FIXTURE_NAMES.CT_AXIAL_300, {
     panelId: 'panel_0',
-    multiViewportEnabled,
   });
   expect(result, 'fixture must be present').not.toBeNull();
   await panelCanvas(page, 'panel_0').waitFor({ state: 'visible', timeout: 30_000 });
@@ -71,7 +70,7 @@ async function paintAndExport(page: Page, multiViewportEnabled: boolean): Promis
   await openSegmentationPanel(page);
 
   const segPanel = page.locator('[data-testid="segmentation-panel"]');
-  const segLabel = `Bug2 ${multiViewportEnabled ? 'flag-on' : 'flag-off'}`;
+  const segLabel = 'Brush pixel-write audit';
   await page.locator('[data-testid="add-segmentation-btn"]').click();
   const nameInput = segPanel.locator('input.bg-zinc-800');
   await expect(nameInput).toBeVisible({ timeout: 5_000 });
@@ -160,21 +159,20 @@ electronTest.describe('Brush pixel-write audit (Bug 2 / Bug 1 from PHASES.md cli
   electronTest.beforeEach(async ({ page }) => {
     await page.reload({ waitUntil: 'domcontentloaded' });
     await page.waitForFunction(() => !!window.__XNAT_E2E__, undefined, { timeout: 30_000 });
-    await page.evaluate(() => {
-      window.__XNAT_E2E__?.setMultiViewportEnabled(false);
-    });
   });
 
   electronTest.afterEach(async ({ page }) => {
     await page.evaluate(() => {
       window.__XNAT_E2E__?.markAllSegmentationsClean?.();
       window.__XNAT_E2E__?.setLayout?.('1x1' as const);
-      window.__XNAT_E2E__?.setMultiViewportEnabled(false);
     });
   });
 
-  electronTest('flag-off: brush stroke writes labelmap pixels AND sets the dirty flag', async ({ page }) => {
-    const result = await paintAndExport(page, false);
+  // After Phase 6.6 the multiViewport.enabled flag is gone and the
+  // historical flag-off / flag-on variants collapse to one test —
+  // viewport routing is unconditional now.
+  electronTest('brush stroke writes labelmap pixels AND sets the dirty flag', async ({ page }) => {
+    const result = await paintAndExport(page);
     expect(
       result.hasUnsavedChanges,
       'global hasUnsavedChanges should be true after a brush stroke (Bug 1 surface)',
@@ -191,14 +189,5 @@ electronTest.describe('Brush pixel-write audit (Bug 2 / Bug 1 from PHASES.md cli
       result.pixelDataNonZeroBytes,
       'exported PixelData must contain non-zero voxels (Bug 2 surface)',
     ).toBeGreaterThan(0);
-  });
-
-  electronTest('flag-on: brush stroke writes labelmap pixels AND sets the dirty flag', async ({ page }) => {
-    await page.evaluate(() => window.__XNAT_E2E__?.setMultiViewportEnabled(true));
-    const result = await paintAndExport(page, true);
-    expect(result.hasUnsavedChanges, 'flag-on: global dirty must be true').toBe(true);
-    expect(result.dirtyIds).toContain(result.segmentationId);
-    expect(result.pixelDataBytes, 'flag-on: PixelData must be non-empty').toBeGreaterThan(0);
-    expect(result.pixelDataNonZeroBytes, 'flag-on: PixelData must contain non-zero voxels').toBeGreaterThan(0);
   });
 });
