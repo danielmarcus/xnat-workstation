@@ -35,6 +35,7 @@ import path from 'path';
  */
 export const FIXTURE_NAMES = {
   CT_AXIAL_300: 'ct-axial-300',
+  CT_AXIAL_ANATOMY: 'ct-axial-anatomy',
   MR_T1_T2_SAMEEXAM: 'mr-t1-t2-sameexam',
   SAMEFORUID_DIFFERENT_ACQUISITION: 'sameforuid-different-acquisition',
   CROSS_FOR_CT_MR: 'cross-for-ct-mr',
