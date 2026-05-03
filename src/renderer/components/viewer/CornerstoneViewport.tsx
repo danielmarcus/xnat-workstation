@@ -15,6 +15,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { Enums, cache } from '@cornerstonejs/core';
 import { ViewportHint } from './ViewportHint';
+import { findContourAtCanvasPoint } from '../../lib/cornerstone/contourHitTest';
+import { wireContourHoverDetection } from '../../lib/cornerstone/contourHoverSync';
 import { annotation as csAnnotation } from '@cornerstonejs/tools';
 import { viewportService } from '../../lib/cornerstone/viewportService';
 import { toolService } from '../../lib/cornerstone/toolService';
@@ -355,9 +357,18 @@ function wireEvents(element: HTMLDivElement, panelId: string): () => void {
   };
   element.addEventListener('click', onClick);
 
+  // Phase 3.5c-canvas: cursor over a contour highlights its row in the
+  // list panel via useContainerSelectionStore.hoverMemberId. The wiring
+  // self-gates on multiViewport.enabled per call so legacy mode is
+  // unaffected.
+  const disposeHover = wireContourHoverDetection(element, () =>
+    viewportService.getViewport(panelId) as never,
+  );
+
   return () => {
     element.removeEventListener('click', onClick);
     disposeCrosshair();
+    disposeHover();
   };
 }
 
@@ -373,60 +384,11 @@ function selectContourAnnotationAtCanvasPoint(
         worldToCanvas?: (point: [number, number, number]) => [number, number];
       }
     | undefined;
-  const currentImageId = viewport?.getCurrentImageId?.();
-  if (!currentImageId || typeof viewport?.worldToCanvas !== 'function') return;
-
   const rect = element.getBoundingClientRect();
-  const clickPoint: [number, number] = [clientX - rect.left, clientY - rect.top];
-
-  let nearest: { annotationUID: string; distance: number } | null = null;
-  for (const annotation of csAnnotation.state.getAllAnnotations()) {
-    const referencedImageId = annotation?.metadata?.referencedImageId;
-    const polyline = annotation?.data?.contour?.polyline;
-    if (referencedImageId !== currentImageId || !Array.isArray(polyline) || polyline.length < 2) {
-      continue;
-    }
-
-    const canvasPoints = polyline
-      .map((point: unknown) => {
-        if (!Array.isArray(point) || point.length < 3) return null;
-        return viewport.worldToCanvas?.([Number(point[0]), Number(point[1]), Number(point[2])]);
-      })
-      .filter((point): point is [number, number] => Array.isArray(point) && point.length >= 2);
-    if (canvasPoints.length < 2) continue;
-
-    let minDistance = Number.POSITIVE_INFINITY;
-    for (let i = 0; i < canvasPoints.length; i++) {
-      const a = canvasPoints[i];
-      const b = canvasPoints[(i + 1) % canvasPoints.length];
-      minDistance = Math.min(minDistance, distanceToSegment(clickPoint, a, b));
-    }
-
-    if (minDistance <= 12 && (!nearest || minDistance < nearest.distance)) {
-      nearest = { annotationUID: annotation.annotationUID, distance: minDistance };
-    }
-  }
-
-  if (nearest?.annotationUID) {
-    csAnnotation.selection.setAnnotationSelected?.(nearest.annotationUID, true, false);
+  const canvasPoint: [number, number] = [clientX - rect.left, clientY - rect.top];
+  const hit = findContourAtCanvasPoint(viewport ?? null, canvasPoint);
+  if (hit?.annotationUID) {
+    csAnnotation.selection.setAnnotationSelected?.(hit.annotationUID, true, false);
   }
 }
 
-function distanceToSegment(
-  point: [number, number],
-  a: [number, number],
-  b: [number, number],
-): number {
-  const abX = b[0] - a[0];
-  const abY = b[1] - a[1];
-  const apX = point[0] - a[0];
-  const apY = point[1] - a[1];
-  const lengthSquared = abX * abX + abY * abY;
-  if (lengthSquared === 0) {
-    return Math.hypot(apX, apY);
-  }
-  const t = Math.max(0, Math.min(1, (apX * abX + apY * abY) / lengthSquared));
-  const closestX = a[0] + abX * t;
-  const closestY = a[1] + abY * t;
-  return Math.hypot(point[0] - closestX, point[1] - closestY);
-}
