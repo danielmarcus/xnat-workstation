@@ -219,6 +219,17 @@ export function endSegLoad(): void {
   loadInProgressCount = Math.max(0, loadInProgressCount - 1);
 }
 
+/**
+ * Phase 4.5: read-only accessor consumed by `containerStoreSync.buildMember`
+ * to choose `provenance: 'imported'` (vs. `'manual'`) for members
+ * synthesized while a SEG / RTSTRUCT load is in flight. Per design §D7.2
+ * the `'imported'` provenance is the default for content that came from
+ * the transport layer.
+ */
+export function isSegLoadInProgress(): boolean {
+  return loadInProgressCount > 0;
+}
+
 export function beginManualSave(): void {
   manualSaveInProgress = true;
   cancelAutoSave();

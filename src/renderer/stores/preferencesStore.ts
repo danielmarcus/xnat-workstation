@@ -51,7 +51,6 @@ interface PreferencesStore {
   setInterpolationEnabled: (enabled: boolean) => void;
   setInterpolationAlgorithm: (algorithm: InterpolationAlgorithm) => void;
   setLinearThreshold: (threshold: number) => void;
-  setAutoAcceptInterpolated: (enabled: boolean) => void;
   // ─── Backup ─────────────────────────────────────────────
   setBackupEnabled: (enabled: boolean) => void;
   setBackupIntervalSeconds: (seconds: number) => void;
@@ -546,17 +545,6 @@ export const usePreferencesStore = create<PreferencesStore>()(
           },
         })),
 
-      setAutoAcceptInterpolated: (enabled) =>
-        set((state) => ({
-          preferences: {
-            ...state.preferences,
-            interpolation: {
-              ...state.preferences.interpolation,
-              autoAcceptInterpolated: enabled,
-            },
-          },
-        })),
-
       // ─── Backup ──────────────────────────────────────────
 
       setBackupEnabled: (enabled) =>
@@ -645,10 +633,6 @@ export const usePreferencesStore = create<PreferencesStore>()(
             typeof incomingInterp?.linearThreshold === 'number'
               ? Math.max(0, Math.min(1, incomingInterp.linearThreshold))
               : base.preferences.interpolation.linearThreshold,
-          autoAcceptInterpolated:
-            typeof incomingInterp?.autoAcceptInterpolated === 'boolean'
-              ? incomingInterp.autoAcceptInterpolated
-              : base.preferences.interpolation.autoAcceptInterpolated,
         };
 
         // Merge backup preferences with defaults as fallback

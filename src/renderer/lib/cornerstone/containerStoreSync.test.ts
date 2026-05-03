@@ -408,3 +408,64 @@ describe('member auto-sync on SEGMENTATION_MODIFIED', () => {
     expect(members.map((m) => m.segmentIndex)).toEqual([1, 2]);
   });
 });
+
+// ─── Phase 4.5: load-default provenance ────────────────────────────────
+
+describe('Phase 4.5 default provenance', () => {
+  afterEach(() => {
+    containerStoreSync.resetLoadInProgressGate();
+  });
+
+  it('synthesizes members with provenance="manual" when no SEG load is in flight', () => {
+    csSegState.segmentations.set('seg_1', { segments: { 1: { label: 'Fresh' } } });
+    containerStoreSync.initialize();
+    const id = containerBridge.register('seg_1');
+    fireSegmentationModified('seg_1');
+    const m = useContainerStore.getState().containers.get(id)!.members[0];
+    expect(m.provenance).toBe('manual');
+  });
+
+  it('synthesizes members with provenance="imported" while the load gate returns true (§D7.2)', () => {
+    let loadInFlight = true;
+    containerStoreSync.setLoadInProgressGate(() => loadInFlight);
+    csSegState.segmentations.set('seg_1', {
+      segments: { 1: { label: 'GTV' }, 2: { label: 'PTV' } },
+    });
+    containerStoreSync.initialize();
+    const id = containerBridge.register('seg_1');
+    fireSegmentationModified('seg_1');
+    const members = useContainerStore.getState().containers.get(id)!.members;
+    expect(members.every((m) => m.provenance === 'imported')).toBe(true);
+    loadInFlight = false;
+  });
+
+  it('preserves existing member’s provenance across rebuild even after load ends', () => {
+    // Member was synthesized as "imported" during the load, then load
+    // ends. A subsequent rebuild (e.g., user renames the segment) should
+    // preserve the "imported" tag rather than re-defaulting to "manual"
+    // — this is signal 22's "provenance survives where DICOM permits."
+    let loadInFlight = true;
+    containerStoreSync.setLoadInProgressGate(() => loadInFlight);
+    csSegState.segmentations.set('seg_1', { segments: { 1: { label: 'GTV' } } });
+    containerStoreSync.initialize();
+    const id = containerBridge.register('seg_1');
+    fireSegmentationModified('seg_1');
+    loadInFlight = false;
+
+    csSegState.segmentations.set('seg_1', { segments: { 1: { label: 'GTV (renamed)' } } });
+    fireSegmentationModified('seg_1');
+    const m = useContainerStore.getState().containers.get(id)!.members[0];
+    expect(m.provenance).toBe('imported');
+    expect(m.name).toBe('GTV (renamed)');
+  });
+
+  it('a thrown gate falls back to "manual" without breaking the rebuild', () => {
+    containerStoreSync.setLoadInProgressGate(() => { throw new Error('boom'); });
+    csSegState.segmentations.set('seg_1', { segments: { 1: { label: 'X' } } });
+    containerStoreSync.initialize();
+    const id = containerBridge.register('seg_1');
+    fireSegmentationModified('seg_1');
+    const m = useContainerStore.getState().containers.get(id)!.members[0];
+    expect(m.provenance).toBe('manual');
+  });
+});

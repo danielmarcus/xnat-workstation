@@ -27,7 +27,13 @@ import {
 } from '@cornerstonejs/tools';
 import * as containerBridge from './containerBridge';
 import { useContainerStore } from '../../stores/containerStore';
-import type { ContainerKind, Member, RGB, VisibilityMode } from '../../types/annotation';
+import type {
+  ContainerKind,
+  Member,
+  Provenance,
+  RGB,
+  VisibilityMode,
+} from '../../types/annotation';
 
 let initialized = false;
 let bridgeUnsubscribe: (() => void) | null = null;
@@ -94,6 +100,43 @@ function readColorFromCs(csSegId: string, segmentIndex: number, fallback: RGB): 
   return fallback;
 }
 
+/**
+ * Phase 4.5: gate that returns `true` while a SEG / RTSTRUCT load is in
+ * flight. Wired by `segmentationService.initialize()` to read
+ * `autoSave.isSegLoadInProgress()`. The setter-based DI keeps this
+ * module from importing autoSave directly (autoSave's import graph
+ * pulls in Cornerstone tool modules that the lightweight tests here
+ * don't mock).
+ */
+let loadInProgressGate: () => boolean = () => false;
+
+/**
+ * Wire the load-in-progress gate. Production calls this once with
+ * `() => isSegLoadInProgress()`; tests can pass their own gate to
+ * exercise the load-default branch without touching autoSave.
+ */
+export function setLoadInProgressGate(gate: () => boolean): void {
+  loadInProgressGate = gate;
+}
+
+/** Restore the default no-load gate. Used by test teardown. */
+export function resetLoadInProgressGate(): void {
+  loadInProgressGate = () => false;
+}
+
+/**
+ * Choose the default provenance for a freshly synthesized member.
+ * Returns `'imported'` while a SEG / RTSTRUCT load is in flight (per
+ * §D7.2); otherwise `'manual'` (user-created).
+ */
+function defaultProvenance(): Provenance {
+  try {
+    return loadInProgressGate() ? 'imported' : 'manual';
+  } catch {
+    return 'manual';
+  }
+}
+
 function buildMember(
   csSegId: string,
   segmentIndex: number,
@@ -108,7 +151,7 @@ function buildMember(
     color: readColorFromCs(csSegId, segmentIndex, fallbackColor),
     visibility: defaultVisibilityForKind(kind),
     locked: isLocked(csSegId, segmentIndex),
-    provenance: 'manual',
+    provenance: defaultProvenance(),
     roiType: null,
     roiNumber: kind === 'RTSTRUCT' ? segmentIndex : null,
     interpolationState: null,

@@ -52,6 +52,7 @@
  *     multiViewport.enabled flag.
  */
 import * as containerBridge from '../containerBridge';
+import { containerService } from '../containerService';
 import {
   useTransportStore,
   type TransportError,
@@ -238,6 +239,13 @@ function finishSave(containerId: string, outcome: SaveOutcome): SaveOutcome {
     case 'success':
       transportStore.finishSaveSuccess(containerId, outcome.versionToken);
       containerBridge.setVersionToken(containerId, outcome.versionToken);
+      // Phase 4.5: per design §B5 the auto-marker fades after save. Clear
+      // `interpolationState` on every member of the container regardless
+      // of whether a queue-next-save is about to fire — the marker is a
+      // UI signal that "there are unreviewed interpolated bits," and a
+      // successful save means the bits are committed (no longer
+      // unreviewed). Provenance is preserved (geometry-source tag).
+      containerService.clearContainerInterpolationStates(containerId);
       if (s.status === 'saving-pending') {
         // Edits arrived during save → fire next save immediately, skipping
         // debounce. The user perceives one continuous "saving" state.
