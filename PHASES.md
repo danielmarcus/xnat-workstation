@@ -220,7 +220,7 @@ None of the three pre-existing failures match the cheap-selector-update pattern 
 
 **Status (2026-05-01, end of Phase 1 work)**: Functional Phase 1 cut behind `multiViewport.enabled`. Volume rendering, shared-volume cache, oriented panels, MPR preset routing, full event surface on VolumeViewport, primary-group CrosshairsTool registration, E2E coverage of the headline signal. Remaining items (performance budget, real DICOM fixtures) are deferred but tracked. Signals 3 / 6 / G7 are all pinned. Phase 2 work (cross-series rendering A2b, single-source-of-truth undo, list-panel UX) can begin without blocking on the deferrals.
 
-### MV-Phase 2: Annotation behavior (In progress)
+### MV-Phase 2: Annotation behavior (Complete)
 **Goal:** cross-series rendering, single source of truth, undo, dirty/save. Behind `multiViewport.enabled` flag.
 
 The design's Phase 2 bullet list (design §7.4) compresses two distinct workstreams: (A) FoR/visibility/drawing-routing — self-contained pure-logic + Cornerstone hooks; (B) undo/save coordination — Container-dependent. Sub-phasing makes the dependency explicit so each PR is small and revertable.
@@ -288,4 +288,21 @@ Signals 3, 4, 5, 6, 7 are covered by Phase 1 (volume-mode E2E + pre-existing leg
 - ⏳ Signal 8 (canvas selection sync) is partial — Phase 2 can deliver canvas-canvas sync via a global selection set; full signal needs Phase 3 list panel hover/click sync (D7.8).
 
 **Status (2026-05-02, end of Phase 2 work)**: Workstream A complete (2.1 → 2.5b). Workstream B complete (2.6 container-bridge, 2.7 undoService impl + dispatch swap, 2.8 transport queue-next-save coordinator + wiring). 2.9 service-integration coverage of acceptance signals 9-15 + §A8 G7 stand-in landed; full Playwright E2E for signals 9-12 blocked on cross-series + breath-hold + cross-FoR fixtures (deferred from Phase 1). Test suite at 805 passing (was 610 at end of Phase 1). All commits behind `multiViewport.enabled`; legacy path verified unaffected by Phase 1 health check (Item 1 above). Phase 3 (list panel) can begin without blocking on the deferred items.
+
+### MV-Phase 3: List panel (In progress)
+**Goal:** D7 fully realized. Container + member hierarchy with rich per-row metadata, selection / active model, visibility-mode cycling, hover sync, approval workflow, ROI type editing, provenance indicators, multi-select bulk operations. Behind `multiViewport.enabled` flag; legacy AnnotationListPanel + SegmentationPanel remain mounted under flag-off until Phase 6.
+
+Sub-phase plan (similar shape to Phase 2):
+
+- ✅ **3.1** `containerService` impl — read methods (getActiveContainer / getActiveMember / getApprovalHistory) + metadata mutations (renameContainer / approveContainer / revokeApproval). All operate on the bridge's Container summary state with no Cornerstone interaction. Member CRUD + container create/delete still throw with phase pointers (Phase 3.2 / 3.6 / 3.8 lights up each). 33 unit tests.
+- ✅ **3.2a** `useContainerStore` Zustand + bridge change-notification surface. `containerBridge.subscribe(listener)` is the additive API; every bridge mutation (register / unregister / setDirty / setSaveInFlight / setVersionToken / clearAll) and every containerService rename / approve / revoke surfaces in the store as an immutable shallow-copy snapshot. Idempotent setters early-out with no listener notification when value didn't change. 15 sync tests.
+- ✅ **3.2b** Cornerstone segment → Member auto-sync. `containerStoreSync` now subscribes to `SEGMENTATION_ADDED` / `SEGMENTATION_MODIFIED` and rebuilds `Container.members[]` from `csSegmentation.state.getSegmentation(csSegId).segments`. Member identity (id + createdAt) preserved across rebuilds when segmentIndex is unchanged. SEG defaults to 'filled' visibility, RTSTRUCT to 'outlined' (per §D7.3). 12 additional tests.
+- ✅ **3.3** `ContainerListPanel` component shell. Hierarchy renderer (container row → member rows). Per-row visuals: kind badge (RTSTRUCT/SEG/POI), name, dirty marker, approved badge, color swatch, visibility-mode glyph (○/◐/●), locked indicator. Mounts when `multiViewport.enabled` (alongside legacy panels during the transitional period). 11 component tests.
+- ⏳ **3.4** Visibility-mode 3-state cycling (D7.3) — eye-icon click cycles hidden → outlined → filled and pushes through to Cornerstone style API.
+- ⏳ **3.5** Selection vs active model (D7.5) — single-click selects, double-click activates, multi-select via shift/ctrl. Hover sync with viewports (D7.8).
+- ⏳ **3.6** Member CRUD wiring through containerService (createMember / deleteMember / renameMember / recolorMember / setActiveMember). Per-member action menu (D7.6).
+- ⏳ **3.7** A2c per-container opt-in toggle (lights up Phase 2.2 hardcoded `a2cOptedIn: false`). Filter / search / sort (D7.7). Empty / loading / parse-error states (D7.9).
+- ⏳ **3.8** Approval workflow UI (D7.11) — approve / revoke confirm dialogs; container-level edit-lock when approved. ROI type badge + inline edit (D7.2 RTSTRUCT-specific). Provenance indicators (D7.2). E2E for signals 18, 19, 20, 22.
+
+**Status (2026-05-02, in progress)**: data layer + minimal UI shell landed (3.1 → 3.3). Test suite at 875 passing. Legacy panels still mount under flag-off; ContainerListPanel mounts alongside under flag-on for verification. Interactive features (visibility cycling, selection, actions, approval UI, ROI type, provenance) outstanding and incremental — each sub-phase ships a focused PR.
 
