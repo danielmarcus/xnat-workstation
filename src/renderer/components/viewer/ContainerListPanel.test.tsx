@@ -439,3 +439,71 @@ describe('selection vs active (D7.5)', () => {
     expect(useContainerSelectionStore.getState().selectionSet.size).toBe(0);
   });
 });
+
+// ─── Phase 3.5b: row hover wiring ──────────────────────────────────────
+
+describe('row hover (D7.8 row-side)', () => {
+  it('mouseEnter on a row sets hoverMemberId in the selection store', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [makeMember({ id: 'm1' })],
+      }),
+    );
+    render(<ContainerListPanel />);
+
+    act(() => {
+      fireEvent.mouseEnter(screen.getByTestId('member-row:m1'));
+    });
+    expect(useContainerSelectionStore.getState().hoverMemberId).toBe('m1');
+  });
+
+  it('mouseLeave clears hoverMemberId', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [makeMember({ id: 'm1' })],
+      }),
+    );
+    render(<ContainerListPanel />);
+
+    act(() => {
+      fireEvent.mouseEnter(screen.getByTestId('member-row:m1'));
+      fireEvent.mouseLeave(screen.getByTestId('member-row:m1'));
+    });
+    expect(useContainerSelectionStore.getState().hoverMemberId).toBeNull();
+  });
+
+  it('hovered row gets the data-hovered attribute', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [makeMember({ id: 'm1' })],
+      }),
+    );
+    render(<ContainerListPanel />);
+    act(() => {
+      useContainerSelectionStore.getState().setHover('m1');
+    });
+    expect(screen.getByTestId('member-row:m1').dataset.hovered).toBe('true');
+  });
+
+  it('hovered row does not show the hover styling when also selected (selection wins)', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [makeMember({ id: 'm1' })],
+      }),
+    );
+    render(<ContainerListPanel />);
+    act(() => {
+      useContainerSelectionStore.getState().setSelection('m1');
+      useContainerSelectionStore.getState().setHover('m1');
+    });
+    const row = screen.getByTestId('member-row:m1');
+    // bg-blue-900 is the selected styling; should be present even when
+    // hovered. The hover-specific bg-zinc-800/60 should NOT be present.
+    expect(row.className).toMatch(/bg-blue-900/);
+    expect(row.className).not.toMatch(/bg-zinc-800\/60/);
+  });
+});

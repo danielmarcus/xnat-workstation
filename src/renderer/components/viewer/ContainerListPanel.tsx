@@ -129,6 +129,10 @@ function ContainerRow({ container }: { container: Container }) {
 function MemberRow({ member }: { member: Member }) {
   const isSelected = useContainerSelectionStore((s) => s.selectionSet.has(member.id));
   const isActive = useContainerSelectionStore((s) => s.activeMemberId === member.id);
+  const isHovered = useContainerSelectionStore((s) => s.hoverMemberId === member.id);
+
+  const onRowEnter = () => useContainerSelectionStore.getState().setHover(member.id);
+  const onRowLeave = () => useContainerSelectionStore.getState().setHover(null);
 
   const onRowClick = (e: React.MouseEvent<HTMLLIElement>) => {
     if (e.shiftKey || e.ctrlKey || e.metaKey) {
@@ -155,13 +159,18 @@ function MemberRow({ member }: { member: Member }) {
     <li
       data-testid={`member-row:${member.id}`}
       onClick={onRowClick}
+      onMouseEnter={onRowEnter}
+      onMouseLeave={onRowLeave}
       className={`group flex items-center gap-2 pl-6 pr-3 py-1 cursor-pointer transition-colors border-l-2 ${
         isSelected
           ? 'bg-blue-900/30 border-blue-500'
-          : 'border-transparent hover:bg-zinc-800/40'
+          : isHovered
+            ? 'bg-zinc-800/60 border-transparent'
+            : 'border-transparent hover:bg-zinc-800/40'
       }`}
       data-selected={isSelected || undefined}
       data-active={isActive || undefined}
+      data-hovered={isHovered || undefined}
     >
       <button
         type="button"
