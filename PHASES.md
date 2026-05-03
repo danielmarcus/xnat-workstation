@@ -257,10 +257,35 @@ The undo + transport work needs a Container abstraction over Cornerstone segment
 
 #### E2E acceptance specs
 
-- ⏳ **2.9** E2E specs for signals achievable without cross-series fixtures: signals 1 (axial→sagittal/coronal live update; mostly Phase 1 PolySeg territory — verify), 12 (drawing block on non-native viewport — exercises 2.5a), 14 (queue-next-save — exercises 2.8), 15 (undo past save point — exercises 2.7).
-- ⏳ **A12 stress variant** (handed off from the Phase 1 deferred-task agent): the existing rapid-layout sequence in spec 10 completes in <200 ms with no async loads in flight, so A12's epoch races may not surface at this cadence. A real A12 stress would be 4 panels with real scan loads streaming + layout churn during streaming. Worth landing as part of 2.9 once the container bridge gives a clean place to instrument the cs-attach lifecycle.
+- ✅ **2.9** Service-integration test suite for acceptance signals 9, 10, 11, 12, 14, 15 plus the §A8 cross-viewport identity (G7 stand-in for the Phase 2 container-scoped path). 24 tests in [multiviewport-phase2-integration.test.ts](src/renderer/lib/cornerstone/__tests__/multiviewport-phase2-integration.test.ts) wire the Phase 2 modules together with synthetic metadata + a synthetic SaveAdapter to exercise the full pipeline for each signal. Synthetic metadata is injected through the same DI seams production uses (`wireVisibility`, `transport.setAdapter`, `containerBridge.register`), so these tests exercise the real classify / decideDrawingRouting / resolveAction / queue-next-save / undoService paths — only the metadata source and save target are stubbed. The §8.1 design rule "no mocking of internal services" is preserved.
+- ⏳ **Playwright E2E for the same signals** is blocked on the cross-series + breath-hold + cross-FoR DICOM fixtures Phase 1 deferred (see `docs/multiviewport-annotation-design.md` §8.4). The service-integration suite is the regression spine until those fixtures land. When they do, the Phase 1 pattern (one spec per signal in `e2e/specs/`, `data-testid` selectors via `__XNAT_E2E__` hooks) extends naturally.
+- ⏳ **A12 stress variant** (handed off from the Phase 1 deferred-task agent): the existing rapid-layout sequence in spec 10 completes in <200 ms with no async loads in flight, so A12's epoch races may not surface at this cadence. A real A12 stress would be 4 panels with real scan loads streaming + layout churn during streaming. Worth landing as a Playwright spec once the cross-series fixtures are available — the container bridge gives a clean place to instrument the cs-attach lifecycle for that test.
+
+#### Acceptance signal coverage matrix (Phase 2 scope)
+
+| Signal | Description | Delivered by | Test layer | Status |
+|---|---|---|---|---|
+| **1** | Axial draw → sagittal/coronal live update | Phase 1 PolySeg + Phase 2 visibility | E2E ([08-volume-mode-acceptance.e2e.ts](e2e/specs/08-volume-mode-acceptance.e2e.ts)) | ✅ |
+| **2** | Two panels on same series, different slice indices | Phase 1 (legacy stack path) | E2E ([03-image-viewing.e2e.ts](e2e/specs/03-image-viewing.e2e.ts)) | ✅ |
+| **8** | Click contour in panel A → highlighted in both | Phase 2 (canvas) + Phase 3 (list panel) | partial | ⏳ canvas-canvas selection sync needs viewerStore selection set; list panel = Phase 3 |
+| **9** | T1+T2 cross-series with dashed stroke | Phase 2.1/2.2/2.3/2.4 | service-integration ✅ / E2E ⏳ | ⏳ E2E blocked on cross-series fixture |
+| **10** | Breath-hold A2c off-by-default | Phase 2.1/2.2/2.3 | service-integration ✅ / E2E ⏳ | ⏳ E2E blocked on breath-hold fixture |
+| **11** | Cross-FoR not rendered, list visible | Phase 2.3 | service-integration ✅ / E2E ⏳ | ⏳ E2E blocked on cross-FoR fixture; list panel = Phase 3 |
+| **12** | Drawing block on non-native viewport + hint | Phase 2.5a/2.5b | service-integration ✅ / E2E ⏳ | ⏳ E2E blocked on cross-series fixture |
+| **14** | Queue-next-save through rapid edits | Phase 2.8a/2.8b | service-integration ✅ / E2E ⏳ | ⏳ E2E needs SaveAdapter wired to real backup |
+| **15** | Undo past save re-dirties container | Phase 2.7a/2.7b + Phase 2.8 | service-integration ✅ / E2E ⏳ | ⏳ E2E needs real save action |
+| **G7** | Undo after panel close (cross-viewport identity) | Phase 1 (flag-off) + Phase 2.7 (flag-on path) | E2E ([09-undo-after-close.e2e.ts](e2e/specs/09-undo-after-close.e2e.ts), `test.fixme` for flag-on) + service-integration ✅ | ⏳ flag-on E2E pending volume-labelmap brush capability gap |
+
+Signals 3, 4, 5, 6, 7 are covered by Phase 1 (volume-mode E2E + pre-existing legacy specs). Signals 13, 16, 17, 18, 19, 20, 21, 22 are Phase 3+ scope.
+
+**Honest cliff edges remaining at end of Phase 2**:
+- Three DICOM fixtures (cross-series same-FoR pair, breath-hold pair, cross-FoR CT+MR) gate the full Playwright coverage of signals 9-12.
+- The dirty/save bugs flagged by the deferred-task agent ([Workstream B handoff notes](#) above) survive Phase 2 — both are downstream of the suppression / brush-pixel-write paths Phase 2 intentionally didn't refactor.
+- D9 labelmap dashed-outline limitation: Cornerstone's LabelmapStyle has no `outlineDash`, so cross-series labelmaps differentiate via fill-alpha alone (documented at the top of [styling.ts](src/renderer/lib/cornerstone/segmentationService/styling.ts)).
+- A2c per-container opt-in is hardcoded `false` until Phase 3 list-panel work wires the user toggle.
+- Save action: transport.ts has no SaveAdapter installed yet — §E2 state machine is exercised but doesn't fire actual saves until the XNAT integration workstream or Phase 3 list-panel save actions wire one.
 - ⏳ Signals 9 (T1+T2 cross-series with dashed stroke), 10 (breath-hold A2c off-by-default), 11 (different FoR, list visible but no canvas render) **need fixtures Phase 1 deferred** (`e2e/fixtures/dicom/cross-series` and `breath-hold-pair`). Service-integration coverage with synthetic metadata is the stand-in until fixtures land.
 - ⏳ Signal 8 (canvas selection sync) is partial — Phase 2 can deliver canvas-canvas sync via a global selection set; full signal needs Phase 3 list panel hover/click sync (D7.8).
 
-**Status (2026-05-02)**: Workstream A complete (2.1 → 2.5b). Workstream B complete (2.6 container-bridge, 2.7 undoService impl + dispatch swap, 2.8 transport queue-next-save coordinator + wiring). E2E specs (2.9) outstanding. Test suite at 781 passing (was 610 at end of Phase 1). All commits behind `multiViewport.enabled`; legacy path verified unaffected by Phase 1 health check (Item 1 above).
+**Status (2026-05-02, end of Phase 2 work)**: Workstream A complete (2.1 → 2.5b). Workstream B complete (2.6 container-bridge, 2.7 undoService impl + dispatch swap, 2.8 transport queue-next-save coordinator + wiring). 2.9 service-integration coverage of acceptance signals 9-15 + §A8 G7 stand-in landed; full Playwright E2E for signals 9-12 blocked on cross-series + breath-hold + cross-FoR fixtures (deferred from Phase 1). Test suite at 805 passing (was 610 at end of Phase 1). All commits behind `multiViewport.enabled`; legacy path verified unaffected by Phase 1 health check (Item 1 above). Phase 3 (list panel) can begin without blocking on the deferred items.
 
