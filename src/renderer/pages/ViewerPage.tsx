@@ -10,6 +10,7 @@ import ViewportGrid from '../components/viewer/ViewportGrid';
 import MPRViewportGrid from '../components/viewer/MPRViewportGrid';
 import AnnotationListPanel from '../components/viewer/AnnotationListPanel';
 import SegmentationPanel from '../components/viewer/SegmentationPanel';
+import ContainerListPanel from '../components/viewer/ContainerListPanel';
 import DicomHeaderPanel from '../components/viewer/DicomHeaderPanel';
 import { toolService } from '../lib/cornerstone/toolService';
 import { annotationService } from '../lib/cornerstone/annotationService';
@@ -17,6 +18,7 @@ import { segmentationService } from '../lib/cornerstone/segmentationService';
 import { useHotkeys } from '../hooks/useHotkeys';
 import { useAnnotationStore } from '../stores/annotationStore';
 import { useSegmentationStore } from '../stores/segmentationStore';
+import { usePreferencesStore } from '../stores/preferencesStore';
 import { useViewerStore } from '../stores/viewerStore';
 
 interface ViewerPageProps {
@@ -49,6 +51,9 @@ export default function ViewerPage({
 }: ViewerPageProps) {
   const showAnnotationPanel = useAnnotationStore((s) => s.showPanel);
   const showSegPanel = useSegmentationStore((s) => s.showPanel);
+  const showMultiViewport = usePreferencesStore(
+    (s) => s.preferences.multiViewport.enabled,
+  );
   const [showDicomPanel, setShowDicomPanel] = useState(false);
 
   const mprActive = useViewerStore((s) => s.mprActive);
@@ -110,6 +115,13 @@ export default function ViewerPage({
               sourceImageIds={panelImageIds[activeViewportId] ?? []}
             />
           )}
+          {/*
+            Phase 3.3: ContainerListPanel mounts alongside legacy panels
+            when multiViewport.enabled is true. Both visible during the
+            transitional period — Phase 6 collapses to ContainerListPanel
+            only.
+          */}
+          {!mprActive && showMultiViewport && <ContainerListPanel />}
           {!mprActive && showDicomPanel && <DicomHeaderPanel onClose={closeDicomPanel} />}
         </div>
       </div>
