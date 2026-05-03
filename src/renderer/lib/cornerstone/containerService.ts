@@ -26,6 +26,7 @@
  */
 import * as containerBridge from './containerBridge';
 import { useSegmentationStore } from '../../stores/segmentationStore';
+import { useContainerSelectionStore } from '../../stores/containerSelectionStore';
 import type {
   ApprovalEvent,
   Container,
@@ -278,7 +279,43 @@ export const containerService: ContainerService = {
     );
   },
 
-  setActiveMember: () => notImplementedYet('setActiveMember', 'Phase 3.2'),
+  /**
+   * Set the active member globally (D7.5). Updates both:
+   *   - the new containerSelectionStore (multi-viewport-aware surface);
+   *   - the legacy useSegmentationStore (activeSegmentationId +
+   *     activeSegmentIndex), so existing tools and the autoSave
+   *     pipeline keep working unchanged during the transitional period.
+   *
+   * Pass null to clear (no active member; B3 blocks drawing).
+   */
+  setActiveMember(memberId: string | null): void {
+    if (memberId === null) {
+      useContainerSelectionStore.getState().setActive(null);
+      // Don't clear legacy state — leaving it gives the legacy panels
+      // their own behavior continuity. Phase 6 collapses legacy panels.
+      return;
+    }
+    const found = findMemberContainer(memberId);
+    if (!found) {
+      throw new Error(`[containerService] setActiveMember: unknown memberId ${memberId}`);
+    }
+    const { member } = found;
+    useContainerSelectionStore.getState().setActive(memberId);
+
+    // Mirror to the legacy store so segmentationService.* and the
+    // existing tools see the same active state. Only set the bits that
+    // map cleanly: the cs segmentation + segment index.
+    if (member.csSegmentationId) {
+      useSegmentationStore.setState({
+        activeSegmentationId: member.csSegmentationId,
+      });
+    }
+    if (Number.isInteger(member.segmentIndex) && member.segmentIndex! > 0) {
+      useSegmentationStore.setState({
+        activeSegmentIndex: member.segmentIndex!,
+      });
+    }
+  },
 
   // ─── Approval (D7.11) ─────────────────────────────────────────────────
 

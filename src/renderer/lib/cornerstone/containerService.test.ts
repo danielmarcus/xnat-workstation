@@ -37,6 +37,7 @@ vi.mock('@cornerstonejs/tools', () => ({
 import { containerService } from './containerService';
 import * as containerBridge from './containerBridge';
 import { useSegmentationStore } from '../../stores/segmentationStore';
+import { useContainerSelectionStore } from '../../stores/containerSelectionStore';
 import type { Member } from '../../types/annotation';
 
 beforeEach(() => {
@@ -45,10 +46,16 @@ beforeEach(() => {
     activeSegmentationId: null,
     activeSegmentIndex: 0,
   });
+  useContainerSelectionStore.getState().setActive(null);
+  useContainerSelectionStore.getState().clearSelection();
+  useContainerSelectionStore.getState().setHover(null);
 });
 
 afterEach(() => {
   containerBridge.clearAll();
+  useContainerSelectionStore.getState().setActive(null);
+  useContainerSelectionStore.getState().clearSelection();
+  useContainerSelectionStore.getState().setHover(null);
 });
 
 // ─── renameContainer ──────────────────────────────────────────────────
@@ -308,12 +315,68 @@ describe('not-yet-implemented methods', () => {
     ).toThrow(/Phase 3\.2/);
   });
 
-  it('setActiveMember throws with phase pointer', () => {
-    expect(() => containerService.setActiveMember('m')).toThrow(/Phase 3\.2/);
-  });
-
   it('setRoiType throws with phase pointer', () => {
     expect(() => containerService.setRoiType('m', 'GTV')).toThrow(/Phase 3\.8/);
+  });
+});
+
+// ─── Phase 3.5a: setActiveMember ──────────────────────────────────────
+
+describe('setActiveMember', () => {
+  function injectMember(csSegId: string, memberId: string, segIdx = 1): void {
+    const containerId = containerBridge.register(csSegId);
+    containerBridge.getContainer(containerId)!.members.push({
+      id: memberId,
+      name: 'M',
+      color: [255, 0, 0],
+      visibility: 'filled',
+      locked: false,
+      provenance: 'manual',
+      roiType: null,
+      roiNumber: null,
+      interpolationState: null,
+      segmentIndex: segIdx,
+      segmentDescription: null,
+      segmentedPropertyCategory: null,
+      segmentedPropertyType: null,
+      poiPoints: null,
+      algebra: null,
+      algebraSources: null,
+      algebraOutOfDate: false,
+      algebraManualOverride: false,
+      csAnnotationUIDs: null,
+      csSegmentationId: csSegId,
+      createdAt: 0,
+      modifiedAt: 0,
+    });
+  }
+
+  it('updates the containerSelectionStore active member', () => {
+    injectMember('seg_1', 'm1');
+    containerService.setActiveMember('m1');
+    expect(useContainerSelectionStore.getState().activeMemberId).toBe('m1');
+  });
+
+  it('mirrors to the legacy useSegmentationStore for tool compatibility', () => {
+    injectMember('seg_1', 'm1', 3);
+    containerService.setActiveMember('m1');
+    expect(useSegmentationStore.getState().activeSegmentationId).toBe('seg_1');
+    expect(useSegmentationStore.getState().activeSegmentIndex).toBe(3);
+  });
+
+  it('null clears the selection-store active member but leaves legacy state intact', () => {
+    injectMember('seg_1', 'm1');
+    containerService.setActiveMember('m1');
+    expect(useSegmentationStore.getState().activeSegmentationId).toBe('seg_1');
+
+    containerService.setActiveMember(null);
+    expect(useContainerSelectionStore.getState().activeMemberId).toBeNull();
+    // Legacy state preserved during transitional period (Phase 6 collapses).
+    expect(useSegmentationStore.getState().activeSegmentationId).toBe('seg_1');
+  });
+
+  it('throws on unknown memberId', () => {
+    expect(() => containerService.setActiveMember('nope')).toThrow(/unknown/);
   });
 });
 

@@ -18,6 +18,7 @@
  * (w-64 right-side rail, dark theme, zinc-* tones, xs typography).
  */
 import { useContainerStore } from '../../stores/containerStore';
+import { useContainerSelectionStore } from '../../stores/containerSelectionStore';
 import { containerService } from '../../lib/cornerstone/containerService';
 import { nextVisibilityMode } from '../../lib/cornerstone/segmentationService/memberVisibility';
 import type { Container, Member, RGB, VisibilityMode } from '../../types/annotation';
@@ -126,19 +127,60 @@ function ContainerRow({ container }: { container: Container }) {
 }
 
 function MemberRow({ member }: { member: Member }) {
+  const isSelected = useContainerSelectionStore((s) => s.selectionSet.has(member.id));
+  const isActive = useContainerSelectionStore((s) => s.activeMemberId === member.id);
+
+  const onRowClick = (e: React.MouseEvent<HTMLLIElement>) => {
+    if (e.shiftKey || e.ctrlKey || e.metaKey) {
+      // Multi-select toggle (D7.5).
+      useContainerSelectionStore.getState().toggleSelection(member.id);
+    } else if (e.detail >= 2) {
+      // Double-click → activate AND replace selection (D7.5).
+      containerService.setActiveMember(member.id);
+      useContainerSelectionStore.getState().setSelection(member.id);
+    } else {
+      // Single-click → replace selection (D7.5).
+      useContainerSelectionStore.getState().setSelection(member.id);
+    }
+  };
+
+  const onColorSwatchClick = (e: React.MouseEvent<HTMLButtonElement>) => {
+    // Color swatch is the dedicated "make active" affordance per D7.5 —
+    // sets active without changing the selection set.
+    e.stopPropagation();
+    containerService.setActiveMember(member.id);
+  };
+
   return (
     <li
       data-testid={`member-row:${member.id}`}
-      className="flex items-center gap-2 pl-6 pr-3 py-1 hover:bg-zinc-800/40"
+      onClick={onRowClick}
+      className={`group flex items-center gap-2 pl-6 pr-3 py-1 cursor-pointer transition-colors border-l-2 ${
+        isSelected
+          ? 'bg-blue-900/30 border-blue-500'
+          : 'border-transparent hover:bg-zinc-800/40'
+      }`}
+      data-selected={isSelected || undefined}
+      data-active={isActive || undefined}
     >
-      <span
+      <button
+        type="button"
         data-testid={`member-color:${member.id}`}
-        className="w-2.5 h-2.5 rounded-sm shrink-0 border border-zinc-700"
+        onClick={onColorSwatchClick}
+        className={`w-2.5 h-2.5 rounded-sm shrink-0 border transition-shadow ${
+          isActive
+            ? 'border-amber-300 ring-1 ring-amber-300'
+            : 'border-zinc-700 hover:border-zinc-400'
+        }`}
         style={{ backgroundColor: rgbCss(member.color) }}
-        aria-label={`color ${rgbCss(member.color)}`}
+        aria-label={`color ${rgbCss(member.color)} (click to make active)`}
+        aria-pressed={isActive}
+        title={isActive ? 'Active member (drawing target)' : 'Click to make active'}
       />
       <span
-        className="flex-1 text-xs text-zinc-300 truncate"
+        className={`flex-1 text-xs truncate ${
+          isActive ? 'text-amber-200 font-medium' : 'text-zinc-300'
+        }`}
         title={member.name}
       >
         {member.name}

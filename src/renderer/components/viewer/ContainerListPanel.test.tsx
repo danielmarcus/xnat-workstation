@@ -8,19 +8,22 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-// Mock containerService.setMemberVisibility — we just verify the panel
-// calls it with the right next-mode. The service's behavior is covered
-// by containerService.test.ts.
+// Mock containerService methods — we just verify the panel calls them
+// with the right arguments. The service's behavior is covered by
+// containerService.test.ts.
 const setMemberVisibilityMock = vi.hoisted(() => vi.fn());
+const setActiveMemberMock = vi.hoisted(() => vi.fn());
 
 vi.mock('../../lib/cornerstone/containerService', () => ({
   containerService: {
     setMemberVisibility: setMemberVisibilityMock,
+    setActiveMember: setActiveMemberMock,
   },
 }));
 
 import ContainerListPanel from './ContainerListPanel';
 import { useContainerStore } from '../../stores/containerStore';
+import { useContainerSelectionStore } from '../../stores/containerSelectionStore';
 import type { Container, Member } from '../../types/annotation';
 
 function makeMember(partial: Partial<Member> = {}): Member {
@@ -75,11 +78,16 @@ function setContainers(...containers: Container[]): void {
 
 beforeEach(() => {
   useContainerStore.getState()._replaceAll(new Map());
+  useContainerSelectionStore.getState().setActive(null);
+  useContainerSelectionStore.getState().clearSelection();
   setMemberVisibilityMock.mockReset();
+  setActiveMemberMock.mockReset();
 });
 
 afterEach(() => {
   useContainerStore.getState()._replaceAll(new Map());
+  useContainerSelectionStore.getState().setActive(null);
+  useContainerSelectionStore.getState().clearSelection();
 });
 
 describe('empty state', () => {
@@ -300,5 +308,134 @@ describe('visibility-mode click cycling', () => {
     const btn = screen.getByTestId('member-visibility:m1');
     expect(btn.getAttribute('aria-label')).toBe('visibility outlined');
     expect(btn.getAttribute('title')).toContain('outlined');
+  });
+});
+
+// ─── Phase 3.5a: selection vs active model ─────────────────────────────
+
+describe('selection vs active (D7.5)', () => {
+  it('single-click on a row replaces the selection with that member', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [
+          makeMember({ id: 'm1' }),
+          makeMember({ id: 'm2', segmentIndex: 2 }),
+        ],
+      }),
+    );
+    render(<ContainerListPanel />);
+
+    act(() => {
+      fireEvent.click(screen.getByTestId('member-row:m1'));
+    });
+    expect(useContainerSelectionStore.getState().selectionSet).toEqual(new Set(['m1']));
+
+    act(() => {
+      fireEvent.click(screen.getByTestId('member-row:m2'));
+    });
+    expect(useContainerSelectionStore.getState().selectionSet).toEqual(new Set(['m2']));
+  });
+
+  it('shift-click toggles a member in the selection set', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [
+          makeMember({ id: 'm1' }),
+          makeMember({ id: 'm2', segmentIndex: 2 }),
+        ],
+      }),
+    );
+    render(<ContainerListPanel />);
+
+    act(() => {
+      fireEvent.click(screen.getByTestId('member-row:m1'));
+    });
+    act(() => {
+      fireEvent.click(screen.getByTestId('member-row:m2'), { shiftKey: true });
+    });
+    expect(useContainerSelectionStore.getState().selectionSet).toEqual(new Set(['m1', 'm2']));
+
+    act(() => {
+      fireEvent.click(screen.getByTestId('member-row:m1'), { ctrlKey: true });
+    });
+    expect(useContainerSelectionStore.getState().selectionSet).toEqual(new Set(['m2']));
+  });
+
+  it('color-swatch click activates the member without changing selection', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [
+          makeMember({ id: 'm1' }),
+          makeMember({ id: 'm2', segmentIndex: 2 }),
+        ],
+      }),
+    );
+    render(<ContainerListPanel />);
+
+    // Pre-select m1 via row click.
+    act(() => {
+      fireEvent.click(screen.getByTestId('member-row:m1'));
+    });
+    expect(useContainerSelectionStore.getState().selectionSet).toEqual(new Set(['m1']));
+
+    // Click m2's color swatch — activates m2 but keeps m1 selected.
+    act(() => {
+      fireEvent.click(screen.getByTestId('member-color:m2'));
+    });
+    expect(setActiveMemberMock).toHaveBeenCalledWith('m2');
+    expect(useContainerSelectionStore.getState().selectionSet).toEqual(new Set(['m1']));
+  });
+
+  it('renders the selected-row styling (bg-blue-900/30 border-blue-500)', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [makeMember({ id: 'm1' })],
+      }),
+    );
+    render(<ContainerListPanel />);
+    act(() => {
+      useContainerSelectionStore.getState().setSelection('m1');
+    });
+    const row = screen.getByTestId('member-row:m1');
+    expect(row.className).toMatch(/bg-blue-900/);
+    expect(row.dataset.selected).toBe('true');
+  });
+
+  it('renders the active-member styling (amber color swatch ring)', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [makeMember({ id: 'm1' })],
+      }),
+    );
+    render(<ContainerListPanel />);
+    act(() => {
+      useContainerSelectionStore.getState().setActive('m1');
+    });
+    const swatch = screen.getByTestId('member-color:m1');
+    expect(swatch.className).toMatch(/ring-amber-300/);
+    expect(swatch.getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByTestId('member-row:m1').dataset.active).toBe('true');
+  });
+
+  it('visibility click does NOT bubble into row selection', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [makeMember({ id: 'm1', visibility: 'filled' })],
+      }),
+    );
+    render(<ContainerListPanel />);
+
+    act(() => {
+      fireEvent.click(screen.getByTestId('member-visibility:m1'));
+    });
+    expect(setMemberVisibilityMock).toHaveBeenCalledWith('m1', 'outlined');
+    // Selection set should remain empty (row click was prevented).
+    expect(useContainerSelectionStore.getState().selectionSet.size).toBe(0);
   });
 });
