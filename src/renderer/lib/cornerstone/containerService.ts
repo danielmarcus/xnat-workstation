@@ -74,8 +74,14 @@ export interface ContainerService {
 
   // ─── Member CRUD ──────────────────────────────────────────────────────
 
-  /** Create an empty member; caller activates it (D7.5) before drawing. */
-  createMember(input: CreateMemberInput): Member;
+  /**
+   * Create an empty member; caller activates it (D7.5) before drawing.
+   * Async because the underlying segmentationService.addSegment is async.
+   * The new Member surfaces in the containerStore via SEGMENTATION_MODIFIED
+   * auto-sync; consumers don't need to await unless they need the new
+   * segmentIndex for follow-up calls.
+   */
+  createMember(input: CreateMemberInput): Promise<number>;
 
   /** Permanently delete a member and its Cornerstone-side geometry. */
   deleteMember(memberId: string): void;
@@ -124,33 +130,55 @@ export interface ContainerService {
   getApprovalHistory(containerId: string): ApprovalEvent[];
 }
 
-// ─── Phase 3.4: Cornerstone deps for member visibility ─────────────────
+// ─── Phase 3.4 / 3.6: Cornerstone deps wired by segmentationService ────
 
-let memberVisibilityDeps: MemberVisibilityDeps = {
+/** Phase 3.6 deps for member CRUD — wrappers over segmentationService. */
+export interface MemberCrudDeps {
+  /** Add a new segment to a Cornerstone segmentation. Returns new segmentIndex. */
+  addSegment: (segmentationId: string, label: string, color?: [number, number, number, number]) => Promise<number>;
+  /** Remove a segment from a Cornerstone segmentation. */
+  removeSegment: (segmentationId: string, segmentIndex: number) => void;
+  /** Rename a segment within a segmentation. */
+  renameSegment: (segmentationId: string, segmentIndex: number, label: string) => void;
+  /** Recolor a segment within a segmentation. */
+  setSegmentColor: (
+    segmentationId: string,
+    segmentIndex: number,
+    color: [number, number, number, number],
+  ) => void;
+}
+
+interface ContainerServiceDeps extends MemberVisibilityDeps, MemberCrudDeps {}
+
+const NOOP_DEPS: ContainerServiceDeps = {
   setSegmentStyle: () => undefined,
   setSegmentVisibility: () => undefined,
   getViewportIdsWithSegmentation: () => [],
   getRepresentationKinds: () => [],
+  addSegment: () => Promise.resolve(0),
+  removeSegment: () => undefined,
+  renameSegment: () => undefined,
+  setSegmentColor: () => undefined,
 };
 
+let deps: ContainerServiceDeps = NOOP_DEPS;
+let memberVisibilityDeps: MemberVisibilityDeps = NOOP_DEPS;
+
 /**
- * Inject the Cornerstone-backed deps used by `setMemberVisibility`.
- * Called once at `segmentationService.initialize()` with real
- * Cornerstone APIs; tests pass synthetic stubs to avoid module-level
- * Cornerstone mocks.
+ * Inject the Cornerstone-backed deps used by setMemberVisibility (Phase 3.4)
+ * and member CRUD (Phase 3.6). Called once at segmentationService.initialize()
+ * with real Cornerstone-wrapping APIs; tests pass synthetic stubs to avoid
+ * module-level Cornerstone mocks.
  */
-export function wireContainerService(deps: MemberVisibilityDeps): void {
+export function wireContainerService(injected: Partial<ContainerServiceDeps>): void {
+  deps = { ...NOOP_DEPS, ...injected };
   memberVisibilityDeps = deps;
 }
 
-/** Reset the deps to a no-op stub. Used by test teardown. */
+/** Reset the deps to no-op stubs. Used by test teardown. */
 export function resetContainerServiceWiring(): void {
-  memberVisibilityDeps = {
-    setSegmentStyle: () => undefined,
-    setSegmentVisibility: () => undefined,
-    getViewportIdsWithSegmentation: () => [],
-    getRepresentationKinds: () => [],
-  };
+  deps = NOOP_DEPS;
+  memberVisibilityDeps = NOOP_DEPS;
 }
 
 // ─── Phase 3.1 implementations ──────────────────────────────────────────
@@ -203,12 +231,103 @@ export const containerService: ContainerService = {
     containerBridge.notifyChange(containerId);
   },
 
-  // ─── Member CRUD (Phase 3.2 / 3.6) ────────────────────────────────────
+  // ─── Member CRUD (Phase 3.6) ──────────────────────────────────────────
 
-  createMember: () => notImplementedYet('createMember', 'Phase 3.2 containerStore + Cornerstone-segment sync'),
-  deleteMember: () => notImplementedYet('deleteMember', 'Phase 3.2'),
-  renameMember: () => notImplementedYet('renameMember', 'Phase 3.2'),
-  recolorMember: () => notImplementedYet('recolorMember', 'Phase 3.2'),
+  /**
+   * Add a new segment to the container's underlying Cornerstone
+   * segmentation. The new Member surfaces in `useContainerStore` via
+   * the SEGMENTATION_MODIFIED auto-sync; the returned segmentIndex is
+   * useful for callers that want to immediately activate or further
+   * configure the new segment.
+   *
+   * Marks the container dirty since adding a member is a persisted-state
+   * mutation.
+   */
+  async createMember(input: CreateMemberInput): Promise<number> {
+    if (!input.containerId) {
+      throw new Error('[containerService] createMember: containerId is required');
+    }
+    const csSegId = containerBridge.getCsSegmentationId(input.containerId);
+    if (!csSegId) {
+      throw new Error(`[containerService] createMember: unknown containerId ${input.containerId}`);
+    }
+    const label = input.name?.trim() || 'New segment';
+    const colorRgba: [number, number, number, number] = [
+      input.color[0],
+      input.color[1],
+      input.color[2],
+      255,
+    ];
+    const segmentIndex = await deps.addSegment(csSegId, label, colorRgba);
+    containerBridge.setDirty(input.containerId, true);
+    return segmentIndex;
+  },
+
+  /**
+   * Permanently delete a member by removing the underlying Cornerstone
+   * segment. Marks the container dirty. Idempotent on unknown memberId
+   * (no-op rather than throw — matches the segmentationService.removeSegment
+   * behavior for non-existent indices).
+   */
+  deleteMember(memberId: string): void {
+    if (!memberId) return;
+    const found = findMemberContainer(memberId);
+    if (!found) return;
+    const { container, member } = found;
+    if (!member.csSegmentationId || !Number.isInteger(member.segmentIndex) || member.segmentIndex! <= 0) {
+      return;
+    }
+    deps.removeSegment(member.csSegmentationId, member.segmentIndex!);
+    containerBridge.setDirty(container.id, true);
+    // Member array re-derives via SEGMENTATION_MODIFIED auto-sync.
+  },
+
+  /**
+   * Rename a member. Updates Cornerstone's segment label, which fires
+   * SEGMENTATION_MODIFIED → containerStore re-derives the Member with
+   * the new name. Marks the container dirty.
+   */
+  renameMember(memberId: string, name: string): void {
+    if (!memberId) return;
+    if (typeof name !== 'string') {
+      throw new Error('[containerService] renameMember: name must be a string');
+    }
+    const trimmed = name.trim();
+    if (trimmed.length === 0) {
+      throw new Error('[containerService] renameMember: name cannot be empty');
+    }
+    const found = findMemberContainer(memberId);
+    if (!found) {
+      throw new Error(`[containerService] renameMember: unknown memberId ${memberId}`);
+    }
+    const { container, member } = found;
+    if (member.name === trimmed) return;
+    if (!member.csSegmentationId || !Number.isInteger(member.segmentIndex) || member.segmentIndex! <= 0) {
+      return;
+    }
+    deps.renameSegment(member.csSegmentationId, member.segmentIndex!, trimmed);
+    containerBridge.setDirty(container.id, true);
+  },
+
+  /**
+   * Recolor a member. Updates Cornerstone's per-segment color; the
+   * containerStore re-derives the Member via the next color-mod event
+   * (or on the next SEGMENTATION_MODIFIED). Marks the container dirty.
+   */
+  recolorMember(memberId: string, color: RGB): void {
+    if (!memberId) return;
+    const found = findMemberContainer(memberId);
+    if (!found) {
+      throw new Error(`[containerService] recolorMember: unknown memberId ${memberId}`);
+    }
+    const { container, member } = found;
+    if (!member.csSegmentationId || !Number.isInteger(member.segmentIndex) || member.segmentIndex! <= 0) {
+      return;
+    }
+    const colorRgba: [number, number, number, number] = [color[0], color[1], color[2], 255];
+    deps.setSegmentColor(member.csSegmentationId, member.segmentIndex!, colorRgba);
+    containerBridge.setDirty(container.id, true);
+  },
   setRoiType: () => notImplementedYet('setRoiType', 'Phase 3.8 ROI type badge'),
 
   /**

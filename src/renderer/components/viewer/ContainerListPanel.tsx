@@ -17,6 +17,7 @@
  * Visual style mirrors the existing AnnotationListPanel / SegmentationPanel
  * (w-64 right-side rail, dark theme, zinc-* tones, xs typography).
  */
+import { useEffect, useRef, useState } from 'react';
 import { useContainerStore } from '../../stores/containerStore';
 import { useContainerSelectionStore } from '../../stores/containerSelectionStore';
 import { containerService } from '../../lib/cornerstone/containerService';
@@ -131,8 +132,53 @@ function MemberRow({ member }: { member: Member }) {
   const isActive = useContainerSelectionStore((s) => s.activeMemberId === member.id);
   const isHovered = useContainerSelectionStore((s) => s.hoverMemberId === member.id);
 
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [renameValue, setRenameValue] = useState<string | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Close the menu on outside click.
+  useEffect(() => {
+    if (!menuOpen) return;
+    function onDocPointerDown(e: PointerEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    }
+    document.addEventListener('pointerdown', onDocPointerDown);
+    return () => document.removeEventListener('pointerdown', onDocPointerDown);
+  }, [menuOpen]);
+
   const onRowEnter = () => useContainerSelectionStore.getState().setHover(member.id);
   const onRowLeave = () => useContainerSelectionStore.getState().setHover(null);
+
+  const startRename = () => {
+    setMenuOpen(false);
+    setRenameValue(member.name);
+  };
+  const cancelRename = () => setRenameValue(null);
+  const submitRename = () => {
+    const next = (renameValue ?? '').trim();
+    if (next.length > 0 && next !== member.name) {
+      try {
+        containerService.renameMember(member.id, next);
+      } catch (err) {
+        console.warn('[ContainerListPanel] rename failed', err);
+      }
+    }
+    setRenameValue(null);
+  };
+
+  const onDelete = () => {
+    setMenuOpen(false);
+    if (typeof window !== 'undefined' && !window.confirm(`Delete "${member.name}"?`)) {
+      return;
+    }
+    try {
+      containerService.deleteMember(member.id);
+    } catch (err) {
+      console.warn('[ContainerListPanel] delete failed', err);
+    }
+  };
 
   const onRowClick = (e: React.MouseEvent<HTMLLIElement>) => {
     if (e.shiftKey || e.ctrlKey || e.metaKey) {
@@ -186,14 +232,31 @@ function MemberRow({ member }: { member: Member }) {
         aria-pressed={isActive}
         title={isActive ? 'Active member (drawing target)' : 'Click to make active'}
       />
-      <span
-        className={`flex-1 text-xs truncate ${
-          isActive ? 'text-amber-200 font-medium' : 'text-zinc-300'
-        }`}
-        title={member.name}
-      >
-        {member.name}
-      </span>
+      {renameValue !== null ? (
+        <input
+          type="text"
+          autoFocus
+          value={renameValue}
+          onChange={(e) => setRenameValue(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') submitRename();
+            else if (e.key === 'Escape') cancelRename();
+          }}
+          onBlur={submitRename}
+          onClick={(e) => e.stopPropagation()}
+          data-testid={`member-rename:${member.id}`}
+          className="flex-1 min-w-0 text-xs bg-zinc-800 text-zinc-100 border border-blue-500 rounded px-1 py-0.5 outline-none"
+        />
+      ) : (
+        <span
+          className={`flex-1 text-xs truncate ${
+            isActive ? 'text-amber-200 font-medium' : 'text-zinc-300'
+          }`}
+          title={member.name}
+        >
+          {member.name}
+        </span>
+      )}
       <button
         type="button"
         data-testid={`member-visibility:${member.id}`}
@@ -217,6 +280,50 @@ function MemberRow({ member }: { member: Member }) {
           🔒
         </span>
       )}
+      <div ref={menuRef} className="relative">
+        <button
+          type="button"
+          data-testid={`member-menu:${member.id}`}
+          className="text-[12px] text-zinc-500 hover:text-zinc-200 transition-colors px-0.5 leading-none"
+          title="Member actions"
+          aria-label="member actions"
+          aria-haspopup="menu"
+          aria-expanded={menuOpen}
+          onClick={(e) => {
+            e.stopPropagation();
+            setMenuOpen((v) => !v);
+          }}
+        >
+          ⋯
+        </button>
+        {menuOpen && (
+          <div
+            data-testid={`member-menu-popover:${member.id}`}
+            className="absolute right-0 top-5 z-10 bg-zinc-900 border border-zinc-700 rounded shadow-lg py-0.5 min-w-[100px]"
+            role="menu"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              data-testid={`member-menu-rename:${member.id}`}
+              className="block w-full text-left text-xs text-zinc-200 hover:bg-zinc-800 px-2 py-1"
+              role="menuitem"
+              onClick={startRename}
+            >
+              Rename
+            </button>
+            <button
+              type="button"
+              data-testid={`member-menu-delete:${member.id}`}
+              className="block w-full text-left text-xs text-red-400 hover:bg-red-900/20 px-2 py-1"
+              role="menuitem"
+              onClick={onDelete}
+            >
+              Delete
+            </button>
+          </div>
+        )}
+      </div>
     </li>
   );
 }

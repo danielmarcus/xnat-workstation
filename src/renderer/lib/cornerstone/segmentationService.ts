@@ -924,9 +924,10 @@ export const segmentationService = {
     // and pushes immutable snapshots into useContainerStore.
     containerStoreSync.initialize();
 
-    // Phase 3.4: wire Cornerstone-backed deps for containerService's
-    // member-visibility cycling (D7.3). The DI seam keeps containerService
-    // free of @cornerstonejs/* imports so its tests stay light.
+    // Phase 3.4 / 3.6: wire Cornerstone-backed deps for containerService's
+    // member-visibility cycling (D7.3) and member CRUD (D7.6). The DI seam
+    // keeps containerService free of @cornerstonejs/* imports so its tests
+    // stay light.
     wireContainerService({
       setSegmentStyle: (segId, segIdx, kind, styles) => {
         try {
@@ -975,6 +976,17 @@ export const segmentationService = {
         if (t === 'contour') return ['Contour'];
         return ['Labelmap', 'Contour'];
       },
+      // Phase 3.6: member CRUD wrappers that delegate to the existing
+      // segmentationService methods. The bridge auto-sync re-derives
+      // Container.members[] on SEGMENTATION_MODIFIED, so the UI stays
+      // consistent without containerService having to push manual
+      // notifications for each call.
+      addSegment: (segId, label, color) => segmentationService.addSegment(segId, label, color),
+      removeSegment: (segId, segIdx) => segmentationService.removeSegment(segId, segIdx),
+      renameSegment: (segId, segIdx, label) =>
+        segmentationService.renameSegment(segId, segIdx, label),
+      setSegmentColor: (segId, segIdx, color) =>
+        segmentationService.setSegmentColor(segId, segIdx, color),
     });
 
     // Wire interpolation-acceptance policies (auto-accept on generation

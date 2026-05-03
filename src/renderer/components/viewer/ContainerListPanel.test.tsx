@@ -13,11 +13,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // containerService.test.ts.
 const setMemberVisibilityMock = vi.hoisted(() => vi.fn());
 const setActiveMemberMock = vi.hoisted(() => vi.fn());
+const renameMemberMock = vi.hoisted(() => vi.fn());
+const deleteMemberMock = vi.hoisted(() => vi.fn());
 
 vi.mock('../../lib/cornerstone/containerService', () => ({
   containerService: {
     setMemberVisibility: setMemberVisibilityMock,
     setActiveMember: setActiveMemberMock,
+    renameMember: renameMemberMock,
+    deleteMember: deleteMemberMock,
   },
 }));
 
@@ -82,6 +86,8 @@ beforeEach(() => {
   useContainerSelectionStore.getState().clearSelection();
   setMemberVisibilityMock.mockReset();
   setActiveMemberMock.mockReset();
+  renameMemberMock.mockReset();
+  deleteMemberMock.mockReset();
 });
 
 afterEach(() => {
@@ -505,5 +511,263 @@ describe('row hover (D7.8 row-side)', () => {
     // hovered. The hover-specific bg-zinc-800/60 should NOT be present.
     expect(row.className).toMatch(/bg-blue-900/);
     expect(row.className).not.toMatch(/bg-zinc-800\/60/);
+  });
+});
+
+// ─── Phase 3.6b: per-member action menu ────────────────────────────────
+
+describe('per-member action menu (D7.6)', () => {
+  it('clicking ⋯ opens the popover', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [makeMember({ id: 'm1' })],
+      }),
+    );
+    render(<ContainerListPanel />);
+    expect(screen.queryByTestId('member-menu-popover:m1')).toBeNull();
+
+    act(() => {
+      fireEvent.click(screen.getByTestId('member-menu:m1'));
+    });
+    expect(screen.queryByTestId('member-menu-popover:m1')).not.toBeNull();
+  });
+
+  it('clicking ⋯ again closes the popover (toggle)', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [makeMember({ id: 'm1' })],
+      }),
+    );
+    render(<ContainerListPanel />);
+    act(() => {
+      fireEvent.click(screen.getByTestId('member-menu:m1'));
+      fireEvent.click(screen.getByTestId('member-menu:m1'));
+    });
+    expect(screen.queryByTestId('member-menu-popover:m1')).toBeNull();
+  });
+
+  it('outside pointerdown closes the popover', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [makeMember({ id: 'm1' })],
+      }),
+    );
+    render(<ContainerListPanel />);
+    act(() => {
+      fireEvent.click(screen.getByTestId('member-menu:m1'));
+    });
+    expect(screen.queryByTestId('member-menu-popover:m1')).not.toBeNull();
+
+    act(() => {
+      fireEvent.pointerDown(document.body);
+    });
+    expect(screen.queryByTestId('member-menu-popover:m1')).toBeNull();
+  });
+
+  it('menu button click does NOT bubble into row selection', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [makeMember({ id: 'm1' })],
+      }),
+    );
+    render(<ContainerListPanel />);
+    act(() => {
+      fireEvent.click(screen.getByTestId('member-menu:m1'));
+    });
+    expect(useContainerSelectionStore.getState().selectionSet.size).toBe(0);
+  });
+});
+
+describe('inline rename (D7.6)', () => {
+  it('clicking Rename swaps the name span for an input pre-filled with the current name', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [makeMember({ id: 'm1', name: 'Tumor' })],
+      }),
+    );
+    render(<ContainerListPanel />);
+    act(() => {
+      fireEvent.click(screen.getByTestId('member-menu:m1'));
+    });
+    act(() => {
+      fireEvent.click(screen.getByTestId('member-menu-rename:m1'));
+    });
+    const input = screen.getByTestId('member-rename:m1') as HTMLInputElement;
+    expect(input.value).toBe('Tumor');
+  });
+
+  it('Enter submits the rename via containerService.renameMember', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [makeMember({ id: 'm1', name: 'Tumor' })],
+      }),
+    );
+    render(<ContainerListPanel />);
+    act(() => {
+      fireEvent.click(screen.getByTestId('member-menu:m1'));
+    });
+    act(() => {
+      fireEvent.click(screen.getByTestId('member-menu-rename:m1'));
+    });
+    const input = screen.getByTestId('member-rename:m1');
+    act(() => {
+      fireEvent.change(input, { target: { value: 'Renamed' } });
+      fireEvent.keyDown(input, { key: 'Enter' });
+    });
+    expect(renameMemberMock).toHaveBeenCalledWith('m1', 'Renamed');
+  });
+
+  it('Escape cancels without calling renameMember', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [makeMember({ id: 'm1', name: 'Tumor' })],
+      }),
+    );
+    render(<ContainerListPanel />);
+    act(() => {
+      fireEvent.click(screen.getByTestId('member-menu:m1'));
+    });
+    act(() => {
+      fireEvent.click(screen.getByTestId('member-menu-rename:m1'));
+    });
+    const input = screen.getByTestId('member-rename:m1');
+    act(() => {
+      fireEvent.change(input, { target: { value: 'NewName' } });
+      fireEvent.keyDown(input, { key: 'Escape' });
+    });
+    expect(renameMemberMock).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('member-rename:m1')).toBeNull();
+  });
+
+  it('blank rename does not call renameMember', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [makeMember({ id: 'm1', name: 'Tumor' })],
+      }),
+    );
+    render(<ContainerListPanel />);
+    act(() => {
+      fireEvent.click(screen.getByTestId('member-menu:m1'));
+    });
+    act(() => {
+      fireEvent.click(screen.getByTestId('member-menu-rename:m1'));
+    });
+    act(() => {
+      fireEvent.change(screen.getByTestId('member-rename:m1'), { target: { value: '   ' } });
+      fireEvent.keyDown(screen.getByTestId('member-rename:m1'), { key: 'Enter' });
+    });
+    expect(renameMemberMock).not.toHaveBeenCalled();
+  });
+
+  it('same-name rename is a no-op', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [makeMember({ id: 'm1', name: 'Tumor' })],
+      }),
+    );
+    render(<ContainerListPanel />);
+    act(() => {
+      fireEvent.click(screen.getByTestId('member-menu:m1'));
+    });
+    act(() => {
+      fireEvent.click(screen.getByTestId('member-menu-rename:m1'));
+    });
+    act(() => {
+      fireEvent.keyDown(screen.getByTestId('member-rename:m1'), { key: 'Enter' });
+    });
+    expect(renameMemberMock).not.toHaveBeenCalled();
+  });
+
+  it('input click does not bubble to the row', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [makeMember({ id: 'm1' })],
+      }),
+    );
+    render(<ContainerListPanel />);
+    act(() => {
+      fireEvent.click(screen.getByTestId('member-menu:m1'));
+    });
+    act(() => {
+      fireEvent.click(screen.getByTestId('member-menu-rename:m1'));
+    });
+    act(() => {
+      fireEvent.click(screen.getByTestId('member-rename:m1'));
+    });
+    expect(useContainerSelectionStore.getState().selectionSet.size).toBe(0);
+  });
+});
+
+describe('delete with confirm (D7.6)', () => {
+  let originalConfirm: typeof window.confirm;
+  beforeEach(() => {
+    originalConfirm = window.confirm;
+  });
+  afterEach(() => {
+    window.confirm = originalConfirm;
+  });
+
+  it('user confirms → deleteMember called', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [makeMember({ id: 'm1', name: 'Tumor' })],
+      }),
+    );
+    window.confirm = vi.fn().mockReturnValue(true);
+    render(<ContainerListPanel />);
+    act(() => {
+      fireEvent.click(screen.getByTestId('member-menu:m1'));
+    });
+    act(() => {
+      fireEvent.click(screen.getByTestId('member-menu-delete:m1'));
+    });
+    expect(deleteMemberMock).toHaveBeenCalledWith('m1');
+  });
+
+  it('user cancels → deleteMember NOT called', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [makeMember({ id: 'm1', name: 'Tumor' })],
+      }),
+    );
+    window.confirm = vi.fn().mockReturnValue(false);
+    render(<ContainerListPanel />);
+    act(() => {
+      fireEvent.click(screen.getByTestId('member-menu:m1'));
+    });
+    act(() => {
+      fireEvent.click(screen.getByTestId('member-menu-delete:m1'));
+    });
+    expect(deleteMemberMock).not.toHaveBeenCalled();
+  });
+
+  it('clicking Delete closes the popover', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [makeMember({ id: 'm1' })],
+      }),
+    );
+    window.confirm = vi.fn().mockReturnValue(true);
+    render(<ContainerListPanel />);
+    act(() => {
+      fireEvent.click(screen.getByTestId('member-menu:m1'));
+    });
+    act(() => {
+      fireEvent.click(screen.getByTestId('member-menu-delete:m1'));
+    });
+    expect(screen.queryByTestId('member-menu-popover:m1')).toBeNull();
   });
 });

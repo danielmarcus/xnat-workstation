@@ -34,7 +34,11 @@ vi.mock('@cornerstonejs/tools', () => ({
   },
 }));
 
-import { containerService } from './containerService';
+import {
+  containerService,
+  resetContainerServiceWiring,
+  wireContainerService,
+} from './containerService';
 import * as containerBridge from './containerBridge';
 import { useSegmentationStore } from '../../stores/segmentationStore';
 import { useContainerSelectionStore } from '../../stores/containerSelectionStore';
@@ -305,16 +309,6 @@ describe('not-yet-implemented methods', () => {
     ).toThrow(/Phase 3\.6/);
   });
 
-  it('createMember throws with phase pointer', () => {
-    expect(() =>
-      containerService.createMember({
-        containerId: 'c',
-        name: 'M',
-        color: [0, 0, 0],
-      }),
-    ).toThrow(/Phase 3\.2/);
-  });
-
   it('setRoiType throws with phase pointer', () => {
     expect(() => containerService.setRoiType('m', 'GTV')).toThrow(/Phase 3\.8/);
   });
@@ -377,6 +371,234 @@ describe('setActiveMember', () => {
 
   it('throws on unknown memberId', () => {
     expect(() => containerService.setActiveMember('nope')).toThrow(/unknown/);
+  });
+});
+
+// ─── Phase 3.6: member CRUD ─────────────────────────────────────────────
+
+describe('member CRUD (Phase 3.6)', () => {
+  // Mock CRUD deps so we don't depend on Cornerstone state.
+  const addSegmentMock = vi.fn().mockResolvedValue(2);
+  const removeSegmentMock = vi.fn();
+  const renameSegmentMock = vi.fn();
+  const setSegmentColorMock = vi.fn();
+
+  beforeEach(() => {
+    addSegmentMock.mockReset().mockResolvedValue(2);
+    removeSegmentMock.mockReset();
+    renameSegmentMock.mockReset();
+    setSegmentColorMock.mockReset();
+    wireContainerService({
+      addSegment: addSegmentMock,
+      removeSegment: removeSegmentMock,
+      renameSegment: renameSegmentMock,
+      setSegmentColor: setSegmentColorMock,
+    });
+  });
+
+  afterEach(() => {
+    resetContainerServiceWiring();
+  });
+
+  function injectMember(csSegId: string, memberId: string, segIdx = 1): string {
+    const containerId = containerBridge.register(csSegId);
+    containerBridge.getContainer(containerId)!.members.push({
+      id: memberId,
+      name: 'Original',
+      color: [255, 0, 0],
+      visibility: 'filled',
+      locked: false,
+      provenance: 'manual',
+      roiType: null,
+      roiNumber: null,
+      interpolationState: null,
+      segmentIndex: segIdx,
+      segmentDescription: null,
+      segmentedPropertyCategory: null,
+      segmentedPropertyType: null,
+      poiPoints: null,
+      algebra: null,
+      algebraSources: null,
+      algebraOutOfDate: false,
+      algebraManualOverride: false,
+      csAnnotationUIDs: null,
+      csSegmentationId: csSegId,
+      createdAt: 0,
+      modifiedAt: 0,
+    });
+    return containerId;
+  }
+
+  // ─── createMember ────────────────────────────────────────────────────
+
+  describe('createMember', () => {
+    it('calls addSegment on the container’s cs segmentation', async () => {
+      const containerId = containerBridge.register('seg_1');
+      await containerService.createMember({
+        containerId,
+        name: 'Tumor',
+        color: [255, 0, 0],
+      });
+      expect(addSegmentMock).toHaveBeenCalledWith('seg_1', 'Tumor', [255, 0, 0, 255]);
+    });
+
+    it('returns the new segmentIndex from addSegment', async () => {
+      const containerId = containerBridge.register('seg_1');
+      addSegmentMock.mockResolvedValueOnce(7);
+      const segIdx = await containerService.createMember({
+        containerId,
+        name: 'X',
+        color: [0, 0, 0],
+      });
+      expect(segIdx).toBe(7);
+    });
+
+    it('marks the container dirty', async () => {
+      const containerId = containerBridge.register('seg_1');
+      containerBridge.setDirty(containerId, false);
+      await containerService.createMember({
+        containerId,
+        name: 'X',
+        color: [0, 0, 0],
+      });
+      expect(containerBridge.getContainer(containerId)?.dirty).toBe(true);
+    });
+
+    it('trims the name and falls back to "New segment" on empty', async () => {
+      const containerId = containerBridge.register('seg_1');
+      await containerService.createMember({
+        containerId,
+        name: '   ',
+        color: [0, 0, 0],
+      });
+      expect(addSegmentMock).toHaveBeenCalledWith('seg_1', 'New segment', [0, 0, 0, 255]);
+    });
+
+    it('throws on empty containerId', async () => {
+      await expect(
+        containerService.createMember({
+          containerId: '',
+          name: 'X',
+          color: [0, 0, 0],
+        }),
+      ).rejects.toThrow(/containerId/);
+    });
+
+    it('throws on unknown containerId', async () => {
+      await expect(
+        containerService.createMember({
+          containerId: 'unknown',
+          name: 'X',
+          color: [0, 0, 0],
+        }),
+      ).rejects.toThrow(/unknown/);
+    });
+  });
+
+  // ─── deleteMember ────────────────────────────────────────────────────
+
+  describe('deleteMember', () => {
+    it('calls removeSegment on the underlying cs segmentation', () => {
+      injectMember('seg_1', 'm1', 3);
+      containerService.deleteMember('m1');
+      expect(removeSegmentMock).toHaveBeenCalledWith('seg_1', 3);
+    });
+
+    it('marks the container dirty', () => {
+      const containerId = injectMember('seg_1', 'm1');
+      containerBridge.setDirty(containerId, false);
+      containerService.deleteMember('m1');
+      expect(containerBridge.getContainer(containerId)?.dirty).toBe(true);
+    });
+
+    it('idempotent on unknown memberId (no-op, no throw)', () => {
+      expect(() => containerService.deleteMember('unknown')).not.toThrow();
+      expect(removeSegmentMock).not.toHaveBeenCalled();
+    });
+
+    it('skips when member has no segmentIndex (graceful no-op)', () => {
+      const containerId = containerBridge.register('seg_1');
+      containerBridge.getContainer(containerId)!.members.push({
+        id: 'broken',
+        name: 'X',
+        color: [0, 0, 0],
+        visibility: 'filled',
+        locked: false,
+        provenance: 'manual',
+        roiType: null,
+        roiNumber: null,
+        interpolationState: null,
+        segmentIndex: null,
+        segmentDescription: null,
+        segmentedPropertyCategory: null,
+        segmentedPropertyType: null,
+        poiPoints: null,
+        algebra: null,
+        algebraSources: null,
+        algebraOutOfDate: false,
+        algebraManualOverride: false,
+        csAnnotationUIDs: null,
+        csSegmentationId: 'seg_1',
+        createdAt: 0,
+        modifiedAt: 0,
+      });
+      containerService.deleteMember('broken');
+      expect(removeSegmentMock).not.toHaveBeenCalled();
+    });
+  });
+
+  // ─── renameMember ────────────────────────────────────────────────────
+
+  describe('renameMember', () => {
+    it('calls renameSegment with trimmed name', () => {
+      injectMember('seg_1', 'm1', 3);
+      containerService.renameMember('m1', '  Renamed  ');
+      expect(renameSegmentMock).toHaveBeenCalledWith('seg_1', 3, 'Renamed');
+    });
+
+    it('marks the container dirty', () => {
+      const containerId = injectMember('seg_1', 'm1');
+      containerBridge.setDirty(containerId, false);
+      containerService.renameMember('m1', 'Renamed');
+      expect(containerBridge.getContainer(containerId)?.dirty).toBe(true);
+    });
+
+    it('idempotent on no-op rename', () => {
+      injectMember('seg_1', 'm1');
+      containerBridge.getContainer(containerBridge.getContainerId('seg_1')!)!.members[0].name = 'Same';
+      containerService.renameMember('m1', 'Same');
+      expect(renameSegmentMock).not.toHaveBeenCalled();
+    });
+
+    it('throws on empty name', () => {
+      injectMember('seg_1', 'm1');
+      expect(() => containerService.renameMember('m1', '   ')).toThrow(/empty/);
+    });
+
+    it('throws on unknown memberId', () => {
+      expect(() => containerService.renameMember('unknown', 'X')).toThrow(/unknown/);
+    });
+  });
+
+  // ─── recolorMember ───────────────────────────────────────────────────
+
+  describe('recolorMember', () => {
+    it('calls setSegmentColor with RGBA (alpha=255)', () => {
+      injectMember('seg_1', 'm1', 2);
+      containerService.recolorMember('m1', [10, 20, 30]);
+      expect(setSegmentColorMock).toHaveBeenCalledWith('seg_1', 2, [10, 20, 30, 255]);
+    });
+
+    it('marks the container dirty', () => {
+      const containerId = injectMember('seg_1', 'm1');
+      containerBridge.setDirty(containerId, false);
+      containerService.recolorMember('m1', [1, 2, 3]);
+      expect(containerBridge.getContainer(containerId)?.dirty).toBe(true);
+    });
+
+    it('throws on unknown memberId', () => {
+      expect(() => containerService.recolorMember('unknown', [0, 0, 0])).toThrow(/unknown/);
+    });
   });
 });
 
