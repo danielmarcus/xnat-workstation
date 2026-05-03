@@ -625,12 +625,33 @@ describe('App', () => {
   });
 
   it('prompts unsaved annotation dialog and honors cancel/continue decisions', async () => {
+    // Issue #75: prompt fires only on a displacing load — target panel must
+    // already hold a different scan AND have dirty annotations bound to it.
     const user = userEvent.setup();
     setConnectedConnectionState();
+    useViewerStore.setState({
+      ...useViewerStore.getState(),
+      panelScanMap: { panel_0: '99' },
+    });
+    act(() => {
+      const ids = ['wadouri:/dummy/0'];
+      (useViewerStore.getState() as any).setLayout?.('1x1');
+      // panelImageIdsRef is owned by App; we approximate "panel not empty" by
+      // setting a non-empty entry through the public store path used by the
+      // viewer page. We additionally seed manager + segmentation stores below.
+      void ids;
+    });
     useSegmentationStore.setState({
       ...useSegmentationStore.getState(),
       segmentations: [{ segmentationId: 'seg-unsaved' } as any],
       hasUnsavedChanges: true,
+    });
+    useSegmentationManagerStore.setState({
+      ...useSegmentationManagerStore.getState(),
+      panelState: {
+        panel_0: { sourceScanId: '99', epoch: 0, desiredOverlayIds: ['seg-unsaved'] },
+      },
+      dirtySegIds: { 'seg-unsaved': true },
     });
 
     render(<App />);
@@ -646,6 +667,134 @@ describe('App', () => {
     expect(await screen.findByText('Unsaved annotations')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /Continue without saving/ }));
     await waitFor(() => expect(mocks.dicomwebLoader.getScanImageIds).toHaveBeenCalled());
+  });
+
+  it('does not prompt when loading the same scan into a panel already showing it (#75)', async () => {
+    const user = userEvent.setup();
+    setConnectedConnectionState();
+    useViewerStore.setState({
+      ...useViewerStore.getState(),
+      panelScanMap: { panel_0: '11' },
+    });
+    useSegmentationStore.setState({
+      ...useSegmentationStore.getState(),
+      segmentations: [{ segmentationId: 'seg-unsaved' } as any],
+      hasUnsavedChanges: true,
+    });
+    useSegmentationManagerStore.setState({
+      ...useSegmentationManagerStore.getState(),
+      panelState: {
+        panel_0: { sourceScanId: '11', epoch: 0, desiredOverlayIds: ['seg-unsaved'] },
+      },
+      dirtySegIds: { 'seg-unsaved': true },
+    });
+
+    render(<App />);
+    await screen.findByTestId('viewer-page');
+
+    await user.click(screen.getByRole('button', { name: 'Trigger Load Scan' }));
+    // Same scan == additive: no prompt, the load proceeds.
+    expect(screen.queryByText('Unsaved annotations')).not.toBeInTheDocument();
+    await waitFor(() => expect(mocks.dicomwebLoader.getScanImageIds).toHaveBeenCalled());
+  });
+
+  it('does not prompt when loading a different scan into an empty panel (#75)', async () => {
+    const user = userEvent.setup();
+    setConnectedConnectionState();
+    // Other panels can hold dirty annotations, but the active panel is empty.
+    useViewerStore.setState({
+      ...useViewerStore.getState(),
+      panelScanMap: { panel_1: '99' },
+      activeViewportId: 'panel_0',
+    });
+    useSegmentationStore.setState({
+      ...useSegmentationStore.getState(),
+      segmentations: [{ segmentationId: 'seg-other' } as any],
+      hasUnsavedChanges: true,
+    });
+    useSegmentationManagerStore.setState({
+      ...useSegmentationManagerStore.getState(),
+      panelState: {
+        panel_1: { sourceScanId: '99', epoch: 0, desiredOverlayIds: ['seg-other'] },
+      },
+      dirtySegIds: { 'seg-other': true },
+    });
+
+    render(<App />);
+    await screen.findByTestId('viewer-page');
+
+    await user.click(screen.getByRole('button', { name: 'Trigger Load Scan' }));
+    // Active panel is empty: additive, no prompt.
+    expect(screen.queryByText('Unsaved annotations')).not.toBeInTheDocument();
+    await waitFor(() => expect(mocks.dicomwebLoader.getScanImageIds).toHaveBeenCalled());
+  });
+
+  it('does not prompt when loading a different scan into a panel with no dirty annotations (#75)', async () => {
+    const user = userEvent.setup();
+    setConnectedConnectionState();
+    useViewerStore.setState({
+      ...useViewerStore.getState(),
+      panelScanMap: { panel_0: '99' },
+    });
+    // Non-dirty seg displayed on the panel — replacing the scan does not lose
+    // unsaved work, so no prompt.
+    useSegmentationStore.setState({
+      ...useSegmentationStore.getState(),
+      segmentations: [{ segmentationId: 'seg-clean' } as any],
+      hasUnsavedChanges: false,
+    });
+    useSegmentationManagerStore.setState({
+      ...useSegmentationManagerStore.getState(),
+      panelState: {
+        panel_0: { sourceScanId: '99', epoch: 0, desiredOverlayIds: ['seg-clean'] },
+      },
+      dirtySegIds: {},
+    });
+
+    render(<App />);
+    await screen.findByTestId('viewer-page');
+
+    await user.click(screen.getByRole('button', { name: 'Trigger Load Scan' }));
+    expect(screen.queryByText('Unsaved annotations')).not.toBeInTheDocument();
+    await waitFor(() => expect(mocks.dicomwebLoader.getScanImageIds).toHaveBeenCalled());
+  });
+
+  it('prompts only when displacing target-panel-bound dirty annotations (#75)', async () => {
+    const user = userEvent.setup();
+    setConnectedConnectionState();
+    useViewerStore.setState({
+      ...useViewerStore.getState(),
+      panelScanMap: { panel_0: '99', panel_1: '88' },
+      activeViewportId: 'panel_0',
+    });
+    useSegmentationStore.setState({
+      ...useSegmentationStore.getState(),
+      segmentations: [
+        { segmentationId: 'seg-on-target' } as any,
+        { segmentationId: 'seg-on-other' } as any,
+      ],
+      hasUnsavedChanges: true,
+    });
+    useSegmentationManagerStore.setState({
+      ...useSegmentationManagerStore.getState(),
+      panelState: {
+        panel_0: { sourceScanId: '99', epoch: 0, desiredOverlayIds: ['seg-on-target'] },
+        panel_1: { sourceScanId: '88', epoch: 0, desiredOverlayIds: ['seg-on-other'] },
+      },
+      dirtySegIds: { 'seg-on-target': true, 'seg-on-other': true },
+    });
+
+    render(<App />);
+    await screen.findByTestId('viewer-page');
+
+    await user.click(screen.getByRole('button', { name: 'Trigger Load Scan' }));
+    expect(await screen.findByText('Unsaved annotations')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /Continue without saving/ }));
+    await waitFor(() => expect(mocks.dicomwebLoader.getScanImageIds).toHaveBeenCalled());
+
+    // The panel_1 segmentation should be untouched — only the displaced
+    // panel_0's binding gets cleaned up by downstream code.
+    expect(mocks.segmentationManager.removeSegmentation).not.toHaveBeenCalledWith('seg-on-other');
   });
 
   it('shows loading and error browser status tones during scan load', async () => {

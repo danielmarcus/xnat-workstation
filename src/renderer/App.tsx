@@ -711,23 +711,52 @@ export default function App() {
     [],
   );
 
+  // When set, discardCurrentAnnotations only removes segmentations bound to
+  // this panel. Used by loadFromXnatScan to scope discard to the displaced
+  // panel (issue #75). Cleared when discard runs.
+  const pendingDiscardPanelRef = useRef<string | null>(null);
+
   const discardCurrentAnnotations = useCallback(() => {
     const segStore = useSegmentationStore.getState();
+    const scopedPanel = pendingDiscardPanelRef.current;
+    pendingDiscardPanelRef.current = null;
+
+    const isOnScopedPanel = (segId: string): boolean => {
+      if (!scopedPanel) return true;
+      const desiredOnPanel =
+        useSegmentationManagerStore.getState().panelState[scopedPanel]?.desiredOverlayIds ?? [];
+      if (desiredOnPanel.includes(segId)) return true;
+      return segmentationService.getViewportIdsForSegmentation(segId).includes(scopedPanel);
+    };
+
+    let removedAny = false;
     for (const seg of [...segStore.segmentations]) {
+      if (!isOnScopedPanel(seg.segmentationId)) continue;
       try {
         segmentationManager.removeSegmentation(seg.segmentationId);
+        removedAny = true;
       } catch (err) {
         console.error('[App] Failed to remove segmentation during discard:', err);
       }
     }
-    segStore._markClean();
+    // Only mark the store clean when discard was unscoped (whole-session reset);
+    // a panel-scoped discard leaves other panels' dirty annotations in place.
+    if (!scopedPanel) {
+      segStore._markClean();
+    } else if (removedAny) {
+      // Re-derive global dirty: clear flag only if no segs remain dirty.
+      const stillDirty = useSegmentationManagerStore.getState().hasDirtySegmentations();
+      if (!stillDirty) segStore._markClean();
+    }
 
-    // Delete local backup files for this session since the user confirmed discard
-    const currentSessionId = useViewerStore.getState().sessionId;
-    if (currentSessionId) {
-      backupService.deleteSessionBackups(currentSessionId).catch((err) => {
-        console.warn('[App] Failed to delete backup after discard:', err);
-      });
+    // Delete local backup files for this session — only on whole-session discards.
+    if (!scopedPanel) {
+      const currentSessionId = useViewerStore.getState().sessionId;
+      if (currentSessionId) {
+        backupService.deleteSessionBackups(currentSessionId).catch((err) => {
+          console.warn('[App] Failed to delete backup after discard:', err);
+        });
+      }
     }
   }, []);
 
@@ -1364,23 +1393,75 @@ export default function App() {
   ) => {
     if (!isConnected) return;
 
-    // Prompt to save/discard unsaved annotations before switching scans.
-    if (!(await promptToSaveUnsavedAnnotations())) return;
+    // Panel-scoped load intent (issue #75). A load is "additive" if it does
+    // not displace existing content in the target panel: the panel is empty,
+    // OR it already shows this scan, OR the load is a SEG/RTSTRUCT (which
+    // routes to whichever panel currently shows its source scan, leaving the
+    // active panel's content alone). Additive loads must not prompt the
+    // unsaved-annotations dialog and must not tear down state belonging to
+    // other panels.
+    let targetPanel = useViewerStore.getState().activeViewportId;
+    const currentTargetScan = useViewerStore.getState().panelScanMap[targetPanel] ?? null;
+    const targetPanelEmpty = !currentTargetScan;
+    const targetPanelSameScan = currentTargetScan === scanId;
+    const isDerivedLoad = isSegScan(scan) || isRtStructScan(scan);
+    const isAdditiveLoad = targetPanelEmpty || targetPanelSameScan || isDerivedLoad;
 
-    const currentSessionId = useViewerStore.getState().xnatContext?.sessionId ?? null;
-    if (currentSessionId && currentSessionId !== sessionId) {
-      // Re-read state AFTER the prompt — discardCurrentAnnotations may have
-      // already removed segmentations if the user chose to proceed.
-      for (const seg of [...useSegmentationStore.getState().segmentations]) {
-        segmentationManager.removeSegmentation(seg.segmentationId);
+    if (!isAdditiveLoad) {
+      // Displacing load: prompt only if the target panel actually has dirty
+      // annotations bound to it (not on the global dirty flag). A seg is
+      // bound to the target panel if either the manager's `desiredOverlayIds`
+      // for that panel lists it, or Cornerstone reports it attached to that
+      // viewport. Either signal is sufficient.
+      const mgrState = useSegmentationManagerStore.getState();
+      const desiredOnTarget = new Set(mgrState.panelState[targetPanel]?.desiredOverlayIds ?? []);
+      const dirtyIds = Object.entries(mgrState.dirtySegIds)
+        .filter(([, dirty]) => dirty)
+        .map(([id]) => id);
+      const targetPanelHasDirty = dirtyIds.some(
+        (segId) =>
+          desiredOnTarget.has(segId) ||
+          segmentationService.getViewportIdsForSegmentation(segId).includes(targetPanel),
+      );
+      if (targetPanelHasDirty) {
+        // Scope the discard to this panel so accepting the prompt only drops
+        // annotations bound to the displaced panel (issue #75 acceptance).
+        pendingDiscardPanelRef.current = targetPanel;
+        const proceed = await promptToSaveUnsavedAnnotations();
+        if (!proceed) {
+          pendingDiscardPanelRef.current = null;
+          return;
+        }
       }
-      clearSegLoadingLocks();
-      useSessionDerivedIndexStore.getState().clear();
-      useSegmentationManagerStore.getState().reset();
-      dicomwebLoader.clearScanImageIdsCache(currentSessionId);
     }
 
-    let targetPanel = useViewerStore.getState().activeViewportId;
+    const currentSessionId = useViewerStore.getState().xnatContext?.sessionId ?? null;
+    if (currentSessionId && currentSessionId !== sessionId && !isAdditiveLoad) {
+      // Cross-session displacing load. If other panels still reference the
+      // old session, only tear down state bound to the displaced panel and
+      // keep their data intact. Otherwise the wholesale teardown is safe.
+      const otherPanelsOnOldSession = Object.entries(
+        useViewerStore.getState().panelXnatContextMap,
+      ).some(([pid, ctx]) => pid !== targetPanel && ctx?.sessionId === currentSessionId);
+      if (otherPanelsOnOldSession) {
+        const segsOnTarget = [...useSegmentationStore.getState().segmentations].filter((seg) =>
+          segmentationService
+            .getViewportIdsForSegmentation(seg.segmentationId)
+            .includes(targetPanel),
+        );
+        for (const seg of segsOnTarget) {
+          segmentationManager.removeSegmentation(seg.segmentationId);
+        }
+      } else {
+        for (const seg of [...useSegmentationStore.getState().segmentations]) {
+          segmentationManager.removeSegmentation(seg.segmentationId);
+        }
+        clearSegLoadingLocks();
+        useSessionDerivedIndexStore.getState().clear();
+        useSegmentationManagerStore.getState().reset();
+        dicomwebLoader.clearScanImageIdsCache(currentSessionId);
+      }
+    }
     const ensureSourceScanOnPanel = async (panelId: string, sourceScanId: string): Promise<string[]> => {
       segmentationManager.removeSegmentationsFromViewport(panelId);
       const ids = await dicomwebLoader.getScanImageIds(sessionId, sourceScanId);

@@ -218,9 +218,42 @@ Suite ran end-to-end with `--max-failures=999` (the default `maxFailures: 1` had
 
 None of the three pre-existing failures match the cheap-selector-update pattern (cf. `f44ca95`); fixing them requires Cornerstone event-flow / dirty-tracking investigation that is out of scope for Item 1. Each is documented above for follow-up. Phase 2 work is unblocked by this health check (zero regressions).
 
-**Status (2026-05-01, end of Phase 1 work)**: Functional Phase 1 cut behind `multiViewport.enabled`. Volume rendering, shared-volume cache, oriented panels, MPR preset routing, full event surface on VolumeViewport, primary-group CrosshairsTool registration, E2E coverage of the headline signal. Remaining items (performance budget, real DICOM fixtures) are deferred but tracked. Signals 3 / 6 / G7 are all pinned. Phase 2 work (cross-series rendering A2b, single-source-of-truth undo, list-panel UX) can begin without blocking on the deferrals.
+#### Acceptance-scenarios audit (G1–G22, added 2026-05-03)
 
-### MV-Phase 2: Annotation behavior (Complete)
+The earlier "Functional Phase 1 cut" framing pinned only signals **3, 6, G7** (and added 9 via fixture spec 11). It conflated "playwright suite green" with "requirements scenarios pass." The mapping below covers every scenario in [docs/multiviewport-annotation-requirements.md §G](docs/multiviewport-annotation-requirements.md). A scenario in MV-Phase 1's scope must have a real evidence row before Phase 1 can close.
+
+In-Phase-1 scope = scenarios covering volume default, viewport unification, MPR consolidation, multi-panel load/layout foundation: **G1, G2, G3, G6, G7, G8**. Scenarios outside this set are deferred to their owning phase and listed for completeness only.
+
+| Scenario | Summary | Owning phase | Status | Evidence / gap |
+|---|---|---|---|---|
+| G1 | Axial+sagittal+coronal of one CT; freehand contour visible live across all three | **MV-Phase 1** | ⏳ unverified | No spec; needs MPR + contour-tool walkthrough on `mpr-2x2` preset. |
+| G2 | Same series in two stack panels at different slice indices; edit on A visible when B scrolls there | **MV-Phase 1** | ⏳ unblocked, evidence pending | [issue #75](https://github.com/danielmarcus/xnat-workstation/issues/75) loader-scoping fix landed (`src/renderer/App.tsx` `loadFromXnatScan` + 4 acceptance cases in `src/renderer/App.test.tsx`). End-to-end edit-visible-on-scroll spec still to be written. |
+| G3 | Volume in axial-MPR + stack; brush on stack, MPR shows resampled voxels live | MV-Phase 1 | ✅ pinned | `e2e/specs/07-volume-mode.e2e.ts`, `08-volume-mode-acceptance.e2e.ts`. |
+| G4 | Lock segment on panel A; brush on panel B blocked | MV-Phase 2 | ✅ owning phase Complete | covered in MV-Phase 2 work; out of Phase 1 gate. |
+| G5 | Per-viewport hide of "GTV"; close panel → reopen resets to global default | MV-Phase 3 | ✅ owning phase work landed | per-viewport visibility lives in 3.x; out of Phase 1 gate. |
+| G6 | Four panels, rapid 2×2 → 1×1 → MPR → 2×2; no structures lost / single dirty flag | **MV-Phase 1** | ✅ pinned | `e2e/specs/10-layout-switching.e2e.ts`. |
+| G7 | Undo after a brush stroke on a panel that has since been closed | **MV-Phase 1** | ✅ pinned | `e2e/specs/09-undo-after-close.e2e.ts` (flag-on volume variant `test.fixme`, tracked). |
+| G8 | Two panels on same scan; contour click in A highlights in both; list-panel click highlights in both; empty-space click in B clears both | **MV-Phase 1** | ⏳ unblocked, evidence pending | Phase 3.5c implements the hover/select sync; the "two panels on same scan" precondition is now unblocked by the [issue #75](https://github.com/danielmarcus/xnat-workstation/issues/75) loader-scoping fix. End-to-end click-syncs-across-panels spec still to be written. |
+| G9 | T1+T2 same FoR; contour drawn on T1 renders dashed on T2 at nearest slice; hover tooltip; cross-series read-only | MV-Phase 2 | ✅ owning phase Complete | partial spec coverage in `e2e/specs/11-fixture-cross-series.e2e.ts`. |
+| G10 | Breath-hold pair (shared FoR, displaced anatomy); off-by-default; toggle "show structures from related series" | MV-Phase 2 | ⏳ classifier deferred | A2c branch blocked on `AcquisitionNumber` provider for `dicomfile:` scheme (documented above). |
+| G11 | Cross-FoR CT+MR; structure-set hidden on MR viewport; list panel shows "different FoR" indicator | MV-Phase 2 | ✅ owning phase Complete | classifier covers cross-FoR; UI indicator from D9 work. |
+| G12 | Drawing on non-native series blocked at gesture-start with hint | MV-Phase 2 | ✅ owning phase Complete | drawing-routing in 2.x. |
+| G13 | Interpolate every 5th slice; save without prompt; reload identical geometry | MV-Phase 4 | ✅ pinned | `multiviewport-phase4-integration.test.ts` signal 13; E2E ⏳ on RTSTRUCT save-load fixture. |
+| G14 | Autosave + queue-next-save under in-flight save; no edits lost | MV-Phase 2 | ✅ owning phase Complete | E2 queue-next-save coordinator in 2.x. |
+| G15 | Undo crosses save point; dirty flag re-asserts; new save flushes post-undo state | MV-Phase 2 | ⏳ partial | save-not-a-barrier semantics in 2.7a; needs explicit cross-save-point E2E. |
+| G16 | 3D paint-fill on axial appears resampled on sagittal MPR; one undo reverts entire fill | MV-Phase 5 | ⏳ scheduled | tool audit phase. |
+| G17 | Empty active member; drawing appends to it (not a new one); empty marker clears | MV-Phase 3 | ✅ owning phase work landed | A2c opt-in / member-CRUD in 3.x. |
+| G18 | RTSTRUCT ROI types; inline edit; round-trip via `RTROIInterpretedType` | MV-Phase 3 | ✅ pinned | 3.8d service-integration coverage. |
+| G19 | Approve container; members edit-locked; persist via `ApprovalStatus`; revoke flow | MV-Phase 3 | ✅ pinned | 3.8a–e + 3.8e service-layer edit-lock. |
+| G20 | Visibility modes filled / outlined / hidden; not persisted on reload | MV-Phase 3 | ✅ owning phase work landed | 2.9 + 3.x. |
+| G21 | Region-segment / smart brush; lock blocks at gesture-start | MV-Phase 5 | ⏳ scheduled | tool audit phase. |
+| G22 | Interpolation provenance round-trip (`interpolated` → manual on edit; survives save where DICOM permits) | MV-Phase 4 | ✅ pinned | `multiviewport-phase4-integration.test.ts` signal 22. |
+
+**Phase 1 closure gate**: G1, G2, G3, G6, G7, G8 must all be ✅. Currently G1, G2, G8 are ⏳ pending evidence — the [issue #75](https://github.com/danielmarcus/xnat-workstation/issues/75) loader-scoping fix has landed (panel-scoped prompt + scoped discard in `loadFromXnatScan`, with four App-level acceptance tests covering the same-scan-2nd-panel / different-scan-empty-panel / different-scan-no-dirty / displacing-with-target-dirty branches), unblocking G2 and G8 at the precondition level. End-to-end specs for G1, G2, G8 are the remaining gate items.
+
+**Status (2026-05-03, Phase 1 NOT closed — re-flagged)**: the earlier "end of Phase 1 work" status was premature. Volume rendering, shared-volume cache, oriented panels, MPR preset routing, full event surface on VolumeViewport, primary-group CrosshairsTool registration are all in place — these are infrastructure deliverables, not acceptance gates. The acceptance gates above expose three open scenarios (G1, G2, G8) that the in-progress acceptance audit had not previously surfaced. Performance budget remains deferred. Phase 2 work proceeded on the assumption that the multi-panel load foundation was sound; that assumption did not hold (issue #75) and is the scope item that must close before Phase 1 is signed off. Future phases should adopt the same per-scenario audit table as their exit gate rather than relying on aggregate playwright-suite counts.
+
+### MV-Phase 2: Annotation behavior (Complete with documented gaps — re-flagged 2026-05-03)
 **Goal:** cross-series rendering, single source of truth, undo, dirty/save. Behind `multiViewport.enabled` flag.
 
 The design's Phase 2 bullet list (design §7.4) compresses two distinct workstreams: (A) FoR/visibility/drawing-routing — self-contained pure-logic + Cornerstone hooks; (B) undo/save coordination — Container-dependent. Sub-phasing makes the dependency explicit so each PR is small and revertable.
@@ -266,8 +299,8 @@ The undo + transport work needs a Container abstraction over Cornerstone segment
 | Signal | Description | Delivered by | Test layer | Status |
 |---|---|---|---|---|
 | **1** | Axial draw → sagittal/coronal live update | Phase 1 PolySeg + Phase 2 visibility | E2E ([08-volume-mode-acceptance.e2e.ts](e2e/specs/08-volume-mode-acceptance.e2e.ts)) | ✅ |
-| **2** | Two panels on same series, different slice indices | Phase 1 (legacy stack path) | E2E ([03-image-viewing.e2e.ts](e2e/specs/03-image-viewing.e2e.ts)) | ✅ |
-| **8** | Click contour in panel A → highlighted in both | Phase 2 (canvas) + Phase 3 (list panel) | partial | ⏳ canvas-canvas selection sync needs viewerStore selection set; list panel = Phase 3 |
+| **2** | Two panels on same series, different slice indices | Phase 1 (legacy stack path) | App-level coverage of the loader-scoping precondition in `src/renderer/App.test.tsx` (4 cases for the [issue #75](https://github.com/danielmarcus/xnat-workstation/issues/75) acceptance: same-scan-2nd-panel, different-scan-empty-panel, different-scan-no-dirty, displacing-with-target-dirty); end-to-end edit-visible-on-scroll spec pending. | ⏳ unblocked, E2E pending — the earlier ✅ was incorrect (`03-image-viewing.e2e.ts` is single-panel). Loader-scoping fix removes the flag-on regression; full G2 closure needs an E2E spec under `e2e/specs/`. |
+| **8** | Click contour in panel A → highlighted in both | Phase 2 (canvas) + Phase 3 (list panel) | unit + component for selection store + hit-test + hover-sync (Phase 3.5c); precondition unblocked by the [issue #75](https://github.com/danielmarcus/xnat-workstation/issues/75) loader-scoping fix. | ⏳ unblocked, E2E pending — canvas-canvas selection sync landed in Phase 3.5c; the "two panels on same scan" precondition is now reachable. End-to-end click-syncs-across-panels spec is the remaining gap. |
 | **9** | T1+T2 cross-series with dashed stroke | Phase 2.1/2.2/2.3/2.4 | service-integration ✅ / E2E ⏳ | ⏳ E2E blocked on cross-series fixture |
 | **10** | Breath-hold A2c off-by-default | Phase 2.1/2.2/2.3 | service-integration ✅ / E2E ⏳ | ⏳ E2E blocked on breath-hold fixture |
 | **11** | Cross-FoR not rendered, list visible | Phase 2.3 | service-integration ✅ / E2E ⏳ | ⏳ E2E blocked on cross-FoR fixture; list panel = Phase 3 |
@@ -287,9 +320,17 @@ Signals 3, 4, 5, 6, 7 are covered by Phase 1 (volume-mode E2E + pre-existing leg
 - ⏳ Signals 9 (T1+T2 cross-series with dashed stroke), 10 (breath-hold A2c off-by-default), 11 (different FoR, list visible but no canvas render) **need fixtures Phase 1 deferred** (`e2e/fixtures/dicom/cross-series` and `breath-hold-pair`). Service-integration coverage with synthetic metadata is the stand-in until fixtures land.
 - ⏳ Signal 8 (canvas selection sync) is partial — Phase 2 can deliver canvas-canvas sync via a global selection set; full signal needs Phase 3 list panel hover/click sync (D7.8).
 
-**Status (2026-05-02, end of Phase 2 work)**: Workstream A complete (2.1 → 2.5b). Workstream B complete (2.6 container-bridge, 2.7 undoService impl + dispatch swap, 2.8 transport queue-next-save coordinator + wiring). 2.9 service-integration coverage of acceptance signals 9-15 + §A8 G7 stand-in landed; full Playwright E2E for signals 9-12 blocked on cross-series + breath-hold + cross-FoR fixtures (deferred from Phase 1). Test suite at 805 passing (was 610 at end of Phase 1). All commits behind `multiViewport.enabled`; legacy path verified unaffected by Phase 1 health check (Item 1 above). Phase 3 (list panel) can begin without blocking on the deferred items.
+**Status (2026-05-02, end of Phase 2 work — superseded 2026-05-03)**: Workstream A complete (2.1 → 2.5b). Workstream B complete (2.6 container-bridge, 2.7 undoService impl + dispatch swap, 2.8 transport queue-next-save coordinator + wiring). 2.9 service-integration coverage of acceptance signals 9-15 + §A8 G7 stand-in landed; full Playwright E2E for signals 9-12 blocked on cross-series + breath-hold + cross-FoR fixtures (deferred from Phase 1). Test suite at 805 passing (was 610 at end of Phase 1). All commits behind `multiViewport.enabled`; legacy path verified unaffected by Phase 1 health check (Item 1 above).
 
-### MV-Phase 3: List panel (In progress)
+**Re-flag (2026-05-03)**: the original closure framing did not hold up under audit. Specific corrections:
+- Signal 2 was claimed ✅ on the basis of `03-image-viewing.e2e.ts`, which is a single-panel image-viewer spec and does not test two panels on the same series. The genuine flag-on path is broken by [issue #75](https://github.com/danielmarcus/xnat-workstation/issues/75) — the loader prompts the user to discard unsaved annotations whenever any scan is loaded into a second viewport. Status corrected to ❌ failing.
+- Signal 8 was already ⏳ partial; with #75 it is now blocked rather than partial — the precondition can't be set up.
+- Signals 9, 10, 11, 12, 14, 15 carry service-integration ✅ but no on-screen verification. The synthetic-metadata path validates classifier / coordinator logic, not what users see. Honest, but should not be conflated with E2E pass.
+- G7 flag-on (volume-mode brush + close + undo) is committed as `test.fixme`; the headline cross-viewport-identity signal does not run on the production rendering path.
+
+Phase 2 deliverables (workstreams A + B) are functionally landed. The phase cannot be considered "Complete" against the requirements doc until signal 2 and signal 8 are resolved (the [issue #75](https://github.com/danielmarcus/xnat-workstation/issues/75) loader-scoping prerequisite is now landed; remaining work is the E2E specs themselves) and the deferred Playwright fixtures land. Phase 3 work proceeded on these caveats.
+
+### MV-Phase 3: List panel (Complete with documented gaps — re-flagged 2026-05-03)
 **Goal:** D7 fully realized. Container + member hierarchy with rich per-row metadata, selection / active model, visibility-mode cycling, hover sync, approval workflow, ROI type editing, provenance indicators, multi-select bulk operations. Behind `multiViewport.enabled` flag; legacy AnnotationListPanel + SegmentationPanel remain mounted under flag-off until Phase 6.
 
 Sub-phase plan (similar shape to Phase 2):
@@ -325,7 +366,26 @@ Sub-phase plan (similar shape to Phase 2):
   - 33 new tests (16 containerActions + 17 ContainerListPanel covering bulk, action menu, indicators, expand/collapse, save-all, lock toggle).
   - Total test count: 1202 passing.
 
-**Status (2026-05-03)**: data layer + UI shell + visibility cycling + selection model + bidirectional hover sync (row ↔ canvas, contour AND labelmap) + member CRUD + action menu + filter/search + A2c opt-in + sort + approval UI + ROI type / provenance + inline ROI type editor + signal 18/19 service-integration + service-layer edit-lock when approved + 11 D7.x polish items (3.8g) landed (3.1 → 3.5c-canvas-labelmap + 3.6 + 3.7 + 3.8a–e + 3.8g). Test suite at 1202 passing. Legacy panels still mount under flag-off; ContainerListPanel mounts alongside under flag-on for verification. **Phase 3 list-panel work is complete** apart from **3.8f** (Playwright E2E for signals 18/19 — fixture-blocked) and signal 22 (provenance round-trip via interpolation — landed in MV-Phase 4 below).
+#### Acceptance signal coverage matrix (Phase 3 scope)
+
+Added 2026-05-03 as part of the cross-phase audit. Phase 3's original closure paragraph claimed completeness based on code deliverables landed (data layer + UI shell + cycling + selection + hover sync + CRUD + filter/search + A2c + sort + approval + ROI type + edit-lock + polish). The matrix below maps that work onto the requirements-doc G-signals it was supposed to satisfy.
+
+| Signal | Description | Delivered by | Test layer | Status |
+|---|---|---|---|---|
+| **5** | Hide structure on panel A only; close panel and reopen → resets to global default per A5 | Phase 3.4 visibility plumbing | unit / component for the cycling + per-segment style override | ⏳ unverified — no explicit test of the close-panel + reopen reset path. The plumbing exists but the panel-lifecycle reset behavior is not gated by a test or a manual walkthrough citation. |
+| **8** | Two panels on same scan; contour click in A highlights in both; list-panel click highlights in both; empty-space click in B clears both | Phase 3.5a/3.5b/3.5c (selection store + bidirectional hover sync) | unit + component coverage of selection store + hit-test + hover-sync modules; precondition unblocked by the [issue #75](https://github.com/danielmarcus/xnat-workstation/issues/75) loader-scoping fix (landed). | ⏳ unblocked, E2E pending — the "two panels on same scan" precondition is now reachable. End-to-end click-syncs-across-panels spec is the remaining gap. |
+| **17** | Active member is empty; "active" indicator shows; drawing on the active viewport appends to the empty member, not a new one; empty marker clears | Phase 3.5a (active-member model) + 3.6 (member CRUD) | component coverage of the active-member visual + appended-segment route | ⏳ unverified — no explicit test of the draw-on-empty-member append behavior. The active-member surface and the createMember path both exist; nothing pins down that drawing into an empty active member appends rather than creating a new one. |
+| **18** | Load RTSTRUCT with typed ROIs; type badge per row; inline edit; round-trip via DICOM `RTROIInterpretedType` | Phase 3.8b/3.8c (badge + inline editor) + Phase 3.8d (service-integration) | service-integration ✅ / E2E ⏳ | ⏳ E2E blocked on RTSTRUCT save-load fixture (3.8f). |
+| **19** | Approve container; members edit-locked; persist via DICOM `ApprovalStatus`; revoke flow | Phase 3.8a (UI) + 3.8d (round-trip) + 3.8e (service-layer edit-lock) | service-integration ✅ / E2E ⏳ | ⏳ E2E blocked on RTSTRUCT save-load fixture (3.8f). Service layer covered. |
+| **20** | Visibility cycling filled / outlined / hidden; not persisted on reload (per D7.10) | Phase 3.4 + Phase 2.9 service-integration coverage | service-integration ✅ | ✅ |
+
+Signals 1, 2, 3, 6, 7 are Phase 1 / Phase 2 territory. Signals 9–15 are Phase 2. Signals 13, 22, A8 are Phase 4. Signals 16, 21 are Phase 5.
+
+**Phase 3 closure gate**: signals 5, 8, 17, 18, 19 must all be ✅. Currently 5 unverified, 8 blocked on #75, 17 unverified, 18 / 19 service-integration-only with E2E deferred. The deferred E2E (3.8f) is acceptable per the documented fixture blocker; the unverified 5 / 17 are the real gap, plus the blocked 8.
+
+**Status (2026-05-03 audit)**: data layer + UI shell + visibility cycling + selection model + bidirectional hover sync (row ↔ canvas, contour AND labelmap) + member CRUD + action menu + filter/search + A2c opt-in + sort + approval UI + ROI type / provenance + inline ROI type editor + signal 18/19 service-integration + service-layer edit-lock when approved + 11 D7.x polish items (3.8g) landed (3.1 → 3.5c-canvas-labelmap + 3.6 + 3.7 + 3.8a–e + 3.8g). Test suite at 1202 passing. Legacy panels still mount under flag-off; ContainerListPanel mounts alongside under flag-on for verification.
+
+The original closing paragraph framed Phase 3 list-panel work as "complete apart from 3.8f and signal 22." The coverage matrix above corrects that framing: code deliverables are complete, but G5 and G17 were never explicitly verified (assumed to follow from the underlying APIs), and G8's precondition is now restored by the [issue #75](https://github.com/danielmarcus/xnat-workstation/issues/75) loader-scoping fix (E2E spec still pending). Phase 3 cannot be claimed complete against the requirements doc until G5, G17, and G8's E2E land.
 
 ### MV-Phase 4: Interpolation cleanup (Complete)
 **Goal:** write-through model per design §B5 — auto-accept always, provenance stamping, single-undo per pass, marker that fades on edit/save. Behind `multiViewport.enabled` for the user-visible bits; the deletion of the legacy preference + dialog (4.6) is a behavior change for both flag states.
@@ -362,4 +422,105 @@ Sub-phase plan (similar shape to Phase 2):
 - DICOM-private-tag round-trip for `'interpolated'` provenance is intentionally NOT implemented — per §D7.2 "no special storage is required" for `manual`/`interpolated`. Reload re-derives via the `'imported'` default. If a future workflow requires preserving the exact provenance tag across save/load, that's a v2 concern (the data model already accepts forward-compat values like `'auto-segmented'`/`'algebra'`/`'deformably-mapped'` that *would* need vendor-tag plumbing).
 
 **Status (2026-05-03, end of Phase 4 work)**: write-through model fully landed (4.1 → 4.8). The legacy preference-gated + click-to-accept + save-time-prompt UX is gone. Provenance stamping happens unconditionally; interpolated members carry the `'interpolated'` tag with the `has-interpolated` auto-marker until manual edit or save. Single-undo-per-pass batching gated on `multiViewport.enabled`. Step-through review button surfaces alongside the AI marker. Test suite at 1232 passing (was 1202 at end of Phase 3). Phase 5 (tool audit + Contour Fill fix) can begin without blocking on the deferred items.
+
+### MV-Phase 5: Tool audit + Contour Fill fix (Not started — planned 2026-05-03)
+
+**Goal:** complete the labelmap-editing tool surface required by [requirements §C3](docs/multiviewport-annotation-requirements.md), with priority on the broken Contour Fill tool. Validate that paint-fill, region-segment / smart brush, and contour-fill all honor the active-segment / lock / overlap policy rules from §C5–C6 and behave correctly across MPR. Behind `multiViewport.enabled` flag.
+
+This section is written **before any Phase 5 work begins** so the closure gate exists up front. The 2026-05-03 audit found that Phases 1–3 were closed without per-signal evidence; Phase 5 will not repeat that pattern.
+
+#### Sub-task plan (provisional — agent should refine before starting)
+
+- **5.1** Tool inventory + audit. Walk every tool in `src/renderer/lib/cornerstone/toolService.ts` and `src/renderer/lib/cornerstone/tools/` against §C3 (voxel editing tools), §C5 (active-segment lock), §C6 (overlap policy). Produce a dated audit table listing each tool, its current behavior, the §C3–C6 expectation, and the gap. **Outputs an audit doc, not code.**
+- **5.2** Fix Contour Fill (`LabelMapEditWithContourTool`). The tool is wired in `toolService.ts:115` but documented as broken in [requirements line 209](docs/multiviewport-annotation-requirements.md). Diagnose root cause, fix, and add a service-integration test that draws a closed contour and asserts the rasterized voxels land in the active segment (and only the active segment) within the contour bounds.
+- **5.3** Active-segment lock enforcement audit (§C5). For each editing tool — Brush, Paint Fill (`SafePaintFillTool`), Region-Segment (`RegionSegmentTool` + `RegionSegmentPlusTool`), Contour Fill — verify locked segments are blocked at gesture-start with a user-facing hint. The Phase 3.8e service-layer edit-lock covers approval; this is a separate per-segment lock at the tool layer.
+- **5.4** Overlap policy enforcement (§C6). Verify the active-segment-only-writes-its-own-voxels invariant under each editing tool; add tests where coverage is missing.
+- **5.5** Per-contour canvas-side auto-marker (deferred from Phase 4 §B5). If the row-level `~` glyph proves ergonomically insufficient, add a canvas-side rendering hook that draws the "subtle thin secondary stroke" on interpolated contours. Sequence after the audit (5.1) so the decision to land it is informed.
+- **5.6** Service-integration coverage matrix for signals 16, 21. See gate below for what passes.
+
+The agent should produce concrete sub-tasks (5.x) with PR-sized deliverables before writing code. The list above is the expected shape, not a prescription.
+
+#### Acceptance signal coverage matrix (Phase 5 scope)
+
+All rows start ⏳. None may be marked ✅ until the closure gate criteria below are satisfied.
+
+| Signal | Description | Delivered by | Required evidence | Status |
+|---|---|---|---|---|
+| **16** | 3D paint-fill on axial appears resampled on sagittal MPR; one undo reverts the entire fill as one entry | Phase 5.4 + verification of existing `SafePaintFillTool` behavior across MPR | E2E spec on flag-on volume-mode path: 4-panel MPR layout, fill on axial, assert non-zero voxels on sagittal/coronal at the same world position; assert single undo entry reverts all of it. Volume-mode brush capability gap (documented in spec 09) must be resolved or the test must use a non-brush path. | ⏳ |
+| **21** | Region-segment / smart brush fills connected voxels within intensity tolerance; locked segment blocks at gesture-start with hint | Phase 5.3 + Phase 5.4 + verification of `RegionSegmentTool` / `RegionSegmentPlusTool` | Service-integration: seeded region grow yields expected voxel set; locked-segment branch refuses gesture-start with the standard hint. Plus an E2E that activates Region-Segment, clicks a homogeneous CT region, asserts fill appears; locks the segment, retries, asserts no fill. | ⏳ |
+| **§C3 Contour Fill (no G-signal)** | Closed contour rasterizes into active segment; only active segment receives voxels | Phase 5.2 | Service-integration: synthetic polygon → known voxel mask in active segment, zero voxels in other segments. E2E: activate Contour Fill, draw a closed shape, assert visible fill at the rasterized region. | ⏳ |
+
+Phase 5 does not own G3 (volume + stack brush), G4 (cross-panel lock), G6 (rapid layout), or G7 (undo after panel close) — those were Phase 1 / Phase 2 territory. Phase 5 may *uncover* regressions in those during the audit; if so, file issues and reopen the relevant phase row, do not silently re-verify here.
+
+#### Phase 5 closure gate
+
+- G16, G21, and the §C3 Contour Fill row above must all be ✅ with the listed evidence in place.
+- The 5.1 audit document is committed to the repo (under `docs/` or as a dated section in PHASES.md).
+- For any tool found to violate §C5 / §C6 during the audit: either fixed (with test) or filed as a tracked issue with explicit deferral rationale.
+- No claim in this section may be defended by "the underlying API exists" or "an aggregate test count went up" — every ✅ must point to a named test or spec.
+
+#### Out of scope
+
+- New tools beyond §C3 (e.g., scissors, threshold-painter beyond what already ships).
+- Tool-UI redesigns. The tool dropdown / toolbar surface is locked at Phase 4's shape; Phase 6 owns final polish.
+- Volume-mode brush capability gap (spec 09 `test.fixme`). If Phase 5 work makes the gap closable as a side effect, fine; otherwise leave it as filed.
+- The deferred DICOM fixtures (cross-series, breath-hold pair, cross-FoR, RTSTRUCT save-load). Phase 5 may use existing local fixtures (`ct-axial-300`, `seg-multilabel`, `rtstruct-typed`) without manufacturing new ones.
+
+### MV-Phase 6: Legacy removal + flag flip (Not started — planned 2026-05-03)
+
+**Goal:** make `multiViewport.enabled` the only path. Remove the legacy `AnnotationListPanel`, `SegmentationPanel`, `MPRViewportGrid`, stack-only viewport branches, and the flag itself. Land the §1.6 CrosshairsTool ↔ WindowLevel binding flip that was deferred from Phase 1.
+
+This section is written **before any Phase 6 work begins**.
+
+#### Sub-task plan (provisional)
+
+- **6.1** Pre-flight regression matrix. Run every G-signal that was ✅ in Phases 1–5 against the flag-on path one final time. Phase 6 changes the *only* path to flag-on; any regression here is a hard blocker.
+- **6.2** Remove legacy panel mounts. `AnnotationListPanel`, `SegmentationPanel`, the flag-off branches in `App.tsx` / `ViewerPage.tsx` / `Viewport.tsx`. Verify `ContainerListPanel` is the sole list panel surface.
+- **6.3** Remove legacy viewport branches. `CornerstoneViewport` consolidates into `Viewport` / `VolumeViewport`. Stack mode survives only for the modalities listed in `stackEligibility.ts` (US/XA/RF/NM/DX/CR/MG, multi-frame cine without spatial dim, single image).
+- **6.4** Remove `enterMPR` / `MPRViewportGrid` legacy path. `viewportLayoutService.applyPreset('mpr-2x2')` is the only MPR entry. The flag-off branch in `handleToggleMPR` deletes.
+- **6.5** CrosshairsTool ↔ WindowLevel binding flip (deferred from Phase 1.6). `TOOL_NAME_MAP` rewires CrosshairsTool to its own slot now that stack viewports are gone.
+- **6.6** Delete the `multiViewport.enabled` flag itself. Remove from settings, from the gate sites, from tests. Specs marked `test.fixme` because of flag-off-only behavior either land as real tests or are deleted with rationale.
+- **6.7** Final regression sweep: full Playwright suite + service-integration suite green on the legacy-removed branch. Documented walkthrough of all 22 G-signals.
+
+#### Acceptance signal coverage matrix (Phase 6 scope)
+
+Phase 6 introduces no new G-signals. Its job is to ensure that every signal previously ✅ on the flag-on path remains ✅ after legacy removal. The matrix below pre-binds the regression check; rows transition from "previously ✅ flag-on" to "✅ after legacy removal" only with explicit re-verification.
+
+| Signal | Owning phase | Pre-Phase-6 status | Required Phase 6 evidence |
+|---|---|---|---|
+| G1 | MV-Phase 1 | (audit pending — see Phase 1 closure gate) | Re-run the spec or walkthrough on legacy-removed branch. |
+| G2 | MV-Phase 1 | (audit pending) | Re-run. |
+| G3 | MV-Phase 1 | ✅ via spec 07/08 | Re-run on legacy-removed branch; 07-volume-mode + 08-volume-mode-acceptance pass. |
+| G4 | MV-Phase 2 | service-integration ✅ | Re-run service-integration suite. |
+| G5 | MV-Phase 3 | (audit pending) | Re-run. |
+| G6 | MV-Phase 1 | ✅ via spec 10 | Re-run; the legacy `enterMPR` branch the spec exercised under flag-off is going away. The flag-on branch is the survivor. |
+| G7 | MV-Phase 1 / 2 | flag-off ✅ via spec 09; flag-on `test.fixme` | Resolve the `test.fixme` (volume-mode brush capability) before Phase 6 closes, or document as a known regression with rationale. |
+| G8 | MV-Phase 3 | (blocked on #75) | Re-run after #75 resolves. |
+| G9–G12 | MV-Phase 2 | service-integration ✅ / E2E ⏳ on fixtures | Re-run service-integration. E2E remains ⏳ unless fixtures land in this phase. |
+| G13, G22 | MV-Phase 4 | service-integration ✅ / E2E ⏳ | Re-run service-integration. |
+| G14, G15 | MV-Phase 2 | service-integration ✅ / E2E ⏳ | Re-run service-integration. |
+| G16, G21 | MV-Phase 5 | (Phase 5 closure pending) | Re-run Phase 5 evidence. |
+| G17 | MV-Phase 3 | (audit pending) | Re-run. |
+| G18, G19 | MV-Phase 3 | service-integration ✅ / E2E ⏳ | Re-run service-integration. |
+| G20 | MV-Phase 3 | service-integration ✅ | Re-run. |
+
+#### Phase 6 closure gate
+
+- Every row in the matrix above is ✅ on the legacy-removed branch with re-verification evidence cited (test path or walkthrough).
+- The `multiViewport.enabled` flag is deleted from the codebase. `git grep -i multiviewport.enabled` returns zero results.
+- `AnnotationListPanel`, `SegmentationPanel`, `MPRViewportGrid`, `OrientedViewport`, the `CornerstoneViewport` legacy paths, and `enterMPR` are deleted (or, if any survives, with explicit rationale in this section).
+- Every `test.fixme` introduced by earlier phases is either resolved or explicitly retired with rationale.
+- Test suite green; no spec count regression vs Phase 5 baseline.
+
+#### Out of scope
+
+- New features. Phase 6 is removal and consolidation only.
+- The deferred DICOM fixtures. Phase 6 inherits the same ⏳ E2E rows on signals 9–13, 18, 19, 22 unless fixtures land independently.
+- Anything in the parent monorepo or XNAT integration workstream.
+
+#### Forbidden patterns (carried forward from the 2026-05-03 audit)
+
+- Do not mark any matrix row ✅ on the basis of "the underlying API still exists after removal." Re-verification means re-running the test or walking through the scenario. Removal is invasive enough that previous ✅ does not transfer automatically.
+- Do not report aggregate test counts as evidence for any individual signal. Each row needs its own row-level citation.
+- Do not skip the `test.fixme` resolution step. Carrying `test.fixme` past Phase 6 means the phase did not close.
 
