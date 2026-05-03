@@ -209,6 +209,31 @@ function findMemberContainer(
   return null;
 }
 
+/**
+ * §D7.11 enforcement: an approved container is fully edit-locked.
+ * Member adds, deletes, geometry edits, name changes, color changes,
+ * type changes, and reorderings are all refused at the service layer.
+ *
+ * Excluded from the lock (per §D7.10 / §D7.11):
+ *   - Visibility-mode cycling (session-only presentation state).
+ *   - Selection / active-member changes (inspection only).
+ *   - A2c opt-in toggle (session-only presentation state).
+ *   - Hover (transient).
+ *   - Approval state itself (`revokeApproval` is the unlock path).
+ *   - Reads (`getActiveContainer` / `getApprovalHistory` / etc.).
+ *
+ * The UI layer also hides the per-member action menu (Phase 3.8a) so the
+ * thrown error here is a backstop for programmatic callers; the
+ * happy-path UI never reaches it.
+ */
+function assertNotApproved(container: Container, action: string): void {
+  if (container.approval.approved) {
+    throw new Error(
+      `[containerService] ${action}: container "${container.name}" is approved (edit-locked). Revoke approval before editing.`,
+    );
+  }
+}
+
 export const containerService: ContainerService = {
   // ─── Container lifecycle ──────────────────────────────────────────────
 
@@ -234,6 +259,7 @@ export const containerService: ContainerService = {
       throw new Error('[containerService] renameContainer: name cannot be empty');
     }
     if (container.name === trimmed) return;
+    assertNotApproved(container, 'renameContainer');
     container.name = trimmed;
     // Renaming is a persisted-state mutation, so the container becomes dirty.
     container.dirty = true;
@@ -260,6 +286,8 @@ export const containerService: ContainerService = {
     if (!csSegId) {
       throw new Error(`[containerService] createMember: unknown containerId ${input.containerId}`);
     }
+    const container = containerBridge.getContainer(input.containerId);
+    if (container) assertNotApproved(container, 'createMember');
     const label = input.name?.trim() || 'New segment';
     const colorRgba: [number, number, number, number] = [
       input.color[0],
@@ -286,6 +314,7 @@ export const containerService: ContainerService = {
     if (!member.csSegmentationId || !Number.isInteger(member.segmentIndex) || member.segmentIndex! <= 0) {
       return;
     }
+    assertNotApproved(container, 'deleteMember');
     deps.removeSegment(member.csSegmentationId, member.segmentIndex!);
     containerBridge.setDirty(container.id, true);
     // Member array re-derives via SEGMENTATION_MODIFIED auto-sync.
@@ -314,6 +343,7 @@ export const containerService: ContainerService = {
     if (!member.csSegmentationId || !Number.isInteger(member.segmentIndex) || member.segmentIndex! <= 0) {
       return;
     }
+    assertNotApproved(container, 'renameMember');
     deps.renameSegment(member.csSegmentationId, member.segmentIndex!, trimmed);
     containerBridge.setDirty(container.id, true);
   },
@@ -333,6 +363,7 @@ export const containerService: ContainerService = {
     if (!member.csSegmentationId || !Number.isInteger(member.segmentIndex) || member.segmentIndex! <= 0) {
       return;
     }
+    assertNotApproved(container, 'recolorMember');
     const colorRgba: [number, number, number, number] = [color[0], color[1], color[2], 255];
     deps.setSegmentColor(member.csSegmentationId, member.segmentIndex!, colorRgba);
     containerBridge.setDirty(container.id, true);
@@ -352,6 +383,7 @@ export const containerService: ContainerService = {
     const { container, member } = found;
     if (container.kind !== 'RTSTRUCT') return; // No-op for SEG / POI.
     if (member.roiType === roiType) return;
+    assertNotApproved(container, 'setRoiType');
     member.roiType = roiType;
     member.modifiedAt = Date.now();
     container.dirty = true;

@@ -673,11 +673,12 @@ describe('Signal 19 — approval state persistence (§D7.11)', () => {
     expect(c.approval.history).toHaveLength(1);
   });
 
-  it('KNOWN LIMITATION: service-layer edit-lock not enforced when approved (UI-only)', async () => {
-    // Phase 3.8a hides the per-member action menu when approved (the
-    // current edit-lock surface). The service layer doesn't currently
-    // refuse mutations on approved containers — it would be a Phase 3.8e
-    // refinement. Documenting the gap so future work can close it.
+  it('Phase 3.8e: approved containers refuse persisted-state mutations at the service layer', async () => {
+    // Service-layer edit-lock backstop. The list panel UI hides the
+    // member action menu when approved (Phase 3.8a); this test verifies
+    // that programmatic callers (or future code paths that bypass the UI)
+    // also can't mutate persisted state on an approved container. The
+    // user must explicitly revoke approval per §D7.11.
     const { containerService } = await import('../containerService');
     const containerId = containerBridge.register('rtstruct_1', { kind: 'RTSTRUCT' });
     containerBridge.getContainer(containerId)!.members.push({
@@ -706,9 +707,58 @@ describe('Signal 19 — approval state persistence (§D7.11)', () => {
     });
     containerService.approveContainer(containerId, null);
 
+    // All persisted-state mutations refused while approved.
+    expect(() => containerService.setRoiType('m1', 'PTV')).toThrow(/edit-locked/);
+    expect(() => containerService.renameContainer(containerId, 'New name')).toThrow(/edit-locked/);
+    expect(() => containerService.renameMember('m1', 'New name')).toThrow(/edit-locked/);
+    expect(() => containerService.recolorMember('m1', [0, 0, 0])).toThrow(/edit-locked/);
+    expect(() => containerService.deleteMember('m1')).toThrow(/edit-locked/);
+    await expect(
+      containerService.createMember({
+        containerId,
+        name: 'X',
+        color: [0, 0, 0],
+      }),
+    ).rejects.toThrow(/edit-locked/);
+
+    // Revoke unlocks editing per §D7.11.
+    containerService.revokeApproval(containerId, null);
     containerService.setRoiType('m1', 'PTV');
     expect(containerBridge.getContainer(containerId)?.members[0].roiType).toBe('PTV');
-    // ^ This succeeds today. A future Phase 3.8e refinement would have
-    //   the service refuse this mutation when the container is approved.
+  });
+
+  it('approved containers still allow session-only state changes (visibility, A2c opt-in, selection)', async () => {
+    const { containerService } = await import('../containerService');
+    const containerId = containerBridge.register('rtstruct_1', { kind: 'RTSTRUCT' });
+    containerBridge.getContainer(containerId)!.members.push({
+      id: 'm1',
+      name: 'Tumor',
+      color: [255, 0, 0],
+      visibility: 'filled',
+      locked: false,
+      provenance: 'manual',
+      roiType: 'GTV',
+      roiNumber: 1,
+      interpolationState: null,
+      segmentIndex: 1,
+      segmentDescription: null,
+      segmentedPropertyCategory: null,
+      segmentedPropertyType: null,
+      poiPoints: null,
+      algebra: null,
+      algebraSources: null,
+      algebraOutOfDate: false,
+      algebraManualOverride: false,
+      csAnnotationUIDs: null,
+      csSegmentationId: 'rtstruct_1',
+      createdAt: 0,
+      modifiedAt: 0,
+    });
+    containerService.approveContainer(containerId, null);
+
+    // Per §D7.10 / §D7.11 — session-only state isn't part of the edit-lock.
+    expect(() => containerService.setMemberVisibility('m1', 'outlined')).not.toThrow();
+    expect(() => containerService.setA2cOptedIn(containerId, true)).not.toThrow();
+    expect(() => containerService.setActiveMember('m1')).not.toThrow();
   });
 });
