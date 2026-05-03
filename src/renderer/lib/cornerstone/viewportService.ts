@@ -397,13 +397,43 @@ export const viewportService = {
    * Scroll to a specific image index.
    */
   scrollToIndex(viewportId: string, index: number): void {
-    const viewport = getStackViewport(viewportId);
-    if (!viewport) return;
+    const engine = getEngine();
+    if (!engine) return;
+    const vp = (() => {
+      try {
+        return engine.getViewport(viewportId) as unknown as {
+          getCurrentImageIdIndex?: () => number;
+          getSliceIndex?: () => number;
+          setImageIdIndex?: (i: number) => unknown;
+          setSliceIndex?: (i: number) => unknown;
+          scroll?: (delta: number) => void;
+        };
+      } catch {
+        return null;
+      }
+    })();
+    if (!vp) return;
 
-    const currentIndex = viewport.getCurrentImageIdIndex();
-    const delta = index - currentIndex;
-    if (delta !== 0) {
-      viewport.scroll(delta);
+    // Stack viewports prefer setImageIdIndex (synchronous + idempotent).
+    // Volume viewports use setSliceIndex. Fall back to delta scroll() if
+    // the index-based setter isn't available.
+    if (typeof vp.setImageIdIndex === 'function') {
+      vp.setImageIdIndex(index);
+      return;
+    }
+    if (typeof vp.setSliceIndex === 'function') {
+      vp.setSliceIndex(index);
+      return;
+    }
+    const currentIndex =
+      typeof vp.getCurrentImageIdIndex === 'function'
+        ? vp.getCurrentImageIdIndex()
+        : typeof vp.getSliceIndex === 'function'
+          ? vp.getSliceIndex()
+          : 0;
+    const delta = index - (Number.isInteger(currentIndex) ? Number(currentIndex) : 0);
+    if (delta !== 0 && typeof vp.scroll === 'function') {
+      vp.scroll(delta);
     }
   },
 

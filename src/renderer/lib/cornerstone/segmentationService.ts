@@ -1082,14 +1082,29 @@ export const segmentationService = {
         const vp = viewportService.getViewport(viewportId);
         if (!vp) return null;
 
-        // Stack mode: walk all contour annotations whose
+        // Walk all contour annotations whose
         // `data.segmentation.{segmentationId,segmentIndex}` matches the
         // member, map each to its `metadata.referencedImageId`, and
-        // resolve through the viewport's image-id list to a stack
-        // index. Volume-mode review is deferred — `getImageIds` returns
-        // an empty array on volume viewports and the navigation API
-        // differs.
-        const imageIds: string[] = (vp as { getImageIds?: () => string[] }).getImageIds?.() ?? [];
+        // resolve through the viewport's image-id list to a slice
+        // index. Stack viewports return their imageIds from
+        // `getImageIds()` directly. Volume viewports return [] from the
+        // 0-arg signature but accept `getImageIds(volumeId)` — try the
+        // active volume's imageIds when the 0-arg form is empty.
+        const vpAny = vp as {
+          getImageIds?: (volumeId?: string) => string[];
+          getAllVolumeIds?: () => string[];
+        };
+        let imageIds: string[] = vpAny.getImageIds?.() ?? [];
+        if (imageIds.length === 0 && typeof vpAny.getAllVolumeIds === 'function') {
+          const volumeIds = vpAny.getAllVolumeIds() ?? [];
+          for (const volId of volumeIds) {
+            const ids = vpAny.getImageIds?.(volId) ?? [];
+            if (ids.length > 0) {
+              imageIds = ids;
+              break;
+            }
+          }
+        }
         if (imageIds.length === 0) return null;
 
         const indexByImageId = new Map<string, number>();
@@ -1112,8 +1127,17 @@ export const segmentationService = {
 
         let currentImageIdIndex: number | null = null;
         try {
-          const cur = (vp as { getCurrentImageIdIndex?: () => number }).getCurrentImageIdIndex?.();
-          if (typeof cur === 'number' && Number.isInteger(cur)) currentImageIdIndex = cur;
+          // Stack viewports expose `getCurrentImageIdIndex()`; volume
+          // viewports expose `getSliceIndex()` instead. Try both.
+          const stackIdx = (vp as { getCurrentImageIdIndex?: () => number }).getCurrentImageIdIndex?.();
+          if (typeof stackIdx === 'number' && Number.isInteger(stackIdx)) {
+            currentImageIdIndex = stackIdx;
+          } else {
+            const sliceIdx = (vp as { getSliceIndex?: () => number }).getSliceIndex?.();
+            if (typeof sliceIdx === 'number' && Number.isInteger(sliceIdx)) {
+              currentImageIdIndex = sliceIdx;
+            }
+          }
         } catch {
           currentImageIdIndex = null;
         }
