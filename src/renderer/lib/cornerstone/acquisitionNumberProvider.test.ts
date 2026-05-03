@@ -50,20 +50,20 @@ afterEach(() => {
 
 describe('resolveAcquisitionNumber', () => {
   it('parses an integer AcquisitionNumber from the wadouri-cached dataset', () => {
-    cacheState['dicomfile:0'] = { string: (tag: string) => (tag === 'x00200012' ? '5' : undefined) };
-    cacheLoaded['dicomfile:0'] = true;
+    cacheState['0'] = { string: (tag: string) => (tag === 'x00200012' ? '5' : undefined) };
+    cacheLoaded['0'] = true;
     expect(resolveAcquisitionNumber('dicomfile:0')).toEqual({ AcquisitionNumber: 5 });
   });
 
   it('returns AcquisitionNumber=null when the tag is empty', () => {
-    cacheState['dicomfile:0'] = { string: (_tag: string) => '' };
-    cacheLoaded['dicomfile:0'] = true;
+    cacheState['0'] = { string: (_tag: string) => '' };
+    cacheLoaded['0'] = true;
     expect(resolveAcquisitionNumber('dicomfile:0')).toEqual({ AcquisitionNumber: null });
   });
 
   it('returns AcquisitionNumber=null for a non-numeric value', () => {
-    cacheState['dicomfile:0'] = { string: (_tag: string) => 'abc' };
-    cacheLoaded['dicomfile:0'] = true;
+    cacheState['0'] = { string: (_tag: string) => 'abc' };
+    cacheLoaded['0'] = true;
     expect(resolveAcquisitionNumber('dicomfile:0')).toEqual({ AcquisitionNumber: null });
   });
 
@@ -81,9 +81,17 @@ describe('resolveAcquisitionNumber', () => {
     expect(resolveAcquisitionNumber('wadouri:file:///a/b.dcm')).toEqual({ AcquisitionNumber: 7 });
   });
 
+  it('strips dicomfile: prefix when matching the dataSetCacheManager URI', () => {
+    // wadouri.fileManager.add() returns `dicomfile:N`. The cache key is the
+    // numeric URL portion (`N`), not the full imageId.
+    cacheState['5'] = { string: (tag: string) => (tag === 'x00200012' ? '8' : undefined) };
+    cacheLoaded['5'] = true;
+    expect(resolveAcquisitionNumber('dicomfile:5')).toEqual({ AcquisitionNumber: 8 });
+  });
+
   it('coerces stringly-typed AcquisitionNumber to a number (DICOM IS VR is a string)', () => {
-    cacheState['dicomfile:0'] = { string: (_tag: string) => '12' };
-    cacheLoaded['dicomfile:0'] = true;
+    cacheState['0'] = { string: (_tag: string) => '12' };
+    cacheLoaded['0'] = true;
     expect(resolveAcquisitionNumber('dicomfile:0')).toEqual({ AcquisitionNumber: 12 });
   });
 });
@@ -99,8 +107,8 @@ describe('registerAcquisitionNumberProvider', () => {
     expect(provider('generalSeriesModule', 'dicomfile:0')).toBeUndefined();
 
     // Returns a structured result for the extension type when the dataset is cached.
-    cacheState['dicomfile:0'] = { string: (tag: string) => (tag === 'x00200012' ? '3' : undefined) };
-    cacheLoaded['dicomfile:0'] = true;
+    cacheState['0'] = { string: (tag: string) => (tag === 'x00200012' ? '3' : undefined) };
+    cacheLoaded['0'] = true;
     expect(provider(ACQUISITION_NUMBER_EXTENSION, 'dicomfile:0')).toEqual({ AcquisitionNumber: 3 });
   });
 

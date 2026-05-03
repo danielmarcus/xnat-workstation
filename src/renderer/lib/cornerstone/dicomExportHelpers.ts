@@ -192,7 +192,14 @@ export function parseReferencedFrameNumber(imageId: string): number | null {
 }
 
 function toWadouriUri(imageId: string): string {
-  return imageId.startsWith('wadouri:') ? imageId.slice(8) : imageId;
+  // wadouri's `dataSetCacheManager` keys on the URL portion of the imageId
+  // — the part after the first colon. Both `wadouri:` and `dicomfile:`
+  // schemes strip the prefix. Without the dicomfile branch, local-fixture
+  // E2E paths (where imageIds look like `dicomfile:5`) miss the cache
+  // lookup and the fallback metadata reads return undefined.
+  if (imageId.startsWith('wadouri:')) return imageId.slice(8);
+  if (imageId.startsWith('dicomfile:')) return imageId.slice(10);
+  return imageId;
 }
 
 function toBaseInstanceUri(imageId: string): string {

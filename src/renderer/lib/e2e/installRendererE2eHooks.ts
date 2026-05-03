@@ -32,6 +32,12 @@ import {
   type EligibilityClass,
 } from '../cornerstone/segmentationService/visibility';
 import { resolveAction, type StyleAction } from '../cornerstone/segmentationService/styling';
+import { rtStructService } from '../cornerstone/rtStructService';
+import { containerService } from '../cornerstone/containerService';
+import * as containerBridge from '../cornerstone/containerBridge';
+import * as transport from '../cornerstone/segmentationService/transport';
+import { undoService } from '../cornerstone/undoService';
+import type { SaveOutcome } from '../cornerstone/transportContractService';
 
 type ActiveSegmentationState = {
   activeSegmentationId: string | null;
@@ -97,6 +103,15 @@ type ToggleMprResult = {
 };
 
 let lockAwareUndoRedoCounter = 0;
+
+// Synthetic SaveAdapter call-stats for signal G14 / G15 E2E. Populated
+// when `installTestSaveAdapter()` runs; reset on each install so test
+// re-runs start fresh.
+let testSaveAdapterStats: null | {
+  saveCount: number;
+  inFlight: number;
+  perContainer: Record<string, number>;
+} = null;
 
 declare global {
   interface Window {
@@ -259,6 +274,130 @@ declare global {
         eligibility: EligibilityClass | null;
         action: StyleAction;
       };
+
+      /**
+       * Sync. Wraps `segmentationService.shouldBlockDrawingOnViewport` —
+       * resolves the drawing-routing decision for the given viewport
+       * against the current `useSegmentationStore.activeSegmentationId`.
+       * Used by signal G12 (drawing block on non-native series) to assert
+       * that gesture-start would be blocked with a hint.
+       *
+       * Returns either `{ kind: 'allow' }` or
+       * `{ kind: 'block', reason, hintMessage }`.
+       */
+      getDrawingRoutingDecision: (viewportId: string) =>
+        | { kind: 'allow' }
+        | {
+            kind: 'block';
+            reason: 'no-for-matched-viewport-open' | 'cross-series' | 'cross-for';
+            hintMessage: string;
+          };
+
+      /**
+       * Async. Wraps `rtStructService.exportToRtStruct(segId)`. Returns
+       * the serialized RTSTRUCT as a base64 string so specs can
+       * round-trip via dcmjs without going through XNAT. Used by signals
+       * G13 / G18 / G19 / G22 (RTSTRUCT save → parse → reload).
+       */
+      exportRtStructToBase64: (segmentationId: string) => Promise<string | null>;
+
+      /**
+       * Sync. Wraps `containerService.setRoiType(memberId, roiType)` so
+       * specs can drive typed-ROI mutations through the production code
+       * path. Used by G18 (RTROIInterpretedType round-trip).
+       */
+      setMemberRoiType: (memberId: string, roiType: string) => void;
+
+      /**
+       * Sync. Wraps `containerService.approveContainer(containerId, by)`
+       * so specs can drive the approval workflow through the production
+       * code path. Used by G19 (approval persistence).
+       */
+      approveContainer: (containerId: string, by: string | null) => void;
+
+      /**
+       * Sync. Returns the active container's ID, or null if none. Used
+       * by RTSTRUCT round-trip specs that need to address the container
+       * by id (approval / revoke / save).
+       */
+      getActiveContainerId: () => string | null;
+
+      /**
+       * Sync. Returns the member metadata for the active container's
+       * members — id, segmentIndex, roiType, provenance — without
+       * exposing the full Container object (which includes Cornerstone
+       * cross-references). Used by RTSTRUCT round-trip specs.
+       */
+      getActiveContainerMembers: () => Array<{
+        id: string;
+        segmentIndex: number | null;
+        roiType: string | null;
+        provenance: string;
+        name: string;
+      }>;
+
+      /**
+       * Sync. Installs a synthetic in-process `SaveAdapter` and short
+       * debounce window so signal G14 (queue-next-save) and G15 (undo
+       * crosses save point) can drive the production transport pipeline
+       * end-to-end without an XNAT round-trip. The adapter records every
+       * `save(containerId)` call and resolves with `{ kind: 'success', ... }`
+       * after a small delay so concurrent `notifyDirty` calls exercise
+       * the saving / saving-pending states.
+       *
+       * Returns a session-id string the spec uses with
+       * `getTransportTestStats(sessionId)` to read recorded save counts.
+       * Calling `installTestSaveAdapter` again replaces the prior adapter
+       * and resets stats.
+       */
+      installTestSaveAdapter: (saveDelayMs?: number, debounceMs?: number) => string;
+
+      /**
+       * Sync. Reads the synthetic SaveAdapter's recorded stats:
+       * - saveCount: number of times save() has been invoked
+       * - inFlight: number of saves currently awaiting their delay
+       * - perContainer: per-containerId save call counts
+       * Returns null if no test adapter has been installed.
+       */
+      getTransportTestStats: () => null | {
+        saveCount: number;
+        inFlight: number;
+        perContainer: Record<string, number>;
+      };
+
+      /**
+       * Async. Wraps `transport.flushNow(containerId)` — manual Save path
+       * that bypasses the debounce. Resolves to the SaveOutcome (or null
+       * when a save was already in flight and this call only set
+       * pending). Used to anchor save points in the G15 undo flow.
+       */
+      transportFlushNow: (containerId: string) => Promise<unknown>;
+
+      /**
+       * Sync. Wraps `transport.notifyDirty(containerId)` — schedules a
+       * debounced save the same way the production autoSave path does
+       * after a real edit. Used by E2E specs whose edit pipeline
+       * (`createTestContour`) bypasses the autoSave event listeners and
+       * therefore needs to drive the dirty notification explicitly.
+       */
+      transportNotifyDirty: (containerId: string) => void;
+
+      /**
+       * Async. Wait until the synthetic adapter's in-flight count drops
+       * to zero AND no debounce timer is queued for the given container.
+       * Useful before asserting end-state save counts.
+       */
+      waitForTransportIdle: (containerId: string, timeoutMs?: number) => Promise<boolean>;
+
+      /** Sync. Reads `containerBridge.getContainer(id).dirty`. */
+      getContainerDirty: (containerId: string) => boolean | null;
+
+      /**
+       * Async. Wraps the global `undoService.undo()` call so specs can
+       * step backward through the undo stack from the renderer. Returns
+       * true on a successful undo, false if there's nothing to undo.
+       */
+      undoOnce: () => boolean;
     };
   }
 }
@@ -935,6 +1074,101 @@ export function installRendererE2eHooks(): void {
         a2cOptedIn: false,
       });
       return { eligibility, action };
+    },
+    getDrawingRoutingDecision: (viewportId: string) => {
+      return segmentationService.shouldBlockDrawingOnViewport(viewportId);
+    },
+    exportRtStructToBase64: async (segmentationId: string) => {
+      try {
+        return await rtStructService.exportToRtStruct(segmentationId);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn('[__XNAT_E2E__] exportRtStructToBase64 failed', msg);
+        // Re-throw so the spec sees the actual error rather than `null`.
+        // Tests can wrap in try/catch if they need null behavior.
+        throw new Error(`exportRtStructToBase64: ${msg}`);
+      }
+    },
+    setMemberRoiType: (memberId: string, roiType: string) => {
+      containerService.setRoiType(memberId, roiType as never);
+    },
+    approveContainer: (containerId: string, by: string | null) => {
+      containerService.approveContainer(containerId, by);
+    },
+    getActiveContainerId: () => {
+      return containerBridge.getActiveContainerId();
+    },
+    getActiveContainerMembers: () => {
+      const containerId = containerBridge.getActiveContainerId();
+      if (!containerId) return [];
+      const container = containerBridge.getContainer(containerId);
+      if (!container) return [];
+      return container.members.map((m) => ({
+        id: m.id,
+        segmentIndex: m.segmentIndex,
+        roiType: m.roiType,
+        provenance: m.provenance,
+        name: m.name,
+      }));
+    },
+    installTestSaveAdapter: (saveDelayMs = 50, debounceMs = 25) => {
+      // Reset any prior adapter state on re-install (e.g. test re-runs).
+      testSaveAdapterStats = {
+        saveCount: 0,
+        inFlight: 0,
+        perContainer: {},
+      };
+      transport.setAdapter({
+        save: async (containerId: string) => {
+          testSaveAdapterStats!.saveCount += 1;
+          testSaveAdapterStats!.inFlight += 1;
+          testSaveAdapterStats!.perContainer[containerId] =
+            (testSaveAdapterStats!.perContainer[containerId] ?? 0) + 1;
+          await new Promise((resolve) => setTimeout(resolve, saveDelayMs));
+          testSaveAdapterStats!.inFlight -= 1;
+          // Return `success` so the coordinator clears bridge.dirty.
+          return { kind: 'success', token: `test-token-${Date.now()}` } as SaveOutcome;
+        },
+      });
+      transport.setDebounceMs(debounceMs);
+      return `test-adapter-${Date.now()}`;
+    },
+    getTransportTestStats: () => {
+      if (!testSaveAdapterStats) return null;
+      return {
+        saveCount: testSaveAdapterStats.saveCount,
+        inFlight: testSaveAdapterStats.inFlight,
+        perContainer: { ...testSaveAdapterStats.perContainer },
+      };
+    },
+    transportFlushNow: async (containerId: string) => {
+      return transport.flushNow(containerId);
+    },
+    transportNotifyDirty: (containerId: string) => {
+      transport.notifyDirty(containerId);
+    },
+    waitForTransportIdle: async (containerId: string, timeoutMs = 5_000) => {
+      const deadline = Date.now() + timeoutMs;
+      while (Date.now() < deadline) {
+        const stats = testSaveAdapterStats;
+        if (!stats || stats.inFlight === 0) {
+          // Also wait one tick so any queued debounce timer flushes.
+          await new Promise((resolve) => setTimeout(resolve, 0));
+          if (!stats || stats.inFlight === 0) return true;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      return false;
+    },
+    getContainerDirty: (containerId: string) => {
+      const c = containerBridge.getContainer(containerId);
+      return c ? !!c.dirty : null;
+    },
+    undoOnce: () => {
+      const containerId = containerBridge.getActiveContainerId();
+      if (!containerId) return false;
+      const entry = undoService.undo(containerId);
+      return !!entry;
     },
   };
 }

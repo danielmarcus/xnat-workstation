@@ -26,6 +26,7 @@ import { useConnectionStore } from '../../stores/connectionStore';
 import { useSegmentationStore } from '../../stores/segmentationStore';
 import { segmentationService } from './segmentationService';
 import * as contourRep from './contourRepresentation';
+import * as containerBridge from './containerBridge';
 import {
   formatOperatorsNameForConnection,
   upsertOperatorsName,
@@ -742,6 +743,58 @@ function applyCurrentSegmentColorsToRtStructDataset(dataset: any, segmentationId
   }
 }
 
+/**
+ * Overlay per-member metadata from the container bridge onto the RTSTRUCT
+ * dataset the @cornerstonejs/adapters generator produced. Adapter output is
+ * generic — every observation gets `RTROIInterpretedType = 'ORGAN'` and no
+ * `ApprovalStatus`. The container layer (Phase 3) holds the user's typed-ROI
+ * choices and the approval state, so this is where we patch them in before
+ * serialization.
+ *
+ * No-op when the segmentation has no registered container (e.g. legacy
+ * single-container path that doesn't use the bridge), so the existing
+ * adapter output is preserved.
+ */
+function applyContainerMetadataToRtStructDataset(dataset: any, segmentationId: string): void {
+  if (!dataset) return;
+  const containerId = containerBridge.getContainerId(segmentationId);
+  if (!containerId) return;
+  const container = containerBridge.getContainer(containerId);
+  if (!container) return;
+
+  // Patch RTROIInterpretedType per ROI, keyed by segmentIndex / ROINumber.
+  if (Array.isArray(dataset.RTROIObservationsSequence)) {
+    const roiTypeByIndex = new Map<number, string>();
+    for (const member of container.members) {
+      if (
+        member.roiType
+        && Number.isInteger(member.segmentIndex)
+        && member.segmentIndex! > 0
+      ) {
+        roiTypeByIndex.set(member.segmentIndex!, member.roiType);
+      }
+    }
+    if (roiTypeByIndex.size > 0) {
+      for (let i = 0; i < dataset.RTROIObservationsSequence.length; i++) {
+        const obs = dataset.RTROIObservationsSequence[i];
+        if (!obs || typeof obs !== 'object') continue;
+        const roiNumber = Number(obs.ReferencedROINumber);
+        const lookup = Number.isFinite(roiNumber) && roiNumber > 0 ? roiNumber : i + 1;
+        const type = roiTypeByIndex.get(lookup);
+        if (type) {
+          obs.RTROIInterpretedType = type;
+        }
+      }
+    }
+  }
+
+  // ApprovalStatus per §G #19: persist the container-level approval flag
+  // through the DICOM round-trip. Default ('UNAPPROVED') is unchanged.
+  if (container.approval?.approved) {
+    dataset.ApprovalStatus = 'APPROVED';
+  }
+}
+
 function toStructureSetLabel(value: string | undefined): string {
   const trimmed = value?.trim() || 'RTSTRUCT';
   return trimmed.slice(0, 16);
@@ -1038,6 +1091,14 @@ async function exportToRtStruct(segmentationId: string): Promise<string> {
     rtssDataset.OperatorsName = operatorsName;
   }
   applyCurrentSegmentColorsToRtStructDataset(rtssDataset, segmentationId);
+  // Overlay per-member metadata from the container bridge onto the
+  // adapter's output. The `@cornerstonejs/adapters` `generateRTSSFromContour`
+  // emits a generic `RTROIInterpretedType` (defaulting to 'ORGAN') and no
+  // `ApprovalStatus`. The container layer (Phase 3) is the source of truth
+  // for both — this loop walks each observation by `ReferencedROINumber` and
+  // patches in the bridge's typed-ROI value, plus the container's approval
+  // state via `ApprovalStatus = 'APPROVED'`.
+  applyContainerMetadataToRtStructDataset(rtssDataset, segmentationId);
   if (Array.isArray(rtssDataset.RTROIObservationsSequence)) {
     for (const observation of rtssDataset.RTROIObservationsSequence) {
       if (observation && typeof observation === 'object' && observation.ROIInterpreter == null) {

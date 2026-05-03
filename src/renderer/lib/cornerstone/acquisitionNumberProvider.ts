@@ -27,7 +27,12 @@ export interface AcquisitionNumberExtensionResult {
 }
 
 function toWadouriUri(imageId: string): string {
-  return imageId.startsWith('wadouri:') ? imageId.slice(8) : imageId;
+  // wadouri's `dataSetCacheManager` keys on the URL portion of the imageId —
+  // the part after the first colon. Both `wadouri:` and `dicomfile:` schemes
+  // strip the prefix; an imageId without a colon is passed through.
+  if (imageId.startsWith('wadouri:')) return imageId.slice(8);
+  if (imageId.startsWith('dicomfile:')) return imageId.slice(10);
+  return imageId;
 }
 
 function toBaseInstanceUri(imageId: string): string {
