@@ -68,6 +68,8 @@ import {
   resetContainerServiceWiring,
 } from './containerService';
 import { wireContainerActions } from './containerActions';
+import { wireXnatUpload, defaultExportToBase64 } from './xnatUploadService';
+import { showAlertDialog, showConfirmDialog } from '../../stores/dialogStore';
 import * as provenanceStamping from './segmentationService/provenance';
 import * as interpolationUndo from './segmentationService/interpolationUndo';
 import * as mlg from './multiLayerGroup';
@@ -759,22 +761,12 @@ let initialized = false;
 //   - preferencesStore subscription: re-apply globally when the
 //     `multiViewport.crossSeriesRendering` toggle flips.
 //
-// All of this is gated on `multiViewport.enabled`. When the flag is off,
-// the handler/subscription run but exit early — no Cornerstone state is
-// mutated. This keeps the legacy code path identical to its pre-Phase-2
-// behavior.
+// Phase 6.6 deleted the multiViewport.enabled flag — these subscriptions
+// always run.
 let visibilityStyling: StylingService | null = null;
 let crossSeriesPrefUnsubscribe: (() => void) | null = null;
 let containerBridgeStylingUnsubscribe: (() => void) | null = null;
 let hoverSelectionUnsubscribe: (() => void) | null = null;
-
-function isMultiViewportEnabled(): boolean {
-  try {
-    return usePreferencesStore.getState().preferences.multiViewport.enabled;
-  } catch {
-    return false;
-  }
-}
 
 /**
  * Apply D9 styling for every (segmentation, viewport) pair currently known
@@ -782,7 +774,7 @@ function isMultiViewportEnabled(): boolean {
  * `crossSeriesRendering` toggle flip.
  */
 function applyVisibilityStylingGlobally(): void {
-  if (!visibilityStyling || !isMultiViewportEnabled()) return;
+  if (!visibilityStyling) return;
   const pairs: Array<{ segmentationId: string; viewportId: string }> = [];
   for (const seg of csSegmentation.state.getSegmentations()) {
     for (const vpId of csSegmentation.state.getViewportIdsWithSegmentation(seg.segmentationId)) {
@@ -829,7 +821,7 @@ function resolveHoverTarget(memberId: string | null): HoverTarget | null {
 }
 
 function onSegmentationRepresentationAddedOrModified(evt: Event): void {
-  if (!visibilityStyling || !isMultiViewportEnabled()) return;
+  if (!visibilityStyling) return;
   const detail = (evt as CustomEvent<{ segmentationId?: string; viewportId?: string }>).detail;
   const segmentationId = detail?.segmentationId;
   const viewportId = detail?.viewportId;
@@ -1154,6 +1146,58 @@ export const segmentationService = {
       },
     });
 
+    // Phase 6 / Stage 2B.2: wire the XNAT upload service with the
+    // panel-context lookups + default export-to-base64 + app-level
+    // dialogs for prompts and notifications. After Stage 2B.4 the
+    // legacy SegmentationPanel + its custom ExistingSaveDialog are
+    // gone; ContainerListPanel ⋯ menu uses the dialog-store-backed
+    // confirm + alert below.
+    wireXnatUpload({
+      getPanelXnatContext: () => {
+        const viewerState = useViewerStore.getState();
+        const activePanelId = viewerState.activeViewportId;
+        return viewerState.panelXnatContextMap[activePanelId] ?? viewerState.xnatContext ?? null;
+      },
+      getSourceScanId: () => {
+        const viewerState = useViewerStore.getState();
+        const activePanelId = viewerState.activeViewportId;
+        return viewerState.panelScanMap[activePanelId] ?? viewerState.xnatContext?.scanId ?? null;
+      },
+      exportToBase64: defaultExportToBase64(),
+      notify: (message, kind) => {
+        // Use app-level alert dialog so a user uploading from
+        // ContainerListPanel sees a real notification rather than a
+        // silent console line. Errors get a danger-toned title.
+        void showAlertDialog({
+          title: kind === 'error' ? 'Upload error' : kind === 'success' ? 'Upload complete' : 'Upload',
+          message,
+        });
+        // Console line preserved for devtools / E2E observation.
+        const fn = kind === 'error' ? console.error : console.log;
+        fn(`[xnatUploadService] ${message}`);
+      },
+      promptExisting: async (scanId, dicomType, suggestedLabel) => {
+        // Simple confirm dialog — overwrite vs. cancel. The richer
+        // create-new-with-labeled-scan path that lived in the legacy
+        // SegmentationPanel's ExistingSaveDialog deleted with the
+        // panel in Stage 2B.4; for now ContainerListPanel ⋯ menu
+        // offers overwrite-or-cancel only. A future enhancement can
+        // add an inline label-editor to the confirm prompt if users
+        // need create-new without leaving the new panel surface.
+        const confirmed = await showConfirmDialog({
+          title: 'Existing scan found',
+          message:
+            `An existing ${dicomType} scan (${scanId}) is bound to this `
+            + `segmentation. Overwrite it?\n\nCancel to keep the existing `
+            + `scan unchanged. (Suggested new-scan label: ${suggestedLabel})`,
+          confirmLabel: 'Overwrite',
+          cancelLabel: 'Cancel',
+          tone: 'danger',
+        });
+        return confirmed ? { action: 'overwrite' } : { action: 'cancel' };
+      },
+    });
+
     // Phase 4.6: always auto-accept interpolated contours on generation
     // (write-through model per design §B5). The preference-gated +
     // click-to-accept policies of the legacy `interpolationAcceptance`
@@ -1198,9 +1242,8 @@ export const segmentationService = {
 
     // Phase 4.3: collapse the per-contour memos generated by an
     // inter-slice interpolation pass into a single batched undo entry.
-    // The buffer-divert in `historyMemo.routeMemoToUndoService` is gated
-    // on `multiViewport.enabled`, so flag-off legacy behavior is
-    // preserved (per-contour entries land in undoService as before).
+    // The buffer-divert in `historyMemo.routeMemoToUndoService` runs
+    // unconditionally after Phase 6.6.
     interpolationUndo.wireInterpolationUndo({
       getContainerId: (csSegId) => containerBridge.getContainerId(csSegId),
       takeAutoGeneratedBuffer: (containerId) => takeAutoGeneratedBuffer(containerId),
@@ -1216,9 +1259,7 @@ export const segmentationService = {
 
     // Phase 2.4b: build the D9 visibility-styling service and subscribe
     // to (a) per-viewport-per-segmentation lifecycle events and (b)
-    // preferencesStore changes to the cross-series toggle. Gated on
-    // multiViewport.enabled inside the handlers so the legacy path stays
-    // untouched.
+    // preferencesStore changes to the cross-series toggle.
     visibilityStyling = createStylingService(
       createCornerstoneStylingDeps({ getSegmentationType }),
     );
@@ -1298,10 +1339,6 @@ export const segmentationService = {
     const hoverDispatch = createHoverDispatcher(hoverDeps);
     hoverSelectionUnsubscribe = useContainerSelectionStore.subscribe((state, prev) => {
       if (state.hoverMemberId === prev?.hoverMemberId) return;
-      if (!isMultiViewportEnabled()) {
-        hoverDispatch(null);
-        return;
-      }
       hoverDispatch(resolveHoverTarget(state.hoverMemberId));
     });
 
@@ -1315,7 +1352,7 @@ export const segmentationService = {
         return;
       }
       const csSegId = containerBridge.getCsSegmentationId(containerId);
-      if (!csSegId || !visibilityStyling || !isMultiViewportEnabled()) return;
+      if (!csSegId || !visibilityStyling) return;
       const vpIds = csSegmentation.state.getViewportIdsWithSegmentation(csSegId);
       for (const vpId of vpIds) {
         visibilityStyling.applyForSegmentationViewport(csSegId, vpId);
@@ -2769,7 +2806,7 @@ export const segmentationService = {
    * pair. Returns `{ kind: 'allow' }` or `{ kind: 'block', reason, hintMessage }`.
    *
    * Caller (toolService lock-guard) should consult this on pointerdown when
-   * the active tool is a drawing tool, gated on `multiViewport.enabled`.
+   * the active tool is a drawing tool.
    *
    * Permissive on missing metadata (returns 'allow') — see drawingRouting.ts
    * for the full rule set.

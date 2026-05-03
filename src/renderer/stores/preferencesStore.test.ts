@@ -230,78 +230,11 @@ describe('usePreferencesStore', () => {
     expect(merged.preferences.updates).toEqual(DEFAULT_PREFERENCES.updates);
   });
 
-  describe('multiViewport feature flag', () => {
-    it('is disabled by default', () => {
-      const state = usePreferencesStore.getState().preferences;
-      expect(state.multiViewport.enabled).toBe(false);
-    });
-
-    it('toggles on and off via setMultiViewportEnabled', () => {
-      usePreferencesStore.getState().setMultiViewportEnabled(true);
-      expect(usePreferencesStore.getState().preferences.multiViewport.enabled).toBe(true);
-
-      usePreferencesStore.getState().setMultiViewportEnabled(false);
-      expect(usePreferencesStore.getState().preferences.multiViewport.enabled).toBe(false);
-    });
-
-    it('persists across merge from legacy state without the multiViewport key', () => {
-      const merge = persistApi().getOptions().merge;
-      const currentState = usePreferencesStore.getInitialState();
-
-      // Legacy persisted state from before the multi-viewport rewrite has
-      // no multiViewport key — must merge to the default-disabled value.
-      const merged = merge(
-        {
-          preferences: {
-            // No multiViewport key here
-          },
-        },
-        currentState,
-      ) as ReturnType<typeof usePreferencesStore.getState>;
-
-      expect(merged.preferences.multiViewport.enabled).toBe(false);
-    });
-
-    it('preserves user-enabled value through merge', () => {
-      const merge = persistApi().getOptions().merge;
-      const currentState = usePreferencesStore.getInitialState();
-
-      const merged = merge(
-        {
-          preferences: {
-            multiViewport: { enabled: true },
-          },
-        },
-        currentState,
-      ) as ReturnType<typeof usePreferencesStore.getState>;
-
-      expect(merged.preferences.multiViewport.enabled).toBe(true);
-    });
-
-    it('falls back to default for malformed persisted multiViewport value', () => {
-      const merge = persistApi().getOptions().merge;
-      const currentState = usePreferencesStore.getInitialState();
-
-      const merged = merge(
-        {
-          preferences: {
-            multiViewport: { enabled: 'yes' },
-          },
-        },
-        currentState,
-      ) as ReturnType<typeof usePreferencesStore.getState>;
-
-      expect(merged.preferences.multiViewport.enabled).toBe(false);
-    });
-
-    it('resets to default on resetAll', () => {
-      usePreferencesStore.getState().setMultiViewportEnabled(true);
-      usePreferencesStore.getState().resetAll();
-      expect(usePreferencesStore.getState().preferences.multiViewport.enabled).toBe(false);
-    });
-  });
-
   describe('multiViewport.crossSeriesRendering toggle', () => {
+    // Phase 6.6 deleted the `multiViewport.enabled` master switch
+    // (the rewrite is the only path now). The remaining
+    // `crossSeriesRendering` sub-toggle is still meaningful.
+
     it('defaults to true (A2b siblings render by default per requirement §A2b)', () => {
       const state = usePreferencesStore.getState().preferences;
       expect(state.multiViewport.crossSeriesRendering).toBe(true);
@@ -315,19 +248,12 @@ describe('usePreferencesStore', () => {
       expect(usePreferencesStore.getState().preferences.multiViewport.crossSeriesRendering).toBe(true);
     });
 
-    it('is independent of the multiViewport.enabled flag', () => {
-      usePreferencesStore.getState().setMultiViewportEnabled(true);
-      usePreferencesStore.getState().setCrossSeriesRendering(false);
-      expect(usePreferencesStore.getState().preferences.multiViewport.enabled).toBe(true);
-      expect(usePreferencesStore.getState().preferences.multiViewport.crossSeriesRendering).toBe(false);
-    });
-
-    it('persists across merge from legacy state without the crossSeriesRendering key', () => {
+    it('persists across merge from legacy state without the multiViewport key (silently drops legacy `enabled`)', () => {
       const merge = persistApi().getOptions().merge;
       const currentState = usePreferencesStore.getInitialState();
 
-      // Persisted state from before Phase 2.2 has multiViewport.enabled but no
-      // crossSeriesRendering key — must merge to the default-true value.
+      // Persisted state from before Phase 6.6 may carry a
+      // `multiViewport.enabled` key — the merge silently ignores it.
       const merged = merge(
         {
           preferences: {
@@ -337,18 +263,20 @@ describe('usePreferencesStore', () => {
         currentState,
       ) as ReturnType<typeof usePreferencesStore.getState>;
 
-      expect(merged.preferences.multiViewport.enabled).toBe(true);
       expect(merged.preferences.multiViewport.crossSeriesRendering).toBe(true);
+      expect(
+        (merged.preferences.multiViewport as { enabled?: boolean }).enabled,
+      ).toBeUndefined();
     });
 
-    it('preserves user-disabled value through merge', () => {
+    it('preserves user-disabled crossSeriesRendering value through merge', () => {
       const merge = persistApi().getOptions().merge;
       const currentState = usePreferencesStore.getInitialState();
 
       const merged = merge(
         {
           preferences: {
-            multiViewport: { enabled: true, crossSeriesRendering: false },
+            multiViewport: { crossSeriesRendering: false },
           },
         },
         currentState,
@@ -364,7 +292,7 @@ describe('usePreferencesStore', () => {
       const merged = merge(
         {
           preferences: {
-            multiViewport: { enabled: true, crossSeriesRendering: 'yes' },
+            multiViewport: { crossSeriesRendering: 'yes' },
           },
         },
         currentState,

@@ -20,6 +20,7 @@
 import type { Container } from '../../types/annotation';
 import * as containerBridge from './containerBridge';
 import * as transport from './segmentationService/transport';
+import { uploadSegmentationToXnat, type UploadOutcome } from './xnatUploadService';
 
 export interface ContainerActionsDeps {
   /** Export a SEG container's primary segmentation as DICOM SEG base64. */
@@ -145,6 +146,27 @@ export async function exportContainer(containerId: string): Promise<string | nul
     console.warn('[containerActions] exportContainer failed', { containerId, kind: container.kind, err });
     return null;
   }
+}
+
+/**
+ * Upload a container to XNAT via the production upload service. Maps
+ * the container's `kind` (SEG / RTSTRUCT) to the upload-service
+ * `dicomType` and dispatches. POI containers are not yet supported.
+ */
+export async function uploadContainerToXnat(containerId: string): Promise<UploadOutcome> {
+  if (!containerId) return 'failed';
+  const container = containerBridge.getContainer(containerId);
+  if (!container) return 'failed';
+  const csSegId = csIdFor(container);
+  if (!csSegId) {
+    console.warn('[containerActions] uploadContainerToXnat: no csSegmentationId on container', { containerId });
+    return 'failed';
+  }
+  if (container.kind === 'POI') {
+    console.warn('[containerActions] uploadContainerToXnat: POI upload not yet supported', { containerId });
+    return 'failed';
+  }
+  return uploadSegmentationToXnat(csSegId, container.kind);
 }
 
 // ─── Phase 4.8 — step through interpolated slices ──────────────────────

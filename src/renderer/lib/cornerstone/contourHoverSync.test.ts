@@ -62,7 +62,6 @@ vi.mock('@cornerstonejs/tools', () => ({
 
 import * as containerBridge from './containerBridge';
 import { useContainerSelectionStore } from '../../stores/containerSelectionStore';
-import { usePreferencesStore } from '../../stores/preferencesStore';
 import {
   resolveMemberIdFromAnnotation,
   runHitTest,
@@ -78,7 +77,6 @@ beforeEach(() => {
   csLabelmap.reps.clear();
   csLabelmap.sampleResults.clear();
   useContainerSelectionStore.getState().setHover(null);
-  usePreferencesStore.getState().setMultiViewportEnabled(true);
 });
 
 afterEach(() => {
@@ -88,7 +86,6 @@ afterEach(() => {
   csLabelmap.reps.clear();
   csLabelmap.sampleResults.clear();
   useContainerSelectionStore.getState().setHover(null);
-  usePreferencesStore.getState().setMultiViewportEnabled(false);
 });
 
 function injectMember(csSegId: string, segmentIndex: number, memberId: string): void {
@@ -422,21 +419,7 @@ describe('wireContourHoverDetection', () => {
     expect(useContainerSelectionStore.getState().hoverMemberId).toBeNull();
   });
 
-  it('flag-off path: mousemove is a no-op (no scheduling, no setHover)', () => {
-    usePreferencesStore.getState().setMultiViewportEnabled(false);
-    injectMember('seg_1', 1, 'm-1');
-    const { element, viewport } = makeViewportWithContour({
-      imageId: 'slice-1',
-      polyline: [[0, 0, 0], [10, 0, 0]],
-      annotationUID: 'ann-1',
-      segmentationId: 'seg_1',
-      segmentIndex: 1,
-    });
-    const dispose = wireContourHoverDetection(element, viewport);
-    useContainerSelectionStore.getState().setHover('was-set');
-    element.dispatchEvent(new MouseEvent('mousemove', { clientX: 5, clientY: 0 }));
-    // Still 'was-set' — flag-off path doesn't even schedule rAF.
-    expect(useContainerSelectionStore.getState().hoverMemberId).toBe('was-set');
-    dispose();
-  });
+  // Phase 6.6 deleted the multiViewport.enabled flag. The legacy
+  // "flag-off: mousemove is a no-op" test is no longer meaningful —
+  // hover-sync is unconditional now.
 });

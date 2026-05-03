@@ -358,9 +358,7 @@ function wireEvents(element: HTMLDivElement, panelId: string): () => void {
   element.addEventListener('click', onClick);
 
   // Phase 3.5c-canvas: cursor over a contour highlights its row in the
-  // list panel via useContainerSelectionStore.hoverMemberId. The wiring
-  // self-gates on multiViewport.enabled per call so legacy mode is
-  // unaffected.
+  // list panel via useContainerSelectionStore.hoverMemberId.
   const disposeHover = wireContourHoverDetection(element, () =>
     viewportService.getViewport(panelId) as never,
   );

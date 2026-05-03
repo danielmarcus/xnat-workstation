@@ -7,15 +7,14 @@
  * approval workflow, ROI type editing, provenance, multi-select bulk
  * operations) lands in Phase 3.4 → 3.8.
  *
- * Replaces the legacy AnnotationListPanel + SegmentationPanel split when
- * `multiViewport.enabled` is on; the legacy panels remain mounted under
- * flag-off until Phase 6.
+ * Sole annotations side panel after Phase 6 / Stage 2B.4 deleted the
+ * legacy AnnotationListPanel + SegmentationPanel. Toggled on/off via
+ * `useSegmentationStore.showPanel` (preserved name, repurposed).
  *
  * Reads from useContainerStore (Phase 3.2 reactive snapshot of the
  * containerBridge). Components don't read the bridge directly.
  *
- * Visual style mirrors the existing AnnotationListPanel / SegmentationPanel
- * (w-64 right-side rail, dark theme, zinc-* tones, xs typography).
+ * w-64 right-side rail, dark theme, zinc-* tones, xs typography.
  */
 import { useEffect, useRef, useState } from 'react';
 import { useContainerStore } from '../../stores/containerStore';
@@ -361,6 +360,10 @@ function ContainerRow({ container }: { container: Container }) {
     setActionMenuOpen(false);
     void containerActions.exportContainer(container.id);
   };
+  const onUploadXnat = () => {
+    setActionMenuOpen(false);
+    void containerActions.uploadContainerToXnat(container.id);
+  };
 
   return (
     <li
@@ -581,6 +584,21 @@ function ContainerRow({ container }: { container: Container }) {
                 className="block w-full text-left text-xs text-zinc-200 hover:bg-zinc-800 px-2 py-1"
               >
                 Export…
+              </button>
+              <button
+                type="button"
+                data-testid={`container-menu-upload-xnat:${container.id}`}
+                role="menuitem"
+                onClick={onUploadXnat}
+                disabled={container.kind === 'POI'}
+                title={
+                  container.kind === 'POI'
+                    ? 'POI upload not yet supported'
+                    : 'Upload to XNAT (overwrite-or-create-new prompt fires when an existing scan id is bound)'
+                }
+                className="block w-full text-left text-xs text-zinc-200 hover:bg-zinc-800 px-2 py-1 disabled:text-zinc-600 disabled:hover:bg-transparent"
+              >
+                Upload to XNAT…
               </button>
             </div>
           )}

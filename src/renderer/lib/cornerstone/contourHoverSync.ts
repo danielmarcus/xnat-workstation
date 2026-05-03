@@ -16,9 +16,6 @@
  *
  * mouseleave on the viewport clears hover.
  *
- * Gated on `multiViewport.enabled` — under flag-off the listener still
- * fires but exits early so legacy hover behavior is unaffected.
- *
  * The labelmap canvas → row direction (cursor over a labelmap voxel →
  * resolve the segment index at that voxel) is staged separately as
  * Phase 3.5c-canvas-labelmap because it needs Cornerstone's voxel-sample
@@ -26,7 +23,6 @@
  */
 import { annotation as csAnnotation } from '@cornerstonejs/tools';
 import { useContainerSelectionStore } from '../../stores/containerSelectionStore';
-import { usePreferencesStore } from '../../stores/preferencesStore';
 import * as containerBridge from './containerBridge';
 import { findContourAtCanvasPoint, type HitTestViewport } from './contourHitTest';
 import { findLabelmapSegmentAtWorldPoint } from './labelmapHitTest';
@@ -101,7 +97,6 @@ export function wireContourHoverDetection(
   let lastClientY = 0;
 
   const onMouseMove = (event: MouseEvent) => {
-    if (!isMultiViewportEnabled()) return;
     lastClientX = event.clientX;
     lastClientY = event.clientY;
     if (rafId !== null) return; // already scheduled — coalesce.
@@ -135,14 +130,6 @@ export function wireContourHoverDetection(
 }
 
 // ─── Internals ──────────────────────────────────────────────────
-
-function isMultiViewportEnabled(): boolean {
-  try {
-    return usePreferencesStore.getState().preferences.multiViewport.enabled;
-  } catch {
-    return false;
-  }
-}
 
 /**
  * Run a single hit-test pass for the latest cursor position. Tries

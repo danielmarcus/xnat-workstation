@@ -121,14 +121,12 @@ export const DEFAULT_DELETION_PREFERENCES: DeletionPreferences = {
 // ─── Multi-Viewport ──────────────────────────────────────
 
 /**
- * Multi-viewport annotation rewrite (see docs/multiviewport-annotation-design.md).
- * Phase 0+ behavior is gated on `enabled`. While disabled, the legacy code
- * paths run unchanged. Removed at the end of Phase 6 once the rewrite is the
- * only path.
+ * Multi-viewport annotation preferences. Phase 6.6 deleted the
+ * `enabled` master switch (the rewrite is the only path now); this
+ * interface survives for `crossSeriesRendering` and any future
+ * multi-viewport-specific user preferences.
  */
 export interface MultiViewportPreferences {
-  /** Master switch for the multi-viewport rewrite. Default `false` until the rewrite is verified end-to-end. */
-  enabled: boolean;
   /**
    * Master toggle for cross-series rendering (requirements §A2b/§D11).
    *
@@ -149,7 +147,6 @@ export interface MultiViewportPreferences {
 }
 
 export const DEFAULT_MULTIVIEWPORT_PREFERENCES: MultiViewportPreferences = {
-  enabled: false,
   crossSeriesRendering: true,
 };
 

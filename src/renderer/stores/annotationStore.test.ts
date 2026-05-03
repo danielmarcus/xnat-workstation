@@ -14,10 +14,9 @@ describe('useAnnotationStore', () => {
     const state = useAnnotationStore.getState();
     expect(state.annotations).toEqual([]);
     expect(state.selectedUID).toBeNull();
-    expect(state.showPanel).toBe(false);
   });
 
-  it('applies _sync/select/togglePanel transitions deterministically', () => {
+  it('applies _sync/select transitions deterministically', () => {
     const first: AnnotationSummary = {
       annotationUID: 'ann-1',
       toolName: 'Length',
@@ -38,10 +37,5 @@ describe('useAnnotationStore', () => {
 
     useAnnotationStore.getState().select('ann-2');
     expect(useAnnotationStore.getState().selectedUID).toBe('ann-2');
-
-    useAnnotationStore.getState().togglePanel();
-    expect(useAnnotationStore.getState().showPanel).toBe(true);
-    useAnnotationStore.getState().togglePanel();
-    expect(useAnnotationStore.getState().showPanel).toBe(false);
   });
 });

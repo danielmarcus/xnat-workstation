@@ -58,7 +58,6 @@ interface PreferencesStore {
   setTrashOnServerDelete: (enabled: boolean) => void;
   setTrashResourceName: (name: string) => void;
   // ─── Multi-Viewport ───────────────────────────────────────
-  setMultiViewportEnabled: (enabled: boolean) => void;
   setCrossSeriesRendering: (enabled: boolean) => void;
   resetAll: () => void;
 }
@@ -585,14 +584,9 @@ export const usePreferencesStore = create<PreferencesStore>()(
         })),
 
       // ─── Multi-Viewport ────────────────────────────────────
-
-      setMultiViewportEnabled: (enabled) =>
-        set((state) => ({
-          preferences: {
-            ...state.preferences,
-            multiViewport: { ...state.preferences.multiViewport, enabled },
-          },
-        })),
+      // Phase 6.6 deleted the `enabled` master switch (the rewrite is
+      // the only path now). `setCrossSeriesRendering` is the surviving
+      // user-facing toggle.
 
       setCrossSeriesRendering: (enabled) =>
         set((state) => ({
@@ -662,17 +656,10 @@ export const usePreferencesStore = create<PreferencesStore>()(
         };
 
         // Merge multi-viewport preferences with defaults as fallback.
-        // Persisted state from before the multi-viewport rewrite has no
-        // multiViewport key; default to disabled in that case.
-        // crossSeriesRendering was added in Phase 2.2; missing key defaults
-        // to `true` (the default for sessions that already had multi-viewport
-        // enabled before the toggle existed).
+        // Phase 6.6 dropped the `enabled` field from the persisted shape;
+        // any incoming `enabled` key is silently ignored on hydration.
         const incomingMultiViewport = (incoming as Partial<PreferencesV1>).multiViewport;
         const mergedMultiViewport: MultiViewportPreferences = {
-          enabled:
-            typeof incomingMultiViewport?.enabled === 'boolean'
-              ? incomingMultiViewport.enabled
-              : base.preferences.multiViewport.enabled,
           crossSeriesRendering:
             typeof incomingMultiViewport?.crossSeriesRendering === 'boolean'
               ? incomingMultiViewport.crossSeriesRendering

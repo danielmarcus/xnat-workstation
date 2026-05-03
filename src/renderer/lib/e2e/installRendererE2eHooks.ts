@@ -600,11 +600,13 @@ function getActiveByPanel(): ActiveByPanelEntry[] {
 }
 
 async function toggleMpr(): Promise<ToggleMprResult> {
-  const flagEnabled = usePreferencesStore.getState().preferences.multiViewport.enabled;
   const store = useViewerStore.getState();
 
   // After Phase 6.4 the only MPR path is viewportLayoutService's mpr-2x2
-  // preset; the legacy enterMPR / MPRViewportGrid path is gone.
+  // preset. Phase 6.6 deleted the multiViewport.enabled flag, so
+  // `flagEnabled` is now always true (the field stays on the result for
+  // backwards-compat with existing E2E specs that still read it).
+  const flagEnabled = true;
   const isMprPresetActive = viewportLayoutService.getCurrentPresetId() === 'mpr-2x2';
   if (isMprPresetActive) {
     // Exit: clear orientations on panels 0/1/2 (back to STACK), then 2x2.
@@ -641,11 +643,12 @@ export function installRendererE2eHooks(): void {
   }
 
   window.__XNAT_E2E__ = {
-    // ─── Multi-viewport rewrite hooks (Phase 1) ───────────────────
-    setMultiViewportEnabled: (enabled: boolean) => {
-      usePreferencesStore.getState().setMultiViewportEnabled(enabled);
-    },
-    getMultiViewportEnabled: () => usePreferencesStore.getState().preferences.multiViewport.enabled,
+    // ─── Multi-viewport rewrite hooks ─────────────────────────────
+    // Phase 6.6 deleted the `multiViewport.enabled` flag — these
+    // remain as no-op shims so existing E2E specs that still call
+    // them keep working. New specs should not call them.
+    setMultiViewportEnabled: () => undefined,
+    getMultiViewportEnabled: () => true,
 
     getSegmentationCount: () => useSegmentationStore.getState().segmentations.length,
     getSegmentationIdByLabel: (label: string) => (

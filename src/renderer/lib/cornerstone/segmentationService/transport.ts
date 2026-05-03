@@ -47,9 +47,10 @@
  *
  *   - `autoSave.ts`'s suppression counters, dirty-tracking gates, or the
  *     existing `useSegmentationStore.hasUnsavedChanges` flag. Those live in
- *     the legacy global pipeline and stay unchanged. Phase 2.8b is responsible
- *     for the wire-up that runs both pipelines side by side under the
- *     multiViewport.enabled flag.
+ *     the legacy global pipeline and stay unchanged. Phase 2.8b wired both
+ *     pipelines side by side; Phase 6.6 removed the `multiViewport.enabled`
+ *     gate, so `transport.notifyDirty` is now called unconditionally
+ *     alongside the legacy pipeline.
  */
 import * as containerBridge from '../containerBridge';
 import { containerService } from '../containerService';

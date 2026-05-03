@@ -155,10 +155,10 @@ let currentActiveTool: ToolName = ToolName.WindowLevel;
 
 // ─── Segment lock guard + B3 drawing-routing guard ─────────────────────
 // Prevents segmentation tools from receiving pointer events when the active
-// segment is locked (existing behavior) or — under multiViewport.enabled —
-// when the active container is non-native to the focused viewport (Phase 2.5
-// B3 drawing routing). Installed as a capturing pointerdown listener on each
-// viewport element so it fires before Cornerstone's own handlers.
+// segment is locked, or when the active container is non-native to the
+// focused viewport (Phase 2.5 B3 drawing routing). Installed as a
+// capturing pointerdown listener on each viewport element so it fires
+// before Cornerstone's own handlers.
 const lockGuardInstalled = new WeakSet<Element>();
 
 /** Tools that read but don't modify segment data — exempt from lock guard. */
@@ -182,10 +182,8 @@ function installLockGuard(element: Element | null, viewportId: string): void {
       return;
     }
 
-    // Phase 2.5: B3 drawing-routing block. Only active when multi-viewport
-    // is enabled; legacy path is unaffected. The decision call is cheap
-    // (mostly metadata lookups), but skip it under the flag-off path.
-    if (!usePreferencesStore.getState().preferences.multiViewport.enabled) return;
+    // Phase 2.5 / 6.6: B3 drawing-routing block. The decision call is
+    // cheap (mostly metadata lookups).
     const decision = segmentationService.shouldBlockDrawingOnViewport(viewportId);
     if (decision.kind === 'block') {
       e.stopImmediatePropagation();

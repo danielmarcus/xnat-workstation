@@ -24,27 +24,18 @@ interface AnnotationStore {
   /** Currently selected annotation UID (highlighted on viewport) */
   selectedUID: string | null;
 
-  /** Whether the annotation list panel is visible */
-  showPanel: boolean;
-
   /** Internal: sync annotation list from annotationService */
   _sync: (annotations: AnnotationSummary[]) => void;
 
   /** Select an annotation by UID (or null to deselect) */
   select: (uid: string | null) => void;
-
-  /** Toggle annotation list panel visibility */
-  togglePanel: () => void;
 }
 
 export const useAnnotationStore = create<AnnotationStore>((set) => ({
   annotations: [],
   selectedUID: null,
-  showPanel: false,
 
   _sync: (annotations) => set({ annotations }),
 
   select: (uid) => set({ selectedUID: uid }),
-
-  togglePanel: () => set((s) => ({ showPanel: !s.showPanel })),
 }));

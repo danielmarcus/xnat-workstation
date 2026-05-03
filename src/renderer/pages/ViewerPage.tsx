@@ -3,21 +3,23 @@
  * full-height viewer layout. Supports 1×1, 1×2, 2×1, 2×2 layouts and
  * the mpr-2x2 preset (axial/sagittal/coronal panels backed by a shared
  * volume) routed through the standard ViewportGrid.
+ *
+ * After Phase 6 / Stage 2B.4 ContainerListPanel is the sole side
+ * surface for managing annotations; the legacy SegmentationPanel and
+ * AnnotationListPanel are gone. The annotations panel toggles on/off
+ * via `useSegmentationStore.showPanel` (preserved name, repurposed
+ * meaning).
  */
 import { useEffect, useState, useCallback } from 'react';
 import Toolbar from '../components/viewer/Toolbar';
 import ViewportGrid from '../components/viewer/ViewportGrid';
-import AnnotationListPanel from '../components/viewer/AnnotationListPanel';
-import SegmentationPanel from '../components/viewer/SegmentationPanel';
 import ContainerListPanel from '../components/viewer/ContainerListPanel';
 import DicomHeaderPanel from '../components/viewer/DicomHeaderPanel';
 import { toolService } from '../lib/cornerstone/toolService';
 import { annotationService } from '../lib/cornerstone/annotationService';
 import { segmentationService } from '../lib/cornerstone/segmentationService';
 import { useHotkeys } from '../hooks/useHotkeys';
-import { useAnnotationStore } from '../stores/annotationStore';
 import { useSegmentationStore } from '../stores/segmentationStore';
-import { usePreferencesStore } from '../stores/preferencesStore';
 import { useViewerStore } from '../stores/viewerStore';
 
 interface ViewerPageProps {
@@ -46,11 +48,7 @@ export default function ViewerPage({
   settingsInitialTabRequest,
   onSettingsInitialTabRequestConsumed,
 }: ViewerPageProps) {
-  const showAnnotationPanel = useAnnotationStore((s) => s.showPanel);
-  const showSegPanel = useSegmentationStore((s) => s.showPanel);
-  const showMultiViewport = usePreferencesStore(
-    (s) => s.preferences.multiViewport.enabled,
-  );
+  const showAnnotationsPanel = useSegmentationStore((s) => s.showPanel);
   const [showDicomPanel, setShowDicomPanel] = useState(false);
 
   const toggleDicomPanel = useCallback(() => setShowDicomPanel((v) => !v), []);
@@ -96,18 +94,7 @@ export default function ViewerPage({
           <div className="flex-1 min-w-0 relative">
             <ViewportGrid panelImageIds={panelImageIds} />
           </div>
-          {showAnnotationPanel && <AnnotationListPanel />}
-          {showSegPanel && (
-            <SegmentationPanel
-              sourceImageIds={panelImageIds[activeViewportId] ?? []}
-            />
-          )}
-          {/*
-            Phase 3.3: ContainerListPanel mounts alongside legacy panels
-            when multiViewport.enabled is true. Phase 6.2 collapses to
-            ContainerListPanel only.
-          */}
-          {showMultiViewport && <ContainerListPanel />}
+          {showAnnotationsPanel && <ContainerListPanel />}
           {showDicomPanel && <DicomHeaderPanel onClose={closeDicomPanel} />}
         </div>
       </div>

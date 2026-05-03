@@ -16,7 +16,6 @@ import type { LayoutType } from '@shared/types/viewer';
 import { DEFAULT_HOTKEY_MAP } from './defaultHotkeyMap';
 import { useViewerStore } from '../../stores/viewerStore';
 import { useSegmentationStore } from '../../stores/segmentationStore';
-import { useAnnotationStore } from '../../stores/annotationStore';
 import { viewportService } from '../cornerstone/viewportService';
 import { segmentationService } from '../cornerstone/segmentationService';
 
@@ -174,10 +173,12 @@ function dispatchAction(action: HotkeyAction): boolean {
       viewerState.toggleCine();
       return true;
 
-    // Panel toggles
+    // Panel toggles. Phase 6 / Stage 2B.4: ContainerListPanel is the
+    // sole annotations side surface, gated by useSegmentationStore.
+    // showPanel. Both `toggleAnnotations` (legacy hotkey "o") and
+    // `toggleSegmentation` (legacy hotkey for the seg-only panel)
+    // collapse to the same toggle.
     case 'panel.toggleAnnotations':
-      useAnnotationStore.getState().togglePanel();
-      return true;
     case 'panel.toggleSegmentation':
       useSegmentationStore.getState().togglePanel();
       return true;
