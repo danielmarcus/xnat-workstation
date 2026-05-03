@@ -814,10 +814,20 @@ function MemberRow({
         type="button"
         data-testid={`member-visibility:${member.id}`}
         className="text-[10px] text-zinc-500 hover:text-zinc-200 transition-colors px-0.5"
-        title={`Visibility: ${member.visibility} (click to cycle)`}
+        title={`Visibility: ${member.visibility} (click to cycle, alt-click to hide on active viewport only)`}
         aria-label={`visibility ${member.visibility}`}
         onClick={(e) => {
           e.stopPropagation();
+          // Alt+click: per-viewport hide on the active viewport only (§A5,
+          // signal G5). Lives in Cornerstone's per-viewport representation
+          // state so closing+reopening the panel restores the global default.
+          if (e.altKey) {
+            const activeViewport = useViewerStore.getState().activeViewportId;
+            if (activeViewport) {
+              containerService.setMemberVisibilityOnViewport(member.id, activeViewport, false);
+            }
+            return;
+          }
           containerService.setMemberVisibility(member.id, nextVisibilityMode(member.visibility));
         }}
       >

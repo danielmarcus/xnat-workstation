@@ -199,16 +199,21 @@ export const annotationService = {
         ann.highlighted = ann.annotationUID === uid;
       }
       try {
-        // Push selection into Cornerstone so its internal state matches
-        // ours. `preserveSelected` = false means single-selection (clears
-        // any other selected annotations).
-        if (uid) {
-          csAnnotation.selection.setAnnotationSelected?.(uid, true, false);
-        } else {
-          // Deselect: pass selected=false on whatever is currently selected.
-          const selected = csAnnotation.selection.getAnnotationsSelected?.() ?? [];
-          for (const selectedUid of selected) {
-            csAnnotation.selection.setAnnotationSelected?.(selectedUid, false, false);
+        // Sync Cornerstone's selection state to ours, but only when it
+        // diverges. Without the divergence check, `onAnnotationSelectionChange`
+        // (which calls back into this function on every cs-side change)
+        // would form an infinite event loop.
+        const currentlySelected = csAnnotation.selection.getAnnotationsSelected?.() ?? [];
+        const needsUpdate = uid
+          ? !(currentlySelected.length === 1 && currentlySelected[0] === uid)
+          : currentlySelected.length > 0;
+        if (needsUpdate) {
+          if (uid) {
+            csAnnotation.selection.setAnnotationSelected?.(uid, true, false);
+          } else {
+            for (const selectedUid of currentlySelected) {
+              csAnnotation.selection.setAnnotationSelected?.(selectedUid, false, false);
+            }
           }
         }
       } catch (err) {

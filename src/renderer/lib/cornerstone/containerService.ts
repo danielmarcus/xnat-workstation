@@ -106,6 +106,24 @@ export interface ContainerService {
   setMemberVisibility(memberId: string, mode: VisibilityMode): void;
 
   /**
+   * Per-viewport visibility override (§A5 / G5). Hides or shows the member
+   * on a specific viewport without affecting other viewports and without
+   * mutating the global D7.3 visibility mode. Session-only and transient
+   * per §A5: closing the viewport (Cornerstone's representation teardown)
+   * discards the override; reopening starts from the global default.
+   *
+   * The override lives in Cornerstone's per-(viewport, segmentation, kind)
+   * representation state, not in any application-side store, so the
+   * close-and-reopen reset is automatic. We do not record it in
+   * `Member.visibility` because that field is the GLOBAL mode (D7.3).
+   */
+  setMemberVisibilityOnViewport(
+    memberId: string,
+    viewportId: string,
+    visible: boolean,
+  ): void;
+
+  /**
    * Toggle the per-member session-only lock (C5). Mirrors to Cornerstone's
    * `segmentLocking.setSegmentIndexLocked` so the existing tool-side
    * guard (toolService — refuses to activate segmentation tools when the
@@ -476,6 +494,47 @@ export const containerService: ContainerService = {
     // Notify the store sync so the UI re-renders. Visibility-mode is
     // session-only per §D7.10 — explicitly NOT calling `dirty = true`.
     containerBridge.notifyChange(container.id);
+  },
+
+  /**
+   * §A5 per-viewport hide. Drops/restores visibility on ONE viewport via
+   * Cornerstone's per-(viewport, segmentation, kind) `setSegmentVisibility`
+   * API. The override is held in Cornerstone's representation state and
+   * disappears when the viewport's representation is destroyed — which is
+   * the close-and-reopen-resets behavior G5 requires. No
+   * application-side storage; no `dirty` mutation; no D7.3 global mode
+   * change.
+   */
+  setMemberVisibilityOnViewport(
+    memberId: string,
+    viewportId: string,
+    visible: boolean,
+  ): void {
+    if (!memberId || !viewportId) return;
+    const found = findMemberContainer(memberId);
+    if (!found) {
+      throw new Error(
+        `[containerService] setMemberVisibilityOnViewport: unknown memberId ${memberId}`,
+      );
+    }
+    const { member } = found;
+    if (
+      !member.csSegmentationId
+      || !Number.isInteger(member.segmentIndex)
+      || member.segmentIndex! <= 0
+    ) {
+      return;
+    }
+    const kinds = memberVisibilityDeps.getRepresentationKinds(member.csSegmentationId);
+    for (const kind of kinds) {
+      memberVisibilityDeps.setSegmentVisibility(
+        viewportId,
+        member.csSegmentationId,
+        member.segmentIndex!,
+        kind,
+        visible,
+      );
+    }
   },
 
   /**
