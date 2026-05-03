@@ -130,6 +130,12 @@ import {
 } from './segmentationService/autoSave';
 import { resetVisibilityAdapter, wireVisibility } from './segmentationService/visibility';
 import { undoService, clearAllHistories as clearAllUndoHistories } from './undoService';
+import {
+  createHoverDispatcher,
+  type HoverTarget,
+  type MemberHoverSyncDeps,
+} from './segmentationService/memberHoverSync';
+import { useContainerSelectionStore } from '../../stores/containerSelectionStore';
 import * as transportCoordinator from './segmentationService/transport';
 import { cornerstoneVisibilityAdapter } from './segmentationService/cornerstoneVisibilityAdapter';
 import { createStylingService, type StylingService } from './segmentationService/styling';
@@ -751,6 +757,7 @@ let initialized = false;
 let visibilityStyling: StylingService | null = null;
 let crossSeriesPrefUnsubscribe: (() => void) | null = null;
 let containerBridgeStylingUnsubscribe: (() => void) | null = null;
+let hoverSelectionUnsubscribe: (() => void) | null = null;
 
 function isMultiViewportEnabled(): boolean {
   try {
@@ -784,6 +791,34 @@ function applyVisibilityStylingGlobally(): void {
  * changes. We treat both as "re-evaluate this pair" — the operation is
  * idempotent.
  */
+/**
+ * Resolve a member ID (from the selection store) to a Cornerstone
+ * (segmentationId, segmentIndex) tuple via the containerBridge / store.
+ * Returns null if the member can't be resolved (unregistered, no
+ * segmentIndex, etc.) — the hover dispatcher treats null as "clear".
+ */
+function resolveHoverTarget(memberId: string | null): HoverTarget | null {
+  if (!memberId) return null;
+  for (const { containerId } of containerBridge.listAll()) {
+    const container = containerBridge.getContainer(containerId);
+    if (!container) continue;
+    const member = container.members.find((m) => m.id === memberId);
+    if (!member) continue;
+    if (
+      member.csSegmentationId
+      && Number.isInteger(member.segmentIndex)
+      && member.segmentIndex! > 0
+    ) {
+      return {
+        segmentationId: member.csSegmentationId,
+        segmentIndex: member.segmentIndex!,
+      };
+    }
+    return null;
+  }
+  return null;
+}
+
 function onSegmentationRepresentationAddedOrModified(evt: Event): void {
   if (!visibilityStyling || !isMultiViewportEnabled()) return;
   const detail = (evt as CustomEvent<{ segmentationId?: string; viewportId?: string }>).detail;
@@ -1022,6 +1057,73 @@ export const segmentationService = {
       if (next !== prev) {
         applyVisibilityStylingGlobally();
       }
+    });
+
+    // Phase 3.5c-row: row → canvas hover sync. Subscribes to
+    // useContainerSelectionStore.hoverMemberId; on change, resolves the
+    // member's (segmentationId, segmentIndex) via the bridge and applies
+    // a transient highlight style. The dispatcher tracks the current
+    // target so previous highlights clear on transition.
+    const hoverDeps: MemberHoverSyncDeps = {
+      setSegmentStyle: (segId, segIdx, kind, styles) => {
+        try {
+          csSegmentation.segmentationStyle.setStyle(
+            {
+              type: kind === 'Labelmap'
+                ? ToolEnums.SegmentationRepresentations.Labelmap
+                : ToolEnums.SegmentationRepresentations.Contour,
+              segmentationId: segId,
+              segmentIndex: segIdx,
+            },
+            styles as never,
+            true, // merge=true so we don't clobber the visibility-mode style
+          );
+        } catch (err) {
+          console.warn('[hoverSync] setSegmentStyle failed', { segId, segIdx, kind, err });
+        }
+      },
+      resetSegmentStyle: (segId, segIdx, kind) => {
+        try {
+          csSegmentation.segmentationStyle.setStyle(
+            {
+              type: kind === 'Labelmap'
+                ? ToolEnums.SegmentationRepresentations.Labelmap
+                : ToolEnums.SegmentationRepresentations.Contour,
+              segmentationId: segId,
+              segmentIndex: segIdx,
+            },
+            {} as never,
+            false,
+          );
+        } catch (err) {
+          console.warn('[hoverSync] resetSegmentStyle failed', { segId, segIdx, kind, err });
+        }
+      },
+      getRepresentationKinds: (segId) => {
+        const t = getSegmentationType(segId);
+        if (t === 'labelmap') return ['Labelmap'];
+        if (t === 'contour') return ['Contour'];
+        return ['Labelmap', 'Contour'];
+      },
+      renderSegmentationViewports: (segId) => {
+        try {
+          const vpIds = csSegmentation.state.getViewportIdsWithSegmentation(segId);
+          for (const vpId of vpIds) {
+            csToolUtilities.segmentation.triggerSegmentationRender(vpId);
+          }
+        } catch (err) {
+          console.warn('[hoverSync] render failed', { segId, err });
+        }
+      },
+    };
+    const hoverDispatch = createHoverDispatcher(hoverDeps);
+    hoverSelectionUnsubscribe = useContainerSelectionStore.subscribe((state, prev) => {
+      if (state.hoverMemberId === prev?.hoverMemberId) return;
+      if (!isMultiViewportEnabled()) {
+        hoverDispatch(null);
+        return;
+      }
+      hoverDispatch(resolveHoverTarget(state.hoverMemberId));
     });
 
     // Phase 3.7b: when a container's a2cOptedIn (or any other field
@@ -4726,6 +4828,10 @@ export const segmentationService = {
     if (containerBridgeStylingUnsubscribe) {
       containerBridgeStylingUnsubscribe();
       containerBridgeStylingUnsubscribe = null;
+    }
+    if (hoverSelectionUnsubscribe) {
+      hoverSelectionUnsubscribe();
+      hoverSelectionUnsubscribe = null;
     }
     if (crossSeriesPrefUnsubscribe) {
       crossSeriesPrefUnsubscribe();
