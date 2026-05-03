@@ -773,14 +773,29 @@ function MemberRow({
             </span>
           )}
           {member.interpolationState === 'has-interpolated' && (
-            <span
-              data-testid={`member-auto-interpolated:${member.id}`}
-              className="text-[8px] uppercase font-mono text-cyan-400 shrink-0"
-              title="Has auto-interpolated contours pending acceptance (B5)"
-              aria-label="has interpolated contours"
-            >
-              AI
-            </span>
+            <>
+              <span
+                data-testid={`member-auto-interpolated:${member.id}`}
+                className="text-[8px] uppercase font-mono text-cyan-400 shrink-0"
+                title="Has auto-interpolated contours pending acceptance (B5)"
+                aria-label="has interpolated contours"
+              >
+                AI
+              </span>
+              <button
+                type="button"
+                data-testid={`member-step-through:${member.id}`}
+                className="text-[10px] leading-none text-cyan-400 hover:text-cyan-200 shrink-0 px-1 rounded border border-cyan-700/40 hover:border-cyan-400 focus:outline-none focus:ring-1 focus:ring-cyan-400"
+                title="Step through interpolated slices (B5)"
+                aria-label="step through interpolated slices"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  containerActions.stepThroughInterpolated(member.id);
+                }}
+              >
+                ▶
+              </button>
+            </>
           )}
           {eligibility && eligibility !== 'native' && (
             <span

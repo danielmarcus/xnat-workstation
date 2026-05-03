@@ -56,6 +56,7 @@ import { useViewerStore } from '../../stores/viewerStore';
 import { useConnectionStore } from '../../stores/connectionStore';
 import { useSegmentationManagerStore } from '../../stores/segmentationManagerStore';
 import { rtStructService } from './rtStructService';
+import { viewportService } from './viewportService';
 import * as contourRep from './contourRepresentation';
 import * as sourceImageTracking from './sourceImageTracking';
 import * as containerBridge from './containerBridge';
@@ -66,6 +67,7 @@ import {
   wireContainerService,
   resetContainerServiceWiring,
 } from './containerService';
+import { wireContainerActions } from './containerActions';
 import * as provenanceStamping from './segmentationService/provenance';
 import * as interpolationUndo from './segmentationService/interpolationUndo';
 import * as mlg from './multiLayerGroup';
@@ -1038,6 +1040,94 @@ export const segmentationService = {
         segmentationService.renameSegment(segId, segIdx, label),
       setSegmentColor: (segId, segIdx, color) =>
         segmentationService.setSegmentColor(segId, segIdx, color),
+      setSegmentLocked: (segId, segIdx, locked) => {
+        try {
+          csSegmentation.segmentLocking.setSegmentIndexLocked(segId, segIdx, locked);
+        } catch (err) {
+          console.warn('[containerService] setSegmentLocked failed', { segId, segIdx, locked, err });
+        }
+      },
+    });
+
+    // §D7.6: container-level Save / Revert / Export wiring. The actual
+    // export pipeline lives in segmentationService.exportToDicomSeg /
+    // rtStructService.exportToRtStruct; the file-save dialog lives behind
+    // electronAPI.export.saveDicom* — this seam keeps containerActions
+    // decoupled from both for testability.
+    wireContainerActions({
+      exportToDicomSeg: (segId) => segmentationService.exportToDicomSeg(segId),
+      exportToRtStruct: (segId) => rtStructService.exportToRtStruct(segId),
+      saveDicomSeg: async (base64, defaultName) => {
+        try {
+          const res = await window.electronAPI.export.saveDicomSeg(base64, defaultName);
+          return res.ok ? (res.path ?? null) : null;
+        } catch (err) {
+          console.warn('[containerActions] saveDicomSeg failed', err);
+          return null;
+        }
+      },
+      saveDicomRtStruct: async (base64, defaultName) => {
+        try {
+          const res = await window.electronAPI.export.saveDicomRtStruct(base64, defaultName);
+          return res.ok ? (res.path ?? null) : null;
+        } catch (err) {
+          console.warn('[containerActions] saveDicomRtStruct failed', err);
+          return null;
+        }
+      },
+
+      // ─── Phase 4.8 step-through review ──────────────────────────────
+      getActiveViewportId: () => useViewerStore.getState().activeViewportId ?? null,
+      readMemberContourSlices: (viewportId, csSegId, segmentIndex) => {
+        const vp = viewportService.getViewport(viewportId);
+        if (!vp) return null;
+
+        // Stack mode: walk all contour annotations whose
+        // `data.segmentation.{segmentationId,segmentIndex}` matches the
+        // member, map each to its `metadata.referencedImageId`, and
+        // resolve through the viewport's image-id list to a stack
+        // index. Volume-mode review is deferred — `getImageIds` returns
+        // an empty array on volume viewports and the navigation API
+        // differs.
+        const imageIds: string[] = (vp as { getImageIds?: () => string[] }).getImageIds?.() ?? [];
+        if (imageIds.length === 0) return null;
+
+        const indexByImageId = new Map<string, number>();
+        for (let i = 0; i < imageIds.length; i++) indexByImageId.set(imageIds[i], i);
+
+        const all = (csAnnotation.state.getAllAnnotations?.() ?? []) as Array<{
+          metadata?: { referencedImageId?: string };
+          data?: { segmentation?: { segmentationId?: string; segmentIndex?: number } };
+        }>;
+        const slices = new Set<number>();
+        for (const ann of all) {
+          const segId = ann?.data?.segmentation?.segmentationId;
+          const segIdx = ann?.data?.segmentation?.segmentIndex;
+          if (segId !== csSegId || segIdx !== segmentIndex) continue;
+          const refId = ann?.metadata?.referencedImageId;
+          if (typeof refId !== 'string') continue;
+          const idx = indexByImageId.get(refId);
+          if (typeof idx === 'number') slices.add(idx);
+        }
+
+        let currentImageIdIndex: number | null = null;
+        try {
+          const cur = (vp as { getCurrentImageIdIndex?: () => number }).getCurrentImageIdIndex?.();
+          if (typeof cur === 'number' && Number.isInteger(cur)) currentImageIdIndex = cur;
+        } catch {
+          currentImageIdIndex = null;
+        }
+
+        return {
+          currentImageIdIndex,
+          sliceIndices: Array.from(slices),
+        };
+      },
+      scrollViewportToIndex: (viewportId, index) => {
+        viewportService.scrollToIndex(viewportId, index);
+        const vp = viewportService.getViewport(viewportId);
+        vp?.render();
+      },
     });
 
     // Phase 4.6: always auto-accept interpolated contours on generation

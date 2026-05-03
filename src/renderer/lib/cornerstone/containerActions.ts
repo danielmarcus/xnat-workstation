@@ -30,6 +30,27 @@ export interface ContainerActionsDeps {
   saveDicomSeg: (base64: string, defaultName: string) => Promise<string | null>;
   /** Persist a DICOM RTSTRUCT base64 payload to disk via Electron's save dialog. */
   saveDicomRtStruct: (base64: string, defaultName: string) => Promise<string | null>;
+
+  // ─── Phase 4.8 step-through review ──────────────────────────────────
+  /**
+   * Read the currently active viewport id (the one the user has focused).
+   * Returns null when no viewport is active (B3 — no panel focused).
+   */
+  getActiveViewportId: () => string | null;
+  /**
+   * For a given viewport, return its current image id index plus the
+   * referencedImageIds of every contour annotation belonging to the
+   * (csSegmentationId, segmentIndex) pair. The returned referencedImageIds
+   * are the source DICOM instance UIDs the contours are anchored to —
+   * resolving them to viewport-local stack indices is the caller's job.
+   */
+  readMemberContourSlices: (
+    viewportId: string,
+    csSegmentationId: string,
+    segmentIndex: number,
+  ) => { currentImageIdIndex: number | null; sliceIndices: number[] } | null;
+  /** Drive the viewport to the given image id index. */
+  scrollViewportToIndex: (viewportId: string, index: number) => void;
 }
 
 const NOOP_DEPS: ContainerActionsDeps = {
@@ -37,6 +58,9 @@ const NOOP_DEPS: ContainerActionsDeps = {
   exportToRtStruct: () => Promise.reject(new Error('[containerActions] exportToRtStruct not wired')),
   saveDicomSeg: () => Promise.resolve(null),
   saveDicomRtStruct: () => Promise.resolve(null),
+  getActiveViewportId: () => null,
+  readMemberContourSlices: () => null,
+  scrollViewportToIndex: () => undefined,
 };
 
 let deps: ContainerActionsDeps = NOOP_DEPS;
@@ -120,6 +144,80 @@ export async function exportContainer(containerId: string): Promise<string | nul
   } catch (err) {
     console.warn('[containerActions] exportContainer failed', { containerId, kind: container.kind, err });
     return null;
+  }
+}
+
+// ─── Phase 4.8 — step through interpolated slices ──────────────────────
+
+/**
+ * Compute the next slice index in `sliceIndices` (sorted ascending),
+ * given the viewport's current index. Wraps at the end. Returns the
+ * smallest index that is strictly greater than `current`; if none, the
+ * smallest in the list (wrap). Returns null when the list is empty.
+ *
+ * Pure — exposed for unit tests. Caller maps the returned index back to
+ * a viewport scroll.
+ */
+export function nextSliceIndex(
+  current: number | null,
+  sliceIndices: ReadonlyArray<number>,
+): number | null {
+  if (sliceIndices.length === 0) return null;
+  const sorted = [...sliceIndices].sort((a, b) => a - b);
+  if (current === null) return sorted[0];
+  for (const idx of sorted) {
+    if (idx > current) return idx;
+  }
+  return sorted[0]; // wrap
+}
+
+/**
+ * Step the active viewport to the next slice that contains a contour
+ * for the given member (Phase 4.8 review affordance, design §B5
+ * "step through interpolated slices").
+ *
+ * v1 simplification: navigates through ALL contour slices for the
+ * member, not just the auto-generated ones. This is acceptable
+ * because:
+ *   - the action is only surfaced when `interpolationState ===
+ *     'has-interpolated'` (i.e., immediately after an interpolation
+ *     pass);
+ *   - any user interaction that would mute the affordance (manual edit,
+ *     save) clears the marker and hides the button.
+ * Per-contour granularity ("just the auto-generated ones") would
+ * require tracking interpolated UIDs through the pipeline; deferred
+ * unless user feedback elevates it.
+ *
+ * No-ops when:
+ *   - the member is unknown,
+ *   - no viewport is active (B3 surface),
+ *   - the member has no Cornerstone segmentation backing,
+ *   - the member's segmentation has no contour annotations on the
+ *     active viewport's stack.
+ */
+export function stepThroughInterpolated(memberId: string): void {
+  if (!memberId) return;
+  for (const { containerId } of containerBridge.listAll()) {
+    const c = containerBridge.getContainer(containerId);
+    if (!c) continue;
+    const member = c.members.find((m) => m.id === memberId);
+    if (!member) continue;
+    if (!member.csSegmentationId) return;
+    if (!Number.isInteger(member.segmentIndex) || member.segmentIndex! <= 0) return;
+
+    const viewportId = deps.getActiveViewportId();
+    if (!viewportId) return;
+
+    const result = deps.readMemberContourSlices(
+      viewportId,
+      member.csSegmentationId,
+      member.segmentIndex!,
+    );
+    if (!result) return;
+    const next = nextSliceIndex(result.currentImageIdIndex, result.sliceIndices);
+    if (next === null) return;
+    deps.scrollViewportToIndex(viewportId, next);
+    return;
   }
 }
 

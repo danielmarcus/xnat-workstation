@@ -39,12 +39,14 @@ const saveContainerMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined))
 const revertContainerMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 const exportContainerMock = vi.hoisted(() => vi.fn().mockResolvedValue(null));
 const saveAllDirtyMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+const stepThroughInterpolatedMock = vi.hoisted(() => vi.fn());
 
 vi.mock('../../lib/cornerstone/containerActions', () => ({
   saveContainer: saveContainerMock,
   revertContainer: revertContainerMock,
   exportContainer: exportContainerMock,
   saveAllDirty: saveAllDirtyMock,
+  stepThroughInterpolated: stepThroughInterpolatedMock,
 }));
 
 import ContainerListPanel from './ContainerListPanel';
@@ -1698,6 +1700,44 @@ describe('member row auto-interpolated marker (D7.4 / B5)', () => {
     );
     render(<ContainerListPanel />);
     expect(screen.queryByTestId('member-auto-interpolated:m1')).toBeNull();
+  });
+
+  // ─── Phase 4.8 step-through review ──────────────────────────────────
+
+  it('renders the step-through ▶ button alongside the AI marker', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [makeMember({ id: 'm1', interpolationState: 'has-interpolated' })],
+      }),
+    );
+    render(<ContainerListPanel />);
+    expect(screen.queryByTestId('member-step-through:m1')).not.toBeNull();
+  });
+
+  it('does NOT render the step-through button when no interpolated marker', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [makeMember({ id: 'm1', interpolationState: null })],
+      }),
+    );
+    render(<ContainerListPanel />);
+    expect(screen.queryByTestId('member-step-through:m1')).toBeNull();
+  });
+
+  it('clicking the step-through button calls containerActions.stepThroughInterpolated(memberId)', () => {
+    stepThroughInterpolatedMock.mockClear();
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [makeMember({ id: 'm1', interpolationState: 'has-interpolated' })],
+      }),
+    );
+    render(<ContainerListPanel />);
+    fireEvent.click(screen.getByTestId('member-step-through:m1'));
+    expect(stepThroughInterpolatedMock).toHaveBeenCalledTimes(1);
+    expect(stepThroughInterpolatedMock).toHaveBeenCalledWith('m1');
   });
 });
 

@@ -27,10 +27,12 @@ vi.mock('@cornerstonejs/tools', () => ({
 import * as containerBridge from './containerBridge';
 import {
   exportContainer,
+  nextSliceIndex,
   resetContainerActionsWiring,
   revertContainer,
   saveAllDirty,
   saveContainer,
+  stepThroughInterpolated,
   wireContainerActions,
 } from './containerActions';
 import type { Member } from '../../types/annotation';
@@ -237,5 +239,133 @@ describe('saveAllDirty', () => {
     injectMember('seg_1');
     await saveAllDirty();
     expect(flushNowMock).not.toHaveBeenCalled();
+  });
+});
+
+// ─── Phase 4.8: nextSliceIndex (pure helper) ───────────────────────────
+
+describe('nextSliceIndex', () => {
+  it('returns null on empty list', () => {
+    expect(nextSliceIndex(0, [])).toBe(null);
+    expect(nextSliceIndex(null, [])).toBe(null);
+  });
+
+  it('returns the smallest slice when current is null', () => {
+    expect(nextSliceIndex(null, [5, 3, 8])).toBe(3);
+  });
+
+  it('returns the smallest index strictly greater than current', () => {
+    expect(nextSliceIndex(3, [3, 5, 8])).toBe(5);
+    expect(nextSliceIndex(5, [3, 5, 8])).toBe(8);
+  });
+
+  it('wraps to the smallest when current is past the last', () => {
+    expect(nextSliceIndex(8, [3, 5, 8])).toBe(3);
+    expect(nextSliceIndex(99, [3, 5, 8])).toBe(3);
+  });
+
+  it('handles unsorted input by sorting first', () => {
+    expect(nextSliceIndex(5, [8, 3, 5])).toBe(8);
+  });
+
+  it('returns the only element when list has one entry', () => {
+    expect(nextSliceIndex(null, [7])).toBe(7);
+    expect(nextSliceIndex(7, [7])).toBe(7); // wraps to itself
+    expect(nextSliceIndex(2, [7])).toBe(7);
+    expect(nextSliceIndex(99, [7])).toBe(7); // wraps to itself
+  });
+});
+
+// ─── Phase 4.8: stepThroughInterpolated ────────────────────────────────
+
+describe('stepThroughInterpolated', () => {
+  function wireStepThroughDeps(opts: {
+    activeViewport?: string | null;
+    slices?: { currentImageIdIndex: number | null; sliceIndices: number[] } | null;
+  }): { scrollCalls: Array<[string, number]>; readCalls: Array<[string, string, number]> } {
+    const scrollCalls: Array<[string, number]> = [];
+    const readCalls: Array<[string, string, number]> = [];
+    wireContainerActions({
+      getActiveViewportId: () => opts.activeViewport ?? null,
+      readMemberContourSlices: (vp, segId, segIdx) => {
+        readCalls.push([vp, segId, segIdx]);
+        return opts.slices === undefined
+          ? { currentImageIdIndex: 0, sliceIndices: [3, 7, 12] }
+          : opts.slices;
+      },
+      scrollViewportToIndex: (vp, idx) => {
+        scrollCalls.push([vp, idx]);
+      },
+    });
+    return { scrollCalls, readCalls };
+  }
+
+  it('navigates the active viewport to the next slice in the member', () => {
+    injectMember('seg_1');
+    const { scrollCalls } = wireStepThroughDeps({ activeViewport: 'vp1' });
+    stepThroughInterpolated('seg_1__1');
+    expect(scrollCalls).toEqual([['vp1', 3]]);
+  });
+
+  it('uses the member’s csSegmentationId + segmentIndex when reading slices', () => {
+    injectMember('seg_xyz', { segmentIndex: 4 });
+    const { readCalls } = wireStepThroughDeps({ activeViewport: 'vp1' });
+    stepThroughInterpolated('seg_xyz__1');
+    expect(readCalls).toEqual([['vp1', 'seg_xyz', 4]]);
+  });
+
+  it('wraps after the last slice', () => {
+    injectMember('seg_1');
+    const { scrollCalls } = wireStepThroughDeps({
+      activeViewport: 'vp1',
+      slices: { currentImageIdIndex: 12, sliceIndices: [3, 7, 12] },
+    });
+    stepThroughInterpolated('seg_1__1');
+    expect(scrollCalls).toEqual([['vp1', 3]]);
+  });
+
+  it('no-op when no viewport is active', () => {
+    injectMember('seg_1');
+    const { scrollCalls } = wireStepThroughDeps({ activeViewport: null });
+    stepThroughInterpolated('seg_1__1');
+    expect(scrollCalls).toEqual([]);
+  });
+
+  it('no-op when the member has no csSegmentationId', () => {
+    injectMember('seg_1', { csSegmentationId: null });
+    const { scrollCalls } = wireStepThroughDeps({ activeViewport: 'vp1' });
+    stepThroughInterpolated('seg_1__1');
+    expect(scrollCalls).toEqual([]);
+  });
+
+  it('no-op when readMemberContourSlices returns null', () => {
+    injectMember('seg_1');
+    const { scrollCalls } = wireStepThroughDeps({ activeViewport: 'vp1', slices: null });
+    stepThroughInterpolated('seg_1__1');
+    expect(scrollCalls).toEqual([]);
+  });
+
+  it('no-op when the member’s segmentation has no contour slices', () => {
+    injectMember('seg_1');
+    const { scrollCalls } = wireStepThroughDeps({
+      activeViewport: 'vp1',
+      slices: { currentImageIdIndex: 0, sliceIndices: [] },
+    });
+    stepThroughInterpolated('seg_1__1');
+    expect(scrollCalls).toEqual([]);
+  });
+
+  it('no-op on unknown memberId', () => {
+    injectMember('seg_1');
+    const { scrollCalls } = wireStepThroughDeps({ activeViewport: 'vp1' });
+    stepThroughInterpolated('not-a-member');
+    expect(scrollCalls).toEqual([]);
+  });
+
+  it('no-op on empty memberId', () => {
+    injectMember('seg_1');
+    const { scrollCalls } = wireStepThroughDeps({ activeViewport: 'vp1' });
+    stepThroughInterpolated('');
+    expect(scrollCalls).toEqual([]);
   });
 });
