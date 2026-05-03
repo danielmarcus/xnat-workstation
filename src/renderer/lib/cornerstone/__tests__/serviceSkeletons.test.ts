@@ -39,9 +39,11 @@ describe('Phase 0 service skeletons', () => {
       }
     });
 
-    it('throws a clear error from unimplemented methods', () => {
-      expect(() => containerService.getActiveMember()).toThrowError(/containerService.*not yet implemented/);
-    });
+    // Behavioral tests for the implementation live in containerService.test.ts;
+    // skeleton tests above only verify the export shape. As of Phase 3.1 the
+    // read methods + metadata mutations (rename, approve, revoke) are
+    // implemented; member CRUD + container creation still throw with phase
+    // pointers and are covered by containerService.test.ts.
   });
 
   describe('undoService', () => {
