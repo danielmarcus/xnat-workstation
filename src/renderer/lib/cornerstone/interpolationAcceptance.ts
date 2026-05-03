@@ -103,10 +103,20 @@ export function acceptAllForSegmentation(segmentationId: string): number {
  * (rather than trusting the event detail shape) and promotes every
  * auto-generated contour. Cheap because there are at most a few
  * interpolated contours per generation pass.
+ *
+ * Phase 4.2: under `multiViewport.enabled` the gate is always open —
+ * auto-acceptance is universal per design §B5 (write-through model:
+ * "interpolated contours are written directly into the structure-set
+ * as real geometries at the moment of interpolation"). The preference
+ * toggle survives until Phase 4.6 deletes the gate entirely; the
+ * flag-off path remains preference-gated for backwards compatibility
+ * during the rollout.
  */
 function onInterpolationProcessCompleted(): void {
-  const autoAccept = usePreferencesStore.getState().preferences.interpolation.autoAcceptInterpolated;
-  if (!autoAccept) return;
+  const prefs = usePreferencesStore.getState().preferences;
+  const mvEnabled = prefs.multiViewport.enabled;
+  const autoAccept = prefs.interpolation.autoAcceptInterpolated;
+  if (!mvEnabled && !autoAccept) return;
 
   const all = csAnnotation.state.getAllAnnotations?.() ?? [];
   for (const ann of all) {

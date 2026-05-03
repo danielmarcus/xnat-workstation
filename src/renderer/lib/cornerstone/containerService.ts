@@ -32,6 +32,7 @@ import type {
   Container,
   ContainerKind,
   Member,
+  Provenance,
   RGB,
   RTROIInterpretedType,
   VisibilityMode,
@@ -103,6 +104,32 @@ export interface ContainerService {
    * the container dirty (per §D7.10).
    */
   setMemberVisibility(memberId: string, mode: VisibilityMode): void;
+
+  /**
+   * Stamp a member's provenance (D7.2). Used by the interpolation
+   * stamping module (Phase 4.1) and by the manual-edit detector (Phase
+   * 4.4) which flips an interpolated member back to `'manual'` once the
+   * user touches its handles.
+   *
+   * Per §D7.2 the `'manual'` and `'interpolated'` provenance values
+   * "require no special storage" in the saved DICOM — the round-trip is
+   * via re-inference at load time (everything reloaded from a transport
+   * source defaults to `'imported'` per §D7.2). So this setter is
+   * session-only state and does NOT mark the container dirty.
+   */
+  setMemberProvenance(memberId: string, provenance: Provenance): void;
+
+  /**
+   * Set the per-member auto-marker state (B5). `'has-interpolated'` is
+   * stamped by the Phase 4.1 interpolation handler; cleared back to
+   * `'none'` by the manual-edit detector (Phase 4.4) and by the save
+   * success path (Phase 4.5). Session-only display state — does NOT mark
+   * the container dirty (per §D7.10).
+   */
+  setMemberInterpolationState(
+    memberId: string,
+    state: Member['interpolationState'],
+  ): void;
 
   // ─── Active state resolution ──────────────────────────────────────────
 
@@ -419,6 +446,48 @@ export const containerService: ContainerService = {
 
     // Notify the store sync so the UI re-renders. Visibility-mode is
     // session-only per §D7.10 — explicitly NOT calling `dirty = true`.
+    containerBridge.notifyChange(container.id);
+  },
+
+  /**
+   * Stamp a member's provenance. Idempotent on no-op (same value). Does
+   * NOT mark the container dirty — see interface comment for rationale
+   * (provenance is re-inferred at load for `'manual'`/`'interpolated'`).
+   *
+   * Also NOT subject to the §D7.11 approval edit-lock, because flipping
+   * an `'interpolated'` mark to `'manual'` after a user edit is a
+   * reactive metadata update, not a deliberate edit on an approved
+   * container — and the underlying geometry edit (the actual mutation)
+   * is already locked at the `assertNotApproved` sites for
+   * createMember / deleteMember / etc.
+   */
+  setMemberProvenance(memberId: string, provenance: Provenance): void {
+    if (!memberId) return;
+    const found = findMemberContainer(memberId);
+    if (!found) return;
+    const { container, member } = found;
+    if (member.provenance === provenance) return;
+    member.provenance = provenance;
+    member.modifiedAt = Date.now();
+    containerBridge.notifyChange(container.id);
+  },
+
+  /**
+   * Set the auto-marker state. Idempotent on no-op. Session-only — does
+   * NOT mark the container dirty. Also not subject to the approval
+   * edit-lock (same rationale as setMemberProvenance).
+   */
+  setMemberInterpolationState(
+    memberId: string,
+    state: Member['interpolationState'],
+  ): void {
+    if (!memberId) return;
+    const found = findMemberContainer(memberId);
+    if (!found) return;
+    const { container, member } = found;
+    if (member.interpolationState === state) return;
+    member.interpolationState = state;
+    member.modifiedAt = Date.now();
     containerBridge.notifyChange(container.id);
   },
 

@@ -17,12 +17,24 @@ vi.mock('@cornerstonejs/core', () => ({
   eventTarget: mockEventTarget,
 }));
 
+// Per-viewport labelmap reps + sampling table for the labelmap fallback
+// in runHitTest. Tests can prime them per-case.
+const csLabelmap = vi.hoisted(() => ({
+  reps: new Map<string, Array<{ type: string; segmentationId: string }>>(),
+  sampleResults: new Map<string, number>(),
+}));
+
 vi.mock('@cornerstonejs/tools', () => ({
   Enums: {
     Events: {
       SEGMENTATION_ADDED: 'CS_SEGMENTATION_ADDED',
       SEGMENTATION_REMOVED: 'CS_SEGMENTATION_REMOVED',
       SEGMENTATION_MODIFIED: 'CS_SEGMENTATION_MODIFIED',
+    },
+    SegmentationRepresentations: {
+      Labelmap: 'Labelmap',
+      Contour: 'Contour',
+      Surface: 'Surface',
     },
   },
   annotation: {
@@ -34,6 +46,16 @@ vi.mock('@cornerstonejs/tools', () => ({
   segmentation: {
     state: {
       getSegmentation: (id: string) => ({ label: id }),
+      getViewportSegmentationRepresentations: (vpId: string) =>
+        csLabelmap.reps.get(vpId) ?? [],
+    },
+  },
+  utilities: {
+    segmentation: {
+      getSegmentIndexAtWorldPoint: (segId: string, worldPoint: number[]) => {
+        const key = `${segId}:${worldPoint[0]},${worldPoint[1]},${worldPoint[2]}`;
+        return csLabelmap.sampleResults.get(key) ?? 0;
+      },
     },
   },
 }));
@@ -53,6 +75,8 @@ beforeEach(() => {
   containerBridge.clearAll();
   containerBridge.clearChangeListeners();
   csState.annotations.clear();
+  csLabelmap.reps.clear();
+  csLabelmap.sampleResults.clear();
   useContainerSelectionStore.getState().setHover(null);
   usePreferencesStore.getState().setMultiViewportEnabled(true);
 });
@@ -61,6 +85,8 @@ afterEach(() => {
   containerBridge.clearAll();
   containerBridge.clearChangeListeners();
   csState.annotations.clear();
+  csLabelmap.reps.clear();
+  csLabelmap.sampleResults.clear();
   useContainerSelectionStore.getState().setHover(null);
   usePreferencesStore.getState().setMultiViewportEnabled(false);
 });
@@ -178,8 +204,10 @@ function makeViewportWithContour(opts: {
   } as DOMRect);
 
   const viewport: () => HitTestViewport = () => ({
+    id: 'vp-test',
     getCurrentImageId: () => opts.imageId,
     worldToCanvas: ([x, y]: [number, number, number]): [number, number] => [x, y],
+    canvasToWorld: ([x, y]: [number, number]): [number, number, number] => [x, y, 0],
   });
 
   return { element, viewport };
@@ -265,6 +293,100 @@ describe('runHitTest', () => {
     // Client (105, 200) → canvas (5, 0) which is on the polyline.
     runHitTest(element, viewport, 105, 200);
     expect(useContainerSelectionStore.getState().hoverMemberId).toBe('m-1');
+  });
+
+  // ─── Phase 3.5c-canvas-labelmap fallback ──────────────────────────────
+
+  it('falls back to labelmap detection when no contour is hit', () => {
+    injectMember('lm_1', 5, 'm-lm');
+    csLabelmap.reps.set('vp-test', [{ type: 'Labelmap', segmentationId: 'lm_1' }]);
+    csLabelmap.sampleResults.set('lm_1:42,42,0', 5);
+
+    const { element, viewport } = makeViewportWithContour({
+      // No contour anywhere near (42,42) — but a labelmap is.
+      imageId: 'slice-1',
+      polyline: [[0, 0, 0], [1, 0, 0]],
+      annotationUID: 'ann-elsewhere',
+      segmentationId: 'seg-other',
+      segmentIndex: 1,
+    });
+
+    runHitTest(element, viewport, 42, 42);
+    expect(useContainerSelectionStore.getState().hoverMemberId).toBe('m-lm');
+  });
+
+  it('contour hit takes precedence over labelmap (visually-topmost rule)', () => {
+    injectMember('seg_1', 1, 'm-contour');
+    injectMember('lm_1', 5, 'm-lm');
+    csLabelmap.reps.set('vp-test', [{ type: 'Labelmap', segmentationId: 'lm_1' }]);
+    csLabelmap.sampleResults.set('lm_1:5,0,0', 5);
+
+    const { element, viewport } = makeViewportWithContour({
+      imageId: 'slice-1',
+      polyline: [[0, 0, 0], [10, 0, 0], [10, 10, 0], [0, 10, 0]],
+      annotationUID: 'ann-1',
+      segmentationId: 'seg_1',
+      segmentIndex: 1,
+    });
+
+    // Cursor at (5,0) is on the contour AND inside a labelmap voxel
+    // returning 5 — contour wins.
+    runHitTest(element, viewport, 5, 0);
+    expect(useContainerSelectionStore.getState().hoverMemberId).toBe('m-contour');
+  });
+
+  it('cursor in empty space (no contour, no labelmap voxel) clears hover', () => {
+    csLabelmap.reps.set('vp-test', [{ type: 'Labelmap', segmentationId: 'lm_1' }]);
+    // No sample priming — defaults to 0.
+
+    const { element, viewport } = makeViewportWithContour({
+      imageId: 'slice-1',
+      polyline: [[0, 0, 0], [1, 0, 0]],
+      annotationUID: 'ann-elsewhere',
+      segmentationId: 'seg-other',
+      segmentIndex: 1,
+    });
+    useContainerSelectionStore.getState().setHover('was-set');
+
+    runHitTest(element, viewport, 42, 42);
+    expect(useContainerSelectionStore.getState().hoverMemberId).toBeNull();
+  });
+
+  it('labelmap hit but member not in bridge → setHover(null) (graceful miss)', () => {
+    csLabelmap.reps.set('vp-test', [{ type: 'Labelmap', segmentationId: 'lm-untracked' }]);
+    csLabelmap.sampleResults.set('lm-untracked:42,42,0', 3);
+
+    const { element, viewport } = makeViewportWithContour({
+      imageId: 'slice-1',
+      polyline: [[0, 0, 0], [1, 0, 0]],
+      annotationUID: 'ann-elsewhere',
+      segmentationId: 'seg-other',
+      segmentIndex: 1,
+    });
+
+    runHitTest(element, viewport, 42, 42);
+    expect(useContainerSelectionStore.getState().hoverMemberId).toBeNull();
+  });
+
+  it('viewport without canvasToWorld → labelmap fallback skipped (clears hover)', () => {
+    injectMember('lm_1', 5, 'm-lm');
+    csLabelmap.reps.set('vp-test', [{ type: 'Labelmap', segmentationId: 'lm_1' }]);
+    csLabelmap.sampleResults.set('lm_1:42,42,0', 5);
+
+    const element = document.createElement('div');
+    element.getBoundingClientRect = () => ({
+      left: 0, top: 0, right: 100, bottom: 100,
+      width: 100, height: 100, x: 0, y: 0, toJSON: () => ({}),
+    } as DOMRect);
+    // Viewport with NO canvasToWorld — labelmap fallback can't run.
+    const viewport = (): HitTestViewport => ({
+      id: 'vp-test',
+      getCurrentImageId: () => 'slice-1',
+      worldToCanvas: ([x, y]: [number, number, number]) => [x, y] as [number, number],
+    });
+
+    runHitTest(element, viewport, 42, 42);
+    expect(useContainerSelectionStore.getState().hoverMemberId).toBeNull();
   });
 });
 

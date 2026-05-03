@@ -60,10 +60,13 @@ import * as contourRep from './contourRepresentation';
 import * as sourceImageTracking from './sourceImageTracking';
 import * as containerBridge from './containerBridge';
 import * as containerStoreSync from './containerStoreSync';
+import { memberIdFor } from './containerStoreSync';
 import {
+  containerService,
   wireContainerService,
   resetContainerServiceWiring,
 } from './containerService';
+import * as provenanceStamping from './segmentationService/provenance';
 import * as mlg from './multiLayerGroup';
 import * as interpolationAcceptance from './interpolationAcceptance';
 import { backupService } from '../backup/backupService';
@@ -1032,6 +1035,23 @@ export const segmentationService = {
     // Wire interpolation-acceptance policies (auto-accept on generation
     // when the preference is enabled; click-to-accept always).
     interpolationAcceptance.initialize();
+
+    // Phase 4.1: stamp provenance + auto-marker on members whose contours
+    // were just interpolated. Independent of interpolationAcceptance —
+    // operates on the event-detail's source annotation rather than the
+    // global annotation state, so the two handlers do not race.
+    provenanceStamping.wireProvenance({
+      memberIdForCsSegment: (csSegId, segmentIndex) => {
+        const containerId = containerBridge.getContainerId(csSegId);
+        if (!containerId) return null;
+        return memberIdFor(csSegId, segmentIndex);
+      },
+      stampInterpolated: (memberId) => {
+        containerService.setMemberProvenance(memberId, 'interpolated');
+        containerService.setMemberInterpolationState(memberId, 'has-interpolated');
+      },
+    });
+    provenanceStamping.initialize();
 
     // Phase 2.3: wire the FoR-eligibility metadata adapter so the
     // visibility classify* helpers can resolve series identities for the
@@ -4824,6 +4844,8 @@ export const segmentationService = {
     clearAllUndoHistories();
     transportCoordinator.clearAll();
     interpolationAcceptance.dispose();
+    provenanceStamping.dispose();
+    provenanceStamping.resetProvenanceWiring();
     resetVisibilityAdapter();
 
     // Phase 2.4b teardown: detach styling event listeners and unsubscribe

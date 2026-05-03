@@ -805,3 +805,160 @@ describe('setMemberVisibility', () => {
     expect(() => containerService.setMemberVisibility('', 'hidden')).not.toThrow();
   });
 });
+
+// ─── Phase 4.1: setMemberProvenance / setMemberInterpolationState ──────
+
+describe('setMemberProvenance', () => {
+  function injectMember(
+    csSegId: string,
+    memberId: string,
+    provenance: import('../../types/annotation').Provenance = 'manual',
+  ): string {
+    const containerId = containerBridge.register(csSegId);
+    const container = containerBridge.getContainer(containerId)!;
+    container.members.push({
+      id: memberId,
+      name: 'M',
+      color: [255, 0, 0],
+      visibility: 'outlined',
+      locked: false,
+      provenance,
+      roiType: null,
+      roiNumber: null,
+      interpolationState: null,
+      segmentIndex: 1,
+      segmentDescription: null,
+      segmentedPropertyCategory: null,
+      segmentedPropertyType: null,
+      poiPoints: null,
+      algebra: null,
+      algebraSources: null,
+      algebraOutOfDate: false,
+      algebraManualOverride: false,
+      csAnnotationUIDs: null,
+      csSegmentationId: csSegId,
+      createdAt: 0,
+      modifiedAt: 0,
+    });
+    return containerId;
+  }
+
+  it('mutates the member’s provenance field', () => {
+    const containerId = injectMember('seg_1', 'm1', 'manual');
+    containerService.setMemberProvenance('m1', 'interpolated');
+    expect(containerBridge.getContainer(containerId)!.members[0].provenance).toBe('interpolated');
+  });
+
+  it('updates modifiedAt on the member', () => {
+    const containerId = injectMember('seg_1', 'm1', 'manual');
+    const before = containerBridge.getContainer(containerId)!.members[0].modifiedAt;
+    containerService.setMemberProvenance('m1', 'interpolated');
+    const after = containerBridge.getContainer(containerId)!.members[0].modifiedAt;
+    expect(after).toBeGreaterThanOrEqual(before);
+  });
+
+  it('does NOT mark the container dirty (session-only per §D7.10)', () => {
+    const containerId = injectMember('seg_1', 'm1', 'manual');
+    containerBridge.setDirty(containerId, false);
+    containerService.setMemberProvenance('m1', 'interpolated');
+    expect(containerBridge.getContainer(containerId)!.dirty).toBe(false);
+  });
+
+  it('idempotent on no-op (same value)', () => {
+    const containerId = injectMember('seg_1', 'm1', 'interpolated');
+    const before = containerBridge.getContainer(containerId)!.members[0].modifiedAt;
+    containerService.setMemberProvenance('m1', 'interpolated');
+    const after = containerBridge.getContainer(containerId)!.members[0].modifiedAt;
+    expect(after).toBe(before);
+  });
+
+  it('does NOT enforce the §D7.11 approval edit-lock', () => {
+    // Phase 4.4 needs to flip provenance from 'interpolated' back to
+    // 'manual' on a manual edit; that flip can land regardless of approval
+    // state because the underlying geometry edit (which is the actual
+    // mutation) is already locked at its own assertNotApproved site.
+    const containerId = injectMember('seg_1', 'm1', 'interpolated');
+    const container = containerBridge.getContainer(containerId)!;
+    container.approval = { ...container.approval, approved: true };
+    expect(() => containerService.setMemberProvenance('m1', 'manual')).not.toThrow();
+    expect(containerBridge.getContainer(containerId)!.members[0].provenance).toBe('manual');
+  });
+
+  it('silently no-ops on unknown memberId', () => {
+    // The setter is fire-and-forget metadata; throwing on unknown ids
+    // would force callers (the event handler in provenance.ts) to wrap
+    // every call in a try/catch. Silent no-op is the right contract.
+    expect(() => containerService.setMemberProvenance('unknown', 'interpolated')).not.toThrow();
+  });
+
+  it('no-op on empty memberId', () => {
+    expect(() => containerService.setMemberProvenance('', 'interpolated')).not.toThrow();
+  });
+});
+
+describe('setMemberInterpolationState', () => {
+  function injectMember(
+    csSegId: string,
+    memberId: string,
+    state: import('../../types/annotation').Member['interpolationState'] = null,
+  ): string {
+    const containerId = containerBridge.register(csSegId);
+    const container = containerBridge.getContainer(containerId)!;
+    container.members.push({
+      id: memberId,
+      name: 'M',
+      color: [255, 0, 0],
+      visibility: 'outlined',
+      locked: false,
+      provenance: 'manual',
+      roiType: null,
+      roiNumber: null,
+      interpolationState: state,
+      segmentIndex: 1,
+      segmentDescription: null,
+      segmentedPropertyCategory: null,
+      segmentedPropertyType: null,
+      poiPoints: null,
+      algebra: null,
+      algebraSources: null,
+      algebraOutOfDate: false,
+      algebraManualOverride: false,
+      csAnnotationUIDs: null,
+      csSegmentationId: csSegId,
+      createdAt: 0,
+      modifiedAt: 0,
+    });
+    return containerId;
+  }
+
+  it('mutates the member’s interpolationState field', () => {
+    const containerId = injectMember('seg_1', 'm1', null);
+    containerService.setMemberInterpolationState('m1', 'has-interpolated');
+    expect(containerBridge.getContainer(containerId)!.members[0].interpolationState).toBe('has-interpolated');
+  });
+
+  it('does NOT mark the container dirty (session-only per §D7.10)', () => {
+    const containerId = injectMember('seg_1', 'm1', null);
+    containerBridge.setDirty(containerId, false);
+    containerService.setMemberInterpolationState('m1', 'has-interpolated');
+    expect(containerBridge.getContainer(containerId)!.dirty).toBe(false);
+  });
+
+  it('clears back to none', () => {
+    const containerId = injectMember('seg_1', 'm1', 'has-interpolated');
+    containerService.setMemberInterpolationState('m1', 'none');
+    expect(containerBridge.getContainer(containerId)!.members[0].interpolationState).toBe('none');
+  });
+
+  it('idempotent on no-op', () => {
+    const containerId = injectMember('seg_1', 'm1', 'has-interpolated');
+    const before = containerBridge.getContainer(containerId)!.members[0].modifiedAt;
+    containerService.setMemberInterpolationState('m1', 'has-interpolated');
+    const after = containerBridge.getContainer(containerId)!.members[0].modifiedAt;
+    expect(after).toBe(before);
+  });
+
+  it('silently no-ops on unknown memberId', () => {
+    expect(() => containerService.setMemberInterpolationState('unknown', 'has-interpolated')).not.toThrow();
+  });
+});

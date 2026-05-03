@@ -18,10 +18,17 @@ import { annotation as csAnnotation } from '@cornerstonejs/tools';
 /**
  * Minimum viewport surface needed for hit-testing. Both stack and volume
  * viewports satisfy this; the function doesn't care which.
+ *
+ * `canvasToWorld` and `id` are required by the labelmap hit-test (Phase
+ * 3.5c-canvas-labelmap) — the contour hit-test only reads `worldToCanvas`
+ * and `getCurrentImageId`, so they stay optional for callers that only
+ * need contour detection.
  */
 export interface HitTestViewport {
+  id?: string;
   getCurrentImageId?: () => string | null | undefined;
   worldToCanvas?: (point: [number, number, number]) => [number, number] | null | undefined;
+  canvasToWorld?: (point: [number, number]) => [number, number, number] | null | undefined;
 }
 
 /** Default click-radius in canvas pixels. The existing select code used 12. */

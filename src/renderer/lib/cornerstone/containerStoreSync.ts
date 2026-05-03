@@ -35,7 +35,13 @@ let onSegmentationLifecycle: EventListener | null = null;
 
 // ─── Member synthesis ────────────────────────────────────────────
 
-function memberIdFor(csSegId: string, segmentIndex: number): string {
+/**
+ * Compute the deterministic Member id for a (csSegmentationId, segmentIndex)
+ * pair. Exported so sibling modules (e.g., `segmentationService/provenance.ts`)
+ * can resolve from a Cornerstone segment back to a Member without repeating
+ * the format string.
+ */
+export function memberIdFor(csSegId: string, segmentIndex: number): string {
   return `member_${csSegId}_${segmentIndex}`;
 }
 
