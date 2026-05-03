@@ -18,6 +18,7 @@ const deleteMemberMock = vi.hoisted(() => vi.fn());
 const setA2cOptedInMock = vi.hoisted(() => vi.fn());
 const approveContainerMock = vi.hoisted(() => vi.fn());
 const revokeApprovalMock = vi.hoisted(() => vi.fn());
+const setRoiTypeMock = vi.hoisted(() => vi.fn());
 
 vi.mock('../../lib/cornerstone/containerService', () => ({
   containerService: {
@@ -28,6 +29,7 @@ vi.mock('../../lib/cornerstone/containerService', () => ({
     setA2cOptedIn: setA2cOptedInMock,
     approveContainer: approveContainerMock,
     revokeApproval: revokeApprovalMock,
+    setRoiType: setRoiTypeMock,
   },
 }));
 
@@ -98,6 +100,7 @@ beforeEach(() => {
   setA2cOptedInMock.mockReset();
   approveContainerMock.mockReset();
   revokeApprovalMock.mockReset();
+  setRoiTypeMock.mockReset();
 });
 
 afterEach(() => {
@@ -1210,7 +1213,7 @@ describe('approval workflow (D7.11)', () => {
 // ─── Phase 3.8b: ROI type badge + provenance indicator (D7.2) ──────────
 
 describe('ROI type badge (D7.2 RTSTRUCT)', () => {
-  it('renders a badge when roiType is set', () => {
+  it('renders the editable select for un-approved RTSTRUCT members', () => {
     setContainers(
       makeContainer({
         id: 'c1',
@@ -1219,23 +1222,39 @@ describe('ROI type badge (D7.2 RTSTRUCT)', () => {
       }),
     );
     render(<ContainerListPanel />);
-    const badge = screen.queryByTestId('member-roi-type:m1');
-    expect(badge).not.toBeNull();
-    expect(badge?.textContent).toBe('GTV');
+    const select = screen.queryByTestId('member-roi-type-select:m1') as HTMLSelectElement | null;
+    expect(select).not.toBeNull();
+    expect(select?.value).toBe('GTV');
   });
 
-  it('hides the badge when roiType is null', () => {
+  it('renders the read-only badge when the container is approved (edit-locked)', () => {
     setContainers(
       makeContainer({
         id: 'c1',
+        kind: 'RTSTRUCT',
+        approval: { approved: true, reviewerName: 'a', reviewedAt: 0, history: [] },
+        members: [makeMember({ id: 'm1', roiType: 'GTV' })],
+      }),
+    );
+    render(<ContainerListPanel />);
+    expect(screen.queryByTestId('member-roi-type:m1')?.textContent).toBe('GTV');
+    expect(screen.queryByTestId('member-roi-type-select:m1')).toBeNull();
+  });
+
+  it('hides the read-only badge when roiType is null and not RTSTRUCT', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        kind: 'SEG',
         members: [makeMember({ id: 'm1', roiType: null })],
       }),
     );
     render(<ContainerListPanel />);
     expect(screen.queryByTestId('member-roi-type:m1')).toBeNull();
+    expect(screen.queryByTestId('member-roi-type-select:m1')).toBeNull();
   });
 
-  it('GTV / CTV / PTV / ORGAN / EXTERNAL / AVOIDANCE get distinct color hints', () => {
+  it('GTV / CTV / PTV / ORGAN / EXTERNAL / AVOIDANCE select carries distinct color hints', () => {
     const types: Array<['GTV' | 'CTV' | 'PTV' | 'ORGAN' | 'EXTERNAL' | 'AVOIDANCE', RegExp]> = [
       ['GTV', /rose/],
       ['CTV', /orange/],
@@ -1253,10 +1272,84 @@ describe('ROI type badge (D7.2 RTSTRUCT)', () => {
         }),
       );
       const { unmount } = render(<ContainerListPanel />);
-      const badge = screen.queryByTestId(`member-roi-type:m-${type}`);
-      expect(badge?.className).toMatch(color);
+      const select = screen.queryByTestId(`member-roi-type-select:m-${type}`);
+      expect(select?.className).toMatch(color);
       unmount();
     }
+  });
+});
+
+describe('inline ROI type editor (D7.2 / signal 18)', () => {
+  it('changing the select calls containerService.setRoiType', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        kind: 'RTSTRUCT',
+        members: [makeMember({ id: 'm1', roiType: 'GTV' })],
+      }),
+    );
+    render(<ContainerListPanel />);
+    act(() => {
+      fireEvent.change(screen.getByTestId('member-roi-type-select:m1'), {
+        target: { value: 'CTV' },
+      });
+    });
+    expect(setRoiTypeMock).toHaveBeenCalledWith('m1', 'CTV');
+  });
+
+  it('opening the dropdown does not bubble to row selection', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        kind: 'RTSTRUCT',
+        members: [makeMember({ id: 'm1', roiType: 'GTV' })],
+      }),
+    );
+    render(<ContainerListPanel />);
+    act(() => {
+      fireEvent.click(screen.getByTestId('member-roi-type-select:m1'));
+    });
+    expect(useContainerSelectionStore.getState().selectionSet.size).toBe(0);
+  });
+
+  it('exposes all standard RTROIInterpretedType options', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        kind: 'RTSTRUCT',
+        members: [makeMember({ id: 'm1', roiType: 'GTV' })],
+      }),
+    );
+    render(<ContainerListPanel />);
+    const select = screen.getByTestId('member-roi-type-select:m1') as HTMLSelectElement;
+    const optionValues = Array.from(select.options).map((o) => o.value);
+    // Spot-check: the headline radiotherapy types are present.
+    expect(optionValues).toEqual(expect.arrayContaining(['GTV', 'CTV', 'PTV', 'ORGAN', 'EXTERNAL', 'AVOIDANCE']));
+  });
+
+  it('null roiType renders the empty placeholder option', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        kind: 'RTSTRUCT',
+        members: [makeMember({ id: 'm1', roiType: null })],
+      }),
+    );
+    render(<ContainerListPanel />);
+    const select = screen.getByTestId('member-roi-type-select:m1') as HTMLSelectElement;
+    expect(select.value).toBe('');
+  });
+
+  it('SEG containers do not get the editor (only RTSTRUCT)', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        kind: 'SEG',
+        members: [makeMember({ id: 'm1' })],
+      }),
+    );
+    render(<ContainerListPanel />);
+    expect(screen.queryByTestId('member-roi-type-select:m1')).toBeNull();
   });
 });
 

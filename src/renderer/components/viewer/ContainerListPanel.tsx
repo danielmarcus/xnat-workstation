@@ -289,6 +289,7 @@ function ContainerRow({ container }: { container: Container }) {
             <MemberRow
               key={member.id}
               member={member}
+              containerKind={container.kind}
               containerApproved={container.approval.approved}
             />
           ))}
@@ -300,9 +301,11 @@ function ContainerRow({ container }: { container: Container }) {
 
 function MemberRow({
   member,
+  containerKind,
   containerApproved,
 }: {
   member: Member;
+  containerKind: Container['kind'];
   containerApproved: boolean;
 }) {
   const isSelected = useContainerSelectionStore((s) => s.selectionSet.has(member.id));
@@ -432,14 +435,18 @@ function MemberRow({
           title={member.name}
         >
           <span className="truncate">{member.name}</span>
-          {member.roiType && (
-            <span
-              data-testid={`member-roi-type:${member.id}`}
-              className={`text-[8px] uppercase font-mono px-1 rounded shrink-0 ${roiTypeColor(member.roiType)}`}
-              title={`ROI type: ${member.roiType}`}
-            >
-              {member.roiType}
-            </span>
+          {containerKind === 'RTSTRUCT' && !containerApproved ? (
+            <RoiTypeSelect member={member} />
+          ) : (
+            member.roiType && (
+              <span
+                data-testid={`member-roi-type:${member.id}`}
+                className={`text-[8px] uppercase font-mono px-1 rounded shrink-0 ${roiTypeColor(member.roiType)}`}
+                title={`ROI type: ${member.roiType}`}
+              >
+                {member.roiType}
+              </span>
+            )
           )}
           {member.provenance !== 'manual' && (
             <span
@@ -524,6 +531,72 @@ function MemberRow({
     </li>
   );
 }
+
+/**
+ * Inline ROI-type editor for RTSTRUCT members (D7.2). Rendered as a
+ * minimal <select> element styled to match the static badge. Empty
+ * value = "no type" placeholder.
+ */
+function RoiTypeSelect({ member }: { member: Member }) {
+  const value = member.roiType ?? '';
+  const onChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    e.stopPropagation();
+    const next = e.target.value as Member['roiType'];
+    if (!next) return;
+    try {
+      containerService.setRoiType(member.id, next as NonNullable<Member['roiType']>);
+    } catch (err) {
+      console.warn('[ContainerListPanel] setRoiType failed', err);
+    }
+  };
+  return (
+    <select
+      data-testid={`member-roi-type-select:${member.id}`}
+      value={value}
+      onClick={(e) => e.stopPropagation()}
+      onChange={onChange}
+      className={`text-[8px] uppercase font-mono shrink-0 outline-none rounded border-0 ${
+        member.roiType ? roiTypeColor(member.roiType) : 'bg-zinc-800 text-zinc-500'
+      } px-0.5`}
+      aria-label="ROI type"
+      title={member.roiType ? `ROI type: ${member.roiType}` : 'Set ROI type'}
+    >
+      <option value="" disabled hidden>
+        —
+      </option>
+      {ROI_TYPE_OPTIONS.map((t) => (
+        <option key={t} value={t}>
+          {t}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+const ROI_TYPE_OPTIONS: Array<NonNullable<Member['roiType']>> = [
+  'GTV',
+  'CTV',
+  'PTV',
+  'ORGAN',
+  'EXTERNAL',
+  'SUPPORT',
+  'FIXATION',
+  'CAVITY',
+  'BOLUS',
+  'AVOIDANCE',
+  'CONTROL',
+  'DOSE_REGION',
+  'MARKER',
+  'REGISTRATION',
+  'ISOCENTER',
+  'CONTRAST_AGENT',
+  'TREATED_VOLUME',
+  'IRRAD_VOLUME',
+  'BRACHY_CHANNEL',
+  'BRACHY_ACCESSORY',
+  'BRACHY_SRC_APP',
+  'BRACHY_CHNL_SHLD',
+];
 
 // ─── Helpers ──────────────────────────────────────────────────────
 
