@@ -391,6 +391,24 @@ test.describe('Segmentations (local fixture)', () => {
     expect(targetImageNumber).not.toBeNull();
     const interpolationCount = Math.max(0, (targetImageNumber ?? 0) - (sourceImageNumber ?? 0) - 1);
 
+    // Cornerstone's contour interpolation calls
+    // `viewport.getViewReference({ sliceIndex })` for every in-between slice;
+    // that throws "Can't find slice N" if imagePlaneModule metadata for N
+    // isn't registered yet. Image metadata is preloaded asynchronously after
+    // the user scrolls, so without this wait we race the preloader and
+    // interpolation only fills the slices whose metadata happens to be ready.
+    await expect
+      .poll(
+        async () =>
+          page.evaluate(
+            (panelId: string) =>
+              (window as any).__XNAT_E2E__?.isViewportImagePlaneMetadataReady?.(panelId) ?? false,
+            'panel_0',
+          ),
+        { timeout: 15_000 },
+      )
+      .toBe(true);
+
     await page.keyboard.press('Control+V');
 
     await expect.poll(async () => {

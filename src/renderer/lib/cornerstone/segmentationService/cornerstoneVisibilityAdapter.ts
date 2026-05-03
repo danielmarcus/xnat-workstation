@@ -76,6 +76,20 @@ export function identityFromImageId(
     const n = Number(rawAcq);
     acquisitionNumber = Number.isFinite(n) ? n : null;
   }
+  // Fallback for image IDs whose `instance` aggregate doesn't surface
+  // AcquisitionNumber (notably `dicomfile:` from local fixtures and other
+  // wadouri-loaded paths). The extension provider parses x00200012 from
+  // the cached DICOM dataset. See acquisitionNumberProvider.ts.
+  if (acquisitionNumber === null) {
+    const ext = getMetaData('acquisitionNumberExtension', imageId) as
+      | { AcquisitionNumber?: number | null }
+      | undefined;
+    const extRaw = ext?.AcquisitionNumber;
+    if (extRaw !== undefined && extRaw !== null) {
+      const n = Number(extRaw);
+      acquisitionNumber = Number.isFinite(n) ? n : null;
+    }
+  }
 
   return {
     seriesUID,

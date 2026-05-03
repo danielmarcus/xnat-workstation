@@ -109,6 +109,46 @@ describe('identityFromImageId', () => {
     const getMetaData = (_type: string, _imageId: string) => undefined;
     expect(identityFromImageId('img1', getMetaData)).toBeNull();
   });
+
+  // Fallback path used by `dicomfile:` IDs from local fixtures: the wadouri
+  // `instance` aggregate doesn't surface AcquisitionNumber, so the adapter
+  // consults `acquisitionNumberExtension` whose provider parses x00200012
+  // from the cached DICOM dataset (acquisitionNumberProvider.ts).
+  it('falls back to acquisitionNumberExtension when instance.AcquisitionNumber is missing', () => {
+    const getMetaData = makeMetaData({
+      generalSeriesModule: { seriesInstanceUID: 'S' },
+      imagePlaneModule: { frameOfReferenceUID: 'F' },
+      instance: {}, // no AcquisitionNumber here
+      acquisitionNumberExtension: { AcquisitionNumber: 4 },
+    });
+    expect(identityFromImageId('dicomfile:0', getMetaData)?.acquisitionNumber).toBe(4);
+  });
+
+  it('prefers instance.AcquisitionNumber when present (no fallback consulted)', () => {
+    const calls: string[] = [];
+    const records: Record<string, Record<string, unknown>> = {
+      generalSeriesModule: { seriesInstanceUID: 'S' },
+      imagePlaneModule: { frameOfReferenceUID: 'F' },
+      instance: { AcquisitionNumber: 9 },
+      acquisitionNumberExtension: { AcquisitionNumber: 4 },
+    };
+    const getMetaData = (type: string, _imageId: string) => {
+      calls.push(type);
+      return records[type];
+    };
+    expect(identityFromImageId('img1', getMetaData)?.acquisitionNumber).toBe(9);
+    expect(calls).not.toContain('acquisitionNumberExtension');
+  });
+
+  it('returns acquisitionNumber=null when both instance and the extension are missing', () => {
+    const getMetaData = makeMetaData({
+      generalSeriesModule: { seriesInstanceUID: 'S' },
+      imagePlaneModule: { frameOfReferenceUID: 'F' },
+      instance: {},
+      // no acquisitionNumberExtension entry — provider returns undefined
+    });
+    expect(identityFromImageId('dicomfile:0', getMetaData)?.acquisitionNumber).toBeNull();
+  });
 });
 
 // ─── createVisibilityAdapter (factory) ──────────────────────────────────

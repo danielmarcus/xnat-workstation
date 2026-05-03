@@ -55,6 +55,9 @@ async function loadInitModule(options?: { splineRegistered?: boolean }): Promise
 
   vi.doMock('@cornerstonejs/core', () => ({
     init: initCore,
+    metaData: {
+      addProvider: vi.fn(),
+    },
   }));
 
   vi.doMock('@cornerstonejs/tools', () => ({
@@ -79,6 +82,9 @@ async function loadInitModule(options?: { splineRegistered?: boolean }): Promise
 
   vi.doMock('@cornerstonejs/dicom-image-loader', () => ({
     init: initDicomLoader,
+    wadouri: {
+      dataSetCacheManager: { isLoaded: () => false, get: () => undefined },
+    },
   }));
 
   vi.doMock('../tools/SafePaintFillTool', () => ({

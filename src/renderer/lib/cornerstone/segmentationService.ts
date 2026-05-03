@@ -1968,8 +1968,13 @@ export const segmentationService = {
   async addToViewport(viewportId: string, segmentationId: string): Promise<void> {
     // Async SEGMENTATION_DATA_MODIFIED events fire AFTER this method returns;
     // suppress dirty marks for THIS segmentation specifically (so a concurrent
-    // user edit on a different segmentation is not also swallowed).
-    setDirtyTrackingSuppressedFor(segmentationId, 400);
+    // user edit on a different segmentation is not also swallowed). 50ms is
+    // long enough for synchronous + microtask + setTimeout(0) phantom events
+    // Cornerstone schedules during representation attach, but short enough
+    // that a user click ~100ms later cannot race it. Was 400ms — that window
+    // overlapped the next user interaction in fast e2e specs and dropped the
+    // brush stroke's dirty mark (Phase 2 cliff edges Bug 1 suspicion).
+    setDirtyTrackingSuppressedFor(segmentationId, 50);
     incrementSuppression();
     try {
     // Verify viewport exists.

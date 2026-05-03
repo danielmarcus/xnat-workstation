@@ -47,9 +47,12 @@ export default function AnnotationListPanel() {
                 <li
                   key={ann.annotationUID}
                   onClick={() =>
-                    annotationService.selectAnnotation(
-                      isSelected ? null : ann.annotationUID,
-                    )
+                    // Always select on click; deselection is via clicking
+                    // empty space on the canvas or selecting a different row.
+                    // Toggling on re-click was confusing — a fresh click
+                    // after the canvas auto-selected the new annotation
+                    // would deselect it instead of confirming selection.
+                    annotationService.selectAnnotation(ann.annotationUID)
                   }
                   className={`group flex items-start gap-2 px-3 py-2 cursor-pointer transition-colors ${
                     isSelected

@@ -35,6 +35,7 @@ import {
 import SafePaintFillTool from './tools/SafePaintFillTool';
 import { utilities as csToolsUtilities } from '@cornerstonejs/tools';
 import { init as initDicomImageLoader } from '@cornerstonejs/dicom-image-loader';
+import { registerAcquisitionNumberProvider } from './acquisitionNumberProvider';
 
 let initialized = false;
 
@@ -120,6 +121,11 @@ export async function initCornerstone(): Promise<void> {
   initDicomImageLoader({
     maxWebWorkers,
   });
+
+  // Register the AcquisitionNumber extension provider so the visibility
+  // adapter can resolve x00200012 for `dicomfile:` IDs whose `instance`
+  // module doesn't surface it. Phase 2 G10 classifier dependency.
+  registerAcquisitionNumberProvider();
 
   initialized = true;
   console.log('Cornerstone3D v4 initialized successfully');

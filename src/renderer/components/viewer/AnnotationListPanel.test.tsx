@@ -57,8 +57,11 @@ describe('AnnotationListPanel', () => {
     expect(screen.getByText('Annotations')).toBeInTheDocument();
     expect(screen.getByText('2')).toBeInTheDocument();
 
+    // Click on the already-selected row: still calls selectAnnotation with
+    // the same UID (no toggle-to-null). Cornerstone's selection state
+    // remains the source of truth; clicking re-asserts it idempotently.
     await user.click(screen.getByText('Length: A'));
-    expect(annotationServiceMock.selectAnnotation).toHaveBeenCalledWith(null);
+    expect(annotationServiceMock.selectAnnotation).toHaveBeenCalledWith('ann-1');
 
     await user.click(screen.getByText('Angle'));
     expect(annotationServiceMock.selectAnnotation).toHaveBeenCalledWith('ann-2');

@@ -128,6 +128,15 @@ declare global {
       setSliceIndex: (panelId: string, sliceIndex: number) => boolean;
       /** Sync. Read a panel's current slice index, or null if unknown. */
       getSliceIndex: (panelId: string) => number | null;
+      /**
+       * Returns true when imagePlaneModule metadata is registered for every
+       * imageId in the panel's stack — the precondition for
+       * `viewport.getViewReference({ sliceIndex })` to return a value for any
+       * sliceIndex. Tests that rely on cross-slice operations (interpolation,
+       * crosshair sync) should poll this before continuing so they don't race
+       * with the background image preloader.
+       */
+      isViewportImagePlaneMetadataReady: (panelId: string) => boolean;
       closePanel: (panelId: string) => boolean;
       getUndoStackInfo: () => UndoStackInfo;
 
@@ -631,6 +640,14 @@ export function installRendererE2eHooks(): void {
       if (Number.isInteger(volumeIdx) && Number(volumeIdx) >= 0) return Number(volumeIdx);
       const storeIdx = useViewerStore.getState().viewports[panelId]?.imageIndex;
       return Number.isInteger(storeIdx) ? Number(storeIdx) : null;
+    },
+    isViewportImagePlaneMetadataReady: (panelId: string): boolean => {
+      const imageIds = useViewerStore.getState().panelImageIdsMap[panelId] ?? [];
+      if (imageIds.length === 0) return false;
+      for (const imageId of imageIds) {
+        if (!metaData.get('imagePlaneModule', imageId)) return false;
+      }
+      return true;
     },
     createTestStructure: async (panelId: string, label: string) => {
       const sourceImageIds = useViewerStore.getState().panelImageIdsMap[panelId] ?? [];

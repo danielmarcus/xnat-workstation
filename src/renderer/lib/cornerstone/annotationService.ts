@@ -178,13 +178,41 @@ export const annotationService = {
 
   /**
    * Select/highlight an annotation on the viewport.
-   * Sets `highlighted` on the target annotation and clears others.
+   *
+   * Synchronises three pieces of state:
+   *   1. Each annotation's `highlighted` flag (renderer hint).
+   *   2. Cornerstone's annotation-selection state via
+   *      `csAnnotation.selection.setAnnotationSelected`. Without this, a
+   *      panel-side selection is not visible to Cornerstone, and any
+   *      Cornerstone-side ANNOTATION_SELECTION_CHANGE that fires next
+   *      (e.g., after a render kick) clobbers our store via
+   *      `onAnnotationSelectionChange`. This was the 04-annotations.e2e.ts
+   *      "select annotation highlights it" failure: clicking a list item
+   *      set our store, but Cornerstone's empty selection state then
+   *      reverted it.
+   *   3. The Zustand `useAnnotationStore.selectedUID` for the panel UI.
    */
   selectAnnotation(uid: string | null): void {
     try {
       const allAnnotations = csAnnotation.state.getAllAnnotations();
       for (const ann of allAnnotations) {
         ann.highlighted = ann.annotationUID === uid;
+      }
+      try {
+        // Push selection into Cornerstone so its internal state matches
+        // ours. `preserveSelected` = false means single-selection (clears
+        // any other selected annotations).
+        if (uid) {
+          csAnnotation.selection.setAnnotationSelected?.(uid, true, false);
+        } else {
+          // Deselect: pass selected=false on whatever is currently selected.
+          const selected = csAnnotation.selection.getAnnotationsSelected?.() ?? [];
+          for (const selectedUid of selected) {
+            csAnnotation.selection.setAnnotationSelected?.(selectedUid, false, false);
+          }
+        }
+      } catch (err) {
+        console.debug('[annotationService] Cornerstone selection update failed:', err);
       }
       useAnnotationStore.getState().select(uid);
     } catch (err) {

@@ -950,7 +950,11 @@ export class SegmentationManager {
     // doesn't create false unsaved-change warnings or auto-save attempts —
     // scoped to `segmentationId` so a concurrent edit on another segmentation
     // is not also swallowed.
-    segmentationService.suppressDirtyTrackingFor(segmentationId, 600);
+    // 50ms is enough for the async events Cornerstone fires during color /
+    // visibility / lock restore, but short enough that a follow-on user
+    // brush stroke (~hundreds of ms later) can't fall inside the window.
+    // Was 600ms — overlapped real user input in fast specs (Phase 2 Bug 1).
+    segmentationService.suppressDirtyTrackingFor(segmentationId, 50);
     segmentationService.runWithDirtyTrackingSuppressed(() => {
       // Restore colors
       for (const [idxStr, rgba] of Object.entries(cached.color)) {
