@@ -79,7 +79,7 @@ describe('Toolbar', () => {
     await user.click(screen.getByTitle(/^Flip horizontal(\s|$)/));
     await user.click(screen.getByTitle(/^Flip vertical(\s|$)/));
     await user.click(screen.getByTitle('Play cine'));
-    await user.click(screen.getByRole('button', { name: 'MPR' }));
+    await user.click(screen.getByTestId('toolbar-mpr-cycle'));
     await user.click(screen.getByRole('button', { name: 'Tags' }));
 
     fireEvent.change(screen.getByTitle('15 FPS'), { target: { value: '22' } });
@@ -92,7 +92,8 @@ describe('Toolbar', () => {
     expect(toggleCine).toHaveBeenCalledTimes(1);
     expect(setCineFps).toHaveBeenCalledWith(22);
     expect(onToggleDicomPanel).toHaveBeenCalledTimes(1);
-    expect(onToggleMPR).toHaveBeenCalledTimes(1);
+    // MPR toolbar button no longer routes through `onToggleMPR` — per
+    // spec §3.3 it cycles the active viewport's orientation directly.
   });
 
   it('supports layout/protocol/preset dropdown flows', async () => {
@@ -191,39 +192,49 @@ describe('Toolbar', () => {
     expect(screen.queryByText('Preferences')).not.toBeInTheDocument();
   });
 
-  it('renders MPR toggle button with active label when the mpr-2x2 preset is engaged (Phase 6.4: navigation/cine no longer gated)', async () => {
+  it('per-viewport MPR cycle — STACK → AXIAL → SAGITTAL → CORONAL → STACK (spec §3.3)', async () => {
     const user = userEvent.setup();
-    const onToggleMPR = vi.fn();
-    // After Phase 6.4 the toolbar derives "MPR active" from the panel
-    // orientation map (panels 0/1/2 hold AXIAL/SAGITTAL/CORONAL when the
-    // mpr-2x2 preset is engaged). Set those orientations directly.
+    const setPanelOrientation = vi.fn();
     useViewerStore.setState({
       ...useViewerStore.getState(),
       activeViewportId: 'panel_0',
-      cineStates: { panel_0: { isPlaying: true, fps: 25 } },
-      panelOrientationMap: {
-        panel_0: 'AXIAL',
-        panel_1: 'SAGITTAL',
-        panel_2: 'CORONAL',
-      },
+      panelOrientationMap: { panel_0: 'STACK' },
+      setPanelOrientation,
     });
 
     render(
       <Toolbar
-        hasImages={false}
-        onToggleMPR={onToggleMPR}
+        hasImages
         leftSlot={<span data-testid="left-slot-marker">left</span>}
       />,
     );
 
     expect(screen.getByTestId('left-slot-marker')).toBeInTheDocument();
-    // Navigation tools (Pan etc.) and cine controls remain available now
-    // — MPR is just a layout, not a separate mode.
-    expect(screen.getByRole('button', { name: 'Pan' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'MPR' })).toHaveAttribute('title', 'Exit MPR mode');
+    // STACK → active label is "MPR" (not blue); first click goes to AXIAL.
+    const btn = screen.getByTestId('toolbar-mpr-cycle');
+    expect(btn.dataset.activeOrientation).toBe('STACK');
+    await user.click(btn);
+    expect(setPanelOrientation).toHaveBeenLastCalledWith('panel_0', 'AXIAL');
 
-    await user.click(screen.getByRole('button', { name: 'MPR' }));
-    expect(onToggleMPR).toHaveBeenCalledTimes(1);
+    // Now simulate the orientation having advanced; cycle from CORONAL.
+    useViewerStore.setState({
+      ...useViewerStore.getState(),
+      panelOrientationMap: { panel_0: 'CORONAL' },
+    });
+    await user.click(screen.getByTestId('toolbar-mpr-cycle'));
+    expect(setPanelOrientation).toHaveBeenLastCalledWith('panel_0', 'STACK');
+  });
+
+  it('MPR button is "active" (blue) when the active viewport orientation ≠ STACK', () => {
+    useViewerStore.setState({
+      ...useViewerStore.getState(),
+      activeViewportId: 'panel_0',
+      panelOrientationMap: { panel_0: 'AXIAL' },
+    });
+    render(<Toolbar hasImages />);
+    const btn = screen.getByTestId('toolbar-mpr-cycle');
+    expect(btn.dataset.activeOrientation).toBe('AXIAL');
+    expect(btn.className).toMatch(/bg-blue-600/);
   });
 
   it('supports dropdown close-on-outside-click and tags toggle active title', async () => {

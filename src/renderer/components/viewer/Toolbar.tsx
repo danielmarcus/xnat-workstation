@@ -6,7 +6,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { useViewerStore } from '../../stores/viewerStore';
 import { useSegmentationStore } from '../../stores/segmentationStore';
 import { ToolName, WL_PRESETS, panelId } from '@shared/types/viewer';
-import type { LayoutType } from '@shared/types/viewer';
+import type { LayoutType, ViewportOrientation } from '@shared/types/viewer';
 import { BUILT_IN_PROTOCOLS } from '@shared/types/hangingProtocol';
 import AnnotationToolDropdown from './AnnotationToolDropdown';
 import AddAnnotationButtons from './AddAnnotationButtons';
@@ -554,16 +554,22 @@ export default function Toolbar({
   }, [settingsInitialTabRequest, onSettingsInitialTabRequestConsumed]);
 
   const activeTool = useViewerStore((s) => s.activeTool);
-  // MPR mode is now derived from the panel orientation map: when the
-  // mpr-2x2 preset is active, panels 0/1/2 hold AXIAL/SAGITTAL/CORONAL
-  // orientations. The flag is only used to flip the MPR toggle button's
-  // affordance between Enter/Exit; navigation, cine, annotation, and
-  // transform tools all operate freely in MPR mode now (no UX gating).
-  const mprActive = useViewerStore((s) =>
-    s.panelOrientationMap[panelId(0)] === 'AXIAL' &&
-    s.panelOrientationMap[panelId(1)] === 'SAGITTAL' &&
-    s.panelOrientationMap[panelId(2)] === 'CORONAL',
+  // Per-viewport MPR (spec §3.3). Toolbar button cycles the active
+  // viewport's orientation STACK → AXIAL → SAGITTAL → CORONAL →
+  // STACK; button is "active" (blue) when the *active* viewport's
+  // orientation ≠ STACK. Other viewports keep their own orientations.
+  const activeViewportOrientation = useViewerStore((s) =>
+    s.panelOrientationMap[s.activeViewportId] ?? 'STACK',
   );
+  const mprActive = activeViewportOrientation !== 'STACK';
+  const setPanelOrientation = useViewerStore((s) => s.setPanelOrientation);
+  const cycleActiveMpr = useCallback(() => {
+    const state = useViewerStore.getState();
+    const current = state.panelOrientationMap[state.activeViewportId] ?? 'STACK';
+    const order: ViewportOrientation[] = ['STACK', 'AXIAL', 'SAGITTAL', 'CORONAL'];
+    const next = order[(order.indexOf(current) + 1) % order.length];
+    setPanelOrientation(state.activeViewportId, next);
+  }, [setPanelOrientation]);
   const cine = useViewerStore(
     (s) => s.cineStates[s.activeViewportId] ?? DEFAULT_CINE,
   );
@@ -633,27 +639,25 @@ export default function Toolbar({
 
       <Separator />
 
-      {/* ─── MPR Toggle ──────────────────────────────────── */}
-      {onToggleMPR && (
-        <>
-          <button
-            onClick={onToggleMPR}
-            disabled={!hasImages && !mprActive}
-            title={mprActive ? 'Exit MPR mode' : 'Enter MPR mode'}
-            className={`flex items-center gap-1.5 px-2 py-1.5 text-xs font-medium rounded transition-colors ${
-              mprActive
-                ? 'bg-blue-600 text-white'
-                : !hasImages
-                  ? 'bg-zinc-800 text-zinc-600 cursor-not-allowed'
-                  : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700 hover:text-white'
-            }`}
-          >
-            <IconMPR className="w-3.5 h-3.5" />
-            {!textCollapsed && <span>MPR</span>}
-          </button>
-          <Separator />
-        </>
-      )}
+      {/* ─── MPR cycle (per-viewport, spec §3.3) ─────────────── */}
+      <button
+        data-testid="toolbar-mpr-cycle"
+        data-active-orientation={activeViewportOrientation}
+        onClick={cycleActiveMpr}
+        disabled={!hasImages && !mprActive}
+        title={`MPR: ${labelForOrientation(activeViewportOrientation)} (click to cycle)`}
+        className={`flex items-center gap-1.5 px-2 py-1.5 text-xs font-medium rounded transition-colors ${
+          mprActive
+            ? 'bg-blue-600 text-white'
+            : !hasImages
+              ? 'bg-zinc-800 text-zinc-600 cursor-not-allowed'
+              : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700 hover:text-white'
+        }`}
+      >
+        <IconMPR className="w-3.5 h-3.5" />
+        {!textCollapsed && <span>{mprActive ? labelForOrientation(activeViewportOrientation) : 'MPR'}</span>}
+      </button>
+      <Separator />
 
       {/* ─── Navigation Tools (Cross, W/L, Presets, Pan, Zoom) ── */}
       <CollapsibleGroup
@@ -805,4 +809,13 @@ export default function Toolbar({
       <CheatsheetOverlay open={cheatsheetOpen} onClose={() => setCheatsheetOpen(false)} />
     </>
   );
+}
+
+function labelForOrientation(o: ViewportOrientation): string {
+  switch (o) {
+    case 'STACK': return 'Stack';
+    case 'AXIAL': return 'Axial';
+    case 'SAGITTAL': return 'Sagittal';
+    case 'CORONAL': return 'Coronal';
+  }
 }
