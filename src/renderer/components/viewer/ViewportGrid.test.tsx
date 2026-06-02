@@ -85,4 +85,58 @@ describe('ViewportGrid', () => {
     fireEvent.click(container.querySelector('[data-panel-id="panel_1"]') as HTMLElement);
     expect(setActiveViewport).toHaveBeenCalledWith('panel_1');
   });
+
+  // ─── MV-Phase 7.6 — scan drop targets (spec §7.6) ────────────
+
+  it('viewport cells carry data-droptarget="panel" + fire xnat-scan-drop on drop', () => {
+    useViewerStore.setState({
+      ...useViewerStore.getState(),
+      layoutConfig: { rows: 1, cols: 2, panelCount: 2 },
+    });
+    const { container } = render(<ViewportGrid panelImageIds={{}} />);
+    const cell = container.querySelector('[data-panel-id="panel_1"]') as HTMLElement;
+    expect(cell.dataset.droptarget).toBe('panel');
+
+    // Synthesize a dataTransfer with the spec MIME present.
+    const dt = {
+      types: ['application/x-xnat-scan'],
+      getData: (type: string) => (type === 'application/x-xnat-scan' ? '11' : ''),
+      dropEffect: 'none',
+    } as unknown as DataTransfer;
+
+    // dragover sets the data-drag-over attribute.
+    fireEvent.dragOver(cell, { dataTransfer: dt });
+    expect(cell.dataset.dragOver).toBe('true');
+
+    const received: Array<{ panelId: string; payload: string }> = [];
+    const listener = (e: Event) => {
+      received.push((e as CustomEvent).detail as { panelId: string; payload: string });
+    };
+    window.addEventListener('xnat-scan-drop', listener as EventListener);
+    fireEvent.drop(cell, { dataTransfer: dt });
+    window.removeEventListener('xnat-scan-drop', listener as EventListener);
+
+    expect(received).toEqual([{ panelId: 'panel_1', payload: '11' }]);
+    expect(cell.dataset.dragOver).toBeUndefined();
+  });
+
+  it('drop without the xnat-scan MIME is a no-op', () => {
+    useViewerStore.setState({
+      ...useViewerStore.getState(),
+      layoutConfig: { rows: 1, cols: 1, panelCount: 1 },
+    });
+    const { container } = render(<ViewportGrid panelImageIds={{}} />);
+    const cell = container.querySelector('[data-panel-id="panel_0"]') as HTMLElement;
+    const dt = {
+      types: ['text/plain'],
+      getData: () => '',
+      dropEffect: 'none',
+    } as unknown as DataTransfer;
+    const received: unknown[] = [];
+    const listener = (e: Event) => received.push((e as CustomEvent).detail);
+    window.addEventListener('xnat-scan-drop', listener as EventListener);
+    fireEvent.drop(cell, { dataTransfer: dt });
+    window.removeEventListener('xnat-scan-drop', listener as EventListener);
+    expect(received).toEqual([]);
+  });
 });

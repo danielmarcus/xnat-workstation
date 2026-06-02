@@ -63,9 +63,44 @@ export default function ViewportGrid({ panelImageIds }: ViewportGridProps) {
           <div
             key={pid}
             data-panel-id={pid}
+            // Spec §7.6 — every viewport cell is a drop target for
+            // sidebar scan drags (MIME `application/x-xnat-scan`).
+            data-droptarget="panel"
             tabIndex={-1}
             className="relative min-w-0 min-h-0 outline-none"
             onClick={() => setActiveViewport(pid)}
+            onDragOver={(e) => {
+              if (!e.dataTransfer.types.includes('application/x-xnat-scan')) return;
+              e.preventDefault();
+              e.dataTransfer.dropEffect = 'copy';
+              (e.currentTarget as HTMLElement).dataset.dragOver = 'true';
+              // The drop-zone inner frame uses Tailwind `data-[drag-over=true]`
+              // so a sibling DOM update suffices — no React re-render.
+              const inner = (e.currentTarget as HTMLElement)
+                .querySelector('[data-testid^="viewport-drop-zone"] > div') as HTMLElement | null;
+              if (inner) inner.dataset.dragOver = 'true';
+            }}
+            onDragLeave={(e) => {
+              delete (e.currentTarget as HTMLElement).dataset.dragOver;
+              const inner = (e.currentTarget as HTMLElement)
+                .querySelector('[data-testid^="viewport-drop-zone"] > div') as HTMLElement | null;
+              if (inner) delete inner.dataset.dragOver;
+            }}
+            onDrop={(e) => {
+              const data = e.dataTransfer.getData('application/x-xnat-scan');
+              if (!data) return;
+              e.preventDefault();
+              delete (e.currentTarget as HTMLElement).dataset.dragOver;
+              const inner = (e.currentTarget as HTMLElement)
+                .querySelector('[data-testid^="viewport-drop-zone"] > div') as HTMLElement | null;
+              if (inner) delete inner.dataset.dragOver;
+              // Dispatch a custom event so the sidebar's drop coordinator
+              // (App.tsx) can route the load without ViewportGrid having
+              // to import App-level handlers.
+              window.dispatchEvent(new CustomEvent('xnat-scan-drop', {
+                detail: { panelId: pid, payload: data },
+              }));
+            }}
           >
             {isActive && (
               <div className="absolute inset-0 border border-zinc-500/80 pointer-events-none z-40" />
