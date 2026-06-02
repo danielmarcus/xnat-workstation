@@ -83,16 +83,58 @@ export default function ViewportGrid({ panelImageIds }: ViewportGridProps) {
                 <ScrollSlider panelId={pid} />
               </ErrorBoundary>
             ) : (
-              <div className="w-full h-full bg-black flex items-center justify-center">
-                <div className="text-center text-zinc-600 text-sm">
-                  <p>Panel {i + 1}</p>
-                  <p className="text-xs mt-1">{loadingMessage}</p>
-                </div>
-              </div>
+              <ViewportDropZone
+                panelIndex={i}
+                loading={loadingScanId.length > 0}
+                loadingMessage={loadingMessage}
+              />
             )}
           </div>
         );
       })}
+    </div>
+  );
+}
+
+/**
+ * Empty-viewport drop zone — spec §5.9.
+ * Dashed border + centered download-arrow icon + caption. The drag-
+ * over color flip (border-blue-500 / bg-blue-500/8%) is exposed via
+ * a `data-drag-over` attribute hook so #88's drag listeners can
+ * toggle it without re-rendering through React.
+ */
+function ViewportDropZone({
+  panelIndex,
+  loading,
+  loadingMessage,
+}: {
+  panelIndex: number;
+  loading: boolean;
+  loadingMessage: string;
+}) {
+  return (
+    <div
+      data-testid={`viewport-drop-zone:panel_${panelIndex}`}
+      className="w-full h-full bg-black flex items-center justify-center"
+    >
+      <div className="w-[80%] h-[80%] border-2 border-dashed border-zinc-700 rounded-lg flex flex-col items-center justify-center gap-2 text-zinc-500 transition-colors data-[drag-over=true]:border-blue-500 data-[drag-over=true]:bg-blue-500/10">
+        <svg viewBox="0 0 24 24" className="w-8 h-8" aria-hidden>
+          <path
+            d="M12 4v12m0 0l-5-5m5 5l5-5M5 20h14"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            fill="none"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+        <div className="text-center text-[11px] leading-snug">
+          <p className="text-zinc-400">Panel {panelIndex + 1}</p>
+          <p className="mt-0.5">
+            {loading ? loadingMessage : 'Drop a scan here or click in the browser'}
+          </p>
+        </div>
+      </div>
     </div>
   );
 }
