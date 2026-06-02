@@ -63,6 +63,16 @@ vi.mock('../../lib/cornerstone/containerActions', () => ({
   setAllMembersLock: setAllMembersLockMock,
 }));
 
+const createNewSegmentationMock = vi.hoisted(() => vi.fn().mockResolvedValue('seg_new_1'));
+const createNewStructureMock = vi.hoisted(() => vi.fn().mockResolvedValue('struct_new_1'));
+
+vi.mock('../../lib/segmentation/segmentationManagerSingleton', () => ({
+  segmentationManager: {
+    createNewSegmentation: createNewSegmentationMock,
+    createNewStructure: createNewStructureMock,
+  },
+}));
+
 import ContainerListPanel from './ContainerListPanel';
 import { useContainerStore } from '../../stores/containerStore';
 import { useContainerSelectionStore } from '../../stores/containerSelectionStore';
@@ -159,6 +169,8 @@ beforeEach(() => {
   saveAllDirtyMock.mockReset().mockResolvedValue(undefined);
   setAllMembersVisibilityMock.mockReset().mockReturnValue(0);
   setAllMembersLockMock.mockReset().mockReturnValue(0);
+  createNewSegmentationMock.mockReset().mockResolvedValue('seg_new_1');
+  createNewStructureMock.mockReset().mockResolvedValue('struct_new_1');
 });
 
 afterEach(() => {
@@ -2099,6 +2111,80 @@ describe('header create-button row (spec §4.3)', () => {
     expect(toasts.length).toBe(1);
     expect(toasts[0].kind).toBe('info');
     expect(toasts[0].message).toMatch(/Load a scan/);
+    expect(createNewSegmentationMock).not.toHaveBeenCalled();
+    expect(createNewStructureMock).not.toHaveBeenCalled();
+  });
+
+  it('clicking + Segmentation creates a SEG named "Segmentation N"', async () => {
+    render(<ContainerListPanel />);
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('panel-create-seg'));
+    });
+    expect(createNewSegmentationMock).toHaveBeenCalledTimes(1);
+    const [vp, sourceIds, name, createDefault] = createNewSegmentationMock.mock.calls[0];
+    expect(vp).toBe('panel_0');
+    expect(sourceIds).toEqual(['img:1', 'img:2']);
+    expect(name).toBe('Segmentation 1');
+    expect(createDefault).toBe(true);
+  });
+
+  it('Segmentation N increments past existing SEG containers', async () => {
+    setContainers(
+      makeContainer({ id: 'c1', kind: 'SEG', name: 'Existing seg' }),
+      makeContainer({ id: 'c2', kind: 'SEG', name: 'Other seg' }),
+    );
+    render(<ContainerListPanel />);
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('panel-create-seg'));
+    });
+    expect(createNewSegmentationMock.mock.calls[0][2]).toBe('Segmentation 3');
+  });
+
+  it('clicking + Structure creates an RTSTRUCT named "Structure N"', async () => {
+    render(<ContainerListPanel />);
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('panel-create-struct'));
+    });
+    expect(createNewStructureMock).toHaveBeenCalledTimes(1);
+    expect(createNewStructureMock.mock.calls[0][2]).toBe('Structure 1');
+  });
+
+  it('clicking + Measurement emits an info "coming soon" toast (no creation)', () => {
+    render(<ContainerListPanel />);
+    act(() => {
+      fireEvent.click(screen.getByTestId('panel-create-meas'));
+    });
+    expect(createNewSegmentationMock).not.toHaveBeenCalled();
+    expect(createNewStructureMock).not.toHaveBeenCalled();
+    const toasts = useToastStore.getState().toasts;
+    expect(toasts.length).toBe(1);
+    expect(toasts[0].kind).toBe('info');
+    expect(toasts[0].message).toMatch(/coming soon/i);
+  });
+
+  it('after SEG creation, the new container drops into inline rename mode', async () => {
+    render(<ContainerListPanel />);
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('panel-create-seg'));
+    });
+    // The store-sync from createNewSegmentation isn't wired in tests;
+    // simulate it landing as a container with the resolved id.
+    act(() => {
+      setContainers(
+        makeContainer({ id: 'seg_new_1', name: 'Segmentation 1' }),
+      );
+    });
+    expect(screen.queryByTestId('container-rename-input:seg_new_1')).not.toBeNull();
+  });
+
+  it('createNewSegmentation throw → error toast, no rename pending', async () => {
+    createNewSegmentationMock.mockRejectedValueOnce(new Error('boom'));
+    render(<ContainerListPanel />);
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('panel-create-seg'));
+    });
+    const toasts = useToastStore.getState().toasts;
+    expect(toasts.some((t) => t.kind === 'error')).toBe(true);
   });
 });
 

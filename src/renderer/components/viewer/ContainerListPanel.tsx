@@ -38,6 +38,7 @@ import {
 } from '../icons';
 import { containerService } from '../../lib/cornerstone/containerService';
 import * as containerActions from '../../lib/cornerstone/containerActions';
+import { segmentationManager } from '../../lib/segmentation/segmentationManagerSingleton';
 import { nextVisibilityMode } from '../../lib/cornerstone/segmentationService/memberVisibility';
 import {
   classifyAnnotationOnViewport,
@@ -102,6 +103,13 @@ export default function ContainerListPanel() {
   // Narrow-mode thresholds (spec §4.1). compactAdd hides the
   // create-button text labels; the toolbox threshold lands in #82.
   const compactAdd = panelWidth < ANNOTATION_PANEL_COMPACT_ADD_WIDTH;
+
+  // Pending-rename signal for "drop into inline rename mode on create"
+  // (spec §4.3). The newly-created container's id is stashed here so
+  // its ContainerRow can open the rename input on its next render.
+  // Consumed by ContainerRow on mount via the `requestInitialRename`
+  // prop; cleared via the callback below.
+  const [pendingRenameContainerId, setPendingRenameContainerId] = useState<string | null>(null);
   const panelRootRef = useRef<HTMLDivElement | null>(null);
 
   // Drag-resize handle on the left edge. The right edge is anchored
@@ -150,13 +158,11 @@ export default function ContainerListPanel() {
     })
     .filter((c) => !trimmedFilter || c.members.length > 0);
 
-  // Create-button click (spec §4.3). For now, every button surfaces
-  // the "no scan loaded" guard; actual container creation + inline
-  // rename for SEG / RTSTRUCT / Measurement is wired in follow-up
-  // steps. Each path always lands on either:
-  //   1. info toast "Load a scan in the active panel first" (no scan)
-  //   2. createContainer + inline rename (scan loaded)
-  const onCreate = (kind: 'SEG' | 'RTSTRUCT' | 'MEAS') => {
+  // Create-button click (spec §4.3). Two outcomes:
+  //   1. No scan loaded → info toast, no container created.
+  //   2. Scan loaded → create container with default name + drop into
+  //      inline rename via `pendingRenameContainerId`.
+  const onCreate = async (kind: 'SEG' | 'RTSTRUCT' | 'MEAS') => {
     if (!hasActiveScan) {
       toastService.notify({
         kind: 'info',
@@ -164,9 +170,32 @@ export default function ContainerListPanel() {
       });
       return;
     }
-    // Container creation lands in the next step; for now log a
-    // placeholder so the click path is verifiable.
-    console.warn(`[ContainerListPanel] create ${kind}: not yet wired`);
+    if (kind === 'MEAS') {
+      // Measurement containers aren't supported by the container layer
+      // yet (ContainerKind = 'SEG' | 'RTSTRUCT' | 'POI'). Surface an
+      // info toast so the click is acknowledged; full wiring lands
+      // alongside the SR/Measurement kind.
+      toastService.notify({
+        kind: 'info',
+        message: 'Measurement containers are coming soon',
+      });
+      return;
+    }
+    const sourceImageIds = panelImageIdsMap[activeViewportId] ?? [];
+    const defaultName = nextDefaultContainerName(kind, containerList);
+    try {
+      const segId = kind === 'SEG'
+        ? await segmentationManager.createNewSegmentation(activeViewportId, sourceImageIds, defaultName, true)
+        : await segmentationManager.createNewStructure(activeViewportId, sourceImageIds, defaultName);
+      setPendingRenameContainerId(segId);
+    } catch (err) {
+      console.warn('[ContainerListPanel] create container failed', err);
+      toastService.notify({
+        kind: 'error',
+        message: `Could not create ${kind === 'SEG' ? 'segmentation' : 'structure'}`,
+        detail: err instanceof Error ? err.message : undefined,
+      });
+    }
   };
 
   return (
@@ -311,7 +340,12 @@ export default function ContainerListPanel() {
         ) : (
           <ul className="py-0.5">
             {visibleContainers.map((container) => (
-              <ContainerRow key={container.id} container={container} />
+              <ContainerRow
+                key={container.id}
+                container={container}
+                requestInitialRename={pendingRenameContainerId === container.id}
+                onInitialRenameConsumed={() => setPendingRenameContainerId(null)}
+              />
             ))}
           </ul>
         )}
@@ -620,11 +654,32 @@ function PanelCreateButton({
 
 // ─── Row components ────────────────────────────────────────────────
 
-function ContainerRow({ container }: { container: Container }) {
+function ContainerRow({
+  container,
+  requestInitialRename = false,
+  onInitialRenameConsumed,
+}: {
+  container: Container;
+  requestInitialRename?: boolean;
+  onInitialRenameConsumed?: () => void;
+}) {
   const [isExpanded, setIsExpanded] = useState(true);
   const [actionMenuOpen, setActionMenuOpen] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [renameDraft, setRenameDraft] = useState<string | null>(null);
+
+  // Drop into inline rename mode if the parent flagged this container
+  // as freshly-created (spec §4.3). Fires once per match; the parent
+  // clears the flag via `onInitialRenameConsumed`.
+  useEffect(() => {
+    if (requestInitialRename && renameDraft === null) {
+      setRenameDraft(container.name);
+      onInitialRenameConsumed?.();
+    }
+    // We intentionally depend only on the request flag — the rename
+    // is one-shot and any later edits should not retrigger.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requestInitialRename]);
   const actionMenuRef = useRef<HTMLDivElement>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
   const transport = useTransportStore((s) => s.records.get(container.id) ?? null);
@@ -1691,6 +1746,17 @@ const ROI_TYPE_OPTIONS: Array<NonNullable<Member['roiType']>> = [
 
 function rgbCss(color: RGB): string {
   return `rgb(${color[0]}, ${color[1]}, ${color[2]})`;
+}
+
+/**
+ * Default name for a freshly created container — "{TypeLabel} N"
+ * where N is the next free index of containers of the same kind.
+ * Spec §4.3.
+ */
+function nextDefaultContainerName(kind: 'SEG' | 'RTSTRUCT', existing: Container[]): string {
+  const label = kind === 'SEG' ? 'Segmentation' : 'Structure';
+  const sameKindCount = existing.filter((c) => c.kind === kind).length;
+  return `${label} ${sameKindCount + 1}`;
 }
 
 /**
