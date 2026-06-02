@@ -17,6 +17,7 @@
  * w-64 right-side rail, dark theme, zinc-* tones, xs typography.
  */
 import { useEffect, useRef, useState } from 'react';
+import { useConnectionStore } from '../../stores/connectionStore';
 import { useContainerStore } from '../../stores/containerStore';
 import { useContainerSelectionStore } from '../../stores/containerSelectionStore';
 import { useTransportStore } from '../../stores/transportStore';
@@ -307,14 +308,132 @@ function BulkActionBar({
   );
 }
 
+// ─── Kebab menu primitives ────────────────────────────────────────
+//
+// One row of the spec §4.4.1 popover. Test-id slug pattern is
+// `container-menu-{slug}:{containerId}` so tests reference items
+// without depending on label text.
+
+function KebabItem({
+  cid,
+  slug,
+  label,
+  onClick,
+  disabled = false,
+  title,
+  shortcut,
+  destructive = false,
+}: {
+  cid: string;
+  slug: string;
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+  title?: string;
+  shortcut?: string;
+  destructive?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      data-testid={`container-menu-${slug}:${cid}`}
+      role="menuitem"
+      onClick={onClick}
+      disabled={disabled}
+      title={title ?? label}
+      className={`flex w-full items-center justify-between gap-3 px-2 py-1 text-left text-xs disabled:text-zinc-600 disabled:hover:bg-transparent ${
+        destructive
+          ? 'text-red-300 hover:bg-red-900/30'
+          : 'text-zinc-200 hover:bg-zinc-800'
+      }`}
+    >
+      <span className="truncate">{label}</span>
+      {shortcut && (
+        <span className="text-[10px] text-zinc-500 font-mono shrink-0">{shortcut}</span>
+      )}
+    </button>
+  );
+}
+
+function KebabSeparator() {
+  return <div role="separator" className="my-0.5 border-t border-zinc-800" />;
+}
+
+// ─── Container-level right-click context menu (spec §4.7) ──────────
+
+function ContainerContextMenu({
+  cid,
+  position,
+  approved,
+  onShowAll,
+  onHideAll,
+  onLockAll,
+  onUnlockAll,
+  onExpand,
+  onCollapse,
+  innerRef,
+}: {
+  cid: string;
+  position: { x: number; y: number };
+  approved: boolean;
+  onShowAll: () => void;
+  onHideAll: () => void;
+  onLockAll: () => void;
+  onUnlockAll: () => void;
+  onExpand: () => void;
+  onCollapse: () => void;
+  innerRef: React.RefObject<HTMLDivElement | null>;
+}) {
+  return (
+    <div
+      ref={innerRef}
+      data-testid={`container-context-menu:${cid}`}
+      role="menu"
+      style={{ left: position.x, top: position.y }}
+      className="fixed z-20 bg-zinc-900 border border-zinc-700 rounded shadow-lg py-0.5 min-w-[160px]"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <KebabItem cid={cid} slug="ctx-bulk-show" label="Show all members" onClick={onShowAll} />
+      <KebabItem cid={cid} slug="ctx-bulk-hide" label="Hide all members" onClick={onHideAll} />
+      <KebabItem
+        cid={cid}
+        slug="ctx-bulk-lock"
+        label="Lock all members"
+        onClick={onLockAll}
+        disabled={approved}
+        title={approved ? 'Edit-locked (container is approved)' : undefined}
+      />
+      <KebabItem
+        cid={cid}
+        slug="ctx-bulk-unlock"
+        label="Unlock all members"
+        onClick={onUnlockAll}
+        disabled={approved}
+        title={approved ? 'Edit-locked (container is approved)' : undefined}
+      />
+      <KebabSeparator />
+      <KebabItem cid={cid} slug="ctx-expand" label="Expand" onClick={onExpand} />
+      <KebabItem cid={cid} slug="ctx-collapse" label="Collapse" onClick={onCollapse} />
+    </div>
+  );
+}
+
 // ─── Row components ────────────────────────────────────────────────
 
 function ContainerRow({ container }: { container: Container }) {
   const [isExpanded, setIsExpanded] = useState(true);
   const [actionMenuOpen, setActionMenuOpen] = useState(false);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const [renameDraft, setRenameDraft] = useState<string | null>(null);
   const actionMenuRef = useRef<HTMLDivElement>(null);
+  const contextMenuRef = useRef<HTMLDivElement>(null);
   const transport = useTransportStore((s) => s.records.get(container.id) ?? null);
+  const isConnectedToXnat = useConnectionStore((s) => s.status === 'connected');
+  // A container has an XNAT origin if it carries a SourceIdentity from
+  // the transport layer (loaded from XNAT vs created locally).
+  const hasXnatOrigin = container.sourceIdentity !== null;
 
+  // Close the kebab menu on outside click.
   useEffect(() => {
     if (!actionMenuOpen) return;
     function onDocPointerDown(e: PointerEvent) {
@@ -326,6 +445,32 @@ function ContainerRow({ container }: { container: Container }) {
     return () => document.removeEventListener('pointerdown', onDocPointerDown);
   }, [actionMenuOpen]);
 
+  // Close the right-click context menu on outside click + on Escape.
+  useEffect(() => {
+    if (!contextMenu) return;
+    function onDocPointerDown(e: PointerEvent) {
+      if (contextMenuRef.current && !contextMenuRef.current.contains(e.target as Node)) {
+        setContextMenu(null);
+      }
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') setContextMenu(null);
+    }
+    document.addEventListener('pointerdown', onDocPointerDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('pointerdown', onDocPointerDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [contextMenu]);
+
+  const closeMenus = () => {
+    setActionMenuOpen(false);
+    setContextMenu(null);
+  };
+
+  // ─── Approval (kept from prior implementation; lives next to the kebab
+  //    button on the row) ───
   const onApprove = () => {
     try {
       containerService.approveContainer(container.id, null);
@@ -345,32 +490,103 @@ function ContainerRow({ container }: { container: Container }) {
     }
   };
 
-  const onSave = () => {
-    setActionMenuOpen(false);
-    void containerActions.saveContainer(container.id);
+  // ─── Kebab actions (spec §4.4.1) ───
+
+  const onSaveToFile = () => {
+    closeMenus();
+    void containerActions.exportContainer(container.id);
   };
-  const onRevert = () => {
-    setActionMenuOpen(false);
+  const onSaveToXnat = () => {
+    closeMenus();
+    void containerActions.uploadContainerToXnat(container.id);
+  };
+  const onRename = () => {
+    closeMenus();
+    setRenameDraft(container.name);
+  };
+  const onDuplicate = () => {
+    closeMenus();
+    // Service-level duplicate-container action lands in a follow-up
+    // sub-task. The kebab item is rendered disabled in the menu so this
+    // handler isn't reachable yet — but kept here so wiring is centralised.
+  };
+  const onReloadFromXnat = () => {
+    closeMenus();
+    // Service-level reload-from-XNAT action lands in a follow-up
+    // sub-task. Rendered disabled when no XNAT origin is set.
+  };
+  const onDiscardChanges = () => {
+    closeMenus();
     if (typeof window !== 'undefined' && !window.confirm(
-      `Revert "${container.name}" to last-saved? Local changes will be discarded.`,
+      `Discard local changes to "${container.name}"? This cannot be undone.`,
     )) return;
     void containerActions.revertContainer(container.id);
   };
-  const onExport = () => {
-    setActionMenuOpen(false);
-    void containerActions.exportContainer(container.id);
+  const onExportCsv = () => {
+    closeMenus();
+    // MEAS Export-to-CSV writer lands with the MEAS container type
+    // (no MEAS containers exist yet — gated by container.kind === 'MEAS'
+    // on the menu item itself).
   };
-  const onUploadXnat = () => {
-    setActionMenuOpen(false);
-    void containerActions.uploadContainerToXnat(container.id);
+  const onShowAll = () => {
+    closeMenus();
+    containerActions.setAllMembersVisibility(container.id, 'filled');
   };
+  const onHideAll = () => {
+    closeMenus();
+    containerActions.setAllMembersVisibility(container.id, 'hidden');
+  };
+  const onLockAll = () => {
+    closeMenus();
+    containerActions.setAllMembersLock(container.id, true);
+  };
+  const onUnlockAll = () => {
+    closeMenus();
+    containerActions.setAllMembersLock(container.id, false);
+  };
+  const onRequestDelete = () => {
+    closeMenus();
+    // DeleteConfirmDialog lands in 7.3d. For now, use window.confirm so
+    // the action chain is testable end-to-end.
+    if (typeof window !== 'undefined' && !window.confirm(
+      `Delete "${container.name}"? This cannot be undone.`,
+    )) return;
+    try {
+      containerService.deleteContainer?.(container.id);
+    } catch (err) {
+      console.warn('[ContainerListPanel] delete failed', err);
+    }
+  };
+
+  // Right-click on the container header opens the context menu (§4.7).
+  const onContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setContextMenu({ x: e.clientX, y: e.clientY });
+  };
+
+  // Commit / cancel inline rename of the container name.
+  const submitRename = () => {
+    const next = (renameDraft ?? '').trim();
+    if (next.length > 0 && next !== container.name) {
+      try {
+        containerService.renameContainer(container.id, next);
+      } catch (err) {
+        console.warn('[ContainerListPanel] container rename failed', err);
+      }
+    }
+    setRenameDraft(null);
+  };
+  const cancelRename = () => setRenameDraft(null);
 
   return (
     <li
       data-testid={`container-row:${container.id}`}
       className="border-b border-zinc-800/50"
     >
-      <div className="flex items-center gap-2 px-3 py-1.5 bg-zinc-900/30">
+      <div
+        className="flex items-center gap-2 px-3 py-1.5 bg-zinc-900/30"
+        onContextMenu={onContextMenu}
+      >
         <button
           type="button"
           data-testid={`container-toggle:${container.id}`}
@@ -390,9 +606,27 @@ function ContainerRow({ container }: { container: Container }) {
         >
           {container.kind}
         </span>
-        <span className="flex-1 text-xs text-zinc-200 truncate" title={container.name}>
-          {container.name}
-        </span>
+        {renameDraft === null ? (
+          <span className="flex-1 text-xs text-zinc-200 truncate" title={container.name}>
+            {container.name}
+          </span>
+        ) : (
+          <input
+            type="text"
+            data-testid={`container-rename-input:${container.id}`}
+            autoFocus
+            value={renameDraft}
+            onChange={(e) => setRenameDraft(e.target.value)}
+            onBlur={submitRename}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') { e.preventDefault(); submitRename(); }
+              else if (e.key === 'Escape') { e.preventDefault(); cancelRename(); }
+            }}
+            onClick={(e) => e.stopPropagation()}
+            className="flex-1 text-xs bg-zinc-900 text-zinc-200 border border-blue-500 rounded px-1 py-0.5 outline-none"
+            aria-label="rename container"
+          />
+        )}
         <button
           type="button"
           data-testid={`container-a2c-toggle:${container.id}`}
@@ -548,58 +782,122 @@ function ContainerRow({ container }: { container: Container }) {
           {actionMenuOpen && (
             <div
               data-testid={`container-menu-popover:${container.id}`}
-              className="absolute right-0 top-5 z-10 bg-zinc-900 border border-zinc-700 rounded shadow-lg py-0.5 min-w-[120px]"
+              className="absolute right-0 top-5 z-10 bg-zinc-900 border border-zinc-700 rounded shadow-lg py-0.5 min-w-[180px]"
               role="menu"
               onClick={(e) => e.stopPropagation()}
             >
-              <button
-                type="button"
-                data-testid={`container-menu-save:${container.id}`}
-                role="menuitem"
-                onClick={onSave}
-                disabled={
-                  !container.dirty
-                  || transport?.saveInFlight === true
-                  || container.approval.approved
-                }
-                className="block w-full text-left text-xs text-zinc-200 hover:bg-zinc-800 px-2 py-1 disabled:text-zinc-600 disabled:hover:bg-transparent"
-              >
-                Save
-              </button>
-              <button
-                type="button"
-                data-testid={`container-menu-revert:${container.id}`}
-                role="menuitem"
-                onClick={onRevert}
-                disabled={!container.dirty || container.approval.approved}
-                className="block w-full text-left text-xs text-zinc-200 hover:bg-zinc-800 px-2 py-1 disabled:text-zinc-600 disabled:hover:bg-transparent"
-              >
-                Revert
-              </button>
-              <button
-                type="button"
-                data-testid={`container-menu-export:${container.id}`}
-                role="menuitem"
-                onClick={onExport}
-                className="block w-full text-left text-xs text-zinc-200 hover:bg-zinc-800 px-2 py-1"
-              >
-                Export…
-              </button>
-              <button
-                type="button"
-                data-testid={`container-menu-upload-xnat:${container.id}`}
-                role="menuitem"
-                onClick={onUploadXnat}
-                disabled={container.kind === 'POI'}
+              <KebabItem
+                cid={container.id}
+                slug="save-file"
+                label="Save to file…"
+                onClick={onSaveToFile}
+              />
+              <KebabItem
+                cid={container.id}
+                slug="save-xnat"
+                label="Save to XNAT…"
+                onClick={onSaveToXnat}
+                disabled={!isConnectedToXnat || container.kind === 'POI'}
                 title={
-                  container.kind === 'POI'
-                    ? 'POI upload not yet supported'
-                    : 'Upload to XNAT (overwrite-or-create-new prompt fires when an existing scan id is bound)'
+                  !isConnectedToXnat
+                    ? 'Not connected to XNAT'
+                    : container.kind === 'POI'
+                      ? 'POI upload not yet supported'
+                      : undefined
                 }
-                className="block w-full text-left text-xs text-zinc-200 hover:bg-zinc-800 px-2 py-1 disabled:text-zinc-600 disabled:hover:bg-transparent"
-              >
-                Upload to XNAT…
-              </button>
+              />
+              <KebabSeparator />
+              <KebabItem
+                cid={container.id}
+                slug="rename"
+                label="Rename"
+                onClick={onRename}
+                disabled={container.approval.approved}
+                title={container.approval.approved ? 'Edit-locked (container is approved)' : undefined}
+                shortcut="F2"
+              />
+              <KebabItem
+                cid={container.id}
+                slug="duplicate"
+                label="Duplicate"
+                onClick={onDuplicate}
+                disabled
+                title="Duplicate-container lands in a follow-up sub-task"
+              />
+              <KebabItem
+                cid={container.id}
+                slug="reload"
+                label="Reload from XNAT"
+                onClick={onReloadFromXnat}
+                disabled={!hasXnatOrigin}
+                title={!hasXnatOrigin ? 'No XNAT origin recorded' : undefined}
+              />
+              <KebabItem
+                cid={container.id}
+                slug="discard"
+                label="Discard local changes"
+                onClick={onDiscardChanges}
+                disabled={!container.dirty || container.approval.approved}
+                title={
+                  container.approval.approved
+                    ? 'Edit-locked (container is approved)'
+                    : !container.dirty
+                      ? 'No local changes to discard'
+                      : undefined
+                }
+              />
+              {(container.kind as string) === 'MEAS' && (
+                <>
+                  <KebabSeparator />
+                  <KebabItem
+                    cid={container.id}
+                    slug="export-csv"
+                    label="Export to CSV"
+                    onClick={onExportCsv}
+                    disabled
+                    title="MEAS CSV export lands with the Measurement container type"
+                  />
+                </>
+              )}
+              <KebabSeparator />
+              <KebabItem
+                cid={container.id}
+                slug="bulk-show"
+                label="Show all members"
+                onClick={onShowAll}
+              />
+              <KebabItem
+                cid={container.id}
+                slug="bulk-hide"
+                label="Hide all members"
+                onClick={onHideAll}
+              />
+              <KebabItem
+                cid={container.id}
+                slug="bulk-lock"
+                label="Lock all members"
+                onClick={onLockAll}
+                disabled={container.approval.approved}
+                title={container.approval.approved ? 'Edit-locked (container is approved)' : undefined}
+              />
+              <KebabItem
+                cid={container.id}
+                slug="bulk-unlock"
+                label="Unlock all members"
+                onClick={onUnlockAll}
+                disabled={container.approval.approved}
+                title={container.approval.approved ? 'Edit-locked (container is approved)' : undefined}
+              />
+              <KebabSeparator />
+              <KebabItem
+                cid={container.id}
+                slug="delete"
+                label="Delete…"
+                onClick={onRequestDelete}
+                destructive
+                disabled={container.approval.approved}
+                title={container.approval.approved ? 'Edit-locked (container is approved)' : undefined}
+              />
             </div>
           )}
         </div>
@@ -625,6 +923,21 @@ function ContainerRow({ container }: { container: Container }) {
             ))}
           </ul>
         )
+      )}
+
+      {contextMenu && (
+        <ContainerContextMenu
+          cid={container.id}
+          position={contextMenu}
+          approved={container.approval.approved}
+          onShowAll={() => { onShowAll(); }}
+          onHideAll={() => { onHideAll(); }}
+          onLockAll={() => { onLockAll(); }}
+          onUnlockAll={() => { onUnlockAll(); }}
+          onExpand={() => { setIsExpanded(true); setContextMenu(null); }}
+          onCollapse={() => { setIsExpanded(false); setContextMenu(null); }}
+          innerRef={contextMenuRef}
+        />
       )}
     </li>
   );

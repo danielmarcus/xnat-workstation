@@ -15,7 +15,9 @@ const setMemberVisibilityMock = vi.hoisted(() => vi.fn());
 const setMemberLockMock = vi.hoisted(() => vi.fn());
 const setActiveMemberMock = vi.hoisted(() => vi.fn());
 const renameMemberMock = vi.hoisted(() => vi.fn());
+const renameContainerMock = vi.hoisted(() => vi.fn());
 const deleteMemberMock = vi.hoisted(() => vi.fn());
+const deleteContainerMock = vi.hoisted(() => vi.fn());
 const setA2cOptedInMock = vi.hoisted(() => vi.fn());
 const approveContainerMock = vi.hoisted(() => vi.fn());
 const revokeApprovalMock = vi.hoisted(() => vi.fn());
@@ -27,7 +29,9 @@ vi.mock('../../lib/cornerstone/containerService', () => ({
     setMemberLock: setMemberLockMock,
     setActiveMember: setActiveMemberMock,
     renameMember: renameMemberMock,
+    renameContainer: renameContainerMock,
     deleteMember: deleteMemberMock,
+    deleteContainer: deleteContainerMock,
     setA2cOptedIn: setA2cOptedInMock,
     approveContainer: approveContainerMock,
     revokeApproval: revokeApprovalMock,
@@ -38,21 +42,28 @@ vi.mock('../../lib/cornerstone/containerService', () => ({
 const saveContainerMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 const revertContainerMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 const exportContainerMock = vi.hoisted(() => vi.fn().mockResolvedValue(null));
+const uploadContainerToXnatMock = vi.hoisted(() => vi.fn().mockResolvedValue('saved'));
 const saveAllDirtyMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 const stepThroughInterpolatedMock = vi.hoisted(() => vi.fn());
+const setAllMembersVisibilityMock = vi.hoisted(() => vi.fn().mockReturnValue(0));
+const setAllMembersLockMock = vi.hoisted(() => vi.fn().mockReturnValue(0));
 
 vi.mock('../../lib/cornerstone/containerActions', () => ({
   saveContainer: saveContainerMock,
   revertContainer: revertContainerMock,
   exportContainer: exportContainerMock,
+  uploadContainerToXnat: uploadContainerToXnatMock,
   saveAllDirty: saveAllDirtyMock,
   stepThroughInterpolated: stepThroughInterpolatedMock,
+  setAllMembersVisibility: setAllMembersVisibilityMock,
+  setAllMembersLock: setAllMembersLockMock,
 }));
 
 import ContainerListPanel from './ContainerListPanel';
 import { useContainerStore } from '../../stores/containerStore';
 import { useContainerSelectionStore } from '../../stores/containerSelectionStore';
 import { useTransportStore } from '../../stores/transportStore';
+import { useConnectionStore } from '../../stores/connectionStore';
 import {
   resetVisibilityAdapter,
   wireVisibility,
@@ -117,9 +128,12 @@ beforeEach(() => {
   useTransportStore.getState().clear();
   resetVisibilityAdapter();
   setMemberVisibilityMock.mockReset();
+  setMemberLockMock.mockReset();
   setActiveMemberMock.mockReset();
   renameMemberMock.mockReset();
+  renameContainerMock.mockReset();
   deleteMemberMock.mockReset();
+  deleteContainerMock.mockReset();
   setA2cOptedInMock.mockReset();
   approveContainerMock.mockReset();
   revokeApprovalMock.mockReset();
@@ -127,7 +141,10 @@ beforeEach(() => {
   saveContainerMock.mockReset().mockResolvedValue(undefined);
   revertContainerMock.mockReset().mockResolvedValue(undefined);
   exportContainerMock.mockReset().mockResolvedValue(null);
+  uploadContainerToXnatMock.mockReset().mockResolvedValue('saved');
   saveAllDirtyMock.mockReset().mockResolvedValue(undefined);
+  setAllMembersVisibilityMock.mockReset().mockReturnValue(0);
+  setAllMembersLockMock.mockReset().mockReturnValue(0);
 });
 
 afterEach(() => {
@@ -1741,9 +1758,9 @@ describe('member row auto-interpolated marker (D7.4 / B5)', () => {
   });
 });
 
-// ─── Phase 3.8 cleanup: container-level Save / Revert / Export (D7.6) ──
+// ─── MV-Phase 7.3a: container-level kebab menu (spec §4.4.1) ────────────
 
-describe('container action menu (D7.6)', () => {
+describe('container action menu (spec §4.4.1)', () => {
   let originalConfirm: typeof window.confirm;
   beforeEach(() => {
     originalConfirm = window.confirm;
@@ -1753,34 +1770,72 @@ describe('container action menu (D7.6)', () => {
     window.confirm = originalConfirm;
   });
 
-  it('opens the popover with Save / Revert / Export when "⋯" clicked', () => {
+  it('opens the popover with the spec menu items when "⋯" clicked', () => {
     setContainers(makeContainer({ id: 'c1', dirty: true }));
     render(<ContainerListPanel />);
     act(() => fireEvent.click(screen.getByTestId('container-menu:c1')));
     expect(screen.queryByTestId('container-menu-popover:c1')).not.toBeNull();
-    expect(screen.queryByTestId('container-menu-save:c1')).not.toBeNull();
-    expect(screen.queryByTestId('container-menu-revert:c1')).not.toBeNull();
-    expect(screen.queryByTestId('container-menu-export:c1')).not.toBeNull();
+    // Spec §4.4.1 ordering: Save to file → Save to XNAT → Rename →
+    // Duplicate → Reload → Discard → bulk × 4 → Delete.
+    expect(screen.queryByTestId('container-menu-save-file:c1')).not.toBeNull();
+    expect(screen.queryByTestId('container-menu-save-xnat:c1')).not.toBeNull();
+    expect(screen.queryByTestId('container-menu-rename:c1')).not.toBeNull();
+    expect(screen.queryByTestId('container-menu-duplicate:c1')).not.toBeNull();
+    expect(screen.queryByTestId('container-menu-reload:c1')).not.toBeNull();
+    expect(screen.queryByTestId('container-menu-discard:c1')).not.toBeNull();
+    expect(screen.queryByTestId('container-menu-bulk-show:c1')).not.toBeNull();
+    expect(screen.queryByTestId('container-menu-bulk-hide:c1')).not.toBeNull();
+    expect(screen.queryByTestId('container-menu-bulk-lock:c1')).not.toBeNull();
+    expect(screen.queryByTestId('container-menu-bulk-unlock:c1')).not.toBeNull();
+    expect(screen.queryByTestId('container-menu-delete:c1')).not.toBeNull();
   });
 
-  it('Save calls containerActions.saveContainer', () => {
+  it('"Save to file" calls containerActions.exportContainer', () => {
+    setContainers(makeContainer({ id: 'c1' }));
+    render(<ContainerListPanel />);
+    act(() => fireEvent.click(screen.getByTestId('container-menu:c1')));
+    act(() => fireEvent.click(screen.getByTestId('container-menu-save-file:c1')));
+    expect(exportContainerMock).toHaveBeenCalledWith('c1');
+  });
+
+  it('"Save to XNAT" calls containerActions.uploadContainerToXnat (when connected)', () => {
+    // Setting status='connected' lifts the disabled state on the menu item.
+    act(() => useConnectionStore.setState({ status: 'connected' }));
+    setContainers(makeContainer({ id: 'c1' }));
+    render(<ContainerListPanel />);
+    act(() => fireEvent.click(screen.getByTestId('container-menu:c1')));
+    act(() => fireEvent.click(screen.getByTestId('container-menu-save-xnat:c1')));
+    expect(uploadContainerToXnatMock).toHaveBeenCalledWith('c1');
+    act(() => useConnectionStore.setState({ status: 'disconnected' }));
+  });
+
+  it('"Discard local changes" calls revertContainer after confirm', () => {
     setContainers(makeContainer({ id: 'c1', dirty: true }));
     render(<ContainerListPanel />);
     act(() => fireEvent.click(screen.getByTestId('container-menu:c1')));
-    act(() => fireEvent.click(screen.getByTestId('container-menu-save:c1')));
-    expect(saveContainerMock).toHaveBeenCalledWith('c1');
+    act(() => fireEvent.click(screen.getByTestId('container-menu-discard:c1')));
+    expect(revertContainerMock).toHaveBeenCalledWith('c1');
   });
 
-  it('Save is disabled when not dirty', () => {
+  it('"Discard local changes" does NOT call when user cancels', () => {
+    window.confirm = vi.fn().mockReturnValue(false);
+    setContainers(makeContainer({ id: 'c1', dirty: true }));
+    render(<ContainerListPanel />);
+    act(() => fireEvent.click(screen.getByTestId('container-menu:c1')));
+    act(() => fireEvent.click(screen.getByTestId('container-menu-discard:c1')));
+    expect(revertContainerMock).not.toHaveBeenCalled();
+  });
+
+  it('"Discard local changes" is disabled when not dirty', () => {
     setContainers(makeContainer({ id: 'c1', dirty: false }));
     render(<ContainerListPanel />);
     act(() => fireEvent.click(screen.getByTestId('container-menu:c1')));
     expect(
-      (screen.getByTestId('container-menu-save:c1') as HTMLButtonElement).disabled,
+      (screen.getByTestId('container-menu-discard:c1') as HTMLButtonElement).disabled,
     ).toBe(true);
   });
 
-  it('Save is disabled when approved (edit-locked)', () => {
+  it('"Discard local changes" is disabled when container is approved', () => {
     setContainers(
       makeContainer({
         id: 'c1',
@@ -1791,33 +1846,159 @@ describe('container action menu (D7.6)', () => {
     render(<ContainerListPanel />);
     act(() => fireEvent.click(screen.getByTestId('container-menu:c1')));
     expect(
-      (screen.getByTestId('container-menu-save:c1') as HTMLButtonElement).disabled,
+      (screen.getByTestId('container-menu-discard:c1') as HTMLButtonElement).disabled,
     ).toBe(true);
   });
 
-  it('Revert calls containerActions.revertContainer after confirm', () => {
-    setContainers(makeContainer({ id: 'c1', dirty: true }));
+  it('"Reload from XNAT" is disabled when the container has no XNAT origin', () => {
+    setContainers(makeContainer({ id: 'c1', sourceIdentity: null }));
     render(<ContainerListPanel />);
     act(() => fireEvent.click(screen.getByTestId('container-menu:c1')));
-    act(() => fireEvent.click(screen.getByTestId('container-menu-revert:c1')));
-    expect(revertContainerMock).toHaveBeenCalledWith('c1');
+    expect(
+      (screen.getByTestId('container-menu-reload:c1') as HTMLButtonElement).disabled,
+    ).toBe(true);
   });
 
-  it('Revert does NOT call when user cancels', () => {
-    window.confirm = vi.fn().mockReturnValue(false);
-    setContainers(makeContainer({ id: 'c1', dirty: true }));
-    render(<ContainerListPanel />);
-    act(() => fireEvent.click(screen.getByTestId('container-menu:c1')));
-    act(() => fireEvent.click(screen.getByTestId('container-menu-revert:c1')));
-    expect(revertContainerMock).not.toHaveBeenCalled();
-  });
-
-  it('Export calls containerActions.exportContainer', () => {
+  it('"Save to XNAT" is disabled when not connected to XNAT', () => {
+    // connectionStore.status defaults to 'disconnected' in tests.
     setContainers(makeContainer({ id: 'c1' }));
     render(<ContainerListPanel />);
     act(() => fireEvent.click(screen.getByTestId('container-menu:c1')));
-    act(() => fireEvent.click(screen.getByTestId('container-menu-export:c1')));
-    expect(exportContainerMock).toHaveBeenCalledWith('c1');
+    expect(
+      (screen.getByTestId('container-menu-save-xnat:c1') as HTMLButtonElement).disabled,
+    ).toBe(true);
+  });
+
+  it('"Duplicate" is rendered disabled in this sub-task (impl lands in a follow-up)', () => {
+    setContainers(makeContainer({ id: 'c1' }));
+    render(<ContainerListPanel />);
+    act(() => fireEvent.click(screen.getByTestId('container-menu:c1')));
+    expect(
+      (screen.getByTestId('container-menu-duplicate:c1') as HTMLButtonElement).disabled,
+    ).toBe(true);
+  });
+
+  it('"Show all members" calls setAllMembersVisibility with mode=filled', () => {
+    setContainers(makeContainer({ id: 'c1' }));
+    render(<ContainerListPanel />);
+    act(() => fireEvent.click(screen.getByTestId('container-menu:c1')));
+    act(() => fireEvent.click(screen.getByTestId('container-menu-bulk-show:c1')));
+    expect(setAllMembersVisibilityMock).toHaveBeenCalledWith('c1', 'filled');
+  });
+
+  it('"Hide all members" calls setAllMembersVisibility with mode=hidden', () => {
+    setContainers(makeContainer({ id: 'c1' }));
+    render(<ContainerListPanel />);
+    act(() => fireEvent.click(screen.getByTestId('container-menu:c1')));
+    act(() => fireEvent.click(screen.getByTestId('container-menu-bulk-hide:c1')));
+    expect(setAllMembersVisibilityMock).toHaveBeenCalledWith('c1', 'hidden');
+  });
+
+  it('"Lock all members" calls setAllMembersLock(true)', () => {
+    setContainers(makeContainer({ id: 'c1' }));
+    render(<ContainerListPanel />);
+    act(() => fireEvent.click(screen.getByTestId('container-menu:c1')));
+    act(() => fireEvent.click(screen.getByTestId('container-menu-bulk-lock:c1')));
+    expect(setAllMembersLockMock).toHaveBeenCalledWith('c1', true);
+  });
+
+  it('"Unlock all members" calls setAllMembersLock(false)', () => {
+    setContainers(makeContainer({ id: 'c1' }));
+    render(<ContainerListPanel />);
+    act(() => fireEvent.click(screen.getByTestId('container-menu:c1')));
+    act(() => fireEvent.click(screen.getByTestId('container-menu-bulk-unlock:c1')));
+    expect(setAllMembersLockMock).toHaveBeenCalledWith('c1', false);
+  });
+
+  it('"Lock all" / "Unlock all" are disabled when container is approved', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        approval: { approved: true, reviewerName: null, reviewedAt: 0, history: [] },
+      }),
+    );
+    render(<ContainerListPanel />);
+    act(() => fireEvent.click(screen.getByTestId('container-menu:c1')));
+    expect(
+      (screen.getByTestId('container-menu-bulk-lock:c1') as HTMLButtonElement).disabled,
+    ).toBe(true);
+    expect(
+      (screen.getByTestId('container-menu-bulk-unlock:c1') as HTMLButtonElement).disabled,
+    ).toBe(true);
+  });
+
+  it('"Rename" puts the container name into an inline edit input', () => {
+    setContainers(makeContainer({ id: 'c1', name: 'My Container' }));
+    render(<ContainerListPanel />);
+    act(() => fireEvent.click(screen.getByTestId('container-menu:c1')));
+    act(() => fireEvent.click(screen.getByTestId('container-menu-rename:c1')));
+    const input = screen.getByTestId('container-rename-input:c1') as HTMLInputElement;
+    expect(input).toBeTruthy();
+    expect(input.value).toBe('My Container');
+  });
+
+  it('Rename input — Enter commits the new name via containerService.renameContainer', () => {
+    setContainers(makeContainer({ id: 'c1', name: 'Old Name' }));
+    render(<ContainerListPanel />);
+    act(() => fireEvent.click(screen.getByTestId('container-menu:c1')));
+    act(() => fireEvent.click(screen.getByTestId('container-menu-rename:c1')));
+    const input = screen.getByTestId('container-rename-input:c1') as HTMLInputElement;
+    act(() => fireEvent.change(input, { target: { value: 'New Name' } }));
+    act(() => fireEvent.keyDown(input, { key: 'Enter' }));
+    expect(renameContainerMock).toHaveBeenCalledWith('c1', 'New Name');
+  });
+
+  it('Rename input — Escape cancels without calling renameContainer', () => {
+    setContainers(makeContainer({ id: 'c1', name: 'Old Name' }));
+    render(<ContainerListPanel />);
+    act(() => fireEvent.click(screen.getByTestId('container-menu:c1')));
+    act(() => fireEvent.click(screen.getByTestId('container-menu-rename:c1')));
+    const input = screen.getByTestId('container-rename-input:c1') as HTMLInputElement;
+    act(() => fireEvent.change(input, { target: { value: 'New Name' } }));
+    act(() => fireEvent.keyDown(input, { key: 'Escape' }));
+    expect(renameContainerMock).not.toHaveBeenCalled();
+  });
+
+  it('"Delete…" with no confirm cancels; with confirm calls containerService.deleteContainer', () => {
+    window.confirm = vi.fn().mockReturnValue(false);
+    setContainers(makeContainer({ id: 'c1' }));
+    render(<ContainerListPanel />);
+    act(() => fireEvent.click(screen.getByTestId('container-menu:c1')));
+    act(() => fireEvent.click(screen.getByTestId('container-menu-delete:c1')));
+    expect(deleteContainerMock).not.toHaveBeenCalled();
+
+    window.confirm = vi.fn().mockReturnValue(true);
+    act(() => fireEvent.click(screen.getByTestId('container-menu:c1')));
+    act(() => fireEvent.click(screen.getByTestId('container-menu-delete:c1')));
+    expect(deleteContainerMock).toHaveBeenCalledWith('c1');
+  });
+});
+
+// ─── MV-Phase 7.3a: right-click container context menu (spec §4.7) ───────
+
+describe('container right-click context menu (spec §4.7)', () => {
+  it('opens at the cursor with the bulk + expand/collapse items', () => {
+    setContainers(makeContainer({ id: 'c1' }));
+    render(<ContainerListPanel />);
+    const row = screen.getByTestId('container-row:c1');
+    const header = row.firstElementChild as HTMLElement;
+    act(() => fireEvent.contextMenu(header, { clientX: 100, clientY: 200 }));
+    expect(screen.queryByTestId('container-context-menu:c1')).not.toBeNull();
+    expect(screen.queryByTestId('container-menu-ctx-bulk-show:c1')).not.toBeNull();
+    expect(screen.queryByTestId('container-menu-ctx-bulk-hide:c1')).not.toBeNull();
+    expect(screen.queryByTestId('container-menu-ctx-bulk-lock:c1')).not.toBeNull();
+    expect(screen.queryByTestId('container-menu-ctx-bulk-unlock:c1')).not.toBeNull();
+    expect(screen.queryByTestId('container-menu-ctx-expand:c1')).not.toBeNull();
+    expect(screen.queryByTestId('container-menu-ctx-collapse:c1')).not.toBeNull();
+  });
+
+  it('"Show all" from context menu dispatches setAllMembersVisibility', () => {
+    setContainers(makeContainer({ id: 'c1' }));
+    render(<ContainerListPanel />);
+    const header = screen.getByTestId('container-row:c1').firstElementChild as HTMLElement;
+    act(() => fireEvent.contextMenu(header, { clientX: 100, clientY: 200 }));
+    act(() => fireEvent.click(screen.getByTestId('container-menu-ctx-bulk-show:c1')));
+    expect(setAllMembersVisibilityMock).toHaveBeenCalledWith('c1', 'filled');
   });
 });
 
