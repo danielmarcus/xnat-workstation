@@ -93,6 +93,13 @@ export interface ContainerService {
   /** Recolor a member; propagates to all eligible viewports per A4. */
   recolorMember(memberId: string, color: RGB): void;
 
+  /**
+   * Move a member to a new index within its container (issue #79 / spec
+   * §4.5). Order is the Z-render order per §B7. Marks the container
+   * dirty. Refused on approved containers per §D7.11.
+   */
+  reorderMember(memberId: string, toIndex: number): void;
+
   /** Set ROI type on an RTSTRUCT member; no-op for non-RTSTRUCT members. */
   setRoiType(memberId: string, roiType: RTROIInterpretedType): void;
 
@@ -441,6 +448,34 @@ export const containerService: ContainerService = {
     const colorRgba: [number, number, number, number] = [color[0], color[1], color[2], 255];
     deps.setSegmentColor(member.csSegmentationId, member.segmentIndex!, colorRgba);
     containerBridge.setDirty(container.id, true);
+  },
+  /**
+   * Move a member to a new index within its container (issue #79,
+   * spec §4.5 drag-handle reorder). `toIndex` is clamped to
+   * [0, members.length - 1]. No-op when the move would leave the
+   * order unchanged. Marks the container dirty so the new Z-order
+   * (§B7) survives the next save. Refused on approved containers
+   * (§D7.11).
+   */
+  reorderMember(memberId: string, toIndex: number): void {
+    if (!memberId) return;
+    const found = findMemberContainer(memberId);
+    if (!found) {
+      throw new Error(`[containerService] reorderMember: unknown memberId ${memberId}`);
+    }
+    const { container, member } = found;
+    assertNotApproved(container, 'reorderMember');
+    const fromIndex = container.members.indexOf(member);
+    if (fromIndex < 0) return;
+    const clamped = Math.max(0, Math.min(toIndex, container.members.length - 1));
+    if (clamped === fromIndex) return;
+    const next = container.members.slice();
+    const [moved] = next.splice(fromIndex, 1);
+    next.splice(clamped, 0, moved);
+    container.members = next;
+    member.modifiedAt = Date.now();
+    container.dirty = true;
+    containerBridge.notifyChange(container.id);
   },
   /**
    * Set the DICOM RTROIInterpretedType on an RTSTRUCT member (D7.2,

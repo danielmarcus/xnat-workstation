@@ -597,6 +597,108 @@ describe('member CRUD (Phase 3.6)', () => {
       expect(() => containerService.recolorMember('unknown', [0, 0, 0])).toThrow(/unknown/);
     });
   });
+
+  // ─── reorderMember (issue #79, spec §4.5 drag-handle reorder) ─────────
+
+  describe('reorderMember', () => {
+    function injectThree(): string {
+      const containerId = containerBridge.register('seg_three');
+      const c = containerBridge.getContainer(containerId)!;
+      c.members.push(
+        { ...c.members[0], id: 'm1', name: 'A', segmentIndex: 1, csSegmentationId: 'seg_three' } as Member,
+        { ...c.members[0], id: 'm2', name: 'B', segmentIndex: 2, csSegmentationId: 'seg_three' } as Member,
+        { ...c.members[0], id: 'm3', name: 'C', segmentIndex: 3, csSegmentationId: 'seg_three' } as Member,
+      );
+      return containerId;
+    }
+
+    beforeEach(() => {
+      // Drop anything injected by an earlier injectMember call so the
+      // three-member container can construct its members[] from scratch.
+      containerBridge.clearAll();
+    });
+
+    it('moves a member forward in the list', () => {
+      // Need 3 valid members up front; reuse injectMember for the seed then
+      // append two more. The describe-level injectMember pushes onto the
+      // same container, giving us three members on `seg_three`.
+      injectMember('seg_three', 'm1');
+      const c = containerBridge.getContainer(containerBridge.register('seg_three'))!;
+      c.members.push(
+        { ...c.members[0], id: 'm2', name: 'B', segmentIndex: 2 } as Member,
+        { ...c.members[0], id: 'm3', name: 'C', segmentIndex: 3 } as Member,
+      );
+
+      containerService.reorderMember('m1', 2);
+
+      const reordered = containerBridge.getContainer(c.id)!.members.map((m) => m.id);
+      expect(reordered).toEqual(['m2', 'm3', 'm1']);
+    });
+
+    it('moves a member backward in the list', () => {
+      injectMember('seg_three', 'm1');
+      const c = containerBridge.getContainer(containerBridge.register('seg_three'))!;
+      c.members.push(
+        { ...c.members[0], id: 'm2', name: 'B', segmentIndex: 2 } as Member,
+        { ...c.members[0], id: 'm3', name: 'C', segmentIndex: 3 } as Member,
+      );
+
+      containerService.reorderMember('m3', 0);
+
+      const reordered = containerBridge.getContainer(c.id)!.members.map((m) => m.id);
+      expect(reordered).toEqual(['m3', 'm1', 'm2']);
+    });
+
+    it('clamps toIndex to a valid range', () => {
+      injectMember('seg_clamp', 'm1');
+      const c = containerBridge.getContainer(containerBridge.register('seg_clamp'))!;
+      c.members.push(
+        { ...c.members[0], id: 'm2', name: 'B', segmentIndex: 2 } as Member,
+      );
+
+      // toIndex = 99 → clamps to length-1 (= 1).
+      containerService.reorderMember('m1', 99);
+      expect(containerBridge.getContainer(c.id)!.members.map((m) => m.id)).toEqual(['m2', 'm1']);
+
+      // toIndex = -5 → clamps to 0.
+      containerService.reorderMember('m1', -5);
+      expect(containerBridge.getContainer(c.id)!.members.map((m) => m.id)).toEqual(['m1', 'm2']);
+    });
+
+    it('is a no-op when toIndex equals current index', () => {
+      injectMember('seg_noop', 'm1');
+      const containerId = containerBridge.register('seg_noop');
+      containerBridge.setDirty(containerId, false);
+
+      containerService.reorderMember('m1', 0);
+
+      expect(containerBridge.getContainer(containerId)?.dirty).toBe(false);
+    });
+
+    it('marks the container dirty after a real reorder', () => {
+      injectMember('seg_dirty', 'm1');
+      const c = containerBridge.getContainer(containerBridge.register('seg_dirty'))!;
+      c.members.push({ ...c.members[0], id: 'm2', name: 'B', segmentIndex: 2 } as Member);
+      containerBridge.setDirty(c.id, false);
+
+      containerService.reorderMember('m1', 1);
+
+      expect(containerBridge.getContainer(c.id)?.dirty).toBe(true);
+    });
+
+    it('refuses to reorder when the container is approved (§D7.11)', () => {
+      injectMember('seg_approved', 'm1');
+      const c = containerBridge.getContainer(containerBridge.register('seg_approved'))!;
+      c.members.push({ ...c.members[0], id: 'm2', name: 'B', segmentIndex: 2 } as Member);
+      c.approval.approved = true;
+
+      expect(() => containerService.reorderMember('m1', 1)).toThrow(/approved/);
+    });
+
+    it('throws on unknown memberId', () => {
+      expect(() => containerService.reorderMember('unknown', 0)).toThrow(/unknown/);
+    });
+  });
 });
 
 // ─── Phase 3.7b: setA2cOptedIn ──────────────────────────────────────────
