@@ -17,8 +17,9 @@
  * The DI seam (`wireContainerActions`) lets tests inject stubs without
  * pulling in the full segmentationService graph.
  */
-import type { Container } from '../../types/annotation';
+import type { Container, VisibilityMode } from '../../types/annotation';
 import * as containerBridge from './containerBridge';
+import { containerService } from './containerService';
 import * as transport from './segmentationService/transport';
 import { uploadSegmentationToXnat, type UploadOutcome } from './xnatUploadService';
 
@@ -258,4 +259,59 @@ export async function saveAllDirty(): Promise<void> {
   for (const id of dirtyIds) {
     await saveContainer(id);
   }
+}
+
+/**
+ * Apply a visibility mode to every member of a container (issue #78,
+ * spec §4.4.1 kebab "Show all members" / "Hide all members"). The
+ * iteration calls `containerService.setMemberVisibility` per member;
+ * per-member visibility is session-only (§D7.10), so this does NOT
+ * mark the container dirty.
+ *
+ * Returns the number of members the mode was applied to.
+ */
+export function setAllMembersVisibility(
+  containerId: string,
+  mode: VisibilityMode,
+): number {
+  const container = containerBridge.getContainer(containerId);
+  if (!container) return 0;
+  let applied = 0;
+  for (const member of container.members) {
+    try {
+      containerService.setMemberVisibility(member.id, mode);
+      applied += 1;
+    } catch (err) {
+      console.warn('[containerActions] setAllMembersVisibility: member failed', { containerId, memberId: member.id, err });
+    }
+  }
+  return applied;
+}
+
+/**
+ * Apply a lock state to every editable (non-approved-container) member
+ * of a container (issue #78, spec §4.4.1 kebab "Lock all members" /
+ * "Unlock all members"). Members in approved containers are skipped
+ * per §D7.11 (the container-level approval supersedes per-member lock
+ * mutations).
+ *
+ * Returns the number of members the lock was applied to.
+ */
+export function setAllMembersLock(
+  containerId: string,
+  locked: boolean,
+): number {
+  const container = containerBridge.getContainer(containerId);
+  if (!container) return 0;
+  if (container.approval.approved) return 0;
+  let applied = 0;
+  for (const member of container.members) {
+    try {
+      containerService.setMemberLock(member.id, locked);
+      applied += 1;
+    } catch (err) {
+      console.warn('[containerActions] setAllMembersLock: member failed', { containerId, memberId: member.id, err });
+    }
+  }
+  return applied;
 }

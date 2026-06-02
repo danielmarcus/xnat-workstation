@@ -32,6 +32,8 @@ import {
   revertContainer,
   saveAllDirty,
   saveContainer,
+  setAllMembersLock,
+  setAllMembersVisibility,
   stepThroughInterpolated,
   wireContainerActions,
 } from './containerActions';
@@ -41,6 +43,20 @@ const flushNowMock = vi.fn().mockResolvedValue({ kind: 'success', versionToken: 
 
 vi.mock('./segmentationService/transport', () => ({
   flushNow: (id: string) => flushNowMock(id),
+}));
+
+// New for issue #78: bulk Show / Hide / Lock / Unlock all members in a
+// container route through containerService. Mock those methods so the
+// bulk-action tests can verify they're called without pulling in the
+// full segmentationService graph.
+const setMemberVisibilityMock = vi.hoisted(() => vi.fn());
+const setMemberLockMock = vi.hoisted(() => vi.fn());
+
+vi.mock('./containerService', () => ({
+  containerService: {
+    setMemberVisibility: setMemberVisibilityMock,
+    setMemberLock: setMemberLockMock,
+  },
 }));
 
 function injectMember(csSegId: string, partial: Partial<Member> = {}): string {
@@ -367,5 +383,94 @@ describe('stepThroughInterpolated', () => {
     const { scrollCalls } = wireStepThroughDeps({ activeViewport: 'vp1' });
     stepThroughInterpolated('');
     expect(scrollCalls).toEqual([]);
+  });
+});
+
+// ─── setAllMembersVisibility / setAllMembersLock (#78) ────────────────
+
+describe('setAllMembersVisibility', () => {
+  beforeEach(() => {
+    setMemberVisibilityMock.mockReset();
+  });
+
+  it('applies the given mode to every member of a container', () => {
+    const id = injectMember('seg_1');
+    const c = containerBridge.getContainer(id)!;
+    // Add a second member so we can verify iteration.
+    c.members.push({ ...c.members[0], id: 'seg_1__2', segmentIndex: 2 });
+
+    const applied = setAllMembersVisibility(id, 'hidden');
+
+    expect(applied).toBe(2);
+    expect(setMemberVisibilityMock).toHaveBeenCalledTimes(2);
+    expect(setMemberVisibilityMock).toHaveBeenNthCalledWith(1, 'seg_1__1', 'hidden');
+    expect(setMemberVisibilityMock).toHaveBeenNthCalledWith(2, 'seg_1__2', 'hidden');
+  });
+
+  it('returns 0 when the container has no members', () => {
+    const id = containerBridge.register('seg_empty');
+    expect(setAllMembersVisibility(id, 'filled')).toBe(0);
+    expect(setMemberVisibilityMock).not.toHaveBeenCalled();
+  });
+
+  it('returns 0 for an unknown container id', () => {
+    expect(setAllMembersVisibility('not-a-container', 'filled')).toBe(0);
+    expect(setMemberVisibilityMock).not.toHaveBeenCalled();
+  });
+
+  it('continues iterating when a single member call throws', () => {
+    const id = injectMember('seg_1');
+    const c = containerBridge.getContainer(id)!;
+    c.members.push({ ...c.members[0], id: 'seg_1__2', segmentIndex: 2 });
+
+    setMemberVisibilityMock.mockImplementationOnce(() => {
+      throw new Error('first one fails');
+    });
+
+    const applied = setAllMembersVisibility(id, 'outlined');
+
+    // First member threw; second member still attempted.
+    expect(setMemberVisibilityMock).toHaveBeenCalledTimes(2);
+    expect(applied).toBe(1);
+  });
+});
+
+describe('setAllMembersLock', () => {
+  beforeEach(() => {
+    setMemberLockMock.mockReset();
+  });
+
+  it('applies lock=true to every member', () => {
+    const id = injectMember('seg_1');
+    const c = containerBridge.getContainer(id)!;
+    c.members.push({ ...c.members[0], id: 'seg_1__2', segmentIndex: 2 });
+
+    const applied = setAllMembersLock(id, true);
+
+    expect(applied).toBe(2);
+    expect(setMemberLockMock).toHaveBeenNthCalledWith(1, 'seg_1__1', true);
+    expect(setMemberLockMock).toHaveBeenNthCalledWith(2, 'seg_1__2', true);
+  });
+
+  it('applies lock=false to every member', () => {
+    const id = injectMember('seg_1', { locked: true });
+    setAllMembersLock(id, false);
+    expect(setMemberLockMock).toHaveBeenCalledWith('seg_1__1', false);
+  });
+
+  it('returns 0 and skips iteration when the container is approved (§D7.11)', () => {
+    const id = injectMember('seg_1');
+    const c = containerBridge.getContainer(id)!;
+    c.approval.approved = true;
+
+    const applied = setAllMembersLock(id, true);
+
+    expect(applied).toBe(0);
+    expect(setMemberLockMock).not.toHaveBeenCalled();
+  });
+
+  it('returns 0 for an unknown container id', () => {
+    expect(setAllMembersLock('not-a-container', true)).toBe(0);
+    expect(setMemberLockMock).not.toHaveBeenCalled();
   });
 });
