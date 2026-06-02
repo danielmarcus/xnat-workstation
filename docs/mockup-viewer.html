@@ -1,0 +1,2405 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>XNAT Workstation — Annotation panel mockup</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    html, body { background: #09090b; color: #e4e4e7; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif; }
+    .viewport-canvas { background: radial-gradient(ellipse 35% 45% at 50% 52%, #3a3a3a 0%, #1f1f1f 60%, #0d0d0d 100%); }
+    .grid-overlay {
+      background-image: linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px);
+      background-size: 32px 32px;
+    }
+    @keyframes guide-pulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(250, 204, 21, 0.85), 0 0 0 4px rgba(250, 204, 21, 0.32); }
+      50%      { box-shadow: 0 0 0 6px rgba(250, 204, 21, 0.0), 0 0 0 10px rgba(250, 204, 21, 0.15); }
+    }
+    .guide-target { animation: guide-pulse 1.4s ease-in-out infinite; border-radius: 6px; position: relative; z-index: 25; }
+    .toggle-btn {
+      padding: 6px 14px; border-radius: 6px; font-size: 12px; font-weight: 500;
+      background: #27272a; color: #d4d4d8; border: 1px solid #3f3f46;
+      cursor: pointer; transition: all 0.15s;
+    }
+    .toggle-btn:hover { background: #3f3f46; }
+    .toggle-btn.active { background: #2563eb; color: white; border-color: #2563eb; }
+    .modal-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.55); display: flex; align-items: center; justify-content: center; z-index: 40; }
+    .modal-card { background: #18181b; border: 1px solid #3f3f46; border-radius: 8px; padding: 18px 20px; min-width: 320px; box-shadow: 0 16px 40px rgba(0,0,0,0.5); }
+    .toast-overlay { position: absolute; top: 12px; right: 20px; display: flex; flex-direction: column; gap: 6px; z-index: 30; pointer-events: none; }
+    .toast { background: rgba(20, 83, 45, 0.92); color: #dcfce7; border: 1px solid #15803d; padding: 6px 12px; border-radius: 4px; font-size: 11px; box-shadow: 0 4px 12px rgba(0,0,0,0.4); }
+    .click-counter { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; background: #1f2937; border: 1px solid #374151; border-radius: 4px; color: #93c5fd; font-size: 11px; font-weight: 500; }
+
+    .tool-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; }
+    .tool-btn {
+      display: flex; align-items: center; gap: 4px;
+      padding: 4px 5px; height: 26px;
+      border-radius: 3px; font-size: 10px;
+      background: #27272a; color: #d4d4d8; border: 1px solid #3f3f46;
+      cursor: pointer; line-height: 1; overflow: hidden;
+      transition: background 0.1s, border-color 0.1s;
+      justify-content: flex-start; min-width: 0;
+    }
+    .tool-btn > span {
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+    }
+    /* Only when shrunk well past the add-button threshold do tool labels disappear */
+    .annotation-panel.compact-tools .tool-btn { justify-content: center; padding: 4px; }
+    .annotation-panel.compact-tools .tool-btn > span { display: none; }
+
+    /* Resize handle on left edge of panel */
+    .resize-handle {
+      position: absolute; top: 0; bottom: 0; left: 0; width: 5px;
+      cursor: col-resize; background: transparent; z-index: 20;
+      transition: background 0.15s;
+    }
+    .resize-handle:hover, .resize-handle.dragging { background: #2563eb; }
+
+    /* Add-annotation buttons: + icon + text-that-ellipsis-truncates;
+       text disappears entirely at narrow widths (icon + "+" remain). */
+    .add-btn {
+      display: flex; align-items: center; justify-content: center; gap: 4px;
+      padding: 8px 6px; border-radius: 4px; font-size: 10px;
+      line-height: 1; border: 1px solid; min-width: 0;
+      cursor: pointer; transition: background 0.1s;
+      overflow: hidden;
+    }
+    .add-btn .plus { font-size: 13px; line-height: 0.5; font-weight: 600; flex-shrink: 0; }
+    .add-btn .type-icon { display: inline-flex; flex-shrink: 0; }
+    .add-btn .type-icon svg { width: 13px; height: 13px; }
+    .add-btn .add-label {
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      min-width: 0;
+    }
+    .annotation-panel.compact-add .add-btn { padding: 8px 4px; gap: 3px; }
+    .annotation-panel.compact-add .add-btn .add-label { display: none; }
+    .tool-btn > span {
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .tool-btn:hover { background: #3f3f46; border-color: #52525b; }
+    .tool-btn.active { background: #2563eb; color: white; border-color: #1d4ed8; }
+    .tool-btn[data-accent="emerald"].active { background: #059669; border-color: #047857; }
+    .tool-btn[data-accent="purple"].active { background: #9333ea; border-color: #7e22ce; }
+    .tool-btn.unwired { border-style: dashed; }
+    .tool-btn.unwired > span::after { content: '*'; color: #facc15; margin-left: 1px; }
+    .tool-btn svg { width: 12px; height: 12px; flex-shrink: 0; }
+    .tool-group-label { font-size: 8px; text-transform: uppercase; letter-spacing: 0.06em; color: #71717a; padding: 5px 12px 2px; font-weight: 600; }
+
+    /* Popovers — kebab, color picker, context menu */
+    .popover {
+      position: fixed; z-index: 60;
+      background: #18181b; border: 1px solid #3f3f46;
+      border-radius: 6px; box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+      font-size: 11px;
+    }
+    .pop-item {
+      display: flex; align-items: center; gap: 6px;
+      padding: 5px 14px; cursor: pointer; color: #d4d4d8;
+      white-space: nowrap; min-width: 200px;
+    }
+    .pop-item:hover { background: #27272a; }
+    .pop-item.destructive { color: #f87171; }
+    .pop-item.destructive:hover { background: #450a0a; }
+    .pop-item.disabled { opacity: 0.4; pointer-events: none; }
+    .pop-sep { height: 1px; background: #3f3f46; margin: 4px 8px; }
+    .pop-shortcut { margin-left: auto; color: #71717a; font-size: 10px; font-family: ui-monospace, monospace; }
+    .pop-item-leadicon { width: 14px; height: 14px; flex-shrink: 0; }
+
+    /* Color picker grid */
+    .color-grid {
+      display: grid; grid-template-columns: repeat(8, 1fr); gap: 4px;
+      padding: 8px;
+    }
+    .color-swatch-pick {
+      width: 18px; height: 18px; border-radius: 3px;
+      cursor: pointer; border: 1px solid #3f3f46;
+      transition: transform 0.1s;
+    }
+    .color-swatch-pick:hover { transform: scale(1.15); }
+    .color-swatch-pick.active { box-shadow: 0 0 0 2px #fff; }
+
+    /* Drag handle on member rows */
+    .drag-handle {
+      cursor: grab; color: #52525b; padding: 0 2px; flex-shrink: 0;
+      line-height: 0; user-select: none;
+    }
+    .drag-handle:hover { color: #a1a1aa; }
+    .drag-handle:active { cursor: grabbing; }
+    .member-drag-source { opacity: 0.35; }
+    .member-drop-before { box-shadow: inset 0 2px 0 #2563eb; }
+    .member-drop-after  { box-shadow: inset 0 -2px 0 #2563eb; }
+
+    /* Inline rename input */
+    .rename-input {
+      background: #18181b; border: 1px solid #2563eb; border-radius: 3px;
+      padding: 2px 6px; color: #f4f4f5; font-size: 11px; outline: none;
+      width: 100%; min-width: 0;
+    }
+
+    /* Saving overlay */
+    .saving-overlay-card {
+      background: #18181b; border: 1px solid #3f3f46; border-radius: 8px;
+      padding: 24px 32px; display: flex; flex-direction: column; align-items: center; gap: 12px;
+      min-width: 280px; box-shadow: 0 16px 40px rgba(0,0,0,0.5);
+    }
+    .saving-spinner {
+      width: 24px; height: 24px; border: 2px solid #3f3f46; border-top-color: #2563eb;
+      border-radius: 50%; animation: spin 0.9s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Top-toolbar buttons */
+    .tb-btn {
+      display: inline-flex; align-items: center; gap: 4px;
+      height: 28px; padding: 0 7px;
+      border-radius: 4px; font-size: 11px; line-height: 1;
+      border: 1px solid; cursor: pointer; transition: background 0.1s;
+      white-space: nowrap;
+    }
+    .tb-btn svg { width: 14px; height: 14px; flex-shrink: 0; }
+    .tb-btn .tb-label { overflow: hidden; text-overflow: ellipsis; max-width: 100px; }
+
+    .control-row { display: flex; align-items: center; gap: 8px; padding: 3px 12px; font-size: 10px; }
+    .control-row > label { color: #a1a1aa; min-width: 78px; }
+    .control-row input[type="range"] { flex: 1; }
+    .control-row .val { color: #e4e4e7; font-variant-numeric: tabular-nums; min-width: 38px; text-align: right; }
+    .num-input { width: 50px; background: #27272a; border: 1px solid #3f3f46; border-radius: 3px; padding: 2px 4px; color: #e4e4e7; font-size: 10px; text-align: center; }
+    .select-input { background: #27272a; border: 1px solid #3f3f46; border-radius: 3px; padding: 2px 4px; color: #e4e4e7; font-size: 10px; }
+  </style>
+</head>
+<body class="min-h-screen">
+
+  <div class="sticky top-0 z-50 bg-zinc-900 border-b border-zinc-800 px-6 py-3 flex items-center gap-4 shadow-md flex-wrap">
+    <div class="text-zinc-100 font-semibold text-sm">XNAT Workstation · Annotation panel mockup (full tool catalog)</div>
+    <div class="flex items-center gap-3 ml-4">
+      <button id="walkthrough-btn" class="toggle-btn" style="background:#a16207; border-color:#a16207; color:white;">▶ Walkthrough</button>
+      <button id="reset-btn" class="toggle-btn">Reset</button>
+      <label class="flex items-center gap-2 text-xs text-zinc-300 cursor-pointer select-none">
+        <input type="checkbox" id="compact-toolbar-toggle" class="accent-blue-500 w-4 h-4 cursor-pointer" />
+        Compact toolbar
+      </label>
+      <span class="click-counter">Clicks: <span id="click-count">0</span></span>
+    </div>
+    <div class="flex items-center gap-3 ml-auto text-xs text-zinc-400">
+      <span>* dashed border = available in Cornerstone but not yet wired in this codebase</span>
+    </div>
+  </div>
+
+  <div id="stage" class="w-[1520px] mx-auto my-6">
+    <div id="walkthrough-status" class="hidden mb-3 bg-amber-900/30 border border-amber-700 text-amber-100 px-4 py-2 rounded text-sm flex items-center gap-3">
+      <span class="font-semibold">Step <span id="step-num">1</span> / <span id="step-total">8</span>:</span>
+      <span id="step-text">Loading…</span>
+      <button id="skip-step" class="ml-auto toggle-btn text-xs" style="padding:3px 10px;">Skip</button>
+    </div>
+    <h2 class="text-zinc-100 text-base font-semibold mb-2 px-1">Annotation panel — full tool catalog visible per active type</h2>
+    <p class="text-zinc-400 text-xs mb-4 px-1">
+      Toolbox at the bottom of the panel exposes every tool for the active container type at a glance, grouped by capability. A <strong>Controls</strong> section below configures the selected tool (brush size, threshold range, spline type, etc.).
+    </p>
+    <div id="mockup-canonical"></div>
+    <div class="mt-4 bg-zinc-900 border border-zinc-800 rounded p-4 text-sm">
+      <h3 class="text-zinc-100 font-semibold mb-2">Tool counts</h3>
+      <ul class="text-zinc-400 text-xs space-y-1">
+        <li><span class="text-blue-300 font-medium">Segmentation</span> (active SEG): 21 tools — Paint (4) · 3D Paint (3) · Scissors (3) · Fill (1) · Threshold ROI (3) · Contour → Voxel (1) · Smart (2) · Selection (4)</li>
+        <li><span class="text-emerald-300 font-medium">Structure</span> (active RTSTRUCT): 4 tools — Contour (3) · Sculpt (1)</li>
+        <li><span class="text-purple-300 font-medium">Measurement</span> (active SR): 9 tools — Linear (3) · Region (4) · Annotate (2)</li>
+        <li class="pt-1 border-t border-zinc-800 mt-2 text-zinc-500"><strong>WholeBodySegmentTool</strong> deliberately omitted per user direction. Tools marked with <span class="text-amber-300">*</span> are in Cornerstone v4 but not currently registered in this codebase.</li>
+      </ul>
+    </div>
+  </div>
+
+  <script>
+    // -------------------- ICONS --------------------
+    function icon(id) {
+      const stroke = 'stroke="currentColor" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"';
+      const fill = 'fill="currentColor"';
+      const lib = {
+        brush:        `<svg viewBox="0 0 16 16" ${stroke}><circle cx="8" cy="8" r="3.5" fill="currentColor"/></svg>`,
+        eraser:       `<svg viewBox="0 0 16 16" ${stroke}><path d="M2 12l5-5 4 4-5 5z"/><path d="M5 14h7"/><path d="M7 7l4-4 3 3-4 4"/></svg>`,
+        threshBrush:  `<svg viewBox="0 0 16 16" ${stroke}><circle cx="8" cy="8" r="3.5"/><path d="M5.5 8h5" stroke-dasharray="1.4 1.2"/></svg>`,
+        dynThresh:    `<svg viewBox="0 0 16 16" ${stroke}><circle cx="8" cy="8" r="3.5"/><circle cx="7" cy="7" r="0.5" fill="currentColor" stroke="none"/><circle cx="9" cy="9" r="0.5" fill="currentColor" stroke="none"/><circle cx="9" cy="6.5" r="0.5" fill="currentColor" stroke="none"/></svg>`,
+        sphereBrush:  `<svg viewBox="0 0 16 16" ${stroke}><circle cx="8" cy="8" r="4" fill="currentColor"/><ellipse cx="7" cy="6.5" rx="1.6" ry="0.8" fill="#ffffff60" stroke="none"/></svg>`,
+        sphereErase:  `<svg viewBox="0 0 16 16" ${stroke}><circle cx="8" cy="8" r="4"/><path d="M5.5 5.5l5 5M10.5 5.5l-5 5"/></svg>`,
+        sphereThresh: `<svg viewBox="0 0 16 16" ${stroke}><circle cx="8" cy="8" r="4"/><ellipse cx="7" cy="6.5" rx="1.4" ry="0.6" stroke-dasharray="1 1"/><path d="M5.5 8h5" stroke-dasharray="1.4 1.2"/></svg>`,
+        circleSciss:  `<svg viewBox="0 0 16 16" ${stroke}><circle cx="8" cy="8" r="4.5"/></svg>`,
+        rectSciss:    `<svg viewBox="0 0 16 16" ${stroke}><rect x="3" y="4" width="10" height="8" rx="0.5"/></svg>`,
+        sphereSciss:  `<svg viewBox="0 0 16 16" ${stroke}><circle cx="8" cy="8" r="4.5"/><ellipse cx="8" cy="8" rx="4.5" ry="1.6"/></svg>`,
+        paintFill:    `<svg viewBox="0 0 16 16" ${stroke}><path d="M3 9l4-6 6 6-3 4H6z"/><path d="M11 11c0 1.5 1 2 1.8 2"/></svg>`,
+        rectThresh:   `<svg viewBox="0 0 16 16" ${stroke}><rect x="3" y="4" width="10" height="8"/><path d="M4.5 7h7M4.5 9h7" stroke-dasharray="1.2 1"/></svg>`,
+        rectMulti:    `<svg viewBox="0 0 16 16" ${stroke}><rect x="3" y="4" width="10" height="8"/><path d="M1.5 5l1 -1M1.5 11l1 1M14.5 5l-1 -1M14.5 11l-1 1"/></svg>`,
+        circleMulti:  `<svg viewBox="0 0 16 16" ${stroke}><circle cx="8" cy="8" r="4"/><path d="M8 2v2M8 12v2"/></svg>`,
+        contourFill:  `<svg viewBox="0 0 16 16" ${stroke}><path d="M3 9c1-4 5-5 7-2s2 6-1 6-7-1-6-4z" fill="currentColor"/></svg>`,
+        regionSeg:    `<svg viewBox="0 0 16 16" ${stroke}><circle cx="8" cy="8" r="2"/><circle cx="8" cy="8" r="4"/><circle cx="8" cy="8" r="6"/></svg>`,
+        regionSegP:   `<svg viewBox="0 0 16 16" ${stroke}><rect x="3" y="3" width="10" height="10" stroke-dasharray="1.4 1.2"/><circle cx="8" cy="8" r="2"/><circle cx="8" cy="8" r="3.5"/></svg>`,
+        segSelect:    `<svg viewBox="0 0 16 16" ${stroke}><path d="M3 3l5 12 2-5 5-2z" fill="currentColor"/></svg>`,
+        segLabel:     `<svg viewBox="0 0 16 16" ${stroke}><path d="M2 6l4-4h7v7l-4 4z"/><circle cx="6.5" cy="6.5" r="1" fill="currentColor"/></svg>`,
+        segBidir:     `<svg viewBox="0 0 16 16" ${stroke}><path d="M3 3l10 10"/><path d="M13 4l-1.5-1 0 2.5"/><path d="M3 12l1.5 1 0 -2.5"/></svg>`,
+        segInter:     `<svg viewBox="0 0 16 16" ${stroke}><circle cx="6" cy="8" r="3.5"/><circle cx="10" cy="8" r="3.5"/></svg>`,
+        freehand:     `<svg viewBox="0 0 16 16" ${stroke}><path d="M2 10c2-3 3 1 5-1s2-4 4-2 1 5 3 4"/></svg>`,
+        spline:       `<svg viewBox="0 0 16 16" ${stroke}><path d="M2 10c2 0 3-6 6-6s4 8 6 6"/><circle cx="2" cy="10" r="0.7" fill="currentColor"/><circle cx="8" cy="6.5" r="0.7" fill="currentColor"/><circle cx="14" cy="10" r="0.7" fill="currentColor"/></svg>`,
+        livewire:     `<svg viewBox="0 0 16 16" ${stroke}><circle cx="3" cy="5" r="0.8" fill="currentColor"/><circle cx="7" cy="3" r="0.8" fill="currentColor"/><circle cx="11" cy="6" r="0.8" fill="currentColor"/><circle cx="13" cy="11" r="0.8" fill="currentColor"/><path d="M3 5l4-2 4 3 2 5"/></svg>`,
+        sculptor:     `<svg viewBox="0 0 16 16" ${stroke}><path d="M3 11c2-4 5 2 8-2"/><path d="M11 5l1.5 1.5L11 8"/></svg>`,
+        length:       `<svg viewBox="0 0 16 16" ${stroke}><path d="M3 3l10 10"/><path d="M3 5l2-2M13 11l-2 2"/></svg>`,
+        angle:        `<svg viewBox="0 0 16 16" ${stroke}><path d="M3 13l10-2"/><path d="M3 13l4-9"/><path d="M5 10c1 0 2 1 2 2"/></svg>`,
+        bidir:        `<svg viewBox="0 0 16 16" ${stroke}><path d="M2 4l12 8"/><path d="M14 4l-12 8"/></svg>`,
+        rectROI:      `<svg viewBox="0 0 16 16" ${stroke}><rect x="2.5" y="4" width="11" height="8"/></svg>`,
+        ellipseROI:   `<svg viewBox="0 0 16 16" ${stroke}><ellipse cx="8" cy="8" rx="5.5" ry="3.5"/></svg>`,
+        circleROI:    `<svg viewBox="0 0 16 16" ${stroke}><circle cx="8" cy="8" r="4.5"/></svg>`,
+        freehandROI:  `<svg viewBox="0 0 16 16" ${stroke}><path d="M3 8c0-4 4-5 6-3s5 2 4 5-4 4-6 2-4-1-4-4z"/></svg>`,
+        probe:        `<svg viewBox="0 0 16 16" ${stroke}><path d="M3 3l5 12 2-5 5-2z" fill="currentColor"/><circle cx="8" cy="10" r="0.8" stroke="none" fill="currentColor"/></svg>`,
+        arrow:        `<svg viewBox="0 0 16 16" ${stroke}><path d="M3 13l8-8"/><path d="M7 5h4v4"/></svg>`,
+        // ── Toolbar icons ──
+        tbImport:     `<svg viewBox="0 0 16 16" ${stroke}><path d="M8 2v8"/><path d="M5 7l3 3 3-3"/><path d="M3 13h10"/></svg>`,
+        tbExport:     `<svg viewBox="0 0 16 16" ${stroke}><path d="M8 12V3"/><path d="M5 6l3-3 3 3"/><path d="M3 13h10"/></svg>`,
+        tbFavorites:  `<svg viewBox="0 0 16 16" ${stroke}><path d="M8 2l1.8 4 4.4.4-3.3 2.9 1 4.3L8 11.4l-3.9 2.2 1-4.3L1.8 6.4 6.2 6z" fill="currentColor" fill-opacity="0.5"/></svg>`,
+        tbLayout:     `<svg viewBox="0 0 16 16" ${stroke}><rect x="2" y="2" width="5.5" height="5.5"/><rect x="8.5" y="2" width="5.5" height="5.5"/><rect x="2" y="8.5" width="5.5" height="5.5"/><rect x="8.5" y="8.5" width="5.5" height="5.5"/></svg>`,
+        tbHanging:    `<svg viewBox="0 0 16 16" ${stroke}><rect x="2" y="3" width="6" height="6"/><rect x="4" y="5" width="6" height="6"/><rect x="6" y="7" width="6" height="6"/></svg>`,
+        tbMPR:        `<svg viewBox="0 0 16 16" ${stroke}><path d="M2 5l6-3 6 3-6 3z"/><path d="M2 5v6l6 3"/><path d="M14 5v6l-6 3"/></svg>`,
+        tbCrosshair:  `<svg viewBox="0 0 16 16" ${stroke}><circle cx="8" cy="8" r="2.5"/><path d="M8 1.5v3M8 11.5v3M1.5 8h3M11.5 8h3"/></svg>`,
+        tbPan:        `<svg viewBox="0 0 16 16" ${stroke}><path d="M6 7V3.5a1 1 0 1 1 2 0V7M8 7V2.5a1 1 0 1 1 2 0V7M10 7V3.5a1 1 0 1 1 2 0V8c0 3-2 5-4 5s-4-1-4-4V6a1 1 0 1 1 2 0v1"/></svg>`,
+        tbZoom:       `<svg viewBox="0 0 16 16" ${stroke}><circle cx="7" cy="7" r="4"/><path d="M10 10l4 4"/><path d="M5 7h4M7 5v4"/></svg>`,
+        tbWLDrag:     `<svg viewBox="0 0 16 16" ${stroke}><circle cx="8" cy="8" r="5"/><path d="M8 3a5 5 0 0 0 0 10z" fill="currentColor"/></svg>`,
+        tbReset:      `<svg viewBox="0 0 16 16" ${stroke}><path d="M3 8a5 5 0 1 1 1.5 3.5"/><path d="M2 4v3.5h3.5"/></svg>`,
+        tbInvert:     `<svg viewBox="0 0 16 16" ${stroke}><circle cx="8" cy="8" r="5.5"/><path d="M8 2.5v11" stroke="none"/><path d="M8 2.5a5.5 5.5 0 0 0 0 11z" fill="currentColor"/></svg>`,
+        tbRotate90:   `<svg viewBox="0 0 16 16" ${stroke}><path d="M4 8a4 4 0 1 1 4 4"/><path d="M5 11l-1 1-1-1"/><path d="M12 4v4h-4" stroke-width="1.2"/></svg>`,
+        tbFlipH:      `<svg viewBox="0 0 16 16" ${stroke}><path d="M8 2v12"/><path d="M3 6l2.5 2L3 10z" fill="currentColor"/><path d="M13 6l-2.5 2 2.5 2z" fill="currentColor"/></svg>`,
+        tbFlipV:      `<svg viewBox="0 0 16 16" ${stroke}><path d="M2 8h12"/><path d="M6 3l2 2.5L10 3z" fill="currentColor"/><path d="M6 13l2-2.5 2 2.5z" fill="currentColor"/></svg>`,
+        tbUndo:       `<svg viewBox="0 0 16 16" ${stroke}><path d="M5 9h5.5a3 3 0 0 1 0 5"/><path d="M2 9l3-3M2 9l3 3"/></svg>`,
+        tbRedo:       `<svg viewBox="0 0 16 16" ${stroke}><path d="M11 9H5.5a3 3 0 0 0 0 5"/><path d="M14 9l-3-3M14 9l-3 3"/></svg>`,
+        tbPlay:       `<svg viewBox="0 0 16 16" ${stroke}><path d="M5 3v10l8-5z" fill="currentColor"/></svg>`,
+        tbStop:       `<svg viewBox="0 0 16 16" ${stroke}><rect x="4" y="4" width="8" height="8" fill="currentColor"/></svg>`,
+        tbAnnotate:   `<svg viewBox="0 0 16 16" ${stroke}><rect x="2" y="3" width="12" height="10"/><path d="M5 6h6M5 8.5h6M5 11h3"/></svg>`,
+        tbTags:       `<svg viewBox="0 0 16 16" ${stroke}><path d="M8 2H2v6l7 7 6-6z"/><circle cx="5" cy="5" r="0.9" fill="currentColor"/></svg>`,
+        tbSettings:   `<svg viewBox="0 0 16 16" ${stroke}><circle cx="8" cy="8" r="2"/><path d="M8 1v2.5M8 12.5V15M1 8h2.5M12.5 8H15M3 3l1.8 1.8M11.2 11.2L13 13M3 13l1.8-1.8M11.2 4.8L13 3"/></svg>`,
+        tbChevron:    `<svg viewBox="0 0 16 16" ${stroke}><polyline points="3,6 8,11 13,6"/></svg>`,
+      };
+      return lib[id] || `<svg viewBox="0 0 16 16"><rect x="3" y="3" width="10" height="10"/></svg>`;
+    }
+
+    // -------------------- TOOL CATALOG --------------------
+    const TOOL_GROUPS = {
+      // Tools laid out in the order that keeps "like by like" adjacent in a
+      // flat 3-col grid: 2D paint → 3D paint → scissors → fill →
+      // threshold ROI → contour-fill → smart → selection.
+      SEG: [
+        { group: '2D paint', tools: [
+          { id: 'Brush', label: 'Brush', fullLabel: 'Brush', icon: 'brush' },
+          { id: 'Eraser', label: 'Eraser', fullLabel: 'Eraser', icon: 'eraser' },
+          { id: 'ThresholdBrush', label: 'Threshold', fullLabel: 'Threshold Brush', icon: 'threshBrush' },
+          { id: 'DynamicThresholdBrush', label: 'Dyn. Thresh', fullLabel: 'Dynamic Threshold Brush', icon: 'dynThresh', unwired: true },
+        ]},
+        { group: '3D paint', tools: [
+          { id: 'SphereBrush', label: 'Sph. Brush', fullLabel: 'Sphere Brush (3D)', icon: 'sphereBrush', unwired: true },
+          { id: 'SphereEraser', label: 'Sph. Eraser', fullLabel: 'Sphere Eraser (3D)', icon: 'sphereErase', unwired: true },
+          { id: 'ThresholdSphereBrush', label: 'Sph. Thresh', fullLabel: 'Sphere Threshold Brush (3D)', icon: 'sphereThresh', unwired: true },
+        ]},
+        { group: 'Scissors', tools: [
+          { id: 'CircleScissors', label: 'Circle', fullLabel: 'Circle Scissors', icon: 'circleSciss' },
+          { id: 'RectangleScissors', label: 'Rectangle', fullLabel: 'Rectangle Scissors', icon: 'rectSciss' },
+          { id: 'SphereScissors', label: 'Sphere', fullLabel: 'Sphere Scissors (3D)', icon: 'sphereSciss' },
+        ]},
+        { group: 'Fill / ROI threshold', tools: [
+          { id: 'PaintFill', label: 'Paint Fill', fullLabel: 'Paint Fill (flood)', icon: 'paintFill' },
+          { id: 'RectangleROIThreshold', label: 'Rect ROI', fullLabel: 'Rectangle ROI Threshold', icon: 'rectThresh' },
+          { id: 'RectangleROIStartEndThreshold', label: 'Rect Multi', fullLabel: 'Rectangle ROI Threshold (multi-slice)', icon: 'rectMulti', unwired: true },
+          { id: 'CircleROIStartEndThreshold', label: 'Circle Multi', fullLabel: 'Circle ROI Threshold (multi-slice)', icon: 'circleMulti' },
+          { id: 'LabelmapEditWithContour', label: 'Contour Fill', fullLabel: 'Contour Fill (rasterize polyline)', icon: 'contourFill' },
+        ]},
+        { group: 'Smart', tools: [
+          { id: 'RegionSegment', label: 'Region', fullLabel: 'Region Segment (GrowCut)', icon: 'regionSeg' },
+          { id: 'RegionSegmentPlus', label: 'Region+', fullLabel: 'Region Segment+ (bounded GrowCut)', icon: 'regionSegP' },
+        ]},
+        { group: 'Selection', tools: [
+          { id: 'SegmentSelect', label: 'Select', fullLabel: 'Segment Select', icon: 'segSelect' },
+          { id: 'SegmentLabel', label: 'Label', fullLabel: 'Segment Label (hover)', icon: 'segLabel', unwired: true },
+          { id: 'SegmentBidirectional', label: 'Bidir.', fullLabel: 'Segment Bidirectional (RECIST)', icon: 'segBidir' },
+          { id: 'SegmentationIntersection', label: 'Intersect', fullLabel: 'Segmentation Intersection', icon: 'segInter', unwired: true },
+        ]},
+      ],
+      STRUCT: [
+        { group: 'Contour', tools: [
+          { id: 'FreehandContour', label: 'Freehand', fullLabel: 'Freehand Contour', icon: 'freehand' },
+          { id: 'SplineContour', label: 'Spline', fullLabel: 'Spline Contour', icon: 'spline' },
+          { id: 'LivewireContour', label: 'Livewire', fullLabel: 'Livewire Contour', icon: 'livewire' },
+        ]},
+        { group: 'Sculpt', tools: [
+          { id: 'Sculptor', label: 'Sculptor', fullLabel: 'Sculptor (push/pull contour)', icon: 'sculptor' },
+        ]},
+      ],
+      MEAS: [
+        { group: 'Linear', tools: [
+          { id: 'Length', label: 'Length', fullLabel: 'Length', icon: 'length' },
+          { id: 'Bidirectional', label: 'Bidir.', fullLabel: 'Bidirectional', icon: 'bidir' },
+          { id: 'Angle', label: 'Angle', fullLabel: 'Angle', icon: 'angle' },
+        ]},
+        { group: 'Region', tools: [
+          { id: 'RectangleROI', label: 'Rectangle', fullLabel: 'Rectangle ROI', icon: 'rectROI' },
+          { id: 'EllipticalROI', label: 'Ellipse', fullLabel: 'Elliptical ROI', icon: 'ellipseROI' },
+          { id: 'CircleROI', label: 'Circle', fullLabel: 'Circle ROI', icon: 'circleROI' },
+          { id: 'PlanarFreehandROI', label: 'Freehand', fullLabel: 'Planar Freehand ROI', icon: 'freehandROI' },
+        ]},
+        { group: 'Annotate', tools: [
+          { id: 'Probe', label: 'Probe', fullLabel: 'Probe (point value)', icon: 'probe' },
+          { id: 'ArrowAnnotate', label: 'Arrow', fullLabel: 'Arrow + text annotation', icon: 'arrow' },
+        ]},
+      ],
+    };
+
+    const TYPE_META = {
+      SEG:    { label: 'Segmentation', badge: 'SEG',    badgeCls: 'bg-blue-900/60 text-blue-200',    addLabel: '+ Add segment',   memberSing: 'Segment',    accent: 'blue' },
+      STRUCT: { label: 'Structure',    badge: 'STRUCT', badgeCls: 'bg-emerald-900/60 text-emerald-200', addLabel: '+ Add structure', memberSing: 'Structure',  accent: 'emerald' },
+      MEAS:   { label: 'Measurement',  badge: 'MEAS',   badgeCls: 'bg-purple-900/60 text-purple-200', addLabel: null,              memberSing: 'Measurement',accent: 'purple' },
+    };
+
+    // Sets used to pick which controls to show for a given active tool
+    const BRUSH_2D = new Set(['Brush','Eraser','ThresholdBrush','DynamicThresholdBrush']);
+    const BRUSH_3D = new Set(['SphereBrush','SphereEraser','ThresholdSphereBrush']);
+    const THRESHOLD_TOOLS = new Set(['ThresholdBrush','ThresholdSphereBrush','RectangleROIThreshold','RectangleROIStartEndThreshold','CircleROIStartEndThreshold']);
+    const DYNAMIC_THR = new Set(['DynamicThresholdBrush']);
+    const REGION_TOOLS = new Set(['RegionSegment','RegionSegmentPlus']);
+
+    // -------------------- STATE --------------------
+    const ADD_NARROW = 270;    // below this, add-button text labels disappear
+    const TOOLS_NARROW = 210;  // tool-button text labels disappear (icons only)
+    const PANEL_MIN = 140;
+    const PANEL_MAX = 600;
+    const WL_PRESETS = [
+      { id: 'soft',      label: 'Soft tissue', w: 350,  l: 40   },
+      { id: 'lung',      label: 'Lung',        w: 1500, l: -600 },
+      { id: 'bone',      label: 'Bone',        w: 2500, l: 480  },
+      { id: 'brain',     label: 'Brain',       w: 80,   l: 40   },
+      { id: 'abdomen',   label: 'Abdomen',     w: 350,  l: 50   },
+      { id: 'mediast',   label: 'Mediastinum', w: 350,  l: 50   },
+    ];
+    const HANGING_PROTOCOLS = [
+      { id: 'ct-chest', label: 'CT Chest — axial + sagittal + coronal' },
+      { id: 'ct-abd',   label: 'CT Abdomen — axial + multiplanar' },
+      { id: 'mr-head',  label: 'MR Head — T1 + T2 + FLAIR' },
+    ];
+
+    // 4 panels: 2x2 grid. Panel 0 and 1 share the same CT CHEST scan
+    // (so containers attached to it appear on both); 2 and 3 are empty.
+    const PANEL_IDS = ['panel_0', 'panel_1', 'panel_2', 'panel_3'];
+    const initialPanelImageIds = () => ({
+      panel_0: 'CT THORAX 1.25mm',
+      panel_1: 'CT THORAX 1.25mm',
+      panel_2: null,
+      panel_3: null,
+    });
+    const initialPanelOrientation = () => ({
+      panel_0: 'AXIAL',
+      panel_1: 'CORONAL',
+      panel_2: null,
+      panel_3: null,
+    });
+    const ORIENT_CYCLE = ['STACK', 'AXIAL', 'SAGITTAL', 'CORONAL'];
+
+    // ── Hotkey bindings (default map; user-customizable in Settings) ──
+    // Cmd/Ctrl is shown as ⌘/Ctrl depending on platform.
+    const HOTKEYS = [
+      { group: 'Tools',     items: [
+        { key: 'w',         label: 'W/L (drag)' },
+        { key: 'p',         label: 'Pan' },
+        { key: 'z',         label: 'Zoom' },
+        { key: 's',         label: 'Stack scroll' },
+        { key: 'c',         label: 'Crosshairs' },
+        { key: 'l',         label: 'Length' },
+        { key: 'a',         label: 'Angle' },
+        { key: 'd',         label: 'Probe' },
+        { key: 't',         label: 'Arrow + text' },
+        { key: 'Shift+L',   label: 'Bidirectional' },
+        { key: 'Shift+M',   label: 'Rectangle ROI' },
+        { key: 'Shift+C',   label: 'Circle ROI' },
+        { key: 'Shift+O',   label: 'Elliptical ROI' },
+        { key: 'Shift+H',   label: 'Freehand ROI' },
+      ]},
+      { group: 'Editing tools', items: [
+        { key: 'b',         label: 'Brush' },
+        { key: 'e',         label: 'Eraser' },
+        { key: 'f',         label: 'Paint Fill' },
+        { key: 'Shift+B',   label: 'Threshold Brush' },
+        { key: 'Shift+I',   label: 'Circle Scissors' },
+        { key: 'Shift+X',   label: 'Rectangle Scissors' },
+        { key: 'Shift+F',   label: 'Freehand Contour' },
+        { key: 'Shift+P',   label: 'Spline Contour' },
+        { key: 'Shift+W',   label: 'Livewire Contour' },
+        { key: 'Shift+U',   label: 'Sculptor' },
+      ]},
+      { group: 'Viewport',  items: [
+        { key: 'r',         label: 'Reset' },
+        { key: 'Shift+R',   label: 'Rotate 90°' },
+        { key: 'i',         label: 'Toggle invert' },
+        { key: 'h',         label: 'Flip horizontal' },
+        { key: 'v',         label: 'Flip vertical' },
+        { key: '+ / =',     label: 'Zoom in' },
+        { key: '−',         label: 'Zoom out' },
+        { key: 'Space',     label: 'Cine play/stop' },
+        { key: 'm',         label: 'MPR cycle (active panel)' },
+      ]},
+      { group: 'Layout',    items: [
+        { key: '1',         label: '1×1' },
+        { key: '2',         label: '1×2' },
+        { key: '3',         label: '2×1' },
+        { key: '4',         label: '2×2' },
+        { key: 'Tab',       label: 'Next viewport' },
+        { key: 'Shift+Tab', label: 'Previous viewport' },
+      ]},
+      { group: 'Slice',     items: [
+        { key: '↑ / ←',     label: 'Previous slice' },
+        { key: '↓ / →',     label: 'Next slice' },
+        { key: 'PgUp',      label: 'Jump back' },
+        { key: 'PgDn',      label: 'Jump forward' },
+        { key: 'Home',      label: 'First slice' },
+        { key: 'End',       label: 'Last slice' },
+      ]},
+      { group: 'Brush size', items: [
+        { key: '[',         label: 'Decrease' },
+        { key: ']',         label: 'Increase' },
+      ]},
+      { group: 'Panels',    items: [
+        { key: 'o',         label: 'Toggle annotations panel' },
+        { key: 'Shift+T',   label: 'Toggle DICOM tags panel' },
+      ]},
+      { group: 'W/L presets', items: [
+        { key: '⌘+1',       label: 'Soft tissue' },
+        { key: '⌘+2',       label: 'Lung' },
+        { key: '⌘+3',       label: 'Bone' },
+        { key: '⌘+4',       label: 'Brain' },
+        { key: '⌘+5',       label: 'Abdomen' },
+      ]},
+      { group: 'Edit',      items: [
+        { key: '⌘+Z',       label: 'Undo' },
+        { key: '⌘+Shift+Z', label: 'Redo' },
+        { key: '⌘+C',       label: 'Copy' },
+        { key: '⌘+V',       label: 'Paste' },
+        { key: 'Del',       label: 'Delete' },
+      ]},
+      { group: 'Save',      items: [
+        { key: '⌘+S',       label: 'Save active annotation' },
+        { key: '⌘+Shift+S', label: 'Save all' },
+      ]},
+      { group: 'App',       items: [
+        { key: '⌘+,',       label: 'Open Settings' },
+        { key: '?',         label: 'Show keyboard shortcuts' },
+        { key: 'Esc',       label: 'Close dialog / cancel drawing' },
+      ]},
+    ];
+
+    // Action → key map (used to render shortcut suffixes in tooltips)
+    const TOOLTIP_HOTKEYS = {
+      // Toolbar / nav
+      'tb-mpr':            'M',
+      'tb-undo':           '⌘Z',
+      'tb-redo':           '⌘⇧Z',
+      'set-nav-Crosshairs':'C',
+      'set-nav-Pan':       'P',
+      'set-nav-Zoom':      'Z',
+      'set-nav-WindowLevel':'W',
+      'tb-reset':          'R',
+      'tb-invert':         'I',
+      'tb-rot90':          '⇧R',
+      'tb-flipH':          'H',
+      'tb-flipV':          'V',
+      'tb-cine-toggle':    'Space',
+      'tb-tags':           '⇧T',
+      'toggle-panel':      'O',
+      'tb-settings':       '⌘,',
+      // Save
+      'open-save-all':     '⌘⇧S',
+      // Panel/tools (most-common; toolbox handles its own)
+      'tool-Brush':        'B',
+      'tool-Eraser':       'E',
+      'tool-ThresholdBrush':'⇧B',
+      'tool-PaintFill':    'F',
+      'tool-FreehandContour':'⇧F',
+      'tool-SplineContour':'⇧P',
+      'tool-LivewireContour':'⇧W',
+      'tool-Sculptor':     '⇧U',
+      'tool-Length':       'L',
+      'tool-Angle':        'A',
+      'tool-Bidirectional':'⇧L',
+      'tool-RectangleROI': '⇧M',
+      'tool-CircleROI':    '⇧C',
+      'tool-EllipticalROI':'⇧O',
+      'tool-PlanarFreehandROI':'⇧H',
+      'tool-Probe':        'D',
+      'tool-ArrowAnnotate':'T',
+      'tool-CircleScissors':'⇧I',
+      'tool-RectangleScissors':'⇧X',
+    };
+
+    // ── Demo scans for a single session (CT thorax exam, 2025-05-03).
+    //
+    // IMPORTANT: This mirrors what `XnatBrowser.tsx` actually shows. The
+    // `isBrowsableSourceScan` filter (xnatBrowserUtils.ts:100) removes
+    // SEG / RTSTRUCT / SR / other derived scans from the scan list. Those
+    // derived scans are tracked in `sessionDerivedIndexStore` and auto-load
+    // as overlays/annotations when their parent image scan is loaded.
+    //
+    // → The sidebar lists image acquisitions only.
+    // → A derived-count pill at the bottom indicates how many annotations
+    //   are available for the session and will preload with the parent scans.
+    const DEMO_SCANS = [
+      { id: 's1', scanNo: 1, label: 'CT TOPOGRAM',          modality: 'CT', slices: 4,   time: '08:42' },
+      { id: 's2', scanNo: 2, label: 'CT THORAX 5mm',        modality: 'CT', slices: 180, time: '08:44' },
+      { id: 's3', scanNo: 3, label: 'CT THORAX 1.25mm',     modality: 'CT', slices: 720, time: '08:45' },
+      { id: 's4', scanNo: 4, label: 'CT CHEST coronal MIP', modality: 'CT', slices: 64,  time: '08:46' },
+    ];
+    // Derived assessors for this session — counted in the sidebar footer
+    // to surface their existence without putting them in the scan list.
+    // (Each container in the Annotation panel maps to one of these.)
+    const SESSION_DERIVED = { SEG: 2, RTSTRUCT: 1, SR: 1 };
+    const SCAN_BY_LABEL = Object.fromEntries(DEMO_SCANS.map(s => [s.label, s]));
+
+    const initialState = () => ({
+      panelOpen: true,
+      panelWidth: 400,
+      // Multi-viewport coupling
+      activeViewportId: 'panel_0',
+      panelImageIds: initialPanelImageIds(),
+      panelOrientation: initialPanelOrientation(),
+      panelDragOver: null,         // panelId currently being dragged over
+      filterToActive: false,       // optional strict filter mode
+      // XNAT browser sidebar state — production has 4 levels
+      // (projects → subjects → sessions → scans) with level-dependent
+      // search controls. Mockup renders only the scans level. List is
+      // rendered in API order (series-number ascending); no sort UI.
+      sidebar: {
+        level: 'scans',
+        search: '',
+        selectedScanIds: new Set(),
+        lastClickedScanId: null,
+        contextMenuAt: null,
+      },
+      draggedScanIds: null,           // ids currently being dragged from sidebar
+      cheatsheetOpen: false,          // ? overlay
+      // Toolbar state
+      activeNavTool: 'WindowLevel',      // Crosshairs | Pan | Zoom | WindowLevel
+      wlPreset: 'soft',                  // null = custom
+      mprActive: false,
+      cinePlaying: false, cineFPS: 12,
+      hangingProtocol: null,             // null or one of HANGING_PROTOCOLS ids
+      layoutCols: 2, layoutRows: 2,
+      tagsPanelOpen: false,
+      compactToolbar: false,
+      // Currently-open dropdown ('layout' | 'hanging' | 'wl' | 'nav' | 'transform' | 'cine' | null)
+      openDropdown: null,
+      // Row-level popovers (each carries the click-anchor coords for fixed positioning)
+      kebabAt: null,        // { cid, top, left }
+      colorPickerAt: null,  // { cid, mid, top, left }
+      contextMenuAt: null,  // { cid, top, left }
+      // Inline rename
+      renaming: null,       // { kind: 'container' | 'member', cid, mid? }
+      renameDraft: '',
+      // Dialogs
+      existingSaveDialog: null, // { containerId, mode: 'choose' | 'name', draftName? }
+      deleteDialog: null,        // { containerId }
+      savingOverlay: null,       // { name, canCancel, batch?: { current, total } }
+      saveAllDialog: null,       // { actions: { cid: { action, newName? } } }
+      // Drag-to-reorder
+      dragMember: null,          // { fromCid, memberId }
+      dragOver: null,            // { cid, mid, position: 'before' | 'after' }
+      containers: [
+        { id: 'c-existing', name: 'Heart contours', type: 'STRUCT', scanId: '#4001',
+          dirty: false, recovered: false, expanded: false,
+          viewports: ['panel_0', 'panel_1'],  // attached to both CT CHEST panes
+          members: [
+            { id: 'm-1', name: 'Heart', color: 'bg-red-400', visible: true, locked: false },
+            { id: 'm-2', name: 'Aorta', color: 'bg-emerald-400', visible: true, locked: false },
+          ]},
+      ],
+      activeContainerId: null,
+      activeMemberId: null,
+      activeTool: null,
+      // controls (persisted per type ideally, demo keeps them flat)
+      brushSize: 5, sphereRadius: 6, threshLow: -200, threshHigh: 800, dynThrSens: 50,
+      labelmapOpacity: 60, contourThickness: 2, contourOpacity: 100,
+      splineType: 'Catmull-Rom', regionStrength: 50,
+      modal: null, modalName: '',
+      toast: null,
+      clickCount: 0,
+      walkthroughStep: 0,
+    });
+    let state = initialState();
+
+    // -------------------- WALKTHROUGH --------------------
+    const walkthrough = [
+      { text: 'Create a Segmentation. Click "+ Segmentation" in the panel.', target: '[data-action="new-SEG"]' },
+      { text: 'Container created in rename mode — type a name (or press Enter) then click Brush.', target: '[data-action="tool-Brush"]' },
+      { text: 'Controls below show Brush configuration — try the Threshold Brush.', target: '[data-action="tool-ThresholdBrush"]' },
+      { text: 'Make a Structure. Click "+ Structure".', target: '[data-action="new-STRUCT"]' },
+      { text: 'Toolbox swaps to Structure tools. Click Spline.', target: '[data-action="tool-SplineContour"]' },
+      { text: 'Add a Measurement.', target: '[data-action="new-MEAS"]' },
+      { text: 'Toolbox shows measurement tools. Click Length.', target: '[data-action="tool-Length"]' },
+      { text: 'Done — all three types created from one panel.', target: null },
+    ];
+
+    // -------------------- HELPERS --------------------
+    function bump() { state.clickCount++; }
+    function activeContainer() { return state.containers.find(c => c.id === state.activeContainerId) || null; }
+    function activeType() { return activeContainer()?.type || null; }
+
+    // -------------------- RENDER --------------------
+    // Helper: append a hotkey hint to a tooltip if one is mapped to this action.
+    function withHotkey(action, baseTitle) {
+      const k = TOOLTIP_HOTKEYS[action];
+      if (!k) return baseTitle;
+      return baseTitle ? `${baseTitle} (${k})` : `(${k})`;
+    }
+
+    // Toolbar atoms ---------------------------------------------------------
+    function tbBtn({ action, label, iconId, active = false, title, disabled = false, extraClass = '' }) {
+      const cls = active
+        ? 'bg-blue-600 text-white border-blue-700'
+        : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700 border-zinc-700';
+      const disabledCls = disabled ? 'opacity-40 pointer-events-none' : '';
+      const lbl = label ? `<span class="tb-label">${label}</span>` : '';
+      const titleWithKey = withHotkey(action, title || label || '');
+      return `<button data-action="${action}" class="tb-btn ${cls} ${disabledCls} ${extraClass}" title="${titleWithKey}">${iconId ? icon(iconId) : ''}${lbl}</button>`;
+    }
+    function tbSep() {
+      return `<div class="w-px h-6 bg-zinc-800 mx-1"></div>`;
+    }
+    function tbChevronTrigger({ action, label, iconId, active = false, title }) {
+      // Trigger button that opens a dropdown — has chevron suffix
+      const cls = active ? 'bg-blue-600 text-white border-blue-700' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700 border-zinc-700';
+      return `<button data-action="${action}" class="tb-btn ${cls}" title="${title || label}">${iconId ? icon(iconId) : ''}<span class="tb-label">${label}</span>${icon('tbChevron')}</button>`;
+    }
+    function tbCollapsibleGroupExpanded({ children }) {
+      return `<div class="flex items-center gap-0.5">${children}</div>`;
+    }
+    function tbCollapsibleGroupCollapsed({ id, label, iconId }) {
+      const open = state.openDropdown === id;
+      return `<button data-action="open-dd-${id}" class="tb-btn ${open ? 'bg-blue-600 text-white border-blue-700' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700 border-zinc-700'}" title="${label}">${iconId ? icon(iconId) : ''}${icon('tbChevron')}</button>`;
+    }
+    function tbGroup({ id, label, iconId, children, isCompact }) {
+      if (isCompact && state.compactToolbar) return tbCollapsibleGroupCollapsed({ id, label, iconId });
+      return tbCollapsibleGroupExpanded({ children });
+    }
+
+    // Toolbar groups --------------------------------------------------------
+    function tbLeftSlot() {
+      return `
+        <div class="flex items-center gap-2 pr-2 h-full shrink-0">
+          <div class="w-6 h-6 rounded bg-blue-600 flex items-center justify-center text-white font-bold text-[10px]">X</div>
+          <span class="text-zinc-300 font-medium text-xs">XNAT</span>
+          <span class="px-1.5 py-0.5 rounded text-[10px] bg-green-900/40 border border-green-700 text-green-300 flex items-center gap-1">
+            <span class="w-1.5 h-1.5 rounded-full bg-green-400"></span>cnda.wustl.edu
+          </span>
+        </div>
+      `;
+    }
+    function tbDataSelection() {
+      return tbCollapsibleGroupExpanded({
+        children:
+          tbBtn({ action: 'tb-import',    label: 'Import',    iconId: 'tbImport',    title: 'Import DICOM' }) +
+          tbBtn({ action: 'tb-export',    label: 'Export',    iconId: 'tbExport',    title: 'Export current scan' }) +
+          tbBtn({ action: 'tb-favorites', label: 'Favorites', iconId: 'tbFavorites', title: 'Favorite scans' }),
+      });
+    }
+    function tbLayoutView() {
+      const layoutLabel = `${state.layoutCols}×${state.layoutRows}`;
+      const protocolLabel = state.hangingProtocol
+        ? HANGING_PROTOCOLS.find(p => p.id === state.hangingProtocol)?.label.split(' — ')[0]
+        : 'Hanging';
+      return tbCollapsibleGroupExpanded({
+        children:
+          tbChevronTrigger({ action: 'open-dd-layout',  label: layoutLabel,  iconId: 'tbLayout',  active: state.openDropdown === 'layout',  title: 'Viewport layout (N × M)' }) +
+          tbChevronTrigger({ action: 'open-dd-hanging', label: protocolLabel, iconId: 'tbHanging', active: state.openDropdown === 'hanging', title: 'Hanging protocol' }) +
+          tbBtn({ action: 'tb-mpr', label: 'MPR', iconId: 'tbMPR', active: state.mprActive, title: state.mprActive ? 'Exit MPR mode' : 'Enter MPR mode' }),
+      });
+    }
+    function tbNavigationTools() {
+      const wlPreset = state.wlPreset && WL_PRESETS.find(p => p.id === state.wlPreset);
+      const wlLabel = wlPreset ? wlPreset.label : 'Presets';
+      const grp = tbCollapsibleGroupExpanded({
+        children:
+          tbBtn({ action: 'set-nav-Crosshairs',  iconId: 'tbCrosshair', active: state.activeNavTool === 'Crosshairs',  title: 'Crosshairs (left-click sync, Shift+move dynamic, drag W/L)' }) +
+          tbBtn({ action: 'set-nav-Pan',         iconId: 'tbPan',       active: state.activeNavTool === 'Pan',         title: 'Pan (left-click drag)' }) +
+          tbBtn({ action: 'set-nav-Zoom',        iconId: 'tbZoom',      active: state.activeNavTool === 'Zoom',        title: 'Zoom (left-click drag)' }) +
+          tbBtn({ action: 'set-nav-WindowLevel', iconId: 'tbWLDrag',    active: state.activeNavTool === 'WindowLevel', title: 'Window/Level (left-click drag)' }) +
+          tbChevronTrigger({ action: 'open-dd-wl', label: wlLabel, iconId: 'tbWLDrag', active: state.openDropdown === 'wl', title: wlPreset ? `Current preset: ${wlPreset.label} (W:${wlPreset.w} / L:${wlPreset.l})` : 'W/L presets' }),
+      });
+      return state.compactToolbar
+        ? tbCollapsibleGroupCollapsed({ id: 'nav', label: 'Navigation tools', iconId: 'tbCrosshair' })
+        : grp;
+    }
+    function tbTransform() {
+      const children =
+        tbBtn({ action: 'tb-reset',  iconId: 'tbReset',    title: 'Reset viewport' }) +
+        tbBtn({ action: 'tb-invert', iconId: 'tbInvert',   title: 'Toggle invert' }) +
+        tbBtn({ action: 'tb-rot90',  iconId: 'tbRotate90', title: 'Rotate 90°' }) +
+        tbBtn({ action: 'tb-flipH',  iconId: 'tbFlipH',    title: 'Flip horizontal' }) +
+        tbBtn({ action: 'tb-flipV',  iconId: 'tbFlipV',    title: 'Flip vertical' });
+      return state.compactToolbar
+        ? tbCollapsibleGroupCollapsed({ id: 'transform', label: 'Transform', iconId: 'tbRotate90' })
+        : tbCollapsibleGroupExpanded({ children });
+    }
+    function tbUndoRedo() {
+      return tbCollapsibleGroupExpanded({
+        children:
+          tbBtn({ action: 'tb-undo', iconId: 'tbUndo', title: 'Undo (Ctrl+Z)' }) +
+          tbBtn({ action: 'tb-redo', iconId: 'tbRedo', title: 'Redo (Ctrl+Shift+Z)' }),
+      });
+    }
+    function tbCine() {
+      const children =
+        tbBtn({ action: 'tb-cine-toggle', iconId: state.cinePlaying ? 'tbStop' : 'tbPlay', active: state.cinePlaying, title: state.cinePlaying ? 'Stop cine' : 'Play cine' }) +
+        `<div class="flex items-center gap-1 px-1.5 text-[10px] text-zinc-300"><input data-action="cine-fps" type="number" min="1" max="60" value="${state.cineFPS}" class="w-9 bg-zinc-800 border border-zinc-700 rounded px-1 py-0.5 text-center" />fps</div>`;
+      return state.compactToolbar
+        ? tbCollapsibleGroupCollapsed({ id: 'cine', label: 'Cine playback', iconId: 'tbPlay' })
+        : tbCollapsibleGroupExpanded({ children });
+    }
+    function tbDisplayToggles() {
+      return tbCollapsibleGroupExpanded({
+        children:
+          tbBtn({ action: 'toggle-panel', label: 'Annotate', iconId: 'tbAnnotate', active: state.panelOpen, title: state.panelOpen ? 'Hide annotation panel' : 'Show annotation panel' }) +
+          tbBtn({ action: 'tb-tags',      label: 'Tags',     iconId: 'tbTags',     active: state.tagsPanelOpen, title: state.tagsPanelOpen ? 'Hide DICOM tags' : 'Show DICOM tags' }),
+      });
+    }
+    function tbRightSlot() {
+      // Settings is pinned to the far right and always displayed.
+      // Connection-status/errors slot sits just to its left (placeholder
+      // here; surfaces transient errors/warnings in production).
+      return `
+        <div class="flex items-center gap-2 pl-2 h-full shrink-0">
+          ${tbBtn({ action: 'tb-settings', iconId: 'tbSettings', title: 'Settings' })}
+        </div>
+      `;
+    }
+
+    function renderToolbar() {
+      return `
+        <div class="h-11 bg-zinc-900 border-b border-zinc-800 flex items-center px-2 gap-1 text-xs relative">
+          ${tbLeftSlot()}${tbSep()}
+          ${tbDataSelection()}${tbSep()}
+          ${tbLayoutView()}${tbSep()}
+          ${tbNavigationTools()}${tbSep()}
+          ${tbTransform()}${tbSep()}
+          ${tbUndoRedo()}${tbSep()}
+          ${tbCine()}${tbSep()}
+          ${tbDisplayToggles()}
+          <div class="flex-1"></div>
+          ${tbRightSlot()}
+          ${renderToolbarDropdowns()}
+        </div>
+      `;
+    }
+
+    function renderToolbarDropdowns() {
+      const dd = state.openDropdown;
+      if (dd === 'layout') return renderLayoutDD();
+      if (dd === 'hanging') return renderHangingDD();
+      if (dd === 'wl') return renderWLDD();
+      if (dd === 'nav') return renderNavDD();
+      if (dd === 'transform') return renderTransformDD();
+      if (dd === 'cine') return renderCineDD();
+      return '';
+    }
+
+    function ddCard(left, body) {
+      return `<div class="absolute top-11 z-30 bg-zinc-900 border border-zinc-700 rounded-md shadow-xl py-2" style="left:${left}px; min-width: 180px;" data-action="dd-card">${body}</div>`;
+    }
+
+    function renderLayoutDD() {
+      const cells = [];
+      for (let r = 1; r <= 4; r++) for (let c = 1; c <= 4; c++) {
+        const active = r <= state.layoutRows && c <= state.layoutCols;
+        cells.push(`<div data-action="set-layout-${c}-${r}" class="w-5 h-5 border ${active ? 'bg-blue-500 border-blue-400' : 'bg-zinc-800 border-zinc-700 hover:bg-zinc-700'} cursor-pointer"></div>`);
+      }
+      return ddCard(200, `
+        <div class="px-3 pb-2 text-[10px] text-zinc-400 uppercase">Layout — ${state.layoutCols}×${state.layoutRows}</div>
+        <div class="px-3 grid grid-cols-4 gap-0.5 w-fit">${cells.join('')}</div>
+        <div class="px-3 pt-2 text-[10px] text-zinc-500">Hover and click a cell for N×M grid</div>
+      `);
+    }
+    function renderHangingDD() {
+      const items = [
+        `<button data-action="hp-clear" class="w-full px-3 py-1.5 text-left text-[11px] text-zinc-400 hover:bg-zinc-800">— None (manual layout) —</button>`,
+        ...HANGING_PROTOCOLS.map(p => `<button data-action="hp-${p.id}" class="w-full px-3 py-1.5 text-left text-[11px] ${state.hangingProtocol === p.id ? 'bg-blue-900/40 text-blue-200' : 'text-zinc-200 hover:bg-zinc-800'}">${p.label}</button>`),
+      ].join('');
+      return ddCard(260, `<div class="px-3 pb-1 text-[10px] text-zinc-400 uppercase">Hanging protocol</div>${items}`);
+    }
+    function renderWLDD() {
+      const items = WL_PRESETS.map(p => `
+        <button data-action="wl-${p.id}" class="w-full px-3 py-1.5 text-left text-[11px] ${state.wlPreset === p.id ? 'bg-blue-900/40 text-blue-200' : 'text-zinc-200 hover:bg-zinc-800'} flex justify-between items-center">
+          <span>${p.label}</span><span class="text-[10px] text-zinc-500 tabular-nums">W:${p.w} / L:${p.l}</span>
+        </button>
+      `).join('');
+      return ddCard(380, `<div class="px-3 pb-1 text-[10px] text-zinc-400 uppercase">W/L presets</div>${items}<div class="border-t border-zinc-800 mt-1 pt-1"><button data-action="wl-custom" class="w-full px-3 py-1.5 text-left text-[11px] text-zinc-400 hover:bg-zinc-800">Custom…</button></div>`);
+    }
+    function renderNavDD() {
+      // Compact-mode popover containing the Navigation tools
+      return ddCard(180, `
+        <div class="px-3 pb-1 text-[10px] text-zinc-400 uppercase">Navigation tools</div>
+        <div class="px-2 flex flex-wrap gap-1">
+          ${tbBtn({ action: 'set-nav-Crosshairs',  iconId: 'tbCrosshair', label: 'Crosshairs',  active: state.activeNavTool === 'Crosshairs',  title: 'Crosshairs' })}
+          ${tbBtn({ action: 'set-nav-Pan',         iconId: 'tbPan',       label: 'Pan',         active: state.activeNavTool === 'Pan' })}
+          ${tbBtn({ action: 'set-nav-Zoom',        iconId: 'tbZoom',      label: 'Zoom',        active: state.activeNavTool === 'Zoom' })}
+          ${tbBtn({ action: 'set-nav-WindowLevel', iconId: 'tbWLDrag',    label: 'W/L',         active: state.activeNavTool === 'WindowLevel' })}
+        </div>
+      `);
+    }
+    function renderTransformDD() {
+      return ddCard(280, `
+        <div class="px-3 pb-1 text-[10px] text-zinc-400 uppercase">Transform</div>
+        <div class="px-2 flex flex-wrap gap-1">
+          ${tbBtn({ action: 'tb-reset',  iconId: 'tbReset',    label: 'Reset' })}
+          ${tbBtn({ action: 'tb-invert', iconId: 'tbInvert',   label: 'Invert' })}
+          ${tbBtn({ action: 'tb-rot90',  iconId: 'tbRotate90', label: 'Rotate 90°' })}
+          ${tbBtn({ action: 'tb-flipH',  iconId: 'tbFlipH',    label: 'Flip H' })}
+          ${tbBtn({ action: 'tb-flipV',  iconId: 'tbFlipV',    label: 'Flip V' })}
+        </div>
+      `);
+    }
+    // -------------------- POPOVERS / DIALOGS --------------------
+    function renderKebabMenu() {
+      if (!state.kebabAt) return '';
+      const c = state.containers.find(c => c.id === state.kebabAt.cid);
+      if (!c) return '';
+      const isMeas = c.type === 'MEAS';
+      const connected = true;          // mockup: assume online
+      const hasXnatOrigin = !!c.scanId;
+      const isDirty = c.dirty;
+      const items = [];
+      items.push(`<div data-action="kebab-save-file" class="pop-item">Save to file…</div>`);
+      items.push(`<div data-action="kebab-upload" class="pop-item ${connected ? '' : 'disabled'}">Save to XNAT…</div>`);
+      items.push(`<div class="pop-sep"></div>`);
+      items.push(`<div data-action="kebab-rename" class="pop-item">Rename<span class="pop-shortcut">F2</span></div>`);
+      items.push(`<div data-action="kebab-duplicate" class="pop-item">Duplicate</div>`);
+      items.push(`<div data-action="kebab-reload" class="pop-item ${hasXnatOrigin ? '' : 'disabled'}">Reload from XNAT</div>`);
+      items.push(`<div data-action="kebab-discard" class="pop-item ${isDirty ? '' : 'disabled'}">Discard local changes</div>`);
+      // V1.1: SEG → "Statistics…"  STRUCT → "Edit ROI types…"  (deferred)
+      if (isMeas) {
+        items.push(`<div class="pop-sep"></div>`);
+        items.push(`<div data-action="kebab-export-csv" class="pop-item">Export to CSV</div>`);
+      }
+      items.push(`<div class="pop-sep"></div>`);
+      items.push(`<div data-action="kebab-bulk-show-all" class="pop-item">Show all members</div>`);
+      items.push(`<div data-action="kebab-bulk-hide-all" class="pop-item">Hide all members</div>`);
+      items.push(`<div data-action="kebab-bulk-lock-all" class="pop-item">Lock all members</div>`);
+      items.push(`<div data-action="kebab-bulk-unlock-all" class="pop-item">Unlock all members</div>`);
+      items.push(`<div class="pop-sep"></div>`);
+      items.push(`<div data-action="kebab-delete" class="pop-item destructive">Delete…</div>`);
+      return `<div class="popover" style="top:${state.kebabAt.top}px; left:${state.kebabAt.left}px" data-action="dd-card">${items.join('')}</div>`;
+    }
+
+    function renderColorPicker() {
+      if (!state.colorPickerAt) return '';
+      const presets = ['bg-red-400','bg-orange-400','bg-amber-400','bg-yellow-400','bg-emerald-400','bg-teal-400','bg-cyan-400','bg-blue-400','bg-indigo-400','bg-purple-400','bg-pink-400','bg-rose-400','bg-fuchsia-400','bg-lime-400','bg-green-400','bg-slate-400'];
+      const cid = state.colorPickerAt.cid, mid = state.colorPickerAt.mid;
+      const c = state.containers.find(c => c.id === cid);
+      const m = c?.members.find(m => m.id === mid);
+      const swatches = presets.map(cls =>
+        `<div data-action="pick-color" data-color="${cls}" data-container-id="${cid}" data-member-id="${mid}" class="color-swatch-pick ${cls} ${m?.color === cls ? 'active' : ''}"></div>`
+      ).join('');
+      return `<div class="popover" style="top:${state.colorPickerAt.top}px; left:${state.colorPickerAt.left}px" data-action="dd-card">
+        <div class="color-grid">${swatches}</div>
+        <div class="pop-sep"></div>
+        <div data-action="pick-color-custom" class="pop-item">+ Custom…</div>
+      </div>`;
+    }
+
+    function renderContextMenu() {
+      if (!state.contextMenuAt) return '';
+      const cid = state.contextMenuAt.cid;
+      return `<div class="popover" style="top:${state.contextMenuAt.top}px; left:${state.contextMenuAt.left}px" data-action="dd-card">
+        <div data-action="kebab-bulk-show-all" data-container-id="${cid}" class="pop-item">Show all members</div>
+        <div data-action="kebab-bulk-hide-all" data-container-id="${cid}" class="pop-item">Hide all members</div>
+        <div data-action="kebab-bulk-lock-all" data-container-id="${cid}" class="pop-item">Lock all members</div>
+        <div data-action="kebab-bulk-unlock-all" data-container-id="${cid}" class="pop-item">Unlock all members</div>
+        <div class="pop-sep"></div>
+        <div data-action="kebab-expand" data-container-id="${cid}" class="pop-item">Expand</div>
+        <div data-action="kebab-collapse" data-container-id="${cid}" class="pop-item">Collapse</div>
+      </div>`;
+    }
+
+    function renderExistingSaveDialog() {
+      if (!state.existingSaveDialog) return '';
+      const c = state.containers.find(c => c.id === state.existingSaveDialog.containerId);
+      if (!c) return '';
+      const mode = state.existingSaveDialog.mode;
+      if (mode === 'choose') {
+        return `<div class="modal-backdrop">
+          <div class="modal-card" style="min-width: 420px">
+            <div class="text-zinc-100 font-semibold text-sm mb-2">${c.name} already exists on XNAT</div>
+            <div class="text-zinc-400 text-xs mb-4">Existing assessor on scan ${c.scanId || '#3004'}.</div>
+            <div class="bg-zinc-800/60 rounded p-3 mb-4 text-[11px] grid grid-cols-2 gap-2">
+              <div><div class="text-zinc-500">Local</div><div class="text-zinc-200">${c.members.length} ${TYPE_META[c.type].memberSing.toLowerCase()}${c.members.length === 1 ? '' : 's'}</div><div class="text-zinc-500 text-[10px]">edited 2 min ago</div></div>
+              <div><div class="text-zinc-500">Remote</div><div class="text-zinc-200">3 ${TYPE_META[c.type].memberSing.toLowerCase()}s</div><div class="text-zinc-500 text-[10px]">2 days ago</div></div>
+            </div>
+            <div class="flex justify-end gap-2">
+              <button data-action="dialog-cancel" class="px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 rounded">Cancel</button>
+              <button data-action="dialog-existing-create-new" class="px-3 py-1.5 text-xs bg-zinc-700 hover:bg-zinc-600 text-zinc-100 rounded">Create new…</button>
+              <button data-action="dialog-existing-overwrite" class="px-3 py-1.5 text-xs bg-red-600 hover:bg-red-500 text-white rounded">Overwrite</button>
+            </div>
+          </div>
+        </div>`;
+      }
+      // mode === 'name'
+      const draft = state.existingSaveDialog.draftName ?? `${c.name} (copy)`;
+      return `<div class="modal-backdrop">
+        <div class="modal-card" style="min-width: 380px">
+          <div class="text-zinc-100 font-semibold text-sm mb-3">New name on XNAT</div>
+          <input id="existing-name-input" type="text" value="${draft}" class="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-1.5 text-sm text-zinc-100 mb-4 focus:outline-none focus:border-blue-500" />
+          <div class="flex justify-end gap-2">
+            <button data-action="dialog-existing-back" class="px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 rounded">← Back</button>
+            <button data-action="dialog-cancel" class="px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 rounded">Cancel</button>
+            <button data-action="dialog-existing-create" class="px-3 py-1.5 text-xs bg-blue-600 hover:bg-blue-500 text-white rounded">Create</button>
+          </div>
+        </div>
+      </div>`;
+    }
+
+    function renderDeleteDialog() {
+      if (!state.deleteDialog) return '';
+      const c = state.containers.find(c => c.id === state.deleteDialog.containerId);
+      if (!c) return '';
+      const hasXnat = !!c.scanId;
+      const memCount = c.members.length;
+      const memLabel = TYPE_META[c.type].memberSing.toLowerCase() + (memCount === 1 ? '' : 's');
+      if (hasXnat) {
+        return `<div class="modal-backdrop">
+          <div class="modal-card" style="min-width: 440px">
+            <div class="text-zinc-100 font-semibold text-sm mb-2">Delete "${c.name}"?</div>
+            <div class="text-zinc-400 text-xs mb-4">${memCount} ${memLabel}${c.dirty ? ' · unsaved changes' : ''}</div>
+            <div class="bg-zinc-800/60 rounded p-3 mb-4 text-[11px] grid grid-cols-2 gap-2">
+              <div><div class="text-zinc-500">Local copy</div><div class="text-zinc-200">${memCount} ${memLabel}</div></div>
+              <div><div class="text-zinc-500">On XNAT</div><div class="text-zinc-200">scan ${c.scanId}</div></div>
+            </div>
+            <div class="flex justify-end gap-2">
+              <button data-action="dialog-cancel" class="px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 rounded">Cancel</button>
+              <button data-action="dialog-delete-xnat" class="px-3 py-1.5 text-xs bg-red-600 hover:bg-red-500 text-white rounded">Delete on cnda.wustl.edu too</button>
+              <button data-action="dialog-delete-local" class="px-3 py-1.5 text-xs bg-zinc-700 hover:bg-zinc-600 text-zinc-100 rounded">Delete locally only</button>
+            </div>
+          </div>
+        </div>`;
+      }
+      return `<div class="modal-backdrop">
+        <div class="modal-card" style="min-width: 360px">
+          <div class="text-zinc-100 font-semibold text-sm mb-2">Delete "${c.name}"?</div>
+          <div class="text-zinc-400 text-xs mb-4">${memCount} ${memLabel}. This cannot be undone.</div>
+          <div class="flex justify-end gap-2">
+            <button data-action="dialog-cancel" class="px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 rounded">Cancel</button>
+            <button data-action="dialog-delete-local" class="px-3 py-1.5 text-xs bg-red-600 hover:bg-red-500 text-white rounded">Delete${memCount > 1 ? ' all' : ''}</button>
+          </div>
+        </div>
+      </div>`;
+    }
+
+    function renderCheatsheet() {
+      if (!state.cheatsheetOpen) return '';
+      const cols = HOTKEYS.map(group => `
+        <div class="break-inside-avoid mb-3">
+          <div class="text-[10px] uppercase tracking-wide text-zinc-500 font-semibold mb-1">${group.group}</div>
+          <div class="border border-zinc-800 rounded divide-y divide-zinc-800/60">
+            ${group.items.map(it => `
+              <div class="flex items-center justify-between px-2 py-1 text-[11px]">
+                <span class="text-zinc-300">${it.label}</span>
+                <span class="text-zinc-100 font-mono bg-zinc-800 px-1.5 py-0.5 rounded text-[10px] ml-3 shrink-0">${it.key}</span>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `).join('');
+      return `<div class="modal-backdrop" data-action="cheatsheet-close-backdrop">
+        <div class="modal-card" style="min-width: 760px; max-width: 920px; max-height: 80vh; overflow-y: auto;">
+          <div class="flex items-center justify-between mb-3">
+            <div>
+              <div class="text-zinc-100 font-semibold text-sm">Keyboard shortcuts</div>
+              <div class="text-zinc-500 text-[11px]">Customize in Settings → Keyboard Shortcuts</div>
+            </div>
+            <button data-action="cheatsheet-close" class="text-zinc-400 hover:text-zinc-100 text-lg leading-none px-2">✕</button>
+          </div>
+          <div class="columns-3 gap-4">${cols}</div>
+          <div class="mt-3 text-[10px] text-zinc-500">Press <span class="font-mono bg-zinc-800 px-1.5 py-0.5 rounded">?</span> to toggle this overlay. Press <span class="font-mono bg-zinc-800 px-1.5 py-0.5 rounded">Esc</span> to close.</div>
+        </div>
+      </div>`;
+    }
+
+    function renderSavingOverlay() {
+      if (!state.savingOverlay) return '';
+      const batch = state.savingOverlay.batch;
+      const status = batch
+        ? `Saving ${batch.current} of ${batch.total} — "${state.savingOverlay.name}"…`
+        : `Saving "${state.savingOverlay.name}" to XNAT…`;
+      const progressBar = batch
+        ? `<div class="w-64 h-1.5 bg-zinc-800 rounded overflow-hidden mt-1"><div class="h-full bg-blue-500" style="width:${Math.round((batch.current - 1) / batch.total * 100)}%"></div></div>`
+        : '';
+      return `<div class="modal-backdrop">
+        <div class="saving-overlay-card">
+          <div class="saving-spinner"></div>
+          <div class="text-zinc-200 text-sm">${status}</div>
+          ${progressBar}
+          ${state.savingOverlay.canCancel ? '<button data-action="saving-cancel" class="px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 rounded mt-2">Cancel</button>' : ''}
+        </div>
+      </div>`;
+    }
+
+    function renderSaveAllDialog() {
+      if (!state.saveAllDialog) return '';
+      const dirty = state.containers.filter(c => c.dirty);
+      const actions = state.saveAllDialog.actions;
+      const toSave = dirty.filter(c => actions[c.id]?.action !== 'skip');
+      const overwriteCount = dirty.filter(c => actions[c.id]?.action === 'overwrite').length;
+      const createCount    = dirty.filter(c => actions[c.id]?.action === 'create-new').length;
+      const newCount       = dirty.filter(c => actions[c.id]?.action === 'save-new').length;
+      const skipCount      = dirty.filter(c => actions[c.id]?.action === 'skip').length;
+      const summary = [
+        overwriteCount && `${overwriteCount} overwrite`,
+        createCount && `${createCount} copy`,
+        newCount && `${newCount} new`,
+        skipCount && `${skipCount} skipped`,
+      ].filter(Boolean).join(' · ');
+      const rows = dirty.map(c => renderSaveAllRow(c)).join('');
+      return `<div class="modal-backdrop">
+        <div class="modal-card" style="min-width: 580px; max-width: 720px;">
+          <div class="text-zinc-100 font-semibold text-sm mb-1">Save all annotations to XNAT</div>
+          <div class="text-zinc-400 text-xs mb-3">${dirty.length} with unsaved changes — review each, then run the batch.</div>
+          <div class="border border-zinc-800 rounded divide-y divide-zinc-800 max-h-[380px] overflow-y-auto bg-zinc-950/40">${rows}</div>
+          <div class="text-[10px] text-zinc-500 mt-2">${summary || 'Pick an action per row'}</div>
+          <div class="flex justify-end gap-2 mt-3">
+            <button data-action="save-all-cancel" class="px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 rounded">Cancel</button>
+            <button data-action="save-all-execute" class="px-3 py-1.5 text-xs ${toSave.length === 0 ? 'opacity-40 cursor-not-allowed' : ''} bg-blue-600 hover:bg-blue-500 text-white rounded">Save all (${toSave.length})</button>
+          </div>
+        </div>
+      </div>`;
+    }
+
+    function renderSaveAllRow(c) {
+      const meta = TYPE_META[c.type];
+      const a = state.saveAllDialog.actions[c.id] || { action: c.scanId ? 'overwrite' : 'save-new' };
+      const hasOrigin = !!c.scanId;
+      const memCount = c.members.length;
+      const memLbl = meta.memberSing.toLowerCase() + (memCount === 1 ? '' : 's');
+      const opts = hasOrigin
+        ? [
+            { val: 'overwrite',  label: 'Overwrite existing' },
+            { val: 'create-new', label: 'Save as new copy' },
+            { val: 'skip',       label: 'Skip' },
+          ]
+        : [
+            { val: 'save-new', label: 'Save as new on XNAT' },
+            { val: 'skip',     label: 'Skip' },
+          ];
+      const select = `
+        <select data-action="save-all-set-action" data-container-id="${c.id}"
+                class="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-[10px] text-zinc-200 shrink-0">
+          ${opts.map(o => `<option value="${o.val}" ${a.action === o.val ? 'selected' : ''}>${o.label}</option>`).join('')}
+        </select>`;
+      const nameInput = a.action === 'create-new'
+        ? `<input data-action="save-all-set-name" data-container-id="${c.id}" type="text" value="${a.newName ?? c.name + ' (copy)'}" placeholder="New name on XNAT" class="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-[10px] text-zinc-100 w-48 shrink-0" />`
+        : '';
+      const skipDim = a.action === 'skip' ? 'opacity-50' : '';
+      const targetInfo = hasOrigin
+        ? `<span class="text-zinc-500 text-[10px]">existing ${c.scanId}</span>`
+        : `<span class="text-amber-400 text-[10px]">new</span>`;
+      return `
+        <div class="px-3 py-2 flex items-center gap-2 ${skipDim}">
+          <span class="px-1 py-0.5 ${meta.badgeCls} rounded text-[9px] shrink-0">${meta.badge}</span>
+          <div class="flex flex-col flex-1 min-w-0">
+            <span class="text-zinc-100 text-[11px] font-medium truncate" title="${c.name}">${c.name}</span>
+            <span class="text-zinc-500 text-[10px]">${memCount} ${memLbl} · ${targetInfo.replace(/<[^>]+>/g,'').trim()}</span>
+          </div>
+          ${select}${nameInput}
+        </div>
+      `;
+    }
+
+    function renderCineDD() {
+      return ddCard(360, `
+        <div class="px-3 pb-1 text-[10px] text-zinc-400 uppercase">Cine playback</div>
+        <div class="px-3 flex items-center gap-2 pb-1">
+          ${tbBtn({ action: 'tb-cine-toggle', iconId: state.cinePlaying ? 'tbStop' : 'tbPlay', label: state.cinePlaying ? 'Stop' : 'Play', active: state.cinePlaying })}
+          <input data-action="cine-fps" type="number" min="1" max="60" value="${state.cineFPS}" class="w-12 bg-zinc-800 border border-zinc-700 rounded px-1 py-0.5 text-center" />
+          <span class="text-[10px] text-zinc-400">fps</span>
+        </div>
+      `);
+    }
+
+    // -------------------- XNAT BROWSER SIDEBAR --------------------
+    function filterAndSortScans() {
+      const { search } = state.sidebar;
+      let scans = DEMO_SCANS.slice().sort((a, b) => a.scanNo - b.scanNo); // API order
+      const q = (search || '').toLowerCase();
+      if (q) scans = scans.filter(s =>
+        s.label.toLowerCase().includes(q) ||
+        String(s.scanNo).includes(q)
+      );
+      return scans;
+    }
+
+    function renderSidebar() {
+      const { search, selectedScanIds, contextMenuAt } = state.sidebar;
+      const scans = filterAndSortScans();
+      const modalities = [...new Set(DEMO_SCANS.map(s => s.modality))];
+      const sessionModalityLabel = modalities.length === 1 ? modalities[0] : modalities.join('/');
+      const derivedTotal = Object.values(SESSION_DERIVED).reduce((s, n) => s + n, 0);
+      const derivedSummary = Object.entries(SESSION_DERIVED).filter(([, n]) => n > 0).map(([k, n]) => `${n} ${k}`).join(' · ');
+
+      // No sort UI — scans render in API order (series-number ascending).
+      // Filtering at scan-level doesn't apply either: rows are uniform
+      // image acquisitions of one modality (PET/CT exception handled by
+      // production via modality chips only when multiple modalities present).
+      const rows = scans.length === 0
+        ? `<div class="px-3 py-6 text-center text-zinc-500 text-[10px]">No scans match.</div>`
+        : scans.map(s => renderScanRow(s)).join('');
+
+      const selCount = selectedScanIds.size;
+      const bulkBar = selCount > 1
+        ? `<div class="px-2 py-1.5 border-t border-zinc-800 bg-zinc-950/60 flex items-center gap-1 text-[10px]">
+            <span class="text-zinc-400">${selCount} selected</span>
+            <div class="flex-1"></div>
+            <button data-action="sb-bulk-load" data-layout="1xN" class="px-1.5 py-0.5 rounded bg-blue-600 text-white hover:bg-blue-500" title="Load all into a 1×${selCount} layout">Load 1×${selCount}</button>
+            ${selCount <= 4 ? `<button data-action="sb-bulk-load" data-layout="2x2" class="px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-300 hover:bg-zinc-700" title="Load into 2×2">2×2</button>` : ''}
+            <button data-action="sb-clear-selection" class="px-1.5 py-0.5 rounded text-zinc-500 hover:text-zinc-300" title="Clear selection">✕</button>
+          </div>`
+        : '';
+
+      // Footer affordance: shows that derived assessors exist for this session
+      // and will auto-load with their parent scans. They are intentionally not
+      // shown as separate rows (matches `isBrowsableSourceScan` production behavior).
+      const derivedPill = derivedTotal > 0
+        ? `<div class="px-2 py-1.5 border-t border-zinc-800 bg-zinc-950/60 text-[10px] text-zinc-400 flex items-center gap-2"><svg class="w-3 h-3 text-blue-400" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="8" r="6"/><path d="M5 8l2 2 4-5"/></svg><span>${derivedTotal} annotations auto-load <span class="text-zinc-500">(${derivedSummary})</span></span></div>`
+        : '';
+
+      return `
+        <div class="w-60 bg-zinc-900 border-r border-zinc-800 flex flex-col text-xs shrink-0">
+          <!-- Breadcrumb shows current level. The 'scans' level is what this
+               mockup renders; clicking earlier crumbs in production navigates
+               back up the hierarchy. -->
+          <div class="px-2 py-1 border-b border-zinc-800 text-[10px] text-zinc-500 flex items-center gap-1 truncate">
+            <button data-action="sb-bc-up" data-level="projects" class="text-zinc-400 hover:text-blue-300" title="Up to projects">PROJ_001</button>
+            <span class="text-zinc-600">/</span>
+            <button data-action="sb-bc-up" data-level="subjects" class="text-zinc-400 hover:text-blue-300" title="Up to subjects">SUBJ_42</button>
+            <span class="text-zinc-600">/</span>
+            <span class="text-zinc-200 font-medium truncate" title="CT thorax · 2025-05-03">S20250503</span>
+            <span class="ml-1 px-1 py-0.5 rounded bg-blue-900/40 text-blue-200 text-[9px]">${sessionModalityLabel}</span>
+          </div>
+          <div class="p-2 border-b border-zinc-800">
+            <input data-action="sb-search" type="text" value="${search}" placeholder="Search scans in this session…" class="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-[10px] text-zinc-100 focus:outline-none focus:border-blue-500" />
+          </div>
+          <div class="px-2 py-1 border-b border-zinc-800 text-[10px] text-zinc-500">
+            Scans <span class="text-zinc-600">(${DEMO_SCANS.length})</span>
+          </div>
+          <div class="flex-1 overflow-y-auto">${rows}</div>
+          ${bulkBar}
+          ${derivedPill}
+          ${contextMenuAt ? renderScanContextMenu() : ''}
+        </div>
+      `;
+    }
+
+    function renderScanRow(s) {
+      const selected = state.sidebar.selectedScanIds.has(s.id);
+      const isLoadedOnSome = PANEL_IDS.some(p => state.panelImageIds[p] === s.label);
+      const cls = selected
+        ? 'bg-blue-900/40 border-l-2 border-blue-500'
+        : 'hover:bg-zinc-800 border-l-2 border-transparent';
+      return `
+        <div draggable="true"
+             data-drag-type="scan"
+             data-scan-id="${s.id}"
+             data-action="sb-click-scan"
+             class="${cls} px-2 py-1.5 cursor-grab flex items-center gap-2 group">
+          <span class="text-[10px] text-zinc-500 shrink-0 w-6 text-right tabular-nums">#${s.scanNo}</span>
+          <div class="flex-1 min-w-0 truncate">
+            <div class="${selected ? 'text-blue-100 font-medium' : 'text-zinc-200'} truncate">${s.label}</div>
+            <div class="text-zinc-500 text-[9px]">${s.slices} sl · ${s.time}</div>
+          </div>
+          ${isLoadedOnSome ? '<span class="text-[9px] text-blue-400" title="Currently loaded in a panel">●</span>' : ''}
+        </div>
+      `;
+    }
+
+    function renderScanContextMenu() {
+      const { contextMenuAt } = state.sidebar;
+      const s = DEMO_SCANS.find(s => s.id === contextMenuAt.scanId);
+      if (!s) return '';
+      const panelOpts = PANEL_IDS.map(p =>
+        `<div data-action="sb-ctx-open-in" data-scan-id="${s.id}" data-panel-id="${p}" class="pop-item">Open in ${p}${state.panelImageIds[p] ? ' <span class="text-zinc-500 text-[10px]">(replaces)</span>' : ''}</div>`
+      ).join('');
+      return `<div class="popover" style="top:${contextMenuAt.top}px; left:${contextMenuAt.left}px" data-action="dd-card">
+        <div class="pop-item" data-action="sb-ctx-open-active" data-scan-id="${s.id}">Open in active panel</div>
+        <div class="pop-sep"></div>
+        ${panelOpts}
+        <div class="pop-sep"></div>
+        <div class="pop-item" data-action="sb-ctx-open-mpr" data-scan-id="${s.id}">Open in MPR (active panel)</div>
+        <div class="pop-item" data-action="sb-ctx-pin" data-scan-id="${s.id}">Pin to favorites</div>
+        <div class="pop-item" data-action="sb-ctx-copy-url" data-scan-id="${s.id}">Copy session URL</div>
+      </div>`;
+    }
+
+    function renderViewportArea() {
+      const cells = PANEL_IDS.map(pid => renderPanelCell(pid)).join('');
+      return `
+        <div class="flex-1 min-w-0 grid grid-cols-2 grid-rows-2 gap-1 p-1 bg-black relative">
+          ${cells}
+          ${state.toast ? `<div class="toast-overlay"><div class="toast">${state.toast}</div></div>` : ''}
+        </div>
+      `;
+    }
+
+    function renderPanelCell(pid) {
+      const isActive = state.activeViewportId === pid;
+      const scan = state.panelImageIds[pid];
+      const orient = state.panelOrientation[pid];
+      const dragOver = state.panelDragOver === pid;
+      const borderCls = dragOver
+        ? 'border-2 border-blue-400 border-dashed'
+        : isActive
+        ? 'border-2 border-blue-500'
+        : 'border border-zinc-800 hover:border-zinc-700';
+
+      if (!scan) {
+        return `
+          <div data-action="select-panel" data-droptarget="panel" data-panel-id="${pid}" class="relative viewport-canvas ${borderCls} overflow-hidden cursor-pointer flex flex-col items-center justify-center transition-colors gap-2" style="background: ${dragOver ? 'rgba(37, 99, 235, 0.08)' : ''}">
+            <div class="absolute inset-0 grid-overlay opacity-40"></div>
+            <svg class="w-8 h-8 text-zinc-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 4v12m-5-5l5 5 5-5"/><path d="M4 20h16"/></svg>
+            <div class="text-zinc-500 text-xs">Drop a scan here or click in the browser</div>
+            <div class="absolute bottom-2 left-2 text-[10px] text-zinc-600">${pid}</div>
+          </div>
+        `;
+      }
+
+      const orientLabel = (orient === 'STACK') ? '' : `· ${orient.charAt(0) + orient.slice(1).toLowerCase()}`;
+      return `
+        <div data-action="select-panel" data-droptarget="panel" data-panel-id="${pid}" class="relative viewport-canvas ${borderCls} overflow-hidden cursor-pointer" style="background: ${dragOver ? 'rgba(37, 99, 235, 0.08)' : ''}">
+          <div class="absolute inset-0 grid-overlay"></div>
+          <div class="absolute top-2 left-2 text-[10px] text-zinc-300 leading-tight">
+            <div>${scan} ${orientLabel}</div>
+            <div class="text-zinc-500">#4 · 145/512</div>
+          </div>
+          <div class="absolute top-2 right-2 text-[10px] text-zinc-300">W: 350 / L: 50</div>
+          <div class="absolute bottom-2 left-2 text-[10px] text-zinc-500">${pid} · ${(orient || 'stack').toLowerCase()}</div>
+          ${isActive && state.activeTool ? `<div class="absolute bottom-2 right-2 text-[10px]"><span class="px-1.5 py-0.5 bg-blue-600/80 text-white rounded text-[9px]">Tool · ${state.activeTool}</span></div>` : ''}
+        </div>
+      `;
+    }
+
+    // Distinct mini-icons that represent each container type (used in narrow add-buttons).
+    function typeIcon(type) {
+      const stroke = 'fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"';
+      if (type === 'SEG')    return `<svg viewBox="0 0 16 16" ${stroke}><rect x="3" y="3" width="10" height="10" rx="1" fill="currentColor" fill-opacity="0.35"/></svg>`;
+      if (type === 'STRUCT') return `<svg viewBox="0 0 16 16" ${stroke}><path d="M3 9c1-5 5-6 7-3s2 7-2 7-7-1-5-4z"/></svg>`;
+      if (type === 'MEAS')   return `<svg viewBox="0 0 16 16" ${stroke}><path d="M2 11l10-7"/><path d="M2 11l1.5 1.5M5 8l1.5 1.5M8 5l1.5 1.5"/></svg>`;
+      return '';
+    }
+
+    function renderPanel() {
+      if (!state.panelOpen) return '';
+      const dirtyCount = state.containers.filter(c => c.dirty).length;
+      const compactAdd = state.panelWidth < ADD_NARROW;
+      const compactTools = state.panelWidth < TOOLS_NARROW;
+      return `
+        <div class="annotation-panel ${compactAdd ? 'compact-add' : ''} ${compactTools ? 'compact-tools' : ''} bg-zinc-900 border-l border-zinc-800 flex flex-col text-xs shrink-0 relative" style="width:${state.panelWidth}px">
+          <div class="resize-handle" data-action="resize-start" title="Drag to resize"></div>
+          <div class="h-9 px-3 flex items-center justify-between border-b border-zinc-800 gap-2">
+            <span class="font-medium text-zinc-200 truncate">Annotations</span>
+            ${dirtyCount > 0 ? `<button data-action="open-save-all" title="Save all (${dirtyCount} dirty)" class="px-2 py-1 text-[10px] border border-blue-700 text-blue-300 hover:bg-blue-900/40 rounded flex items-center gap-1 shrink-0">${compactAdd ? `💾<span class="text-blue-200">(${dirtyCount})</span>` : `Save all <span class="text-blue-200">(${dirtyCount})</span>`}</button>` : ''}
+          </div>
+          <div class="px-2 py-2 border-b border-zinc-800 grid grid-cols-3 gap-1.5">
+            <button data-action="new-SEG" class="add-btn bg-blue-600/15 hover:bg-blue-600/30 border-blue-700 text-blue-200" title="New Segmentation">
+              <span class="plus text-blue-300">+</span>
+              <span class="type-icon text-blue-300">${typeIcon('SEG')}</span>
+              <span class="add-label">Segmentation</span>
+            </button>
+            <button data-action="new-STRUCT" class="add-btn bg-emerald-600/15 hover:bg-emerald-600/30 border-emerald-700 text-emerald-200" title="New Structure">
+              <span class="plus text-emerald-300">+</span>
+              <span class="type-icon text-emerald-300">${typeIcon('STRUCT')}</span>
+              <span class="add-label">Structure</span>
+            </button>
+            <button data-action="new-MEAS" class="add-btn bg-purple-600/15 hover:bg-purple-600/30 border-purple-700 text-purple-200" title="New Measurement">
+              <span class="plus text-purple-300">+</span>
+              <span class="type-icon text-purple-300">${typeIcon('MEAS')}</span>
+              <span class="add-label">Measurement</span>
+            </button>
+          </div>
+          ${renderListHeader()}
+          <div class="flex-1 overflow-y-auto min-h-[100px]">
+            ${renderContainerList()}
+          </div>
+          ${renderToolbox()}
+          <div class="h-6 px-3 border-t border-zinc-800 flex items-center text-[10px] text-green-400 gap-1.5">
+            <svg class="w-3 h-3" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2"><polyline points="2,6 5,9 10,3"/></svg>
+            Backed up · 2s ago
+          </div>
+        </div>
+      `;
+    }
+
+    function renderListHeader() {
+      const activeCount = state.containers.filter(c => isOnActivePanel(c)).length;
+      const total = state.containers.length;
+      if (total === 0) return '';
+      const filterIconCls = state.filterToActive ? 'text-blue-300' : 'text-zinc-500 hover:text-zinc-200';
+      return `
+        <div class="px-3 py-1.5 border-b border-zinc-800 flex items-center justify-between text-[10px] text-zinc-400">
+          <span>${state.filterToActive ? `${activeCount} on active panel` : `${total} total · ${activeCount} on active panel`}</span>
+          <button data-action="toggle-filter-active" class="${filterIconCls} flex items-center gap-1 hover:bg-zinc-800 px-1.5 py-0.5 rounded" title="${state.filterToActive ? 'Show all (current: only active panel)' : 'Only show annotations on the active panel'}">
+            <svg class="w-3 h-3" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 3h12l-4 5v5l-4-2v-3z"/></svg>
+            ${state.filterToActive ? 'Active only' : 'All panels'}
+          </button>
+        </div>
+      `;
+    }
+
+    function isOnActivePanel(c) {
+      return (c.viewports || []).includes(state.activeViewportId);
+    }
+
+    function renderContainerList() {
+      if (state.containers.length === 0) {
+        return `<div class="px-4 py-6 text-center text-zinc-500 text-[11px]">No annotations yet. Use the buttons above to create one.</div>`;
+      }
+      const visible = state.filterToActive
+        ? state.containers.filter(isOnActivePanel)
+        : state.containers;
+      if (visible.length === 0) {
+        return `<div class="px-4 py-6 text-center text-zinc-500 text-[11px]">No annotations on the active panel.<br/><button data-action="toggle-filter-active" class="text-blue-400 hover:underline mt-1">Show all annotations</button></div>`;
+      }
+      return visible.map(renderContainer).join('');
+    }
+
+    function renderContainer(c) {
+      const isActive = c.id === state.activeContainerId;
+      const meta = TYPE_META[c.type];
+      const onActive = isOnActivePanel(c);
+      const wrapperCls = isActive
+        ? `border-l-2 border-${meta.accent}-500 bg-${meta.accent}-900/15`
+        : c.recovered
+        ? 'border-l-2 border-amber-500 bg-amber-900/15'
+        : 'hover:bg-zinc-800/40';
+      // Cross-panel emphasis: dim rows not on the active panel
+      const offPanelCls = onActive ? '' : 'opacity-50';
+      const chevronCls = c.expanded ? 'rotate-90' : '';
+      const dirtyDot = c.dirty ? '<span class="w-1.5 h-1.5 rounded-full bg-amber-400" title="Unsaved"></span>' : '';
+      const scanIdBadge = c.scanId && !c.dirty ? `<span class="text-[9px] text-zinc-500">${c.scanId}</span>` : '';
+
+      const members = c.expanded ? `
+        <div class="pl-4">
+          ${c.members.map((m, idx) => renderMember(m, c, idx)).join('')}
+          ${meta.addLabel ? `<div class="px-2 py-1"><button data-action="add-member" data-container-id="${c.id}" class="text-[10px] text-${meta.accent}-400 hover:text-${meta.accent}-300">${meta.addLabel}</button></div>` : `<div class="px-2 py-1 text-[10px] text-zinc-500 italic">Draw on the canvas to add measurements</div>`}
+        </div>
+      ` : '';
+
+      // Inline-rename mode replaces the name span with an input
+      const isRenamingContainer = state.renaming?.kind === 'container' && state.renaming.cid === c.id;
+      const nameNode = isRenamingContainer
+        ? `<input id="rename-input" class="rename-input flex-1" value="${state.renameDraft}" data-rename-kind="container" data-container-id="${c.id}" />`
+        : `<span data-rename-target="container" data-container-id="${c.id}" class="${isActive ? 'text-zinc-100 font-medium' : 'text-zinc-300'} flex-1 truncate" title="Double-click to rename">${c.name}</span>`;
+
+      // Cross-panel pill — shows where this container actually lives if not on active
+      const otherPanels = (c.viewports || []).filter(p => p !== state.activeViewportId);
+      const crossPanelPill = !onActive && otherPanels.length > 0
+        ? `<span class="text-[9px] text-zinc-500 px-1.5 py-0.5 bg-zinc-800/80 rounded shrink-0" title="Visible on ${otherPanels.join(', ')}">↗ ${otherPanels.length === 1 ? otherPanels[0].replace('panel_', 'panel ') : `${otherPanels.length} panels`}</span>`
+        : '';
+      return `
+        <div class="${wrapperCls} ${offPanelCls}" data-action="ctxmenu-container" data-container-id="${c.id}">
+          <div data-action="toggle-container" data-container-id="${c.id}" class="px-2 py-1.5 flex items-center gap-1.5 cursor-pointer">
+            <svg class="w-2.5 h-2.5 text-zinc-400 ${chevronCls}" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4,2 8,6 4,10"/></svg>
+            <span class="px-1 py-0.5 ${meta.badgeCls} rounded text-[9px]">${meta.badge}</span>
+            ${nameNode}
+            ${dirtyDot}${scanIdBadge}${crossPanelPill}
+            <button data-action="open-kebab" data-container-id="${c.id}" class="text-zinc-400 hover:text-zinc-200 px-1" title="More actions">⋮</button>
+            <button data-action="open-delete-dialog" data-container-id="${c.id}" class="text-zinc-500 hover:text-red-400 px-1" title="Delete container">✕</button>
+          </div>
+          ${members}
+        </div>
+      `;
+    }
+
+    function renderMember(m, c) {
+      const meta = TYPE_META[c.type];
+      const isActive = m.id === state.activeMemberId && c.id === state.activeContainerId;
+      const rowCls = isActive ? `border-l-2 border-${meta.accent}-500 bg-${meta.accent}-900/30` : 'hover:bg-zinc-800/40';
+      const opacityCls = m.visible ? '' : 'opacity-40';
+      const valueBadge = c.type === 'MEAS' && m.value ? `<span class="text-[9px] text-purple-300 tabular-nums">${m.value}</span>` : '';
+      // Drag visuals
+      const isDragSource = state.dragMember && state.dragMember.fromCid === c.id && state.dragMember.memberId === m.id;
+      const dropCls = (state.dragOver && state.dragOver.cid === c.id && state.dragOver.mid === m.id)
+        ? (state.dragOver.position === 'before' ? 'member-drop-before' : 'member-drop-after')
+        : '';
+      // Inline rename
+      const isRenaming = state.renaming?.kind === 'member' && state.renaming.cid === c.id && state.renaming.mid === m.id;
+      const nameNode = isRenaming
+        ? `<input id="rename-input" class="rename-input flex-1" value="${state.renameDraft}" data-rename-kind="member" data-container-id="${c.id}" data-member-id="${m.id}" />`
+        : `<span data-rename-target="member" data-container-id="${c.id}" data-member-id="${m.id}" class="text-zinc-100 flex-1 truncate text-[11px]" title="Double-click to rename">${m.name}</span>`;
+      return `
+        <div class="px-2 py-1 flex items-center gap-1.5 ${rowCls} ${opacityCls} ${isDragSource ? 'member-drag-source' : ''} ${dropCls}"
+             data-action="select-member"
+             data-container-id="${c.id}"
+             data-member-id="${m.id}"
+             draggable="false">
+          <span data-action="drag-start" data-container-id="${c.id}" data-member-id="${m.id}" class="drag-handle" title="Drag to reorder">⠿</span>
+          <span data-action="open-color-picker" data-container-id="${c.id}" data-member-id="${m.id}" class="w-3 h-3 rounded-sm ${m.color} shrink-0 border border-zinc-700 cursor-pointer" title="Click to change color"></span>
+          <button data-action="toggle-visible" data-container-id="${c.id}" data-member-id="${m.id}" class="text-zinc-300" title="Show/Hide  ·  Shift-click: solo  ·  Alt-click: hide this">${m.visible ? '👁' : '👁‍🗨'}</button>
+          <button data-action="toggle-locked" data-container-id="${c.id}" data-member-id="${m.id}" class="${m.locked ? 'text-amber-400' : 'text-zinc-500'}" title="${m.locked ? 'Unlock' : 'Lock'}">${m.locked ? '🔒' : '🔓'}</button>
+          ${nameNode}
+          ${valueBadge}
+          <button data-action="delete-member" data-container-id="${c.id}" data-member-id="${m.id}" class="text-zinc-500 hover:text-red-400 text-[10px]">✕</button>
+        </div>
+      `;
+    }
+
+    function renderToolbox() {
+      const c = activeContainer();
+      const type = c?.type;
+      const lockedActive = c?.members.find(m => m.id === state.activeMemberId)?.locked;
+      const onActive = c ? isOnActivePanel(c) : false;
+      const editingAcross = c ? (c.viewports || []).length : 0;
+      const editingPill = c && editingAcross > 1
+        ? `<span class="text-[9px] px-1.5 py-0.5 bg-blue-900/40 text-blue-200 rounded" title="Edits propagate to all panels sharing this scan">Editing across ${editingAcross} panes</span>`
+        : '';
+      const header = `
+        <div class="px-3 py-1.5 border-t border-b border-zinc-800 bg-zinc-950/60 flex items-center justify-between gap-2">
+          <span class="text-[10px] text-zinc-400 uppercase tracking-wide font-medium shrink-0">Toolbox</span>
+          <div class="flex items-center gap-2 truncate">
+            ${editingPill}
+            ${c ? `<span class="text-[10px] text-zinc-500 truncate">${TYPE_META[type].label} · ${c.name}</span>` : ''}
+          </div>
+        </div>
+      `;
+      if (!c) {
+        return `${header}<div class="px-4 py-6 text-center text-zinc-500 text-[11px]">Select or create an annotation above to enable tools.</div>`;
+      }
+      if (!onActive) {
+        // Active container isn't on the active panel — tools should be disabled
+        const targetPanels = (c.viewports || []).join(', ');
+        return `${header}<div class="px-3 py-3 text-[11px] text-amber-300 bg-amber-900/15 border-b border-amber-800/40 flex items-start gap-2">
+          <span>⚠</span>
+          <span>Active annotation isn't on this panel. Switch to <strong>${targetPanels}</strong> to edit, or pick a different annotation.</span>
+        </div>`;
+      }
+      if (lockedActive) {
+        return `${header}<div class="px-3 py-3 text-[11px] text-amber-300 bg-amber-900/15 border-b border-amber-800/40 flex items-start gap-2"><span>🔒</span><span>Active ${TYPE_META[type].memberSing.toLowerCase()} is locked. Unlock to edit.</span></div>`;
+      }
+      const accent = TYPE_META[type].accent;
+      // Flat 3-col grid. TOOL_GROUPS order preserves like-by-like adjacency
+      // without showing formal group labels.
+      const allTools = TOOL_GROUPS[type].flatMap(g => g.tools);
+      const gridHtml = `
+        <div class="tool-grid px-3 py-2">
+          ${allTools.map(t => `
+            <button data-action="tool-${t.id}" data-accent="${accent}" class="tool-btn ${state.activeTool === t.id ? 'active' : ''} ${t.unwired ? 'unwired' : ''}" title="${(t.unwired ? '(Not yet wired) ' : '') + withHotkey('tool-' + t.id, t.fullLabel || t.label)}">
+              ${icon(t.icon)}<span>${t.label}</span>
+            </button>
+          `).join('')}
+        </div>
+      `;
+      return `
+        ${header}
+        ${gridHtml}
+        ${renderControls(type)}
+      `;
+    }
+
+    function renderControls(type) {
+      const t = state.activeTool;
+      const accent = TYPE_META[type].accent;
+      const colorSwatch = (() => {
+        const c = activeContainer();
+        const m = c?.members.find(m => m.id === state.activeMemberId);
+        return m ? `<span class="inline-flex items-center gap-1"><span class="w-3 h-3 rounded-sm ${m.color} border border-zinc-700"></span><span class="text-zinc-300 text-[10px]">${m.name}</span></span>` : '';
+      })();
+      const rows = [];
+
+      if (type === 'SEG') {
+        if (BRUSH_2D.has(t)) {
+          rows.push(slider('Brush size', 'brushSize', 1, 50, 'px'));
+        }
+        if (BRUSH_3D.has(t)) {
+          rows.push(slider('Sphere radius', 'sphereRadius', 1, 30, 'px'));
+        }
+        if (THRESHOLD_TOOLS.has(t)) {
+          rows.push(`
+            <div class="control-row">
+              <label>Threshold</label>
+              <input data-state-key="threshLow" type="number" value="${state.threshLow}" class="num-input" />
+              <span class="text-zinc-500 text-[10px]">to</span>
+              <input data-state-key="threshHigh" type="number" value="${state.threshHigh}" class="num-input" />
+              <span class="text-zinc-500 text-[10px]">HU</span>
+            </div>
+          `);
+        }
+        if (DYNAMIC_THR.has(t)) {
+          rows.push(slider('Sensitivity', 'dynThrSens', 0, 100, '%'));
+        }
+        if (REGION_TOOLS.has(t)) {
+          rows.push(slider('Strength', 'regionStrength', 0, 100, ''));
+        }
+        rows.push(slider('Labelmap opacity', 'labelmapOpacity', 0, 100, '%'));
+      } else if (type === 'STRUCT') {
+        if (t === 'SplineContour') {
+          rows.push(`
+            <div class="control-row">
+              <label>Spline type</label>
+              <select data-state-key="splineType" class="select-input">
+                <option ${state.splineType === 'Catmull-Rom' ? 'selected' : ''}>Catmull-Rom</option>
+                <option ${state.splineType === 'Cardinal' ? 'selected' : ''}>Cardinal</option>
+                <option ${state.splineType === 'B-Spline' ? 'selected' : ''}>B-Spline</option>
+                <option ${state.splineType === 'Linear' ? 'selected' : ''}>Linear</option>
+              </select>
+            </div>
+          `);
+        }
+        rows.push(slider('Contour thickness', 'contourThickness', 1, 8, 'px'));
+        rows.push(slider('Contour opacity', 'contourOpacity', 0, 100, '%'));
+      } else if (type === 'MEAS') {
+        rows.push(`<div class="control-row"><label>Measurement</label><span class="text-zinc-400 text-[10px]">Draw on canvas to add</span></div>`);
+      }
+
+      const headerLine = colorSwatch
+        ? `<div class="px-3 py-1.5 border-t border-zinc-800 bg-zinc-950/40 flex items-center justify-between"><span class="text-[10px] text-zinc-400 uppercase tracking-wide font-medium">Controls</span>${colorSwatch}</div>`
+        : `<div class="px-3 py-1.5 border-t border-zinc-800 bg-zinc-950/40"><span class="text-[10px] text-zinc-400 uppercase tracking-wide font-medium">Controls</span></div>`;
+
+      const body = rows.length
+        ? `<div class="py-1.5">${rows.join('')}</div>`
+        : `<div class="px-3 text-[10px] text-zinc-500 italic flex items-center justify-center h-full">Pick a tool above to see its configuration.</div>`;
+
+      // Fixed height keeps the toolbox layout stable as the user switches tools.
+      // Sized to the worst case (4 control rows + a little breathing room).
+      return `${headerLine}<div style="height:110px" class="overflow-hidden">${body}</div>`;
+    }
+
+    function slider(label, key, min, max, unit) {
+      const v = state[key];
+      const accent = activeType() === 'MEAS' ? 'purple' : activeType() === 'STRUCT' ? 'emerald' : 'blue';
+      return `
+        <div class="control-row">
+          <label>${label}</label>
+          <input data-state-key="${key}" type="range" min="${min}" max="${max}" value="${v}" class="accent-${accent}-500" />
+          <span class="val">${v}${unit}</span>
+        </div>
+      `;
+    }
+
+    function renderModal() {
+      if (!state.modal) return '';
+      const titles = { 'new-SEG': 'New Segmentation', 'new-STRUCT': 'New Structure', 'new-MEAS': 'New Measurement' };
+      const placeholder = state.modal.suggestedName || '';
+      return `
+        <div class="modal-backdrop">
+          <div class="modal-card">
+            <div class="text-zinc-100 font-semibold text-sm mb-3">${titles[state.modal.kind]}</div>
+            <input type="text" id="modal-name-input" value="${state.modalName || ''}" placeholder="${placeholder}" class="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-1.5 text-sm text-zinc-100 mb-4 focus:outline-none focus:border-blue-500" />
+            <div class="flex justify-end gap-2">
+              <button data-action="modal-cancel" class="px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 rounded">Cancel</button>
+              <button data-action="modal-create" class="px-3 py-1.5 text-xs bg-blue-600 hover:bg-blue-500 text-white rounded">Create</button>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderMain() {
+      return `
+        <div class="h-[920px] flex flex-col bg-zinc-950 border border-zinc-800 rounded-md overflow-hidden shadow-2xl relative">
+          ${renderToolbar()}
+          <div class="flex-1 flex relative min-h-0">
+            ${renderSidebar()}
+            ${renderViewportArea()}
+            ${renderPanel()}
+            ${renderModal()}
+            ${renderExistingSaveDialog()}
+            ${renderDeleteDialog()}
+            ${renderSaveAllDialog()}
+            ${renderSavingOverlay()}
+            ${renderCheatsheet()}
+          </div>
+          ${renderKebabMenu()}
+          ${renderColorPicker()}
+          ${renderContextMenu()}
+        </div>
+      `;
+    }
+
+    function render() {
+      document.getElementById('mockup-canonical').innerHTML = renderMain();
+      document.getElementById('click-count').textContent = state.clickCount;
+      applyWalkthroughHighlight();
+      const input = document.getElementById('modal-name-input');
+      if (input) { input.focus(); input.select(); }
+    }
+
+    // -------------------- ACTIONS --------------------
+    function openCreateModal(type) {
+      // Need a scan on the active panel to attach a new container to.
+      const activeScan = state.panelImageIds[state.activeViewportId];
+      if (!activeScan) {
+        showToast('Load a scan in the active panel first', 'info');
+        return;
+      }
+      // Skip the dialog: create with a default name and drop straight into
+      // inline rename mode so the user can type their own name immediately.
+      bump();
+      const meta = TYPE_META[type];
+      const count = state.containers.filter(c => c.type === type).length;
+      const defaultName = `${meta.label} ${count + 1}`;
+      const id = 'c-' + Math.random().toString(36).slice(2, 8);
+      const memberColor = { SEG: 'bg-blue-400', STRUCT: 'bg-emerald-400', MEAS: 'bg-purple-400' }[type];
+      const firstMember = type === 'MEAS' ? null : { id: 'm-' + Math.random().toString(36).slice(2, 8), name: `${meta.memberSing} 1`, color: memberColor, visible: true, locked: false };
+      // Attach to active panel + any other panel showing the same scan (simulates FoR sharing)
+      const attachedViewports = PANEL_IDS.filter(p => state.panelImageIds[p] === activeScan);
+      const newC = { id, name: defaultName, type, dirty: false, recovered: false, expanded: true, viewports: attachedViewports, members: firstMember ? [firstMember] : [] };
+      state.containers.forEach(c => c.expanded = false);
+      state.containers.unshift(newC);
+      state.activeContainerId = id;
+      state.activeMemberId = firstMember?.id ?? null;
+      state.activeTool = null;
+      state.panelOpen = true;
+      state.renaming = { kind: 'container', cid: id };
+      state.renameDraft = defaultName;
+      render();
+      const input = document.getElementById('rename-input');
+      if (input) { input.focus(); input.select(); }
+    }
+    function confirmModal() {
+      bump();
+      const type = state.modal.type;
+      const name = (state.modalName || state.modal.suggestedName).trim();
+      const meta = TYPE_META[type];
+      const id = 'c-' + Math.random().toString(36).slice(2, 8);
+      const memberColor = { SEG: 'bg-blue-400', STRUCT: 'bg-emerald-400', MEAS: 'bg-purple-400' }[type];
+      const firstMember = type === 'MEAS' ? null : { id: 'm-' + Math.random().toString(36).slice(2, 8), name: `${meta.memberSing} 1`, color: memberColor, visible: true, locked: false };
+      const newC = { id, name, type, dirty: false, recovered: false, expanded: true, members: firstMember ? [firstMember] : [] };
+      state.containers.forEach(c => c.expanded = false);
+      state.containers.unshift(newC);
+      state.activeContainerId = id;
+      state.activeMemberId = firstMember?.id ?? null;
+      state.activeTool = null;
+      state.panelOpen = true;
+      state.toast = `Created “${name}”`;
+      setTimeout(() => { state.toast = null; render(); }, 2400);
+      state.modal = null; state.modalName = '';
+      render();
+    }
+    function cancelModal() { bump(); state.modal = null; state.modalName = ''; render(); }
+    function addMember(cid) {
+      bump();
+      const c = state.containers.find(c => c.id === cid); if (!c) return;
+      const meta = TYPE_META[c.type];
+      const idx = c.members.length + 1;
+      const colors = ['bg-blue-400', 'bg-pink-400', 'bg-emerald-400', 'bg-purple-400', 'bg-orange-400', 'bg-cyan-400'];
+      const m = { id: 'm-' + Math.random().toString(36).slice(2, 8), name: `${meta.memberSing} ${idx}`, color: colors[(idx - 1) % colors.length], visible: true, locked: false };
+      c.members.push(m); c.expanded = true; c.dirty = true;
+      state.activeContainerId = c.id; state.activeMemberId = m.id;
+      // Drop the new row directly into rename mode with the default name preselected.
+      state.renaming = { kind: 'member', cid: c.id, mid: m.id };
+      state.renameDraft = m.name;
+      render();
+      const input = document.getElementById('rename-input');
+      if (input) { input.focus(); input.select(); }
+    }
+    function selectMember(cid, mid) { bump(); state.activeContainerId = cid; state.activeMemberId = mid; const c = state.containers.find(c => c.id === cid); if (c) c.expanded = true; render(); }
+    function toggleVisible(cid, mid, opts = {}) {
+      bump();
+      const c = state.containers.find(c => c.id === cid); if (!c) return;
+      const m = c.members.find(m => m.id === mid); if (!m) return;
+      if (opts.solo) {
+        // Show only this — make this visible, hide all others within this container
+        c.members.forEach(mm => { mm.visible = (mm.id === mid); });
+      } else if (opts.hideThisOnly) {
+        m.visible = false;
+      } else {
+        m.visible = !m.visible;
+      }
+      render();
+    }
+    // Helpers for kebab/dialog operations
+    function showToast(message, kind = 'success') {
+      state.toast = message;
+      setTimeout(() => { state.toast = null; render(); }, 2600);
+    }
+    function showSavingOverlay(name) {
+      state.savingOverlay = { name, canCancel: false };
+      // Cancel button appears after 3s if still saving
+      setTimeout(() => {
+        if (state.savingOverlay && state.savingOverlay.name === name) {
+          state.savingOverlay.canCancel = true;
+          render();
+        }
+      }, 2200);
+      // Success simulation after 4.5s
+      setTimeout(() => {
+        if (state.savingOverlay && state.savingOverlay.name === name) {
+          state.savingOverlay = null;
+          const c2 = state.containers.find(c => c.name === name);
+          if (c2) { c2.dirty = false; if (!c2.scanId) c2.scanId = '#' + (3000 + Math.floor(Math.random() * 99)); }
+          showToast(`Uploaded "${name}" to XNAT`);
+        }
+      }, 4500);
+    }
+    function duplicateContainer(cid) {
+      const c = state.containers.find(c => c.id === cid); if (!c) return;
+      const dup = JSON.parse(JSON.stringify(c));
+      dup.id = 'c-' + Math.random().toString(36).slice(2, 8);
+      dup.name = `${c.name} (copy)`;
+      dup.dirty = true; dup.scanId = undefined; dup.recovered = false; dup.expanded = true;
+      dup.members.forEach(m => m.id = 'm-' + Math.random().toString(36).slice(2, 8));
+      state.containers.unshift(dup);
+      state.activeContainerId = dup.id;
+      state.activeMemberId = dup.members[0]?.id ?? null;
+      showToast(`Duplicated "${c.name}"`);
+    }
+    function setAllMembers(cid, key, value) {
+      const c = state.containers.find(c => c.id === cid); if (!c) return;
+      c.members.forEach(m => { m[key] = value; });
+    }
+    function closePops() {
+      state.kebabAt = null; state.colorPickerAt = null; state.contextMenuAt = null;
+      if (state.sidebar) state.sidebar.contextMenuAt = null;
+    }
+
+    function loadScanIntoPanel(scan, panelId) {
+      state.panelImageIds[panelId] = scan.label;
+      state.panelOrientation[panelId] = 'STACK';
+      state.activeViewportId = panelId;
+      showToast(`Loaded ${scan.label} into ${panelId}`);
+    }
+
+    function openSaveAllDialog() {
+      const dirty = state.containers.filter(c => c.dirty);
+      if (dirty.length === 0) return;
+      const actions = {};
+      for (const c of dirty) actions[c.id] = { action: c.scanId ? 'overwrite' : 'save-new' };
+      state.saveAllDialog = { actions };
+    }
+
+    function executeSaveAll() {
+      const actions = state.saveAllDialog.actions;
+      const queue = state.containers.filter(c => c.dirty && actions[c.id]?.action !== 'skip').map(c => ({ container: c, action: actions[c.id] }));
+      state.saveAllDialog = null;
+      if (queue.length === 0) { render(); return; }
+      state.savingOverlay = { name: queue[0].container.name, batch: { current: 1, total: queue.length }, canCancel: true };
+      render();
+      let i = 0;
+      const tick = () => {
+        if (!state.savingOverlay) return; // canceled
+        const { container: c, action: entry } = queue[i];
+        if (entry.action === 'overwrite') {
+          c.dirty = false;
+        } else if (entry.action === 'save-new') {
+          c.scanId = '#' + (3500 + Math.floor(Math.random() * 99));
+          c.dirty = false;
+        } else if (entry.action === 'create-new') {
+          // Clone with new name + new scanId; original stays dirty.
+          const dup = JSON.parse(JSON.stringify(c));
+          dup.id = 'c-' + Math.random().toString(36).slice(2, 8);
+          dup.name = (entry.newName || `${c.name} (copy)`).trim() || `${c.name} (copy)`;
+          dup.members.forEach(m => m.id = 'm-' + Math.random().toString(36).slice(2, 8));
+          dup.scanId = '#' + (3500 + Math.floor(Math.random() * 99));
+          dup.dirty = false; dup.expanded = false;
+          state.containers.unshift(dup);
+        }
+        i++;
+        if (i < queue.length) {
+          state.savingOverlay = { name: queue[i].container.name, batch: { current: i + 1, total: queue.length }, canCancel: true };
+          render();
+          setTimeout(tick, 900);
+        } else {
+          state.savingOverlay = null;
+          showToast(`Saved ${queue.length} annotation${queue.length === 1 ? '' : 's'} to XNAT`);
+          render();
+        }
+      };
+      setTimeout(tick, 900);
+    }
+    function startRename(kind, cid, mid) {
+      const c = state.containers.find(c => c.id === cid); if (!c) return;
+      const current = kind === 'container' ? c.name : c.members.find(m => m.id === mid)?.name || '';
+      state.renaming = { kind, cid, mid };
+      state.renameDraft = current;
+      closePops();
+    }
+    function commitRename() {
+      if (!state.renaming) return;
+      const inp = document.getElementById('rename-input');
+      const draft = inp ? inp.value.trim() : state.renameDraft;
+      if (draft) {
+        const c = state.containers.find(c => c.id === state.renaming.cid);
+        if (c) {
+          if (state.renaming.kind === 'container') { c.name = draft; c.dirty = true; }
+          else { const m = c.members.find(m => m.id === state.renaming.mid); if (m) { m.name = draft; c.dirty = true; } }
+        }
+      }
+      state.renaming = null; state.renameDraft = '';
+    }
+    function cancelRename() { state.renaming = null; state.renameDraft = ''; }
+    function toggleLocked(cid, mid) { bump(); const c = state.containers.find(c => c.id === cid); const m = c?.members.find(m => m.id === mid); if (m) m.locked = !m.locked; render(); }
+    function deleteMember(cid, mid) { bump(); const c = state.containers.find(c => c.id === cid); if (!c) return; c.members = c.members.filter(m => m.id !== mid); if (state.activeMemberId === mid) state.activeMemberId = c.members[0]?.id ?? null; c.dirty = true; render(); }
+    function toggleContainer(cid) { bump(); const c = state.containers.find(c => c.id === cid); if (!c) return; c.expanded = !c.expanded; state.activeContainerId = c.id; if (c.expanded && c.members.length && !state.activeMemberId) state.activeMemberId = c.members[0].id; state.activeTool = null; render(); }
+    function togglePanel() { bump(); state.panelOpen = !state.panelOpen; render(); }
+    function selectTool(toolId) {
+      bump(); state.activeTool = toolId;
+      const c = activeContainer();
+      if (c?.type === 'MEAS' && ['Length','Bidirectional','Angle','RectangleROI','EllipticalROI','CircleROI','PlanarFreehandROI'].includes(toolId)) {
+        setTimeout(() => {
+          const idx = c.members.length + 1;
+          const valueMap = { Length: '23.4 mm', Bidirectional: '18.1×12.7 mm', Angle: '42.3°', RectangleROI: '142 mm²', EllipticalROI: '98 mm²', CircleROI: '76 mm²', PlanarFreehandROI: '215 mm²' };
+          c.members.push({ id: 'm-' + Math.random().toString(36).slice(2, 8), name: `${toolId} ${idx}`, color: 'bg-purple-400', visible: true, locked: false, value: valueMap[toolId] || '' });
+          c.dirty = true; c.expanded = true;
+          render();
+        }, 600);
+      }
+      render();
+    }
+
+    // -------------------- RESIZE --------------------
+    let resizeDrag = null;
+    function onResizeMove(e) {
+      if (!resizeDrag) return;
+      const delta = resizeDrag.startX - e.clientX; // dragging left = wider panel
+      state.panelWidth = Math.max(PANEL_MIN, Math.min(PANEL_MAX, resizeDrag.startWidth + delta));
+      render();
+      // re-mark the handle as dragging after re-render
+      const h = document.querySelector('.resize-handle');
+      if (h) h.classList.add('dragging');
+    }
+    function onResizeEnd() {
+      resizeDrag = null;
+      document.removeEventListener('mousemove', onResizeMove);
+      document.removeEventListener('mouseup', onResizeEnd);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      const h = document.querySelector('.resize-handle');
+      if (h) h.classList.remove('dragging');
+    }
+    function startResize(e) {
+      resizeDrag = { startX: e.clientX, startWidth: state.panelWidth };
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+      document.addEventListener('mousemove', onResizeMove);
+      document.addEventListener('mouseup', onResizeEnd);
+      e.preventDefault();
+    }
+
+    // -------------------- EVENTS --------------------
+    document.addEventListener('mousedown', (e) => {
+      const handle = e.target.closest('[data-action="resize-start"]');
+      if (handle) { startResize(e); return; }
+    });
+    document.addEventListener('click', (e) => {
+      const target = e.target.closest('[data-action]');
+      // Single-click on a rename target shouldn't toggle the row — let dblclick
+      // handle it instead. Suppress all action processing for this click.
+      if (e.target.closest('[data-rename-target]')) return;
+      // Outside-click closes any open dropdown / popover
+      if (!target && !e.target.closest('[data-action="dd-card"]')) {
+        let changed = false;
+        if (state.openDropdown)              { state.openDropdown = null;              changed = true; }
+        if (state.kebabAt)                   { state.kebabAt = null;                   changed = true; }
+        if (state.colorPickerAt)             { state.colorPickerAt = null;             changed = true; }
+        if (state.contextMenuAt)             { state.contextMenuAt = null;             changed = true; }
+        if (state.sidebar?.contextMenuAt)    { state.sidebar.contextMenuAt = null;     changed = true; }
+        if (changed) render();
+        return;
+      }
+      if (!target) return;
+      e.stopPropagation();
+      const a = target.dataset.action; const cid = target.dataset.containerId; const mid = target.dataset.memberId;
+      if (a === 'resize-start') return; // handled in mousedown
+      if (a === 'dd-card') return;       // clicks inside dropdown cards bubble up to here; swallow
+      // Toolbar actions ----------------------------------------------------
+      if (a.startsWith('open-dd-')) { const id = a.slice('open-dd-'.length); state.openDropdown = state.openDropdown === id ? null : id; bump(); render(); return; }
+      if (a.startsWith('set-nav-')) { state.activeNavTool = a.slice('set-nav-'.length); bump(); render(); return; }
+      if (a.startsWith('wl-')) { const id = a.slice('wl-'.length); state.wlPreset = id === 'custom' ? null : id; state.openDropdown = null; bump(); render(); return; }
+      if (a.startsWith('hp-')) { const id = a.slice('hp-'.length); state.hangingProtocol = id === 'clear' ? null : id; state.openDropdown = null; bump(); render(); return; }
+      if (a.startsWith('set-layout-')) { const [_, cs, rs] = a.split('-').slice(1); state.layoutCols = +cs.split('-')[0] ?? cs; const parts = a.split('-'); state.layoutCols = +parts[2]; state.layoutRows = +parts[3]; state.openDropdown = null; bump(); render(); return; }
+      if (a === 'tb-mpr') {
+        // MPR is a per-viewport property: cycle the active panel's orientation
+        // through STACK → AXIAL → SAGITTAL → CORONAL.
+        const cur = state.panelOrientation[state.activeViewportId] || 'STACK';
+        const next = ORIENT_CYCLE[(ORIENT_CYCLE.indexOf(cur) + 1) % ORIENT_CYCLE.length];
+        if (state.panelImageIds[state.activeViewportId]) {
+          state.panelOrientation[state.activeViewportId] = next;
+          state.mprActive = (next !== 'STACK');
+        }
+        bump(); render(); return;
+      }
+      if (a === 'select-panel') {
+        const pid = target.dataset.panelId;
+        if (state.activeViewportId !== pid) {
+          state.activeViewportId = pid;
+          // Mirror the real store: when switching, refresh mprActive from new panel orientation
+          state.mprActive = state.panelOrientation[pid] && state.panelOrientation[pid] !== 'STACK';
+          bump(); render();
+        }
+        return;
+      }
+      if (a === 'toggle-filter-active') {
+        state.filterToActive = !state.filterToActive;
+        bump(); render(); return;
+      }
+      // ─── Sidebar: filter / sort / search ───
+      if (a === 'sb-bc-up') {
+        // Affordance only — production navigates back up the hierarchy here.
+        showToast(`Mockup: would navigate to ${target.dataset.level} level`, 'info');
+        bump(); render(); return;
+      }
+      if (a === 'sb-clear-selection') { state.sidebar.selectedScanIds = new Set(); state.sidebar.lastClickedScanId = null; bump(); render(); return; }
+      // ─── Sidebar: click on a scan (handles single / Cmd-click / Shift-click) ───
+      if (a === 'sb-click-scan') {
+        const sid = target.dataset.scanId;
+        const visible = filterAndSortScans();
+        if (e.shiftKey && state.sidebar.lastClickedScanId) {
+          // Range-select
+          const from = visible.findIndex(s => s.id === state.sidebar.lastClickedScanId);
+          const to   = visible.findIndex(s => s.id === sid);
+          if (from >= 0 && to >= 0) {
+            const [lo, hi] = from < to ? [from, to] : [to, from];
+            for (let i = lo; i <= hi; i++) state.sidebar.selectedScanIds.add(visible[i].id);
+          }
+        } else if (e.metaKey || e.ctrlKey) {
+          if (state.sidebar.selectedScanIds.has(sid)) state.sidebar.selectedScanIds.delete(sid);
+          else state.sidebar.selectedScanIds.add(sid);
+          state.sidebar.lastClickedScanId = sid;
+        } else {
+          // Plain click → load into active panel (production behavior)
+          const s = DEMO_SCANS.find(s => s.id === sid);
+          if (s) loadScanIntoPanel(s, state.activeViewportId);
+          state.sidebar.selectedScanIds = new Set([sid]);
+          state.sidebar.lastClickedScanId = sid;
+        }
+        bump(); render(); return;
+      }
+      // ─── Sidebar: bulk load ───
+      if (a === 'sb-bulk-load') {
+        const layout = target.dataset.layout;
+        const sel = filterAndSortScans().filter(s => state.sidebar.selectedScanIds.has(s.id));
+        // Pick a target ordering of panels
+        const order = layout === '2x2'
+          ? ['panel_0', 'panel_1', 'panel_2', 'panel_3']
+          : ['panel_0', 'panel_1', 'panel_2', 'panel_3'];
+        sel.forEach((s, idx) => {
+          const p = order[idx % order.length];
+          state.panelImageIds[p] = s.label;
+          state.panelOrientation[p] = 'STACK';
+        });
+        state.activeViewportId = order[0];
+        state.sidebar.selectedScanIds = new Set();
+        showToast(`Loaded ${sel.length} scans (${layout === '2x2' ? '2×2' : '1×' + sel.length})`);
+        bump(); render(); return;
+      }
+      // ─── Sidebar: right-click context menu items ───
+      if (a === 'sb-ctx-open-active') {
+        const s = DEMO_SCANS.find(s => s.id === target.dataset.scanId);
+        if (s) loadScanIntoPanel(s, state.activeViewportId);
+        state.sidebar.contextMenuAt = null;
+        bump(); render(); return;
+      }
+      if (a === 'sb-ctx-open-in') {
+        const s = DEMO_SCANS.find(s => s.id === target.dataset.scanId);
+        if (s) loadScanIntoPanel(s, target.dataset.panelId);
+        state.sidebar.contextMenuAt = null;
+        bump(); render(); return;
+      }
+      if (a === 'sb-ctx-open-mpr') {
+        const s = DEMO_SCANS.find(s => s.id === target.dataset.scanId);
+        if (s) { loadScanIntoPanel(s, state.activeViewportId); state.panelOrientation[state.activeViewportId] = 'AXIAL'; state.mprActive = true; }
+        state.sidebar.contextMenuAt = null;
+        bump(); render(); return;
+      }
+      if (a === 'sb-ctx-pin')      { showToast('Pinned to favorites'); state.sidebar.contextMenuAt = null; bump(); render(); return; }
+      if (a === 'sb-ctx-copy-url') { showToast('Copied session URL to clipboard'); state.sidebar.contextMenuAt = null; bump(); render(); return; }
+      if (a === 'tb-cine-toggle') { state.cinePlaying = !state.cinePlaying; bump(); render(); return; }
+      if (a === 'cine-fps') return; // handled in input listener
+      if (a === 'tb-tags') { state.tagsPanelOpen = !state.tagsPanelOpen; bump(); render(); return; }
+      if (a === 'tb-settings') {
+        // For the mockup, Settings opens the cheatsheet (the real Settings modal
+        // would have a Keyboard Shortcuts tab embedding this same view + remap UI)
+        state.cheatsheetOpen = true;
+        bump(); render(); return;
+      }
+      if (a === 'cheatsheet-close' || a === 'cheatsheet-close-backdrop') {
+        state.cheatsheetOpen = false;
+        bump(); render(); return;
+      }
+      if (a === 'tb-import' || a === 'tb-export' || a === 'tb-favorites' || a === 'tb-reset' || a === 'tb-invert' || a === 'tb-rot90' || a === 'tb-flipH' || a === 'tb-flipV') {
+        bump(); render(); return;
+      }
+      if (a === 'tb-undo' || a === 'tb-redo') { bump(); render(); return; }
+      // ─── Row-level popovers / dialogs ───
+      if (a === 'open-kebab') {
+        const rect = target.getBoundingClientRect();
+        state.kebabAt = { cid, top: rect.bottom + 4, left: Math.max(8, rect.right - 220) };
+        bump(); render(); return;
+      }
+      if (a === 'open-color-picker') {
+        const rect = target.getBoundingClientRect();
+        state.colorPickerAt = { cid, mid, top: rect.bottom + 4, left: rect.left };
+        bump(); render(); return;
+      }
+      if (a === 'pick-color') {
+        const newColor = target.dataset.color;
+        const c2 = state.containers.find(c => c.id === cid);
+        const m2 = c2?.members.find(m => m.id === mid);
+        if (m2) { m2.color = newColor; c2.dirty = true; }
+        state.colorPickerAt = null; bump(); render(); return;
+      }
+      if (a === 'pick-color-custom') {
+        // Mockup: simulate OS picker by rotating to a random preset
+        const presets = ['bg-red-500','bg-orange-500','bg-cyan-500','bg-fuchsia-500','bg-lime-500'];
+        const c2 = state.containers.find(c => c.id === state.colorPickerAt.cid);
+        const m2 = c2?.members.find(m => m.id === state.colorPickerAt.mid);
+        if (m2) { m2.color = presets[Math.floor(state.clickCount % presets.length)]; c2.dirty = true; }
+        state.colorPickerAt = null; bump(); render(); return;
+      }
+      // ─── Kebab actions ───
+      if (a === 'kebab-save-file') {
+        const c2 = state.containers.find(c => c.id === state.kebabAt.cid);
+        showToast(`Saved "${c2.name}" to ~/Downloads/${c2.name}.dcm`);
+        state.kebabAt = null; bump(); render(); return;
+      }
+      if (a === 'kebab-upload') {
+        const c2 = state.containers.find(c => c.id === state.kebabAt.cid);
+        state.kebabAt = null;
+        if (c2 && c2.scanId) {
+          // Has XNAT origin → existing-save dialog
+          state.existingSaveDialog = { containerId: c2.id, mode: 'choose' };
+        } else if (c2) {
+          showSavingOverlay(c2.name);
+        }
+        bump(); render(); return;
+      }
+      if (a === 'kebab-rename') {
+        startRename('container', state.kebabAt.cid);
+        state.kebabAt = null; bump(); render(); return;
+      }
+      if (a === 'kebab-duplicate') {
+        duplicateContainer(state.kebabAt.cid);
+        state.kebabAt = null; bump(); render(); return;
+      }
+      if (a === 'kebab-reload') {
+        const c2 = state.containers.find(c => c.id === state.kebabAt.cid);
+        if (c2) { c2.dirty = false; showToast(`Reloaded "${c2.name}" from XNAT`); }
+        state.kebabAt = null; bump(); render(); return;
+      }
+      if (a === 'kebab-discard') {
+        const c2 = state.containers.find(c => c.id === state.kebabAt.cid);
+        if (c2) { c2.dirty = false; showToast(`Discarded local changes to "${c2.name}"`); }
+        state.kebabAt = null; bump(); render(); return;
+      }
+      if (a === 'kebab-export-csv') {
+        const c2 = state.containers.find(c => c.id === state.kebabAt.cid);
+        showToast(`Exported ${c2.members.length} measurements to CSV`);
+        state.kebabAt = null; bump(); render(); return;
+      }
+      if (a === 'kebab-delete') {
+        state.deleteDialog = { containerId: state.kebabAt.cid };
+        state.kebabAt = null; bump(); render(); return;
+      }
+      if (a === 'open-delete-dialog') { state.deleteDialog = { containerId: cid }; bump(); render(); return; }
+      // Bulk member operations (callable from kebab OR context menu)
+      const bulkCid = state.kebabAt?.cid || target.dataset.containerId;
+      if (a === 'kebab-bulk-show-all')   { setAllMembers(bulkCid, 'visible', true);   closePops(); bump(); render(); return; }
+      if (a === 'kebab-bulk-hide-all')   { setAllMembers(bulkCid, 'visible', false);  closePops(); bump(); render(); return; }
+      if (a === 'kebab-bulk-lock-all')   { setAllMembers(bulkCid, 'locked',  true);   closePops(); bump(); render(); return; }
+      if (a === 'kebab-bulk-unlock-all') { setAllMembers(bulkCid, 'locked',  false);  closePops(); bump(); render(); return; }
+      if (a === 'kebab-expand')   { const c2 = state.containers.find(c => c.id === bulkCid); if (c2) c2.expanded = true;  closePops(); bump(); render(); return; }
+      if (a === 'kebab-collapse') { const c2 = state.containers.find(c => c.id === bulkCid); if (c2) c2.expanded = false; closePops(); bump(); render(); return; }
+      // ─── Dialog actions ───
+      if (a === 'dialog-cancel') { state.existingSaveDialog = null; state.deleteDialog = null; bump(); render(); return; }
+      if (a === 'dialog-existing-overwrite') {
+        const c2 = state.containers.find(c => c.id === state.existingSaveDialog.containerId);
+        state.existingSaveDialog = null;
+        if (c2) showSavingOverlay(c2.name);
+        bump(); render(); return;
+      }
+      if (a === 'dialog-existing-create-new') {
+        state.existingSaveDialog.mode = 'name';
+        const c2 = state.containers.find(c => c.id === state.existingSaveDialog.containerId);
+        state.existingSaveDialog.draftName = `${c2.name} (copy)`;
+        bump(); render(); return;
+      }
+      if (a === 'dialog-existing-back')   { state.existingSaveDialog.mode = 'choose'; bump(); render(); return; }
+      if (a === 'dialog-existing-create') {
+        const c2 = state.containers.find(c => c.id === state.existingSaveDialog.containerId);
+        const newName = document.getElementById('existing-name-input')?.value || state.existingSaveDialog.draftName;
+        state.existingSaveDialog = null;
+        if (c2) showSavingOverlay(newName);
+        bump(); render(); return;
+      }
+      if (a === 'dialog-delete-local') {
+        const cid2 = state.deleteDialog.containerId;
+        state.containers = state.containers.filter(c => c.id !== cid2);
+        if (state.activeContainerId === cid2) { state.activeContainerId = null; state.activeMemberId = null; state.activeTool = null; }
+        state.deleteDialog = null;
+        showToast('Deleted locally');
+        bump(); render(); return;
+      }
+      if (a === 'dialog-delete-xnat') {
+        const cid2 = state.deleteDialog.containerId;
+        const c2 = state.containers.find(c => c.id === cid2);
+        state.containers = state.containers.filter(c => c.id !== cid2);
+        if (state.activeContainerId === cid2) { state.activeContainerId = null; state.activeMemberId = null; state.activeTool = null; }
+        state.deleteDialog = null;
+        showToast(`Deleted "${c2?.name}" on cnda.wustl.edu`);
+        bump(); render(); return;
+      }
+      if (a === 'saving-cancel') {
+        state.savingOverlay = null;
+        showToast('Upload canceled', 'info');
+        bump(); render(); return;
+      }
+      // ─── Save-all dialog ───
+      if (a === 'open-save-all')    { openSaveAllDialog(); bump(); render(); return; }
+      if (a === 'save-all-cancel')  { state.saveAllDialog = null; bump(); render(); return; }
+      if (a === 'save-all-execute') { bump(); executeSaveAll(); return; }
+      // ----------------------------------------------------------
+      if (a === 'new-SEG' || a === 'new-STRUCT' || a === 'new-MEAS') { openCreateModal(a.split('-')[1]); maybeAdvance(a); return; }
+      if (a === 'modal-create') { confirmModal(); maybeAdvance(a); return; }
+      if (a === 'modal-cancel') { cancelModal(); return; }
+      if (a === 'add-member') { addMember(cid); return; }
+      if (a === 'toggle-container') { toggleContainer(cid); return; }
+      if (a === 'select-member') { selectMember(cid, mid); return; }
+      if (a === 'toggle-visible') {
+        if (e.shiftKey) toggleVisible(cid, mid, { solo: true });
+        else if (e.altKey) toggleVisible(cid, mid, { hideThisOnly: true });
+        else toggleVisible(cid, mid);
+        return;
+      }
+      if (a === 'toggle-locked') { toggleLocked(cid, mid); return; }
+      if (a === 'delete-member') { deleteMember(cid, mid); return; }
+      if (a === 'toggle-panel') { togglePanel(); return; }
+      if (a.startsWith('tool-')) { selectTool(a.slice('tool-'.length)); maybeAdvance(a); return; }
+    });
+    document.addEventListener('input', (e) => {
+      if (e.target.id === 'modal-name-input') { state.modalName = e.target.value; return; }
+      if (e.target.id === 'rename-input') { state.renameDraft = e.target.value; return; }
+      if (e.target.id === 'existing-name-input') { if (state.existingSaveDialog) state.existingSaveDialog.draftName = e.target.value; return; }
+      if (e.target.dataset?.action === 'cine-fps') { state.cineFPS = Number(e.target.value) || 12; render(); return; }
+      if (e.target.dataset?.action === 'sb-search') {
+        state.sidebar.search = e.target.value;
+        const cursor = e.target.selectionStart;
+        render();
+        // Refocus the rebuilt input so typing flows naturally
+        const next = document.querySelector('[data-action="sb-search"]');
+        if (next) { next.focus(); try { next.setSelectionRange(cursor, cursor); } catch {} }
+        return;
+      }
+      if (e.target.dataset?.action === 'save-all-set-name') {
+        if (state.saveAllDialog) {
+          const cid = e.target.dataset.containerId;
+          state.saveAllDialog.actions[cid] = { ...state.saveAllDialog.actions[cid], newName: e.target.value };
+        }
+        return;
+      }
+      const key = e.target.dataset?.stateKey;
+      if (key) {
+        const val = e.target.type === 'range' || e.target.type === 'number' ? Number(e.target.value) : e.target.value;
+        state[key] = val;
+        render();
+      }
+    });
+    document.addEventListener('change', (e) => {
+      if (e.target.dataset?.action === 'save-all-set-action') {
+        if (state.saveAllDialog) {
+          const cid = e.target.dataset.containerId;
+          const prev = state.saveAllDialog.actions[cid] || {};
+          state.saveAllDialog.actions[cid] = { ...prev, action: e.target.value };
+          render();
+        }
+      }
+    });
+
+    // Double-click: inline rename for container + member names
+    document.addEventListener('dblclick', (e) => {
+      const t = e.target.closest('[data-rename-target="container"]');
+      if (t) { startRename('container', t.dataset.containerId); bump(); render(); return; }
+      const t2 = e.target.closest('[data-rename-target="member"]');
+      if (t2) { startRename('member', t2.dataset.containerId, t2.dataset.memberId); bump(); render(); return; }
+    });
+
+    // Rename input: Enter commits, Escape cancels, blur commits
+    document.addEventListener('keydown', (e) => {
+      if (state.renaming && document.activeElement?.id === 'rename-input') {
+        if (e.key === 'Enter')  { e.preventDefault(); commitRename(); render(); }
+        else if (e.key === 'Escape') { e.preventDefault(); cancelRename(); render(); }
+      }
+    });
+    document.addEventListener('focusout', (e) => {
+      if (e.target?.id === 'rename-input') {
+        commitRename();
+        // Tiny delay so re-render doesn't fight a same-event mousedown
+        setTimeout(render, 0);
+      }
+    });
+
+    // Right-click on container row → container context menu
+    document.addEventListener('contextmenu', (e) => {
+      // Sidebar scan: right-click → scan context menu
+      const scanRow = e.target.closest('[data-drag-type="scan"]');
+      if (scanRow) {
+        e.preventDefault();
+        state.sidebar.contextMenuAt = { scanId: scanRow.dataset.scanId, top: e.clientY, left: e.clientX };
+        bump(); render(); return;
+      }
+      // Container row in annotation panel
+      const t = e.target.closest('[data-action="ctxmenu-container"]');
+      if (!t) return;
+      e.preventDefault();
+      state.contextMenuAt = { cid: t.dataset.containerId, top: e.clientY, left: e.clientX };
+      bump(); render();
+    });
+
+    // ─── HTML5 drag-and-drop: sidebar scans → viewport panels ───
+    document.addEventListener('dragstart', (e) => {
+      const t = e.target.closest('[data-drag-type="scan"]');
+      if (!t) return;
+      const sid = t.dataset.scanId;
+      // If user is dragging an unselected row, drag just that one. If they're
+      // dragging an already-selected row and others are selected, drag the whole group.
+      const sel = state.sidebar.selectedScanIds;
+      const ids = sel.has(sid) && sel.size > 1 ? Array.from(sel) : [sid];
+      state.draggedScanIds = ids;
+      try { e.dataTransfer.setData('application/x-xnat-scan', JSON.stringify(ids)); } catch {}
+      try { e.dataTransfer.setData('text/plain', ids.map(id => DEMO_SCANS.find(s => s.id === id)?.label).filter(Boolean).join(', ')); } catch {}
+      e.dataTransfer.effectAllowed = 'copy';
+    });
+    document.addEventListener('dragover', (e) => {
+      const drop = e.target.closest('[data-droptarget="panel"]');
+      if (!drop) {
+        if (state.panelDragOver) { state.panelDragOver = null; render(); }
+        return;
+      }
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+      const pid = drop.dataset.panelId;
+      if (state.panelDragOver !== pid) { state.panelDragOver = pid; render(); }
+    });
+    document.addEventListener('dragleave', (e) => {
+      // Only clear when leaving the entire viewer area, not just moving between panels
+      if (!e.relatedTarget || !e.relatedTarget.closest?.('[data-droptarget="panel"]')) {
+        if (state.panelDragOver) { state.panelDragOver = null; render(); }
+      }
+    });
+    document.addEventListener('drop', (e) => {
+      const drop = e.target.closest('[data-droptarget="panel"]');
+      if (!drop) { state.panelDragOver = null; state.draggedScanIds = null; render(); return; }
+      e.preventDefault();
+      const pid = drop.dataset.panelId;
+      let ids = state.draggedScanIds;
+      if (!ids) {
+        try { ids = JSON.parse(e.dataTransfer.getData('application/x-xnat-scan')); } catch {}
+      }
+      if (!ids || ids.length === 0) { state.panelDragOver = null; render(); return; }
+      // Drop one scan into the dropped panel; spill extras into following panels.
+      const startIdx = PANEL_IDS.indexOf(pid);
+      ids.forEach((id, i) => {
+        const s = DEMO_SCANS.find(s => s.id === id);
+        const targetPid = PANEL_IDS[(startIdx + i) % PANEL_IDS.length];
+        if (s) {
+          state.panelImageIds[targetPid] = s.label;
+          state.panelOrientation[targetPid] = 'STACK';
+        }
+      });
+      state.activeViewportId = pid;
+      state.sidebar.selectedScanIds = new Set();
+      state.panelDragOver = null;
+      state.draggedScanIds = null;
+      showToast(ids.length === 1 ? `Loaded ${DEMO_SCANS.find(s => s.id === ids[0])?.label} into ${pid}` : `Loaded ${ids.length} scans starting at ${pid}`);
+      bump(); render();
+    });
+    document.addEventListener('dragend', () => {
+      if (state.panelDragOver || state.draggedScanIds) {
+        state.panelDragOver = null;
+        state.draggedScanIds = null;
+        render();
+      }
+    });
+
+    // Drag handle → drag-to-reorder members within same container
+    document.addEventListener('mousedown', (e) => {
+      const handle = e.target.closest('[data-action="drag-start"]');
+      if (!handle) return;
+      e.preventDefault(); e.stopPropagation();
+      state.dragMember = { fromCid: handle.dataset.containerId, memberId: handle.dataset.memberId };
+      document.addEventListener('mousemove', onMemberDragMove);
+      document.addEventListener('mouseup', onMemberDragEnd);
+    });
+    function onMemberDragMove(e) {
+      if (!state.dragMember) return;
+      // Find which member-row is under the cursor
+      const el = document.elementFromPoint(e.clientX, e.clientY)?.closest('[data-action="select-member"]');
+      if (!el || el.dataset.containerId !== state.dragMember.fromCid) {
+        state.dragOver = null; render(); return;
+      }
+      const rect = el.getBoundingClientRect();
+      const position = (e.clientY < rect.top + rect.height / 2) ? 'before' : 'after';
+      state.dragOver = { cid: el.dataset.containerId, mid: el.dataset.memberId, position };
+      render();
+    }
+    function onMemberDragEnd() {
+      document.removeEventListener('mousemove', onMemberDragMove);
+      document.removeEventListener('mouseup', onMemberDragEnd);
+      if (state.dragMember && state.dragOver && state.dragOver.cid === state.dragMember.fromCid) {
+        const c = state.containers.find(c => c.id === state.dragMember.fromCid);
+        if (c) {
+          const fromIdx = c.members.findIndex(m => m.id === state.dragMember.memberId);
+          let toIdx = c.members.findIndex(m => m.id === state.dragOver.mid);
+          if (state.dragOver.position === 'after') toIdx++;
+          const [moved] = c.members.splice(fromIdx, 1);
+          if (fromIdx < toIdx) toIdx--;
+          c.members.splice(toIdx, 0, moved);
+          c.dirty = true;
+        }
+      }
+      state.dragMember = null; state.dragOver = null;
+      bump(); render();
+    }
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && state.modal && document.activeElement?.id === 'modal-name-input') { confirmModal(); maybeAdvance('modal-create'); return; }
+      if (e.key === 'Escape') {
+        if (state.cheatsheetOpen) { state.cheatsheetOpen = false; render(); return; }
+        if (state.modal) { cancelModal(); return; }
+      }
+      // ? key toggles the cheatsheet overlay (only when not typing in an input)
+      const t = e.target;
+      const inField = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
+      if (!inField && e.key === '?' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault();
+        state.cheatsheetOpen = !state.cheatsheetOpen;
+        bump(); render();
+      }
+    });
+
+    // -------------------- WALKTHROUGH --------------------
+    function startWalkthrough() { state.walkthroughStep = 1; document.getElementById('walkthrough-status').classList.remove('hidden'); updateWalkthroughUI(); }
+    function stopWalkthrough() { state.walkthroughStep = 0; document.getElementById('walkthrough-status').classList.add('hidden'); clearHighlight(); }
+    function updateWalkthroughUI() {
+      const step = state.walkthroughStep;
+      document.getElementById('step-num').textContent = step;
+      document.getElementById('step-total').textContent = walkthrough.length;
+      document.getElementById('step-text').textContent = walkthrough[step - 1].text;
+      applyWalkthroughHighlight();
+    }
+    function applyWalkthroughHighlight() {
+      clearHighlight();
+      if (!state.walkthroughStep) return;
+      const entry = walkthrough[state.walkthroughStep - 1];
+      if (!entry?.target) return;
+      const el = document.getElementById('mockup-canonical').querySelector(entry.target);
+      if (el) el.classList.add('guide-target');
+    }
+    function clearHighlight() { document.querySelectorAll('.guide-target').forEach(el => el.classList.remove('guide-target')); }
+    function maybeAdvance(action) {
+      if (!state.walkthroughStep) return;
+      const entry = walkthrough[state.walkthroughStep - 1];
+      const expected = entry?.target?.match(/data-action="([^"]+)"/)?.[1];
+      if (expected && expected === action) {
+        state.walkthroughStep++;
+        if (state.walkthroughStep > walkthrough.length) {
+          document.getElementById('step-text').textContent = `✓ Done — total clicks: ${state.clickCount}`;
+          state.walkthroughStep = 0;
+          setTimeout(() => document.getElementById('walkthrough-status').classList.add('hidden'), 4000);
+        } else updateWalkthroughUI();
+      }
+    }
+    document.getElementById('walkthrough-btn').addEventListener('click', () => { if (state.walkthroughStep) { stopWalkthrough(); return; } state = initialState(); render(); startWalkthrough(); });
+    document.getElementById('skip-step').addEventListener('click', () => { if (!state.walkthroughStep) return; state.walkthroughStep++; if (state.walkthroughStep > walkthrough.length) stopWalkthrough(); else updateWalkthroughUI(); });
+    document.getElementById('reset-btn').addEventListener('click', () => { state = initialState(); stopWalkthrough(); render(); });
+    document.getElementById('compact-toolbar-toggle').addEventListener('change', (e) => { state.compactToolbar = e.target.checked; state.openDropdown = null; render(); });
+
+    render();
+  </script>
+</body>
+</html>

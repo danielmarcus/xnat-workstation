@@ -96,22 +96,28 @@
 - **PolySeg addon** — @cornerstonejs/polymorphic-segmentation registered for representation conversion
 - **Deferred to Phase 10b:** Undo/redo and contour-to-labelmap conversion
 
-## Phase 11: Save to XNAT (Future)
-- **DICOM SEG export** — Serialize labelmap segmentations to DICOM SEG format using @cornerstonejs/adapters, with proper headers (Referenced Series, Frame of Reference, segment metadata)
-- **DICOM RT-STRUCT export** — Serialize contour-based segmentations to RT Structure Set format for radiation therapy workflows
-- **Annotation export** — Serialize Cornerstone annotation/measurement data to a storable format (DICOM SR or JSON)
-- **Upload to XNAT** — Push DICOM SEG, RT-STRUCT, and annotation data to XNAT via REST API as assessors on the source imaging session
-- **XNAT ROI Collection integration** — Store segmentations/contours as XNAT ROI Collections (icr:roiCollectionData) for compatibility with existing XNAT ROI workflows
-- **Save confirmation UI** — Upload progress indicator, success/error feedback, conflict detection (overwrite vs. new assessor)
-- **Auto-save / draft support** — Periodic local auto-save of in-progress segmentations to prevent data loss; resume editing after app restart
-- **Round-trip workflow** — Load existing DICOM SEG / RT-STRUCT from XNAT, edit, save back as new version
+## Phase 11: Save to XNAT (Largely Landed)
 
-## Phase 12: UI Polish & Icons (Partially Complete)
-- Shared SVG icon library (icons.tsx) with 20+ consistent stroke-based icons
-- Icon + label tool buttons, icon-only action buttons with tooltips
-- Custom chevron arrows on select dropdowns
-- Toolbar layout cleanup with consistent spacing
-- Remaining: keyboard shortcut hints, hover state refinements, overall visual refinement pass
+Most of this phase was absorbed by the multi-viewport rewrite — MV-Phase 2.8 (transport queue-next-save coordinator) and MV-Phase 6 Stage 2B.2 (`xnatUploadService.ts` extraction). Status by bullet:
+
+- ✅ **DICOM SEG export** — Done via `@cornerstonejs/adapters` (`segmentationService.exportToDicomSeg`).
+- ✅ **DICOM RT-STRUCT export** — Done via `rtStructService.exportToRtStruct` with `applyContainerMetadataToRtStructDataset` for typed-ROI + approval-status overlay.
+- ⏳ **Annotation export** (DICOM SR) — Not implemented. Measurements (the third peer annotation type per the v1 UI spec) need an SR adapter; deferred. Tracked under MV-Phase 7.
+- ✅ **Upload to XNAT** — `xnatUploadService.ts` + main-process `uploadHandlers.ts`. Per-container "Upload to XNAT…" entry in `ContainerListPanel`'s ⋯ menu.
+- ⏳ **XNAT ROI Collection integration** — Not implemented (would supersede SEG/RTSTRUCT for legacy XNAT ROI workflows). Out of scope for v1; tracked separately.
+- ✅ **Save confirmation UI** — Existing-save prompt (overwrite vs cancel) via `showConfirmDialog`. The richer **Save All preflight dialog** + **ExistingSaveDialog create-new-with-labeled-scan** path are spec'd in MV-Phase 7 (annotation panel rebuild).
+- ✅ **Auto-save / draft support** — `backupService` + `autoSave.ts` debounced auto-save; recovery flow at session load. Configurable in Settings → Backup.
+- ⏳ **Round-trip workflow** — Load existing DICOM SEG / RT-STRUCT from XNAT, edit, save back as new version. Partially landed: load + edit + save work; the "save back as new version" UI (create new with labeled scan name) is a spec'd MV-Phase 7 deliverable.
+
+**Remaining work**: rolled into **MV-Phase 7** below (annotation export as DICOM SR; ExistingSaveDialog richer modes; Save All preflight dialog).
+
+## Phase 12: UI Polish & Icons (Largely Absorbed Into MV-Phase 7)
+- ✅ Shared SVG icon library (icons.tsx) with 20+ consistent stroke-based icons
+- ✅ Icon + label tool buttons, icon-only action buttons with tooltips
+- ✅ Custom chevron arrows on select dropdowns
+- ✅ Toolbar layout cleanup with consistent spacing
+- **Keyboard shortcut hints** — covered by MV-Phase 7 spec §6.3 (`?` cheatsheet overlay) and §6.4 (tooltip suffixes derived from current hotkey map)
+- **Hover state refinements, overall visual refinement pass** — folded into MV-Phase 7's annotation panel + toolbar + sidebar overhauls
 
 ---
 
@@ -509,7 +515,7 @@ New `ct-axial-anatomy` fixture (generator: [`scripts/generate-synthetic-fixture-
   - **Viewport.tsx**: dropped the `multiViewportEnabled` selector + the `&& multiViewportEnabled` guard from `resolveViewportType` and the volume-route check. The 2-way switch is now: if `viewportService.resolveViewportType(imageIds) === 'volume'`, render `VolumeViewport`; otherwise `StackViewport`.
   - **e2e bridge** (`installRendererE2eHooks.ts`): `setMultiViewportEnabled` and `getMultiViewportEnabled` survive as no-op shims (returns `true`) so existing E2E specs that still call them keep working without modification. The `toggleMpr` `flagEnabled` field on the result is hardcoded `true`. New specs should not call the flag api.
   - **Tests updated**: `preferencesStore.test.ts` `multiViewport feature flag` describe block deleted (5 tests gone); the `crossSeriesRendering` tests rewritten to drop `multiViewport: { enabled: ... }` syntax in favor of the slimmed shape. `contourHoverSync.test.ts` `flag-off path: mousemove is a no-op` test deleted (no longer meaningful — hover-sync is unconditional).
-  - **e2e specs left untouched**: 78 references to `setMultiViewportEnabled` / `multiViewportEnabled` survive across `e2e/specs/*.e2e.ts` and `e2e/helpers/fixture-load.ts`. They route through the bridge no-op shims and are functionally inert; cosmetic cleanup (drop the option from `loadFixtureScan` + delete the calls) is a future-PR follow-up.
+  - **e2e specs cleaned up** in commit `1049b9b` ("e2e cleanup — drop multiViewport.enabled call sites and bridge shims"): the 78 call sites to `setMultiViewportEnabled` / `multiViewportEnabled` across `e2e/specs/*.e2e.ts` and `e2e/helpers/fixture-load.ts` were deleted; the `flag-off` / `flag-on` test variants in specs 07, 09, 10, 19, 21 were collapsed to single tests since viewport routing is unconditional. The bridge no-op shims were also removed.
 - ✅ **6.7** Final regression sweep. Vitest baseline at session end: **1240 passing** (was 1275 at end of Phase 5; net delta covers MPR-test deletions, panel-test deletions, and Stage 2B.1/2B.2 additions). Playwright suite re-run scheduled for the next session — all touched G-signals re-verify against the matrix below; no rows transition out of ✅ on the basis of code inspection (every flag site removed in 6.6 corresponds to a code path that was already running under the previously-default `multiViewport.enabled = true` test environment).
 
 #### Stage 2B sub-tasks (Phase 6.2 realization, option 2B)
@@ -607,4 +613,50 @@ Phase 6 introduces no new G-signals. Its job is to ensure that every signal prev
 - Do not mark any matrix row ✅ on the basis of "the underlying API still exists after removal." Re-verification means re-running the test or walking through the scenario. Removal is invasive enough that previous ✅ does not transfer automatically.
 - Do not report aggregate test counts as evidence for any individual signal. Each row needs its own row-level citation.
 - Do not skip the `test.fixme` resolution step. Carrying `test.fixme` past Phase 6 means the phase did not close.
+
+### MV-Phase 7: UI rebuild (Pending — defined by [`docs/multiviewport-annotation-ui-spec.md`](docs/multiviewport-annotation-ui-spec.md))
+
+**Goal:** Implement the v1 UI rebuild that follows MV-Phase 6's legacy removal. The Phase 6 deletions (SegmentationPanel, MPRViewportGrid, the `multiViewport.enabled` flag) left the viewer functional but with significant gaps — no add-segment UI, brush-size slider orphaned, no save dialogs, no tool palette beyond the toolbar dropdown. Phase 7 fills those gaps with the panel-centric design specified in `docs/multiviewport-annotation-ui-spec.md` and demonstrated in `docs/mockup-viewer.html`.
+
+**Authoritative spec**: [`docs/multiviewport-annotation-ui-spec.md`](docs/multiviewport-annotation-ui-spec.md) — 15 sections covering toolbar, annotation panel, multi-viewport coupling, hotkeys, sidebar, settings, overlays, DICOM Tags modal, toast system, persistence/backup, and error states. v1.1 deferrals consolidated in spec §14.
+
+**Companion**: [`docs/mockup-viewer.html`](docs/mockup-viewer.html) — interactive prototype matching the spec.
+
+#### Sub-task plan (one PR per unit)
+
+Tracked as GitHub Issues on `danielmarcus/xnat-workstation` under the `mv-phase-7` label / milestone. Each sub-task's acceptance criteria are the corresponding spec section's locked decisions; each has its own dependencies on prior sub-tasks.
+
+- ⏳ **7.1 Foundation** (spec §13) — Top-level + per-viewport `ErrorBoundary`, auto-snapshot diagnostics on crash, DICOM tag validation before upload per IOD. Audit every existing `try/catch` and assign each to silent / toast / dialog / banner per the surface taxonomy (spec §13.2). **Depends on**: nothing. **Blocks**: 7.2, 7.3.
+- ⏳ **7.2 Toast system** (spec §11) — New viewport-area-scoped toast surface; 4 kinds (success/info/warning/error) with appropriate durations; optional action buttons; click/hover-pause dismiss; accessibility (`aria-live`). **Depends on**: 7.1 (for error→toast taxonomy). **Blocks**: every later unit that emits toasts.
+- ⏳ **7.3 Annotation panel rebuild** (spec §4) — The largest unit. Sub-tickets:
+  - **7.3a** Container list with inline rename + dirty/recovered states · kebab menu (Save to file / Save to XNAT / Rename / Duplicate / Reload / Discard / bulk visibility/lock / Delete) · right-click context menu
+  - **7.3b** Member rows with drag-handle reorder · color picker popover · Shift/Alt click visibility modifiers · double-click rename
+  - **7.3c** Three create buttons (icon + label, narrow-mode collapses to + icon) · resizable panel (140–600px) with two narrow thresholds
+  - **7.3d** Dialogs — DeleteConfirmDialog (3 forms) · ExistingSaveDialog (Choose + Name modes) · SavingOverlay (single + batch) · Save All preflight dialog
+  - **7.3e** Toolbox (3-column grid, like-by-like ordering, no formal group labels) · fixed-height Controls section that adapts to active tool · autosave row at bottom (idle/saving/saved/error)
+  
+  **Depends on**: 7.1, 7.2. **Blocks**: 7.5 (coupling overlays attach to row UI), 7.10 (Settings remap UI shares dialog patterns).
+- ⏳ **7.4 Toolbar overhaul** (spec §3, §6.3, §6.4) — Restructured into 9 groups in the spec'd order. Layout / Hanging-protocol / W-L preset dropdowns; MPR cycles per-viewport orientation; "Annotate" toggle for the rebuilt panel; Tags toggle opens the modal (§7.7). `?` cheatsheet overlay listing every binding; tooltip suffixes auto-derived from current hotkey map. **Depends on**: 7.2. **Blocks**: nothing.
+- ⏳ **7.5 Multi-viewport coupling** (spec §5) — Option C: session-scoped panel with dim-when-not-on-active-viewport + cross-panel `↗ N panels` pill + optional "Active only" filter toggle. New container attachment routes to active viewport + viewports sharing the same scan. Empty-viewport drop-zone styling. "Editing across N panes" pill in the toolbox header. **Depends on**: 7.3. **Blocks**: 7.6 (drag-drop terminates at viewport drop targets).
+- ⏳ **7.6 Sidebar polish** (spec §7) — Drag-and-drop scans into viewport cells; multi-select bulk-load (Ctrl/Cmd-click toggle, Shift-click range, "Load 1×N" + "2×2" actions); right-click context menu (Open in panel N / MPR / Pin / Copy URL); derived-annotations footer pill; breadcrumb up-navigation. PET/CT mixed-modality session: modality chips surface only when multiple modalities present. **Depends on**: 7.5. **Blocks**: nothing.
+- ⏳ **7.7 DICOM Tags modal** (spec §10) — Convert side panel to **resizable modal dialog**. Open via toolbar Tags button or `Shift+T`. Module-filter chips above the tag list. Hover row reveals copy icon; right-click → richer copy options (value / `(tag) name = value` / JSON / group as JSON). Flat single-level view (no recursive sequence expansion in v1). **Depends on**: 7.2 (copy toast). **Blocks**: nothing.
+- ⏳ **7.8 Viewport overlays** (spec §9) — Add 4 new `OverlayFieldKey` entries: `cursorHU`, `cursorCoords`, `activeTool`, `activeAnnotation`. Rename Settings master toggle from "Show viewport context overlay" to **"Show corner overlays"**. Apply drop shadow to overlay text for legibility on bright images. **Depends on**: nothing. **Blocks**: 7.10 (Settings tab update).
+- ⏳ **7.9 Persistence / backup** (spec §12) — 30-day auto-prune (configurable). Auto-delete local backup after successful XNAT upload. Configurable backup directory in Settings with OneDrive/iCloud/Dropbox sync-folder warning + Verify Path button. Replace per-entry recovery modal sequence with a **single batched recovery dialog** (mirrors Save All preflight pattern). Quit-time synchronous flush with fallback confirm dialog. **Depends on**: 7.3 (recovery dialog patterns), 7.2 (post-XNAT cleanup toast). **Blocks**: nothing.
+- ⏳ **7.10 Settings polish** (spec §8) — Reset All confirmation dialog. Hotkey conflict-blocking remap (must clear previous binding first). Backup Verify Path button. Tab reorder (Hotkeys → Annotation → Display → Interpolation → Backup → Updates → Diagnostics → About) and renames (Overlay → **Display** · File Backup → **Backup** · Issue Report → **Diagnostics**). **Depends on**: 7.8 (Display tab content), 7.9 (Backup tab content). **Blocks**: nothing.
+- ⏳ **7.11 Hotkeys** (spec §6) — 12 new tool bindings (`Shift+B/L/M/C/O/H/F/P/W/U/I/X`). 6 new action bindings (`⌘S`, `⌘⇧S`, `Shift+T`, `m`, `⌘,`, `?`). Conflict-blocking remap UI (depends on 7.10). **Depends on**: 7.10. **Blocks**: nothing.
+
+#### Phase 7 closure gate
+
+- Every sub-task PR lands with: (a) unit tests covering its core logic, (b) at least one E2E spec exercising the user-facing flow, (c) updated spec section if the implementation diverged from the locked text.
+- `git grep "SegmentationPanel\\|AnnotationListPanel\\|PanelToast" src/` returns zero results (Phase 6 already cleaned these up; Phase 7 must not re-introduce panel-internal versions of the same concepts).
+- Toast system replaces the deleted `PanelToast.tsx` pattern with the viewport-area-scoped surface per spec §11.9.
+- Recovery banner and other "high-stakes non-routine event" banners survive; routine event surfaces (autosave success) remain silent.
+- Manual smoke pass of the full mockup flow: create one of each annotation type → edit → save → close + reopen → recover. No silent failures.
+
+#### Out of scope
+
+- v1.1 deferrals (see spec §14): chord hotkeys, per-panel state memory, Statistics/Edit ROI types kebab items, DICOM Tags compare mode, etc.
+- New tools beyond the locked Segmentation/Structure/Measurement catalogs (spec §4.8.3).
+- The WholeBodySegmentTool ML pipeline (deliberately omitted from v1).
+- Cloud-synced backups, hash-based backup integrity verification.
 

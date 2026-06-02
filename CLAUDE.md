@@ -33,7 +33,12 @@ src/
     App.tsx                 # Top-level app: login flow, scan loading, panel management
     components/
       connection/           # LoginForm, XnatBrowser, ConnectionStatus
-      viewer/               # CornerstoneViewport, Toolbar, SegmentationPanel, etc.
+      viewer/               # Toolbar, ViewportGrid, Viewport, StackViewport, VolumeViewport,
+                            # ViewportOverlay, ViewportHint, ContainerListPanel,
+                            # AddAnnotationButtons, AnnotationToolDropdown, SegmentationToolDropdown,
+                            # DicomHeaderPanel, ExportDropdown, ScrollSlider, CollapsibleGroup
+      settings/             # SettingsModal (tabs: Hotkeys, Annotation, Display, Interpolation,
+                            #                       Backup, Updates, Diagnostics, About)
       icons.tsx             # Icon components (XnatLogo uses PNG asset import)
     lib/cornerstone/        # Cornerstone3D service layer (singleton modules)
       init.ts               # Cornerstone3D initialization, tool registration
@@ -41,15 +46,30 @@ src/
       toolService.ts        # Tool activation, brush modes
       segmentationService.ts  # Segmentation CRUD, DICOM SEG import/export
       annotationService.ts  # Annotation event sync to Zustand store
+      containerService.ts   # Container CRUD (SEG/RTSTRUCT/SR peers)
+      containerActions.ts   # Container/member operations + dirty tracking
+      containerBridge.ts    # Container ↔ Cornerstone bridge
+      containerStoreSync.ts # Cornerstone event → containerStore sync
+      xnatUploadService.ts  # Save-to-XNAT pipeline (SEG / RTSTRUCT / SR)
       dicomwebLoader.ts     # DICOMweb image loading via XNAT proxy
-      mprService.ts         # Multi-planar reconstruction
+      dicomValidation.ts    # Pre-upload IOD validation (see "DICOM Compliance" below)
+      crosshairSyncService.ts # Crosshair sync between viewports
+      acquisitionNumberProvider.ts # Per-viewport acquisition matching
       metadataService.ts    # Metadata provider helpers
+      # Note: MPR is per-viewport via `panelOrientationMap`; no dedicated service.
+    lib/hotkeys/            # Hotkey dispatch + default map + service (see §"Hotkey System")
+    lib/preferences/        # Preferences loading + apply (see §"Preferences")
+    lib/backup/             # Local backup write/read; recovery flow
+    lib/e2e/                # Renderer-side E2E hooks (window.__XNAT_E2E__)
     stores/                 # Zustand stores
-      viewerStore.ts        # Panel layout, active images, XNAT session state
+      viewerStore.ts        # Panel layout, active viewport, panel↔scan map, MPR orientations
+      containerStore.ts     # Container summaries (SEG/RTSTRUCT/SR — peer types)
       segmentationStore.ts  # Segmentation summaries (synced from Cornerstone events)
-      annotationStore.ts    # Annotation summaries
+      annotationStore.ts    # Annotation (measurement) summaries
       connectionStore.ts    # XNAT connection state
       metadataStore.ts      # DICOM metadata cache
+      preferencesStore.ts   # User preferences (Zustand persist → localStorage)
+      dialogStore.ts        # Modal dialog queue
     pages/
       ViewerPage.tsx        # Main viewer layout with viewport grid
     assets/
@@ -129,9 +149,34 @@ Path aliases:
 - Console logging uses `[serviceName]` prefix (e.g., `[segmentationService]`, `[App]`)
 - Colors use Tailwind utility classes; the app has a dark theme (`bg-gray-900`)
 - Zustand stores use the `create` pattern without providers
-- No test framework is currently configured
+- **Testing**: Vitest (`vitest ^2.1.8`) for unit tests as `*.test.tsx` / `*.test.ts` co-located with sources. Playwright (`@playwright/test ^1.58.2`) for E2E in `e2e/specs/`. Run: `npx vitest run` (unit) · `npx playwright test` (E2E).
 - PNG assets in the renderer use Vite asset imports (`import url from './assets/file.png'`)
 - macOS tray icons must be template images (monochrome, filename ends with `Template`)
+
+### Terminology (project-wide, used in code + docs)
+
+| Term | Meaning |
+|---|---|
+| **Viewport** | A single Cornerstone3D rendering surface — one image cell. Code IDs are `panel_0`, `panel_1`, etc. (historical naming; they refer to viewports). |
+| **Viewport area** | The center region of the app that holds the grid of viewports. |
+| **Side panel** | A UI surface alongside the viewport area (e.g., the Annotations side panel). |
+| **Sidebar** | The XNAT browser on the left edge of the app. |
+| **Container** | A SEG, RTSTRUCT, or DICOM-SR top-level annotation file. Owns *members*. |
+| **Member** | One segment (in SEG), one ROI structure (in RTSTRUCT), or one measurement (in SR). |
+| **Annotation type** | One of the three peers: **Segmentation** · **Structure** · **Measurement** (singular). |
+
+### Notifications / surface taxonomy
+
+Every error-handler and every user-facing event picks one of four surfaces:
+
+| Surface | Use for |
+|---|---|
+| **Silent** (`console.warn` only) | Operation has a working fallback; routine background work |
+| **Toast** (viewport-area scoped, top-right, 3–5s) | User-initiated action partially failed or briefly succeeded |
+| **Dialog** (modal, blocking) | User-initiated action wholly failed and needs decision |
+| **Banner** (below toolbar, persistent until dismissed) | Non-routine high-stakes events: backup recovery, app update, connection loss |
+
+**No banners for routine events** — autosave success in particular is silent (surfaced only via the per-container autosave row inside the Annotations side panel). See spec §11 for the full toast spec and §13.2 for the catch-block taxonomy.
 
 ## DICOM Compliance
 
@@ -153,3 +198,54 @@ All data handling must follow DICOM standards wherever applicable. This includes
 - Flag non-conformant data rather than silently passing it through. Log warnings for missing optional tags; throw errors for missing required tags.
 - After generating DICOM objects (SEG, SR, etc.), validate the output dataset before serialization: check that Rows, Columns, NumberOfFrames, PixelData size, and segment metadata are all internally consistent.
 - When loading external DICOM files, detect and report malformed data (e.g., Rows=0, empty PixelData) with clear error messages rather than crashing deep in the adapter stack.
+
+## UI Architecture
+
+The viewer UI is composed of four surfaces plus a shared modal/toast overlay layer:
+
+```
+┌─────────────────────────────────────────────────────────┐
+│ Toolbar                                                  │
+├──────────┬──────────────────────────┬───────────────────┤
+│ Sidebar  │   Viewport area          │  Annotations      │
+│ (XNAT    │   (grid of viewports)    │  side panel       │
+│ browser) │                          │  (resizable)      │
+└──────────┴──────────────────────────┴───────────────────┘
+Overlay layer (on top): dialogs · toast stack · DICOM Tags modal
+                       · cheatsheet (`?`) · ErrorBoundary recovery screen
+```
+
+**Annotation lifecycle** (create / name / edit / save / delete) lives **entirely in the Annotations side panel**, not the toolbar. The toolbar holds viewer controls (layout, navigation tools, transform, undo/redo, cine, panel toggles, settings).
+
+**Three peer annotation types**: every container is one of `Segmentation` (DICOM SEG) · `Structure` (DICOM RTSTRUCT) · `Measurement` (DICOM SR). The Annotations side panel header has three corresponding create buttons, and a context-sensitive toolbox at the bottom adapts its tool grid to the active container's type.
+
+**Multi-viewport coupling**: containers are session-scoped (not viewport-scoped). Frame-of-Reference matching determines which viewports a container renders on. The container list shows every container; rows not on the active viewport are dimmed with a cross-panel pill (e.g., `↗ 2 panels`). An optional "Active only" filter narrows to the active viewport.
+
+**Full design spec**: see [`docs/multiviewport-annotation-ui-spec.md`](docs/multiviewport-annotation-ui-spec.md) — 15 sections covering the toolbar, annotation side panel, multi-viewport coupling, hotkeys, sidebar, settings, overlays, DICOM Tags modal, toast system, persistence/backup, and error states. Interactive prototype at [`docs/mockup-viewer.html`](docs/mockup-viewer.html).
+
+## Hotkey System
+
+- Implementation: `src/renderer/lib/hotkeys/` + `src/shared/types/hotkeys.ts` + `src/renderer/hooks/useHotkeys.ts`
+- Defaults: `defaultHotkeyMap.ts` (≈50 actions across Tools / Editing tools / Viewport / Layout / Slice / Brush / Panels / W-L presets / Edit / Save / App categories)
+- Customization: Settings → Hotkeys tab. Overrides persist in `preferencesStore`. Remap UI **blocks** conflicting assignments until the previous binding is cleared.
+- Cross-platform: `meta` and `ctrl` both accepted; no per-platform binding lists.
+- Discoverability: `?` opens a cheatsheet overlay listing all bindings. Tooltips on buttons suffix the binding in parens (`Brush (B)`).
+- Input-focus guard: hotkeys do not dispatch when focus is in an `INPUT`/`TEXTAREA`/`SELECT`/contenteditable (except `Tab` for viewport cycling).
+
+## Preferences
+
+- Store: `src/renderer/stores/preferencesStore.ts` (Zustand + persist → `localStorage` key `xnat-viewer:preferences`)
+- Apply on startup: `src/renderer/lib/preferences/applyPreferences.ts`
+- Sub-objects: `hotkeys`, `overlay` (Display), `annotation`, `interpolation`, `backup`, `deletion`, `updates`
+- Settings UI: `src/renderer/components/settings/SettingsModal.tsx` (tabs in order: Hotkeys · Annotation · Display · Interpolation · Backup · Updates · Diagnostics · About)
+- Defaults: `makeDefaultPreferences()` in `preferencesStore.ts`. Global "Reset All Preferences" requires a confirmation dialog before applying.
+
+## Local Backup
+
+- Service: `src/renderer/lib/backup/backupService.ts` + main-process handlers in `src/main/ipc/backupHandlers.ts`
+- Trigger: event-based after segmentation edits, 10s debounce (configurable 5–120s in Settings → Backup)
+- Storage: `<userData>/backups/<sessionId>/` per OS (configurable in v1)
+- Format: real DICOM SEG / RTSTRUCT binary; atomic `.tmp → rename` writes
+- Retention: 30-day auto-prune; backups for XNAT-uploaded containers auto-delete after successful XNAT save
+- Recovery: on session load, batched dialog lists recoverable backups with per-row checkboxes. Recovered containers appear in the Annotations side panel with amber "recovered" styling.
+- See spec §12 for full behavior including sync-folder (OneDrive/iCloud/Dropbox) warnings.
