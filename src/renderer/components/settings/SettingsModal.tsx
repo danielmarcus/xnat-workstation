@@ -12,6 +12,9 @@ import {
   INTERPOLATION_ALGORITHM_DESCRIPTIONS,
 } from '@shared/types/preferences';
 import { DEFAULT_HOTKEY_MAP } from '../../lib/hotkeys/defaultHotkeyMap';
+import { findConflictingActions } from '../../lib/hotkeys/conflicts';
+import { mergeHotkeyMap } from '../../lib/hotkeys/useBindingLabel';
+import { ACTION_LABEL } from '../../lib/hotkeys/actionCatalog';
 import { usePreferencesStore } from '../../stores/preferencesStore';
 import { useViewerStore } from '../../stores/viewerStore';
 import { backupService } from '../../lib/backup/backupService';
@@ -432,19 +435,50 @@ export default function SettingsModal({ open, onClose, onRecover, initialTab }: 
   const selectedDefaultBindings = selectedAction ? DEFAULT_HOTKEY_MAP[selectedAction] : undefined;
   const selectedOverrideBindings = selectedAction ? overrides[selectedAction] : undefined;
 
-  const applySelectedOverride = () => {
-    if (!selectedAction) return;
+  // Spec §8.3 — block remaps that collide with an existing binding.
+  // Compute the candidate binding from the current draft + check
+  // against the live merged map.
+  const draftBinding = useMemo(() => {
     const normalizedKey = normalizeKeyInput(draftKey);
-    if (!normalizedKey) return;
-
+    if (!normalizedKey) return null;
     const modifiers: HotkeyModifiers = {};
     if (draftModifiers.ctrl) modifiers.ctrl = true;
     if (draftModifiers.shift) modifiers.shift = true;
     if (draftModifiers.alt) modifiers.alt = true;
     if (draftModifiers.meta) modifiers.meta = true;
     const hasModifiers = Object.keys(modifiers).length > 0;
+    return { key: normalizedKey, modifiers: hasModifiers ? modifiers : undefined };
+  }, [draftKey, draftModifiers]);
+  const mergedMap = useMemo(
+    () => mergeHotkeyMap(DEFAULT_HOTKEY_MAP, overrides),
+    [overrides],
+  );
+  const conflictingActions = useMemo(
+    () => (draftBinding ? findConflictingActions(mergedMap, draftBinding, selectedAction) : []),
+    [draftBinding, mergedMap, selectedAction],
+  );
 
-    setHotkeyOverride(selectedAction, [{ key: normalizedKey, modifiers: hasModifiers ? modifiers : undefined }]);
+  const applySelectedOverride = () => {
+    if (!selectedAction || !draftBinding) return;
+    if (conflictingActions.length > 0) return; // spec §8.3 — blocked
+    setHotkeyOverride(selectedAction, [draftBinding]);
+  };
+
+  const clearConflictingBindings = () => {
+    // Release every conflicting binding AND immediately apply the
+    // user's intended remap — the existing `overrides` effect
+    // re-seeds `draftKey` after the override mutation, so a
+    // two-step user flow would clobber their input. Doing both in
+    // one click keeps the perceived flow honest with what the user
+    // asked for.
+    if (!selectedAction || !draftBinding) {
+      for (const action of conflictingActions) setHotkeyOverride(action, []);
+      return;
+    }
+    for (const action of conflictingActions) {
+      setHotkeyOverride(action, []);
+    }
+    setHotkeyOverride(selectedAction, [draftBinding]);
   };
 
   const loadOverrideIntoEditor = (action: HotkeyAction, bindings: HotkeyBinding[]) => {
@@ -625,7 +659,7 @@ export default function SettingsModal({ open, onClose, onRecover, initialTab }: 
                     <button
                       type="button"
                       onClick={applySelectedOverride}
-                      disabled={!selectedAction || !normalizeKeyInput(draftKey)}
+                      disabled={!selectedAction || !normalizeKeyInput(draftKey) || conflictingActions.length > 0}
                       className="px-2.5 py-1.5 rounded bg-blue-600 text-white text-xs hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                     >
                       Set Override
@@ -646,6 +680,31 @@ export default function SettingsModal({ open, onClose, onRecover, initialTab }: 
                       Reset Hotkeys
                     </button>
                   </div>
+
+                  {conflictingActions.length > 0 && (
+                    <div
+                      data-testid="hotkey-conflict-warning"
+                      className="rounded border border-amber-700/60 bg-amber-900/20 px-2 py-1.5 text-[11px] text-amber-200 flex items-center justify-between gap-2"
+                    >
+                      <span>
+                        Already bound to:{' '}
+                        <span data-testid="hotkey-conflict-actions" className="font-medium">
+                          {conflictingActions
+                            .map((a) => ACTION_LABEL[a] ?? a)
+                            .join(', ')}
+                        </span>
+                        . Clear the existing binding before reassigning.
+                      </span>
+                      <button
+                        type="button"
+                        data-testid="hotkey-conflict-clear"
+                        onClick={clearConflictingBindings}
+                        className="shrink-0 rounded bg-amber-800/40 hover:bg-amber-700/60 text-amber-100 px-2 py-0.5"
+                      >
+                        Clear conflicting binding
+                      </button>
+                    </div>
+                  )}
 
                   {selectedAction && (
                     <div className="text-[11px] text-zinc-500 space-y-0.5">

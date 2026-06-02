@@ -327,4 +327,34 @@ describe('SettingsModal', () => {
     await user.click(copyButton);
     expect(await screen.findByText(/Copied|Copy failed/)).toBeInTheDocument();
   });
+
+  // ─── MV-Phase 7.10 — hotkey conflict block (spec §8.3) ────────
+
+  it('blocks remapping to a binding already used by another action', async () => {
+    const user = userEvent.setup();
+    render(<SettingsModal open onClose={() => {}} />);
+
+    // Default map: 'tool.brush' is bound to 'b'. Try to bind 'tool.pan' to 'B' too.
+    await user.selectOptions(screen.getByRole('combobox'), 'tool.pan');
+    const keyInput = screen.getByPlaceholderText('e.g. w, Escape, Space');
+    await user.clear(keyInput);
+    await user.type(keyInput, 'b');
+
+    // Inline warning appears with the conflicting action label.
+    expect(screen.getByTestId('hotkey-conflict-warning')).toBeInTheDocument();
+    expect(screen.getByTestId('hotkey-conflict-actions').textContent).toMatch(/Brush/);
+
+    // Set Override is disabled while the conflict stands.
+    expect((screen.getByRole('button', { name: 'Set Override' }) as HTMLButtonElement).disabled).toBe(true);
+
+    // Clicking the inline Clear button releases the conflicting binding
+    // AND applies the user's intended remap in one step (the
+    // overrides-derived effect would otherwise re-seed draftKey).
+    await user.click(screen.getByTestId('hotkey-conflict-clear'));
+    expect(usePreferencesStore.getState().preferences.hotkeys.overrides['tool.brush']).toEqual([]);
+    expect(usePreferencesStore.getState().preferences.hotkeys.overrides['tool.pan']?.[0]?.key).toBe('b');
+
+    // Warning is gone now that the conflict is resolved.
+    expect(screen.queryByTestId('hotkey-conflict-warning')).toBeNull();
+  });
 });
