@@ -33,14 +33,23 @@ interface SettingsModalProps {
   initialTab?: string;
 }
 
+// Tab order + labels per spec §8.1.
+//  1. Hotkeys
+//  2. Annotation
+//  3. Display              ← renamed from "Overlay"
+//  4. Interpolation
+//  5. Backup               ← renamed from "File Backup"
+//  6. Updates
+//  7. Diagnostics          ← renamed from "Issue Report"
+//  8. About (lives in DOC_ITEMS)
 const TAB_ITEMS: Array<{ id: SettingsTab; label: string }> = [
   { id: 'hotkeys', label: 'Hotkeys' },
-  { id: 'overlay', label: 'Overlay' },
   { id: 'annotation', label: 'Annotation' },
-  { id: 'updates', label: 'Updates' },
+  { id: 'overlay', label: 'Display' },
   { id: 'interpolation', label: 'Interpolation' },
-  { id: 'backup', label: 'File Backup' },
-  { id: 'issue', label: 'Issue Report' },
+  { id: 'backup', label: 'Backup' },
+  { id: 'updates', label: 'Updates' },
+  { id: 'issue', label: 'Diagnostics' },
 ];
 
 const DOC_ITEMS: Array<{ id: SettingsTab; label: string }> = [

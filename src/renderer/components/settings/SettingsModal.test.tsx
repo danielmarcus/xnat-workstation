@@ -130,7 +130,7 @@ describe('SettingsModal', () => {
     render(<SettingsModal open onClose={onClose} />);
 
     expect(screen.getByText('Preferences')).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Overlay' }));
+    await user.click(screen.getByRole('button', { name: 'Display' }));
     expect(screen.getByText('Show horizontal ruler')).toBeInTheDocument();
 
     await user.keyboard('{Escape}');
@@ -204,7 +204,7 @@ describe('SettingsModal', () => {
     const user = userEvent.setup();
     render(<SettingsModal open onClose={() => {}} />);
 
-    await user.click(screen.getByRole('button', { name: 'Overlay' }));
+    await user.click(screen.getByRole('button', { name: 'Display' }));
     await user.click(screen.getByRole('checkbox', { name: 'Show corner overlays' }));
     await user.click(screen.getByRole('checkbox', { name: 'Show horizontal ruler' }));
     await user.click(screen.getByRole('checkbox', { name: 'Show A/P and L/R indicators' }));
@@ -313,7 +313,7 @@ describe('SettingsModal', () => {
     const user = userEvent.setup();
     render(<SettingsModal open onClose={() => {}} />);
 
-    await user.click(screen.getByRole('button', { name: 'Issue Report' }));
+    await user.click(screen.getByRole('button', { name: 'Diagnostics' }));
     expect(await screen.findByText('Copy/paste this into an email:')).toBeInTheDocument();
 
     const textAreas = screen.getAllByRole('textbox') as HTMLTextAreaElement[];

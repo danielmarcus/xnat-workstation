@@ -56,7 +56,7 @@ describe('SettingsModal issue report panel', () => {
     buildIssueReportMock.mockResolvedValueOnce('AUTO REPORT CONTENT');
 
     render(<SettingsModal open onClose={() => {}} />);
-    await user.click(screen.getByRole('button', { name: 'Issue Report' }));
+    await user.click(screen.getByRole('button', { name: 'Diagnostics' }));
 
     expect(buildIssueReportMock).toHaveBeenCalledWith('');
     const { report } = getIssueTextareas();
@@ -72,7 +72,7 @@ describe('SettingsModal issue report panel', () => {
     buildIssueReportMock.mockReturnValueOnce(pending.promise);
 
     render(<SettingsModal open onClose={() => {}} />);
-    await user.click(screen.getByRole('button', { name: 'Issue Report' }));
+    await user.click(screen.getByRole('button', { name: 'Diagnostics' }));
 
     expect(screen.getByRole('button', { name: 'Refreshing...' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Copy Report' })).toBeDisabled();
@@ -91,7 +91,7 @@ describe('SettingsModal issue report panel', () => {
       .mockResolvedValueOnce('REFRESHED WITH NOTES');
 
     render(<SettingsModal open onClose={() => {}} />);
-    await user.click(screen.getByRole('button', { name: 'Issue Report' }));
+    await user.click(screen.getByRole('button', { name: 'Diagnostics' }));
     await waitFor(() => {
       expect(getIssueTextareas().report.value).toBe('INITIAL');
     });
@@ -113,7 +113,7 @@ describe('SettingsModal issue report panel', () => {
       .mockResolvedValueOnce('LATEST REPORT FOR EMAIL');
 
     render(<SettingsModal open onClose={() => {}} />);
-    await user.click(screen.getByRole('button', { name: 'Issue Report' }));
+    await user.click(screen.getByRole('button', { name: 'Diagnostics' }));
     await waitFor(() => {
       expect(getIssueTextareas().report.value).toBe('INITIAL REPORT');
     });
@@ -134,7 +134,7 @@ describe('SettingsModal issue report panel', () => {
       .mockRejectedValueOnce(new Error('copy regeneration failed'));
 
     render(<SettingsModal open onClose={() => {}} />);
-    await user.click(screen.getByRole('button', { name: 'Issue Report' }));
+    await user.click(screen.getByRole('button', { name: 'Diagnostics' }));
     await waitFor(() => {
       expect(getIssueTextareas().report.value).toBe('INITIAL REPORT');
     });
@@ -148,7 +148,7 @@ describe('SettingsModal issue report panel', () => {
     buildIssueReportMock.mockRejectedValueOnce(new Error('diagnostics unavailable'));
 
     render(<SettingsModal open onClose={() => {}} />);
-    await user.click(screen.getByRole('button', { name: 'Issue Report' }));
+    await user.click(screen.getByRole('button', { name: 'Diagnostics' }));
 
     await waitFor(() => {
       expect(getIssueTextareas().report.value).toContain(
