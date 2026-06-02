@@ -262,4 +262,28 @@ describe('Toolbar', () => {
     await user.click(tagsButton);
     expect(onToggleDicomPanel).toHaveBeenCalledTimes(1);
   });
+
+  // ─── MV-Phase 7.4: cheatsheet (spec §6.3) ──────────────────────────
+
+  it('? opens the cheatsheet overlay; Escape closes it', () => {
+    render(<Toolbar />);
+    expect(screen.queryByTestId('cheatsheet-overlay')).toBeNull();
+    fireEvent.keyDown(window, { key: '?' });
+    expect(screen.queryByTestId('cheatsheet-overlay')).not.toBeNull();
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.queryByTestId('cheatsheet-overlay')).toBeNull();
+  });
+
+  it('? does NOT open the cheatsheet when focus is in an input (§6.7)', () => {
+    render(
+      <>
+        <input data-testid="focusable-input" />
+        <Toolbar />
+      </>,
+    );
+    const input = screen.getByTestId('focusable-input');
+    input.focus();
+    fireEvent.keyDown(input, { key: '?' });
+    expect(screen.queryByTestId('cheatsheet-overlay')).toBeNull();
+  });
 });

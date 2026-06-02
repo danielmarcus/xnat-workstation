@@ -12,6 +12,7 @@ import AnnotationToolDropdown from './AnnotationToolDropdown';
 import AddAnnotationButtons from './AddAnnotationButtons';
 import CollapsibleGroup from './CollapsibleGroup';
 import SettingsModal from '../settings/SettingsModal';
+import CheatsheetOverlay from '../CheatsheetOverlay';
 import { useToolbarCollapse } from '../../hooks/useToolbarCollapse';
 import {
   IconWindowLevel,
@@ -516,8 +517,31 @@ export default function Toolbar({
 }: ToolbarProps) {
   const [showSettings, setShowSettings] = useState(false);
   const [settingsInitialTab, setSettingsInitialTab] = useState<string | undefined>(undefined);
+  const [cheatsheetOpen, setCheatsheetOpen] = useState(false);
   const toolbarContentRef = useRef<HTMLDivElement>(null);
   const { textCollapsed, isGroupCollapsed } = useToolbarCollapse(toolbarContentRef);
+
+  // Spec §6.3 — global `?` keypress opens the cheatsheet.
+  // Input-focus guard (§6.7): suppress when focus is in INPUT /
+  // TEXTAREA / SELECT / contenteditable. The CheatsheetOverlay owns
+  // its own close listener, so this only handles the open case.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== '?') return;
+      if (cheatsheetOpen) return; // overlay owns the close path
+      const target = e.target as HTMLElement | null;
+      if (target) {
+        const tag = target.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable) {
+          return;
+        }
+      }
+      e.preventDefault();
+      setCheatsheetOpen(true);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [cheatsheetOpen]);
 
   // Open Settings to a specific tab when requested by parent (e.g. banner link)
   useEffect(() => {
@@ -759,6 +783,7 @@ export default function Toolbar({
         </div>
       </div>
       <SettingsModal open={showSettings} onClose={() => { setShowSettings(false); setSettingsInitialTab(undefined); }} onRecover={onRecoverBackup} initialTab={settingsInitialTab} />
+      <CheatsheetOverlay open={cheatsheetOpen} onClose={() => setCheatsheetOpen(false)} />
     </>
   );
 }
