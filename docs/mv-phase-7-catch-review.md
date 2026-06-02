@@ -198,6 +198,26 @@ All 47 catches in this directory follow the standard IPC handler pattern: `catch
 
 29 catches · 0 in-place changes (12 deferred to #82 + #77 + #80 + #84 panel/toast rebuilds)
 
+### `src/renderer/App.tsx`
+
+Grouped by purpose because all 31 catches in this file fall into clear categories.
+
+| Group | Lines | Current behavior | Classification |
+|---|---|---|---|
+| **Backup-recovery iteration** (per-entry processing) | `:192`, `:235`, `:261`, `:318`, `:334`, `:376`, `:421`, `:484`, `:502`, `:2861`, `:2913`, `:2961` | Per-file failures during recovery → `console.error` + continue; aggregate result surfaced via the existing recovery banner | ✅ Silent at per-file level; the recovery banner is the aggregate surface |
+| **Cleanup ignores** | `:741`, `:1015`, `:2765`, `:2816`, `:2830` | Discard / cleanup paths → ignore | ✅ Silent — cleanup |
+| **Diagnostic copy** | `:1006` | Clipboard write failure → `console.warn` | ✅ Silent — clipboard is a fallback |
+| **Local DICOM parse fallback** | `:1157` | DICOM-detection parse failure → treat as regular image | ✅ Silent — working fallback |
+| **Metadata-ordering fallback** | `:1178` | Sort by metadata fails → use insertion order | ✅ Silent — working fallback |
+| **Local SEG / RTSTRUCT / deferred SEG load failures** | `:1270`, `:1317`, `:1406` | Per-file load failure → `console.error` AND `setBrowserStatusMessage('Failed to load …', 'error')` | ✅ Sidebar status footer (per surface taxonomy) |
+| **Existing-SEG / RTSTRUCT reuse fallback** | `:1676`, `:1932` | Reuse failure → `console.warn` + fresh-load fallback | ✅ Silent — working fallback |
+| **Per-overlay enrichment failure** | `:2235` | Per-overlay load failure in `loadOverlaysForSourceScan` → `console.error` + continue | ✅ Silent acceptable (overlays are best-effort enrichment; scan still loads); per-overlay toast could be a future enhancement but not a current gap |
+| **Scan / session / protocol load failure** | `:2246`, `:2534`, `:2597` | Top-level load failure → `setLoadError(msg)` which renders inline error display | ✅ Inline error display (dialog-equivalent) |
+| **Drag-drop payload parse** | `:2684` | Defensive parse of dragged XNAT scan payload → `console.warn` | ✅ Silent — defensive |
+| **Pre-load helper** | `:528` | Per-image pre-load failure → `console.warn` + resolved promise | ✅ Silent — pre-load is opportunistic |
+
+31 catches · 0 changes (all 31 are correctly classified: aggregate surfaces feed the existing recovery banner, sidebar status footer, and inline `setLoadError` display)
+
 ### `src/main/updater/`
 
 | File:line | Current behavior | Classification | Note |
