@@ -38,6 +38,7 @@ import {
 } from '../icons';
 import DeleteConfirmDialog, { type DeleteConfirmTarget } from './dialogs/DeleteConfirmDialog';
 import AutosaveRow from './AutosaveRow';
+import Toolbox from './toolbox/Toolbox';
 import SaveAllPreflightDialog, {
   type SaveAllPreflightRow,
   type SaveAllDecision,
@@ -436,6 +437,7 @@ export default function ContainerListPanel() {
         )}
       </div>
 
+      <Toolbox panelWidth={panelWidth} />
       <AutosaveRow />
 
       <SaveAllPreflightDialog
