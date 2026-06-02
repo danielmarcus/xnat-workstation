@@ -33,7 +33,9 @@ describe('useBindingLabel', () => {
   });
 
   it('returns "" when the action has no binding', () => {
-    // 'tool.sculptor' is unbound in defaults.
+    // Every default action now has a binding (#90); clear one via the
+    // override to simulate the "no binding" branch.
+    usePreferencesStore.getState().setHotkeyOverride('tool.sculptor', []);
     render(<Probe action="tool.sculptor" />);
     expect(screen.getByTestId('probe').textContent).toBe('');
   });
@@ -75,6 +77,7 @@ describe('useSuffixedTooltip', () => {
   });
 
   it('returns the bare text when the action is unbound', () => {
+    usePreferencesStore.getState().setHotkeyOverride('tool.sculptor', []);
     render(<TooltipProbe text="Sculptor" action="tool.sculptor" />);
     expect(screen.getByTestId('tip').textContent).toBe('Sculptor');
   });

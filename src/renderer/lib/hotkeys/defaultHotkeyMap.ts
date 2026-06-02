@@ -27,6 +27,23 @@ export const DEFAULT_HOTKEY_MAP: HotkeyMap = {
   'tool.paintFill':   [{ key: 'f' }],
   'tool.stackScroll': [{ key: 's' }],
 
+  // ─── Spec §6.1 — 12 new default tool bindings ─────────────
+  // All Shift+letter to keep the unshifted slot free for the
+  // primary tool family; capital-letter form so the input-focus
+  // guard is unambiguous (Shift produces the uppercase glyph).
+  'tool.thresholdBrush':     [{ key: 'B', modifiers: { shift: true } }],
+  'tool.bidirectional':      [{ key: 'L', modifiers: { shift: true } }],
+  'tool.rectangleROI':       [{ key: 'M', modifiers: { shift: true } }],
+  'tool.circleROI':          [{ key: 'C', modifiers: { shift: true } }],
+  'tool.ellipticalROI':      [{ key: 'O', modifiers: { shift: true } }],
+  'tool.freehandROI':        [{ key: 'H', modifiers: { shift: true } }],
+  'tool.freehandContour':    [{ key: 'F', modifiers: { shift: true } }],
+  'tool.splineContour':      [{ key: 'P', modifiers: { shift: true } }],
+  'tool.livewireContour':    [{ key: 'W', modifiers: { shift: true } }],
+  'tool.sculptor':           [{ key: 'U', modifiers: { shift: true } }],
+  'tool.circleScissors':     [{ key: 'I', modifiers: { shift: true } }],
+  'tool.rectangleScissors':  [{ key: 'X', modifiers: { shift: true } }],
+
   // ─── Viewport Actions ────────────────────────────────────────
   'viewport.reset':         [{ key: 'r' }],
   'viewport.rotate90':      [{ key: 'r', modifiers: { shift: true } }],

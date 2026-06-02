@@ -24,11 +24,12 @@ describe('CheatsheetOverlay (spec §6.3)', () => {
     }
   });
 
-  it('renders bound actions only — unbound actions (e.g., tool.sculptor) are omitted', () => {
+  it('renders bound actions only — actions with an empty override are omitted', () => {
+    // Every default action now has a binding (#90); clear one via the
+    // override to verify the omit-when-unbound branch.
+    usePreferencesStore.getState().setHotkeyOverride('tool.sculptor', []);
     render(<CheatsheetOverlay open onClose={() => {}} />);
-    // Bound by default.
     expect(screen.queryByTestId('cheatsheet-row:tool.brush')).not.toBeNull();
-    // Unbound by default.
     expect(screen.queryByTestId('cheatsheet-row:tool.sculptor')).toBeNull();
   });
 
