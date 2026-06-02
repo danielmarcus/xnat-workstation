@@ -15,6 +15,7 @@ import Toolbar from '../components/viewer/Toolbar';
 import ViewportGrid from '../components/viewer/ViewportGrid';
 import ContainerListPanel from '../components/viewer/ContainerListPanel';
 import DicomHeaderPanel from '../components/viewer/DicomHeaderPanel';
+import ToastStack from '../components/ToastStack';
 import { toolService } from '../lib/cornerstone/toolService';
 import { annotationService } from '../lib/cornerstone/annotationService';
 import { segmentationService } from '../lib/cornerstone/segmentationService';
@@ -93,6 +94,7 @@ export default function ViewerPage({
         <div className="flex-1 min-w-0 relative flex">
           <div className="flex-1 min-w-0 relative">
             <ViewportGrid panelImageIds={panelImageIds} />
+            <ToastStack />
           </div>
           {showAnnotationsPanel && <ContainerListPanel />}
           {showDicomPanel && <DicomHeaderPanel onClose={closeDicomPanel} />}
