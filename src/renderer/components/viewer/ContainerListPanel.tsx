@@ -98,6 +98,8 @@ export default function ContainerListPanel() {
 
   const [filter, setFilter] = useState('');
   const [sortOrder, setSortOrder] = useState<SortOrder>('default');
+  // Spec §5.3 — "All panels" (default) vs "Active only" filter.
+  const [panelScope, setPanelScope] = useState<'all' | 'active'>('all');
   const trimmedFilter = filter.trim().toLowerCase();
 
   // Active viewport / scan-availability gating for the create buttons
@@ -194,7 +196,15 @@ export default function ContainerListPanel() {
   // §D7.7; sort is presentation-only and does NOT mutate the persisted
   // Z-order on Container.members[] (which lives on the container per
   // §B7 default order).
+  const onActiveCount = containerList.filter((c) =>
+    (containerPanelMap[c.id] ?? []).includes(activeViewportId),
+  ).length;
   const visibleContainers = containerList
+    .filter((c) =>
+      panelScope === 'all'
+        ? true
+        : (containerPanelMap[c.id] ?? []).includes(activeViewportId),
+    )
     .map((c) => {
       let members = trimmedFilter
         ? c.members.filter((m) => m.name.toLowerCase().includes(trimmedFilter))
@@ -332,15 +342,29 @@ export default function ContainerListPanel() {
         className="absolute left-0 top-0 bottom-0 w-1 -ml-0.5 cursor-col-resize z-10 hover:bg-blue-500/40 active:bg-blue-500/60"
       />
       <div className="px-3 py-2 border-b border-zinc-800 flex items-center justify-between min-h-[36px] gap-2">
-        <h3 className="text-xs font-semibold text-zinc-300 flex-1">
-          Structures
+        <h3 className="text-xs font-semibold text-zinc-300 flex-1 flex items-baseline gap-1.5 min-w-0">
+          <span className="shrink-0">Structures</span>
           <span
             data-testid="container-count"
-            className="text-zinc-500 font-normal ml-1.5"
+            className="text-zinc-500 font-normal text-[11px] truncate"
           >
-            {containerList.length}
+            {containerList.length} total · {onActiveCount} on active panel
           </span>
         </h3>
+        <button
+          type="button"
+          data-testid="container-panel-scope-toggle"
+          data-scope={panelScope}
+          onClick={() => setPanelScope((s) => (s === 'all' ? 'active' : 'all'))}
+          title={panelScope === 'all' ? 'Showing every container — click to filter to the active viewport' : 'Active only — click to show every container'}
+          className={`text-[10px] uppercase font-semibold px-1.5 py-0.5 border rounded transition-colors ${
+            panelScope === 'active'
+              ? 'border-blue-500 bg-blue-900/30 text-blue-200'
+              : 'border-zinc-700 bg-zinc-900 text-zinc-400 hover:border-zinc-500 hover:text-zinc-200'
+          }`}
+        >
+          {panelScope === 'all' ? 'All panels' : 'Active only'}
+        </button>
         {dirtyContainers.length > 0 && (
           <button
             type="button"
@@ -464,7 +488,10 @@ export default function ContainerListPanel() {
         )}
       </div>
 
-      <Toolbox panelWidth={panelWidth} />
+      <Toolbox
+        panelWidth={panelWidth}
+        getContainerPanelIds={(containerId) => containerPanelMap[containerId] ?? []}
+      />
       <AutosaveRow />
 
       <SaveAllPreflightDialog

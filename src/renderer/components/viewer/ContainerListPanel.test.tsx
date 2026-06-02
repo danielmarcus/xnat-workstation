@@ -191,7 +191,7 @@ describe('empty state', () => {
   it('shows the empty-state message when no containers', () => {
     render(<ContainerListPanel />);
     expect(screen.queryByTestId('container-panel-empty')).not.toBeNull();
-    expect(screen.queryByTestId('container-count')?.textContent).toBe('0');
+    expect(screen.queryByTestId('container-count')?.textContent).toMatch(/^0 total/);
   });
 });
 
@@ -205,7 +205,7 @@ describe('container row rendering', () => {
 
     expect(screen.queryByTestId('container-row:c1')).not.toBeNull();
     expect(screen.queryByTestId('container-row:c2')).not.toBeNull();
-    expect(screen.queryByTestId('container-count')?.textContent).toBe('2');
+    expect(screen.queryByTestId('container-count')?.textContent).toMatch(/^2 total/);
     expect(screen.queryByTestId('container-row:c1')?.textContent).toContain('PTV Set');
     expect(screen.queryByTestId('container-row:c1')?.textContent).toContain('RTSTRUCT');
   });
@@ -2275,6 +2275,47 @@ describe('container dim + cross-panel pill (spec §5.2)', () => {
     setContainers(makeContainer({ id: 'c1' }));
     render(<ContainerListPanel />);
     expect(screen.getByTestId('container-panel-pill:c1').textContent).toMatch(/↗ not loaded/);
+  });
+
+  it('header counter shows "N total · K on active panel" (spec §5.3)', () => {
+    getVisibleSegMock.mockImplementation((vp: string) =>
+      vp === 'panel_0' ? new Set(['c1']) : new Set<string>(),
+    );
+    setContainers(
+      makeContainer({ id: 'c1' }),
+      makeContainer({ id: 'c2' }),
+      makeContainer({ id: 'c3' }),
+    );
+    render(<ContainerListPanel />);
+    expect(screen.getByTestId('container-count').textContent).toMatch(/3 total · 1 on active panel/);
+  });
+
+  it('Active only toggle filters the list (spec §5.3)', () => {
+    getVisibleSegMock.mockImplementation((vp: string) =>
+      vp === 'panel_0' ? new Set(['c1']) : new Set<string>(),
+    );
+    setContainers(
+      makeContainer({ id: 'c1', name: 'On active' }),
+      makeContainer({ id: 'c2', name: 'On other' }),
+    );
+    render(<ContainerListPanel />);
+    // Default: All panels — both rows visible.
+    expect(screen.queryByTestId('container-row:c1')).not.toBeNull();
+    expect(screen.queryByTestId('container-row:c2')).not.toBeNull();
+
+    // Toggle to Active only — only c1 remains.
+    act(() => {
+      fireEvent.click(screen.getByTestId('container-panel-scope-toggle'));
+    });
+    expect(screen.getByTestId('container-panel-scope-toggle').dataset.scope).toBe('active');
+    expect(screen.queryByTestId('container-row:c1')).not.toBeNull();
+    expect(screen.queryByTestId('container-row:c2')).toBeNull();
+
+    // Toggle back — both rows again.
+    act(() => {
+      fireEvent.click(screen.getByTestId('container-panel-scope-toggle'));
+    });
+    expect(screen.queryByTestId('container-row:c2')).not.toBeNull();
   });
 
   it('switching active viewport flips dim + pill state for the same container', () => {
