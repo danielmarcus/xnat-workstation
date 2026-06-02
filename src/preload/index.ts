@@ -168,6 +168,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   diagnostics: {
     getMainSnapshot: () =>
       ipcRenderer.invoke(IPC.DIAGNOSTICS_GET_MAIN_SNAPSHOT),
+    writeCrashSnapshot: (payload: unknown) =>
+      ipcRenderer.invoke(IPC.DIAGNOSTICS_WRITE_CRASH_SNAPSHOT, payload),
+    listCrashSnapshots: () =>
+      ipcRenderer.invoke(IPC.DIAGNOSTICS_LIST_CRASH_SNAPSHOTS),
+    readCrashSnapshot: (id: string) =>
+      ipcRenderer.invoke(IPC.DIAGNOSTICS_READ_CRASH_SNAPSHOT, id),
+    deleteCrashSnapshot: (id: string) =>
+      ipcRenderer.invoke(IPC.DIAGNOSTICS_DELETE_CRASH_SNAPSHOT, id),
   },
 
   localE2e: {

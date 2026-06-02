@@ -204,3 +204,110 @@ export function validateRtStructDataset(dataset: any): void {
   // any missing or malformed reference.
   collectContourImageReferencesFromRtStruct(dataset);
 }
+
+// ── Pre-upload IOD validation (MV-Phase 7.1, spec §13.3) ────────────────
+// Mandated by CLAUDE.md §"DICOM Compliance": validate required tags before
+// upload; flag non-conformant data rather than silently passing it through.
+
+/** DICOM SEG Storage SOP Class UID. */
+export const SEG_SOP_CLASS_UID = '1.2.840.10008.5.1.4.1.1.66.4';
+/** DICOM RT Structure Set Storage SOP Class UID. */
+export const RTSTRUCT_SOP_CLASS_UID = '1.2.840.10008.5.1.4.1.1.481.3';
+/** DICOM Comprehensive SR Storage SOP Class UID. */
+export const SR_COMPREHENSIVE_SOP_CLASS_UID = '1.2.840.10008.5.1.4.1.1.88.33';
+
+/**
+ * Required top-level tags per IOD, keyed by SOP Class UID. A tag is
+ * "present" when the naturalized dataset has a non-nullish, non-empty
+ * value for it (empty arrays and empty strings count as missing).
+ */
+const REQUIRED_TAGS_BY_SOP_CLASS: Record<string, string[]> = {
+  [SEG_SOP_CLASS_UID]: [
+    'Rows',
+    'Columns',
+    'NumberOfFrames',
+    'SegmentSequence',
+    'PixelData',
+    'BitsAllocated',
+    'BitsStored',
+    'HighBit',
+  ],
+  [RTSTRUCT_SOP_CLASS_UID]: [
+    'StructureSetROISequence',
+    'ROIContourSequence',
+    'RTROIObservationsSequence',
+  ],
+  [SR_COMPREHENSIVE_SOP_CLASS_UID]: [
+    'ConceptNameCodeSequence',
+    'ContentSequence',
+  ],
+};
+
+const SOP_CLASS_DISPLAY_NAMES: Record<string, string> = {
+  [SEG_SOP_CLASS_UID]: 'DICOM SEG',
+  [RTSTRUCT_SOP_CLASS_UID]: 'DICOM RTSTRUCT',
+  [SR_COMPREHENSIVE_SOP_CLASS_UID]: 'DICOM SR',
+};
+
+/**
+ * Validation failure carrying the structured tag list so callers can
+ * render a precise dialog ("missing: Rows, Columns") rather than a
+ * generic error string.
+ */
+export class DicomValidationError extends Error {
+  readonly missingTags: string[];
+  readonly sopClassUid: string;
+
+  constructor(sopClassUid: string, missingTags: string[]) {
+    const name = SOP_CLASS_DISPLAY_NAMES[sopClassUid] ?? `SOP class ${sopClassUid}`;
+    super(`${name} is missing required tag${missingTags.length === 1 ? '' : 's'}: ${missingTags.join(', ')}`);
+    this.name = 'DicomValidationError';
+    this.missingTags = missingTags;
+    this.sopClassUid = sopClassUid;
+  }
+}
+
+function isTagValuePresent(value: unknown): boolean {
+  if (value === null || value === undefined) return false;
+  if (typeof value === 'string') return value.length > 0;
+  if (Array.isArray(value)) return value.length > 0;
+  return true;
+}
+
+/**
+ * Validate a naturalized DICOM dataset against the required-tag list for
+ * its SOP class (pure, synchronous). Throws `DicomValidationError` listing
+ * every missing tag. Unknown SOP classes pass through without error — the
+ * gate only enforces IODs it knows about.
+ */
+export function validateDatasetForUpload(dataset: Record<string, unknown>): void {
+  const sopClassUid = typeof dataset?.SOPClassUID === 'string' ? dataset.SOPClassUID : '';
+  const requiredTags = REQUIRED_TAGS_BY_SOP_CLASS[sopClassUid];
+  if (!requiredTags) return;
+
+  const missing = requiredTags.filter((tag) => !isTagValuePresent(dataset[tag]));
+  if (missing.length > 0) {
+    throw new DicomValidationError(sopClassUid, missing);
+  }
+}
+
+/**
+ * Decode a base64-encoded DICOM Part 10 buffer, naturalize it with dcmjs,
+ * and run `validateDatasetForUpload`. Used by `xnatUploadService` as the
+ * pre-upload gate (spec §13.3).
+ *
+ * dcmjs is imported dynamically: the upload path is already async, and the
+ * dynamic import keeps this module's static graph dependency-free for
+ * lightweight unit-test environments.
+ */
+export async function validateBase64ForUpload(base64: string): Promise<void> {
+  const dcmjs = (await import('dcmjs')).default;
+  const binary = atob(base64);
+  const buffer = new ArrayBuffer(binary.length);
+  const view = new Uint8Array(buffer);
+  for (let i = 0; i < binary.length; i++) view[i] = binary.charCodeAt(i);
+
+  const message = dcmjs.data.DicomMessage.readFile(buffer);
+  const dataset = dcmjs.data.DicomMetaDictionary.naturalizeDataset(message.dict) as Record<string, unknown>;
+  validateDatasetForUpload(dataset);
+}

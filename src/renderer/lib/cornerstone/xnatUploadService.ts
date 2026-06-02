@@ -20,6 +20,7 @@
 import { useSegmentationStore } from '../../stores/segmentationStore';
 import { useSegmentationManagerStore } from '../../stores/segmentationManagerStore';
 import { isScanIdCompatibleWithType, nextVersionedLabel } from '../../components/viewer/segmentationPanelUtils';
+import { validateBase64ForUpload, DicomValidationError } from './dicomValidation';
 import type { SegmentationDicomType } from '@shared/types/segmentation';
 import type { XnatScan, XnatUploadContext } from '@shared/types/xnat';
 
@@ -179,6 +180,30 @@ export async function uploadSegmentationToXnat(
     }
 
     const base64 = await deps.exportToBase64(segmentationId, dicomType);
+
+    // Pre-upload IOD validation (MV-Phase 7.1, spec §13.3; CLAUDE.md
+    // §"DICOM Compliance"). Blocks the upload with the exact missing-tag
+    // list rather than letting XNAT reject (or silently accept) a
+    // non-conformant object.
+    try {
+      await validateBase64ForUpload(base64);
+    } catch (validationErr) {
+      if (validationErr instanceof DicomValidationError) {
+        deps.notify(
+          `Upload blocked — ${validationErr.message}. `
+          + 'The exported file does not meet the DICOM standard for its type; this is an application bug worth reporting.',
+          'error',
+        );
+        console.error('[xnatUploadService] pre-upload validation failed:', validationErr);
+        return 'failed';
+      }
+      // Parse-level failure (corrupt buffer, not a DICOM file). Same block,
+      // different message.
+      const msg = validationErr instanceof Error ? validationErr.message : String(validationErr);
+      deps.notify(`Upload blocked — exported file failed DICOM validation: ${msg}`, 'error');
+      console.error('[xnatUploadService] pre-upload parse failed:', validationErr);
+      return 'failed';
+    }
 
     let result: { ok: boolean; url?: string; scanId?: string; error?: string };
     if (canOverwriteSeg && origin?.scanId && !createNewScan) {

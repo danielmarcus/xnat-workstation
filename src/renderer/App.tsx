@@ -693,6 +693,10 @@ export default function App() {
   const preferences = usePreferencesStore((s) => s.preferences);
   const [backupBannerCount, setBackupBannerCount] = useState(0);
   const [backupBannerDismissed, setBackupBannerDismissed] = useState(false);
+  // Crash snapshots from a previous session (MV-Phase 7.1, spec §13.8).
+  const [crashSnapshots, setCrashSnapshots] = useState<import('@shared/types/diagnostics').CrashSnapshotSummary[]>([]);
+  const [crashBannerDismissed, setCrashBannerDismissed] = useState(false);
+  const [crashReportCopied, setCrashReportCopied] = useState(false);
   const [settingsInitialTabRequest, setSettingsInitialTabRequest] = useState<string | undefined>(undefined);
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
   const [updateBannerDismissed, setUpdateBannerDismissed] = useState(false);
@@ -971,6 +975,47 @@ export default function App() {
       }
     }).catch(() => { /* ignore */ });
   }, [connectedServerUrl]);
+
+  // ─── Crash snapshots from a previous session (MV-Phase 7.1, §13.8) ──
+  useEffect(() => {
+    window.electronAPI?.diagnostics?.listCrashSnapshots?.()
+      .then((result) => {
+        if (result?.ok && result.snapshots.length > 0) {
+          setCrashSnapshots(result.snapshots);
+          console.log(`[App] Found ${result.snapshots.length} crash snapshot(s) from previous sessions`);
+        }
+      })
+      .catch(() => { /* diagnostics IPC unavailable — skip the banner */ });
+  }, []);
+
+  const handleCopyCrashReport = useCallback(async () => {
+    try {
+      const latest = crashSnapshots[0];
+      if (!latest) return;
+      const read = await window.electronAPI?.diagnostics?.readCrashSnapshot?.(latest.id);
+      const detail = read?.ok
+        ? `Crash from previous session (${read.snapshot.capturedAt}, ${read.snapshot.reason}):\n`
+          + `${read.snapshot.message}\n\n${read.snapshot.stack ?? ''}\n\n`
+          + (read.snapshot.componentStack ? `Component stack:\n${read.snapshot.componentStack}\n\n` : '')
+        : `Crash from previous session (${latest.capturedAt}): ${latest.message}\n\n`;
+      const { buildIssueReport } = await import('./lib/diagnostics/issueReport');
+      const report = await buildIssueReport(detail);
+      await navigator.clipboard.writeText(report);
+      setCrashReportCopied(true);
+      setTimeout(() => setCrashReportCopied(false), 3000);
+    } catch (err) {
+      console.warn('[App] Failed to copy crash report:', err);
+    }
+  }, [crashSnapshots]);
+
+  const handleDiscardCrashSnapshots = useCallback(async () => {
+    for (const snap of crashSnapshots) {
+      try {
+        await window.electronAPI?.diagnostics?.deleteCrashSnapshot?.(snap.id);
+      } catch { /* best-effort */ }
+    }
+    setCrashSnapshots([]);
+  }, [crashSnapshots]);
 
   // ─── Initialize SegmentationManager once Cornerstone is ready ──
   useEffect(() => {
@@ -2964,6 +3009,45 @@ export default function App() {
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
     >
+      {/* Crash report banner (MV-Phase 7.1, spec §13.8) */}
+      {crashSnapshots.length > 0 && !crashBannerDismissed && (
+        <div className="shrink-0 bg-red-950/50 border-b border-red-800/50 px-3 py-1.5 flex items-center gap-2">
+          <svg className="w-3.5 h-3.5 text-red-400 shrink-0" viewBox="0 0 20 20" fill="currentColor">
+            <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495ZM10 5a.75.75 0 0 1 .75.75v3.5a.75.75 0 0 1-1.5 0v-3.5A.75.75 0 0 1 10 5Zm0 9a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" clipRule="evenodd" />
+          </svg>
+          <span className="text-[11px] text-red-200">
+            {crashSnapshots.length === 1
+              ? 'An error report from a previous session is ready.'
+              : `${crashSnapshots.length} error reports from previous sessions are ready.`}{' '}
+            <button
+              type="button"
+              onClick={handleCopyCrashReport}
+              className="underline text-red-300 hover:text-red-100 transition-colors"
+            >
+              {crashReportCopied ? 'Copied ✓' : 'Copy report'}
+            </button>
+            {' · '}
+            <button
+              type="button"
+              onClick={handleDiscardCrashSnapshots}
+              className="underline text-red-300 hover:text-red-100 transition-colors"
+            >
+              Discard
+            </button>
+          </span>
+          <button
+            type="button"
+            onClick={() => setCrashBannerDismissed(true)}
+            className="ml-auto text-red-400 hover:text-red-200 transition-colors"
+            title="Dismiss"
+          >
+            <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+              <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+            </svg>
+          </button>
+        </div>
+      )}
+
       {/* Backup recovery notification banner */}
       {backupBannerCount > 0 && !backupBannerDismissed && (
         <div className="shrink-0 bg-blue-950/60 border-b border-blue-800/50 px-3 py-1.5 flex items-center gap-2">

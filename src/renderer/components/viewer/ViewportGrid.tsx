@@ -11,6 +11,7 @@
  */
 import { useViewerStore } from '../../stores/viewerStore';
 import { panelId } from '@shared/types/viewer';
+import ErrorBoundary from '../ErrorBoundary';
 import Viewport from './Viewport';
 import ViewportOverlay from './ViewportOverlay';
 import ScrollSlider from './ScrollSlider';
@@ -70,7 +71,9 @@ export default function ViewportGrid({ panelImageIds }: ViewportGridProps) {
               <div className="absolute inset-0 border border-zinc-500/80 pointer-events-none z-40" />
             )}
             {imageIds.length > 0 ? (
-              <>
+              // Per-viewport ErrorBoundary (spec §13.1): a render crash in one
+              // viewport shows an in-cell recovery without taking down the app.
+              <ErrorBoundary variant="viewport" label={pid}>
                 <Viewport
                   panelId={pid}
                   imageIds={imageIds}
@@ -78,7 +81,7 @@ export default function ViewportGrid({ panelImageIds }: ViewportGridProps) {
                 />
                 <ViewportOverlay panelId={pid} />
                 <ScrollSlider panelId={pid} />
-              </>
+              </ErrorBoundary>
             ) : (
               <div className="w-full h-full bg-black flex items-center justify-center">
                 <div className="text-center text-zinc-600 text-sm">

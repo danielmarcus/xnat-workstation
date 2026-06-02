@@ -18,7 +18,13 @@ import type {
   XnatScan,
   XnatUploadResult,
 } from './xnat';
-import type { MainDiagnosticsSnapshotResult } from './diagnostics';
+import type {
+  CrashSnapshotListResult,
+  CrashSnapshotPayload,
+  CrashSnapshotReadResult,
+  CrashSnapshotWriteResult,
+  MainDiagnosticsSnapshotResult,
+} from './diagnostics';
 import type {
   CheckForUpdatesResponse,
   ConfigureUpdaterRequest,
@@ -189,6 +195,10 @@ export interface ElectronAPI {
   };
   diagnostics?: {
     getMainSnapshot(): Promise<MainDiagnosticsSnapshotResult>;
+    writeCrashSnapshot(payload: CrashSnapshotPayload): Promise<CrashSnapshotWriteResult>;
+    listCrashSnapshots(): Promise<CrashSnapshotListResult>;
+    readCrashSnapshot(id: string): Promise<CrashSnapshotReadResult>;
+    deleteCrashSnapshot(id: string): Promise<{ ok: boolean; error?: string }>;
   };
   /**
    * E2E-only IPC for local DICOM fixture reads. Only registered when the

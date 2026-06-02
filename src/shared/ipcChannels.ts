@@ -77,6 +77,12 @@ export const IPC = {
 
   // Diagnostics (renderer → main)
   DIAGNOSTICS_GET_MAIN_SNAPSHOT: 'diagnostics:get-main-snapshot',
+  // Crash snapshots (MV-Phase 7.1, spec §13.8): written automatically on
+  // renderer crashes / unhandled rejections; surfaced on next launch.
+  DIAGNOSTICS_WRITE_CRASH_SNAPSHOT: 'diagnostics:write-crash-snapshot',
+  DIAGNOSTICS_LIST_CRASH_SNAPSHOTS: 'diagnostics:list-crash-snapshots',
+  DIAGNOSTICS_READ_CRASH_SNAPSHOT: 'diagnostics:read-crash-snapshot',
+  DIAGNOSTICS_DELETE_CRASH_SNAPSHOT: 'diagnostics:delete-crash-snapshot',
 
   // Auto-update (renderer → main / main → renderer)
   UPDATER_GET_STATE: 'updater:get-state',

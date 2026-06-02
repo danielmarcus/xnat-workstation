@@ -49,6 +49,21 @@ vi.mock('../segmentation/segmentationManagerSingleton', () => ({
   },
 }));
 
+// Pre-upload IOD validation (MV-Phase 7.1) has its own unit suite in
+// dicomValidation.test.ts. Here we stub it pass-through so the upload
+// decision tree stays the subject under test; one test below flips the
+// stub to a reject to pin the validation-blocks-upload branch.
+const validateBase64ForUpload = vi.fn(async () => undefined);
+vi.mock('./dicomValidation', () => ({
+  validateBase64ForUpload: (...args: unknown[]) => validateBase64ForUpload(...args),
+  DicomValidationError: class DicomValidationError extends Error {
+    constructor(message: string) {
+      super(message);
+      this.name = 'DicomValidationError';
+    }
+  },
+}));
+
 import {
   resetXnatUploadWiring,
   uploadSegmentationToXnat,
@@ -172,6 +187,32 @@ describe('xnatUploadService', () => {
     expect(notify).toHaveBeenCalledWith(
       expect.stringMatching(/Uploaded SEG as scan 3011/),
       'success',
+    );
+  });
+
+  it('blocks the upload when pre-upload DICOM validation rejects (MV-Phase 7.1, spec §13.3)', async () => {
+    const { DicomValidationError } = await import('./dicomValidation');
+    validateBase64ForUpload.mockRejectedValueOnce(
+      new (DicomValidationError as new (m: string) => Error)('DICOM SEG missing required tag(s): Rows'),
+    );
+    const notify = vi.fn();
+    wireXnatUpload({
+      getPanelXnatContext: () => ({
+        projectId: 'P', subjectId: 'S', sessionId: 'SESS', sessionLabel: 'L', scanId: '11',
+      }),
+      getSourceScanId: () => '11',
+      exportToBase64: vi.fn(async () => 'BASE64_PAYLOAD'),
+      promptExisting: vi.fn(async () => ({ action: 'cancel' })),
+      notify,
+    });
+
+    const outcome = await uploadSegmentationToXnat('seg-1', 'SEG');
+
+    expect(outcome).toBe('failed');
+    expect(electronApiStub.xnat.uploadDicomSeg).not.toHaveBeenCalled();
+    expect(notify).toHaveBeenCalledWith(
+      expect.stringMatching(/Upload blocked.*missing required tag/),
+      'error',
     );
   });
 });
