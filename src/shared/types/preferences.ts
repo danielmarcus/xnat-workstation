@@ -24,12 +24,17 @@ export type OverlayFieldKey =
   | 'sliceLocation'
   | 'sliceThickness'
   | 'windowLevel'
+  // ─── MV-Phase 7.8 additions (spec §9.1) ──────────────────────
+  | 'cursorHU'
+  | 'cursorCoords'
   | 'zoom'
   | 'dimensions'
   | 'rotation'
   | 'flip'
   | 'invert'
-  | 'crosshair';
+  | 'crosshair'
+  | 'activeTool'
+  | 'activeAnnotation';
 
 export interface OverlayPreferences {
   showViewportContextOverlay: boolean;
@@ -202,8 +207,8 @@ export interface PreferencesV1 {
 export const DEFAULT_OVERLAY_CORNERS: Record<OverlayCornerId, OverlayFieldKey[]> = {
   topLeft: ['orientationSelector', 'subjectLabel', 'sessionLabel', 'studyDate'],
   topRight: ['institutionName', 'seriesDescription', 'scanId'],
-  bottomLeft: ['imageIndex', 'sliceLocation', 'sliceThickness', 'windowLevel'],
-  bottomRight: ['zoom', 'dimensions', 'rotation', 'flip', 'invert', 'crosshair'],
+  bottomLeft: ['imageIndex', 'sliceLocation', 'sliceThickness', 'windowLevel', 'cursorHU', 'cursorCoords'],
+  bottomRight: ['zoom', 'dimensions', 'rotation', 'flip', 'invert', 'crosshair', 'activeTool', 'activeAnnotation'],
 };
 
 export const ALL_OVERLAY_FIELD_KEYS: OverlayFieldKey[] = [
@@ -220,12 +225,16 @@ export const ALL_OVERLAY_FIELD_KEYS: OverlayFieldKey[] = [
   'sliceLocation',
   'sliceThickness',
   'windowLevel',
+  'cursorHU',
+  'cursorCoords',
   'zoom',
   'dimensions',
   'rotation',
   'flip',
   'invert',
   'crosshair',
+  'activeTool',
+  'activeAnnotation',
 ];
 
 export const DEFAULT_SEGMENT_COLOR_SEQUENCE: HexColor[] = [

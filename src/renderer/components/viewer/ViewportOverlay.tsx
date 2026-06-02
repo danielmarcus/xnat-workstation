@@ -17,6 +17,9 @@ import { useViewerStore } from '../../stores/viewerStore';
 import { useMetadataStore } from '../../stores/metadataStore';
 import { useSegmentationStore } from '../../stores/segmentationStore';
 import { usePreferencesStore } from '../../stores/preferencesStore';
+import { useContainerStore } from '../../stores/containerStore';
+import { useContainerSelectionStore } from '../../stores/containerSelectionStore';
+import { useCursorMetricsForPanel } from '../../stores/cursorMetricsStore';
 import { EMPTY_OVERLAY } from '@shared/types/dicom';
 import type { MPRPlane } from '@shared/types/viewer';
 import { ToolName } from '@shared/types/viewer';
@@ -358,6 +361,19 @@ export default function ViewportOverlay({ panelId }: ViewportOverlayProps) {
     return source != null && target != null && source !== target;
   });
   const activeTool = useViewerStore((s) => s.activeTool);
+  // ─── Spec §9.1 — cursor metrics + active container/member ───
+  const cursorMetrics = useCursorMetricsForPanel(panelId);
+  const activeMemberId = useContainerSelectionStore((s) => s.activeMemberId);
+  const containers = useContainerStore((s) => s.containers);
+  const { activeContainerName, activeMemberName, activeContainerKind } = useMemo(() => {
+    if (!activeMemberId) return { activeContainerName: null, activeMemberName: null, activeContainerKind: null };
+    for (const c of containers.values()) {
+      const m = c.members.find((mm) => mm.id === activeMemberId);
+      if (m) return { activeContainerName: c.name, activeMemberName: m.name, activeContainerKind: c.kind };
+    }
+    return { activeContainerName: null, activeMemberName: null, activeContainerKind: null };
+  }, [activeMemberId, containers]);
+
   const displayOrientation: MPRPlane =
     (panelOrientation === 'STACK' ? nativeOrientation : panelOrientation) as MPRPlane;
   const [overlaySize, setOverlaySize] = useState({ width: 0, height: 0 });
@@ -566,6 +582,30 @@ export default function ViewportOverlay({ panelId }: ViewportOverlayProps) {
         return viewport.invert ? <span className="text-zinc-400">Inverted</span> : null;
       case 'crosshair':
         return crosshairText ? <span className="text-cyan-300">{crosshairText}</span> : null;
+      case 'cursorHU': {
+        if (!cursorMetrics || cursorMetrics.hu == null) return null;
+        const label = (cursorMetrics.modality ?? '').toUpperCase() === 'CT' ? 'HU' : 'Val';
+        return <span className="text-zinc-300 tabular-nums">{label}: {Math.round(cursorMetrics.hu)}</span>;
+      }
+      case 'cursorCoords': {
+        if (!cursorMetrics || !cursorMetrics.world) return null;
+        const [x, y, z] = cursorMetrics.world;
+        return (
+          <span className="text-zinc-400 tabular-nums">
+            ({x.toFixed(1)}, {y.toFixed(1)}, {z.toFixed(1)}) mm
+          </span>
+        );
+      }
+      case 'activeTool':
+        return <span className="text-zinc-400">Tool · {labelForTool(activeTool)}</span>;
+      case 'activeAnnotation':
+        return activeContainerName && activeMemberName
+          ? (
+            <span className="text-zinc-300">
+              {activeContainerKind ?? '—'} · {activeMemberName}
+            </span>
+          )
+          : null;
       default:
         return null;
     }
@@ -589,6 +629,10 @@ export default function ViewportOverlay({ panelId }: ViewportOverlayProps) {
     <div
       ref={overlayRef}
       data-testid={`viewport-overlay:${panelId}`}
+      // Spec §9.3 — subtle text-shadow so overlay copy stays legible
+      // on bright images (over-windowed CT, etc.). Inherited by every
+      // child text node via plain CSS inheritance.
+      style={{ textShadow: '0 1px 2px rgba(0, 0, 0, 0.85)' }}
       className="absolute inset-0 pointer-events-none select-none"
     >
       {showCrosshairGuides && (() => {
@@ -729,4 +773,47 @@ export default function ViewportOverlay({ panelId }: ViewportOverlayProps) {
       )}
     </div>
   );
+}
+
+/**
+ * Short, human-readable label for a ToolName — used by the
+ * `activeTool` overlay field. Falls back to the enum value when no
+ * explicit label is defined (forward-compat for new tools).
+ */
+function labelForTool(tool: ToolName): string {
+  const labels: Partial<Record<ToolName, string>> = {
+    [ToolName.WindowLevel]: 'Window/Level',
+    [ToolName.Pan]: 'Pan',
+    [ToolName.Zoom]: 'Zoom',
+    [ToolName.StackScroll]: 'Stack scroll',
+    [ToolName.Crosshairs]: 'Crosshairs',
+    [ToolName.Length]: 'Length',
+    [ToolName.Angle]: 'Angle',
+    [ToolName.Bidirectional]: 'Bidirectional',
+    [ToolName.EllipticalROI]: 'Ellipse',
+    [ToolName.RectangleROI]: 'Rectangle',
+    [ToolName.CircleROI]: 'Circle',
+    [ToolName.Probe]: 'Probe',
+    [ToolName.ArrowAnnotate]: 'Arrow',
+    [ToolName.PlanarFreehandROI]: 'Freehand',
+    [ToolName.Brush]: 'Brush',
+    [ToolName.Eraser]: 'Eraser',
+    [ToolName.ThresholdBrush]: 'Threshold brush',
+    [ToolName.FreehandContour]: 'Freehand contour',
+    [ToolName.SplineContour]: 'Spline',
+    [ToolName.LivewireContour]: 'Livewire',
+    [ToolName.CircleScissors]: 'Circle scissors',
+    [ToolName.RectangleScissors]: 'Rectangle scissors',
+    [ToolName.SphereScissors]: 'Sphere scissors',
+    [ToolName.PaintFill]: 'Paint fill',
+    [ToolName.Sculptor]: 'Sculptor',
+    [ToolName.SegmentSelect]: 'Segment select',
+    [ToolName.RegionSegment]: 'Region',
+    [ToolName.RegionSegmentPlus]: 'Region+',
+    [ToolName.SegmentBidirectional]: 'Segment bidir.',
+    [ToolName.RectangleROIThreshold]: 'Rect ROI threshold',
+    [ToolName.CircleROIThreshold]: 'Circle ROI threshold',
+    [ToolName.LabelmapEditWithContour]: 'Contour fill',
+  };
+  return labels[tool] ?? String(tool);
 }

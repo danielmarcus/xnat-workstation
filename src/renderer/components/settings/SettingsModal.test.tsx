@@ -205,7 +205,7 @@ describe('SettingsModal', () => {
     render(<SettingsModal open onClose={() => {}} />);
 
     await user.click(screen.getByRole('button', { name: 'Overlay' }));
-    await user.click(screen.getByRole('checkbox', { name: 'Show viewport context overlay' }));
+    await user.click(screen.getByRole('checkbox', { name: 'Show corner overlays' }));
     await user.click(screen.getByRole('checkbox', { name: 'Show horizontal ruler' }));
     await user.click(screen.getByRole('checkbox', { name: 'Show A/P and L/R indicators' }));
     await user.click(screen.getByRole('checkbox', { name: 'Orientation control' }));

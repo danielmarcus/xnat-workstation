@@ -84,6 +84,8 @@ const CORNER_OPTIONS: Array<{
       { key: 'sliceLocation', label: 'Slice location' },
       { key: 'sliceThickness', label: 'Slice thickness' },
       { key: 'windowLevel', label: 'Window / Level' },
+      { key: 'cursorHU', label: 'Cursor HU / intensity' },
+      { key: 'cursorCoords', label: 'Cursor coordinates (LPS)' },
       { key: 'crosshair', label: 'Crosshair coordinates' },
     ],
   },
@@ -98,6 +100,8 @@ const CORNER_OPTIONS: Array<{
       { key: 'invert', label: 'Invert state' },
       { key: 'windowLevel', label: 'Window / Level' },
       { key: 'crosshair', label: 'Crosshair coordinates' },
+      { key: 'activeTool', label: 'Active tool' },
+      { key: 'activeAnnotation', label: 'Active annotation' },
     ],
   },
 ];
@@ -691,7 +695,7 @@ export default function SettingsModal({ open, onClose, onRecover, initialTab }: 
                       onChange={(e) => setShowViewportContextOverlay(e.target.checked)}
                       className="w-3.5 h-3.5 rounded border-zinc-600 bg-zinc-800 accent-blue-500"
                     />
-                    <span className="text-xs text-zinc-300">Show viewport context overlay</span>
+                    <span className="text-xs text-zinc-300">Show corner overlays</span>
                   </label>
                   <label className="flex items-center gap-2 cursor-pointer">
                     <input
