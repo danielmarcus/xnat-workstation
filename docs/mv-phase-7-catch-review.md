@@ -68,6 +68,75 @@ All 47 catches in this directory follow the standard IPC handler pattern: `catch
 
 47 catches · 0 changes (surface decision deferred to renderer caller; reviewed below)
 
+### `src/renderer/lib/diagnostics/`
+
+| File:line | Current behavior | Classification | Note |
+|---|---|---|---|
+| `crashSnapshotService.ts:70` | Capture path failure → `console.warn` + return `null` | ✅ Silent — comment explicitly notes "never let capture failures cascade into the crash path" | |
+| `issueReport.ts:35` | Main-process snapshot fetch failure → records `{ok:false, error}` into the report payload | ✅ Silent — diagnostics report intentionally includes the fetch failure for support | |
+| `rendererLogBuffer.ts:17` | `JSON.stringify` on circular ref → `String(arg)` fallback | ✅ Silent — fallback IS the function's job (produce a string log line) | |
+
+3 catches · 0 changes
+
+### `src/renderer/lib/backup/`
+
+| File:line | Current behavior | Classification | Note |
+|---|---|---|---|
+| `backupService.ts:173` | Manifest read failure → fresh manifest | ✅ Silent — init path | |
+| `backupService.ts:234`, `:301`, `:316`, `:329`, `:339` | Cleanup of stale backup files → ignore | ✅ Silent — best-effort cleanup | |
+| `backupService.ts:254` | Export-to-DICOM failure during auto-save: "no painted segment data" returns silently, other errors rethrow up to `autoSave.ts` | ✅ Silent — caller `autoSave.ts:performAutoSave` translates to `autoSaveStatus` state read by the spec'd panel autosave row (§4.9) | |
+| `backupService.ts:274` | Manifest write failure → `console.error` | ✅ Silent here — surface decision lives in `autoSave.ts` via `autoSaveStatus`; the **panel autosave row** (#82 §4.9 + #86 §13.7) is the documented home for "backup failed — retry" + the 3-failure escalation toast | |
+
+8 catches · 0 changes (surfaces decided by `autoSave.ts` consumer; panel autosave row is the spec'd home)
+
+### `src/renderer/lib/segmentation/`
+
+| File:line | Current behavior | Classification | Note |
+|---|---|---|---|
+| `SegmentationManager.ts:94` | viewport-ready timeout → 200ms wait + continue | ✅ Silent — recovery built in | |
+| `SegmentationManager.ts:134`, `:159`, `:701` | Per-viewport attach failure → `console.debug` | ✅ Silent — best-effort multi-viewport attach | |
+| `SegmentationManager.ts:221` | Reconcile-after-ready failure → `console.debug` | ✅ Silent — comment notes non-fatal causes (stale epoch, timeout) | |
+| `SegmentationManager.ts:232` | Viewport-presence check → return `false` | ✅ Silent — boolean return is the contract | |
+| `SegmentationManager.ts:525` | Overlay-load failure → `console.error` + sets `loadStatus: 'error'` for UI consumer | ✅ Silent here; UI consumer (panel rebuild #82 §4.4 row state) will surface | |
+
+7 catches · 0 changes
+
+### `src/renderer/lib/app/`
+
+| File:line | Current behavior | Classification | Note |
+|---|---|---|---|
+| `appHelpers.ts:185`, `:214` | DICOM tag lookup helpers → return `null` on parse failure | ✅ Silent — caller treats null as "not available" | |
+| `appHelpers.ts:241`, `:283` | Per-scan match-loop failure → continue to next scan | ✅ Silent — search loop tolerates individual failures | |
+
+4 catches · 0 changes
+
+### `src/renderer/lib/e2e/`
+
+| File:line | Current behavior | Classification | Note |
+|---|---|---|---|
+| `e2eFixtureBridge.ts:159` | Metadata-ordering helper failure → `console.warn` + IPC-order fallback | ✅ Silent — test helper, fallback path is correct | |
+| `installRendererE2eHooks.ts:553` | Viewport-attachment lookup → return `[]` | ✅ Silent — comment notes Cornerstone API inconsistency | |
+| `installRendererE2eHooks.ts:969` | Export-to-DICOM-SEG failure → records to `window.__XNAT_E2E_LAST_EXPORT_ERROR__` | ✅ Silent — test hook intentionally records onto a global for spec retrieval | |
+| `installRendererE2eHooks.ts:1036` | Export-to-RTSTRUCT failure → `console.warn` + rethrow | ✅ Rethrow — test hook lets the spec see the actual error | |
+
+4 catches · 0 changes (all are E2E test-rig hooks, intentionally non-production)
+
+### `src/renderer/lib/dicom/`
+
+| File:line | Current behavior | Classification | Note |
+|---|---|---|---|
+| `segReferencedSeriesUid.ts:119` | SEG header parse failure → `console.warn` + return `{referencedSeriesUID: null, ...}` | ✅ Silent — caller falls back to filename-based heuristics | |
+
+1 catch · 0 changes
+
+### `src/renderer/lib/` (top level)
+
+| File:line | Current behavior | Classification | Note |
+|---|---|---|---|
+| `pinnedItems.ts:86`, `:94`, `:161`, `:169`, `:279`, `:281`, `:295`, `:302` | localStorage read/write failures (quota, corrupted JSON) → ignore / return `[]` | ✅ Silent — pinned-items + recent-sessions are convenience features; their absence is acceptable | |
+
+8 catches · 0 changes
+
 ### `src/main/updater/`
 
 | File:line | Current behavior | Classification | Note |
