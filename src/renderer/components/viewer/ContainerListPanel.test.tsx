@@ -5,7 +5,7 @@
  * useContainerStore. No bridge interaction — these tests verify the
  * UI shell renders state correctly.
  */
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, createEvent, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock containerService methods — we just verify the panel calls them
@@ -16,6 +16,8 @@ const setMemberLockMock = vi.hoisted(() => vi.fn());
 const setActiveMemberMock = vi.hoisted(() => vi.fn());
 const renameMemberMock = vi.hoisted(() => vi.fn());
 const renameContainerMock = vi.hoisted(() => vi.fn());
+const reorderMemberMock = vi.hoisted(() => vi.fn());
+const recolorMemberMock = vi.hoisted(() => vi.fn());
 const deleteMemberMock = vi.hoisted(() => vi.fn());
 const deleteContainerMock = vi.hoisted(() => vi.fn());
 const setA2cOptedInMock = vi.hoisted(() => vi.fn());
@@ -30,6 +32,8 @@ vi.mock('../../lib/cornerstone/containerService', () => ({
     setActiveMember: setActiveMemberMock,
     renameMember: renameMemberMock,
     renameContainer: renameContainerMock,
+    reorderMember: reorderMemberMock,
+    recolorMember: recolorMemberMock,
     deleteMember: deleteMemberMock,
     deleteContainer: deleteContainerMock,
     setA2cOptedIn: setA2cOptedInMock,
@@ -132,6 +136,8 @@ beforeEach(() => {
   setActiveMemberMock.mockReset();
   renameMemberMock.mockReset();
   renameContainerMock.mockReset();
+  reorderMemberMock.mockReset();
+  recolorMemberMock.mockReset();
   deleteMemberMock.mockReset();
   deleteContainerMock.mockReset();
   setA2cOptedInMock.mockReset();
@@ -2140,3 +2146,185 @@ describe('session save-all (D7.6)', () => {
     expect(saveAllDirtyMock).toHaveBeenCalled();
   });
 });
+
+// ─── MV-Phase 7.3b: member-row drag-handle reorder (spec §4.5) ──────────
+
+describe('member-row drag handle (spec §4.5)', () => {
+  it('renders the drag handle on every member of a non-approved container', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [
+          makeMember({ id: 'm1', name: 'A' }),
+          makeMember({ id: 'm2', name: 'B' }),
+        ],
+      }),
+    );
+    render(<ContainerListPanel />);
+    expect(screen.queryByTestId('member-drag-handle:m1')).not.toBeNull();
+    expect(screen.queryByTestId('member-drag-handle:m2')).not.toBeNull();
+  });
+
+  it('hides the drag handle when the container is approved', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        approval: { approved: true, reviewerName: null, reviewedAt: 0, history: [] },
+        members: [makeMember({ id: 'm1' })],
+      }),
+    );
+    render(<ContainerListPanel />);
+    expect(screen.queryByTestId('member-drag-handle:m1')).toBeNull();
+  });
+
+  it('drag over the upper half of a row shows the "above" indicator', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [
+          makeMember({ id: 'm1', name: 'A' }),
+          makeMember({ id: 'm2', name: 'B' }),
+        ],
+      }),
+    );
+    render(<ContainerListPanel />);
+    const target = screen.getByTestId('member-row:m2');
+    mockRect(target, { top: 100, height: 40 });
+    const dt = makeDataTransfer({ 'application/x-member-id': 'm1' });
+
+    act(() => {
+      dispatchDrag(target, 'dragOver', { clientY: 105, dataTransfer: dt });
+    });
+    // dropEdge='above' renders the indicator with the same testid; we
+    // assert presence (its position is purely CSS).
+    expect(screen.queryByTestId('member-drop-indicator:m2')).not.toBeNull();
+  });
+
+  it('dropping a member above another calls reorderMember with the target index', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [
+          makeMember({ id: 'm1', name: 'A' }),
+          makeMember({ id: 'm2', name: 'B' }),
+          makeMember({ id: 'm3', name: 'C' }),
+        ],
+      }),
+    );
+    render(<ContainerListPanel />);
+    const target = screen.getByTestId('member-row:m3');
+    mockRect(target, { top: 100, height: 40 });
+    const dt = makeDataTransfer({ 'application/x-member-id': 'm1' });
+
+    act(() => {
+      dispatchDrag(target, 'dragOver', { clientY: 105, dataTransfer: dt });
+    });
+    act(() => {
+      dispatchDrag(target, 'drop', { dataTransfer: dt });
+    });
+
+    // m1 dropped on top half of m3 → target index = current index of m3 = 2.
+    expect(reorderMemberMock).toHaveBeenCalledWith('m1', 2);
+  });
+
+  it('dropping a member below another uses the next index', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [
+          makeMember({ id: 'm1', name: 'A' }),
+          makeMember({ id: 'm2', name: 'B' }),
+        ],
+      }),
+    );
+    render(<ContainerListPanel />);
+    const target = screen.getByTestId('member-row:m1');
+    mockRect(target, { top: 100, height: 40 });
+    const dt = makeDataTransfer({ 'application/x-member-id': 'm2' });
+
+    act(() => {
+      dispatchDrag(target, 'dragOver', { clientY: 135, dataTransfer: dt });
+    });
+    act(() => {
+      dispatchDrag(target, 'drop', { dataTransfer: dt });
+    });
+
+    // m2 dropped on bottom half of m1 (index 0) → target index = 0 + 1 = 1.
+    expect(reorderMemberMock).toHaveBeenCalledWith('m2', 1);
+  });
+
+  it('dropping a member onto itself is a no-op (no reorderMember call)', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [makeMember({ id: 'm1' })],
+      }),
+    );
+    render(<ContainerListPanel />);
+    const target = screen.getByTestId('member-row:m1');
+    mockRect(target, { top: 100, height: 40 });
+    const dt = makeDataTransfer({ 'application/x-member-id': 'm1' });
+
+    act(() => {
+      dispatchDrag(target, 'drop', { dataTransfer: dt });
+    });
+    expect(reorderMemberMock).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Build a minimal DataTransfer-shaped object for fireEvent.dragOver/drop.
+ * jsdom doesn't ship a DataTransfer constructor, so we hand-roll the
+ * subset our drag handlers actually use: types[], getData, setData,
+ * effectAllowed, dropEffect.
+ */
+function makeDataTransfer(payload: Record<string, string>): DataTransfer {
+  const data = new Map<string, string>(Object.entries(payload));
+  return {
+    types: Array.from(data.keys()),
+    setData: (type: string, value: string) => { data.set(type, value); },
+    getData: (type: string) => data.get(type) ?? '',
+    effectAllowed: 'move',
+    dropEffect: 'move',
+  } as unknown as DataTransfer;
+}
+
+/**
+ * Override getBoundingClientRect on a specific element for the test.
+ * jsdom returns all-zero rects by default; the drag handlers use the
+ * rect to decide above-vs-below the row midpoint.
+ */
+function mockRect(el: Element, { top, height }: { top: number; height: number }) {
+  const rect: DOMRect = {
+    top, height,
+    bottom: top + height,
+    left: 0, right: 200, width: 200,
+    x: 0, y: top,
+    toJSON: () => ({}),
+  } as DOMRect;
+  el.getBoundingClientRect = () => rect;
+}
+
+/**
+ * Dispatch a drag event with clientY + dataTransfer attached.
+ *
+ * fireEvent.dragOver/drop in @testing-library don't propagate
+ * `clientY` into the synthetic event (only MouseEvent does it
+ * natively, and the jsdom DragEvent shim drops it). We use
+ * createEvent + defineProperty to force the property onto the
+ * event before dispatching.
+ */
+function dispatchDrag(
+  el: Element,
+  type: 'dragOver' | 'drop' | 'dragStart' | 'dragEnd' | 'dragLeave',
+  init: { clientY?: number; dataTransfer?: DataTransfer },
+) {
+  const event = createEvent[type](el);
+  if (init.clientY !== undefined) {
+    Object.defineProperty(event, 'clientY', { value: init.clientY, configurable: true });
+  }
+  if (init.dataTransfer) {
+    Object.defineProperty(event, 'dataTransfer', { value: init.dataTransfer, configurable: true });
+  }
+  fireEvent(el, event);
+}

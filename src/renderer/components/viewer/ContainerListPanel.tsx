@@ -962,6 +962,22 @@ function MemberRow({
   const [renameValue, setRenameValue] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
+  // Drag-and-drop reorder state (spec §4.5). `isDragSource` dims the row
+  // while it is being dragged; `dropEdge` shows a blue 2px line above or
+  // below to indicate the drop position. The dataTransfer payload carries
+  // the source memberId; on drop, reorderMember is called.
+  //
+  // dropEdge is mirrored to a ref so the onDrop handler reads the latest
+  // value even when React state updates from onDragOver haven't been
+  // observed by the next event tick (matters in tests + fast drops).
+  const [isDragSource, setIsDragSource] = useState(false);
+  const [dropEdge, setDropEdgeState] = useState<'above' | 'below' | null>(null);
+  const dropEdgeRef = useRef<'above' | 'below' | null>(null);
+  const setDropEdge = (next: 'above' | 'below' | null) => {
+    dropEdgeRef.current = next;
+    setDropEdgeState(next);
+  };
+
   // Close the menu on outside click.
   useEffect(() => {
     if (!menuOpen) return;
@@ -1027,23 +1043,112 @@ function MemberRow({
     containerService.setActiveMember(member.id);
   };
 
+  // ─── Drag-and-drop reorder (spec §4.5) ───
+  const onDragStart = (e: React.DragEvent<HTMLLIElement>) => {
+    e.dataTransfer.setData('application/x-member-id', member.id);
+    e.dataTransfer.effectAllowed = 'move';
+    setIsDragSource(true);
+  };
+  const onDragEnd = () => {
+    setIsDragSource(false);
+    setDropEdge(null);
+  };
+  const onDragOver = (e: React.DragEvent<HTMLLIElement>) => {
+    // Only treat as a drop target when a member is being dragged. The MIME
+    // is checked via the standardised dataTransfer.types list (works during
+    // dragover; the actual data isn't readable until drop).
+    if (!e.dataTransfer.types.includes('application/x-member-id')) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    const rect = (e.currentTarget as HTMLLIElement).getBoundingClientRect();
+    const midpoint = rect.top + rect.height / 2;
+    setDropEdge(e.clientY < midpoint ? 'above' : 'below');
+  };
+  const onDragLeave = () => {
+    setDropEdge(null);
+  };
+  const onDrop = (e: React.DragEvent<HTMLLIElement>) => {
+    const sourceId = e.dataTransfer.getData('application/x-member-id');
+    // Snapshot the drop edge BEFORE clearing it — setDropEdge mutates the
+    // ref synchronously, so reading it after the clear would always be null.
+    const edgeAtDrop = dropEdgeRef.current;
+    if (!sourceId || sourceId === member.id) {
+      setDropEdge(null);
+      return;
+    }
+    e.preventDefault();
+    setDropEdge(null);
+    // Find the container that owns this row so we can compute the target
+    // index inside its members array.
+    let host: Container | null = null;
+    for (const c of useContainerStore.getState().containers.values()) {
+      if (c.members.some((m) => m.id === member.id)) {
+        host = c;
+        break;
+      }
+    }
+    if (!host) return;
+    const currentIndex = host.members.findIndex((m) => m.id === member.id);
+    if (currentIndex < 0) return;
+    const targetIndex = edgeAtDrop === 'above' ? currentIndex : currentIndex + 1;
+    try {
+      containerService.reorderMember(sourceId, targetIndex);
+    } catch (err) {
+      console.warn('[ContainerListPanel] reorderMember failed', err);
+    }
+  };
+
   return (
     <li
       data-testid={`member-row:${member.id}`}
       onClick={onRowClick}
       onMouseEnter={onRowEnter}
       onMouseLeave={onRowLeave}
-      className={`group flex items-center gap-2 pl-6 pr-3 py-1 cursor-pointer transition-colors border-l-2 ${
+      draggable={!containerApproved}
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+      className={`group relative flex items-center gap-2 pl-2 pr-3 py-1 cursor-pointer transition-colors border-l-2 ${
         isSelected
           ? 'bg-blue-900/30 border-blue-500'
           : isHovered
             ? 'bg-zinc-800/60 border-transparent'
             : 'border-transparent hover:bg-zinc-800/40'
-      }`}
+      } ${isDragSource ? 'opacity-[0.35]' : ''}`}
       data-selected={isSelected || undefined}
       data-active={isActive || undefined}
       data-hovered={isHovered || undefined}
+      data-drag-source={isDragSource || undefined}
+      data-drop-edge={dropEdge ?? undefined}
     >
+      {/* Drop-target indicator (spec §4.5): blue 2px line above or below. */}
+      {dropEdge === 'above' && (
+        <span
+          data-testid={`member-drop-indicator:${member.id}`}
+          className="pointer-events-none absolute left-0 right-0 top-0 h-0.5 bg-blue-500"
+          aria-hidden
+        />
+      )}
+      {dropEdge === 'below' && (
+        <span
+          data-testid={`member-drop-indicator:${member.id}`}
+          className="pointer-events-none absolute left-0 right-0 bottom-0 h-0.5 bg-blue-500"
+          aria-hidden
+        />
+      )}
+      {/* Drag handle (spec §4.5). Hidden in approved containers (read-only). */}
+      {!containerApproved && (
+        <span
+          data-testid={`member-drag-handle:${member.id}`}
+          className="text-zinc-600 hover:text-zinc-300 cursor-grab active:cursor-grabbing select-none leading-none text-[10px] shrink-0"
+          title="Drag to reorder"
+          aria-label="drag to reorder"
+        >
+          ⠿
+        </span>
+      )}
       <button
         type="button"
         data-testid={`member-color:${member.id}`}
