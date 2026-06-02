@@ -37,6 +37,7 @@ import {
   IconMeasurementAnnotation,
 } from '../icons';
 import DeleteConfirmDialog, { type DeleteConfirmTarget } from './dialogs/DeleteConfirmDialog';
+import AutosaveRow from './AutosaveRow';
 import SaveAllPreflightDialog, {
   type SaveAllPreflightRow,
   type SaveAllDecision,
@@ -434,6 +435,8 @@ export default function ContainerListPanel() {
           </ul>
         )}
       </div>
+
+      <AutosaveRow />
 
       <SaveAllPreflightDialog
         open={saveAllPreflightOpen}
