@@ -30,7 +30,8 @@ import {
   isPrivateTag,
   type DicomTagGroup,
 } from '@shared/dicomTagDictionary';
-import { IconClose } from '../icons';
+import { IconClose, IconCopy } from '../icons';
+import { toastService } from '../../lib/toast/toastService';
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -180,6 +181,12 @@ export default function DicomHeaderPanel({ onClose }: DicomHeaderPanelProps) {
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   // Spec §10.5 — module-filter chip. `null` = All.
   const [moduleFilter, setModuleFilter] = useState<DicomTagGroup | null>(null);
+  // Spec §10.6 — right-click context menu state. Closed when null.
+  const [contextMenu, setContextMenu] = useState<{
+    tagKey: string;
+    x: number;
+    y: number;
+  } | null>(null);
 
   // Subscribe to active viewport and image index changes
   const activeViewportId = useViewerStore((s) => s.activeViewportId);
@@ -276,6 +283,49 @@ export default function DicomHeaderPanel({ onClose }: DicomHeaderPanelProps) {
       tags: groups.get(g)!,
     }));
   }, [filteredTags]);
+
+  // ─── Copy actions (spec §10.6) ───
+  const copy = useCallback(async (text: string, label: string) => {
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      }
+      toastService.notify({ kind: 'success', message: label });
+    } catch (err) {
+      toastService.notify({
+        kind: 'error',
+        message: 'Could not copy to clipboard',
+        detail: err instanceof Error ? err.message : undefined,
+      });
+    }
+  }, []);
+
+  const copyValue = useCallback((tag: ParsedTag) => copy(tag.value, 'Copied value to clipboard.'), [copy]);
+  const copyTagLine = useCallback(
+    (tag: ParsedTag) => copy(`${tag.tag} ${tag.name} = ${tag.value}`, 'Copied tag line to clipboard.'),
+    [copy],
+  );
+  const copyTagJson = useCallback(
+    (tag: ParsedTag) => copy(JSON.stringify({ tag: tag.tag, vr: tag.vr, name: tag.name, value: tag.value }, null, 2), 'Copied tag as JSON.'),
+    [copy],
+  );
+  const copyGroupJson = useCallback(
+    (tag: ParsedTag) => {
+      const groupTags = allTags
+        .filter((t) => t.group === tag.group)
+        .map((t) => ({ tag: t.tag, vr: t.vr, name: t.name, value: t.value }));
+      copy(JSON.stringify({ group: tag.group, tags: groupTags }, null, 2), `Copied ${tag.group} module as JSON.`);
+    },
+    [allTags, copy],
+  );
+
+  // Close the context menu when the user clicks outside or scrolls.
+  useEffect(() => {
+    if (!contextMenu) return;
+    const onPointerDown = () => setContextMenu(null);
+    window.addEventListener('pointerdown', onPointerDown);
+    return () => window.removeEventListener('pointerdown', onPointerDown);
+  }, [contextMenu]);
 
   const toggleGroup = useCallback((group: string) => {
     setCollapsedGroups((prev) => {
@@ -433,7 +483,12 @@ export default function DicomHeaderPanel({ onClose }: DicomHeaderPanelProps) {
                     {tags.map((t) => (
                       <div
                         key={t.tagKey}
-                        className="px-3 py-1 hover:bg-zinc-800/30 transition-colors group"
+                        data-testid={`dicom-tags-row:${t.tagKey}`}
+                        className="px-3 py-1 hover:bg-zinc-800/30 transition-colors group relative"
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          setContextMenu({ tagKey: t.tagKey, x: e.clientX, y: e.clientY });
+                        }}
                       >
                         <div className="flex items-baseline gap-1.5">
                           <span className="text-[10px] font-mono text-zinc-600 shrink-0">
@@ -445,6 +500,16 @@ export default function DicomHeaderPanel({ onClose }: DicomHeaderPanelProps) {
                           <span className="text-[11px] text-zinc-400 truncate">
                             {t.name}
                           </span>
+                          <button
+                            type="button"
+                            data-testid={`dicom-tags-copy:${t.tagKey}`}
+                            onClick={() => copyValue(t)}
+                            className="ml-auto opacity-0 group-hover:opacity-100 transition-opacity text-zinc-500 hover:text-zinc-200 px-1 rounded hover:bg-zinc-800"
+                            title="Copy value"
+                            aria-label="Copy value"
+                          >
+                            <IconCopy className="w-3 h-3" />
+                          </button>
                         </div>
                         <div
                           className="text-[11px] text-zinc-300 mt-0.5 break-all leading-snug"
@@ -462,6 +527,66 @@ export default function DicomHeaderPanel({ onClose }: DicomHeaderPanelProps) {
         )}
       </div>
       </div>
+
+      {contextMenu && (() => {
+        const tag = allTags.find((t) => t.tagKey === contextMenu.tagKey);
+        if (!tag) return null;
+        return (
+          <ul
+            data-testid="dicom-tags-context-menu"
+            role="menu"
+            style={{ top: contextMenu.y, left: contextMenu.x }}
+            className="fixed z-40 bg-zinc-900 border border-zinc-700 rounded shadow-xl py-0.5 min-w-[200px] text-xs"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <ContextMenuItem
+              testid="dicom-tags-ctx-copy-value"
+              label="Copy value"
+              onClick={() => { setContextMenu(null); copyValue(tag); }}
+            />
+            <ContextMenuItem
+              testid="dicom-tags-ctx-copy-tagline"
+              label={`Copy "${tag.tag} ${tag.name} = …"`}
+              onClick={() => { setContextMenu(null); copyTagLine(tag); }}
+            />
+            <ContextMenuItem
+              testid="dicom-tags-ctx-copy-json"
+              label="Copy as JSON"
+              onClick={() => { setContextMenu(null); copyTagJson(tag); }}
+            />
+            <ContextMenuItem
+              testid="dicom-tags-ctx-copy-group-json"
+              label={`Copy ${tag.group} module as JSON`}
+              onClick={() => { setContextMenu(null); copyGroupJson(tag); }}
+            />
+          </ul>
+        );
+      })()}
     </div>
+  );
+}
+
+function ContextMenuItem({
+  testid,
+  label,
+  onClick,
+}: {
+  testid: string;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <li role="none">
+      <button
+        type="button"
+        role="menuitem"
+        data-testid={testid}
+        onClick={onClick}
+        className="block w-full text-left text-zinc-200 hover:bg-zinc-800 px-2 py-1 truncate"
+      >
+        {label}
+      </button>
+    </li>
   );
 }

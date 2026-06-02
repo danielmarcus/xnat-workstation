@@ -160,6 +160,63 @@ describe('DicomHeaderPanel', () => {
     expect(screen.getByText('2024-01-31')).toBeInTheDocument();
   });
 
+  it('clicking the hover copy icon writes the tag value to the clipboard (spec §10.6)', async () => {
+    dicomPanelMocks.getViewport.mockReturnValue({
+      getCurrentImageId: () => 'wadouri:https://xnat.example/image1.dcm',
+    });
+    dicomPanelMocks.getDataSet.mockReturnValue(buildDataset());
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
+    render(<DicomHeaderPanel onClose={vi.fn()} />);
+    fireEvent.click(screen.getByTestId('dicom-tags-copy:x00100010'));
+    expect(writeText).toHaveBeenCalledWith('Doe^Jane');
+  });
+
+  it('right-click row opens a context menu with the 4 copy variants (spec §10.6)', () => {
+    dicomPanelMocks.getViewport.mockReturnValue({
+      getCurrentImageId: () => 'wadouri:https://xnat.example/image1.dcm',
+    });
+    dicomPanelMocks.getDataSet.mockReturnValue(buildDataset());
+    render(<DicomHeaderPanel onClose={vi.fn()} />);
+    fireEvent.contextMenu(screen.getByTestId('dicom-tags-row:x00100010'), { clientX: 50, clientY: 50 });
+    expect(screen.queryByTestId('dicom-tags-context-menu')).not.toBeNull();
+    expect(screen.queryByTestId('dicom-tags-ctx-copy-value')).not.toBeNull();
+    expect(screen.queryByTestId('dicom-tags-ctx-copy-tagline')).not.toBeNull();
+    expect(screen.queryByTestId('dicom-tags-ctx-copy-json')).not.toBeNull();
+    expect(screen.queryByTestId('dicom-tags-ctx-copy-group-json')).not.toBeNull();
+  });
+
+  it('context menu "Copy as JSON" writes a JSON payload with tag/vr/name/value', async () => {
+    dicomPanelMocks.getViewport.mockReturnValue({
+      getCurrentImageId: () => 'wadouri:https://xnat.example/image1.dcm',
+    });
+    dicomPanelMocks.getDataSet.mockReturnValue(buildDataset());
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
+    render(<DicomHeaderPanel onClose={vi.fn()} />);
+    fireEvent.contextMenu(screen.getByTestId('dicom-tags-row:x00100010'), { clientX: 50, clientY: 50 });
+    fireEvent.click(screen.getByTestId('dicom-tags-ctx-copy-json'));
+    expect(writeText).toHaveBeenCalledTimes(1);
+    const payload = JSON.parse(writeText.mock.calls[0][0]);
+    expect(payload).toEqual({ tag: '(0010,0010)', vr: 'PN', name: "Patient's Name", value: 'Doe^Jane' });
+  });
+
+  it('context menu "Copy whole group as JSON" writes every tag in that module', async () => {
+    dicomPanelMocks.getViewport.mockReturnValue({
+      getCurrentImageId: () => 'wadouri:https://xnat.example/image1.dcm',
+    });
+    dicomPanelMocks.getDataSet.mockReturnValue(buildDataset());
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
+    render(<DicomHeaderPanel onClose={vi.fn()} />);
+    fireEvent.contextMenu(screen.getByTestId('dicom-tags-row:x00100010'), { clientX: 50, clientY: 50 });
+    fireEvent.click(screen.getByTestId('dicom-tags-ctx-copy-group-json'));
+    const payload = JSON.parse(writeText.mock.calls[0][0]);
+    expect(payload.group).toBe('Patient');
+    expect(Array.isArray(payload.tags)).toBe(true);
+    expect(payload.tags.find((t: { tag: string }) => t.tag === '(0010,0010)')).toBeTruthy();
+  });
+
   it('handles dataset retrieval failures and collapsed groups safely', () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     dicomPanelMocks.getViewport.mockReturnValue({

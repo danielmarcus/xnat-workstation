@@ -627,6 +627,16 @@ export function IconStructureAnnotation(props: IconProps) {
   );
 }
 
+/** Copy — two overlapping rectangles */
+export function IconCopy(props: IconProps) {
+  return (
+    <svg {...defaults(props)} viewBox="0 0 14 14">
+      <rect x="2" y="2" width="8" height="8" rx="1" />
+      <path d="M4 12h7a1 1 0 0 0 1-1V4" />
+    </svg>
+  );
+}
+
 /** Measurement annotation glyph — short ruler with three tick marks */
 export function IconMeasurementAnnotation(props: IconProps) {
   return (
