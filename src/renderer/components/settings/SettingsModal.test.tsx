@@ -276,6 +276,81 @@ describe('SettingsModal', () => {
     expect(prefs.interpolation).toEqual(DEFAULT_PREFERENCES.interpolation);
   });
 
+  it('Backup tab — Verify Path button reports OK on a readable directory (spec §8.4)', async () => {
+    const user = userEvent.setup();
+    // Stub the backup IPC surface used by the Backup tab.
+    Object.defineProperty(window, 'electronAPI', {
+      configurable: true,
+      value: {
+        ...((window as any).electronAPI ?? {}),
+        backup: {
+          getCachePath: vi.fn(async () => ({ ok: true, path: '/Users/dan/Documents/xnat-backups' })),
+          listAllSessions: vi.fn(async () => ({ ok: true, sessions: [] })),
+        },
+      },
+    });
+
+    render(<SettingsModal open onClose={() => {}} />);
+    await user.click(screen.getByRole('button', { name: 'Backup' }));
+    expect(await screen.findByTestId('settings-backup-path')).toHaveTextContent('/Users/dan/Documents/xnat-backups');
+    // Verify Path → OK.
+    await user.click(screen.getByTestId('settings-backup-verify'));
+    const result = await screen.findByTestId('settings-backup-verify-result');
+    expect(result.dataset.state).toBe('ok');
+    expect(result.textContent).toMatch(/readable and writable/);
+    // No sync warning for a plain Documents folder.
+    expect(screen.queryByTestId('settings-backup-sync-warning')).toBeNull();
+  });
+
+  it('Backup tab — sync-folder warning appears when the path is inside OneDrive (§8.4)', async () => {
+    Object.defineProperty(window, 'electronAPI', {
+      configurable: true,
+      value: {
+        ...((window as any).electronAPI ?? {}),
+        backup: {
+          getCachePath: vi.fn(async () => ({
+            ok: true,
+            path: '/Users/dan/Library/CloudStorage/OneDrive-WashU/xnat-backups',
+          })),
+          listAllSessions: vi.fn(async () => ({ ok: true, sessions: [] })),
+        },
+      },
+    });
+    const user = userEvent.setup();
+    render(<SettingsModal open onClose={() => {}} />);
+    await user.click(screen.getByRole('button', { name: 'Backup' }));
+    const warning = await screen.findByTestId('settings-backup-sync-warning');
+    expect(warning.dataset.provider).toBe('OneDrive');
+    expect(warning.textContent).toMatch(/inside OneDrive/);
+  });
+
+  it('Backup tab — Verify Path reports the error when the listing IPC throws (§8.4)', async () => {
+    // First call (initial load) returns []; second call (Verify Path) throws.
+    let calls = 0;
+    Object.defineProperty(window, 'electronAPI', {
+      configurable: true,
+      value: {
+        ...((window as any).electronAPI ?? {}),
+        backup: {
+          getCachePath: vi.fn(async () => ({ ok: true, path: '/no/such/dir' })),
+          listAllSessions: vi.fn(async () => {
+            calls += 1;
+            if (calls > 1) throw new Error('EACCES: permission denied');
+            return { ok: true, sessions: [] };
+          }),
+        },
+      },
+    });
+    const user = userEvent.setup();
+    render(<SettingsModal open onClose={() => {}} />);
+    await user.click(screen.getByRole('button', { name: 'Backup' }));
+    await screen.findByTestId('settings-backup-path');
+    await user.click(screen.getByTestId('settings-backup-verify'));
+    const result = await screen.findByTestId('settings-backup-verify-result');
+    expect(result.dataset.state).toBe('error');
+    expect(result.textContent).toMatch(/EACCES/);
+  });
+
   it('Reset All confirm dialog can be cancelled — no preference changes', async () => {
     const user = userEvent.setup();
     render(<SettingsModal open onClose={() => {}} />);

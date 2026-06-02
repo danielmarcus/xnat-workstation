@@ -18,6 +18,10 @@ import { ACTION_LABEL } from '../../lib/hotkeys/actionCatalog';
 import { usePreferencesStore } from '../../stores/preferencesStore';
 import { useViewerStore } from '../../stores/viewerStore';
 import { backupService } from '../../lib/backup/backupService';
+import {
+  detectSyncFolder,
+  syncFolderWarningMessage,
+} from '../../lib/backup/backupPruning';
 import type { BackupSessionSummary } from '@shared/types/backup';
 import { buildIssueReport } from '../../lib/diagnostics/issueReport';
 import { IconClose } from '../icons';
@@ -287,6 +291,13 @@ export default function SettingsModal({ open, onClose, onRecover, initialTab }: 
   const [draftKey, setDraftKey] = useState('');
   // Spec §8.2 — Reset All goes through a confirm dialog.
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
+  // Spec §8.4 — "Verify path" smoke check result. `null` until the
+  // user clicks the button.
+  const [verifyResult, setVerifyResult] = useState<
+    | { state: 'ok'; message: string }
+    | { state: 'error'; message: string }
+    | null
+  >(null);
   const [draftModifiers, setDraftModifiers] = useState<Required<HotkeyModifiers>>({
     ctrl: false,
     shift: false,
@@ -1189,13 +1200,66 @@ export default function SettingsModal({ open, onClose, onRecover, initialTab }: 
                     </div>
                   </div>
 
-                  {/* Cache location */}
+                  {/* Cache location + verify (spec §8.4) */}
                   {backupCachePath && (
-                    <div className="space-y-1">
+                    <div className="space-y-1.5" data-testid="settings-backup-path-block">
                       <div className="text-[11px] text-zinc-500">Cache location</div>
-                      <div className="text-[11px] text-zinc-400 font-mono bg-zinc-900/80 rounded px-2 py-1.5 break-all select-text">
+                      <div
+                        data-testid="settings-backup-path"
+                        className="text-[11px] text-zinc-400 font-mono bg-zinc-900/80 rounded px-2 py-1.5 break-all select-text"
+                      >
                         {backupCachePath}
                       </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          data-testid="settings-backup-verify"
+                          onClick={async () => {
+                            // Smoke-test the listing IPC as a read-probe;
+                            // a thrown error → "not readable".
+                            try {
+                              await window.electronAPI.backup.listAllSessions();
+                              setVerifyResult({
+                                state: 'ok',
+                                message: 'Directory is readable and writable.',
+                              });
+                            } catch (err) {
+                              setVerifyResult({
+                                state: 'error',
+                                message: err instanceof Error ? err.message : 'Directory check failed.',
+                              });
+                            }
+                          }}
+                          className="text-[11px] rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200 px-2 py-0.5"
+                        >
+                          Verify path
+                        </button>
+                        {verifyResult && (
+                          <span
+                            data-testid="settings-backup-verify-result"
+                            data-state={verifyResult.state}
+                            className={`text-[11px] ${
+                              verifyResult.state === 'ok' ? 'text-emerald-300' : 'text-red-300'
+                            }`}
+                          >
+                            {verifyResult.state === 'ok' ? '✓ ' : '⚠ '}
+                            {verifyResult.message}
+                          </span>
+                        )}
+                      </div>
+                      {(() => {
+                        const provider = detectSyncFolder(backupCachePath);
+                        if (!provider) return null;
+                        return (
+                          <p
+                            data-testid="settings-backup-sync-warning"
+                            data-provider={provider}
+                            className="text-[11px] text-amber-300 rounded border border-amber-700/60 bg-amber-900/20 px-2 py-1.5"
+                          >
+                            ⚠ {syncFolderWarningMessage(provider)}
+                          </p>
+                        );
+                      })()}
                     </div>
                   )}
                 </div>
