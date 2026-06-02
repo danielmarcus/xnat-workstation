@@ -68,6 +68,12 @@ import { useContainerStore } from '../../stores/containerStore';
 import { useContainerSelectionStore } from '../../stores/containerSelectionStore';
 import { useTransportStore } from '../../stores/transportStore';
 import { useConnectionStore } from '../../stores/connectionStore';
+import { usePreferencesStore } from '../../stores/preferencesStore';
+import {
+  ANNOTATION_PANEL_DEFAULT_WIDTH,
+  ANNOTATION_PANEL_MAX_WIDTH,
+  ANNOTATION_PANEL_MIN_WIDTH,
+} from '@shared/types/preferences';
 import {
   resetVisibilityAdapter,
   wireVisibility,
@@ -2042,6 +2048,76 @@ describe('session save-all (D7.6)', () => {
   });
 });
 
+// ─── MV-Phase 7.3c: resizable panel (spec §4.1) ──────────────────────
+
+describe('panel width and resize (spec §4.1)', () => {
+  // jsdom's getBoundingClientRect returns zeros; tests mock the panel's
+  // right edge so the resize math has a defined anchor.
+  beforeEach(() => {
+    usePreferencesStore.getState().setAnnotationPanelWidth(ANNOTATION_PANEL_DEFAULT_WIDTH);
+  });
+
+  it('renders at the persisted preference width (default 400)', () => {
+    setContainers(makeContainer({ id: 'c1' }));
+    render(<ContainerListPanel />);
+    const panel = screen.getByTestId('container-panel') as HTMLDivElement;
+    expect(panel.style.width).toBe(`${ANNOTATION_PANEL_DEFAULT_WIDTH}px`);
+    expect(panel.dataset.panelWidth).toBe(String(ANNOTATION_PANEL_DEFAULT_WIDTH));
+  });
+
+  it('a stored width is read on mount', () => {
+    usePreferencesStore.getState().setAnnotationPanelWidth(320);
+    setContainers(makeContainer({ id: 'c1' }));
+    render(<ContainerListPanel />);
+    const panel = screen.getByTestId('container-panel') as HTMLDivElement;
+    expect(panel.style.width).toBe('320px');
+  });
+
+  it('dragging the resize handle clamps width to the [MIN, MAX] range', () => {
+    setContainers(makeContainer({ id: 'c1' }));
+    render(<ContainerListPanel />);
+    const panel = screen.getByTestId('container-panel') as HTMLDivElement;
+    const handle = screen.getByTestId('container-panel-resize-handle');
+    stubRightEdge(panel, 1000);
+
+    // Cursor at x=100 → 1000-100 = 900 > MAX (600), clamps to MAX.
+    act(() => {
+      fireEvent.pointerDown(handle, { pointerId: 1, clientX: 950 });
+    });
+    act(() => {
+      handle.dispatchEvent(makePointerEvent('pointermove', 100));
+    });
+    expect(panel.style.width).toBe(`${ANNOTATION_PANEL_MAX_WIDTH}px`);
+
+    // Cursor at x=2000 → 1000-2000 = -1000 < MIN, clamps to MIN.
+    act(() => {
+      handle.dispatchEvent(makePointerEvent('pointermove', 2000));
+    });
+    expect(panel.style.width).toBe(`${ANNOTATION_PANEL_MIN_WIDTH}px`);
+  });
+
+  it('pointerup persists the final width to preferences', () => {
+    setContainers(makeContainer({ id: 'c1' }));
+    render(<ContainerListPanel />);
+    const panel = screen.getByTestId('container-panel') as HTMLDivElement;
+    const handle = screen.getByTestId('container-panel-resize-handle');
+    stubRightEdge(panel, 1000);
+
+    act(() => {
+      fireEvent.pointerDown(handle, { pointerId: 1, clientX: 600 });
+    });
+    act(() => {
+      handle.dispatchEvent(makePointerEvent('pointermove', 700));
+    });
+    act(() => {
+      handle.dispatchEvent(makePointerEvent('pointerup', 700));
+    });
+    // Final cursor x=700 → 1000-700 = 300 (within range).
+    expect(usePreferencesStore.getState().preferences.annotationPanel.width).toBe(300);
+    expect(panel.style.width).toBe('300px');
+  });
+});
+
 // ─── MV-Phase 7.3b: member-row drag-handle reorder (spec §4.5) ──────────
 
 describe('member-row drag handle (spec §4.5)', () => {
@@ -2318,6 +2394,33 @@ describe('member color picker popover (spec §4.5)', () => {
     expect(screen.queryByTestId('member-color-picker:m1')).toBeNull();
   });
 });
+
+/**
+ * jsdom lacks a PointerEvent constructor. The resize handler only
+ * reads `clientX` off the event, so we hand-roll an Event with that
+ * property defined.
+ */
+function makePointerEvent(type: string, clientX: number): Event {
+  const ev = new Event(type);
+  Object.defineProperty(ev, 'clientX', { value: clientX, configurable: true });
+  return ev;
+}
+
+/**
+ * Pin the panel's right edge to a known pixel value so the resize
+ * math (width = rightEdge − cursorX) is deterministic in tests.
+ */
+function stubRightEdge(panel: HTMLElement, right: number) {
+  Object.defineProperty(panel, 'getBoundingClientRect', {
+    configurable: true,
+    value: () => ({
+      top: 0, height: 800, bottom: 800,
+      left: right - 400, right, width: 400,
+      x: right - 400, y: 0,
+      toJSON: () => ({}),
+    }),
+  });
+}
 
 /**
  * Build a minimal DataTransfer-shaped object for fireEvent.dragOver/drop.

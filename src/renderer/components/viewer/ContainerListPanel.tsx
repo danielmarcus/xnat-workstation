@@ -22,6 +22,12 @@ import { useContainerStore } from '../../stores/containerStore';
 import { useContainerSelectionStore } from '../../stores/containerSelectionStore';
 import { useTransportStore } from '../../stores/transportStore';
 import { useViewerStore } from '../../stores/viewerStore';
+import { usePreferencesStore } from '../../stores/preferencesStore';
+import {
+  ANNOTATION_PANEL_MIN_WIDTH,
+  ANNOTATION_PANEL_MAX_WIDTH,
+  clampAnnotationPanelWidth,
+} from '@shared/types/preferences';
 import { containerService } from '../../lib/cornerstone/containerService';
 import * as containerActions from '../../lib/cornerstone/containerActions';
 import { nextVisibilityMode } from '../../lib/cornerstone/segmentationService/memberVisibility';
@@ -70,6 +76,47 @@ export default function ContainerListPanel() {
   const [sortOrder, setSortOrder] = useState<SortOrder>('default');
   const trimmedFilter = filter.trim().toLowerCase();
 
+  // Resizable width (spec §4.1). Width lives in preferences so it
+  // persists across sessions; the local `dragWidth` is the in-flight
+  // value while the user is dragging the handle (so we don't write to
+  // the persisted store on every mousemove tick).
+  const persistedWidth = usePreferencesStore((s) => s.preferences.annotationPanel.width);
+  const setAnnotationPanelWidth = usePreferencesStore((s) => s.setAnnotationPanelWidth);
+  const [dragWidth, setDragWidth] = useState<number | null>(null);
+  const panelWidth = clampAnnotationPanelWidth(dragWidth ?? persistedWidth);
+  const panelRootRef = useRef<HTMLDivElement | null>(null);
+
+  // Drag-resize handle on the left edge. The right edge is anchored
+  // to the viewport rail, so width = panel_right_edge − cursor_x.
+  const onResizeHandlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const target = e.currentTarget;
+    // setPointerCapture isn't in jsdom; guard for tests + safety.
+    if (typeof target.setPointerCapture === 'function') {
+      try { target.setPointerCapture(e.pointerId); } catch { /* noop */ }
+    }
+    const panel = panelRootRef.current;
+    if (!panel) return;
+    const rightEdge = panel.getBoundingClientRect().right;
+    const handleMove = (ev: PointerEvent) => {
+      setDragWidth(clampAnnotationPanelWidth(rightEdge - ev.clientX));
+    };
+    const handleUp = (ev: PointerEvent) => {
+      if (typeof target.releasePointerCapture === 'function') {
+        try { target.releasePointerCapture(e.pointerId); } catch { /* noop */ }
+      }
+      target.removeEventListener('pointermove', handleMove);
+      target.removeEventListener('pointerup', handleUp);
+      target.removeEventListener('pointercancel', handleUp);
+      const final = clampAnnotationPanelWidth(rightEdge - ev.clientX);
+      setDragWidth(null);
+      setAnnotationPanelWidth(final);
+    };
+    target.addEventListener('pointermove', handleMove);
+    target.addEventListener('pointerup', handleUp);
+    target.addEventListener('pointercancel', handleUp);
+  };
+
   // Filter by member name + optional sort (both per §D7.7). Both are
   // non-destructive — filter does NOT mutate visibility/lock state per
   // §D7.7; sort is presentation-only and does NOT mutate the persisted
@@ -87,9 +134,26 @@ export default function ContainerListPanel() {
 
   return (
     <div
+      ref={panelRootRef}
       data-testid="container-panel"
-      className="w-64 shrink-0 border-l border-zinc-800 bg-zinc-950 flex flex-col overflow-hidden"
+      data-panel-width={panelWidth}
+      style={{ width: `${panelWidth}px` }}
+      className="shrink-0 border-l border-zinc-800 bg-zinc-950 flex flex-col overflow-hidden relative"
     >
+      {/* Drag handle on the left edge (spec §4.1). 4 px hit area; the
+          visible accent is a 1 px line on hover. Anchored absolute so
+          it lives on the seam between viewport grid and panel. */}
+      <div
+        data-testid="container-panel-resize-handle"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize annotations panel"
+        aria-valuemin={ANNOTATION_PANEL_MIN_WIDTH}
+        aria-valuemax={ANNOTATION_PANEL_MAX_WIDTH}
+        aria-valuenow={panelWidth}
+        onPointerDown={onResizeHandlePointerDown}
+        className="absolute left-0 top-0 bottom-0 w-1 -ml-0.5 cursor-col-resize z-10 hover:bg-blue-500/40 active:bg-blue-500/60"
+      />
       <div className="px-3 py-2 border-b border-zinc-800 flex items-center justify-between min-h-[36px] gap-2">
         <h3 className="text-xs font-semibold text-zinc-300 flex-1">
           Structures
