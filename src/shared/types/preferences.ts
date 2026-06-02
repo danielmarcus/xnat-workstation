@@ -102,12 +102,40 @@ export interface BackupPreferences {
   enabled: boolean;
   /** Backup interval in seconds (minimum 5, maximum 300) */
   intervalSeconds: number;
+  /**
+   * Age (in days) at which backups become eligible for auto-prune.
+   * Spec §12.2 — default 30, configurable in Settings → Backup.
+   * Range: 1–365. `0` is forbidden (would prune everything every load).
+   */
+  pruneAfterDays: number;
+  /**
+   * After a container successfully saves to XNAT, delete its local
+   * backup. Spec §12.3 — default `true` (server-side is authoritative);
+   * the user can opt out for belt-and-suspenders.
+   */
+  deleteAfterXnatSave: boolean;
+  /**
+   * Optional override of the backup directory (absolute path).
+   * `null` means the Electron default (`userData/backups`). Spec §12.4.
+   */
+  directory: string | null;
 }
 
 export const DEFAULT_BACKUP_PREFERENCES: BackupPreferences = {
   enabled: true,
   intervalSeconds: 10,
+  pruneAfterDays: 30,
+  deleteAfterXnatSave: true,
+  directory: null,
 };
+
+export const BACKUP_PRUNE_MIN_DAYS = 1;
+export const BACKUP_PRUNE_MAX_DAYS = 365;
+
+export function clampBackupPruneDays(days: number): number {
+  if (!Number.isFinite(days)) return DEFAULT_BACKUP_PREFERENCES.pruneAfterDays;
+  return Math.max(BACKUP_PRUNE_MIN_DAYS, Math.min(BACKUP_PRUNE_MAX_DAYS, Math.round(days)));
+}
 
 // ─── Deletion Preferences ───────────────────────────────────────
 

@@ -13,6 +13,7 @@ import {
   DEFAULT_MULTIVIEWPORT_PREFERENCES,
   DEFAULT_ANNOTATION_PANEL_PREFERENCES,
   clampAnnotationPanelWidth,
+  clampBackupPruneDays,
   type BackupPreferences,
   type DeletionPreferences,
   type InterpolationAlgorithm,
@@ -57,6 +58,9 @@ interface PreferencesStore {
   // ─── Backup ─────────────────────────────────────────────
   setBackupEnabled: (enabled: boolean) => void;
   setBackupIntervalSeconds: (seconds: number) => void;
+  setBackupPruneAfterDays: (days: number) => void;
+  setBackupDeleteAfterXnatSave: (enabled: boolean) => void;
+  setBackupDirectory: (directory: string | null) => void;
   // ─── Deletion ─────────────────────────────────────────────
   setTrashOnServerDelete: (enabled: boolean) => void;
   setTrashResourceName: (name: string) => void;
@@ -571,6 +575,36 @@ export const usePreferencesStore = create<PreferencesStore>()(
           },
         })),
 
+      setBackupPruneAfterDays: (days) =>
+        set((state) => ({
+          preferences: {
+            ...state.preferences,
+            backup: {
+              ...state.preferences.backup,
+              pruneAfterDays: clampBackupPruneDays(days),
+            },
+          },
+        })),
+
+      setBackupDeleteAfterXnatSave: (enabled) =>
+        set((state) => ({
+          preferences: {
+            ...state.preferences,
+            backup: { ...state.preferences.backup, deleteAfterXnatSave: enabled },
+          },
+        })),
+
+      setBackupDirectory: (directory) =>
+        set((state) => ({
+          preferences: {
+            ...state.preferences,
+            backup: {
+              ...state.preferences.backup,
+              directory: directory && directory.length > 0 ? directory : null,
+            },
+          },
+        })),
+
       // ─── Deletion ──────────────────────────────────────────
 
       setTrashOnServerDelete: (enabled) =>
@@ -657,6 +691,18 @@ export const usePreferencesStore = create<PreferencesStore>()(
             typeof incomingBackup?.intervalSeconds === 'number' && Number.isFinite(incomingBackup.intervalSeconds)
               ? clampNumber(Math.round(incomingBackup.intervalSeconds), 5, 300)
               : base.preferences.backup.intervalSeconds,
+          pruneAfterDays:
+            typeof incomingBackup?.pruneAfterDays === 'number'
+              ? clampBackupPruneDays(incomingBackup.pruneAfterDays)
+              : base.preferences.backup.pruneAfterDays,
+          deleteAfterXnatSave:
+            typeof incomingBackup?.deleteAfterXnatSave === 'boolean'
+              ? incomingBackup.deleteAfterXnatSave
+              : base.preferences.backup.deleteAfterXnatSave,
+          directory:
+            typeof incomingBackup?.directory === 'string' && incomingBackup.directory.length > 0
+              ? incomingBackup.directory
+              : (incomingBackup?.directory === null ? null : base.preferences.backup.directory),
         };
 
         // Merge deletion preferences with defaults as fallback
