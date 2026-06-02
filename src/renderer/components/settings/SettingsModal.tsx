@@ -285,6 +285,8 @@ export default function SettingsModal({ open, onClose, onRecover, initialTab }: 
 
   const [selectedAction, setSelectedAction] = useState<HotkeyAction | null>(null);
   const [draftKey, setDraftKey] = useState('');
+  // Spec §8.2 — Reset All goes through a confirm dialog.
+  const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
   const [draftModifiers, setDraftModifiers] = useState<Required<HotkeyModifiers>>({
     ctrl: false,
     shift: false,
@@ -1474,12 +1476,64 @@ export default function SettingsModal({ open, onClose, onRecover, initialTab }: 
           <div className="h-12 shrink-0 border-t border-zinc-800 px-4 flex items-center justify-end">
             <button
               type="button"
-              onClick={resetAll}
+              data-testid="settings-reset-all"
+              onClick={() => setResetConfirmOpen(true)}
               className="px-2.5 py-1.5 rounded bg-zinc-800 text-zinc-200 text-xs hover:bg-zinc-700 transition-colors"
             >
               Reset All Preferences
             </button>
           </div>
+
+          {resetConfirmOpen && (
+            <div
+              data-testid="settings-reset-confirm"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="settings-reset-title"
+              className="absolute inset-0 z-50 flex items-center justify-center p-6"
+            >
+              <button
+                type="button"
+                aria-label="Cancel reset"
+                data-testid="settings-reset-confirm-scrim"
+                className="absolute inset-0 bg-zinc-950/70"
+                onClick={() => setResetConfirmOpen(false)}
+              />
+              <div className="relative w-full max-w-sm rounded-xl border border-zinc-700 bg-zinc-900 shadow-2xl">
+                <div className="border-b border-zinc-800 px-4 py-3">
+                  <h3 id="settings-reset-title" className="text-sm font-semibold text-zinc-100">
+                    Reset all preferences?
+                  </h3>
+                </div>
+                <div className="px-4 py-3 text-xs text-zinc-300 leading-relaxed">
+                  Every preference — hotkeys, display, annotation, backup,
+                  interpolation, updates — returns to its default value.
+                  This cannot be undone.
+                </div>
+                <div className="flex items-center justify-end gap-2 border-t border-zinc-800 px-4 py-3">
+                  <button
+                    type="button"
+                    data-testid="settings-reset-cancel"
+                    onClick={() => setResetConfirmOpen(false)}
+                    className="rounded bg-zinc-800 px-3 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="settings-reset-confirm-apply"
+                    onClick={() => {
+                      resetAll();
+                      setResetConfirmOpen(false);
+                    }}
+                    className="rounded bg-red-600 px-3 py-1.5 text-xs text-white hover:bg-red-500"
+                  >
+                    Reset
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

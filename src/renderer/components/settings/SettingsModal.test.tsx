@@ -264,13 +264,30 @@ describe('SettingsModal', () => {
     expect(prefs.updates.enabled).toBe(false);
     expect(prefs.updates.autoDownload).toBe(false);
 
+    // Reset All now goes through a confirm dialog (spec §8.2).
     await user.click(screen.getByRole('button', { name: 'Reset All Preferences' }));
+    expect(screen.getByTestId('settings-reset-confirm')).toBeInTheDocument();
+    await user.click(screen.getByTestId('settings-reset-confirm-apply'));
     prefs = usePreferencesStore.getState().preferences;
     expect(prefs.overlay.showViewportContextOverlay).toBe(DEFAULT_PREFERENCES.overlay.showViewportContextOverlay);
     expect(prefs.annotation.defaultBrushSize).toBe(DEFAULT_PREFERENCES.annotation.defaultBrushSize);
     expect(prefs.annotation.defaultColorSequence).toEqual(DEFAULT_PREFERENCES.annotation.defaultColorSequence);
     expect(prefs.updates).toEqual(DEFAULT_PREFERENCES.updates);
     expect(prefs.interpolation).toEqual(DEFAULT_PREFERENCES.interpolation);
+  });
+
+  it('Reset All confirm dialog can be cancelled — no preference changes', async () => {
+    const user = userEvent.setup();
+    render(<SettingsModal open onClose={() => {}} />);
+    // Mutate something so we can verify it survives a cancelled reset.
+    usePreferencesStore.getState().setAnnotationBrushSize(99);
+    expect(usePreferencesStore.getState().preferences.annotation.defaultBrushSize).toBe(99);
+
+    await user.click(screen.getByRole('button', { name: 'Reset All Preferences' }));
+    expect(screen.getByTestId('settings-reset-confirm')).toBeInTheDocument();
+    await user.click(screen.getByTestId('settings-reset-cancel'));
+    expect(screen.queryByTestId('settings-reset-confirm')).toBeNull();
+    expect(usePreferencesStore.getState().preferences.annotation.defaultBrushSize).toBe(99);
   });
 
   it('shows updater status and supports manual update actions', async () => {
