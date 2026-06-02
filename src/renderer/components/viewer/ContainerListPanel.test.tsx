@@ -503,7 +503,9 @@ describe('selection vs active (D7.5)', () => {
     expect(useContainerSelectionStore.getState().selectionSet).toEqual(new Set(['m2']));
   });
 
-  it('color-swatch click activates the member without changing selection', () => {
+  it('color-swatch click opens the color picker popover (spec §4.5)', () => {
+    // Behavior change for MV-Phase 7.3b: the swatch no longer activates
+    // the member; it opens an inline color picker popover with presets.
     setContainers(
       makeContainer({
         id: 'c1',
@@ -521,11 +523,14 @@ describe('selection vs active (D7.5)', () => {
     });
     expect(useContainerSelectionStore.getState().selectionSet).toEqual(new Set(['m1']));
 
-    // Click m2's color swatch — activates m2 but keeps m1 selected.
+    // Click m2's color swatch — opens the picker; does NOT activate or
+    // change selection.
+    expect(screen.queryByTestId('member-color-picker:m2')).toBeNull();
     act(() => {
       fireEvent.click(screen.getByTestId('member-color:m2'));
     });
-    expect(setActiveMemberMock).toHaveBeenCalledWith('m2');
+    expect(screen.queryByTestId('member-color-picker:m2')).not.toBeNull();
+    expect(setActiveMemberMock).not.toHaveBeenCalled();
     expect(useContainerSelectionStore.getState().selectionSet).toEqual(new Set(['m1']));
   });
 
@@ -558,7 +563,6 @@ describe('selection vs active (D7.5)', () => {
     });
     const swatch = screen.getByTestId('member-color:m1');
     expect(swatch.className).toMatch(/ring-amber-300/);
-    expect(swatch.getAttribute('aria-pressed')).toBe('true');
     expect(screen.getByTestId('member-row:m1').dataset.active).toBe('true');
   });
 
@@ -2269,6 +2273,80 @@ describe('member-row drag handle (spec §4.5)', () => {
       dispatchDrag(target, 'drop', { dataTransfer: dt });
     });
     expect(reorderMemberMock).not.toHaveBeenCalled();
+  });
+});
+
+// ─── MV-Phase 7.3b: color picker popover (spec §4.5) ──────────────────
+
+describe('member color picker popover (spec §4.5)', () => {
+  it('shows 16 preset swatches in a 4×4 grid', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [makeMember({ id: 'm1' })],
+      }),
+    );
+    render(<ContainerListPanel />);
+    act(() => {
+      fireEvent.click(screen.getByTestId('member-color:m1'));
+    });
+    for (let i = 0; i < 16; i++) {
+      expect(screen.queryByTestId(`member-color-preset:m1:${i}`)).not.toBeNull();
+    }
+  });
+
+  it('clicking a preset calls recolorMember and closes the popover', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [makeMember({ id: 'm1' })],
+      }),
+    );
+    render(<ContainerListPanel />);
+    act(() => {
+      fireEvent.click(screen.getByTestId('member-color:m1'));
+    });
+    act(() => {
+      fireEvent.click(screen.getByTestId('member-color-preset:m1:3'));
+    });
+    expect(recolorMemberMock).toHaveBeenCalledTimes(1);
+    const [calledId, calledColor] = recolorMemberMock.mock.calls[0];
+    expect(calledId).toBe('m1');
+    expect(Array.isArray(calledColor) && calledColor.length === 3).toBe(true);
+    expect(screen.queryByTestId('member-color-picker:m1')).toBeNull();
+  });
+
+  it('Custom… row hosts a native color input that maps hex → RGB', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [makeMember({ id: 'm1' })],
+      }),
+    );
+    render(<ContainerListPanel />);
+    act(() => {
+      fireEvent.click(screen.getByTestId('member-color:m1'));
+    });
+    const input = screen.getByTestId('member-color-custom-input:m1') as HTMLInputElement;
+    act(() => {
+      fireEvent.change(input, { target: { value: '#1a2b3c' } });
+    });
+    expect(recolorMemberMock).toHaveBeenCalledWith('m1', [0x1a, 0x2b, 0x3c]);
+  });
+
+  it('swatch is disabled and the picker does not open when the container is approved', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        approval: { approved: true, reviewerName: null, reviewedAt: 0, history: [] },
+        members: [makeMember({ id: 'm1' })],
+      }),
+    );
+    render(<ContainerListPanel />);
+    act(() => {
+      fireEvent.click(screen.getByTestId('member-color:m1'));
+    });
+    expect(screen.queryByTestId('member-color-picker:m1')).toBeNull();
   });
 });
 

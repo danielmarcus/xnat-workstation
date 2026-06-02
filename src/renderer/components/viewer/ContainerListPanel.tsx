@@ -40,6 +40,16 @@ const SORT_LABEL: Record<SortOrder, string> = {
   segmentIndex: 'Segment index',
 };
 
+// 4×4 preset palette for the per-member color picker (spec §4.5).
+// Chosen to read clearly against the dark viewer background and to
+// stay distinguishable when several overlap on a single image.
+const MEMBER_COLOR_PRESETS: ReadonlyArray<RGB> = [
+  [220, 50, 50],   [50, 200, 50],   [80, 130, 240],  [240, 200, 50],
+  [220, 80, 200],  [60, 200, 200],  [240, 140, 40],  [160, 100, 220],
+  [70, 220, 140],  [255, 130, 130], [200, 220, 80],  [110, 180, 230],
+  [230, 100, 130], [180, 130, 90],  [200, 200, 200], [120, 120, 120],
+];
+
 function sortMembersInPlace(members: Member[], order: SortOrder): Member[] {
   if (order === 'default') return members;
   const sorted = [...members];
@@ -978,6 +988,23 @@ function MemberRow({
     setDropEdgeState(next);
   };
 
+  // Color picker popover state (spec §4.5). Anchored to the swatch.
+  const [colorPickerOpen, setColorPickerOpen] = useState(false);
+  const colorPickerRef = useRef<HTMLDivElement | null>(null);
+  const customColorInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Close the color picker on outside click.
+  useEffect(() => {
+    if (!colorPickerOpen) return;
+    function onDocPointerDown(e: PointerEvent) {
+      if (colorPickerRef.current && !colorPickerRef.current.contains(e.target as Node)) {
+        setColorPickerOpen(false);
+      }
+    }
+    document.addEventListener('pointerdown', onDocPointerDown);
+    return () => document.removeEventListener('pointerdown', onDocPointerDown);
+  }, [colorPickerOpen]);
+
   // Close the menu on outside click.
   useEffect(() => {
     if (!menuOpen) return;
@@ -1037,10 +1064,32 @@ function MemberRow({
   };
 
   const onColorSwatchClick = (e: React.MouseEvent<HTMLButtonElement>) => {
-    // Color swatch is the dedicated "make active" affordance per D7.5 —
-    // sets active without changing the selection set.
+    // Color swatch opens the color picker popover (spec §4.5). The
+    // popover lists 16 presets and a Custom row that opens the OS
+    // color picker via a hidden <input type="color">.
     e.stopPropagation();
-    containerService.setActiveMember(member.id);
+    if (containerApproved) return;
+    setColorPickerOpen((v) => !v);
+  };
+
+  const applyColor = (color: RGB) => {
+    setColorPickerOpen(false);
+    try {
+      containerService.recolorMember(member.id, color);
+    } catch (err) {
+      console.warn('[ContainerListPanel] recolorMember failed', err);
+    }
+  };
+
+  const onCustomColorInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    // <input type="color"> emits "#rrggbb"; parse to RGB.
+    const hex = e.target.value;
+    const m = hex.match(/^#?([0-9a-fA-F]{6})$/);
+    if (!m) return;
+    const r = parseInt(m[1].slice(0, 2), 16);
+    const g = parseInt(m[1].slice(2, 4), 16);
+    const b = parseInt(m[1].slice(4, 6), 16);
+    applyColor([r, g, b]);
   };
 
   // ─── Drag-and-drop reorder (spec §4.5) ───
@@ -1149,20 +1198,65 @@ function MemberRow({
           ⠿
         </span>
       )}
-      <button
-        type="button"
-        data-testid={`member-color:${member.id}`}
-        onClick={onColorSwatchClick}
-        className={`w-2.5 h-2.5 rounded-sm shrink-0 border transition-shadow ${
-          isActive
-            ? 'border-amber-300 ring-1 ring-amber-300'
-            : 'border-zinc-700 hover:border-zinc-400'
-        }`}
-        style={{ backgroundColor: rgbCss(member.color) }}
-        aria-label={`color ${rgbCss(member.color)} (click to make active)`}
-        aria-pressed={isActive}
-        title={isActive ? 'Active member (drawing target)' : 'Click to make active'}
-      />
+      <div className="relative shrink-0">
+        <button
+          type="button"
+          data-testid={`member-color:${member.id}`}
+          onClick={onColorSwatchClick}
+          disabled={containerApproved}
+          className={`w-2.5 h-2.5 rounded-sm shrink-0 border transition-shadow ${
+            isActive
+              ? 'border-amber-300 ring-1 ring-amber-300'
+              : 'border-zinc-700 hover:border-zinc-400'
+          } ${containerApproved ? 'cursor-not-allowed opacity-60' : ''}`}
+          style={{ backgroundColor: rgbCss(member.color) }}
+          aria-label={`color ${rgbCss(member.color)} (click to change)`}
+          aria-haspopup="dialog"
+          aria-expanded={colorPickerOpen || undefined}
+          title={containerApproved ? 'Container is approved (color locked)' : 'Click to change color'}
+        />
+        {colorPickerOpen && (
+          <div
+            ref={colorPickerRef}
+            data-testid={`member-color-picker:${member.id}`}
+            role="dialog"
+            aria-label="Member color picker"
+            className="absolute z-20 left-0 top-4 bg-zinc-900 border border-zinc-700 rounded shadow-lg p-2 w-[124px]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="grid grid-cols-4 gap-1">
+              {MEMBER_COLOR_PRESETS.map((c, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  data-testid={`member-color-preset:${member.id}:${i}`}
+                  onClick={() => applyColor(c)}
+                  className="w-6 h-6 rounded-sm border border-zinc-700 hover:border-zinc-300"
+                  style={{ backgroundColor: rgbCss(c) }}
+                  aria-label={`preset color ${rgbCss(c)}`}
+                  title={rgbCss(c)}
+                />
+              ))}
+            </div>
+            <button
+              type="button"
+              data-testid={`member-color-custom:${member.id}`}
+              onClick={() => customColorInputRef.current?.click()}
+              className="mt-2 w-full text-[10px] text-zinc-300 hover:text-white bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded px-2 py-1 text-left"
+            >
+              + Custom…
+            </button>
+            <input
+              ref={customColorInputRef}
+              type="color"
+              onChange={onCustomColorInputChange}
+              className="hidden"
+              data-testid={`member-color-custom-input:${member.id}`}
+              aria-hidden
+            />
+          </div>
+        )}
+      </div>
       {renameValue !== null ? (
         <input
           type="text"
