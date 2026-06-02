@@ -627,6 +627,18 @@ export function IconStructureAnnotation(props: IconProps) {
   );
 }
 
+/** Measurement annotation glyph — short ruler with three tick marks */
+export function IconMeasurementAnnotation(props: IconProps) {
+  return (
+    <svg {...defaults(props)} viewBox="0 0 14 14">
+      <rect x="1.5" y="5.5" width="11" height="3" rx="0.6" />
+      <line x1="4" y1="5.5" x2="4" y2="7.3" />
+      <line x1="7" y1="5.5" x2="7" y2="7.3" />
+      <line x1="10" y1="5.5" x2="10" y2="7.3" />
+    </svg>
+  );
+}
+
 /** Save — floppy disk icon */
 export function IconSave(props: IconProps) {
   return (

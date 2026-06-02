@@ -23,11 +23,19 @@ import { useContainerSelectionStore } from '../../stores/containerSelectionStore
 import { useTransportStore } from '../../stores/transportStore';
 import { useViewerStore } from '../../stores/viewerStore';
 import { usePreferencesStore } from '../../stores/preferencesStore';
+import { toastService } from '../../lib/toast/toastService';
 import {
   ANNOTATION_PANEL_MIN_WIDTH,
   ANNOTATION_PANEL_MAX_WIDTH,
+  ANNOTATION_PANEL_COMPACT_ADD_WIDTH,
   clampAnnotationPanelWidth,
 } from '@shared/types/preferences';
+import {
+  IconPlus,
+  IconSegmentationAnnotation,
+  IconStructureAnnotation,
+  IconMeasurementAnnotation,
+} from '../icons';
 import { containerService } from '../../lib/cornerstone/containerService';
 import * as containerActions from '../../lib/cornerstone/containerActions';
 import { nextVisibilityMode } from '../../lib/cornerstone/segmentationService/memberVisibility';
@@ -76,6 +84,13 @@ export default function ContainerListPanel() {
   const [sortOrder, setSortOrder] = useState<SortOrder>('default');
   const trimmedFilter = filter.trim().toLowerCase();
 
+  // Active viewport / scan-availability gating for the create buttons
+  // (spec §4.3). When the active viewport has no imageIds we surface
+  // an info toast instead of creating a container.
+  const activeViewportId = useViewerStore((s) => s.activeViewportId);
+  const panelImageIdsMap = useViewerStore((s) => s.panelImageIdsMap);
+  const hasActiveScan = (panelImageIdsMap[activeViewportId]?.length ?? 0) > 0;
+
   // Resizable width (spec §4.1). Width lives in preferences so it
   // persists across sessions; the local `dragWidth` is the in-flight
   // value while the user is dragging the handle (so we don't write to
@@ -84,6 +99,9 @@ export default function ContainerListPanel() {
   const setAnnotationPanelWidth = usePreferencesStore((s) => s.setAnnotationPanelWidth);
   const [dragWidth, setDragWidth] = useState<number | null>(null);
   const panelWidth = clampAnnotationPanelWidth(dragWidth ?? persistedWidth);
+  // Narrow-mode thresholds (spec §4.1). compactAdd hides the
+  // create-button text labels; the toolbox threshold lands in #82.
+  const compactAdd = panelWidth < ANNOTATION_PANEL_COMPACT_ADD_WIDTH;
   const panelRootRef = useRef<HTMLDivElement | null>(null);
 
   // Drag-resize handle on the left edge. The right edge is anchored
@@ -132,6 +150,25 @@ export default function ContainerListPanel() {
     })
     .filter((c) => !trimmedFilter || c.members.length > 0);
 
+  // Create-button click (spec §4.3). For now, every button surfaces
+  // the "no scan loaded" guard; actual container creation + inline
+  // rename for SEG / RTSTRUCT / Measurement is wired in follow-up
+  // steps. Each path always lands on either:
+  //   1. info toast "Load a scan in the active panel first" (no scan)
+  //   2. createContainer + inline rename (scan loaded)
+  const onCreate = (kind: 'SEG' | 'RTSTRUCT' | 'MEAS') => {
+    if (!hasActiveScan) {
+      toastService.notify({
+        kind: 'info',
+        message: 'Load a scan in the active panel first',
+      });
+      return;
+    }
+    // Container creation lands in the next step; for now log a
+    // placeholder so the click path is verifiable.
+    console.warn(`[ContainerListPanel] create ${kind}: not yet wired`);
+  };
+
   return (
     <div
       ref={panelRootRef}
@@ -176,6 +213,30 @@ export default function ContainerListPanel() {
             save all
           </button>
         )}
+      </div>
+
+      {/* Create-button row (spec §4.3). Three side-by-side buttons in
+          a 3-column grid. Icon always renders; text label collapses to
+          icon-only below the COMPACT_ADD threshold. */}
+      <div className="px-2 py-2 border-b border-zinc-800/70 grid grid-cols-3 gap-1.5">
+        <PanelCreateButton
+          kind="SEG"
+          label="Segmentation"
+          compact={compactAdd}
+          onCreate={onCreate}
+        />
+        <PanelCreateButton
+          kind="RTSTRUCT"
+          label="Structure"
+          compact={compactAdd}
+          onCreate={onCreate}
+        />
+        <PanelCreateButton
+          kind="MEAS"
+          label="Measurement"
+          compact={compactAdd}
+          onCreate={onCreate}
+        />
       </div>
 
       {containerList.length > 0 && (
@@ -489,6 +550,71 @@ function ContainerContextMenu({
       <KebabItem cid={cid} slug="ctx-expand" label="Expand" onClick={onExpand} />
       <KebabItem cid={cid} slug="ctx-collapse" label="Collapse" onClick={onCollapse} />
     </div>
+  );
+}
+
+// ─── Header create buttons (spec §4.3) ─────────────────────────────
+
+const CREATE_BUTTON_STYLES: Record<'SEG' | 'RTSTRUCT' | 'MEAS', {
+  text: string;
+  border: string;
+  bg: string;
+}> = {
+  SEG: {
+    text: 'text-blue-300 hover:text-blue-200',
+    border: 'border-blue-900/35 hover:border-blue-700',
+    bg: 'hover:bg-blue-900/20',
+  },
+  RTSTRUCT: {
+    text: 'text-emerald-300 hover:text-emerald-200',
+    border: 'border-emerald-900/35 hover:border-emerald-700',
+    bg: 'hover:bg-emerald-900/20',
+  },
+  MEAS: {
+    text: 'text-purple-300 hover:text-purple-200',
+    border: 'border-purple-900/35 hover:border-purple-700',
+    bg: 'hover:bg-purple-900/20',
+  },
+};
+
+const CREATE_BUTTON_TESTIDS: Record<'SEG' | 'RTSTRUCT' | 'MEAS', string> = {
+  SEG: 'panel-create-seg',
+  RTSTRUCT: 'panel-create-struct',
+  MEAS: 'panel-create-meas',
+};
+
+function PanelCreateButton({
+  kind,
+  label,
+  compact,
+  onCreate,
+}: {
+  kind: 'SEG' | 'RTSTRUCT' | 'MEAS';
+  label: string;
+  compact: boolean;
+  onCreate: (kind: 'SEG' | 'RTSTRUCT' | 'MEAS') => void;
+}) {
+  const styles = CREATE_BUTTON_STYLES[kind];
+  const Icon =
+    kind === 'SEG'
+      ? IconSegmentationAnnotation
+      : kind === 'RTSTRUCT'
+        ? IconStructureAnnotation
+        : IconMeasurementAnnotation;
+  return (
+    <button
+      type="button"
+      data-testid={CREATE_BUTTON_TESTIDS[kind]}
+      data-compact={compact || undefined}
+      onClick={() => onCreate(kind)}
+      title={`Add ${label.toLowerCase()}`}
+      aria-label={`Add ${label.toLowerCase()}`}
+      className={`flex items-center justify-center gap-1 transition-colors px-1.5 py-1 rounded border text-[11px] truncate min-w-0 ${styles.text} ${styles.border} ${styles.bg}`}
+    >
+      <IconPlus className="w-2.5 h-2.5 shrink-0" />
+      <Icon className="w-3 h-3 shrink-0" />
+      {!compact && <span className="truncate">{label}</span>}
+    </button>
   );
 }
 

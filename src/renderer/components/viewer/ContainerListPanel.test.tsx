@@ -69,6 +69,8 @@ import { useContainerSelectionStore } from '../../stores/containerSelectionStore
 import { useTransportStore } from '../../stores/transportStore';
 import { useConnectionStore } from '../../stores/connectionStore';
 import { usePreferencesStore } from '../../stores/preferencesStore';
+import { useViewerStore } from '../../stores/viewerStore';
+import { useToastStore } from '../../lib/toast/toastService';
 import {
   ANNOTATION_PANEL_DEFAULT_WIDTH,
   ANNOTATION_PANEL_MAX_WIDTH,
@@ -2045,6 +2047,58 @@ describe('session save-all (D7.6)', () => {
     render(<ContainerListPanel />);
     fireEvent.click(screen.getByTestId('session-save-all'));
     expect(saveAllDirtyMock).toHaveBeenCalled();
+  });
+});
+
+// ─── MV-Phase 7.3c: create-button row (spec §4.3) ────────────────────
+
+describe('header create-button row (spec §4.3)', () => {
+  beforeEach(() => {
+    usePreferencesStore.getState().setAnnotationPanelWidth(ANNOTATION_PANEL_DEFAULT_WIDTH);
+    useToastStore.getState().clearAll();
+    // Default: active viewport has a scan loaded.
+    useViewerStore.setState({
+      activeViewportId: 'panel_0',
+      panelImageIdsMap: { panel_0: ['img:1', 'img:2'] },
+    } as Partial<ReturnType<typeof useViewerStore.getState>>);
+  });
+
+  it('renders all three create buttons with their type-specific testids', () => {
+    render(<ContainerListPanel />);
+    expect(screen.queryByTestId('panel-create-seg')).not.toBeNull();
+    expect(screen.queryByTestId('panel-create-struct')).not.toBeNull();
+    expect(screen.queryByTestId('panel-create-meas')).not.toBeNull();
+  });
+
+  it('above the compact-add threshold, labels are rendered', () => {
+    usePreferencesStore.getState().setAnnotationPanelWidth(400);
+    render(<ContainerListPanel />);
+    expect(screen.getByTestId('panel-create-seg').textContent).toMatch(/Segmentation/);
+    expect(screen.getByTestId('panel-create-struct').textContent).toMatch(/Structure/);
+    expect(screen.getByTestId('panel-create-meas').textContent).toMatch(/Measurement/);
+    expect(screen.getByTestId('panel-create-seg').dataset.compact).toBeUndefined();
+  });
+
+  it('below the compact-add threshold (< 270), labels are hidden and data-compact is set', () => {
+    usePreferencesStore.getState().setAnnotationPanelWidth(200);
+    render(<ContainerListPanel />);
+    expect(screen.getByTestId('panel-create-seg').textContent).not.toMatch(/Segmentation/);
+    expect(screen.getByTestId('panel-create-seg').dataset.compact).toBe('true');
+  });
+
+  it('clicking a create button with no scan on the active panel emits an info toast and creates nothing', () => {
+    useViewerStore.setState({
+      activeViewportId: 'panel_0',
+      panelImageIdsMap: {},
+    } as Partial<ReturnType<typeof useViewerStore.getState>>);
+    render(<ContainerListPanel />);
+    act(() => {
+      fireEvent.click(screen.getByTestId('panel-create-seg'));
+    });
+    const toasts = useToastStore.getState().toasts;
+    expect(toasts.length).toBe(1);
+    expect(toasts[0].kind).toBe('info');
+    expect(toasts[0].message).toMatch(/Load a scan/);
   });
 });
 
