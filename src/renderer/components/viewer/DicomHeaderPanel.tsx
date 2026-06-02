@@ -1,11 +1,20 @@
 /**
- * DicomHeaderPanel — right-side panel displaying all DICOM tags for the
+ * DicomHeaderPanel — modal dialog displaying all DICOM tags for the
  * currently displayed image in the active viewport.
  *
+ * Spec §10. Open via the toolbar Tags button or Shift+T. Resizable
+ * via the bottom-right corner handle (640×480 default, 360×320 min,
+ * up to 90% viewport). Close via ✕ / Esc / backdrop click.
+ *
  * Features:
- * - Grouped by DICOM module (Patient, Study, Series, Equipment, etc.)
+ * - Grouped by DICOM module (Patient · Study · Series · Equipment ·
+ *   Acquisition · Frame of Reference · Image · Other)
  * - Collapsible group sections
- * - Text search filtering across tag name, keyword, tag number, and value
+ * - Text search filtering across tag name, keyword, tag number, VR,
+ *   and value
+ * - Module-filter chips above the tag list (§10.5)
+ * - Hover row reveals a copy icon (copies value)
+ * - Right-click row → context menu with 4 copy variants (§10.6)
  * - Private tag toggle (hidden by default)
  * - Auto-updates when scrolling through images or switching viewport
  * - Graceful handling of binary/sequence values
@@ -278,11 +287,41 @@ export default function DicomHeaderPanel({ onClose }: DicomHeaderPanelProps) {
   const visibleCount = filteredTags.length;
   const privateCount = allTags.filter((t) => t.isPrivate).length;
 
+  // Esc closes (spec §10.1).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
   return (
-    <div className="w-80 shrink-0 border-l border-zinc-800 bg-zinc-950 flex flex-col overflow-hidden">
+    <div
+      data-testid="dicom-tags-modal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="dicom-tags-title"
+      className="absolute inset-0 z-30 flex items-center justify-center p-4"
+    >
+      <button
+        type="button"
+        aria-label="Close DICOM tags"
+        data-testid="dicom-tags-scrim"
+        className="absolute inset-0 bg-zinc-950/60"
+        onClick={onClose}
+      />
+
+      <div
+        data-testid="dicom-tags-dialog"
+        className="relative w-[640px] h-[480px] max-w-[90%] max-h-[90%] bg-zinc-950 border border-zinc-700 rounded-xl shadow-2xl flex flex-col overflow-hidden"
+      >
       {/* Header */}
       <div className="px-3 py-2 border-b border-zinc-800 flex items-center justify-between">
-        <h3 className="text-xs font-semibold text-zinc-300">
+        <h3 id="dicom-tags-title" className="text-xs font-semibold text-zinc-300">
           DICOM Tags
           <span className="text-zinc-500 font-normal ml-1.5">
             {visibleCount !== totalCount
@@ -387,6 +426,7 @@ export default function DicomHeaderPanel({ onClose }: DicomHeaderPanelProps) {
             );
           })
         )}
+      </div>
       </div>
     </div>
   );

@@ -95,9 +95,11 @@ export default function ViewerPage({
           <div className="flex-1 min-w-0 relative">
             <ViewportGrid panelImageIds={panelImageIds} />
             <ToastStack />
+            {/* DICOM Tags is a modal scoped to the viewport area
+                (spec §10.2 — toolbar + sidebars stay clickable). */}
+            {showDicomPanel && <DicomHeaderPanel onClose={closeDicomPanel} />}
           </div>
           {showAnnotationsPanel && <ContainerListPanel />}
-          {showDicomPanel && <DicomHeaderPanel onClose={closeDicomPanel} />}
         </div>
       </div>
     </div>

@@ -105,6 +105,30 @@ describe('DicomHeaderPanel', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  it('renders as a modal dialog with a scrim that closes on click (spec §10.1)', () => {
+    dicomPanelMocks.getViewport.mockReturnValue({
+      getCurrentImageId: () => 'wadouri:https://xnat.example/image1.dcm',
+    });
+    dicomPanelMocks.getDataSet.mockReturnValue(buildDataset());
+    const onClose = vi.fn();
+    render(<DicomHeaderPanel onClose={onClose} />);
+    expect(screen.queryByTestId('dicom-tags-modal')).not.toBeNull();
+    expect(screen.queryByTestId('dicom-tags-dialog')).not.toBeNull();
+    fireEvent.click(screen.getByTestId('dicom-tags-scrim'));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('Escape closes the modal (spec §10.1)', () => {
+    dicomPanelMocks.getViewport.mockReturnValue({
+      getCurrentImageId: () => 'wadouri:https://xnat.example/image1.dcm',
+    });
+    dicomPanelMocks.getDataSet.mockReturnValue(buildDataset());
+    const onClose = vi.fn();
+    render(<DicomHeaderPanel onClose={onClose} />);
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
   it('handles dataset retrieval failures and collapsed groups safely', () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     dicomPanelMocks.getViewport.mockReturnValue({
