@@ -16,7 +16,7 @@
  *
  * w-64 right-side rail, dark theme, zinc-* tones, xs typography.
  */
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useConnectionStore } from '../../stores/connectionStore';
 import { useContainerStore } from '../../stores/containerStore';
 import { useContainerSelectionStore } from '../../stores/containerSelectionStore';
@@ -30,6 +30,7 @@ import {
   ANNOTATION_PANEL_COMPACT_ADD_WIDTH,
   clampAnnotationPanelWidth,
 } from '@shared/types/preferences';
+import { panelId } from '@shared/types/viewer';
 import {
   IconPlus,
   IconSegmentationAnnotation,
@@ -48,6 +49,11 @@ import { executeSaveAllBatch, type SaveBatchFailure } from '../../lib/cornerston
 import { containerService } from '../../lib/cornerstone/containerService';
 import * as containerActions from '../../lib/cornerstone/containerActions';
 import { segmentationManager } from '../../lib/segmentation/segmentationManagerSingleton';
+import {
+  buildContainerPanelMap,
+  pillLabelForContainer,
+  pillTooltipForContainer,
+} from '../../lib/cornerstone/containerPanelResolver';
 import { nextVisibilityMode } from '../../lib/cornerstone/segmentationService/memberVisibility';
 import {
   classifyAnnotationOnViewport,
@@ -100,6 +106,25 @@ export default function ContainerListPanel() {
   const activeViewportId = useViewerStore((s) => s.activeViewportId);
   const panelImageIdsMap = useViewerStore((s) => s.panelImageIdsMap);
   const hasActiveScan = (panelImageIdsMap[activeViewportId]?.length ?? 0) > 0;
+  const layoutConfig = useViewerStore((s) => s.layoutConfig);
+
+  // Spec §5.2 — derive `containerId → panels[]` by inverting the
+  // segmentation manager's per-viewport visibility. Recomputed when
+  // the container list, viewport count, or active scan map change.
+  const allViewportIds = useMemo(() => {
+    const ids: string[] = [];
+    for (let i = 0; i < layoutConfig.panelCount; i++) ids.push(panelId(i));
+    return ids;
+  }, [layoutConfig.panelCount]);
+  const containerPanelMap = useMemo(() => {
+    const ids = containerList.map((c) => c.id);
+    return buildContainerPanelMap(allViewportIds, ids, (vp) =>
+      segmentationManager.getVisibleSegmentationIdsForViewport(vp),
+    );
+    // panelScanMap is the practical driver of visibility changes — when
+    // a panel's scan changes, the visibility set may change too.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allViewportIds, containerList, panelImageIdsMap]);
 
   // Resizable width (spec §4.1). Width lives in preferences so it
   // persists across sessions; the local `dragWidth` is the in-flight
@@ -429,6 +454,8 @@ export default function ContainerListPanel() {
               <ContainerRow
                 key={container.id}
                 container={container}
+                panelIds={containerPanelMap[container.id] ?? []}
+                activeViewportId={activeViewportId}
                 requestInitialRename={pendingRenameContainerId === container.id}
                 onInitialRenameConsumed={() => setPendingRenameContainerId(null)}
               />
@@ -763,13 +790,23 @@ function PanelCreateButton({
 
 function ContainerRow({
   container,
+  panelIds = [],
+  activeViewportId = '',
   requestInitialRename = false,
   onInitialRenameConsumed,
 }: {
   container: Container;
+  /** Viewports this container is currently shown on (spec §5.2). */
+  panelIds?: ReadonlyArray<string>;
+  activeViewportId?: string;
   requestInitialRename?: boolean;
   onInitialRenameConsumed?: () => void;
 }) {
+  // Spec §5.2 — dim + pill when the container isn't on the active
+  // viewport. `pillLabel === null` → on the active viewport →
+  // full opacity, no pill.
+  const pillLabel = pillLabelForContainer(panelIds, activeViewportId);
+  const onActivePanel = pillLabel === null;
   const [isExpanded, setIsExpanded] = useState(true);
   const [actionMenuOpen, setActionMenuOpen] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
@@ -948,7 +985,8 @@ function ContainerRow({
   return (
     <li
       data-testid={`container-row:${container.id}`}
-      className="border-b border-zinc-800/50"
+      data-on-active-panel={onActivePanel || undefined}
+      className={`border-b border-zinc-800/50 ${onActivePanel ? '' : 'opacity-50'}`}
     >
       <div
         className="flex items-center gap-2 px-3 py-1.5 bg-zinc-900/30"
@@ -1129,6 +1167,15 @@ function ContainerRow({
           >
             approve
           </button>
+        )}
+        {pillLabel && (
+          <span
+            data-testid={`container-panel-pill:${container.id}`}
+            title={pillTooltipForContainer(panelIds)}
+            className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded border border-zinc-700 bg-zinc-900 text-zinc-400 shrink-0"
+          >
+            {pillLabel}
+          </span>
         )}
         <div ref={actionMenuRef} className="relative">
           <button

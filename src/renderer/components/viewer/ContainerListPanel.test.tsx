@@ -65,11 +65,17 @@ vi.mock('../../lib/cornerstone/containerActions', () => ({
 
 const createNewSegmentationMock = vi.hoisted(() => vi.fn().mockResolvedValue('seg_new_1'));
 const createNewStructureMock = vi.hoisted(() => vi.fn().mockResolvedValue('struct_new_1'));
+// Default: panel_0 sees every container, panel_1+ see none. Tests
+// can override per-case via `getVisibleSegMock.mockImplementation(...)`.
+const getVisibleSegMock = vi.hoisted(() =>
+  vi.fn((vp: string) => (vp === 'panel_0' ? null : new Set<string>())),
+);
 
 vi.mock('../../lib/segmentation/segmentationManagerSingleton', () => ({
   segmentationManager: {
     createNewSegmentation: createNewSegmentationMock,
     createNewStructure: createNewStructureMock,
+    getVisibleSegmentationIdsForViewport: getVisibleSegMock,
   },
 }));
 
@@ -2211,6 +2217,86 @@ describe('header create-button row (spec §4.3)', () => {
     });
     const toasts = useToastStore.getState().toasts;
     expect(toasts.some((t) => t.kind === 'error')).toBe(true);
+  });
+});
+
+// ─── MV-Phase 7.5: multi-viewport coupling (spec §5.2) ───────────────
+
+describe('container dim + cross-panel pill (spec §5.2)', () => {
+  beforeEach(() => {
+    // Reset the default visibility: panel_0 = show all, others = empty.
+    getVisibleSegMock.mockReset().mockImplementation((vp: string) =>
+      vp === 'panel_0' ? null : new Set<string>(),
+    );
+    useViewerStore.setState({
+      ...useViewerStore.getState(),
+      activeViewportId: 'panel_0',
+      layoutConfig: { ...useViewerStore.getState().layoutConfig, panelCount: 4 },
+    });
+  });
+
+  it('container shown on the active viewport has no dim + no pill', () => {
+    getVisibleSegMock.mockImplementation((vp: string) =>
+      vp === 'panel_0' ? new Set(['c1']) : new Set<string>(),
+    );
+    setContainers(makeContainer({ id: 'c1' }));
+    render(<ContainerListPanel />);
+    const row = screen.getByTestId('container-row:c1');
+    expect(row.dataset.onActivePanel).toBe('true');
+    expect(row.className).not.toMatch(/opacity-50/);
+    expect(screen.queryByTestId('container-panel-pill:c1')).toBeNull();
+  });
+
+  it('container shown only on a non-active viewport → dims + "↗ panel_X" pill', () => {
+    getVisibleSegMock.mockImplementation((vp: string) =>
+      vp === 'panel_2' ? new Set(['c1']) : new Set<string>(),
+    );
+    setContainers(makeContainer({ id: 'c1' }));
+    render(<ContainerListPanel />);
+    const row = screen.getByTestId('container-row:c1');
+    expect(row.dataset.onActivePanel).toBeUndefined();
+    expect(row.className).toMatch(/opacity-50/);
+    const pill = screen.getByTestId('container-panel-pill:c1');
+    expect(pill.textContent).toMatch(/↗ panel_2/);
+    expect(pill.getAttribute('title')).toMatch(/Shown on: panel_2/);
+  });
+
+  it('container on multiple non-active viewports → "↗ N panels" pill', () => {
+    getVisibleSegMock.mockImplementation((vp: string) =>
+      vp === 'panel_1' || vp === 'panel_2' ? new Set(['c1']) : new Set<string>(),
+    );
+    setContainers(makeContainer({ id: 'c1' }));
+    render(<ContainerListPanel />);
+    expect(screen.getByTestId('container-panel-pill:c1').textContent).toMatch(/↗ 2 panels/);
+  });
+
+  it('container not shown anywhere → "↗ not loaded" pill', () => {
+    getVisibleSegMock.mockImplementation(() => new Set<string>());
+    setContainers(makeContainer({ id: 'c1' }));
+    render(<ContainerListPanel />);
+    expect(screen.getByTestId('container-panel-pill:c1').textContent).toMatch(/↗ not loaded/);
+  });
+
+  it('switching active viewport flips dim + pill state for the same container', () => {
+    getVisibleSegMock.mockImplementation((vp: string) =>
+      vp === 'panel_0' || vp === 'panel_1' ? new Set(['c1']) : new Set<string>(),
+    );
+    setContainers(makeContainer({ id: 'c1' }));
+    const { rerender } = render(<ContainerListPanel />);
+    // panel_0 active → no pill (container on panel_0).
+    expect(screen.queryByTestId('container-panel-pill:c1')).toBeNull();
+    // Flip to panel_2 (which doesn't show c1) → pill appears.
+    act(() => {
+      useViewerStore.setState({
+        ...useViewerStore.getState(),
+        activeViewportId: 'panel_2',
+      });
+    });
+    rerender(<ContainerListPanel />);
+    const pill = screen.queryByTestId('container-panel-pill:c1');
+    expect(pill).not.toBeNull();
+    // c1 is on panel_0 + panel_1, both non-active from panel_2's view.
+    expect(pill!.textContent).toMatch(/↗ 2 panels/);
   });
 });
 
