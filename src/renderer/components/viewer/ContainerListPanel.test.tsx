@@ -2062,11 +2062,29 @@ describe('session save-all (D7.6)', () => {
     expect(screen.queryByTestId('session-save-all')).not.toBeNull();
   });
 
-  it('clicking calls containerActions.saveAllDirty', () => {
+  it('clicking opens the Save All preflight dialog (spec §4.4.4)', () => {
     setContainers(makeContainer({ id: 'c1', dirty: true }));
     render(<ContainerListPanel />);
-    fireEvent.click(screen.getByTestId('session-save-all'));
-    expect(saveAllDirtyMock).toHaveBeenCalled();
+    expect(screen.queryByTestId('save-all-preflight-dialog')).toBeNull();
+    act(() => fireEvent.click(screen.getByTestId('session-save-all')));
+    expect(screen.queryByTestId('save-all-preflight-dialog')).not.toBeNull();
+    // The legacy saveAllDirty path is no longer used by the panel.
+    expect(saveAllDirtyMock).not.toHaveBeenCalled();
+  });
+
+  it('preflight lists every dirty container and shows count in the button label', () => {
+    setContainers(
+      makeContainer({ id: 'a', name: 'Tumor A', dirty: true }),
+      makeContainer({ id: 'b', name: 'Clean', dirty: false }),
+      makeContainer({ id: 'c', name: 'Heart', dirty: true }),
+    );
+    render(<ContainerListPanel />);
+    const btn = screen.getByTestId('session-save-all');
+    expect(btn.textContent?.toLowerCase()).toMatch(/save all \(2\)/);
+    act(() => fireEvent.click(btn));
+    expect(screen.queryByTestId('save-all-row:a')).not.toBeNull();
+    expect(screen.queryByTestId('save-all-row:c')).not.toBeNull();
+    expect(screen.queryByTestId('save-all-row:b')).toBeNull();
   });
 });
 

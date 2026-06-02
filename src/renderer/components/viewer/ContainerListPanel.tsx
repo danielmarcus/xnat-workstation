@@ -37,6 +37,12 @@ import {
   IconMeasurementAnnotation,
 } from '../icons';
 import DeleteConfirmDialog, { type DeleteConfirmTarget } from './dialogs/DeleteConfirmDialog';
+import SaveAllPreflightDialog, {
+  type SaveAllPreflightRow,
+  type SaveAllDecision,
+} from './dialogs/SaveAllPreflightDialog';
+import SavingOverlay, { type SavingOverlayFailure } from './dialogs/SavingOverlay';
+import { executeSaveAllBatch, type SaveBatchFailure } from '../../lib/cornerstone/saveBatchService';
 import { containerService } from '../../lib/cornerstone/containerService';
 import * as containerActions from '../../lib/cornerstone/containerActions';
 import { segmentationManager } from '../../lib/segmentation/segmentationManagerSingleton';
@@ -111,6 +117,18 @@ export default function ContainerListPanel() {
   // Consumed by ContainerRow on mount via the `requestInitialRename`
   // prop; cleared via the callback below.
   const [pendingRenameContainerId, setPendingRenameContainerId] = useState<string | null>(null);
+
+  // Save All preflight + overlay state (spec §4.4.4 / §4.4.5).
+  const [saveAllPreflightOpen, setSaveAllPreflightOpen] = useState(false);
+  // `null` = overlay closed. Otherwise the overlay is mounted in the
+  // declared mode. Decisions snapshot lets us re-run the batch for
+  // "Retry all" / per-row Retry without reopening the preflight.
+  const [savingOverlayMode, setSavingOverlayMode] = useState<'single' | 'batch' | 'batch-failed' | null>(null);
+  const [savingCurrent, setSavingCurrent] = useState(0);
+  const [savingTotal, setSavingTotal] = useState(0);
+  const [savingCurrentName, setSavingCurrentName] = useState('');
+  const [savingFailures, setSavingFailures] = useState<SavingOverlayFailure[]>([]);
+  const [lastSaveAllDecisions, setLastSaveAllDecisions] = useState<SaveAllDecision[] | null>(null);
   const panelRootRef = useRef<HTMLDivElement | null>(null);
 
   // Drag-resize handle on the left edge. The right edge is anchored
@@ -158,6 +176,71 @@ export default function ContainerListPanel() {
       return { ...c, members };
     })
     .filter((c) => !trimmedFilter || c.members.length > 0);
+
+  // ─── Save All (spec §4.4.4 / §4.4.5) ───
+  const dirtyContainers = containerList.filter((c) => c.dirty);
+
+  const preflightRows: SaveAllPreflightRow[] = dirtyContainers.map((c) => ({
+    containerId: c.id,
+    containerName: c.name,
+    kindLabel: kindTagLabel(c.kind),
+    memberSummary: memberSummaryFor(c),
+    xnatOrigin: c.sourceIdentity
+      ? { scanId: scanIdFromSourceUri(c.sourceIdentity.uri) }
+      : null,
+    defaultCopyName: `${c.name} (copy)`,
+  }));
+
+  const runSaveAllBatch = async (decisions: SaveAllDecision[]) => {
+    setLastSaveAllDecisions(decisions);
+    setSavingOverlayMode('batch');
+    setSavingFailures([]);
+    setSavingCurrent(0);
+    setSavingTotal(decisions.filter((d) => d.action !== 'skip').length);
+
+    const result = await executeSaveAllBatch(decisions, {
+      onProgress: (p) => {
+        setSavingCurrent(p.current);
+        setSavingTotal(p.total);
+        setSavingCurrentName(p.currentName);
+      },
+    });
+
+    if (result.failures.length === 0) {
+      setSavingOverlayMode(null);
+      return;
+    }
+    setSavingFailures(result.failures.map(mapFailure));
+    setSavingOverlayMode('batch-failed');
+  };
+
+  const onSaveAllClick = () => {
+    if (preflightRows.length === 0) return;
+    setSaveAllPreflightOpen(true);
+  };
+
+  const onPreflightConfirm = (decisions: SaveAllDecision[]) => {
+    setSaveAllPreflightOpen(false);
+    void runSaveAllBatch(decisions);
+  };
+
+  const onOverlayRetryAll = () => {
+    const last = lastSaveAllDecisions;
+    if (!last) return;
+    // Only retry the previously-failed ids; previously-saved entries
+    // stay saved (spec §4.4.5).
+    const failedIds = new Set(savingFailures.map((f) => f.containerId));
+    const retryDecisions = last.filter((d) => failedIds.has(d.containerId));
+    void runSaveAllBatch(retryDecisions);
+  };
+
+  const onOverlayRetryOne = (containerId: string) => {
+    const last = lastSaveAllDecisions;
+    if (!last) return;
+    const decision = last.find((d) => d.containerId === containerId);
+    if (!decision) return;
+    void runSaveAllBatch([decision]);
+  };
 
   // Create-button click (spec §4.3). Two outcomes:
   //   1. No scan loaded → info toast, no container created.
@@ -231,16 +314,16 @@ export default function ContainerListPanel() {
             {containerList.length}
           </span>
         </h3>
-        {containerList.some((c) => c.dirty) && (
+        {dirtyContainers.length > 0 && (
           <button
             type="button"
             data-testid="session-save-all"
-            onClick={() => void containerActions.saveAllDirty()}
+            onClick={onSaveAllClick}
             className="text-[10px] uppercase font-semibold text-zinc-300 hover:text-emerald-300 px-1.5 py-0.5 border border-zinc-700 hover:border-emerald-500 rounded"
             title="Save all dirty containers"
             aria-label="save all dirty containers"
           >
-            save all
+            save all ({dirtyContainers.length})
           </button>
         )}
       </div>
@@ -351,6 +434,24 @@ export default function ContainerListPanel() {
           </ul>
         )}
       </div>
+
+      <SaveAllPreflightDialog
+        open={saveAllPreflightOpen}
+        rows={preflightRows}
+        onCancel={() => setSaveAllPreflightOpen(false)}
+        onConfirm={onPreflightConfirm}
+      />
+      <SavingOverlay
+        open={savingOverlayMode !== null}
+        mode={savingOverlayMode ?? 'batch'}
+        currentName={savingCurrentName}
+        current={savingCurrent}
+        total={savingTotal}
+        failures={savingFailures}
+        onCancel={() => setSavingOverlayMode(null)}
+        onRetry={onOverlayRetryOne}
+        onRetryAll={onOverlayRetryAll}
+      />
     </div>
   );
 }
@@ -1766,6 +1867,39 @@ const ROI_TYPE_OPTIONS: Array<NonNullable<Member['roiType']>> = [
 
 function rgbCss(color: RGB): string {
   return `rgb(${color[0]}, ${color[1]}, ${color[2]})`;
+}
+
+/**
+ * Short tag shown on each row in the preflight (e.g., "SEG"/"STRUCT"/
+ * "MEAS"). Falls through to the raw kind for forward-compat.
+ */
+function kindTagLabel(kind: Container['kind']): string {
+  switch (kind) {
+    case 'SEG':
+      return 'SEG';
+    case 'RTSTRUCT':
+      return 'STRUCT';
+    case 'POI':
+      return 'MEAS';
+    default:
+      return String(kind);
+  }
+}
+
+/** "3 segments" / "1 structure" / etc. */
+function memberSummaryFor(container: Container): string {
+  const noun = memberKindLabelFor(container.kind);
+  const n = container.members.length;
+  return `${n} ${n === 1 ? noun : `${noun}s`}`;
+}
+
+/** Bridge type — saveBatchService → SavingOverlay. Same shape today. */
+function mapFailure(f: SaveBatchFailure): SavingOverlayFailure {
+  return {
+    containerId: f.containerId,
+    containerName: f.containerName,
+    errorMessage: f.errorMessage,
+  };
 }
 
 /**

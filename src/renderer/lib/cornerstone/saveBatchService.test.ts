@@ -9,9 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const getContainerMock = vi.hoisted(() => vi.fn());
 
 vi.mock('./containerBridge', () => ({
-  containerBridge: {
-    getContainer: getContainerMock,
-  },
+  getContainer: getContainerMock,
 }));
 
 vi.mock('./containerActions', () => ({

@@ -21,7 +21,7 @@
  * an optional `targetName`). The batch executor still respects skip
  * decisions and the action category, so the batch shape is correct.
  */
-import { containerBridge } from './containerBridge';
+import * as containerBridge from './containerBridge';
 import { uploadContainerToXnat } from './containerActions';
 
 export type SaveAllAction = 'overwrite' | 'copy' | 'new' | 'skip';
