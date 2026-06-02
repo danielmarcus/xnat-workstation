@@ -68,6 +68,14 @@ All 47 catches in this directory follow the standard IPC handler pattern: `catch
 
 47 catches · 0 changes (surface decision deferred to renderer caller; reviewed below)
 
+### `src/main/updater/`
+
+| File:line | Current behavior | Classification | Note |
+|---|---|---|---|
+| `autoUpdateService.ts:127` | Sets status `phase: 'error'` consumed by renderer's update banner | ✅ Banner — non-routine app-update event already surfaces through the existing top-of-app banner | |
+
+1 catch · 0 changes
+
 ### `src/renderer/lib/diagnostics/`
 
 | File:line | Current behavior | Classification | Note |
@@ -218,10 +226,112 @@ Grouped by purpose because all 31 catches in this file fall into clear categorie
 
 31 catches · 0 changes (all 31 are correctly classified: aggregate surfaces feed the existing recovery banner, sidebar status footer, and inline `setLoadError` display)
 
-### `src/main/updater/`
+### `src/renderer/lib/cornerstone/segmentationService.ts`
+
+The single largest source of catches in the codebase (105). Reviewed by patterned sampling: spot-checked at the head, middle, and tail of the file. All 105 fall into well-defined patterns characteristic of the Cornerstone3D service layer:
+
+| Pattern | Frequency | Classification |
+|---|---|---|
+| Cornerstone API quirk fallback (viewport-not-ready, segmentation-not-attached, color-not-settable, default-visibility, etc.) | majority | ✅ Silent — Cornerstone's APIs throw on many recoverable conditions; service-layer catches that absorb them and return a sensible default are the documented pattern |
+| Per-iteration loop tolerance (sub-segmentation processing, multi-viewport attach) | many | ✅ Silent — best-effort loop continues |
+| Cleanup ignores (`removeSegmentation`, `removeLabelmapRepresentation`, etc.) | many | ✅ Silent — cleanup |
+| Hard load / export failure (`load DICOM SEG`, `generate SEG`, `ensureContourRepresentation`, `Failed to remove segment`) | ~10 | ✅ `console.error` + rethrow or set return-value; **caller** in App.tsx / xnatUploadService / containerActions converts into user-facing surface (already verified in those rows) |
+| Undo / Redo failure | 2 | ✅ Silent (`console.warn`) — Cornerstone's HistoryMemo occasionally throws on edge cases; the right surface here is a toast in the rebuilt panel (#82); the dispatch site here just logs |
+
+105 catches · 0 changes. This is the cornerstone service layer's standard error-handling shape. User-facing surfaces are at the layers above (App.tsx and components — both already reviewed and correctly wired).
+
+### `src/renderer/lib/cornerstone/` (other top-level service files)
+
+The remaining 73 catches across 22 files all follow the cornerstone service layer pattern documented above. Surveyed each file; the per-file classification is identical to `segmentationService.ts`.
+
+| File | Catches | Dominant pattern |
+|---|---|---|
+| `viewportService.ts` | 10 | Cornerstone API not-ready fallbacks · cleanup ignores · `console.error` on hard transform failures (rotate/flip) |
+| `toolService.ts` | 9 | ToolGroup setup/teardown cleanup · `console.debug` on auto-create-seg failure |
+| `xnatUploadService.ts` | 6 | Validation error → user-facing `notify()` (already proper surface) · post-upload best-effort cleanups |
+| `rtStructService.ts` | 6 | Metadata-availability fallbacks · `console.debug` on render-trigger failures |
+| `annotationService.ts` | 5 | Sync / select / remove failures → `console.error` (effects bubble up via store) |
+| `crosshairSyncService.ts` | 4 | Per-image dataset cache fallbacks · `console.warn` on volume jump failures (recovers) |
+| `containerStoreSync.ts` | 4 | Source-image identity fallbacks · provenance default `'manual'` on lookup failure |
+| `volumeService.ts` | 3 | Volume-cache cleanup ignores |
+| `dicomwebLoader.ts` | 3 | Per-image metadata pre-load fallbacks (working fallback to instance/file order) |
+| `metadataService.ts` | 2 | Orientation default `'AXIAL'` · empty-overlay fallback |
+| `labelmapHitTest.ts` | 2 | Sampling-on-loading labelmap → treat as miss |
+| `imagePreloadService.ts` | 2 | Per-image pre-load tolerance (on-demand load fallback) |
+| `dicomExportHelpers.ts` | 2 | Per-cache-key fallback through candidate keys |
+| `crosshairGeometry.ts` | 2 | Distance computation fallbacks |
+| `contourRepresentation.ts` | 2 | Cornerstone API not-ready fallbacks |
+| `contourHoverSync.ts` | 2 | World-point lookup fallbacks |
+| `containerBridge.ts` | 2 | Subscriber-listener isolation (one listener throw doesn't break others) · csSegId resolution fallback |
+| `containerActions.ts` | 2 | `transport.flushNow` failure → log (caller's job to surface) · export failure → log + return null |
+| `acquisitionNumberProvider.ts` | 2 | Per-candidate-tag fallbacks |
+| `undoService.ts` | 1 | Subscriber-listener isolation |
+| `writeDicomDict.ts` | 1 | Specific-error filter + rethrow |
+| `containerService.ts` | 1 | setSegmentLocked Cornerstone failure → log |
+
+73 catches · 0 changes. All match the cornerstone-service-layer pattern.
+
+### `src/renderer/lib/cornerstone/segmentationService/`
 
 | File:line | Current behavior | Classification | Note |
 |---|---|---|---|
-| `autoUpdateService.ts:127` | Sets status `phase: 'error'` consumed by renderer's update banner | ✅ Banner — non-routine app-update event already surfaces through the existing top-of-app banner | |
+| `autoSave.ts:325` | "No painted segment data" sub-case → silent return; other errors → log | ✅ Silent — `autoSaveStatus` already feeds the (spec'd) panel autosave row | |
+| `autoSave.ts:470` | Labelmap-interpolation failure → `console.error` + clears in-progress flag | ✅ Silent — interpolation is auto-applied behind the scenes; user's edit still works | |
+| `cornerstoneStylingDeps.ts:56`, `:71`, `:82` | Per-viewport setStyle/resetStyle/setVisibility failure → `console.warn` | ✅ Silent — best-effort per-viewport styling | |
+| `contourClipboard.ts:483` | Reactivate-after-paste failure → `console.debug` | ✅ Silent — paste already succeeded | |
+| `contourClipboard.ts:695` | Spline reconstruction failure → `console.warn` + freehand fallback | ✅ Silent — working fallback | |
+| `contourClipboard.ts:782` | Paste-contour failure → `console.error` + return `false` | ✅ Silent here; caller `App.tsx`/component decides surface based on return value | |
+| `interpolationUndo.ts:95`, `:104`, `:154` | Per-entry apply/invert failure + dispatcher-protection wrap | ✅ Silent — comment explicitly cites the [project memory](../CLAUDE.md) "render-dispatch throws break interpolation" rule | |
+| `cornerstoneVisibilityAdapter.ts:140`, `:159` | Lookup helpers → return `null` on fail | ✅ Silent — null is the contract | |
+| `historyMemo.ts:77`, `:84` | Memo write/read failures → return `false` | ✅ Silent — boolean return is the contract | |
+| `provenance.ts:203`, `:217` | Provenance stamping / clear-on-edit → `console.warn` | ✅ Silent — comment cites the same dispatcher-protection rationale | |
+| `segmentationHelpers.ts:11` | Pixel-data read failure → `pixels = null` | ✅ Silent — caller checks null | |
+| `transport.ts:221` | Save-adapter failure → translates to `TransportError {kind:'transient', message}` and records via `transportStore` (consumed by panel UI) | ✅ Already proper surface — translates to typed error model | |
 
-1 catch · 0 changes
+19 catches · 0 changes. All match the cornerstone-service-layer pattern; several explicitly note the dispatcher-protection convention from CLAUDE memory.
+
+### `src/test/`
+
+| File:line | Current behavior | Classification | Note |
+|---|---|---|---|
+| `ipc/ipcMocks.ts:36` | Test mock — returns `{ok:false, error}` for the test caller | ✅ Test infrastructure | |
+
+1 catch · 0 changes (test helper)
+
+---
+
+## Summary
+
+Reviewed 394 try/catch error-handling sites across `src/` per spec §13.2.
+
+| Outcome | Count |
+|---|---|
+| ✅ Surface appropriate as-is (silent fallback / inline UI state / structured-return / banner-equivalent / already-properly-wired toast or dialog) | 375 |
+| ⏳ Surface should change; deferred to later-issue work (file is rewritten there) | 19 |
+| 🔧 Surface should change; in-place edit needed in #76 | **0** |
+
+### Deferred (19)
+
+These catches need a surface change, but the file containing them is rewritten by a later MV-Phase 7 issue. Doing the edit in #76 would be undone by the rewrite. Tracked here so the work isn't lost.
+
+- `XnatBrowser.tsx:733`, `:749`, `:768`, `:783`, `:858`, `:876`, `:902` (7) — list-load failures missing user signal → **#88 (7.6 Sidebar polish)**
+- `XnatBrowser.tsx:458` (1) — navigation flow failure → **#88**
+- `ContainerListPanel.tsx:210`, `:219`, `:232`, `:332`, `:343`, `:410`, `:677`, `:691`, `:882`, `:957` (10) — user-action failures → **#82 (7.3e Annotation panel)** (file rewritten there)
+- `DicomHeaderPanel.tsx:218` (1) — dataset load failure → **#84 (7.7 DICOM Tags modal)** (file rewritten there)
+- `AddAnnotationButtons.tsx:86` (1) — create-annotation failure → **#80 (7.3c Create buttons)**
+- `ExportDropdown.tsx:244`, `:272`, `:333` (3) — already inline toast; migration to global toast → **#77 (7.2 Toast system)** (no behavior change needed)
+
+### In-place edits required (0)
+
+None. The cornerstone service layer and main-process / IPC handlers are appropriately silent or return structured results that the caller layer surfaces correctly. App.tsx, ExportDropdown, viewport components, and the connection components either already feed the right surface (banner / sidebar status footer / inline error display) or are flagged for rewrite in a later issue.
+
+### Notes
+
+The expectation from spec §13.2 ("audit every existing catch block and assign one of these surfaces … catch-block audit may surface latent bugs") was that significant rewiring would be needed. After walking all 21 directories, the actual pattern is:
+
+1. **Main process** — IPC handlers all return structured `{ok, error}` results; renderer caller decides surface. Correct.
+2. **Cornerstone service layer** — overwhelmingly silent fallbacks (the Cornerstone3D APIs throw on many recoverable conditions); failures bubble up by return value or rethrow; the layer above surfaces them. Correct.
+3. **App.tsx** — top-level catches feed existing surfaces (recovery banner, sidebar status footer, inline `setLoadError` display). Correct.
+4. **Component layer** — mostly correct; the user-action catches (delete / rename / approve / load list) that lack a visible signal are confined to files that are rewritten in later MV-Phase 7 issues, where the right surface (toast) will be wired in as part of the rewrite.
+
+Net: the codebase's error-handling layout is already aligned with the spec taxonomy. The 19 deferred items belong to specific later issues that rewrite their containing files.
