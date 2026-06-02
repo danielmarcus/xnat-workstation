@@ -2276,6 +2276,40 @@ describe('member-row drag handle (spec §4.5)', () => {
   });
 });
 
+// ─── MV-Phase 7.3b: name double-click rename (spec §4.5) ──────────────
+
+describe('member name double-click rename (spec §4.5)', () => {
+  it('double-clicking the name opens the inline rename input', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [makeMember({ id: 'm1', name: 'Lesion 1' })],
+      }),
+    );
+    render(<ContainerListPanel />);
+    expect(screen.queryByTestId('member-rename:m1')).toBeNull();
+    act(() => {
+      fireEvent.doubleClick(screen.getByTestId('member-name:m1'));
+    });
+    expect(screen.queryByTestId('member-rename:m1')).not.toBeNull();
+  });
+
+  it('approved containers do NOT enter rename on double-click', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        approval: { approved: true, reviewerName: null, reviewedAt: 0, history: [] },
+        members: [makeMember({ id: 'm1' })],
+      }),
+    );
+    render(<ContainerListPanel />);
+    act(() => {
+      fireEvent.doubleClick(screen.getByTestId('member-name:m1'));
+    });
+    expect(screen.queryByTestId('member-rename:m1')).toBeNull();
+  });
+});
+
 // ─── MV-Phase 7.3b: visibility modifiers (spec §4.5) ──────────────────
 
 describe('member visibility shift-click solo (spec §4.5)', () => {

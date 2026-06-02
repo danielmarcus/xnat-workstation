@@ -1273,7 +1273,20 @@ function MemberRow({
           }`}
           title={member.name}
         >
-          <span className="truncate">{member.name}</span>
+          <span
+            data-testid={`member-name:${member.id}`}
+            className="truncate select-none"
+            onDoubleClick={(e) => {
+              // Double-click on the name → inline rename (spec §4.5).
+              // Approved containers are read-only, so the rename
+              // affordance is suppressed there.
+              if (containerApproved) return;
+              e.stopPropagation();
+              startRename();
+            }}
+          >
+            {member.name}
+          </span>
           {containerKind === 'RTSTRUCT' && !containerApproved ? (
             <RoiTypeSelect member={member} />
           ) : (
