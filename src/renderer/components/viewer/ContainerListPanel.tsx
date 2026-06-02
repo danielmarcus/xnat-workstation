@@ -36,6 +36,7 @@ import {
   IconStructureAnnotation,
   IconMeasurementAnnotation,
 } from '../icons';
+import DeleteConfirmDialog, { type DeleteConfirmTarget } from './dialogs/DeleteConfirmDialog';
 import { containerService } from '../../lib/cornerstone/containerService';
 import * as containerActions from '../../lib/cornerstone/containerActions';
 import { segmentationManager } from '../../lib/segmentation/segmentationManagerSingleton';
@@ -667,6 +668,7 @@ function ContainerRow({
   const [actionMenuOpen, setActionMenuOpen] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [renameDraft, setRenameDraft] = useState<string | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
   // Drop into inline rename mode if the parent flagged this container
   // as freshly-created (spec §4.3). Fires once per match; the parent
@@ -801,11 +803,15 @@ function ContainerRow({
   };
   const onRequestDelete = () => {
     closeMenus();
-    // DeleteConfirmDialog lands in 7.3d. For now, use window.confirm so
-    // the action chain is testable end-to-end.
-    if (typeof window !== 'undefined' && !window.confirm(
-      `Delete "${container.name}"? This cannot be undone.`,
-    )) return;
+    setDeleteDialogOpen(true);
+  };
+  const onConfirmDelete = (target: DeleteConfirmTarget) => {
+    setDeleteDialogOpen(false);
+    if (target === 'local-and-remote') {
+      // Remote delete wiring lands with the XNAT-side delete service;
+      // for now the local delete proceeds and we surface a warning.
+      console.warn('[ContainerListPanel] remote delete not yet wired');
+    }
     try {
       containerService.deleteContainer?.(container.id);
     } catch (err) {
@@ -1194,6 +1200,20 @@ function ContainerRow({
           innerRef={contextMenuRef}
         />
       )}
+      <DeleteConfirmDialog
+        open={deleteDialogOpen}
+        containerName={container.name}
+        memberCount={container.members.length}
+        memberKindLabel={memberKindLabelFor(container.kind)}
+        hasUnsavedChanges={container.dirty}
+        xnatOrigin={
+          container.sourceIdentity
+            ? { scanId: scanIdFromSourceUri(container.sourceIdentity.uri) }
+            : null
+        }
+        onCancel={() => setDeleteDialogOpen(false)}
+        onConfirm={onConfirmDelete}
+      />
     </li>
   );
 }
@@ -1746,6 +1766,35 @@ const ROI_TYPE_OPTIONS: Array<NonNullable<Member['roiType']>> = [
 
 function rgbCss(color: RGB): string {
   return `rgb(${color[0]}, ${color[1]}, ${color[2]})`;
+}
+
+/**
+ * Singular noun for a member of the given container kind. Pluralized
+ * downstream when needed.
+ */
+function memberKindLabelFor(kind: Container['kind']): string {
+  switch (kind) {
+    case 'SEG':
+      return 'segment';
+    case 'RTSTRUCT':
+      return 'structure';
+    case 'POI':
+      return 'measurement';
+    default:
+      return 'member';
+  }
+}
+
+/**
+ * Best-effort extraction of a scan-id label from a transport URI.
+ * Most XNAT URIs end with /scans/{id}/... so the segment after
+ * "scans" is the display value. Fallback to the raw URI tail.
+ */
+function scanIdFromSourceUri(uri: string): string {
+  const m = uri.match(/\/scans\/([^/?#]+)/);
+  if (m) return m[1];
+  const tail = uri.split('/').filter(Boolean).pop();
+  return tail ?? uri;
 }
 
 /**

@@ -1880,17 +1880,25 @@ describe('container action menu (spec §4.4.1)', () => {
     expect(renameContainerMock).not.toHaveBeenCalled();
   });
 
-  it('"Delete…" with no confirm cancels; with confirm calls containerService.deleteContainer', () => {
-    window.confirm = vi.fn().mockReturnValue(false);
+  it('"Delete…" opens the DeleteConfirmDialog; Cancel does not delete, Delete does (spec §4.4.2)', () => {
     setContainers(makeContainer({ id: 'c1' }));
     render(<ContainerListPanel />);
+
+    // Open the action menu → click Delete → dialog appears.
     act(() => fireEvent.click(screen.getByTestId('container-menu:c1')));
     act(() => fireEvent.click(screen.getByTestId('container-menu-delete:c1')));
+    expect(screen.queryByTestId('delete-confirm-dialog')).not.toBeNull();
     expect(deleteContainerMock).not.toHaveBeenCalled();
 
-    window.confirm = vi.fn().mockReturnValue(true);
+    // Cancel closes the dialog without calling deleteContainer.
+    act(() => fireEvent.click(screen.getByTestId('delete-confirm-cancel')));
+    expect(deleteContainerMock).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('delete-confirm-dialog')).toBeNull();
+
+    // Re-open + click Delete → containerService.deleteContainer fires.
     act(() => fireEvent.click(screen.getByTestId('container-menu:c1')));
     act(() => fireEvent.click(screen.getByTestId('container-menu-delete:c1')));
+    act(() => fireEvent.click(screen.getByTestId('delete-confirm-local-only')));
     expect(deleteContainerMock).toHaveBeenCalledWith('c1');
   });
 });
