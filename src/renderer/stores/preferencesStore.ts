@@ -11,11 +11,14 @@ import {
   DEFAULT_BACKUP_PREFERENCES,
   DEFAULT_DELETION_PREFERENCES,
   DEFAULT_MULTIVIEWPORT_PREFERENCES,
+  DEFAULT_ANNOTATION_PANEL_PREFERENCES,
+  clampAnnotationPanelWidth,
   type BackupPreferences,
   type DeletionPreferences,
   type InterpolationAlgorithm,
   type InterpolationPreferences,
   type MultiViewportPreferences,
+  type AnnotationPanelPreferences,
   type OverlayCornerId,
   type OverlayFieldKey,
   type OverlayPreferences,
@@ -59,6 +62,8 @@ interface PreferencesStore {
   setTrashResourceName: (name: string) => void;
   // ─── Multi-Viewport ───────────────────────────────────────
   setCrossSeriesRendering: (enabled: boolean) => void;
+  // ─── Annotations side panel ───────────────────────────────
+  setAnnotationPanelWidth: (width: number) => void;
   resetAll: () => void;
 }
 
@@ -134,6 +139,7 @@ function makeDefaultPreferences(): PreferencesV1 {
     backup: { ...DEFAULT_BACKUP_PREFERENCES },
     deletion: { ...DEFAULT_DELETION_PREFERENCES },
     multiViewport: { ...DEFAULT_MULTIVIEWPORT_PREFERENCES },
+    annotationPanel: { ...DEFAULT_ANNOTATION_PANEL_PREFERENCES },
   };
 }
 
@@ -596,6 +602,17 @@ export const usePreferencesStore = create<PreferencesStore>()(
           },
         })),
 
+      setAnnotationPanelWidth: (width) =>
+        set((state) => ({
+          preferences: {
+            ...state.preferences,
+            annotationPanel: {
+              ...state.preferences.annotationPanel,
+              width: clampAnnotationPanelWidth(width),
+            },
+          },
+        })),
+
       resetAll: () =>
         set({
           preferences: makeDefaultPreferences(),
@@ -666,6 +683,16 @@ export const usePreferencesStore = create<PreferencesStore>()(
               : base.preferences.multiViewport.crossSeriesRendering,
         };
 
+        // Annotations side panel — clamp incoming width or fall back
+        // to the default (added in MV-Phase 7.3c).
+        const incomingPanel = (incoming as Partial<PreferencesV1>).annotationPanel;
+        const mergedAnnotationPanel: AnnotationPanelPreferences = {
+          width:
+            typeof incomingPanel?.width === 'number'
+              ? clampAnnotationPanelWidth(incomingPanel.width)
+              : base.preferences.annotationPanel.width,
+        };
+
         return {
           ...base,
           preferences: {
@@ -679,6 +706,7 @@ export const usePreferencesStore = create<PreferencesStore>()(
             backup: mergedBackup,
             deletion: mergedDeletion,
             multiViewport: mergedMultiViewport,
+            annotationPanel: mergedAnnotationPanel,
           },
         };
       },

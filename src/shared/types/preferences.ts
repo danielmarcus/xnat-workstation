@@ -150,6 +150,39 @@ export const DEFAULT_MULTIVIEWPORT_PREFERENCES: MultiViewportPreferences = {
   crossSeriesRendering: true,
 };
 
+// ─── Annotations side panel ─────────────────────────────────────
+
+/**
+ * Width of the Annotations side panel (spec §4.1). Drag-resizable
+ * from a handle on the panel's left edge. Persisted across sessions
+ * so the user's preferred working width survives reloads.
+ */
+export interface AnnotationPanelPreferences {
+  /** Current panel width in CSS pixels. Clamped to [MIN, MAX]. */
+  width: number;
+}
+
+export const ANNOTATION_PANEL_MIN_WIDTH = 140;
+export const ANNOTATION_PANEL_MAX_WIDTH = 600;
+export const ANNOTATION_PANEL_DEFAULT_WIDTH = 400;
+
+/**
+ * Narrow-mode thresholds. Below COMPACT_ADD the three create-button
+ * labels collapse to icon-only; below COMPACT_TOOLS the toolbox
+ * collapses to icon-only as well (spec §4.1).
+ */
+export const ANNOTATION_PANEL_COMPACT_ADD_WIDTH = 270;
+export const ANNOTATION_PANEL_COMPACT_TOOLS_WIDTH = 210;
+
+export const DEFAULT_ANNOTATION_PANEL_PREFERENCES: AnnotationPanelPreferences = {
+  width: ANNOTATION_PANEL_DEFAULT_WIDTH,
+};
+
+export function clampAnnotationPanelWidth(width: number): number {
+  if (!Number.isFinite(width)) return ANNOTATION_PANEL_DEFAULT_WIDTH;
+  return Math.max(ANNOTATION_PANEL_MIN_WIDTH, Math.min(ANNOTATION_PANEL_MAX_WIDTH, Math.round(width)));
+}
+
 // ─── Top-level Preferences ──────────────────────────────────────
 
 export interface PreferencesV1 {
@@ -163,6 +196,7 @@ export interface PreferencesV1 {
   backup: BackupPreferences;
   deletion: DeletionPreferences;
   multiViewport: MultiViewportPreferences;
+  annotationPanel: AnnotationPanelPreferences;
 }
 
 export const DEFAULT_OVERLAY_CORNERS: Record<OverlayCornerId, OverlayFieldKey[]> = {
@@ -236,4 +270,5 @@ export const DEFAULT_PREFERENCES: PreferencesV1 = {
   backup: { ...DEFAULT_BACKUP_PREFERENCES },
   deletion: { ...DEFAULT_DELETION_PREFERENCES },
   multiViewport: { ...DEFAULT_MULTIVIEWPORT_PREFERENCES },
+  annotationPanel: { ...DEFAULT_ANNOTATION_PANEL_PREFERENCES },
 };
