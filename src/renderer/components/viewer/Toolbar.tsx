@@ -13,6 +13,7 @@ import AddAnnotationButtons from './AddAnnotationButtons';
 import CollapsibleGroup from './CollapsibleGroup';
 import SettingsModal from '../settings/SettingsModal';
 import CheatsheetOverlay from '../CheatsheetOverlay';
+import { useSuffixedTooltip } from '../../lib/hotkeys/useBindingLabel';
 import { useToolbarCollapse } from '../../hooks/useToolbarCollapse';
 import {
   IconWindowLevel,
@@ -580,6 +581,24 @@ export default function Toolbar({
   const canUndo = useSegmentationStore((s) => s.canUndo);
   const canRedo = useSegmentationStore((s) => s.canRedo);
 
+  // Spec §3.11 / §6.4 — every button whose action has a default
+  // binding suffixes its tooltip live. Tooltips update without a
+  // refresh when the user remaps via Settings → Hotkeys.
+  const titleWindowLevel = useSuffixedTooltip('Window/Level (left-click drag)', 'tool.windowLevel');
+  const titlePan = useSuffixedTooltip('Pan (left-click drag)', 'tool.pan');
+  const titleZoom = useSuffixedTooltip('Zoom (left-click drag)', 'tool.zoom');
+  const titleCrosshairs = useSuffixedTooltip(
+    'Crosshairs (left-click to sync; hold Shift+move for dynamic sync; left-drag W/L)',
+    'tool.crosshairs',
+  );
+  const titleUndo = useSuffixedTooltip('Undo', 'edit.undo');
+  const titleRedo = useSuffixedTooltip('Redo', 'edit.redo');
+  const titleResetViewport = useSuffixedTooltip('Reset viewport', 'viewport.reset');
+  const titleToggleInvert = useSuffixedTooltip('Toggle invert', 'viewport.toggleInvert');
+  const titleRotate90 = useSuffixedTooltip('Rotate 90°', 'viewport.rotate90');
+  const titleFlipH = useSuffixedTooltip('Flip horizontal', 'viewport.flipH');
+  const titleFlipV = useSuffixedTooltip('Flip vertical', 'viewport.flipV');
+
   return (
     <>
       <div data-testid="toolbar" className="h-10 bg-zinc-900 border-b border-zinc-800 flex items-center px-2 gap-1 shrink-0">
@@ -647,7 +666,7 @@ export default function Toolbar({
           label="Cross"
           active={activeTool === ToolName.Crosshairs}
           onClick={() => setActiveTool(ToolName.Crosshairs)}
-          title="Crosshairs (left-click to sync; hold Shift+move for dynamic sync; left-drag W/L)"
+          title={titleCrosshairs}
           hideLabel={textCollapsed}
         />
         <ToolButton
@@ -655,7 +674,7 @@ export default function Toolbar({
           label="W/L"
           active={activeTool === ToolName.WindowLevel}
           onClick={() => setActiveTool(ToolName.WindowLevel)}
-          title="Window/Level (left-click drag)"
+          title={titleWindowLevel}
           hideLabel={textCollapsed}
         />
         <WLPresetsDropdown hideLabel={textCollapsed} />
@@ -664,7 +683,7 @@ export default function Toolbar({
           label="Pan"
           active={activeTool === ToolName.Pan}
           onClick={() => setActiveTool(ToolName.Pan)}
-          title="Pan (left-click drag)"
+          title={titlePan}
           hideLabel={textCollapsed}
         />
         <ToolButton
@@ -672,7 +691,7 @@ export default function Toolbar({
           label="Zoom"
           active={activeTool === ToolName.Zoom}
           onClick={() => setActiveTool(ToolName.Zoom)}
-          title="Zoom (left-click drag)"
+          title={titleZoom}
           hideLabel={textCollapsed}
         />
       </CollapsibleGroup>
@@ -690,13 +709,13 @@ export default function Toolbar({
         <IconButton
           icon={<IconUndo className="w-3.5 h-3.5" />}
           onClick={() => segmentationService.undo()}
-          title="Undo (Ctrl+Z)"
+          title={titleUndo}
           disabled={!canUndo}
         />
         <IconButton
           icon={<IconRedo className="w-3.5 h-3.5" />}
           onClick={() => segmentationService.redo()}
-          title="Redo (Ctrl+Shift+Z)"
+          title={titleRedo}
           disabled={!canRedo}
         />
       </CollapsibleGroup>
@@ -712,27 +731,27 @@ export default function Toolbar({
         <IconButton
           icon={<IconReset className="w-3.5 h-3.5" />}
           onClick={resetViewport}
-          title="Reset viewport"
+          title={titleResetViewport}
         />
         <IconButton
           icon={<IconInvert className="w-3.5 h-3.5" />}
           onClick={toggleInvert}
-          title="Toggle invert"
+          title={titleToggleInvert}
         />
         <IconButton
           icon={<IconRotate90 className="w-3.5 h-3.5" />}
           onClick={rotate90}
-          title="Rotate 90°"
+          title={titleRotate90}
         />
         <IconButton
           icon={<IconFlipH className="w-3.5 h-3.5" />}
           onClick={flipH}
-          title="Flip horizontal"
+          title={titleFlipH}
         />
         <IconButton
           icon={<IconFlipV className="w-3.5 h-3.5" />}
           onClick={flipV}
-          title="Flip vertical"
+          title={titleFlipV}
         />
       </CollapsibleGroup>
 

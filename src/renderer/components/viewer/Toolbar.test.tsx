@@ -6,6 +6,8 @@ import { BUILT_IN_PROTOCOLS } from '@shared/types/hangingProtocol';
 import Toolbar from './Toolbar';
 import { useViewerStore } from '../../stores/viewerStore';
 import { useSegmentationStore } from '../../stores/segmentationStore';
+import { usePreferencesStore } from '../../stores/preferencesStore';
+import { act } from 'react';
 
 const segmentationServiceMock = vi.hoisted(() => ({
   undo: vi.fn(),
@@ -71,11 +73,11 @@ describe('Toolbar', () => {
     await user.click(screen.getByRole('button', { name: 'Pan' }));
     expect(setActiveTool).toHaveBeenCalledWith(ToolName.Pan);
 
-    await user.click(screen.getByTitle('Reset viewport'));
-    await user.click(screen.getByTitle('Toggle invert'));
-    await user.click(screen.getByTitle('Rotate 90°'));
-    await user.click(screen.getByTitle('Flip horizontal'));
-    await user.click(screen.getByTitle('Flip vertical'));
+    await user.click(screen.getByTitle(/^Reset viewport(\s|$)/));
+    await user.click(screen.getByTitle(/^Toggle invert(\s|$)/));
+    await user.click(screen.getByTitle(/^Rotate 90°(\s|$)/));
+    await user.click(screen.getByTitle(/^Flip horizontal(\s|$)/));
+    await user.click(screen.getByTitle(/^Flip vertical(\s|$)/));
     await user.click(screen.getByTitle('Play cine'));
     await user.click(screen.getByRole('button', { name: 'MPR' }));
     await user.click(screen.getByRole('button', { name: 'Tags' }));
@@ -165,8 +167,8 @@ describe('Toolbar', () => {
     });
 
     const view = render(<Toolbar />);
-    const undoButton = screen.getByTitle('Undo (Ctrl+Z)');
-    const redoButton = screen.getByTitle('Redo (Ctrl+Shift+Z)');
+    const undoButton = screen.getByTitle(/^Undo(\s|$)/);
+    const redoButton = screen.getByTitle(/^Redo(\s|$)/);
     expect(undoButton).toBeDisabled();
     expect(redoButton).toBeDisabled();
 
@@ -177,8 +179,8 @@ describe('Toolbar', () => {
     });
     view.rerender(<Toolbar />);
 
-    await user.click(screen.getByTitle('Undo (Ctrl+Z)'));
-    await user.click(screen.getByTitle('Redo (Ctrl+Shift+Z)'));
+    await user.click(screen.getByTitle(/^Undo(\s|$)/));
+    await user.click(screen.getByTitle(/^Redo(\s|$)/));
     expect(segmentationServiceMock.undo).toHaveBeenCalledTimes(1);
     expect(segmentationServiceMock.redo).toHaveBeenCalledTimes(1);
 
@@ -272,6 +274,22 @@ describe('Toolbar', () => {
     expect(screen.queryByTestId('cheatsheet-overlay')).not.toBeNull();
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(screen.queryByTestId('cheatsheet-overlay')).toBeNull();
+  });
+
+  it('button tooltips carry the live hotkey suffix and update on remap (spec §3.11 / §6.4)', () => {
+    render(<Toolbar />);
+    // Default: Reset has 'R'; Pan has 'P'; Toggle invert has 'I'.
+    expect(screen.getByTitle('Reset viewport (R)')).toBeInTheDocument();
+    expect(screen.getByTitle('Pan (left-click drag) (P)')).toBeInTheDocument();
+    expect(screen.getByTitle('Toggle invert (I)')).toBeInTheDocument();
+
+    // Remap viewport.reset → Q via preferences; tooltip updates live.
+    act(() => {
+      usePreferencesStore.getState().setHotkeyOverride('viewport.reset', [{ key: 'q' }]);
+    });
+    expect(screen.queryByTitle('Reset viewport (R)')).toBeNull();
+    expect(screen.getByTitle('Reset viewport (Q)')).toBeInTheDocument();
+    act(() => usePreferencesStore.getState().resetHotkeys());
   });
 
   it('? does NOT open the cheatsheet when focus is in an input (§6.7)', () => {
