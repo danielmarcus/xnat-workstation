@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, createEvent, fireEvent, render, screen } from '@testing-library/react';
 import DicomHeaderPanel from './DicomHeaderPanel';
 import { useViewerStore } from '../../stores/viewerStore';
 
@@ -64,6 +64,17 @@ function buildDataset(): any {
     float: () => 0,
     double: () => 0,
   };
+}
+
+/**
+ * jsdom doesn't ship a PointerEvent constructor; the resize handler
+ * only reads clientX/clientY off the event object.
+ */
+function makePointerEvent(type: string, clientX: number, clientY: number): Event {
+  const ev = new Event(type);
+  Object.defineProperty(ev, 'clientX', { value: clientX, configurable: true });
+  Object.defineProperty(ev, 'clientY', { value: clientY, configurable: true });
+  return ev;
 }
 
 describe('DicomHeaderPanel', () => {
@@ -215,6 +226,58 @@ describe('DicomHeaderPanel', () => {
     expect(payload.group).toBe('Patient');
     expect(Array.isArray(payload.tags)).toBe(true);
     expect(payload.tags.find((t: { tag: string }) => t.tag === '(0010,0010)')).toBeTruthy();
+  });
+
+  it('dragging the bottom-right handle resizes the modal within clamp bounds (spec §10.1)', () => {
+    dicomPanelMocks.getViewport.mockReturnValue({
+      getCurrentImageId: () => 'wadouri:https://xnat.example/image1.dcm',
+    });
+    dicomPanelMocks.getDataSet.mockReturnValue(buildDataset());
+    render(<DicomHeaderPanel onClose={vi.fn()} />);
+    const dialog = screen.getByTestId('dicom-tags-dialog') as HTMLDivElement;
+    const handle = screen.getByTestId('dicom-tags-resize-handle');
+
+    // Stub a starting rect of 640×480 anchored at (100, 100).
+    Object.defineProperty(dialog, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({
+        top: 100, left: 100, right: 740, bottom: 580,
+        width: 640, height: 480,
+        x: 100, y: 100, toJSON: () => ({}),
+      }),
+    });
+
+    // Pointerdown at (740, 580); move +100,+100 → 740×580.
+    act(() => {
+      const ev = createEvent.pointerDown(handle, { pointerId: 1 });
+      Object.defineProperty(ev, 'clientX', { value: 740, configurable: true });
+      Object.defineProperty(ev, 'clientY', { value: 580, configurable: true });
+      fireEvent(handle, ev);
+    });
+    act(() => {
+      handle.dispatchEvent(makePointerEvent('pointermove', 840, 680));
+    });
+    expect(dialog.style.width).toBe('740px');
+    expect(dialog.style.height).toBe('580px');
+
+    // Move way past the cap (cursor at 5000,5000) — clamped to 90%
+    // of the jsdom viewport (default 1024×768 → 921.6 / 691.2).
+    act(() => {
+      handle.dispatchEvent(makePointerEvent('pointermove', 5000, 5000));
+    });
+    const w = Number(dialog.style.width.replace('px', ''));
+    const h = Number(dialog.style.height.replace('px', ''));
+    expect(w).toBeLessThanOrEqual(window.innerWidth * 0.9);
+    expect(h).toBeLessThanOrEqual(window.innerHeight * 0.9);
+
+    // Move way below the floor — clamped to 360×320.
+    act(() => {
+      handle.dispatchEvent(makePointerEvent('pointermove', -5000, -5000));
+    });
+    expect(dialog.style.width).toBe('360px');
+    expect(dialog.style.height).toBe('320px');
+
+    handle.dispatchEvent(new Event('pointerup'));
   });
 
   it('handles dataset retrieval failures and collapsed groups safely', () => {

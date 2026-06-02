@@ -19,7 +19,7 @@
  * - Auto-updates when scrolling through images or switching viewport
  * - Graceful handling of binary/sequence values
  */
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { wadouri } from '@cornerstonejs/dicom-image-loader';
 import { useViewerStore } from '../../stores/viewerStore';
 import { viewportService } from '../../lib/cornerstone/viewportService';
@@ -187,6 +187,10 @@ export default function DicomHeaderPanel({ onClose }: DicomHeaderPanelProps) {
     x: number;
     y: number;
   } | null>(null);
+  // Spec §10.1 — resizable via the bottom-right corner. Defaults to
+  // 640×480; clamped to [360, 90%] × [320, 90%]. `null` until the
+  // user first drags the handle (so CSS max-* still applies).
+  const [size, setSize] = useState<{ w: number; h: number } | null>(null);
 
   // Subscribe to active viewport and image index changes
   const activeViewportId = useViewerStore((s) => s.activeViewportId);
@@ -343,6 +347,44 @@ export default function DicomHeaderPanel({ onClose }: DicomHeaderPanelProps) {
   const visibleCount = filteredTags.length;
   const privateCount = allTags.filter((t) => t.isPrivate).length;
 
+  // Resize handle drag (spec §10.1). Reads the modal's current
+  // bounding rect on pointerdown, then computes width/height as the
+  // cursor moves. Clamped: min 360×320, max 90% of the viewport.
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  const onResizePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    const rect = dialog.getBoundingClientRect();
+    const startW = rect.width;
+    const startH = rect.height;
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const target = e.currentTarget;
+    if (typeof target.setPointerCapture === 'function') {
+      try { target.setPointerCapture(e.pointerId); } catch { /* noop */ }
+    }
+    const maxW = Math.max(360, window.innerWidth * 0.9);
+    const maxH = Math.max(320, window.innerHeight * 0.9);
+    const onMove = (ev: PointerEvent) => {
+      const w = Math.max(360, Math.min(maxW, startW + (ev.clientX - startX)));
+      const h = Math.max(320, Math.min(maxH, startH + (ev.clientY - startY)));
+      setSize({ w, h });
+    };
+    const onUp = () => {
+      target.removeEventListener('pointermove', onMove);
+      target.removeEventListener('pointerup', onUp);
+      target.removeEventListener('pointercancel', onUp);
+      if (typeof target.releasePointerCapture === 'function') {
+        try { target.releasePointerCapture(e.pointerId); } catch { /* noop */ }
+      }
+    };
+    target.addEventListener('pointermove', onMove);
+    target.addEventListener('pointerup', onUp);
+    target.addEventListener('pointercancel', onUp);
+  };
+
   // Esc closes (spec §10.1).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -372,8 +414,10 @@ export default function DicomHeaderPanel({ onClose }: DicomHeaderPanelProps) {
       />
 
       <div
+        ref={dialogRef}
         data-testid="dicom-tags-dialog"
-        className="relative w-[640px] h-[480px] max-w-[90%] max-h-[90%] bg-zinc-950 border border-zinc-700 rounded-xl shadow-2xl flex flex-col overflow-hidden"
+        style={size ? { width: `${size.w}px`, height: `${size.h}px` } : undefined}
+        className={`relative ${size ? '' : 'w-[640px] h-[480px]'} max-w-[90%] max-h-[90%] bg-zinc-950 border border-zinc-700 rounded-xl shadow-2xl flex flex-col overflow-hidden`}
       >
       {/* Header */}
       <div className="px-3 py-2 border-b border-zinc-800 flex items-center justify-between">
@@ -525,6 +569,22 @@ export default function DicomHeaderPanel({ onClose }: DicomHeaderPanelProps) {
             );
           })
         )}
+      </div>
+      <div
+        data-testid="dicom-tags-resize-handle"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize tags modal"
+        onPointerDown={onResizePointerDown}
+        className="absolute bottom-0 right-0 w-4 h-4 cursor-nwse-resize"
+        title="Drag to resize"
+      >
+        {/* Visual corner marker — three short diagonal lines. */}
+        <svg viewBox="0 0 12 12" className="w-full h-full text-zinc-600 hover:text-zinc-300 transition-colors" aria-hidden>
+          <line x1="11" y1="3" x2="3" y2="11" stroke="currentColor" strokeWidth="1.2" />
+          <line x1="11" y1="6" x2="6" y2="11" stroke="currentColor" strokeWidth="1.2" />
+          <line x1="11" y1="9" x2="9" y2="11" stroke="currentColor" strokeWidth="1.2" />
+        </svg>
       </div>
       </div>
 
