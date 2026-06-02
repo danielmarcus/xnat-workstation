@@ -129,6 +129,37 @@ describe('DicomHeaderPanel', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  it('renders module-filter chips with All + every spec module (§10.5)', () => {
+    dicomPanelMocks.getViewport.mockReturnValue({
+      getCurrentImageId: () => 'wadouri:https://xnat.example/image1.dcm',
+    });
+    dicomPanelMocks.getDataSet.mockReturnValue(buildDataset());
+    render(<DicomHeaderPanel onClose={vi.fn()} />);
+    for (const label of ['All', 'Patient', 'Study', 'Series', 'Image']) {
+      expect(screen.queryByTestId(`dicom-tags-chip:${label}`)).not.toBeNull();
+    }
+    expect(screen.getByTestId('dicom-tags-chip:All').dataset.active).toBe('true');
+  });
+
+  it('selecting a module chip restricts visible tags to that group', () => {
+    dicomPanelMocks.getViewport.mockReturnValue({
+      getCurrentImageId: () => 'wadouri:https://xnat.example/image1.dcm',
+    });
+    dicomPanelMocks.getDataSet.mockReturnValue(buildDataset());
+    render(<DicomHeaderPanel onClose={vi.fn()} />);
+    // Pre-filter — both Patient (Doe^Jane) and Study (2024-01-31) are visible.
+    expect(screen.getByText('Doe^Jane')).toBeInTheDocument();
+    expect(screen.getByText('2024-01-31')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('dicom-tags-chip:Patient'));
+    expect(screen.getByText('Doe^Jane')).toBeInTheDocument();
+    expect(screen.queryByText('2024-01-31')).not.toBeInTheDocument();
+
+    // Re-clicking 'All' restores everything.
+    fireEvent.click(screen.getByTestId('dicom-tags-chip:All'));
+    expect(screen.getByText('2024-01-31')).toBeInTheDocument();
+  });
+
   it('handles dataset retrieval failures and collapsed groups safely', () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     dicomPanelMocks.getViewport.mockReturnValue({

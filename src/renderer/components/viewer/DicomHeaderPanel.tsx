@@ -178,6 +178,8 @@ export default function DicomHeaderPanel({ onClose }: DicomHeaderPanelProps) {
   const [search, setSearch] = useState('');
   const [showPrivate, setShowPrivate] = useState(false);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  // Spec §10.5 — module-filter chip. `null` = All.
+  const [moduleFilter, setModuleFilter] = useState<DicomTagGroup | null>(null);
 
   // Subscribe to active viewport and image index changes
   const activeViewportId = useViewerStore((s) => s.activeViewportId);
@@ -230,12 +232,16 @@ export default function DicomHeaderPanel({ onClose }: DicomHeaderPanelProps) {
     }
   }, [activeViewportId, imageIndex]);
 
-  // Filter tags by search and private toggle
+  // Filter tags by search, private toggle, and module chip.
   const filteredTags = useMemo(() => {
     let tags = allTags;
 
     if (!showPrivate) {
       tags = tags.filter((t) => !t.isPrivate);
+    }
+
+    if (moduleFilter !== null) {
+      tags = tags.filter((t) => t.group === moduleFilter);
     }
 
     if (search.trim()) {
@@ -251,7 +257,7 @@ export default function DicomHeaderPanel({ onClose }: DicomHeaderPanelProps) {
     }
 
     return tags;
-  }, [allTags, search, showPrivate]);
+  }, [allTags, search, showPrivate, moduleFilter]);
 
   // Group tags by module
   const groupedTags = useMemo(() => {
@@ -356,6 +362,34 @@ export default function DicomHeaderPanel({ onClose }: DicomHeaderPanelProps) {
           />
           Show private tags ({privateCount})
         </label>
+      </div>
+
+      {/* Module-filter chips (spec §10.5). Single-select; "All" is the
+          null state. */}
+      <div
+        data-testid="dicom-tags-module-chips"
+        className="px-3 py-1.5 border-b border-zinc-800 flex flex-wrap gap-1"
+      >
+        {(['All', ...DICOM_TAG_GROUPS_ORDER] as const).map((label) => {
+          const value = label === 'All' ? null : (label as DicomTagGroup);
+          const active = moduleFilter === value;
+          return (
+            <button
+              key={label}
+              type="button"
+              data-testid={`dicom-tags-chip:${label}`}
+              data-active={active || undefined}
+              onClick={() => setModuleFilter(value)}
+              className={`text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded border transition-colors ${
+                active
+                  ? 'border-blue-500 bg-blue-900/30 text-blue-200'
+                  : 'border-zinc-700 bg-zinc-900 text-zinc-400 hover:border-zinc-500 hover:text-zinc-200'
+              }`}
+            >
+              {label}
+            </button>
+          );
+        })}
       </div>
 
       {/* Tag list */}
