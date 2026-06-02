@@ -278,10 +278,13 @@ describe('Toolbar', () => {
 
   // ─── MV-Phase 7.4: cheatsheet (spec §6.3) ──────────────────────────
 
-  it('? opens the cheatsheet overlay; Escape closes it', () => {
+  it('xnat-hotkey:show-cheatsheet opens the overlay; Escape closes it', () => {
     render(<Toolbar />);
     expect(screen.queryByTestId('cheatsheet-overlay')).toBeNull();
-    fireEvent.keyDown(window, { key: '?' });
+    // The hotkey service dispatches this CustomEvent on `?`. The
+    // input-focus guard lives in the service, so the Toolbar test
+    // only verifies that subscribing to the event opens the overlay.
+    fireEvent(window, new CustomEvent('xnat-hotkey:show-cheatsheet'));
     expect(screen.queryByTestId('cheatsheet-overlay')).not.toBeNull();
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(screen.queryByTestId('cheatsheet-overlay')).toBeNull();
@@ -303,37 +306,21 @@ describe('Toolbar', () => {
     act(() => usePreferencesStore.getState().resetHotkeys());
   });
 
-  it('Shift+T toggles the DICOM Tags modal via onToggleDicomPanel (spec §10.1)', () => {
+  it('xnat-hotkey:toggle-tags fires onToggleDicomPanel (spec §10.1)', () => {
     const onToggleDicomPanel = vi.fn();
     render(<Toolbar onToggleDicomPanel={onToggleDicomPanel} />);
-    fireEvent.keyDown(window, { key: 'T', shiftKey: true });
+    fireEvent(window, new CustomEvent('xnat-hotkey:toggle-tags'));
     expect(onToggleDicomPanel).toHaveBeenCalledTimes(1);
   });
 
-  it('Shift+T is suppressed when focus is in an input (§6.7)', () => {
-    const onToggleDicomPanel = vi.fn();
-    render(
-      <>
-        <input data-testid="focusable-input-2" />
-        <Toolbar onToggleDicomPanel={onToggleDicomPanel} />
-      </>,
-    );
-    const input = screen.getByTestId('focusable-input-2');
-    input.focus();
-    fireEvent.keyDown(input, { key: 'T', shiftKey: true });
-    expect(onToggleDicomPanel).not.toHaveBeenCalled();
+  it('xnat-hotkey:open-settings opens the SettingsModal (spec §6.2)', () => {
+    render(<Toolbar />);
+    fireEvent(window, new CustomEvent('xnat-hotkey:open-settings'));
+    // Modal heading "Preferences" comes from SettingsModal.
+    expect(screen.getByText('Preferences')).toBeInTheDocument();
   });
 
-  it('? does NOT open the cheatsheet when focus is in an input (§6.7)', () => {
-    render(
-      <>
-        <input data-testid="focusable-input" />
-        <Toolbar />
-      </>,
-    );
-    const input = screen.getByTestId('focusable-input');
-    input.focus();
-    fireEvent.keyDown(input, { key: '?' });
-    expect(screen.queryByTestId('cheatsheet-overlay')).toBeNull();
-  });
+  // Input-focus guard is enforced by hotkeyService itself (covered in
+  // hotkeyService.test.ts); the Toolbar simply consumes the dispatched
+  // CustomEvent.
 });

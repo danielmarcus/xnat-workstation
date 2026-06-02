@@ -522,36 +522,26 @@ export default function Toolbar({
   const toolbarContentRef = useRef<HTMLDivElement>(null);
   const { textCollapsed, isGroupCollapsed } = useToolbarCollapse(toolbarContentRef);
 
-  // Spec §6.3 — global `?` keypress opens the cheatsheet.
-  // Spec §10.1 — global `Shift+T` toggles the DICOM Tags modal.
-  // Input-focus guard (§6.7): suppress when focus is in INPUT /
-  // TEXTAREA / SELECT / contenteditable.
+  // Spec §6.2 — subscribe to the hotkey-service CustomEvents:
+  //   `?`        → xnat-hotkey:show-cheatsheet
+  //   Shift+T    → xnat-hotkey:toggle-tags
+  //   ⌘,         → xnat-hotkey:open-settings
+  // The hotkey service owns the keydown listener (including the
+  // §6.7 input-focus guard), so the Toolbar just listens for the
+  // dispatched events.
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement | null;
-      if (target) {
-        const tag = target.tagName;
-        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable) {
-          return;
-        }
-      }
-      if (e.key === '?' && !cheatsheetOpen) {
-        e.preventDefault();
-        setCheatsheetOpen(true);
-        return;
-      }
-      // Shift+T → Tags modal (spec §10.1). Ignore plain `t` to avoid
-      // colliding with the future tool.arrowAnnotate alias.
-      if (e.shiftKey && (e.key === 'T' || e.key === 't') && !e.metaKey && !e.ctrlKey && !e.altKey) {
-        if (onToggleDicomPanel) {
-          e.preventDefault();
-          onToggleDicomPanel();
-        }
-      }
+    const onCheatsheet = () => setCheatsheetOpen(true);
+    const onToggleTags = () => onToggleDicomPanel?.();
+    const onOpenSettings = () => setShowSettings(true);
+    window.addEventListener('xnat-hotkey:show-cheatsheet', onCheatsheet);
+    window.addEventListener('xnat-hotkey:toggle-tags', onToggleTags);
+    window.addEventListener('xnat-hotkey:open-settings', onOpenSettings);
+    return () => {
+      window.removeEventListener('xnat-hotkey:show-cheatsheet', onCheatsheet);
+      window.removeEventListener('xnat-hotkey:toggle-tags', onToggleTags);
+      window.removeEventListener('xnat-hotkey:open-settings', onOpenSettings);
     };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [cheatsheetOpen, onToggleDicomPanel]);
+  }, [onToggleDicomPanel]);
 
   // Open Settings to a specific tab when requested by parent (e.g. banner link)
   useEffect(() => {
