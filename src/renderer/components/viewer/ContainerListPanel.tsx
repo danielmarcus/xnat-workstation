@@ -256,6 +256,34 @@ export default function ContainerListPanel() {
     setSaveAllPreflightOpen(true);
   };
 
+  // Spec §6.2 — listen for the hotkey-service CustomEvents:
+  //   ⌘S       → save the dirty container that owns the active member.
+  //   ⌘⇧S      → open the Save All preflight (same as the header
+  //              "save all" button).
+  // Both handlers read fresh state from the stores so a long-lived
+  // closure stays correct as the container list changes.
+  useEffect(() => {
+    const onSaveActive = () => {
+      const activeMemberId = useContainerSelectionStore.getState().activeMemberId;
+      if (!activeMemberId) return;
+      const host = findContainerOf(activeMemberId);
+      if (!host || !host.dirty) return;
+      void containerActions.saveContainer(host.id);
+    };
+    const onSaveAll = () => {
+      const dirty = Array.from(useContainerStore.getState().containers.values())
+        .filter((c) => c.dirty);
+      if (dirty.length === 0) return;
+      setSaveAllPreflightOpen(true);
+    };
+    window.addEventListener('xnat-hotkey:save-active', onSaveActive);
+    window.addEventListener('xnat-hotkey:save-all', onSaveAll);
+    return () => {
+      window.removeEventListener('xnat-hotkey:save-active', onSaveActive);
+      window.removeEventListener('xnat-hotkey:save-all', onSaveAll);
+    };
+  }, []);
+
   const onPreflightConfirm = (decisions: SaveAllDecision[]) => {
     setSaveAllPreflightOpen(false);
     void runSaveAllBatch(decisions);

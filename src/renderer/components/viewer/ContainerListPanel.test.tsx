@@ -2092,6 +2092,59 @@ describe('session save-all (D7.6)', () => {
     expect(screen.queryByTestId('save-all-row:c')).not.toBeNull();
     expect(screen.queryByTestId('save-all-row:b')).toBeNull();
   });
+
+  // ─── MV-Phase 7.11 — hotkey-dispatched CustomEvents ───────────
+
+  it('xnat-hotkey:save-active calls saveContainer for the dirty container that owns the active member', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        dirty: true,
+        members: [makeMember({ id: 'm1' })],
+      }),
+    );
+    useContainerSelectionStore.getState().setActive('m1');
+    render(<ContainerListPanel />);
+    act(() => {
+      fireEvent(window, new CustomEvent('xnat-hotkey:save-active'));
+    });
+    expect(saveContainerMock).toHaveBeenCalledWith('c1');
+  });
+
+  it('xnat-hotkey:save-active is a no-op when the active container is not dirty', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        dirty: false,
+        members: [makeMember({ id: 'm1' })],
+      }),
+    );
+    useContainerSelectionStore.getState().setActive('m1');
+    render(<ContainerListPanel />);
+    act(() => {
+      fireEvent(window, new CustomEvent('xnat-hotkey:save-active'));
+    });
+    expect(saveContainerMock).not.toHaveBeenCalled();
+  });
+
+  it('xnat-hotkey:save-all opens the Save All preflight dialog', () => {
+    setContainers(makeContainer({ id: 'c1', dirty: true }));
+    render(<ContainerListPanel />);
+    expect(screen.queryByTestId('save-all-preflight-dialog')).toBeNull();
+    act(() => {
+      fireEvent(window, new CustomEvent('xnat-hotkey:save-all'));
+    });
+    expect(screen.queryByTestId('save-all-preflight-dialog')).not.toBeNull();
+  });
+
+  it('xnat-hotkey:save-all is a no-op when no containers are dirty', () => {
+    setContainers(makeContainer({ id: 'c1', dirty: false }));
+    render(<ContainerListPanel />);
+    act(() => {
+      fireEvent(window, new CustomEvent('xnat-hotkey:save-all'));
+    });
+    expect(screen.queryByTestId('save-all-preflight-dialog')).toBeNull();
+  });
 });
 
 // ─── MV-Phase 7.3c: create-button row (spec §4.3) ────────────────────
