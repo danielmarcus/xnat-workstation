@@ -20,6 +20,8 @@ import { usePreferencesStore } from '../../stores/preferencesStore';
 import { useContainerStore } from '../../stores/containerStore';
 import { useContainerSelectionStore } from '../../stores/containerSelectionStore';
 import { useCursorMetricsForPanel } from '../../stores/cursorMetricsStore';
+import { viewportService } from '../../lib/cornerstone/viewportService';
+import { attach as attachCursorTracker, detach as detachCursorTracker } from '../../lib/cornerstone/cursorTracker';
 import { EMPTY_OVERLAY } from '@shared/types/dicom';
 import type { MPRPlane } from '@shared/types/viewer';
 import { ToolName } from '@shared/types/viewer';
@@ -361,6 +363,20 @@ export default function ViewportOverlay({ panelId }: ViewportOverlayProps) {
     return source != null && target != null && source !== target;
   });
   const activeTool = useViewerStore((s) => s.activeTool);
+  // ─── Spec §9.1 — attach the cursor tracker per panel ─────────
+  // Re-attach when imageIds / orientation change so the tracker
+  // always sees the current viewport instance. The actual modality
+  // / rescale-LUT readout uses Cornerstone metaData under the hood.
+  useEffect(() => {
+    const cs = viewportService.getViewport(panelId) as
+      | (Parameters<typeof attachCursorTracker>[2] & { element?: HTMLElement })
+      | null;
+    if (!cs || !cs.element || !cs.canvasToWorld) return;
+    return attachCursorTracker(panelId, cs.element, cs);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [panelId, panelImageIds.length, panelOrientation]);
+  useEffect(() => () => { detachCursorTracker(panelId); }, [panelId]);
+
   // ─── Spec §9.1 — cursor metrics + active container/member ───
   const cursorMetrics = useCursorMetricsForPanel(panelId);
   const activeMemberId = useContainerSelectionStore((s) => s.activeMemberId);

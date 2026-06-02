@@ -558,3 +558,138 @@ describe('ViewportOverlay', () => {
     expect(screen.queryByTestId(`viewport-overlay-vertical-ruler:${OVERLAY_TEST_PANEL_ID}`)).not.toBeInTheDocument();
   });
 });
+
+// ─── MV-Phase 7.8 — new overlay fields (spec §9.1) ──────────────────
+
+describe('ViewportOverlay — new fields (spec §9.1)', () => {
+  beforeEach(async () => {
+    const { useCursorMetricsStore } = await import('../../../stores/cursorMetricsStore');
+    const { useContainerStore } = await import('../../../stores/containerStore');
+    const { useContainerSelectionStore } = await import('../../../stores/containerSelectionStore');
+    useCursorMetricsStore.getState().clearAll();
+    useContainerStore.getState()._replaceAll(new Map());
+    useContainerSelectionStore.getState().setActive(null);
+    useContainerSelectionStore.getState().clearSelection();
+  });
+
+  it('cursorHU — renders "HU: N" when CT metrics are populated', async () => {
+    const { useCursorMetricsStore } = await import('../../../stores/cursorMetricsStore');
+    renderWithOverlayStores(
+      <ViewportOverlay panelId={OVERLAY_TEST_PANEL_ID} />,
+      {
+        panelId: OVERLAY_TEST_PANEL_ID,
+        metadata: OVERLAY_METADATA_FIXTURE,
+        overlayPrefs: OVERLAY_PREFS_ALL_ON,
+      },
+    );
+    act(() => {
+      useCursorMetricsStore.getState().set(OVERLAY_TEST_PANEL_ID, {
+        canvasX: 100, canvasY: 200,
+        world: [10, 20, 30],
+        hu: 47,
+        modality: 'CT',
+      });
+    });
+    expectOverlayContains('HU: 47');
+  });
+
+  it('cursorHU — non-CT modality renders the value with "Val:" prefix', async () => {
+    const { useCursorMetricsStore } = await import('../../../stores/cursorMetricsStore');
+    renderWithOverlayStores(
+      <ViewportOverlay panelId={OVERLAY_TEST_PANEL_ID} />,
+      { panelId: OVERLAY_TEST_PANEL_ID, overlayPrefs: OVERLAY_PREFS_ALL_ON },
+    );
+    act(() => {
+      useCursorMetricsStore.getState().set(OVERLAY_TEST_PANEL_ID, {
+        canvasX: 0, canvasY: 0, world: [0, 0, 0], hu: 200, modality: 'MR',
+      });
+    });
+    expectOverlayContains('Val: 200');
+  });
+
+  it('cursorHU — blank when not hovering (no store entry)', () => {
+    renderWithOverlayStores(
+      <ViewportOverlay panelId={OVERLAY_TEST_PANEL_ID} />,
+      { panelId: OVERLAY_TEST_PANEL_ID, overlayPrefs: OVERLAY_PREFS_ALL_ON },
+    );
+    const overlay = screen.queryByTestId(`viewport-overlay:${OVERLAY_TEST_PANEL_ID}`);
+    expect(overlay?.textContent ?? '').not.toMatch(/HU:|Val:/);
+  });
+
+  it('cursorCoords — renders "(x, y, z) mm" to one decimal', async () => {
+    const { useCursorMetricsStore } = await import('../../../stores/cursorMetricsStore');
+    renderWithOverlayStores(
+      <ViewportOverlay panelId={OVERLAY_TEST_PANEL_ID} />,
+      { panelId: OVERLAY_TEST_PANEL_ID, overlayPrefs: OVERLAY_PREFS_ALL_ON },
+    );
+    act(() => {
+      useCursorMetricsStore.getState().set(OVERLAY_TEST_PANEL_ID, {
+        canvasX: 0, canvasY: 0,
+        world: [132.4, -82.137, 240.5],
+        hu: null, modality: null,
+      });
+    });
+    expectOverlayContains('(132.4, -82.1, 240.5) mm');
+  });
+
+  it('activeTool — always renders the current tool label', () => {
+    renderWithOverlayStores(
+      <ViewportOverlay panelId={OVERLAY_TEST_PANEL_ID} />,
+      { panelId: OVERLAY_TEST_PANEL_ID, overlayPrefs: OVERLAY_PREFS_ALL_ON },
+    );
+    // Default activeTool is WindowLevel. Switch and assert.
+    act(() => {
+      useViewerStore.setState({
+        ...useViewerStore.getState(),
+        activeTool: ToolName.Brush,
+      });
+    });
+    expectOverlayContains('Tool · Brush');
+  });
+
+  it('activeAnnotation — renders "{kind} · {member}" when a member is active', async () => {
+    const { useContainerStore } = await import('../../../stores/containerStore');
+    const { useContainerSelectionStore } = await import('../../../stores/containerSelectionStore');
+    act(() => {
+      useContainerStore.getState()._replaceAll(new Map([
+        ['c1', {
+          id: 'c1', name: 'Tumor study', kind: 'SEG',
+          members: [{
+            id: 'm1', name: 'Liver', color: [220, 50, 50],
+            visibility: 'filled', locked: false, roiType: null,
+            provenance: 'manual', interpolationState: 'none',
+            segmentIndex: 1, modifiedAt: 0,
+          }] as any,
+          sourceIdentity: null,
+          approval: { approved: false, reviewerName: null, reviewedAt: null, history: [] },
+          dirty: false, saveInFlight: false, versionToken: null,
+          parseError: null, a2cOptedIn: false,
+        } as any],
+      ]));
+      useContainerSelectionStore.getState().setActive('m1');
+    });
+    renderWithOverlayStores(
+      <ViewportOverlay panelId={OVERLAY_TEST_PANEL_ID} />,
+      { panelId: OVERLAY_TEST_PANEL_ID, overlayPrefs: OVERLAY_PREFS_ALL_ON },
+    );
+    expectOverlayContains('SEG · Liver');
+  });
+
+  it('activeAnnotation — blank when no member is active', () => {
+    renderWithOverlayStores(
+      <ViewportOverlay panelId={OVERLAY_TEST_PANEL_ID} />,
+      { panelId: OVERLAY_TEST_PANEL_ID, overlayPrefs: OVERLAY_PREFS_ALL_ON },
+    );
+    const overlay = screen.queryByTestId(`viewport-overlay:${OVERLAY_TEST_PANEL_ID}`);
+    expect(overlay?.textContent ?? '').not.toMatch(/SEG · /);
+  });
+
+  it('overlay root carries the text-shadow drop-shadow style (§9.3)', () => {
+    renderWithOverlayStores(
+      <ViewportOverlay panelId={OVERLAY_TEST_PANEL_ID} />,
+      { panelId: OVERLAY_TEST_PANEL_ID, overlayPrefs: OVERLAY_PREFS_ALL_ON },
+    );
+    const overlay = screen.getByTestId(`viewport-overlay:${OVERLAY_TEST_PANEL_ID}`);
+    expect(overlay.style.textShadow).toMatch(/rgba\(0/);
+  });
+});
