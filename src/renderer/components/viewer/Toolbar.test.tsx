@@ -303,6 +303,27 @@ describe('Toolbar', () => {
     act(() => usePreferencesStore.getState().resetHotkeys());
   });
 
+  it('Shift+T toggles the DICOM Tags modal via onToggleDicomPanel (spec §10.1)', () => {
+    const onToggleDicomPanel = vi.fn();
+    render(<Toolbar onToggleDicomPanel={onToggleDicomPanel} />);
+    fireEvent.keyDown(window, { key: 'T', shiftKey: true });
+    expect(onToggleDicomPanel).toHaveBeenCalledTimes(1);
+  });
+
+  it('Shift+T is suppressed when focus is in an input (§6.7)', () => {
+    const onToggleDicomPanel = vi.fn();
+    render(
+      <>
+        <input data-testid="focusable-input-2" />
+        <Toolbar onToggleDicomPanel={onToggleDicomPanel} />
+      </>,
+    );
+    const input = screen.getByTestId('focusable-input-2');
+    input.focus();
+    fireEvent.keyDown(input, { key: 'T', shiftKey: true });
+    expect(onToggleDicomPanel).not.toHaveBeenCalled();
+  });
+
   it('? does NOT open the cheatsheet when focus is in an input (§6.7)', () => {
     render(
       <>

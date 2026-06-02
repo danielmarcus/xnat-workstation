@@ -523,13 +523,11 @@ export default function Toolbar({
   const { textCollapsed, isGroupCollapsed } = useToolbarCollapse(toolbarContentRef);
 
   // Spec §6.3 — global `?` keypress opens the cheatsheet.
+  // Spec §10.1 — global `Shift+T` toggles the DICOM Tags modal.
   // Input-focus guard (§6.7): suppress when focus is in INPUT /
-  // TEXTAREA / SELECT / contenteditable. The CheatsheetOverlay owns
-  // its own close listener, so this only handles the open case.
+  // TEXTAREA / SELECT / contenteditable.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== '?') return;
-      if (cheatsheetOpen) return; // overlay owns the close path
       const target = e.target as HTMLElement | null;
       if (target) {
         const tag = target.tagName;
@@ -537,12 +535,23 @@ export default function Toolbar({
           return;
         }
       }
-      e.preventDefault();
-      setCheatsheetOpen(true);
+      if (e.key === '?' && !cheatsheetOpen) {
+        e.preventDefault();
+        setCheatsheetOpen(true);
+        return;
+      }
+      // Shift+T → Tags modal (spec §10.1). Ignore plain `t` to avoid
+      // colliding with the future tool.arrowAnnotate alias.
+      if (e.shiftKey && (e.key === 'T' || e.key === 't') && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        if (onToggleDicomPanel) {
+          e.preventDefault();
+          onToggleDicomPanel();
+        }
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [cheatsheetOpen]);
+  }, [cheatsheetOpen, onToggleDicomPanel]);
 
   // Open Settings to a specific tab when requested by parent (e.g. banner link)
   useEffect(() => {
