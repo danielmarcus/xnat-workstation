@@ -2276,6 +2276,50 @@ describe('member-row drag handle (spec §4.5)', () => {
   });
 });
 
+// ─── MV-Phase 7.3b: visibility modifiers (spec §4.5) ──────────────────
+
+describe('member visibility shift-click solo (spec §4.5)', () => {
+  it('shift-click hides every other member; visible target stays visible', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [
+          makeMember({ id: 'm1', visibility: 'filled' }),
+          makeMember({ id: 'm2', visibility: 'filled' }),
+          makeMember({ id: 'm3', visibility: 'outlined' }),
+        ],
+      }),
+    );
+    render(<ContainerListPanel />);
+    act(() => {
+      fireEvent.click(screen.getByTestId('member-visibility:m2'), { shiftKey: true });
+    });
+    // m1 and m3 are hidden; m2 is not re-shown (already visible).
+    const calls = setMemberVisibilityMock.mock.calls;
+    expect(calls).toEqual(expect.arrayContaining([['m1', 'hidden'], ['m3', 'hidden']]));
+    // No call for m2 (already visible → ensure-visible skipped).
+    expect(calls.some(([id]) => id === 'm2')).toBe(false);
+  });
+
+  it('shift-click on a hidden target also un-hides the target', () => {
+    setContainers(
+      makeContainer({
+        id: 'c1',
+        members: [
+          makeMember({ id: 'm1', visibility: 'filled' }),
+          makeMember({ id: 'm2', visibility: 'hidden' }),
+        ],
+      }),
+    );
+    render(<ContainerListPanel />);
+    act(() => {
+      fireEvent.click(screen.getByTestId('member-visibility:m2'), { shiftKey: true });
+    });
+    const calls = setMemberVisibilityMock.mock.calls;
+    expect(calls).toEqual(expect.arrayContaining([['m1', 'hidden'], ['m2', 'filled']]));
+  });
+});
+
 // ─── MV-Phase 7.3b: color picker popover (spec §4.5) ──────────────────
 
 describe('member color picker popover (spec §4.5)', () => {

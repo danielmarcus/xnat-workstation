@@ -1129,13 +1129,7 @@ function MemberRow({
     setDropEdge(null);
     // Find the container that owns this row so we can compute the target
     // index inside its members array.
-    let host: Container | null = null;
-    for (const c of useContainerStore.getState().containers.values()) {
-      if (c.members.some((m) => m.id === member.id)) {
-        host = c;
-        break;
-      }
-    }
+    const host = findContainerOf(member.id);
     if (!host) return;
     const currentIndex = host.members.findIndex((m) => m.id === member.id);
     if (currentIndex < 0) return;
@@ -1344,10 +1338,27 @@ function MemberRow({
         type="button"
         data-testid={`member-visibility:${member.id}`}
         className="text-[10px] text-zinc-500 hover:text-zinc-200 transition-colors px-0.5"
-        title={`Visibility: ${member.visibility} (click to cycle, alt-click to hide on active viewport only)`}
+        title={`Visibility: ${member.visibility} (click to cycle, shift-click to solo, alt-click to hide on active viewport only)`}
         aria-label={`visibility ${member.visibility}`}
         onClick={(e) => {
           e.stopPropagation();
+          // Shift+click: solo (spec §4.5). Hide every other member in
+          // this container; ensure this one is visible.
+          if (e.shiftKey) {
+            const host = findContainerOf(member.id);
+            if (host) {
+              for (const m of host.members) {
+                if (m.id === member.id) {
+                  if (m.visibility === 'hidden') {
+                    containerService.setMemberVisibility(m.id, 'filled');
+                  }
+                } else if (m.visibility !== 'hidden') {
+                  containerService.setMemberVisibility(m.id, 'hidden');
+                }
+              }
+            }
+            return;
+          }
           // Alt+click: per-viewport hide on the active viewport only (§A5,
           // signal G5). Lives in Cornerstone's per-viewport representation
           // state so closing+reopening the panel restores the global default.
@@ -1524,6 +1535,18 @@ const ROI_TYPE_OPTIONS: Array<NonNullable<Member['roiType']>> = [
 
 function rgbCss(color: RGB): string {
   return `rgb(${color[0]}, ${color[1]}, ${color[2]})`;
+}
+
+/**
+ * Look up the container that owns a given memberId. Snapshots the
+ * containerStore at call time — caller is in an event handler, so a
+ * fresh snapshot is what we want.
+ */
+function findContainerOf(memberId: string): Container | null {
+  for (const c of useContainerStore.getState().containers.values()) {
+    if (c.members.some((m) => m.id === memberId)) return c;
+  }
+  return null;
 }
 
 function visibilityGlyph(mode: VisibilityMode): string {
