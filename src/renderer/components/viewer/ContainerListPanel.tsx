@@ -968,9 +968,7 @@ function MemberRow({
   const activeViewportId = useViewerStore((s) => s.activeViewportId);
   const eligibility = classifyMemberOnViewport(member, containerKind, activeViewportId);
 
-  const [menuOpen, setMenuOpen] = useState(false);
   const [renameValue, setRenameValue] = useState<string | null>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
 
   // Drag-and-drop reorder state (spec §4.5). `isDragSource` dims the row
   // while it is being dragged; `dropEdge` shows a blue 2px line above or
@@ -1005,23 +1003,10 @@ function MemberRow({
     return () => document.removeEventListener('pointerdown', onDocPointerDown);
   }, [colorPickerOpen]);
 
-  // Close the menu on outside click.
-  useEffect(() => {
-    if (!menuOpen) return;
-    function onDocPointerDown(e: PointerEvent) {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setMenuOpen(false);
-      }
-    }
-    document.addEventListener('pointerdown', onDocPointerDown);
-    return () => document.removeEventListener('pointerdown', onDocPointerDown);
-  }, [menuOpen]);
-
   const onRowEnter = () => useContainerSelectionStore.getState().setHover(member.id);
   const onRowLeave = () => useContainerSelectionStore.getState().setHover(null);
 
   const startRename = () => {
-    setMenuOpen(false);
     setRenameValue(member.name);
   };
   const cancelRename = () => setRenameValue(null);
@@ -1037,11 +1022,10 @@ function MemberRow({
     setRenameValue(null);
   };
 
+  // Spec §4.5: delete has no confirmation — Undo restores the member.
+  // The Undo wiring lands in a later issue; for now the delete is a
+  // one-shot call to containerService.deleteMember.
   const onDelete = () => {
-    setMenuOpen(false);
-    if (typeof window !== 'undefined' && !window.confirm(`Delete "${member.name}"?`)) {
-      return;
-    }
     try {
       containerService.deleteMember(member.id);
     } catch (err) {
@@ -1428,52 +1412,21 @@ function MemberRow({
           {member.locked ? '🔒' : '🔓'}
         </button>
       )}
-      <div ref={menuRef} className="relative">
-        {!containerApproved && (
-          <button
-            type="button"
-            data-testid={`member-menu:${member.id}`}
-            className="text-[12px] text-zinc-500 hover:text-zinc-200 transition-colors px-0.5 leading-none"
-            title="Member actions"
-            aria-label="member actions"
-            aria-haspopup="menu"
-            aria-expanded={menuOpen}
-            onClick={(e) => {
-              e.stopPropagation();
-              setMenuOpen((v) => !v);
-            }}
-          >
-            ⋯
-          </button>
-        )}
-        {menuOpen && (
-          <div
-            data-testid={`member-menu-popover:${member.id}`}
-            className="absolute right-0 top-5 z-10 bg-zinc-900 border border-zinc-700 rounded shadow-lg py-0.5 min-w-[100px]"
-            role="menu"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <button
-              type="button"
-              data-testid={`member-menu-rename:${member.id}`}
-              className="block w-full text-left text-xs text-zinc-200 hover:bg-zinc-800 px-2 py-1"
-              role="menuitem"
-              onClick={startRename}
-            >
-              Rename
-            </button>
-            <button
-              type="button"
-              data-testid={`member-menu-delete:${member.id}`}
-              className="block w-full text-left text-xs text-red-400 hover:bg-red-900/20 px-2 py-1"
-              role="menuitem"
-              onClick={onDelete}
-            >
-              Delete
-            </button>
-          </div>
-        )}
-      </div>
+      {!containerApproved && (
+        <button
+          type="button"
+          data-testid={`member-delete:${member.id}`}
+          className="text-[11px] leading-none text-zinc-600 hover:text-red-400 transition-colors px-0.5 opacity-0 group-hover:opacity-100"
+          title="Delete member"
+          aria-label="delete member"
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete();
+          }}
+        >
+          ✕
+        </button>
+      )}
     </li>
   );
 }

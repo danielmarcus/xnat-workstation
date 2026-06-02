@@ -652,76 +652,10 @@ describe('row hover (D7.8 row-side)', () => {
   });
 });
 
-// ─── Phase 3.6b: per-member action menu ────────────────────────────────
+// ─── MV-Phase 7.3b: direct affordances replace the ⋯ menu (spec §4.5) ──
 
-describe('per-member action menu (D7.6)', () => {
-  it('clicking ⋯ opens the popover', () => {
-    setContainers(
-      makeContainer({
-        id: 'c1',
-        members: [makeMember({ id: 'm1' })],
-      }),
-    );
-    render(<ContainerListPanel />);
-    expect(screen.queryByTestId('member-menu-popover:m1')).toBeNull();
-
-    act(() => {
-      fireEvent.click(screen.getByTestId('member-menu:m1'));
-    });
-    expect(screen.queryByTestId('member-menu-popover:m1')).not.toBeNull();
-  });
-
-  it('clicking ⋯ again closes the popover (toggle)', () => {
-    setContainers(
-      makeContainer({
-        id: 'c1',
-        members: [makeMember({ id: 'm1' })],
-      }),
-    );
-    render(<ContainerListPanel />);
-    act(() => {
-      fireEvent.click(screen.getByTestId('member-menu:m1'));
-      fireEvent.click(screen.getByTestId('member-menu:m1'));
-    });
-    expect(screen.queryByTestId('member-menu-popover:m1')).toBeNull();
-  });
-
-  it('outside pointerdown closes the popover', () => {
-    setContainers(
-      makeContainer({
-        id: 'c1',
-        members: [makeMember({ id: 'm1' })],
-      }),
-    );
-    render(<ContainerListPanel />);
-    act(() => {
-      fireEvent.click(screen.getByTestId('member-menu:m1'));
-    });
-    expect(screen.queryByTestId('member-menu-popover:m1')).not.toBeNull();
-
-    act(() => {
-      fireEvent.pointerDown(document.body);
-    });
-    expect(screen.queryByTestId('member-menu-popover:m1')).toBeNull();
-  });
-
-  it('menu button click does NOT bubble into row selection', () => {
-    setContainers(
-      makeContainer({
-        id: 'c1',
-        members: [makeMember({ id: 'm1' })],
-      }),
-    );
-    render(<ContainerListPanel />);
-    act(() => {
-      fireEvent.click(screen.getByTestId('member-menu:m1'));
-    });
-    expect(useContainerSelectionStore.getState().selectionSet.size).toBe(0);
-  });
-});
-
-describe('inline rename (D7.6)', () => {
-  it('clicking Rename swaps the name span for an input pre-filled with the current name', () => {
+describe('inline rename via double-click (spec §4.5)', () => {
+  it('double-clicking the name swaps in an input pre-filled with the current name', () => {
     setContainers(
       makeContainer({
         id: 'c1',
@@ -730,10 +664,7 @@ describe('inline rename (D7.6)', () => {
     );
     render(<ContainerListPanel />);
     act(() => {
-      fireEvent.click(screen.getByTestId('member-menu:m1'));
-    });
-    act(() => {
-      fireEvent.click(screen.getByTestId('member-menu-rename:m1'));
+      fireEvent.doubleClick(screen.getByTestId('member-name:m1'));
     });
     const input = screen.getByTestId('member-rename:m1') as HTMLInputElement;
     expect(input.value).toBe('Tumor');
@@ -748,10 +679,7 @@ describe('inline rename (D7.6)', () => {
     );
     render(<ContainerListPanel />);
     act(() => {
-      fireEvent.click(screen.getByTestId('member-menu:m1'));
-    });
-    act(() => {
-      fireEvent.click(screen.getByTestId('member-menu-rename:m1'));
+      fireEvent.doubleClick(screen.getByTestId('member-name:m1'));
     });
     const input = screen.getByTestId('member-rename:m1');
     act(() => {
@@ -770,10 +698,7 @@ describe('inline rename (D7.6)', () => {
     );
     render(<ContainerListPanel />);
     act(() => {
-      fireEvent.click(screen.getByTestId('member-menu:m1'));
-    });
-    act(() => {
-      fireEvent.click(screen.getByTestId('member-menu-rename:m1'));
+      fireEvent.doubleClick(screen.getByTestId('member-name:m1'));
     });
     const input = screen.getByTestId('member-rename:m1');
     act(() => {
@@ -793,10 +718,7 @@ describe('inline rename (D7.6)', () => {
     );
     render(<ContainerListPanel />);
     act(() => {
-      fireEvent.click(screen.getByTestId('member-menu:m1'));
-    });
-    act(() => {
-      fireEvent.click(screen.getByTestId('member-menu-rename:m1'));
+      fireEvent.doubleClick(screen.getByTestId('member-name:m1'));
     });
     act(() => {
       fireEvent.change(screen.getByTestId('member-rename:m1'), { target: { value: '   ' } });
@@ -814,10 +736,7 @@ describe('inline rename (D7.6)', () => {
     );
     render(<ContainerListPanel />);
     act(() => {
-      fireEvent.click(screen.getByTestId('member-menu:m1'));
-    });
-    act(() => {
-      fireEvent.click(screen.getByTestId('member-menu-rename:m1'));
+      fireEvent.doubleClick(screen.getByTestId('member-name:m1'));
     });
     act(() => {
       fireEvent.keyDown(screen.getByTestId('member-rename:m1'), { key: 'Enter' });
@@ -834,10 +753,7 @@ describe('inline rename (D7.6)', () => {
     );
     render(<ContainerListPanel />);
     act(() => {
-      fireEvent.click(screen.getByTestId('member-menu:m1'));
-    });
-    act(() => {
-      fireEvent.click(screen.getByTestId('member-menu-rename:m1'));
+      fireEvent.doubleClick(screen.getByTestId('member-name:m1'));
     });
     act(() => {
       fireEvent.click(screen.getByTestId('member-rename:m1'));
@@ -846,67 +762,42 @@ describe('inline rename (D7.6)', () => {
   });
 });
 
-describe('delete with confirm (D7.6)', () => {
-  let originalConfirm: typeof window.confirm;
-  beforeEach(() => {
-    originalConfirm = window.confirm;
-  });
-  afterEach(() => {
-    window.confirm = originalConfirm;
-  });
-
-  it('user confirms → deleteMember called', () => {
+describe('inline delete (spec §4.5)', () => {
+  it('clicking ✕ calls deleteMember directly (no confirmation)', () => {
     setContainers(
       makeContainer({
         id: 'c1',
         members: [makeMember({ id: 'm1', name: 'Tumor' })],
       }),
     );
-    window.confirm = vi.fn().mockReturnValue(true);
     render(<ContainerListPanel />);
     act(() => {
-      fireEvent.click(screen.getByTestId('member-menu:m1'));
-    });
-    act(() => {
-      fireEvent.click(screen.getByTestId('member-menu-delete:m1'));
+      fireEvent.click(screen.getByTestId('member-delete:m1'));
     });
     expect(deleteMemberMock).toHaveBeenCalledWith('m1');
   });
 
-  it('user cancels → deleteMember NOT called', () => {
+  it('approved containers hide the ✕ delete button', () => {
     setContainers(
       makeContainer({
         id: 'c1',
-        members: [makeMember({ id: 'm1', name: 'Tumor' })],
+        approval: { approved: true, reviewerName: null, reviewedAt: 0, history: [] },
+        members: [makeMember({ id: 'm1' })],
       }),
     );
-    window.confirm = vi.fn().mockReturnValue(false);
     render(<ContainerListPanel />);
-    act(() => {
-      fireEvent.click(screen.getByTestId('member-menu:m1'));
-    });
-    act(() => {
-      fireEvent.click(screen.getByTestId('member-menu-delete:m1'));
-    });
-    expect(deleteMemberMock).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('member-delete:m1')).toBeNull();
   });
 
-  it('clicking Delete closes the popover', () => {
+  it('the legacy ⋯ action menu has been removed', () => {
     setContainers(
       makeContainer({
         id: 'c1',
         members: [makeMember({ id: 'm1' })],
       }),
     );
-    window.confirm = vi.fn().mockReturnValue(true);
     render(<ContainerListPanel />);
-    act(() => {
-      fireEvent.click(screen.getByTestId('member-menu:m1'));
-    });
-    act(() => {
-      fireEvent.click(screen.getByTestId('member-menu-delete:m1'));
-    });
-    expect(screen.queryByTestId('member-menu-popover:m1')).toBeNull();
+    expect(screen.queryByTestId('member-menu:m1')).toBeNull();
   });
 });
 
@@ -1301,7 +1192,7 @@ describe('approval workflow (D7.11)', () => {
     expect(revokeApprovalMock).not.toHaveBeenCalled();
   });
 
-  it('approved container hides the per-member action menu (edit-locked per §D7.11)', () => {
+  it('approved container hides the inline ✕ delete affordance (edit-locked per §D7.11)', () => {
     setContainers(
       makeContainer({
         id: 'c1',
@@ -1310,10 +1201,10 @@ describe('approval workflow (D7.11)', () => {
       }),
     );
     render(<ContainerListPanel />);
-    expect(screen.queryByTestId('member-menu:m1')).toBeNull();
+    expect(screen.queryByTestId('member-delete:m1')).toBeNull();
   });
 
-  it('un-approved container shows the per-member action menu', () => {
+  it('un-approved container shows the inline ✕ delete affordance', () => {
     setContainers(
       makeContainer({
         id: 'c1',
@@ -1322,7 +1213,7 @@ describe('approval workflow (D7.11)', () => {
       }),
     );
     render(<ContainerListPanel />);
-    expect(screen.queryByTestId('member-menu:m1')).not.toBeNull();
+    expect(screen.queryByTestId('member-delete:m1')).not.toBeNull();
   });
 
   it('Approve / Revoke clicks do not bubble to the row click handler', () => {
