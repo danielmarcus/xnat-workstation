@@ -94,4 +94,15 @@ export const DEFAULT_HOTKEY_MAP: HotkeyMap = {
   'preset.wl.2': [{ key: '3', modifiers: { ctrl: true } }], // CT Bone
   'preset.wl.3': [{ key: '4', modifiers: { ctrl: true } }], // CT Brain
   'preset.wl.4': [{ key: '5', modifiers: { ctrl: true } }], // CT Abdomen
+
+  // ─── Spec §6.2 — new action bindings ────────────────────────
+  // Cross-platform: meta=true reads as ⌘ on macOS and Ctrl on
+  // non-mac per the format helper. Multi-key combos for Save/Save-all
+  // are accepted only for universally-conventional bindings (spec §6.6).
+  'save.activeContainer': [{ key: 's', modifiers: { meta: true } }],
+  'save.all':             [{ key: 's', modifiers: { meta: true, shift: true } }],
+  'panel.toggleTags':     [{ key: 'T', modifiers: { shift: true } }],
+  'viewport.cycleMpr':    [{ key: 'm' }],
+  'app.openSettings':     [{ key: ',', modifiers: { meta: true } }],
+  'app.showCheatsheet':   [{ key: '?' }],
 };

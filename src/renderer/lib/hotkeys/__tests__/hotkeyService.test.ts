@@ -24,6 +24,9 @@ const viewerState = {
   toggleCine: vi.fn(),
   setActiveViewport: vi.fn(),
   applyWLPreset: vi.fn(),
+  setPanelOrientation: vi.fn((panelId: string, next: 'STACK' | 'AXIAL' | 'SAGITTAL' | 'CORONAL') => {
+    viewerState.panelOrientationMap[panelId] = next;
+  }),
   _requestImageIndex: vi.fn((panelId: string, index: number) => {
     const panel = viewerState.viewports[panelId];
     if (panel) panel.requestedImageIndex = index;
@@ -282,5 +285,45 @@ describe('hotkeyService', () => {
 
     const event = dispatchKey({ key: 'q' });
     expect(event.defaultPrevented).toBe(false);
+  });
+
+  // ─── Spec §6.2 — new action bindings ─────────────────────────
+
+  it('viewport.cycleMpr cycles STACK → AXIAL via setPanelOrientation', () => {
+    hotkeyService.setHotkeyMap({
+      'viewport.cycleMpr': [{ key: 'm' }],
+    });
+    hotkeyService.install();
+    dispatchKey({ key: 'm' });
+    expect(viewerState.setPanelOrientation).toHaveBeenCalledWith('panel_0', 'AXIAL');
+  });
+
+  it('viewport.cycleMpr from CORONAL wraps back to STACK', () => {
+    viewerState.panelOrientationMap['panel_0'] = 'CORONAL';
+    hotkeyService.setHotkeyMap({
+      'viewport.cycleMpr': [{ key: 'm' }],
+    });
+    hotkeyService.install();
+    dispatchKey({ key: 'm' });
+    expect(viewerState.setPanelOrientation).toHaveBeenCalledWith('panel_0', 'STACK');
+  });
+
+  it.each([
+    ['save.activeContainer', 's', { ctrl: true }, 'xnat-hotkey:save-active'],
+    ['save.all',             's', { ctrl: true, shift: true }, 'xnat-hotkey:save-all'],
+    ['panel.toggleTags',     't', { shift: true }, 'xnat-hotkey:toggle-tags'],
+    ['app.openSettings',     ',', { ctrl: true }, 'xnat-hotkey:open-settings'],
+    ['app.showCheatsheet',   '?', {},             'xnat-hotkey:show-cheatsheet'],
+  ])('%s dispatches the matching window CustomEvent', (action, key, mods, eventName) => {
+    hotkeyService.setHotkeyMap({
+      [action as any]: [{ key, modifiers: mods }],
+    } as HotkeyMap);
+    hotkeyService.install();
+    const received: string[] = [];
+    const listener = (e: Event) => { received.push(e.type); };
+    window.addEventListener(eventName, listener);
+    dispatchKey({ key, ...mods } as any);
+    window.removeEventListener(eventName, listener);
+    expect(received).toEqual([eventName]);
   });
 });

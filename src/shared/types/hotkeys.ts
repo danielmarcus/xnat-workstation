@@ -72,7 +72,14 @@ export type HotkeyAction =
   | 'preset.wl.1'
   | 'preset.wl.2'
   | 'preset.wl.3'
-  | 'preset.wl.4';
+  | 'preset.wl.4'
+  // ─── Spec §6.2 — new action bindings ───────────────────────
+  | 'save.activeContainer'
+  | 'save.all'
+  | 'panel.toggleTags'
+  | 'viewport.cycleMpr'
+  | 'app.openSettings'
+  | 'app.showCheatsheet';
 
 /**
  * Modifier keys for a hotkey binding.

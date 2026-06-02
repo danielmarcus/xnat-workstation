@@ -21,6 +21,7 @@ export type ActionCategory =
   | 'Panels'
   | 'W/L presets'
   | 'Edit'
+  | 'Save'
   | 'App';
 
 export const CATEGORY_ORDER: ReadonlyArray<ActionCategory> = [
@@ -33,6 +34,7 @@ export const CATEGORY_ORDER: ReadonlyArray<ActionCategory> = [
   'Panels',
   'W/L presets',
   'Edit',
+  'Save',
   'App',
 ];
 
@@ -104,6 +106,13 @@ export const ACTION_LABEL: Record<HotkeyAction, string> = {
   'preset.wl.2': 'Bone',
   'preset.wl.3': 'Brain',
   'preset.wl.4': 'Abdomen',
+  // Spec §6.2 — new action bindings
+  'save.activeContainer': 'Save active container',
+  'save.all':             'Save all',
+  'panel.toggleTags':     'Toggle DICOM Tags',
+  'viewport.cycleMpr':    'Cycle MPR orientation',
+  'app.openSettings':     'Open Settings',
+  'app.showCheatsheet':   'Show keyboard shortcuts',
 };
 
 export const ACTION_CATEGORY: Record<HotkeyAction, ActionCategory> = {
@@ -173,6 +182,13 @@ export const ACTION_CATEGORY: Record<HotkeyAction, ActionCategory> = {
   'edit.copy':   'Edit',
   'edit.paste':  'Edit',
   'edit.delete': 'Edit',
+  // Spec §6.2
+  'save.activeContainer': 'Save',
+  'save.all':             'Save',
+  'viewport.cycleMpr':    'Viewport',
+  'panel.toggleTags':     'Panels',
+  'app.openSettings':     'App',
+  'app.showCheatsheet':   'App',
 };
 
 /**

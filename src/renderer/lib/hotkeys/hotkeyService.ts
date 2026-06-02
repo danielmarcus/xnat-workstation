@@ -248,6 +248,36 @@ function dispatchAction(action: HotkeyAction): boolean {
       return true;
     }
 
+    // ─── Spec §6.2 — new action bindings ──────────────────────
+    // viewport.cycleMpr is dispatched directly through the store so
+    // it stays in lock-step with the toolbar MPR button. The four
+    // app-/panel-level actions fire DOM CustomEvents so the
+    // owning components (Toolbar, ContainerListPanel) can listen
+    // without circular imports.
+    case 'viewport.cycleMpr': {
+      const state = useViewerStore.getState();
+      const current = state.panelOrientationMap[state.activeViewportId] ?? 'STACK';
+      const order = ['STACK', 'AXIAL', 'SAGITTAL', 'CORONAL'] as const;
+      const next = order[(order.indexOf(current as typeof order[number]) + 1) % order.length];
+      state.setPanelOrientation(state.activeViewportId, next);
+      return true;
+    }
+    case 'panel.toggleTags':
+      window.dispatchEvent(new CustomEvent('xnat-hotkey:toggle-tags'));
+      return true;
+    case 'save.activeContainer':
+      window.dispatchEvent(new CustomEvent('xnat-hotkey:save-active'));
+      return true;
+    case 'save.all':
+      window.dispatchEvent(new CustomEvent('xnat-hotkey:save-all'));
+      return true;
+    case 'app.openSettings':
+      window.dispatchEvent(new CustomEvent('xnat-hotkey:open-settings'));
+      return true;
+    case 'app.showCheatsheet':
+      window.dispatchEvent(new CustomEvent('xnat-hotkey:show-cheatsheet'));
+      return true;
+
     default:
       return false;
   }
