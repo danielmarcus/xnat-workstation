@@ -1,5 +1,7 @@
 # XNAT Workstation — Development Phases
 
+> **Current focus:** the **Multi-Viewport Annotation Rebuild** — restarting from scratch on branch `annotation-cleanup`. The historical product phases 0–12 below are complete/in-progress as marked. The active rebuild and its own phase plan live in the **Active Work** section (after Phase 12); its phase numbers are scoped to the rebuild and are distinct from the product phases here. Specs are in `docs/`.
+
 ## Phase 0: Prove Cornerstone3D Works in Electron + Vite (Complete)
 - Scaffold Electron + Vite 5 + React 19 + TypeScript + Tailwind project
 - Initialize Cornerstone3D v4.15.30 (core, tools, DICOM image loader)
@@ -94,9 +96,12 @@
 - **Contour panel UI** — Grouped segmentation tool dropdown (Paint / Contour / Fill sections), contour-specific controls
 - **Dual representation architecture** — Every segmentation gets both Labelmap and Contour representationData at creation for seamless tool switching
 - **PolySeg addon** — @cornerstonejs/polymorphic-segmentation registered for representation conversion
-- **Deferred to Phase 10b:** Undo/redo and contour-to-labelmap conversion
+- **Deferred:** Undo/redo and contour-to-labelmap conversion — now folded into the Multi-Viewport Annotation Rebuild (see Active Work below): per-container undo lands in Rebuild Phase 2; representation conversion is handled by PolySeg.
 
-## Phase 11: Save to XNAT (Future)
+## Phase 11: Save to XNAT (Superseded → Annotation Transport workstream)
+
+> Now driven by [`docs/annotation-xnat-integration-requirements.md`](docs/annotation-xnat-integration-requirements.md) and contracted via section H of the rebuild requirements. The bullets below remain the target capability set; the rebuild's transport workstream is how they land. Note: per-container, debounced, silent autosave with queue-next-save is the decided model (rebuild requirements E2 / design §3.4).
+
 - **DICOM SEG export** — Serialize labelmap segmentations to DICOM SEG format using @cornerstonejs/adapters, with proper headers (Referenced Series, Frame of Reference, segment metadata)
 - **DICOM RT-STRUCT export** — Serialize contour-based segmentations to RT Structure Set format for radiation therapy workflows
 - **Annotation export** — Serialize Cornerstone annotation/measurement data to a storable format (DICOM SR or JSON)
@@ -115,6 +120,64 @@
 
 ---
 
+## Active Work: Multi-Viewport Annotation Rebuild
+
+> **Status: restarting from scratch.** The earlier multi-viewport annotation attempt (prior `multiviewport-annotation` branch) is being discarded. This workstream rebuilds coherent multi-viewport handling of **structures (RTSTRUCT)**, **segmentations (SEG)**, and **measurements (DICOM-SR)** starting from the pre-rewrite app, against the refined specs in `docs/`. **No implementation has landed yet on `annotation-cleanup`** — only the specs and this plan.
+>
+> **Specs (authoritative):**
+> - [`docs/multiviewport-annotation-requirements.md`](docs/multiviewport-annotation-requirements.md) — functional requirements + 24 acceptance signals (authoritative for behavior).
+> - [`docs/multiviewport-annotation-design.md`](docs/multiviewport-annotation-design.md) — architecture, data model, service layout, phasing (§7).
+> - [`docs/multiviewport-annotation-architecture.md`](docs/multiviewport-annotation-architecture.md) — layering contract, enforced boundaries, current→target migration map, component architecture (authoritative for structure).
+> - [`docs/multiviewport-annotation-current.md`](docs/multiviewport-annotation-current.md) — pre-rewrite baseline audit.
+> - [`docs/annotation-xnat-integration-requirements.md`](docs/annotation-xnat-integration-requirements.md) — transport workstream (the old Phase 11), contracted via requirements §H.
+>
+> The phase numbers below are **scoped to this rebuild** and are distinct from the historical product phases 0–12 above. Each phase ships behind the `multiviewport.enabled` flag until verified; tests land in the same PR (design §0.5, §8).
+>
+> **Why this restarts, and the per-phase gate:** the prior attempt failed because tests were green while the app was broken. The fix is binding test discipline (design §8.0): signals authored as **red** tests first, **red-before-green** on every test, **visual** assertions against an agreed mockup, **no mocked Cornerstone / no skipped acceptance tests**, **vertical slices** (each PR moves a signal end-to-end). A phase is done only when its signals are green as functional tests, all previously-green signals still pass, and a **manual visual checkpoint with proof** is attached to the PR.
+
+### Rebuild Phase 0 — Preparation (Not started)
+- Validate PolySeg `^4.16.1` against known open regressions; pin a known-good version.
+- Land the data-model types (`Container` / `Member` / `SourceIdentity`; kinds `RTSTRUCT` / `SEG` / `SR`) in `src/renderer/types/annotation.ts`; wire into stores as **additions only** (no deletions yet).
+- Decompose `segmentationService.ts` (5614 lines) and `toolService.ts` (1047 lines) by **pure extraction** — no logic change.
+- Skeletons (no consumers): `containerService`, `undoService`, `viewportLayoutService`, `transportStore`.
+- **Layering contract + ESLint enforcement** (architecture doc §2): boundary zones wired into `lint`/`ci.yml` from day one; current violations quarantined as tracked `BOUNDARY-DEBT`; produce `docs/multiviewport-annotation-architecture.md` (done).
+- Add feature flag `multiviewport.enabled` (default off).
+- **Test harness up front (binding — design §8.0):** build the `e2e/fixtures/` DICOM datasets (incl. `ct-axial-anatomy`) — fixtures are a Phase 0 **exit gate**; author all **24 acceptance signals as failing E2E tests** (full suite, red); **walking skeleton** — drive one signal fully green through the real stack (Electron + Cornerstone + real fixture) to validate the harness.
+- **Fully-specified UI mockup (design §8.8)** produced and agreed as the visual acceptance reference — gates Phase 3.
+- **Acceptance:** app builds, runs, looks identical; existing tests pass; new types compile; the 24 signals exist as red tests; the walking-skeleton signal is green; fixtures + mockup in place.
+
+### Rebuild Phase 1 — Viewport unification (Not started)
+- Volume (`ORTHOGRAPHIC`) is the default for volumetric data; stack reserved for the non-volumetric predicate (volume mode is **not** user-selectable for volumetric data).
+- `(scanId, FoR)` volume sharing, reference-counted in `volumeService`.
+- Collapse `OrientedViewport` + `CornerstoneViewport` into one `Viewport`; delete `mprService` / `mprToolService` / `MPRViewportGrid` / `MPRViewport`; MPR becomes a layout preset; one tool group; `CrosshairsTool` moved in.
+- **Acceptance:** signals 3, 6, 7 (with flag on); signal 1 lights up via PolySeg + volume default.
+
+### Rebuild Phase 2 — Annotation behavior (Not started)
+- FoR-eligibility (A2a/b/c/d); **A2c defaults to *show* when uncertain** — `AcquisitionNumber` difference alone never hides.
+- Non-native rendering style (dashed stroke / hatch fill); drawing routing + gesture-start blocking.
+- Per-container undo via `undoService` (viewport-independent, bounded-delta); queue-next-save; silent debounced autosave.
+- **Acceptance:** signals 1, 2, 8, 9, 10, 11, 14, 15, 23 (contour copy/paste); signal-12 block logic verified at the service layer (full E2E in Rebuild Phase 3).
+
+### Rebuild Phase 3 — List panel (Not started)
+- Container + member hierarchy; per-row metadata; 3-state visibility; lock; active vs. selection; cross-series / different-FoR / interpolated / empty markers.
+- Approval workflow (persistent, DICOM `ApprovalStatus`); filter / search / sort; hover sync; empty / loading / parse-error states.
+- Session actions: create new structure-set / SEG / **measurement (SR)**; load from XNAT; save all.
+- **Acceptance:** signals 4, 5, 8, 12 (full E2E), 17, 18, 19, 20, 22.
+
+### Rebuild Phase 4 — Interpolation cleanup (Not started)
+- Delete `interpolationAcceptance.ts`; write-through auto-accept; provenance stamping (interpolated → manual on edit); single undo entry per interpolation op.
+- **Acceptance:** signal 13.
+
+### Rebuild Phase 5 — Tool audit + Contour Fill fix (Not started)
+- Audit `SafePaintFillTool` vs. stock `PaintFillTool` against requirements C3 behavior (preview / commit / cancel); fix `LabelMapEditWithContourTool` (Contour Fill); verify smart-brush + Sculptor on the container model; meet the D8 performance budget (≥ 30 fps, 4 panels).
+- **Acceptance:** signals 16, 21, 24, and the voxel-region portion of 23.
+
+### Rebuild Phase 6 — Flag removal & cleanup (Not started)
+- Remove `multiviewport.enabled`; delete legacy `!enabled` code paths; dead-code / stale-import / docs pass.
+- **Acceptance:** clean codebase, no flag remnants.
+
+---
+
 ## Future Enhancements (Beyond Phase 12)
 
 ### Hanging Protocol Definition UI + Server Storage
@@ -124,10 +187,9 @@
 - Shared protocols across users within a project
 
 ### Segmentation Enhancements
-- Segmentation interpolation between slices (shape-based auto-fill between key slices)
 - Segment statistics & measurements (volume, HU stats, CSV export)
-- Multi-viewport segmentation sync (volume-based cross-plane painting)
 - Lazy labelmap creation for large series performance
+- ~~Segmentation interpolation between slices~~ and ~~Multi-viewport segmentation sync~~ — **now part of the Active Work: Multi-Viewport Annotation Rebuild** (interpolation cleanup in Rebuild Phase 4; multi-viewport coherence is the rebuild's core).
 
 ### XNAT Integration Enhancements
 - Assessment forms (RECIST 1.1, RANO-BM)
