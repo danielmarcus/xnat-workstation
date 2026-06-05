@@ -125,11 +125,12 @@
 > **Status: restarting from scratch.** The earlier multi-viewport annotation attempt (prior `multiviewport-annotation` branch) is being discarded. This workstream rebuilds coherent multi-viewport handling of **structures (RTSTRUCT)**, **segmentations (SEG)**, and **measurements (DICOM-SR)** starting from the pre-rewrite app, against the refined specs in `docs/`. **No implementation has landed yet on `annotation-cleanup`** — only the specs and this plan.
 >
 > **Specs (authoritative):**
-> - [`docs/multiviewport-annotation-requirements.md`](docs/multiviewport-annotation-requirements.md) — functional requirements + 24 acceptance signals (authoritative for behavior).
+> - [`docs/multiviewport-annotation-requirements.md`](docs/multiviewport-annotation-requirements.md) — functional requirements + 27 acceptance signals (authoritative for behavior).
 > - [`docs/multiviewport-annotation-design.md`](docs/multiviewport-annotation-design.md) — architecture, data model, service layout, phasing (§7).
 > - [`docs/multiviewport-annotation-architecture.md`](docs/multiviewport-annotation-architecture.md) — layering contract, enforced boundaries, current→target migration map, component architecture (authoritative for structure).
 > - [`docs/multiviewport-annotation-current.md`](docs/multiviewport-annotation-current.md) — pre-rewrite baseline audit.
 > - [`docs/annotation-xnat-integration-requirements.md`](docs/annotation-xnat-integration-requirements.md) — transport workstream (the old Phase 11), contracted via requirements §H.
+> - [`docs/multiviewport-annotation-gaps.md`](docs/multiviewport-annotation-gaps.md) — **spec gap audit (2026-06-05)**: behaviors with no acceptance signal, transport stubs that block Phase 3, and existing app features the rebuild is silent on (regression risk). Work through §4 before/during Phase 0–3.
 >
 > The phase numbers below are **scoped to this rebuild** and are distinct from the historical product phases 0–12 above. Each phase ships behind the `multiviewport.enabled` flag until verified; tests land in the same PR (design §0.5, §8).
 >
@@ -142,9 +143,9 @@
 - Skeletons (no consumers): `containerService`, `undoService`, `viewportLayoutService`, `transportStore`.
 - **Layering contract + ESLint enforcement** (architecture doc §2): boundary zones wired into `lint`/`ci.yml` from day one; current violations quarantined as tracked `BOUNDARY-DEBT`; produce `docs/multiviewport-annotation-architecture.md` (done).
 - Add feature flag `multiviewport.enabled` (default off).
-- **Test harness up front (binding — design §8.0):** build the `e2e/fixtures/` DICOM datasets (incl. `ct-axial-anatomy`) — fixtures are a Phase 0 **exit gate**; author all **24 acceptance signals as failing E2E tests** (full suite, red); **walking skeleton** — drive one signal fully green through the real stack (Electron + Cornerstone + real fixture) to validate the harness.
-- **Fully-specified UI mockup (design §8.8)** produced and agreed as the visual acceptance reference — gates Phase 3.
-- **Acceptance:** app builds, runs, looks identical; existing tests pass; new types compile; the 24 signals exist as red tests; the walking-skeleton signal is green; fixtures + mockup in place.
+- **Test harness up front (binding — design §8.0):** build the `e2e/fixtures/` DICOM datasets (incl. `ct-axial-anatomy`) — fixtures are a Phase 0 **exit gate**; author all **27 acceptance signals as failing E2E tests** (full suite, red); **walking skeleton** — drive one signal fully green through the real stack (Electron + Cornerstone + real fixture) to validate the harness.
+- **Fully-specified UI mockup (design §8.8)** produced and agreed as the visual acceptance reference — gates Phase 3. ✅ **DONE — frozen & user-approved 2026-06-05** ([`docs/mockup/annotations-panel.html`](docs/mockup/annotations-panel.html) + state matrix [`docs/multiviewport-annotation-mockup.md`](docs/multiviewport-annotation-mockup.md)). Covers **both** the Annotations side panel (§1–§9) **and** the top toolbar (§10) — both are **pixel-match requirements** for §8.0. Drove several rounds of review; specs (requirements/design/transport) updated to match the agreed UI.
+- **Acceptance:** app builds, runs, looks identical; existing tests pass; new types compile; the 27 signals exist as red tests; the walking-skeleton signal is green; fixtures + mockup in place.
 
 ### Rebuild Phase 1 — Viewport unification (Not started)
 - Volume (`ORTHOGRAPHIC`) is the default for volumetric data; stack reserved for the non-volumetric predicate (volume mode is **not** user-selectable for volumetric data).
@@ -175,6 +176,13 @@
 ### Rebuild Phase 6 — Flag removal & cleanup (Not started)
 - Remove `multiviewport.enabled`; delete legacy `!enabled` code paths; dead-code / stale-import / docs pass.
 - **Acceptance:** clean codebase, no flag remnants.
+
+### Transport workstream — parallel track (sequencing) (Not started)
+> The XNAT transport/persistence layer ([`docs/annotation-xnat-integration-requirements.md`](docs/annotation-xnat-integration-requirements.md)) is a **separate workstream** behind the requirements **§H boundary**. The rebuild Phases 0–6 build against §H using an in-memory transport double (design §8); they do **not** block on the 33 transport-internal stubs. This track gives that workstream an explicit slot so it stops being unscheduled. (Much of it formalizes/hardens transport that **already exists in code** — save/load SEG+RTSTRUCT, autosave, local backup/recovery — rather than greenfield.)
+>
+> - **T-spec (parallel with Rebuild Phases 0–2):** fill the 33 "to fill in" stubs (A1–A4, B1–B6, C1–C8, D1–D4, E1–E5, F1–F5). The **§H boundary itself** + the Phase-3-blocking *result semantics* (C7 save-error taxonomy, D3 conflict dialog, and the result-only slivers A4/B3/C4/C5/D4/B6/C8/E5 — see [gaps doc §2](docs/multiviewport-annotation-gaps.md)) are filled **first**, as part of the rebuild spec work, because Phase 3 reacts to them. ✅ §H H5–H7 + the clean-container branch defined + signal 27 added (2026-06-05).
+> - **T-build (around Rebuild Phase 3):** implement the real XNAT serialize/upload/version/conflict against the now-complete spec, replacing the in-memory double behind §H. Add the transport workstream's own round-trip/conflict E2E tests (separate from the 27 multi-viewport signals).
+> - **T-gate (must complete before Rebuild Phase 6 / production):** flag removal = real production saving, so the transport build must be done and round-trip-proven (F5) before the rebuild ships for real.
 
 ---
 

@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>XNAT Workstation — Full application mockup</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  html,body { background:#09090b; height:100%; }
+  .swatch { width:12px; height:12px; border-radius:9999px; flex:none; }
+  .nonnative { opacity:.7; }
+  .selected { box-shadow: inset 0 0 0 1px #3b82f6; background:rgba(37,99,235,.08); }
+  svg { display:block; }
+</style>
+</head>
+<body class="text-zinc-300 antialiased" style="font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;">
+  <div class="h-screen flex flex-col bg-zinc-950">
+    <!-- ===== macOS window title bar ===== -->
+    <div class="flex-none h-7 bg-zinc-900 border-b border-zinc-800 flex items-center px-3 relative">
+      <div class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-full bg-[#ff5f57]"></span><span class="w-3 h-3 rounded-full bg-[#febc2e]"></span><span class="w-3 h-3 rounded-full bg-[#28c840]"></span></div>
+      <div class="absolute left-1/2 -translate-x-1/2 text-[11px] text-zinc-400">XNAT Workstation</div>
+    </div>
+    <!-- ===== banner (non-routine high-stakes — recovery prompt) ===== -->
+    <div class="flex-none bg-blue-950/70 border-b border-blue-900/60 px-3 py-1.5 flex items-center gap-2 text-[11px]">
+      <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="#60a5fa" stroke-width="1.5"><circle cx="8" cy="8" r="6.5"/><path d="M8 7.5v3.5M8 5h.01"/></svg>
+      <span class="text-zinc-200">There are 19 sessions with annotations that have not been saved.</span>
+      <a class="text-blue-300 underline">Review now</a>
+      <span class="flex-1"></span>
+      <button class="text-zinc-500 hover:text-zinc-300"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
+    </div>
+    <!-- ===== TOP TOOLBAR (frozen — mirrored from §10) ===== -->
+    <div class="flex-none border-b border-zinc-800 bg-zinc-900 overflow-x-auto">
+<div class="flex items-center gap-1 px-2 py-1.5 text-zinc-300" style="min-width:1240px;">
+        <!-- logo + connection -->
+        <img src="xnat-logo.png" alt="XNAT" width="22" height="22" style="display:block;" />
+        <span class="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-zinc-800 border border-emerald-800/60 ml-2"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span><span class="text-[10px] text-zinc-300">cnda.wustl.edu</span></span>
+        <span class="w-px h-5 bg-zinc-700 mx-1.5"></span>
+        <!-- data actions -->
+        <button class="px-2 py-1.5 rounded hover:bg-zinc-800 flex items-center gap-1.5 text-[11px]" title="Import / load from XNAT"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 2.5v7M5 6.5l3 3 3-3M3 13h10"/></svg>Import</button>
+        <button class="px-2 py-1.5 rounded hover:bg-zinc-800 flex items-center gap-1.5 text-[11px]" title="Export / upload to XNAT"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 9.5v-7M5 5.5l3-3 3 3M3 13h10"/></svg>Export</button>
+        <button class="px-2 py-1.5 rounded hover:bg-zinc-800 flex items-center gap-1.5 text-[11px]" title="Favorites"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 2.2l1.6 3.5 3.8.4-2.9 2.5.9 3.7L8 10.9 4.6 12.8l.9-3.7L2.6 6.1l3.8-.4z"/></svg>Favorites</button>
+        <span class="w-px h-5 bg-zinc-700 mx-1.5"></span>
+        <!-- layout / hanging (MPR removed per review) -->
+        <button class="px-2 py-1.5 rounded hover:bg-zinc-800 flex items-center gap-1 text-[11px]" title="Layout (1×1 · 1×2 · 2×2 · custom)"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2.5" y="2.5" width="11" height="11" rx="1"/><path d="M8 2.5v11M2.5 8h11"/></svg>2×2<svg viewBox="0 0 16 16" width="8" height="8" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 6l4 4 4-4"/></svg></button>
+        <button class="px-2 py-1.5 rounded hover:bg-zinc-800 flex items-center gap-1 text-[11px]" title="Hanging protocol"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 2.5l5.5 3-5.5 3-5.5-3z"/><path d="M2.5 8l5.5 3 5.5-3"/></svg>Hanging<svg viewBox="0 0 16 16" width="8" height="8" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 6l4 4 4-4"/></svg></button>
+        <span class="w-px h-5 bg-zinc-700 mx-1.5"></span>
+        <!-- navigation tools (one active) -->
+        <button class="px-2 py-1.5 rounded hover:bg-zinc-800" title="Crosshairs (MPR sync)"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="2"/><path d="M8 1v3M8 12v3M1 8h3M12 8h3"/></svg></button>
+        <button class="px-2 py-1.5 rounded hover:bg-zinc-800" title="Pan (left-drag)"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 2.5v11M2.5 8h11"/><path d="M6.4 4L8 2.4 9.6 4M6.4 12L8 13.6 9.6 12M4 6.4L2.4 8 4 9.6M12 6.4L13.6 8 12 9.6"/></svg></button>
+        <button class="px-2 py-1.5 rounded hover:bg-zinc-800" title="Zoom"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="7" cy="7" r="4"/><path d="M10 10l3.5 3.5M7 5.3v3.4M5.3 7h3.4"/></svg></button>
+        <button class="px-2 py-1.5 rounded bg-blue-600 text-white" title="Window / Level (left-drag)"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="5.5"/><path d="M8 2.5a5.5 5.5 0 010 11z" fill="currentColor"/></svg></button>
+        <button class="px-2 py-1.5 rounded hover:bg-zinc-800 flex items-center gap-1 text-[11px]" title="Window/Level preset"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="5.5"/><path d="M8 2.5a5.5 5.5 0 010 11z" fill="currentColor"/></svg>Soft tissue<svg viewBox="0 0 16 16" width="8" height="8" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 6l4 4 4-4"/></svg></button>
+        <button class="px-2 py-1.5 rounded hover:bg-zinc-800" title="Invert grayscale (negative)"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2.5" y="2.5" width="11" height="11" rx="1.5"/><path d="M2.5 13.5L13.5 2.5"/><path d="M2.5 13.5H13.5V2.5Z" fill="currentColor" stroke="none"/></svg></button>
+        <span class="w-px h-5 bg-zinc-700 mx-1.5"></span>
+        <!-- transform -->
+        <button class="px-2 py-1.5 rounded hover:bg-zinc-800" title="Rotate 90°"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="3" y="7.5" width="6.5" height="6" rx="1"/><path d="M9.5 7.5V5A3 3 0 006.5 2H5"/><path d="M6.3 0.8L4.5 2 6.3 3.5"/></svg></button>
+        <button class="px-2 py-1.5 rounded hover:bg-zinc-800" title="Flip horizontal"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 2v12"/><path d="M5.5 5L3 8l2.5 3"/><path d="M10.5 5L13 8l-2.5 3"/></svg></button>
+        <button class="px-2 py-1.5 rounded hover:bg-zinc-800" title="Flip vertical"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 8h12"/><path d="M5 5.5L8 3l3 2.5"/><path d="M5 10.5L8 13l3-2.5"/></svg></button>
+        <button class="px-2 py-1.5 rounded hover:bg-zinc-800" title="Reset viewport"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M12.5 8a4.5 4.5 0 11-1.3-3.2"/><path d="M12.5 2v3h-3"/></svg></button>
+        <span class="w-px h-5 bg-zinc-700 mx-1.5"></span>
+        <!-- undo / redo -->
+        <button class="px-2 py-1.5 rounded hover:bg-zinc-800" title="Undo (Ctrl+Z) — active container"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M5.5 4L2.5 7l3 3"/><path d="M2.5 7h7a4 4 0 010 8H8"/></svg></button>
+        <button class="px-2 py-1.5 rounded hover:bg-zinc-800" title="Redo (Ctrl+Shift+Z)"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M10.5 4l3 3-3 3"/><path d="M13.5 7h-7a4 4 0 000 8H8"/></svg></button>
+        <span class="w-px h-5 bg-zinc-700 mx-1.5"></span>
+        <!-- cine -->
+        <button class="px-2 py-1.5 rounded hover:bg-zinc-800" title="Cine play / pause"><svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor" stroke="none"><path d="M5 3.5l7 4.5-7 4.5z"/></svg></button>
+        <span class="px-1.5 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-[10px] text-zinc-200">12</span>
+        <span class="text-[10px] text-zinc-500">fps</span>
+        <span class="flex-1"></span>
+        <!-- annotate (toggles the Annotations panel) + tags -->
+        <button class="px-2.5 py-1.5 rounded bg-blue-600 text-white flex items-center gap-1.5 text-[11px]" title="Annotate — open / close the Annotations panel"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2.5" y="3" width="11" height="10" rx="1"/><path d="M10 3v10"/><path d="M10.2 3.2h3.2v9.6h-3.2z" fill="currentColor" fill-opacity=".4" stroke="none"/></svg>Annotate</button>
+        <button class="px-2 py-1.5 rounded hover:bg-zinc-800 flex items-center gap-1.5 text-[11px]" title="DICOM header tags"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2.5 3h6l5 5-5.5 5.5L2.5 8z"/><circle cx="5.5" cy="6" r="0.9"/></svg>Tags</button>
+        <span class="w-px h-5 bg-zinc-700 mx-1.5"></span>
+        <button class="px-2 py-1.5 rounded hover:bg-zinc-800" title="Settings"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.6 3.6l1.4 1.4M11 11l1.4 1.4M12.4 3.6L11 5M5 11l-1.4 1.4"/></svg></button>
+      </div>
+    </div>
+    <!-- ===== BODY: XNAT browser | viewport | annotations panel ===== -->
+    <div class="flex-1 flex min-h-0">
+
+      <aside class="flex-none bg-zinc-900 flex flex-col" style="width:238px;">
+        <div class="px-3 py-2 border-b border-zinc-800 text-[11px] text-zinc-400">Projects / <span class="text-zinc-300">CONDR</span> / <span class="text-zinc-100">S002</span></div>
+        <div class="px-2 py-2 flex items-center gap-1.5 border-b border-zinc-800">
+          <div class="flex-1 flex items-center gap-1.5 bg-zinc-800 rounded px-2 py-1"><svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="#71717a" stroke-width="1.5"><circle cx="7" cy="7" r="4"/><path d="M10 10l3 3"/></svg><input class="bg-transparent text-[10px] text-zinc-300 placeholder-zinc-600 outline-none w-full" placeholder="Filter sessions…" /></div>
+          <button class="p-1 rounded bg-zinc-700 text-zinc-200" title="List view"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h12M2 8h12M2 12h12"/></svg></button>
+          <button class="p-1 rounded text-zinc-500 hover:text-zinc-300" title="Grid view"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="5" height="5"/><rect x="9" y="2" width="5" height="5"/><rect x="2" y="9" width="5" height="5"/><rect x="9" y="9" width="5" height="5"/></svg></button>
+          <button class="p-1 rounded text-zinc-500 hover:text-zinc-300" title="Refresh"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M13 8a5 5 0 11-1.5-3.6"/><path d="M13 3v3h-3"/></svg></button>
+        </div>
+        <div class="flex-1 overflow-y-auto py-1">
+
+          <div class="flex items-center gap-1.5 px-2 pt-1.5 pb-0.5 text-[11px] text-zinc-200"><svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 5l4 4 4-4"/></svg><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="#a1a1aa" stroke-width="1.4"><rect x="2.5" y="2.5" width="11" height="11" rx="1.5"/><path d="M2.5 6.5h11M6.5 6.5v7"/></svg><span class="truncate">S002_MR_20100114_…</span></div>
+          <div class="flex items-center gap-1.5 pl-7 pb-1"><span class="text-[8px] px-1 rounded bg-zinc-700 text-zinc-300">MR</span><span class="text-[10px] text-zinc-500">2010-01-14</span></div>
+<div class="flex items-center gap-1.5 pl-8 pr-2 py-1 text-[11px] text-zinc-400 hover:bg-zinc-800/40"><span class="text-zinc-500">#1</span> loc</div>
+<div class="flex items-center gap-1.5 pl-8 pr-2 py-1 text-[11px] text-zinc-400 hover:bg-zinc-800/40"><span class="text-zinc-500">#3</span> SAG T1 FLAIR</div>
+<div class="flex items-center gap-1.5 pl-8 pr-2 py-1 text-[11px] text-zinc-400 hover:bg-zinc-800/40"><span class="text-zinc-500">#4</span> COR T2 FSE-XL F.S.</div>
+<div class="flex items-center gap-1.5 pl-8 pr-2 py-1 text-[11px] text-zinc-400 hover:bg-zinc-800/40"><span class="text-zinc-500">#5</span> AX EPI DWI</div>
+<div class="flex items-center gap-1.5 pl-8 pr-2 py-1 text-[11px] text-zinc-400 hover:bg-zinc-800/40"><span class="text-zinc-500">#6</span> AX T2 FLAIR</div>
+<div class="flex items-center gap-1.5 pl-8 pr-2 py-1 text-[11px] text-zinc-400 hover:bg-zinc-800/40"><span class="text-zinc-500">#7</span> AX T2 GRE</div>
+<div class="flex items-center gap-1.5 pl-8 pr-2 py-1 text-[11px] text-zinc-400 hover:bg-zinc-800/40"><span class="text-zinc-500">#8</span> AX T1 FSPGR 3D PRE</div>
+<div class="flex items-center gap-1.5 pl-8 pr-2 py-1 text-[11px] text-zinc-400 hover:bg-zinc-800/40"><span class="text-zinc-500">#9</span> AX EPI PERFUSION</div>
+<div class="flex items-center gap-1.5 pl-8 pr-2 py-1 text-[11px] text-zinc-400 hover:bg-zinc-800/40"><span class="text-zinc-500">#10</span> AX T1 FSPGR 3D POST</div>
+<div class="flex items-center gap-1.5 pl-8 pr-2 py-1 text-[11px] text-zinc-400 hover:bg-zinc-800/40"><span class="text-zinc-500">#11</span> AX T1 FLAIR POST</div>
+
+          <div class="flex items-center gap-1.5 px-2 pt-1.5 pb-0.5 text-[11px] text-zinc-200"><svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 5l4 4 4-4"/></svg><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="#a1a1aa" stroke-width="1.4"><rect x="2.5" y="2.5" width="11" height="11" rx="1.5"/><path d="M2.5 6.5h11M6.5 6.5v7"/></svg><span class="truncate">S002_MR_20100112_…</span></div>
+          <div class="flex items-center gap-1.5 pl-7 pb-1"><span class="text-[8px] px-1 rounded bg-zinc-700 text-zinc-300">MR</span><span class="text-[10px] text-zinc-500">2010-01-12</span></div>
+<div class="flex items-center gap-1.5 pl-8 pr-2 py-1 text-[11px] text-zinc-100 bg-zinc-800/70"><span class="text-zinc-500">#3</span> SAG T1 FLAIR<span class="ml-auto flex items-center gap-1.5 text-[9px]"><span class="flex items-center gap-0.5" style="color:#c084fc"><svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="3" width="10" height="10" rx="2"/></svg>2</span></span></div>
+<div class="flex items-center gap-1.5 pl-8 pr-2 py-1 text-[11px] text-zinc-400 hover:bg-zinc-800/40"><span class="text-zinc-500">#4</span> AX EPI DWI</div>
+<div class="flex items-center gap-1.5 pl-8 pr-2 py-1 text-[11px] text-zinc-400 hover:bg-zinc-800/40"><span class="text-zinc-500">#5</span> AX EPI DTI</div>
+<div class="flex items-center gap-1.5 pl-8 pr-2 py-1 text-[11px] text-zinc-400 hover:bg-zinc-800/40"><span class="text-zinc-500">#6</span> AX T2 FRFSEXL 2MM</div>
+<div class="flex items-center gap-1.5 pl-8 pr-2 py-1 text-[11px] text-zinc-400 hover:bg-zinc-800/40"><span class="text-zinc-500">#7</span> AX T2 FLAIR 3MM</div>
+<div class="flex items-center gap-1.5 pl-8 pr-2 py-1 text-[11px] text-zinc-400 hover:bg-zinc-800/40"><span class="text-zinc-500">#8</span> AX T2 GRE</div>
+        </div>
+        <div class="px-3 py-2 border-t border-zinc-800 text-[10px] leading-tight"><span class="text-emerald-400">● Scan and annotations loaded</span><br/><span class="text-zinc-500">2 overlay(s) displayed for scan #3.</span></div>
+      </aside>
+      <div class="w-1 flex-none bg-zinc-800 hover:bg-blue-600 cursor-col-resize" title="Drag handle — the browser is always visible; drag to shrink"></div>
+
+
+      <main class="flex-1 min-w-0 bg-black relative overflow-hidden">
+        <!-- image placeholder (sagittal MR brain) -->
+        <div class="absolute inset-0" style="background:radial-gradient(ellipse 34% 46% at 52% 50%, #d6d6d6 0%, #9a9a9a 18%, #4a4a4a 42%, #161616 66%, #000 100%);"></div>
+        <!-- a loaded segment overlay (Segment 1, red) -->
+        <svg viewBox="0 0 100 100" preserveAspectRatio="none" class="absolute inset-0 w-full h-full"><path d="M54 44 q7 -5 12 1 q4 8 -2 14 q-8 5 -13 -1 q-4 -8 3 -14 z" fill="#ef4444" fill-opacity="0.30" stroke="#ef4444" stroke-width="0.5"/></svg>
+        <!-- view-orientation dropdown -->
+        <div class="absolute top-2 left-2"><button class="flex items-center gap-1 px-2 py-0.5 rounded bg-zinc-800/80 border border-zinc-700 text-[11px] text-zinc-200">Sagittal<svg viewBox="0 0 16 16" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 6l4 4 4-4"/></svg></button></div>
+        <!-- corner metadata -->
+        <div class="absolute top-9 left-2.5 text-[10px] text-zinc-300 leading-tight">S002<br/>S002_MR_20100112_Preop</div>
+        <div class="absolute top-2 left-1/2 -translate-x-1/2 text-[11px] text-zinc-300">S</div>
+        <div class="absolute top-2 right-3 text-[10px] text-zinc-300 text-right leading-tight">SAG T1 FLAIR<br/>Scan: 3</div>
+        <div class="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] text-zinc-400">A</div>
+        <div class="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-zinc-400">P</div>
+        <div class="absolute left-12 top-[42%] text-[9px] text-zinc-500">50 mm<br/>—<br/>—<br/>—</div>
+        <div class="absolute bottom-2 left-2.5 text-[10px] text-zinc-400 leading-tight">Image: 1 / 21<br/>Loc: −73.13 mm<br/>Thick: 5 mm<br/>W: 3788  L: 1894</div>
+        <div class="absolute bottom-2 left-1/2 -translate-x-1/2 text-center text-[9px] text-zinc-400"><div>————— 50 mm —————</div><div class="text-zinc-300">I</div></div>
+        <div class="absolute bottom-2 right-3 text-[10px] text-zinc-400 text-right leading-tight">Zoom: 100%<br/>512 × 512</div>
+      </main>
+      <div class="w-1 flex-none bg-zinc-800 hover:bg-blue-600 cursor-col-resize" title="Drag to resize the Annotations panel"></div>
+
+      <aside class="flex-none flex" style="width:330px;">
+<div class="bg-zinc-900 overflow-hidden flex flex-col w-full" style="height:100%;">
+      <!-- header with 3 create buttons -->
+      <div class="px-3 py-2.5 border-b border-zinc-800 flex items-center justify-between">
+        <span class="text-zinc-200 text-xs font-medium tracking-wide">ANNOTATIONS</span>
+        <div class="flex items-center gap-1">
+          <button class="text-emerald-400 hover:text-emerald-300 px-1 flex items-center gap-0.5" title="New Structure (RTSTRUCT)"><svg viewBox="0 0 16 16" width="9" height="9" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M8 3.5v9M3.5 8h9"/></svg><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 11c2-5 8-5 10 0"/></svg></button>
+          <button class="text-purple-400 hover:text-purple-300 px-1 flex items-center gap-0.5" title="New Segmentation (SEG)"><svg viewBox="0 0 16 16" width="9" height="9" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M8 3.5v9M3.5 8h9"/></svg><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="10" height="10" rx="2"/></svg></button>
+          <button class="text-orange-400 hover:text-orange-300 px-1 flex items-center gap-0.5" title="New Measurement (SR)"><svg viewBox="0 0 16 16" width="9" height="9" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M8 3.5v9M3.5 8h9"/></svg><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 10 L10 2 L14 6 L6 14 Z"/></svg></button>
+          <span class="w-px h-4 bg-zinc-700 mx-0.5"></span>
+          <button class="text-zinc-300 hover:text-white relative" title="Save all annotations (1 unsaved)"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2.5" y="2.5" width="11" height="11" rx="1"/><path d="M5 2.5v3.5h5.5V2.5"/><rect x="5" y="8.5" width="6" height="5"/></svg><span class="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-amber-400"></span></button>
+        </div>
+      </div>
+      <!-- scrollable container list -->
+      <div class="flex-1 overflow-y-auto">
+
+        <!-- ============ Container A: RTSTRUCT (Structure) — active container ============ -->
+        <div>
+          <div class="flex items-center gap-1.5 px-2 py-1.5 bg-zinc-850 border-b border-zinc-800/70" style="background:#1b1b1f;">
+            <button class="text-zinc-500"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5 3l5 5-5 5"/></svg></button>
+            <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="#34d399" stroke-width="1.5"><path d="M3 11c2-5 8-5 10 0"/></svg>
+            <span class="text-[11px] text-zinc-200 font-medium truncate flex-1">Pelvis_v3</span>
+            <!-- dirty -->
+            <span class="w-1.5 h-1.5 rounded-full bg-amber-400" title="Unsaved changes (dirty)"></span>
+            <span class="text-[9px] text-zinc-500">5</span>
+            <button class="text-zinc-500 hover:text-emerald-300" title="Approve (lock for review)"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6"/><path d="M5.2 8l2 2 3.6-4"/></svg></button>
+            <button class="text-zinc-400 hover:text-zinc-100" title="Add member to this container"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M8 3.5v9M3.5 8h9"/></svg></button>
+            <button class="text-zinc-300 hover:text-white" title="Save this annotation"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2.5" y="2.5" width="11" height="11" rx="1"/><path d="M5 2.5v3.5h5.5V2.5"/><rect x="5" y="8.5" width="6" height="5"/></svg></button>
+          <button class="text-zinc-600 hover:text-zinc-300"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="3" r="1"/><circle cx="8" cy="8" r="1"/><circle cx="8" cy="13" r="1"/></svg></button>
+            <button class="text-zinc-500 hover:text-red-400" title="Delete structure set (locally / from XNAT)"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
+          </div>
+
+          <!-- member: ACTIVE (the pen) + GTV -->
+          <div class="flex items-center gap-2 pl-6 pr-2 py-1.5 border-l-2 border-blue-500 bg-blue-900/10">
+            <span class="swatch" style="background:#ef4444;"></span>
+            <span class="text-[11px] text-zinc-100 truncate">GTV_primary</span>
+            <span class="flex-1"></span>
+            <span class="text-[9px] text-zinc-500">12 sl</span>
+            <!-- active indicator -->
+            <span class="text-blue-400" title="Active — drawing writes here"><svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor" stroke="none"><circle cx="8" cy="8" r="3.5"/></svg></span>
+            <!-- visibility: filled -->
+            <button class="text-zinc-300" title="Visible · filled"><svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor" fill-opacity=".25" stroke="currentColor" stroke-width="1.3"><path d="M1.5 8s2.5-4 6.5-4 6.5 4 6.5 4-2.5 4-6.5 4-6.5-4-6.5-4z"/><circle cx="8" cy="8" r="1.8"/></svg></button>
+            <button class="text-zinc-600 hover:text-zinc-300" title="Unlocked — click to lock"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="3.5" y="7" width="9" height="6" rx="1"/><path d="M5.5 7V5a2.5 2.5 0 015 0"/></svg></button><button class="text-zinc-500 hover:text-red-400 ml-0.5" title="Delete this member"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
+          </div>
+
+          <!-- member: SELECTED (not active) + CTV, outlined -->
+          <div class="flex items-center gap-2 pl-6 pr-2 py-1.5 selected">
+            <span class="swatch" style="background:#22c55e;"></span>
+            <span class="text-[11px] text-zinc-100 truncate">CTV_54</span>
+            <span class="flex-1"></span>
+            <span class="text-[9px] text-zinc-500">18 sl</span>
+            <span class="w-3"></span>
+            <!-- visibility: outlined -->
+            <button class="text-zinc-300" title="Visible · outline only"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M1.5 8s2.5-4 6.5-4 6.5 4 6.5 4-2.5 4-6.5 4-6.5-4-6.5-4z"/><circle cx="8" cy="8" r="1.8"/></svg></button>
+            <button class="text-zinc-600 hover:text-zinc-300" title="Unlocked — click to lock"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="3.5" y="7" width="9" height="6" rx="1"/><path d="M5.5 7V5a2.5 2.5 0 015 0"/></svg></button><button class="text-zinc-500 hover:text-red-400 ml-0.5" title="Delete this member"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
+          </div>
+
+          <!-- member: interpolated provenance + auto marker -->
+          <div class="flex items-center gap-2 pl-6 pr-2 py-1.5 hover:bg-zinc-800/50">
+            <span class="swatch" style="background:#3b82f6;"></span>
+            <span class="text-[11px] text-zinc-300 truncate">PTV_60</span>
+            <span class="text-[8px] px-1 rounded-sm bg-amber-500/15 text-amber-400/90" title="Contains interpolated contours">auto</span>
+            <span class="flex-1"></span>
+            <span class="text-[9px] text-zinc-500">20 sl</span>
+            <span class="w-3"></span>
+            <button class="text-zinc-300" title="Visible · filled"><svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor" fill-opacity=".25" stroke="currentColor" stroke-width="1.3"><path d="M1.5 8s2.5-4 6.5-4 6.5 4 6.5 4-2.5 4-6.5 4-6.5-4-6.5-4z"/><circle cx="8" cy="8" r="1.8"/></svg></button>
+            <button class="text-zinc-600 hover:text-zinc-300" title="Unlocked — click to lock"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="3.5" y="7" width="9" height="6" rx="1"/><path d="M5.5 7V5a2.5 2.5 0 015 0"/></svg></button><button class="text-zinc-500 hover:text-red-400 ml-0.5" title="Delete this member"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
+          </div>
+
+          <!-- member: locked + organ -->
+          <div class="flex items-center gap-2 pl-6 pr-2 py-1.5 hover:bg-zinc-800/50">
+            <span class="swatch" style="background:#14b8a6;"></span>
+            <span class="text-[11px] text-zinc-300 truncate">Bladder</span>
+            <span class="flex-1"></span>
+            <span class="text-[9px] text-zinc-500">22 sl</span>
+            <span class="w-3"></span>
+            <button class="text-zinc-300" title="Visible · outline"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M1.5 8s2.5-4 6.5-4 6.5 4 6.5 4-2.5 4-6.5 4-6.5-4-6.5-4z"/><circle cx="8" cy="8" r="1.8"/></svg></button>
+            <!-- locked (closed padlock, amber) -->
+            <button class="text-amber-400" title="Locked — edits blocked everywhere"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="3.5" y="7" width="9" height="6" rx="1"/><path d="M5.5 7V5a2.5 2.5 0 015 0v2"/><circle cx="8" cy="10" r="0.9" fill="currentColor" stroke="none"/></svg></button><button class="text-zinc-500 hover:text-red-400 ml-0.5" title="Delete this member"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
+          </div>
+
+          <!-- member: empty (freshly created) -->
+          <div class="flex items-center gap-2 pl-6 pr-2 py-1.5 hover:bg-zinc-800/50">
+            <span class="swatch" style="background:#a855f7;"></span>
+            <span class="text-[11px] text-zinc-300 truncate">Rectum</span>
+            <span class="text-[9px] text-zinc-600 italic">(empty)</span>
+            <span class="flex-1"></span>
+            <span class="w-3"></span>
+            <button class="text-zinc-500" title="Hidden"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2.5 8s2.5-4 5.5-4c1 0 1.9.25 2.7.65M13.5 8s-2.5 4-5.5 4c-1 0-1.9-.25-2.7-.65"/><path d="M2 2l12 12"/></svg></button>
+            <button class="text-zinc-600 hover:text-zinc-300" title="Unlocked — click to lock"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="3.5" y="7" width="9" height="6" rx="1"/><path d="M5.5 7V5a2.5 2.5 0 015 0"/></svg></button><button class="text-zinc-500 hover:text-red-400 ml-0.5" title="Delete this member"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
+          </div>
+        </div>
+
+        <!-- ============ Container B: SEG (Segmentation) — cross-series + cross-panel ============ -->
+        <div>
+          <div class="flex items-center gap-1.5 px-2 py-1.5 border-b border-zinc-800/70" style="background:#1b1b1f;">
+            <button class="text-zinc-500"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5 3l5 5-5 5"/></svg></button>
+            <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="#c084fc" stroke-width="1.5"><rect x="3" y="3" width="10" height="10" rx="2"/></svg>
+            <span class="text-[11px] text-zinc-200 font-medium truncate flex-1">Organs_auto</span>
+            <!-- cross-panel pill -->
+            <span class="text-[8px] px-1 rounded-sm bg-zinc-700 text-zinc-300" title="Rendering on 2 other panels">↗ 2</span>
+            <!-- clean (no dirty dot) -->
+            <span class="text-[9px] text-zinc-500">3</span>
+            <button class="text-zinc-500 hover:text-emerald-300" title="Approve (lock for review)"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6"/><path d="M5.2 8l2 2 3.6-4"/></svg></button>
+            <button class="text-zinc-400 hover:text-zinc-100" title="Add member to this container"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M8 3.5v9M3.5 8h9"/></svg></button>
+            <button disabled style="cursor:not-allowed" class="text-zinc-700" title="Saved — no changes"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2.5" y="2.5" width="11" height="11" rx="1"/><path d="M5 2.5v3.5h5.5V2.5"/><rect x="5" y="8.5" width="6" height="5"/></svg></button>
+          <button class="text-zinc-600 hover:text-zinc-300"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="3" r="1"/><circle cx="8" cy="8" r="1"/><circle cx="8" cy="13" r="1"/></svg></button>
+            <button class="text-zinc-500 hover:text-red-400" title="Delete segmentation (locally / from XNAT)"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
+          </div>
+
+          <!-- member: cross-series (non-native, dashed-link, dimmed, read-only here) -->
+          <div class="flex items-center gap-2 pl-6 pr-2 py-1.5 nonnative hover:bg-zinc-800/50">
+            <span class="swatch" style="background:#f59e0b;"></span>
+            <span class="text-[11px] text-zinc-300 truncate">Liver</span>
+            <!-- cross-series link icon + source -->
+            <span class="flex items-center gap-0.5 text-[8px] text-zinc-400" title="Native to T1 SAG · read-only here">
+              <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.3" stroke-dasharray="2 1.3"><path d="M6 10l4-4M5 7L3.5 8.5a2 2 0 002.8 2.8L8 9.5M11 9l1.5-1.5a2 2 0 00-2.8-2.8L8 6.5"/></svg>
+              T1 SAG
+            </span>
+            <span class="flex-1"></span>
+            <span class="text-[9px] text-zinc-500">86 cm³</span>
+            <span class="w-3"></span>
+            <button class="text-zinc-300" title="Visible · filled (non-native)"><svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor" fill-opacity=".2" stroke="currentColor" stroke-width="1.3"><path d="M1.5 8s2.5-4 6.5-4 6.5 4 6.5 4-2.5 4-6.5 4-6.5-4-6.5-4z"/><circle cx="8" cy="8" r="1.8"/></svg></button>
+            <button class="text-zinc-500 hover:text-red-400" title="Delete this member"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
+          </div>
+
+          <!-- member: different FoR (not viewable here) -->
+          <div class="flex items-center gap-2 pl-6 pr-2 py-1.5 opacity-50 hover:bg-zinc-800/50">
+            <span class="swatch" style="background:#64748b;"></span>
+            <span class="text-[11px] text-zinc-400 truncate line-through decoration-zinc-600">Spleen</span>
+            <span class="flex items-center gap-0.5 text-[8px] text-zinc-500" title="Different frame of reference — not viewable here (A2d)">
+              <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="5"/><path d="M4.5 4.5l7 7"/></svg>
+              diff FoR
+            </span>
+            <span class="flex-1"></span>
+            <span class="text-[9px] text-zinc-600">not here</span>
+          </div>
+
+          <!-- member: imported provenance, hidden -->
+          <div class="flex items-center gap-2 pl-6 pr-2 py-1.5 hover:bg-zinc-800/50">
+            <span class="swatch" style="background:#ec4899;"></span>
+            <span class="text-[11px] text-zinc-300 truncate">Kidney_L</span>
+            <span class="text-zinc-500" title="Imported"><svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M8 2v7M5 6l3 3 3-3"/><path d="M3 12h10"/></svg></span>
+            <span class="flex-1"></span>
+            <span class="text-[9px] text-zinc-500">41 cm³</span>
+            <span class="w-3"></span>
+            <button class="text-zinc-500" title="Hidden"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2.5 8s2.5-4 5.5-4c1 0 1.9.25 2.7.65M13.5 8s-2.5 4-5.5 4c-1 0-1.9-.25-2.7-.65"/><path d="M2 2l12 12"/></svg></button>
+            <button class="text-zinc-600 hover:text-zinc-300" title="Unlocked — click to lock"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="3.5" y="7" width="9" height="6" rx="1"/><path d="M5.5 7V5a2.5 2.5 0 015 0"/></svg></button><button class="text-zinc-500 hover:text-red-400 ml-0.5" title="Delete this member"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
+          </div>
+        </div>
+
+        <!-- ============ Container C: SR (Measurement) — approved (locked) ============ -->
+        <div>
+          <div class="flex items-center gap-1.5 px-2 py-1.5 border-b border-zinc-800/70" style="background:#1b1b1f;">
+            <button class="text-zinc-500"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5 3l5 5-5 5"/></svg></button>
+            <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="#fb923c" stroke-width="1.5"><path d="M2 10 L10 2 L14 6 L6 14 Z"/></svg>
+            <span class="text-[11px] text-zinc-200 font-medium truncate flex-1">Baseline measures</span>
+            <span class="text-[9px] text-zinc-500">2</span>
+            <button class="text-emerald-400" title="Approved (locked) — click to revoke approval"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="8" r="6" fill="currentColor" fill-opacity=".22"/><path d="M5.2 8l2 2 3.6-4"/></svg></button>
+            <button disabled style="cursor:not-allowed" class="text-zinc-700" title="Add member — container is approved (locked); revoke approval to edit"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M8 3.5v9M3.5 8h9"/></svg></button>
+            <button disabled style="cursor:not-allowed" class="text-zinc-700" title="Approved (locked) — nothing to save"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2.5" y="2.5" width="11" height="11" rx="1"/><path d="M5 2.5v3.5h5.5V2.5"/><rect x="5" y="8.5" width="6" height="5"/></svg></button>
+          <button class="text-zinc-600 hover:text-zinc-300"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="3" r="1"/><circle cx="8" cy="8" r="1"/><circle cx="8" cy="13" r="1"/></svg></button>
+            <button disabled style="cursor:not-allowed" class="text-zinc-700" title="Delete — approved (locked); revoke first"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
+          </div>
+          <div class="flex items-center gap-2 pl-6 pr-2 py-1.5 opacity-90">
+            <span class="swatch" style="background:#eab308;"></span>
+            <span class="text-[11px] text-zinc-300 truncate">Lesion long axis</span>
+            <span class="text-[8px] px-1 rounded-sm bg-zinc-700 text-zinc-300">Length</span>
+            <span class="flex-1"></span>
+            <span class="text-[9px] text-zinc-400">42.3 mm</span>
+            <span class="text-emerald-400/80" title="Approved-locked"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="3.5" y="7" width="9" height="6" rx="1"/><path d="M5.5 7V5a2.5 2.5 0 015 0v2"/><circle cx="8" cy="10" r="0.9" fill="currentColor" stroke="none"/></svg></span><button disabled style="cursor:not-allowed" class="text-zinc-700 ml-0.5" title="Delete — approved (locked)"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
+          </div>
+          <div class="flex items-center gap-2 pl-6 pr-2 py-1.5 opacity-90">
+            <span class="swatch" style="background:#f97316;"></span>
+            <span class="text-[11px] text-zinc-300 truncate">SUV ROI</span>
+            <span class="text-[8px] px-1 rounded-sm bg-zinc-700 text-zinc-300">Ellipse</span>
+            <span class="flex-1"></span>
+            <span class="text-[9px] text-zinc-400">3.1 cm²</span>
+            <span class="text-emerald-400/80" title="Approved-locked"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="3.5" y="7" width="9" height="6" rx="1"/><path d="M5.5 7V5a2.5 2.5 0 015 0v2"/><circle cx="8" cy="10" r="0.9" fill="currentColor" stroke="none"/></svg></span><button disabled style="cursor:not-allowed" class="text-zinc-700 ml-0.5" title="Delete — approved (locked)"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
+          </div>
+        </div>
+      </div>
+
+      <!-- context toolbox (adapts to active container kind = Structure) -->
+      <div class="border-t border-zinc-800 bg-zinc-900/80">
+        <div class="px-2.5 pt-2 pb-1 flex items-center justify-between">
+          <span class="text-[9px] text-zinc-500 uppercase tracking-wide">Structure tools</span>
+          <span class="text-[9px]" style="color:#ef4444;">GTV_primary</span>
+        </div>
+        <div class="px-2 pb-2 grid grid-cols-3 gap-1 text-[11px]">
+          <button class="flex items-center gap-1.5 px-2 py-1.5 rounded bg-blue-600 text-white" title="Freehand (active)"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 11c1-4 4-6 6-3s5 1 4-3"/></svg><span class="truncate">Freehand</span></button>
+          <button class="flex items-center gap-1.5 px-2 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300" title="Spline"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 11c3 0 3-6 6-6s3 6 6 6"/></svg><span class="truncate">Spline</span></button>
+          <button class="flex items-center gap-1.5 px-2 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300" title="Livewire"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-dasharray="2 1.3"><path d="M3 12c2-6 8-6 10 0"/></svg><span class="truncate">Livewire</span></button>
+          <button class="flex items-center gap-1.5 px-2 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300" title="Sculptor"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="5"/><path d="M8 3v10"/></svg><span class="truncate">Sculptor</span></button>
+        </div>
+      </div>
+    </div>
+      </aside>
+    </div>
+  </div>
+</body>
+</html>

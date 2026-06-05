@@ -54,7 +54,12 @@ Out of scope:
 *To fill in: how the transport builds the source identity record (multi-viewport H2): URI, modality, referenced source-series UIDs, version token.*
 
 ### B5. Auto-load on scan click
-*To fill in: behavior when the user opens a scan that has associated RTSTRUCT/SEG assets — does the transport auto-load? User preference? Default state? Existing app has `autoLoadSegOnScanClick` — formalize.*
+When the user selects a session/scan in the XNAT Browser, the transport layer **automatically loads** that scan's associated annotation containers (RTSTRUCT / SEG / SR) into the Annotations side panel. This is the single load path — there is **no** manual "load from XNAT" action in the panel (multi-viewport D7.6 / D7.9). It formalizes the behavior implemented today via `useSegmentationStore.autoLoadSegOnScanClick` (handled in `App.tsx`):
+
+- **Trigger**: scan/session selection in the XNAT Browser — the same event that loads the imaging series into a viewport.
+- **What loads**: every annotation asset associated with the selected scan/session that is FoR-eligible for a loaded viewport (multi-viewport A2). Cross-series / different-FoR assets surface per D9 (dimmed / "not viewable here"), not hidden.
+- **Preference / default**: gated by `autoLoadSegOnScanClick`, **default on**. When off, the panel shows the empty/create state and the user creates containers manually; there is still no manual load button (the preference is the only control over auto-load).
+- **Partial failure**: a container that fails to fetch or parse appears as a placeholder row with a retry/remove control (B3, multi-viewport D7.9); it does not block the containers that loaded successfully (see B6).
 
 ### B6. Multi-container loading
 *To fill in: ordering, parallelism, progress reporting per container, behavior on partial failure (one container fails, others succeed).*
@@ -83,6 +88,15 @@ Out of scope:
 
 ### C7. Save errors
 *To fill in: how transient vs permanent failures are distinguished, what the user sees, what retry affordances exist, how partial failures (RTSTRUCT saves but SEG fails) are reported.*
+
+### C8. Deletion (local vs XNAT)
+The list panel exposes delete as a row "✕" for both containers and members (multi-viewport D7.6). The transport contract for what that means:
+- **Member delete**: removes the member from the in-memory container and marks the container dirty; the change reaches XNAT on the next save of the parent (no separate XNAT call).
+- **Container delete**:
+  - *Never-saved (no XNAT asset yet)* → drop from the session only; no XNAT call.
+  - *Saved (has an XNAT assessor / resource)* → requires an explicit XNAT delete of that asset. *To fill in: REST endpoint + permission check (A4), whether it's a hard delete vs. a soft/derecognize, confirmation copy, and undo/restore window if any.*
+- **Approved containers**: delete is blocked in the UI until approval is revoked (D7.11); the transport never receives a delete for an approved asset.
+- *To fill in: failure handling (offline / permission denied) mirrors C7; whether a deleted-then-recreated UID collides.*
 
 ---
 
@@ -115,6 +129,10 @@ Out of scope:
 
 ### E4. Session-level transport status
 *To fill in: a session-level status indicator (online / saving / queued / errors), separate from per-container status on D7 list rows.*
+
+### E5. Cross-session unsaved-work retention (multi-viewport A13)
+The user may visit multiple sessions in one app run; the panel is scoped to one study at a time (A13). **Dirty containers from sessions the user has navigated away from are retained in memory, not discarded**, and the count of such sessions drives the persistent "*N sessions with annotations that have not been saved · Review now*" banner (A13 / surface taxonomy). Returning to a session re-presents its retained dirty containers intact.
+- *To fill in: memory/footprint bound on retained sessions; whether retention persists to a local draft store across app restart (ties to E3); what "Review now" does (jump-to-session vs. batch-save list); eviction policy if many sessions accumulate.*
 
 ---
 

@@ -101,7 +101,7 @@ Undo and redo operate on the structure-set / segmentation object, not the viewpo
 ### A9. Unified dirty state and save
 Dirty state is a property of the structure-set / segmentation, not the panel. Editing the same object in two panels produces one dirty flag and one save.
 
-- **Dirty flag**: set on any persisted-state mutation (geometry, name, color, ROI type, member add/delete, structure-set rename, member reorder where persisted, approval state change). Cleared only on successful save (H5).
+- **Dirty flag**: set on any persisted-state mutation (geometry, name, color, member add/delete, structure-set rename, member reorder where persisted, approval state change). Cleared only on successful save (H5).
 - **Auto-save trigger**: debounced after a user-visible idle period following any dirty event. Default debounce period is short (a few seconds; exact value is a design-phase decision). Auto-save **never fires mid-gesture** (mouse held down, stylus on, polyline incomplete, handle drag in progress).
 - **Manual save**: the user can save explicitly per-container or globally; manual save flushes any pending debounced auto-save and serializes immediately.
 - The dirty flag and the auto-save signal are emitted to the transport layer per the H3 contract.
@@ -120,6 +120,23 @@ Selection is a **set**, not a single value: multi-select via shift/ctrl-click in
 
 ### A12. Concurrency safety on rapid layout churn
 Mounting/unmounting viewports rapidly (orientation toggles, MPR ↔ stack, layout grid changes) must not lose attachments, leak representations, or produce stale "ghost" structures. The end state is determined solely by the current set of mounted viewports and the FoR-eligibility rule.
+
+### A13. Annotation lifecycle — load, navigate, switch session, unload
+The list panel's contents are driven by what is **loaded**, not by static UI. This principle defines the dynamics that the static mockup cannot show; it is verified by signals 25–26.
+
+- **Scope = the loaded study/session, not a single scan or viewport.** The panel shows **every** annotation container associated with the session currently loaded in the viewport area — across all its scans/series — subject only to FoR-eligibility for *rendering* (A2). A container is never hidden from the *list* because the active viewport happens to show a different series (it dims / shows a cross-series or "not viewable here" marker per D9 / A2d / D7.4, but stays listed).
+
+- **Populate (load).** Containers enter the panel two ways only: (1) **auto-load** when the user selects a session/scan in the XNAT Browser — the transport loads that session's RTSTRUCT/SEG/SR containers (transport B5; there is no manual "load" affordance); and (2) **create** via the panel's create buttons (D7.6). On load, each container's clean/dirty/approval state is restored from its source (E4 / D7.11).
+
+- **Navigate to a different scan within the same loaded session/study.** The panel is **unchanged** — no container is added or removed. Only **rendering-eligibility re-evaluates** against the new active viewport's series: native members render normally; same-FoR sibling-series members render dimmed (cross-series, D9); different-FoR members show "not viewable here" (A2d). Active member, selection, dirty, and approval state are untouched (A6/A9/A11). No phantom state (A10).
+
+- **Switch to a different session/study.** Loading a scan from a *different* session **re-scopes** the panel to that session (replace, not accumulate — the panel shows one study's annotations at a time). However, **unsaved work is never silently discarded**: any **dirty** container in the session being left is **retained in memory** (not unloaded) and surfaced via the unsaved-work banner (below); **clean** containers from the prior session unload. Returning to a session re-shows its containers, including any retained unsaved ones, with their dirty state intact. *(Decision — confirm: "one study at a time, retain unsaved, swap on switch." Alternative would be accumulating multiple sessions in one list; rejected for clarity.)*
+
+- **Unload.** A container leaves panel + memory only when: its session is no longer loaded **and** it is clean; **or** the user explicitly deletes it (D7.6 row "✕"); **or** the user discards its unsaved changes (revert / explicit discard, with confirmation). Dirty containers are retained until saved or explicitly discarded — preventing accidental data loss.
+
+- **Unsaved-work retention + banner.** Unsaved (dirty) containers across **all** visited sessions are tracked for the app session. A persistent **banner** — "*N sessions with annotations that have not been saved · Review now*" — surfaces them (the one routine-adjacent banner, justified as data-loss prevention per the CLAUDE.md surface taxonomy). "Review now" lists those sessions and lets the user save or discard. On app **restart** with unsaved work, recovery applies (transport E3 / backup).
+
+- **No phantom state across all of the above (A10/A12).** Navigation and session switches never leave stale highlights, orphaned selections, duplicate containers, or leaked representations.
 
 ---
 
@@ -202,14 +219,24 @@ Voxel-editing tools operate in the **edit target** viewport's frame (per A7) but
 - **2D circular brush**: paints a disk of voxels in the edit target's current slice plane. Brush radius is specified in **physical units (mm)** so it is consistent across zoom level and across viewports of different in-plane resolution; a pixel approximation is shown on canvas.
 - **3D spherical brush**: paints a sphere of voxels in world space, centered at the cursor's world position. Footprint shows on all eligible viewports as the appropriate cross-section circle; on slices outside the sphere, no footprint is shown.
 - **Eraser** (2D and 3D variants matching the brushes): clears voxels of the active segment within the footprint. A modifier (e.g., shift) clears voxels of all segments, not just the active one.
-- **Threshold paint**: within the brush footprint, only voxels whose source-image intensity falls within a user-specified range are written. Default range is unrestricted (paint everything). Available as a modifier on the standard brush tools, not as a separate tool.
+- **Threshold paint**: within the brush footprint, only voxels whose source-image intensity falls within a user-specified range are written. Default range is unrestricted (paint everything). Surfaced in the toolbox as **distinct buttons** (Threshold, Dynamic Threshold, and their spherical 3D variants) — all backed by the same `BrushTool` with different brush strategies, not separate tool classes.
 - **Paint Fill (3D flood fill)**: from a seed click, fills connected voxels into the active segment, bounded by an optional intensity range and by existing segment boundaries. Connectivity is 6-connected by default. Implemented by `SafePaintFillTool` ([SafePaintFillTool.ts](../src/renderer/lib/cornerstone/tools/SafePaintFillTool.ts), bound to hotkey `f` per [defaultHotkeyMap.ts:27](../src/renderer/lib/hotkeys/defaultHotkeyMap.ts:27)). This tool serves the **hole-filling** workflow — clicking inside an enclosed unfilled region fills it with the active segment, equivalent to RayStation's hole fill / fill-region operation. The operation previews while computing and commits on release; cancellation discards.
 - **Planar scissors**: user draws a closed polygon on the edit target's slice plane. Voxels of the active segment inside the polygon, on that slice only, are cleared. A modifier inverts the operation (keep-inside / clear-outside).
 - **Through-volume scissors**: same polygon, but applies through every slice perpendicular to the slice plane (extruded along the view normal). This is a distinct tool from planar scissors.
 - **Region-segment / smart brush**: an intensity-aware region-grow brush. The user clicks (or drags) on a seed location; the tool grows a region within an intensity tolerance into the active segment, bounded by the brush footprint. Two variants are required, matching the existing `RegionSegmentTool` and `RegionSegmentPlusTool`: a basic mode that grows from the seed within a fixed tolerance, and a "plus" mode with adaptive tolerance based on local image gradients. This is the closest in-house equivalent to RayStation's "Smart Brush." Same active-segment / lock / overlap policy rules apply.
 - **Sculptor**: a contour-pushing tool that locally deforms an existing contour outline (RTSTRUCT) toward or away from the cursor. Operates on the active member only; does not create new geometry, only modifies existing. Matches the existing `SculptorTool`. Useful for fine-tuning a contour boundary without redrawing.
 - **Contour Fill (`LabelmapEditWithContour`)**: the user draws a freehand or polygon contour and the tool rasterizes the enclosed region into the active segment as voxels (a "draw the boundary, fill the interior" workflow distinct from voxel-by-voxel brushing). Implemented by Cornerstone's `LabelMapEditWithContourTool` ([toolService.ts:115](../src/renderer/lib/cornerstone/toolService.ts:115)). Currently surfaced in the segmentation tool dropdown but **broken in the current implementation** — must be fixed for v1. Same active-segment / lock / overlap policy rules apply once functional.
-- **Copy / paste contour to slice**: keyboard-driven contour duplication. The user selects a contour, navigates to a target slice (any slice in the FoR), and pastes — the contour replicates at the target slice's plane in world coordinates. Implemented via Ctrl-C / Ctrl-V → `segmentationService.copySelectedContourAnnotation()` / `pasteCopiedContourAnnotationToActiveSlice()` ([hotkeyService.ts:221-224](../src/renderer/lib/hotkeys/hotkeyService.ts:221), [defaultHotkeyMap.ts:70-71](../src/renderer/lib/hotkeys/defaultHotkeyMap.ts:70)). Behavior follows D6 (paste preserves world geometry, lands in the active container's active member). The "navigate then paste" pattern is preferred over RayStation's "copy to adjacent" because it lets the user paste to any slice without an extra modifier; both adjacent-slice and far-slice cases are one keystroke pair.
+- **Copy / paste contour to slice**: keyboard-driven contour duplication. The user selects a contour, navigates to a target slice (any slice in the FoR), and pastes — the contour replicates at the target slice's plane in world coordinates. Implemented via Ctrl-C / Ctrl-V → `segmentationService.copySelectedContourAnnotation()` / `pasteCopiedContourAnnotationToActiveSlice()` ([hotkeyService.ts:221-224](../src/renderer/lib/hotkeys/hotkeyService.ts:221), [defaultHotkeyMap.ts:70-71](../src/renderer/lib/hotkeys/defaultHotkeyMap.ts:70)). Behavior follows D6 (paste preserves world geometry, lands in the active container's active member). The "navigate then paste" pattern is preferred over RayStation's "copy to adjacent" because it lets the user paste to any slice without an extra modifier; both adjacent-slice and far-slice cases are one keystroke pair. **Copy/paste is a keyboard-driven viewport action, NOT a toolbox tool** — it does not appear in the tool grid.
+
+#### Toolbox scope and presentation
+- **In scope = every registered Cornerstone3D tool for the active kind**, grouped by the three peer types:
+  - **Segmentation (SEG):** Brush, Eraser, Threshold, Dynamic Threshold, and Spherical (3D) Brush/Eraser/Threshold (all `BrushTool` strategies); Circle / Rectangle / Sphere scissors; Paint Fill (`SafePaintFillTool`); Region & Region+ (`RegionSegmentTool` / `RegionSegmentPlusTool`); Rect-Multi & Circle-Multi threshold (`RectangleROIThresholdTool` / `CircleROIStartEndThresholdTool`); Contour Fill (`LabelMapEditWithContourTool`); Select (`SegmentSelectTool`); Segment Bidirectional (`SegmentBidirectionalTool`).
+  - **Structure (RTSTRUCT):** Freehand, Spline, Livewire contour tools; Sculptor.
+  - **Measurement (SR):** Length, Angle, Bidirectional, Elliptical/Rectangle/Circle ROI, Probe, Arrow, Freehand ROI.
+- **Deferred (not in v1):** AI / auto-segmentation tools (model-based, smart-fill-by-AI, etc.) — implemented later; the grid leaves room for them.
+- **Planned (shown greyed):** a small set of registered-but-not-yet-wired tools (currently Dynamic Threshold, Spherical Brush / Eraser / Threshold, Rectangle-Multi threshold) render **greyed/disabled with a "planned" tooltip**. This is a **temporary** state — they are slated for implementation immediately after this project. Greyed-flat (planned) is visually distinct from the D3 dashed-and-slashed "no FoR-matched viewport" disable.
+- **Not toolbox tools:** view tools (Pan, Zoom, Stack Scroll, Window/Level, Crosshairs) live in the **toolbar**; **copy/paste** is a keyboard viewport action; **interpolation** is a **setting/behavior** (auto-accept of interpolated contours, B5 / Rebuild Phase 4), surfaced as a toggle in controls — never a tool button.
+- **Presentation:** a **3-column grid of icon + label** buttons at full panel width; as the panel narrows the labels truncate, then hide entirely, leaving an **icon-only** grid. Active tool highlighted; tools with no FoR-matched viewport are disabled (D3). A **Controls** strip below the grid holds kind-specific settings (e.g. active segment + labelmap opacity for SEG), and the silent in-place backup status (§3.4) sits at the foot.
 
 All tools respect:
 
@@ -309,7 +336,7 @@ Every member row shows, at a glance:
 
 - **Color swatch** matching the structure's render color.
 - **Name** (RTROIObservation Label for RTSTRUCT; SegmentLabel for SEG).
-- **ROI type** (RTSTRUCT only): the DICOM `RTROIInterpretedType` — GTV, CTV, PTV, ORGAN, EXTERNAL, SUPPORT, FIXATION, CAVITY, BOLUS, AVOIDANCE, CONTROL, DOSE_REGION, MARKER, etc. Shown as a small badge or label distinct from the structure name. Editable inline. This metadata is **standard DICOM RTSTRUCT** and drives downstream TPS behavior (DVH grouping, density override eligibility); it must round-trip through save/load.
+- **ROI type** (`RTROIInterpretedType`): **not tracked, not shown, not editable** (removed per review — the workflow doesn't need it). It is not a field on the member model, there is no badge, and there is no type editor. It is **not special-cased** for preservation either: like the many other tags that ride along in a source DICOM file, it is simply left untouched by general round-trip fidelity — not singled out for handling.
 - **Visibility toggle** (eye icon). Tri-state at the container level (all / some / none).
 - **Visibility mode** (per D7.3): filled, outlined, or hidden. The eye icon cycles between three states (off / outline / filled) or exposes a small mode selector.
 - **Lock toggle** (padlock icon). Locked structures cannot be edited in any viewport (per C5).
@@ -320,7 +347,7 @@ Every member row shows, at a glance:
 - **Provenance indicator**: source of the geometry — `manual`, `interpolated`, `imported`, or (future) `auto-segmented`, `algebra`, `deformably-mapped`. Distinct visual per source. Manual is the default; the absence of a provenance badge implies manual. This metadata is preserved through save/load where DICOM permits (private tags or vendor extensions for non-standard sources); for standard `manual` and `interpolated` no special storage is required.
 - **Geometry summary**: number of contoured slices for RTSTRUCT structures; voxel count or volume in cm³ for SEG segments; "(empty)" if neither.
 
-Hovering a row reveals a tooltip with extended metadata: SOPInstanceUID of the source RTSTRUCT/SEG, structure-set name, ROI number / segment index, ROI type, approval state, provenance, volume calculation, last-modified time.
+Hovering a row reveals a tooltip with extended metadata: SOPInstanceUID of the source RTSTRUCT/SEG, structure-set name, ROI number / segment index, approval state, provenance, volume calculation, last-modified time.
 
 #### D7.3 Visibility and lock semantics
 - **Per-member visibility**: three states — **hidden** (not rendered), **outlined** (boundary only — for SEG, this is the segment's outline; for RTSTRUCT, the contour stroke), and **filled** (boundary plus filled interior — for SEG, the labelmap fill; for RTSTRUCT, a translucent fill bounded by the polygon). The eye icon (D7.2) cycles or exposes a mode selector. Default for FoR-eligible viewports is **filled** for SEG, **outlined** for RTSTRUCT (contours don't fill by default — closed contours can opt in).
@@ -348,27 +375,40 @@ The panel distinguishes two states a member can be in:
 Single-clicking a row selects it (replacing any prior selection). Double-clicking activates it (and selects it). Clicking the active indicator on a different row activates it without changing the selection set.
 
 #### D7.6 Actions available from the list
-Per member (via row controls or context menu):
+
+**Renaming (containers and members).** Names are edited **inline by double-clicking** the name: the label becomes a text field with the current name pre-selected. **Enter** commits, **Esc** cancels; blur commits. A "Rename" item in the kebab is the discoverable alternative for the same inline edit. (Renaming is blocked on approved/locked containers, per D7.11.)
+
+**Create starts in edit mode.** Creating a container (via the header create buttons) or a member (via the container-row "+", below) gives it a **default name** and drops it **immediately into inline-edit mode with the default text pre-selected**, so the user can type a name right away without a separate rename step. Pressing Enter or clicking away keeps the default if untouched. Proposed default names (open to change): containers → `Structure set N` / `Segmentation N` / `Measurement set N`; members → `ROI N` (RTSTRUCT) / `Segment N` (SEG) / measurement named by its tool (e.g. `Length N`) for SR.
+
+**Delete is a row action (the "✕").** Every row — container and member — carries a **delete "✕"** as its right-most control. Deleting prompts for confirmation when there is geometry/content to lose, and triggers the **local-vs-XNAT** removal logic: a never-saved item is dropped from the session; a saved item additionally requires removing/derecognizing it on XNAT (the delete contract lives in the transport workstream — deleting an assessor, or removing a member and re-saving the parent). Delete is **disabled on approved (locked) containers and their members** — revoke first.
+
+**Approve is a row action (the "✓"), not a kebab item.** Each container row has an **approve toggle** ("✓"): on an unapproved container it approves (with the confirm dialog, D7.11); on an approved container it renders filled/green and revokes (with confirm). It is **not** in the kebab.
+
+Per member (via row controls):
 - Toggle visibility, toggle lock, set active.
-- Rename, change color, change opacity.
-- Delete (with confirmation if the member has geometry).
+- Rename (double-click, see above), change color, change opacity.
+- **Delete** — the row "✕" (with confirmation if the member has geometry; local-vs-XNAT per above). Disabled when the container is approved.
 - Jump-to-first-slice: viewport navigation jumps to the first slice containing this member's geometry, on whichever viewport is set as the navigation target.
 - Show only this (hide siblings within the container).
 
-Per container:
-- Rename, set container color scheme.
+Per container (row controls, left→right: **approve ✓ · add-member + · save · kebab ⋮ · delete ✕**):
+- Rename (double-click, see above), set container color scheme.
+- **Approve / revoke** — the row "✓" toggle (see above).
+- **Add new member** — the **"+" button on the container row** (creates an empty ROI / segment, in edit mode per above). Disabled on approved/locked containers.
+- **Delete** — the row "✕" (removes the whole container; confirmation + local-vs-XNAT per above). Disabled when approved.
 - Hide all / show all, lock all / unlock all.
-- Save now, revert (if dirty — discards local changes back to the last-saved version, with confirmation).
-- Export to DICOM file.
-- Add new member (creates an empty ROI / segment).
+- **Save now** — surfaced as a **save icon on the container row, immediately left of the kebab**. Enabled only when the container is dirty; disabled (greyed) when clean or approved. (This is the per-container counterpart to the header **Save-all** icon; routine autosave still happens silently per §3.4.)
+- **Revert** (if dirty) — discards local changes back to the last-saved version, with confirmation. **Export to DICOM file** — serializes this container to a standalone DICOM file (SEG / RTSTRUCT / SR) and writes it to local disk; this is a *local file export*, distinct from saving to XNAT. **Export to CSV** — writes this container's **per-member metrics** to a CSV file: name + (RTSTRUCT) contoured-slice count / enclosed volume; (SEG) voxel count / volume / mean·min·max HU; (SR) each measurement's value and unit. (Surfaces the segment-statistics capability tracked in PHASES "Segmentation Enhancements"; a local file export like Export-to-DICOM.) All live in the kebab.
 - Reorder members (Z-order, per B7).
 
-Session-level (always available, regardless of selection):
+**Kebab (per-container "⋮") contents** (after de-duplication): Hide all/show all · Lock all/unlock all · Export to DICOM… · **Export to CSV…** · Revert changes. The frequent/primary actions are **row buttons, not kebab items**: Rename (double-click), Add member ("+"), Save (save icon), Approve ("✓"), Delete ("✕"). The kebab holds only the less-frequent bulk/export/revert actions.
+
+Session-level (the three create actions + save-all; create actions are **present in every state** but **disabled when the active viewport has no scan loaded** — they tag to the active viewport's series, so with nothing loaded there is no FoR target. Disabled rendering follows D3; a tooltip explains why):
 - Create new structure-set (RTSTRUCT container, tagged to the active viewport's series; requires an open FoR-matched viewport).
-- Create new segmentation (SEG container, similarly tagged).
-- Create new measurement set (SR container, similarly tagged) — the third create action, matching the three peer types (D7.1).
+- Create new segmentation (SEG container, similarly tagged; same FoR-matched-viewport requirement).
+- Create new measurement set (SR container, similarly tagged; same FoR-matched-viewport requirement) — the third create action, matching the three peer types (D7.1).
 - Save all dirty containers.
-- Load from XNAT (delegates to the transport layer, per H9).
+- **Loading is automatic, not a panel action.** Existing annotation containers for the selected session/scan load into the panel via the transport layer when the user selects that scan in the XNAT Browser (auto-load — formalized in transport B5). There is **no** separate manual "load from XNAT" affordance in the panel.
 
 Bulk (on multi-selected members):
 - Toggle visibility / lock together.
@@ -376,10 +416,9 @@ Bulk (on multi-selected members):
 - Recolor together.
 - Move to a different container (RTSTRUCT-to-RTSTRUCT, SEG-to-SEG; cross-type moves not supported in v1).
 
-#### D7.7 Filter, search, sort
-- Free-text filter on member names. Filter is non-destructive; hidden-by-filter rows do not have their visibility or lock state modified.
-- Sort within a container: by creation order (default, also the Z-order per B7), alphabetical, or by geometry size.
-- Containers are listed in load order; user can drag to reorder.
+#### D7.7 Ordering
+- **No free-text filter / search, no "Active only" toggle, and no sort control** — all removed per review. Annotation counts per session are small; the active-viewport state is already conveyed by row dimming + the cross-panel pill (D9).
+- Members keep their **creation / Z-order** (per B7); containers are listed in **load order**. The user can drag to reorder members within a container, and containers within the list. There is no separate sort UI.
 
 #### D7.8 Hover and click sync with viewports
 - Hovering a row in the list previews the structure on all eligible viewports — emphasized stroke, plus optional auto-scroll on the active viewport to the structure's first slice if the user has enabled "scroll-to-on-hover."
@@ -387,7 +426,8 @@ Bulk (on multi-selected members):
 - Clicking a row selects globally (per A11); the selection treatment shows on all eligible viewports.
 
 #### D7.9 Empty, loading, and error states
-- **Empty session**: panel shows a clear "no structures yet" affordance with a "create new structure-set" / "create new segmentation" / "load from XNAT" actions.
+- **Empty session**: panel shows a clear "no annotations yet" affordance with the three create actions (create new structure-set / segmentation / measurement). It does **not** offer a manual "load from XNAT" action — existing annotations for a selected scan load automatically (D7.6, transport B5).
+  - **No scan loaded**: when the active viewport has no scan, the three create actions are **disabled** (greyed, per D3) with a tooltip ("load a scan to start annotating") — there is no FoR-matched series to tag a new container to (D7.6). They enable as soon as a scan is loaded in the active viewport.
 - **Loading**: container appears in a loading state with a spinner; members appear as they parse. The container is not interactable until parse completes.
 - **Parse error**: container shows an error banner with the failure reason and a retry/remove control. Other containers are unaffected.
 - **Empty container**: shows "no members" with an "add new" action.
@@ -400,7 +440,7 @@ A container can be **approved** — a regulatory-grade lock equivalent to the wo
 
 - **Effect**: an approved container is fully edit-locked. No member adds, deletes, geometry edits, name changes, color changes, type changes, or reorderings are allowed. The user must explicitly **revoke approval** before editing.
 - **Scope**: at the container (structure-set or segmentation) level, not per member. Partial approval (some members approved, others not) is not supported in v1.
-- **Visual indicator**: distinct from session-only locks. A clear "approved" badge at the container row, plus row-level indicators on members (D7.2 approval indicator).
+- **Control + visual indicator**: approve/revoke is a **row toggle ("✓")** on the container row (not a kebab item, and **no separate "APPROVED" text badge** — the toggle itself is the state). Outline "✓" = unapproved (approves on click); **filled green "✓"** = approved (revokes on click). Members show their own approved-lock indicator (D7.2). While approved, the container's add-member, save, and delete row controls are disabled. The green toggle is visually distinct from session-only locks.
 - **Persistence**: approval state is persisted to the saved DICOM object (RTSTRUCT `ApprovalStatus (300E,0002)`, SEG via the General Series `ApprovalStatus (300E,0002)` element). Round-trips through save/load (E4).
 - **Audit trail**: an approval action records who approved (current user identity, if available from the transport layer) and when (timestamp). Recorded in DICOM where the standard supports it (`ReviewerName`, `ReviewDate`, `ReviewTime`); session-only otherwise.
 - **Revoke**: explicit user action with confirmation. Revoking does not delete the audit record; subsequent re-approval creates a new record.
@@ -452,7 +492,7 @@ A save in progress must not block edits, and edits during save must not be lost.
 ### E3. Conflict detection
 "External change" for a container means: a change to the container's server-side state (per H6) **or** any other source modifying the container outside the current session. Silent overwrite is not acceptable in either direction.
 
-- If an external change arrives while the container is **clean**, the multi-viewport layer may silently reload (transport pushes the new dataset) or surface a "newer version available" indicator and offer a reload. Both are acceptable.
+- If an external change arrives while the container is **clean**, the multi-viewport layer surfaces a **"newer version · reload"** indicator on the row and reloads **on the user's action** (not silently — decided per H6, to avoid the displayed annotations changing unexpectedly). No edits are at risk, so no conflict prompt is shown.
 - If an external change arrives while the container is **dirty**, the multi-viewport layer surfaces the conflict marker (D7.4) and triggers the H7 conflict-resolution prompt before any reload.
 - A save attempt that returns Conflict (H5) triggers the same H7 prompt with the same options.
 
@@ -502,13 +542,16 @@ A successful implementation passes these expert-user smoke tests:
 15. Make several edits, save, then continue editing. Press undo enough times to cross the save point. The state reverts past the save point; the dirty flag becomes set; a new save flushes the post-undo state.
 16. Use the 3D paint-fill tool to fill a connected region on an axial viewport. The same filled voxels appear correctly resampled on a sagittal MPR of the same volume. Undo once: the entire fill operation reverts as one entry.
 17. The active member is currently empty. The "active" indicator in the list panel shows on its row, the panel shows the "empty" marker. Drawing on the active viewport appends to this empty member, not to a new one; the empty marker clears.
-18. Load an RTSTRUCT with ROIs of types GTV, CTV, PTV, ORGAN, EXTERNAL. Each member row in the panel displays its ROI type as a distinct badge alongside name and color. Edit one ROI's type from ORGAN to AVOIDANCE inline; save and reload — the type round-trips correctly through DICOM `RTROIInterpretedType`.
+18. **Retired (per review).** ROI type (`RTROIInterpretedType`) is not tracked, shown, or edited, and is not special-cased among DICOM tags — so there is no dedicated acceptance signal for it. (General source-DICOM round-trip fidelity, which leaves untouched tags alone, is a transport concern, not a panel feature.) Signal number kept to preserve the numbering of 19–24.
 19. Approve a structure-set in the panel. All members become edit-locked: handles are not exposed, brush is blocked, delete actions disabled; an approval badge shows on the container and members. Save and reload — the approval state persists (DICOM `ApprovalStatus`). Revoke approval with explicit confirmation — editing affordances return.
 20. Toggle a member's visibility from filled to outlined to hidden via the panel. On viewports the rendering switches accordingly: filled showed an opacity-blended fill plus boundary stroke; outlined shows boundary only; hidden shows nothing. Other members are unaffected. Reload the saved file — visibility mode is not persisted (returns to default per D7.3).
 21. Use the region-segment (smart brush) tool on a CT slice. Click a seed point inside a homogeneous region; the tool fills connected voxels within the intensity tolerance into the active segment. Lock a segment then attempt the same — the tool is blocked at gesture-start with a hint.
 22. Run inter-slice interpolation on an ROI on every fifth slice. Each interpolated contour shows the `interpolated` provenance badge and the auto-marker. Manually edit one interpolated contour — its badge changes from `interpolated` to `manual`, the auto-marker clears for that contour. Save and reload; provenance survives where DICOM permits.
 23. **Copy/paste, world-geometry-preserving (D6).** Draw a contour on an axial slice and copy it (Ctrl-C). Scroll a coronal panel of the same volume to a target slice and paste (Ctrl-V): the contour lands at the copied world geometry on the target slice's plane, in the active container's **active member** — not a new member. Copy a 3D voxel region of one SEG segment and paste it into the same segment at a translated slice; voxels resample nearest-neighbor into the SEG grid with segment identity preserved. Attempt a paste into a viewport whose FoR differs from the clipboard's source — it is blocked with a clear error. (Regression guard for prior copy/paste-of-interpolated-contour defects.)
 24. **Oblique SEG round-trip + 3D continuity (C7, C8).** Load a SEG whose grid is oblique relative to a straight-axial display volume (same FoR). It resamples correctly per-segment (nearest-neighbor, no invented intermediate labels). Paint a 3D spherical-brush stroke that crosses slice boundaries; the modification is connected in 3D and renders coherently on axial + sagittal + coronal. Save and reload; the SEG's native oblique orientation is preserved (never silently re-axialized) and geometry round-trips without progressive degradation.
+25. **Lifecycle: auto-load + navigate within a session (A13, B5).** Select a session in the XNAT Browser that has a saved RTSTRUCT and two SEGs. With no further action they **auto-load** into the panel (no manual "load"). The active viewport shows series A: members native to A render normally; members native to a same-FoR sibling series render **dimmed** with the cross-series marker; a different-FoR member shows **"not viewable here"** — all three remain **listed**. Navigate the active viewport to the sibling series: the panel's container/member **set is unchanged**; only the rendering markers flip (the sibling's members are now native, A's now cross-series). No phantom highlights, no duplicates, dirty/active/selection state unchanged.
+26. **Lifecycle: session switch + unsaved retention (A13, E3).** In session 1, edit a structure-set so it is **dirty**. Without saving, select a scan from session 2 in the browser: the panel **re-scopes** to session 2's annotations; session 1's **clean** containers unload, but its **dirty** structure-set is **retained** and the "*N sessions with annotations that have not been saved*" banner reflects it. Return to session 1: its dirty structure-set **reappears intact** (geometry + dirty state preserved), ready to save. (Restart mid-edit → recovery per E3.)
+27. **Conflict + save-failure workflow (E3, H5–H7).** Verifies the stateful flow behind the mockup's conflict/retry states (§3 row states, §5 dialog) across every branch: **(a) dirty + external change** — while a container is dirty, the same container changes on the server; the row shows the **conflict marker** and a prompt offers **Keep local · Discard local · Inspect**. *Keep local* uploads the local state as the new server version; *Discard local* reloads the server version and drops local edits (after confirm). **(b) save → Conflict** — a manual/auto save returns Conflict; the same prompt appears (no silent overwrite). **(c) save → transient failure** — dirty flag stays set, the row shows a **retry** affordance, retry succeeds. **(d) save → permanent failure** (e.g., no write permission) — the row shows the failure reason + remove control; the container stays in memory and editable. **(e) clean + external change** — a non-intrusive **"newer version · reload"** indicator appears (no silent swap, no prompt); reload happens only on user action.
 
 > **Coverage note.** D2 (hover-emphasis sync across viewports, beyond the click-select of signal 8), B7 (Z-order / selection-bring-to-top), and the per-structure-set variant of the D11 cross-series toggle are verified through service-integration tests and the manual QA matrix (design §8.5) rather than headline E2E signals. Measurement-type (SR) behavior has **no** signals yet, pending the requirements fill-in noted in D7.1.
 
@@ -554,7 +597,7 @@ The transport layer reports save outcomes per container as one of:
 ### H6. External change notification
 The transport layer may push a **version-changed** event for a container when it learns the server's version differs from the in-memory token. The multi-viewport layer responds:
 
-- If the container is **clean**, the multi-viewport layer may silently re-load (transport pushes the new dataset) or surface a "newer version available" indicator and offer a reload — design choice; both are acceptable per E3.
+- If the container is **clean**, the multi-viewport layer surfaces a non-intrusive **"newer version on server · reload"** indicator on the container row and reloads **only on the user's action** — it does **not** silently swap the data under the user (decided: a silent reload could change the displayed annotations unexpectedly). No local edits are at risk, so no conflict prompt is shown — just the reload affordance.
 - If the container is **dirty**, the multi-viewport layer surfaces the conflict marker (D7.4) and prompts the user before reload (per E3 — no silent overwrite of local edits).
 
 ### H7. Conflict resolution flow
@@ -579,3 +622,23 @@ The multi-viewport layer does not read DICOM bytes directly. It does not retry. 
 - **Selection, hover, expand/collapse, filter, scroll, per-viewport visibility overrides, undo history, dirty flag itself, the auto-interpolated marker**: multi-viewport's concern, never sent to the server.
 - **Container source identity (H2)**: provided by transport, opaque to multi-viewport, displayed but never modified.
 - **Version tokens**: provided by transport, opaque to multi-viewport, used only as input to H5/H6.
+
+---
+
+## I. Viewer-chrome & toolbar behaviors (preserved from the current app)
+
+These are **existing, working viewer features** the rebuild touches (the toolbar is rebuilt) and must **preserve**, not drop. They were surfaced by the gap audit ([`multiviewport-annotation-gaps.md`](multiviewport-annotation-gaps.md) §3/§5) because the frozen toolbar mockup (§10) shows several of them by label only. The contract is "**match the current implementation**" unless noted; cited files are the source of truth. Confirmed/dispositioned 2026-06-05.
+
+- **I1. Toolbar = viewer controls only.** The toolbar holds layout/navigation/transform/undo-redo/cine/tags/export/panel-toggles/settings; the annotation lifecycle stays in the side panel (CLAUDE.md UI arch, mockup §10).
+- **I2. Layout & hanging protocols.** The Layout control offers fixed presets (1×1/1×2/2×1/2×2), **MPR** (as a preset), **and custom rows×cols** (`viewerStore.setCustomLayout`, `Toolbar.tsx`). The **"Hanging ▾"** control applies built-in hanging protocols (CT Pre/Post, MR Brain, Tomo/Mammo 4-Up — `shared/types/hangingProtocol.ts`) with metadata-based matching + manual select. Preserve.
+- **I3. Window/Level presets.** The W/L-preset control is a **dropdown of all five presets** — Soft Tissue / Lung / Bone / Brain / Abdomen (`WL_PRESETS`) — with Ctrl+1–5 hotkeys. The mockup's single "Soft tissue" label is the dropdown's current value, not the only preset. Preserve all five + hotkeys.
+- **I4. Configurable viewport overlay.** Four-corner DICOM overlay with user-configurable fields per corner, plus rulers and orientation markers (`ViewportOverlay.tsx`, Settings "Overlay" tab, ~20 fields). Per-frame metadata reads via `volumeViewport.getCurrentImageId()`. Preserve the configurability.
+- **I5. DICOM Tags panel.** The toolbar **"Tags"** button opens the header inspector — tags grouped by module, text search, private-tag toggle (`DicomHeaderPanel.tsx`). Preserve.
+- **I6. Cine — on volume.** Cine runs on volume viewports via CS3D `utilities.cine.playClip` (scroll-cine + dynamic 4D). Implement via `playClip`, not the legacy stack `setInterval`. The stack-eligibility predicate (US/XA/RF…) chooses viewport *type*, not cine availability (design §1.1, risk register).
+- **I7. Two distinct "Export" surfaces.** (a) **Toolbar Export** = the *viewport image* export — PNG/JPEG, copy-to-clipboard, save-all-slices, save raw DICOM of the current slice (`ExportDropdown.tsx`). (b) **Per-container panel kebab Export** = the *annotation* export — Export-to-DICOM and Export-to-CSV (D7.6). These are different features; keep both.
+- **I8. Favorites (Bookmarks).** Toolbar **"Favorites"** dropdown of **pinned items** (projects/subjects/sessions the user pins) + auto-tracked **recent sessions**, scoped per XNAT server, persisted in localStorage (`lib/pinnedItems.ts`, `lib/app/useBookmarks.ts`, `components/app/BookmarksDropdown.tsx`). Clicking navigates the XNAT browser to the item (`NavigateToTarget`, optional skip-auto-load) and loads the session; recents are promotable to pinned. Works well — preserve as-is.
+- **I9. Import (local DICOM).** Toolbar **"Import"** loads DICOM **from the local drive** (distinct from XNAT load): drag-and-drop files/folders (always available) + an open-file button, via Cornerstone's file manager / wadouri (`App.tsx loadLocalFiles`). **Basic — works well enough for now; flagged for later development** (robustness / large-folder / series-grouping).
+- **I10. Delete safety — trash vs permanent.** Server-side delete offers a **soft "trash"** path (move to a trash resource) vs. permanent, gated by the `trashOnServerDelete` preference + trash-resource name (`preferencesStore.ts`). Fold into the delete contract (transport C8): the delete "✕" honors this preference. Preserve.
+- **I11. Settings (gear).** The toolbar **Settings** gear opens the global settings modal with tabs: Hotkeys (rebind), Overlay, Annotation (brush/contour/opacity/colors/scissors), Updates (auto-update enable + auto-download), Interpolation, File Backup (enable/interval + recover sessions), Issue Report, About (`SettingsModal.tsx`). Preserve these tabs (this is where the removed panel-settings kebab's options live).
+- **I12. Connection lifecycle.** XNAT login, 5-minute `/data/JSESSION` keepalive, session-expiry → store reset + reconnect, logout (`main/xnat/sessionManager.ts`, `connectionStore.ts`). **Ownership:** this is connection/auth, not annotation — it belongs to the transport/integration layer (or a connection spec); recorded here only so it doesn't fall between docs. Preserve.
+- **I13. Phase-5-gated tools.** Sculptor, Region / Region+ (smart brush), and **Contour Fill** are preserved; their behavior is verified by the Rebuild Phase 5 audit (Contour Fill is currently broken and is **must-fix** for v1, per C3 / design §0.2).

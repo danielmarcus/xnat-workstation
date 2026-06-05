@@ -35,7 +35,7 @@ The layering contract is **enforced** and specified in full — dependency matri
 The design ships in phases (§7). Each phase that changes user-visible behavior lands behind a runtime feature flag (a preference) until the new behavior is verified end-to-end. Flags are removed once the prior code path is deleted; they are not permanent configuration.
 
 ### 0.5 Tests land with the change, not after
-Every phase has acceptance tests landed in the same PR as the implementation. The 24 acceptance signals from requirements section G are the primary regression suite; design phases map to specific signals.
+Every phase has acceptance tests landed in the same PR as the implementation. The 27 acceptance signals from requirements section G are the primary regression suite; design phases map to specific signals.
 
 ### 0.6 No partial implementations
 Reserved fields (e.g., ROI Algebra schema) ship with explicit `null`/empty defaults and serialize/deserialize correctly, but **no half-built features**. We do not ship partially-functional ROI Algebra, partially-working point/measurement editing, or partially-implemented approval workflow. A feature is in or it is fully out.
@@ -142,7 +142,7 @@ interface Member {
   geometry: MemberGeometry;            // kind-specific; see below
 
   // RTSTRUCT-only:
-  roiType: RTROIInterpretedType | null;   // 'GTV' | 'CTV' | 'PTV' | 'ORGAN' | ... per DICOM (per D7.2)
+  // (no roiType field — RTROIInterpretedType is not tracked; removed per review, D7.2)
   roiNumber: number | null;            // for default ordering and DICOM round-trip
   interpolationState: 'none' | 'has-interpolated' | null;  // per B5
 
@@ -353,7 +353,7 @@ These are the **only** sources of UI-reactive state. Components never derive sta
 
 | Service | Purpose |
 |---|---|
-| `containerService.ts` | Container CRUD: create new RTSTRUCT/SEG/SR, add/remove/rename members, recolor, set ROI type, manage approval state. Single entry point for "active member" / "active container" resolution. |
+| `containerService.ts` | Container CRUD: create new RTSTRUCT/SEG/SR, add/remove/rename members, recolor, manage approval state. Single entry point for "active member" / "active container" resolution. |
 | `undoService.ts` | Per-container undo stack management; HistoryEntry creation by domain code; integrates with the queue-next-save model so saves don't barrier. |
 | `transportContractService.ts` | The H1–H10 contract surface to the XNAT integration workstream. Emits dirty events, exposes serialize, ingests version tokens, surfaces save outcomes. The XNAT-specific transport plugs in via this interface. |
 | `viewportLayoutService.ts` | Layout presets (1×1, 2×2, MPR-2×2, custom). Replaces the `MPRViewportGrid` ↔ `ViewportGrid` switch with a layout-preset selector on a single grid. |
@@ -471,12 +471,12 @@ Six phases. Each lands as a series of small PRs. Each ships behind a feature fla
 - Add feature flag `multiviewport.enabled` (default `false`) gating Phase 1+ behavior.
 - **Build the test harness up front (binding — §8.0):**
   - Create the `e2e/fixtures/` DICOM datasets (§8.4), including the intensity-varied `ct-axial-anatomy`. **Fixtures are a Phase 0 exit gate** — the functional tests cannot exist without them.
-  - Author all **24 acceptance signals as failing E2E tests** (the full suite, red), so feature work becomes "turn 24 red tests green."
+  - Author all **27 acceptance signals as failing E2E tests** (the full suite, red), so feature work becomes "turn 27 red tests green."
   - **Walking skeleton:** drive one signal fully green through the real stack (real Electron renderer + real Cornerstone + a real fixture) to prove the harness exercises the app and catches a real break.
 - **Produce the fully-specified UI mockup (§8.8)** — every list-panel / side-panel state — agreed as the visual acceptance reference before any Phase 3 UI work.
 - Tests: type round-trip (Member, Container, SourceIdentity); skeleton tests for new services; plus the 24-signal suite authored red.
 
-**Acceptance**: app builds, runs, looks identical. All existing tests pass. New types compile. The 24 acceptance signals exist as (red) E2E tests; the walking-skeleton signal is green; the fixture set and the UI mockup are in place.
+**Acceptance**: app builds, runs, looks identical. All existing tests pass. New types compile. The 27 acceptance signals exist as (red) E2E tests; the walking-skeleton signal is green; the fixture set and the UI mockup are in place.
 
 ### Phase 1 — Viewport unification
 **Goal**: volume default; one tool group; MPR mode consolidated.
@@ -510,17 +510,17 @@ Six phases. Each lands as a series of small PRs. Each ships behind a feature fla
 **Goal**: D7 fully realized.
 
 - Hierarchy with container + member rows; expand/collapse.
-- Per-row metadata: ROI type badge (RTSTRUCT only, inline editable), provenance indicator, visibility mode (3-state), lock, active, selection, cross-series, different-FoR, interpolated, empty markers.
-- Container-level: dirty marker, approval indicator, save/revert/export actions.
+- Per-row metadata: provenance indicator, visibility mode (3-state), lock, active, selection, cross-series, different-FoR, interpolated, empty markers. (No ROI-type badge — removed per review; `RTROIInterpretedType` is preserved on round-trip but not surfaced/edited, per D7.2.)
+- Container-level: dirty marker, approval indicator, add-member button (disabled when approved), save/revert/export actions.
 - Selection model: single-click selects, double-click activates, multi-select via shift/ctrl. Multi-select bulk operations.
-- Filter / search / sort.
+- Load-order list + drag-reorder (no filter / search / sort / "Active only" — all removed per review, D7.7).
 - Hover sync with viewports (D7.8).
 - Empty / loading / parse-error states (D7.9).
 - Approval workflow: approve, revoke (with confirmation), persist via DICOM `ApprovalStatus`. Audit history in session.
-- Session-level actions (D7.6): create new structure-set / SEG / SR (measurement); load from XNAT (delegates to transport); save all.
-- Tests: signals 4, 5, 8, 12 (full E2E — active-container selection now exists), 17, 18, 19, 20, 22.
+- Session-level actions (D7.6): create new structure-set / SEG / SR (measurement); save all. (Loading is **automatic** on XNAT-Browser scan selection — transport B5 — not a panel action; there is no manual "load from XNAT" affordance.)
+- Tests: signals 4, 5, 8, 12 (full E2E — active-container selection now exists), 17, 19, 20, 22, **25 (auto-load + navigate lifecycle, A13)**, **26 (session-switch + unsaved retention, A13)**, **27 (conflict + save-failure workflow, E3/H5–H7)**. (Signal 18 retired — ROI type not tracked.) Signals 25–26 depend on the transport auto-load (B5) and the session-scoped panel; signal 27 depends on the §H result/conflict semantics (the transport-workstream blockers C7/D3).
 
-**Acceptance**: signals 18 (ROI type round-trip), 19 (approval persistence), 20 (visibility mode), 22 (provenance round-trip) pass.
+**Acceptance**: signals 19 (approval persistence), 20 (visibility mode), 22 (provenance round-trip) pass. (Signal 18 retired per review.)
 
 ### Phase 4 — Interpolation cleanup
 **Goal**: write-through model per B5.
@@ -565,7 +565,7 @@ Six phases. Each lands as a series of small PRs. Each ships behind a feature fla
 The prior attempt failed in a specific way: **tests were green while the running app was broken.** More tests of the same kind reproduce that. The rules below make it impossible. They are binding — a phase that violates them is not done regardless of what the test log says, and they supplement (do not replace) the CLAUDE.md "Spec-driven UI work" discipline.
 
 1. **Red-before-green (test-the-test).** Every acceptance test must be *observed failing* against the pre-implementation or a deliberately-broken state before it counts as passing. A test that is green the moment it is written is testing nothing and must be fixed. The red run is captured in the PR. This is the direct antidote to "passed while broken."
-2. **The 24 signals are authored as failing E2E tests in Phase 0.** The full acceptance suite exists — all red — before feature work begins. The rebuild is then "turn 24 red tests green, in dependency order." No phase may be declared done with one of its signals unaddressed; the signal *is* the contract (prose mirrors the test, not the reverse).
+2. **The 27 signals are authored as failing E2E tests in Phase 0.** The full acceptance suite exists — all red — before feature work begins. The rebuild is then "turn 27 red tests green, in dependency order." No phase may be declared done with one of its signals unaddressed; the signal *is* the contract (prose mirrors the test, not the reverse).
 3. **Visual where the signal is visual.** Signals that say "renders / appears / shows / badge" get screenshot or pixel-diff assertions against the agreed mockup (§8.8). "The DOM node exists" never satisfies a visual signal.
 4. **Build against a fully-specified mockup (§8.8).** Before any list-panel / side-panel UI, a complete visual mockup of every state is produced and agreed. It is the visual acceptance reference; pixel comparisons target it. Implementation matches the mockup; where mockup and prose disagree, reconcile before coding.
 5. **No escape hatches (CI-enforced).** No committed `.skip` / `.only` / `xit` on acceptance tests — CI fails the build if present. No mocking of Cornerstone or internal services in the `e2e/` suite. No test-only data-path bypasses — drive the real affordance (pointer events), never call the store/service setter the UI would call. A flaky acceptance test is a tracked bug with a fix deadline, never silently disabled.
@@ -575,7 +575,7 @@ The prior attempt failed in a specific way: **tests were green while the running
 9. **Per-phase gate.** A phase is done only when: all its mapped signals are green as functional tests (each shown red→green); all previously-green signals still pass; and a manual visual checkpoint was performed in the real app with proof (screen capture / screenshots) attached to the phase PR. No phase begins until the prior phase's gate is met.
 
 ### 8.1 Real end-to-end tests are the regression spine
-Acceptance is verified by **real end-to-end tests, not mocks**. The 24 acceptance signals from requirements section G are the regression suite, and each one is exercised at the layer where the user touches it: real Electron renderer, real Cornerstone3D, real DICOM data, real annotation gestures, real stores, real persisted state. A test that mocks out Cornerstone, the rendering engine, the segmentation manager, or the transport contract proves nothing — it proves the mocks were satisfied.
+Acceptance is verified by **real end-to-end tests, not mocks**. The 27 acceptance signals from requirements section G are the regression suite, and each one is exercised at the layer where the user touches it: real Electron renderer, real Cornerstone3D, real DICOM data, real annotation gestures, real stores, real persisted state. A test that mocks out Cornerstone, the rendering engine, the segmentation manager, or the transport contract proves nothing — it proves the mocks were satisfied.
 
 This rule is binding on the test plan:
 
@@ -591,11 +591,11 @@ This rule is binding on the test plan:
 |---|---|---|---|
 | **Unit** | Vitest ([vitest.config.ts](../vitest.config.ts)) | Pure-logic modules — type round-trip, FoR predicate, geometry utilities, undo-stack mechanics. | Mocks fine for module-internal collaborators where Cornerstone is not involved. |
 | **Service-integration** | Vitest with real Cornerstone3D in JSDOM | Service-level flows — container lifecycle, segmentation attach/detach, transport-contract serialize/restore. | No mocking of Cornerstone. Transport mocked at the H contract surface only when network would otherwise be involved. |
-| **End-to-end** | Playwright ([playwright.config.ts](../playwright.config.ts)) — Electron context | The 24 acceptance signals from requirements G. | **No mocking, period.** Real renderer, real Cornerstone, real DICOM fixtures, real gestures, real persistence to local file. Visual assertions where helpful (screenshots / pixel-diff snapshots). |
+| **End-to-end** | Playwright ([playwright.config.ts](../playwright.config.ts)) — Electron context | The 27 acceptance signals from requirements G. | **No mocking, period.** Real renderer, real Cornerstone, real DICOM fixtures, real gestures, real persistence to local file. Visual assertions where helpful (screenshots / pixel-diff snapshots). |
 
 ### 8.3 Acceptance signal → test layer mapping
 
-The 24 acceptance signals are predominantly E2E. Specifically:
+The 27 acceptance signals are predominantly E2E. Specifically:
 
 - **E2E (Playwright, Electron context, no mocks)**: signals 1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24.
 - **Service-integration (Vitest, real Cornerstone)**: signal 7 (undo after viewport closed — best done at the service layer where viewport-mount/unmount can be deterministically scripted), the signal-12 drawing-block logic ahead of its Phase 3 UI, and as a fast-feedback sibling for signals that also have E2E coverage.
@@ -647,7 +647,7 @@ The mockup is stored under `docs/` (e.g. `docs/multiviewport-annotation-mockup.m
 | PolySeg has a regression we hit | Medium | High | Phase 0 validation. Pin known-good version. File upstream + work around at service boundary. |
 | Volume mode load latency unacceptable on large series | Medium | Medium | Reference-counted volume cache; progressive load; frame-first preview as fallback (open question §10). |
 | Contour Fill bug is unfixable without subclassing | Low | Medium | If unfixable, document the subclass with the specific Cornerstone limitation per §0.2. |
-| Stack→volume refactor breaks cine workflow | Medium | Low (cine is rare in this app) | Detect cine series at load and use stack mode for them. Document the rule. |
+| Stack→volume refactor breaks cine workflow | Low | Low | **CS3D `utilities.cine.playClip` supports volume viewports** — scroll-cine through slices *and* dynamic 4D cine (verified in `@cornerstonejs/tools/.../cine/playClip.js`). Cine is **preserved on volumetric series** via `playClip`, not lost. Stack mode is reserved only for genuinely non-volumetric cine loops (US/XA/RF). Use `cine.playClip`, not the legacy stack `setInterval`. |
 | 5614-line `segmentationService.ts` decomposition introduces regressions | High | Medium | Phase 0 is pure extraction with no logic change. Tests run after each extraction. Revert any extraction that fails. |
 | Approval state DICOM round-trip varies by SCU/SCP | Low | Medium | Test against XNAT round-trip in Phase 3. If `ApprovalStatus` is stripped, fall back to a private tag (documented). |
 | Volume sharing introduces unexpected coupling | Low | High | Reference-counting is a well-known pattern. Lifecycle test: open/close/reopen panels and confirm cache hits + eventual release. |
@@ -667,7 +667,7 @@ Resolutions applied (recorded here for review trail):
 | Loose-annotation MPR (Length/Angle/etc. on orthogonal views) | **Accept the limitation.** Match commercial-tool behavior; no `EPSILON` widening, no PolySeg wrapper, no 3D pin in v1. | §5.5 |
 | A2c heuristic | **Default to show (A2b) when uncertain**, per requirements A2c. Same `AcquisitionNumber` → A2b (on). Different `AcquisitionNumber` → A2b still, *unless* a bulk-anatomy displacement check corroborates a pose change, in which case A2c (off). `AcquisitionNumber` alone never hides. | §7 Phase 2 |
 | MPR layout reference panel | **Dropped.** 4th slot is 3D volume rendering. Volume-default mode means axial reformat = source acquisition voxels, eliminating the QA-vs-stack rationale. | §1.3 |
-| Cine + per-frame metadata in volume default | **Detect cine at load** via stack-eligibility predicate (modality in {US, XA, RF, NM}; multi-frame without spatial dim). Per-frame metadata via `volumeViewport.getCurrentImageId()`. | §1.1 |
+| Cine + per-frame metadata in volume default | **Cine runs on volume viewports** via CS3D `cine.playClip` (scroll-cine + dynamic 4D) — confirmed supported. The stack-eligibility predicate (US/XA/RF, multi-frame-without-spatial-dim) only chooses viewport *type*; it does **not** gate cine availability. Per-frame metadata via `volumeViewport.getCurrentImageId()`. | §1.1 |
 | Initial-load latency in volume default | **Cornerstone's `StreamingImageVolume`** (already in use). First paint comparable to stack mode; full volume completes in background. | §1.1 |
 | Auto-save debounce period | **Default 3000 ms; on/off and period both user-configurable** via `preferencesStore`. **Silent UX** — no banner / toast; state surfaced in-place on container rows. | §3.4 |
 | Slab / MIP rendering | **Kept out of scope** (requirements F). Separate workstream if pursued later. | §11 |

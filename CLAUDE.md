@@ -200,7 +200,7 @@ Overlay layer (on top): dialogs · toast stack · modals · recovery screens
 
 **Three peer annotation types**: every container is one of `Segmentation` (DICOM SEG) · `Structure` (DICOM RTSTRUCT) · `Measurement` (DICOM SR). The Annotations side panel header has three corresponding create buttons, and a context-sensitive toolbox at the bottom adapts its tool grid to the active container's type.
 
-**Multi-viewport coupling**: containers are session-scoped (not viewport-scoped). Frame-of-Reference matching determines which viewports a container renders on. The container list shows every container; rows not on the active viewport are dimmed with a cross-panel pill (e.g., `↗ 2 panels`). An optional "Active only" filter narrows to the active viewport.
+**Multi-viewport coupling**: containers are session-scoped (not viewport-scoped). Frame-of-Reference matching determines which viewports a container renders on. The container list shows every container; rows not on the active viewport are dimmed with a cross-panel pill (e.g., `↗ 2 panels`). (There is no "Active only" filter — removed per review; the dimming + pill already convey active-viewport state.)
 
 **Design specs on this branch**:
 - [`docs/multiviewport-annotation-design.md`](docs/multiviewport-annotation-design.md) — architecture + signals + test discipline (§8.0)

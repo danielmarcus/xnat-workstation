@@ -35,37 +35,88 @@
   <!-- SECTION 1 — Empty session -->
   <!-- ============================================================= -->
   <section class="mb-12">
-    <div class="gallery-label mb-3">1 · Empty session (D7.9)</div>
+    <div class="gallery-label mb-3">1 · Empty session — no scan loaded (create disabled) vs. scan loaded / no annotations (create enabled) (D7.9, D7.6)</div>
+    <div class="flex flex-wrap gap-6 items-start">
+
+    <!-- 1a · NO SCAN LOADED — create disabled (D7.6: create tags to the active viewport's series, so it needs a FoR-matched scan loaded) -->
     <div class="panel bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden flex flex-col" style="height:420px;">
-      <!-- header -->
+      <div class="px-2 pt-1.5 text-[9px] text-zinc-600">1a · No scan loaded — create disabled</div>
+      <div class="px-3 py-2 border-b border-zinc-800 flex items-center justify-between">
+        <span class="text-zinc-200 text-xs font-medium tracking-wide">ANNOTATIONS</span>
+        <div class="flex items-center gap-1">
+          <button disabled style="cursor:not-allowed" class="text-zinc-700 px-1 flex items-center gap-0.5" title="New Structure — load a scan in the active viewport first (D7.6)"><svg viewBox="0 0 16 16" width="9" height="9" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M8 3.5v9M3.5 8h9"/></svg><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 11c2-5 8-5 10 0"/></svg></button>
+          <button disabled style="cursor:not-allowed" class="text-zinc-700 px-1 flex items-center gap-0.5" title="New Segmentation — load a scan in the active viewport first (D7.6)"><svg viewBox="0 0 16 16" width="9" height="9" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M8 3.5v9M3.5 8h9"/></svg><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="10" height="10" rx="2"/></svg></button>
+          <button disabled style="cursor:not-allowed" class="text-zinc-700 px-1 flex items-center gap-0.5" title="New Measurement — load a scan in the active viewport first (D7.6)"><svg viewBox="0 0 16 16" width="9" height="9" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M8 3.5v9M3.5 8h9"/></svg><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 10 L10 2 L14 6 L6 14 Z"/></svg></button>
+          <span class="w-px h-4 bg-zinc-700 mx-0.5"></span>
+          <button disabled style="cursor:not-allowed" class="text-zinc-700" title="Save all — nothing to save"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2.5" y="2.5" width="11" height="11" rx="1"/><path d="M5 2.5v3.5h5.5V2.5"/><rect x="5" y="8.5" width="6" height="5"/></svg></button>
+        </div>
+      </div>
+      <div class="flex-1 flex flex-col items-center justify-center text-center px-6">
+        <svg viewBox="0 0 16 16" width="28" height="28" fill="none" stroke="#3f3f46" stroke-width="1.25"><rect x="2" y="3" width="12" height="10" rx="1"/><path d="M2 11l3.5-3 2.5 2 3-3.5 3 4.5"/></svg>
+        <p class="text-zinc-500 text-xs mt-3">No scan loaded</p>
+        <p class="text-zinc-600 text-[10px] mt-1 max-w-[210px]">Open a scan in the XNAT Browser to start. Creating an annotation needs an active viewport to tag it to.</p>
+      </div>
+      <div class="border-t border-zinc-800 p-2 grid grid-cols-3 gap-1.5">
+        <button disabled style="cursor:not-allowed" class="flex flex-col items-center gap-1 py-2 rounded bg-zinc-850 text-zinc-700">
+          <span class="flex items-center gap-0.5"><svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M8 3.5v9M3.5 8h9"/></svg><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 11c2-5 8-5 10 0" /><circle cx="8" cy="5" r="0.8" fill="currentColor" stroke="none"/></svg></span>
+          <span class="text-[9px]">Structure</span>
+        </button>
+        <button disabled style="cursor:not-allowed" class="flex flex-col items-center gap-1 py-2 rounded bg-zinc-850 text-zinc-700">
+          <span class="flex items-center gap-0.5"><svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M8 3.5v9M3.5 8h9"/></svg><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="10" height="10" rx="2"/></svg></span>
+          <span class="text-[9px]">Segmentation</span>
+        </button>
+        <button disabled style="cursor:not-allowed" class="flex flex-col items-center gap-1 py-2 rounded bg-zinc-850 text-zinc-700">
+          <span class="flex items-center gap-0.5"><svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M8 3.5v9M3.5 8h9"/></svg><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 10 L10 2 L14 6 L6 14 Z"/></svg></span>
+          <span class="text-[9px]">Measurement</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- 1b · SCAN LOADED, no annotations yet — create enabled -->
+    <div class="panel bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden flex flex-col" style="height:420px;">
+      <div class="px-2 pt-1.5 text-[9px] text-zinc-600">1b · Scan loaded · no annotations yet — create enabled</div>
+      <!-- header (3 create buttons present in EVERY state, per decision) -->
       <div class="px-3 py-2.5 border-b border-zinc-800 flex items-center justify-between">
         <span class="text-zinc-200 text-xs font-medium tracking-wide">ANNOTATIONS</span>
-        <button class="text-zinc-500 hover:text-zinc-300" title="Panel settings">
-          <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="3" r="1"/><circle cx="8" cy="8" r="1"/><circle cx="8" cy="13" r="1"/></svg>
-        </button>
+        <div class="flex items-center gap-1">
+          <button class="text-emerald-400 hover:text-emerald-300 px-1 flex items-center gap-0.5" title="New Structure (RTSTRUCT)"><svg viewBox="0 0 16 16" width="9" height="9" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M8 3.5v9M3.5 8h9"/></svg><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 11c2-5 8-5 10 0"/></svg></button>
+          <button class="text-purple-400 hover:text-purple-300 px-1 flex items-center gap-0.5" title="New Segmentation (SEG)"><svg viewBox="0 0 16 16" width="9" height="9" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M8 3.5v9M3.5 8h9"/></svg><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="10" height="10" rx="2"/></svg></button>
+          <button class="text-orange-400 hover:text-orange-300 px-1 flex items-center gap-0.5" title="New Measurement (SR)"><svg viewBox="0 0 16 16" width="9" height="9" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M8 3.5v9M3.5 8h9"/></svg><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 10 L10 2 L14 6 L6 14 Z"/></svg></button>
+          <span class="w-px h-4 bg-zinc-700 mx-0.5"></span>
+          <button disabled style="cursor:not-allowed" class="text-zinc-700" title="Save all — nothing to save"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2.5" y="2.5" width="11" height="11" rx="1"/><path d="M5 2.5v3.5h5.5V2.5"/><rect x="5" y="8.5" width="6" height="5"/></svg></button>
+        </div>
       </div>
       <!-- empty body -->
       <div class="flex-1 flex flex-col items-center justify-center text-center px-6">
         <svg viewBox="0 0 16 16" width="28" height="28" fill="none" stroke="#52525b" stroke-width="1.25"><path d="M3 2h7l3 3v9H3z"/><path d="M10 2v3h3"/></svg>
         <p class="text-zinc-400 text-xs mt-3">No annotations yet</p>
-        <p class="text-zinc-600 text-[10px] mt-1 max-w-[200px]">Create a container, or load one from XNAT, to start drawing.</p>
+        <p class="text-zinc-600 text-[10px] mt-1 max-w-[210px]">Create a new annotation below. Saved annotations load here automatically when you open a scan in the XNAT Browser.</p>
       </div>
-      <!-- create actions (always available) -->
+      <!-- create actions (always available; existing annotations auto-load on scan select — no load button, per B5) -->
       <div class="border-t border-zinc-800 p-2 grid grid-cols-3 gap-1.5">
         <button class="flex flex-col items-center gap-1 py-2 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300">
-          <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 11c2-5 8-5 10 0" /><circle cx="8" cy="5" r="0.8" fill="currentColor" stroke="none"/></svg>
+          <span class="flex items-center gap-0.5" style="color:#34d399">
+            <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M8 3.5v9M3.5 8h9"/></svg>
+            <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 11c2-5 8-5 10 0" /><circle cx="8" cy="5" r="0.8" fill="currentColor" stroke="none"/></svg>
+          </span>
           <span class="text-[9px]">Structure</span>
         </button>
         <button class="flex flex-col items-center gap-1 py-2 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300">
-          <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="10" height="10" rx="2" fill="currentColor" fill-opacity=".25"/><rect x="3" y="3" width="10" height="10" rx="2"/></svg>
+          <span class="flex items-center gap-0.5" style="color:#c084fc">
+            <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M8 3.5v9M3.5 8h9"/></svg>
+            <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="10" height="10" rx="2" fill="currentColor" fill-opacity=".25"/><rect x="3" y="3" width="10" height="10" rx="2"/></svg>
+          </span>
           <span class="text-[9px]">Segmentation</span>
         </button>
         <button class="flex flex-col items-center gap-1 py-2 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300">
-          <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 10 L10 2 L14 6 L6 14 Z"/><path d="M5 7l1.5 1.5M7.5 4.5L9 6"/></svg>
+          <span class="flex items-center gap-0.5" style="color:#fb923c">
+            <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M8 3.5v9M3.5 8h9"/></svg>
+            <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 10 L10 2 L14 6 L6 14 Z"/><path d="M5 7l1.5 1.5M7.5 4.5L9 6"/></svg>
+          </span>
           <span class="text-[9px]">Measurement</span>
         </button>
       </div>
-      <button class="border-t border-zinc-800 py-2 text-[10px] text-blue-400 hover:text-blue-300 hover:bg-blue-900/20">↧ Load from XNAT…</button>
+    </div>
     </div>
   </section>
 
@@ -79,29 +130,13 @@
       <div class="px-3 py-2.5 border-b border-zinc-800 flex items-center justify-between">
         <span class="text-zinc-200 text-xs font-medium tracking-wide">ANNOTATIONS</span>
         <div class="flex items-center gap-1">
-          <button class="text-zinc-500 hover:text-zinc-300 px-1" title="New Structure (RTSTRUCT)">
-            <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 11c2-5 8-5 10 0"/></svg></button>
-          <button class="text-zinc-500 hover:text-zinc-300 px-1" title="New Segmentation (SEG)">
-            <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="10" height="10" rx="2"/></svg></button>
-          <button class="text-zinc-500 hover:text-zinc-300 px-1" title="New Measurement (SR)">
-            <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 10 L10 2 L14 6 L6 14 Z"/></svg></button>
+          <button class="text-emerald-400 hover:text-emerald-300 px-1 flex items-center gap-0.5" title="New Structure (RTSTRUCT)"><svg viewBox="0 0 16 16" width="9" height="9" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M8 3.5v9M3.5 8h9"/></svg><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 11c2-5 8-5 10 0"/></svg></button>
+          <button class="text-purple-400 hover:text-purple-300 px-1 flex items-center gap-0.5" title="New Segmentation (SEG)"><svg viewBox="0 0 16 16" width="9" height="9" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M8 3.5v9M3.5 8h9"/></svg><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="10" height="10" rx="2"/></svg></button>
+          <button class="text-orange-400 hover:text-orange-300 px-1 flex items-center gap-0.5" title="New Measurement (SR)"><svg viewBox="0 0 16 16" width="9" height="9" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M8 3.5v9M3.5 8h9"/></svg><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 10 L10 2 L14 6 L6 14 Z"/></svg></button>
           <span class="w-px h-4 bg-zinc-700 mx-0.5"></span>
-          <button class="text-zinc-500 hover:text-zinc-300" title="Panel settings">
-            <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="3" r="1"/><circle cx="8" cy="8" r="1"/><circle cx="8" cy="13" r="1"/></svg></button>
+          <button class="text-zinc-300 hover:text-white relative" title="Save all annotations (1 unsaved)"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2.5" y="2.5" width="11" height="11" rx="1"/><path d="M5 2.5v3.5h5.5V2.5"/><rect x="5" y="8.5" width="6" height="5"/></svg><span class="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-amber-400"></span></button>
         </div>
       </div>
-      <!-- filter row -->
-      <div class="px-2.5 py-2 border-b border-zinc-800 flex items-center gap-2">
-        <div class="flex-1 flex items-center gap-1.5 bg-zinc-800 rounded px-2 py-1">
-          <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="#71717a" stroke-width="1.5"><circle cx="7" cy="7" r="4"/><path d="M10 10l3 3"/></svg>
-          <input class="bg-transparent text-[11px] text-zinc-300 placeholder-zinc-600 outline-none w-full" placeholder="Filter members…" />
-        </div>
-        <label class="flex items-center gap-1 text-[10px] text-zinc-400 select-none">
-          <span class="w-7 h-3.5 rounded-full bg-zinc-700 relative"><span class="absolute top-0.5 left-0.5 w-2.5 h-2.5 rounded-full bg-zinc-400"></span></span>
-          Active only
-        </label>
-      </div>
-
       <!-- scrollable container list -->
       <div class="flex-1 overflow-y-auto">
 
@@ -109,77 +144,76 @@
         <div>
           <div class="flex items-center gap-1.5 px-2 py-1.5 bg-zinc-850 border-b border-zinc-800/70" style="background:#1b1b1f;">
             <button class="text-zinc-500"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5 3l5 5-5 5"/></svg></button>
-            <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="#a1a1aa" stroke-width="1.5"><path d="M3 11c2-5 8-5 10 0"/></svg>
-            <span class="text-[11px] text-zinc-200 font-medium truncate flex-1">RS: Pelvis_v3</span>
+            <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="#34d399" stroke-width="1.5"><path d="M3 11c2-5 8-5 10 0"/></svg>
+            <span class="text-[11px] text-zinc-200 font-medium truncate flex-1">Pelvis_v3</span>
             <!-- dirty -->
             <span class="w-1.5 h-1.5 rounded-full bg-amber-400" title="Unsaved changes (dirty)"></span>
             <span class="text-[9px] text-zinc-500">5</span>
-            <button class="text-zinc-600 hover:text-zinc-300"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="3" r="1"/><circle cx="8" cy="8" r="1"/><circle cx="8" cy="13" r="1"/></svg></button>
+            <button class="text-zinc-500 hover:text-emerald-300" title="Approve (lock for review)"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6"/><path d="M5.2 8l2 2 3.6-4"/></svg></button>
+            <button class="text-zinc-400 hover:text-zinc-100" title="Add member to this container"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M8 3.5v9M3.5 8h9"/></svg></button>
+            <button class="text-zinc-300 hover:text-white" title="Save this annotation"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2.5" y="2.5" width="11" height="11" rx="1"/><path d="M5 2.5v3.5h5.5V2.5"/><rect x="5" y="8.5" width="6" height="5"/></svg></button>
+          <button class="text-zinc-600 hover:text-zinc-300"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="3" r="1"/><circle cx="8" cy="8" r="1"/><circle cx="8" cy="13" r="1"/></svg></button>
+            <button class="text-zinc-500 hover:text-red-400" title="Delete structure set (locally / from XNAT)"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
           </div>
 
           <!-- member: ACTIVE (the pen) + GTV -->
-          <div class="flex items-center gap-2 pl-2 pr-2 py-1.5 border-l-2 border-blue-500 bg-blue-900/10">
+          <div class="flex items-center gap-2 pl-6 pr-2 py-1.5 border-l-2 border-blue-500 bg-blue-900/10">
             <span class="swatch" style="background:#ef4444;"></span>
             <span class="text-[11px] text-zinc-100 truncate">GTV_primary</span>
-            <span class="text-[8px] px-1 rounded-sm bg-red-500/20 text-red-300 font-medium tracking-wide">GTV</span>
             <span class="flex-1"></span>
             <span class="text-[9px] text-zinc-500">12 sl</span>
             <!-- active indicator -->
             <span class="text-blue-400" title="Active — drawing writes here"><svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor" stroke="none"><circle cx="8" cy="8" r="3.5"/></svg></span>
             <!-- visibility: filled -->
             <button class="text-zinc-300" title="Visible · filled"><svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor" fill-opacity=".25" stroke="currentColor" stroke-width="1.3"><path d="M1.5 8s2.5-4 6.5-4 6.5 4 6.5 4-2.5 4-6.5 4-6.5-4-6.5-4z"/><circle cx="8" cy="8" r="1.8"/></svg></button>
-            <button class="text-zinc-600 hover:text-zinc-300" title="Lock"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="3.5" y="7" width="9" height="6" rx="1"/><path d="M5.5 7V5a2.5 2.5 0 015 0v2"/></svg></button>
+            <button class="text-zinc-600 hover:text-zinc-300" title="Unlocked — click to lock"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="3.5" y="7" width="9" height="6" rx="1"/><path d="M5.5 7V5a2.5 2.5 0 015 0"/></svg></button><button class="text-zinc-500 hover:text-red-400 ml-0.5" title="Delete this member"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
           </div>
 
           <!-- member: SELECTED (not active) + CTV, outlined -->
-          <div class="flex items-center gap-2 pl-2 pr-2 py-1.5 selected">
+          <div class="flex items-center gap-2 pl-6 pr-2 py-1.5 selected">
             <span class="swatch" style="background:#22c55e;"></span>
             <span class="text-[11px] text-zinc-100 truncate">CTV_54</span>
-            <span class="text-[8px] px-1 rounded-sm bg-emerald-500/20 text-emerald-300 font-medium tracking-wide">CTV</span>
             <span class="flex-1"></span>
             <span class="text-[9px] text-zinc-500">18 sl</span>
             <span class="w-3"></span>
             <!-- visibility: outlined -->
             <button class="text-zinc-300" title="Visible · outline only"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M1.5 8s2.5-4 6.5-4 6.5 4 6.5 4-2.5 4-6.5 4-6.5-4-6.5-4z"/><circle cx="8" cy="8" r="1.8"/></svg></button>
-            <button class="text-zinc-600 hover:text-zinc-300" title="Lock"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="3.5" y="7" width="9" height="6" rx="1"/><path d="M5.5 7V5a2.5 2.5 0 015 0v2"/></svg></button>
+            <button class="text-zinc-600 hover:text-zinc-300" title="Unlocked — click to lock"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="3.5" y="7" width="9" height="6" rx="1"/><path d="M5.5 7V5a2.5 2.5 0 015 0"/></svg></button><button class="text-zinc-500 hover:text-red-400 ml-0.5" title="Delete this member"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
           </div>
 
           <!-- member: interpolated provenance + auto marker -->
-          <div class="flex items-center gap-2 pl-2 pr-2 py-1.5 hover:bg-zinc-800/50">
+          <div class="flex items-center gap-2 pl-6 pr-2 py-1.5 hover:bg-zinc-800/50">
             <span class="swatch" style="background:#3b82f6;"></span>
             <span class="text-[11px] text-zinc-300 truncate">PTV_60</span>
-            <span class="text-[8px] px-1 rounded-sm bg-blue-500/20 text-blue-300 font-medium tracking-wide">PTV</span>
             <span class="text-[8px] px-1 rounded-sm bg-amber-500/15 text-amber-400/90" title="Contains interpolated contours">auto</span>
             <span class="flex-1"></span>
             <span class="text-[9px] text-zinc-500">20 sl</span>
             <span class="w-3"></span>
             <button class="text-zinc-300" title="Visible · filled"><svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor" fill-opacity=".25" stroke="currentColor" stroke-width="1.3"><path d="M1.5 8s2.5-4 6.5-4 6.5 4 6.5 4-2.5 4-6.5 4-6.5-4-6.5-4z"/><circle cx="8" cy="8" r="1.8"/></svg></button>
-            <button class="text-zinc-600 hover:text-zinc-300" title="Lock"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="3.5" y="7" width="9" height="6" rx="1"/><path d="M5.5 7V5a2.5 2.5 0 015 0v2"/></svg></button>
+            <button class="text-zinc-600 hover:text-zinc-300" title="Unlocked — click to lock"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="3.5" y="7" width="9" height="6" rx="1"/><path d="M5.5 7V5a2.5 2.5 0 015 0"/></svg></button><button class="text-zinc-500 hover:text-red-400 ml-0.5" title="Delete this member"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
           </div>
 
           <!-- member: locked + organ -->
-          <div class="flex items-center gap-2 pl-2 pr-2 py-1.5 hover:bg-zinc-800/50">
+          <div class="flex items-center gap-2 pl-6 pr-2 py-1.5 hover:bg-zinc-800/50">
             <span class="swatch" style="background:#14b8a6;"></span>
             <span class="text-[11px] text-zinc-300 truncate">Bladder</span>
-            <span class="text-[8px] px-1 rounded-sm bg-teal-500/20 text-teal-300 font-medium tracking-wide">ORGAN</span>
             <span class="flex-1"></span>
             <span class="text-[9px] text-zinc-500">22 sl</span>
             <span class="w-3"></span>
             <button class="text-zinc-300" title="Visible · outline"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M1.5 8s2.5-4 6.5-4 6.5 4 6.5 4-2.5 4-6.5 4-6.5-4-6.5-4z"/><circle cx="8" cy="8" r="1.8"/></svg></button>
             <!-- locked (closed padlock, amber) -->
-            <button class="text-amber-400" title="Locked — edits blocked everywhere"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="3.5" y="7" width="9" height="6" rx="1"/><path d="M5.5 7V5a2.5 2.5 0 015 0v2"/><circle cx="8" cy="10" r="0.9" fill="currentColor" stroke="none"/></svg></button>
+            <button class="text-amber-400" title="Locked — edits blocked everywhere"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="3.5" y="7" width="9" height="6" rx="1"/><path d="M5.5 7V5a2.5 2.5 0 015 0v2"/><circle cx="8" cy="10" r="0.9" fill="currentColor" stroke="none"/></svg></button><button class="text-zinc-500 hover:text-red-400 ml-0.5" title="Delete this member"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
           </div>
 
           <!-- member: empty (freshly created) -->
-          <div class="flex items-center gap-2 pl-2 pr-2 py-1.5 hover:bg-zinc-800/50">
+          <div class="flex items-center gap-2 pl-6 pr-2 py-1.5 hover:bg-zinc-800/50">
             <span class="swatch" style="background:#a855f7;"></span>
             <span class="text-[11px] text-zinc-300 truncate">Rectum</span>
-            <span class="text-[8px] px-1 rounded-sm bg-teal-500/20 text-teal-300 font-medium tracking-wide">ORGAN</span>
             <span class="text-[9px] text-zinc-600 italic">(empty)</span>
             <span class="flex-1"></span>
             <span class="w-3"></span>
             <button class="text-zinc-500" title="Hidden"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2.5 8s2.5-4 5.5-4c1 0 1.9.25 2.7.65M13.5 8s-2.5 4-5.5 4c-1 0-1.9-.25-2.7-.65"/><path d="M2 2l12 12"/></svg></button>
-            <button class="text-zinc-600 hover:text-zinc-300" title="Lock"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="3.5" y="7" width="9" height="6" rx="1"/><path d="M5.5 7V5a2.5 2.5 0 015 0v2"/></svg></button>
+            <button class="text-zinc-600 hover:text-zinc-300" title="Unlocked — click to lock"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="3.5" y="7" width="9" height="6" rx="1"/><path d="M5.5 7V5a2.5 2.5 0 015 0"/></svg></button><button class="text-zinc-500 hover:text-red-400 ml-0.5" title="Delete this member"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
           </div>
         </div>
 
@@ -187,17 +221,21 @@
         <div>
           <div class="flex items-center gap-1.5 px-2 py-1.5 border-b border-zinc-800/70" style="background:#1b1b1f;">
             <button class="text-zinc-500"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5 3l5 5-5 5"/></svg></button>
-            <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="#a1a1aa" stroke-width="1.5"><rect x="3" y="3" width="10" height="10" rx="2"/></svg>
-            <span class="text-[11px] text-zinc-200 font-medium truncate flex-1">SEG: Organs_auto</span>
+            <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="#c084fc" stroke-width="1.5"><rect x="3" y="3" width="10" height="10" rx="2"/></svg>
+            <span class="text-[11px] text-zinc-200 font-medium truncate flex-1">Organs_auto</span>
             <!-- cross-panel pill -->
             <span class="text-[8px] px-1 rounded-sm bg-zinc-700 text-zinc-300" title="Rendering on 2 other panels">↗ 2</span>
             <!-- clean (no dirty dot) -->
             <span class="text-[9px] text-zinc-500">3</span>
-            <button class="text-zinc-600 hover:text-zinc-300"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="3" r="1"/><circle cx="8" cy="8" r="1"/><circle cx="8" cy="13" r="1"/></svg></button>
+            <button class="text-zinc-500 hover:text-emerald-300" title="Approve (lock for review)"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6"/><path d="M5.2 8l2 2 3.6-4"/></svg></button>
+            <button class="text-zinc-400 hover:text-zinc-100" title="Add member to this container"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M8 3.5v9M3.5 8h9"/></svg></button>
+            <button disabled style="cursor:not-allowed" class="text-zinc-700" title="Saved — no changes"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2.5" y="2.5" width="11" height="11" rx="1"/><path d="M5 2.5v3.5h5.5V2.5"/><rect x="5" y="8.5" width="6" height="5"/></svg></button>
+          <button class="text-zinc-600 hover:text-zinc-300"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="3" r="1"/><circle cx="8" cy="8" r="1"/><circle cx="8" cy="13" r="1"/></svg></button>
+            <button class="text-zinc-500 hover:text-red-400" title="Delete segmentation (locally / from XNAT)"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
           </div>
 
           <!-- member: cross-series (non-native, dashed-link, dimmed, read-only here) -->
-          <div class="flex items-center gap-2 pl-2 pr-2 py-1.5 nonnative hover:bg-zinc-800/50">
+          <div class="flex items-center gap-2 pl-6 pr-2 py-1.5 nonnative hover:bg-zinc-800/50">
             <span class="swatch" style="background:#f59e0b;"></span>
             <span class="text-[11px] text-zinc-300 truncate">Liver</span>
             <!-- cross-series link icon + source -->
@@ -209,11 +247,11 @@
             <span class="text-[9px] text-zinc-500">86 cm³</span>
             <span class="w-3"></span>
             <button class="text-zinc-300" title="Visible · filled (non-native)"><svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor" fill-opacity=".2" stroke="currentColor" stroke-width="1.3"><path d="M1.5 8s2.5-4 6.5-4 6.5 4 6.5 4-2.5 4-6.5 4-6.5-4-6.5-4z"/><circle cx="8" cy="8" r="1.8"/></svg></button>
-            <button class="text-zinc-700" title="Read-only on this series"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="3.5" y="7" width="9" height="6" rx="1"/><path d="M5.5 7V5a2.5 2.5 0 015 0v2"/></svg></button>
+            <button class="text-zinc-500 hover:text-red-400" title="Delete this member"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
           </div>
 
           <!-- member: different FoR (not viewable here) -->
-          <div class="flex items-center gap-2 pl-2 pr-2 py-1.5 opacity-50 hover:bg-zinc-800/50">
+          <div class="flex items-center gap-2 pl-6 pr-2 py-1.5 opacity-50 hover:bg-zinc-800/50">
             <span class="swatch" style="background:#64748b;"></span>
             <span class="text-[11px] text-zinc-400 truncate line-through decoration-zinc-600">Spleen</span>
             <span class="flex items-center gap-0.5 text-[8px] text-zinc-500" title="Different frame of reference — not viewable here (A2d)">
@@ -225,7 +263,7 @@
           </div>
 
           <!-- member: imported provenance, hidden -->
-          <div class="flex items-center gap-2 pl-2 pr-2 py-1.5 hover:bg-zinc-800/50">
+          <div class="flex items-center gap-2 pl-6 pr-2 py-1.5 hover:bg-zinc-800/50">
             <span class="swatch" style="background:#ec4899;"></span>
             <span class="text-[11px] text-zinc-300 truncate">Kidney_L</span>
             <span class="text-zinc-500" title="Imported"><svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M8 2v7M5 6l3 3 3-3"/><path d="M3 12h10"/></svg></span>
@@ -233,7 +271,7 @@
             <span class="text-[9px] text-zinc-500">41 cm³</span>
             <span class="w-3"></span>
             <button class="text-zinc-500" title="Hidden"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2.5 8s2.5-4 5.5-4c1 0 1.9.25 2.7.65M13.5 8s-2.5 4-5.5 4c-1 0-1.9-.25-2.7-.65"/><path d="M2 2l12 12"/></svg></button>
-            <button class="text-zinc-600 hover:text-zinc-300" title="Lock"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="3.5" y="7" width="9" height="6" rx="1"/><path d="M5.5 7V5a2.5 2.5 0 015 0v2"/></svg></button>
+            <button class="text-zinc-600 hover:text-zinc-300" title="Unlocked — click to lock"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="3.5" y="7" width="9" height="6" rx="1"/><path d="M5.5 7V5a2.5 2.5 0 015 0"/></svg></button><button class="text-zinc-500 hover:text-red-400 ml-0.5" title="Delete this member"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
           </div>
         </div>
 
@@ -241,30 +279,30 @@
         <div>
           <div class="flex items-center gap-1.5 px-2 py-1.5 border-b border-zinc-800/70" style="background:#1b1b1f;">
             <button class="text-zinc-500"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5 3l5 5-5 5"/></svg></button>
-            <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="#a1a1aa" stroke-width="1.5"><path d="M2 10 L10 2 L14 6 L6 14 Z"/></svg>
-            <span class="text-[11px] text-zinc-200 font-medium truncate flex-1">SR: Baseline measures</span>
-            <!-- approved badge -->
-            <span class="flex items-center gap-0.5 text-[8px] px-1 rounded-sm bg-emerald-500/15 text-emerald-300" title="Approved — edit-locked (D7.11)">
-              <svg viewBox="0 0 16 16" width="9" height="9" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8.5l3 3 7-7"/></svg> APPROVED
-            </span>
+            <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="#fb923c" stroke-width="1.5"><path d="M2 10 L10 2 L14 6 L6 14 Z"/></svg>
+            <span class="text-[11px] text-zinc-200 font-medium truncate flex-1">Baseline measures</span>
             <span class="text-[9px] text-zinc-500">2</span>
-            <button class="text-zinc-600 hover:text-zinc-300"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="3" r="1"/><circle cx="8" cy="8" r="1"/><circle cx="8" cy="13" r="1"/></svg></button>
+            <button class="text-emerald-400" title="Approved (locked) — click to revoke approval"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="8" r="6" fill="currentColor" fill-opacity=".22"/><path d="M5.2 8l2 2 3.6-4"/></svg></button>
+            <button disabled style="cursor:not-allowed" class="text-zinc-700" title="Add member — container is approved (locked); revoke approval to edit"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M8 3.5v9M3.5 8h9"/></svg></button>
+            <button disabled style="cursor:not-allowed" class="text-zinc-700" title="Approved (locked) — nothing to save"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2.5" y="2.5" width="11" height="11" rx="1"/><path d="M5 2.5v3.5h5.5V2.5"/><rect x="5" y="8.5" width="6" height="5"/></svg></button>
+          <button class="text-zinc-600 hover:text-zinc-300"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="3" r="1"/><circle cx="8" cy="8" r="1"/><circle cx="8" cy="13" r="1"/></svg></button>
+            <button disabled style="cursor:not-allowed" class="text-zinc-700" title="Delete — approved (locked); revoke first"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
           </div>
-          <div class="flex items-center gap-2 pl-2 pr-2 py-1.5 opacity-90">
+          <div class="flex items-center gap-2 pl-6 pr-2 py-1.5 opacity-90">
             <span class="swatch" style="background:#eab308;"></span>
             <span class="text-[11px] text-zinc-300 truncate">Lesion long axis</span>
             <span class="text-[8px] px-1 rounded-sm bg-zinc-700 text-zinc-300">Length</span>
             <span class="flex-1"></span>
             <span class="text-[9px] text-zinc-400">42.3 mm</span>
-            <span class="text-emerald-400/80" title="Approved-locked"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="3.5" y="7" width="9" height="6" rx="1"/><path d="M5.5 7V5a2.5 2.5 0 015 0v2"/><circle cx="8" cy="10" r="0.9" fill="currentColor" stroke="none"/></svg></span>
+            <span class="text-emerald-400/80" title="Approved-locked"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="3.5" y="7" width="9" height="6" rx="1"/><path d="M5.5 7V5a2.5 2.5 0 015 0v2"/><circle cx="8" cy="10" r="0.9" fill="currentColor" stroke="none"/></svg></span><button disabled style="cursor:not-allowed" class="text-zinc-700 ml-0.5" title="Delete — approved (locked)"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
           </div>
-          <div class="flex items-center gap-2 pl-2 pr-2 py-1.5 opacity-90">
+          <div class="flex items-center gap-2 pl-6 pr-2 py-1.5 opacity-90">
             <span class="swatch" style="background:#f97316;"></span>
             <span class="text-[11px] text-zinc-300 truncate">SUV ROI</span>
             <span class="text-[8px] px-1 rounded-sm bg-zinc-700 text-zinc-300">Ellipse</span>
             <span class="flex-1"></span>
             <span class="text-[9px] text-zinc-400">3.1 cm²</span>
-            <span class="text-emerald-400/80" title="Approved-locked"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="3.5" y="7" width="9" height="6" rx="1"/><path d="M5.5 7V5a2.5 2.5 0 015 0v2"/><circle cx="8" cy="10" r="0.9" fill="currentColor" stroke="none"/></svg></span>
+            <span class="text-emerald-400/80" title="Approved-locked"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="3.5" y="7" width="9" height="6" rx="1"/><path d="M5.5 7V5a2.5 2.5 0 015 0v2"/><circle cx="8" cy="10" r="0.9" fill="currentColor" stroke="none"/></svg></span><button disabled style="cursor:not-allowed" class="text-zinc-700 ml-0.5" title="Delete — approved (locked)"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
           </div>
         </div>
       </div>
@@ -273,15 +311,13 @@
       <div class="border-t border-zinc-800 bg-zinc-900/80">
         <div class="px-2.5 pt-2 pb-1 flex items-center justify-between">
           <span class="text-[9px] text-zinc-500 uppercase tracking-wide">Structure tools</span>
-          <span class="text-[9px] text-blue-400">→ GTV_primary</span>
+          <span class="text-[9px]" style="color:#ef4444;">GTV_primary</span>
         </div>
-        <div class="px-2 pb-2 grid grid-cols-6 gap-1">
-          <button class="aspect-square rounded bg-blue-600 text-white flex items-center justify-center" title="Freehand (active)"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 11c1-4 4-6 6-3s5 1 4-3"/></svg></button>
-          <button class="aspect-square rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 flex items-center justify-center" title="Spline"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 11c3 0 3-6 6-6s3 6 6 6"/></svg></button>
-          <button class="aspect-square rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 flex items-center justify-center" title="Livewire"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="2 1.3"><path d="M3 12c2-6 8-6 10 0"/></svg></button>
-          <button class="aspect-square rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 flex items-center justify-center" title="Sculptor"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="5"/><path d="M8 3v10"/></svg></button>
-          <button class="aspect-square rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 flex items-center justify-center" title="Copy contour"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="5" y="5" width="8" height="8" rx="1"/><path d="M3 11V3h8"/></svg></button>
-          <button class="aspect-square rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 flex items-center justify-center" title="Interpolate"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 5h10M3 11h10" stroke-dasharray="2 1.3"/><circle cx="8" cy="8" r="1" fill="currentColor" stroke="none"/></svg></button>
+        <div class="px-2 pb-2 grid grid-cols-3 gap-1 text-[11px]">
+          <button class="flex items-center gap-1.5 px-2 py-1.5 rounded bg-blue-600 text-white" title="Freehand (active)"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 11c1-4 4-6 6-3s5 1 4-3"/></svg><span class="truncate">Freehand</span></button>
+          <button class="flex items-center gap-1.5 px-2 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300" title="Spline"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 11c3 0 3-6 6-6s3 6 6 6"/></svg><span class="truncate">Spline</span></button>
+          <button class="flex items-center gap-1.5 px-2 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300" title="Livewire"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-dasharray="2 1.3"><path d="M3 12c2-6 8-6 10 0"/></svg><span class="truncate">Livewire</span></button>
+          <button class="flex items-center gap-1.5 px-2 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300" title="Sculptor"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="5"/><path d="M8 3v10"/></svg><span class="truncate">Sculptor</span></button>
         </div>
       </div>
     </div>
@@ -294,17 +330,17 @@
     <div class="gallery-label mb-3">3 · Container header states (D7.4, D7.9, D7.11, E2)</div>
     <div class="panel bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden divide-y divide-zinc-800">
       <!-- clean -->
-      <div class="flex items-center gap-1.5 px-2 py-1.5"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="#a1a1aa" stroke-width="1.5"><path d="M3 11c2-5 8-5 10 0"/></svg><span class="text-[11px] text-zinc-200 flex-1">Clean</span><span class="text-[9px] text-zinc-500">5</span></div>
+      <div class="flex items-center gap-1.5 px-2 py-1.5"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="#34d399" stroke-width="1.5"><path d="M3 11c2-5 8-5 10 0"/></svg><span class="text-[11px] text-zinc-200 flex-1">Clean</span><span class="text-[9px] text-zinc-500">5</span></div>
       <!-- dirty -->
-      <div class="flex items-center gap-1.5 px-2 py-1.5"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="#a1a1aa" stroke-width="1.5"><path d="M3 11c2-5 8-5 10 0"/></svg><span class="text-[11px] text-zinc-200 flex-1">Dirty — unsaved</span><span class="w-1.5 h-1.5 rounded-full bg-amber-400" title="click to save"></span><span class="text-[9px] text-zinc-500">5</span></div>
+      <div class="flex items-center gap-1.5 px-2 py-1.5"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="#34d399" stroke-width="1.5"><path d="M3 11c2-5 8-5 10 0"/></svg><span class="text-[11px] text-zinc-200 flex-1">Dirty — unsaved</span><span class="w-1.5 h-1.5 rounded-full bg-amber-400" title="click to save"></span><span class="text-[9px] text-zinc-500">5</span></div>
       <!-- saving -->
-      <div class="flex items-center gap-1.5 px-2 py-1.5"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="#a1a1aa" stroke-width="1.5"><path d="M3 11c2-5 8-5 10 0"/></svg><span class="text-[11px] text-zinc-200 flex-1">Saving…</span><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="#3b82f6" stroke-width="2" class="animate-spin"><path d="M8 2a6 6 0 016 6" stroke-linecap="round"/></svg></div>
+      <div class="flex items-center gap-1.5 px-2 py-1.5"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="#34d399" stroke-width="1.5"><path d="M3 11c2-5 8-5 10 0"/></svg><span class="text-[11px] text-zinc-200 flex-1">Saving…</span><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="#3b82f6" stroke-width="2" class="animate-spin"><path d="M8 2a6 6 0 016 6" stroke-linecap="round"/></svg></div>
       <!-- approved -->
-      <div class="flex items-center gap-1.5 px-2 py-1.5"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="#a1a1aa" stroke-width="1.5"><path d="M3 11c2-5 8-5 10 0"/></svg><span class="text-[11px] text-zinc-200 flex-1">Approved (locked)</span><span class="flex items-center gap-0.5 text-[8px] px-1 rounded-sm bg-emerald-500/15 text-emerald-300"><svg viewBox="0 0 16 16" width="9" height="9" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8.5l3 3 7-7"/></svg>APPROVED</span></div>
+      <div class="flex items-center gap-1.5 px-2 py-1.5"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="#34d399" stroke-width="1.5"><path d="M3 11c2-5 8-5 10 0"/></svg><span class="text-[11px] text-zinc-200 flex-1">Approved (locked)</span><button class="text-emerald-400" title="Approved (locked) — click to revoke"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="8" r="6" fill="currentColor" fill-opacity=".22"/><path d="M5.2 8l2 2 3.6-4"/></svg></button></div>
       <!-- conflict -->
-      <div class="flex items-center gap-1.5 px-2 py-1.5"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="#a1a1aa" stroke-width="1.5"><path d="M3 11c2-5 8-5 10 0"/></svg><span class="text-[11px] text-zinc-200 flex-1">Conflict — newer on server</span><span class="flex items-center gap-0.5 text-[8px] px-1 rounded-sm bg-red-500/20 text-red-300" title="External change">⚠ conflict</span></div>
+      <div class="flex items-center gap-1.5 px-2 py-1.5"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="#34d399" stroke-width="1.5"><path d="M3 11c2-5 8-5 10 0"/></svg><span class="text-[11px] text-zinc-200 flex-1">Conflict — newer on server</span><span class="flex items-center gap-0.5 text-[8px] px-1 rounded-sm bg-red-500/20 text-red-300" title="External change">⚠ conflict</span></div>
       <!-- transient failure -->
-      <div class="flex items-center gap-1.5 px-2 py-1.5"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="#a1a1aa" stroke-width="1.5"><path d="M3 11c2-5 8-5 10 0"/></svg><span class="text-[11px] text-zinc-200 flex-1">Save failed — retry</span><button class="text-[8px] px-1 rounded-sm bg-amber-500/20 text-amber-300">↻ retry</button></div>
+      <div class="flex items-center gap-1.5 px-2 py-1.5"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="#34d399" stroke-width="1.5"><path d="M3 11c2-5 8-5 10 0"/></svg><span class="text-[11px] text-zinc-200 flex-1">Save failed — retry</span><button class="text-[8px] px-1 rounded-sm bg-amber-500/20 text-amber-300">↻ retry</button></div>
       <!-- loading -->
       <div class="flex items-center gap-1.5 px-2 py-1.5"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="#71717a" stroke-width="2" class="animate-spin"><path d="M8 2a6 6 0 016 6" stroke-linecap="round"/></svg><span class="text-[11px] text-zinc-400 flex-1">Loading…</span></div>
       <!-- parse error -->
@@ -316,33 +352,93 @@
   <!-- SECTION 4 — Context toolbox per kind -->
   <!-- ============================================================= -->
   <section class="mb-12">
-    <div class="gallery-label mb-3">4 · Context toolbox — adapts to active container kind</div>
-    <div class="flex gap-6">
-      <!-- Segmentation tools -->
-      <div class="panel bg-zinc-900 border border-zinc-800 rounded-lg p-2">
-        <div class="text-[9px] text-zinc-500 uppercase tracking-wide px-1 pb-1.5">Segmentation tools</div>
-        <div class="grid grid-cols-6 gap-1">
-          <button class="aspect-square rounded bg-blue-600 text-white flex items-center justify-center" title="Brush"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="4"/></svg></button>
-          <button class="aspect-square rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 flex items-center justify-center" title="Eraser"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="6" width="8" height="6" rx="1" transform="rotate(-25 8 8)"/></svg></button>
-          <button class="aspect-square rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 flex items-center justify-center" title="Threshold brush"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="4"/><path d="M5 8h6"/></svg></button>
-          <button class="aspect-square rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 flex items-center justify-center" title="Paint fill"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 8l5-5 5 5-5 5z"/><path d="M11 11c1 1 1 2 0 2"/></svg></button>
-          <button class="aspect-square rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 flex items-center justify-center" title="Scissors"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="4" cy="11" r="1.6"/><circle cx="4" cy="5" r="1.6"/><path d="M5.5 6l7 5M5.5 10l7-5"/></svg></button>
-          <button class="aspect-square rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 flex items-center justify-center" title="Region / smart brush"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="4"/><path d="M8 4v8M4 8h8" stroke-dasharray="1.5 1"/></svg></button>
-          <button class="aspect-square rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 flex items-center justify-center" title="Contour fill"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 8c0-3 8-3 8 0s-8 3-8 0z" fill="currentColor" fill-opacity=".25"/></svg></button>
+    <div class="gallery-label mb-3">4 · Context toolbox — 3-wide icon+label, adapts to active kind, responsive (C3, D3)</div>
+
+    <!-- 4a · full Segmentation toolbox (canonical; mirrors the agreed wide-panel design) -->
+    <div class="bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden mb-6" style="width:470px;">
+      <div class="px-3 py-2 border-b border-zinc-800 flex items-center justify-between">
+        <span class="text-[9px] text-zinc-500 uppercase tracking-wide">Segmentation tools</span>
+        <span class="text-[10px]" style="color:#ec4899;">Segment 2</span>
+      </div>
+      <div class="p-2 grid grid-cols-3 gap-1 text-[11px]">
+        <button class="flex items-center gap-1.5 px-2 py-1.5 rounded bg-blue-600 text-white" title="Brush (B)"><svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor" stroke="none"><circle cx="8" cy="8" r="3.2"/></svg><span class="truncate">Brush</span></button>
+        <button class="flex items-center gap-1.5 px-2 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300" title="Eraser (E)"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="3" y="6" width="8" height="6" rx="1" transform="rotate(-25 8 8)"/></svg><span class="truncate">Eraser</span></button>
+        <button class="flex items-center gap-1.5 px-2 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300" title="Threshold brush"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="3.8"/><path d="M5 8h6"/></svg><span class="truncate">Threshold</span></button>
+        <button disabled style="cursor:not-allowed" class="flex items-center gap-1.5 px-2 py-1.5 rounded bg-zinc-800/40 text-zinc-600" title="Dynamic threshold — planned (coming soon)"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="3.8"/><path d="M5 8h6" stroke-dasharray="1.5 1"/></svg><span class="truncate">Dyn. Thresh</span></button>
+        <button disabled style="cursor:not-allowed" class="flex items-center gap-1.5 px-2 py-1.5 rounded bg-zinc-800/40 text-zinc-600" title="Spherical brush (3D) — planned (coming soon)"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="4"/><ellipse cx="8" cy="8" rx="4" ry="1.7"/></svg><span class="truncate">Sph. Brush</span></button>
+        <button disabled style="cursor:not-allowed" class="flex items-center gap-1.5 px-2 py-1.5 rounded bg-zinc-800/40 text-zinc-600" title="Spherical eraser (3D) — planned (coming soon)"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="4"/><ellipse cx="8" cy="8" rx="4" ry="1.7"/><path d="M5 11l6-6"/></svg><span class="truncate">Sph. Eraser</span></button>
+        <!-- disabled: no FoR-matched volume viewport (D3) -->
+        <button disabled style="cursor:not-allowed" class="flex items-center gap-1.5 px-2 py-1.5 rounded bg-zinc-800/40 text-zinc-600" title="Spherical threshold — planned (coming soon)"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="4"/><ellipse cx="8" cy="8" rx="4" ry="1.7"/></svg><span class="truncate">Sph. Thresh</span></button>
+        <button class="flex items-center gap-1.5 px-2 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300" title="Circle scissors"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="5"/></svg><span class="truncate">Circle</span></button>
+        <button class="flex items-center gap-1.5 px-2 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300" title="Rectangle scissors"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="3" y="4" width="10" height="8" rx="1"/></svg><span class="truncate">Rectangle</span></button>
+        <button disabled style="cursor:not-allowed" class="flex items-center gap-1.5 px-2 py-1.5 rounded bg-zinc-900 border border-dashed border-zinc-800 text-zinc-700" title="Sphere scissors — disabled: needs a FoR-matched volume viewport (D3)"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="5"/><ellipse cx="8" cy="8" rx="5" ry="2"/><path d="M2.5 2.5l11 11" stroke="#52525b"/></svg><span class="truncate">Sphere</span></button>
+        <button class="flex items-center gap-1.5 px-2 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300" title="Paint fill / hole fill (F)"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 8l5-5 5 5-5 5z"/><path d="M11 11c1 1 1 2 0 2"/></svg><span class="truncate">Paint Fill</span></button>
+        <button class="flex items-center gap-1.5 px-2 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300" title="Region (smart brush)"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="4" stroke-dasharray="2 1.3"/><circle cx="8" cy="8" r="1.3" fill="currentColor" stroke="none"/></svg><span class="truncate">Region</span></button>
+        <button class="flex items-center gap-1.5 px-2 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300" title="Region+ (adaptive smart brush)"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="4" stroke-dasharray="2 1.3"/><path d="M8 6v4M6 8h4"/></svg><span class="truncate">Region+</span></button>
+        <button disabled style="cursor:not-allowed" class="flex items-center gap-1.5 px-2 py-1.5 rounded bg-zinc-800/40 text-zinc-600" title="Rectangle threshold (multi-slice) — planned (coming soon)"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="4.5" y="2.5" width="9" height="7" rx="1"/><path d="M2.5 5.5v8h9"/></svg><span class="truncate">Rect Multi</span></button>
+        <button class="flex items-center gap-1.5 px-2 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300" title="Circle threshold (start/end multi-slice)"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="9" cy="6" r="3.5"/><path d="M2.5 7.5v6h6"/></svg><span class="truncate">Circle Multi</span></button>
+        <button class="flex items-center gap-1.5 px-2 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300" title="Contour fill (draw boundary → fill)"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M4 8c0-3 8-3 8 0s-8 3-8 0z" fill="currentColor" fill-opacity=".25"/></svg><span class="truncate">Contour Fill</span></button>
+        <button class="flex items-center gap-1.5 px-2 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300" title="Select segment"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M4 3l8 5-3.5 1.2L7 13z"/></svg><span class="truncate">Select</span></button>
+        <button class="flex items-center gap-1.5 px-2 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300" title="Segment bidirectional measure"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 8h10M8 3v10"/></svg><span class="truncate">Bidir.</span></button>
+      </div>
+      <!-- CONTROLS: active segment + opacity (kind-specific) -->
+      <div class="px-3 py-2 border-t border-zinc-800">
+        <div class="flex items-center justify-between">
+          <span class="text-[9px] text-zinc-500 uppercase tracking-wide">Controls</span>
+          <span class="flex items-center gap-1 text-[10px] text-zinc-300"><span class="swatch" style="background:#ec4899;width:10px;height:10px;"></span>Segment 2</span>
+        </div>
+        <div class="flex items-center gap-2 mt-1.5">
+          <span class="text-[10px] text-zinc-400 whitespace-nowrap">Labelmap opacity</span>
+          <div class="flex-1 h-1 rounded-full bg-zinc-700 relative"><div class="absolute left-0 top-0 h-1 rounded-full bg-blue-500" style="width:60%;"></div><div class="absolute h-3 w-3 rounded-full bg-blue-400" style="left:57%;top:-4px;"></div></div>
+          <span class="text-[10px] text-zinc-300">60%</span>
         </div>
       </div>
-      <!-- Measurement tools -->
-      <div class="panel bg-zinc-900 border border-zinc-800 rounded-lg p-2">
-        <div class="text-[9px] text-zinc-500 uppercase tracking-wide px-1 pb-1.5">Measurement tools</div>
-        <div class="grid grid-cols-6 gap-1">
-          <button class="aspect-square rounded bg-blue-600 text-white flex items-center justify-center" title="Length"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 13L13 3M4 10l2 2M7 7l2 2M10 4l2 2"/></svg></button>
-          <button class="aspect-square rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 flex items-center justify-center" title="Angle"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 13L13 13M3 13L11 4"/></svg></button>
-          <button class="aspect-square rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 flex items-center justify-center" title="Bidirectional"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 8h10M8 3v10"/></svg></button>
-          <button class="aspect-square rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 flex items-center justify-center" title="Ellipse ROI"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5"><ellipse cx="8" cy="8" rx="5.5" ry="3.5"/></svg></button>
-          <button class="aspect-square rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 flex items-center justify-center" title="Probe"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="1.2" fill="currentColor" stroke="none"/><path d="M8 2v3M8 11v3M2 8h3M11 8h3"/></svg></button>
-          <button class="aspect-square rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 flex items-center justify-center" title="Arrow"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 13L13 3M9 3h4v4"/></svg></button>
+      <!-- silent in-place backup status (§3.4) -->
+      <div class="px-3 py-1.5 border-t border-zinc-800 flex items-center gap-1.5 text-[10px] text-emerald-400/90"><svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8.5l3 3 7-7"/></svg> Backed up · 2s ago</div>
+    </div>
+
+    <!-- 4b · responsive collapse + the other two kinds' tool sets -->
+    <div class="flex gap-6 items-start flex-wrap">
+      <!-- collapsed icon-only (narrow panel) -->
+      <div class="bg-zinc-900 border border-zinc-800 rounded-lg p-2" style="width:118px;">
+        <div class="text-[9px] text-zinc-600 px-0.5 pb-1.5">Narrow → icon-only</div>
+        <div class="grid grid-cols-3 gap-1">
+          <button class="aspect-square rounded bg-blue-600 text-white flex items-center justify-center" title="Brush"><svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor" stroke="none"><circle cx="8" cy="8" r="3.2"/></svg></button>
+          <button class="aspect-square rounded bg-zinc-800 text-zinc-300 flex items-center justify-center" title="Eraser"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="3" y="6" width="8" height="6" rx="1" transform="rotate(-25 8 8)"/></svg></button>
+          <button class="aspect-square rounded bg-zinc-800 text-zinc-300 flex items-center justify-center" title="Threshold"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="3.8"/><path d="M5 8h6"/></svg></button>
+          <button class="aspect-square rounded bg-zinc-800 text-zinc-300 flex items-center justify-center" title="Paint Fill"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 8l5-5 5 5-5 5z"/></svg></button>
+          <button class="aspect-square rounded bg-zinc-800 text-zinc-300 flex items-center justify-center" title="Circle"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="5"/></svg></button>
+          <button class="aspect-square rounded bg-zinc-800 text-zinc-300 flex items-center justify-center" title="Region"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="4" stroke-dasharray="2 1.3"/></svg></button>
         </div>
       </div>
+      <!-- Structure (RTSTRUCT) tools -->
+      <div class="bg-zinc-900 border border-zinc-800 rounded-lg p-2" style="width:300px;">
+        <div class="px-1 pb-1.5 flex items-center justify-between"><span class="text-[9px] text-zinc-500 uppercase tracking-wide">Structure tools</span><span class="text-[9px]" style="color:#ef4444;">GTV_primary</span></div>
+        <div class="grid grid-cols-3 gap-1 text-[11px]">
+          <button class="flex items-center gap-1.5 px-2 py-1.5 rounded bg-blue-600 text-white" title="Freehand"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 11c1-4 4-6 6-3s5 1 4-3"/></svg><span class="truncate">Freehand</span></button>
+          <button class="flex items-center gap-1.5 px-2 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300" title="Spline"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 11c3 0 3-6 6-6s3 6 6 6"/></svg><span class="truncate">Spline</span></button>
+          <button class="flex items-center gap-1.5 px-2 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300" title="Livewire"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-dasharray="2 1.3"><path d="M3 12c2-6 8-6 10 0"/></svg><span class="truncate">Livewire</span></button>
+          <button class="flex items-center gap-1.5 px-2 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300" title="Sculptor (push/pull boundary)"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="5"/><path d="M8 3v10"/></svg><span class="truncate">Sculptor</span></button>
+        </div>
+      </div>
+      <!-- Measurement (SR) tools -->
+      <div class="bg-zinc-900 border border-zinc-800 rounded-lg p-2" style="width:300px;">
+        <div class="px-1 pb-1.5 flex items-center justify-between"><span class="text-[9px] text-zinc-500 uppercase tracking-wide">Measurement tools</span><span class="text-[9px]" style="color:#eab308;">Lesion long axis</span></div>
+        <div class="grid grid-cols-3 gap-1 text-[11px]">
+          <button class="flex items-center gap-1.5 px-2 py-1.5 rounded bg-blue-600 text-white" title="Length"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 13L13 3M4 10l2 2M7 7l2 2M10 4l2 2"/></svg><span class="truncate">Length</span></button>
+          <button class="flex items-center gap-1.5 px-2 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300" title="Angle"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 13L13 13M3 13L11 4"/></svg><span class="truncate">Angle</span></button>
+          <button class="flex items-center gap-1.5 px-2 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300" title="Bidirectional"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 8h10M8 3v10"/></svg><span class="truncate">Bidir.</span></button>
+          <button class="flex items-center gap-1.5 px-2 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300" title="Elliptical ROI"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><ellipse cx="8" cy="8" rx="5.5" ry="3.5"/></svg><span class="truncate">Ellipse</span></button>
+          <button class="flex items-center gap-1.5 px-2 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300" title="Rectangle ROI"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="3" y="4.5" width="10" height="7" rx="1"/></svg><span class="truncate">Rect ROI</span></button>
+          <button class="flex items-center gap-1.5 px-2 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300" title="Circle ROI"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="5"/></svg><span class="truncate">Circle</span></button>
+          <button class="flex items-center gap-1.5 px-2 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300" title="Probe"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="1.2" fill="currentColor" stroke="none"/><path d="M8 2v3M8 11v3M2 8h3M11 8h3"/></svg><span class="truncate">Probe</span></button>
+          <button class="flex items-center gap-1.5 px-2 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300" title="Arrow annotate"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 13L13 3M9 3h4v4"/></svg><span class="truncate">Arrow</span></button>
+          <button class="flex items-center gap-1.5 px-2 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300" title="Freehand ROI"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 10c1-4 4-5 6-2s4 0 4-3"/></svg><span class="truncate">Freehand</span></button>
+        </div>
+      </div>
+    </div>
+    <div class="text-[9px] text-zinc-600 mt-3 max-w-[660px]">
+      <b>In scope = every registered Cornerstone3D tool for the active kind</b> (Segmentation / Structure / Measurement); <b>AI / auto-segmentation tools are deferred</b> (implemented later). Brush family (brush · eraser · threshold · dynamic · spherical variants) are <code>BrushTool</code> strategies shown as distinct buttons. View tools (pan / zoom / scroll / window-level / crosshairs) live in the <b>toolbar</b>, not here. <b>Copy/paste</b> (Ctrl-C / Ctrl-V) and <b>interpolation</b> (a setting) are <b>not</b> tools. Header: <code>&lt;KIND&gt; TOOLS</code> + the active member's name in its own color (all three kinds). Layout: 3 columns of icon+label at full width; as the panel narrows, labels truncate then hide → icon-only (4b, left). Active tool = blue. <b>Greyed (flat) = planned</b>, not yet implemented — temporary; these land right after this project (e.g. Dyn. Thresh, Sph. Brush/Eraser/Threshold, Rect Multi). <b>Dashed + slash = disabled now</b> because there's no FoR-matched viewport for it (D3, e.g. Sphere scissors with no volume viewport).
     </div>
   </section>
 
@@ -357,9 +453,8 @@
         <div class="text-xs text-zinc-200 font-medium mb-2">New structure</div>
         <input class="w-full bg-zinc-800 rounded px-2 py-1.5 text-[11px] text-zinc-200 outline-none border border-zinc-700 focus:border-blue-500" value="GTV_node" />
         <div class="mt-2 flex items-center gap-2">
-          <span class="text-[10px] text-zinc-500">Type</span>
-          <select class="bg-zinc-800 border border-zinc-700 rounded text-[10px] text-zinc-300 px-1 py-0.5"><option>GTV</option><option>CTV</option><option>PTV</option><option>ORGAN</option></select>
-          <span class="swatch ml-auto" style="background:#ef4444;width:14px;height:14px;"></span>
+          <span class="text-[10px] text-zinc-500">Color</span>
+          <span class="swatch" style="background:#ef4444;width:14px;height:14px;"></span>
         </div>
         <div class="mt-3 flex justify-end gap-2">
           <button class="text-[11px] px-2.5 py-1 rounded text-zinc-400 hover:text-zinc-200">Cancel</button>
@@ -385,6 +480,17 @@
           <button class="text-[11px] px-2.5 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-400 text-left">Inspect differences…</button>
         </div>
       </div>
+      <!-- approve confirm (D7.11) -->
+      <div class="w-72 bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl p-3">
+        <div class="text-xs text-zinc-200 font-medium mb-1 flex items-center gap-1.5">
+          <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="#34d399" stroke-width="2"><path d="M3 8.5l3 3 7-7"/></svg> Approve “Pelvis_v3”?
+        </div>
+        <p class="text-[10px] text-zinc-500">Approving edit-locks all 5 members. Editing later requires explicit revoke. Recorded with your name and timestamp (DICOM <code class="text-zinc-400">ApprovalStatus</code>).</p>
+        <div class="mt-3 flex justify-end gap-2">
+          <button class="text-[11px] px-2.5 py-1 rounded text-zinc-400 hover:text-zinc-200">Cancel</button>
+          <button class="text-[11px] px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white">Approve</button>
+        </div>
+      </div>
       <!-- revoke approval confirm -->
       <div class="w-72 bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl p-3">
         <div class="text-xs text-zinc-200 font-medium mb-1">Revoke approval?</div>
@@ -394,6 +500,217 @@
           <button class="text-[11px] px-2.5 py-1 rounded bg-amber-600 hover:bg-amber-500 text-white">Revoke</button>
         </div>
       </div>
+    </div>
+  </section>
+
+  <!-- ============================================================= -->
+  <!-- SECTION 6 — Inline rename (double-click) & create-in-edit-mode -->
+  <!-- ============================================================= -->
+  <section class="mb-12">
+    <div class="gallery-label mb-3">6 · Inline rename (double-click) &amp; create-in-edit-mode (D7.6)</div>
+    <div class="panel bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden divide-y divide-zinc-800/70">
+      <!-- container row in RENAME mode (double-clicked the name) -->
+      <div class="flex items-center gap-1.5 px-2 py-1.5" style="background:#1b1b1f;">
+        <button class="text-zinc-500"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5 3l5 5-5 5"/></svg></button>
+        <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="#34d399" stroke-width="1.5"><path d="M3 11c2-5 8-5 10 0"/></svg>
+        <input class="flex-1 bg-zinc-800 border border-blue-500 rounded px-1.5 py-0.5 text-[11px] text-zinc-100 outline-none" value="Pelvis_v3" />
+        <span class="text-[8px] text-zinc-500">⏎ save · esc cancel</span>
+      </div>
+      <!-- member row in RENAME mode -->
+      <div class="flex items-center gap-2 pl-6 pr-2 py-1.5">
+        <span class="swatch" style="background:#22c55e;"></span>
+        <input class="flex-1 bg-zinc-800 border border-blue-500 rounded px-1.5 py-0.5 text-[11px] text-zinc-100 outline-none" value="CTV_54" />
+        <span class="text-[8px] text-zinc-500">double-click any name to rename</span>
+      </div>
+      <!-- freshly-created member: default name, already in edit mode, text pre-selected -->
+      <div class="flex items-center gap-2 pl-6 pr-2 py-1.5 border-l-2 border-blue-500 bg-blue-900/10">
+        <span class="swatch" style="background:#ef4444;"></span>
+        <span class="flex-1 bg-zinc-800 border border-blue-500 rounded px-1.5 py-0.5 text-[11px] text-zinc-100"><span style="background:#2563eb99;border-radius:2px;padding:0 1px;">ROI 1</span></span>
+        <span class="text-[8px] text-blue-300/80">just created · default name selected — type to replace</span>
+      </div>
+    </div>
+    <div class="text-[9px] text-zinc-600 mt-2 max-w-[560px]">
+      <b>Rename:</b> double-click a container or member name → inline edit; <b>Enter</b> commits, <b>Esc</b> cancels (also via kebab → Rename). <b>On create:</b> a new container/member gets a default name and drops <i>straight into edit mode with the text pre-selected</i>, so the user just types. Proposed defaults (open to change): containers → <code>Structure&nbsp;set&nbsp;N</code> / <code>Segmentation&nbsp;N</code> / <code>Measurement&nbsp;set&nbsp;N</code>; members → <code>ROI&nbsp;N</code> / <code>Segment&nbsp;N</code> / (measurement named by its tool, e.g. <code>Length&nbsp;N</code>).
+    </div>
+  </section>
+
+  <!-- ============================================================= -->
+  <!-- SECTION 7 — Container states: collapsed · empty · kebab open -->
+  <!-- ============================================================= -->
+  <section class="mb-12">
+    <div class="gallery-label mb-3">7 · Container states — collapsed, empty, kebab menu (D7.1, D7.6, D7.9)</div>
+    <div class="flex flex-wrap gap-6 items-start">
+      <!-- collapsed -->
+      <div class="panel bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden">
+        <div class="text-[9px] text-zinc-600 px-2 pt-2 pb-1">Collapsed (chevron right, members hidden)</div>
+        <div class="flex items-center gap-1.5 px-2 py-1.5" style="background:#1b1b1f;">
+          <button class="text-zinc-500"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 4l4 4-4 4"/></svg></button>
+          <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="#34d399" stroke-width="1.5"><path d="M3 11c2-5 8-5 10 0"/></svg>
+          <span class="text-[11px] text-zinc-200 font-medium truncate flex-1">Pelvis_v3</span>
+          <span class="w-1.5 h-1.5 rounded-full bg-amber-400" title="Unsaved changes"></span>
+          <span class="text-[9px] text-zinc-500">5</span>
+          <button class="text-zinc-400 hover:text-zinc-100" title="Add member to this container"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M8 3.5v9M3.5 8h9"/></svg></button>
+          <button class="text-zinc-600 hover:text-zinc-300"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="3" r="1"/><circle cx="8" cy="8" r="1"/><circle cx="8" cy="13" r="1"/></svg></button>
+        </div>
+      </div>
+      <!-- empty container -->
+      <div class="panel bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden">
+        <div class="text-[9px] text-zinc-600 px-2 pt-2 pb-1">Empty container (no members → add new)</div>
+        <div class="flex items-center gap-1.5 px-2 py-1.5" style="background:#1b1b1f;">
+          <button class="text-zinc-500"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5 3l5 5-5 5"/></svg></button>
+          <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="#c084fc" stroke-width="1.5"><rect x="3" y="3" width="10" height="10" rx="2"/></svg>
+          <span class="text-[11px] text-zinc-200 font-medium truncate flex-1">New segmentation</span>
+          <span class="text-[9px] text-zinc-500">0</span>
+          <button class="text-zinc-400 hover:text-zinc-100" title="Add member to this container"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M8 3.5v9M3.5 8h9"/></svg></button>
+          <button class="text-zinc-600 hover:text-zinc-300"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="3" r="1"/><circle cx="8" cy="8" r="1"/><circle cx="8" cy="13" r="1"/></svg></button>
+        </div>
+        <div class="px-3 py-3 text-center">
+          <p class="text-[10px] text-zinc-500">No members yet</p>
+          <button class="mt-2 inline-flex items-center gap-1 text-[10px] text-blue-400 hover:text-blue-300">
+            <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 3v10M3 8h10"/></svg> Add member
+          </button>
+        </div>
+      </div>
+      <!-- kebab menu open -->
+      <div class="panel bg-zinc-900 border border-zinc-800 rounded-lg overflow-visible relative">
+        <div class="text-[9px] text-zinc-600 px-2 pt-2 pb-1">Container kebab — open (D7.6)</div>
+        <div class="flex items-center gap-1.5 px-2 py-1.5" style="background:#1b1b1f;">
+          <button class="text-zinc-500"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5 3l5 5-5 5"/></svg></button>
+          <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="#34d399" stroke-width="1.5"><path d="M3 11c2-5 8-5 10 0"/></svg>
+          <span class="text-[11px] text-zinc-200 font-medium truncate flex-1">Pelvis_v3</span>
+          <span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+          <span class="text-[9px] text-zinc-500">5</span>
+          <button class="text-zinc-200"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="3" r="1"/><circle cx="8" cy="8" r="1"/><circle cx="8" cy="13" r="1"/></svg></button>
+        </div>
+        <!-- dropdown -->
+        <div class="mx-2 my-1 bg-zinc-800 border border-zinc-700 rounded-md shadow-xl py-1 text-[11px] text-zinc-200">
+          <!-- Rename (double-click) and Add member ("+" on row) removed from menu — no redundancy -->
+          <button class="w-full text-left px-3 py-1 hover:bg-zinc-700">Hide all</button>
+          <button class="w-full text-left px-3 py-1 hover:bg-zinc-700">Lock all</button>
+          <div class="my-1 border-t border-zinc-700"></div>
+          <button class="w-full text-left px-3 py-1 hover:bg-zinc-700">Export to DICOM…</button>
+          <button class="w-full text-left px-3 py-1 hover:bg-zinc-700" title="Export per-member metrics (volume / slices / area / HU stats / measurements) to a CSV file">Export to CSV…</button>
+          <button class="w-full text-left px-3 py-1 hover:bg-zinc-700 text-amber-400/90" title="Discard local changes back to last saved">Revert changes…</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================= -->
+  <!-- SECTION 8 — Member row states (additions to §2) -->
+  <!-- ============================================================= -->
+  <section class="mb-12">
+    <div class="gallery-label mb-3">8 · Member row states — active + selected, hover (D7.5, D7.8)</div>
+    <div class="panel bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden divide-y divide-zinc-800/70">
+      <!-- ACTIVE and SELECTED combined: left accent + pen + selection ring -->
+      <div class="flex items-center gap-2 pl-6 pr-2 py-1.5 border-l-2 border-blue-500 selected">
+        <span class="swatch" style="background:#ef4444;"></span>
+        <span class="text-[11px] text-zinc-100 truncate">GTV_primary</span>
+        <span class="text-[8px] text-blue-300/80">active + selected</span>
+        <span class="flex-1"></span>
+        <span class="text-[9px] text-zinc-500">12 sl</span>
+        <span class="text-blue-400" title="Active — drawing writes here"><svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor" stroke="none"><circle cx="8" cy="8" r="3.5"/></svg></span>
+        <button class="text-zinc-300" title="Visible · filled"><svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor" fill-opacity=".25" stroke="currentColor" stroke-width="1.3"><path d="M1.5 8s2.5-4 6.5-4 6.5 4 6.5 4-2.5 4-6.5 4-6.5-4-6.5-4z"/><circle cx="8" cy="8" r="1.8"/></svg></button>
+        <button class="text-zinc-600 hover:text-zinc-300" title="Unlocked — click to lock"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="3.5" y="7" width="9" height="6" rx="1"/><path d="M5.5 7V5a2.5 2.5 0 015 0"/></svg></button><button class="text-zinc-500 hover:text-red-400 ml-0.5" title="Delete this member"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
+      </div>
+      <!-- HOVER emphasis (D7.8): bg highlight + jump-to control revealed -->
+      <div class="flex items-center gap-2 pl-6 pr-2 py-1.5 bg-zinc-800">
+        <span class="swatch" style="background:#22c55e;"></span>
+        <span class="text-[11px] text-zinc-100 truncate">CTV_54</span>
+        <span class="text-[8px] text-zinc-500">hover</span>
+        <span class="flex-1"></span>
+        <button class="text-zinc-400 hover:text-zinc-200" title="Jump to first slice"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M8 3v10M4 9l4 4 4-4"/></svg></button>
+        <span class="text-[9px] text-zinc-500">18 sl</span>
+        <button class="text-zinc-300" title="Visible · outline"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M1.5 8s2.5-4 6.5-4 6.5 4 6.5 4-2.5 4-6.5 4-6.5-4-6.5-4z"/><circle cx="8" cy="8" r="1.8"/></svg></button>
+        <button class="text-zinc-600 hover:text-zinc-300" title="Unlocked — click to lock"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="3.5" y="7" width="9" height="6" rx="1"/><path d="M5.5 7V5a2.5 2.5 0 015 0"/></svg></button><button class="text-zinc-500 hover:text-red-400 ml-0.5" title="Delete this member"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
+      </div>
+    </div>
+    <div class="text-[9px] text-zinc-600 mt-2 max-w-[520px]">
+      <b>Active</b> = left blue accent bar + filled blue dot ("the pen" — drawing writes here). <b>Selected</b> = inset blue ring + tint (highlighted for an action). <b>Combined</b> = both at once (the active row can also be the selected row). These are the only uses of blue in the list, so blue always means active/selection — never a container type.
+    </div>
+  </section>
+
+  <!-- ============================================================= -->
+  <!-- SECTION 9 — Save-in-progress (in-place, silent — §3.4 / CLAUDE.md) -->
+  <!-- ============================================================= -->
+  <section class="mb-12">
+    <div class="gallery-label mb-3">9 · Save-in-progress — in-place, never a toast/banner (§3.4)</div>
+    <div class="flex flex-wrap gap-6 items-start">
+      <!-- per-container row spinner (autosave) -->
+      <div class="panel bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden">
+        <div class="text-[9px] text-zinc-600 px-2 pt-2 pb-1">Autosave — silent, on the container row</div>
+        <div class="flex items-center gap-1.5 px-2 py-1.5" style="background:#1b1b1f;">
+          <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="#34d399" stroke-width="1.5"><path d="M3 11c2-5 8-5 10 0"/></svg>
+          <span class="text-[11px] text-zinc-200 font-medium flex-1">Pelvis_v3</span>
+          <span class="flex items-center gap-1 text-[9px] text-blue-300/90"><svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" class="animate-spin"><path d="M8 2a6 6 0 016 6" stroke-linecap="round"/></svg> saving…</span>
+          <span class="text-[9px] text-zinc-500">5</span>
+        </div>
+      </div>
+      <!-- footer status strip for an explicit Save all -->
+      <div class="panel bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden flex flex-col" style="height:120px;">
+        <div class="text-[9px] text-zinc-600 px-2 pt-2 pb-1">Manual “Save all” — in-place footer strip</div>
+        <div class="flex-1"></div>
+        <div class="border-t border-zinc-800 px-2.5 py-1.5 flex items-center gap-2 bg-zinc-900/80">
+          <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="#3b82f6" stroke-width="2" class="animate-spin"><path d="M8 2a6 6 0 016 6" stroke-linecap="round"/></svg>
+          <span class="text-[10px] text-zinc-300">Saving 2 of 3 containers…</span>
+        </div>
+      </div>
+    </div>
+    <div class="text-[9px] text-zinc-600 mt-2 max-w-[520px]">Routine save/autosave is surfaced in-place (row spinner / footer strip), never as a toast or banner (CLAUDE.md surface taxonomy, §3.4). A toast is reserved for a user-initiated save that <em>failed</em> or briefly succeeded; a banner only for non-routine high-stakes events.</div>
+  </section>
+
+  <!-- ============================================================= -->
+  <!-- SECTION 10 — Top toolbar (DRAFT · UNDER REVIEW — not part of the frozen side-panel baseline) -->
+  <!-- ============================================================= -->
+  <section class="mb-12">
+    <div class="gallery-label mb-3">10 · Top toolbar — 🔒 FROZEN / approved · pixel-match baseline (viewer controls only; annotation lifecycle stays in the side panel)</div>
+    <div class="bg-zinc-900 border border-zinc-800 rounded-lg overflow-x-auto">
+      <div class="flex items-center gap-1 px-2 py-1.5 text-zinc-300" style="min-width:1240px;">
+        <!-- logo + connection -->
+        <img src="xnat-logo.png" alt="XNAT" width="22" height="22" style="display:block;" />
+        <span class="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-zinc-800 border border-emerald-800/60 ml-2"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span><span class="text-[10px] text-zinc-300">cnda.wustl.edu</span></span>
+        <span class="w-px h-5 bg-zinc-700 mx-1.5"></span>
+        <!-- data actions -->
+        <button class="px-2 py-1.5 rounded hover:bg-zinc-800 flex items-center gap-1.5 text-[11px]" title="Import / load from XNAT"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 2.5v7M5 6.5l3 3 3-3M3 13h10"/></svg>Import</button>
+        <button class="px-2 py-1.5 rounded hover:bg-zinc-800 flex items-center gap-1.5 text-[11px]" title="Export / upload to XNAT"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 9.5v-7M5 5.5l3-3 3 3M3 13h10"/></svg>Export</button>
+        <button class="px-2 py-1.5 rounded hover:bg-zinc-800 flex items-center gap-1.5 text-[11px]" title="Favorites"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 2.2l1.6 3.5 3.8.4-2.9 2.5.9 3.7L8 10.9 4.6 12.8l.9-3.7L2.6 6.1l3.8-.4z"/></svg>Favorites</button>
+        <span class="w-px h-5 bg-zinc-700 mx-1.5"></span>
+        <!-- layout / hanging (MPR removed per review) -->
+        <button class="px-2 py-1.5 rounded hover:bg-zinc-800 flex items-center gap-1 text-[11px]" title="Layout (1×1 · 1×2 · 2×2 · custom)"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2.5" y="2.5" width="11" height="11" rx="1"/><path d="M8 2.5v11M2.5 8h11"/></svg>2×2<svg viewBox="0 0 16 16" width="8" height="8" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 6l4 4 4-4"/></svg></button>
+        <button class="px-2 py-1.5 rounded hover:bg-zinc-800 flex items-center gap-1 text-[11px]" title="Hanging protocol"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 2.5l5.5 3-5.5 3-5.5-3z"/><path d="M2.5 8l5.5 3 5.5-3"/></svg>Hanging<svg viewBox="0 0 16 16" width="8" height="8" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 6l4 4 4-4"/></svg></button>
+        <span class="w-px h-5 bg-zinc-700 mx-1.5"></span>
+        <!-- navigation tools (one active) -->
+        <button class="px-2 py-1.5 rounded hover:bg-zinc-800" title="Crosshairs (MPR sync)"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="2"/><path d="M8 1v3M8 12v3M1 8h3M12 8h3"/></svg></button>
+        <button class="px-2 py-1.5 rounded hover:bg-zinc-800" title="Pan (left-drag)"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 2.5v11M2.5 8h11"/><path d="M6.4 4L8 2.4 9.6 4M6.4 12L8 13.6 9.6 12M4 6.4L2.4 8 4 9.6M12 6.4L13.6 8 12 9.6"/></svg></button>
+        <button class="px-2 py-1.5 rounded hover:bg-zinc-800" title="Zoom"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="7" cy="7" r="4"/><path d="M10 10l3.5 3.5M7 5.3v3.4M5.3 7h3.4"/></svg></button>
+        <button class="px-2 py-1.5 rounded bg-blue-600 text-white" title="Window / Level (left-drag)"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="5.5"/><path d="M8 2.5a5.5 5.5 0 010 11z" fill="currentColor"/></svg></button>
+        <button class="px-2 py-1.5 rounded hover:bg-zinc-800 flex items-center gap-1 text-[11px]" title="Window/Level preset"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="5.5"/><path d="M8 2.5a5.5 5.5 0 010 11z" fill="currentColor"/></svg>Soft tissue<svg viewBox="0 0 16 16" width="8" height="8" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 6l4 4 4-4"/></svg></button>
+        <button class="px-2 py-1.5 rounded hover:bg-zinc-800" title="Invert grayscale (negative)"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2.5" y="2.5" width="11" height="11" rx="1.5"/><path d="M2.5 13.5L13.5 2.5"/><path d="M2.5 13.5H13.5V2.5Z" fill="currentColor" stroke="none"/></svg></button>
+        <span class="w-px h-5 bg-zinc-700 mx-1.5"></span>
+        <!-- transform -->
+        <button class="px-2 py-1.5 rounded hover:bg-zinc-800" title="Rotate 90°"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="3" y="7.5" width="6.5" height="6" rx="1"/><path d="M9.5 7.5V5A3 3 0 006.5 2H5"/><path d="M6.3 0.8L4.5 2 6.3 3.5"/></svg></button>
+        <button class="px-2 py-1.5 rounded hover:bg-zinc-800" title="Flip horizontal"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 2v12"/><path d="M5.5 5L3 8l2.5 3"/><path d="M10.5 5L13 8l-2.5 3"/></svg></button>
+        <button class="px-2 py-1.5 rounded hover:bg-zinc-800" title="Flip vertical"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 8h12"/><path d="M5 5.5L8 3l3 2.5"/><path d="M5 10.5L8 13l3-2.5"/></svg></button>
+        <button class="px-2 py-1.5 rounded hover:bg-zinc-800" title="Reset viewport"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M12.5 8a4.5 4.5 0 11-1.3-3.2"/><path d="M12.5 2v3h-3"/></svg></button>
+        <span class="w-px h-5 bg-zinc-700 mx-1.5"></span>
+        <!-- undo / redo -->
+        <button class="px-2 py-1.5 rounded hover:bg-zinc-800" title="Undo (Ctrl+Z) — active container"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M5.5 4L2.5 7l3 3"/><path d="M2.5 7h7a4 4 0 010 8H8"/></svg></button>
+        <button class="px-2 py-1.5 rounded hover:bg-zinc-800" title="Redo (Ctrl+Shift+Z)"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M10.5 4l3 3-3 3"/><path d="M13.5 7h-7a4 4 0 000 8H8"/></svg></button>
+        <span class="w-px h-5 bg-zinc-700 mx-1.5"></span>
+        <!-- cine -->
+        <button class="px-2 py-1.5 rounded hover:bg-zinc-800" title="Cine play / pause"><svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor" stroke="none"><path d="M5 3.5l7 4.5-7 4.5z"/></svg></button>
+        <span class="px-1.5 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-[10px] text-zinc-200">12</span>
+        <span class="text-[10px] text-zinc-500">fps</span>
+        <span class="flex-1"></span>
+        <!-- annotate (toggles the Annotations panel) + tags -->
+        <button class="px-2.5 py-1.5 rounded bg-blue-600 text-white flex items-center gap-1.5 text-[11px]" title="Annotate — open / close the Annotations panel"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2.5" y="3" width="11" height="10" rx="1"/><path d="M10 3v10"/><path d="M10.2 3.2h3.2v9.6h-3.2z" fill="currentColor" fill-opacity=".4" stroke="none"/></svg>Annotate</button>
+        <button class="px-2 py-1.5 rounded hover:bg-zinc-800 flex items-center gap-1.5 text-[11px]" title="DICOM header tags"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2.5 3h6l5 5-5.5 5.5L2.5 8z"/><circle cx="5.5" cy="6" r="0.9"/></svg>Tags</button>
+        <span class="w-px h-5 bg-zinc-700 mx-1.5"></span>
+        <button class="px-2 py-1.5 rounded hover:bg-zinc-800" title="Settings"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.6 3.6l1.4 1.4M11 11l1.4 1.4M12.4 3.6L11 5M5 11l-1.4 1.4"/></svg></button>
+      </div>
+    </div>
+    <div class="text-[9px] text-zinc-600 mt-2 max-w-[700px]">
+      <b>🔒 FROZEN — approved 2026-06-05; a pixel-match acceptance baseline (alongside the side panel).</b> Viewer controls only (annotation create/edit/save/delete stays in the side panel). Left→right: <b>XNAT logo</b> (the swirl asset) + connection chip · <b>Import / Export / Favorites</b> · <b>Layout</b> (2×2 ▾) + <b>Hanging</b> protocol (MPR removed per review — it's a layout preset) · windowing (crosshairs / pan / zoom / W-L active + Soft-tissue preset + <b>Invert</b>) · transform (rotate / flip H / flip V / reset) · undo · redo (per active container, A8) · cine (fps) · <span style="white-space:nowrap">(right)</span> <b>Annotate</b> (blue — opens/closes the Annotations side panel) · Tags · Settings. The XNAT-browser sidebar is always visible (shrunk via a drag handle, not a toolbar toggle).
     </div>
   </section>
 
