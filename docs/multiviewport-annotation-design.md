@@ -35,7 +35,7 @@ The layering contract is **enforced** and specified in full — dependency matri
 The design ships in phases (§7). Each phase that changes user-visible behavior lands behind a runtime feature flag (a preference) until the new behavior is verified end-to-end. Flags are removed once the prior code path is deleted; they are not permanent configuration.
 
 ### 0.5 Tests land with the change, not after
-Every phase has acceptance tests landed in the same PR as the implementation. The 27 acceptance signals from requirements section G are the primary regression suite; design phases map to specific signals.
+Every phase has acceptance tests landed in the same PR as the implementation. The 37 acceptance signals from requirements section G are the primary regression suite; design phases map to specific signals.
 
 ### 0.6 No partial implementations
 Reserved fields (e.g., ROI Algebra schema) ship with explicit `null`/empty defaults and serialize/deserialize correctly, but **no half-built features**. We do not ship partially-functional ROI Algebra, partially-working point/measurement editing, or partially-implemented approval workflow. A feature is in or it is fully out.
@@ -471,12 +471,12 @@ Six phases. Each lands as a series of small PRs. Each ships behind a feature fla
 - Add feature flag `multiviewport.enabled` (default `false`) gating Phase 1+ behavior.
 - **Build the test harness up front (binding — §8.0):**
   - Create the `e2e/fixtures/` DICOM datasets (§8.4), including the intensity-varied `ct-axial-anatomy`. **Fixtures are a Phase 0 exit gate** — the functional tests cannot exist without them.
-  - Author all **27 acceptance signals as failing E2E tests** (the full suite, red), so feature work becomes "turn 27 red tests green."
+  - Author all **37 acceptance signals as failing E2E tests** (the full suite, red), so feature work becomes "turn 37 red tests green."
   - **Walking skeleton:** drive one signal fully green through the real stack (real Electron renderer + real Cornerstone + a real fixture) to prove the harness exercises the app and catches a real break.
 - **Produce the fully-specified UI mockup (§8.8)** — every list-panel / side-panel state — agreed as the visual acceptance reference before any Phase 3 UI work.
 - Tests: type round-trip (Member, Container, SourceIdentity); skeleton tests for new services; plus the 24-signal suite authored red.
 
-**Acceptance**: app builds, runs, looks identical. All existing tests pass. New types compile. The 27 acceptance signals exist as (red) E2E tests; the walking-skeleton signal is green; the fixture set and the UI mockup are in place.
+**Acceptance**: app builds, runs, looks identical. All existing tests pass. New types compile. The 37 acceptance signals exist as (red) E2E tests; the walking-skeleton signal is green; the fixture set and the UI mockup are in place.
 
 ### Phase 1 — Viewport unification
 **Goal**: volume default; one tool group; MPR mode consolidated.
@@ -500,7 +500,7 @@ Six phases. Each lands as a series of small PRs. Each ships behind a feature fla
 - Wire `undoService` per-container; replace existing scattered undo logic. HistoryEntry creation in each domain operation.
 - Implement queue-next-save in `segmentationService/transport.ts` per E2. Single `dirty` boolean per container; auto-save debounce in `preferencesStore`.
 - Drawing routing per B3: block on no-FoR-match, block on non-native viewport, hint-on-attempt.
-- Tests: signals 1, 2, 8, 9, 10, 11, 14, 15, 23 (contour copy/paste — voxel-region paste re-verified in Phase 5). Signal 12's drawing-block **logic** is covered here at the service-integration layer; its full E2E run lands in Phase 3, which is where the list panel first lets a user set the active container (see note below).
+- Tests: signals 1, 2, 8, 9, 10, 11, 14, 15, 23 (contour copy/paste — voxel-region paste re-verified in Phase 5), **28 (undo/redo state machine, A8)**, **34 (drag/gesture continuity, D4/A7)**, **36 (A2c auto-classification)**. Signal 12's drawing-block **logic** is covered here at the service-integration layer; its full E2E run lands in Phase 3, which is where the list panel first lets a user set the active container (see note below).
 
 **Acceptance**: T1/T2 case (signal 9), breath-hold case (signal 10), different-FoR case (signal 11), queue-next-save (signal 14), undo-past-save (signal 15) all pass. The drawing-block logic (signal 12) passes at the service-integration layer; full E2E signal 12 is gated on the Phase 3 list panel.
 
@@ -518,7 +518,7 @@ Six phases. Each lands as a series of small PRs. Each ships behind a feature fla
 - Empty / loading / parse-error states (D7.9).
 - Approval workflow: approve, revoke (with confirmation), persist via DICOM `ApprovalStatus`. Audit history in session.
 - Session-level actions (D7.6): create new structure-set / SEG / SR (measurement); save all. (Loading is **automatic** on XNAT-Browser scan selection — transport B5 — not a panel action; there is no manual "load from XNAT" affordance.)
-- Tests: signals 4, 5, 8, 12 (full E2E — active-container selection now exists), 17, 19, 20, 22, **25 (auto-load + navigate lifecycle, A13)**, **26 (session-switch + unsaved retention, A13)**, **27 (conflict + save-failure workflow, E3/H5–H7)**. (Signal 18 retired — ROI type not tracked.) Signals 25–26 depend on the transport auto-load (B5) and the session-scoped panel; signal 27 depends on the §H result/conflict semantics (the transport-workstream blockers C7/D3).
+- Tests: signals 4, 5, 8, 12 (full E2E — active-container selection now exists), 17, 19, 20, 22, **25 (auto-load + navigate lifecycle, A13)**, **26 (session-switch + unsaved retention, A13)**, **27 (conflict + save-failure workflow, E3/H5–H7)**, **31 (list-panel actions)**, **32 (measurement-SR container)**, **33 (selection model)**, **35 (tool affordance + keyboard scoping)**. (Signal 18 retired — ROI type not tracked.) Signals 25–26 depend on the transport auto-load (B5) and the session-scoped panel; signal 27 depends on the §H result/conflict semantics (the transport-workstream blockers C7/D3).
 
 **Acceptance**: signals 19 (approval persistence), 20 (visibility mode), 22 (provenance round-trip) pass. (Signal 18 retired per review.)
 
@@ -544,7 +544,7 @@ Six phases. Each lands as a series of small PRs. Each ships behind a feature fla
 - Performance verification: 4-panel CT (~300 slices) with 20 ROIs + 1 multi-segment SEG sustained ≥ 30 fps during edits (D8). Layout changes ≤ 250 ms. Measure on representative hardware.
 - Tests: signal 16 (paint-fill on MPR + undo); signal 21 (smart brush respects lock); signal 24 (oblique-SEG round-trip + 3D brush continuity); signal 23 voxel-region copy/paste portion.
 
-**Acceptance**: signals 16, 21 pass. Performance baselines documented.
+**Acceptance**: signals 16, 21, **29 (voxel-tool roster)**, **30 (Contour Fill fix — was broken)**, **37 (performance budget, D8)** pass. Performance baselines documented.
 
 ### Phase 6 — Flag removal and cleanup
 **Goal**: delete the old code paths.
@@ -565,7 +565,7 @@ Six phases. Each lands as a series of small PRs. Each ships behind a feature fla
 The prior attempt failed in a specific way: **tests were green while the running app was broken.** More tests of the same kind reproduce that. The rules below make it impossible. They are binding — a phase that violates them is not done regardless of what the test log says, and they supplement (do not replace) the CLAUDE.md "Spec-driven UI work" discipline.
 
 1. **Red-before-green (test-the-test).** Every acceptance test must be *observed failing* against the pre-implementation or a deliberately-broken state before it counts as passing. A test that is green the moment it is written is testing nothing and must be fixed. The red run is captured in the PR. This is the direct antidote to "passed while broken."
-2. **The 27 signals are authored as failing E2E tests in Phase 0.** The full acceptance suite exists — all red — before feature work begins. The rebuild is then "turn 27 red tests green, in dependency order." No phase may be declared done with one of its signals unaddressed; the signal *is* the contract (prose mirrors the test, not the reverse).
+2. **The 37 signals are authored as failing E2E tests in Phase 0.** The full acceptance suite exists — all red — before feature work begins. The rebuild is then "turn 37 red tests green, in dependency order." No phase may be declared done with one of its signals unaddressed; the signal *is* the contract (prose mirrors the test, not the reverse).
 3. **Visual where the signal is visual.** Signals that say "renders / appears / shows / badge" get screenshot or pixel-diff assertions against the agreed mockup (§8.8). "The DOM node exists" never satisfies a visual signal.
 4. **Build against a fully-specified mockup (§8.8).** Before any list-panel / side-panel UI, a complete visual mockup of every state is produced and agreed. It is the visual acceptance reference; pixel comparisons target it. Implementation matches the mockup; where mockup and prose disagree, reconcile before coding.
 5. **No escape hatches (CI-enforced).** No committed `.skip` / `.only` / `xit` on acceptance tests — CI fails the build if present. No mocking of Cornerstone or internal services in the `e2e/` suite. No test-only data-path bypasses — drive the real affordance (pointer events), never call the store/service setter the UI would call. A flaky acceptance test is a tracked bug with a fix deadline, never silently disabled.
@@ -575,7 +575,7 @@ The prior attempt failed in a specific way: **tests were green while the running
 9. **Per-phase gate.** A phase is done only when: all its mapped signals are green as functional tests (each shown red→green); all previously-green signals still pass; and a manual visual checkpoint was performed in the real app with proof (screen capture / screenshots) attached to the phase PR. No phase begins until the prior phase's gate is met.
 
 ### 8.1 Real end-to-end tests are the regression spine
-Acceptance is verified by **real end-to-end tests, not mocks**. The 27 acceptance signals from requirements section G are the regression suite, and each one is exercised at the layer where the user touches it: real Electron renderer, real Cornerstone3D, real DICOM data, real annotation gestures, real stores, real persisted state. A test that mocks out Cornerstone, the rendering engine, the segmentation manager, or the transport contract proves nothing — it proves the mocks were satisfied.
+Acceptance is verified by **real end-to-end tests, not mocks**. The 37 acceptance signals from requirements section G are the regression suite, and each one is exercised at the layer where the user touches it: real Electron renderer, real Cornerstone3D, real DICOM data, real annotation gestures, real stores, real persisted state. A test that mocks out Cornerstone, the rendering engine, the segmentation manager, or the transport contract proves nothing — it proves the mocks were satisfied.
 
 This rule is binding on the test plan:
 
@@ -591,13 +591,13 @@ This rule is binding on the test plan:
 |---|---|---|---|
 | **Unit** | Vitest ([vitest.config.ts](../vitest.config.ts)) | Pure-logic modules — type round-trip, FoR predicate, geometry utilities, undo-stack mechanics. | Mocks fine for module-internal collaborators where Cornerstone is not involved. |
 | **Service-integration** | Vitest with real Cornerstone3D in JSDOM | Service-level flows — container lifecycle, segmentation attach/detach, transport-contract serialize/restore. | No mocking of Cornerstone. Transport mocked at the H contract surface only when network would otherwise be involved. |
-| **End-to-end** | Playwright ([playwright.config.ts](../playwright.config.ts)) — Electron context | The 27 acceptance signals from requirements G. | **No mocking, period.** Real renderer, real Cornerstone, real DICOM fixtures, real gestures, real persistence to local file. Visual assertions where helpful (screenshots / pixel-diff snapshots). |
+| **End-to-end** | Playwright ([playwright.config.ts](../playwright.config.ts)) — Electron context | The 37 acceptance signals from requirements G. | **No mocking, period.** Real renderer, real Cornerstone, real DICOM fixtures, real gestures, real persistence to local file. Visual assertions where helpful (screenshots / pixel-diff snapshots). |
 
 ### 8.3 Acceptance signal → test layer mapping
 
-The 27 acceptance signals are predominantly E2E. Specifically:
+The 37 acceptance signals are predominantly E2E. Specifically:
 
-- **E2E (Playwright, Electron context, no mocks)**: signals 1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24.
+- **E2E (Playwright, Electron context, no mocks)**: signals 1–17, 19–36 (signal 18 retired). Signal 37 (performance budget) is a measured **benchmark**, not a pixel/behavior pass-fail.
 - **Service-integration (Vitest, real Cornerstone)**: signal 7 (undo after viewport closed — best done at the service layer where viewport-mount/unmount can be deterministically scripted), the signal-12 drawing-block logic ahead of its Phase 3 UI, and as a fast-feedback sibling for signals that also have E2E coverage.
 
 Every PR runs the full unit + service-integration suite. E2E runs on every PR for the signals the phase touches; the full E2E suite runs nightly and on `main` merge.

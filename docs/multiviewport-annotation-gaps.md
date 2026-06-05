@@ -8,7 +8,13 @@
 >
 > Severity: 🔴 blocks Phase 3 / data-loss-or-regression risk · 🟠 should fix before its phase · 🟡 lower / deferrable.
 >
-> **Resolved since this audit (2026-06-05):** the **conflict + save-failure workflow** (§1 row 1, §2 C7/D3) — §H boundary H5–H7 fleshed out, the clean-container external-change branch decided (no silent swap), and **acceptance signal 27** added. The **transport workstream is now sequenced** in PHASES (T-spec ∥ Phases 0–2 → T-build ≈ Phase 3 → T-gate before Phase 6), so the 33 stubs have an explicit slot. Remaining open items below stand.
+> **Resolved since this audit (2026-06-05):**
+> - **Conflict + save-failure workflow** (§1 row 1, §2 C7/D3) — §H H5–H7 fleshed out, clean-container branch decided (no silent swap), **signal 27** added.
+> - **§1 behavioral gaps closed with signals 28–37:** undo/redo state machine (28), voxel-tool roster (29) + Contour Fill must-fix (30), list-panel actions (31), measurement-SR container (32), selection model (33), drag/gesture continuity (34), tool-affordance + keyboard scoping (35), A2c auto-classification (36), performance budget (37). **Total signals now 37.**
+> - The only §1 items intentionally left as **service-integration / QA-matrix** (not headline E2E, per the spec's coverage note): D2 hover-sync, B7 Z-order, D11 per-structure-set toggle, B6 membership-propagation, B8 open-contour, C4 per-segment-propagation.
+> - **§3 existing features** all kept → folded into requirements **§I**. **Transport workstream sequenced** in PHASES (T-spec ∥ Phases 0–2 → T-build ≈ Phase 3 → T-gate before Phase 6).
+>
+> Net: the §1 table and §3/§5 below are now **closed**; what remains is the transport workstream's own 33-stub fill (its T-spec) and Phase 0 execution (fixtures + author the 37 red signals + walking skeleton).
 
 ---
 
@@ -86,9 +92,9 @@ The toolbar is being rebuilt and the frozen mockup lists several controls **by l
 
 1. ✅ **DONE — Decided which existing features survive (§3/§5).** All 12 kept; folded into requirements **§I**. (Hanging, W/L presets, overlay/rulers, Tags, image export, custom layout, trash-on-delete, Favorites, Import, cine-on-volume, connection lifecycle, Phase-5 tools.)
 2. ✅ **DONE — Spec the conflict + save-failure workflow** (§H H5–H7 defined, clean-branch decided, **signal 27** added). The remaining transport-side mechanics (C7/D3 internals) are now scheduled in the **transport workstream's T-spec** (PHASES).
-3. **🟠 Add signals for the unsignaled core behaviors (§1):** undo/redo state machine, voxel-tool roster (+ fix-and-test Contour Fill), list-panel actions, measurement-SR.
-4. **🟠 Define the Phase-3-blocking transport *result semantics* (§2 partial blockers)** — just the result/error contracts the panel reacts to, not the plumbing.
-5. **🟡 Everything else** — A2c classification, performance-budget measurement, the deferrable transport plumbing — into the relevant phase, tracked, not silently skipped.
+3. ✅ **DONE — Added signals for the unsignaled core behaviors (§1):** undo/redo (28), voxel-tool roster (29), Contour Fill (30), list-panel actions (31), measurement-SR (32), selection model (33), gesture continuity (34), affordance + keyboard scope (35), A2c (36), performance budget (37).
+4. **🟠 Define the Phase-3-blocking transport *result semantics* (§2 partial blockers)** — just the result/error contracts the panel reacts to, not the plumbing — as part of the transport workstream's **T-spec**.
+5. **🟡 Remaining** — the deferrable transport plumbing (the rest of the 33 stubs) into T-spec; then **Phase 0 execution**: build fixtures, author the **37 signals as red E2E tests**, drive the walking skeleton.
 
 The §8.0 rule remains the backstop: **author each as a red E2E signal before it counts as built.** This audit is the list of behaviors that currently have no such test.
 

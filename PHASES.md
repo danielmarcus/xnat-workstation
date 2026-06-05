@@ -125,7 +125,7 @@
 > **Status: restarting from scratch.** The earlier multi-viewport annotation attempt (prior `multiviewport-annotation` branch) is being discarded. This workstream rebuilds coherent multi-viewport handling of **structures (RTSTRUCT)**, **segmentations (SEG)**, and **measurements (DICOM-SR)** starting from the pre-rewrite app, against the refined specs in `docs/`. **No implementation has landed yet on `annotation-cleanup`** — only the specs and this plan.
 >
 > **Specs (authoritative):**
-> - [`docs/multiviewport-annotation-requirements.md`](docs/multiviewport-annotation-requirements.md) — functional requirements + 27 acceptance signals (authoritative for behavior).
+> - [`docs/multiviewport-annotation-requirements.md`](docs/multiviewport-annotation-requirements.md) — functional requirements + 37 acceptance signals (authoritative for behavior).
 > - [`docs/multiviewport-annotation-design.md`](docs/multiviewport-annotation-design.md) — architecture, data model, service layout, phasing (§7).
 > - [`docs/multiviewport-annotation-architecture.md`](docs/multiviewport-annotation-architecture.md) — layering contract, enforced boundaries, current→target migration map, component architecture (authoritative for structure).
 > - [`docs/multiviewport-annotation-current.md`](docs/multiviewport-annotation-current.md) — pre-rewrite baseline audit.
@@ -143,9 +143,9 @@
 - Skeletons (no consumers): `containerService`, `undoService`, `viewportLayoutService`, `transportStore`.
 - **Layering contract + ESLint enforcement** (architecture doc §2): boundary zones wired into `lint`/`ci.yml` from day one; current violations quarantined as tracked `BOUNDARY-DEBT`; produce `docs/multiviewport-annotation-architecture.md` (done).
 - Add feature flag `multiviewport.enabled` (default off).
-- **Test harness up front (binding — design §8.0):** build the `e2e/fixtures/` DICOM datasets (incl. `ct-axial-anatomy`) — fixtures are a Phase 0 **exit gate**; author all **27 acceptance signals as failing E2E tests** (full suite, red); **walking skeleton** — drive one signal fully green through the real stack (Electron + Cornerstone + real fixture) to validate the harness.
+- **Test harness up front (binding — design §8.0):** build the `e2e/fixtures/` DICOM datasets (incl. `ct-axial-anatomy`) — fixtures are a Phase 0 **exit gate**; author all **37 acceptance signals as failing E2E tests** (full suite, red); **walking skeleton** — drive one signal fully green through the real stack (Electron + Cornerstone + real fixture) to validate the harness.
 - **Fully-specified UI mockup (design §8.8)** produced and agreed as the visual acceptance reference — gates Phase 3. ✅ **DONE — frozen & user-approved 2026-06-05** ([`docs/mockup/annotations-panel.html`](docs/mockup/annotations-panel.html) + state matrix [`docs/multiviewport-annotation-mockup.md`](docs/multiviewport-annotation-mockup.md)). Covers **both** the Annotations side panel (§1–§9) **and** the top toolbar (§10) — both are **pixel-match requirements** for §8.0. Drove several rounds of review; specs (requirements/design/transport) updated to match the agreed UI.
-- **Acceptance:** app builds, runs, looks identical; existing tests pass; new types compile; the 27 signals exist as red tests; the walking-skeleton signal is green; fixtures + mockup in place.
+- **Acceptance:** app builds, runs, looks identical; existing tests pass; new types compile; the 37 signals exist as red tests; the walking-skeleton signal is green; fixtures + mockup in place.
 
 ### Rebuild Phase 1 — Viewport unification (Not started)
 - Volume (`ORTHOGRAPHIC`) is the default for volumetric data; stack reserved for the non-volumetric predicate (volume mode is **not** user-selectable for volumetric data).
