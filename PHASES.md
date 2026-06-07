@@ -136,16 +136,28 @@
 >
 > **Why this restarts, and the per-phase gate:** the prior attempt failed because tests were green while the app was broken. The fix is binding test discipline (design §8.0): signals authored as **red** tests first, **red-before-green** on every test, **visual** assertions against an agreed mockup, **no mocked Cornerstone / no skipped acceptance tests**, **vertical slices** (each PR moves a signal end-to-end). A phase is done only when its signals are green as functional tests, all previously-green signals still pass, and a **manual visual checkpoint with proof** is attached to the PR.
 
-### Rebuild Phase 0 — Preparation (Not started)
-- Validate PolySeg `^4.16.1` against known open regressions; pin a known-good version.
-- Land the data-model types (`Container` / `Member` / `SourceIdentity`; kinds `RTSTRUCT` / `SEG` / `SR`) in `src/renderer/types/annotation.ts`; wire into stores as **additions only** (no deletions yet).
-- Decompose `segmentationService.ts` (5614 lines) and `toolService.ts` (1047 lines) by **pure extraction** — no logic change.
-- Skeletons (no consumers): `containerService`, `undoService`, `viewportLayoutService`, `transportStore`.
-- **Layering contract + ESLint enforcement** (architecture doc §2): boundary zones wired into `lint`/`ci.yml` from day one; current violations quarantined as tracked `BOUNDARY-DEBT`; produce `docs/multiviewport-annotation-architecture.md` (done).
-- Add feature flag `multiviewport.enabled` (default off).
-- **Test harness up front (binding — design §8.0):** build the `e2e/fixtures/` DICOM datasets (incl. `ct-axial-anatomy`) — fixtures are a Phase 0 **exit gate**; author all **37 acceptance signals as failing E2E tests** (full suite, red); **walking skeleton** — drive one signal fully green through the real stack (Electron + Cornerstone + real fixture) to validate the harness.
-- **Fully-specified UI mockup (design §8.8)** produced and agreed as the visual acceptance reference — gates Phase 3. ✅ **DONE — frozen & user-approved 2026-06-05** ([`docs/mockup/annotations-panel.html`](docs/mockup/annotations-panel.html) + state matrix [`docs/multiviewport-annotation-mockup.md`](docs/multiviewport-annotation-mockup.md)). Covers **both** the Annotations side panel (§1–§9) **and** the top toolbar (§10) — both are **pixel-match requirements** for §8.0. Drove several rounds of review; specs (requirements/design/transport) updated to match the agreed UI.
-- **Acceptance:** app builds, runs, looks identical; existing tests pass; new types compile; the 37 signals exist as red tests; the walking-skeleton signal is green; fixtures + mockup in place.
+### Rebuild Phase 0 — Preparation (In progress — **Slice 1 landed 2026-06-06**)
+
+Phase 0 is being delivered in reviewable slices. **Slice 1 = additive scaffolding + harness proof** (decided with user: scaffold-first; local DICOM fixtures, no live XNAT; E2E must run in-sandbox). The risky service decomposition and the full fixture/signal suites are deferred to later Phase-0 passes.
+
+**Slice 1 — DONE:**
+- ✅ **PolySeg** already pinned at `^4.16.1` across all `@cornerstonejs/*` (validated in `package.json`); pinning to an exact version deferred.
+- ✅ **Data-model types** (`Container` / `Member` / `SourceIdentity`; kinds `SEG` / `RTSTRUCT` / `SR`) landed in **`src/shared/types/annotation.ts`** (shared is the project's types home — there is no `src/renderer/types/`), re-exported from the barrel. **Additive only**: reconcile-notes point at the three existing summary layers; no stores modified.
+- ✅ **Skeletons** (inert, flag-gated init in `ViewerPage`, + unit tests): `containerService`, `undoService`, `viewportLayoutService` (`src/renderer/lib/cornerstone/`), `transportStore` (`src/renderer/stores/`).
+- ✅ **Feature flag** `multiviewport.enabled` (default **off**) on `PreferencesV1.features.multiviewportEnabled` (persisted + merge-safe) with `selectMultiviewportEnabled` / `isMultiviewportEnabled` selectors.
+- ✅ **Offline local-fixture E2E path**: `ct-axial-300` synthetic CT sphere phantom + generator (`e2e/fixtures/dicom/`), an offline viewer entry (`__XNAT_E2E__.enterLocalViewer`, no XNAT), and a loader (`e2e/helpers/local-fixture.ts`) driving the app's real local-import path.
+- ✅ **Walking skeleton GREEN** through the real stack (Electron + WebGL2 Cornerstone + real fixture), offline, flag on: `e2e/specs/10-walking-skeleton.e2e.ts`. Launch/WebGL2 smoke: `e2e/specs/00-smoke.e2e.ts`.
+- ✅ **Red-signal seed**: signals **31 / 32 / 33** authored against the rebuilt panel and **observed red** in `e2e/signals/` (separate `playwright.signals.config.ts`, kept out of the default green suite — no `.skip`).
+- ✅ Baseline green bar held: `npm run build` clean, `npm test` 541/541, main + shared tsc clean, **zero new `tsc --noEmit` errors** (renderer baseline 262, all in pre-existing test files; not a project gate).
+
+**Deferred to later Phase-0 passes:**
+- ◻️ Decompose `segmentationService.ts` (5614 lines) by **pure extraction** (order: `contourTools` → `undo` → `visibility` → `representation` → `lifecycle`; re-export to keep the public API stable; test after each). `toolService.ts` left as-is (low value).
+- ◻️ Remaining 8 fixtures incl. **`ct-axial-anatomy`** (intensity-aware tools) — fixtures are a Phase 0 **exit gate**.
+- ◻️ Author the remaining **~34 acceptance signals as red** (full 37-signal suite).
+- ◻️ **Layering contract + ESLint enforcement** (architecture doc §2): boundary zones wired into `lint`/`ci.yml`; quarantine current violations as `BOUNDARY-DEBT`. (`docs/multiviewport-annotation-architecture.md` done.)
+
+- **Fully-specified UI mockup (design §8.8)** produced and agreed as the visual acceptance reference — gates Phase 3. ✅ **DONE — frozen & user-approved 2026-06-05** ([`docs/mockup/annotations-panel.html`](docs/mockup/annotations-panel.html) + state matrix [`docs/multiviewport-annotation-mockup.md`](docs/multiviewport-annotation-mockup.md)). Covers **both** the Annotations side panel (§1–§9) **and** the top toolbar (§10) — both are **pixel-match requirements** for §8.0.
+- **Phase 0 exit gate (full):** app builds, runs, looks identical; existing tests pass; new types compile; **all 37** signals exist as red tests; the walking-skeleton signal is green; **all** fixtures + mockup in place; service decomposition complete; ESLint boundaries enforced.
 
 ### Rebuild Phase 1 — Viewport unification (Not started)
 - Volume (`ORTHOGRAPHIC`) is the default for volumetric data; stack reserved for the non-volumetric predicate (volume mode is **not** user-selectable for volumetric data).

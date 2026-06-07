@@ -127,6 +127,21 @@ export const DEFAULT_DELETION_PREFERENCES: DeletionPreferences = {
   trashResourceName: 'trash',
 };
 
+// ─── Feature Flags ──────────────────────────────────────────────
+
+export interface FeaturePreferences {
+  /**
+   * Gates the multi-viewport annotation rebuild. Default OFF — the rebuilt
+   * surfaces stay dark until a phase opts a path in. Phase 0 only reads this
+   * for the walking-skeleton signal; existing call sites are untouched.
+   */
+  multiviewportEnabled: boolean;
+}
+
+export const DEFAULT_FEATURE_PREFERENCES: FeaturePreferences = {
+  multiviewportEnabled: false,
+};
+
 // ─── Top-level Preferences ──────────────────────────────────────
 
 export interface PreferencesV1 {
@@ -139,6 +154,8 @@ export interface PreferencesV1 {
   interpolation: InterpolationPreferences;
   backup: BackupPreferences;
   deletion: DeletionPreferences;
+  /** Optional for back-compat with persisted prefs that predate feature flags. */
+  features?: FeaturePreferences;
 }
 
 export const DEFAULT_OVERLAY_CORNERS: Record<OverlayCornerId, OverlayFieldKey[]> = {
@@ -211,4 +228,5 @@ export const DEFAULT_PREFERENCES: PreferencesV1 = {
   interpolation: { ...DEFAULT_INTERPOLATION_PREFERENCES },
   backup: { ...DEFAULT_BACKUP_PREFERENCES },
   deletion: { ...DEFAULT_DELETION_PREFERENCES },
+  features: { ...DEFAULT_FEATURE_PREFERENCES },
 };

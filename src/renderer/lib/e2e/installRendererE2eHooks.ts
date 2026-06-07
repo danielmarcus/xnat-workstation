@@ -7,6 +7,9 @@ import {
 } from '@cornerstonejs/tools';
 import { useSegmentationStore } from '../../stores/segmentationStore';
 import { useViewerStore } from '../../stores/viewerStore';
+import { useConnectionStore } from '../../stores/connectionStore';
+import { useAnnotationStore } from '../../stores/annotationStore';
+import { usePreferencesStore } from '../../stores/preferencesStore';
 import { segmentationManager } from '../segmentation/segmentationManagerSingleton';
 import { segmentationService } from '../cornerstone/segmentationService';
 import * as contourRep from '../cornerstone/contourRepresentation';
@@ -46,6 +49,16 @@ declare global {
       getLockAwareUndoRedoCounter: () => number;
       createTestStructure: (panelId: string, label: string) => Promise<string>;
       createTestContour: (panelId: string, segmentationId: string, segmentIndex?: number) => string | null;
+      /**
+       * Offline viewer entry for local-fixture E2E: forces the connection store
+       * into a synthetic "connected" state so App renders the viewer chrome
+       * (toolbar + viewport grid) WITHOUT a live XNAT server. No network.
+       */
+      enterLocalViewer: () => void;
+      /** Number of measurement annotations currently tracked (annotationStore). */
+      getMeasurementCount: () => number;
+      /** Toggle the multiviewport feature flag (must be set before the viewer mounts). */
+      setMultiviewportEnabled: (enabled: boolean) => void;
     };
   }
 }
@@ -396,6 +409,21 @@ export function installRendererE2eHooks(): void {
       segmentationService.sync();
 
       return annotationUID;
+    },
+    enterLocalViewer: () => {
+      useConnectionStore.setState({
+        status: 'connected',
+        connection: {
+          serverUrl: 'http://localhost.e2e',
+          username: 'e2e',
+          connectedAt: Date.now(),
+        },
+        error: null,
+      });
+    },
+    getMeasurementCount: () => useAnnotationStore.getState().annotations.length,
+    setMultiviewportEnabled: (enabled: boolean) => {
+      usePreferencesStore.getState().setMultiviewportEnabled(enabled);
     },
   };
 }

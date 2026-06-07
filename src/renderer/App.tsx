@@ -2976,6 +2976,7 @@ export default function App() {
                 accept=".dcm,.DCM"
                 className="hidden"
                 onChange={handleFileInput}
+                data-testid="local-import-input"
               />
             </label>
             {/* Export — icon only */}

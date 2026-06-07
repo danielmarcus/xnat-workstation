@@ -6,6 +6,7 @@ export * from './preferences';
 export * from './backup';
 export * from './diagnostics';
 export * from './updater';
+export * from './annotation';
 
 import type {
   XnatLoginResult,

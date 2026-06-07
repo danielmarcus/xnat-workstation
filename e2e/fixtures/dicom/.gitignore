@@ -1,0 +1,6 @@
+# Generated DICOM fixtures are not committed — regenerate via generate.cjs.
+# Keep the generator, README, and this file tracked.
+*/
+!.gitignore
+!README.md
+!generate.cjs

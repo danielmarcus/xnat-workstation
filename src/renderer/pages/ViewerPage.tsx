@@ -14,6 +14,10 @@ import DicomHeaderPanel from '../components/viewer/DicomHeaderPanel';
 import { toolService } from '../lib/cornerstone/toolService';
 import { annotationService } from '../lib/cornerstone/annotationService';
 import { segmentationService } from '../lib/cornerstone/segmentationService';
+import { containerService } from '../lib/cornerstone/containerService';
+import { undoService } from '../lib/cornerstone/undoService';
+import { viewportLayoutService } from '../lib/cornerstone/viewportLayoutService';
+import { isMultiviewportEnabled } from '../stores/preferencesStore';
 import { useHotkeys } from '../hooks/useHotkeys';
 import { useAnnotationStore } from '../stores/annotationStore';
 import { useSegmentationStore } from '../stores/segmentationStore';
@@ -70,7 +74,18 @@ export default function ViewerPage({
     toolService.initialize();
     annotationService.initialize();
     segmentationService.initialize();
+    // Annotation-rebuild skeletons — inert and gated behind the multiviewport
+    // feature flag (default off), so flag-off users see no behavior change.
+    if (isMultiviewportEnabled()) {
+      containerService.initialize();
+      undoService.initialize();
+      viewportLayoutService.initialize();
+    }
     return () => {
+      // dispose() is idempotent (no-op if never initialized) — safe unconditionally.
+      viewportLayoutService.dispose();
+      undoService.dispose();
+      containerService.dispose();
       segmentationService.dispose();
       annotationService.dispose();
       toolService.destroy();

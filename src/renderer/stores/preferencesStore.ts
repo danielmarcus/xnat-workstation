@@ -10,8 +10,10 @@ import {
   DEFAULT_INTERPOLATION_PREFERENCES,
   DEFAULT_BACKUP_PREFERENCES,
   DEFAULT_DELETION_PREFERENCES,
+  DEFAULT_FEATURE_PREFERENCES,
   type BackupPreferences,
   type DeletionPreferences,
+  type FeaturePreferences,
   type InterpolationAlgorithm,
   type InterpolationPreferences,
   type OverlayCornerId,
@@ -56,6 +58,8 @@ interface PreferencesStore {
   // ─── Deletion ─────────────────────────────────────────────
   setTrashOnServerDelete: (enabled: boolean) => void;
   setTrashResourceName: (name: string) => void;
+  // ─── Feature flags ─────────────────────────────────────────
+  setMultiviewportEnabled: (enabled: boolean) => void;
   resetAll: () => void;
 }
 
@@ -130,6 +134,20 @@ function makeDefaultPreferences(): PreferencesV1 {
     interpolation: { ...DEFAULT_INTERPOLATION_PREFERENCES },
     backup: { ...DEFAULT_BACKUP_PREFERENCES },
     deletion: { ...DEFAULT_DELETION_PREFERENCES },
+    features: { ...DEFAULT_FEATURE_PREFERENCES },
+  };
+}
+
+function mergeFeaturePreferences(current: FeaturePreferences, incoming: unknown): FeaturePreferences {
+  if (!incoming || typeof incoming !== 'object') {
+    return { ...current };
+  }
+  const candidate = incoming as Partial<FeaturePreferences>;
+  return {
+    multiviewportEnabled:
+      typeof candidate.multiviewportEnabled === 'boolean'
+        ? candidate.multiviewportEnabled
+        : current.multiviewportEnabled,
   };
 }
 
@@ -594,6 +612,17 @@ export const usePreferencesStore = create<PreferencesStore>()(
         set({
           preferences: makeDefaultPreferences(),
         }),
+
+      setMultiviewportEnabled: (enabled: boolean) =>
+        set((state) => ({
+          preferences: {
+            ...state.preferences,
+            features: {
+              ...(state.preferences.features ?? DEFAULT_FEATURE_PREFERENCES),
+              multiviewportEnabled: enabled,
+            },
+          },
+        })),
     }),
     {
       name: 'xnat-viewer:preferences',
@@ -665,9 +694,28 @@ export const usePreferencesStore = create<PreferencesStore>()(
             interpolation: mergedInterpolation,
             backup: mergedBackup,
             deletion: mergedDeletion,
+            features: mergeFeaturePreferences(
+              base.preferences.features ?? DEFAULT_FEATURE_PREFERENCES,
+              (incoming as Partial<PreferencesV1>).features,
+            ),
           },
         };
       },
     },
   ),
 );
+
+// ─── Feature-flag selectors ───────────────────────────────────────
+
+/** Zustand selector: whether the multi-viewport annotation rebuild is enabled. */
+export const selectMultiviewportEnabled = (state: PreferencesStore): boolean =>
+  state.preferences.features?.multiviewportEnabled ?? false;
+
+/**
+ * Non-reactive read of the multiviewport feature flag, for use outside React
+ * (services, E2E hooks). Components should use
+ * `usePreferencesStore(selectMultiviewportEnabled)` to stay reactive.
+ */
+export function isMultiviewportEnabled(): boolean {
+  return selectMultiviewportEnabled(usePreferencesStore.getState());
+}
