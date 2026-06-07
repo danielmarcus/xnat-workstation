@@ -30,6 +30,8 @@ const { DicomMetaDictionary, DicomDict } = dcmjs.data;
 
 const TRANSFER_SYNTAX_EXPLICIT_VR_LE = '1.2.840.10008.1.2.1';
 const CT_IMAGE_STORAGE = '1.2.840.10008.5.1.4.1.1.2';
+const RTSTRUCT_STORAGE = '1.2.840.10008.5.1.4.1.1.481.3';
+const DETACHED_STUDY_MGMT = '1.2.840.10008.3.1.2.3.1'; // RTReferencedStudy ReferencedSOPClassUID (legacy)
 
 /**
  * Write a CT axial series. `voxel(x, y, z)` returns the HU value at the given
@@ -58,6 +60,7 @@ function writeCtSeries(outDir, opts) {
   const cx = (cols - 1) / 2;
   const cy = (rows - 1) / 2;
   const cz = (numSlices - 1) / 2;
+  const slices = [];
 
   for (let s = 0; s < numSlices; s++) {
     const sopInstanceUID = DicomMetaDictionary.uid();
@@ -128,9 +131,10 @@ function writeCtSeries(outDir, opts) {
 
     const filename = `slice-${String(s + 1).padStart(3, '0')}.dcm`;
     fs.writeFileSync(path.join(outDir, filename), Buffer.from(buffer));
+    slices.push({ sopInstanceUID, z, ipp: [-cx * pixelSpacing[1], -cy * pixelSpacing[0], z] });
   }
 
-  return { count: numSlices, rows, cols };
+  return { count: numSlices, rows, cols, studyUID, seriesUID, frameOfReferenceUID, pixelSpacing, slices };
 }
 
 function generateCtAxial300(outDir) {
@@ -165,9 +169,118 @@ function generateCtAxialAnatomy(outDir) {
   });
 }
 
+function generateRtstructTyped(outDir) {
+  // Emit a source CT (sphere phantom) + an RTSTRUCT that references it by the
+  // SAME UIDs, with several ROIs covering distinct RTROIInterpretedType values.
+  fs.mkdirSync(outDir, { recursive: true });
+  const src = writeCtSeries(outDir, {
+    seriesDescription: 'CT for RTSTRUCT-TYPED',
+    patientId: 'RTSTRUCT-TYPED',
+    patientName: 'PHANTOM^RTSTRUCT',
+    voxel: (x, y, z) => (Math.sqrt(x * x + y * y + z * z) <= 24 ? 300 : -1000),
+  });
+
+  const mid = src.slices[Math.floor(src.slices.length / 2)];
+  const z = mid.z;
+
+  // ROIs covering distinct interpreted types; each a CLOSED_PLANAR square on
+  // the mid slice (centered at origin), sized differently.
+  const rois = [
+    { num: 1, name: 'BODY', type: 'EXTERNAL', color: [0, 255, 0], half: 45 },
+    { num: 2, name: 'GTV', type: 'GTV', color: [255, 0, 0], half: 12 },
+    { num: 3, name: 'ORGAN', type: 'ORGAN', color: [0, 128, 255], half: 24 },
+    { num: 4, name: 'MARKER', type: 'MARKER', color: [255, 255, 0], half: 6 },
+  ];
+  const square = (h) => [-h, -h, z, h, -h, z, h, h, z, -h, h, z];
+
+  const allSliceRefs = src.slices.map((sl) => ({
+    ReferencedSOPClassUID: CT_IMAGE_STORAGE,
+    ReferencedSOPInstanceUID: sl.sopInstanceUID,
+  }));
+
+  const sopInstanceUID = DicomMetaDictionary.uid();
+  const dataset = {
+    SOPClassUID: RTSTRUCT_STORAGE,
+    SOPInstanceUID: sopInstanceUID,
+    StudyInstanceUID: src.studyUID,
+    SeriesInstanceUID: DicomMetaDictionary.uid(),
+    FrameOfReferenceUID: src.frameOfReferenceUID,
+    Modality: 'RTSTRUCT',
+    PatientName: 'PHANTOM^RTSTRUCT',
+    PatientID: 'RTSTRUCT-TYPED',
+    PatientBirthDate: '',
+    PatientSex: 'O',
+    StudyID: '1',
+    StudyDate: '20260101',
+    StudyTime: '000000',
+    SeriesNumber: 99,
+    InstanceNumber: 1,
+    StructureSetLabel: 'RTSTRUCT-TYPED',
+    StructureSetName: 'RTSTRUCT-TYPED',
+    StructureSetDate: '20260101',
+    StructureSetTime: '000000',
+    ReferencedFrameOfReferenceSequence: [
+      {
+        FrameOfReferenceUID: src.frameOfReferenceUID,
+        RTReferencedStudySequence: [
+          {
+            ReferencedSOPClassUID: DETACHED_STUDY_MGMT,
+            ReferencedSOPInstanceUID: src.studyUID,
+            RTReferencedSeriesSequence: [
+              { SeriesInstanceUID: src.seriesUID, ContourImageSequence: allSliceRefs },
+            ],
+          },
+        ],
+      },
+    ],
+    StructureSetROISequence: rois.map((r) => ({
+      ROINumber: r.num,
+      ReferencedFrameOfReferenceUID: src.frameOfReferenceUID,
+      ROIName: r.name,
+      ROIGenerationAlgorithm: 'MANUAL',
+    })),
+    ROIContourSequence: rois.map((r) => ({
+      ReferencedROINumber: r.num,
+      ROIDisplayColor: r.color,
+      ContourSequence: [
+        {
+          ContourImageSequence: [
+            { ReferencedSOPClassUID: CT_IMAGE_STORAGE, ReferencedSOPInstanceUID: mid.sopInstanceUID },
+          ],
+          ContourGeometricType: 'CLOSED_PLANAR',
+          NumberOfContourPoints: 4,
+          ContourData: square(r.half),
+        },
+      ],
+    })),
+    RTROIObservationsSequence: rois.map((r) => ({
+      ObservationNumber: r.num,
+      ReferencedROINumber: r.num,
+      RTROIInterpretedType: r.type,
+      ROIInterpreter: '',
+    })),
+  };
+
+  const meta = {
+    FileMetaInformationVersion: new Uint8Array([0, 1]).buffer,
+    MediaStorageSOPClassUID: RTSTRUCT_STORAGE,
+    MediaStorageSOPInstanceUID: sopInstanceUID,
+    TransferSyntaxUID: TRANSFER_SYNTAX_EXPLICIT_VR_LE,
+    ImplementationClassUID: DicomMetaDictionary.uid(),
+    ImplementationVersionName: 'XNATWS_E2E_1',
+  };
+
+  const dicomDict = new DicomDict(DicomMetaDictionary.denaturalizeDataset(meta));
+  dicomDict.dict = DicomMetaDictionary.denaturalizeDataset(dataset);
+  fs.writeFileSync(path.join(outDir, 'rtstruct.dcm'), Buffer.from(dicomDict.write()));
+
+  return { count: src.count + 1, rows: src.rows, cols: src.cols };
+}
+
 const GENERATORS = {
   'ct-axial-300': generateCtAxial300,
   'ct-axial-anatomy': generateCtAxialAnatomy,
+  'rtstruct-typed': generateRtstructTyped,
 };
 
 function main() {
