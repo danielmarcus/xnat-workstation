@@ -48,7 +48,9 @@ of the full 37-signal red suite (PHASES.md → Rebuild Phase 0).
 | visibility tri-state | 20 (D7.3) | ct-axial-300     | member control cycles filled/outlined/hidden |
 | undo isolation     | 28 (A8)   | ct-axial-300      | undo reverts only the active container's last op |
 | S3: multi-viewport + editing | 1,2,3,4,5,6,7,8,13,22,23,29,34,35 | ct-axial-300/-anatomy | rebuilt MPR propagation, shared-volume edit, cross-panel selection/lock, gesture continuity, interpolation, copy/paste, voxel-tool roster, tool/keyboard scoping |
+| SEG round-trip    | 24 (C7/C8) | seg-multilabel    | loaded multi-segment SEG lists all 5 members in the rebuilt panel |
+| Contour Fill      | 30 (C3)   | ct-axial-anatomy  | LabelMapEditWithContourTool boundary-fill into active segment, single-undo |
 
-**23 of 37 signals seeded** (red). Remaining ~28 are tracked for later passes;
+**25 of 37 signals seeded** (red). Remaining ~28 are tracked for later passes;
 some need richer fixtures (paired series, RTSTRUCT/SEG objects) or session/XNAT
 machinery (lifecycle/conflict signals 25–27, 36).
