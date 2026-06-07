@@ -27,8 +27,10 @@ of the full 37-signal red suite (PHASES.md → Rebuild Phase 0).
 | `create-structure`              | header create button → RTSTRUCT container        |
 | `create-measurement`            | header create button → SR container              |
 | `save-all-annotations`          | header save-all icon                             |
-| `container-row` (`data-kind`)   | a container row (kind SEG/RTSTRUCT/SR)           |
-| `member-row`                    | a member row (segment/ROI/measurement)           |
+| `container-row` (`data-kind`, `data-approved`) | a container row (kind SEG/RTSTRUCT/SR; approved?) |
+| `member-row` (`data-active`, `data-empty`, `data-selected`) | a member row (active draw-target? empty? selected?) |
+| `member-visibility` (`data-mode`) | per-member tri-state control (filled/outlined/hidden) |
+| `approve-container` / `approval-badge` | approve action + approved-state badge |
 
 ## Seeded so far
 
@@ -39,3 +41,11 @@ of the full 37-signal red suite (PHASES.md → Rebuild Phase 0).
 | selection model    | 33 (A11)  | ct-axial-300      | single-click selects a member globally |
 | region-segment     | 21 (C3)   | ct-axial-anatomy  | smart-brush fills a homogeneous in-tolerance region; lock blocks |
 | 3D paint-fill + MPR | 16 (A6/C8) | ct-axial-anatomy | fill resamples onto sagittal MPR; undo reverts as one entry |
+| empty active member | 17 (A)   | ct-axial-300      | new container's first member is active + empty; drawing fills it |
+| approval lock      | 19 (D7)   | ct-axial-300      | approve edit-locks members + shows approval badge |
+| visibility tri-state | 20 (D7.3) | ct-axial-300     | member control cycles filled/outlined/hidden |
+| undo isolation     | 28 (A8)   | ct-axial-300      | undo reverts only the active container's last op |
+
+**9 of 37 signals seeded** (red). Remaining ~28 are tracked for later passes;
+some need richer fixtures (paired series, RTSTRUCT/SEG objects) or session/XNAT
+machinery (lifecycle/conflict signals 25–27, 36).
