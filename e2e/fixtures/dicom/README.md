@@ -19,8 +19,9 @@ node e2e/fixtures/dicom/generate.cjs ct-axial-300 # one dataset
 | `ct-axial-300`     | Binary CT sphere phantom (two HU values).                               | ✅ built |
 | `ct-axial-anatomy` | Intensity-varied CT — air/-1000, soft-tissue/+40, lesion/+70, bone/+1000, sharp boundaries (for region-grow / paint-fill / threshold tolerance). | ✅ built |
 | `rtstruct-typed`   | Source CT (sphere) + a hand-built RTSTRUCT referencing it (shared UIDs), 4 ROIs covering distinct RTROIInterpretedType (EXTERNAL/GTV/ORGAN/MARKER). Verified to load via the app (`e2e/specs/11-fixture-rtstruct`). | ✅ built |
+| `seg-multilabel`   | Source CT (sphere) + a hand-built multi-segment BINARY DICOM SEG (5 segments on distinct slices, continuous LSB-first bitstream). Verified to load via the app (`e2e/specs/12-fixture-seg`). | ✅ built |
 
-Planned for later Phase-0 passes (per the design's fixture matrix): `seg-multilabel`,
+Planned for later Phase-0 passes (per the design's fixture matrix):
 `mr-t1-t2-sameexam`, `4dct-phases`, `breath-hold-pair`, `cross-for-ct-mr`, `cine-us`.
 
 Note: SEG/RTSTRUCT are **hand-built** in `generate.cjs` (not exported via the app),

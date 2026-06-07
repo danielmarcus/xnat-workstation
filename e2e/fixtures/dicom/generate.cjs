@@ -31,6 +31,7 @@ const { DicomMetaDictionary, DicomDict } = dcmjs.data;
 const TRANSFER_SYNTAX_EXPLICIT_VR_LE = '1.2.840.10008.1.2.1';
 const CT_IMAGE_STORAGE = '1.2.840.10008.5.1.4.1.1.2';
 const RTSTRUCT_STORAGE = '1.2.840.10008.5.1.4.1.1.481.3';
+const SEG_STORAGE = '1.2.840.10008.5.1.4.1.1.66.4';
 const DETACHED_STUDY_MGMT = '1.2.840.10008.3.1.2.3.1'; // RTReferencedStudy ReferencedSOPClassUID (legacy)
 
 /**
@@ -277,10 +278,149 @@ function generateRtstructTyped(outDir) {
   return { count: src.count + 1, rows: src.rows, cols: src.cols };
 }
 
+function generateSegMultilabel(outDir) {
+  // Emit a source CT (sphere) + a multi-segment BINARY DICOM SEG referencing it
+  // by shared UIDs. 5 segments, each on a distinct slice (a centered square of
+  // varying size). DICOM SEG BINARY packs ALL frames as one continuous LSB-first
+  // bitstream (no per-frame byte padding) — see CLAUDE.md DICOM Compliance.
+  fs.mkdirSync(outDir, { recursive: true });
+  const src = writeCtSeries(outDir, {
+    seriesDescription: 'CT for SEG-MULTILABEL',
+    patientId: 'SEG-MULTILABEL',
+    patientName: 'PHANTOM^SEG',
+    voxel: (x, y, z) => (Math.sqrt(x * x + y * y + z * z) <= 24 ? 300 : -1000),
+  });
+
+  const rows = src.rows;
+  const cols = src.cols;
+  const NUM_SEG = 5;
+  const sliceIdx = [3, 5, 7, 9, 11]; // distinct slice per segment
+  const cx = (cols - 1) / 2;
+  const cy = (rows - 1) / 2;
+
+  // Continuous bitstream: bit index = frame * rows * cols + (r * cols + c).
+  const totalBits = NUM_SEG * rows * cols;
+  const pixelData = new Uint8Array(Math.ceil(totalBits / 8));
+
+  const perFrameGroups = [];
+  const segmentSequence = [];
+  for (let s = 0; s < NUM_SEG; s++) {
+    const seg = s + 1;
+    const slice = src.slices[sliceIdx[s]];
+    const half = 10 + s * 4; // varying square size
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        if (Math.abs(c - cx) <= half && Math.abs(r - cy) <= half) {
+          const bit = s * rows * cols + (r * cols + c);
+          pixelData[bit >> 3] |= 1 << (bit & 7);
+        }
+      }
+    }
+    perFrameGroups.push({
+      FrameContentSequence: [{ DimensionIndexValues: [seg, s + 1] }],
+      PlanePositionSequence: [{ ImagePositionPatient: slice.ipp }],
+      PlaneOrientationSequence: [{ ImageOrientationPatient: [1, 0, 0, 0, 1, 0] }],
+      SegmentIdentificationSequence: [{ ReferencedSegmentNumber: seg }],
+      DerivationImageSequence: [
+        {
+          SourceImageSequence: [
+            { ReferencedSOPClassUID: CT_IMAGE_STORAGE, ReferencedSOPInstanceUID: slice.sopInstanceUID },
+          ],
+          DerivationCodeSequence: [
+            { CodeValue: '113076', CodingSchemeDesignator: 'DCM', CodeMeaning: 'Segmentation' },
+          ],
+        },
+      ],
+    });
+    segmentSequence.push({
+      SegmentNumber: seg,
+      SegmentLabel: `Segment ${seg}`,
+      SegmentAlgorithmType: 'MANUAL',
+      SegmentedPropertyCategoryCodeSequence: [
+        { CodeValue: '123037004', CodingSchemeDesignator: 'SCT', CodeMeaning: 'Anatomical Structure' },
+      ],
+      SegmentedPropertyTypeCodeSequence: [
+        { CodeValue: '85756007', CodingSchemeDesignator: 'SCT', CodeMeaning: 'Tissue' },
+      ],
+    });
+  }
+
+  const sopInstanceUID = DicomMetaDictionary.uid();
+  const dataset = {
+    SOPClassUID: SEG_STORAGE,
+    SOPInstanceUID: sopInstanceUID,
+    StudyInstanceUID: src.studyUID,
+    SeriesInstanceUID: DicomMetaDictionary.uid(),
+    FrameOfReferenceUID: src.frameOfReferenceUID,
+    Modality: 'SEG',
+    PatientName: 'PHANTOM^SEG',
+    PatientID: 'SEG-MULTILABEL',
+    PatientBirthDate: '',
+    PatientSex: 'O',
+    StudyID: '1',
+    StudyDate: '20260101',
+    StudyTime: '000000',
+    SeriesNumber: 98,
+    InstanceNumber: 1,
+    SeriesDescription: 'SEG MULTILABEL',
+    ContentLabel: 'SEGMULTILABEL',
+    ContentDescription: 'multilabel phantom',
+    ContentCreatorName: 'XNATWS',
+    SegmentationType: 'BINARY',
+    Rows: rows,
+    Columns: cols,
+    SamplesPerPixel: 1,
+    PhotometricInterpretation: 'MONOCHROME2',
+    BitsAllocated: 1,
+    BitsStored: 1,
+    HighBit: 0,
+    PixelRepresentation: 0,
+    LossyImageCompression: '00',
+    NumberOfFrames: NUM_SEG,
+    SegmentSequence: segmentSequence,
+    SharedFunctionalGroupsSequence: [
+      {
+        PlaneOrientationSequence: [{ ImageOrientationPatient: [1, 0, 0, 0, 1, 0] }],
+        PixelMeasuresSequence: [
+          { PixelSpacing: src.pixelSpacing, SliceThickness: 3.0, SpacingBetweenSlices: 3.0 },
+        ],
+      },
+    ],
+    PerFrameFunctionalGroupsSequence: perFrameGroups,
+    DimensionOrganizationSequence: [{ DimensionOrganizationUID: DicomMetaDictionary.uid() }],
+    ReferencedSeriesSequence: [
+      {
+        SeriesInstanceUID: src.seriesUID,
+        ReferencedInstanceSequence: src.slices.map((sl) => ({
+          ReferencedSOPClassUID: CT_IMAGE_STORAGE,
+          ReferencedSOPInstanceUID: sl.sopInstanceUID,
+        })),
+      },
+    ],
+    PixelData: pixelData.buffer,
+  };
+
+  const meta = {
+    FileMetaInformationVersion: new Uint8Array([0, 1]).buffer,
+    MediaStorageSOPClassUID: SEG_STORAGE,
+    MediaStorageSOPInstanceUID: sopInstanceUID,
+    TransferSyntaxUID: TRANSFER_SYNTAX_EXPLICIT_VR_LE,
+    ImplementationClassUID: DicomMetaDictionary.uid(),
+    ImplementationVersionName: 'XNATWS_E2E_1',
+  };
+
+  const dicomDict = new DicomDict(DicomMetaDictionary.denaturalizeDataset(meta));
+  dicomDict.dict = DicomMetaDictionary.denaturalizeDataset(dataset);
+  fs.writeFileSync(path.join(outDir, 'seg.dcm'), Buffer.from(dicomDict.write()));
+
+  return { count: src.count + 1, rows, cols };
+}
+
 const GENERATORS = {
   'ct-axial-300': generateCtAxial300,
   'ct-axial-anatomy': generateCtAxialAnatomy,
   'rtstruct-typed': generateRtstructTyped,
+  'seg-multilabel': generateSegMultilabel,
 };
 
 function main() {
