@@ -32,8 +32,10 @@ of the full 37-signal red suite (PHASES.md → Rebuild Phase 0).
 
 ## Seeded so far
 
-| Spec test         | §G signal | What it asserts (red now) |
-|-------------------|-----------|---------------------------|
-| panel structure   | 31 (D7.6) | rebuilt panel + 3 create buttons + save-all |
-| measurement peer  | 32 (D7.1) | create Measurement container → member row w/ value+unit |
-| selection model   | 33 (A11)  | single-click selects a member globally |
+| Spec test          | §G signal | Fixture           | What it asserts (red now) |
+|--------------------|-----------|-------------------|---------------------------|
+| panel structure    | 31 (D7.6) | ct-axial-300      | rebuilt panel + 3 create buttons + save-all |
+| measurement peer   | 32 (D7.1) | ct-axial-300      | create Measurement container → member row w/ value+unit |
+| selection model    | 33 (A11)  | ct-axial-300      | single-click selects a member globally |
+| region-segment     | 21 (C3)   | ct-axial-anatomy  | smart-brush fills a homogeneous in-tolerance region; lock blocks |
+| 3D paint-fill + MPR | 16 (A6/C8) | ct-axial-anatomy | fill resamples onto sagittal MPR; undo reverts as one entry |

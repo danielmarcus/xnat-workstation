@@ -18,8 +18,9 @@ import { ViewerPage } from '../pages/viewer.page';
 
 const DICOM_FIXTURES_DIR = path.resolve(__dirname, '..', 'fixtures', 'dicom');
 
-export function ctAxial300Dir(): string {
-  return path.join(DICOM_FIXTURES_DIR, 'ct-axial-300');
+/** Absolute path to a generated fixture dataset directory. */
+export function fixtureDir(datasetName: string): string {
+  return path.join(DICOM_FIXTURES_DIR, datasetName);
 }
 
 function listDicomFiles(dir: string): string[] {
@@ -32,23 +33,31 @@ function listDicomFiles(dir: string): string[] {
 }
 
 /**
- * Ensure the ct-axial-300 fixture exists on disk, generating it if missing.
+ * Ensure a fixture dataset exists on disk, generating it on demand if missing.
  * Returns the sorted list of slice file paths.
  */
-export function ensureCtAxial300(): string[] {
-  const dir = ctAxial300Dir();
+export function ensureFixture(datasetName: string): string[] {
+  const dir = fixtureDir(datasetName);
   let files = listDicomFiles(dir);
   if (files.length === 0) {
     const generator = path.join(DICOM_FIXTURES_DIR, 'generate.cjs');
-    execFileSync(process.execPath, [generator, 'ct-axial-300'], { stdio: 'inherit' });
+    execFileSync(process.execPath, [generator, datasetName], { stdio: 'inherit' });
     files = listDicomFiles(dir);
   }
   if (files.length === 0) {
     throw new Error(
-      `No DICOM fixtures found in ${dir} after generation. Run: node e2e/fixtures/dicom/generate.cjs ct-axial-300`,
+      `No DICOM fixtures found in ${dir} after generation. Run: node e2e/fixtures/dicom/generate.cjs ${datasetName}`,
     );
   }
   return files;
+}
+
+/** Back-compat: ct-axial-300 dataset directory + ensure. */
+export function ctAxial300Dir(): string {
+  return fixtureDir('ct-axial-300');
+}
+export function ensureCtAxial300(): string[] {
+  return ensureFixture('ct-axial-300');
 }
 
 /**
@@ -80,12 +89,21 @@ export async function loadLocalDicom(page: Page, filePaths: string[], panelId = 
   return viewer;
 }
 
-/** Convenience: enter the viewer offline and load the ct-axial-300 sphere phantom. */
-export async function loadCtAxial300(page: Page, panelId = 'panel_0'): Promise<ViewerPage> {
-  const files = ensureCtAxial300();
+/** Enter the viewer offline and load a named fixture dataset into a panel. */
+export async function loadFixture(page: Page, datasetName: string, panelId = 'panel_0'): Promise<ViewerPage> {
+  const files = ensureFixture(datasetName);
   await enterLocalViewer(page);
   const viewer = await loadLocalDicom(page, files, panelId);
-  // Sanity: the phantom is a multi-slice stack.
-  expect(files.length).toBeGreaterThan(1);
+  expect(files.length).toBeGreaterThan(1); // sanity: a multi-slice stack
   return viewer;
+}
+
+/** Convenience: load the ct-axial-300 binary sphere phantom. */
+export function loadCtAxial300(page: Page, panelId = 'panel_0'): Promise<ViewerPage> {
+  return loadFixture(page, 'ct-axial-300', panelId);
+}
+
+/** Convenience: load the ct-axial-anatomy intensity-varied phantom. */
+export function loadCtAxialAnatomy(page: Page, panelId = 'panel_0'): Promise<ViewerPage> {
+  return loadFixture(page, 'ct-axial-anatomy', panelId);
 }

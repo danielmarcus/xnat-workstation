@@ -150,10 +150,10 @@ Phase 0 is being delivered in reviewable slices. **Slice 1 = additive scaffoldin
 - ✅ **Red-signal seed**: signals **31 / 32 / 33** authored against the rebuilt panel and **observed red** in `e2e/signals/` (separate `playwright.signals.config.ts`, kept out of the default green suite — no `.skip`).
 - ✅ Baseline green bar held: `npm run build` clean, `npm test` 541/541, main + shared tsc clean, **zero new `tsc --noEmit` errors** (renderer baseline 262, all in pre-existing test files; not a project gate).
 
-**Deferred to later Phase-0 passes:**
-- ◻️ Decompose `segmentationService.ts` (5614 lines) by **pure extraction** (order: `contourTools` → `undo` → `visibility` → `representation` → `lifecycle`; re-export to keep the public API stable; test after each). `toolService.ts` left as-is (low value).
-- ◻️ Remaining 8 fixtures incl. **`ct-axial-anatomy`** (intensity-aware tools) — fixtures are a Phase 0 **exit gate**.
-- ◻️ Author the remaining **~34 acceptance signals as red** (full 37-signal suite).
+**In progress / deferred:**
+- 🟡 Decompose `segmentationService.ts` — pure **contour geometry** helpers extracted to `segmentationService/contourGeometry.ts` (5614 → 5539 lines, verified). **Finding:** the bulk is a ~3,900-line `segmentationService = {…}` object literal (methods can't be moved verbatim), and the remaining helper clusters (undo-history, copy/paste, visibility) are coupled to store/Cornerstone/dialog and **behavior-sensitive** (e.g. lock-aware undo) — both need real-Cornerstone E2E to verify, so they're **folded into Rebuild Phase 1** (viewport unification rewrites this area). `toolService.ts` left as-is.
+- ◻️ Remaining **7 fixtures** (`mr-t1-t2-sameexam`, `4dct-phases`, `breath-hold-pair`, `cross-for-ct-mr`, `rtstruct-typed`, `seg-multilabel`, `cine-us`). ✅ `ct-axial-300` + `ct-axial-anatomy` built. Fixtures are a Phase 0 **exit gate**.
+- ◻️ Author the remaining **~32 acceptance signals as red** — **5 seeded** so far (31/32/33 on ct-axial-300; 21/16 on ct-axial-anatomy) in `e2e/signals/`.
 - ◻️ **Layering contract + ESLint enforcement** (architecture doc §2): boundary zones wired into `lint`/`ci.yml`; quarantine current violations as `BOUNDARY-DEBT`. (`docs/multiviewport-annotation-architecture.md` done.)
 
 - **Fully-specified UI mockup (design §8.8)** produced and agreed as the visual acceptance reference — gates Phase 3. ✅ **DONE — frozen & user-approved 2026-06-05** ([`docs/mockup/annotations-panel.html`](docs/mockup/annotations-panel.html) + state matrix [`docs/multiviewport-annotation-mockup.md`](docs/multiviewport-annotation-mockup.md)). Covers **both** the Annotations side panel (§1–§9) **and** the top toolbar (§10) — both are **pixel-match requirements** for §8.0.

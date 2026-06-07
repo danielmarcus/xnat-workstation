@@ -14,12 +14,12 @@ node e2e/fixtures/dicom/generate.cjs ct-axial-300 # one dataset
 
 ## Datasets
 
-| Name           | What it is                                   | Status |
-|----------------|----------------------------------------------|--------|
-| `ct-axial-300` | Binary CT sphere phantom (two HU values).    | ✅ built |
+| Name               | What it is                                                              | Status |
+|--------------------|-------------------------------------------------------------------------|--------|
+| `ct-axial-300`     | Binary CT sphere phantom (two HU values).                               | ✅ built |
+| `ct-axial-anatomy` | Intensity-varied CT — air/-1000, soft-tissue/+40, lesion/+70, bone/+1000, sharp boundaries (for region-grow / paint-fill / threshold tolerance). | ✅ built |
 
-Planned for later Phase-0 passes (per the design's fixture matrix): `ct-axial-anatomy`
-(intensity-varied, for paint-fill / smart-brush tolerance), `mr-t1-t2-sameexam`,
+Planned for later Phase-0 passes (per the design's fixture matrix): `mr-t1-t2-sameexam`,
 `4dct-phases`, `breath-hold-pair`, `cross-for-ct-mr`, `rtstruct-typed`,
 `seg-multilabel`, `cine-us`.
 

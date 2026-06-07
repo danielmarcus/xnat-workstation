@@ -7,12 +7,16 @@
  * dcmjs (DicomMetaDictionary.uid), so each regeneration is internally
  * consistent but not byte-identical across runs — fine for fixtures.
  *
- * Currently generates:
- *   - ct-axial-300 : binary CT sphere phantom (uniform two-value intensity).
+ * Datasets:
+ *   - ct-axial-300     : binary CT sphere phantom (uniform two-value intensity).
+ *   - ct-axial-anatomy : intensity-varied CT (air / soft-tissue / bone / lesion)
+ *                        with sharp boundaries between homogeneous regions, so
+ *                        region-grow / paint-fill / threshold tolerance behavior
+ *                        is deterministic.
  *
  * Usage:
- *   node e2e/fixtures/dicom/generate.cjs            # all datasets
- *   node e2e/fixtures/dicom/generate.cjs ct-axial-300
+ *   node e2e/fixtures/dicom/generate.cjs                  # all datasets
+ *   node e2e/fixtures/dicom/generate.cjs ct-axial-anatomy # one dataset
  *
  * DICOM compliance (see CLAUDE.md): Explicit VR Little Endian, CT Image
  * Storage SOP class, well-formed UIDs, consistent Rows/Columns/PixelData,
@@ -27,39 +31,22 @@ const { DicomMetaDictionary, DicomDict } = dcmjs.data;
 const TRANSFER_SYNTAX_EXPLICIT_VR_LE = '1.2.840.10008.1.2.1';
 const CT_IMAGE_STORAGE = '1.2.840.10008.5.1.4.1.1.2';
 
-/** Build one axial slice of a centered sphere phantom (Int16 HU values). */
-function makeSphereSlice(rows, cols, sliceIndex, numSlices, opts) {
-  const { pixelSpacing, sliceThickness, insideHU, outsideHU, radiusMm } = opts;
-  const data = new Int16Array(rows * cols);
-  const cx = (cols - 1) / 2;
-  const cy = (rows - 1) / 2;
-  const cz = (numSlices - 1) / 2;
-  const z = (sliceIndex - cz) * sliceThickness;
-  let i = 0;
-  for (let r = 0; r < rows; r++) {
-    const y = (r - cy) * pixelSpacing[0];
-    for (let c = 0; c < cols; c++) {
-      const x = (c - cx) * pixelSpacing[1];
-      const dist = Math.sqrt(x * x + y * y + z * z);
-      data[i++] = dist <= radiusMm ? insideHU : outsideHU;
-    }
-  }
-  return data;
-}
-
-function generateCtAxial300(outDir) {
-  const rows = 128;
-  const cols = 128;
-  const numSlices = 16;
-  const pixelSpacing = [1.0, 1.0]; // mm [row, col]
-  const sliceThickness = 3.0; // mm
-  const opts = {
-    pixelSpacing,
-    sliceThickness,
-    insideHU: 300, // binary phantom: two intensities
-    outsideHU: -1000, // air
-    radiusMm: 24,
-  };
+/**
+ * Write a CT axial series. `voxel(x, y, z)` returns the HU value at the given
+ * world coordinate in mm, measured relative to the volume center.
+ */
+function writeCtSeries(outDir, opts) {
+  const {
+    rows = 128,
+    cols = 128,
+    numSlices = 16,
+    pixelSpacing = [1.0, 1.0], // mm [row, col]
+    sliceThickness = 3.0, // mm
+    seriesDescription,
+    patientId,
+    patientName,
+    voxel,
+  } = opts;
 
   const studyUID = DicomMetaDictionary.uid();
   const seriesUID = DicomMetaDictionary.uid();
@@ -68,9 +55,22 @@ function generateCtAxial300(outDir) {
 
   fs.mkdirSync(outDir, { recursive: true });
 
+  const cx = (cols - 1) / 2;
+  const cy = (rows - 1) / 2;
+  const cz = (numSlices - 1) / 2;
+
   for (let s = 0; s < numSlices; s++) {
     const sopInstanceUID = DicomMetaDictionary.uid();
-    const pixels = makeSphereSlice(rows, cols, s, numSlices, opts);
+    const pixels = new Int16Array(rows * cols);
+    const z = (s - cz) * sliceThickness;
+    let i = 0;
+    for (let r = 0; r < rows; r++) {
+      const y = (r - cy) * pixelSpacing[0];
+      for (let c = 0; c < cols; c++) {
+        const x = (c - cx) * pixelSpacing[1];
+        pixels[i++] = voxel(x, y, z);
+      }
+    }
 
     const dataset = {
       SOPClassUID: CT_IMAGE_STORAGE,
@@ -79,8 +79,8 @@ function generateCtAxial300(outDir) {
       SeriesInstanceUID: seriesUID,
       FrameOfReferenceUID: frameOfReferenceUID,
       Modality: 'CT',
-      PatientName: 'PHANTOM^SPHERE',
-      PatientID: 'CT-AXIAL-300',
+      PatientName: patientName,
+      PatientID: patientId,
       PatientBirthDate: '',
       PatientSex: 'O',
       StudyID: '1',
@@ -89,7 +89,7 @@ function generateCtAxial300(outDir) {
       AccessionNumber: '',
       SeriesNumber: 1,
       InstanceNumber: s + 1,
-      SeriesDescription: 'CT AXIAL 300 (sphere phantom)',
+      SeriesDescription: seriesDescription,
       ImageType: ['DERIVED', 'SECONDARY', 'AXIAL'],
       Rows: rows,
       Columns: cols,
@@ -106,12 +106,8 @@ function generateCtAxial300(outDir) {
       SliceThickness: sliceThickness,
       SpacingBetweenSlices: sliceThickness,
       ImageOrientationPatient: [1, 0, 0, 0, 1, 0],
-      ImagePositionPatient: [
-        -((cols - 1) / 2) * pixelSpacing[1],
-        -((rows - 1) / 2) * pixelSpacing[0],
-        (s - (numSlices - 1) / 2) * sliceThickness,
-      ],
-      SliceLocation: (s - (numSlices - 1) / 2) * sliceThickness,
+      ImagePositionPatient: [-cx * pixelSpacing[1], -cy * pixelSpacing[0], z],
+      SliceLocation: z,
       WindowCenter: 0,
       WindowWidth: 2000,
       PixelData: pixels.buffer,
@@ -137,8 +133,41 @@ function generateCtAxial300(outDir) {
   return { count: numSlices, rows, cols };
 }
 
+function generateCtAxial300(outDir) {
+  // Binary phantom: a single sphere of one intensity in air.
+  const radiusMm = 24;
+  return writeCtSeries(outDir, {
+    seriesDescription: 'CT AXIAL 300 (sphere phantom)',
+    patientId: 'CT-AXIAL-300',
+    patientName: 'PHANTOM^SPHERE',
+    voxel: (x, y, z) => (Math.sqrt(x * x + y * y + z * z) <= radiusMm ? 300 : -1000),
+  });
+}
+
+function generateCtAxialAnatomy(outDir) {
+  // Intensity-varied phantom: distinct uniform regions with sharp boundaries.
+  //   air        = -1000 HU
+  //   soft tissue=   +40 HU  (large homogeneous "body" sphere, r <= 50mm)
+  //   lesion     =   +70 HU  (offset blob, distinct soft-tissue value)
+  //   bone core  = +1000 HU  (centered sphere, r <= 14mm)
+  return writeCtSeries(outDir, {
+    seriesDescription: 'CT AXIAL ANATOMY (intensity-varied)',
+    patientId: 'CT-AXIAL-ANATOMY',
+    patientName: 'PHANTOM^ANATOMY',
+    voxel: (x, y, z) => {
+      const r = Math.sqrt(x * x + y * y + z * z);
+      if (r <= 14) return 1000; // bone core
+      const lr = Math.sqrt((x - 25) * (x - 25) + y * y + z * z);
+      if (lr <= 8) return 70; // lesion
+      if (r <= 50) return 40; // soft-tissue body
+      return -1000; // air
+    },
+  });
+}
+
 const GENERATORS = {
   'ct-axial-300': generateCtAxial300,
+  'ct-axial-anatomy': generateCtAxialAnatomy,
 };
 
 function main() {
