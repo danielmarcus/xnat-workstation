@@ -31,6 +31,8 @@ of the full 37-signal red suite (PHASES.md → Rebuild Phase 0).
 | `member-row` (`data-active`, `data-empty`, `data-selected`) | a member row (active draw-target? empty? selected?) |
 | `member-visibility` (`data-mode`) | per-member tri-state control (filled/outlined/hidden) |
 | `approve-container` / `approval-badge` | approve action + approved-state badge |
+| `provenance-badge`              | interpolated/manual provenance marker on a contour |
+| `active-viewport-indicator`     | indicator on the focused viewport |
 
 ## Seeded so far
 
@@ -45,7 +47,8 @@ of the full 37-signal red suite (PHASES.md → Rebuild Phase 0).
 | approval lock      | 19 (D7)   | ct-axial-300      | approve edit-locks members + shows approval badge |
 | visibility tri-state | 20 (D7.3) | ct-axial-300     | member control cycles filled/outlined/hidden |
 | undo isolation     | 28 (A8)   | ct-axial-300      | undo reverts only the active container's last op |
+| S3: multi-viewport + editing | 1,2,3,4,5,6,7,8,13,22,23,29,34,35 | ct-axial-300/-anatomy | rebuilt MPR propagation, shared-volume edit, cross-panel selection/lock, gesture continuity, interpolation, copy/paste, voxel-tool roster, tool/keyboard scoping |
 
-**9 of 37 signals seeded** (red). Remaining ~28 are tracked for later passes;
+**23 of 37 signals seeded** (red). Remaining ~28 are tracked for later passes;
 some need richer fixtures (paired series, RTSTRUCT/SEG objects) or session/XNAT
 machinery (lifecycle/conflict signals 25–27, 36).
