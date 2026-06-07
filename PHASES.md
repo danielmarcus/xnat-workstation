@@ -150,14 +150,22 @@ Phase 0 is being delivered in reviewable slices. **Slice 1 = additive scaffoldin
 - ✅ **Red-signal seed**: signals **31 / 32 / 33** authored against the rebuilt panel and **observed red** in `e2e/signals/` (separate `playwright.signals.config.ts`, kept out of the default green suite — no `.skip`).
 - ✅ Baseline green bar held: `npm run build` clean, `npm test` 541/541, main + shared tsc clean, **zero new `tsc --noEmit` errors** (renderer baseline 262, all in pre-existing test files; not a project gate).
 
-**In progress / deferred:**
-- 🟡 Decompose `segmentationService.ts` — pure **contour geometry** helpers extracted to `segmentationService/contourGeometry.ts` (5614 → 5539 lines, verified). **Finding:** the bulk is a ~3,900-line `segmentationService = {…}` object literal (methods can't be moved verbatim), and the remaining helper clusters (undo-history, copy/paste, visibility) are coupled to store/Cornerstone/dialog and **behavior-sensitive** (e.g. lock-aware undo) — both need real-Cornerstone E2E to verify, so they're **folded into Rebuild Phase 1** (viewport unification rewrites this area). `toolService.ts` left as-is.
-- ◻️ Remaining **7 fixtures** (`mr-t1-t2-sameexam`, `4dct-phases`, `breath-hold-pair`, `cross-for-ct-mr`, `rtstruct-typed`, `seg-multilabel`, `cine-us`). ✅ `ct-axial-300` + `ct-axial-anatomy` built. Fixtures are a Phase 0 **exit gate**.
-- ◻️ Author the remaining **~32 acceptance signals as red** — **5 seeded** so far (31/32/33 on ct-axial-300; 21/16 on ct-axial-anatomy) in `e2e/signals/`.
-- ◻️ **Layering contract + ESLint enforcement** (architecture doc §2): boundary zones wired into `lint`/`ci.yml`; quarantine current violations as `BOUNDARY-DEBT`. (`docs/multiviewport-annotation-architecture.md` done.)
+**Decomposition (decided).** The pure **contour geometry** helpers are extracted (`segmentationService/contourGeometry.ts`, verified, 5614 → 5539). The rest — the ~3,900-line `segmentationService = {…}` object-method bulk + the coupled, behavior-sensitive helper clusters (undo-history, copy/paste, visibility; e.g. lock-aware undo) — need real-Cornerstone E2E to verify and are **carried into Rebuild Phase 1** (which rewrites this area). They are **no longer Phase-0 gate items**. `toolService.ts` left as-is.
+
+**Phase 0 completion sequence** (ordered; execute top-to-bottom, commit per step, no menu — only surface for a genuine blocker, a finding that invalidates the order, or something needing the live XNAT env). Signal→step assignment is approximate; each step authors the signals its fixtures unlock.
+
+Done: scaffolding + harness (Slice 1) · geometry extraction · `ct-axial-300` + `ct-axial-anatomy` · **9/37 signals red** (16, 17, 19, 20, 21, 28, 31, 32, 33).
+
+- **S3 — Offline-authorable signals (no new fixtures).** Author every signal expressible on `ct-axial-300`/`ct-axial-anatomy` via single/multi-panel/MPR layouts of one volume: **1, 2, 3, 4, 5, 6, 7, 8, 13, 22, 23, 29, 34, 35**. Observe red.
+- **S4 — SEG/RTSTRUCT fixtures + signals.** Build `seg-multilabel` (≥5-segment SEG) + `rtstruct-typed` (all RTROIInterpretedType) via dcmjs adapters; verify each **loads in-harness** (load → container appears). Author **24, 30**; tighten 19/20/29/31 against real loaded containers.
+- **S5 — Paired / multi-FoR fixtures + signals.** `mr-t1-t2-sameexam` → **9, 12**; `breath-hold-pair` → **10, 36**; `cross-for-ct-mr` → **11**.
+- **S6 — Temporal fixtures.** `4dct-phases`, `cine-us` (support Phase-5 cine / §I; present for the fixture exit-gate).
+- **S7 — Lifecycle / transport / perf.** **14, 15, 25, 26, 27, 37**. Author what the offline harness expresses (session-switch simulated via the offline viewer entry + sequential loads); signals needing **live XNAT** (real save-conflict round-trip) or perf benchmarking run on the user's machine / under the Transport workstream gate — flagged, not blocked.
+- **S8 — ESLint layering enforcement.** Wire architecture-doc §2 boundary zones into `lint`/`ci.yml`; quarantine current violations as `BOUNDARY-DEBT`.
+- **S9 — Phase 0 exit gate.** Confirm all 37 signals exist (red), walking skeleton green, build + 541 tests green, all fixtures present; mark Phase 0 complete; carry the segmentationService bulk decomposition into Phase 1.
 
 - **Fully-specified UI mockup (design §8.8)** produced and agreed as the visual acceptance reference — gates Phase 3. ✅ **DONE — frozen & user-approved 2026-06-05** ([`docs/mockup/annotations-panel.html`](docs/mockup/annotations-panel.html) + state matrix [`docs/multiviewport-annotation-mockup.md`](docs/multiviewport-annotation-mockup.md)). Covers **both** the Annotations side panel (§1–§9) **and** the top toolbar (§10) — both are **pixel-match requirements** for §8.0.
-- **Phase 0 exit gate (full):** app builds, runs, looks identical; existing tests pass; new types compile; **all 37** signals exist as red tests; the walking-skeleton signal is green; **all** fixtures + mockup in place; service decomposition complete; ESLint boundaries enforced.
+- **Phase 0 exit gate (full):** app builds, runs, looks identical; existing tests pass; new types compile; **all 37** signals exist as red tests; the walking-skeleton signal is green; **all** fixtures + mockup in place; ESLint boundaries enforced (S8). (Segmentation-service bulk decomposition is **carried to Phase 1**, not a Phase-0 gate item.)
 
 ### Rebuild Phase 1 — Viewport unification (Not started)
 - Volume (`ORTHOGRAPHIC`) is the default for volumetric data; stack reserved for the non-volumetric predicate (volume mode is **not** user-selectable for volumetric data).
