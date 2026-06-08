@@ -167,7 +167,7 @@ Done: scaffolding + harness (Slice 1) · geometry extraction · `ct-axial-300` +
 - **Fully-specified UI mockup (design §8.8)** produced and agreed as the visual acceptance reference — gates Phase 3. ✅ **DONE — frozen & user-approved 2026-06-05** ([`docs/mockup/annotations-panel.html`](docs/mockup/annotations-panel.html) + state matrix [`docs/multiviewport-annotation-mockup.md`](docs/multiviewport-annotation-mockup.md)). Covers **both** the Annotations side panel (§1–§9) **and** the top toolbar (§10) — both are **pixel-match requirements** for §8.0.
 - **Phase 0 exit gate (full):** app builds, runs, looks identical; existing tests pass; new types compile; **all 37** signals exist as red tests; the walking-skeleton signal is green; **all** fixtures + mockup in place; ESLint boundaries enforced (S8). (Segmentation-service bulk decomposition is **carried to Phase 1**, not a Phase-0 gate item.)
 
-### Rebuild Phase 1 — Viewport unification (✅ Complete — 2026-06-06 → 2026-06-08)
+### Rebuild Phase 1 — Viewport unification (🔧 Remediation in progress — engine done; viewer shell ~half-built; see CORRECTED status below)
 
 **Approach — A/B behind the flag.** Build the new unified viewport path behind `multiviewport.enabled`; the **old path stays untouched** (CornerstoneViewport, OrientedViewport, MPRViewportGrid/MPRViewport, mprService, mprToolService) so the shipping app is safe. Flip the flag default + delete legacy only **after** signals 1/3/6/7 are green through **real Cornerstone** (no mocks). Rendering signals (1, 3) need **visual/screenshot** verification per §8.0. New UI obeys the §2 layering lint (components presentational; wiring in hooks).
 
@@ -209,7 +209,31 @@ Current rendering map (Explore): one shared `RenderingEngine`; STACK via `viewpo
     - Net: **segmentationService.ts 5,539 → ~4,130 lines (−25%)**; build + lint + **476 unit tests** green + dicom-compliance/loadExport green after each; renderer `tsc --noEmit` error count steady (178→176, never increased).
     - **Deferred to Phase 2/3 (user decision):** `contourTools` (contour copy/paste/delete = Phase-2 *annotation-behavior* surface), `lifecycle`-gates (autosave/dirty/load = Transport workstream), `representation` (mostly already delegated — low value). All need new shared-mutable-state plumbing **and** touch the exact subsystems Phase 2/3 rebuilds → extracting now is churn on soon-reworked code (same rationale as P1.8b). They are **not** Phase-1 gate items.
 
-**Acceptance:** signals 1, 3, 6, 7 green with flag on (editing pulled into Phase 1 per the 2026-06-08 decision). Perf: 4-panel volume load ≤ baseline + 30%. **→ Phase 1 COMPLETE (2026-06-08): viewport unification + minimal editing + UI rewire + legacy deletion + segmentationService decomposition (clean modules) all landed and verified.**
+**Acceptance:** signals 1, 3, 6, 7 green with flag on (editing pulled into Phase 1 per the 2026-06-08 decision). Perf: 4-panel volume load ≤ baseline + 30%.
+
+> ### ⚠️ Phase 1 status CORRECTED (2026-06-08 gap audit — retracts the earlier "COMPLETE")
+> The earlier "Phase 1 COMPLETE" claim was **wrong**. It rested on acceptance signals driven by **e2e hooks** (`createUnifiedLabelmapSegmentation`, `setLayoutPreset`, `triggerUnifiedUndo`) + unit tests that set stores directly — **neither exercised the real viewer UX**, so a large swath of the viewport shell was never built or was dropped in the P1.8d legacy deletion and went undetected until real-CNDA review. A spec-grounded, code-verified audit found:
+>
+> **The engine works** (verified): shared ref-counted volume, stack-vs-volume predicate, `createUnifiedViewport`, SEG/RTSTRUCT load+overlay, tool group + editing tools, tool switching, crosshair-crash-stop, click-to-select, layout single+2×2. (Several of these were post-audit fixes: crash-stop, `markReady` overlay-load, tool-routing, Pan/Zoom binding leak, click-to-select, layout-2×2 bridge — each with a real-affordance E2E, specs 22/23/24.)
+>
+> **❌ Spec-required but missing/broken:** info overlay (slice N/M, W/L, zoom, metadata); event→store sync + ResizeObserver (reverted; readouts stale, volume slice-index "257/21" unfixed); generic grid layouts 1×2/2×1/3×3/custom (collapse to single — Req I2 says *preserve*); multi-scan per panel (grid forces all panels to `panel_0`); world-point crosshair (native disabled, button is a no-op); scrollbar; orientation markers; rulers; brush-size control; error/loading overlay; MPR 4th-panel-as-3D.
+>
+> **⚠️ Partial:** `_initPanel`/`_destroyPanel`/cine/preload (methods exist, never called → store/interval leaks); undo button on legacy path; hanging protocols can't assign per-panel scans.
+>
+> **🔒 Gated (legit):** DICOM SEG export / save-file (needs source StudyInstanceUID; → Transport workstream).
+>
+> **🔜 Deferred (legit, later phase):** toolbar §10 redesign + side panel (Phase 3); per-container undo, autosave/queue, cross-series/FoR rules, dashed rendering (Phase 2); contourTools/lifecycle decomposition (Phase 2/3).
+>
+> **❓ Never verified:** perf budget (never measured); cross-plane visual for signals 1/3 (only voxel counts asserted); multi-scan-per-session retention.
+>
+> **Real Phase-1 completion checklist (P1.9 — remediation, in progress):**
+> - [ ] **B1** Restore info overlay + event→store sync + ResizeObserver + lifecycle, with the volume slice-index fixed (vp.type-based readState). Verify with an off-axis volume fixture asserting the *correct* slice count.
+> - [ ] **B2** Generic grid layouts (1×2/2×1/3×3/custom) + multi-scan per panel (grid renders `panelImageIds[panelId]`).
+> - [ ] **B3** World-point crosshair (reticle + same-plane nearest-slice sync + volume jumpToWorld); route `ToolName.Crosshairs` to it.
+> - [ ] **B4** Slice-nav scrollbar.
+> - [ ] Measure the 4-panel perf budget; assert cross-plane visual for signals 1/3 (or document the harness limit).
+> - [ ] Verify every remediation through the **real affordance** (real fixture + real click), not e2e hooks.
+> - **Discipline going forward:** no "complete" without a real-affordance test that fails on the broken state; legacy deletion requires a behavioral-parity checklist; real-data visual review before any "done".
 
 **Now in Phase 1 (pulled forward for P1.7):** the *minimal* drawing routing + brush/contour editing + per-container undo + dirty flag + local SEG save needed for signals 1/3/6/7. **Still Phase 2–3:** cross-series rules (A2a–d), non-native dashed rendering, gesture-start blocking/lock enforcement, the list panel, approval workflow, queue-next-save/debounced autosave, save-to-XNAT round-trip.
 
