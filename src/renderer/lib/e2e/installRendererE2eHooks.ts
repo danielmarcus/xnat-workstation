@@ -84,6 +84,8 @@ declare global {
       getActiveUnifiedTool: () => string | null;
       /** Cornerstone mode ('Active'/'Passive'/…) of a tool in the unified group. */
       getUnifiedToolMode: (csToolName: string) => string | null;
+      /** Cornerstone tool names currently holding the Primary (left-click) binding. */
+      getUnifiedToolsWithPrimary: () => string[];
       /** Create a labelmap segmentation + attach it to all unified viewports + set active. */
       createUnifiedLabelmapSegmentation: (label?: string) => Promise<{ segmentationId: string; segmentIndex: number }>;
       /** Set the brush radius for the unified tool group. */
@@ -494,6 +496,7 @@ export function installRendererE2eHooks(): void {
     setActiveUnifiedTool: (toolName: ToolName) => unifiedToolService.setActiveTool(toolName),
     getActiveUnifiedTool: () => unifiedToolService.getActiveToolName(),
     getUnifiedToolMode: (csToolName: string) => unifiedToolService.getToolMode(csToolName),
+    getUnifiedToolsWithPrimary: () => unifiedToolService.getToolsWithPrimaryBinding(),
     createUnifiedLabelmapSegmentation: async (label?: string) => {
       const viewportIds = unifiedToolService.getViewportIds();
       // The shared source ImageVolume the MPR panels render — derive the labelmap

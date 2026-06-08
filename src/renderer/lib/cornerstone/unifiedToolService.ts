@@ -61,13 +61,19 @@ const UNIFIED_TOOL_MAP: Partial<Record<ToolName, string>> = {
   [ToolName.Brush]: BrushTool.toolName,
 };
 
-/** Tools that can occupy the Primary (left-click) slot, swapped by setActiveTool. */
-const PRIMARY_CAPABLE = [
-  WindowLevelTool.toolName,
-  LengthTool.toolName,
-  PlanarFreehandContourSegmentationTool.toolName,
-  BrushTool.toolName,
-];
+/**
+ * Fixed, non-Primary mouse binding for the nav tools — always preserved so
+ * middle/right/wheel navigation survives Primary-tool swaps. Tools NOT listed
+ * (W/L, Length, Freehand, Brush) live only on the Primary slot, so they demote
+ * cleanly to passive. The previous PRIMARY_CAPABLE approach left Pan/Zoom's
+ * Primary binding stuck (it never demoted them), so a later Zoom collided with a
+ * still-Primary Pan and never took the left button.
+ */
+const NAV_BASE_BINDING: Record<string, number> = {
+  [PanTool.toolName]: Auxiliary,
+  [ZoomTool.toolName]: Secondary,
+  [StackScrollTool.toolName]: Wheel,
+};
 
 // The tool currently bound to Primary; tracked so we demote it (rather than
 // re-`setToolActive` everything, which MERGES bindings in CS3D v4) on a switch.
@@ -140,10 +146,10 @@ export const unifiedToolService = {
   },
 
   /**
-   * Set the active (Primary / left-click) tool. Swaps only the Primary slot:
-   * the prior primary is demoted to Passive (removing its Primary binding —
-   * Crosshairs keeps drawing reference lines), then the new tool takes Primary.
-   * The fixed nav bindings (Pan/Zoom/StackScroll) are untouched.
+   * Set the active (Primary / left-click) tool. Swaps only the Primary slot: the
+   * prior primary is demoted (its Primary binding removed; if it's a nav tool its
+   * fixed middle/right/wheel binding is restored), then the new tool takes
+   * Primary. Exactly one tool ever holds the Primary binding.
    */
   setActiveTool(toolName: ToolName): void {
     const toolGroup = ensureToolGroup();
@@ -158,10 +164,15 @@ export const unifiedToolService = {
       return;
     }
 
-    // Demote the current primary (removes its Primary binding). Crosshairs stays
-    // Passive so its reference lines keep rendering across MPR panels.
-    if (PRIMARY_CAPABLE.includes(currentPrimary)) {
-      toolGroup.setToolPassive(currentPrimary);
+    // Demote the current primary: clear ALL its bindings (removing the stale
+    // Primary binding), then restore its fixed nav binding if it has one
+    // (Pan=middle, Zoom=right, StackScroll=wheel). Doing this for every tool —
+    // not just a PRIMARY_CAPABLE subset — is what stops Pan/Zoom from getting
+    // stuck on the left button and blocking subsequent tool switches.
+    toolGroup.setToolPassive(currentPrimary);
+    const oldBase = NAV_BASE_BINDING[currentPrimary];
+    if (oldBase !== undefined) {
+      toolGroup.setToolActive(currentPrimary, { bindings: [{ mouseButton: oldBase }] });
     }
 
     // Brush needs an active labelmap strategy when it takes Primary.
@@ -173,6 +184,8 @@ export const unifiedToolService = {
       }
     }
 
+    // Promote the new tool to Primary (merges with its own fixed nav binding,
+    // which was set in ensureToolGroup and left intact above).
     toolGroup.setToolActive(csName, { bindings: [{ mouseButton: Primary }] });
     currentPrimary = csName;
     activeToolName = toolName;
@@ -188,6 +201,32 @@ export const unifiedToolService = {
   getToolMode(csToolName: string): string | null {
     const opts = getToolGroup()?.getToolOptions(csToolName) as { mode?: string } | undefined;
     return opts?.mode ?? null;
+  },
+
+  /**
+   * Cornerstone tool names that currently hold the Primary (left-click) binding.
+   * Invariant: exactly one. More than one means a binding leaked (the Pan/Zoom
+   * bug) — used by the tool-switching regression test.
+   */
+  getToolsWithPrimaryBinding(): string[] {
+    const toolGroup = getToolGroup();
+    if (!toolGroup) return [];
+    const names = [
+      WindowLevelTool.toolName,
+      PanTool.toolName,
+      ZoomTool.toolName,
+      StackScrollTool.toolName,
+      LengthTool.toolName,
+      PlanarFreehandContourSegmentationTool.toolName,
+      BrushTool.toolName,
+      CrosshairsTool.toolName,
+    ];
+    return names.filter((name) => {
+      const opts = toolGroup.getToolOptions(name) as
+        | { bindings?: Array<{ mouseButton?: number }> }
+        | undefined;
+      return (opts?.bindings ?? []).some((b) => b.mouseButton === Primary);
+    });
   },
 
   /** Set the brush radius for the unified tool group. */
