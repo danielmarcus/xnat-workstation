@@ -25,6 +25,13 @@ export interface PanelSpec {
   panelId: string;
   /** Reformatted plane for the (volume) panel. */
   orientation: MPRPlane;
+  /**
+   * Which panel's imageIds this panel renders. For shared layouts (single, MPR)
+   * every panel sources 'panel_0' (one volume, reformatted). For a generic grid,
+   * each panel sources its OWN id (independent multi-scan panels). Optional on the
+   * preset helpers (filled by useViewportLayout); always set by gridPanels.
+   */
+  sourcePanelId?: string;
 }
 
 const DEFAULT_LAYOUT: ViewportLayout = { rows: 1, cols: 1 };
@@ -84,6 +91,21 @@ export const viewportLayoutService = {
   /** Grid dimensions (cols × rows) for a preset. */
   presetGrid(preset: LayoutPreset): { cols: number; rows: number } {
     return preset === 'mpr-2x2' ? { cols: 2, rows: 2 } : { cols: 1, rows: 1 };
+  },
+
+  /**
+   * Panel specs for a generic rows×cols grid: N = rows*cols INDEPENDENT panels,
+   * each axial and sourcing its OWN imageIds (multi-scan comparison — unlike MPR,
+   * panels do NOT share one volume). Dimensions clamped to >= 1.
+   */
+  gridPanels(rows: number, cols: number): PanelSpec[] {
+    const r = Math.max(1, Math.floor(rows) || 1);
+    const c = Math.max(1, Math.floor(cols) || 1);
+    return Array.from({ length: r * c }, (_, i) => ({
+      panelId: `panel_${i}`,
+      orientation: 'AXIAL' as MPRPlane,
+      sourcePanelId: `panel_${i}`,
+    }));
   },
 
   /** Test/lifecycle helper. */

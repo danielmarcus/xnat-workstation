@@ -64,4 +64,23 @@ describe('viewportLayoutService (skeleton)', () => {
       expect(viewportLayoutService.getPresetPanels('mpr-2x2')).toHaveLength(grid.cols * grid.rows);
     });
   });
+
+  describe('generic grids (Phase 1.9)', () => {
+    it('gridPanels(rows, cols) → rows*cols INDEPENDENT axial panels, each sourcing its own id', () => {
+      expect(viewportLayoutService.gridPanels(1, 2)).toEqual([
+        { panelId: 'panel_0', orientation: 'AXIAL', sourcePanelId: 'panel_0' },
+        { panelId: 'panel_1', orientation: 'AXIAL', sourcePanelId: 'panel_1' },
+      ]);
+      expect(viewportLayoutService.gridPanels(2, 2)).toHaveLength(4);
+      expect(viewportLayoutService.gridPanels(2, 2).map((p) => p.panelId)).toEqual([
+        'panel_0', 'panel_1', 'panel_2', 'panel_3',
+      ]);
+    });
+
+    it('clamps non-positive dimensions to one panel', () => {
+      expect(viewportLayoutService.gridPanels(0, -3)).toEqual([
+        { panelId: 'panel_0', orientation: 'AXIAL', sourcePanelId: 'panel_0' },
+      ]);
+    });
+  });
 });

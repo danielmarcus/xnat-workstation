@@ -1170,7 +1170,7 @@ describe('App', () => {
 
     // Unified path: the MPR-2×2 preset reformats one shared volume (panel_0).
     await waitFor(() => {
-      expect(useUnifiedLayoutStore.getState().preset).toBe('mpr-2x2');
+      expect(useUnifiedLayoutStore.getState().layout).toEqual({ kind: 'mpr-2x2' });
     });
     expect(useViewerStore.getState().panelScanMap.panel_0).toBe('11');
   });

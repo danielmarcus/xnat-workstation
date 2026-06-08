@@ -38,9 +38,13 @@ test('the layout dropdown switches the unified grid to 2x2 and selection works (
   await page.locator('[title^="Viewport layout"]').click();
   await page.getByRole('button', { name: '2 x 2' }).click();
 
-  // The unified grid must now render 4 panels — i.e. the dropdown reached it.
-  await expect(page.locator('[data-testid="unified-viewport-element:panel_1"] canvas'))
-    .toBeVisible({ timeout: 30_000 });
+  // The unified grid must now render 4 GENERIC panels — i.e. the dropdown reached
+  // the unified grid. (2×2 is an independent-panel grid, not MPR; panels 1–3 are
+  // empty until a scan is loaded into them, so we assert the panel ELEMENTS, not
+  // a canvas in panel_1.)
+  for (const pid of ['panel_0', 'panel_1', 'panel_2', 'panel_3']) {
+    await expect(page.locator(`[data-testid="unified-viewport:${pid}"]`)).toHaveCount(1, { timeout: 30_000 });
+  }
 
   // And selection through the real layout works: click panel_1 → active.
   await expect.poll(() => activeViewport(page), { timeout: 10_000 }).toBe('panel_0');

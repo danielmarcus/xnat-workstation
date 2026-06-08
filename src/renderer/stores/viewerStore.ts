@@ -257,12 +257,11 @@ export const useViewerStore = create<ViewerStore>((set, get) => ({
   // ─── Layout Actions ────────────────────────────────────────────
 
   setLayout: (layout) => {
-    // Mirror the layout to the unified grid (the only viewport path). P1.5's
-    // unified layout store supports single + mpr-2x2; map the dropdown preset
-    // onto it so selecting a layout actually changes the grid. Grids the unified
-    // path doesn't model yet (3x3, custom) fall back to single — a known P1.5
-    // layout-scope limit, tracked separately, not a silent no-op.
-    useUnifiedLayoutStore.getState().setPreset(layout === '2x2' ? 'mpr-2x2' : 'single');
+    // Mirror the layout to the unified grid (the only viewport path). The Layout
+    // dropdown drives GENERIC grids (independent multi-scan panels) per the frozen
+    // mockup §10 / requirements I2; MPR is a separate preset reached via openInMpr,
+    // not this dropdown. So 1×1/1×2/2×1/2×2 → a rows×cols generic grid.
+    useUnifiedLayoutStore.getState().setGrid(LAYOUT_CONFIGS[layout].rows, LAYOUT_CONFIGS[layout].cols);
     const config = { ...LAYOUT_CONFIGS[layout] };
     const state = get();
 
@@ -355,9 +354,8 @@ export const useViewerStore = create<ViewerStore>((set, get) => ({
   setCustomLayout: (rows, cols) => {
     const safeRows = Math.max(1, Math.min(8, Math.floor(rows) || 1));
     const safeCols = Math.max(1, Math.min(8, Math.floor(cols) || 1));
-    // Mirror to the unified grid (see setLayout). A 2x2 custom grid maps to the
-    // mpr-2x2 preset; anything else the unified path can't model yet → single.
-    useUnifiedLayoutStore.getState().setPreset(safeRows === 2 && safeCols === 2 ? 'mpr-2x2' : 'single');
+    // Mirror to the unified grid (see setLayout) as a generic rows×cols grid.
+    useUnifiedLayoutStore.getState().setGrid(safeRows, safeCols);
     const config: PanelConfig = {
       rows: safeRows,
       cols: safeCols,
