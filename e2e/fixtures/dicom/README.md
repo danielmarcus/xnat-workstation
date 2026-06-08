@@ -23,8 +23,12 @@ node e2e/fixtures/dicom/generate.cjs ct-axial-300 # one dataset
 | `mr-t1-t2-sameexam` | Two MR series (T1 + T2), SAME study + Frame of Reference, distinct series. | ✅ built |
 | `breath-hold-pair` | Two CT series, SAME Frame of Reference, anatomy displaced (sphere shifted). | ✅ built |
 | `cross-for-ct-mr`  | CT + MR, same study, DIFFERENT Frame of Reference (unregistered, no SRO). | ✅ built |
+| `4dct-phases`      | 4 CT temporal phases (sphere translated in z), shared study + Frame of Reference. | ✅ built |
+| `cine-us`          | Multi-frame ultrasound (16 frames, 8-bit, moving bar, cine-rate tags). | ✅ built |
 
-Planned for later Phase-0 passes (per the design's fixture matrix): `4dct-phases`, `cine-us`.
+**All 9 design fixtures built.** `4dct-phases` / `cine-us` carry no §G acceptance
+signal yet — they back Phase-5 cine work; structurally validated, in-app
+load-validation deferred to Phase 5.
 
 Note: SEG/RTSTRUCT are **hand-built** in `generate.cjs` (not exported via the app),
 because the app's adapter-based export reads source study metadata that is only

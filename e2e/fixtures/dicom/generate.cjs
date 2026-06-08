@@ -33,6 +33,7 @@ const CT_IMAGE_STORAGE = '1.2.840.10008.5.1.4.1.1.2';
 const RTSTRUCT_STORAGE = '1.2.840.10008.5.1.4.1.1.481.3';
 const SEG_STORAGE = '1.2.840.10008.5.1.4.1.1.66.4';
 const MR_IMAGE_STORAGE = '1.2.840.10008.5.1.4.1.1.4';
+const US_MULTIFRAME_STORAGE = '1.2.840.10008.5.1.4.1.1.3.1';
 const DETACHED_STUDY_MGMT = '1.2.840.10008.3.1.2.3.1'; // RTReferencedStudy ReferencedSOPClassUID (legacy)
 
 /**
@@ -483,6 +484,98 @@ function generateCrossForCtMr(outDir) {
   return { count: ct.count + mr.count, rows: ct.rows, cols: ct.cols };
 }
 
+function generate4dctPhases(outDir) {
+  // 4D-CT: several temporal phases sharing study + Frame of Reference, with the
+  // sphere translated in z per phase (simulated motion). Supports Phase-5 cine /
+  // dynamic scrolling. No §G acceptance signal yet (fixture exit-gate only).
+  fs.mkdirSync(outDir, { recursive: true });
+  const studyUID = DicomMetaDictionary.uid();
+  const frameOfReferenceUID = DicomMetaDictionary.uid();
+  const PHASES = 4;
+  let total = 0;
+  let dims = { rows: 128, cols: 128 };
+  for (let p = 0; p < PHASES; p++) {
+    const dz = (p - (PHASES - 1) / 2) * 6; // sphere moves in z across phases
+    const r = writeCtSeries(outDir, {
+      studyUID,
+      frameOfReferenceUID,
+      seriesNumber: p + 1,
+      filePrefix: `p${p}-`,
+      seriesDescription: `4DCT phase ${p}`,
+      patientId: '4DCT',
+      patientName: 'PHANTOM^4DCT',
+      voxel: (x, y, z) => (Math.sqrt(x * x + y * y + (z - dz) * (z - dz)) <= 20 ? 300 : -1000),
+    });
+    total += r.count;
+    dims = { rows: r.rows, cols: r.cols };
+  }
+  return { count: total, rows: dims.rows, cols: dims.cols };
+}
+
+function generateCineUs(outDir) {
+  // Multi-frame ultrasound: ONE instance, NumberOfFrames > 1, 8-bit, with a
+  // moving bright bar so frames differ + cine-rate tags. Supports Phase-5 cine.
+  fs.mkdirSync(outDir, { recursive: true });
+  const rows = 128;
+  const cols = 128;
+  const numFrames = 16;
+  const pixels = new Uint8Array(rows * cols * numFrames);
+  for (let f = 0; f < numFrames; f++) {
+    const barX = Math.floor((f / (numFrames - 1)) * (cols - 1));
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        pixels[f * rows * cols + r * cols + c] = Math.abs(c - barX) < 6 ? 220 : 40;
+      }
+    }
+  }
+
+  const sopInstanceUID = DicomMetaDictionary.uid();
+  const dataset = {
+    SOPClassUID: US_MULTIFRAME_STORAGE,
+    SOPInstanceUID: sopInstanceUID,
+    StudyInstanceUID: DicomMetaDictionary.uid(),
+    SeriesInstanceUID: DicomMetaDictionary.uid(),
+    Modality: 'US',
+    PatientName: 'PHANTOM^US',
+    PatientID: 'CINE-US',
+    PatientBirthDate: '',
+    PatientSex: 'O',
+    StudyID: '1',
+    StudyDate: '20260101',
+    StudyTime: '000000',
+    SeriesNumber: 1,
+    InstanceNumber: 1,
+    SeriesDescription: 'CINE US',
+    NumberOfFrames: numFrames,
+    Rows: rows,
+    Columns: cols,
+    SamplesPerPixel: 1,
+    PhotometricInterpretation: 'MONOCHROME2',
+    BitsAllocated: 8,
+    BitsStored: 8,
+    HighBit: 7,
+    PixelRepresentation: 0,
+    FrameTime: 33.33,
+    CineRate: 30,
+    RecommendedDisplayFrameRate: 30,
+    PixelData: pixels.buffer,
+  };
+
+  const meta = {
+    FileMetaInformationVersion: new Uint8Array([0, 1]).buffer,
+    MediaStorageSOPClassUID: US_MULTIFRAME_STORAGE,
+    MediaStorageSOPInstanceUID: sopInstanceUID,
+    TransferSyntaxUID: TRANSFER_SYNTAX_EXPLICIT_VR_LE,
+    ImplementationClassUID: DicomMetaDictionary.uid(),
+    ImplementationVersionName: 'XNATWS_E2E_1',
+  };
+
+  const dicomDict = new DicomDict(DicomMetaDictionary.denaturalizeDataset(meta));
+  dicomDict.dict = DicomMetaDictionary.denaturalizeDataset(dataset);
+  fs.writeFileSync(path.join(outDir, 'cine-us.dcm'), Buffer.from(dicomDict.write()));
+  return { count: 1, rows, cols };
+}
+
 const GENERATORS = {
   'ct-axial-300': generateCtAxial300,
   'ct-axial-anatomy': generateCtAxialAnatomy,
@@ -491,6 +584,8 @@ const GENERATORS = {
   'mr-t1-t2-sameexam': generateMrT1T2SameExam,
   'breath-hold-pair': generateBreathHoldPair,
   'cross-for-ct-mr': generateCrossForCtMr,
+  '4dct-phases': generate4dctPhases,
+  'cine-us': generateCineUs,
 };
 
 function main() {
