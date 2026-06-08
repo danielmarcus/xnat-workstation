@@ -27,6 +27,7 @@ interface E2EHooks {
   setUnifiedBrushSize: (size: number) => void;
   getPaintedVoxelCount: () => number;
   isUnifiedVolumeReady: () => boolean;
+  resetUnifiedSegmentations: () => void;
 }
 type Win = { __XNAT_E2E__: E2EHooks };
 
@@ -75,6 +76,9 @@ test('brush-painted SEG on axial is resampled on sagittal + coronal (flag on)', 
 
   // Wait for the shared source volume to finish loading before deriving the labelmap.
   await expect.poll(() => volumeReady(page), { timeout: 30_000 }).toBe(true);
+
+  // Isolate from any segmentation a prior spec left in the worker-scoped app.
+  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.resetUnifiedSegmentations());
 
   // Create + attach a labelmap segmentation across all MPR panels; pick the brush.
   await createLabelmap(page, 'Signal-3 SEG');

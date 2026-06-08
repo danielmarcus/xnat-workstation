@@ -14,6 +14,7 @@ import { useUnifiedLayoutStore, type LayoutPreset } from '../../stores/unifiedLa
 import { volumeService } from '../cornerstone/volumeService';
 import { unifiedToolService } from '../cornerstone/unifiedToolService';
 import { unifiedSegService } from '../cornerstone/unifiedSegService';
+import { undoService } from '../cornerstone/undoService';
 import { segmentationManager } from '../segmentation/segmentationManagerSingleton';
 import { segmentationService } from '../cornerstone/segmentationService';
 import * as contourRep from '../cornerstone/contourRepresentation';
@@ -89,6 +90,12 @@ declare global {
       getPaintedVoxelCount: () => number;
       /** Whether a unified viewport has a cached source volume (ready for a derived labelmap). */
       isUnifiedVolumeReady: () => boolean;
+      /** Remove all segmentations (test isolation in the worker-scoped app). */
+      resetUnifiedSegmentations: () => void;
+      /** Whether the global (viewport-independent) undo history has an undo available. */
+      canUnifiedUndo: () => boolean;
+      /** Undo the last edit via the global history (works after the source panel closed). */
+      triggerUnifiedUndo: () => void;
     };
   }
 }
@@ -513,6 +520,15 @@ export function installRendererE2eHooks(): void {
       }
       return false;
     },
+    resetUnifiedSegmentations: () => {
+      try {
+        (csSegmentation as unknown as { removeAllSegmentations?: () => void }).removeAllSegmentations?.();
+      } catch {
+        /* ignore */
+      }
+    },
+    canUnifiedUndo: () => undoService.canUndo(),
+    triggerUnifiedUndo: () => undoService.undo(),
     getPaintedVoxelCount: () => {
       let total = 0;
       const segs = (csSegmentation.state.getSegmentations?.() ?? []) as Array<{

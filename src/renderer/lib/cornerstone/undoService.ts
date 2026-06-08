@@ -1,17 +1,33 @@
 /**
- * Undo Service — SKELETON (Phase 0 scaffolding, annotation rebuild).
+ * Undo Service (Phase 1) — viewport-independent undo/redo for the unified path.
  *
- * The eventual home for undo/redo, factored out of segmentationService.ts
- * (which today owns the Cornerstone DefaultHistoryMemo wiring). For this slice
- * it is a thin, INERT facade: it does NOT attach to Cornerstone's history, so
- * it cannot double-handle alongside the existing segmentationService undo path.
- * canUndo/canRedo report false and undo/redo are no-ops until the extraction
- * happens in a later Phase-0 pass (see docs/multiviewport-annotation-design.md
- * and the decomposition order in the plan).
+ * Delegates to Cornerstone's GLOBAL history ring (`DefaultHistoryMemo`). Because
+ * the history is global — not bound to any viewport — an edit (e.g. a brush
+ * stroke) can be undone even after the panel it was drawn on has been closed
+ * (acceptance signal 7). Edits push memos automatically when a tool finishes
+ * (`baseTool.doneEditMemo()`), so this service only drives undo/redo + reports
+ * availability.
  *
- * Follows the singleton-module + initialize()/dispose() pattern of
- * annotationService.ts.
+ * Phase-1 scope: the minimal undo needed for signals 6/7. The richer lock-aware
+ * history (segmentationService) is reconciled later; on the unified (flag-on)
+ * path this is the active undo, so there is no double-handling.
+ *
+ * Follows the singleton-module + initialize()/dispose() pattern.
  */
+import { utilities as csUtilities } from '@cornerstonejs/core';
+
+interface HistoryMemoRing {
+  undo?: () => void;
+  redo?: () => void;
+  canUndo?: boolean;
+  canRedo?: boolean;
+}
+
+/** Lazily resolve the global history ring (absent under the unit-test core mock). */
+function getMemoRing(): HistoryMemoRing | undefined {
+  return (csUtilities as unknown as { HistoryMemo?: { DefaultHistoryMemo?: HistoryMemoRing } })
+    .HistoryMemo?.DefaultHistoryMemo;
+}
 
 let initialized = false;
 
@@ -20,27 +36,27 @@ export const undoService = {
   initialize(): void {
     if (initialized) return;
     initialized = true;
-    console.log('[undoService] Initialized (skeleton)');
+    console.log('[undoService] Initialized');
   },
 
-  /** Whether an undo is available. Placeholder until extraction. */
+  /** Whether an undo is available in the global history. */
   canUndo(): boolean {
-    return false;
+    return !!getMemoRing()?.canUndo;
   },
 
-  /** Whether a redo is available. Placeholder until extraction. */
+  /** Whether a redo is available in the global history. */
   canRedo(): boolean {
-    return false;
+    return !!getMemoRing()?.canRedo;
   },
 
-  /** Undo the last edit. No-op placeholder until extraction. */
+  /** Undo the last edit (viewport-independent — works after the source panel closed). */
   undo(): void {
-    /* TODO(annotation-rebuild): extract from segmentationService.ts */
+    getMemoRing()?.undo?.();
   },
 
-  /** Redo the last undone edit. No-op placeholder until extraction. */
+  /** Redo the last undone edit. */
   redo(): void {
-    /* TODO(annotation-rebuild): extract from segmentationService.ts */
+    getMemoRing()?.redo?.();
   },
 
   /** Test/lifecycle helper. */
