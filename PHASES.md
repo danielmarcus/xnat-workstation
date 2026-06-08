@@ -167,11 +167,26 @@ Done: scaffolding + harness (Slice 1) · geometry extraction · `ct-axial-300` +
 - **Fully-specified UI mockup (design §8.8)** produced and agreed as the visual acceptance reference — gates Phase 3. ✅ **DONE — frozen & user-approved 2026-06-05** ([`docs/mockup/annotations-panel.html`](docs/mockup/annotations-panel.html) + state matrix [`docs/multiviewport-annotation-mockup.md`](docs/multiviewport-annotation-mockup.md)). Covers **both** the Annotations side panel (§1–§9) **and** the top toolbar (§10) — both are **pixel-match requirements** for §8.0.
 - **Phase 0 exit gate (full):** app builds, runs, looks identical; existing tests pass; new types compile; **all 37** signals exist as red tests; the walking-skeleton signal is green; **all** fixtures + mockup in place; ESLint boundaries enforced (S8). (Segmentation-service bulk decomposition is **carried to Phase 1**, not a Phase-0 gate item.)
 
-### Rebuild Phase 1 — Viewport unification (Not started)
-- Volume (`ORTHOGRAPHIC`) is the default for volumetric data; stack reserved for the non-volumetric predicate (volume mode is **not** user-selectable for volumetric data).
-- `(scanId, FoR)` volume sharing, reference-counted in `volumeService`.
-- Collapse `OrientedViewport` + `CornerstoneViewport` into one `Viewport`; delete `mprService` / `mprToolService` / `MPRViewportGrid` / `MPRViewport`; MPR becomes a layout preset; one tool group; `CrosshairsTool` moved in.
-- **Acceptance:** signals 3, 6, 7 (with flag on); signal 1 lights up via PolySeg + volume default.
+### Rebuild Phase 1 — Viewport unification (In progress — started 2026-06-06)
+
+**Approach — A/B behind the flag.** Build the new unified viewport path behind `multiviewport.enabled`; the **old path stays untouched** (CornerstoneViewport, OrientedViewport, MPRViewportGrid/MPRViewport, mprService, mprToolService) so the shipping app is safe. Flip the flag default + delete legacy only **after** signals 1/3/6/7 are green through **real Cornerstone** (no mocks). Rendering signals (1, 3) need **visual/screenshot** verification per §8.0. New UI obeys the §2 layering lint (components presentational; wiring in hooks).
+
+Current rendering map (Explore): one shared `RenderingEngine`; STACK via `viewportService`+`CornerstoneViewport`; ORTHOGRAPHIC via `mprService`+`OrientedViewport` (regular) / `MPRViewport`+`mprToolService` (global MPR, separate tool group); stack-vs-volume chosen by `viewerStore.panelOrientationMap` in `ViewportGrid`. `volumeService` has create/load/destroy but **no (scanId,FoR) sharing or ref-counting**.
+
+**Phase 1 completion sequence** (ordered; execute top-to-bottom, commit per slice, no menu):
+
+- **P1.1 — `volumeService` (scanId,FoR) sharing + ref-counting.** Additive `acquire(scanId, FoR, imageIds) → volumeId` (deterministic id from the pair; reuse if cached; refcount++) + `release(volumeId)` (refcount--, destroy at 0). Keep existing create/load/destroy for the old path. Unit-tested (no rendering).
+- **P1.2 — stack-eligibility predicate.** Pure `chooseViewportType(meta) → 'volume' | 'stack'` per design §1.1 (US/XA/RF, planar NM, multi-frame cine, single-frame DX/CR/MG → stack; else volume). Unit-tested.
+- **P1.3 — `viewportService.createUnifiedViewport(panelId, element, {scanId, FoR, imageIds, meta})`.** Applies P1.2; volume path uses P1.1 (shared, ref-counted) + ORTHOGRAPHIC, stack path = STACK. New method; existing createViewport/loadStack untouched. Verified via off-screen E2E render.
+- **P1.4 — unified `Viewport` component + `useViewport(panelId)` hook** (the UI↔service seam, architecture §5). Presentational shell (no service/Cornerstone imports → passes §2 lint); hook owns wiring. Behind the flag. Verified: E2E renders a volume into the unified Viewport off-screen.
+- **P1.5 — `viewportLayoutService` presets + flag-gated grid.** Flesh out the Phase-0 skeleton: presets 1×1 / 2×2 / **MPR-2×2** (axial+sagittal+coronal + a volume/3D slot) / custom; a flag-gated grid renders unified Viewports per preset (replaces the MPRViewportGrid-vs-ViewportGrid switch in the new path) + `useViewportLayout` hook.
+- **P1.6 — `CrosshairsTool` into the primary tool group** (new path); crosshair sync via the real tool. No mprToolService in the new path.
+- **P1.7 — Turn signals green (real-Cornerstone E2E, visual):** 6 (layout swap loses nothing) → 7 (undo from a closed panel) → 3 (stack+MPR coexist) → 1 (contour drawn on axial appears live on sagittal/coronal). Observe red against the unbuilt path first, then green; extend the walking skeleton.
+- **P1.8 — Flip + delete legacy.** Default `multiviewport.enabled` on; delete OrientedViewport / MPRViewport / MPRViewportGrid / mprService / mprToolService (+ their `BOUNDARY-DEBT` comments); fold in the carried-over `segmentationService` decomposition (now verifiable against the rebuilt viewport).
+
+**Acceptance:** signals 3, 6, 7 green with flag on; signal 1 via PolySeg + volume default. Perf: 4-panel volume load ≤ baseline + 30%.
+
+**Not in Phase 1:** cross-series rules (A2a–d), non-native dashed rendering, drawing routing/blocking, list panel, approval/dirty/save contracts (→ Phases 2–3).
 
 ### Rebuild Phase 2 — Annotation behavior (Not started)
 - FoR-eligibility (A2a/b/c/d); **A2c defaults to *show* when uncertain** — `AcquisitionNumber` difference alone never hides.
