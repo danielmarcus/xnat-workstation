@@ -139,7 +139,10 @@ export interface FeaturePreferences {
 }
 
 export const DEFAULT_FEATURE_PREFERENCES: FeaturePreferences = {
-  multiviewportEnabled: false,
+  // Unified viewport path is the default (annotation rebuild P1.8). The old
+  // CornerstoneViewport/MPR path is being removed; this flag stays only as a
+  // transitional escape hatch until the legacy modules are deleted.
+  multiviewportEnabled: true,
 };
 
 // ─── Top-level Preferences ──────────────────────────────────────
