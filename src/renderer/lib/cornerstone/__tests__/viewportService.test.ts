@@ -166,4 +166,49 @@ describe('viewportService', () => {
     // (The volume path renders a real ImageVolume — verified by the off-screen
     // E2E in P1.4 rather than a heavy volume mock here.)
   });
+
+  it('readViewportState reads the VOLUME slice axis, not the native source count (the "257/21" bug)', () => {
+    // v4 ORTHOGRAPHIC viewports expose BOTH the volume API (reformatted axis) AND
+    // the stack API (native source count). Detection must key off viewport.type:
+    // reading getImageIds().length here would give the native count (21), while
+    // the reformatted axial view has 256 slices.
+    const volume = {
+      type: 'ORTHOGRAPHIC',
+      getSliceIndex: vi.fn(() => 50),
+      getNumberOfSlices: vi.fn(() => 256),
+      getCurrentImageIdIndex: vi.fn(() => 50), // conflicting native API — must be ignored
+      getImageIds: vi.fn(() => Array.from({ length: 21 }, (_, i) => `vol-${i}`)),
+      getCurrentImageId: vi.fn(() => 'native-should-not-win'),
+      getZoom: vi.fn(() => 1),
+      getProperties: vi.fn(() => ({ voiRange: { lower: -100, upper: 300 } })),
+      getImageData: vi.fn(() => ({ dimensions: [256, 256, 21] })),
+    };
+    cs.setViewport('panel_vol', volume as never);
+
+    const s = viewportService.readViewportState('panel_vol');
+    expect(s?.total).toBe(256); // reformatted count — NOT 21 (the bug)
+    expect(s?.imageIndex).toBe(50);
+    expect(s?.currentImageId).toBe('vol-0'); // series-level metadata from source[0]
+    expect(s?.ww).toBe(400);
+    expect(s?.wc).toBe(100);
+  });
+
+  it('readViewportState reads the stack API for STACK viewports', () => {
+    const stack = {
+      type: 'STACK',
+      getCurrentImageIdIndex: vi.fn(() => 5),
+      getImageIds: vi.fn(() => Array.from({ length: 10 }, (_, i) => `stk-${i}`)),
+      getCurrentImageId: vi.fn(() => 'stk-5'),
+      getZoom: vi.fn(() => 2),
+      getProperties: vi.fn(() => ({ voiRange: { lower: 0, upper: 200 } })),
+      getImageData: vi.fn(() => ({ dimensions: [512, 512] })),
+    };
+    cs.setViewport('panel_stk', stack as never);
+
+    const s = viewportService.readViewportState('panel_stk');
+    expect(s?.total).toBe(10);
+    expect(s?.imageIndex).toBe(5);
+    expect(s?.currentImageId).toBe('stk-5');
+    expect(s?.zoom).toBe(200);
+  });
 });

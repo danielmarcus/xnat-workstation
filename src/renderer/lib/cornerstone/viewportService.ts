@@ -376,6 +376,132 @@ export const viewportService = {
   },
 
   /**
+   * Read a plain snapshot of the current viewport display state — image index /
+   * total, zoom %, window/level, image dimensions, current imageId — for BOTH
+   * stack and volume (ORTHOGRAPHIC) viewports.
+   *
+   * CRITICAL: stack-vs-volume is decided by `viewport.type`, NOT by which methods
+   * exist. v4 VOLUME viewports expose BOTH getSliceIndex/getNumberOfSlices (the
+   * reformatted axis) AND getCurrentImageIdIndex/getImageIds (the NATIVE source
+   * count). Reading the stack API on a volume mixed the two axes → the "257/21"
+   * bug (reformatted index over native count). So: STACK → stack API; everything
+   * else → volume API, with the current imageId taken from the volume's source
+   * list (series-level metadata is constant across the reformat).
+   * Returns plain data (no Cornerstone objects); all reads are soft.
+   */
+  readViewportState(viewportId: string): {
+    imageIndex: number;
+    total: number;
+    zoom: number;
+    ww: number | null;
+    wc: number | null;
+    width: number | null;
+    height: number | null;
+    currentImageId: string | null;
+  } | null {
+    const engine = getEngine();
+    if (!engine) return null;
+    let vp: any;
+    try {
+      vp = engine.getViewport(viewportId);
+    } catch {
+      return null;
+    }
+    if (!vp) return null;
+
+    const isStack = vp.type === Enums.ViewportType.STACK;
+    let imageIndex = 0;
+    let total = 0;
+    let currentImageId: string | null = null;
+    try {
+      if (isStack) {
+        imageIndex = vp.getCurrentImageIdIndex?.() ?? 0;
+        total = vp.getImageIds?.().length ?? 0;
+        currentImageId = vp.getCurrentImageId?.() ?? null;
+      } else {
+        // Volume / ORTHOGRAPHIC: slice index + count come from the REFORMATTED
+        // axis, never from getImageIds().length (the native source count).
+        imageIndex = vp.getSliceIndex?.() ?? 0;
+        total = vp.getNumberOfSlices?.() ?? 0;
+        // Series-level metadata is constant across the reformat; use any source id.
+        const ids: string[] = vp.getImageIds?.() ?? [];
+        currentImageId = ids[0] ?? null;
+      }
+    } catch {
+      /* soft */
+    }
+
+    let ww: number | null = null;
+    let wc: number | null = null;
+    try {
+      const props = vp.getProperties?.();
+      if (props?.voiRange) {
+        ww = props.voiRange.upper - props.voiRange.lower;
+        wc = props.voiRange.lower + ww / 2;
+      }
+    } catch {
+      /* soft */
+    }
+
+    let zoom = 100;
+    try {
+      if (typeof vp.getZoom === 'function') zoom = Math.round(vp.getZoom() * 100);
+    } catch {
+      /* soft */
+    }
+
+    let width: number | null = null;
+    let height: number | null = null;
+    try {
+      const imageData = vp.getImageData?.();
+      if (imageData?.dimensions) {
+        width = imageData.dimensions[0] ?? null;
+        height = imageData.dimensions[1] ?? null;
+      }
+    } catch {
+      /* soft */
+    }
+
+    return { imageIndex, total, zoom, ww, wc, width, height, currentImageId };
+  },
+
+  /**
+   * Subscribe to the Cornerstone display events that change viewport readouts and
+   * invoke `onChange(kind)` so the caller can re-read state + push to the stores.
+   * Returns a dispose fn. Events absent in a given build (e.g. VOLUME_NEW_IMAGE
+   * in a test mock) are filtered out, so this is safe everywhere.
+   */
+  subscribeViewportEvents(
+    viewportId: string,
+    element: HTMLElement,
+    onChange: (kind: 'voi' | 'image' | 'camera') => void,
+  ): () => void {
+    const Events = Enums.Events;
+    const bindings: Array<{ type: string; kind: 'voi' | 'image' | 'camera' }> = [
+      { type: Events.VOI_MODIFIED, kind: 'voi' as const },
+      { type: Events.STACK_NEW_IMAGE, kind: 'image' as const },
+      { type: (Events as Record<string, string>).VOLUME_NEW_IMAGE, kind: 'image' as const },
+      { type: Events.CAMERA_MODIFIED, kind: 'camera' as const },
+    ].filter((b) => typeof b.type === 'string');
+
+    const listeners = bindings.map((b) => {
+      const handler = (() => {
+        try {
+          onChange(b.kind);
+        } catch (err) {
+          console.warn('[viewportService] state-sync handler error:', viewportId, err);
+        }
+      }) as EventListener;
+      element.addEventListener(b.type, handler);
+      return { type: b.type, handler };
+    });
+
+    return () => {
+      for (const l of listeners) element.removeEventListener(l.type, l.handler);
+    };
+  },
+
+  /**
    * Zoom by a relative factor (e.g., 1.2 to zoom in 20%, 0.8 to zoom out 20%).
    */
   zoomBy(viewportId: string, factor: number): void {
