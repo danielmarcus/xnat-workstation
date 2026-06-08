@@ -102,6 +102,14 @@ declare global {
       canUnifiedUndo: () => boolean;
       /** Undo the last edit via the global history (works after the source panel closed). */
       triggerUnifiedUndo: () => void;
+      /** A panel's camera focal point (world coords) — the volume centre for a centred view. */
+      getPanelFocalPoint: (panelId: string) => [number, number, number] | null;
+      /** Convert a world point to PAGE coordinates on a panel's canvas (DPR-corrected). */
+      worldToPanelPagePoint: (panelId: string, world: [number, number, number]) => { x: number; y: number } | null;
+      /** Create a contour segmentation + attach its contour rep to all unified viewports. */
+      createUnifiedContourSeg: (label?: string) => { segmentationId: string; segmentIndex: number };
+      /** Rasterize the contour → labelmap (PolySeg) onto all unified viewports (MPR propagation). */
+      syncUnifiedContourLabelmap: (segmentationId: string) => Promise<boolean>;
     };
   }
 }
@@ -550,6 +558,31 @@ export function installRendererE2eHooks(): void {
     },
     canUnifiedUndo: () => undoService.canUndo(),
     triggerUnifiedUndo: () => undoService.undo(),
+    getPanelFocalPoint: (panelId: string) => {
+      const ee = getEnabledElementByViewportId(panelId) as
+        | { viewport?: { getCamera?: () => { focalPoint?: number[] } } }
+        | undefined;
+      const fp = ee?.viewport?.getCamera?.()?.focalPoint;
+      return Array.isArray(fp) && fp.length >= 3 ? [fp[0], fp[1], fp[2]] : null;
+    },
+    worldToPanelPagePoint: (panelId: string, world: [number, number, number]) => {
+      const ee = getEnabledElementByViewportId(panelId) as
+        | { viewport?: { worldToCanvas?: (w: [number, number, number]) => [number, number] } }
+        | undefined;
+      const canvasPt = ee?.viewport?.worldToCanvas?.(world);
+      if (!canvasPt) return null;
+      const canvas = document.querySelector(
+        `[data-testid="unified-viewport-element:${panelId}"] canvas`,
+      ) as HTMLCanvasElement | null;
+      if (!canvas) return null;
+      const rect = canvas.getBoundingClientRect();
+      const dpr = canvas.width && rect.width ? canvas.width / rect.width : 1;
+      return { x: rect.left + canvasPt[0] / dpr, y: rect.top + canvasPt[1] / dpr };
+    },
+    createUnifiedContourSeg: (label?: string) =>
+      unifiedSegService.createContourSegmentation(unifiedToolService.getViewportIds(), label ?? 'Structure'),
+    syncUnifiedContourLabelmap: (segmentationId: string) =>
+      unifiedSegService.syncContourToLabelmap(segmentationId, unifiedToolService.getViewportIds()),
     getPaintedVoxelCount: () => {
       let total = 0;
       const segs = (csSegmentation.state.getSegmentations?.() ?? []) as Array<{
