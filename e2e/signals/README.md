@@ -33,6 +33,9 @@ of the full 37-signal red suite (PHASES.md → Rebuild Phase 0).
 | `approve-container` / `approval-badge` | approve action + approved-state badge |
 | `provenance-badge`              | interpolated/manual provenance marker on a contour |
 | `active-viewport-indicator`     | indicator on the focused viewport |
+| `autosave-row`                  | per-container autosave status row (silent, in-place) |
+| `cross-series-pill`             | dimmed cross-series marker on a non-active-viewport row |
+| `unsaved-sessions-banner`       | "N sessions with unsaved annotations" banner |
 
 ## Seeded so far
 
@@ -51,7 +54,13 @@ of the full 37-signal red suite (PHASES.md → Rebuild Phase 0).
 | SEG round-trip    | 24 (C7/C8) | seg-multilabel    | loaded multi-segment SEG lists all 5 members in the rebuilt panel |
 | Contour Fill      | 30 (C3)   | ct-axial-anatomy  | LabelMapEditWithContourTool boundary-fill into active segment, single-undo |
 | S5: cross-series / FoR | 9,10,11,12,36 | mr-t1-t2 / breath-hold / cross-for | non-native dashed rendering, drawing-block on non-native series, breath-hold off-by-default, A2c auto-classify, different-FoR listed-not-rendered |
+| S7: lifecycle / autosave | 14,15,25,26 | rtstruct-typed / seg-multilabel | auto-load + navigate, session-switch retention, queue-next-save, undo-across-save |
 
-**30 of 37 signals seeded** (red). Remaining ~28 are tracked for later passes;
-some need richer fixtures (paired series, RTSTRUCT/SEG objects) or session/XNAT
-machinery (lifecycle/conflict signals 25–27, 36).
+**34 of 37 signals seeded** (red), in `e2e/signals/`. The remainder are gated
+outside the offline E2E harness, per the design's coverage note:
+- **27** (save-conflict / save-failure round-trip) — needs **live XNAT**; authored under the Transport workstream gate.
+- **37** (performance budget) — a **benchmark** (≥30 fps brush propagation, layout swap ≤ ~250 ms), measured under the perf harness, not pass/fail.
+- **18** — retired (ROI type is not tracked).
+
+All 9 design fixtures are built. As each phase implements a signal its test goes
+green here; fully-delivered signals graduate into the default suite.
