@@ -8,6 +8,7 @@
  */
 import { useEffect, useRef } from 'react';
 import { viewportService } from '../lib/cornerstone/viewportService';
+import { unifiedToolService } from '../lib/cornerstone/unifiedToolService';
 import type { MPRPlane } from '@shared/types/viewer';
 
 export interface UseViewportArgs {
@@ -34,6 +35,7 @@ export function useViewport({
     const el = containerRef.current;
     if (!el || imageIds.length === 0) return;
 
+    let cancelled = false;
     viewportService
       .createUnifiedViewport(panelId, el, {
         scanId,
@@ -42,9 +44,17 @@ export function useViewport({
         meta: { imageCount: imageIds.length },
         orientation,
       })
+      .then(() => {
+        // Join the unified tool group (real CrosshairsTool MPR sync) once the
+        // viewport exists. Guard the async gap against a fast unmount.
+        if (cancelled) return;
+        unifiedToolService.addViewport(panelId);
+      })
       .catch((err) => console.warn('[useViewport] create failed:', panelId, err));
 
     return () => {
+      cancelled = true;
+      unifiedToolService.removeViewport(panelId);
       viewportService.destroyUnifiedViewport(panelId);
     };
     // Recreate on panel, series, sharing-key, or plane change.

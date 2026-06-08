@@ -12,6 +12,7 @@ import { useAnnotationStore } from '../../stores/annotationStore';
 import { usePreferencesStore } from '../../stores/preferencesStore';
 import { useUnifiedLayoutStore, type LayoutPreset } from '../../stores/unifiedLayoutStore';
 import { volumeService } from '../cornerstone/volumeService';
+import { unifiedToolService } from '../cornerstone/unifiedToolService';
 import { segmentationManager } from '../segmentation/segmentationManagerSingleton';
 import { segmentationService } from '../cornerstone/segmentationService';
 import * as contourRep from '../cornerstone/contourRepresentation';
@@ -67,6 +68,12 @@ declare global {
       setLayoutPreset: (preset: LayoutPreset) => void;
       /** Ref-count of the shared volume for a (scanId, FoR) pair (0 if none). */
       getSharedVolumeRefCount: (scanId: string, frameOfReferenceUID: string) => number;
+      /** Tool-group id a unified viewport belongs to (null if none). */
+      getViewportToolGroupId: (panelId: string) => string | null;
+      /** Whether the unified tool group has the real CrosshairsTool registered. */
+      unifiedToolGroupHasCrosshairs: () => boolean;
+      /** Viewport ids currently in the unified tool group. */
+      getUnifiedToolGroupViewportIds: () => string[];
     };
   }
 }
@@ -442,5 +449,8 @@ export function installRendererE2eHooks(): void {
     },
     getSharedVolumeRefCount: (scanId: string, frameOfReferenceUID: string) =>
       volumeService.getRefCount(volumeService.sharedVolumeId(scanId, frameOfReferenceUID)),
+    getViewportToolGroupId: (panelId: string) => unifiedToolService.getViewportToolGroupId(panelId),
+    unifiedToolGroupHasCrosshairs: () => unifiedToolService.hasCrosshairs(),
+    getUnifiedToolGroupViewportIds: () => unifiedToolService.getViewportIds(),
   };
 }
