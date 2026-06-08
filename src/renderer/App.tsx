@@ -7,6 +7,7 @@ import ConnectionStatus from './components/connection/ConnectionStatus';
 import XnatBrowser from './components/connection/XnatBrowser';
 import { useConnectionStore } from './stores/connectionStore';
 import { useViewerStore } from './stores/viewerStore';
+import { useUnifiedLayoutStore } from './stores/unifiedLayoutStore';
 import { useSegmentationStore } from './stores/segmentationStore';
 import { usePreferencesStore } from './stores/preferencesStore';
 import { wadouri } from '@cornerstonejs/dicom-image-loader';
@@ -17,7 +18,6 @@ import { BUILT_IN_PROTOCOLS } from '@shared/types/hangingProtocol';
 import type { XnatScan } from '@shared/types/xnat';
 import type { UpdateStatus } from '@shared/types';
 import { IconOpenFile, XnatLogo } from './components/icons';
-import { volumeService } from './lib/cornerstone/volumeService';
 import {
   saveRecentSession as saveRecentSessionUtil,
   migrateOldStorage,
@@ -1954,63 +1954,40 @@ export default function App() {
 
         if (options?.openInMpr && isPrimaryImageScan(effectiveScan)) {
           const viewerStore = useViewerStore.getState();
-          if (viewerStore.mprActive) {
-            viewerStore.exitMPR();
-          }
 
           setBrowserStatusMessage(
-            'Opening 2x2 orientation view...',
+            'Opening MPR view...',
             'loading',
             `Scan #${scanId} in axial/sagittal/coronal views.`,
           );
 
-          viewerStore.setLayout('2x2');
-          const p0 = panelId(0); // top-left
-          const p1 = panelId(1); // top-right
-          const p2 = panelId(2); // bottom-left
-          const p3 = panelId(3); // bottom-right
-          const targetPanels = [p0, p1, p2, p3];
+          // Unified path: one shared volume, panel_0 source; the MPR-2×2 preset
+          // reformats it into axial/sagittal/coronal (+axial) panels.
+          const p0 = panelId(0);
+          segmentationManager.removeSegmentationsFromViewport(p0);
+          setPanelImageIds((prev) => ({ ...prev, [p0]: ids }));
+          viewerStore.setPanelXnatContext(p0, {
+            projectId: context.projectId,
+            subjectId: context.subjectId,
+            sessionId,
+            sessionLabel: context.sessionLabel,
+            scanId,
+          });
+          viewerStore.setPanelScan(p0, scanId);
+          viewerStore.setPanelSessionLabel(p0, context.sessionLabel);
+          viewerStore.setPanelSubjectLabel(p0, context.subjectLabel ?? context.subjectId);
+          segmentationManager.onPanelImagesChanged(
+            p0,
+            scanId,
+            panelEpochRef.current[p0] ?? viewportReadyService.getEpoch(p0),
+          );
 
-          for (const pid of targetPanels) {
-            segmentationManager.removeSegmentationsFromViewport(pid);
-          }
-
-          setPanelImageIds((prev) => ({
-            ...prev,
-            [p0]: ids,
-            [p1]: ids,
-            [p2]: ids,
-            [p3]: ids,
-          }));
-
-          viewerStore.setPanelOrientation(p0, 'AXIAL');
-          viewerStore.setPanelOrientation(p1, 'SAGITTAL');
-          viewerStore.setPanelOrientation(p2, 'CORONAL');
-          viewerStore.setPanelOrientation(p3, 'STACK');
-
-          for (const pid of targetPanels) {
-            viewerStore.setPanelXnatContext(pid, {
-              projectId: context.projectId,
-              subjectId: context.subjectId,
-              sessionId,
-              sessionLabel: context.sessionLabel,
-              scanId,
-            });
-            viewerStore.setPanelScan(pid, scanId);
-            viewerStore.setPanelSessionLabel(pid, context.sessionLabel);
-            viewerStore.setPanelSubjectLabel(pid, context.subjectLabel ?? context.subjectId);
-            segmentationManager.onPanelImagesChanged(
-              pid,
-              scanId,
-              panelEpochRef.current[pid] ?? viewportReadyService.getEpoch(pid),
-            );
-          }
-
+          useUnifiedLayoutStore.getState().setPreset('mpr-2x2');
           targetPanel = p0;
           viewerStore.setActiveViewport(targetPanel);
 
           setBrowserStatusMessage(
-            '2x2 orientation view ready',
+            'MPR view ready',
             'success',
             `Axial / Sagittal / Coronal loaded for scan #${scanId}.`,
           );

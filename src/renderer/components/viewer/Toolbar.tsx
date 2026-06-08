@@ -26,7 +26,6 @@ import {
   IconStop,
   IconDocument,
   IconChevronDown,
-  IconMPR,
   IconSegment,
   IconProtocol,
   IconUndo,
@@ -495,8 +494,6 @@ interface ToolbarProps {
   showDicomPanel?: boolean;
   onToggleDicomPanel?: () => void;
   onApplyProtocol?: (protocolId: string) => void;
-  onToggleMPR?: () => void;
-  hasImages?: boolean;
   /** Optional content rendered at the far left of the toolbar (e.g. XNAT logo, connection status) */
   leftSlot?: React.ReactNode;
   /** Called when the user clicks "Recover" for a backup session in Settings. */
@@ -511,8 +508,6 @@ export default function Toolbar({
   showDicomPanel = false,
   onToggleDicomPanel,
   onApplyProtocol,
-  onToggleMPR,
-  hasImages = false,
   leftSlot,
   onRecoverBackup,
   settingsInitialTabRequest,
@@ -533,7 +528,6 @@ export default function Toolbar({
   }, [settingsInitialTabRequest, onSettingsInitialTabRequestConsumed]);
 
   const activeTool = useViewerStore((s) => s.activeTool);
-  const mprActive = useViewerStore((s) => s.mprActive);
   const cine = useViewerStore(
     (s) => s.cineStates[s.activeViewportId] ?? DEFAULT_CINE,
   );
@@ -566,12 +560,12 @@ export default function Toolbar({
       )}
 
       {/* ─── Layout Picker ──────────────────────────────── */}
-      <div className={`flex items-center gap-0.5 ${mprActive ? 'opacity-40 pointer-events-none' : ''}`}>
-        <LayoutDropdown disabled={mprActive} />
+      <div className="flex items-center gap-0.5">
+        <LayoutDropdown disabled={false} />
       </div>
 
       {/* ─── Protocol Picker ──────────────────────────────── */}
-      {onApplyProtocol && !mprActive && (
+      {onApplyProtocol && (
         <>
           <Separator />
           <ProtocolPickerDropdown
@@ -585,35 +579,12 @@ export default function Toolbar({
 
       <Separator />
 
-      {/* ─── MPR Toggle ──────────────────────────────────── */}
-      {onToggleMPR && (
-        <>
-          <button
-            onClick={onToggleMPR}
-            disabled={!hasImages && !mprActive}
-            title={mprActive ? 'Exit MPR mode' : 'Enter MPR mode'}
-            className={`flex items-center gap-1.5 px-2 py-1.5 text-xs font-medium rounded transition-colors ${
-              mprActive
-                ? 'bg-blue-600 text-white'
-                : !hasImages
-                  ? 'bg-zinc-800 text-zinc-600 cursor-not-allowed'
-                  : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700 hover:text-white'
-            }`}
-          >
-            <IconMPR className="w-3.5 h-3.5" />
-            {!textCollapsed && <span>MPR</span>}
-          </button>
-          <Separator />
-        </>
-      )}
-
       {/* ─── Navigation Tools (Cross, W/L, Presets, Pan, Zoom) ── */}
-      {!mprActive && (
-        <CollapsibleGroup
-          collapsed={isGroupCollapsed('navigation')}
-          triggerIcon={<IconCrosshairs className="w-3.5 h-3.5" />}
-          triggerTitle="Navigation tools"
-        >
+      <CollapsibleGroup
+        collapsed={isGroupCollapsed('navigation')}
+        triggerIcon={<IconCrosshairs className="w-3.5 h-3.5" />}
+        triggerTitle="Navigation tools"
+      >
           <ToolButton
             icon={<IconCrosshairs className="w-3.5 h-3.5" />}
             label="Cross"
@@ -647,40 +618,29 @@ export default function Toolbar({
             title="Zoom (left-click drag)"
             hideLabel={textCollapsed}
           />
-        </CollapsibleGroup>
-      )}
-      {mprActive && (
-        <span className="text-[11px] text-zinc-500 px-1 whitespace-nowrap">
-          Crosshairs: left-click &middot; Pan: middle-click &middot; Zoom: right-click
-        </span>
-      )}
-
+      </CollapsibleGroup>
       {/* ─── Annotation Tools (Annotate, Measure, Undo, Redo) ── */}
-      {!mprActive && (
-        <>
-          <Separator />
-          <CollapsibleGroup
-            collapsed={isGroupCollapsed('annotation')}
-            triggerIcon={<IconSegment className="w-3.5 h-3.5" />}
-            triggerTitle="Annotation tools"
-          >
-            <SegmentationPanelToggle label="Annotate" hideLabel={textCollapsed} />
-            <AnnotationToolDropdown hideLabel={textCollapsed} />
-            <IconButton
-              icon={<IconUndo className="w-3.5 h-3.5" />}
-              onClick={() => segmentationService.undo()}
-              title="Undo (Ctrl+Z)"
-              disabled={!canUndo}
-            />
-            <IconButton
-              icon={<IconRedo className="w-3.5 h-3.5" />}
-              onClick={() => segmentationService.redo()}
-              title="Redo (Ctrl+Shift+Z)"
-              disabled={!canRedo}
-            />
-          </CollapsibleGroup>
-        </>
-      )}
+      <Separator />
+      <CollapsibleGroup
+        collapsed={isGroupCollapsed('annotation')}
+        triggerIcon={<IconSegment className="w-3.5 h-3.5" />}
+        triggerTitle="Annotation tools"
+      >
+        <SegmentationPanelToggle label="Annotate" hideLabel={textCollapsed} />
+        <AnnotationToolDropdown hideLabel={textCollapsed} />
+        <IconButton
+          icon={<IconUndo className="w-3.5 h-3.5" />}
+          onClick={() => segmentationService.undo()}
+          title="Undo (Ctrl+Z)"
+          disabled={!canUndo}
+        />
+        <IconButton
+          icon={<IconRedo className="w-3.5 h-3.5" />}
+          onClick={() => segmentationService.redo()}
+          title="Redo (Ctrl+Shift+Z)"
+          disabled={!canRedo}
+        />
+      </CollapsibleGroup>
 
       <Separator />
 
@@ -717,36 +677,32 @@ export default function Toolbar({
         />
       </CollapsibleGroup>
 
-      {/* ─── Cine Controls (hidden in MPR mode) ──────── */}
-      {!mprActive && (
-        <>
-          <Separator />
-          <CollapsibleGroup
-            collapsed={isGroupCollapsed('cine')}
-            triggerIcon={<IconPlay className="w-3.5 h-3.5" />}
-            triggerTitle="Cine playback"
-          >
-            <IconButton
-              icon={cine.isPlaying ? <IconStop className="w-3.5 h-3.5" /> : <IconPlay className="w-3.5 h-3.5" />}
-              active={cine.isPlaying}
-              onClick={toggleCine}
-              title={cine.isPlaying ? 'Stop cine' : 'Play cine'}
-            />
-            <div className="flex items-center gap-1.5 text-xs text-zinc-400">
-              <input
-                type="range"
-                min={1}
-                max={60}
-                value={cine.fps}
-                onChange={(e) => setCineFps(parseInt(e.target.value, 10))}
-                className="w-14 h-1 accent-blue-500 cursor-pointer"
-                title={`${cine.fps} FPS`}
-              />
-              <span className="w-8 text-right tabular-nums text-[11px]">{cine.fps} fps</span>
-            </div>
-          </CollapsibleGroup>
-        </>
-      )}
+      {/* ─── Cine Controls ──────────────────────────────── */}
+      <Separator />
+      <CollapsibleGroup
+        collapsed={isGroupCollapsed('cine')}
+        triggerIcon={<IconPlay className="w-3.5 h-3.5" />}
+        triggerTitle="Cine playback"
+      >
+        <IconButton
+          icon={cine.isPlaying ? <IconStop className="w-3.5 h-3.5" /> : <IconPlay className="w-3.5 h-3.5" />}
+          active={cine.isPlaying}
+          onClick={toggleCine}
+          title={cine.isPlaying ? 'Stop cine' : 'Play cine'}
+        />
+        <div className="flex items-center gap-1.5 text-xs text-zinc-400">
+          <input
+            type="range"
+            min={1}
+            max={60}
+            value={cine.fps}
+            onChange={(e) => setCineFps(parseInt(e.target.value, 10))}
+            className="w-14 h-1 accent-blue-500 cursor-pointer"
+            title={`${cine.fps} FPS`}
+          />
+          <span className="w-8 text-right tabular-nums text-[11px]">{cine.fps} fps</span>
+        </div>
+      </CollapsibleGroup>
 
       {/* ─── DICOM Tags Toggle ─────────────────────────── */}
       {onToggleDicomPanel && !isGroupCollapsed('dicomTags') && (

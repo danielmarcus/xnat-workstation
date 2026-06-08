@@ -10,6 +10,7 @@ import App, {
 } from './App';
 import { useConnectionStore } from './stores/connectionStore';
 import { useViewerStore } from './stores/viewerStore';
+import { useUnifiedLayoutStore } from './stores/unifiedLayoutStore';
 import { useSegmentationStore } from './stores/segmentationStore';
 import { usePreferencesStore } from './stores/preferencesStore';
 import { useSessionDerivedIndexStore } from './stores/sessionDerivedIndexStore';
@@ -1157,7 +1158,7 @@ describe('App', () => {
     expect(window.electronAPI.xnat.downloadScanFile).not.toHaveBeenCalled();
   });
 
-  it('opens scan in 2x2 orientation layout when requested', async () => {
+  it('opens scan in the unified MPR preset when requested', async () => {
     const user = userEvent.setup();
     setConnectedConnectionState();
     mocks.dicomwebLoader.getScanImageIds.mockResolvedValue(['img-1', 'img-2', 'img-3']);
@@ -1167,12 +1168,11 @@ describe('App', () => {
 
     await user.click(screen.getByRole('button', { name: 'Trigger Load Scan MPR' }));
 
+    // Unified path: the MPR-2×2 preset reformats one shared volume (panel_0).
     await waitFor(() => {
-      expect(useViewerStore.getState().layout).toBe('2x2');
+      expect(useUnifiedLayoutStore.getState().preset).toBe('mpr-2x2');
     });
-    expect(useViewerStore.getState().panelScanMap.panel_1).toBe('11');
-    expect(useViewerStore.getState().panelScanMap.panel_2).toBe('11');
-    expect(useViewerStore.getState().panelScanMap.panel_3).toBe('11');
+    expect(useViewerStore.getState().panelScanMap.panel_0).toBe('11');
   });
 
   it('loads a session with derived overlays and records xnat origins', async () => {

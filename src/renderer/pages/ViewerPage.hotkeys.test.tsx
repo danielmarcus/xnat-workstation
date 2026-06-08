@@ -9,7 +9,6 @@ import ViewerPage from './ViewerPage';
 
 const {
   viewportServiceMock,
-  mprServiceMock,
   segmentationServiceMock,
   toolServiceMock,
   annotationServiceMock,
@@ -17,10 +16,6 @@ const {
   viewportServiceMock: {
     zoomBy: vi.fn(),
     scrollToIndex: vi.fn(),
-  },
-  mprServiceMock: {
-    scrollToIndex: vi.fn(),
-    scroll: vi.fn(),
   },
   segmentationServiceMock: {
     initialize: vi.fn(),
@@ -62,10 +57,6 @@ vi.mock('../components/viewer/DicomHeaderPanel', () => ({
 
 vi.mock('../lib/cornerstone/viewportService', () => ({
   viewportService: viewportServiceMock,
-}));
-
-vi.mock('../lib/cornerstone/mprService', () => ({
-  mprService: mprServiceMock,
 }));
 
 vi.mock('../lib/cornerstone/segmentationService', () => ({

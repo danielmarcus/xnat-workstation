@@ -31,10 +31,6 @@ const mocked = vi.hoisted(() => ({
   volumeService: {
     destroy: vi.fn(),
   },
-  mprToolService: {
-    initialize: vi.fn(),
-    destroy: vi.fn(),
-  },
 }));
 
 vi.mock('../lib/cornerstone/viewportService', () => ({
@@ -48,10 +44,6 @@ vi.mock('../lib/cornerstone/toolService', () => ({
 vi.mock('../lib/cornerstone/volumeService', () => ({
   volumeService: mocked.volumeService,
   generateVolumeId: () => 'generated-volume-id',
-}));
-
-vi.mock('../lib/cornerstone/mprToolService', () => ({
-  mprToolService: mocked.mprToolService,
 }));
 
 import { useViewerStore } from './viewerStore';
@@ -225,40 +217,6 @@ describe('useViewerStore', () => {
     });
   });
 
-  it('enters and exits MPR while restoring prior state and scheduling volume cleanup', () => {
-    vi.useFakeTimers();
-    const store = useViewerStore.getState();
-    store.setLayout('2x2');
-    store.setActiveTool(ToolName.Zoom);
-    store.setActiveViewport('panel_2');
-
-    store.enterMPR('panel_2', 'vol-123');
-    let state = useViewerStore.getState();
-    expect(state.mprActive).toBe(true);
-    expect(state.mprVolumeId).toBe('vol-123');
-    expect(state.mprSourcePanelId).toBe('panel_2');
-    expect(state.mprPriorState).toMatchObject({
-      layout: '2x2',
-      activeViewportId: 'panel_2',
-      activeTool: ToolName.Zoom,
-    });
-    expect(mocked.mprToolService.initialize).toHaveBeenCalledTimes(1);
-
-    store.exitMPR();
-    state = useViewerStore.getState();
-    expect(state.mprActive).toBe(false);
-    expect(state.mprVolumeId).toBeNull();
-    expect(state.layout).toBe('2x2');
-    expect(state.activeTool).toBe(ToolName.Zoom);
-    expect(mocked.mprToolService.destroy).toHaveBeenCalledTimes(1);
-    expect(mocked.toolService.setActiveTool).toHaveBeenCalledWith(ToolName.Zoom);
-
-    vi.advanceTimersByTime(99);
-    expect(mocked.volumeService.destroy).not.toHaveBeenCalled();
-    vi.advanceTimersByTime(1);
-    expect(mocked.volumeService.destroy).toHaveBeenCalledWith('vol-123');
-  });
-
   it('handles internal panel/update helpers and no-op branches safely', () => {
     const store = useViewerStore.getState();
     store._initPanel('panel_0');
@@ -270,9 +228,6 @@ describe('useViewerStore', () => {
     store._requestImageIndex('panel_0', Number.NaN);
     store._requestImageIndex('panel_0', 7);
     store._updateImageIndex('panel_0', 7, 12);
-    store._updateMPRSlice('panel_0', 10, 100);
-    store._updateMPRSlice('panel_0', 10, 100);
-    store._updateMPRVolumeProgress({ loaded: 1, total: 2, percent: 50 });
     store.setCrosshairWorldPoint([1, 2, 3], 'panel_0');
 
     const state = useViewerStore.getState();
@@ -286,8 +241,6 @@ describe('useViewerStore', () => {
       requestedImageIndex: null,
       totalImages: 12,
     });
-    expect(state.mprViewports.panel_0).toMatchObject({ sliceIndex: 10, totalSlices: 100 });
-    expect(state.mprVolumeProgress).toMatchObject({ percent: 50 });
     expect(state.crosshairWorldPoint).toEqual([1, 2, 3]);
     expect(state.crosshairSourcePanelId).toBe('panel_0');
 

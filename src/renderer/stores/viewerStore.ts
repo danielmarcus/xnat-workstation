@@ -16,8 +16,6 @@ import type {
   WLPreset,
   LayoutType,
   PanelConfig,
-  MPRViewportState,
-  VolumeLoadProgress,
   ViewportOrientation,
 } from '@shared/types/viewer';
 // eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
@@ -29,10 +27,6 @@ import type { XnatScan, XnatUploadContext } from '@shared/types/xnat';
 import { viewportService } from '../lib/cornerstone/viewportService';
 // eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
 import { toolService } from '../lib/cornerstone/toolService';
-// eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
-import { volumeService, generateVolumeId } from '../lib/cornerstone/volumeService';
-// eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
-import { mprToolService } from '../lib/cornerstone/mprToolService';
 // eslint-disable-next-line no-restricted-imports -- unified path tool routing (annotation rebuild P1.8)
 import { unifiedToolService } from '../lib/cornerstone/unifiedToolService';
 import { isMultiviewportEnabled } from './preferencesStore';
@@ -102,19 +96,6 @@ interface ViewerStore {
   /** Panel that originated the crosshair position. */
   crosshairSourcePanelId: string | null;
 
-  // ─── MPR State ─────────────────────────────────────────────────
-  mprActive: boolean;
-  mprVolumeId: string | null;
-  mprSourcePanelId: string | null;
-  mprPriorState: {
-    layout: LayoutType | 'custom';
-    layoutConfig: PanelConfig;
-    activeViewportId: string;
-    activeTool: ToolName;
-  } | null;
-  mprViewports: Record<string, MPRViewportState>;
-  mprVolumeProgress: VolumeLoadProgress | null;
-
   // ─── Layout Actions ───────────────────────────────────────────
   setLayout: (layout: LayoutType) => void;
   setCustomLayout: (rows: number, cols: number) => void;
@@ -156,12 +137,6 @@ interface ViewerStore {
   stopCine: (panelId?: string) => void;
   stopAllCine: () => void;
 
-  // ─── MPR Actions ────────────────────────────────────────────────
-  enterMPR: (sourcePanelId: string, volumeId?: string) => void;
-  exitMPR: () => void;
-  _updateMPRSlice: (panelId: string, sliceIndex: number, totalSlices: number) => void;
-  _updateMPRVolumeProgress: (progress: VolumeLoadProgress | null) => void;
-
   // ─── Internal (called by CornerstoneViewport event handlers) ──
   _initPanel: (panelId: string) => void;
   _destroyPanel: (panelId: string) => void;
@@ -201,12 +176,6 @@ export const useViewerStore = create<ViewerStore>((set, get) => ({
   panelNativeOrientationMap: {},
   crosshairWorldPoint: null,
   crosshairSourcePanelId: null,
-  mprActive: false,
-  mprVolumeId: null,
-  mprSourcePanelId: null,
-  mprPriorState: null,
-  mprViewports: {},
-  mprVolumeProgress: null,
 
   // ─── Hanging Protocol Actions ──────────────────────────────────
 
@@ -656,93 +625,6 @@ export const useViewerStore = create<ViewerStore>((set, get) => ({
       return { cineStates: newCineStates };
     });
   },
-
-  // ─── MPR Actions ─────────────────────────────────────────────
-
-  enterMPR: (sourcePanelId, preCreatedVolumeId) => {
-    const state = get();
-    // Use pre-created volumeId if provided (volume already in cache),
-    // otherwise generate one (caller must create volume separately).
-    const volumeId = preCreatedVolumeId ?? generateVolumeId();
-
-    // Initialize MPR tool group BEFORE setting mprActive (which triggers viewport render)
-    mprToolService.initialize();
-
-    set({
-      mprActive: true,
-      mprVolumeId: volumeId,
-      mprSourcePanelId: sourcePanelId,
-      mprPriorState: {
-        layout: state.layout,
-        layoutConfig: { ...state.layoutConfig },
-        activeViewportId: state.activeViewportId,
-        activeTool: state.activeTool,
-      },
-      mprViewports: {},
-      mprVolumeProgress: { loaded: 0, total: 0, percent: 0 },
-    });
-
-    console.log('[viewerStore] Entered MPR mode, volumeId:', volumeId);
-  },
-
-  exitMPR: () => {
-    const state = get();
-    const volumeIdToDestroy = state.mprVolumeId;
-
-    // Restore prior state FIRST (toggle off mprActive so viewports unmount)
-    const prior = state.mprPriorState;
-
-    set({
-      mprActive: false,
-      mprVolumeId: null,
-      mprSourcePanelId: null,
-      mprPriorState: null,
-      mprViewports: {},
-      mprVolumeProgress: null,
-      ...(prior ? {
-        layout: prior.layout,
-        layoutConfig: { ...prior.layoutConfig },
-        activeViewportId: prior.activeViewportId,
-        activeTool: prior.activeTool,
-      } : {}),
-    });
-
-    // Destroy MPR tool group AFTER toggling off mprActive
-    mprToolService.destroy();
-
-    // Restore tool activation in the stack tool group
-    if (prior) {
-      toolService.setActiveTool(prior.activeTool);
-    }
-
-    // Defer volume destruction so viewports can unmount cleanly first
-    if (volumeIdToDestroy) {
-      setTimeout(() => volumeService.destroy(volumeIdToDestroy), 100);
-    }
-
-    console.log('[viewerStore] Exited MPR mode');
-  },
-
-  _updateMPRSlice: (pid, sliceIndex, totalSlices) =>
-    set((s) => {
-      const current = s.mprViewports[pid] ?? { sliceIndex: 0, totalSlices: 0, plane: 'AXIAL' as const };
-      if (current.sliceIndex === sliceIndex && current.totalSlices === totalSlices) {
-        return s;
-      }
-      return {
-        mprViewports: {
-          ...s.mprViewports,
-          [pid]: {
-            ...current,
-            sliceIndex,
-            totalSlices,
-          },
-        },
-      };
-    }),
-
-  _updateMPRVolumeProgress: (progress) =>
-    set({ mprVolumeProgress: progress }),
 
   // ─── Internal State Setters ───────────────────────────────────
 

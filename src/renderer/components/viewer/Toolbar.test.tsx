@@ -42,13 +42,11 @@ describe('Toolbar', () => {
     const toggleCine = vi.fn();
     const setCineFps = vi.fn();
     const onToggleDicomPanel = vi.fn();
-    const onToggleMPR = vi.fn();
 
     useViewerStore.setState({
       ...useViewerStore.getState(),
       activeViewportId: 'panel_0',
       activeTool: ToolName.WindowLevel,
-      mprActive: false,
       cineStates: { panel_0: { isPlaying: false, fps: 15 } },
       sessionScans: [],
       setActiveTool,
@@ -63,9 +61,7 @@ describe('Toolbar', () => {
 
     render(
       <Toolbar
-        hasImages
         onToggleDicomPanel={onToggleDicomPanel}
-        onToggleMPR={onToggleMPR}
       />,
     );
 
@@ -78,7 +74,6 @@ describe('Toolbar', () => {
     await user.click(screen.getByTitle('Flip horizontal'));
     await user.click(screen.getByTitle('Flip vertical'));
     await user.click(screen.getByTitle('Play cine'));
-    await user.click(screen.getByRole('button', { name: 'MPR' }));
     await user.click(screen.getByRole('button', { name: 'Tags' }));
 
     fireEvent.change(screen.getByTitle('15 FPS'), { target: { value: '22' } });
@@ -91,7 +86,6 @@ describe('Toolbar', () => {
     expect(toggleCine).toHaveBeenCalledTimes(1);
     expect(setCineFps).toHaveBeenCalledWith(22);
     expect(onToggleDicomPanel).toHaveBeenCalledTimes(1);
-    expect(onToggleMPR).toHaveBeenCalledTimes(1);
   });
 
   it('supports layout/protocol/preset dropdown flows', async () => {
@@ -113,7 +107,7 @@ describe('Toolbar', () => {
       setActiveTool,
     });
 
-    render(<Toolbar hasImages onApplyProtocol={onApplyProtocol} />);
+    render(<Toolbar onApplyProtocol={onApplyProtocol} />);
 
     await user.click(screen.getByTitle('Viewport layout (1x1)'));
     await user.click(screen.getByRole('button', { name: '2 x 2' }));
@@ -144,7 +138,7 @@ describe('Toolbar', () => {
       sessionScans: null,
     });
 
-    render(<Toolbar hasImages onApplyProtocol={onApplyProtocol} />);
+    render(<Toolbar onApplyProtocol={onApplyProtocol} />);
 
     const protocolButton = screen.getByRole('button', { name: /protocol/i });
     expect(protocolButton).toBeDisabled();
@@ -190,32 +184,19 @@ describe('Toolbar', () => {
     expect(screen.queryByText('Preferences')).not.toBeInTheDocument();
   });
 
-  it('renders mpr hints and disabled controls in MPR mode, including left slot', async () => {
-    const user = userEvent.setup();
-    const onToggleMPR = vi.fn();
+  it('renders the left slot in the toolbar', async () => {
     useViewerStore.setState({
       ...useViewerStore.getState(),
-      mprActive: true,
       activeViewportId: 'panel_0',
       cineStates: { panel_0: { isPlaying: true, fps: 25 } },
     });
 
     render(
-      <Toolbar
-        hasImages={false}
-        onToggleMPR={onToggleMPR}
-        leftSlot={<span data-testid="left-slot-marker">left</span>}
-      />,
+      <Toolbar leftSlot={<span data-testid="left-slot-marker">left</span>} />,
     );
 
     expect(screen.getByTestId('left-slot-marker')).toBeInTheDocument();
-    expect(screen.getByText(/Crosshairs: left-click/)).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Pan' })).not.toBeInTheDocument();
-    expect(screen.queryByTitle('15 FPS')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'MPR' })).toHaveAttribute('title', 'Exit MPR mode');
-
-    await user.click(screen.getByRole('button', { name: 'MPR' }));
-    expect(onToggleMPR).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('button', { name: 'Pan' })).toBeInTheDocument();
   });
 
   it('supports dropdown close-on-outside-click and tags toggle active title', async () => {
@@ -233,7 +214,6 @@ describe('Toolbar', () => {
 
     render(
       <Toolbar
-        hasImages
         showDicomPanel
         onToggleDicomPanel={onToggleDicomPanel}
         onApplyProtocol={onApplyProtocol}

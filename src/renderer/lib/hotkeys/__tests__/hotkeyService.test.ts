@@ -52,11 +52,6 @@ const viewportServiceMock = {
   scrollToIndex: vi.fn(),
 };
 
-const mprServiceMock = {
-  scrollToIndex: vi.fn(),
-  scroll: vi.fn(),
-};
-
 const segmentationServiceMock = {
   setBrushSize: vi.fn(),
   undo: vi.fn(),
@@ -85,7 +80,6 @@ beforeAll(async () => {
     },
   }));
   vi.doMock('../../cornerstone/viewportService', () => ({ viewportService: viewportServiceMock }));
-  vi.doMock('../../cornerstone/mprService', () => ({ mprService: mprServiceMock }));
   vi.doMock('../../cornerstone/segmentationService', () => ({ segmentationService: segmentationServiceMock }));
 
   ({ hotkeyService } = await import('../hotkeyService'));
@@ -265,35 +259,10 @@ describe('hotkeyService', () => {
     expect(viewerState.applyWLPreset).toHaveBeenCalledTimes(1);
   });
 
-  it('honors MPR guard rails and panel-cycling edge cases', () => {
-    viewerState.mprActive = true;
-    viewerState.layoutConfig = { rows: 1, cols: 1, panelCount: 1 };
-    hotkeyService.setHotkeyMap({
-      'layout.1x2': [{ key: 'l' }],
-      'viewport.toggleCine': [{ key: 'c' }],
-      'panel.nextViewport': [{ key: 'Tab' }],
-    });
-    hotkeyService.install();
-
-    const layoutEvent = dispatchKey({ key: 'l' });
-    const cineEvent = dispatchKey({ key: 'c' });
-    const tabEvent = dispatchKey({ key: 'Tab' });
-
-    expect(layoutEvent.defaultPrevented).toBe(false);
-    expect(cineEvent.defaultPrevented).toBe(false);
-    expect(tabEvent.defaultPrevented).toBe(true);
-    expect(viewerState.setLayout).not.toHaveBeenCalled();
-    expect(viewerState.toggleCine).not.toHaveBeenCalled();
-    expect(viewerState.setActiveViewport).not.toHaveBeenCalled();
-  });
-
-  it('handles stack and MPR slice navigation paths', () => {
+  it('handles stack slice navigation via viewportService', () => {
     hotkeyService.setHotkeyMap({
       'slice.prev': [{ key: 'ArrowUp' }],
-      'slice.next': [{ key: 'ArrowDown' }],
-      'slice.first': [{ key: 'Home' }],
       'slice.last': [{ key: 'End' }],
-      'slice.nextPage': [{ key: 'PageDown' }],
     });
     hotkeyService.install();
 
@@ -303,36 +272,6 @@ describe('hotkeyService', () => {
 
     dispatchKey({ key: 'End' });
     expect(viewportServiceMock.scrollToIndex).toHaveBeenCalledWith('panel_0', 9);
-
-    viewerState.activeViewportId = 'mpr_panel_0';
-    viewerState.mprViewports = { mpr_panel_0: { totalSlices: 30, sliceIndex: 5 } };
-    dispatchKey({ key: 'Home' });
-    dispatchKey({ key: 'ArrowDown' });
-    dispatchKey({ key: 'PageDown' });
-    dispatchKey({ key: 'End' });
-
-    expect(mprServiceMock.scrollToIndex).toHaveBeenCalledWith('mpr_panel_0', 0);
-    expect(mprServiceMock.scrollToIndex).toHaveBeenCalledWith('mpr_panel_0', 29);
-    expect(mprServiceMock.scroll).toHaveBeenCalledWith('mpr_panel_0', 1);
-    expect(mprServiceMock.scroll).toHaveBeenCalledWith('mpr_panel_0', 10);
-  });
-
-  it('handles oriented (non-stack) slice navigation using mprService', () => {
-    viewerState.panelOrientationMap = { panel_0: 'AXIAL' };
-    hotkeyService.setHotkeyMap({
-      'slice.first': [{ key: 'Home' }],
-      'slice.last': [{ key: 'End' }],
-      'slice.prevPage': [{ key: 'PageUp' }],
-    });
-    hotkeyService.install();
-
-    dispatchKey({ key: 'Home' });
-    dispatchKey({ key: 'End' });
-    dispatchKey({ key: 'PageUp' });
-
-    expect(mprServiceMock.scrollToIndex).toHaveBeenCalledWith('panel_0', 0);
-    expect(mprServiceMock.scroll).toHaveBeenCalledWith('panel_0', 999999);
-    expect(mprServiceMock.scroll).toHaveBeenCalledWith('panel_0', -10);
   });
 
   it('does not prevent default for unmapped/unknown actions', () => {
