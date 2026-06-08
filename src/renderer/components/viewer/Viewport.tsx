@@ -6,7 +6,6 @@
  * service, not by this component. No service / Cornerstone imports (§2).
  */
 import { useViewport } from '../../hooks/useViewport';
-import ViewportOverlay from './ViewportOverlay';
 import type { MPRPlane } from '@shared/types/viewer';
 
 interface ViewportProps {
@@ -38,7 +37,6 @@ export default function Viewport({
         data-testid={`unified-viewport-element:${panelId}`}
         className="w-full h-full"
       />
-      <ViewportOverlay panelId={panelId} />
     </div>
   );
 }
