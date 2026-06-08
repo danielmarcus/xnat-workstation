@@ -68,6 +68,8 @@ declare global {
       getViewportType: (panelId: string) => string | null;
       /** Set the unified-grid layout preset. */
       setLayoutPreset: (preset: LayoutPreset) => void;
+      /** The currently-active viewport panel id (null if none). */
+      getActiveViewportId: () => string | null;
       /** Ref-count of the shared volume for a (scanId, FoR) pair (0 if none). */
       getSharedVolumeRefCount: (scanId: string, frameOfReferenceUID: string) => number;
       /** Tool-group id a unified viewport belongs to (null if none). */
@@ -483,6 +485,7 @@ export function installRendererE2eHooks(): void {
     setLayoutPreset: (preset: LayoutPreset) => {
       useUnifiedLayoutStore.getState().setPreset(preset);
     },
+    getActiveViewportId: () => useViewerStore.getState().activeViewportId ?? null,
     getSharedVolumeRefCount: (scanId: string, frameOfReferenceUID: string) =>
       volumeService.getRefCount(volumeService.sharedVolumeId(scanId, frameOfReferenceUID)),
     getViewportToolGroupId: (panelId: string) => unifiedToolService.getViewportToolGroupId(panelId),

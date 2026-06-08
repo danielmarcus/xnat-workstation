@@ -6,6 +6,7 @@
  * service, not by this component. No service / Cornerstone imports (§2).
  */
 import { useViewport } from '../../hooks/useViewport';
+import { useViewerStore } from '../../stores/viewerStore';
 import type { MPRPlane } from '@shared/types/viewer';
 
 interface ViewportProps {
@@ -26,11 +27,20 @@ export default function Viewport({
   orientation,
 }: ViewportProps) {
   const { containerRef } = useViewport({ panelId, imageIds, scanId, frameOfReferenceUID, orientation });
+  const isActive = useViewerStore((s) => s.activeViewportId === panelId);
+  const setActiveViewport = useViewerStore((s) => s.setActiveViewport);
 
   return (
     <div
       data-testid={`unified-viewport:${panelId}`}
-      className="relative w-full h-full bg-black overflow-hidden"
+      data-active={isActive ? 'true' : 'false'}
+      // Select this panel as active on interaction-start. Doesn't preventDefault,
+      // so the Cornerstone tool on the canvas still receives the same pointerdown.
+      // Restores the click-to-select wiring the deleted CornerstoneViewport had.
+      onPointerDown={() => setActiveViewport(panelId)}
+      className={`relative w-full h-full bg-black overflow-hidden ${
+        isActive ? 'ring-2 ring-inset ring-sky-500' : ''
+      }`}
     >
       <div
         ref={containerRef}
