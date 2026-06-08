@@ -101,6 +101,7 @@ import {
   cloneHandlesWithOffset,
 } from './segmentationService/contourGeometry';
 import { createUndoHistory } from './segmentationService/undoHistory';
+import { createVisibilityControls } from './segmentationService/visibility';
 import { showAlertDialog } from '../../stores/dialogStore';
 // NOTE: We use the tool group ID directly here instead of importing from
 // toolService to avoid a circular dependency (toolService → segmentationService).
@@ -237,6 +238,14 @@ const {
   installHistoryMemoTracking,
   uninstallHistoryMemoTracking,
 } = undoHistory;
+
+// ─── Segment visibility / lock controls ─────────────────
+// Extracted to ./segmentationService/visibility. Bound to the service's
+// store-sync + lock-query helpers; the public methods below delegate here.
+const visibilityControls = createVisibilityControls({
+  syncSegmentations,
+  isSegmentLocked: isSegmentLockedInternal,
+});
 
 /**
  * Attach a single sub-segmentation to a viewport: add labelmap representation,
@@ -2971,107 +2980,8 @@ export const segmentationService = {
   /**
    * Toggle visibility for an individual segment on a viewport.
    */
-  toggleSegmentVisibility(
-    viewportId: string,
-    segmentationId: string,
-    segmentIndex: number,
-  ): void {
-    // ─── Multi-layer group path ─────────────────────────────
-    if (isMultiLayerGroup(segmentationId)) {
-      const subSegId = resolveSubSegId(segmentationId, segmentIndex);
-      if (!subSegId) return;
-      // Read current visibility from sub-seg's segment index 1
-      let currentVisible = true;
-      const vpIds = csSegmentation.state.getViewportIdsWithSegmentation(subSegId);
-      if (vpIds.length > 0) {
-        try {
-          currentVisible = csSegmentation.config.visibility.getSegmentIndexVisibility(
-            vpIds[0],
-            { segmentationId: subSegId, type: ToolEnums.SegmentationRepresentations.Labelmap },
-            1,
-          );
-        } catch {
-          // default visible
-        }
-      }
-      const newVisible = !currentVisible;
-      for (const vpId of vpIds) {
-        try {
-          csSegmentation.config.visibility.setSegmentIndexVisibility(
-            vpId,
-            { segmentationId: subSegId, type: ToolEnums.SegmentationRepresentations.Labelmap },
-            1,
-            newVisible,
-          );
-        } catch {
-          // ignore
-        }
-      }
-      syncSegmentations();
-      for (const vpId of vpIds) {
-        try {
-          csToolUtilities.segmentation.triggerSegmentationRender(vpId);
-          const enabledElement = getEnabledElementByViewportId(vpId) as any;
-          enabledElement?.viewport?.render?.();
-        } catch {
-          // Best effort
-        }
-      }
-      return;
-    }
-
-    // ─── Legacy path ────────────────────────────────────────
-    let currentVisible = true;
-    try {
-      currentVisible = csSegmentation.config.visibility.getSegmentIndexVisibility(
-        viewportId,
-        { segmentationId, type: ToolEnums.SegmentationRepresentations.Labelmap },
-        segmentIndex,
-      );
-    } catch {
-      try {
-        currentVisible = csSegmentation.config.visibility.getSegmentIndexVisibility(
-          viewportId,
-          { segmentationId, type: ToolEnums.SegmentationRepresentations.Contour },
-          segmentIndex,
-        );
-      } catch {
-        // default visible
-      }
-    }
-
-    const newVisible = !currentVisible;
-
-    try {
-      csSegmentation.config.visibility.setSegmentIndexVisibility(
-        viewportId,
-        { segmentationId, type: ToolEnums.SegmentationRepresentations.Labelmap },
-        segmentIndex,
-        newVisible,
-      );
-    } catch {
-      // May not have labelmap representation
-    }
-
-    try {
-      csSegmentation.config.visibility.setSegmentIndexVisibility(
-        viewportId,
-        { segmentationId, type: ToolEnums.SegmentationRepresentations.Contour },
-        segmentIndex,
-        newVisible,
-      );
-    } catch {
-      // May not have contour representation
-    }
-
-    syncSegmentations();
-    try {
-      csToolUtilities.segmentation.triggerSegmentationRender(viewportId);
-      const enabledElement = getEnabledElementByViewportId(viewportId) as any;
-      enabledElement?.viewport?.render?.();
-    } catch {
-      // Best effort render kick
-    }
+  toggleSegmentVisibility(viewportId: string, segmentationId: string, segmentIndex: number): void {
+    visibilityControls.toggleSegmentVisibility(viewportId, segmentationId, segmentIndex);
   },
 
   /**
@@ -3083,154 +2993,29 @@ export const segmentationService = {
     segmentIndex: number,
     visible: boolean,
   ): void {
-    // ─── Multi-layer group path ─────────────────────────────
-    if (isMultiLayerGroup(segmentationId)) {
-      const subSegId = resolveSubSegId(segmentationId, segmentIndex);
-      if (!subSegId) return;
-      const vpIds = csSegmentation.state.getViewportIdsWithSegmentation(subSegId);
-      for (const vpId of vpIds) {
-        try {
-          csSegmentation.config.visibility.setSegmentIndexVisibility(
-            vpId,
-            { segmentationId: subSegId, type: ToolEnums.SegmentationRepresentations.Labelmap },
-            1,
-            visible,
-          );
-        } catch {
-          // ignore
-        }
-      }
-      syncSegmentations();
-      for (const vpId of vpIds) {
-        try {
-          csToolUtilities.segmentation.triggerSegmentationRender(vpId);
-          const enabledElement = getEnabledElementByViewportId(vpId) as any;
-          enabledElement?.viewport?.render?.();
-        } catch {
-          // Best effort
-        }
-      }
-      return;
-    }
-
-    // ─── Legacy path ────────────────────────────────────────
-    try {
-      csSegmentation.config.visibility.setSegmentIndexVisibility(
-        viewportId,
-        { segmentationId, type: ToolEnums.SegmentationRepresentations.Labelmap },
-        segmentIndex,
-        visible,
-      );
-    } catch {
-      // May not have labelmap representation
-    }
-
-    try {
-      csSegmentation.config.visibility.setSegmentIndexVisibility(
-        viewportId,
-        { segmentationId, type: ToolEnums.SegmentationRepresentations.Contour },
-        segmentIndex,
-        visible,
-      );
-    } catch {
-      // May not have contour representation
-    }
-
-    syncSegmentations();
-    try {
-      csToolUtilities.segmentation.triggerSegmentationRender(viewportId);
-      const enabledElement = getEnabledElementByViewportId(viewportId) as any;
-      enabledElement?.viewport?.render?.();
-    } catch {
-      // Best effort render kick
-    }
+    visibilityControls.setSegmentVisibility(viewportId, segmentationId, segmentIndex, visible);
   },
 
   /**
    * Toggle lock for a segment (locked segments can't be painted over).
    */
   toggleSegmentLocked(segmentationId: string, segmentIndex: number): void {
-    // ─── Multi-layer group path ─────────────────────────────
-    if (isMultiLayerGroup(segmentationId)) {
-      const subSegId = resolveSubSegId(segmentationId, segmentIndex);
-      if (!subSegId) return;
-      const isLocked = csSegmentation.segmentLocking.isSegmentIndexLocked(subSegId, 1);
-      const newLocked = !isLocked;
-      csSegmentation.segmentLocking.setSegmentIndexLocked(subSegId, 1, newLocked);
-      // Update metadata
-      const meta = mlg.getSegmentMetaMap(segmentationId)?.get(segmentIndex);
-      if (meta) meta.locked = newLocked;
-      // Update presentation cache BEFORE sync so syncSegmentations reads the correct value
-      useSegmentationManagerStore.getState().setPresentation(segmentationId, segmentIndex, { locked: newLocked });
-      syncSegmentations();
-      return;
-    }
-
-    // ─── Legacy path ────────────────────────────────────────
-    const isLocked = csSegmentation.segmentLocking.isSegmentIndexLocked(
-      segmentationId,
-      segmentIndex,
-    );
-    const newLocked = !isLocked;
-    csSegmentation.segmentLocking.setSegmentIndexLocked(
-      segmentationId,
-      segmentIndex,
-      newLocked,
-    );
-    // Update presentation cache BEFORE sync so syncSegmentations reads the correct value
-    useSegmentationManagerStore.getState().setPresentation(segmentationId, segmentIndex, { locked: newLocked });
-    syncSegmentations();
+    visibilityControls.toggleSegmentLocked(segmentationId, segmentIndex);
   },
 
   /**
    * Read the current visibility state of a segment from Cornerstone.
    * Tries Labelmap representation first, then Contour. Defaults to true.
    */
-  getSegmentVisibility(
-    viewportId: string,
-    segmentationId: string,
-    segmentIndex: number,
-  ): boolean {
-    if (isMultiLayerGroup(segmentationId)) {
-      const subSegId = resolveSubSegId(segmentationId, segmentIndex);
-      if (!subSegId) return true;
-      const vpIds = csSegmentation.state.getViewportIdsWithSegmentation(subSegId);
-      if (vpIds.length === 0) return true;
-      try {
-        return csSegmentation.config.visibility.getSegmentIndexVisibility(
-          vpIds[0],
-          { segmentationId: subSegId, type: ToolEnums.SegmentationRepresentations.Labelmap },
-          1,
-        );
-      } catch {
-        return true;
-      }
-    }
-
-    try {
-      return csSegmentation.config.visibility.getSegmentIndexVisibility(
-        viewportId,
-        { segmentationId, type: ToolEnums.SegmentationRepresentations.Labelmap },
-        segmentIndex,
-      );
-    } catch {
-      try {
-        return csSegmentation.config.visibility.getSegmentIndexVisibility(
-          viewportId,
-          { segmentationId, type: ToolEnums.SegmentationRepresentations.Contour },
-          segmentIndex,
-        );
-      } catch {
-        return true; // default visible
-      }
-    }
+  getSegmentVisibility(viewportId: string, segmentationId: string, segmentIndex: number): boolean {
+    return visibilityControls.getSegmentVisibility(viewportId, segmentationId, segmentIndex);
   },
 
   /**
    * Read the current lock state of a segment from Cornerstone.
    */
   getSegmentLocked(segmentationId: string, segmentIndex: number): boolean {
-    return isSegmentLockedInternal(segmentationId, segmentIndex);
+    return visibilityControls.getSegmentLocked(segmentationId, segmentIndex);
   },
 
   /**
@@ -3238,11 +3023,7 @@ export const segmentationService = {
    * Returns true if the active segmentation + active segment index are locked.
    */
   isActiveSegmentLocked(): boolean {
-    const segStore = useSegmentationStore.getState();
-    const activeSegId = segStore.activeSegmentationId;
-    const activeSegIdx = segStore.activeSegmentIndex;
-    if (!activeSegId || !activeSegIdx || activeSegIdx <= 0) return false;
-    return this.getSegmentLocked(activeSegId, activeSegIdx);
+    return visibilityControls.isActiveSegmentLocked();
   },
 
   /**
