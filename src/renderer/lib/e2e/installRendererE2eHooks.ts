@@ -59,6 +59,8 @@ declare global {
       getMeasurementCount: () => number;
       /** Toggle the multiviewport feature flag (must be set before the viewer mounts). */
       setMultiviewportEnabled: (enabled: boolean) => void;
+      /** Cornerstone viewport type for a panel ('stack' | 'orthographic' | …) or null. */
+      getViewportType: (panelId: string) => string | null;
     };
   }
 }
@@ -424,6 +426,10 @@ export function installRendererE2eHooks(): void {
     getMeasurementCount: () => useAnnotationStore.getState().annotations.length,
     setMultiviewportEnabled: (enabled: boolean) => {
       usePreferencesStore.getState().setMultiviewportEnabled(enabled);
+    },
+    getViewportType: (panelId: string) => {
+      const ee = getEnabledElementByViewportId(panelId) as { viewport?: { type?: string } } | undefined;
+      return ee?.viewport?.type ?? null;
     },
   };
 }

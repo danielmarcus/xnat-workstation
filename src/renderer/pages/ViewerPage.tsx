@@ -8,6 +8,7 @@ import { useEffect, useState, useCallback } from 'react';
 import Toolbar from '../components/viewer/Toolbar';
 import ViewportGrid from '../components/viewer/ViewportGrid';
 import MPRViewportGrid from '../components/viewer/MPRViewportGrid';
+import UnifiedViewportGrid from '../components/viewer/UnifiedViewportGrid';
 import AnnotationListPanel from '../components/viewer/AnnotationListPanel';
 import SegmentationPanel from '../components/viewer/SegmentationPanel';
 import DicomHeaderPanel from '../components/viewer/DicomHeaderPanel';
@@ -17,7 +18,7 @@ import { segmentationService } from '../lib/cornerstone/segmentationService';
 import { containerService } from '../lib/cornerstone/containerService';
 import { undoService } from '../lib/cornerstone/undoService';
 import { viewportLayoutService } from '../lib/cornerstone/viewportLayoutService';
-import { isMultiviewportEnabled } from '../stores/preferencesStore';
+import { isMultiviewportEnabled, selectMultiviewportEnabled, usePreferencesStore } from '../stores/preferencesStore';
 import { useHotkeys } from '../hooks/useHotkeys';
 import { useAnnotationStore } from '../stores/annotationStore';
 import { useSegmentationStore } from '../stores/segmentationStore';
@@ -92,6 +93,10 @@ export default function ViewerPage({
     };
   }, []);
 
+  // Phase 1 A/B: when the multiviewport flag is on, render the new unified
+  // viewport path; otherwise the existing stack/MPR path (untouched).
+  const multiviewport = usePreferencesStore(selectMultiviewportEnabled);
+
   return (
     <div className="flex flex-col flex-1 min-h-0">
       <Toolbar
@@ -110,7 +115,9 @@ export default function ViewerPage({
         {browserSlot}
         <div className="flex-1 min-w-0 relative flex">
           <div className="flex-1 min-w-0 relative">
-            {mprActive && mprVolumeId ? (
+            {multiviewport ? (
+              <UnifiedViewportGrid panelImageIds={panelImageIds} />
+            ) : mprActive && mprVolumeId ? (
               <MPRViewportGrid
                 volumeId={mprVolumeId}
                 sourceImageIds={mprSourceImageIds ?? []}

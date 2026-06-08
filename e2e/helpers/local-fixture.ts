@@ -85,7 +85,15 @@ export async function enterLocalViewer(page: Page): Promise<void> {
 export async function loadLocalDicom(page: Page, filePaths: string[], panelId = 'panel_0'): Promise<ViewerPage> {
   await page.locator('[data-testid="local-import-input"]').setInputFiles(filePaths);
   const viewer = new ViewerPage(page, panelId);
-  await viewer.waitForImageLoaded();
+  // Path-agnostic: the old path mounts `cornerstone-viewport-canvas:<panel>`,
+  // the new (multiviewport) path mounts `unified-viewport-element:<panel>`.
+  // Wait for whichever renders so this works under either flag state.
+  await page
+    .locator(
+      `[data-testid="cornerstone-viewport-canvas:${panelId}"] canvas, [data-testid="unified-viewport-element:${panelId}"] canvas`,
+    )
+    .first()
+    .waitFor({ state: 'visible', timeout: 60_000 });
   return viewer;
 }
 

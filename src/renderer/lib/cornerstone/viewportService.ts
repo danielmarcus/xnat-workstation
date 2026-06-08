@@ -10,6 +10,7 @@
 import {
   RenderingEngine,
   getRenderingEngine,
+  imageLoader,
   Enums,
   type Types,
 } from '@cornerstonejs/core';
@@ -136,6 +137,13 @@ export const viewportService = {
       element,
       defaultOptions: { orientation: planeOrientation(opts.orientation ?? 'AXIAL') },
     });
+    // createAndCacheVolume needs per-image metadata (pixelRepresentation, rows,
+    // cols, spacing) up front. For local (in-memory) files nothing pre-fetches
+    // it, so register it by loading each image first; soft-fail per image.
+    // (For large XNAT series this should become a metadata-only prefetch.)
+    await Promise.all(
+      opts.imageIds.map((id) => imageLoader.loadAndCacheImage(id).catch(() => undefined)),
+    );
     const { volumeId, created } = await volumeService.acquire(
       opts.scanId,
       opts.frameOfReferenceUID,

@@ -19,14 +19,13 @@ import { loadCtAxial300 } from '../helpers/local-fixture';
 
 test.describe('Walking skeleton — offline local fixture, real stack', () => {
   test('renders ct-axial-300 and a Length measurement appears in the annotation list', async ({ page }) => {
-    // Enable the multiviewport flag BEFORE the viewer mounts so the gated
-    // skeleton-service initialization path in ViewerPage executes.
+    // The multiviewport flag persists in localStorage across test runs, so set
+    // it explicitly OFF — this spec exercises the old (stack) measurement path.
+    // The new unified path is covered by 13-unified-viewport.
     await page.evaluate(() => {
       (window as unknown as { __XNAT_E2E__: { setMultiviewportEnabled: (v: boolean) => void } })
-        .__XNAT_E2E__.setMultiviewportEnabled(true);
+        .__XNAT_E2E__.setMultiviewportEnabled(false);
     });
-
-    // Offline entry + real render of the synthetic CT sphere phantom.
     const viewer = await loadCtAxial300(page);
     await expect(viewer.viewportCanvas).toBeVisible();
 
