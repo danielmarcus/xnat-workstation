@@ -13,10 +13,14 @@
  * P1.8 flips the flag and deletes the legacy path. Self-contained singleton-
  * module following the mprToolService pattern.
  *
- * NOTE (Phase 2): CrosshairsTool is bound to Primary here, which is correct for
- * volume viewports. Per-modality tool routing for stack viewports (where the
- * real CrosshairsTool has known rendering quirks) is Phase-2 drawing/tool-policy
- * work; Phase-1 acceptance is volume MPR.
+ * CROSSHAIRS: Cornerstone's native CrosshairsTool is registered but DISABLED and
+ * is NOT the default Primary tool. It computes its center as a 3-plane
+ * intersection, so it requires ≥2 NON-parallel planes — it crashes on mouse-move
+ * in a single viewport and cannot sync same-plane viewports. The default Primary
+ * is Window/Level; the plane-agnostic world-point crosshair (reticle + same-plane
+ * nearest-slice sync + volume jumpToWorld) replaces it. This matches the prior
+ * design, where ToolName.Crosshairs mapped to Window/Level for the Cornerstone
+ * slot and a custom service drove the actual crosshair.
  */
 import {
   ToolGroupManager,
@@ -45,7 +49,9 @@ const { Primary, Auxiliary, Secondary, Wheel } = ToolEnums.MouseBindings;
  * for signals 1/3/6/7 (Length, freehand contour segmentation, brush).
  */
 const UNIFIED_TOOL_MAP: Partial<Record<ToolName, string>> = {
-  [ToolName.Crosshairs]: CrosshairsTool.toolName,
+  // ToolName.Crosshairs is intentionally NOT mapped to the native CrosshairsTool
+  // (it crashes in single-viewport / same-plane layouts). It will route to the
+  // world-point crosshair once that lands; until then selecting it is a no-op.
   [ToolName.WindowLevel]: WindowLevelTool.toolName,
   [ToolName.Pan]: PanTool.toolName,
   [ToolName.Zoom]: ZoomTool.toolName,
@@ -57,7 +63,6 @@ const UNIFIED_TOOL_MAP: Partial<Record<ToolName, string>> = {
 
 /** Tools that can occupy the Primary (left-click) slot, swapped by setActiveTool. */
 const PRIMARY_CAPABLE = [
-  CrosshairsTool.toolName,
   WindowLevelTool.toolName,
   LengthTool.toolName,
   PlanarFreehandContourSegmentationTool.toolName,
@@ -66,7 +71,8 @@ const PRIMARY_CAPABLE = [
 
 // The tool currently bound to Primary; tracked so we demote it (rather than
 // re-`setToolActive` everything, which MERGES bindings in CS3D v4) on a switch.
-let currentPrimary: string = CrosshairsTool.toolName;
+// Default = Window/Level (the native CrosshairsTool is disabled — see header).
+let currentPrimary: string = WindowLevelTool.toolName;
 // The active ToolName (UI-level), null until an explicit selection.
 let activeToolName: ToolName | null = null;
 
@@ -99,22 +105,23 @@ function ensureToolGroup(): ToolTypes.IToolGroup | undefined {
   toolGroup.addTool(PlanarFreehandContourSegmentationTool.toolName);
   toolGroup.addTool(BrushTool.toolName);
 
-  // CrosshairsTool: primary left-click by default — the real-tool MPR sync
-  // (reference lines + slice jump across the shared-volume panels).
-  toolGroup.setToolActive(CrosshairsTool.toolName, { bindings: [{ mouseButton: Primary }] });
+  // Default Primary (left-click) = Window/Level. The native CrosshairsTool is
+  // DISABLED: it needs ≥2 non-parallel planes, so it crashes on mouse-move in a
+  // single viewport (see header). It stays registered (for hasCrosshairs / future
+  // routing) but inert; the world-point crosshair replaces it.
+  toolGroup.setToolActive(WindowLevelTool.toolName, { bindings: [{ mouseButton: Primary }] });
+  toolGroup.setToolDisabled(CrosshairsTool.toolName);
   // Pan: middle-click · Zoom: right-click · StackScroll: wheel (slice nav).
   // These fixed bindings are set ONCE here and never re-set (CS3D v4
   // setToolActive merges bindings), so setActiveTool only swaps the Primary slot.
   toolGroup.setToolActive(PanTool.toolName, { bindings: [{ mouseButton: Auxiliary }] });
   toolGroup.setToolActive(ZoomTool.toolName, { bindings: [{ mouseButton: Secondary }] });
   toolGroup.setToolActive(StackScrollTool.toolName, { bindings: [{ mouseButton: Wheel }] });
-  // W/L: enabled but no binding (manual activation later).
-  toolGroup.setToolEnabled(WindowLevelTool.toolName);
   // Editing tools start passive (visible, not the active primary).
   toolGroup.setToolPassive(LengthTool.toolName);
   toolGroup.setToolPassive(PlanarFreehandContourSegmentationTool.toolName);
 
-  currentPrimary = CrosshairsTool.toolName;
+  currentPrimary = WindowLevelTool.toolName;
   console.log('[unifiedToolService] Unified tool group initialized');
   return toolGroup;
 }
