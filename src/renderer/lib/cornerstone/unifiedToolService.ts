@@ -29,6 +29,7 @@ import {
   BrushTool,
   PlanarFreehandContourSegmentationTool,
   Enums as ToolEnums,
+  utilities as csToolUtilities,
 } from '@cornerstonejs/tools';
 import type { Types as ToolTypes } from '@cornerstonejs/tools';
 import { ToolName } from '@shared/types/viewer';
@@ -180,6 +181,15 @@ export const unifiedToolService = {
   getToolMode(csToolName: string): string | null {
     const opts = getToolGroup()?.getToolOptions(csToolName) as { mode?: string } | undefined;
     return opts?.mode ?? null;
+  },
+
+  /** Set the brush radius for the unified tool group. */
+  setBrushSize(size: number): void {
+    try {
+      csToolUtilities.segmentation.setBrushSizeForToolGroup(UNIFIED_TOOL_GROUP_ID, size);
+    } catch (err) {
+      console.warn('[unifiedToolService] setBrushSize failed:', err);
+    }
   },
 
   /**

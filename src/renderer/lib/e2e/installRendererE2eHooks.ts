@@ -13,6 +13,7 @@ import { usePreferencesStore } from '../../stores/preferencesStore';
 import { useUnifiedLayoutStore, type LayoutPreset } from '../../stores/unifiedLayoutStore';
 import { volumeService } from '../cornerstone/volumeService';
 import { unifiedToolService } from '../cornerstone/unifiedToolService';
+import { unifiedSegService } from '../cornerstone/unifiedSegService';
 import { segmentationManager } from '../segmentation/segmentationManagerSingleton';
 import { segmentationService } from '../cornerstone/segmentationService';
 import * as contourRep from '../cornerstone/contourRepresentation';
@@ -80,6 +81,14 @@ declare global {
       getActiveUnifiedTool: () => string | null;
       /** Cornerstone mode ('Active'/'Passive'/…) of a tool in the unified group. */
       getUnifiedToolMode: (csToolName: string) => string | null;
+      /** Create a labelmap segmentation + attach it to all unified viewports + set active. */
+      createUnifiedLabelmapSegmentation: (label?: string) => Promise<{ segmentationId: string; segmentIndex: number }>;
+      /** Set the brush radius for the unified tool group. */
+      setUnifiedBrushSize: (size: number) => void;
+      /** Total non-zero labelmap voxels across all segmentations (0 = nothing painted). */
+      getPaintedVoxelCount: () => number;
+      /** Whether a unified viewport has a cached source volume (ready for a derived labelmap). */
+      isUnifiedVolumeReady: () => boolean;
     };
   }
 }
@@ -461,5 +470,75 @@ export function installRendererE2eHooks(): void {
     setActiveUnifiedTool: (toolName: ToolName) => unifiedToolService.setActiveTool(toolName),
     getActiveUnifiedTool: () => unifiedToolService.getActiveToolName(),
     getUnifiedToolMode: (csToolName: string) => unifiedToolService.getToolMode(csToolName),
+    createUnifiedLabelmapSegmentation: async (label?: string) => {
+      const viewportIds = unifiedToolService.getViewportIds();
+      // The shared source ImageVolume the MPR panels render — derive the labelmap
+      // from it so it's geometrically aligned + resamples natively on every plane.
+      // The volume actor + cache entry can lag the canvas, so wait for a viewport
+      // whose volume is actually cached before deriving.
+      const findReadyVolume = (): string | undefined => {
+        for (const vp of viewportIds) {
+          const ee = getEnabledElementByViewportId(vp) as
+            | { viewport?: { getAllVolumeIds?: () => string[] } }
+            | undefined;
+          const id = ee?.viewport?.getAllVolumeIds?.()[0];
+          if (id && cache.getVolume(id)) return id;
+        }
+        return undefined;
+      };
+      let referencedVolumeId = findReadyVolume();
+      for (let i = 0; i < 60 && !referencedVolumeId; i++) {
+        await new Promise((r) => setTimeout(r, 200));
+        referencedVolumeId = findReadyVolume();
+      }
+      if (!referencedVolumeId) {
+        throw new Error('Shared volume not ready (no cached volume on any unified viewport)');
+      }
+      const { segmentationId, segmentIndex } = await unifiedSegService.createVolumeLabelmap(
+        referencedVolumeId,
+        viewportIds,
+        label ?? 'Test SEG',
+      );
+      useSegmentationStore.getState().setActiveSegmentation(segmentationId);
+      return { segmentationId, segmentIndex };
+    },
+    setUnifiedBrushSize: (size: number) => unifiedToolService.setBrushSize(size),
+    isUnifiedVolumeReady: () => {
+      for (const vp of unifiedToolService.getViewportIds()) {
+        const ee = getEnabledElementByViewportId(vp) as
+          | { viewport?: { getAllVolumeIds?: () => string[] } }
+          | undefined;
+        const id = ee?.viewport?.getAllVolumeIds?.()[0];
+        if (id && cache.getVolume(id)) return true;
+      }
+      return false;
+    },
+    getPaintedVoxelCount: () => {
+      let total = 0;
+      const segs = (csSegmentation.state.getSegmentations?.() ?? []) as Array<{
+        representationData?: { Labelmap?: { volumeId?: string; imageIds?: string[] } };
+      }>;
+      const countNonZero = (data: ArrayLike<number> | null | undefined) => {
+        if (!data) return;
+        for (let i = 0; i < data.length; i++) if (data[i] !== 0) total++;
+      };
+      for (const seg of segs) {
+        const lm = seg?.representationData?.Labelmap;
+        if (!lm) continue;
+        if (typeof lm.volumeId === 'string') {
+          const vol = cache.getVolume(lm.volumeId) as
+            | { voxelManager?: { getCompleteScalarDataArray?: () => ArrayLike<number> }; scalarData?: ArrayLike<number> }
+            | undefined;
+          countNonZero(vol?.voxelManager?.getCompleteScalarDataArray?.() ?? vol?.scalarData);
+        }
+        if (Array.isArray(lm.imageIds)) {
+          for (const id of lm.imageIds) {
+            const img = cache.getImage(id) as { getPixelData?: () => ArrayLike<number> } | undefined;
+            countNonZero(img?.getPixelData?.());
+          }
+        }
+      }
+      return total;
+    },
   };
 }
