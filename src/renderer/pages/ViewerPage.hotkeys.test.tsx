@@ -44,12 +44,8 @@ vi.mock('../components/viewer/Toolbar', () => ({
   default: () => <div data-testid="toolbar" />,
 }));
 
-vi.mock('../components/viewer/ViewportGrid', () => ({
-  default: () => <div data-testid="viewport-grid" />,
-}));
-
-vi.mock('../components/viewer/MPRViewportGrid', () => ({
-  default: () => <div data-testid="mpr-grid" />,
+vi.mock('../components/viewer/UnifiedViewportGrid', () => ({
+  default: () => <div data-testid="unified-grid" />,
 }));
 
 vi.mock('../components/viewer/AnnotationListPanel', () => ({

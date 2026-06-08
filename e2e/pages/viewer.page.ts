@@ -23,7 +23,13 @@ export class ViewerPage {
   }
 
   get viewportCanvas() {
-    return this.page.locator(`[data-testid="cornerstone-viewport-canvas:${this.panelId}"] canvas`);
+    // Path-agnostic: old stack path mounts `cornerstone-viewport-canvas:<panel>`,
+    // the unified path mounts `unified-viewport-element:<panel>`.
+    return this.page
+      .locator(
+        `[data-testid="cornerstone-viewport-canvas:${this.panelId}"] canvas, [data-testid="unified-viewport-element:${this.panelId}"] canvas`,
+      )
+      .first();
   }
 
   get viewportStatus() {

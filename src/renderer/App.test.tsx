@@ -93,13 +93,11 @@ vi.mock('./pages/ViewerPage', () => ({
     leftSlot,
     browserSlot,
     onApplyProtocol,
-    onToggleMPR,
     settingsInitialTabRequest,
   }: {
     leftSlot: ReactNode;
     browserSlot: ReactNode;
     onApplyProtocol?: (protocolId: string) => void;
-    onToggleMPR?: () => void;
     settingsInitialTabRequest?: string;
   }) => (
     <div data-testid="viewer-page">
@@ -107,7 +105,6 @@ vi.mock('./pages/ViewerPage', () => ({
       <div data-testid="settings-tab-request">{settingsInitialTabRequest ?? ''}</div>
       <div data-testid="panel-drop-target" data-panel-id="panel_1">panel target</div>
       <button onClick={() => onApplyProtocol?.(BUILT_IN_PROTOCOLS[0]?.id ?? 'default')}>Trigger Apply Protocol</button>
-      <button onClick={() => onToggleMPR?.()}>Trigger Toggle MPR</button>
       <div data-testid="browser-slot">{browserSlot}</div>
     </div>
   ),
@@ -1319,22 +1316,4 @@ describe('App', () => {
     expect(screen.getByText('Protocol applied')).toBeInTheDocument();
   });
 
-  it('toggles MPR mode from toolbar callback and invokes volume service', async () => {
-    const user = userEvent.setup();
-    setConnectedConnectionState();
-    mocks.dicomwebLoader.getScanImageIds.mockResolvedValue(['img-1', 'img-2', 'img-3']);
-
-    render(<App />);
-    await screen.findByTestId('viewer-page');
-    await user.click(screen.getByRole('button', { name: 'Trigger Load Scan' }));
-    await waitFor(() => {
-      expect(screen.getByText('Scan loaded')).toBeInTheDocument();
-    });
-
-    await user.click(screen.getByRole('button', { name: 'Trigger Toggle MPR' }));
-    await waitFor(() => {
-      expect(mocks.volumeService.create).toHaveBeenCalled();
-      expect(mocks.volumeService.load).toHaveBeenCalled();
-    });
-  });
 });

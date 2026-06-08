@@ -2467,65 +2467,6 @@ export default function App() {
     [setBrowserStatusMessage],
   );
 
-  const enterMprForPanel = useCallback(async (sourcePanelId: string, sourceImageIds: string[]) => {
-    const store = useViewerStore.getState();
-    if (sourceImageIds.length < 2) {
-      console.warn('[App] Need at least 2 slices for MPR');
-      return false;
-    }
-
-    if (store.mprActive) {
-      store.exitMPR();
-    }
-
-    const volumeId = volumeService.generateId();
-    try {
-      await volumeService.create(volumeId, sourceImageIds);
-      console.log('[App] Volume created in cache:', volumeId);
-    } catch (err) {
-      console.error('[App] Volume creation failed:', err);
-      return false;
-    }
-
-    useViewerStore.getState().setActiveViewport(sourcePanelId);
-    useViewerStore.getState().enterMPR(sourcePanelId, volumeId);
-
-    try {
-      await volumeService.load(volumeId, (p) => {
-        const percent = p.total > 0 ? Math.round((p.loaded / p.total) * 100) : 0;
-        useViewerStore.getState()._updateMPRVolumeProgress({ ...p, percent });
-      });
-      useViewerStore.getState()._updateMPRVolumeProgress(null);
-      console.log('[App] Volume loaded for MPR');
-      return true;
-    } catch (err) {
-      console.error('[App] Volume loading failed:', err);
-      useViewerStore.getState().exitMPR();
-      return false;
-    }
-  }, []);
-
-  /**
-   * Toggle MPR mode on the active panel's image stack.
-   * Enters MPR: creates a 3D volume and shows 2×2 orthogonal views.
-   * Exits MPR: destroys volume and restores prior layout.
-   */
-  const handleToggleMPR = useCallback(async () => {
-    const store = useViewerStore.getState();
-
-    if (store.mprActive) {
-      store.exitMPR();
-      return;
-    }
-
-    const activeImageIds = panelImageIds[store.activeViewportId] ?? [];
-    await enterMprForPanel(store.activeViewportId, activeImageIds);
-  }, [panelImageIds, enterMprForPanel]);
-
-  // Derive sourceImageIds for MPR mode (from the panel that launched MPR)
-  const mprSourcePanelId = useViewerStore((s) => s.mprSourcePanelId);
-  const mprSourceImageIds = mprSourcePanelId ? panelImageIds[mprSourcePanelId] ?? [] : [];
-
   // Handle drag-and-drop
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
@@ -2956,11 +2897,9 @@ export default function App() {
       <ViewerPage
         panelImageIds={panelImageIds}
         onApplyProtocol={handleApplyProtocol}
-        onToggleMPR={handleToggleMPR}
         onRecoverBackup={handleRecoverBackup}
         settingsInitialTabRequest={settingsInitialTabRequest}
         onSettingsInitialTabRequestConsumed={() => setSettingsInitialTabRequest(undefined)}
-        mprSourceImageIds={mprSourceImageIds}
         leftSlot={
           <>
             <XnatLogo className="w-7 h-7 shrink-0" />

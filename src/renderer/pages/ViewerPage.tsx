@@ -1,13 +1,10 @@
 /**
- * ViewerPage — composes Toolbar + ViewportGrid + AnnotationListPanel
- * into a full-height viewer layout.
- * Supports multi-panel layouts (1×1, 1×2, 2×1, 2×2).
- * Conditionally renders MPRViewportGrid when MPR mode is active.
+ * ViewerPage — composes Toolbar + the unified viewport grid + side panels into a
+ * full-height viewer layout. The unified viewport path (Cornerstone3D) is the
+ * only path; the legacy stack/MPR viewport components were removed in P1.8d.
  */
 import { useEffect, useState, useCallback } from 'react';
 import Toolbar from '../components/viewer/Toolbar';
-import ViewportGrid from '../components/viewer/ViewportGrid';
-import MPRViewportGrid from '../components/viewer/MPRViewportGrid';
 import UnifiedViewportGrid from '../components/viewer/UnifiedViewportGrid';
 import AnnotationListPanel from '../components/viewer/AnnotationListPanel';
 import SegmentationPanel from '../components/viewer/SegmentationPanel';
@@ -17,8 +14,8 @@ import { annotationService } from '../lib/cornerstone/annotationService';
 import { segmentationService } from '../lib/cornerstone/segmentationService';
 import { containerService } from '../lib/cornerstone/containerService';
 import { undoService } from '../lib/cornerstone/undoService';
+import { unifiedToolService } from '../lib/cornerstone/unifiedToolService';
 import { viewportLayoutService } from '../lib/cornerstone/viewportLayoutService';
-import { isMultiviewportEnabled, selectMultiviewportEnabled, usePreferencesStore } from '../stores/preferencesStore';
 import { useHotkeys } from '../hooks/useHotkeys';
 import { useAnnotationStore } from '../stores/annotationStore';
 import { useSegmentationStore } from '../stores/segmentationStore';
@@ -27,8 +24,6 @@ import { useViewerStore } from '../stores/viewerStore';
 interface ViewerPageProps {
   panelImageIds: Record<string, string[]>;
   onApplyProtocol?: (protocolId: string) => void;
-  onToggleMPR?: () => void;
-  mprSourceImageIds?: string[];
   /** Content rendered at the far left of the toolbar (XNAT logo, connection, etc.) */
   leftSlot?: React.ReactNode;
   /** Browser sidebar rendered below toolbar, left of viewport grid */
@@ -44,8 +39,6 @@ interface ViewerPageProps {
 export default function ViewerPage({
   panelImageIds,
   onApplyProtocol,
-  onToggleMPR,
-  mprSourceImageIds,
   leftSlot,
   browserSlot,
   onRecoverBackup,
@@ -56,35 +49,25 @@ export default function ViewerPage({
   const showSegPanel = useSegmentationStore((s) => s.showPanel);
   const [showDicomPanel, setShowDicomPanel] = useState(false);
 
-  const mprActive = useViewerStore((s) => s.mprActive);
-  const mprVolumeId = useViewerStore((s) => s.mprVolumeId);
-
   const toggleDicomPanel = useCallback(() => setShowDicomPanel((v) => !v), []);
   const closeDicomPanel = useCallback(() => setShowDicomPanel(false), []);
 
-  // Check if the active panel has images loaded (for MPR button enable state)
   const activeViewportId = useViewerStore((s) => s.activeViewportId);
-  const hasImages = (panelImageIds[activeViewportId]?.length ?? 0) > 1;
 
   // Install global keyboard shortcuts.
   useHotkeys();
 
-  // Initialize the shared tool group and annotation service once on mount.
-  // Individual CornerstoneViewport instances add/remove themselves.
+  // Initialize the unified viewport + annotation services once on mount.
   useEffect(() => {
-    toolService.initialize();
     annotationService.initialize();
     segmentationService.initialize();
-    // Annotation-rebuild skeletons — inert and gated behind the multiviewport
-    // feature flag (default off), so flag-off users see no behavior change.
-    if (isMultiviewportEnabled()) {
-      containerService.initialize();
-      undoService.initialize();
-      viewportLayoutService.initialize();
-    }
+    containerService.initialize();
+    undoService.initialize();
+    unifiedToolService.initialize();
+    viewportLayoutService.initialize();
     return () => {
-      // dispose() is idempotent (no-op if never initialized) — safe unconditionally.
       viewportLayoutService.dispose();
+      unifiedToolService.destroy();
       undoService.dispose();
       containerService.dispose();
       segmentationService.dispose();
@@ -93,18 +76,12 @@ export default function ViewerPage({
     };
   }, []);
 
-  // Phase 1 A/B: when the multiviewport flag is on, render the new unified
-  // viewport path; otherwise the existing stack/MPR path (untouched).
-  const multiviewport = usePreferencesStore(selectMultiviewportEnabled);
-
   return (
     <div className="flex flex-col flex-1 min-h-0">
       <Toolbar
         showDicomPanel={showDicomPanel}
         onToggleDicomPanel={toggleDicomPanel}
         onApplyProtocol={onApplyProtocol}
-        onToggleMPR={onToggleMPR}
-        hasImages={hasImages}
         leftSlot={leftSlot}
         onRecoverBackup={onRecoverBackup}
         settingsInitialTabRequest={settingsInitialTabRequest}
@@ -115,24 +92,13 @@ export default function ViewerPage({
         {browserSlot}
         <div className="flex-1 min-w-0 relative flex">
           <div className="flex-1 min-w-0 relative">
-            {multiviewport ? (
-              <UnifiedViewportGrid panelImageIds={panelImageIds} />
-            ) : mprActive && mprVolumeId ? (
-              <MPRViewportGrid
-                volumeId={mprVolumeId}
-                sourceImageIds={mprSourceImageIds ?? []}
-              />
-            ) : (
-              <ViewportGrid panelImageIds={panelImageIds} />
-            )}
+            <UnifiedViewportGrid panelImageIds={panelImageIds} />
           </div>
-          {!mprActive && showAnnotationPanel && <AnnotationListPanel />}
-          {!mprActive && showSegPanel && (
-            <SegmentationPanel
-              sourceImageIds={panelImageIds[activeViewportId] ?? []}
-            />
+          {showAnnotationPanel && <AnnotationListPanel />}
+          {showSegPanel && (
+            <SegmentationPanel sourceImageIds={panelImageIds[activeViewportId] ?? []} />
           )}
-          {!mprActive && showDicomPanel && <DicomHeaderPanel onClose={closeDicomPanel} />}
+          {showDicomPanel && <DicomHeaderPanel onClose={closeDicomPanel} />}
         </div>
       </div>
     </div>
