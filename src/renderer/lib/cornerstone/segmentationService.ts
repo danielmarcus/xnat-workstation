@@ -100,6 +100,7 @@ import {
   clonePolyline,
   cloneHandlesWithOffset,
 } from './segmentationService/contourGeometry';
+import { createUndoHistory } from './segmentationService/undoHistory';
 import { showAlertDialog } from '../../stores/dialogStore';
 // NOTE: We use the tool group ID directly here instead of importing from
 // toolService to avoid a circular dependency (toolService → segmentationService).
@@ -151,26 +152,9 @@ const SEGMENTED_PROPERTY_TYPE_CODE = Object.freeze({
  */
 const { DefaultHistoryMemo } = (csUtilities as any).HistoryMemo;
 
-type HistoryMemoRecord = {
-  restoreMemo?: (undo?: boolean) => void;
-  id?: string;
-  operationType?: string;
-  segmentationId?: string;
-  segmentIndex?: number;
-  label?: string;
-  createMemo?: () => HistoryMemoRecord | undefined;
-};
-
-type HistoryMemoEntry = HistoryMemoRecord | HistoryMemoRecord[] | undefined;
-
-type LockableHistoryTarget = {
-  segmentationId: string;
-  segmentIndex: number;
-  label: string;
-};
-
-let originalHistoryPush: ((item: unknown) => HistoryMemoRecord | undefined) | null = null;
-let historyTrackingInstalled = false;
+// History-memo types + helpers (undo/redo) extracted to
+// `./segmentationService/undoHistory`. The bound helper set is created below,
+// after the segment label/lock helpers it depends on are declared.
 
 // Source-image ID tracking moved to `./sourceImageTracking`. See that module
 // for the typed API; the prior module-level `sourceImageIdsMap` is gone.
@@ -232,151 +216,27 @@ function isSegmentLockedInternal(segmentationId: string, segmentIndex: number): 
   }
 }
 
-function toHistoryMemoRecords(entry: HistoryMemoEntry): HistoryMemoRecord[] {
-  if (!entry) return [];
-  if (Array.isArray(entry)) {
-    return entry.filter((memo): memo is HistoryMemoRecord => !!memo && typeof memo === 'object');
-  }
-  return typeof entry === 'object' ? [entry] : [];
-}
-
-function getHistoryRingSize(): number {
-  const explicitSize = Number(DefaultHistoryMemo?.size);
-  if (Number.isInteger(explicitSize) && explicitSize > 0) {
-    return explicitSize;
-  }
-  const ringLength = Array.isArray(DefaultHistoryMemo?.ring) ? DefaultHistoryMemo.ring.length : 0;
-  return ringLength > 0 ? ringLength : 0;
-}
-
-function getTopUndoHistoryEntry(): HistoryMemoEntry {
-  if (!DefaultHistoryMemo?.canUndo || !Array.isArray(DefaultHistoryMemo?.ring)) {
-    return undefined;
-  }
-
-  const size = getHistoryRingSize();
-  const position = Number(DefaultHistoryMemo.position);
-  if (!Number.isInteger(position) || size <= 0) {
-    return undefined;
-  }
-
-  const normalizedPosition = ((position % size) + size) % size;
-  return DefaultHistoryMemo.ring[normalizedPosition] as HistoryMemoEntry;
-}
-
-function getTopRedoHistoryEntry(): HistoryMemoEntry {
-  if (!DefaultHistoryMemo?.canRedo || !Array.isArray(DefaultHistoryMemo?.ring)) {
-    return undefined;
-  }
-
-  const size = getHistoryRingSize();
-  const position = Number(DefaultHistoryMemo.position);
-  if (!Number.isInteger(position) || size <= 0) {
-    return undefined;
-  }
-
-  const nextPosition = (position + 1 + size) % size;
-  return DefaultHistoryMemo.ring[nextPosition] as HistoryMemoEntry;
-}
-
-function enrichHistoryMemoRecord(memo: unknown): void {
-  if (!memo || typeof memo !== 'object') return;
-
-  const record = memo as HistoryMemoRecord;
-  if (
-    typeof record.segmentationId === 'string'
-    && Number.isInteger(record.segmentIndex)
-    && Number(record.segmentIndex) > 0
-  ) {
-    record.label = record.label || getSegmentDisplayLabel(record.segmentationId, Number(record.segmentIndex));
-    return;
-  }
-
-  if (record.operationType !== 'annotation' || typeof record.id !== 'string') {
-    return;
-  }
-
-  const annotation = csAnnotation.state.getAnnotation?.(record.id);
-  const segmentationId = annotation?.data?.segmentation?.segmentationId;
-  const segmentIndex = Number(annotation?.data?.segmentation?.segmentIndex);
-  if (typeof segmentationId !== 'string' || !Number.isInteger(segmentIndex) || segmentIndex <= 0) {
-    return;
-  }
-
-  record.segmentationId = segmentationId;
-  record.segmentIndex = segmentIndex;
-  record.label = getSegmentDisplayLabel(segmentationId, segmentIndex);
-}
-
-function getLockedHistoryTargets(entry: HistoryMemoEntry): LockableHistoryTarget[] {
-  const deduped = new Map<string, LockableHistoryTarget>();
-
-  for (const memo of toHistoryMemoRecords(entry)) {
-    enrichHistoryMemoRecord(memo);
-    const segmentationId = memo.segmentationId;
-    const segmentIndex = Number(memo.segmentIndex);
-    if (typeof segmentationId !== 'string' || !Number.isInteger(segmentIndex) || segmentIndex <= 0) {
-      continue;
-    }
-    if (!isSegmentLockedInternal(segmentationId, segmentIndex)) {
-      continue;
-    }
-
-    const key = `${segmentationId}|${segmentIndex}`;
-    deduped.set(key, {
-      segmentationId,
-      segmentIndex,
-      label: memo.label || getSegmentDisplayLabel(segmentationId, segmentIndex),
-    });
-  }
-
-  return Array.from(deduped.values());
-}
-
-function showHistoryBlockedDialog(action: 'undo' | 'redo', targets: LockableHistoryTarget[]): void {
-  if (targets.length === 0) return;
-
-  const title = action === 'undo' ? 'Undo blocked' : 'Redo blocked';
-  const names = targets.map((target) => target.label);
-  const uniqueNames = Array.from(new Set(names));
-  const message = action === 'undo'
-    ? (
-      uniqueNames.length === 1
-        ? `Unlock ${uniqueNames[0]} before applying undo.`
-        : `Unlock these annotations before applying undo:\n${uniqueNames.map((name) => `- ${name}`).join('\n')}`
-    )
-    : `Unlock the locked annotations before applying redo:\n${uniqueNames.map((name) => `- ${name}`).join('\n')}`;
-
-  void showAlertDialog({
-    title,
-    message,
-    confirmLabel: 'OK',
-  });
-}
-
-function installHistoryMemoTracking(): void {
-  if (historyTrackingInstalled || !DefaultHistoryMemo || typeof DefaultHistoryMemo.push !== 'function') {
-    return;
-  }
-
-  originalHistoryPush = DefaultHistoryMemo.push.bind(DefaultHistoryMemo);
-  DefaultHistoryMemo.push = ((item: unknown) => {
-    const memo = originalHistoryPush?.(item);
-    enrichHistoryMemoRecord(memo);
-    return memo;
-  }) as typeof DefaultHistoryMemo.push;
-  historyTrackingInstalled = true;
-}
-
-function uninstallHistoryMemoTracking(): void {
-  if (!historyTrackingInstalled || !DefaultHistoryMemo || !originalHistoryPush) {
-    return;
-  }
-
-  DefaultHistoryMemo.push = originalHistoryPush as typeof DefaultHistoryMemo.push;
-  originalHistoryPush = null;
-  historyTrackingInstalled = false;
-}
+// ─── Undo / Redo history tracking ───────────────────────
+// History-memo helpers extracted to ./segmentationService/undoHistory.
+// Bound to the service's segment-label / lock-query / annotation-lookup /
+// alert-dialog dependencies; the returned helpers preserve the prior behavior.
+const undoHistory = createUndoHistory({
+  getSegmentDisplayLabel,
+  isSegmentLocked: isSegmentLockedInternal,
+  getAnnotation: (id) =>
+    csAnnotation.state.getAnnotation?.(id) as
+      | { data?: { segmentation?: { segmentationId?: string; segmentIndex?: number } } }
+      | undefined,
+  showAlertDialog,
+});
+const {
+  getTopUndoHistoryEntry,
+  getTopRedoHistoryEntry,
+  getLockedHistoryTargets,
+  showHistoryBlockedDialog,
+  installHistoryMemoTracking,
+  uninstallHistoryMemoTracking,
+} = undoHistory;
 
 /**
  * Attach a single sub-segmentation to a viewport: add labelmap representation,
