@@ -7,6 +7,7 @@
  * Selecting a scan triggers image loading.
  */
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+// eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
 import { imageLoader } from '@cornerstonejs/core';
 import type {
   XnatProject,
@@ -24,6 +25,7 @@ import {
 } from '../icons';
 import type { PinnedItem, NavigateToTarget } from '../../lib/pinnedItems';
 import { isPinned } from '../../lib/pinnedItems';
+// eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
 import { dicomwebLoader } from '../../lib/cornerstone/dicomwebLoader';
 import { pLimit } from '../../lib/util/pLimit';
 import {

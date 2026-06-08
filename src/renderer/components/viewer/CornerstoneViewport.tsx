@@ -13,15 +13,25 @@
  * 5. Loads images when imageIds prop changes
  */
 import { useEffect, useRef, useState } from 'react';
+// eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
 import { Enums, cache } from '@cornerstonejs/core';
+// eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
 import { annotation as csAnnotation } from '@cornerstonejs/tools';
+// eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
 import { viewportService } from '../../lib/cornerstone/viewportService';
+// eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
 import { toolService } from '../../lib/cornerstone/toolService';
+// eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
 import { metadataService } from '../../lib/cornerstone/metadataService';
+// eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
 import { viewportReadyService } from '../../lib/cornerstone/viewportReadyService';
+// eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
 import { crosshairSyncService } from '../../lib/cornerstone/crosshairSyncService';
+// eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
 import { imagePreloadService } from '../../lib/cornerstone/imagePreloadService';
+// eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
 import { wireCrosshairPointerHandlers } from '../../lib/cornerstone/crosshairGeometry';
+// eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
 import { segmentationManager } from '../../lib/segmentation/segmentationManagerSingleton';
 import { useViewerStore } from '../../stores/viewerStore';
 import { useMetadataStore } from '../../stores/metadataStore';

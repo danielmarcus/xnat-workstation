@@ -12,7 +12,9 @@
  */
 import { useCallback, useRef, useState } from 'react';
 import { useViewerStore } from '../../stores/viewerStore';
+// eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
 import { viewportService } from '../../lib/cornerstone/viewportService';
+// eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
 import { mprService } from '../../lib/cornerstone/mprService';
 
 interface ScrollSliderProps {

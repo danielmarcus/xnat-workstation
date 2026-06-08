@@ -11,8 +11,10 @@
  * - Graceful handling of binary/sequence values
  */
 import { useState, useEffect, useMemo, useCallback } from 'react';
+// eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
 import { wadouri } from '@cornerstonejs/dicom-image-loader';
 import { useViewerStore } from '../../stores/viewerStore';
+// eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
 import { viewportService } from '../../lib/cornerstone/viewportService';
 import {
   DICOM_TAG_DICTIONARY,

@@ -33,6 +33,7 @@ import {
   IconRedo,
   IconSettings,
 } from '../icons';
+// eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
 import { segmentationService } from '../../lib/cornerstone/segmentationService';
 
 // ─── Shared Button Components ─────────────────────────────────────

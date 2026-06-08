@@ -21,6 +21,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useViewerStore } from '../../stores/viewerStore';
 import { ToolName, mprPanelId, MPR_PANELS } from '@shared/types/viewer';
+// eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
 import { mprService } from '../../lib/cornerstone/mprService';
 import MPRViewport from './MPRViewport';
 import CornerstoneViewport from './CornerstoneViewport';

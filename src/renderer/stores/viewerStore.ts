@@ -20,13 +20,18 @@ import type {
   VolumeLoadProgress,
   ViewportOrientation,
 } from '@shared/types/viewer';
+// eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
 import type { Types as CsTypes } from '@cornerstonejs/core';
 import { ToolName, LAYOUT_CONFIGS, panelId } from '@shared/types/viewer';
 import type { HangingProtocol } from '@shared/types/hangingProtocol';
 import type { XnatScan, XnatUploadContext } from '@shared/types/xnat';
+// eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
 import { viewportService } from '../lib/cornerstone/viewportService';
+// eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
 import { toolService } from '../lib/cornerstone/toolService';
+// eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
 import { volumeService, generateVolumeId } from '../lib/cornerstone/volumeService';
+// eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
 import { mprToolService } from '../lib/cornerstone/mprToolService';
 
 /** Module-scope cine interval IDs keyed by panelId (not serializable, kept outside store) */

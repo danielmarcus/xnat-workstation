@@ -2,6 +2,7 @@
  * SegmentationPanel — right-side panel for managing annotation objects and entries.
  */
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
+// eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
 import { metaData } from '@cornerstonejs/core';
 import type { XnatScan } from '@shared/types/xnat';
 import { useSegmentationStore, type SegmentationDicomType } from '../../stores/segmentationStore';
@@ -15,12 +16,17 @@ import {
   isSegScan,
   isRtStructScan,
 } from '../../stores/sessionDerivedIndexStore';
+// eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
 import { segmentationService } from '../../lib/cornerstone/segmentationService';
+// eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
 import { rtStructService } from '../../lib/cornerstone/rtStructService';
+// eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
 import * as interpolationAcceptance from '../../lib/cornerstone/interpolationAcceptance';
 import { showConfirmDialog } from '../../stores/dialogStore';
+// eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
 import { segmentationManager } from '../../lib/segmentation/segmentationManagerSingleton';
 import { backupService } from '../../lib/backup/backupService';
+// eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
 import { dicomwebLoader } from '../../lib/cornerstone/dicomwebLoader';
 import { ToolName, TOOL_DISPLAY_NAMES, SEGMENTATION_TOOLS } from '@shared/types/viewer';
 import {

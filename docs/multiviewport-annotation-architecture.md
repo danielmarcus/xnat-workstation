@@ -74,6 +74,8 @@ The contract is enforced with ESLint `no-restricted-imports` (built-in; no new d
 
 Because the **current** code violates these rules, they go on in Phase 0 in a way that doesn't block the repo: existing violations are quarantined with a single `// eslint-disable-next-line … -- BOUNDARY-DEBT: removed in Rebuild Phase N` comment, each tagged with the phase that removes it. The rule is therefore **on from day one** for all new annotation code (which must be clean) while legacy debt is visible, counted, and burned down on a schedule. Phase 6 asserts zero `BOUNDARY-DEBT` comments remain.
 
+**Implemented (S8, 2026-06-06):** ESLint was not actually set up — no config, not installed, the `lint` script vestigial, and CI ran only `npm test`. Stood up `eslint@9` + `@typescript-eslint/parser` (+ `eslint-plugin-react-hooks`, registered-but-off, only so a dormant legacy `react-hooks` disable directive resolves). `eslint.config.mjs` encodes the three zones above with `no-restricted-imports` (boundary rule only — not a style pass). The **60** current violations across **18** files are quarantined per-line with `// eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: …` and `npm run lint` runs in `ci.yml`.
+
 ---
 
 ## 3. Current → target migration map

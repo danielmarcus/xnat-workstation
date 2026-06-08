@@ -1,3 +1,4 @@
+// eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
 import { useCallback, useEffect, useState } from 'react';
 import {
   addPinnedItem,

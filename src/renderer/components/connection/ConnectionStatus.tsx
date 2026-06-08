@@ -7,7 +7,9 @@
 import { useState } from 'react';
 import { useConnectionStore } from '../../stores/connectionStore';
 import { useSegmentationStore } from '../../stores/segmentationStore';
+// eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
 import { segmentationManager } from '../../lib/segmentation/segmentationManagerSingleton';
+// eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
 import { segmentationService } from '../../lib/cornerstone/segmentationService';
 import { showConfirmDialog } from '../../stores/dialogStore';
 import { IconDisconnect } from '../icons';

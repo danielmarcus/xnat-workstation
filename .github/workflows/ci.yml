@@ -36,6 +36,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Lint (layering boundaries)
+        run: npm run lint
+
       - name: Install DICOM validator
         run: |
           sudo apt-get update

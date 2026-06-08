@@ -10,9 +10,11 @@
  * same pattern as AnnotationToolDropdown.
  */
 import { useState, useEffect, useRef, useCallback } from 'react';
+// eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
 import { wadouri } from '@cornerstonejs/dicom-image-loader';
 import { useViewerStore } from '../../stores/viewerStore';
 import { useAnnotationStore } from '../../stores/annotationStore';
+// eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
 import { viewportService } from '../../lib/cornerstone/viewportService';
 import { IconExportFile } from '../icons';
 

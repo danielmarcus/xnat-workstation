@@ -18,6 +18,7 @@ import {
   LABELMAP_SEG_TOOLS,
   CONTOUR_SEG_TOOLS,
 } from '@shared/types/viewer';
+// eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
 import { segmentationService } from '../../lib/cornerstone/segmentationService';
 import {
   IconBrush,

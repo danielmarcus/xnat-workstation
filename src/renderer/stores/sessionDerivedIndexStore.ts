@@ -10,11 +10,16 @@
  * Scan ID conventions are not used for authoritative linkage.
  */
 import { create } from 'zustand';
+// eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
 import { metaData } from '@cornerstonejs/core';
+// eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
 import { wadouri } from '@cornerstonejs/dicom-image-loader';
 import type { XnatScan } from '@shared/types/xnat';
+// eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
 import { getSegReferenceInfo } from '../lib/dicom/segReferencedSeriesUid';
+// eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
 import { rtStructService } from '../lib/cornerstone/rtStructService';
+// eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
 import { pLimit } from '../lib/util/pLimit';
 
 export interface DerivedScanIndex {

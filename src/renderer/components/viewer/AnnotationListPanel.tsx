@@ -4,6 +4,7 @@
  * and clear-all functionality.
  */
 import { useAnnotationStore } from '../../stores/annotationStore';
+// eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
 import { annotationService } from '../../lib/cornerstone/annotationService';
 import { IconTrash, IconClose } from '../icons';
 

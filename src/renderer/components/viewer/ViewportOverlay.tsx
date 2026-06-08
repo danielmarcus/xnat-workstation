@@ -6,7 +6,9 @@
  * from viewerStore and per-panel metadata from metadataStore.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
+// eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
 import { metaData } from '@cornerstonejs/core';
+// eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
 import { wadouri } from '@cornerstonejs/dicom-image-loader';
 import {
   DEFAULT_OVERLAY_CORNERS,
@@ -20,6 +22,7 @@ import { usePreferencesStore } from '../../stores/preferencesStore';
 import { EMPTY_OVERLAY } from '@shared/types/dicom';
 import type { MPRPlane } from '@shared/types/viewer';
 import { ToolName } from '@shared/types/viewer';
+// eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
 import { getPanelDisplayPointForWorld } from '../../lib/cornerstone/crosshairGeometry';
 
 interface ViewportOverlayProps {

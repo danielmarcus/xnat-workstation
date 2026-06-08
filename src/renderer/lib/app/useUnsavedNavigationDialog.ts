@@ -1,3 +1,4 @@
+// eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 export function useUnsavedNavigationDialog(onDiscard: () => void) {

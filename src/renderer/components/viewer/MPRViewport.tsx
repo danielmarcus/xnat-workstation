@@ -9,11 +9,17 @@
  * orientation labels at the viewport edges.
  */
 import { useEffect, useRef, useState } from 'react';
+// eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
 import { Enums } from '@cornerstonejs/core';
+// eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
 import { mprService } from '../../lib/cornerstone/mprService';
+// eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
 import { mprToolService } from '../../lib/cornerstone/mprToolService';
+// eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
 import { viewportService } from '../../lib/cornerstone/viewportService';
+// eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
 import { crosshairSyncService } from '../../lib/cornerstone/crosshairSyncService';
+// eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
 import { wireCrosshairPointerHandlers } from '../../lib/cornerstone/crosshairGeometry';
 import { useViewerStore } from '../../stores/viewerStore';
 import { usePreferencesStore } from '../../stores/preferencesStore';
