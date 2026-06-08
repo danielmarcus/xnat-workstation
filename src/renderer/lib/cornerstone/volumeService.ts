@@ -44,6 +44,20 @@ export function generateVolumeId(): string {
 /** Keep a reference to volumes so we can call load() later */
 const volumeRefs = new Map<string, { load: () => void | Promise<void>; imageIds: string[] }>();
 
+/**
+ * Ref-counted SHARED volumes keyed by (scanId, FrameOfReferenceUID) — the
+ * Phase-1 model where two panels reformatting the same source scan share one
+ * `ImageVolume` (design §1.5). A volume stays cached while ≥1 viewport holds it
+ * and is destroyed when the last viewport releases it.
+ */
+const VOLUME_SHARED_PREFIX = `${VOLUME_SCHEME}:shared`;
+const sharedVolumes = new Map<string, { refCount: number; imageIds: string[] }>();
+
+/** Deterministic volume id for a (scanId, FrameOfReferenceUID) pair. */
+function makeSharedVolumeId(scanId: string, frameOfReferenceUID: string): string {
+  return `${VOLUME_SHARED_PREFIX}:${scanId}:${frameOfReferenceUID}`;
+}
+
 export const volumeService = {
   /**
    * Generate a unique volume ID.
@@ -147,5 +161,62 @@ export const volumeService = {
     } catch {
       // Volume may not exist in cache — ignore
     }
+  },
+
+  // ─── Shared, ref-counted volumes (Phase 1, design §1.5) ──────────
+
+  /** Deterministic shared volume id for a (scanId, FrameOfReferenceUID) pair. */
+  sharedVolumeId(scanId: string, frameOfReferenceUID: string): string {
+    return makeSharedVolumeId(scanId, frameOfReferenceUID);
+  },
+
+  /**
+   * Acquire the shared `ImageVolume` for (scanId, FoR), creating + caching it on
+   * first use and reusing it (refcount++) thereafter. `created` is true only on
+   * the first acquire — the caller should then `load(volumeId)` once. Use this
+   * (not create/generateId) for the unified viewport path so panels of the same
+   * scan share one volume.
+   */
+  async acquire(
+    scanId: string,
+    frameOfReferenceUID: string,
+    imageIds: string[],
+  ): Promise<{ volumeId: string; created: boolean; refCount: number }> {
+    const volumeId = makeSharedVolumeId(scanId, frameOfReferenceUID);
+    const existing = sharedVolumes.get(volumeId);
+    if (existing) {
+      existing.refCount += 1;
+      return { volumeId, created: false, refCount: existing.refCount };
+    }
+    const volume = await volumeLoader.createAndCacheVolume(volumeId, { imageIds });
+    volumeRefs.set(volumeId, { load: () => volume.load(), imageIds });
+    sharedVolumes.set(volumeId, { refCount: 1, imageIds });
+    console.log('[volumeService] Shared volume acquired (new):', volumeId, `(${imageIds.length} images)`);
+    return { volumeId, created: true, refCount: 1 };
+  },
+
+  /**
+   * Release one hold on a shared volume. Destroys + uncaches it when the last
+   * holder releases (refcount → 0). Returns the remaining refcount (0 if freed).
+   */
+  release(volumeId: string): number {
+    const entry = sharedVolumes.get(volumeId);
+    if (!entry) return 0;
+    entry.refCount -= 1;
+    if (entry.refCount > 0) return entry.refCount;
+    sharedVolumes.delete(volumeId);
+    volumeRefs.delete(volumeId);
+    try {
+      cache.removeVolumeLoadObject(volumeId);
+      console.log('[volumeService] Shared volume freed (refcount 0):', volumeId);
+    } catch {
+      // Volume may not exist in cache — ignore
+    }
+    return 0;
+  },
+
+  /** Current refcount for a shared volume (0 if not held). */
+  getRefCount(volumeId: string): number {
+    return sharedVolumes.get(volumeId)?.refCount ?? 0;
   },
 };

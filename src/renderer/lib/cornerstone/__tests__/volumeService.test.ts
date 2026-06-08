@@ -127,3 +127,51 @@ describe('volumeService', () => {
     await expect(volumeService.load('vol-3')).rejects.toThrow('[volumeService] Volume not found: vol-3');
   });
 });
+
+describe('volumeService — shared (scanId, FoR) volumes + ref-counting (Phase 1)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    volumeMocks.eventTarget.clear();
+    volumeMocks.createAndCacheVolume.mockResolvedValue({ load: vi.fn() });
+  });
+
+  it('reuses one volume for the same (scanId, FoR) and increments the refcount', async () => {
+    const ids = ['a', 'b', 'c'];
+    const r1 = await volumeService.acquire('scan4', 'FoR-1', ids);
+    expect(r1.created).toBe(true);
+    expect(r1.refCount).toBe(1);
+
+    const r2 = await volumeService.acquire('scan4', 'FoR-1', ids);
+    expect(r2.created).toBe(false);
+    expect(r2.volumeId).toBe(r1.volumeId);
+    expect(r2.refCount).toBe(2);
+
+    expect(volumeMocks.createAndCacheVolume).toHaveBeenCalledTimes(1); // created once, reused
+    expect(volumeService.getRefCount(r1.volumeId)).toBe(2);
+  });
+
+  it('derives distinct volume ids for different (scanId, FoR) pairs', async () => {
+    const a = await volumeService.acquire('scanA', 'FoR-X', ['1']);
+    const b = await volumeService.acquire('scanB', 'FoR-X', ['1']);
+    const c = await volumeService.acquire('scanA', 'FoR-Y', ['1']);
+    expect(new Set([a.volumeId, b.volumeId, c.volumeId]).size).toBe(3);
+    expect(a.volumeId).toBe(volumeService.sharedVolumeId('scanA', 'FoR-X'));
+  });
+
+  it('destroys + uncaches the volume only when the last holder releases', async () => {
+    const r = await volumeService.acquire('scanDestroy', 'FoR-1', ['1']);
+    await volumeService.acquire('scanDestroy', 'FoR-1', ['1']); // refcount → 2
+
+    expect(volumeService.release(r.volumeId)).toBe(1);
+    expect(volumeMocks.removeVolumeLoadObject).not.toHaveBeenCalledWith(r.volumeId);
+
+    expect(volumeService.release(r.volumeId)).toBe(0);
+    expect(volumeMocks.removeVolumeLoadObject).toHaveBeenCalledWith(r.volumeId);
+    expect(volumeService.getRefCount(r.volumeId)).toBe(0);
+  });
+
+  it('releasing an unknown / over-released volume is a no-op', () => {
+    expect(volumeService.release(volumeService.sharedVolumeId('nope', 'nope'))).toBe(0);
+    expect(volumeMocks.removeVolumeLoadObject).not.toHaveBeenCalled();
+  });
+});
