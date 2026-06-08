@@ -10,6 +10,7 @@ import { useEffect, useRef } from 'react';
 import { viewportService } from '../lib/cornerstone/viewportService';
 import { unifiedToolService } from '../lib/cornerstone/unifiedToolService';
 import { unifiedSegService } from '../lib/cornerstone/unifiedSegService';
+import { viewportReadyService } from '../lib/cornerstone/viewportReadyService';
 import type { MPRPlane } from '@shared/types/viewer';
 
 export interface UseViewportArgs {
@@ -46,14 +47,20 @@ export function useViewport({
         orientation,
       })
       .then(() => {
-        // Join the unified tool group (real CrosshairsTool MPR sync) once the
-        // viewport exists. Guard the async gap against a fast unmount.
+        // Join the unified tool group once the viewport exists. Guard the async
+        // gap against a fast unmount.
         if (cancelled) return;
         unifiedToolService.addViewport(panelId);
         // Re-attach any existing segmentations so structures survive layout
         // swaps — panels that appear after a segmentation was created (a new MPR
         // panel) still get their overlays.
         unifiedSegService.attachExistingToViewport(panelId);
+        // Signal viewport readiness for the CURRENT epoch (App bumps the epoch
+        // when imageIds change, before this effect re-runs). Overlay-attach
+        // barriers — SegmentationManager.whenReady — block on this; the deleted
+        // CornerstoneViewport used to call it, and the unified path dropped it,
+        // which is why SEG/RTSTRUCT overlay loads timed out after 15s.
+        viewportReadyService.markReady(panelId, viewportReadyService.getEpoch(panelId));
       })
       .catch((err) => console.warn('[useViewport] create failed:', panelId, err));
 
