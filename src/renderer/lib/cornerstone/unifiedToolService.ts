@@ -25,14 +25,49 @@ import {
   PanTool,
   ZoomTool,
   StackScrollTool,
+  LengthTool,
+  BrushTool,
+  PlanarFreehandContourSegmentationTool,
   Enums as ToolEnums,
 } from '@cornerstonejs/tools';
 import type { Types as ToolTypes } from '@cornerstonejs/tools';
+import { ToolName } from '@shared/types/viewer';
 import { viewportService } from './viewportService';
 
 const UNIFIED_TOOL_GROUP_ID = 'xnatToolGroup_unified';
 
 const { Primary, Auxiliary, Secondary, Wheel } = ToolEnums.MouseBindings;
+
+/**
+ * ToolName → Cornerstone tool class name, for the subset of tools the unified
+ * path supports in Phase 1: navigation + crosshairs + the editing tools needed
+ * for signals 1/3/6/7 (Length, freehand contour segmentation, brush).
+ */
+const UNIFIED_TOOL_MAP: Partial<Record<ToolName, string>> = {
+  [ToolName.Crosshairs]: CrosshairsTool.toolName,
+  [ToolName.WindowLevel]: WindowLevelTool.toolName,
+  [ToolName.Pan]: PanTool.toolName,
+  [ToolName.Zoom]: ZoomTool.toolName,
+  [ToolName.StackScroll]: StackScrollTool.toolName,
+  [ToolName.Length]: LengthTool.toolName,
+  [ToolName.FreehandContour]: PlanarFreehandContourSegmentationTool.toolName,
+  [ToolName.Brush]: BrushTool.toolName,
+};
+
+/** Tools that can occupy the Primary (left-click) slot, swapped by setActiveTool. */
+const PRIMARY_CAPABLE = [
+  CrosshairsTool.toolName,
+  WindowLevelTool.toolName,
+  LengthTool.toolName,
+  PlanarFreehandContourSegmentationTool.toolName,
+  BrushTool.toolName,
+];
+
+// The tool currently bound to Primary; tracked so we demote it (rather than
+// re-`setToolActive` everything, which MERGES bindings in CS3D v4) on a switch.
+let currentPrimary: string = CrosshairsTool.toolName;
+// The active ToolName (UI-level), null until an explicit selection.
+let activeToolName: ToolName | null = null;
 
 function getToolGroup(): ToolTypes.IToolGroup | undefined {
   return ToolGroupManager.getToolGroup(UNIFIED_TOOL_GROUP_ID);
@@ -52,22 +87,33 @@ function ensureToolGroup(): ToolTypes.IToolGroup | undefined {
     return undefined;
   }
 
+  // Navigation + crosshairs.
   toolGroup.addTool(CrosshairsTool.toolName);
   toolGroup.addTool(WindowLevelTool.toolName);
   toolGroup.addTool(PanTool.toolName);
   toolGroup.addTool(ZoomTool.toolName);
   toolGroup.addTool(StackScrollTool.toolName);
+  // Editing tools (P1.7): measurement, freehand contour segmentation, brush.
+  toolGroup.addTool(LengthTool.toolName);
+  toolGroup.addTool(PlanarFreehandContourSegmentationTool.toolName);
+  toolGroup.addTool(BrushTool.toolName);
 
-  // CrosshairsTool: primary left-click — the real-tool MPR sync (reference
-  // lines + slice jump across the shared-volume panels).
+  // CrosshairsTool: primary left-click by default — the real-tool MPR sync
+  // (reference lines + slice jump across the shared-volume panels).
   toolGroup.setToolActive(CrosshairsTool.toolName, { bindings: [{ mouseButton: Primary }] });
   // Pan: middle-click · Zoom: right-click · StackScroll: wheel (slice nav).
+  // These fixed bindings are set ONCE here and never re-set (CS3D v4
+  // setToolActive merges bindings), so setActiveTool only swaps the Primary slot.
   toolGroup.setToolActive(PanTool.toolName, { bindings: [{ mouseButton: Auxiliary }] });
   toolGroup.setToolActive(ZoomTool.toolName, { bindings: [{ mouseButton: Secondary }] });
   toolGroup.setToolActive(StackScrollTool.toolName, { bindings: [{ mouseButton: Wheel }] });
   // W/L: enabled but no binding (manual activation later).
   toolGroup.setToolEnabled(WindowLevelTool.toolName);
+  // Editing tools start passive (visible, not the active primary).
+  toolGroup.setToolPassive(LengthTool.toolName);
+  toolGroup.setToolPassive(PlanarFreehandContourSegmentationTool.toolName);
 
+  currentPrimary = CrosshairsTool.toolName;
   console.log('[unifiedToolService] Unified tool group initialized');
   return toolGroup;
 }
@@ -83,6 +129,57 @@ export const unifiedToolService = {
   /** Ensure the group exists (configured). Safe to call repeatedly. */
   initialize(): void {
     ensureToolGroup();
+  },
+
+  /**
+   * Set the active (Primary / left-click) tool. Swaps only the Primary slot:
+   * the prior primary is demoted to Passive (removing its Primary binding —
+   * Crosshairs keeps drawing reference lines), then the new tool takes Primary.
+   * The fixed nav bindings (Pan/Zoom/StackScroll) are untouched.
+   */
+  setActiveTool(toolName: ToolName): void {
+    const toolGroup = ensureToolGroup();
+    if (!toolGroup) return;
+    const csName = UNIFIED_TOOL_MAP[toolName];
+    if (!csName) {
+      console.warn('[unifiedToolService] Unsupported tool for unified path:', toolName);
+      return;
+    }
+    if (csName === currentPrimary) {
+      activeToolName = toolName;
+      return;
+    }
+
+    // Demote the current primary (removes its Primary binding). Crosshairs stays
+    // Passive so its reference lines keep rendering across MPR panels.
+    if (PRIMARY_CAPABLE.includes(currentPrimary)) {
+      toolGroup.setToolPassive(currentPrimary);
+    }
+
+    // Brush needs an active labelmap strategy when it takes Primary.
+    if (csName === BrushTool.toolName) {
+      try {
+        toolGroup.setActiveStrategy(BrushTool.toolName, 'FILL_INSIDE_CIRCLE');
+      } catch {
+        /* default strategy */
+      }
+    }
+
+    toolGroup.setToolActive(csName, { bindings: [{ mouseButton: Primary }] });
+    currentPrimary = csName;
+    activeToolName = toolName;
+    console.log('[unifiedToolService] Active tool:', toolName, '->', csName);
+  },
+
+  /** The active (Primary) ToolName, or null before any explicit selection. */
+  getActiveToolName(): ToolName | null {
+    return activeToolName;
+  },
+
+  /** Cornerstone mode of a tool in the unified group ('Active'/'Passive'/…), or null. */
+  getToolMode(csToolName: string): string | null {
+    const opts = getToolGroup()?.getToolOptions(csToolName) as { mode?: string } | undefined;
+    return opts?.mode ?? null;
   },
 
   /**

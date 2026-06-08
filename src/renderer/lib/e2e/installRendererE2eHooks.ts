@@ -74,6 +74,12 @@ declare global {
       unifiedToolGroupHasCrosshairs: () => boolean;
       /** Viewport ids currently in the unified tool group. */
       getUnifiedToolGroupViewportIds: () => string[];
+      /** Set the active (Primary) tool on the unified group. */
+      setActiveUnifiedTool: (toolName: ToolName) => void;
+      /** The active ToolName on the unified group (null before selection). */
+      getActiveUnifiedTool: () => string | null;
+      /** Cornerstone mode ('Active'/'Passive'/…) of a tool in the unified group. */
+      getUnifiedToolMode: (csToolName: string) => string | null;
     };
   }
 }
@@ -452,5 +458,8 @@ export function installRendererE2eHooks(): void {
     getViewportToolGroupId: (panelId: string) => unifiedToolService.getViewportToolGroupId(panelId),
     unifiedToolGroupHasCrosshairs: () => unifiedToolService.hasCrosshairs(),
     getUnifiedToolGroupViewportIds: () => unifiedToolService.getViewportIds(),
+    setActiveUnifiedTool: (toolName: ToolName) => unifiedToolService.setActiveTool(toolName),
+    getActiveUnifiedTool: () => unifiedToolService.getActiveToolName(),
+    getUnifiedToolMode: (csToolName: string) => unifiedToolService.getToolMode(csToolName),
   };
 }
