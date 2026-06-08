@@ -18,6 +18,9 @@ import { volumeLoader } from '@cornerstonejs/core';
 import { segmentation as csSegmentation, Enums as ToolEnums } from '@cornerstonejs/tools';
 
 let counter = 0;
+/** Segmentations created on the unified path, so they can be re-attached to
+ *  viewports that (re)mount after a layout change. */
+const created = new Set<string>();
 
 export interface UnifiedLabelmapResult {
   segmentationId: string;
@@ -61,6 +64,7 @@ export const unifiedSegService = {
       },
     ]);
 
+    created.add(segmentationId);
     for (const viewportId of viewportIds) {
       csSegmentation.addLabelmapRepresentationToViewport(viewportId, [{ segmentationId }]);
       try {
@@ -72,5 +76,31 @@ export const unifiedSegService = {
     csSegmentation.segmentIndex.setActiveSegmentIndex(segmentationId, 1);
 
     return { segmentationId, segmentIndex: 1, labelmapVolumeId: lm.volumeId };
+  },
+
+  /**
+   * Re-attach every unified segmentation to a viewport that has just (re)mounted
+   * — e.g. an MPR panel recreated after a layout change — so structures are not
+   * lost on layout swaps. Idempotent: only attaches segmentations that still
+   * exist in Cornerstone state.
+   */
+  attachExistingToViewport(viewportId: string): void {
+    for (const segmentationId of created) {
+      if (!csSegmentation.state.getSegmentation(segmentationId)) {
+        created.delete(segmentationId);
+        continue;
+      }
+      try {
+        csSegmentation.addLabelmapRepresentationToViewport(viewportId, [{ segmentationId }]);
+        csSegmentation.activeSegmentation.setActiveSegmentation(viewportId, segmentationId);
+      } catch {
+        /* viewport not ready yet */
+      }
+    }
+  },
+
+  /** Forget all tracked unified segmentations (test isolation). */
+  reset(): void {
+    created.clear();
   },
 };

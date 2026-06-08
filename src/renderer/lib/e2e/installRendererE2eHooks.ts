@@ -92,6 +92,12 @@ declare global {
       isUnifiedVolumeReady: () => boolean;
       /** Remove all segmentations (test isolation in the worker-scoped app). */
       resetUnifiedSegmentations: () => void;
+      /** The global unsaved-changes (dirty) flag. */
+      getDirtyFlag: () => boolean;
+      /** Number of segmentations in Cornerstone state (the unified seg lives here, not the store). */
+      getCsSegmentationCount: () => number;
+      /** Number of segmentation representations on a viewport (0 ⇒ structure not attached). */
+      getViewportSegRepCount: (panelId: string) => number;
       /** Whether the global (viewport-independent) undo history has an undo available. */
       canUnifiedUndo: () => boolean;
       /** Undo the last edit via the global history (works after the source panel closed). */
@@ -525,6 +531,21 @@ export function installRendererE2eHooks(): void {
         (csSegmentation as unknown as { removeAllSegmentations?: () => void }).removeAllSegmentations?.();
       } catch {
         /* ignore */
+      }
+      unifiedSegService.reset();
+      useSegmentationStore.setState({ hasUnsavedChanges: false });
+    },
+    getDirtyFlag: () => useSegmentationStore.getState().hasUnsavedChanges,
+    getCsSegmentationCount: () =>
+      ((csSegmentation.state as unknown as { getSegmentations?: () => unknown[] }).getSegmentations?.() ?? []).length,
+    getViewportSegRepCount: (panelId: string) => {
+      const fn = (csSegmentation.state as unknown as {
+        getViewportSegmentationRepresentations?: (id: string) => unknown[];
+      }).getViewportSegmentationRepresentations;
+      try {
+        return (fn?.(panelId) ?? []).length;
+      } catch {
+        return 0;
       }
     },
     canUnifiedUndo: () => undoService.canUndo(),

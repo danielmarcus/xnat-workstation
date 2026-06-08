@@ -9,6 +9,7 @@
 import { useEffect, useRef } from 'react';
 import { viewportService } from '../lib/cornerstone/viewportService';
 import { unifiedToolService } from '../lib/cornerstone/unifiedToolService';
+import { unifiedSegService } from '../lib/cornerstone/unifiedSegService';
 import type { MPRPlane } from '@shared/types/viewer';
 
 export interface UseViewportArgs {
@@ -49,6 +50,10 @@ export function useViewport({
         // viewport exists. Guard the async gap against a fast unmount.
         if (cancelled) return;
         unifiedToolService.addViewport(panelId);
+        // Re-attach any existing segmentations so structures survive layout
+        // swaps — panels that appear after a segmentation was created (a new MPR
+        // panel) still get their overlays.
+        unifiedSegService.attachExistingToViewport(panelId);
       })
       .catch((err) => console.warn('[useViewport] create failed:', panelId, err));
 
