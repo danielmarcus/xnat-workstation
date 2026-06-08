@@ -31,6 +31,7 @@ import {
   upsertOperatorsName,
 } from './operatorsName';
 import {
+  applyConformantPatientAge,
   collectSourceDicomReferences,
   parseReferencedFrameNumber,
   requireSingleStudyReference,
@@ -660,7 +661,9 @@ function applySourceDicomContextToRtStructDataset(dataset: any, sourceImageId: s
   if (study?.studyDescription) dataset.StudyDescription = study.studyDescription;
   if (study?.referringPhysicianName) dataset.ReferringPhysicianName = study.referringPhysicianName;
 
-  if (patientStudy?.patientAge) dataset.PatientAge = patientStudy.patientAge;
+  // PatientAge is VR=AS (fixed-length, 4 chars). Validate before copying so a
+  // non-conformant source value (e.g. a bare "59") is flagged, not propagated.
+  applyConformantPatientAge(dataset, patientStudy?.patientAge, 'RTSTRUCT');
   if (patientStudy?.patientWeight) dataset.PatientWeight = patientStudy.patientWeight;
   if (patientStudy?.patientSize) dataset.PatientSize = patientStudy.patientSize;
 

@@ -55,6 +55,47 @@ export interface SerializeDerivedDicomOptions {
   includeStructureSetDateTime?: boolean;
 }
 
+/**
+ * DICOM "Age String" (VR=AS) is a FIXED-LENGTH VR: exactly 4 characters, formed
+ * as three digits followed by a unit — D (days), W (weeks), M (months) or
+ * Y (years), e.g. "059Y". dcmjs validates this on read and logs
+ * "Invalid length for fixed length tag, vr AS, length 4 != N" whenever a
+ * non-conformant value (most commonly a bare number like "59") is encountered.
+ *
+ * We copy PatientAge (0010,1010) from source-study metadata — which is not
+ * guaranteed to be conformant — into derived SEG/RTSTRUCT datasets, so this
+ * pattern lets callers flag rather than silently propagate a malformed value.
+ */
+export const DICOM_AGE_STRING_PATTERN = /^\d{3}[DWMY]$/;
+
+export function isConformantAgeString(value: unknown): value is string {
+  return typeof value === 'string' && DICOM_AGE_STRING_PATTERN.test(value);
+}
+
+/**
+ * Set `dataset.PatientAge` only when `value` is a conformant DICOM Age String.
+ * A non-conformant value is worse than an absent optional tag — it makes the
+ * derived object trip dcmjs's fixed-length-VR check on every subsequent read —
+ * so we omit it and warn, per the repo's DICOM-compliance rule to flag (not
+ * silently pass through) non-conformant data. `context` is a short label
+ * ('SEG' / 'RTSTRUCT') identifying the export path in the warning.
+ */
+export function applyConformantPatientAge(
+  dataset: any,
+  value: unknown,
+  context: string,
+): void {
+  if (value === undefined || value === null || value === '') return;
+  if (isConformantAgeString(value)) {
+    dataset.PatientAge = value;
+    return;
+  }
+  console.warn(
+    `[dicomExportHelpers] ${context}: omitting non-conformant PatientAge ` +
+    `(VR=AS requires nnn[D|W|M|Y], e.g. "059Y"); got ${JSON.stringify(value)}`,
+  );
+}
+
 function extractMetaValue(meta: any, key: string): unknown {
   const value = meta?.[key];
   if (value && typeof value === 'object' && Array.isArray(value.Value)) {

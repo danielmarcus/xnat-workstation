@@ -1,3 +1,5 @@
+import { applyConformantPatientAge } from '../dicomExportHelpers';
+
 /**
  * Copy core patient/study/frame identity fields from source DICOM metadata
  * into a derived SEG dataset before writing.
@@ -27,7 +29,9 @@ export function applySourceDicomContextToSegDataset(
   if (study?.studyDescription) dataset.StudyDescription = study.studyDescription;
   if (study?.referringPhysicianName) dataset.ReferringPhysicianName = study.referringPhysicianName;
 
-  if (patientStudy?.patientAge) dataset.PatientAge = patientStudy.patientAge;
+  // PatientAge is VR=AS (fixed-length, 4 chars). Validate before copying so a
+  // non-conformant source value (e.g. a bare "59") is flagged, not propagated.
+  applyConformantPatientAge(dataset, patientStudy?.patientAge, 'SEG');
   if (patientStudy?.patientWeight) dataset.PatientWeight = patientStudy.patientWeight;
   if (patientStudy?.patientSize) dataset.PatientSize = patientStudy.patientSize;
 

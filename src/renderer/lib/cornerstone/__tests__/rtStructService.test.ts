@@ -198,6 +198,12 @@ vi.mock('../dicomExportHelpers', () => ({
   parseReferencedFrameNumber: rtStructMocks.parseReferencedFrameNumber,
   requireSingleStudyReference: rtStructMocks.requireSingleStudyReference,
   serializeDerivedDicomDataset: rtStructMocks.serializeDerivedDicomDataset,
+  // Mirror production semantics: only conformant AS Age Strings are copied.
+  applyConformantPatientAge: vi.fn((dataset: any, value: unknown) => {
+    if (typeof value === 'string' && /^\d{3}[DWMY]$/.test(value)) {
+      dataset.PatientAge = value;
+    }
+  }),
 }));
 
 import { rtStructService } from '../rtStructService';

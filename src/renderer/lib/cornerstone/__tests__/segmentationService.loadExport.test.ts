@@ -440,6 +440,12 @@ vi.mock('../dicomExportHelpers', () => ({
   collectSourceDicomReferences: segIoMocks.collectSourceDicomReferences,
   requireSingleStudyReference: segIoMocks.requireSingleStudyReference,
   serializeDerivedDicomDataset: segIoMocks.serializeDerivedDicomDataset,
+  // Mirror production semantics: only conformant AS Age Strings are copied.
+  applyConformantPatientAge: vi.fn((dataset: any, value: unknown) => {
+    if (typeof value === 'string' && /^\d{3}[DWMY]$/.test(value)) {
+      dataset.PatientAge = value;
+    }
+  }),
 }));
 
 import { segmentationService } from '../segmentationService';

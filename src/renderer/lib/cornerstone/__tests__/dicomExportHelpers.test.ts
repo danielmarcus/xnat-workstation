@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const dicomExportHelperMocks = vi.hoisted(() => {
   let lastMeta: any = null;
@@ -58,7 +58,10 @@ import {
   serializeDerivedDicomDataset,
   collectSourceDicomReferences,
   parseReferencedFrameNumber,
+  applyConformantPatientAge,
+  isConformantAgeString,
 } from '../dicomExportHelpers';
+import { applySourceDicomContextToSegDataset } from '../segmentationService/dicomContext';
 
 describe('dicomExportHelpers', () => {
   beforeEach(() => {
@@ -196,5 +199,81 @@ describe('dicomExportHelpers', () => {
         numberOfFrames: 12,
       }),
     ]);
+  });
+});
+
+describe('PatientAge (VR=AS) conformance on export', () => {
+  let warnSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    warnSpy.mockRestore();
+  });
+
+  it('recognizes only conformant nnn[DWMY] Age Strings', () => {
+    // Conformant: exactly three digits + a unit letter.
+    for (const ok of ['000D', '047Y', '012W', '009M', '120Y']) {
+      expect(isConformantAgeString(ok)).toBe(true);
+    }
+    // Non-conformant: bare numbers, missing/zero-unpadded digits, lowercase
+    // units, trailing space, or wrong types — all of which trip dcmjs's
+    // "Invalid length for fixed length tag, vr AS" check on read.
+    for (const bad of ['59', '47', '5Y', '47Y', '0047Y', '47y', '047 ', '', 'Y', 47, null, undefined]) {
+      expect(isConformantAgeString(bad as unknown)).toBe(false);
+    }
+  });
+
+  it('sets PatientAge for a conformant value', () => {
+    const dataset: Record<string, unknown> = {};
+    applyConformantPatientAge(dataset, '047Y', 'SEG');
+    expect(dataset.PatientAge).toBe('047Y');
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  it('omits and warns on a non-conformant value rather than propagating it', () => {
+    const dataset: Record<string, unknown> = {};
+    // "59" is the exact 2-byte AS value that reproduces the reported warning.
+    applyConformantPatientAge(dataset, '59', 'SEG');
+    expect('PatientAge' in dataset).toBe(false);
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(warnSpy.mock.calls[0][0]).toContain('non-conformant PatientAge');
+    expect(warnSpy.mock.calls[0][0]).toContain('SEG');
+  });
+
+  it('silently omits an absent age without warning', () => {
+    const dataset: Record<string, unknown> = {};
+    applyConformantPatientAge(dataset, undefined, 'RTSTRUCT');
+    applyConformantPatientAge(dataset, '', 'RTSTRUCT');
+    expect('PatientAge' in dataset).toBe(false);
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  it('does not propagate a malformed PatientAge through the real SEG export write site', () => {
+    // Exercise applySourceDicomContextToSegDataset — the actual point where the
+    // verbatim copy lived — not just the helper in isolation.
+    const getMetaData = (type: string) => {
+      if (type === 'patientModule') return { patientId: 'P1' };
+      if (type === 'patientStudyModule') return { patientAge: '59', patientWeight: 70 };
+      return undefined;
+    };
+    const dataset: Record<string, unknown> = {};
+    applySourceDicomContextToSegDataset(dataset, 'wadouri:src.dcm', getMetaData);
+    expect('PatientAge' in dataset).toBe(false);          // malformed AS dropped
+    expect(dataset.PatientWeight).toBe(70);               // other fields still copied
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('copies a conformant PatientAge through the real SEG export write site', () => {
+    const getMetaData = (type: string) => {
+      if (type === 'patientStudyModule') return { patientAge: '047Y' };
+      return undefined;
+    };
+    const dataset: Record<string, unknown> = {};
+    applySourceDicomContextToSegDataset(dataset, 'wadouri:src.dcm', getMetaData);
+    expect(dataset.PatientAge).toBe('047Y');
+    expect(warnSpy).not.toHaveBeenCalled();
   });
 });
