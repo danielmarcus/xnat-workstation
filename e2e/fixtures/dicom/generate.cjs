@@ -32,6 +32,7 @@ const TRANSFER_SYNTAX_EXPLICIT_VR_LE = '1.2.840.10008.1.2.1';
 const CT_IMAGE_STORAGE = '1.2.840.10008.5.1.4.1.1.2';
 const RTSTRUCT_STORAGE = '1.2.840.10008.5.1.4.1.1.481.3';
 const SEG_STORAGE = '1.2.840.10008.5.1.4.1.1.66.4';
+const MR_IMAGE_STORAGE = '1.2.840.10008.5.1.4.1.1.4';
 const DETACHED_STUDY_MGMT = '1.2.840.10008.3.1.2.3.1'; // RTReferencedStudy ReferencedSOPClassUID (legacy)
 
 /**
@@ -49,11 +50,15 @@ function writeCtSeries(outDir, opts) {
     patientId,
     patientName,
     voxel,
+    modality = 'CT',
+    sopClassUID = CT_IMAGE_STORAGE,
+    seriesNumber = 1,
+    filePrefix = '',
   } = opts;
 
-  const studyUID = DicomMetaDictionary.uid();
+  const studyUID = opts.studyUID || DicomMetaDictionary.uid();
   const seriesUID = DicomMetaDictionary.uid();
-  const frameOfReferenceUID = DicomMetaDictionary.uid();
+  const frameOfReferenceUID = opts.frameOfReferenceUID || DicomMetaDictionary.uid();
   const implementationClassUID = DicomMetaDictionary.uid();
 
   fs.mkdirSync(outDir, { recursive: true });
@@ -77,12 +82,12 @@ function writeCtSeries(outDir, opts) {
     }
 
     const dataset = {
-      SOPClassUID: CT_IMAGE_STORAGE,
+      SOPClassUID: sopClassUID,
       SOPInstanceUID: sopInstanceUID,
       StudyInstanceUID: studyUID,
       SeriesInstanceUID: seriesUID,
       FrameOfReferenceUID: frameOfReferenceUID,
-      Modality: 'CT',
+      Modality: modality,
       PatientName: patientName,
       PatientID: patientId,
       PatientBirthDate: '',
@@ -91,7 +96,7 @@ function writeCtSeries(outDir, opts) {
       StudyDate: '20260101',
       StudyTime: '000000',
       AccessionNumber: '',
-      SeriesNumber: 1,
+      SeriesNumber: seriesNumber,
       InstanceNumber: s + 1,
       SeriesDescription: seriesDescription,
       ImageType: ['DERIVED', 'SECONDARY', 'AXIAL'],
@@ -119,7 +124,7 @@ function writeCtSeries(outDir, opts) {
 
     const meta = {
       FileMetaInformationVersion: new Uint8Array([0, 1]).buffer,
-      MediaStorageSOPClassUID: CT_IMAGE_STORAGE,
+      MediaStorageSOPClassUID: sopClassUID,
       MediaStorageSOPInstanceUID: sopInstanceUID,
       TransferSyntaxUID: TRANSFER_SYNTAX_EXPLICIT_VR_LE,
       ImplementationClassUID: implementationClassUID,
@@ -130,7 +135,7 @@ function writeCtSeries(outDir, opts) {
     dicomDict.dict = DicomMetaDictionary.denaturalizeDataset(dataset);
     const buffer = dicomDict.write();
 
-    const filename = `slice-${String(s + 1).padStart(3, '0')}.dcm`;
+    const filename = `${filePrefix}slice-${String(s + 1).padStart(3, '0')}.dcm`;
     fs.writeFileSync(path.join(outDir, filename), Buffer.from(buffer));
     slices.push({ sopInstanceUID, z, ipp: [-cx * pixelSpacing[1], -cy * pixelSpacing[0], z] });
   }
@@ -416,11 +421,76 @@ function generateSegMultilabel(outDir) {
   return { count: src.count + 1, rows, cols };
 }
 
+function generateMrT1T2SameExam(outDir) {
+  // T1 + T2 MR of one exam — SAME study + SAME Frame of Reference.
+  fs.mkdirSync(outDir, { recursive: true });
+  const studyUID = DicomMetaDictionary.uid();
+  const frameOfReferenceUID = DicomMetaDictionary.uid();
+  const common = {
+    modality: 'MR',
+    sopClassUID: MR_IMAGE_STORAGE,
+    studyUID,
+    frameOfReferenceUID,
+    patientId: 'MR-T1T2',
+    patientName: 'PHANTOM^MRT1T2',
+  };
+  const t1 = writeCtSeries(outDir, {
+    ...common, seriesNumber: 1, filePrefix: 't1-', seriesDescription: 'MR T1',
+    voxel: (x, y, z) => (Math.sqrt(x * x + y * y + z * z) <= 30 ? 400 : 0),
+  });
+  const t2 = writeCtSeries(outDir, {
+    ...common, seriesNumber: 2, filePrefix: 't2-', seriesDescription: 'MR T2',
+    voxel: (x, y, z) => (Math.sqrt(x * x + y * y + z * z) <= 30 ? 900 : 0),
+  });
+  return { count: t1.count + t2.count, rows: t1.rows, cols: t1.cols };
+}
+
+function generateBreathHoldPair(outDir) {
+  // Two CT breath-holds — SAME Frame of Reference, anatomy displaced (sphere
+  // shifted) so structures from one land at a visibly wrong position on the other.
+  fs.mkdirSync(outDir, { recursive: true });
+  const studyUID = DicomMetaDictionary.uid();
+  const frameOfReferenceUID = DicomMetaDictionary.uid();
+  const common = { studyUID, frameOfReferenceUID, patientId: 'BREATH-HOLD', patientName: 'PHANTOM^BREATHHOLD' };
+  const bh1 = writeCtSeries(outDir, {
+    ...common, seriesNumber: 1, filePrefix: 'bh1-', seriesDescription: 'CT breath-hold 1',
+    voxel: (x, y, z) => (Math.sqrt(x * x + y * y + z * z) <= 24 ? 300 : -1000),
+  });
+  const bh2 = writeCtSeries(outDir, {
+    ...common, seriesNumber: 2, filePrefix: 'bh2-', seriesDescription: 'CT breath-hold 2',
+    voxel: (x, y, z) => (Math.sqrt((x - 20) * (x - 20) + y * y + z * z) <= 24 ? 300 : -1000),
+  });
+  return { count: bh1.count + bh2.count, rows: bh1.rows, cols: bh1.cols };
+}
+
+function generateCrossForCtMr(outDir) {
+  // Unregistered CT + MR — same study, DIFFERENT Frame of Reference (no SRO).
+  fs.mkdirSync(outDir, { recursive: true });
+  const studyUID = DicomMetaDictionary.uid();
+  const ct = writeCtSeries(outDir, {
+    studyUID, frameOfReferenceUID: DicomMetaDictionary.uid(),
+    seriesNumber: 1, filePrefix: 'ct-', seriesDescription: 'CT (FoR A)',
+    patientId: 'CROSS-FOR', patientName: 'PHANTOM^CROSSFOR',
+    voxel: (x, y, z) => (Math.sqrt(x * x + y * y + z * z) <= 24 ? 300 : -1000),
+  });
+  const mr = writeCtSeries(outDir, {
+    modality: 'MR', sopClassUID: MR_IMAGE_STORAGE,
+    studyUID, frameOfReferenceUID: DicomMetaDictionary.uid(),
+    seriesNumber: 2, filePrefix: 'mr-', seriesDescription: 'MR (FoR B)',
+    patientId: 'CROSS-FOR', patientName: 'PHANTOM^CROSSFOR',
+    voxel: (x, y, z) => (Math.sqrt(x * x + y * y + z * z) <= 30 ? 600 : 0),
+  });
+  return { count: ct.count + mr.count, rows: ct.rows, cols: ct.cols };
+}
+
 const GENERATORS = {
   'ct-axial-300': generateCtAxial300,
   'ct-axial-anatomy': generateCtAxialAnatomy,
   'rtstruct-typed': generateRtstructTyped,
   'seg-multilabel': generateSegMultilabel,
+  'mr-t1-t2-sameexam': generateMrT1T2SameExam,
+  'breath-hold-pair': generateBreathHoldPair,
+  'cross-for-ct-mr': generateCrossForCtMr,
 };
 
 function main() {

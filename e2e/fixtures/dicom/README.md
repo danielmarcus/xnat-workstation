@@ -20,9 +20,11 @@ node e2e/fixtures/dicom/generate.cjs ct-axial-300 # one dataset
 | `ct-axial-anatomy` | Intensity-varied CT — air/-1000, soft-tissue/+40, lesion/+70, bone/+1000, sharp boundaries (for region-grow / paint-fill / threshold tolerance). | ✅ built |
 | `rtstruct-typed`   | Source CT (sphere) + a hand-built RTSTRUCT referencing it (shared UIDs), 4 ROIs covering distinct RTROIInterpretedType (EXTERNAL/GTV/ORGAN/MARKER). Verified to load via the app (`e2e/specs/11-fixture-rtstruct`). | ✅ built |
 | `seg-multilabel`   | Source CT (sphere) + a hand-built multi-segment BINARY DICOM SEG (5 segments on distinct slices, continuous LSB-first bitstream). Verified to load via the app (`e2e/specs/12-fixture-seg`). | ✅ built |
+| `mr-t1-t2-sameexam` | Two MR series (T1 + T2), SAME study + Frame of Reference, distinct series. | ✅ built |
+| `breath-hold-pair` | Two CT series, SAME Frame of Reference, anatomy displaced (sphere shifted). | ✅ built |
+| `cross-for-ct-mr`  | CT + MR, same study, DIFFERENT Frame of Reference (unregistered, no SRO). | ✅ built |
 
-Planned for later Phase-0 passes (per the design's fixture matrix):
-`mr-t1-t2-sameexam`, `4dct-phases`, `breath-hold-pair`, `cross-for-ct-mr`, `cine-us`.
+Planned for later Phase-0 passes (per the design's fixture matrix): `4dct-phases`, `cine-us`.
 
 Note: SEG/RTSTRUCT are **hand-built** in `generate.cjs` (not exported via the app),
 because the app's adapter-based export reads source study metadata that is only
