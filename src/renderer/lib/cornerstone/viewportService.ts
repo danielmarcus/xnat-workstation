@@ -376,6 +376,125 @@ export const viewportService = {
   },
 
   /**
+   * Read a plain snapshot of the current viewport display state — image index /
+   * total, zoom %, window/level, image dimensions, current imageId. Works for
+   * BOTH stack and volume (ORTHOGRAPHIC) viewports via feature detection.
+   * Returns plain data (no Cornerstone objects) so the caller (useViewport) can
+   * push it to the Zustand stores without touching Cornerstone directly.
+   * All reads are soft (best-effort) — returns nulls for anything unavailable.
+   */
+  readViewportState(viewportId: string): {
+    imageIndex: number;
+    total: number;
+    zoom: number;
+    ww: number | null;
+    wc: number | null;
+    width: number | null;
+    height: number | null;
+    currentImageId: string | null;
+  } | null {
+    const engine = getEngine();
+    if (!engine) return null;
+    let vp: any;
+    try {
+      vp = engine.getViewport(viewportId);
+    } catch {
+      return null;
+    }
+    if (!vp) return null;
+
+    let imageIndex = 0;
+    let total = 0;
+    let currentImageId: string | null = null;
+    try {
+      if (typeof vp.getCurrentImageIdIndex === 'function' && typeof vp.getImageIds === 'function') {
+        // Stack viewport
+        imageIndex = vp.getCurrentImageIdIndex() ?? 0;
+        total = vp.getImageIds().length ?? 0;
+        currentImageId = vp.getCurrentImageId?.() ?? null;
+      } else if (typeof vp.getSliceIndex === 'function') {
+        // Volume (ORTHOGRAPHIC/MPR) viewport
+        imageIndex = vp.getSliceIndex() ?? 0;
+        total = vp.getNumberOfSlices?.() ?? 0;
+        currentImageId = vp.getCurrentImageId?.() ?? null;
+      }
+    } catch {
+      /* soft */
+    }
+
+    let ww: number | null = null;
+    let wc: number | null = null;
+    try {
+      const props = vp.getProperties?.();
+      if (props?.voiRange) {
+        ww = props.voiRange.upper - props.voiRange.lower;
+        wc = props.voiRange.lower + ww / 2;
+      }
+    } catch {
+      /* soft */
+    }
+
+    let zoom = 100;
+    try {
+      if (typeof vp.getZoom === 'function') zoom = Math.round(vp.getZoom() * 100);
+    } catch {
+      /* soft */
+    }
+
+    let width: number | null = null;
+    let height: number | null = null;
+    try {
+      const imageData = vp.getImageData?.();
+      if (imageData?.dimensions) {
+        width = imageData.dimensions[0] ?? null;
+        height = imageData.dimensions[1] ?? null;
+      }
+    } catch {
+      /* soft */
+    }
+
+    return { imageIndex, total, zoom, ww, wc, width, height, currentImageId };
+  },
+
+  /**
+   * Subscribe to the Cornerstone display events that change viewport readouts and
+   * invoke `onChange(kind)` so the caller can re-read state + push to the stores.
+   * `kind` lets the caller skip expensive work (metadata refetch) on frequent
+   * camera events. Returns a dispose fn that removes the listeners.
+   * (Events absent in a given build — e.g. VOLUME_NEW_IMAGE in a test mock — are
+   * filtered out, so this is safe everywhere.)
+   */
+  subscribeViewportEvents(
+    viewportId: string,
+    element: HTMLElement,
+    onChange: (kind: 'voi' | 'image' | 'camera') => void,
+  ): () => void {
+    const Events = Enums.Events;
+    const bindings: Array<{ type: string; kind: 'voi' | 'image' | 'camera' }> = [
+      { type: Events.VOI_MODIFIED, kind: 'voi' as const },
+      { type: Events.STACK_NEW_IMAGE, kind: 'image' as const },
+      { type: (Events as Record<string, string>).VOLUME_NEW_IMAGE, kind: 'image' as const },
+      { type: Events.CAMERA_MODIFIED, kind: 'camera' as const },
+    ].filter((b) => typeof b.type === 'string');
+
+    const listeners = bindings.map((b) => {
+      const handler = (() => {
+        try {
+          onChange(b.kind);
+        } catch (err) {
+          console.warn('[viewportService] state-sync handler error:', viewportId, err);
+        }
+      }) as EventListener;
+      element.addEventListener(b.type, handler);
+      return { type: b.type, handler };
+    });
+
+    return () => {
+      for (const l of listeners) element.removeEventListener(l.type, l.handler);
+    };
+  },
+
+  /**
    * Zoom by a relative factor (e.g., 1.2 to zoom in 20%, 0.8 to zoom out 20%).
    */
   zoomBy(viewportId: string, factor: number): void {
