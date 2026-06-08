@@ -158,10 +158,13 @@ function createWindow(): void {
     height: 900,
     minWidth: 800,
     minHeight: 600,
-    // E2E: create hidden, then showInactive() to avoid stealing focus.
-    // Cornerstone3D needs a visible window with real dimensions for WebGL,
-    // so we can't leave it hidden — but showInactive() avoids activation.
+    // E2E: create hidden, then show it OFF-SCREEN without stealing focus.
+    // Cornerstone3D needs a *shown* window with real dimensions for WebGL, so we
+    // can't leave it hidden — but positioning it far off-screen + showInactive()
+    // lets it render without ever appearing on screen or activating the app, so
+    // test runs don't interrupt other work.
     show: !isE2E,
+    ...(isE2E ? { x: -5000, y: -5000 } : {}),
     title: 'XNAT Workstation',
     icon: appIcon.isEmpty() ? undefined : appIcon,
     backgroundColor: '#09090b',
@@ -181,11 +184,13 @@ function createWindow(): void {
     mainWindow.loadFile(path.join(__dirname, '..', '..', 'renderer', 'index.html'));
   }
 
-  // E2E: show the window without stealing focus once the page is ready.
-  // showInactive() makes the window visible (so WebGL/canvas work) but
-  // does not activate the app or bring it to front.
+  // E2E: render the window OFF-SCREEN without stealing focus once the page is
+  // ready. showInactive() makes it renderable (so WebGL/canvas work) but does
+  // not activate the app; the off-screen position keeps it out of sight so test
+  // runs don't interrupt the user.
   if (isE2E) {
     mainWindow.once('ready-to-show', () => {
+      mainWindow?.setPosition(-5000, -5000);
       mainWindow?.showInactive();
     });
   }
