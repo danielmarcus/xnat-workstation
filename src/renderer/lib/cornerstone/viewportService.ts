@@ -13,11 +13,31 @@ import {
   Enums,
   type Types,
 } from '@cornerstonejs/core';
+import type { MPRPlane } from '@shared/types/viewer';
+import { volumeService } from './volumeService';
+import { chooseViewportType, type ViewportType, type ViewportTypeInput } from './viewportType';
 
 const ENGINE_ID = 'xnatRenderingEngine';
 
+/**
+ * Map an MPR plane → Cornerstone OrientationAxis. Read lazily (at call time, not
+ * module load) so the module imports cleanly even where Enums.OrientationAxis is
+ * absent (e.g. the unit-test core mock); only the volume path ever calls it.
+ */
+function planeOrientation(plane: MPRPlane): Enums.OrientationAxis {
+  const { OrientationAxis } = Enums;
+  const map: Record<MPRPlane, Enums.OrientationAxis> = {
+    AXIAL: OrientationAxis.AXIAL,
+    SAGITTAL: OrientationAxis.SAGITTAL,
+    CORONAL: OrientationAxis.CORONAL,
+  };
+  return map[plane];
+}
+
 /** Track which elements are associated with which viewport IDs */
 const elements = new Map<string, HTMLDivElement>();
+/** Track the shared volumeId each unified volume viewport holds (for release). */
+const viewportVolumes = new Map<string, string>();
 
 function getEngine(): RenderingEngine | null {
   return (getRenderingEngine(ENGINE_ID) as RenderingEngine | null) ?? null;
@@ -65,6 +85,92 @@ export const viewportService = {
     engine.enableElement(viewportInput);
 
     console.log('[viewportService] Viewport created:', viewportId);
+  },
+
+  /**
+   * Unified viewport creation (Phase 1). Chooses STACK vs volume ORTHOGRAPHIC
+   * from the data (chooseViewportType); for volumes it acquires a SHARED,
+   * ref-counted ImageVolume keyed by (scanId, FoR) so panels of the same scan
+   * reuse one volume (design §1.1, §1.5). Returns the chosen type + the volumeId
+   * (null for stack). Pair with destroyUnifiedViewport() to release the volume.
+   */
+  async createUnifiedViewport(
+    viewportId: string,
+    element: HTMLDivElement,
+    opts: {
+      scanId: string;
+      frameOfReferenceUID: string;
+      imageIds: string[];
+      meta?: ViewportTypeInput;
+      orientation?: MPRPlane;
+    },
+  ): Promise<{ type: ViewportType; volumeId: string | null }> {
+    const engine = ensureEngine();
+    if (elements.has(viewportId)) {
+      try { engine.disableElement(viewportId); } catch { /* ok */ }
+    }
+    // Release any prior shared volume this panel held before recreating.
+    const prevVolume = viewportVolumes.get(viewportId);
+    if (prevVolume) {
+      volumeService.release(prevVolume);
+      viewportVolumes.delete(viewportId);
+    }
+    elements.set(viewportId, element);
+
+    const meta = opts.meta ?? { imageCount: opts.imageIds.length };
+    const type = chooseViewportType(meta);
+
+    if (type === 'stack') {
+      engine.enableElement({ viewportId, type: Enums.ViewportType.STACK, element });
+      const vp = engine.getViewport(viewportId) as Types.IStackViewport;
+      await vp.setStack(opts.imageIds);
+      vp.render();
+      console.log('[viewportService] Unified viewport (stack):', viewportId);
+      return { type, volumeId: null };
+    }
+
+    // Volume path — shared + ref-counted by (scanId, FoR).
+    engine.enableElement({
+      viewportId,
+      type: Enums.ViewportType.ORTHOGRAPHIC,
+      element,
+      defaultOptions: { orientation: planeOrientation(opts.orientation ?? 'AXIAL') },
+    });
+    const { volumeId, created } = await volumeService.acquire(
+      opts.scanId,
+      opts.frameOfReferenceUID,
+      opts.imageIds,
+    );
+    viewportVolumes.set(viewportId, volumeId);
+    const vp = engine.getViewport(viewportId) as Types.IVolumeViewport;
+    await vp.setVolumes([{ volumeId }]);
+    vp.render();
+    if (created) {
+      // Progressive background load — soft-fail (never throw on the render path).
+      volumeService
+        .load(volumeId)
+        .catch((err) => console.warn('[viewportService] Volume load failed:', volumeId, err));
+    }
+    console.log('[viewportService] Unified viewport (volume):', viewportId, volumeId);
+    return { type, volumeId };
+  },
+
+  /**
+   * Destroy a unified viewport and release its shared-volume hold (if any), so
+   * the volume is freed when the last viewport using it closes.
+   */
+  destroyUnifiedViewport(viewportId: string): void {
+    const engine = getEngine();
+    if (engine) {
+      try { engine.disableElement(viewportId); } catch { /* ok */ }
+    }
+    elements.delete(viewportId);
+    const volumeId = viewportVolumes.get(viewportId);
+    if (volumeId) {
+      volumeService.release(volumeId);
+      viewportVolumes.delete(viewportId);
+    }
+    console.log('[viewportService] Unified viewport destroyed:', viewportId);
   },
 
   /**

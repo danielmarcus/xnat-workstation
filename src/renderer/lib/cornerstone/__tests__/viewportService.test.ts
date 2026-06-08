@@ -143,4 +143,27 @@ describe('viewportService', () => {
     expect(() => viewportService.zoomBy('missing', 1.1)).not.toThrow();
     expect(() => viewportService.resize()).not.toThrow();
   });
+
+  it('createUnifiedViewport routes non-volumetric data to a STACK viewport', async () => {
+    const element = { dataset: {} } as unknown as HTMLDivElement;
+    const viewport = createFakeStackViewport({ setStack: vi.fn(async () => undefined), render: vi.fn() });
+    cs.setViewport('panel_0', viewport);
+
+    const res = await viewportService.createUnifiedViewport('panel_0', element, {
+      scanId: 's1',
+      frameOfReferenceUID: 'for1',
+      imageIds: ['img-a'],
+      meta: { modality: 'US', imageCount: 1 }, // non-volumetric → stack
+    });
+
+    expect(res.type).toBe('stack');
+    expect(res.volumeId).toBeNull();
+    const engine = cs.getOrCreateEngine('xnatRenderingEngine');
+    expect(engine.enableElement).toHaveBeenCalledWith(
+      expect.objectContaining({ viewportId: 'panel_0', type: 'STACK' }),
+    );
+    expect(viewport.setStack).toHaveBeenCalledWith(['img-a']);
+    // (The volume path renders a real ImageVolume — verified by the off-screen
+    // E2E in P1.4 rather than a heavy volume mock here.)
+  });
 });
