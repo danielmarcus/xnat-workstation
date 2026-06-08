@@ -11,9 +11,20 @@
  * annotationService.ts.
  */
 
+import type { MPRPlane } from '@shared/types/viewer';
+
 export interface ViewportLayout {
   rows: number;
   cols: number;
+}
+
+/** Layout presets for the unified viewport grid (Phase 1). */
+export type LayoutPreset = 'single' | 'mpr-2x2';
+
+export interface PanelSpec {
+  panelId: string;
+  /** Reformatted plane for the (volume) panel. */
+  orientation: MPRPlane;
 }
 
 const DEFAULT_LAYOUT: ViewportLayout = { rows: 1, cols: 1 };
@@ -50,6 +61,29 @@ export const viewportLayoutService = {
   /** Total number of panels implied by the current layout. */
   getPanelCount(): number {
     return layout.rows * layout.cols;
+  },
+
+  /**
+   * Panel specs for a layout preset — the unified grid renders one Viewport per
+   * spec, all sharing the scan's single volume (P1.1) with per-panel orientation.
+   * MPR-2×2: axial + sagittal + coronal + a fourth (axial) slot. (The design's
+   * 3D-volume-rendering slot is a later refinement.)
+   */
+  getPresetPanels(preset: LayoutPreset): PanelSpec[] {
+    if (preset === 'mpr-2x2') {
+      return [
+        { panelId: 'panel_0', orientation: 'AXIAL' },
+        { panelId: 'panel_1', orientation: 'SAGITTAL' },
+        { panelId: 'panel_2', orientation: 'CORONAL' },
+        { panelId: 'panel_3', orientation: 'AXIAL' },
+      ];
+    }
+    return [{ panelId: 'panel_0', orientation: 'AXIAL' }];
+  },
+
+  /** Grid dimensions (cols × rows) for a preset. */
+  presetGrid(preset: LayoutPreset): { cols: number; rows: number } {
+    return preset === 'mpr-2x2' ? { cols: 2, rows: 2 } : { cols: 1, rows: 1 };
   },
 
   /** Test/lifecycle helper. */

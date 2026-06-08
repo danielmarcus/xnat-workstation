@@ -43,4 +43,25 @@ describe('viewportLayoutService (skeleton)', () => {
     expect(viewportLayoutService.isInitialized()).toBe(false);
     expect(viewportLayoutService.getLayout()).toEqual({ rows: 1, cols: 1 });
   });
+
+  describe('layout presets (Phase 1)', () => {
+    it('single preset → one axial panel on a 1x1 grid', () => {
+      expect(viewportLayoutService.getPresetPanels('single')).toEqual([
+        { panelId: 'panel_0', orientation: 'AXIAL' },
+      ]);
+      expect(viewportLayoutService.presetGrid('single')).toEqual({ cols: 1, rows: 1 });
+    });
+
+    it('mpr-2x2 preset → four panels (axial/sagittal/coronal/axial) on a 2x2 grid', () => {
+      const panels = viewportLayoutService.getPresetPanels('mpr-2x2');
+      expect(panels.map((p) => p.panelId)).toEqual(['panel_0', 'panel_1', 'panel_2', 'panel_3']);
+      expect(panels.map((p) => p.orientation)).toEqual(['AXIAL', 'SAGITTAL', 'CORONAL', 'AXIAL']);
+      expect(viewportLayoutService.presetGrid('mpr-2x2')).toEqual({ cols: 2, rows: 2 });
+    });
+
+    it('mpr-2x2 panel count matches its grid area', () => {
+      const grid = viewportLayoutService.presetGrid('mpr-2x2');
+      expect(viewportLayoutService.getPresetPanels('mpr-2x2')).toHaveLength(grid.cols * grid.rows);
+    });
+  });
 });

@@ -10,6 +10,8 @@ import { useViewerStore } from '../../stores/viewerStore';
 import { useConnectionStore } from '../../stores/connectionStore';
 import { useAnnotationStore } from '../../stores/annotationStore';
 import { usePreferencesStore } from '../../stores/preferencesStore';
+import { useUnifiedLayoutStore, type LayoutPreset } from '../../stores/unifiedLayoutStore';
+import { volumeService } from '../cornerstone/volumeService';
 import { segmentationManager } from '../segmentation/segmentationManagerSingleton';
 import { segmentationService } from '../cornerstone/segmentationService';
 import * as contourRep from '../cornerstone/contourRepresentation';
@@ -61,6 +63,10 @@ declare global {
       setMultiviewportEnabled: (enabled: boolean) => void;
       /** Cornerstone viewport type for a panel ('stack' | 'orthographic' | …) or null. */
       getViewportType: (panelId: string) => string | null;
+      /** Set the unified-grid layout preset. */
+      setLayoutPreset: (preset: LayoutPreset) => void;
+      /** Ref-count of the shared volume for a (scanId, FoR) pair (0 if none). */
+      getSharedVolumeRefCount: (scanId: string, frameOfReferenceUID: string) => number;
     };
   }
 }
@@ -431,5 +437,10 @@ export function installRendererE2eHooks(): void {
       const ee = getEnabledElementByViewportId(panelId) as { viewport?: { type?: string } } | undefined;
       return ee?.viewport?.type ?? null;
     },
+    setLayoutPreset: (preset: LayoutPreset) => {
+      useUnifiedLayoutStore.getState().setPreset(preset);
+    },
+    getSharedVolumeRefCount: (scanId: string, frameOfReferenceUID: string) =>
+      volumeService.getRefCount(volumeService.sharedVolumeId(scanId, frameOfReferenceUID)),
   };
 }
