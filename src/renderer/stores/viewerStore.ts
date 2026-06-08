@@ -27,6 +27,7 @@ import type { XnatScan, XnatUploadContext } from '@shared/types/xnat';
 import { viewportService } from '../lib/cornerstone/viewportService';
 // eslint-disable-next-line no-restricted-imports -- unified path tool routing (annotation rebuild P1.8)
 import { unifiedToolService } from '../lib/cornerstone/unifiedToolService';
+import { useUnifiedLayoutStore } from './unifiedLayoutStore';
 
 /** Module-scope cine interval IDs keyed by panelId (not serializable, kept outside store) */
 const cineIntervals = new Map<string, ReturnType<typeof setInterval>>();
@@ -256,6 +257,12 @@ export const useViewerStore = create<ViewerStore>((set, get) => ({
   // ─── Layout Actions ────────────────────────────────────────────
 
   setLayout: (layout) => {
+    // Mirror the layout to the unified grid (the only viewport path). P1.5's
+    // unified layout store supports single + mpr-2x2; map the dropdown preset
+    // onto it so selecting a layout actually changes the grid. Grids the unified
+    // path doesn't model yet (3x3, custom) fall back to single — a known P1.5
+    // layout-scope limit, tracked separately, not a silent no-op.
+    useUnifiedLayoutStore.getState().setPreset(layout === '2x2' ? 'mpr-2x2' : 'single');
     const config = { ...LAYOUT_CONFIGS[layout] };
     const state = get();
 
@@ -348,6 +355,9 @@ export const useViewerStore = create<ViewerStore>((set, get) => ({
   setCustomLayout: (rows, cols) => {
     const safeRows = Math.max(1, Math.min(8, Math.floor(rows) || 1));
     const safeCols = Math.max(1, Math.min(8, Math.floor(cols) || 1));
+    // Mirror to the unified grid (see setLayout). A 2x2 custom grid maps to the
+    // mpr-2x2 preset; anything else the unified path can't model yet → single.
+    useUnifiedLayoutStore.getState().setPreset(safeRows === 2 && safeCols === 2 ? 'mpr-2x2' : 'single');
     const config: PanelConfig = {
       rows: safeRows,
       cols: safeCols,
