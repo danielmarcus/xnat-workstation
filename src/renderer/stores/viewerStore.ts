@@ -33,6 +33,9 @@ import { toolService } from '../lib/cornerstone/toolService';
 import { volumeService, generateVolumeId } from '../lib/cornerstone/volumeService';
 // eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
 import { mprToolService } from '../lib/cornerstone/mprToolService';
+// eslint-disable-next-line no-restricted-imports -- unified path tool routing (annotation rebuild P1.8)
+import { unifiedToolService } from '../lib/cornerstone/unifiedToolService';
+import { isMultiviewportEnabled } from './preferencesStore';
 
 /** Module-scope cine interval IDs keyed by panelId (not serializable, kept outside store) */
 const cineIntervals = new Map<string, ReturnType<typeof setInterval>>();
@@ -489,7 +492,12 @@ export const useViewerStore = create<ViewerStore>((set, get) => ({
   // ─── Tool / Viewport Actions ──────────────────────────────────
 
   setActiveTool: (tool) => {
-    toolService.setActiveTool(tool);
+    // Route to the unified tool group on the new path; old toolService otherwise.
+    if (isMultiviewportEnabled()) {
+      unifiedToolService.setActiveTool(tool);
+    } else {
+      toolService.setActiveTool(tool);
+    }
     set({ activeTool: tool });
   },
 
