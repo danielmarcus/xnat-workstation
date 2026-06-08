@@ -25,11 +25,8 @@ import type { HangingProtocol } from '@shared/types/hangingProtocol';
 import type { XnatScan, XnatUploadContext } from '@shared/types/xnat';
 // eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
 import { viewportService } from '../lib/cornerstone/viewportService';
-// eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
-import { toolService } from '../lib/cornerstone/toolService';
 // eslint-disable-next-line no-restricted-imports -- unified path tool routing (annotation rebuild P1.8)
 import { unifiedToolService } from '../lib/cornerstone/unifiedToolService';
-import { isMultiviewportEnabled } from './preferencesStore';
 
 /** Module-scope cine interval IDs keyed by panelId (not serializable, kept outside store) */
 const cineIntervals = new Map<string, ReturnType<typeof setInterval>>();
@@ -461,12 +458,12 @@ export const useViewerStore = create<ViewerStore>((set, get) => ({
   // ─── Tool / Viewport Actions ──────────────────────────────────
 
   setActiveTool: (tool) => {
-    // Route to the unified tool group on the new path; old toolService otherwise.
-    if (isMultiviewportEnabled()) {
-      unifiedToolService.setActiveTool(tool);
-    } else {
-      toolService.setActiveTool(tool);
-    }
+    // The unified viewport is now the ONLY path (the legacy stack/MPR viewport
+    // stack was deleted in P1.8d), so tool changes always go to the unified tool
+    // group. Routing this on the multiviewport flag was a P1.8a leftover: when
+    // the persisted flag read false, tool changes went to the dead toolService
+    // (no viewport attached) and the viewer got stuck on Window/Level.
+    unifiedToolService.setActiveTool(tool);
     set({ activeTool: tool });
   },
 
