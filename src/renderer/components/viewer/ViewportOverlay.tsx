@@ -49,6 +49,7 @@ export default function ViewportOverlay({ panelId }: ViewportOverlayProps): Reac
   const crosshairPoint = useViewerStore((s) => s.crosshairWorldPoint);
   const crosshairSourcePanelId = useViewerStore((s) => s.crosshairSourcePanelId);
   const setPanelOrientation = useViewerStore((s) => s.setPanelOrientation);
+  const setActiveViewport = useViewerStore((s) => s.setActiveViewport);
 
   const imageIndex = vp?.imageIndex ?? 0;
   const totalImages = vp?.totalImages ?? 0;
@@ -130,6 +131,12 @@ export default function ViewportOverlay({ panelId }: ViewportOverlayProps): Reac
           onChange={(e) => {
             e.stopPropagation();
             setPanelOrientation(panelId, e.target.value as MPRPlane);
+            // Return focus to the viewport so the wheel / arrow keys navigate the
+            // image instead of cycling the still-focused dropdown.
+            const panel = e.currentTarget.closest('[data-panel-id]') as HTMLElement | null;
+            e.currentTarget.blur();
+            panel?.focus();
+            setActiveViewport(panelId);
           }}
           title="Viewport orientation"
           className="pointer-events-auto bg-zinc-900/85 border border-zinc-700 text-white text-[10px] rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-sky-500 disabled:opacity-40"

@@ -85,4 +85,24 @@ describe('ViewportOverlay (preference-driven)', () => {
     fireEvent.change(select, { target: { value: 'SAGITTAL' } });
     expect(useViewerStore.getState().panelOrientationMap['panel_0']).toBe('SAGITTAL');
   });
+
+  it('moves focus from the dropdown back to the viewport after a selection', () => {
+    useViewerStore.getState().setPanelNativeOrientation('panel_0', 'AXIAL');
+    setCorners({ topLeft: ['orientationSelector'] });
+    // Render inside a focusable panel container, mirroring the real Viewport shell.
+    render(
+      <div data-panel-id="panel_0" tabIndex={-1}>
+        <ViewportOverlay panelId="panel_0" />
+      </div>,
+    );
+    const select = screen.getByTestId('orientation-select:panel_0') as HTMLSelectElement;
+    select.focus();
+    expect(document.activeElement).toBe(select);
+    fireEvent.change(select, { target: { value: 'CORONAL' } });
+    // Focus leaves the dropdown and lands on the viewport panel (so the wheel/keys
+    // navigate the image, not the select).
+    expect(document.activeElement).not.toBe(select);
+    expect(document.activeElement).toBe(document.querySelector('[data-panel-id="panel_0"]'));
+    expect(useViewerStore.getState().activeViewportId).toBe('panel_0');
+  });
 });

@@ -57,6 +57,9 @@ export default function Viewport({
       data-testid={`unified-viewport:${panelId}`}
       data-panel-id={panelId}
       data-active={isActive ? 'true' : 'false'}
+      // Focusable programmatically (not in the tab order) so controls like the
+      // orientation dropdown can hand focus back to the viewport after a change.
+      tabIndex={-1}
       // Select this panel as active on interaction-start. Doesn't preventDefault,
       // so the Cornerstone tool on the canvas still receives the same pointerdown.
       // Restores the click-to-select wiring the deleted CornerstoneViewport had.
