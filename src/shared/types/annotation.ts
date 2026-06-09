@@ -79,6 +79,13 @@ export interface SourceIdentity {
   frameOfReferenceUID?: string;
   /** SeriesInstanceUID (0020,000E) of the referenced source series. */
   referencedSeriesInstanceUID?: string;
+  /**
+   * All SeriesInstanceUIDs this container references (RTSTRUCT
+   * ReferencedSeriesSequence / SEG ReferencedSeriesSequence). A viewport showing
+   * any of these series is "native" for FoR-eligibility (A2a). Superset of
+   * `referencedSeriesInstanceUID`; empty when lineage is unknown.
+   */
+  referencedSeriesInstanceUIDs?: string[];
 }
 
 /**
