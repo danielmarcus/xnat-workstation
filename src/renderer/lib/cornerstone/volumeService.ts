@@ -20,9 +20,22 @@ import {
   cache,
   Enums,
   eventTarget,
+  utilities as csCoreUtilities,
 } from '@cornerstonejs/core';
 
 const VOLUME_SCHEME = 'cornerstoneStreamingImageVolume';
+/** Scheme that routes to the 4D (dynamic) streaming volume loader. */
+const DYNAMIC_VOLUME_SCHEME = 'cornerstoneStreamingDynamicImageVolume';
+
+/**
+ * The volume-loader scheme for a series: the DYNAMIC scheme for a 4D / multi-volume
+ * (functional) series — so Cornerstone builds a StreamingDynamicImageVolume with
+ * correct per-time-point geometry — else the static scheme. `isDynamic` comes from
+ * getDynamicVolumeInfo(imageIds). Pure + exported for unit testing.
+ */
+export function volumeSchemeFor(isDynamic: boolean): string {
+  return isDynamic ? DYNAMIC_VOLUME_SCHEME : VOLUME_SCHEME;
+}
 let lastVolumeTs = 0;
 let volumeSeq = 0;
 
@@ -50,12 +63,17 @@ const volumeRefs = new Map<string, { load: () => void | Promise<void>; imageIds:
  * `ImageVolume` (design §1.5). A volume stays cached while ≥1 viewport holds it
  * and is destroyed when the last viewport releases it.
  */
-const VOLUME_SHARED_PREFIX = `${VOLUME_SCHEME}:shared`;
 const sharedVolumes = new Map<string, { refCount: number; imageIds: string[] }>();
 
-/** Deterministic volume id for a (scanId, FrameOfReferenceUID) pair. */
-function makeSharedVolumeId(scanId: string, frameOfReferenceUID: string): string {
-  return `${VOLUME_SHARED_PREFIX}:${scanId}:${frameOfReferenceUID}`;
+/**
+ * Deterministic volume id for a (scanId, FrameOfReferenceUID) pair. The scheme
+ * prefix selects the loader — dynamic (4D) vs static — so a 4D series gets the
+ * dynamic loader. `acquire` is the only place that builds the id (it has the
+ * imageIds to detect 4D); `release` takes the returned id, so the scheme stays
+ * consistent without recomputation.
+ */
+function makeSharedVolumeId(scanId: string, frameOfReferenceUID: string, isDynamic = false): string {
+  return `${volumeSchemeFor(isDynamic)}:shared:${scanId}:${frameOfReferenceUID}`;
 }
 
 export const volumeService = {
@@ -182,11 +200,23 @@ export const volumeService = {
     frameOfReferenceUID: string,
     imageIds: string[],
   ): Promise<{ volumeId: string; created: boolean; refCount: number }> {
-    const volumeId = makeSharedVolumeId(scanId, frameOfReferenceUID);
+    // Detect 4D / multi-volume (functional) series and route to the dynamic loader
+    // so each time point keeps its own geometry (otherwise off-axis reformat is
+    // corrupt). Detection is by repeated ImagePositionPatient across the series.
+    let isDynamic = false;
+    try {
+      isDynamic = csCoreUtilities.getDynamicVolumeInfo(imageIds).isDynamicVolume === true;
+    } catch {
+      isDynamic = false;
+    }
+    const volumeId = makeSharedVolumeId(scanId, frameOfReferenceUID, isDynamic);
     const existing = sharedVolumes.get(volumeId);
     if (existing) {
       existing.refCount += 1;
       return { volumeId, created: false, refCount: existing.refCount };
+    }
+    if (isDynamic) {
+      console.log('[volumeService] 4D / multi-volume series → dynamic volume:', volumeId, `(${imageIds.length} images)`);
     }
     const volume = await volumeLoader.createAndCacheVolume(volumeId, { imageIds });
     volumeRefs.set(volumeId, { load: () => volume.load(), imageIds });

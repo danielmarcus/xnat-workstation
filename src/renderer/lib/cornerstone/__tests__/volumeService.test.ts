@@ -38,6 +38,7 @@ const volumeMocks = vi.hoisted(() => {
     eventTarget,
     createAndCacheVolume: vi.fn(),
     removeVolumeLoadObject: vi.fn(),
+    getDynamicVolumeInfo: vi.fn(() => ({ isDynamicVolume: false, timePoints: [], splittingTag: '' })),
   };
 });
 
@@ -55,9 +56,10 @@ vi.mock('@cornerstonejs/core', () => ({
       IMAGE_LOADED: 'IMAGE_LOADED',
     },
   },
+  utilities: { getDynamicVolumeInfo: volumeMocks.getDynamicVolumeInfo },
 }));
 
-import { generateVolumeId, volumeService } from '../volumeService';
+import { generateVolumeId, volumeSchemeFor, volumeService } from '../volumeService';
 
 describe('volumeService', () => {
   beforeEach(() => {
@@ -133,6 +135,7 @@ describe('volumeService — shared (scanId, FoR) volumes + ref-counting (Phase 1
     vi.clearAllMocks();
     volumeMocks.eventTarget.clear();
     volumeMocks.createAndCacheVolume.mockResolvedValue({ load: vi.fn() });
+    volumeMocks.getDynamicVolumeInfo.mockReturnValue({ isDynamicVolume: false, timePoints: [], splittingTag: '' });
   });
 
   it('reuses one volume for the same (scanId, FoR) and increments the refcount', async () => {
@@ -173,5 +176,47 @@ describe('volumeService — shared (scanId, FoR) volumes + ref-counting (Phase 1
   it('releasing an unknown / over-released volume is a no-op', () => {
     expect(volumeService.release(volumeService.sharedVolumeId('nope', 'nope'))).toBe(0);
     expect(volumeMocks.removeVolumeLoadObject).not.toHaveBeenCalled();
+  });
+});
+
+describe('volumeService — 4D / multi-volume routing (C6)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    volumeMocks.eventTarget.clear();
+    volumeMocks.createAndCacheVolume.mockResolvedValue({ load: vi.fn() });
+    volumeMocks.getDynamicVolumeInfo.mockReturnValue({ isDynamicVolume: false, timePoints: [], splittingTag: '' });
+  });
+
+  it('volumeSchemeFor maps 4D → dynamic loader scheme, 3D → static', () => {
+    expect(volumeSchemeFor(true)).toBe('cornerstoneStreamingDynamicImageVolume');
+    expect(volumeSchemeFor(false)).toBe('cornerstoneStreamingImageVolume');
+  });
+
+  it('acquire routes a 4D series to the DYNAMIC volume loader', async () => {
+    volumeMocks.getDynamicVolumeInfo.mockReturnValue({
+      isDynamicVolume: true,
+      timePoints: [['a'], ['b']],
+      splittingTag: 'TriggerTime',
+    });
+    const { volumeId } = await volumeService.acquire('scan4d', 'FoR-1', ['a0', 'a1', 'b0', 'b1']);
+    expect(volumeId.startsWith('cornerstoneStreamingDynamicImageVolume:')).toBe(true);
+    expect(volumeMocks.createAndCacheVolume).toHaveBeenCalledWith(volumeId, { imageIds: ['a0', 'a1', 'b0', 'b1'] });
+    volumeService.release(volumeId);
+  });
+
+  it('acquire routes a normal 3D series to the STATIC volume loader', async () => {
+    const { volumeId } = await volumeService.acquire('scan3d', 'FoR-2', ['a0', 'a1', 'a2']);
+    expect(volumeId.startsWith('cornerstoneStreamingImageVolume:')).toBe(true);
+    expect(volumeId.startsWith('cornerstoneStreamingDynamicImageVolume:')).toBe(false);
+    volumeService.release(volumeId);
+  });
+
+  it('acquire falls back to static if 4D detection throws (never blocks the load)', async () => {
+    volumeMocks.getDynamicVolumeInfo.mockImplementation(() => {
+      throw new Error('metadata not ready');
+    });
+    const { volumeId } = await volumeService.acquire('scanX', 'FoR-3', ['a0']);
+    expect(volumeId.startsWith('cornerstoneStreamingImageVolume:')).toBe(true);
+    volumeService.release(volumeId);
   });
 });
