@@ -50,4 +50,11 @@ test('viewport overlay shows live slice counter + W/L + zoom on load (flag on)',
       { timeout: 20_000 },
     )
     .toContain('CT AXIAL 300');
+
+  // Orientation edge-markers (default prefs: on). Axial ⇒ A (top) / P (bottom) /
+  // R (left) / L (right) — the standard radiological convention.
+  await expect(page.locator('[data-testid="orientation-marker-top:panel_0"]')).toHaveText('A');
+  await expect(page.locator('[data-testid="orientation-marker-bottom:panel_0"]')).toHaveText('P');
+  await expect(page.locator('[data-testid="orientation-marker-left:panel_0"]')).toHaveText('R');
+  await expect(page.locator('[data-testid="orientation-marker-right:panel_0"]')).toHaveText('L');
 });

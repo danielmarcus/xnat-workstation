@@ -26,6 +26,18 @@ interface ViewportOverlayProps {
   panelId: string;
 }
 
+/**
+ * Standard radiological edge-markers per reformat plane (patient supine). top/bottom
+ * are the vertical edges, left/right the horizontal. A=anterior P=posterior R=right
+ * L=left S=superior I=inferior. (Non-standard patient positioning + mammography
+ * refinements from PatientOrientation are a Phase-2 enhancement.)
+ */
+const ORIENTATION_LABELS: Record<MPRPlane, { top: string; bottom: string; left: string; right: string }> = {
+  AXIAL: { top: 'A', bottom: 'P', left: 'R', right: 'L' },
+  SAGITTAL: { top: 'S', bottom: 'I', left: 'A', right: 'P' },
+  CORONAL: { top: 'S', bottom: 'I', left: 'R', right: 'L' },
+};
+
 function titleCase(s: string): string {
   return s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : s;
 }
@@ -54,10 +66,15 @@ export default function ViewportOverlay({ panelId }: ViewportOverlayProps): Reac
   const imageIndex = vp?.imageIndex ?? 0;
   const totalImages = vp?.totalImages ?? 0;
 
-  if (!overlayPrefs.showViewportContextOverlay || totalImages <= 0) return null;
+  const showContext = overlayPrefs.showViewportContextOverlay;
+  const showMarkers = overlayPrefs.showOrientationMarkers;
+  // The corner readouts and the edge-markers have independent toggles; render the
+  // overlay shell if either is on (and there's an image).
+  if (totalImages <= 0 || (!showContext && !showMarkers)) return null;
 
   const corners = overlayPrefs.corners ?? DEFAULT_OVERLAY_CORNERS;
   const displayOrientation = panelOrientation === 'STACK' ? nativeOrientation : panelOrientation;
+  const markers = ORIENTATION_LABELS[displayOrientation as MPRPlane] ?? ORIENTATION_LABELS.AXIAL;
   const crosshairText =
     crosshairPoint && (!crosshairSourcePanelId || crosshairSourcePanelId === panelId)
       ? `${crosshairPoint[0].toFixed(1)}, ${crosshairPoint[1].toFixed(1)}, ${crosshairPoint[2].toFixed(1)}`
@@ -170,18 +187,33 @@ export default function ViewportOverlay({ panelId }: ViewportOverlayProps): Reac
   };
 
   return (
-    <div
-      data-testid={`viewport-overlay:${panelId}`}
-      className="pointer-events-none absolute inset-0 p-2 flex flex-col justify-between font-mono text-xs text-white [text-shadow:_0_1px_3px_rgb(0_0_0_/_80%)]"
-    >
-      <div className="flex items-start justify-between gap-4">
-        {renderCorner('topLeft', 'left')}
-        {renderCorner('topRight', 'right')}
-      </div>
-      <div className="flex items-end justify-between gap-4">
-        {renderCorner('bottomLeft', 'left')}
-        {renderCorner('bottomRight', 'right')}
-      </div>
+    <div data-testid={`viewport-overlay:${panelId}`} className="pointer-events-none absolute inset-0">
+      {/* Corner readouts (the four preference-driven field stacks). */}
+      {showContext && (
+        <div className="absolute inset-0 p-2 flex flex-col justify-between font-mono text-xs text-white [text-shadow:_0_1px_3px_rgb(0_0_0_/_80%)]">
+          <div className="flex items-start justify-between gap-4">
+            {renderCorner('topLeft', 'left')}
+            {renderCorner('topRight', 'right')}
+          </div>
+          <div className="flex items-end justify-between gap-4">
+            {renderCorner('bottomLeft', 'left')}
+            {renderCorner('bottomRight', 'right')}
+          </div>
+        </div>
+      )}
+
+      {/* Patient-orientation edge-markers (A/P/R/L/S/I) for the current plane. */}
+      {showMarkers && (
+        <div
+          data-testid={`overlay-orientation-markers:${panelId}`}
+          className="absolute inset-0 text-[11px] font-bold text-zinc-200 [text-shadow:_0_1px_2px_rgb(0_0_0_/_85%)]"
+        >
+          <span data-testid={`orientation-marker-top:${panelId}`} className="absolute top-1.5 left-1/2 -translate-x-1/2">{markers.top}</span>
+          <span data-testid={`orientation-marker-bottom:${panelId}`} className="absolute bottom-1.5 left-1/2 -translate-x-1/2">{markers.bottom}</span>
+          <span data-testid={`orientation-marker-left:${panelId}`} className="absolute left-1.5 top-1/2 -translate-y-1/2">{markers.left}</span>
+          <span data-testid={`orientation-marker-right:${panelId}`} className="absolute right-1.5 top-1/2 -translate-y-1/2">{markers.right}</span>
+        </div>
+      )}
     </div>
   );
 }

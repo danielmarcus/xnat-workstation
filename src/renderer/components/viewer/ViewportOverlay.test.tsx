@@ -15,6 +15,10 @@ function setCorners(corners: Partial<Record<OverlayCornerId, OverlayFieldKey[]>>
       overlay: {
         ...s.preferences.overlay,
         showViewportContextOverlay: show,
+        // Isolate the corner tests from the marker / ruler layers (their own tests).
+        showOrientationMarkers: false,
+        showHorizontalRuler: false,
+        showVerticalRuler: false,
         corners: { topLeft: [], topRight: [], bottomLeft: [], bottomRight: [], ...corners },
       },
     },
@@ -84,6 +88,26 @@ describe('ViewportOverlay (preference-driven)', () => {
     // Choosing a new plane updates the per-panel orientation (which the viewport reads).
     fireEvent.change(select, { target: { value: 'SAGITTAL' } });
     expect(useViewerStore.getState().panelOrientationMap['panel_0']).toBe('SAGITTAL');
+  });
+
+  it('renders patient-orientation edge-markers for the current plane (independent of the context toggle)', () => {
+    // Context corners OFF, markers ON — markers still render. Use the non-default
+    // SAGITTAL plane to prove the markers track the plane (not a hardcoded axial).
+    usePreferencesStore.setState((s) => ({
+      preferences: {
+        ...s.preferences,
+        overlay: { ...s.preferences.overlay, showViewportContextOverlay: false, showOrientationMarkers: true },
+      },
+    }));
+    useViewerStore.getState().setPanelOrientation('panel_0', 'SAGITTAL');
+    render(<ViewportOverlay panelId="panel_0" />);
+    // Sagittal: top S, bottom I, left A, right P.
+    expect(screen.getByTestId('orientation-marker-top:panel_0')).toHaveTextContent('S');
+    expect(screen.getByTestId('orientation-marker-bottom:panel_0')).toHaveTextContent('I');
+    expect(screen.getByTestId('orientation-marker-left:panel_0')).toHaveTextContent('A');
+    expect(screen.getByTestId('orientation-marker-right:panel_0')).toHaveTextContent('P');
+    // The context corners are off ⇒ no field stacks rendered.
+    expect(screen.queryByTestId('overlay-field-imageIndex:panel_0')).toBeNull();
   });
 
   it('moves focus from the dropdown back to the viewport after a selection', () => {
