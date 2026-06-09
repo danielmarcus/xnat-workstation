@@ -20,9 +20,12 @@ import { useSegmentationStore } from '../stores/segmentationStore';
 import { useSegmentationManagerStore } from '../stores/segmentationManagerStore';
 import { useAnnotationStore } from '../stores/annotationStore';
 import { useAnnotationSelectionStore } from '../stores/annotationSelectionStore';
+import { useViewerStore } from '../stores/viewerStore';
 import { segmentationService } from '../lib/cornerstone/segmentationService';
+import { unifiedToolService } from '../lib/cornerstone/unifiedToolService';
 import { segmentationManager } from '../lib/segmentation/segmentationManagerSingleton';
 import { projectContainers } from '../lib/annotations/containerProjection';
+import { CATALOG_TO_TOOLNAME, TOOLNAME_TO_CATALOG } from '../components/annotations/toolCatalog';
 import type { ContainerListHandlers } from '../components/annotations/ContainerList';
 
 function rgbaToCss(color?: [number, number, number, number]): string | undefined {
@@ -40,9 +43,11 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
 
   const activeMember = useAnnotationSelectionStore((s) => s.activeMember);
   const selection = useAnnotationSelectionStore((s) => s.selection);
+  // The actually-active Cornerstone tool — the toolbox highlights its catalog id
+  // (honest: only tools that really activated show as active).
+  const activeTool = useViewerStore((s) => s.activeTool);
 
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
-  const [activeToolId, setActiveToolId] = useState<string | null>(null);
   // Create-in-edit-mode (D7.6): a freshly-created container/member starts in inline
   // rename; cleared once the row consumes it (onEditConsumed).
   const [autoEditContainerId, setAutoEditContainerId] = useState<string | null>(null);
@@ -181,10 +186,18 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
   };
 
   const onSelectTool = (toolId: string) => {
-    setActiveToolId(toolId);
-    // TODO (R3.8b): map catalog tool id → Cornerstone ToolName and route to unifiedToolService.
-    console.warn(`[annotationsPanel] tool "${toolId}" selected — Cornerstone routing TODO (R3.8b).`);
+    const toolName = CATALOG_TO_TOOLNAME[toolId];
+    if (toolName && unifiedToolService.isToolSupported(toolName)) {
+      useViewerStore.getState().setActiveTool(toolName); // routes to unifiedToolService + updates activeTool
+    } else {
+      // Mapped but not yet registered on the unified path (e.g. Eraser, scissors,
+      // splines) — registering the full tool set is a follow-on; the toolbox shows
+      // it but it can't activate yet.
+      console.warn(`[annotationsPanel] tool "${toolId}" is not yet registered on the unified path.`);
+    }
   };
+
+  const activeToolId = TOOLNAME_TO_CATALOG[activeTool] ?? null;
 
   return {
     containers,

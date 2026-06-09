@@ -200,6 +200,11 @@ export const unifiedToolService = {
     return activeToolName;
   },
 
+  /** Whether a tool is registered on the unified path (setActiveTool will activate it). */
+  isToolSupported(toolName: ToolName): boolean {
+    return UNIFIED_TOOL_MAP[toolName] !== undefined;
+  },
+
   /** Cornerstone mode of a tool in the unified group ('Active'/'Passive'/…), or null. */
   getToolMode(csToolName: string): string | null {
     const opts = getToolGroup()?.getToolOptions(csToolName) as { mode?: string } | undefined;

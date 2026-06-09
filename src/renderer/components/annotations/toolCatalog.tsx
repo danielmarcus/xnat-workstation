@@ -8,6 +8,7 @@
  */
 import type { ReactNode } from 'react';
 import type { ContainerKind } from '@shared/types/annotation';
+import { ToolName } from '@shared/types/viewer';
 
 export interface ToolDef {
   id: string;
@@ -75,3 +76,46 @@ export const KIND_TOOLS_LABEL: Record<ContainerKind, string> = {
   RTSTRUCT: 'Structure tools',
   SR: 'Measurement tools',
 };
+
+/**
+ * Catalog tool id → Cornerstone ToolName. Drives toolbox → tool activation. Not
+ * every mapping is registered on the unified path yet (unifiedToolService
+ * .isToolSupported gates that — currently Brush / FreehandContour / Length); the
+ * rest activate once they're registered. `planned` tools have no mapping.
+ */
+export const CATALOG_TO_TOOLNAME: Record<string, ToolName> = {
+  // Segmentation
+  brush: ToolName.Brush,
+  eraser: ToolName.Eraser,
+  threshold: ToolName.ThresholdBrush,
+  circleScissors: ToolName.CircleScissors,
+  rectangleScissors: ToolName.RectangleScissors,
+  sphereScissors: ToolName.SphereScissors,
+  paintFill: ToolName.PaintFill,
+  region: ToolName.RegionSegment,
+  regionPlus: ToolName.RegionSegmentPlus,
+  circleMulti: ToolName.CircleROIThreshold,
+  contourFill: ToolName.LabelmapEditWithContour,
+  select: ToolName.SegmentSelect,
+  segBidirectional: ToolName.SegmentBidirectional,
+  // Structure
+  freehand: ToolName.FreehandContour,
+  spline: ToolName.SplineContour,
+  livewire: ToolName.LivewireContour,
+  sculptor: ToolName.Sculptor,
+  // Measurement
+  length: ToolName.Length,
+  angle: ToolName.Angle,
+  bidirectional: ToolName.Bidirectional,
+  ellipse: ToolName.EllipticalROI,
+  rectROI: ToolName.RectangleROI,
+  circleROI: ToolName.CircleROI,
+  probe: ToolName.Probe,
+  arrow: ToolName.ArrowAnnotate,
+  freehandROI: ToolName.PlanarFreehandROI,
+};
+
+/** Reverse map: Cornerstone ToolName → catalog id (for toolbox active highlight). */
+export const TOOLNAME_TO_CATALOG: Partial<Record<ToolName, string>> = Object.fromEntries(
+  Object.entries(CATALOG_TO_TOOLNAME).map(([catalogId, toolName]) => [toolName, catalogId]),
+) as Partial<Record<ToolName, string>>;
