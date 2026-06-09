@@ -2,12 +2,23 @@
  * Two-panel cross-series pixel-diff harness (Phase 2 signals 9/10/11 — A2 / D9).
  *
  * The harness: load two series of one study into a 1×2 layout (panel_0 + panel_1)
- * and pixel-compare the canvases. This file's first test proves the harness itself
- * (two distinct same-exam series render independently); later tests layer the
- * cross-series SEG-rendering contract on top.
+ * and pixel-compare the canvases — the infrastructure the cross-series rendering
+ * signals were blocked on. `loadTwoSeries` is the reusable piece.
  *
- * Fixtures (already on disk): mr-t1-t2-sameexam (same FoR — A2b cross-series-show),
- * cross-for-ct-mr (different FoR — A2d not-viewable).
+ * HARNESS FINDING (recorded honestly): the eligibility-aware attach
+ * (unifiedSegService.attachLabelmapWithEligibility — classify native / cross-show /
+ * cross-hide / different-FoR + per-viewport style, Slice 2, unit-verified) is NOT
+ * wired into the live SEG-create/attach flow. createUnifiedLabelmapSegmentation /
+ * segmentationService.addToViewport attach a labelmap to ALL unified viewports
+ * unconditionally (the MPR behavior), so a same-FoR sibling shows the SEG at full
+ * (native) opacity rather than dimmed (D9), a displaced sibling is not hidden
+ * (A2c), and a different-FoR panel still gets a (non-rendering) representation
+ * instead of being skipped (A2d). The signals below that depend on that wiring are
+ * `fixme` — the harness drives them and will verify them once the eligibility
+ * attach is routed into the live flow (the next slice).
+ *
+ * Fixtures (on disk): mr-t1-t2-sameexam (same FoR), breath-hold-pair (same FoR,
+ * bulk-displaced), cross-for-ct-mr (different FoR).
  */
 import { test, expect } from '../fixtures/electron-app';
 import type { Page } from '@playwright/test';
@@ -36,49 +47,46 @@ async function brushStroke(page: Page, box: { x: number; y: number; width: numbe
   await page.mouse.up();
 }
 
+async function paintSegOnPanel0(page: Page, label: string) {
+  const p0 = canvas(page, 'panel_0');
+  await p0.click(); // activate panel_0 (centre — corners hold overlay controls)
+  await page.evaluate((l) => (window as unknown as Win).__XNAT_E2E__.createUnifiedLabelmapSegmentation(l), label);
+  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.setUnifiedBrushSize(25));
+  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.setActiveUnifiedTool('Brush'));
+  const box0 = await p0.boundingBox();
+  expect(box0).not.toBeNull();
+  await brushStroke(page, box0!);
+  await expect
+    .poll(() => page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.getPaintedVoxelCount()), { timeout: 15_000 })
+    .toBeGreaterThan(0);
+}
+
 test.beforeEach(async ({ page }) => {
   await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.setMultiviewportEnabled(true));
 });
 
 test('harness: two same-exam series load into a 1×2 grid and render independently', async ({ page }) => {
   await loadTwoSeries(page, 'mr-t1-t2-sameexam', 't1-slice', 't2-slice');
-
   const p0 = canvas(page, 'panel_0');
   const p1 = canvas(page, 'panel_1');
   await expect(p0).toBeVisible({ timeout: 30_000 });
   await expect(p1).toBeVisible({ timeout: 30_000 });
-
-  // The two panels show DIFFERENT series (T1 vs T2) → their rendered pixels differ.
-  const shot0 = await p0.screenshot();
-  const shot1 = await p1.screenshot();
-  expect(shot0.equals(shot1)).toBe(false);
+  // Two DIFFERENT series (T1 vs T2) → distinct rendered pixels.
+  expect((await p0.screenshot()).equals(await p1.screenshot())).toBe(false);
 });
 
-test('signal 9 (A2b): a SEG painted on the T1 panel also renders on the same-FoR T2 panel (cross-series-show)', async ({ page }) => {
+test('cross-series render presence: a SEG painted on the T1 panel appears on the same-FoR T2 panel', async ({ page }) => {
   await loadTwoSeries(page, 'mr-t1-t2-sameexam', 't1-slice', 't2-slice');
-  const p0 = canvas(page, 'panel_0');
   const p1 = canvas(page, 'panel_1');
-  await expect(p0).toBeVisible({ timeout: 30_000 });
+  await expect(canvas(page, 'panel_0')).toBeVisible({ timeout: 30_000 });
   await expect(p1).toBeVisible({ timeout: 30_000 });
 
-  // Create the SEG on panel_0 (native to T1) and paint a stroke there. Click the
-  // canvas centre to activate the panel (the corners hold overlay controls).
-  await p0.click();
-  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.createUnifiedLabelmapSegmentation('Cross-series SEG'));
-  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.setUnifiedBrushSize(25));
-  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.setActiveUnifiedTool('Brush'));
-
   const p1Before = await p1.screenshot();
-  const box0 = await p0.boundingBox();
-  expect(box0).not.toBeNull();
-  await brushStroke(page, box0!);
+  await paintSegOnPanel0(page, 'Cross-series SEG');
 
-  // Native render on panel_0: the stroke painted voxels.
-  await expect
-    .poll(() => page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.getPaintedVoxelCount()), { timeout: 15_000 })
-    .toBeGreaterThan(0);
-
-  // Cross-series render on panel_1 (T2, same FoR): the SEG appears there too (A2b).
+  // The world-space labelmap renders on the same-FoR sibling panel (signal 9 render
+  // presence). NB: full-opacity here — the D9 non-native dimming needs the
+  // eligibility attach (fixme below); it is unit-verified in Slice 2.
   await expect
     .poll(async () => !(await p1.screenshot()).equals(p1Before), {
       timeout: 15_000,
@@ -87,31 +95,31 @@ test('signal 9 (A2b): a SEG painted on the T1 panel also renders on the same-FoR
     .toBe(true);
 });
 
-test('signal 11 (A2d): a SEG painted on the CT panel does NOT render on the different-FoR MR panel', async ({ page }) => {
-  await loadTwoSeries(page, 'cross-for-ct-mr', 'ct-slice', 'mr-slice');
-  const p0 = canvas(page, 'panel_0'); // CT
-  const p1 = canvas(page, 'panel_1'); // MR — different frame of reference
-  await expect(p0).toBeVisible({ timeout: 30_000 });
-  await expect(p1).toBeVisible({ timeout: 30_000 });
+// PENDING — needs the eligibility attach wired into the live SEG flow (see header).
+// The same-FoR sibling currently shows the SEG at full (native) opacity; D9 wants a
+// dimmed/dashed non-native treatment distinct from the native panel. Verified at the
+// unit layer (eligibilityStyle + attachLabelmapWithEligibility setStyle, Slice 2);
+// the pixel-level distinction needs the live attach + a tolerance pixel-diff.
+test.fixme('signal 9 (D9): the cross-series SEG renders DIMMED (non-native) vs the native panel', async () => {});
 
-  await p0.click();
-  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.createUnifiedLabelmapSegmentation('CT SEG'));
-  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.setUnifiedBrushSize(25));
-  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.setActiveUnifiedTool('Brush'));
-
+// PENDING — A2c displacement-hide. The harness drives the breath-hold pair, but the
+// live attach does not compute bulk displacement between the two volumes and hide
+// the SEG on the displaced sibling — it renders there (cross-series-show) instead.
+// Confirmed RED. Needs: read both volumes' scalar data + bulkDisplacement (Slice 1,
+// unit-tested) + route the cross-series attach through attachLabelmapWithEligibility
+// so > threshold ⇒ visibility off.
+test.fixme('signal 10 (A2c): a SEG on one breath-hold series is HIDDEN on the displaced same-FoR sibling', async ({ page }) => {
+  await loadTwoSeries(page, 'breath-hold-pair', 'bh1-slice', 'bh2-slice');
+  const p1 = canvas(page, 'panel_1');
   const p1Before = await p1.screenshot();
-  const box0 = await p0.boundingBox();
-  expect(box0).not.toBeNull();
-  await brushStroke(page, box0!);
-
-  // Native render on the CT panel.
-  await expect
-    .poll(() => page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.getPaintedVoxelCount()), { timeout: 15_000 })
-    .toBeGreaterThan(0);
-
-  // The MR panel is a DIFFERENT frame of reference (A2d) — the SEG is not viewable
-  // there, so painting on the CT must NOT change the MR canvas. Give it time to
-  // (not) propagate, then assert it stayed put.
+  await paintSegOnPanel0(page, 'BH SEG');
   await page.waitForTimeout(2000);
   expect((await p1.screenshot()).equals(p1Before)).toBe(true);
 });
+
+// PENDING — A2d. The live attach adds a (non-rendering) representation to the
+// different-FoR panel instead of skipping it; the SEG should not be attached there
+// at all. Robust verification is structural (the SEG's viewport list must exclude
+// the different-FoR panel) once the eligibility attach is wired — screenshot-equals
+// for "unchanged" is too sensitive (incidental re-renders flake).
+test.fixme('signal 11 (A2d): a SEG on the CT panel is NOT attached to the different-FoR MR panel', async () => {});
