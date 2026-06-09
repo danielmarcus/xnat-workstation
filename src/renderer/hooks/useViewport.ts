@@ -12,9 +12,10 @@ import { unifiedToolService } from '../lib/cornerstone/unifiedToolService';
 import { unifiedSegService } from '../lib/cornerstone/unifiedSegService';
 import { viewportReadyService } from '../lib/cornerstone/viewportReadyService';
 import { metadataService } from '../lib/cornerstone/metadataService';
+import { wireCrosshairPointerHandlers, syncCrosshairToPanels } from '../lib/cornerstone/unifiedCrosshair';
 import { useViewerStore } from '../stores/viewerStore';
 import { useMetadataStore } from '../stores/metadataStore';
-import type { MPRPlane } from '@shared/types/viewer';
+import { ToolName, type MPRPlane } from '@shared/types/viewer';
 
 export interface UseViewportArgs {
   panelId: string;
@@ -42,6 +43,7 @@ export function useViewport({
 
     let cancelled = false;
     let disposeSync: (() => void) | null = null;
+    let disposeCrosshair: (() => void) | null = null;
     let lastImageId: string | null = null;
 
     // Initialize per-panel store state (cleared on unmount via _destroyPanel).
@@ -90,6 +92,20 @@ export function useViewport({
         // Wire display-state sync (events → stores) + read the initial state, so
         // slice index / W/L / zoom / metadata are live. Handles stack AND volume.
         disposeSync = viewportService.subscribeViewportEvents(panelId, el, syncState);
+        // World-point crosshair: when the Crosshairs tool is active, a left CLICK
+        // sets the shared world point (a left DRAG still does W/L). The point is
+        // synced to every other panel (volume → jumpToWorld, stack → nearest slice)
+        // and drawn as a reticle by ViewportReticle.
+        disposeCrosshair = wireCrosshairPointerHandlers({
+          element: el,
+          panelId,
+          isCrosshairActive: () => useViewerStore.getState().activeTool === ToolName.Crosshairs,
+          onWorldPoint: (point) => {
+            const store = useViewerStore.getState();
+            store.setCrosshairWorldPoint(point, panelId);
+            syncCrosshairToPanels(panelId, point, unifiedToolService.getViewportIds(), store.panelImageIdsMap);
+          },
+        });
         syncState('init');
         // Signal viewport readiness for the CURRENT epoch (App bumps the epoch
         // when imageIds change, before this effect re-runs). SegmentationManager

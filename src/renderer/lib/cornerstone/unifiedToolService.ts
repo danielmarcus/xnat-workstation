@@ -49,9 +49,12 @@ const { Primary, Auxiliary, Secondary, Wheel } = ToolEnums.MouseBindings;
  * for signals 1/3/6/7 (Length, freehand contour segmentation, brush).
  */
 const UNIFIED_TOOL_MAP: Partial<Record<ToolName, string>> = {
-  // ToolName.Crosshairs is intentionally NOT mapped to the native CrosshairsTool
-  // (it crashes in single-viewport / same-plane layouts). It will route to the
-  // world-point crosshair once that lands; until then selecting it is a no-op.
+  // ToolName.Crosshairs routes to Window/Level on the Cornerstone Primary slot
+  // (NOT the native CrosshairsTool, which crashes in single-viewport / same-plane
+  // layouts). The world-point crosshair (unifiedCrosshair) reads activeTool ===
+  // Crosshairs to enable click-to-set, so a left CLICK sets the crosshair while a
+  // left DRAG still does W/L — exactly the deleted design.
+  [ToolName.Crosshairs]: WindowLevelTool.toolName,
   [ToolName.WindowLevel]: WindowLevelTool.toolName,
   [ToolName.Pan]: PanTool.toolName,
   [ToolName.Zoom]: ZoomTool.toolName,

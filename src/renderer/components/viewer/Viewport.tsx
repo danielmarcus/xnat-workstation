@@ -8,6 +8,7 @@
 import { useViewport } from '../../hooks/useViewport';
 import { useViewerStore } from '../../stores/viewerStore';
 import ViewportOverlay from './ViewportOverlay';
+import ViewportReticle from './ViewportReticle';
 import type { MPRPlane } from '@shared/types/viewer';
 
 interface ViewportProps {
@@ -34,6 +35,7 @@ export default function Viewport({
   return (
     <div
       data-testid={`unified-viewport:${panelId}`}
+      data-panel-id={panelId}
       data-active={isActive ? 'true' : 'false'}
       // Select this panel as active on interaction-start. Doesn't preventDefault,
       // so the Cornerstone tool on the canvas still receives the same pointerdown.
@@ -49,6 +51,7 @@ export default function Viewport({
         className="w-full h-full"
       />
       <ViewportOverlay panelId={panelId} />
+      <ViewportReticle panelId={panelId} />
     </div>
   );
 }
