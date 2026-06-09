@@ -9,6 +9,7 @@ import { useViewport } from '../../hooks/useViewport';
 import { useViewerStore } from '../../stores/viewerStore';
 import ViewportOverlay from './ViewportOverlay';
 import ViewportReticle from './ViewportReticle';
+import ViewportRuler from './ViewportRuler';
 import ViewportScrollbar from './ViewportScrollbar';
 import ViewportStatusOverlay from './ViewportStatusOverlay';
 import type { MPRPlane } from '@shared/types/viewer';
@@ -76,6 +77,7 @@ export default function Viewport({
       />
       <ViewportOverlay panelId={panelId} />
       <ViewportReticle panelId={panelId} />
+      <ViewportRuler panelId={panelId} />
       <ViewportScrollbar panelId={panelId} />
       {imageIds.length > 0 && <ViewportStatusOverlay panelId={panelId} state={loadState} />}
     </div>

@@ -468,6 +468,31 @@ export const viewportService = {
   },
 
   /**
+   * Millimetres per on-screen CSS pixel for a viewport — the TRUE display scale,
+   * read from the camera (not reconstructed). `camera.parallelScale` is half the
+   * viewport's visible world-height (mm); display pixels are square, so
+   * mm/CSS-px = 2·parallelScale / element.clientHeight in both axes. Accounts for
+   * zoom (parallelScale shrinks as you zoom in). No DPR involved — clientHeight is
+   * CSS px, which is also the unit the ruler is drawn in. Returns null if unknown.
+   */
+  getMmPerDisplayPixel(viewportId: string): number | null {
+    const engine = getEngine();
+    if (!engine) return null;
+    let vp: any;
+    try {
+      vp = engine.getViewport(viewportId);
+    } catch {
+      return null;
+    }
+    if (!vp || typeof vp.getCamera !== 'function') return null;
+    const height = elements.get(viewportId)?.clientHeight ?? 0;
+    if (height <= 0) return null;
+    const parallelScale = vp.getCamera()?.parallelScale;
+    if (!Number.isFinite(parallelScale) || parallelScale <= 0) return null;
+    return (2 * parallelScale) / height;
+  },
+
+  /**
    * Get current zoom level as percentage (100 = fit-to-canvas).
    */
   getZoom(viewportId: string): number {

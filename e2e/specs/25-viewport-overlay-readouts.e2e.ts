@@ -57,4 +57,13 @@ test('viewport overlay shows live slice counter + W/L + zoom on load (flag on)',
   await expect(page.locator('[data-testid="orientation-marker-bottom:panel_0"]')).toHaveText('P');
   await expect(page.locator('[data-testid="orientation-marker-left:panel_0"]')).toHaveText('R');
   await expect(page.locator('[data-testid="orientation-marker-right:panel_0"]')).toHaveText('L');
+
+  // Scale ruler (default prefs: on). Derived from the camera's true scale → a round
+  // mm/cm label (e.g. "5 cm"). Proves the scale wiring produces a valid bar.
+  await expect
+    .poll(
+      async () => (await page.locator('[data-testid="ruler-h-label:panel_0"]').textContent())?.trim() ?? '',
+      { timeout: 20_000 },
+    )
+    .toMatch(/^\d+(\.\d+)?\s*(mm|cm)$/);
 });

@@ -218,6 +218,21 @@ describe('viewportService', () => {
     expect(resolveInitialPlane({ preferNative: true, layoutPlane: 'AXIAL', nativePlane: 'STACK' })).toBe('AXIAL');
   });
 
+  it('getMmPerDisplayPixel derives mm/CSS-px from the camera parallelScale and element height', () => {
+    const element = { dataset: {}, clientHeight: 400 } as unknown as HTMLDivElement;
+    viewportService.createViewport('panel_0', element); // registers the element
+    cs.setViewport('panel_0', { getCamera: () => ({ parallelScale: 100 }) } as never);
+    // 2 * parallelScale / clientHeight = 2*100/400 = 0.5 mm per CSS pixel.
+    expect(viewportService.getMmPerDisplayPixel('panel_0')).toBeCloseTo(0.5, 6);
+  });
+
+  it('getMmPerDisplayPixel returns null without a camera or a sized element', () => {
+    const element = { dataset: {}, clientHeight: 0 } as unknown as HTMLDivElement;
+    viewportService.createViewport('panel_z', element);
+    cs.setViewport('panel_z', { getCamera: () => ({ parallelScale: 100 }) } as never);
+    expect(viewportService.getMmPerDisplayPixel('panel_z')).toBeNull(); // zero height
+  });
+
   it('setOrientation reorients a VOLUME viewport and no-ops on a STACK viewport', () => {
     const volume = { type: 'ORTHOGRAPHIC', setOrientation: vi.fn(), render: vi.fn() };
     cs.setViewport('panel_vol', volume as never);
