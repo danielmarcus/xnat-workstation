@@ -167,6 +167,45 @@ describe('viewportService', () => {
     // E2E in P1.4 rather than a heavy volume mock here.)
   });
 
+  it('scrollToSlice on a STACK viewport diffs against the native index', () => {
+    const stack = {
+      type: 'STACK',
+      getCurrentImageIdIndex: vi.fn(() => 3),
+      getImageIds: vi.fn(() => Array.from({ length: 10 }, (_, i) => `stk-${i}`)),
+      scroll: vi.fn(),
+    };
+    cs.setViewport('panel_stk', stack as never);
+
+    viewportService.scrollToSlice('panel_stk', 7);
+    expect(stack.scroll).toHaveBeenCalledWith(4); // 7 - 3
+
+    stack.scroll.mockClear();
+    viewportService.scrollToSlice('panel_stk', 3); // no-op
+    expect(stack.scroll).not.toHaveBeenCalled();
+
+    stack.scroll.mockClear();
+    viewportService.scrollToSlice('panel_stk', 999); // clamped to last (index 9) ⇒ +6
+    expect(stack.scroll).toHaveBeenCalledWith(6);
+  });
+
+  it('scrollToSlice on a VOLUME viewport diffs against the REFORMATTED slice axis, not the native index', () => {
+    // The volume exposes BOTH APIs; using getCurrentImageIdIndex (the native index)
+    // would compute the delta against the wrong axis (the "257/21" class of bug).
+    const volume = {
+      type: 'ORTHOGRAPHIC',
+      getSliceIndex: vi.fn(() => 50), // reformatted current slice
+      getNumberOfSlices: vi.fn(() => 256), // reformatted total
+      getCurrentImageIdIndex: vi.fn(() => 10), // native — must be IGNORED
+      getImageIds: vi.fn(() => Array.from({ length: 21 }, (_, i) => `vol-${i}`)),
+      scroll: vi.fn(),
+    };
+    cs.setViewport('panel_vol', volume as never);
+
+    viewportService.scrollToSlice('panel_vol', 120);
+    // delta = 120 - 50 (reformatted) = 70 — NOT 120 - 10 (the native axis).
+    expect(volume.scroll).toHaveBeenCalledWith(70);
+  });
+
   it('readViewportState reads the VOLUME slice axis, not the native source count (the "257/21" bug)', () => {
     // v4 ORTHOGRAPHIC viewports expose BOTH the volume API (reformatted axis) AND
     // the stack API (native source count). Detection must key off viewport.type:

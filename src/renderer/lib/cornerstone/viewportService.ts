@@ -367,6 +367,38 @@ export const viewportService = {
   },
 
   /**
+   * Scroll to an ABSOLUTE slice index — type-aware (drives the slice scrollbar).
+   * STACK diffs against getCurrentImageIdIndex (the native index); VOLUME /
+   * ORTHOGRAPHIC diffs against getSliceIndex (the REFORMATTED axis — never
+   * getCurrentImageIdIndex, which is the native source index → the "257/21"
+   * axis-mixing bug). Both then scroll by the clamped delta. Soft (no throw).
+   */
+  scrollToSlice(viewportId: string, index: number): void {
+    const engine = getEngine();
+    if (!engine) return;
+    let vp: any;
+    try {
+      vp = engine.getViewport(viewportId);
+    } catch {
+      return;
+    }
+    if (!vp || typeof vp.scroll !== 'function') return;
+    const isStack = vp.type === Enums.ViewportType.STACK;
+    const current = isStack ? (vp.getCurrentImageIdIndex?.() ?? 0) : (vp.getSliceIndex?.() ?? 0);
+    const total = isStack ? (vp.getImageIds?.().length ?? 0) : (vp.getNumberOfSlices?.() ?? 0);
+    if (total <= 0) return;
+    const target = Math.max(0, Math.min(total - 1, Math.round(index)));
+    const delta = target - current;
+    if (delta !== 0) {
+      try {
+        vp.scroll(delta);
+      } catch (err) {
+        console.warn('[viewportService] scrollToSlice failed:', viewportId, err);
+      }
+    }
+  },
+
+  /**
    * Get current zoom level as percentage (100 = fit-to-canvas).
    */
   getZoom(viewportId: string): number {
