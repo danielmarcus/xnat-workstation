@@ -23,8 +23,12 @@ export interface UseViewportArgs {
   /** Volume-sharing key — same scanId+FoR ⇒ shared ImageVolume across panels. */
   scanId: string;
   frameOfReferenceUID?: string;
-  /** For the volume path: which reformatted plane this panel shows. */
+  /** Explicit plane to display (a user/stored choice). Undefined ⇒ resolve native. */
   orientation?: MPRPlane;
+  /** Layout's designated plane (MPR preset / fallback). */
+  layoutOrientation?: MPRPlane;
+  /** Open in the scan's native plane when no explicit orientation is given. */
+  preferNative?: boolean;
 }
 
 export function useViewport({
@@ -32,7 +36,9 @@ export function useViewport({
   imageIds,
   scanId,
   frameOfReferenceUID = '',
-  orientation = 'AXIAL',
+  orientation,
+  layoutOrientation = 'AXIAL',
+  preferNative = false,
 }: UseViewportArgs): { containerRef: React.RefObject<HTMLDivElement | null> } {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const seriesKey = imageIds.join('|');
@@ -81,8 +87,10 @@ export function useViewport({
         imageIds,
         meta: { imageCount: imageIds.length },
         orientation,
+        layoutOrientation,
+        preferNativeOrientation: preferNative,
       })
-      .then(() => {
+      .then((result) => {
         // Join the unified tool group once the viewport exists. Guard the async
         // gap against a fast unmount.
         if (cancelled) return;
@@ -107,14 +115,11 @@ export function useViewport({
           },
         });
         syncState('init');
-        // Record the panel's CURRENT reformat plane in the store so the orientation
-        // dropdown shows the truth (this panel is displaying `orientation`). Without
-        // this the dropdown fell back to a metadata-derived "native" plane that can
-        // mis-read (e.g. showing Sagittal on an axial scan). Only when unset, so a
-        // user's later selection isn't clobbered on re-attach.
-        if (!useViewerStore.getState().panelOrientationMap[panelId]) {
-          useViewerStore.getState().setPanelOrientation(panelId, orientation);
-        }
+        // Record the plane the viewport actually opened in (the service resolved it:
+        // explicit > native for non-MPR > layout preset). The orientation dropdown +
+        // the Viewport's effective orientation read this, so the label matches what's
+        // on screen — a sagittal scan opens (and reads) Sagittal, not a forced axial.
+        useViewerStore.getState().setPanelOrientation(panelId, result.orientation);
         // Signal viewport readiness for the CURRENT epoch (App bumps the epoch
         // when imageIds change, before this effect re-runs). SegmentationManager
         // .whenReady blocks on this for SEG/RTSTRUCT overlay attach.
@@ -144,11 +149,17 @@ export function useViewport({
   }, [panelId, scanId, frameOfReferenceUID, seriesKey]);
 
   // Apply orientation changes (axial ⇄ sagittal ⇄ coronal) to the EXISTING volume
-  // viewport without recreating it. The initial orientation is set at create; this
-  // handles later user selections from the orientation dropdown. No-op on stacks
-  // or before the viewport exists (both handled softly in viewportService).
+  // viewport without recreating it: a user's dropdown choice (non-MPR) or the
+  // enforced preset when a panel becomes part of an MPR layout. The initial plane is
+  // set at create; `orientation` is undefined for a fresh non-MPR panel (skip — the
+  // create resolved native). Keep panelOrientationMap in sync so the dropdown label
+  // tracks the displayed plane even when the layout enforces it.
   useEffect(() => {
+    if (!orientation) return;
     viewportService.setOrientation(panelId, orientation);
+    if (useViewerStore.getState().panelOrientationMap[panelId] !== orientation) {
+      useViewerStore.getState().setPanelOrientation(panelId, orientation);
+    }
   }, [panelId, orientation]);
 
   return { containerRef };

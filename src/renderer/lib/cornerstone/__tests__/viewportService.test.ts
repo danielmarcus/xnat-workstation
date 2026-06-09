@@ -9,11 +9,12 @@ import { resetCornerstoneMocks } from '../../../test/cornerstone/resetCornerston
 const cs = createCornerstoneMockState();
 
 let viewportService: (typeof import('../viewportService'))['viewportService'];
+let resolveInitialPlane: (typeof import('../viewportService'))['resolveInitialPlane'];
 
 beforeAll(async () => {
   vi.doMock('@cornerstonejs/core', () => createCoreModuleMock(cs));
 
-  ({ viewportService } = await import('../viewportService'));
+  ({ viewportService, resolveInitialPlane } = await import('../viewportService'));
 });
 
 describe('viewportService', () => {
@@ -204,6 +205,17 @@ describe('viewportService', () => {
     viewportService.scrollToSlice('panel_vol', 120);
     // delta = 120 - 50 (reformatted) = 70 — NOT 120 - 10 (the native axis).
     expect(volume.scroll).toHaveBeenCalledWith(70);
+  });
+
+  it('resolveInitialPlane: explicit wins, else native for non-MPR, else the layout preset', () => {
+    // An explicit (user/stored) plane always wins.
+    expect(resolveInitialPlane({ explicit: 'CORONAL', preferNative: true, layoutPlane: 'AXIAL', nativePlane: 'SAGITTAL' })).toBe('CORONAL');
+    // Non-MPR (preferNative) opens in the scan's NATIVE plane — a sagittal scan ⇒ Sagittal.
+    expect(resolveInitialPlane({ preferNative: true, layoutPlane: 'AXIAL', nativePlane: 'SAGITTAL' })).toBe('SAGITTAL');
+    // MPR (not preferNative) uses the layout's designated plane, ignoring native.
+    expect(resolveInitialPlane({ preferNative: false, layoutPlane: 'CORONAL', nativePlane: 'SAGITTAL' })).toBe('CORONAL');
+    // A degenerate native ('STACK') falls back to the layout plane.
+    expect(resolveInitialPlane({ preferNative: true, layoutPlane: 'AXIAL', nativePlane: 'STACK' })).toBe('AXIAL');
   });
 
   it('setOrientation reorients a VOLUME viewport and no-ops on a STACK viewport', () => {

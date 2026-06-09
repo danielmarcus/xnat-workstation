@@ -14,11 +14,31 @@ import {
   Enums,
   type Types,
 } from '@cornerstonejs/core';
-import type { MPRPlane } from '@shared/types/viewer';
+import type { MPRPlane, ViewportOrientation } from '@shared/types/viewer';
 import { volumeService } from './volumeService';
+import { metadataService } from './metadataService';
 import { chooseViewportType, type ViewportType, type ViewportTypeInput } from './viewportType';
 
 const ENGINE_ID = 'xnatRenderingEngine';
+
+/**
+ * Resolve the plane a freshly-created viewport should open in:
+ *  - an explicit request (a stored/user-chosen plane) always wins;
+ *  - otherwise a non-MPR panel (single / generic grid) opens in the scan's NATIVE
+ *    acquisition plane, so a sagittal scan opens sagittal — not forced to axial;
+ *  - otherwise (MPR preset) the layout's designated plane.
+ * Pure + exported for unit testing.
+ */
+export function resolveInitialPlane(opts: {
+  explicit?: MPRPlane;
+  preferNative: boolean;
+  layoutPlane: MPRPlane;
+  nativePlane: ViewportOrientation;
+}): MPRPlane {
+  if (opts.explicit) return opts.explicit;
+  if (opts.preferNative && opts.nativePlane !== 'STACK') return opts.nativePlane;
+  return opts.layoutPlane;
+}
 
 /**
  * Map an MPR plane → Cornerstone OrientationAxis. Read lazily (at call time, not
@@ -103,9 +123,14 @@ export const viewportService = {
       frameOfReferenceUID: string;
       imageIds: string[];
       meta?: ViewportTypeInput;
+      /** Explicit plane request (e.g. a user's dropdown choice). Wins over native. */
       orientation?: MPRPlane;
+      /** The layout's designated plane (MPR preset / fallback). */
+      layoutOrientation?: MPRPlane;
+      /** Non-MPR panels open in the scan's native plane unless `orientation` is set. */
+      preferNativeOrientation?: boolean;
     },
-  ): Promise<{ type: ViewportType; volumeId: string | null }> {
+  ): Promise<{ type: ViewportType; volumeId: string | null; orientation: MPRPlane }> {
     const engine = ensureEngine();
     if (elements.has(viewportId)) {
       try { engine.disableElement(viewportId); } catch { /* ok */ }
@@ -121,29 +146,48 @@ export const viewportService = {
     const meta = opts.meta ?? { imageCount: opts.imageIds.length };
     const type = chooseViewportType(meta);
 
+    const layoutPlane = opts.layoutOrientation ?? 'AXIAL';
+    const preferNative = opts.preferNativeOrientation ?? false;
+
     if (type === 'stack') {
       engine.enableElement({ viewportId, type: Enums.ViewportType.STACK, element });
       const vp = engine.getViewport(viewportId) as Types.IStackViewport;
       await vp.setStack(opts.imageIds);
       vp.render();
+      // Stacks display their native plane and can't reformat; report the resolved
+      // plane only so the overlay label is sensible (the dropdown is disabled).
+      const resolvedPlane = resolveInitialPlane({
+        explicit: opts.orientation,
+        preferNative,
+        layoutPlane,
+        nativePlane: metadataService.getNativeOrientation(opts.imageIds[0]),
+      });
       console.log('[viewportService] Unified viewport (stack):', viewportId);
-      return { type, volumeId: null };
+      return { type, volumeId: null, orientation: resolvedPlane };
     }
 
     // Volume path — shared + ref-counted by (scanId, FoR).
-    engine.enableElement({
-      viewportId,
-      type: Enums.ViewportType.ORTHOGRAPHIC,
-      element,
-      defaultOptions: { orientation: planeOrientation(opts.orientation ?? 'AXIAL') },
-    });
     // createAndCacheVolume needs per-image metadata (pixelRepresentation, rows,
     // cols, spacing) up front. For local (in-memory) files nothing pre-fetches
     // it, so register it by loading each image first; soft-fail per image.
     // (For large XNAT series this should become a metadata-only prefetch.)
+    // Done BEFORE enableElement so the native plane is known and the viewport is
+    // created already oriented — no axial→native flip on load.
     await Promise.all(
       opts.imageIds.map((id) => imageLoader.loadAndCacheImage(id).catch(() => undefined)),
     );
+    const resolvedPlane = resolveInitialPlane({
+      explicit: opts.orientation,
+      preferNative,
+      layoutPlane,
+      nativePlane: metadataService.getNativeOrientation(opts.imageIds[0]),
+    });
+    engine.enableElement({
+      viewportId,
+      type: Enums.ViewportType.ORTHOGRAPHIC,
+      element,
+      defaultOptions: { orientation: planeOrientation(resolvedPlane) },
+    });
     const { volumeId, created } = await volumeService.acquire(
       opts.scanId,
       opts.frameOfReferenceUID,
@@ -159,8 +203,8 @@ export const viewportService = {
         .load(volumeId)
         .catch((err) => console.warn('[viewportService] Volume load failed:', volumeId, err));
     }
-    console.log('[viewportService] Unified viewport (volume):', viewportId, volumeId);
-    return { type, volumeId };
+    console.log('[viewportService] Unified viewport (volume):', viewportId, volumeId, resolvedPlane);
+    return { type, volumeId, orientation: resolvedPlane };
   },
 
   /**

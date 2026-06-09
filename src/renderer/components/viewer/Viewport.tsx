@@ -18,8 +18,10 @@ interface ViewportProps {
   /** Volume-sharing key (same scanId+FoR ⇒ shared volume across panels). */
   scanId: string;
   frameOfReferenceUID?: string;
-  /** Reformatted plane for the volume path (default axial). */
+  /** The layout's designated plane (MPR preset / fallback). */
   orientation?: MPRPlane;
+  /** Open in the scan's native plane (single / generic grid); false for MPR. */
+  preferNative?: boolean;
 }
 
 export default function Viewport({
@@ -28,18 +30,24 @@ export default function Viewport({
   scanId,
   frameOfReferenceUID,
   orientation,
+  preferNative = false,
 }: ViewportProps) {
-  // The user's per-panel orientation selection (from the overlay dropdown) overrides
-  // the layout's default plane. 'STACK'/unset ⇒ fall back to the layout orientation.
-  const userOrientation = useViewerStore((s) => s.panelOrientationMap[panelId]);
-  const effectiveOrientation: MPRPlane =
-    userOrientation && userOrientation !== 'STACK' ? userOrientation : (orientation ?? 'AXIAL');
+  const layoutPlane: MPRPlane = orientation ?? 'AXIAL';
+  const stored = useViewerStore((s) => s.panelOrientationMap[panelId]);
+  // MPR panels are pinned to their designated ortho plane. Non-MPR panels follow
+  // the stored plane (a user dropdown choice or the resolved native plane); when
+  // nothing is stored yet, `undefined` lets the service resolve the native plane.
+  const requestedOrientation: MPRPlane | undefined = preferNative
+    ? (stored && stored !== 'STACK' ? stored : undefined)
+    : layoutPlane;
   const { containerRef } = useViewport({
     panelId,
     imageIds,
     scanId,
     frameOfReferenceUID,
-    orientation: effectiveOrientation,
+    orientation: requestedOrientation,
+    layoutOrientation: layoutPlane,
+    preferNative,
   });
   const isActive = useViewerStore((s) => s.activeViewportId === panelId);
   const setActiveViewport = useViewerStore((s) => s.setActiveViewport);

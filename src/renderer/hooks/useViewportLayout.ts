@@ -15,6 +15,9 @@ export interface ResolvedPanel {
   panelId: string;
   orientation: MPRPlane;
   sourcePanelId: string;
+  /** Open in the scan's NATIVE plane (single / generic grid). False only for the
+   *  MPR preset, whose panels are fixed to their designated ortho planes. */
+  preferNative: boolean;
 }
 
 export function useViewportLayout(): {
@@ -32,20 +35,25 @@ export function useViewportLayout(): {
   let grid: { rows: number; cols: number };
 
   if (layout.kind === 'grid') {
-    // Independent panels — each sources its own imageIds (multi-scan).
+    // Independent panels — each sources its own imageIds (multi-scan). Each opens
+    // in its scan's native plane.
     panels = viewportLayoutService.gridPanels(layout.rows, layout.cols).map((p) => ({
       panelId: p.panelId,
       orientation: p.orientation,
       sourcePanelId: p.sourcePanelId ?? p.panelId,
+      preferNative: true,
     }));
     grid = { rows: layout.rows, cols: layout.cols };
   } else {
     // single | mpr-2x2 — all panels reformat ONE scan (sourced from panel_0).
+    // Single opens in the scan's native plane; MPR pins each panel to its preset.
     const preset = layout.kind;
+    const isMpr = preset === 'mpr-2x2';
     panels = viewportLayoutService.getPresetPanels(preset).map((p) => ({
       panelId: p.panelId,
       orientation: p.orientation,
       sourcePanelId: 'panel_0',
+      preferNative: !isMpr,
     }));
     const g = viewportLayoutService.presetGrid(preset);
     grid = { rows: g.rows, cols: g.cols };

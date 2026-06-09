@@ -32,7 +32,13 @@ export default function UnifiedViewportGrid({ panelImageIds }: UnifiedViewportGr
         const scanId = p.sourcePanelId === 'panel_0' ? 'local:scan' : `local:${p.sourcePanelId}`;
         return (
           <div key={p.panelId} className="relative min-w-0 min-h-0">
-            <Viewport panelId={p.panelId} imageIds={imageIds} scanId={scanId} orientation={p.orientation} />
+            <Viewport
+              panelId={p.panelId}
+              imageIds={imageIds}
+              scanId={scanId}
+              orientation={p.orientation}
+              preferNative={p.preferNative}
+            />
           </div>
         );
       })}
