@@ -22,11 +22,15 @@ import { chooseViewportType, type ViewportType, type ViewportTypeInput } from '.
 const ENGINE_ID = 'xnatRenderingEngine';
 
 /**
- * Resolve the plane a freshly-created viewport should open in:
- *  - an explicit request (a stored/user-chosen plane) always wins;
- *  - otherwise a non-MPR panel (single / generic grid) opens in the scan's NATIVE
- *    acquisition plane, so a sagittal scan opens sagittal — not forced to axial;
- *  - otherwise (MPR preset) the layout's designated plane.
+ * Resolve the plane a freshly-created viewport should open in. A viewport is
+ * (re)created only on mount or a SCAN change, so the initial plane must reflect the
+ * scan being loaded — never a stale selection carried over from a previous scan:
+ *  - a non-MPR panel (single / generic grid) ALWAYS opens in the new scan's NATIVE
+ *    acquisition plane (a sagittal scan opens sagittal, an axial scan opens axial),
+ *    regardless of what the previous scan was showing;
+ *  - an MPR-preset panel uses its designated (explicit/layout) plane.
+ * A user's per-panel override (the orientation dropdown) is applied AFTER creation
+ * via setOrientation — NOT here — so it never leaks into the next scan loaded.
  * Pure + exported for unit testing.
  */
 export function resolveInitialPlane(opts: {
@@ -35,9 +39,8 @@ export function resolveInitialPlane(opts: {
   layoutPlane: MPRPlane;
   nativePlane: ViewportOrientation;
 }): MPRPlane {
-  if (opts.explicit) return opts.explicit;
-  if (opts.preferNative && opts.nativePlane !== 'STACK') return opts.nativePlane;
-  return opts.layoutPlane;
+  if (opts.preferNative) return opts.nativePlane !== 'STACK' ? opts.nativePlane : opts.layoutPlane;
+  return opts.explicit ?? opts.layoutPlane;
 }
 
 /**
