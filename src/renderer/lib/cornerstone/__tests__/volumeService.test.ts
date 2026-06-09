@@ -38,7 +38,7 @@ const volumeMocks = vi.hoisted(() => {
     eventTarget,
     createAndCacheVolume: vi.fn(),
     removeVolumeLoadObject: vi.fn(),
-    getDynamicVolumeInfo: vi.fn(() => ({ isDynamicVolume: false, timePoints: [], splittingTag: '' })),
+    metaDataGet: vi.fn((_mod?: string, _id?: string): unknown => undefined),
   };
 });
 
@@ -56,10 +56,10 @@ vi.mock('@cornerstonejs/core', () => ({
       IMAGE_LOADED: 'IMAGE_LOADED',
     },
   },
-  utilities: { getDynamicVolumeInfo: volumeMocks.getDynamicVolumeInfo },
+  metaData: { get: (mod: string, id: string) => volumeMocks.metaDataGet(mod, id) },
 }));
 
-import { generateVolumeId, volumeSchemeFor, volumeService } from '../volumeService';
+import { generateVolumeId, selectPrimaryTimepointImageIds, volumeService } from '../volumeService';
 
 describe('volumeService', () => {
   beforeEach(() => {
@@ -135,7 +135,7 @@ describe('volumeService — shared (scanId, FoR) volumes + ref-counting (Phase 1
     vi.clearAllMocks();
     volumeMocks.eventTarget.clear();
     volumeMocks.createAndCacheVolume.mockResolvedValue({ load: vi.fn() });
-    volumeMocks.getDynamicVolumeInfo.mockReturnValue({ isDynamicVolume: false, timePoints: [], splittingTag: '' });
+    volumeMocks.metaDataGet.mockReturnValue(undefined);
   });
 
   it('reuses one volume for the same (scanId, FoR) and increments the refcount', async () => {
@@ -179,44 +179,57 @@ describe('volumeService — shared (scanId, FoR) volumes + ref-counting (Phase 1
   });
 });
 
-describe('volumeService — 4D / multi-volume routing (C6)', () => {
+describe('volumeService — 4D / multi-volume time-point selection (C6)', () => {
+  // Stub per-image ImagePositionPatient by imageId. The key (rounded) decides which
+  // images share a slice position; repeated positions ⇒ multiple time points.
+  const setIpps = (byId: Record<string, number[]>): void => {
+    volumeMocks.metaDataGet.mockImplementation((mod?: string, id?: string) =>
+      mod === 'imagePlaneModule' && id ? { imagePositionPatient: byId[id] } : undefined,
+    );
+  };
+
   beforeEach(() => {
     vi.clearAllMocks();
     volumeMocks.eventTarget.clear();
     volumeMocks.createAndCacheVolume.mockResolvedValue({ load: vi.fn() });
-    volumeMocks.getDynamicVolumeInfo.mockReturnValue({ isDynamicVolume: false, timePoints: [], splittingTag: '' });
+    volumeMocks.metaDataGet.mockReturnValue(undefined);
   });
 
-  it('volumeSchemeFor maps 4D → dynamic loader scheme, 3D → static', () => {
-    expect(volumeSchemeFor(true)).toBe('cornerstoneStreamingDynamicImageVolume');
-    expect(volumeSchemeFor(false)).toBe('cornerstoneStreamingImageVolume');
+  it('selectPrimaryTimepointImageIds keeps one image per position (the first time point)', () => {
+    // 2 positions × 2 time points; time-point-major order (t0:s0, t0:s1, t1:s0, t1:s1).
+    setIpps({ a: [0, 0, 0], b: [0, 0, 5], c: [0, 0, 0], d: [0, 0, 5] });
+    expect(selectPrimaryTimepointImageIds(['a', 'b', 'c', 'd'])).toEqual(['a', 'b']);
   });
 
-  it('acquire routes a 4D series to the DYNAMIC volume loader', async () => {
-    volumeMocks.getDynamicVolumeInfo.mockReturnValue({
-      isDynamicVolume: true,
-      timePoints: [['a'], ['b']],
-      splittingTag: 'TriggerTime',
-    });
-    const { volumeId } = await volumeService.acquire('scan4d', 'FoR-1', ['a0', 'a1', 'b0', 'b1']);
-    expect(volumeId.startsWith('cornerstoneStreamingDynamicImageVolume:')).toBe(true);
-    expect(volumeMocks.createAndCacheVolume).toHaveBeenCalledWith(volumeId, { imageIds: ['a0', 'a1', 'b0', 'b1'] });
+  it('selectPrimaryTimepointImageIds keeps the first per position regardless of ordering', () => {
+    // position-major order (s0:t0, s0:t1, s1:t0, s1:t1) ⇒ first per position is t0.
+    setIpps({ a: [0, 0, 0], b: [0, 0, 0], c: [0, 0, 5], d: [0, 0, 5] });
+    expect(selectPrimaryTimepointImageIds(['a', 'b', 'c', 'd'])).toEqual(['a', 'c']);
+  });
+
+  it('selectPrimaryTimepointImageIds returns a normal 3D series unchanged', () => {
+    setIpps({ a: [0, 0, 0], b: [0, 0, 5], c: [0, 0, 10] }); // all distinct positions
+    expect(selectPrimaryTimepointImageIds(['a', 'b', 'c'])).toEqual(['a', 'b', 'c']);
+  });
+
+  it('selectPrimaryTimepointImageIds leaves the list unchanged when geometry is missing', () => {
+    volumeMocks.metaDataGet.mockReturnValue(undefined); // no imagePlaneModule
+    expect(selectPrimaryTimepointImageIds(['a', 'b', 'c', 'a'])).toEqual(['a', 'b', 'c', 'a']);
+  });
+
+  it('acquire builds the volume from ONE time point for a 4D series', async () => {
+    setIpps({ a: [0, 0, 0], b: [0, 0, 5], c: [0, 0, 0], d: [0, 0, 5] });
+    const { volumeId } = await volumeService.acquire('scan4d', 'FoR-1', ['a', 'b', 'c', 'd']);
+    // Static scheme, but created from the reduced (one-time-point) image list.
+    expect(volumeId.startsWith('cornerstoneStreamingImageVolume:')).toBe(true);
+    expect(volumeMocks.createAndCacheVolume).toHaveBeenCalledWith(volumeId, { imageIds: ['a', 'b'] });
     volumeService.release(volumeId);
   });
 
-  it('acquire routes a normal 3D series to the STATIC volume loader', async () => {
-    const { volumeId } = await volumeService.acquire('scan3d', 'FoR-2', ['a0', 'a1', 'a2']);
-    expect(volumeId.startsWith('cornerstoneStreamingImageVolume:')).toBe(true);
-    expect(volumeId.startsWith('cornerstoneStreamingDynamicImageVolume:')).toBe(false);
-    volumeService.release(volumeId);
-  });
-
-  it('acquire falls back to static if 4D detection throws (never blocks the load)', async () => {
-    volumeMocks.getDynamicVolumeInfo.mockImplementation(() => {
-      throw new Error('metadata not ready');
-    });
-    const { volumeId } = await volumeService.acquire('scanX', 'FoR-3', ['a0']);
-    expect(volumeId.startsWith('cornerstoneStreamingImageVolume:')).toBe(true);
+  it('acquire passes a 3D series through unchanged', async () => {
+    setIpps({ a: [0, 0, 0], b: [0, 0, 5] });
+    const { volumeId } = await volumeService.acquire('scan3d', 'FoR-2', ['a', 'b']);
+    expect(volumeMocks.createAndCacheVolume).toHaveBeenCalledWith(volumeId, { imageIds: ['a', 'b'] });
     volumeService.release(volumeId);
   });
 });

@@ -20,21 +20,38 @@ import {
   cache,
   Enums,
   eventTarget,
-  utilities as csCoreUtilities,
+  metaData,
 } from '@cornerstonejs/core';
 
 const VOLUME_SCHEME = 'cornerstoneStreamingImageVolume';
-/** Scheme that routes to the 4D (dynamic) streaming volume loader. */
-const DYNAMIC_VOLUME_SCHEME = 'cornerstoneStreamingDynamicImageVolume';
 
 /**
- * The volume-loader scheme for a series: the DYNAMIC scheme for a 4D / multi-volume
- * (functional) series — so Cornerstone builds a StreamingDynamicImageVolume with
- * correct per-time-point geometry — else the static scheme. `isDynamic` comes from
- * getDynamicVolumeInfo(imageIds). Pure + exported for unit testing.
+ * For a 4D / multi-volume series — the SAME slice position imaged at multiple time
+ * points (perfusion, DWI, fMRI, cardiac cine) — return just ONE time point's images
+ * (the first occurrence at each ImagePositionPatient). Building a single 3D volume
+ * from ALL of them packs overlapping positions into one grid → corrupt geometry
+ * (off-axis reformat renders garbage; getCurrentImageId throws "No imageId found").
+ *
+ * Keys off GEOMETRY (repeated IPP), not vendor 4D tags — Cornerstone's
+ * getDynamicVolumeInfo only recognizes cardiac TriggerTime / diffusion tags, which
+ * a generic EPI perfusion series lacks. A normal 3D series (no repeated positions)
+ * is returned unchanged. If geometry metadata is missing, the input is returned
+ * unchanged (never reduce on incomplete info). Pure read; exported for testing.
  */
-export function volumeSchemeFor(isDynamic: boolean): string {
-  return isDynamic ? DYNAMIC_VOLUME_SCHEME : VOLUME_SCHEME;
+export function selectPrimaryTimepointImageIds(imageIds: string[]): string[] {
+  const seen = new Set<string>();
+  const primary: string[] = [];
+  for (const id of imageIds) {
+    const ipp = (metaData.get('imagePlaneModule', id) as { imagePositionPatient?: number[] } | undefined)
+      ?.imagePositionPatient;
+    if (!Array.isArray(ipp) || ipp.length < 3) return imageIds; // incomplete geometry → don't reduce
+    const key = `${ipp[0].toFixed(2)},${ipp[1].toFixed(2)},${ipp[2].toFixed(2)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    primary.push(id);
+  }
+  // Fewer than the input ⇒ repeated positions ⇒ 4D ⇒ use the reduced (one time point).
+  return primary.length < imageIds.length ? primary : imageIds;
 }
 let lastVolumeTs = 0;
 let volumeSeq = 0;
@@ -65,15 +82,9 @@ const volumeRefs = new Map<string, { load: () => void | Promise<void>; imageIds:
  */
 const sharedVolumes = new Map<string, { refCount: number; imageIds: string[] }>();
 
-/**
- * Deterministic volume id for a (scanId, FrameOfReferenceUID) pair. The scheme
- * prefix selects the loader — dynamic (4D) vs static — so a 4D series gets the
- * dynamic loader. `acquire` is the only place that builds the id (it has the
- * imageIds to detect 4D); `release` takes the returned id, so the scheme stays
- * consistent without recomputation.
- */
-function makeSharedVolumeId(scanId: string, frameOfReferenceUID: string, isDynamic = false): string {
-  return `${volumeSchemeFor(isDynamic)}:shared:${scanId}:${frameOfReferenceUID}`;
+/** Deterministic volume id for a (scanId, FrameOfReferenceUID) pair. */
+function makeSharedVolumeId(scanId: string, frameOfReferenceUID: string): string {
+  return `${VOLUME_SCHEME}:shared:${scanId}:${frameOfReferenceUID}`;
 }
 
 export const volumeService = {
@@ -200,28 +211,26 @@ export const volumeService = {
     frameOfReferenceUID: string,
     imageIds: string[],
   ): Promise<{ volumeId: string; created: boolean; refCount: number }> {
-    // Detect 4D / multi-volume (functional) series and route to the dynamic loader
-    // so each time point keeps its own geometry (otherwise off-axis reformat is
-    // corrupt). Detection is by repeated ImagePositionPatient across the series.
-    let isDynamic = false;
-    try {
-      isDynamic = csCoreUtilities.getDynamicVolumeInfo(imageIds).isDynamicVolume === true;
-    } catch {
-      isDynamic = false;
-    }
-    const volumeId = makeSharedVolumeId(scanId, frameOfReferenceUID, isDynamic);
+    const volumeId = makeSharedVolumeId(scanId, frameOfReferenceUID);
     const existing = sharedVolumes.get(volumeId);
     if (existing) {
       existing.refCount += 1;
       return { volumeId, created: false, refCount: existing.refCount };
     }
-    if (isDynamic) {
-      console.log('[volumeService] 4D / multi-volume series → dynamic volume:', volumeId, `(${imageIds.length} images)`);
+    // For a 4D / multi-volume (functional) series, build the volume from ONE time
+    // point (first image at each position) so the 3D geometry is clean and off-axis
+    // reformat works. (Navigating time points is a follow-up.) 3D series: unchanged.
+    const volumeImageIds = selectPrimaryTimepointImageIds(imageIds);
+    if (volumeImageIds.length < imageIds.length) {
+      console.log(
+        '[volumeService] 4D / multi-volume series → first time point:',
+        `${volumeImageIds.length} of ${imageIds.length} images`,
+      );
     }
-    const volume = await volumeLoader.createAndCacheVolume(volumeId, { imageIds });
-    volumeRefs.set(volumeId, { load: () => volume.load(), imageIds });
-    sharedVolumes.set(volumeId, { refCount: 1, imageIds });
-    console.log('[volumeService] Shared volume acquired (new):', volumeId, `(${imageIds.length} images)`);
+    const volume = await volumeLoader.createAndCacheVolume(volumeId, { imageIds: volumeImageIds });
+    volumeRefs.set(volumeId, { load: () => volume.load(), imageIds: volumeImageIds });
+    sharedVolumes.set(volumeId, { refCount: 1, imageIds: volumeImageIds });
+    console.log('[volumeService] Shared volume acquired (new):', volumeId, `(${volumeImageIds.length} images)`);
     return { volumeId, created: true, refCount: 1 };
   },
 

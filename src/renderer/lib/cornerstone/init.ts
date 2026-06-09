@@ -1,9 +1,4 @@
-import {
-  init as initCore,
-  volumeLoader,
-  cornerstoneStreamingImageVolumeLoader,
-  cornerstoneStreamingDynamicImageVolumeLoader,
-} from '@cornerstonejs/core';
+import { init as initCore } from '@cornerstonejs/core';
 import { init as initTools, addTool } from '@cornerstonejs/tools';
 import * as polySeg from '@cornerstonejs/polymorphic-segmentation';
 import {
@@ -57,16 +52,6 @@ export async function initCornerstone(): Promise<void> {
   // ---------- 1. Initialize Cornerstone3D Core ----------
   // Handles rendering engine setup, GPU detection, WebGL context pool
   initCore();
-
-  // Register the volume loaders by scheme. The STATIC streaming loader is the
-  // default ("unknown") loader, but 4D / multi-volume (functional) series must
-  // route to the DYNAMIC loader — otherwise all time points get packed into one
-  // static volume with corrupt geometry (off-axis reformat renders garbage).
-  // volumeService.acquire picks the scheme via getDynamicVolumeInfo.
-  // (CS3D types the canonical loaders as returning IVolumeLoader but registerVolumeLoader
-  // wants VolumeLoaderFn — its own type inconsistency; cast through never.)
-  volumeLoader.registerVolumeLoader('cornerstoneStreamingImageVolume', cornerstoneStreamingImageVolumeLoader as never);
-  volumeLoader.registerVolumeLoader('cornerstoneStreamingDynamicImageVolume', cornerstoneStreamingDynamicImageVolumeLoader as never);
 
   // ---------- 2. Initialize Cornerstone Tools ----------
   // Register PolySeg addon for automatic conversion between segmentation
