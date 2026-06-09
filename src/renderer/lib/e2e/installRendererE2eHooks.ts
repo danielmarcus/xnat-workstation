@@ -6,6 +6,7 @@ import {
   PlanarFreehandContourSegmentationTool,
 } from '@cornerstonejs/tools';
 import { useSegmentationStore } from '../../stores/segmentationStore';
+import { useSegmentationManagerStore } from '../../stores/segmentationManagerStore';
 import { useViewerStore } from '../../stores/viewerStore';
 import { useConnectionStore } from '../../stores/connectionStore';
 import { useAnnotationStore } from '../../stores/annotationStore';
@@ -106,6 +107,8 @@ declare global {
       getUnifiedToolsWithPrimary: () => string[];
       /** Create a labelmap segmentation + attach it to all unified viewports + set active. */
       createUnifiedLabelmapSegmentation: (label?: string) => Promise<{ segmentationId: string; segmentIndex: number }>;
+      /** L3 harness: seed a dirty container tagged to one session + set the active session to another. */
+      seedRetainedUnsavedSession: (containerSessionId: string, activeSessionId: string) => Promise<string>;
       /** Set the brush radius for the unified tool group. */
       setUnifiedBrushSize: (size: number) => void;
       /** Total non-zero labelmap voxels across all segmentations (0 = nothing painted). */
@@ -588,6 +591,35 @@ export function installRendererE2eHooks(): void {
       );
       useSegmentationStore.getState().setActiveSegmentation(segmentationId);
       return { segmentationId, segmentIndex };
+    },
+    // L3 banner harness: create a labelmap, tag it to `containerSessionId`, mark it
+    // dirty, and set the active viewer session to `activeSessionId` — simulating a
+    // container left unsaved in a session you've navigated away from. Drives the
+    // REAL banner data path (stores → selector → render); the production trigger
+    // (session-switch retention, L2) is the deferred App-flow integration.
+    seedRetainedUnsavedSession: async (containerSessionId: string, activeSessionId: string) => {
+      const viewportIds = unifiedToolService.getViewportIds();
+      const findReadyVolume = (): string | undefined => {
+        for (const vp of viewportIds) {
+          const ee = getEnabledElementByViewportId(vp) as { viewport?: { getAllVolumeIds?: () => string[] } } | undefined;
+          const id = ee?.viewport?.getAllVolumeIds?.()[0];
+          if (id && cache.getVolume(id)) return id;
+        }
+        return undefined;
+      };
+      let referencedVolumeId = findReadyVolume();
+      for (let i = 0; i < 60 && !referencedVolumeId; i++) {
+        await new Promise((r) => setTimeout(r, 200));
+        referencedVolumeId = findReadyVolume();
+      }
+      if (!referencedVolumeId) throw new Error('Shared volume not ready');
+      const { segmentationId } = await unifiedSegService.createVolumeLabelmap(referencedVolumeId, viewportIds, 'Stranded SEG');
+      useSegmentationStore.getState().setXnatOrigin(segmentationId, {
+        scanId: '3001', sourceScanId: '4', projectId: 'P', sessionId: containerSessionId,
+      });
+      useSegmentationManagerStore.getState().markDirty(segmentationId);
+      useViewerStore.setState({ sessionId: activeSessionId });
+      return segmentationId;
     },
     setUnifiedBrushSize: (size: number) => unifiedToolService.setBrushSize(size),
     isUnifiedVolumeReady: () => {
