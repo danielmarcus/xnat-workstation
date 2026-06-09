@@ -76,3 +76,19 @@ test('unified setActiveTool swaps the Primary slot, keeping nav (flag on)', asyn
   await expect.poll(() => toolMode(page, CS.length), { timeout: 10_000 }).toBe('Active');
   expect(await toolMode(page, CS.contour)).toBe('Passive');
 });
+
+test('the full toolbox tool set is registered + activatable on the unified group (R3.8b)', async ({ page }) => {
+  await setEnabled(page, true);
+  await enterLocalViewer(page);
+  const files = ensureFixture('ct-axial-300');
+  await page.locator('[data-testid="local-import-input"]').setInputFiles(files);
+  await expect(page.locator('[data-testid="unified-viewport-element:panel_0"] canvas'))
+    .toBeVisible({ timeout: 30_000 });
+
+  // A sampling across all three kinds — each must ACTIVATE (before R3.8b these were
+  // unregistered, so setActiveTool warned + left the active tool unchanged).
+  for (const t of ['Eraser', 'ThresholdBrush', 'Angle', 'EllipticalROI', 'CircleScissors', 'Sculptor', 'SplineContour', 'ArrowAnnotate']) {
+    await setTool(page, t);
+    await expect.poll(() => activeTool(page), { timeout: 10_000, message: `${t} should activate` }).toBe(t);
+  }
+});

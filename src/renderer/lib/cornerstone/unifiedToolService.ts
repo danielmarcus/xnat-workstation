@@ -32,10 +32,33 @@ import {
   LengthTool,
   BrushTool,
   PlanarFreehandContourSegmentationTool,
+  // R3.8b — full toolbox tool set (all already addTool'd globally in init.ts).
+  AngleTool,
+  BidirectionalTool,
+  EllipticalROITool,
+  RectangleROITool,
+  CircleROITool,
+  ProbeTool,
+  ArrowAnnotateTool,
+  PlanarFreehandROITool,
+  SplineContourSegmentationTool,
+  LivewireContourSegmentationTool,
+  CircleScissorsTool,
+  RectangleScissorsTool,
+  SphereScissorsTool,
+  SculptorTool,
+  SegmentSelectTool,
+  RegionSegmentTool,
+  RegionSegmentPlusTool,
+  SegmentBidirectionalTool,
+  RectangleROIThresholdTool,
+  CircleROIStartEndThresholdTool,
+  LabelMapEditWithContourTool,
   Enums as ToolEnums,
   utilities as csToolUtilities,
 } from '@cornerstonejs/tools';
 import type { Types as ToolTypes } from '@cornerstonejs/tools';
+import SafePaintFillTool from './tools/SafePaintFillTool';
 import { ToolName } from '@shared/types/viewer';
 import { viewportService } from './viewportService';
 
@@ -62,6 +85,43 @@ const UNIFIED_TOOL_MAP: Partial<Record<ToolName, string>> = {
   [ToolName.Length]: LengthTool.toolName,
   [ToolName.FreehandContour]: PlanarFreehandContourSegmentationTool.toolName,
   [ToolName.Brush]: BrushTool.toolName,
+  // ── R3.8b: full toolbox set ──
+  // Brush family share BrushTool; the strategy (fill/erase/threshold) is selected
+  // in setActiveTool via BRUSH_STRATEGY below.
+  [ToolName.Eraser]: BrushTool.toolName,
+  [ToolName.ThresholdBrush]: BrushTool.toolName,
+  // Structure (contour) tools
+  [ToolName.SplineContour]: SplineContourSegmentationTool.toolName,
+  [ToolName.LivewireContour]: LivewireContourSegmentationTool.toolName,
+  [ToolName.Sculptor]: SculptorTool.toolName,
+  // Segmentation editing tools
+  [ToolName.CircleScissors]: CircleScissorsTool.toolName,
+  [ToolName.RectangleScissors]: RectangleScissorsTool.toolName,
+  [ToolName.SphereScissors]: SphereScissorsTool.toolName,
+  [ToolName.PaintFill]: SafePaintFillTool.toolName,
+  [ToolName.RegionSegment]: RegionSegmentTool.toolName,
+  [ToolName.RegionSegmentPlus]: RegionSegmentPlusTool.toolName,
+  [ToolName.SegmentSelect]: SegmentSelectTool.toolName,
+  [ToolName.SegmentBidirectional]: SegmentBidirectionalTool.toolName,
+  [ToolName.CircleROIThreshold]: CircleROIStartEndThresholdTool.toolName,
+  [ToolName.LabelmapEditWithContour]: LabelMapEditWithContourTool.toolName,
+  // Measurement (annotation) tools
+  [ToolName.Angle]: AngleTool.toolName,
+  [ToolName.Bidirectional]: BidirectionalTool.toolName,
+  [ToolName.EllipticalROI]: EllipticalROITool.toolName,
+  [ToolName.RectangleROI]: RectangleROITool.toolName,
+  [ToolName.CircleROI]: CircleROITool.toolName,
+  [ToolName.Probe]: ProbeTool.toolName,
+  [ToolName.ArrowAnnotate]: ArrowAnnotateTool.toolName,
+  [ToolName.PlanarFreehandROI]: PlanarFreehandROITool.toolName,
+  [ToolName.RectangleROIThreshold]: RectangleROIThresholdTool.toolName,
+};
+
+/** Brush-family strategy per ToolName (all share BrushTool). */
+const BRUSH_STRATEGY: Partial<Record<ToolName, string>> = {
+  [ToolName.Brush]: 'FILL_INSIDE_CIRCLE',
+  [ToolName.Eraser]: 'ERASE_INSIDE_CIRCLE',
+  [ToolName.ThresholdBrush]: 'THRESHOLD_INSIDE_CIRCLE',
 };
 
 /**
@@ -113,6 +173,23 @@ function ensureToolGroup(): ToolTypes.IToolGroup | undefined {
   toolGroup.addTool(LengthTool.toolName);
   toolGroup.addTool(PlanarFreehandContourSegmentationTool.toolName);
   toolGroup.addTool(BrushTool.toolName);
+  // R3.8b — full toolbox set (each globally addTool'd in init.ts). Added passive;
+  // setActiveTool promotes one to Primary on demand.
+  const FULL_SET = [
+    AngleTool, BidirectionalTool, EllipticalROITool, RectangleROITool, CircleROITool,
+    ProbeTool, ArrowAnnotateTool, PlanarFreehandROITool, SplineContourSegmentationTool,
+    LivewireContourSegmentationTool, CircleScissorsTool, RectangleScissorsTool,
+    SphereScissorsTool, SafePaintFillTool, SculptorTool, SegmentSelectTool,
+    RegionSegmentTool, RegionSegmentPlusTool, SegmentBidirectionalTool,
+    RectangleROIThresholdTool, CircleROIStartEndThresholdTool, LabelMapEditWithContourTool,
+  ];
+  for (const Tool of FULL_SET) {
+    try {
+      toolGroup.addTool(Tool.toolName);
+    } catch (err) {
+      console.warn(`[unifiedToolService] addTool ${Tool.toolName} failed:`, err);
+    }
+  }
 
   // Default Primary (left-click) = Window/Level. The native CrosshairsTool is
   // DISABLED: it needs ≥2 non-parallel planes, so it crashes on mouse-move in a
@@ -129,6 +206,13 @@ function ensureToolGroup(): ToolTypes.IToolGroup | undefined {
   // Editing tools start passive (visible, not the active primary).
   toolGroup.setToolPassive(LengthTool.toolName);
   toolGroup.setToolPassive(PlanarFreehandContourSegmentationTool.toolName);
+  for (const Tool of FULL_SET) {
+    try {
+      toolGroup.setToolPassive(Tool.toolName);
+    } catch {
+      /* not all tools support passive; safe to ignore */
+    }
+  }
 
   currentPrimary = WindowLevelTool.toolName;
   console.log('[unifiedToolService] Unified tool group initialized');
@@ -178,10 +262,10 @@ export const unifiedToolService = {
       toolGroup.setToolActive(currentPrimary, { bindings: [{ mouseButton: oldBase }] });
     }
 
-    // Brush needs an active labelmap strategy when it takes Primary.
+    // Brush family share BrushTool — pick the fill/erase/threshold strategy by ToolName.
     if (csName === BrushTool.toolName) {
       try {
-        toolGroup.setActiveStrategy(BrushTool.toolName, 'FILL_INSIDE_CIRCLE');
+        toolGroup.setActiveStrategy(BrushTool.toolName, BRUSH_STRATEGY[toolName] ?? 'FILL_INSIDE_CIRCLE');
       } catch {
         /* default strategy */
       }
