@@ -245,11 +245,14 @@ Current rendering map (Explore): one shared `RenderingEngine`; STACK via `viewpo
 
 **Now in Phase 1 (pulled forward for P1.7):** the *minimal* drawing routing + brush/contour editing + per-container undo + dirty flag + local SEG save needed for signals 1/3/6/7. **Still Phase 2–3:** cross-series rules (A2a–d), non-native dashed rendering, gesture-start blocking/lock enforcement, the list panel, approval workflow, queue-next-save/debounced autosave, save-to-XNAT round-trip.
 
-### Rebuild Phase 2 — Annotation behavior (Not started)
+### Rebuild Phase 2 — Annotation behavior (In progress — sliced; plan: robust-stirring-hanrahan.md)
 - FoR-eligibility (A2a/b/c/d); **A2c defaults to *show* when uncertain** — `AcquisitionNumber` difference alone never hides.
 - Non-native rendering style (dashed stroke / hatch fill); drawing routing + gesture-start blocking.
 - Per-container undo via `undoService` (viewport-independent, bounded-delta); queue-next-save; silent debounced autosave.
 - **Acceptance:** signals 1, 2, 8, 9, 10, 11, 14, 15, 23 (contour copy/paste); signal-12 block logic verified at the service layer (full E2E in Rebuild Phase 3).
+- **Slices:** 1 FoR-eligibility service (pure) → 2 FoR-gated attach + non-native style (D9) → 3 gesture-start blocking → 4 per-container undo → 5 queue/debounced autosave → 6 copy/paste finish.
+  - **Slice 1 ✅ `e9e3aa2`** — `forEligibility.classifyEligibility` (native/cross-show/cross-hide/different-FoR, encoding the A2c invariants) + `bulkDisplacement` centroid-delta estimator + `SourceIdentity.referencedSeriesInstanceUIDs`. Pure + unit-tested (red-first); no behavioral change yet (wiring in Slice 2).
+  - **Findings (scope corrections):** contour copy/paste already exists (Slice 6 extends, incl. the voxel-region clipboard); all 6 cross-series fixtures already exist; per-viewport style works for contour (dashed `outlineDash` + reduced `fillAlpha`) but labelmap/SEG has no dash/hatch → **Slice-2 decision:** D9-for-SEG = reduced fill opacity + thin/outline-only (spec reconciliation).
 
 ### Rebuild Phase 3 — List panel (Not started)
 - Container + member hierarchy; per-row metadata; 3-state visibility; lock; active vs. selection; cross-series / different-FoR / interpolated / empty markers.
