@@ -47,6 +47,9 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
   // rename; cleared once the row consumes it (onEditConsumed).
   const [autoEditContainerId, setAutoEditContainerId] = useState<string | null>(null);
   const [autoEditMemberKey, setAutoEditMemberKey] = useState<string | null>(null);
+  // On create, after the container name is accepted, advance to editing its default
+  // member's name (two-step create: container → member). Holds the pending member.
+  const [createFlow, setCreateFlow] = useState<{ containerId: string; memberKey: string } | null>(null);
 
   const containers = useMemo(
     () =>
@@ -90,17 +93,17 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
     }
     void (async () => {
       try {
+        let segId: string;
         if (kind === 'RTSTRUCT') {
-          const segId = await segmentationManager.createNewStructure(activeViewportId, sourceImageIds);
+          segId = await segmentationManager.createNewStructure(activeViewportId, sourceImageIds);
           await segmentationManager.addSegment(segId, 'ROI 1'); // D7.6 — create starts with a member
-          activateAndBridge(segId, '1');
-          setAutoEditContainerId(segId); // create-in-edit-mode (D7.6)
         } else {
           // SEG with a default Segment 1 (createDefaultSegment) so the container is drawable immediately.
-          const segId = await segmentationManager.createNewSegmentation(activeViewportId, sourceImageIds, undefined, true);
-          activateAndBridge(segId, '1');
-          setAutoEditContainerId(segId); // create-in-edit-mode (D7.6)
+          segId = await segmentationManager.createNewSegmentation(activeViewportId, sourceImageIds, undefined, true);
         }
+        activateAndBridge(segId, '1');
+        setAutoEditContainerId(segId); // create-in-edit-mode (D7.6): edit the container name first…
+        setCreateFlow({ containerId: segId, memberKey: `${segId} 1` }); // …then its default member.
       } catch (err) {
         console.error('[annotationsPanel] create failed:', err);
       }
@@ -133,6 +136,18 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
     onKebab: () => console.warn('[annotationsPanel] container kebab menu — TODO (hide-all/lock-all/export/revert).'),
     onDeleteContainer: (id) => segmentationManager.removeSegmentation(id),
     onRenameContainer: (id, name) => segmentationManager.renameSegmentation(id, name),
+    onContainerEditCommit: (id) => {
+      // Two-step create: once the freshly-created container's name is accepted,
+      // advance to editing its default member's name (D7.6).
+      if (createFlow?.containerId !== id) return;
+      setCollapsed((prev) => {
+        const next = new Set(prev);
+        next.delete(id); // ensure the member row is visible to receive the edit
+        return next;
+      });
+      setAutoEditMemberKey(createFlow.memberKey);
+      setCreateFlow(null);
+    },
     onSelectMember: (cid, mid, additive) => {
       const sel = useAnnotationSelectionStore.getState();
       if (additive) sel.toggleSelected(cid, mid);

@@ -34,6 +34,8 @@ export interface ContainerRowProps {
   autoEdit?: boolean;
   /** Called once after a freshly-created row enters edit mode (clears the pending flag). */
   onEditConsumed?: () => void;
+  /** Called when the inline name edit is accepted (Enter/blur), NOT on Esc-cancel. */
+  onCommitName?: () => void;
   onToggleExpand: () => void;
   onApproveToggle: () => void;
   onAddMember: () => void;
@@ -44,7 +46,7 @@ export interface ContainerRowProps {
 }
 
 export default function ContainerRow(props: ContainerRowProps) {
-  const { container, expanded, crossPanelCount, autoEdit, onEditConsumed, onToggleExpand, onApproveToggle, onAddMember, onSave, onKebab, onDelete, onRename } = props;
+  const { container, expanded, crossPanelCount, autoEdit, onEditConsumed, onCommitName, onToggleExpand, onApproveToggle, onAddMember, onSave, onKebab, onDelete, onRename } = props;
   const approved = container.approval === 'APPROVED';
   const dirty = !!container.dirty && !approved;
 
@@ -78,6 +80,7 @@ export default function ContainerRow(props: ContainerRowProps) {
     setEditing(false);
     const next = draft.trim();
     if (next && next !== container.label) onRename(next);
+    onCommitName?.(); // edit accepted (Enter/blur) — lets the create flow advance to the member
   };
 
   return (

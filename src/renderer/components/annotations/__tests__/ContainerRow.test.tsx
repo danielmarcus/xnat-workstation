@@ -75,6 +75,17 @@ describe('ContainerRow', () => {
     expect(onEditConsumed).toHaveBeenCalled();
   });
 
+  it('fires onCommitName when the name edit is accepted (Enter), not on Esc-cancel', async () => {
+    const onCommitName = vi.fn();
+    setup({ onCommitName });
+    await userEvent.dblClick(screen.getByText('Pelvis_v3'));
+    await userEvent.keyboard('{Escape}');
+    expect(onCommitName).not.toHaveBeenCalled(); // Esc cancels — no advance
+    await userEvent.dblClick(screen.getByText('Pelvis_v3'));
+    await userEvent.keyboard('{Enter}');
+    expect(onCommitName).toHaveBeenCalled(); // Enter commits — advances the create flow
+  });
+
   it('fires expand / approve / add / kebab / delete callbacks', async () => {
     const cbs = setup();
     await userEvent.click(screen.getByLabelText('Collapse'));
