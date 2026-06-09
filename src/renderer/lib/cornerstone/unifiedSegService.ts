@@ -82,12 +82,19 @@ function recordContainerSpatial(segmentationId: string, nativeViewportId: string
  * Exported for service-integration testing.
  */
 export function attachLabelmapWithEligibility(segmentationId: string, viewportId: string): void {
-  const cspatial = containerSpatial.get(segmentationId);
-  const vspatial = resolveViewportSpatial(viewportId);
   // Default native (fail-open) — only override when both ids are confidently known.
+  // The whole decision is wrapped so a metadata/viewport read failure can never
+  // throw out of here (which would abort the create-time attach loop); on any error
+  // we attach as native, exactly as the pre-eligibility code did.
   let action = actionForEligibility('native');
-  if (cspatial?.frameOfReferenceUID && vspatial?.frameOfReferenceUID) {
-    action = actionForEligibility(classifyEligibility({ container: cspatial, viewport: vspatial }));
+  try {
+    const cspatial = containerSpatial.get(segmentationId);
+    const vspatial = resolveViewportSpatial(viewportId);
+    if (cspatial?.frameOfReferenceUID && vspatial?.frameOfReferenceUID) {
+      action = actionForEligibility(classifyEligibility({ container: cspatial, viewport: vspatial }));
+    }
+  } catch {
+    action = actionForEligibility('native');
   }
   if (!action.attach) return; // A2d different-FoR: do not render here
   csSegmentation.addLabelmapRepresentationToViewport(viewportId, [{ segmentationId }]);
@@ -204,14 +211,16 @@ export const unifiedSegService = {
     ]);
 
     created.add(segmentationId);
+    // viewportIds[0] is the create origin → its series is the container's native
+    // series. Record that BEFORE attaching so the eligibility gate can classify the
+    // other viewports against it.
     recordContainerSpatial(segmentationId, viewportIds[0]);
     for (const viewportId of viewportIds) {
-      csSegmentation.addLabelmapRepresentationToViewport(viewportId, [{ segmentationId }]);
-      try {
-        csSegmentation.activeSegmentation.setActiveSegmentation(viewportId, segmentationId);
-      } catch {
-        /* viewport may not be ready; representation add already queued */
-      }
+      // FoR-eligibility gate (A2a–d): the native viewport(s) attach solid + active;
+      // a same-FoR sibling series attaches non-native (dimmed) + read-only; a
+      // different FoR is skipped. MPR-safe: every MPR panel shows the same series,
+      // so each classifies `native` and attaches exactly as before.
+      attachLabelmapWithEligibility(segmentationId, viewportId);
     }
     csSegmentation.segmentIndex.setActiveSegmentIndex(segmentationId, 1);
 

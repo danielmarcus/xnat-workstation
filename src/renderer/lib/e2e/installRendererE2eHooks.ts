@@ -66,6 +66,8 @@ declare global {
       setMultiviewportEnabled: (enabled: boolean) => void;
       /** Cornerstone viewport type for a panel ('stack' | 'orthographic' | …) or null. */
       getViewportType: (panelId: string) => string | null;
+      /** Viewport ids a segmentation is currently attached to (FoR-eligibility outcome). */
+      getSegmentationViewportIds: (segmentationId: string) => string[];
       /** Set the unified-grid layout preset. */
       setLayoutPreset: (preset: LayoutPreset) => void;
       /** The currently-active viewport panel id (null if none). */
@@ -484,6 +486,8 @@ export function installRendererE2eHooks(): void {
       const ee = getEnabledElementByViewportId(panelId) as { viewport?: { type?: string } } | undefined;
       return ee?.viewport?.type ?? null;
     },
+    getSegmentationViewportIds: (segmentationId: string) =>
+      csSegmentation.state.getViewportIdsWithSegmentation(segmentationId) ?? [],
     setLayoutPreset: (preset: LayoutPreset) => {
       useUnifiedLayoutStore.getState().setPreset(preset);
     },
