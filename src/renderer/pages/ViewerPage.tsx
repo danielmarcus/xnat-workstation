@@ -8,7 +8,15 @@ import Toolbar from '../components/viewer/Toolbar';
 import UnifiedViewportGrid from '../components/viewer/UnifiedViewportGrid';
 import AnnotationListPanel from '../components/viewer/AnnotationListPanel';
 import SegmentationPanel from '../components/viewer/SegmentationPanel';
+import AnnotationsPanel from '../components/annotations/AnnotationsPanel';
 import DicomHeaderPanel from '../components/viewer/DicomHeaderPanel';
+
+/**
+ * Rebuild Phase 3 (R3.8): mount the rebuilt Annotations side panel on the existing
+ * "Segment" toggle. Flag kept so the legacy SegmentationPanel is one flip away
+ * during visual sign-off; R3.8b deletes the legacy panel and removes this flag.
+ */
+const REBUILT_ANNOTATIONS_PANEL = true;
 import { toolService } from '../lib/cornerstone/toolService';
 import { annotationService } from '../lib/cornerstone/annotationService';
 import { segmentationService } from '../lib/cornerstone/segmentationService';
@@ -96,7 +104,11 @@ export default function ViewerPage({
           </div>
           {showAnnotationPanel && <AnnotationListPanel />}
           {showSegPanel && (
-            <SegmentationPanel sourceImageIds={panelImageIds[activeViewportId] ?? []} />
+            REBUILT_ANNOTATIONS_PANEL ? (
+              <AnnotationsPanel activeViewportId={activeViewportId} sourceImageIds={panelImageIds[activeViewportId] ?? []} />
+            ) : (
+              <SegmentationPanel sourceImageIds={panelImageIds[activeViewportId] ?? []} />
+            )
           )}
           {showDicomPanel && <DicomHeaderPanel onClose={closeDicomPanel} />}
         </div>

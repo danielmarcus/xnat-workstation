@@ -1,0 +1,183 @@
+/**
+ * useAnnotationsPanel (Rebuild Phase 3, R3.8) — the connected hook that turns the
+ * presentational annotation components into a live panel. It projects the unified
+ * Container[] from the live stores, derives header/toolbox/selection state, and
+ * binds the row/header callbacks to the real services (segmentationManager +
+ * segmentationService) and the annotationSelectionStore.
+ *
+ * Activating a member mirrors into the LEGACY active state
+ * (segmentationStore.setActiveSegmentation/Index) so existing drawing tools target
+ * it — this is the bridge that makes the new active model drive editing, and the
+ * value the Phase-2 gesture block / toolbar undo read (wired in R3.8b).
+ *
+ * Genuinely-not-built actions are graceful no-ops with a console.warn (marked
+ * TODO): approval persistence (D7.11 — transport), SR-container create, save-to-
+ * XNAT (transport workstream), and tool-id → Cornerstone routing (R3.8b).
+ */
+import { useMemo, useState } from 'react';
+import type { ContainerKind } from '@shared/types/annotation';
+import { useSegmentationStore } from '../stores/segmentationStore';
+import { useSegmentationManagerStore } from '../stores/segmentationManagerStore';
+import { useAnnotationStore } from '../stores/annotationStore';
+import { useAnnotationSelectionStore } from '../stores/annotationSelectionStore';
+import { segmentationService } from '../lib/cornerstone/segmentationService';
+import { segmentationManager } from '../lib/segmentation/segmentationManagerSingleton';
+import { projectContainers } from '../lib/annotations/containerProjection';
+import type { ContainerListHandlers } from '../components/annotations/ContainerList';
+
+function rgbaToCss(color?: [number, number, number, number]): string | undefined {
+  if (!color) return undefined;
+  return `rgb(${color[0]}, ${color[1]}, ${color[2]})`;
+}
+
+export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: string[]) {
+  const segmentations = useSegmentationStore((s) => s.segmentations);
+  const xnatOriginMap = useSegmentationStore((s) => s.xnatOriginMap);
+  const hasUnsavedChanges = useSegmentationStore((s) => s.hasUnsavedChanges);
+  const presentation = useSegmentationManagerStore((s) => s.presentation);
+  const dirtySegIds = useSegmentationManagerStore((s) => s.dirtySegIds);
+  const annotations = useAnnotationStore((s) => s.annotations);
+
+  const activeMember = useAnnotationSelectionStore((s) => s.activeMember);
+  const selection = useAnnotationSelectionStore((s) => s.selection);
+
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [activeToolId, setActiveToolId] = useState<string | null>(null);
+
+  const containers = useMemo(
+    () =>
+      projectContainers({
+        segmentations,
+        annotations,
+        presentation,
+        dirtySegIds,
+        xnatOriginMap,
+        kindOf: (id) => {
+          try {
+            return segmentationService.getPreferredDicomType(id) as ContainerKind;
+          } catch {
+            return 'SEG';
+          }
+        },
+      }),
+    [segmentations, annotations, presentation, dirtySegIds, xnatOriginMap],
+  );
+
+  const canCreate = sourceImageIds.length > 0;
+  const anyDirty = hasUnsavedChanges || Object.values(dirtySegIds).some(Boolean);
+
+  const activeContainer = activeMember ? containers.find((c) => c.id === activeMember.containerId) : undefined;
+  const activeMemberObj = activeContainer?.members.find((m) => m.id === activeMember?.memberId);
+
+  // ── Bridge: mirror the new active member into the legacy active state so drawing targets it. ──
+  const activateAndBridge = (containerId: string, memberId: string) => {
+    useAnnotationSelectionStore.getState().activate(containerId, memberId);
+    const segStore = useSegmentationStore.getState();
+    segStore.setActiveSegmentation(containerId);
+    const idx = Number(memberId);
+    if (Number.isInteger(idx) && idx > 0) segStore.setActiveSegmentIndex(idx);
+  };
+
+  const onCreate = (kind: ContainerKind) => {
+    if (!canCreate) return;
+    if (kind === 'SR') {
+      console.warn('[annotationsPanel] New Measurement (SR) container — not yet implemented (use a measurement tool).');
+      return;
+    }
+    void (async () => {
+      try {
+        if (kind === 'RTSTRUCT') {
+          const segId = await segmentationManager.createNewStructure(activeViewportId, sourceImageIds);
+          await segmentationManager.addSegment(segId, 'ROI 1'); // D7.6 — create starts with a member
+          activateAndBridge(segId, '1');
+        } else {
+          // SEG with a default Segment 1 (createDefaultSegment) so the container is drawable immediately.
+          const segId = await segmentationManager.createNewSegmentation(activeViewportId, sourceImageIds, undefined, true);
+          activateAndBridge(segId, '1');
+        }
+      } catch (err) {
+        console.error('[annotationsPanel] create failed:', err);
+      }
+    })();
+  };
+
+  const handlers: ContainerListHandlers = {
+    onToggleExpand: (id) =>
+      setCollapsed((prev) => {
+        const next = new Set(prev);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        return next;
+      }),
+    onApproveToggle: () => console.warn('[annotationsPanel] approve/revoke — D7.11 approval persistence is transport-workstream (TODO).'),
+    onAddMember: (id) => {
+      void (async () => {
+        try {
+          const idx = await segmentationManager.addSegment(id, `Segment ${id}`);
+          activateAndBridge(id, String(idx));
+        } catch (err) {
+          console.error('[annotationsPanel] add member failed:', err);
+        }
+      })();
+    },
+    onSaveContainer: () => console.warn('[annotationsPanel] save-to-XNAT — transport workstream (TODO); local autosave runs in background.'),
+    onKebab: () => console.warn('[annotationsPanel] container kebab menu — TODO (hide-all/lock-all/export/revert).'),
+    onDeleteContainer: (id) => segmentationManager.removeSegmentation(id),
+    onRenameContainer: (id, name) => segmentationManager.renameSegmentation(id, name),
+    onSelectMember: (cid, mid, additive) => {
+      const sel = useAnnotationSelectionStore.getState();
+      if (additive) sel.toggleSelected(cid, mid);
+      else sel.selectOnly(cid, mid);
+    },
+    onActivateMember: (cid, mid) => activateAndBridge(cid, mid),
+    onCycleVisibility: (cid, mid) => {
+      const idx = Number(mid);
+      const container = containers.find((c) => c.id === cid);
+      const member = container?.members.find((m) => m.id === mid);
+      if (!member || !Number.isInteger(idx)) return;
+      segmentationService.setSegmentVisibility(activeViewportId, cid, idx, !member.visible);
+    },
+    onToggleLock: (cid, mid) => {
+      const idx = Number(mid);
+      if (Number.isInteger(idx) && idx > 0) segmentationService.toggleSegmentLocked(cid, idx);
+    },
+    onDeleteMember: (cid, mid) => {
+      const idx = Number(mid);
+      if (Number.isInteger(idx) && idx > 0) segmentationService.removeSegment(cid, idx);
+    },
+    onRenameMember: (cid, mid, name) => {
+      const idx = Number(mid);
+      if (Number.isInteger(idx) && idx > 0) segmentationManager.renameSegment(cid, idx, name);
+    },
+  };
+
+  const onSelectTool = (toolId: string) => {
+    setActiveToolId(toolId);
+    // TODO (R3.8b): map catalog tool id → Cornerstone ToolName and route to unifiedToolService.
+    console.warn(`[annotationsPanel] tool "${toolId}" selected — Cornerstone routing TODO (R3.8b).`);
+  };
+
+  return {
+    containers,
+    containerCount: containers.length,
+    canCreate,
+    anyDirty,
+    onCreate,
+    onSaveAll: () => console.warn('[annotationsPanel] Save all — transport workstream (TODO).'),
+    handlers,
+    // selection / expand resolvers
+    isExpanded: (id: string) => !collapsed.has(id),
+    isActive: (cid: string, mid: string) => activeMember?.containerId === cid && activeMember?.memberId === mid,
+    isSelected: (cid: string, mid: string) => selection.some((r) => r.containerId === cid && r.memberId === mid),
+    // toolbox
+    toolbox: activeContainer
+      ? {
+          kind: activeContainer.kind,
+          activeMemberName: activeMemberObj?.label ?? '',
+          activeMemberColor: rgbaToCss(activeMemberObj?.color),
+          activeToolId,
+          onSelectTool,
+        }
+      : null,
+  };
+}
