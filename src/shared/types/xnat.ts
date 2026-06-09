@@ -95,4 +95,12 @@ export interface XnatUploadResult {
   url?: string;     // XNAT URL of created scan
   scanId?: string;  // XNAT scan ID (e.g. "3004")
   error?: string;
+  /**
+   * Optimistic-concurrency version token for the written scan file. Present on
+   * success; changes whenever the server-side object changes so a stale token
+   * surfaces a save conflict. Derived from the upload response's ETag /
+   * Last-Modified header, falling back to a content hash (see
+   * XnatClient.deriveVersionToken). Optional for backward compatibility.
+   */
+  versionToken?: string;
 }

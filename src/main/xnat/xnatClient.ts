@@ -12,6 +12,7 @@
  * automatically include cookies from the default session's cookie jar.
  */
 import { session as electronSession } from 'electron';
+import { createHash } from 'crypto';
 import { data as dcmjsData } from 'dcmjs';
 import { DOMParser } from '@xmldom/xmldom';
 import type { ServerCookie } from './browserLogin';
@@ -794,6 +795,36 @@ export class XnatClient {
     await response.text().catch(() => {});
   }
 
+  /**
+   * Derive an optimistic-concurrency version token for an uploaded/overwritten
+   * scan file. The token's only contract is that it CHANGES whenever the
+   * server-side object changes, so a stale token surfaces a conflict.
+   *
+   * Derivation, in order of preference:
+   *  1. The PUT response's `ETag` header (strongest — server-issued entity tag).
+   *  2. The PUT response's `Last-Modified` header (server-issued mtime).
+   *  3. Fallback: a deterministic SHA-1 over the canonical scan URL + the exact
+   *     bytes we wrote. XNAT's file-PUT responses do not reliably carry ETag /
+   *     Last-Modified, so this fallback is the common case. It satisfies the
+   *     contract because the byte content (hashed) changes on every distinct
+   *     write, and it requires no extra network round-trip. It is content-based
+   *     rather than server-clock-based, so two byte-identical writes yield the
+   *     same token — acceptable for conflict detection (identical content = no
+   *     observable change to defend against).
+   */
+  private deriveVersionToken(scanUrl: string, fileResp: Response, dicomBuffer: Buffer): string {
+    const etag = fileResp.headers.get('etag');
+    if (etag && etag.trim().length > 0) return `etag:${etag.trim()}`;
+    const lastModified = fileResp.headers.get('last-modified');
+    if (lastModified && lastModified.trim().length > 0) return `lm:${lastModified.trim()}`;
+    const hash = createHash('sha1')
+      .update(scanUrl)
+      .update('\0')
+      .update(new Uint8Array(dicomBuffer))
+      .digest('hex');
+    return `sha1:${hash}`;
+  }
+
   private async deleteScanResourceFiles(
     basePath: string,
     resourceLabel: string,
@@ -947,7 +978,7 @@ export class XnatClient {
     sourceScanId: string,
     dicomBuffer: Buffer,
     seriesDescription: string = 'Segmentation',
-  ): Promise<{ url: string; scanId: string }> {
+  ): Promise<{ url: string; scanId: string; versionToken: string }> {
     if (!this.jsessionId || this._disconnected) throw new XnatAuthError('Not authenticated');
     const { targetSessionId, targetSessionLabel, targetProjectId, targetSubjectId } =
       await this.resolveUploadRouting(projectId, subjectId, sessionId, sessionLabel, 'SEG');
@@ -1006,6 +1037,9 @@ export class XnatClient {
       throw new Error(`Failed to upload SEG file to scan ${targetScanId}: ${fileResp.status} ${text}`.trim());
     }
 
+    const scanUrl = `${this.baseUrl}/data/experiments/${encodeURIComponent(targetSessionId)}/scans/${encodeURIComponent(targetScanId)}`;
+    const versionToken = this.deriveVersionToken(scanUrl, fileResp, dicomWithScanNumber);
+
     try {
       await this.pullDataFromHeaders(targetSessionId, targetScanId);
     } catch (err) {
@@ -1015,8 +1049,7 @@ export class XnatClient {
       );
     }
 
-    const scanUrl = `${this.baseUrl}/data/experiments/${encodeURIComponent(targetSessionId)}/scans/${encodeURIComponent(targetScanId)}`;
-    return { url: scanUrl, scanId: targetScanId };
+    return { url: scanUrl, scanId: targetScanId, versionToken };
   }
 
   /**
@@ -1030,7 +1063,7 @@ export class XnatClient {
     sourceScanId: string,
     dicomBuffer: Buffer,
     seriesDescription: string = 'RT Structure Set',
-  ): Promise<{ url: string; scanId: string }> {
+  ): Promise<{ url: string; scanId: string; versionToken: string }> {
     if (!this.jsessionId || this._disconnected) throw new XnatAuthError('Not authenticated');
     const { targetSessionId, targetSessionLabel, targetProjectId, targetSubjectId } =
       await this.resolveUploadRouting(projectId, subjectId, sessionId, sessionLabel, 'RTSTRUCT');
@@ -1094,6 +1127,9 @@ export class XnatClient {
       throw new Error(`Failed to upload RTSTRUCT file to scan ${targetScanId}: ${fileResp.status} ${text}`.trim());
     }
 
+    const scanUrl = `${this.baseUrl}/data/experiments/${encodeURIComponent(targetSessionId)}/scans/${encodeURIComponent(targetScanId)}`;
+    const versionToken = this.deriveVersionToken(scanUrl, fileResp, dicomWithScanNumber);
+
     try {
       await this.pullDataFromHeaders(targetSessionId, targetScanId);
     } catch (err) {
@@ -1103,8 +1139,7 @@ export class XnatClient {
       );
     }
 
-    const scanUrl = `${this.baseUrl}/data/experiments/${encodeURIComponent(targetSessionId)}/scans/${encodeURIComponent(targetScanId)}`;
-    return { url: scanUrl, scanId: targetScanId };
+    return { url: scanUrl, scanId: targetScanId, versionToken };
   }
 
   // ─── Overwrite Existing Scan ─────────────────────────────────────
@@ -1118,7 +1153,7 @@ export class XnatClient {
     targetScanId: string,
     dicomBuffer: Buffer,
     seriesDescription?: string,
-  ): Promise<{ url: string; scanId: string }> {
+  ): Promise<{ url: string; scanId: string; versionToken: string }> {
     if (!this.jsessionId || this._disconnected) throw new XnatAuthError('Not authenticated');
 
     console.log(
@@ -1154,6 +1189,9 @@ export class XnatClient {
       throw new Error(`Failed to overwrite SEG in scan ${targetScanId}: ${fileResp.status} ${text}`.trim());
     }
 
+    const scanUrl = `${this.baseUrl}${basePath}`;
+    const versionToken = this.deriveVersionToken(scanUrl, fileResp, dicomWithScanNumber);
+
     // Best-effort metadata refresh so DICOM-derived scan attributes are repopulated in XNAT.
     try {
       await this.pullDataFromHeaders(sessionId, targetScanId);
@@ -1164,9 +1202,8 @@ export class XnatClient {
       );
     }
 
-    const scanUrl = `${this.baseUrl}${basePath}`;
     console.log(`[xnatClient] Overwrite successful: ${scanUrl}`);
-    return { url: scanUrl, scanId: targetScanId };
+    return { url: scanUrl, scanId: targetScanId, versionToken };
   }
 
   /**
@@ -1178,7 +1215,7 @@ export class XnatClient {
     targetScanId: string,
     dicomBuffer: Buffer,
     seriesDescription?: string,
-  ): Promise<{ url: string; scanId: string }> {
+  ): Promise<{ url: string; scanId: string; versionToken: string }> {
     if (!this.jsessionId || this._disconnected) throw new XnatAuthError('Not authenticated');
 
     console.log(
@@ -1211,6 +1248,9 @@ export class XnatClient {
       throw new Error(`Failed to overwrite RTSTRUCT in scan ${targetScanId}: ${fileResp.status} ${text}`.trim());
     }
 
+    const scanUrl = `${this.baseUrl}${basePath}`;
+    const versionToken = this.deriveVersionToken(scanUrl, fileResp, dicomWithScanNumber);
+
     try {
       await this.pullDataFromHeaders(sessionId, targetScanId);
     } catch (err) {
@@ -1220,9 +1260,8 @@ export class XnatClient {
       );
     }
 
-    const scanUrl = `${this.baseUrl}${basePath}`;
     console.log(`[xnatClient] RTSTRUCT overwrite successful: ${scanUrl}`);
-    return { url: scanUrl, scanId: targetScanId };
+    return { url: scanUrl, scanId: targetScanId, versionToken };
   }
 
   // ─── Temp Resource (Session-Level Auto-Save) ──────────────────────

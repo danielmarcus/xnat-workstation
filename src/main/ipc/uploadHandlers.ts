@@ -85,7 +85,7 @@ export function registerUploadHandlers(): void {
           label,
         );
 
-        return { ok: true, url: result.url, scanId: result.scanId };
+        return { ok: true, url: result.url, scanId: result.scanId, versionToken: result.versionToken };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.error('[uploadHandlers] Upload failed:', msg);
@@ -122,7 +122,7 @@ export function registerUploadHandlers(): void {
           buffer,
           seriesDescription,
         );
-        return { ok: true, url: result.url, scanId: result.scanId };
+        return { ok: true, url: result.url, scanId: result.scanId, versionToken: result.versionToken };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.error('[uploadHandlers] Overwrite failed:', msg);
@@ -159,7 +159,7 @@ export function registerUploadHandlers(): void {
           buffer,
           seriesDescription,
         );
-        return { ok: true, url: result.url, scanId: result.scanId };
+        return { ok: true, url: result.url, scanId: result.scanId, versionToken: result.versionToken };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.error('[uploadHandlers] RTSTRUCT overwrite failed:', msg);
@@ -366,7 +366,7 @@ export function registerUploadHandlers(): void {
           label,
         );
 
-        return { ok: true, url: result.url, scanId: result.scanId };
+        return { ok: true, url: result.url, scanId: result.scanId, versionToken: result.versionToken };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.error('[uploadHandlers] RTSTRUCT upload failed:', msg);
