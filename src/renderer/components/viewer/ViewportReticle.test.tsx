@@ -22,13 +22,18 @@ beforeEach(() => {
 afterEach(() => vi.clearAllMocks());
 
 describe('ViewportReticle', () => {
-  it('draws the guide lines at the projected point when the Crosshairs tool is active and a point is set', () => {
+  it('draws gapped guide segments around the projected point (so the center pixel shows through)', () => {
     useViewerStore.setState({ activeTool: ToolName.Crosshairs });
     useViewerStore.getState().setCrosshairWorldPoint([1, 2, 3], 'panel_0');
     render(<ViewportReticle panelId="panel_0" />);
     expect(screen.getByTestId('viewport-reticle:panel_0')).toBeInTheDocument();
-    expect(screen.getByTestId('reticle-h:panel_0')).toHaveStyle({ top: '240px' });
-    expect(screen.getByTestId('reticle-v:panel_0')).toHaveStyle({ left: '120px' });
+    // Point (120,240) in a 512×512 panel, GAP=12 ⇒ a 24px clear gap at the crossing.
+    // Horizontal: left segment 0..108, right segment 132..512.
+    expect(screen.getByTestId('reticle-h-left:panel_0')).toHaveStyle({ top: '240px', left: '0px', width: '108px' });
+    expect(screen.getByTestId('reticle-h-right:panel_0')).toHaveStyle({ top: '240px', left: '132px', width: '380px' });
+    // Vertical: top segment 0..228, bottom segment 252..512.
+    expect(screen.getByTestId('reticle-v-top:panel_0')).toHaveStyle({ left: '120px', top: '0px', height: '228px' });
+    expect(screen.getByTestId('reticle-v-bottom:panel_0')).toHaveStyle({ left: '120px', top: '252px', height: '260px' });
   });
 
   it('renders nothing when the Crosshairs tool is NOT active', () => {

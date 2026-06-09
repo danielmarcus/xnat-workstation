@@ -13,7 +13,9 @@ import { useViewerStore } from '../stores/viewerStore';
 import { getPanelDisplayPointForWorld, type Point3 } from '../lib/cornerstone/unifiedCrosshair';
 import { ToolName } from '@shared/types/viewer';
 
-export function useCrosshairReticle(panelId: string): { x: number; y: number } | null {
+export function useCrosshairReticle(
+  panelId: string,
+): { x: number; y: number; width: number; height: number } | null {
   const point = useViewerStore((s) => s.crosshairWorldPoint);
   const active = useViewerStore((s) => s.activeTool === ToolName.Crosshairs);
   // Read the live camera state purely as re-render triggers — a zoom / slice /
@@ -23,6 +25,5 @@ export function useCrosshairReticle(panelId: string): { x: number; y: number } |
   useViewerStore((s) => s.viewports[panelId]?.rotation);
 
   if (!active || !point) return null;
-  const dp = getPanelDisplayPointForWorld(panelId, point as Point3);
-  return dp ? { x: dp.x, y: dp.y } : null;
+  return getPanelDisplayPointForWorld(panelId, point as Point3);
 }
