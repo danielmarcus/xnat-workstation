@@ -1,4 +1,5 @@
-import { init as initCore } from '@cornerstonejs/core';
+import { init as initCore, volumeLoader } from '@cornerstonejs/core';
+import { geometryDynamicVolumeLoader, GEOMETRY_DYNAMIC_VOLUME_SCHEME } from './dynamicVolumeLoader';
 import { init as initTools, addTool } from '@cornerstonejs/tools';
 import * as polySeg from '@cornerstonejs/polymorphic-segmentation';
 import {
@@ -52,6 +53,12 @@ export async function initCornerstone(): Promise<void> {
   // ---------- 1. Initialize Cornerstone3D Core ----------
   // Handles rendering engine setup, GPU detection, WebGL context pool
   initCore();
+
+  // 4D / multi-volume (functional) series → a geometry-split dynamic volume loader
+  // (Cornerstone's own only detects vendor-tagged cardiac/diffusion 4D). volumeService
+  // routes such series here so every time point keeps correct geometry AND time
+  // points are navigable via volume.dimensionGroupNumber (the scrubber).
+  volumeLoader.registerVolumeLoader(GEOMETRY_DYNAMIC_VOLUME_SCHEME, geometryDynamicVolumeLoader as never);
 
   // ---------- 2. Initialize Cornerstone Tools ----------
   // Register PolySeg addon for automatic conversion between segmentation

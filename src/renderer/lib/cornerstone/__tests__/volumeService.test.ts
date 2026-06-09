@@ -59,7 +59,7 @@ vi.mock('@cornerstonejs/core', () => ({
   metaData: { get: (mod: string, id: string) => volumeMocks.metaDataGet(mod, id) },
 }));
 
-import { generateVolumeId, selectPrimaryTimepointImageIds, volumeService } from '../volumeService';
+import { generateVolumeId, volumeService } from '../volumeService';
 
 describe('volumeService', () => {
   beforeEach(() => {
@@ -179,9 +179,9 @@ describe('volumeService — shared (scanId, FoR) volumes + ref-counting (Phase 1
   });
 });
 
-describe('volumeService — 4D / multi-volume time-point selection (C6)', () => {
+describe('volumeService — 4D / multi-volume routing (C6)', () => {
   // Stub per-image ImagePositionPatient by imageId. The key (rounded) decides which
-  // images share a slice position; repeated positions ⇒ multiple time points.
+  // images share a slice position; repeated positions ⇒ multiple time points ⇒ 4D.
   const setIpps = (byId: Record<string, number[]>): void => {
     volumeMocks.metaDataGet.mockImplementation((mod?: string, id?: string) =>
       mod === 'imagePlaneModule' && id ? { imagePositionPatient: byId[id] } : undefined,
@@ -195,41 +195,28 @@ describe('volumeService — 4D / multi-volume time-point selection (C6)', () => 
     volumeMocks.metaDataGet.mockReturnValue(undefined);
   });
 
-  it('selectPrimaryTimepointImageIds keeps one image per position (the first time point)', () => {
-    // 2 positions × 2 time points; time-point-major order (t0:s0, t0:s1, t1:s0, t1:s1).
-    setIpps({ a: [0, 0, 0], b: [0, 0, 5], c: [0, 0, 0], d: [0, 0, 5] });
-    expect(selectPrimaryTimepointImageIds(['a', 'b', 'c', 'd'])).toEqual(['a', 'b']);
-  });
-
-  it('selectPrimaryTimepointImageIds keeps the first per position regardless of ordering', () => {
-    // position-major order (s0:t0, s0:t1, s1:t0, s1:t1) ⇒ first per position is t0.
-    setIpps({ a: [0, 0, 0], b: [0, 0, 0], c: [0, 0, 5], d: [0, 0, 5] });
-    expect(selectPrimaryTimepointImageIds(['a', 'b', 'c', 'd'])).toEqual(['a', 'c']);
-  });
-
-  it('selectPrimaryTimepointImageIds returns a normal 3D series unchanged', () => {
-    setIpps({ a: [0, 0, 0], b: [0, 0, 5], c: [0, 0, 10] }); // all distinct positions
-    expect(selectPrimaryTimepointImageIds(['a', 'b', 'c'])).toEqual(['a', 'b', 'c']);
-  });
-
-  it('selectPrimaryTimepointImageIds leaves the list unchanged when geometry is missing', () => {
-    volumeMocks.metaDataGet.mockReturnValue(undefined); // no imagePlaneModule
-    expect(selectPrimaryTimepointImageIds(['a', 'b', 'c', 'a'])).toEqual(['a', 'b', 'c', 'a']);
-  });
-
-  it('acquire builds the volume from ONE time point for a 4D series', async () => {
+  it('routes a 4D series to the geometry-dynamic loader, passing ALL image ids', async () => {
+    // 2 positions × 2 time points ⇒ repeated IPP ⇒ 4D.
     setIpps({ a: [0, 0, 0], b: [0, 0, 5], c: [0, 0, 0], d: [0, 0, 5] });
     const { volumeId } = await volumeService.acquire('scan4d', 'FoR-1', ['a', 'b', 'c', 'd']);
-    // Static scheme, but created from the reduced (one-time-point) image list.
-    expect(volumeId.startsWith('cornerstoneStreamingImageVolume:')).toBe(true);
-    expect(volumeMocks.createAndCacheVolume).toHaveBeenCalledWith(volumeId, { imageIds: ['a', 'b'] });
+    expect(volumeId.startsWith('xnatGeometryDynamicVolume:')).toBe(true);
+    // ALL ids are passed — the dynamic loader splits them into time-point groups.
+    expect(volumeMocks.createAndCacheVolume).toHaveBeenCalledWith(volumeId, { imageIds: ['a', 'b', 'c', 'd'] });
     volumeService.release(volumeId);
   });
 
-  it('acquire passes a 3D series through unchanged', async () => {
-    setIpps({ a: [0, 0, 0], b: [0, 0, 5] });
-    const { volumeId } = await volumeService.acquire('scan3d', 'FoR-2', ['a', 'b']);
-    expect(volumeMocks.createAndCacheVolume).toHaveBeenCalledWith(volumeId, { imageIds: ['a', 'b'] });
+  it('routes a normal 3D series to the STATIC loader', async () => {
+    setIpps({ a: [0, 0, 0], b: [0, 0, 5], c: [0, 0, 10] }); // distinct positions ⇒ 3D
+    const { volumeId } = await volumeService.acquire('scan3d', 'FoR-2', ['a', 'b', 'c']);
+    expect(volumeId.startsWith('cornerstoneStreamingImageVolume:')).toBe(true);
+    expect(volumeId.startsWith('xnatGeometryDynamicVolume:')).toBe(false);
+    volumeService.release(volumeId);
+  });
+
+  it('treats a series with missing geometry as 3D (static loader)', async () => {
+    volumeMocks.metaDataGet.mockReturnValue(undefined); // no imagePlaneModule
+    const { volumeId } = await volumeService.acquire('scanX', 'FoR-3', ['a', 'b']);
+    expect(volumeId.startsWith('cornerstoneStreamingImageVolume:')).toBe(true);
     volumeService.release(volumeId);
   });
 });

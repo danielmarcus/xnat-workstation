@@ -55,6 +55,11 @@ async function loadInitModule(options?: { splineRegistered?: boolean }): Promise
 
   vi.doMock('@cornerstonejs/core', () => ({
     init: initCore,
+    volumeLoader: { registerVolumeLoader: vi.fn() },
+    // Imported transitively by dynamicVolumeLoader (module-level); not exercised here.
+    StreamingDynamicImageVolume: class {},
+    metaData: { get: () => undefined },
+    utilities: {},
   }));
 
   vi.doMock('@cornerstonejs/tools', () => ({
