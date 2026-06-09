@@ -9,11 +9,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { viewportService } from '../lib/cornerstone/viewportService';
 import { unifiedToolService } from '../lib/cornerstone/unifiedToolService';
-import { unifiedSegService } from '../lib/cornerstone/unifiedSegService';
+import { unifiedSegService, canDrawOnViewport } from '../lib/cornerstone/unifiedSegService';
 import { viewportReadyService } from '../lib/cornerstone/viewportReadyService';
 import { metadataService } from '../lib/cornerstone/metadataService';
 import { wireCrosshairPointerHandlers, syncCrosshairToPanels } from '../lib/cornerstone/unifiedCrosshair';
+import { evaluateDrawBlock } from '../lib/cornerstone/drawGestureGuard';
 import { useViewerStore } from '../stores/viewerStore';
+import { useAnnotationSelectionStore } from '../stores/annotationSelectionStore';
 import { useMetadataStore } from '../stores/metadataStore';
 import { ToolName, type MPRPlane } from '@shared/types/viewer';
 
@@ -173,6 +175,37 @@ export function useViewport({
       useViewerStore.getState().setPanelOrientation(panelId, orientation);
     }
   }, [panelId, orientation]);
+
+  // Gesture-start block (B3 / D10 / signal 12): preempt a drawing gesture on a
+  // viewport that is NOT native to the active container (cross-series / different
+  // FoR), so no partial geometry is created. Capture phase + stopImmediatePropagation
+  // run before Cornerstone's tool handlers. Fails OPEN when there's no active
+  // container (legacy brush flow) or the viewport is native — normal drawing is
+  // never blocked.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const onPointerCapture = (e: Event) => {
+      const { block, reason } = evaluateDrawBlock({
+        activeTool: unifiedToolService.getActiveToolName(),
+        activeContainerId: useAnnotationSelectionStore.getState().activeMember?.containerId ?? null,
+        decide: (acid, vp) => canDrawOnViewport(acid, vp),
+        viewportId: panelId,
+      });
+      if (block) {
+        e.stopImmediatePropagation();
+        e.preventDefault();
+        console.warn(`[useViewport] draw blocked on ${panelId}: ${reason ?? 'active container is not native here'}`);
+      }
+    };
+    // Both event types — Cornerstone3D normalizes from native pointer/mouse events.
+    el.addEventListener('pointerdown', onPointerCapture, true);
+    el.addEventListener('mousedown', onPointerCapture, true);
+    return () => {
+      el.removeEventListener('pointerdown', onPointerCapture, true);
+      el.removeEventListener('mousedown', onPointerCapture, true);
+    };
+  }, [panelId]);
 
   return { containerRef, loadState };
 }
