@@ -29,7 +29,7 @@
 
 export type SaveOutcome =
   | { ok: true }
-  | { ok: false; kind: 'transient' | 'conflict'; error?: string };
+  | { ok: false; kind: 'transient' | 'conflict' | 'permanent'; error?: string };
 
 export type SavePhase = 'saving' | 'idle' | 'error';
 
