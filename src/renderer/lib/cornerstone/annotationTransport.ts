@@ -26,7 +26,9 @@ export interface SerializedContainer {
 }
 
 export type SaveResult =
-  | { ok: true; versionToken: string }
+  // `scanId` is set on a first save (H8): the session-local container now maps to a
+  // persistent XNAT scan id, which the caller writes back into the container source.
+  | { ok: true; versionToken: string; scanId?: string }
   | { ok: false; kind: 'conflict' | 'transient' | 'permanent'; error?: string; serverVersionToken?: string };
 
 export interface AnnotationTransport {
