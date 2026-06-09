@@ -11,6 +11,7 @@ import {
   RenderingEngine,
   getRenderingEngine,
   imageLoader,
+  cache,
   Enums,
   type Types,
 } from '@cornerstonejs/core';
@@ -493,6 +494,40 @@ export const viewportService = {
     const parallelScale = vp.getCamera()?.parallelScale;
     if (!Number.isFinite(parallelScale) || parallelScale <= 0) return null;
     return (2 * parallelScale) / height;
+  },
+
+  /**
+   * Time-point info for a 4D / multi-volume viewport, or null for a 3D viewport.
+   * `current` is 1-based (Cornerstone's dimensionGroupNumber); `total` is the number
+   * of time points (numDimensionGroups).
+   */
+  getTimepointInfo(viewportId: string): { current: number; total: number } | null {
+    const volumeId = viewportVolumes.get(viewportId);
+    if (!volumeId) return null;
+    const vol = cache.getVolume(volumeId) as any;
+    const total = vol?.numDimensionGroups;
+    if (!Number.isFinite(total) || total <= 1) return null; // not a 4D volume
+    const current = Number.isFinite(vol?.dimensionGroupNumber) ? vol.dimensionGroupNumber : 1;
+    return { current, total };
+  },
+
+  /**
+   * Switch the displayed time point of a 4D volume (1-based, clamped) and re-render.
+   * Instant + view-preserving (the volume holds all time points). No-op on 3D.
+   */
+  setTimepoint(viewportId: string, timepoint: number): void {
+    const volumeId = viewportVolumes.get(viewportId);
+    if (!volumeId) return;
+    const vol = cache.getVolume(volumeId) as any;
+    const total = vol?.numDimensionGroups;
+    if (!vol || !Number.isFinite(total) || total <= 1) return;
+    const next = Math.max(1, Math.min(total, Math.round(timepoint)));
+    try {
+      vol.dimensionGroupNumber = next;
+      getStackViewport(viewportId)?.render();
+    } catch (err) {
+      console.warn('[viewportService] setTimepoint failed:', viewportId, err);
+    }
   },
 
   /**

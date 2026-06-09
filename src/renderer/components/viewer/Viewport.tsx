@@ -12,6 +12,7 @@ import ViewportReticle from './ViewportReticle';
 import ViewportRuler from './ViewportRuler';
 import ViewportScrollbar from './ViewportScrollbar';
 import ViewportStatusOverlay from './ViewportStatusOverlay';
+import ViewportTimeScrubber from './ViewportTimeScrubber';
 import type { MPRPlane } from '@shared/types/viewer';
 
 interface ViewportProps {
@@ -79,6 +80,7 @@ export default function Viewport({
       <ViewportReticle panelId={panelId} />
       <ViewportRuler panelId={panelId} />
       <ViewportScrollbar panelId={panelId} />
+      <ViewportTimeScrubber panelId={panelId} />
       {imageIds.length > 0 && <ViewportStatusOverlay panelId={panelId} state={loadState} />}
     </div>
   );

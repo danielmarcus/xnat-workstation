@@ -125,6 +125,9 @@ export function useViewport({
         // the Viewport's effective orientation read this, so the label matches what's
         // on screen — a sagittal scan opens (and reads) Sagittal, not a forced axial.
         useViewerStore.getState().setPanelOrientation(panelId, result.orientation);
+        // Publish 4D time-point info (total > 1 ⇒ the time scrubber shows). null for 3D.
+        const tp = viewportService.getTimepointInfo(panelId);
+        useViewerStore.getState()._setPanelTimepointInfo(panelId, tp?.current ?? 1, tp?.total ?? 1);
         // Signal viewport readiness for the CURRENT epoch (App bumps the epoch
         // when imageIds change, before this effect re-runs). SegmentationManager
         // .whenReady blocks on this for SEG/RTSTRUCT overlay attach.

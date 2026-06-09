@@ -89,6 +89,9 @@ interface ViewerStore {
   panelOrientationMap: Record<string, ViewportOrientation>;
   /** Native acquisition orientation per panel (detected from DICOM metadata). */
   panelNativeOrientationMap: Record<string, ViewportOrientation>;
+  /** 4D time points per panel: current (1-based) + total. total <= 1 ⇒ not 4D. */
+  panelTimepointMap: Record<string, number>;
+  panelNumTimepointsMap: Record<string, number>;
 
   // ─── Crosshair State ──────────────────────────────────────────
   /** World-space crosshair coordinate synced across viewports. */
@@ -146,6 +149,8 @@ interface ViewerStore {
   _requestImageIndex: (panelId: string, index: number, total?: number) => void;
   _updateZoom: (panelId: string, percent: number) => void;
   _updateImageDimensions: (panelId: string, w: number, h: number) => void;
+  _setPanelTimepointInfo: (panelId: string, current: number, total: number) => void;
+  _setPanelTimepoint: (panelId: string, current: number) => void;
 }
 
 /** Helper: stop cine for a specific panel (clears interval) */
@@ -176,6 +181,8 @@ export const useViewerStore = create<ViewerStore>((set, get) => ({
   panelImageIdsMap: {},
   panelOrientationMap: {},
   panelNativeOrientationMap: {},
+  panelTimepointMap: {},
+  panelNumTimepointsMap: {},
   crosshairWorldPoint: null,
   crosshairSourcePanelId: null,
 
@@ -660,12 +667,25 @@ export const useViewerStore = create<ViewerStore>((set, get) => ({
     set((s) => {
       const { [pid]: _vp, ...restViewports } = s.viewports;
       const { [pid]: _cs, ...restCine } = s.cineStates;
+      const { [pid]: _tp, ...restTimepoint } = s.panelTimepointMap;
+      const { [pid]: _ntp, ...restNumTimepoints } = s.panelNumTimepointsMap;
       return {
         viewports: restViewports,
         cineStates: restCine,
+        panelTimepointMap: restTimepoint,
+        panelNumTimepointsMap: restNumTimepoints,
       };
     });
   },
+
+  _setPanelTimepointInfo: (pid, current, total) =>
+    set((s) => ({
+      panelTimepointMap: { ...s.panelTimepointMap, [pid]: current },
+      panelNumTimepointsMap: { ...s.panelNumTimepointsMap, [pid]: total },
+    })),
+
+  _setPanelTimepoint: (pid, current) =>
+    set((s) => ({ panelTimepointMap: { ...s.panelTimepointMap, [pid]: current } })),
 
   _updateVOI: (pid, ww, wc) =>
     set((s) => ({
