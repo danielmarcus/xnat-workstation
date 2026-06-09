@@ -62,6 +62,8 @@ interface ViewerStore {
 
   // ─── Global State ─────────────────────────────────────────────
   activeTool: ToolName;
+  /** Brush radius for the segmentation brush tools (interim toolbar control). */
+  brushSize: number;
 
   // ─── Hanging Protocol State ─────────────────────────────────────
   currentProtocol: HangingProtocol | null;
@@ -122,6 +124,7 @@ interface ViewerStore {
 
   // ─── Tool / Viewport Actions (target active viewport) ────────
   setActiveTool: (tool: ToolName) => void;
+  setBrushSize: (size: number) => void;
   applyWLPreset: (preset: WLPreset) => void;
   resetViewport: () => void;
   toggleInvert: () => void;
@@ -161,6 +164,7 @@ export const useViewerStore = create<ViewerStore>((set, get) => ({
   viewports: {},
   cineStates: {},
   activeTool: ToolName.WindowLevel,
+  brushSize: 10,
   currentProtocol: null,
   sessionScans: null,
   sessionId: null,
@@ -473,6 +477,12 @@ export const useViewerStore = create<ViewerStore>((set, get) => ({
     // (no viewport attached) and the viewer got stuck on Window/Level.
     unifiedToolService.setActiveTool(tool);
     set({ activeTool: tool });
+  },
+
+  setBrushSize: (size) => {
+    const clamped = Math.max(1, Math.min(100, Math.round(size)));
+    unifiedToolService.setBrushSize(clamped);
+    set({ brushSize: clamped });
   },
 
   applyWLPreset: (preset) => {

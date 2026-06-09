@@ -30,6 +30,7 @@ const mocked = vi.hoisted(() => ({
   },
   unifiedToolService: {
     setActiveTool: vi.fn(),
+    setBrushSize: vi.fn(),
   },
   volumeService: {
     destroy: vi.fn(),
@@ -171,6 +172,17 @@ describe('useViewerStore', () => {
     expect(useViewerStore.getState().activeTool).toBe(ToolName.Pan);
     expect(mocked.unifiedToolService.setActiveTool).toHaveBeenCalledWith(ToolName.Pan);
     expect(mocked.toolService.setActiveTool).not.toHaveBeenCalled();
+  });
+
+  it('setBrushSize clamps to [1,100] and routes to the unified tool group', () => {
+    useViewerStore.getState().setBrushSize(25);
+    expect(useViewerStore.getState().brushSize).toBe(25);
+    expect(mocked.unifiedToolService.setBrushSize).toHaveBeenCalledWith(25);
+
+    useViewerStore.getState().setBrushSize(500); // clamps high
+    expect(useViewerStore.getState().brushSize).toBe(100);
+    useViewerStore.getState().setBrushSize(0); // clamps low
+    expect(useViewerStore.getState().brushSize).toBe(1);
   });
 
   it('setLayout prunes removed panel maps and keeps active context in sync', () => {

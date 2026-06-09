@@ -9,6 +9,7 @@ import { ToolName, WL_PRESETS } from '@shared/types/viewer';
 import type { LayoutType } from '@shared/types/viewer';
 import { BUILT_IN_PROTOCOLS } from '@shared/types/hangingProtocol';
 import AnnotationToolDropdown from './AnnotationToolDropdown';
+import BrushControl from './BrushControl';
 import CollapsibleGroup from './CollapsibleGroup';
 import SettingsModal from '../settings/SettingsModal';
 import { useToolbarCollapse } from '../../hooks/useToolbarCollapse';
@@ -628,6 +629,8 @@ export default function Toolbar({
       >
         <SegmentationPanelToggle label="Annotate" hideLabel={textCollapsed} />
         <AnnotationToolDropdown hideLabel={textCollapsed} />
+        {/* Interim brush + size control (the full editing toolbox is Phase-3 side panel). */}
+        <BrushControl hideLabel={textCollapsed} />
         <IconButton
           icon={<IconUndo className="w-3.5 h-3.5" />}
           onClick={() => segmentationService.undo()}
