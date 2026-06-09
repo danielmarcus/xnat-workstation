@@ -17,6 +17,10 @@ import { unifiedSegService } from '../cornerstone/unifiedSegService';
 import { undoService } from '../cornerstone/undoService';
 import { segmentationManager } from '../segmentation/segmentationManagerSingleton';
 import { segmentationService } from '../cornerstone/segmentationService';
+import { createMockXnatApi, type MockXnatApi } from '../cornerstone/mockXnatApi';
+import { createXnatTransportService } from '../cornerstone/transportService';
+import type { TransportSaver } from '../cornerstone/transportSaver';
+import { useTransportStore } from '../../stores/transportStore';
 import * as contourRep from '../cornerstone/contourRepresentation';
 import { toolService } from '../cornerstone/toolService';
 import { ToolName } from '@shared/types/viewer';
@@ -68,6 +72,18 @@ declare global {
       getViewportType: (panelId: string) => string | null;
       /** Viewport ids a segmentation is currently attached to (FoR-eligibility outcome). */
       getSegmentationViewportIds: (segmentationId: string) => string[];
+      /** Transport (mocked-XNAT) harness: wire the saveQueue to an in-memory mock + enable autosave. */
+      installMockXnatTransport: () => void;
+      /** Read a container's transportStore entry (phase/errorKind/versionToken) or null. */
+      getTransportEntry: (containerId: string) => { phase: string; errorKind?: string; versionToken?: string } | null;
+      /** Inject a save conflict: bump the mock server's version so the next save is stale (H5). */
+      injectTransportConflict: () => void;
+      /** Resolve a conflict keep-local (H7): re-base onto the server version so the next save wins. */
+      resolveConflictKeepLocal: (containerId: string) => Promise<void>;
+      /** Per-container saveQueue dirty/in-flight state (did an edit drive the queue?). */
+      getContainerSaveState: (containerId: string) => { dirty: boolean; inFlight: boolean };
+      /** Manually flush a container's pending save (bypasses the debounce). */
+      flushContainerSave: (containerId: string) => Promise<void>;
       /** Set the unified-grid layout preset. */
       setLayoutPreset: (preset: LayoutPreset) => void;
       /** The currently-active viewport panel id (null if none). */
@@ -211,6 +227,10 @@ function getActiveContourSnapshot(panelId = 'panel_0', targetSegmentationId?: st
     selected: selectedAnnotationUIDs,
   };
 }
+
+// Mocked-XNAT transport harness state (installed on demand by the E2E).
+let _mockXnat: MockXnatApi | null = null;
+let _transportSvc: TransportSaver | null = null;
 
 export function installRendererE2eHooks(): void {
   if (typeof window === 'undefined') {
@@ -488,6 +508,35 @@ export function installRendererE2eHooks(): void {
     },
     getSegmentationViewportIds: (segmentationId: string) =>
       csSegmentation.state.getViewportIdsWithSegmentation(segmentationId) ?? [],
+
+    installMockXnatTransport: () => {
+      _mockXnat = createMockXnatApi();
+      _transportSvc = createXnatTransportService({
+        api: _mockXnat,
+        // Stub serialize — the mock stores opaque bytes; this verifies the
+        // queue→transport→store path (signal 14/27), not DICOM fidelity. The
+        // production serialize is exportToDicomSeg/exportToRtStruct.
+        serialize: async (containerId: string) => ({
+          containerId,
+          kind: segmentationService.getPreferredDicomType(containerId),
+          base64: 'mock-dicom',
+          source: { projectId: 'P', subjectId: 'S', sessionId: 'E2E', sessionLabel: 'E2E', sourceScanId: '4' },
+        }),
+        kindOf: (id: string) => segmentationService.getPreferredDicomType(id),
+      });
+      segmentationService.setSaveTransport(_transportSvc.saveContainer);
+      segmentationService.setXnatAutosaveEnabled(true);
+    },
+    getTransportEntry: (containerId: string) => {
+      const e = useTransportStore.getState().entries[containerId];
+      return e ? { phase: e.phase, errorKind: e.errorKind, versionToken: e.versionToken } : null;
+    },
+    injectTransportConflict: () => _mockXnat?._externalEditAll(),
+    resolveConflictKeepLocal: async (containerId: string) => {
+      await _transportSvc?.rebaseToServer(containerId);
+    },
+    getContainerSaveState: (containerId: string) => segmentationService.getContainerSaveState(containerId),
+    flushContainerSave: (containerId: string) => segmentationService.flushContainerSave(containerId),
     setLayoutPreset: (preset: LayoutPreset) => {
       useUnifiedLayoutStore.getState().setPreset(preset);
     },

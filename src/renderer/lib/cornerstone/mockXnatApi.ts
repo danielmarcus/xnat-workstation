@@ -18,6 +18,8 @@ interface ScanState { version: number; dicomBase64: string }
 export interface MockXnatApi extends XnatUploadApi {
   /** Simulate another source modifying a scan (bumps its version → next overwrite conflicts). */
   _externalEdit(sessionId: string, scanId: string): void;
+  /** Bump EVERY stored scan's version (E2E conflict injection without knowing the scan id). */
+  _externalEditAll(): void;
   /** Make the next write fail with the given kind (cleared after one call). */
   _failNext(f: { kind: 'transient' | 'permanent'; error?: string }): void;
   /** Inspect stored scans (tests). */
@@ -71,6 +73,10 @@ export function createMockXnatApi(): MockXnatApi {
       const k = key(sessionId, scanId);
       const cur = scans.get(k);
       scans.set(k, { version: (cur?.version ?? 0) + 1, dicomBase64: cur?.dicomBase64 ?? '' });
+    },
+
+    _externalEditAll() {
+      for (const [k, cur] of scans) scans.set(k, { version: cur.version + 1, dicomBase64: cur.dicomBase64 });
     },
 
     _failNext(f) {

@@ -238,6 +238,11 @@ const perContainerHistory = createPerContainerHistory({
 // flag the Phase-3 gesture interceptor will set. onPhase surfaces per-container
 // state into transportStore (silent — no toast/banner; the autosave row reads it).
 let gestureActive = false;
+// Autosave-to-XNAT opt-in (default OFF). When off, edits flow only to the legacy
+// local-fs backup autosave (scheduleAutoSave); when on, edits ALSO drive the
+// per-container saveQueue → injected transport (the live transport path). Off by
+// default so turning on real server autosave is an explicit choice.
+let xnatAutosaveEnabled = false;
 let saveTransport: (containerId: string) => Promise<SaveOutcome> = async () =>
   ({ ok: false, kind: 'transient', error: 'save transport not implemented' });
 
@@ -257,12 +262,15 @@ const saveQueue = createSaveQueue({
     return backupPrefs.intervalSeconds > 0 ? backupPrefs.intervalSeconds * 1000 : AUTO_SAVE_DELAY;
   },
   isAutoSaveEnabled: () => usePreferencesStore.getState().preferences.backup.enabled,
-  onPhase: (containerId, phase, error) => {
-    const store = useTransportStore.getState();
-    if (phase === 'idle') {
-      store.markSaved(containerId, Date.now());
-    } else {
-      store.setPhase(containerId, resolveContainerKind(containerId), phase === 'saving' ? 'saving' : 'error', error);
+  onPhase: (containerId, phase) => {
+    // The saveQueue's generic phase callback only marks the in-flight 'saving'
+    // state. Terminal states are owned by the injected transport's onResult
+    // (transportService): success carries the version token, a conflict carries
+    // errorKind:'conflict' + serverVersionToken. onResult runs INSIDE
+    // saveContainer (before this fires), so writing terminal state here too would
+    // clobber those richer fields with a bare phase+error string. In-flight only.
+    if (phase === 'saving') {
+      useTransportStore.getState().setPhase(containerId, resolveContainerKind(containerId), 'saving');
     }
   },
 });
@@ -1203,6 +1211,9 @@ function onSegmentationDataModified(evt?: Event): void {
       ?? null;
     if (dirtySegId) {
       useSegmentationManagerStore.getState().markDirty(dirtySegId);
+      // Live transport path (opt-in): an edit marks the container dirty in the
+      // per-container saveQueue → debounced save via the injected transport.
+      if (xnatAutosaveEnabled) saveQueue.notifyDirty(dirtySegId);
     }
     scheduleAutoSave();
     if (!labelmapInterpolationInProgress) {
@@ -4193,6 +4204,11 @@ export const segmentationService = {
     saveTransport = fn;
   },
 
+  /** Opt into driving the per-container saveQueue from edits (autosave-to-XNAT). Default off. */
+  setXnatAutosaveEnabled(enabled: boolean): void {
+    xnatAutosaveEnabled = enabled;
+  },
+
   /**
    * Cancel any pending auto-save timer (e.g. when a manual save starts).
    */
@@ -4279,6 +4295,7 @@ export const segmentationService = {
     perContainerHistory.clearAll();
     saveQueue.reset();
     gestureActive = false;
+    xnatAutosaveEnabled = false;
 
     // Clean up module-level state. sourceImageTracking.dispose() both
     // unsubscribes its auto-cleanup listener and clears its map.
