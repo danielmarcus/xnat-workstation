@@ -210,6 +210,25 @@ describe('useViewerStore', () => {
     expect(next.panelNativeOrientationMap.panel_1).toBeUndefined();
   });
 
+  it('holds multiple independent scans simultaneously (multi-scan session retention)', () => {
+    const store = useViewerStore.getState();
+    store.setCustomLayout(2, 2);
+    // Load three different scans into three panels — each setPanelImageIds/Scan must
+    // retain the others (no clobbering); the session holds them all at once.
+    store.setPanelImageIds('panel_0', ['a0', 'a1']);
+    store.setPanelScan('panel_0', '10');
+    store.setPanelImageIds('panel_1', ['b0', 'b1']);
+    store.setPanelScan('panel_1', '11');
+    store.setPanelImageIds('panel_2', ['c0', 'c1', 'c2']);
+    store.setPanelScan('panel_2', '12');
+
+    const s = useViewerStore.getState();
+    expect(s.panelImageIdsMap.panel_0).toEqual(['a0', 'a1']);
+    expect(s.panelImageIdsMap.panel_1).toEqual(['b0', 'b1']);
+    expect(s.panelImageIdsMap.panel_2).toEqual(['c0', 'c1', 'c2']);
+    expect(s.panelScanMap).toMatchObject({ panel_0: '10', panel_1: '11', panel_2: '12' });
+  });
+
   it('applies viewport actions and keeps state synchronized', () => {
     useViewerStore.getState()._initPanel('panel_0');
     useViewerStore.getState().applyWLPreset({ name: 'Soft', window: 400, level: 40 });
