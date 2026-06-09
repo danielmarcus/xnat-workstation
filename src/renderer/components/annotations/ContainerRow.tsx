@@ -25,9 +25,19 @@ const KIND_STROKE: Record<Container['kind'], string> = {
   SR: '#fb923c',
 };
 
+/** Per-container transport state surfaced in-place on the row (no toast/banner). */
+export interface RowTransport {
+  phase: 'idle' | 'loading' | 'saving' | 'error';
+  errorKind?: 'transient' | 'conflict' | 'permanent';
+}
+
 export interface ContainerRowProps {
   container: Container;
   expanded: boolean;
+  /** Live save/conflict state (saving indicator, conflict badge, error dot). */
+  transport?: RowTransport;
+  /** Open the H7 conflict resolver (shown only when transport is in conflict). */
+  onResolveConflict?: () => void;
   /** Number of OTHER viewports this container renders on (cross-panel pill). */
   crossPanelCount?: number;
   /** Start in inline-edit mode (freshly created — D7.6 create-in-edit-mode). */
@@ -46,7 +56,10 @@ export interface ContainerRowProps {
 }
 
 export default function ContainerRow(props: ContainerRowProps) {
-  const { container, expanded, crossPanelCount, autoEdit, onEditConsumed, onCommitName, onToggleExpand, onApproveToggle, onAddMember, onSave, onKebab, onDelete, onRename } = props;
+  const { container, expanded, transport, onResolveConflict, crossPanelCount, autoEdit, onEditConsumed, onCommitName, onToggleExpand, onApproveToggle, onAddMember, onSave, onKebab, onDelete, onRename } = props;
+  const saving = transport?.phase === 'saving' || transport?.phase === 'loading';
+  const conflict = transport?.phase === 'error' && transport?.errorKind === 'conflict';
+  const errored = transport?.phase === 'error' && transport?.errorKind !== 'conflict';
   const approved = container.approval === 'APPROVED';
   const dirty = !!container.dirty && !approved;
 
@@ -115,8 +128,28 @@ export default function ContainerRow(props: ContainerRowProps) {
         </span>
       )}
 
-      {dirty && <span className="w-1.5 h-1.5 rounded-full bg-amber-400" title="Unsaved changes (dirty)" data-testid="dirty-dot" />}
-      {!dirty && crossPanelCount != null && crossPanelCount > 0 && (
+      {/* Transport status (in-place; no toast/banner) — saving / conflict / error. */}
+      {saving && (
+        <span className="text-[8px] text-zinc-400 animate-pulse" title="Saving…" data-testid="saving-indicator">saving…</span>
+      )}
+      {conflict && (
+        <button
+          type="button"
+          className="text-[10px] leading-none text-red-400 hover:text-red-300"
+          title="Version conflict — click to resolve"
+          aria-label="Resolve version conflict"
+          data-testid="conflict-badge"
+          onClick={onResolveConflict}
+        >
+          ⚠
+        </button>
+      )}
+      {errored && (
+        <span className="w-1.5 h-1.5 rounded-full bg-red-500" title={`Save failed (${transport?.errorKind})`} data-testid="error-dot" />
+      )}
+
+      {dirty && !saving && !conflict && <span className="w-1.5 h-1.5 rounded-full bg-amber-400" title="Unsaved changes (dirty)" data-testid="dirty-dot" />}
+      {!dirty && !saving && !conflict && !errored && crossPanelCount != null && crossPanelCount > 0 && (
         <span className="text-[8px] px-1 rounded-sm bg-zinc-700 text-zinc-300" title={`Rendering on ${crossPanelCount} other panel(s)`}>
           ↗ {crossPanelCount}
         </span>

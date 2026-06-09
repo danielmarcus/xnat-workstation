@@ -245,6 +245,11 @@ let gestureActive = false;
 let xnatAutosaveEnabled = false;
 let saveTransport: (containerId: string) => Promise<SaveOutcome> = async () =>
   ({ ok: false, kind: 'transient', error: 'save transport not implemented' });
+// H7 conflict resolution, injected by the transport wiring (E2E mock / live pass).
+// keep-local = re-base onto the server version then re-save (local wins); discard-
+// local = reload the server version (needs the download path — live track). Null
+// until a transport is installed.
+let conflictResolver: ((containerId: string, resolution: 'keep-local' | 'discard-local') => Promise<void>) | null = null;
 
 function resolveContainerKind(containerId: string): 'SEG' | 'RTSTRUCT' | 'SR' {
   try {
@@ -4207,6 +4212,30 @@ export const segmentationService = {
   /** Opt into driving the per-container saveQueue from edits (autosave-to-XNAT). Default off. */
   setXnatAutosaveEnabled(enabled: boolean): void {
     xnatAutosaveEnabled = enabled;
+  },
+
+  /** Inject the H7 conflict resolver (transport wiring composes rebase+resave / reload). */
+  setConflictResolver(
+    fn: (containerId: string, resolution: 'keep-local' | 'discard-local') => Promise<void>,
+  ): void {
+    conflictResolver = fn;
+  },
+
+  /**
+   * Resolve a save conflict (H7). 'keep-local' re-bases onto the server version and
+   * re-saves so the local edits win; 'discard-local' reloads the server version.
+   * Delegates to the injected resolver (transport wiring); a no-op + warn if no
+   * transport is installed.
+   */
+  async resolveContainerConflict(
+    containerId: string,
+    resolution: 'keep-local' | 'discard-local',
+  ): Promise<void> {
+    if (!conflictResolver) {
+      console.warn('[segmentationService] resolveContainerConflict: no transport installed.');
+      return;
+    }
+    await conflictResolver(containerId, resolution);
   },
 
   /**

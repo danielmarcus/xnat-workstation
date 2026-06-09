@@ -21,12 +21,14 @@ import { useSegmentationManagerStore } from '../stores/segmentationManagerStore'
 import { useAnnotationStore } from '../stores/annotationStore';
 import { useAnnotationSelectionStore } from '../stores/annotationSelectionStore';
 import { useViewerStore } from '../stores/viewerStore';
+import { useTransportStore } from '../stores/transportStore';
 import { segmentationService } from '../lib/cornerstone/segmentationService';
 import { unifiedToolService } from '../lib/cornerstone/unifiedToolService';
 import { segmentationManager } from '../lib/segmentation/segmentationManagerSingleton';
 import { projectContainers } from '../lib/annotations/containerProjection';
 import { CATALOG_TO_TOOLNAME, TOOLNAME_TO_CATALOG } from '../components/annotations/toolCatalog';
 import type { ContainerListHandlers } from '../components/annotations/ContainerList';
+import type { RowTransport } from '../components/annotations/ContainerRow';
 
 function rgbaToCss(color?: [number, number, number, number]): string | undefined {
   if (!color) return undefined;
@@ -40,6 +42,8 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
   const presentation = useSegmentationManagerStore((s) => s.presentation);
   const dirtySegIds = useSegmentationManagerStore((s) => s.dirtySegIds);
   const annotations = useAnnotationStore((s) => s.annotations);
+  // Live per-container transport state (saving / conflict / error) surfaced in-place.
+  const transportEntries = useTransportStore((s) => s.entries);
 
   const activeMember = useAnnotationSelectionStore((s) => s.activeMember);
   const selection = useAnnotationSelectionStore((s) => s.selection);
@@ -55,6 +59,9 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
   // On create, after the container name is accepted, advance to editing its default
   // member's name (two-step create: container → member). Holds the pending member.
   const [createFlow, setCreateFlow] = useState<{ containerId: string; memberKey: string } | null>(null);
+  // H7 conflict resolver: which container's conflict dialog is open (opened from the
+  // in-place conflict badge; closes when resolved or cancelled).
+  const [conflictDialogId, setConflictDialogId] = useState<string | null>(null);
 
   const containers = useMemo(
     () =>
@@ -138,6 +145,7 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
       })();
     },
     onSaveContainer: () => console.warn('[annotationsPanel] save-to-XNAT — transport workstream (TODO); local autosave runs in background.'),
+    onResolveConflict: (id) => setConflictDialogId(id), // open the H7 resolver (in-place badge → dialog)
     onKebab: () => console.warn('[annotationsPanel] container kebab menu — TODO (hide-all/lock-all/export/revert).'),
     onDeleteContainer: (id) => segmentationManager.removeSegmentation(id),
     onRenameContainer: (id, name) => segmentationManager.renameSegmentation(id, name),
@@ -199,6 +207,30 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
 
   const activeToolId = TOOLNAME_TO_CATALOG[activeTool] ?? null;
 
+  // ── Transport state surfaced in-place on the row + the H7 conflict dialog ──
+  const transportOf = (containerId: string): RowTransport | undefined => {
+    const e = transportEntries[containerId];
+    return e ? { phase: e.phase, errorKind: e.errorKind } : undefined;
+  };
+  const conflictContainer = conflictDialogId ? containers.find((c) => c.id === conflictDialogId) : undefined;
+  const conflictStillActive = conflictDialogId ? transportEntries[conflictDialogId]?.errorKind === 'conflict' : false;
+  const conflictDialog =
+    conflictDialogId && conflictContainer && conflictStillActive
+      ? {
+          containerId: conflictDialogId,
+          containerLabel: conflictContainer.label,
+          onKeepLocal: () => {
+            void segmentationService.resolveContainerConflict(conflictDialogId, 'keep-local');
+            setConflictDialogId(null);
+          },
+          onDiscardLocal: () =>
+            console.warn('[annotationsPanel] Discard local — reloading the server version needs the live download path (TODO, track D).'),
+          onInspect: () =>
+            console.warn('[annotationsPanel] Inspect differences — deferred (conflict-UX diff is an open spec question, D3).'),
+          onCancel: () => setConflictDialogId(null),
+        }
+      : null;
+
   // Measurement value/unit per member (signal 32): SR members carry an annotationUID
   // → the annotation's formatted displayText (e.g. "12.5 mm", "45°").
   const measurementText = new Map(annotations.map((a) => [a.annotationUID, a.displayText]));
@@ -225,6 +257,9 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
     isActive: (cid: string, mid: string) => activeMember?.containerId === cid && activeMember?.memberId === mid,
     isSelected: (cid: string, mid: string) => selection.some((r) => r.containerId === cid && r.memberId === mid),
     metricOf,
+    // transport (in-place row state) + H7 conflict dialog
+    transportOf,
+    conflictDialog,
     // toolbox
     toolbox: activeContainer
       ? {

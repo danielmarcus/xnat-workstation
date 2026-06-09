@@ -526,15 +526,22 @@ export function installRendererE2eHooks(): void {
       });
       segmentationService.setSaveTransport(_transportSvc.saveContainer);
       segmentationService.setXnatAutosaveEnabled(true);
+      // H7 keep-local = re-base onto the server version then re-save (local wins).
+      // discard-local needs the server-download/import path → live track (no-op here).
+      segmentationService.setConflictResolver(async (containerId: string, resolution) => {
+        if (resolution === 'keep-local') {
+          await _transportSvc?.rebaseToServer(containerId);
+          await segmentationService.flushContainerSave(containerId);
+        }
+      });
     },
     getTransportEntry: (containerId: string) => {
       const e = useTransportStore.getState().entries[containerId];
       return e ? { phase: e.phase, errorKind: e.errorKind, versionToken: e.versionToken } : null;
     },
     injectTransportConflict: () => _mockXnat?._externalEditAll(),
-    resolveConflictKeepLocal: async (containerId: string) => {
-      await _transportSvc?.rebaseToServer(containerId);
-    },
+    resolveConflictKeepLocal: (containerId: string) =>
+      segmentationService.resolveContainerConflict(containerId, 'keep-local'),
     getContainerSaveState: (containerId: string) => segmentationService.getContainerSaveState(containerId),
     flushContainerSave: (containerId: string) => segmentationService.flushContainerSave(containerId),
     setLayoutPreset: (preset: LayoutPreset) => {

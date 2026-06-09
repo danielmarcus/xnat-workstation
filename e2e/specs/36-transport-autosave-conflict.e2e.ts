@@ -83,9 +83,9 @@ test('signal 27: an external change makes the next save a conflict; keep-local r
   await page.evaluate((s) => (window as unknown as Win).__XNAT_E2E__.flushContainerSave(s), segId);
   await expect.poll(async () => (await entry(page, segId))?.errorKind, { timeout: 10_000 }).toBe('conflict');
 
-  // Keep-local (H7): re-base onto the server version, then the save succeeds.
+  // Keep-local (H7): the resolver re-bases onto the server version then re-saves
+  // (local wins) — the conflict clears and the save succeeds.
   await page.evaluate((s) => (window as unknown as Win).__XNAT_E2E__.resolveConflictKeepLocal(s), segId);
-  await page.evaluate((s) => (window as unknown as Win).__XNAT_E2E__.flushContainerSave(s), segId);
   await expect.poll(async () => (await entry(page, segId))?.phase, { timeout: 10_000 }).toBe('idle');
   expect((await entry(page, segId))?.errorKind).toBeUndefined();
 });

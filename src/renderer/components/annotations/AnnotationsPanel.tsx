@@ -7,6 +7,7 @@
 import AnnotationsSidePanel from './AnnotationsSidePanel';
 import ContainerList from './ContainerList';
 import ContextToolbox from './ContextToolbox';
+import { ConflictDialog } from './dialogs';
 import { useAnnotationsPanel } from '../../hooks/useAnnotationsPanel';
 
 export interface AnnotationsPanelProps {
@@ -44,11 +45,21 @@ export default function AnnotationsPanel({ activeViewportId, sourceImageIds }: A
           isActive={panel.isActive}
           isSelected={panel.isSelected}
           metricOf={panel.metricOf}
+          transportOf={panel.transportOf}
           autoEditContainerId={panel.autoEditContainerId}
           autoEditMemberKey={panel.autoEditMemberKey}
           onEditConsumed={panel.onEditConsumed}
         />
       </AnnotationsSidePanel>
+      {panel.conflictDialog && (
+        <ConflictDialog
+          containerLabel={panel.conflictDialog.containerLabel}
+          onKeepLocal={panel.conflictDialog.onKeepLocal}
+          onDiscardLocal={panel.conflictDialog.onDiscardLocal}
+          onInspect={panel.conflictDialog.onInspect}
+          onCancel={panel.conflictDialog.onCancel}
+        />
+      )}
     </div>
   );
 }
