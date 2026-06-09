@@ -36,7 +36,7 @@ vi.mock('../viewportService', () => ({
   viewportService: { getViewport: (id: string) => m.getViewport(id), ENGINE_ID: 'xnatRenderingEngine' },
 }));
 
-import { unifiedSegService, attachLabelmapWithEligibility } from '../unifiedSegService';
+import { unifiedSegService, attachLabelmapWithEligibility, canDrawOnViewport } from '../unifiedSegService';
 
 /** Make getViewport return a viewport with the given FoR + series. */
 function viewportWith(frameOfReferenceUID: string | null, series: string | null): void {
@@ -93,5 +93,38 @@ describe('attachLabelmapWithEligibility (Slice 2: FoR-gated attach + non-native 
     attachLabelmapWithEligibility('seg1', 'panel_3');
     expect(m.addLabelmapRep).toHaveBeenCalledWith('panel_3', [{ segmentationId: 'seg1' }]);
     expect(m.setStyle).not.toHaveBeenCalled();
+  });
+});
+
+describe('canDrawOnViewport (Slice 3: gesture-start blocking, B3 / signal 12)', () => {
+  it('allows drawing on a viewport native to the active container', () => {
+    viewportWith('FoR-1', 'series-A');
+    expect(canDrawOnViewport('seg1', 'panel_0')).toEqual({ allowed: true });
+  });
+
+  it('blocks drawing on a same-FoR sibling series (read-only) with a hint', () => {
+    viewportWith('FoR-1', 'series-B');
+    const d = canDrawOnViewport('seg1', 'panel_1');
+    expect(d.allowed).toBe(false);
+    expect(d.reason).toMatch(/sibling series|switch|create/i);
+  });
+
+  it('blocks drawing on a different Frame of Reference with a hint', () => {
+    viewportWith('FoR-2', 'series-X');
+    const d = canDrawOnViewport('seg1', 'panel_2');
+    expect(d.allowed).toBe(false);
+    expect(d.reason).toMatch(/frame of reference|different/i);
+  });
+
+  it('blocks with a hint when there is no active container', () => {
+    viewportWith('FoR-1', 'series-A');
+    const d = canDrawOnViewport(null, 'panel_0');
+    expect(d.allowed).toBe(false);
+    expect(d.reason).toMatch(/no active container|create|select/i);
+  });
+
+  it('fails OPEN (allows) when spatial ids are unresolved — never blocks a valid single-series draw', () => {
+    viewportWith(null, null);
+    expect(canDrawOnViewport('seg1', 'panel_3')).toEqual({ allowed: true });
   });
 });

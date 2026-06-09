@@ -121,6 +121,46 @@ export function attachLabelmapWithEligibility(segmentationId: string, viewportId
   }
 }
 
+export interface DrawDecision {
+  allowed: boolean;
+  /** User-facing hint when blocked (B3 / D10). */
+  reason?: string;
+}
+
+/**
+ * Gesture-start blocking (B3 / D10 / signal 12): may the active container be drawn
+ * into on this viewport? Drawing always targets the ACTIVE container; it is allowed
+ * only on a viewport NATIVE to it. A same-FoR sibling series is read-only (A2b/c); a
+ * different FoR can't host it at all (A2d). Fails OPEN (allows) when spatial ids are
+ * unresolved, so a valid single-series draw is never blocked. The Phase-3 gesture
+ * path enforces this at mouse-down; Phase 2 verifies the decision at the service layer.
+ */
+export function canDrawOnViewport(activeContainerId: string | null, viewportId: string): DrawDecision {
+  if (!activeContainerId) {
+    return { allowed: false, reason: 'No active container — create or select one to draw into.' };
+  }
+  const cspatial = containerSpatial.get(activeContainerId);
+  const vspatial = resolveViewportSpatial(viewportId);
+  if (!cspatial?.frameOfReferenceUID || !vspatial?.frameOfReferenceUID) {
+    return { allowed: true }; // fail open — don't block a valid single-series draw
+  }
+  const eligibility = classifyEligibility({ container: cspatial, viewport: vspatial });
+  if (eligibility === 'native') return { allowed: true };
+  if (eligibility === 'different-for') {
+    return {
+      allowed: false,
+      reason:
+        'The active container belongs to a different frame of reference. Focus a viewport showing its series, or create a new container for this series.',
+    };
+  }
+  // cross-series-show / cross-series-hide — same FoR, sibling series ⇒ read-only here.
+  return {
+    allowed: false,
+    reason:
+      'The active container is from a sibling series and is read-only here. Focus a viewport native to it, switch the active container, or create a new container tagged to this series.',
+  };
+}
+
 export interface UnifiedLabelmapResult {
   segmentationId: string;
   segmentIndex: number;
