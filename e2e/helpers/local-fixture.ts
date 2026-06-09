@@ -115,3 +115,38 @@ export function loadCtAxial300(page: Page, panelId = 'panel_0'): Promise<ViewerP
 export function loadCtAxialAnatomy(page: Page, panelId = 'panel_0'): Promise<ViewerPage> {
   return loadFixture(page, 'ct-axial-anatomy', panelId);
 }
+
+/** Files of a dataset whose basename starts with `prefix` (one series of a multi-series fixture). */
+export function fixtureSeriesFiles(datasetName: string, prefix: string): string[] {
+  return ensureFixture(datasetName).filter((f) => path.basename(f).startsWith(prefix));
+}
+
+/**
+ * Two-panel cross-series harness (A2 / D9 rendering signals 9/10/11): load series A
+ * (basename `prefixA…`) into panel_0 and series B (`prefixB…`) into panel_1 of a
+ * 1×2 layout, via the REAL Import path + Layout dropdown. Returns once both panels'
+ * canvases are visible. The two series come from the same multi-series fixture
+ * (e.g. mr-t1-t2-sameexam = same FoR; cross-for-ct-mr = different FoR).
+ */
+export async function loadTwoSeries(
+  page: Page,
+  datasetName: string,
+  prefixA: string,
+  prefixB: string,
+): Promise<void> {
+  const filesA = fixtureSeriesFiles(datasetName, prefixA);
+  const filesB = fixtureSeriesFiles(datasetName, prefixB);
+  if (filesA.length === 0 || filesB.length === 0) {
+    throw new Error(`loadTwoSeries(${datasetName}): empty series (${prefixA}=${filesA.length}, ${prefixB}=${filesB.length})`);
+  }
+  await enterLocalViewer(page);
+  // Series A → panel_0 (the default active panel).
+  await loadLocalDicom(page, filesA, 'panel_0');
+  // Switch to a 1×2 grid via the real Layout dropdown.
+  await page.locator('[title^="Viewport layout"]').click();
+  await page.getByRole('button', { name: '1 x 2' }).click();
+  await page.locator('[data-testid="unified-viewport:panel_1"]').waitFor({ state: 'attached', timeout: 20_000 });
+  // Activate panel_1 (import targets the active panel), then load series B into it.
+  await page.locator('[data-testid="unified-viewport:panel_1"]').click({ position: { x: 20, y: 20 } });
+  await loadLocalDicom(page, filesB, 'panel_1');
+}
