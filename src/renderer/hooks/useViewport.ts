@@ -129,9 +129,19 @@ export function useViewport({
       useViewerStore.getState()._destroyPanel(panelId);
       useMetadataStore.getState()._clearOverlay(panelId);
     };
-    // Recreate on panel, series, sharing-key, or plane change.
+    // Recreate on panel, series, or sharing-key change. NOT on orientation — that
+    // is applied in place below (setOrientation) so changing plane doesn't tear
+    // down + reload the shared volume.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [panelId, scanId, frameOfReferenceUID, orientation, seriesKey]);
+  }, [panelId, scanId, frameOfReferenceUID, seriesKey]);
+
+  // Apply orientation changes (axial ⇄ sagittal ⇄ coronal) to the EXISTING volume
+  // viewport without recreating it. The initial orientation is set at create; this
+  // handles later user selections from the orientation dropdown. No-op on stacks
+  // or before the viewport exists (both handled softly in viewportService).
+  useEffect(() => {
+    viewportService.setOrientation(panelId, orientation);
+  }, [panelId, orientation]);
 
   return { containerRef };
 }

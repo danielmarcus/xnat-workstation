@@ -399,6 +399,31 @@ export const viewportService = {
   },
 
   /**
+   * Reorient a VOLUME viewport in place (axial ⇄ sagittal ⇄ coronal) — drives the
+   * orientation selector. Uses VolumeViewport.setOrientation, which reformats the
+   * camera without reloading the (shared, ref-counted) volume. No-op on STACK
+   * viewports (they have no setOrientation — a single-plane stack can't reformat)
+   * and before the viewport exists. Soft (no throw).
+   */
+  setOrientation(viewportId: string, plane: MPRPlane): void {
+    const engine = getEngine();
+    if (!engine) return;
+    let vp: any;
+    try {
+      vp = engine.getViewport(viewportId);
+    } catch {
+      return;
+    }
+    if (!vp || typeof vp.setOrientation !== 'function') return;
+    try {
+      vp.setOrientation(planeOrientation(plane));
+      vp.render?.();
+    } catch (err) {
+      console.warn('[viewportService] setOrientation failed:', viewportId, err);
+    }
+  },
+
+  /**
    * Get current zoom level as percentage (100 = fit-to-canvas).
    */
   getZoom(viewportId: string): number {

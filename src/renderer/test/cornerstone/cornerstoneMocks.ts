@@ -97,6 +97,11 @@ export interface CornerstoneMockState {
       ViewportType: {
         STACK: string;
       };
+      OrientationAxis: {
+        AXIAL: string;
+        SAGITTAL: string;
+        CORONAL: string;
+      };
     };
   };
   tools: {
@@ -456,6 +461,11 @@ export function createCornerstoneMockState(): CornerstoneMockState {
     Enums: {
       ViewportType: {
         STACK: 'STACK',
+      },
+      OrientationAxis: {
+        AXIAL: 'axial',
+        SAGITTAL: 'sagittal',
+        CORONAL: 'coronal',
       },
     },
   };

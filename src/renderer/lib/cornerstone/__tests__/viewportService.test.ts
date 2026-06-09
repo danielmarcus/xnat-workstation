@@ -206,6 +206,19 @@ describe('viewportService', () => {
     expect(volume.scroll).toHaveBeenCalledWith(70);
   });
 
+  it('setOrientation reorients a VOLUME viewport and no-ops on a STACK viewport', () => {
+    const volume = { type: 'ORTHOGRAPHIC', setOrientation: vi.fn(), render: vi.fn() };
+    cs.setViewport('panel_vol', volume as never);
+    viewportService.setOrientation('panel_vol', 'SAGITTAL');
+    expect(volume.setOrientation).toHaveBeenCalledTimes(1);
+    expect(volume.render).toHaveBeenCalled();
+
+    // A STACK viewport has no setOrientation — must not throw, must not fabricate a call.
+    const stack = { type: 'STACK', scroll: vi.fn() };
+    cs.setViewport('panel_stk', stack as never);
+    expect(() => viewportService.setOrientation('panel_stk', 'CORONAL')).not.toThrow();
+  });
+
   it('readViewportState reads the VOLUME slice axis, not the native source count (the "257/21" bug)', () => {
     // v4 ORTHOGRAPHIC viewports expose BOTH the volume API (reformatted axis) AND
     // the stack API (native source count). Detection must key off viewport.type:

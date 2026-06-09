@@ -20,6 +20,7 @@ import { usePreferencesStore } from '../../stores/preferencesStore';
 import { EMPTY_OVERLAY } from '@shared/types/dicom';
 import { DEFAULT_OVERLAY_CORNERS } from '@shared/types/preferences';
 import type { OverlayCornerId, OverlayFieldKey } from '@shared/types/preferences';
+import type { MPRPlane } from '@shared/types/viewer';
 
 interface ViewportOverlayProps {
   panelId: string;
@@ -47,6 +48,7 @@ export default function ViewportOverlay({ panelId }: ViewportOverlayProps): Reac
   const panelOrientation = useViewerStore((s) => s.panelOrientationMap[panelId] ?? 'STACK');
   const crosshairPoint = useViewerStore((s) => s.crosshairWorldPoint);
   const crosshairSourcePanelId = useViewerStore((s) => s.crosshairSourcePanelId);
+  const setPanelOrientation = useViewerStore((s) => s.setPanelOrientation);
 
   const imageIndex = vp?.imageIndex ?? 0;
   const totalImages = vp?.totalImages ?? 0;
@@ -111,19 +113,49 @@ export default function ViewportOverlay({ panelId }: ViewportOverlayProps): Reac
     }
   };
 
+  /** A field's rendered node — an interactive control for orientationSelector, a
+   *  text string for everything else, or null when there's nothing to show. */
+  const renderField = (field: OverlayFieldKey): React.ReactNode => {
+    if (field === 'orientationSelector') {
+      // The interactive plane selector: change a volume's reformat plane (axial ⇄
+      // sagittal ⇄ coronal). pointer-events-auto (the overlay is pointer-events-none);
+      // stop propagation so opening the dropdown doesn't drive viewport tools.
+      return (
+        <select
+          data-testid={`orientation-select:${panelId}`}
+          value={displayOrientation}
+          disabled={totalImages <= 1}
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+          onChange={(e) => {
+            e.stopPropagation();
+            setPanelOrientation(panelId, e.target.value as MPRPlane);
+          }}
+          title="Viewport orientation"
+          className="pointer-events-auto bg-zinc-900/85 border border-zinc-700 text-white text-[10px] rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-sky-500 disabled:opacity-40"
+        >
+          <option value="AXIAL">Axial</option>
+          <option value="SAGITTAL">Sagittal</option>
+          <option value="CORONAL">Coronal</option>
+        </select>
+      );
+    }
+    return fieldText(field);
+  };
+
   const renderCorner = (corner: OverlayCornerId, align: 'left' | 'right') => {
     const fields = corners[corner] ?? [];
-    const lines = fields
-      .map((field) => ({ field, text: fieldText(field) }))
-      .filter((x): x is { field: OverlayFieldKey; text: string } => !!x.text);
+    const items = fields
+      .map((field) => ({ field, node: renderField(field) }))
+      .filter((x) => x.node != null && x.node !== '');
     return (
       <div
         data-testid={`overlay-corner-${corner}:${panelId}`}
         className={`flex flex-col gap-0.5 ${align === 'right' ? 'text-right' : 'text-left'}`}
       >
-        {lines.map(({ field, text }) => (
+        {items.map(({ field, node }) => (
           <div key={field} data-testid={`overlay-field-${field}:${panelId}`} className="leading-tight">
-            {text}
+            {node}
           </div>
         ))}
       </div>

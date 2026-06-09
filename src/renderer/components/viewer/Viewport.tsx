@@ -29,7 +29,18 @@ export default function Viewport({
   frameOfReferenceUID,
   orientation,
 }: ViewportProps) {
-  const { containerRef } = useViewport({ panelId, imageIds, scanId, frameOfReferenceUID, orientation });
+  // The user's per-panel orientation selection (from the overlay dropdown) overrides
+  // the layout's default plane. 'STACK'/unset ⇒ fall back to the layout orientation.
+  const userOrientation = useViewerStore((s) => s.panelOrientationMap[panelId]);
+  const effectiveOrientation: MPRPlane =
+    userOrientation && userOrientation !== 'STACK' ? userOrientation : (orientation ?? 'AXIAL');
+  const { containerRef } = useViewport({
+    panelId,
+    imageIds,
+    scanId,
+    frameOfReferenceUID,
+    orientation: effectiveOrientation,
+  });
   const isActive = useViewerStore((s) => s.activeViewportId === panelId);
   const setActiveViewport = useViewerStore((s) => s.setActiveViewport);
 

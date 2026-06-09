@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom/vitest';
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { EMPTY_OVERLAY } from '@shared/types/dicom';
 import type { OverlayCornerId, OverlayFieldKey } from '@shared/types/preferences';
@@ -72,5 +72,17 @@ describe('ViewportOverlay (preference-driven)', () => {
     setCorners({ bottomLeft: ['imageIndex'] }, false);
     render(<ViewportOverlay panelId="panel_0" />);
     expect(screen.queryByTestId('viewport-overlay:panel_0')).toBeNull();
+  });
+
+  it('renders orientationSelector as an interactive dropdown wired to setPanelOrientation', () => {
+    useViewerStore.getState().setPanelNativeOrientation('panel_0', 'AXIAL');
+    setCorners({ topLeft: ['orientationSelector'] });
+    render(<ViewportOverlay panelId="panel_0" />);
+    const select = screen.getByTestId('orientation-select:panel_0') as HTMLSelectElement;
+    // Shows the native plane initially (no per-panel override yet).
+    expect(select.value).toBe('AXIAL');
+    // Choosing a new plane updates the per-panel orientation (which the viewport reads).
+    fireEvent.change(select, { target: { value: 'SAGITTAL' } });
+    expect(useViewerStore.getState().panelOrientationMap['panel_0']).toBe('SAGITTAL');
   });
 });
