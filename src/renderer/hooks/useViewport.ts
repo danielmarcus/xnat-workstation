@@ -6,7 +6,7 @@
  * volume) on unmount. Components call this hook; they never touch the service or
  * Cornerstone directly.
  */
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { viewportService } from '../lib/cornerstone/viewportService';
 import { unifiedToolService } from '../lib/cornerstone/unifiedToolService';
 import { unifiedSegService } from '../lib/cornerstone/unifiedSegService';
@@ -39,8 +39,12 @@ export function useViewport({
   orientation,
   layoutOrientation = 'AXIAL',
   preferNative = false,
-}: UseViewportArgs): { containerRef: React.RefObject<HTMLDivElement | null> } {
+}: UseViewportArgs): {
+  containerRef: React.RefObject<HTMLDivElement | null>;
+  loadState: 'loading' | 'ready' | 'error';
+} {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>('loading');
   const seriesKey = imageIds.join('|');
 
   useEffect(() => {
@@ -54,6 +58,7 @@ export function useViewport({
 
     // Initialize per-panel store state (cleared on unmount via _destroyPanel).
     useViewerStore.getState()._initPanel(panelId);
+    setLoadState('loading');
 
     // Pull viewport display state → stores so the overlay + toolbar stay live.
     // `kind` mirrors the old CornerstoneViewport event mapping: zoom on camera,
@@ -124,8 +129,12 @@ export function useViewport({
         // when imageIds change, before this effect re-runs). SegmentationManager
         // .whenReady blocks on this for SEG/RTSTRUCT overlay attach.
         viewportReadyService.markReady(panelId, viewportReadyService.getEpoch(panelId));
+        setLoadState('ready');
       })
-      .catch((err) => console.warn('[useViewport] create failed:', panelId, err));
+      .catch((err) => {
+        console.warn('[useViewport] create failed:', panelId, err);
+        if (!cancelled) setLoadState('error');
+      });
 
     // Keep the viewport sized to its (possibly resizing) container.
     const resizeObserver = new ResizeObserver(() => viewportService.resize());
@@ -162,5 +171,5 @@ export function useViewport({
     }
   }, [panelId, orientation]);
 
-  return { containerRef };
+  return { containerRef, loadState };
 }
