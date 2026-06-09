@@ -47,6 +47,13 @@ export interface UndoHistoryDeps {
   getAnnotation(id: string): AnnotationLike | undefined;
   /** Show a blocking alert dialog. */
   showAlertDialog(opts: { title: string; message: string; confirmLabel: string }): void;
+  /**
+   * Optional (A8 / Slice 4): route each pushed-and-enriched memo into the
+   * per-container undo history. Called from the push hook AFTER enrichment so the
+   * memo carries its resolved `segmentationId` (the container id). Additive — the
+   * memo still lands on the global ring. Omitted by callers that don't partition.
+   */
+  recordContainerMemo?(memo: HistoryMemoRecord | undefined): void;
 }
 
 export interface UndoHistory {
@@ -203,6 +210,7 @@ export function createUndoHistory(deps: UndoHistoryDeps): UndoHistory {
     DefaultHistoryMemo.push = ((item: unknown) => {
       const memo = originalHistoryPush?.(item);
       enrichHistoryMemoRecord(memo);
+      deps.recordContainerMemo?.(memo); // A8: additively partition into per-container history
       return memo;
     }) as typeof DefaultHistoryMemo.push;
     historyTrackingInstalled = true;

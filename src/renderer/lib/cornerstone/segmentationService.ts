@@ -101,6 +101,7 @@ import {
   cloneHandlesWithOffset,
 } from './segmentationService/contourGeometry';
 import { createUndoHistory } from './segmentationService/undoHistory';
+import { createPerContainerHistory } from './segmentationService/perContainerHistory';
 import { createVisibilityControls } from './segmentationService/visibility';
 import { createDicomSegExport } from './segmentationService/dicomSegExport';
 import { showAlertDialog } from '../../stores/dialogStore';
@@ -213,6 +214,17 @@ function isSegmentLockedInternal(segmentationId: string, segmentIndex: number): 
 // History-memo helpers extracted to ./segmentationService/undoHistory.
 // Bound to the service's segment-label / lock-query / annotation-lookup /
 // alert-dialog dependencies; the returned helpers preserve the prior behavior.
+// Per-container undo history (A8). Fed additively by the push hook below; the
+// global ring still works (toolbar undo / signal 7). Undo/redo here re-mark the
+// container dirty so undo past a save point sets the dirty flag again (signal 15).
+const perContainerHistory = createPerContainerHistory({
+  onContainerDirtied: (containerId) => {
+    if (isDirtyTrackingSuppressed()) return;
+    useSegmentationManagerStore.getState().markDirty(containerId);
+    useSegmentationStore.getState()._markDirty();
+  },
+});
+
 const undoHistory = createUndoHistory({
   getSegmentDisplayLabel,
   isSegmentLocked: isSegmentLockedInternal,
@@ -224,6 +236,7 @@ const undoHistory = createUndoHistory({
   // at call time — matching the original in-function access — rather than at
   // module-init, which would fail against partial dialogStore test mocks.
   showAlertDialog: (opts) => showAlertDialog(opts),
+  recordContainerMemo: (memo) => perContainerHistory.record(memo ?? {}),
 });
 const {
   getTopUndoHistoryEntry,
@@ -466,6 +479,9 @@ function cleanupDirtyStateAfterRemoval(segmentationId: string): void {
   try {
     const mgrStore = useSegmentationManagerStore.getState();
     mgrStore.clearDirty(segmentationId);
+
+    // A removed container's undo history no longer applies (A8).
+    perContainerHistory.clear(segmentationId);
 
     // If no remaining segmentations are dirty, clear the global flag
     if (!mgrStore.hasDirtySegmentations()) {
@@ -4028,6 +4044,42 @@ export const segmentationService = {
     };
   },
 
+  // ─── Per-container undo / redo (A8) ───────────────────────────
+  // Partitioned undo: an edit is undone within its own container only; switching
+  // the active container does not clear either history; saving is not a barrier
+  // (undo past a save re-marks dirty). The toolbar/keyboard wiring to the ACTIVE
+  // container lands in Phase 3 with the list panel; these are the mechanism.
+
+  /** Undo the last edit of one container. */
+  undoContainer(containerId: string): void {
+    if (!perContainerHistory.undo(containerId)) return;
+    syncSegmentations();
+    renderAllSegmentationViewports();
+    refreshUndoState();
+  },
+
+  /** Redo the last undone edit of one container. */
+  redoContainer(containerId: string): void {
+    if (!perContainerHistory.redo(containerId)) return;
+    syncSegmentations();
+    renderAllSegmentationViewports();
+    refreshUndoState();
+  },
+
+  /** Per-container undo/redo availability. */
+  getContainerUndoState(containerId: string): { canUndo: boolean; canRedo: boolean } {
+    return {
+      canUndo: perContainerHistory.canUndo(containerId),
+      canRedo: perContainerHistory.canRedo(containerId),
+    };
+  },
+
+  /** Drop one container's undo history (external-change reload — E3 / H6). */
+  clearContainerHistory(containerId: string): void {
+    perContainerHistory.clear(containerId);
+    refreshUndoState();
+  },
+
   /**
    * Cancel any pending auto-save timer (e.g. when a manual save starts).
    */
@@ -4111,6 +4163,7 @@ export const segmentationService = {
     }
     labelmapInterpolationInProgress = false;
     uninstallHistoryMemoTracking();
+    perContainerHistory.clearAll();
 
     // Clean up module-level state. sourceImageTracking.dispose() both
     // unsubscribes its auto-cleanup listener and clears its map.
