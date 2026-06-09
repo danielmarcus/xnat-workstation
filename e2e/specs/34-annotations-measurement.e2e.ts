@@ -1,0 +1,54 @@
+/**
+ * Annotations panel — measurement (SR) container (Rebuild Phase 3 / signal 32).
+ *
+ * A drawn measurement is a first-class container in the panel: activate a
+ * measurement tool, draw a Length on the canvas, and the panel shows a Measurement
+ * (SR) container whose member row carries the tool name + the formatted value.
+ * Drives the real tool + a real draw gesture.
+ *
+ * (The explicit "New Measurement (SR)" create-empty-set button is deferred per the
+ * D7.1 measurement skeleton; this verifies the draw → panel-member path, which is
+ * the core of signal 32.)
+ */
+import { test, expect } from '../fixtures/electron-app';
+import type { Page } from '@playwright/test';
+import { loadFixture } from '../helpers/local-fixture';
+
+interface E2EHooks {
+  setMultiviewportEnabled: (v: boolean) => void;
+  setActiveUnifiedTool: (toolName: string) => void;
+  getMeasurementCount: () => number;
+}
+type Win = { __XNAT_E2E__: E2EHooks };
+
+test('a drawn Length measurement appears as a member of the Measurement (SR) container', async ({ page }) => {
+  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.setMultiviewportEnabled(true));
+  await loadFixture(page, 'ct-axial-300', 'panel_0');
+  await page.getByRole('button', { name: 'Show segmentation panel' }).click();
+  const panel = page.locator('[data-testid="annotations-side-panel"]');
+  await expect(panel).toBeVisible({ timeout: 15_000 });
+  await expect(panel.getByText('No annotations yet')).toBeVisible();
+
+  // Activate the Length tool + draw a length on the canvas (real gesture).
+  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.setActiveUnifiedTool('Length'));
+  const canvas = page.locator('[data-testid="unified-viewport-element:panel_0"] canvas');
+  const box = await canvas.boundingBox();
+  expect(box).not.toBeNull();
+  const cy = box!.y + box!.height / 2;
+  await page.mouse.move(box!.x + box!.width * 0.35, cy);
+  await page.mouse.down();
+  await page.mouse.move(box!.x + box!.width * 0.65, cy, { steps: 6 });
+  await page.mouse.up();
+
+  // The measurement registered…
+  await expect
+    .poll(() => page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.getMeasurementCount()), { timeout: 15_000 })
+    .toBeGreaterThan(0);
+
+  // …and the panel now shows a Measurement (SR) container with a member row.
+  await expect(panel.getByText('No annotations yet')).toHaveCount(0);
+  await expect(panel.getByText('Measurements')).toBeVisible({ timeout: 10_000 });
+  await expect(panel.locator('[data-testid^="member-row-"]')).toHaveCount(1);
+  // The member carries its formatted value (metricOf → displayText, signal 32).
+  await expect(panel.getByText(/\d/).first()).toBeVisible();
+});

@@ -199,6 +199,12 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
 
   const activeToolId = TOOLNAME_TO_CATALOG[activeTool] ?? null;
 
+  // Measurement value/unit per member (signal 32): SR members carry an annotationUID
+  // → the annotation's formatted displayText (e.g. "12.5 mm", "45°").
+  const measurementText = new Map(annotations.map((a) => [a.annotationUID, a.displayText]));
+  const metricOf = (_containerId: string, member: { annotationUID?: string }): string | undefined =>
+    member.annotationUID ? measurementText.get(member.annotationUID) || undefined : undefined;
+
   return {
     containers,
     containerCount: containers.length,
@@ -218,6 +224,7 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
     isExpanded: (id: string) => !collapsed.has(id),
     isActive: (cid: string, mid: string) => activeMember?.containerId === cid && activeMember?.memberId === mid,
     isSelected: (cid: string, mid: string) => selection.some((r) => r.containerId === cid && r.memberId === mid),
+    metricOf,
     // toolbox
     toolbox: activeContainer
       ? {
