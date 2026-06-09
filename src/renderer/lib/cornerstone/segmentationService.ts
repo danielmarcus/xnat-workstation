@@ -2262,9 +2262,14 @@ export const segmentationService = {
         targetPlane.frameOfReferenceUID &&
         contourClipboard.frameOfReferenceUID !== targetPlane.frameOfReferenceUID
       ) {
-        console.debug('[segmentationService] paste: FrameOfReferenceUID mismatch', {
-          clipboard: contourClipboard.frameOfReferenceUID,
-          target: targetPlane.frameOfReferenceUID,
+        // Cross-FoR paste without a registered transform is blocked with a clear,
+        // visible error (D6 / signal 23) — not a silent console.debug.
+        void showAlertDialog({
+          title: "Can't paste here",
+          message:
+            'The copied annotation belongs to a different frame of reference than this viewport. '
+            + 'Paste into a viewport showing the source volume (or a registered volume in the same frame of reference).',
+          confirmLabel: 'OK',
         });
         return false;
       }

@@ -481,4 +481,32 @@ describe('segmentationService', () => {
     }));
     cs.eventTarget.removeEventListener(Events.ANNOTATION_COMPLETED, completedSpy);
   });
+
+  it('blocks a cross-Frame-of-Reference paste with a clear error dialog (D6 / signal 23)', () => {
+    const { completedSpy } = setupContourCopyPasteScenario();
+
+    expect(segmentationService.copySelectedContourAnnotation()).toBe(true);
+
+    // The paste target (img-2) now belongs to a DIFFERENT frame of reference than
+    // the clipboard's source (img-1, frame-1). Cross-FoR paste without a registered
+    // transform must be blocked with a visible error — not a silent console.debug.
+    cs.core.metaData.get.mockImplementation((type: string, imageId: string) => {
+      if (type === 'imagePlaneModule') {
+        if (imageId === 'img-1') {
+          return { imagePositionPatient: [0, 0, 1], rowCosines: [1, 0, 0], columnCosines: [0, 1, 0], frameOfReferenceUID: 'frame-1' };
+        }
+        if (imageId === 'img-2') {
+          return { imagePositionPatient: [0, 0, 6], rowCosines: [1, 0, 0], columnCosines: [0, 1, 0], frameOfReferenceUID: 'frame-2' };
+        }
+      }
+      return undefined;
+    });
+
+    expect(segmentationService.pasteCopiedContourAnnotationToActiveSlice()).toBe(false);
+    expect(showAlertDialogMock).toHaveBeenCalledWith(expect.objectContaining({
+      title: expect.stringMatching(/paste/i),
+      message: expect.stringMatching(/frame of reference/i),
+    }));
+    cs.eventTarget.removeEventListener(Events.ANNOTATION_COMPLETED, completedSpy);
+  });
 });
