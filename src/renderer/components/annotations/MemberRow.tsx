@@ -61,16 +61,22 @@ export default function MemberRow(props: MemberRowProps) {
   // no delete (D7.3 lock blocks edits; deleting a locked member is a destructive edit).
   const readOnly = lockState !== 'unlocked' || differentFor;
 
-  const [editing, setEditing] = useState(() => !!autoEdit);
+  const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(member.label);
   const inputRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     if (editing && inputRef.current) { inputRef.current.focus(); inputRef.current.select(); }
   }, [editing]);
+  // Enter edit mode when autoEdit BECOMES true (row may mount before the create
+  // handler sets the flag, so an initial-state capture would miss it).
   useEffect(() => {
-    if (autoEdit) onEditConsumed?.();
+    if (autoEdit && !readOnly) {
+      setDraft(member.label);
+      setEditing(true);
+      onEditConsumed?.();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [autoEdit]);
   const commit = () => {
     setEditing(false);
     const next = draft.trim();

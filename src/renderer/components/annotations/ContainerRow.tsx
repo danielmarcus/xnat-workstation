@@ -48,7 +48,7 @@ export default function ContainerRow(props: ContainerRowProps) {
   const approved = container.approval === 'APPROVED';
   const dirty = !!container.dirty && !approved;
 
-  const [editing, setEditing] = useState(() => !!autoEdit);
+  const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(container.label);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -58,10 +58,16 @@ export default function ContainerRow(props: ContainerRowProps) {
       inputRef.current.select();
     }
   }, [editing]);
+  // Enter edit mode when autoEdit BECOMES true (the row often mounts before the
+  // create handler sets the flag, so an initial-state capture would miss it).
   useEffect(() => {
-    if (autoEdit) onEditConsumed?.();
+    if (autoEdit && !approved) {
+      setDraft(container.label);
+      setEditing(true);
+      onEditConsumed?.();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [autoEdit]);
 
   const beginEdit = () => {
     if (approved) return; // rename blocked on approved (D7.11)
