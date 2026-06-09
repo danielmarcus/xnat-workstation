@@ -14,7 +14,7 @@
  *
  * §2: lib/cornerstone may import Cornerstone directly.
  */
-import { volumeLoader, getRenderingEngine } from '@cornerstonejs/core';
+import { volumeLoader, getRenderingEngine, metaData } from '@cornerstonejs/core';
 import {
   segmentation as csSegmentation,
   Enums as ToolEnums,
@@ -22,11 +22,104 @@ import {
 } from '@cornerstonejs/tools';
 import { canComputeRequestedRepresentation, computeLabelmapData } from '@cornerstonejs/polymorphic-segmentation';
 import { viewportService } from './viewportService';
+import { classifyEligibility, type ContainerSpatialId, type ViewportSpatialId } from './forEligibility';
+import { actionForEligibility, nonNativeStyleFor } from './eligibilityStyle';
 
 let counter = 0;
 /** Segmentations created on the unified path, so they can be re-attached to
  *  viewports that (re)mount after a layout change. */
 const created = new Set<string>();
+/** Spatial identity (FoR + native series) per unified container — recorded at
+ *  creation from its native viewport. Drives FoR-eligibility on (re)attach
+ *  (A2a–d): a container must not render on a different-FoR viewport, and renders
+ *  with the non-native style on a same-FoR sibling series. */
+const containerSpatial = new Map<string, ContainerSpatialId>();
+
+/** Resolve a viewport's Frame-of-Reference + series. Null/unknown fields ⇒ the
+ *  caller fails OPEN (treats the pair as native) so a single-series render is
+ *  never regressed by an unresolved id. */
+function resolveViewportSpatial(viewportId: string): ViewportSpatialId | null {
+  const vp = viewportService.getViewport(viewportId) as any;
+  if (!vp) return null;
+  let frameOfReferenceUID: string | null = null;
+  try {
+    frameOfReferenceUID = vp.getFrameOfReferenceUID?.() ?? null;
+  } catch {
+    frameOfReferenceUID = null;
+  }
+  let imageId: string | null = null;
+  try {
+    imageId = vp.getImageIds?.()?.[0] ?? vp.getCurrentImageId?.() ?? null;
+  } catch {
+    imageId = null;
+  }
+  let seriesInstanceUID: string | null = null;
+  if (imageId) {
+    const m = metaData.get('generalSeriesModule', imageId) as { seriesInstanceUID?: string } | undefined;
+    seriesInstanceUID = m?.seriesInstanceUID ?? null;
+  }
+  return { viewportId, frameOfReferenceUID, seriesInstanceUID, acquisitionNumber: null };
+}
+
+/** Record a container's native spatial identity from the viewport it was created on. */
+function recordContainerSpatial(segmentationId: string, nativeViewportId: string | undefined): void {
+  if (!nativeViewportId) return;
+  const v = resolveViewportSpatial(nativeViewportId);
+  if (!v) return;
+  containerSpatial.set(segmentationId, {
+    frameOfReferenceUID: v.frameOfReferenceUID,
+    nativeSeriesInstanceUID: v.seriesInstanceUID,
+    referencedSeriesInstanceUIDs: v.seriesInstanceUID ? [v.seriesInstanceUID] : [],
+  });
+}
+
+/**
+ * Eligibility-gated attach of one labelmap container to one viewport, for the
+ * re-attach path. Fails OPEN to native (attach, default style) whenever a spatial
+ * id is unresolved, so the working single-series render is never regressed. Only a
+ * confidently-different Frame of Reference (A2d) suppresses the attach; a same-FoR
+ * sibling series (A2b) attaches with the non-native style + read-only.
+ * Exported for service-integration testing.
+ */
+export function attachLabelmapWithEligibility(segmentationId: string, viewportId: string): void {
+  const cspatial = containerSpatial.get(segmentationId);
+  const vspatial = resolveViewportSpatial(viewportId);
+  // Default native (fail-open) — only override when both ids are confidently known.
+  let action = actionForEligibility('native');
+  if (cspatial?.frameOfReferenceUID && vspatial?.frameOfReferenceUID) {
+    action = actionForEligibility(classifyEligibility({ container: cspatial, viewport: vspatial }));
+  }
+  if (!action.attach) return; // A2d different-FoR: do not render here
+  csSegmentation.addLabelmapRepresentationToViewport(viewportId, [{ segmentationId }]);
+  if (action.nonNative) {
+    try {
+      csSegmentation.segmentationStyle.setStyle(
+        { type: ToolEnums.SegmentationRepresentations.Labelmap, viewportId, segmentationId },
+        nonNativeStyleFor('Labelmap') as never,
+      );
+    } catch {
+      /* style is best-effort, never blocks attach */
+    }
+  }
+  if (action.hidden) {
+    try {
+      (csSegmentation as any).config?.visibility?.setSegmentationRepresentationVisibility?.(
+        viewportId,
+        { segmentationId, type: ToolEnums.SegmentationRepresentations.Labelmap },
+        false,
+      );
+    } catch {
+      /* visibility toggle best-effort */
+    }
+  }
+  if (!action.readOnly) {
+    try {
+      csSegmentation.activeSegmentation.setActiveSegmentation(viewportId, segmentationId);
+    } catch {
+      /* viewport not ready */
+    }
+  }
+}
 
 export interface UnifiedLabelmapResult {
   segmentationId: string;
@@ -71,6 +164,7 @@ export const unifiedSegService = {
     ]);
 
     created.add(segmentationId);
+    recordContainerSpatial(segmentationId, viewportIds[0]);
     for (const viewportId of viewportIds) {
       csSegmentation.addLabelmapRepresentationToViewport(viewportId, [{ segmentationId }]);
       try {
@@ -94,11 +188,14 @@ export const unifiedSegService = {
     for (const segmentationId of created) {
       if (!csSegmentation.state.getSegmentation(segmentationId)) {
         created.delete(segmentationId);
+        containerSpatial.delete(segmentationId);
         continue;
       }
       try {
-        csSegmentation.addLabelmapRepresentationToViewport(viewportId, [{ segmentationId }]);
-        csSegmentation.activeSegmentation.setActiveSegmentation(viewportId, segmentationId);
+        // FoR-eligibility gate (A2a–d): native attaches solid + editable; a same-FoR
+        // sibling series attaches non-native + read-only; a different FoR does not
+        // attach here. Fails open to native when ids are unresolved.
+        attachLabelmapWithEligibility(segmentationId, viewportId);
       } catch {
         /* viewport not ready yet */
       }
@@ -130,6 +227,7 @@ export const unifiedSegService = {
       },
     ]);
     created.add(segmentationId);
+    recordContainerSpatial(segmentationId, viewportIds[0]);
     for (const viewportId of viewportIds) {
       csSegmentation.addContourRepresentationToViewport(viewportId, [{ segmentationId }]);
       try {
@@ -192,5 +290,12 @@ export const unifiedSegService = {
   /** Forget all tracked unified segmentations (test isolation). */
   reset(): void {
     created.clear();
+    containerSpatial.clear();
+  },
+
+  /** Test seam: record a container's native spatial identity directly. */
+  _setContainerSpatialForTest(segmentationId: string, spatial: ContainerSpatialId): void {
+    created.add(segmentationId);
+    containerSpatial.set(segmentationId, spatial);
   },
 };
