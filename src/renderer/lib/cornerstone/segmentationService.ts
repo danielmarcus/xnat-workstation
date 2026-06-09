@@ -55,6 +55,7 @@ import type { SegmentationSummary, SegmentSummary } from '../../stores/segmentat
 import { useViewerStore } from '../../stores/viewerStore';
 import { useConnectionStore } from '../../stores/connectionStore';
 import { useSegmentationManagerStore } from '../../stores/segmentationManagerStore';
+import { useTransportStore } from '../../stores/transportStore';
 import { rtStructService } from './rtStructService';
 import * as contourRep from './contourRepresentation';
 import * as sourceImageTracking from './sourceImageTracking';
@@ -102,6 +103,7 @@ import {
 } from './segmentationService/contourGeometry';
 import { createUndoHistory } from './segmentationService/undoHistory';
 import { createPerContainerHistory } from './segmentationService/perContainerHistory';
+import { createSaveQueue, type SaveOutcome } from './segmentationService/saveQueue';
 import { createVisibilityControls } from './segmentationService/visibility';
 import { createDicomSegExport } from './segmentationService/dicomSegExport';
 import { showAlertDialog } from '../../stores/dialogStore';
@@ -222,6 +224,45 @@ const perContainerHistory = createPerContainerHistory({
     if (isDirtyTrackingSuppressed()) return;
     useSegmentationManagerStore.getState().markDirty(containerId);
     useSegmentationStore.getState()._markDirty();
+  },
+});
+
+// ─── Queue-next-save autosave state machine (A9 / E2 / Slice 5) ─────────────
+// The per-container queue/debounce/retry POLICY. The transport (`saveContainer`)
+// is injected — the real per-container XNAT save is the deferred transport
+// workstream; until it lands, the existing session-wide backupService autosave
+// (performAutoSave below) remains the live persistence and this queue is inert in
+// production (no production caller drives notifyDirty yet — Phase-3 gesture
+// interceptor + transport workstream wire it). `isGestureActive` likewise reads a
+// flag the Phase-3 gesture interceptor will set. onPhase surfaces per-container
+// state into transportStore (silent — no toast/banner; the autosave row reads it).
+let gestureActive = false;
+let saveTransport: (containerId: string) => Promise<SaveOutcome> = async () =>
+  ({ ok: false, kind: 'transient', error: 'save transport not implemented' });
+
+function resolveContainerKind(containerId: string): 'SEG' | 'RTSTRUCT' | 'SR' {
+  try {
+    return getSegmentationType(containerId) === 'contour' ? 'RTSTRUCT' : 'SEG';
+  } catch {
+    return 'SEG';
+  }
+}
+
+const saveQueue = createSaveQueue({
+  saveContainer: (containerId) => saveTransport(containerId),
+  isGestureActive: () => gestureActive,
+  debounceMs: () => {
+    const backupPrefs = usePreferencesStore.getState().preferences.backup;
+    return backupPrefs.intervalSeconds > 0 ? backupPrefs.intervalSeconds * 1000 : AUTO_SAVE_DELAY;
+  },
+  isAutoSaveEnabled: () => usePreferencesStore.getState().preferences.backup.enabled,
+  onPhase: (containerId, phase, error) => {
+    const store = useTransportStore.getState();
+    if (phase === 'idle') {
+      store.markSaved(containerId, Date.now());
+    } else {
+      store.setPhase(containerId, resolveContainerKind(containerId), phase === 'saving' ? 'saving' : 'error', error);
+    }
   },
 });
 
@@ -4080,6 +4121,36 @@ export const segmentationService = {
     refreshUndoState();
   },
 
+  // ─── Queue-next-save autosave (A9 / E2 / Slice 5) ─────────────
+  // The queue/debounce/retry mechanism. The live driver (Phase-3 gesture
+  // interceptor → notifyContainerDirty; transport workstream → setSaveTransport)
+  // adopts these; until then the legacy backupService autosave stays live.
+
+  /** Mark a container dirty for the debounced queue-next-save autosave. */
+  notifyContainerDirty(containerId: string): void {
+    saveQueue.notifyDirty(containerId);
+  },
+
+  /** Manual save now — flushes the pending debounce and serializes immediately. */
+  flushContainerSave(containerId: string): Promise<void> {
+    return saveQueue.flush(containerId);
+  },
+
+  /** Per-container dirty/in-flight inspection (D7 row state). */
+  getContainerSaveState(containerId: string): { dirty: boolean; inFlight: boolean } {
+    return saveQueue.state(containerId);
+  },
+
+  /** Set whether a gesture is in progress (autosave must not fire mid-gesture). */
+  setGestureActive(active: boolean): void {
+    gestureActive = active;
+  },
+
+  /** Inject the per-container save transport (the deferred transport workstream). */
+  setSaveTransport(fn: (containerId: string) => Promise<SaveOutcome>): void {
+    saveTransport = fn;
+  },
+
   /**
    * Cancel any pending auto-save timer (e.g. when a manual save starts).
    */
@@ -4164,6 +4235,8 @@ export const segmentationService = {
     labelmapInterpolationInProgress = false;
     uninstallHistoryMemoTracking();
     perContainerHistory.clearAll();
+    saveQueue.reset();
+    gestureActive = false;
 
     // Clean up module-level state. sourceImageTracking.dispose() both
     // unsubscribes its auto-cleanup listener and clears its map.
