@@ -96,6 +96,8 @@ export default function MemberRow(props: MemberRowProps) {
     <div
       className={rowClasses}
       data-testid={`member-row-${member.id}`}
+      data-active={active}
+      data-selected={selected}
       onClick={(e) => onSelect(e.ctrlKey || e.metaKey || e.shiftKey)}
       onDoubleClick={onActivate}
     >
