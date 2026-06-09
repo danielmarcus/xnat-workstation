@@ -31,6 +31,10 @@ export interface MemberRowProps {
   metric?: string;
   /** Empty (freshly created, no geometry). */
   empty?: boolean;
+  /** Start in inline-edit mode (freshly created — D7.6 create-in-edit-mode). */
+  autoEdit?: boolean;
+  /** Called once after a freshly-created row enters edit mode (clears the pending flag). */
+  onEditConsumed?: () => void;
   onSelect: (additive: boolean) => void;
   onActivate: () => void;
   onCycleVisibility: () => void;
@@ -48,19 +52,25 @@ function swatchColor(color?: [number, number, number, number]): string {
 export default function MemberRow(props: MemberRowProps) {
   const {
     member, visibility, lockState, active, selected, provenance, eligibility = 'native',
-    sourceSeriesLabel, metric, empty, onSelect, onActivate, onCycleVisibility, onToggleLock, onDelete, onRename,
+    sourceSeriesLabel, metric, empty, autoEdit, onEditConsumed, onSelect, onActivate, onCycleVisibility, onToggleLock, onDelete, onRename,
   } = props;
 
   const differentFor = eligibility === 'different-for';
   const crossSeries = eligibility === 'cross-series';
-  const readOnly = lockState === 'approved' || differentFor;
+  // Locked (session OR approved) and different-FoR members are read-only: no rename,
+  // no delete (D7.3 lock blocks edits; deleting a locked member is a destructive edit).
+  const readOnly = lockState !== 'unlocked' || differentFor;
 
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState(() => !!autoEdit);
   const [draft, setDraft] = useState(member.label);
   const inputRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     if (editing && inputRef.current) { inputRef.current.focus(); inputRef.current.select(); }
   }, [editing]);
+  useEffect(() => {
+    if (autoEdit) onEditConsumed?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const commit = () => {
     setEditing(false);
     const next = draft.trim();

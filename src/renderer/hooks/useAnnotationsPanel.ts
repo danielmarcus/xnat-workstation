@@ -43,6 +43,10 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
 
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [activeToolId, setActiveToolId] = useState<string | null>(null);
+  // Create-in-edit-mode (D7.6): a freshly-created container/member starts in inline
+  // rename; cleared once the row consumes it (onEditConsumed).
+  const [autoEditContainerId, setAutoEditContainerId] = useState<string | null>(null);
+  const [autoEditMemberKey, setAutoEditMemberKey] = useState<string | null>(null);
 
   const containers = useMemo(
     () =>
@@ -90,10 +94,12 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
           const segId = await segmentationManager.createNewStructure(activeViewportId, sourceImageIds);
           await segmentationManager.addSegment(segId, 'ROI 1'); // D7.6 — create starts with a member
           activateAndBridge(segId, '1');
+          setAutoEditContainerId(segId); // create-in-edit-mode (D7.6)
         } else {
           // SEG with a default Segment 1 (createDefaultSegment) so the container is drawable immediately.
           const segId = await segmentationManager.createNewSegmentation(activeViewportId, sourceImageIds, undefined, true);
           activateAndBridge(segId, '1');
+          setAutoEditContainerId(segId); // create-in-edit-mode (D7.6)
         }
       } catch (err) {
         console.error('[annotationsPanel] create failed:', err);
@@ -113,8 +119,11 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
     onAddMember: (id) => {
       void (async () => {
         try {
-          const idx = await segmentationManager.addSegment(id, `Segment ${id}`);
+          const container = containers.find((c) => c.id === id);
+          const defaultLabel = `${container?.kind === 'RTSTRUCT' ? 'ROI' : 'Segment'} ${(container?.members.length ?? 0) + 1}`;
+          const idx = await segmentationManager.addSegment(id, defaultLabel);
           activateAndBridge(id, String(idx));
+          setAutoEditMemberKey(`${id} ${idx}`); // create-in-edit-mode (D7.6)
         } catch (err) {
           console.error('[annotationsPanel] add member failed:', err);
         }
@@ -135,7 +144,12 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
       const container = containers.find((c) => c.id === cid);
       const member = container?.members.find((m) => m.id === mid);
       if (!member || !Number.isInteger(idx)) return;
-      segmentationService.setSegmentVisibility(activeViewportId, cid, idx, !member.visible);
+      const next = !member.visible;
+      segmentationService.setSegmentVisibility(activeViewportId, cid, idx, next);
+      // setSegmentVisibility updates Cornerstone but NOT the presentation store the
+      // projection reads — persist it so member.visible (and the eye icon) flip both
+      // ways instead of sticking at the first toggle.
+      useSegmentationManagerStore.getState().setPresentation(cid, idx, { visible: next });
     },
     onToggleLock: (cid, mid) => {
       const idx = Number(mid);
@@ -165,6 +179,13 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
     onCreate,
     onSaveAll: () => console.warn('[annotationsPanel] Save all — transport workstream (TODO).'),
     handlers,
+    // create-in-edit-mode (D7.6)
+    autoEditContainerId,
+    autoEditMemberKey,
+    onEditConsumed: () => {
+      setAutoEditContainerId(null);
+      setAutoEditMemberKey(null);
+    },
     // selection / expand resolvers
     isExpanded: (id: string) => !collapsed.has(id),
     isActive: (cid: string, mid: string) => activeMember?.containerId === cid && activeMember?.memberId === mid,

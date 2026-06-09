@@ -78,8 +78,22 @@ describe('MemberRow', () => {
     expect(screen.getByText('auto')).toBeTruthy();
   });
 
-  it('approved lock state disables delete (locked)', () => {
-    setup({ lockState: 'approved' });
+  it('disables delete when locked (session or approved) — locked rows are not deletable', () => {
+    const { rerender } = render(
+      <MemberRow member={makeMember()} visibility="filled" lockState="locked" active={false} selected={false} onSelect={vi.fn()} onActivate={vi.fn()} onCycleVisibility={vi.fn()} onToggleLock={vi.fn()} onDelete={vi.fn()} onRename={vi.fn()} />,
+    );
     expect((screen.getByLabelText('Delete member') as HTMLButtonElement).disabled).toBe(true);
+    // ...but the lock button stays clickable so the user can unlock
+    expect((screen.getByLabelText('Toggle lock') as HTMLButtonElement).disabled).toBe(false);
+
+    rerender(<MemberRow member={makeMember()} visibility="filled" lockState="approved" active={false} selected={false} onSelect={vi.fn()} onActivate={vi.fn()} onCycleVisibility={vi.fn()} onToggleLock={vi.fn()} onDelete={vi.fn()} onRename={vi.fn()} />);
+    expect((screen.getByLabelText('Delete member') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('starts in inline-edit mode when autoEdit is set (create-in-edit-mode, D7.6)', () => {
+    const onEditConsumed = vi.fn();
+    setup({ autoEdit: true, onEditConsumed });
+    expect(screen.getByLabelText('Rename member')).toBeTruthy(); // input shown immediately
+    expect(onEditConsumed).toHaveBeenCalled();
   });
 });

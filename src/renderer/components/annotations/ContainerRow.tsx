@@ -30,6 +30,10 @@ export interface ContainerRowProps {
   expanded: boolean;
   /** Number of OTHER viewports this container renders on (cross-panel pill). */
   crossPanelCount?: number;
+  /** Start in inline-edit mode (freshly created — D7.6 create-in-edit-mode). */
+  autoEdit?: boolean;
+  /** Called once after a freshly-created row enters edit mode (clears the pending flag). */
+  onEditConsumed?: () => void;
   onToggleExpand: () => void;
   onApproveToggle: () => void;
   onAddMember: () => void;
@@ -40,11 +44,11 @@ export interface ContainerRowProps {
 }
 
 export default function ContainerRow(props: ContainerRowProps) {
-  const { container, expanded, crossPanelCount, onToggleExpand, onApproveToggle, onAddMember, onSave, onKebab, onDelete, onRename } = props;
+  const { container, expanded, crossPanelCount, autoEdit, onEditConsumed, onToggleExpand, onApproveToggle, onAddMember, onSave, onKebab, onDelete, onRename } = props;
   const approved = container.approval === 'APPROVED';
   const dirty = !!container.dirty && !approved;
 
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState(() => !!autoEdit);
   const [draft, setDraft] = useState(container.label);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -54,6 +58,10 @@ export default function ContainerRow(props: ContainerRowProps) {
       inputRef.current.select();
     }
   }, [editing]);
+  useEffect(() => {
+    if (autoEdit) onEditConsumed?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const beginEdit = () => {
     if (approved) return; // rename blocked on approved (D7.11)

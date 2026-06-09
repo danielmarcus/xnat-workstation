@@ -43,6 +43,9 @@ export default function AnnotationsPanel({ activeViewportId, sourceImageIds }: A
           isExpanded={panel.isExpanded}
           isActive={panel.isActive}
           isSelected={panel.isSelected}
+          autoEditContainerId={panel.autoEditContainerId}
+          autoEditMemberKey={panel.autoEditMemberKey}
+          onEditConsumed={panel.onEditConsumed}
         />
       </AnnotationsSidePanel>
     </div>

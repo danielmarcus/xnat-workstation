@@ -68,6 +68,13 @@ describe('ContainerRow', () => {
     expect(cbs.onRename).toHaveBeenCalledWith('Pelvis_v4');
   });
 
+  it('starts in inline-edit mode when autoEdit is set (create-in-edit-mode, D7.6)', () => {
+    const onEditConsumed = vi.fn();
+    setup({ autoEdit: true, onEditConsumed });
+    expect(screen.getByLabelText('Rename container')).toBeTruthy();
+    expect(onEditConsumed).toHaveBeenCalled();
+  });
+
   it('fires expand / approve / add / kebab / delete callbacks', async () => {
     const cbs = setup();
     await userEvent.click(screen.getByLabelText('Collapse'));
