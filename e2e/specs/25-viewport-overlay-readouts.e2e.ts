@@ -28,17 +28,17 @@ test('viewport overlay shows live slice counter + W/L + zoom on load (flag on)',
 
   // Slice counter shows "N / 16" — total is the volume slice count (ct-axial-300
   // is a 16-slice CT). A stale/garbage total (the "257/21" class of bug) would
-  // not match "/ 16".
+  // not match "/ 16". (Default overlay prefs place imageIndex in the bottom-left.)
   await expect
     .poll(
-      async () => (await page.locator('[data-testid="overlay-image-index:panel_0"]').textContent())?.trim() ?? '',
+      async () => (await page.locator('[data-testid="overlay-field-imageIndex:panel_0"]').textContent())?.trim() ?? '',
       { timeout: 20_000 },
     )
     .toMatch(/^\d+ \/ 16$/);
 
-  // W/L + zoom readouts render.
-  await expect(page.locator('[data-testid="overlay-wl:panel_0"]')).toContainText('W:');
-  await expect(page.locator('[data-testid="overlay-zoom:panel_0"]')).toContainText('Zoom:');
+  // W/L + zoom readouts render in their configured corners.
+  await expect(page.locator('[data-testid="overlay-field-windowLevel:panel_0"]')).toContainText('W:');
+  await expect(page.locator('[data-testid="overlay-field-zoom:panel_0"]')).toContainText('Zoom:');
 
   // Metadata corners populate from the volume's source metadata (the empty-corners
   // bug: a volume viewport's getCurrentImageId() was null, so no metadata flowed;
@@ -46,7 +46,7 @@ test('viewport overlay shows live slice counter + W/L + zoom on load (flag on)',
   // ct-axial-300's series description is "CT AXIAL 300 (sphere phantom)".
   await expect
     .poll(
-      async () => (await page.locator('[data-testid="overlay-series-desc:panel_0"]').textContent())?.trim() ?? '',
+      async () => (await page.locator('[data-testid="overlay-field-seriesDescription:panel_0"]').textContent())?.trim() ?? '',
       { timeout: 20_000 },
     )
     .toContain('CT AXIAL 300');
