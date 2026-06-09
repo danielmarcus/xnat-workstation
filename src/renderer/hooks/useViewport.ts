@@ -107,6 +107,14 @@ export function useViewport({
           },
         });
         syncState('init');
+        // Record the panel's CURRENT reformat plane in the store so the orientation
+        // dropdown shows the truth (this panel is displaying `orientation`). Without
+        // this the dropdown fell back to a metadata-derived "native" plane that can
+        // mis-read (e.g. showing Sagittal on an axial scan). Only when unset, so a
+        // user's later selection isn't clobbered on re-attach.
+        if (!useViewerStore.getState().panelOrientationMap[panelId]) {
+          useViewerStore.getState().setPanelOrientation(panelId, orientation);
+        }
         // Signal viewport readiness for the CURRENT epoch (App bumps the epoch
         // when imageIds change, before this effect re-runs). SegmentationManager
         // .whenReady blocks on this for SEG/RTSTRUCT overlay attach.
