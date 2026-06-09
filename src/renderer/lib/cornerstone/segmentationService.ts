@@ -56,6 +56,7 @@ import { useViewerStore } from '../../stores/viewerStore';
 import { useConnectionStore } from '../../stores/connectionStore';
 import { useSegmentationManagerStore } from '../../stores/segmentationManagerStore';
 import { useTransportStore } from '../../stores/transportStore';
+import { useAnnotationSelectionStore } from '../../stores/annotationSelectionStore';
 import { rtStructService } from './rtStructService';
 import * as contourRep from './contourRepresentation';
 import * as sourceImageTracking from './sourceImageTracking';
@@ -762,12 +763,25 @@ function onAnnotationHistoryEvent(): void {
   refreshUndoState();
 }
 
-/** Push canUndo/canRedo booleans into the Zustand store. */
+/**
+ * The active container for undo/redo (A8): the active member's container, from the
+ * list-panel selection model. When set, undo/redo is per-container; when null
+ * (e.g. the legacy brush flow / E2E), it falls back to the global ring (signal 7).
+ */
+function activeUndoContainerId(): string | null {
+  try {
+    return useAnnotationSelectionStore.getState().activeMember?.containerId ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Push canUndo/canRedo booleans into the Zustand store (active-container aware, A8). */
 function refreshUndoState(): void {
-  useSegmentationStore.getState()._refreshUndoState(
-    !!DefaultHistoryMemo?.canUndo,
-    !!DefaultHistoryMemo?.canRedo,
-  );
+  const acid = activeUndoContainerId();
+  const canUndo = acid ? perContainerHistory.canUndo(acid) : !!DefaultHistoryMemo?.canUndo;
+  const canRedo = acid ? perContainerHistory.canRedo(acid) : !!DefaultHistoryMemo?.canRedo;
+  useSegmentationStore.getState()._refreshUndoState(canUndo, canRedo);
 }
 
 function renderAllSegmentationViewports(): void {
@@ -4042,6 +4056,19 @@ export const segmentationService = {
    * Uses Cornerstone3D's DefaultHistoryMemo ring buffer.
    */
   undo(): void {
+    // A8: when a container is active, undo is PER-CONTAINER (and never touches the
+    // global ring — so the two paths never double-drive the same memo). With no
+    // active container (legacy brush flow / E2E) it falls back to the global ring.
+    const acid = activeUndoContainerId();
+    if (acid) {
+      if (perContainerHistory.undo(acid)) {
+        syncSegmentations();
+        renderAllSegmentationViewports();
+      }
+      refreshUndoState();
+      return;
+    }
+
     const lockedTargets = getLockedHistoryTargets(getTopUndoHistoryEntry());
     if (lockedTargets.length > 0) {
       showHistoryBlockedDialog('undo', lockedTargets);
@@ -4063,6 +4090,16 @@ export const segmentationService = {
    * Redo a previously undone edit.
    */
   redo(): void {
+    const acid = activeUndoContainerId();
+    if (acid) {
+      if (perContainerHistory.redo(acid)) {
+        syncSegmentations();
+        renderAllSegmentationViewports();
+      }
+      refreshUndoState();
+      return;
+    }
+
     const lockedTargets = getLockedHistoryTargets(getTopRedoHistoryEntry());
     if (lockedTargets.length > 0) {
       showHistoryBlockedDialog('redo', lockedTargets);
