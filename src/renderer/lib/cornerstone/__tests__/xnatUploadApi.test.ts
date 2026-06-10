@@ -26,6 +26,7 @@ const OVERWRITE_ARGS = {
   targetScanId: '3004',
   dicomBase64: 'QkJCQg==',
   baseVersionToken: 'sha1:old',
+  seriesDescription: 'Liver',
 } as const;
 
 /** Build a fake electronAPI.xnat slice; override only the method under test. */
@@ -131,7 +132,8 @@ describe('createXnatUploadApi', () => {
       const res = await api.overwriteSeg(OVERWRITE_ARGS);
 
       expect(res).toEqual({ ok: true, scanId: '3004', versionToken: 'sha1:def456' });
-      expect(overwriteDicomSeg).toHaveBeenCalledWith('E1', '3004', 'QkJCQg==');
+      // The series description (user label) flows through to the overwrite IPC.
+      expect(overwriteDicomSeg).toHaveBeenCalledWith('E1', '3004', 'QkJCQg==', 'Liver');
     });
 
     it('overwrite conflict (409) → { ok:false, conflict:true, serverVersionToken }', async () => {
@@ -198,7 +200,7 @@ describe('createXnatUploadApi', () => {
       const res = await api.overwriteSeg(OVERWRITE_ARGS);
 
       expect(res).toEqual({ ok: true, scanId: '3004', versionToken: 'sha1:rt' });
-      expect(overwriteDicomRtStruct).toHaveBeenCalledWith('E1', '3004', 'QkJCQg==');
+      expect(overwriteDicomRtStruct).toHaveBeenCalledWith('E1', '3004', 'QkJCQg==', 'Liver');
       expect(overwriteDicomSeg).not.toHaveBeenCalled();
     });
 

@@ -49,6 +49,7 @@ function makeDeps(overrides: Partial<BuildSerializedContainerDeps> = {}): BuildS
     exportRtStruct: vi.fn(async () => 'RTSTRUCT_BASE64'),
     originOf: () => ({ projectId: 'P1', sessionId: 'E1', sourceScanId: '4', scanId: '3004' }),
     viewerContextOf: () => ({ subjectId: 'SUBJ1', sessionLabel: 'EXP_LABEL' }),
+    labelOf: () => 'Liver',
     ...overrides,
   };
 }
@@ -103,6 +104,7 @@ describe('buildSerializedContainer (pure)', () => {
       containerId: 'c1',
       kind: 'SEG',
       base64: 'SEG_BASE64',
+      label: 'Liver', // user-facing label → XNAT scan series description
       source: {
         projectId: 'P1',
         subjectId: 'SUBJ1',

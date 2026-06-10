@@ -23,6 +23,9 @@ export interface SerializedContainer {
   /** base64 DICOM (SEG/RTSTRUCT/SR) from exportToDicomSeg / exportToRtStruct. */
   base64: string;
   source: SourceIdentity;
+  /** User-facing container label → the XNAT scan's series description (so saved
+   *  annotations are named, not all "Segmentation"). Optional for back-compat. */
+  label?: string;
 }
 
 export type SaveResult =

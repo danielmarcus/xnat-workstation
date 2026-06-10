@@ -28,6 +28,7 @@ export interface XnatUploadApi {
   }): Promise<XnatWriteResult>;
   overwriteSeg(p: {
     sessionId: string; targetScanId: string; dicomBase64: string; baseVersionToken: string | null;
+    seriesDescription?: string;
   }): Promise<XnatWriteResult>;
   getVersion(p: { sessionId: string; scanId: string }): Promise<string | null>;
 }
@@ -51,6 +52,7 @@ export function createXnatTransport(api: XnatUploadApi): AnnotationTransport {
           sessionLabel: source.sessionLabel ?? '',
           sourceScanId: source.sourceScanId,
           dicomBase64: serialized.base64,
+          label: serialized.label,
         });
       } else {
         res = await api.overwriteSeg({
@@ -58,6 +60,7 @@ export function createXnatTransport(api: XnatUploadApi): AnnotationTransport {
           targetScanId: scanId,
           dicomBase64: serialized.base64,
           baseVersionToken,
+          seriesDescription: serialized.label,
         });
       }
 

@@ -52,6 +52,8 @@ export interface BuildSerializedContainerDeps {
   originOf: (id: string) => XnatOrigin | undefined;
   /** Resolve the missing SourceIdentity fields from the viewer layer. */
   viewerContextOf: (id: string) => ViewerContext;
+  /** The container's user-facing label → the saved scan's series description. */
+  labelOf: (id: string) => string | undefined;
 }
 
 /**
@@ -89,7 +91,7 @@ export async function buildSerializedContainer(
     scanId: origin.scanId,
   };
 
-  return { containerId, kind, base64, source };
+  return { containerId, kind, base64, source, label: deps.labelOf(containerId) };
 }
 
 /**
@@ -175,6 +177,8 @@ export function composeXnatTransport(): void {
     exportRtStruct: (id) => rtStructService.exportToRtStruct(id),
     originOf,
     viewerContextOf,
+    labelOf: (id) =>
+      useSegmentationStore.getState().segmentations.find((s) => s.segmentationId === id)?.label,
   };
 
   const api = createXnatUploadApi(xnat, {

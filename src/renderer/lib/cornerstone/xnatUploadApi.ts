@@ -176,8 +176,8 @@ export function createXnatUploadApi(
       try {
         const kind = overwriteKindOf(p.targetScanId);
         const res = kind === 'RTSTRUCT'
-          ? await electronApi.overwriteDicomRtStruct(p.sessionId, p.targetScanId, p.dicomBase64)
-          : await electronApi.overwriteDicomSeg(p.sessionId, p.targetScanId, p.dicomBase64);
+          ? await electronApi.overwriteDicomRtStruct(p.sessionId, p.targetScanId, p.dicomBase64, p.seriesDescription)
+          : await electronApi.overwriteDicomSeg(p.sessionId, p.targetScanId, p.dicomBase64, p.seriesDescription);
         return mapResult(res);
       } catch (err) {
         return { ok: false, error: err instanceof Error ? err.message : String(err), kind: 'transient' };
