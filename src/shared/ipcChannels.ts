@@ -50,6 +50,12 @@ export const IPC = {
   // Session events (main → renderer)
   XNAT_SESSION_EXPIRED: 'xnat:session-expired',
 
+  // App close guard: main asks the renderer whether it's safe to quit (unsaved
+  // annotations); the renderer replies with the user's decision (main → renderer
+  // request, renderer → main decision).
+  APP_CLOSE_REQUESTED: 'app:close-requested',
+  APP_CLOSE_DECISION: 'app:close-decision',
+
   // Export (renderer → main)
   EXPORT_SAVE_SCREENSHOT: 'export:save-screenshot',
   EXPORT_COPY_CLIPBOARD: 'export:copy-clipboard',

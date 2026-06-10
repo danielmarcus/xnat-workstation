@@ -738,26 +738,31 @@ describe('App', () => {
     expect(useSegmentationManagerStore.getState().loadedBySourceScan).toEqual({});
   });
 
-  it('registers beforeunload guard when unsaved segmentation changes exist', async () => {
+  it('shows the save-first dialog on app-close when unsaved annotations exist (Change 1b)', async () => {
     setConnectedConnectionState();
     useSegmentationStore.setState({
       ...useSegmentationStore.getState(),
-      segmentations: [{ segmentationId: 'seg-beforeunload' } as any],
+      segmentations: [{ segmentationId: 'seg-close-guard' } as any],
       hasUnsavedChanges: true,
     });
+    useSegmentationManagerStore.setState({ dirtySegIds: { 'seg-close-guard': true } });
     mocks.segmentationManager.hasDirtySegmentations.mockReturnValue(true);
+
+    // Capture the main→renderer close-requested callback the guard registers.
+    let closeRequested: (() => void) | null = null;
+    (window.electronAPI as any).app = {
+      onCloseRequested: (cb: () => void) => { closeRequested = cb; return () => { closeRequested = null; }; },
+      sendCloseDecision: vi.fn(),
+    };
 
     render(<App />);
     await screen.findByTestId('viewer-page');
 
-    const event = new Event('beforeunload', { cancelable: true }) as BeforeUnloadEvent;
-    Object.defineProperty(event, 'returnValue', { writable: true, value: '' });
-    window.dispatchEvent(event);
-
-    expect(event.defaultPrevented).toBe(true);
-    await waitFor(() => {
-      expect(typeof event.returnValue).toBe('string');
-    });
+    // Simulate the user trying to quit → the save-first dialog appears.
+    expect(closeRequested).toBeTypeOf('function');
+    act(() => closeRequested!());
+    await screen.findByTestId('close-unsaved-dialog');
+    expect((window.electronAPI as any).app.sendCloseDecision).not.toHaveBeenCalled();
   });
 
   it('preloadImages skips cached IDs and tolerates load failures', async () => {

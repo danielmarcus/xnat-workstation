@@ -24,6 +24,10 @@ process.stderr?.on?.('error', () => {});
 app.name = 'XNAT';
 
 let mainWindow: BrowserWindow | null = null;
+// App-close guard: set true once the renderer has confirmed it's safe to quit
+// (no unsaved annotations, or the user chose to save/discard). See the 'close'
+// interceptor + APP_CLOSE_DECISION handler below.
+let allowClose = false;
 
 const isDev = !app.isPackaged;
 const devServerUrl = (() => {
@@ -195,6 +199,16 @@ function createWindow(): void {
     });
   }
 
+  // App-close guard: intercept the first quit, ask the renderer about unsaved
+  // annotations, and only really close once the renderer replies 'proceed' (via
+  // APP_CLOSE_DECISION → allowClose). Bypassed under E2E so the test harness can
+  // close the window without a hanging prompt.
+  mainWindow.on('close', (e) => {
+    if (allowClose || isE2E) return;
+    e.preventDefault();
+    mainWindow?.webContents.send(IPC.APP_CLOSE_REQUESTED);
+  });
+
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
@@ -210,6 +224,15 @@ app.whenReady().then(() => {
   registerDiagnosticsHandlers();
   registerUpdateHandlers();
   autoUpdateService.initialize();
+
+  // App-close guard: the renderer's decision after the unsaved-annotations prompt.
+  // 'proceed' → mark allowClose + actually close; 'cancel' → stay (no-op).
+  ipcMain.on(IPC.APP_CLOSE_DECISION, (_event, decision: 'proceed' | 'cancel') => {
+    if (decision === 'proceed') {
+      allowClose = true;
+      mainWindow?.close();
+    }
+  });
 
   // Shell: open URL in system browser
   ipcMain.handle(IPC.SHELL_OPEN_EXTERNAL, async (_event, url: string) => {

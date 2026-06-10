@@ -55,6 +55,7 @@ const mocks = vi.hoisted(() => {
     nativeImage,
     ipcMain: {
       handle: vi.fn(),
+      on: vi.fn(),
     },
     shell: {
       openExternal: vi.fn(async () => undefined),

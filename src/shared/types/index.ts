@@ -198,6 +198,11 @@ export interface ElectronAPI {
     quitAndInstall(): Promise<QuitAndInstallResponse>;
     onStatus(callback: (status: UpdateStatus) => void): () => void;
   };
+  /** App-close guard: main asks before quitting; the renderer reports the decision. */
+  app?: {
+    onCloseRequested(callback: () => void): () => void;
+    sendCloseDecision(decision: 'proceed' | 'cancel'): void;
+  };
   on(channel: string, callback: (...args: unknown[]) => void): () => void;
 }
 

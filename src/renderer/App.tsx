@@ -53,6 +53,8 @@ import { useUnsavedNavigationDialog } from './lib/app/useUnsavedNavigationDialog
 import { useBookmarks } from './lib/app/useBookmarks';
 import BookmarksDropdown from './components/app/BookmarksDropdown';
 import UnsavedNavigationDialog from './components/app/UnsavedNavigationDialog';
+import CloseUnsavedDialog from './components/app/CloseUnsavedDialog';
+import { useAppCloseGuard } from './hooks/useAppCloseGuard';
 
 /** DICOM SEG SOP Class UID */
 const SEG_SOP_CLASS_UID = '1.2.840.10008.5.1.4.1.1.66.4';
@@ -959,26 +961,11 @@ export default function App() {
     };
   }, [cornerstoneReady, setPanelImageIds]);
 
-  // ─── Unsaved changes: beforeunload guard ────────────────────
-  useEffect(() => {
-    const handler = (e: BeforeUnloadEvent) => {
-      const segStore = useSegmentationStore.getState();
-      // Only block window close if there are loaded segmentations with changes
-      // that haven't been backed up locally yet. Changes that have been backed
-      // up to the local cache can be recovered on the next app launch, so we
-      // don't need to block quit for those.
-      if (
-        segStore.segmentations.length > 0 &&
-        segmentationManager.hasDirtySegmentations()
-      ) {
-        e.preventDefault();
-        // Modern browsers show a generic message; returnValue triggers the dialog
-        e.returnValue = 'You have unsaved segmentation changes. Are you sure you want to leave?';
-      }
-    };
-    window.addEventListener('beforeunload', handler);
-    return () => window.removeEventListener('beforeunload', handler);
-  }, []);
+  // ─── Unsaved changes: save-first-on-close guard (Change 1b) ──
+  // The main process intercepts the window close and asks the renderer; this hook
+  // shows a Save / Quit-without-saving / Cancel dialog when there are unsaved
+  // annotations (replaces the old generic beforeunload prompt).
+  const closeGuard = useAppCloseGuard();
 
   // ─── Bookmarks: migrate old storage on mount ──────────────────
   useEffect(() => {
@@ -3003,6 +2990,14 @@ export default function App() {
         open={unsavedNavigation.open}
         onProceedWithoutSaving={() => unsavedNavigation.resolve(true)}
         onCancel={() => unsavedNavigation.resolve(false)}
+      />
+
+      <CloseUnsavedDialog
+        open={closeGuard.promptOpen}
+        unsavedCount={closeGuard.unsavedCount}
+        onSaveAndQuit={closeGuard.onSaveAndQuit}
+        onQuitWithoutSaving={closeGuard.onQuitWithoutSaving}
+        onCancel={closeGuard.onCancel}
       />
 
       {/* Recovery confirm dialog (styled replacement for window.confirm) */}

@@ -170,6 +170,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke(IPC.DIAGNOSTICS_GET_MAIN_SNAPSHOT),
   },
 
+  app: {
+    /** Main asks the renderer whether it's safe to quit (unsaved-annotations guard). */
+    onCloseRequested: (callback: () => void) => {
+      const wrapped = () => callback();
+      ipcRenderer.on(IPC.APP_CLOSE_REQUESTED, wrapped);
+      return () => {
+        ipcRenderer.removeListener(IPC.APP_CLOSE_REQUESTED, wrapped);
+      };
+    },
+    /** Renderer reports the user's decision back to main. */
+    sendCloseDecision: (decision: 'proceed' | 'cancel') =>
+      ipcRenderer.send(IPC.APP_CLOSE_DECISION, decision),
+  },
+
   updater: {
     getState: () =>
       ipcRenderer.invoke(IPC.UPDATER_GET_STATE),
