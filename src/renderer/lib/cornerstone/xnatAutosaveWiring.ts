@@ -92,6 +92,41 @@ export async function buildSerializedContainer(
   return { containerId, kind, base64, source };
 }
 
+/**
+ * Resolve the XNAT origin a container should be saved back to. A container LOADED
+ * from XNAT has an explicit `xnatOriginMap` entry. A NEWLY-CREATED annotation has
+ * none — so fall back to the active viewport's XNAT context (its project/session +
+ * the source scan on the active panel) so first-save upload can target that
+ * session. Returns `undefined` only when there's genuinely no XNAT target (no
+ * connection / no scan loaded), which makes the save a no-op. Pure + unit-testable.
+ */
+export function resolveSaveOrigin(args: {
+  containerId: string;
+  xnatOriginMap: Record<string, { scanId: string; sourceScanId: string; projectId: string; sessionId: string }>;
+  activeViewportId: string | null;
+  panelScanMap: Record<string, string>;
+  xnatContext: { projectId: string; sessionId: string; scanId: string } | null;
+}): XnatOrigin | undefined {
+  const explicit = args.xnatOriginMap[args.containerId];
+  if (explicit) {
+    return {
+      projectId: explicit.projectId,
+      sessionId: explicit.sessionId,
+      sourceScanId: explicit.sourceScanId,
+      scanId: explicit.scanId,
+    };
+  }
+  // New (never-saved) container → derive from the active viewport's session/scan.
+  const ctx = args.xnatContext;
+  if (!ctx?.projectId || !ctx.sessionId) return undefined;
+  const sourceScanId =
+    (args.activeViewportId ? args.panelScanMap[args.activeViewportId] : undefined) || ctx.scanId;
+  if (!sourceScanId) return undefined;
+  // No own scanId yet — first-save upload assigns one (the transport maps it for
+  // subsequent overwrites within the session, H8).
+  return { projectId: ctx.projectId, sessionId: ctx.sessionId, sourceScanId };
+}
+
 // ─── Real-deps composition ────────────────────────────────────────────────
 
 let composed = false;
@@ -114,14 +149,14 @@ export function composeXnatTransport(): void {
   const kindOf = (id: string): ContainerKind => segmentationService.getPreferredDicomType(id);
 
   const originOf = (id: string): XnatOrigin | undefined => {
-    const entry = useSegmentationStore.getState().xnatOriginMap[id];
-    if (!entry) return undefined;
-    return {
-      projectId: entry.projectId,
-      sessionId: entry.sessionId,
-      sourceScanId: entry.sourceScanId,
-      scanId: entry.scanId,
-    };
+    const v = useViewerStore.getState();
+    return resolveSaveOrigin({
+      containerId: id,
+      xnatOriginMap: useSegmentationStore.getState().xnatOriginMap,
+      activeViewportId: v.activeViewportId ?? null,
+      panelScanMap: v.panelScanMap,
+      xnatContext: v.xnatContext,
+    });
   };
 
   const viewerContextOf = (_id: string): ViewerContext => {

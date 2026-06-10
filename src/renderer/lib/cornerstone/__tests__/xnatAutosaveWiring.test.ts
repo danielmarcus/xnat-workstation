@@ -33,6 +33,7 @@ vi.mock('../rtStructService', () => ({
 import {
   buildSerializedContainer,
   composeXnatTransport,
+  resolveSaveOrigin,
   _resetXnatTransportComposition,
   type BuildSerializedContainerDeps,
 } from '../xnatAutosaveWiring';
@@ -51,6 +52,42 @@ function makeDeps(overrides: Partial<BuildSerializedContainerDeps> = {}): BuildS
     ...overrides,
   };
 }
+
+describe('resolveSaveOrigin (pure)', () => {
+  const ctx = { projectId: 'P1', sessionId: 'E1', scanId: '4' };
+
+  it('uses the explicit xnatOrigin for a container loaded from XNAT', () => {
+    const origin = resolveSaveOrigin({
+      containerId: 'seg1',
+      xnatOriginMap: { seg1: { scanId: '3004', sourceScanId: '4', projectId: 'P1', sessionId: 'E1' } },
+      activeViewportId: 'panel_0',
+      panelScanMap: { panel_0: '4' },
+      xnatContext: ctx,
+    });
+    expect(origin).toEqual({ projectId: 'P1', sessionId: 'E1', sourceScanId: '4', scanId: '3004' });
+  });
+
+  it('falls back to the active viewport for a NEW (never-saved) container — sourceScanId from the active panel, no own scanId', () => {
+    const origin = resolveSaveOrigin({
+      containerId: 'newSeg',
+      xnatOriginMap: {},
+      activeViewportId: 'panel_0',
+      panelScanMap: { panel_0: '7' },
+      xnatContext: ctx,
+    });
+    expect(origin).toEqual({ projectId: 'P1', sessionId: 'E1', sourceScanId: '7' });
+    expect(origin?.scanId).toBeUndefined(); // first-save upload assigns it (H8)
+  });
+
+  it('uses the context scan when the active panel has no scan mapping', () => {
+    const origin = resolveSaveOrigin({ containerId: 'newSeg', xnatOriginMap: {}, activeViewportId: 'panel_0', panelScanMap: {}, xnatContext: ctx });
+    expect(origin?.sourceScanId).toBe('4');
+  });
+
+  it('returns undefined when there is no XNAT context (not connected / no scan loaded)', () => {
+    expect(resolveSaveOrigin({ containerId: 'x', xnatOriginMap: {}, activeViewportId: null, panelScanMap: {}, xnatContext: null })).toBeUndefined();
+  });
+});
 
 describe('buildSerializedContainer (pure)', () => {
   it('routes a SEG container to exportSeg and assembles SourceIdentity from origin + viewer context', async () => {
