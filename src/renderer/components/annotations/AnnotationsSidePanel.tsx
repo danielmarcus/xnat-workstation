@@ -16,9 +16,11 @@ export interface AnnotationsSidePanelProps {
   /** Number of containers currently listed (drives empty vs. populated). */
   containerCount: number;
   canCreate: boolean;
-  anyDirty: boolean;
+  /** Count of unsaved containers (drives the in-panel indicator). */
+  unsavedCount: number;
   onCreate: (kind: ContainerKind) => void;
-  onSaveAll: () => void;
+  /** Open the review-&-save dialog for unsaved annotations. */
+  onReviewUnsaved: () => void;
   /** The container list (ContainerRow rows) — rendered when containerCount > 0. */
   children?: ReactNode;
   /** The context toolbox — rendered below the list when present. */
@@ -86,12 +88,12 @@ function EmptyBody({ canCreate }: { canCreate: boolean }) {
 }
 
 export default function AnnotationsSidePanel(props: AnnotationsSidePanelProps) {
-  const { containerCount, canCreate, anyDirty, onCreate, onSaveAll, children, toolbox } = props;
+  const { containerCount, canCreate, unsavedCount, onCreate, onReviewUnsaved, children, toolbox } = props;
   const isEmpty = containerCount === 0;
 
   return (
     <div className="h-full w-full bg-zinc-900 border-l border-zinc-800 flex flex-col overflow-hidden" data-testid="annotations-side-panel">
-      <PanelHeader canCreate={canCreate} anyDirty={anyDirty} onCreate={onCreate} onSaveAll={onSaveAll} />
+      <PanelHeader canCreate={canCreate} unsavedCount={unsavedCount} onCreate={onCreate} onReviewUnsaved={onReviewUnsaved} />
 
       {isEmpty ? (
         <>

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { ConfirmDialog, ConflictDialog, NameEntryDialog } from '../dialogs';
+import { ConfirmDialog, ConflictDialog, NameEntryDialog, ReviewUnsavedDialog } from '../dialogs';
 
 /** Rebuild Phase 3, R3.7 — dialogs (frozen mockup §5). */
 describe('ConfirmDialog', () => {
@@ -47,5 +47,36 @@ describe('ConflictDialog', () => {
     expect(onKeepLocal).toHaveBeenCalled();
     expect(onDiscardLocal).toHaveBeenCalled();
     expect(onInspect).toHaveBeenCalled();
+  });
+});
+
+describe('ReviewUnsavedDialog', () => {
+  const entries = [
+    { containerId: 'a', label: 'Segment 1', isOtherSession: false },
+    { containerId: 'b', label: 'Tumor', isOtherSession: true, sessionLabel: 'CT_BRAIN_01' },
+  ];
+
+  it('groups current-session vs held-over work and labels the other session', () => {
+    render(<ReviewUnsavedDialog entries={entries} onSaveOne={vi.fn()} onSaveAll={vi.fn()} onClose={vi.fn()} />);
+    expect(screen.getByText('This session')).toBeTruthy();
+    expect(screen.getByText('Held from other sessions')).toBeTruthy();
+    expect(screen.getByText(/CT_BRAIN_01/)).toBeTruthy();
+  });
+
+  it('fires onSaveOne for a row and onSaveAll for the footer', async () => {
+    const onSaveOne = vi.fn();
+    const onSaveAll = vi.fn();
+    render(<ReviewUnsavedDialog entries={entries} onSaveOne={onSaveOne} onSaveAll={onSaveAll} onClose={vi.fn()} />);
+    // The first row's Save button.
+    await userEvent.click(screen.getAllByText('Save')[0]);
+    expect(onSaveOne).toHaveBeenCalledWith('a');
+    await userEvent.click(screen.getByText('Save all'));
+    expect(onSaveAll).toHaveBeenCalled();
+  });
+
+  it('shows the all-saved state and no Save-all when there is nothing unsaved', () => {
+    render(<ReviewUnsavedDialog entries={[]} onSaveOne={vi.fn()} onSaveAll={vi.fn()} onClose={vi.fn()} />);
+    expect(screen.getByText(/All annotations saved/)).toBeTruthy();
+    expect(screen.queryByText('Save all')).toBeNull();
   });
 });

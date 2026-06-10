@@ -62,6 +62,9 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
   // H7 conflict resolver: which container's conflict dialog is open (opened from the
   // in-place conflict badge; closes when resolved or cancelled).
   const [conflictDialogId, setConflictDialogId] = useState<string | null>(null);
+  // Review & save unsaved annotations dialog (opened from the in-panel indicator).
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const activeSessionId = useViewerStore((s) => s.sessionId);
 
   const containers = useMemo(
     () =>
@@ -84,6 +87,9 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
 
   const canCreate = sourceImageIds.length > 0;
   const anyDirty = hasUnsavedChanges || Object.values(dirtySegIds).some(Boolean);
+  // Unsaved containers (per-container dirty drives the in-panel indicator + review dialog).
+  const unsavedContainers = containers.filter((c) => c.dirty);
+  const unsavedCount = unsavedContainers.length;
 
   const activeContainer = activeMember ? containers.find((c) => c.id === activeMember.containerId) : undefined;
   const activeMemberObj = activeContainer?.members.find((m) => m.id === activeMember?.memberId);
@@ -144,7 +150,7 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
         }
       })();
     },
-    onSaveContainer: () => console.warn('[annotationsPanel] save-to-XNAT — transport workstream (TODO); local autosave runs in background.'),
+    onSaveContainer: (id) => { void segmentationService.flushContainerSave(id); }, // manual save → injected transport
     onResolveConflict: (id) => setConflictDialogId(id), // open the H7 resolver (in-place badge → dialog)
     onKebab: () => console.warn('[annotationsPanel] container kebab menu — TODO (hide-all/lock-all/export/revert).'),
     onDeleteContainer: (id) => segmentationManager.removeSegmentation(id),
@@ -212,6 +218,25 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
     const e = transportEntries[containerId];
     return e ? { phase: e.phase, errorKind: e.errorKind } : undefined;
   };
+  // ── Review & save unsaved annotations (in-panel indicator → dialog) ──
+  const saveOne = (id: string) => { void segmentationService.flushContainerSave(id); };
+  const saveAllUnsaved = () => unsavedContainers.forEach((c) => { void segmentationService.flushContainerSave(c.id); });
+  const transportSavingOf = (id: string) => transportEntries[id]?.phase === 'saving';
+  const reviewDialog = reviewOpen
+    ? {
+        entries: unsavedContainers.map((c) => ({
+          containerId: c.id,
+          label: c.label,
+          isOtherSession: !!c.source.sessionId && c.source.sessionId !== activeSessionId,
+          sessionLabel: c.source.sessionId || undefined,
+          saving: transportSavingOf(c.id),
+        })),
+        onSaveOne: saveOne,
+        onSaveAll: saveAllUnsaved,
+        onClose: () => setReviewOpen(false),
+      }
+    : null;
+
   const conflictContainer = conflictDialogId ? containers.find((c) => c.id === conflictDialogId) : undefined;
   const conflictStillActive = conflictDialogId ? transportEntries[conflictDialogId]?.errorKind === 'conflict' : false;
   const conflictDialog =
@@ -243,7 +268,10 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
     canCreate,
     anyDirty,
     onCreate,
-    onSaveAll: () => console.warn('[annotationsPanel] Save all — transport workstream (TODO).'),
+    // Unsaved-work surfacing: in-panel indicator count + the review/save dialog.
+    unsavedCount,
+    onReviewUnsaved: () => setReviewOpen(true),
+    reviewDialog,
     handlers,
     // create-in-edit-mode (D7.6)
     autoEditContainerId,

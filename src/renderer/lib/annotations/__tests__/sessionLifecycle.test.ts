@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import {
   decideSessionLifecycle,
   sessionsWithUnsaved,
-  unsavedWorkBySession,
   type LoadedContainerRef,
 } from '../sessionLifecycle';
 
@@ -53,29 +52,5 @@ describe('decideSessionLifecycle', () => {
     expect(sessionsWithUnsaved(containers, 'S2').sort()).toEqual(['S1', 'S3']);
     // dirty containers of the ACTIVE session aren't "other-session retained" → excluded
     expect(sessionsWithUnsaved([c('x', 'S2', true)], 'S2')).toEqual([]);
-  });
-});
-
-describe('unsavedWorkBySession (L3 banner)', () => {
-  const k = (sessionId: string, dirty = false) => ({ source: { sessionId }, dirty });
-
-  it('counts dirty OTHER-session containers per session', () => {
-    const summary = unsavedWorkBySession(
-      [k('S1', true), k('S1', true), k('S3', true), k('S2', true), k('S1', false)],
-      'S2',
-    );
-    const by = Object.fromEntries(summary.map((s) => [s.sessionId, s.count]));
-    expect(by).toEqual({ S1: 2, S3: 1 }); // S2 is active → excluded; the clean S1 isn't counted
-  });
-
-  it('excludes the active session, clean containers, and session-less (local) containers', () => {
-    expect(unsavedWorkBySession([k('S2', true)], 'S2')).toEqual([]); // active session
-    expect(unsavedWorkBySession([k('S1', false)], 'S2')).toEqual([]); // clean
-    expect(unsavedWorkBySession([k('', true)], 'S2')).toEqual([]); // no session (unsaved local)
-  });
-
-  it('with no active session yet, every dirty session-tagged container is "other"', () => {
-    const summary = unsavedWorkBySession([k('S1', true), k('S2', true)], null);
-    expect(summary.map((s) => s.sessionId).sort()).toEqual(['S1', 'S2']);
   });
 });

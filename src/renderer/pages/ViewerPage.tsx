@@ -9,7 +9,6 @@ import UnifiedViewportGrid from '../components/viewer/UnifiedViewportGrid';
 import AnnotationListPanel from '../components/viewer/AnnotationListPanel';
 import SegmentationPanel from '../components/viewer/SegmentationPanel';
 import AnnotationsPanel from '../components/annotations/AnnotationsPanel';
-import UnsavedWorkBannerContainer from '../components/annotations/UnsavedWorkBanner';
 import DicomHeaderPanel from '../components/viewer/DicomHeaderPanel';
 
 /**
@@ -96,8 +95,6 @@ export default function ViewerPage({
         settingsInitialTabRequest={settingsInitialTabRequest}
         onSettingsInitialTabRequestConsumed={onSettingsInitialTabRequestConsumed}
       />
-      {/* L3: persistent banner for unsaved work retained in other sessions (A13/E5). */}
-      <UnsavedWorkBannerContainer />
       <div className="flex-1 min-h-0 flex relative">
         {/* Optional browser sidebar (rendered by App) */}
         {browserSlot}

@@ -52,30 +52,3 @@ export function sessionsWithUnsaved(containers: LoadedContainerRef[], activeSess
   }
   return Array.from(out);
 }
-
-/** Per-session count of retained, unsaved OTHER-session containers (L3 banner row). */
-export interface UnsavedSessionSummary {
-  sessionId: string;
-  count: number;
-}
-
-/**
- * Summarize retained unsaved work by OTHER session for the unsaved-work banner
- * (L3 / A13 / E5). Reads the projected container shape directly (source.sessionId
- * + dirty). Containers of the active session, or with no session (unsaved local /
- * not-yet-on-XNAT), are excluded — the banner is about work stranded on a session
- * you've navigated away from. Pure: no store/Cornerstone imports.
- */
-export function unsavedWorkBySession(
-  containers: Array<{ source: { sessionId: string }; dirty?: boolean }>,
-  activeSessionId: string | null,
-): UnsavedSessionSummary[] {
-  const counts = new Map<string, number>();
-  for (const c of containers) {
-    const sid = c.source.sessionId;
-    if (!sid || sid === activeSessionId) continue;
-    if (!c.dirty) continue;
-    counts.set(sid, (counts.get(sid) ?? 0) + 1);
-  }
-  return Array.from(counts, ([sessionId, count]) => ({ sessionId, count }));
-}

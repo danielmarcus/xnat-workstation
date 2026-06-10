@@ -98,6 +98,103 @@ export function NameEntryDialog(props: {
   );
 }
 
+export interface UnsavedEntry {
+  containerId: string;
+  label: string;
+  /** Friendly session label/id for held-over (other-session) work; omitted for the current session. */
+  sessionLabel?: string;
+  /** True if this container belongs to a session other than the one being viewed. */
+  isOtherSession: boolean;
+  /** Save is in flight for this container. */
+  saving?: boolean;
+}
+
+/**
+ * Review & save unsaved annotations (Lifecycle L3 follow-up). Lists every container
+ * with unsaved edits — split into the current session and work held over from other
+ * sessions you've navigated away from — and lets the user save them individually or
+ * all at once. Opened from the in-panel unsaved indicator.
+ */
+export function ReviewUnsavedDialog(props: {
+  entries: UnsavedEntry[];
+  onSaveOne: (containerId: string) => void;
+  onSaveAll: () => void;
+  onClose: () => void;
+}) {
+  const { entries, onSaveOne, onSaveAll, onClose } = props;
+  const current = entries.filter((e) => !e.isOtherSession);
+  const other = entries.filter((e) => e.isOtherSession);
+
+  const Row = (e: UnsavedEntry) => (
+    <div key={e.containerId} className="flex items-center gap-2 py-1" data-testid={`unsaved-row-${e.containerId}`}>
+      <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" aria-hidden="true" />
+      <span className="flex-1 min-w-0 truncate text-[11px] text-zinc-200" title={e.label}>{e.label}</span>
+      <button
+        type="button"
+        disabled={e.saving}
+        className={`text-[10px] px-2 py-0.5 rounded ${e.saving ? 'bg-zinc-700 text-zinc-400' : 'bg-blue-600 hover:bg-blue-500 text-white'}`}
+        onClick={() => onSaveOne(e.containerId)}
+      >
+        {e.saving ? 'Saving…' : 'Save'}
+      </button>
+    </div>
+  );
+
+  return (
+    <ModalShell width="w-96">
+      <div className="text-xs text-zinc-200 font-medium mb-1">Unsaved annotations</div>
+      {entries.length === 0 ? (
+        <p className="text-[11px] text-emerald-300 py-2">✓ All annotations saved.</p>
+      ) : (
+        <div className="max-h-72 overflow-y-auto mt-1">
+          {current.length > 0 && (
+            <div className="mb-2">
+              <div className="text-[9px] uppercase tracking-wide text-zinc-500 mb-0.5">This session</div>
+              {current.map(Row)}
+            </div>
+          )}
+          {other.length > 0 && (
+            <div>
+              <div className="text-[9px] uppercase tracking-wide text-amber-400/80 mb-0.5">Held from other sessions</div>
+              {other.map((e) => (
+                <div key={e.containerId} className="flex items-center gap-2 py-1" data-testid={`unsaved-row-${e.containerId}`}>
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" aria-hidden="true" />
+                  <span className="flex-1 min-w-0 truncate text-[11px] text-zinc-200" title={e.label}>
+                    {e.label}
+                    {e.sessionLabel && <span className="text-zinc-500"> · {e.sessionLabel}</span>}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={e.saving}
+                    className={`text-[10px] px-2 py-0.5 rounded ${e.saving ? 'bg-zinc-700 text-zinc-400' : 'bg-blue-600 hover:bg-blue-500 text-white'}`}
+                    onClick={() => onSaveOne(e.containerId)}
+                  >
+                    {e.saving ? 'Saving…' : 'Save'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+      <div className="mt-3 flex justify-end gap-2">
+        <button type="button" className="text-[11px] px-2.5 py-1 rounded text-zinc-400 hover:text-zinc-200" onClick={onClose}>
+          Close
+        </button>
+        {entries.length > 0 && (
+          <button
+            type="button"
+            className="text-[11px] px-2.5 py-1 rounded text-white bg-blue-600 hover:bg-blue-500"
+            onClick={onSaveAll}
+          >
+            Save all
+          </button>
+        )}
+      </div>
+    </ModalShell>
+  );
+}
+
 export function ConflictDialog(props: {
   containerLabel: string;
   onKeepLocal: () => void;

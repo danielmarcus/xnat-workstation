@@ -15,10 +15,11 @@ import { KindGlyph, PlusGlyph, SaveGlyph } from './icons';
 export interface PanelHeaderProps {
   /** A FoR-matched scan is loaded in the active viewport ⇒ create is allowed (D7.6). */
   canCreate: boolean;
-  /** At least one container has unsaved changes ⇒ Save-all enabled. */
-  anyDirty: boolean;
+  /** Number of containers with unsaved changes (current + held-over sessions). */
+  unsavedCount: number;
   onCreate: (kind: ContainerKind) => void;
-  onSaveAll: () => void;
+  /** Open the review-&-save dialog for unsaved annotations. */
+  onReviewUnsaved: () => void;
 }
 
 const CREATE_BUTTONS: { kind: ContainerKind; enabledClass: string; title: string }[] = [
@@ -27,7 +28,8 @@ const CREATE_BUTTONS: { kind: ContainerKind; enabledClass: string; title: string
   { kind: 'SR', enabledClass: 'text-orange-400 hover:text-orange-300', title: 'New Measurement (SR)' },
 ];
 
-export default function PanelHeader({ canCreate, anyDirty, onCreate, onSaveAll }: PanelHeaderProps) {
+export default function PanelHeader({ canCreate, unsavedCount, onCreate, onReviewUnsaved }: PanelHeaderProps) {
+  const hasUnsaved = unsavedCount > 0;
   return (
     <div className="px-3 py-2.5 border-b border-zinc-800 flex items-center justify-between">
       <span className="text-zinc-200 text-xs font-medium tracking-wide">ANNOTATIONS</span>
@@ -49,16 +51,15 @@ export default function PanelHeader({ canCreate, anyDirty, onCreate, onSaveAll }
         <span className="w-px h-4 bg-zinc-700 mx-0.5" aria-hidden="true" />
         <button
           type="button"
-          disabled={!anyDirty}
-          onClick={onSaveAll}
-          aria-label="Save all annotations"
-          title={anyDirty ? 'Save all annotations' : 'Save all — nothing to save'}
-          className={`relative ${anyDirty ? 'text-zinc-300 hover:text-white' : 'text-zinc-700 cursor-not-allowed'}`}
+          disabled={!hasUnsaved}
+          onClick={onReviewUnsaved}
+          aria-label={hasUnsaved ? `Review ${unsavedCount} unsaved annotation${unsavedCount === 1 ? '' : 's'}` : 'No unsaved annotations'}
+          title={hasUnsaved ? `Review & save ${unsavedCount} unsaved annotation${unsavedCount === 1 ? '' : 's'}` : 'All annotations saved'}
+          data-testid="unsaved-indicator"
+          className={`relative flex items-center gap-1 px-1 rounded ${hasUnsaved ? 'text-amber-300 hover:text-amber-200' : 'text-zinc-700 cursor-not-allowed'}`}
         >
           <SaveGlyph size={15} />
-          {anyDirty && (
-            <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-amber-400" aria-hidden="true" />
-          )}
+          {hasUnsaved && <span className="text-[10px] font-medium leading-none" data-testid="unsaved-count">{unsavedCount}</span>}
         </button>
       </div>
     </div>

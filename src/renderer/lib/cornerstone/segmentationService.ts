@@ -276,6 +276,11 @@ const saveQueue = createSaveQueue({
     // clobber those richer fields with a bare phase+error string. In-flight only.
     if (phase === 'saving') {
       useTransportStore.getState().setPhase(containerId, resolveContainerKind(containerId), 'saving');
+    } else if (phase === 'idle') {
+      // A save completed successfully (saveQueue only emits 'idle' on a fully-saved,
+      // not-re-dirtied container) → it's no longer locally unsaved. Clearing the
+      // per-container dirty marker keeps the panel's unsaved indicator truthful.
+      useSegmentationManagerStore.getState().clearDirty(containerId);
     }
   },
 });

@@ -7,7 +7,7 @@
 import AnnotationsSidePanel from './AnnotationsSidePanel';
 import ContainerList from './ContainerList';
 import ContextToolbox from './ContextToolbox';
-import { ConflictDialog } from './dialogs';
+import { ConflictDialog, ReviewUnsavedDialog } from './dialogs';
 import { useAnnotationsPanel } from '../../hooks/useAnnotationsPanel';
 
 export interface AnnotationsPanelProps {
@@ -33,9 +33,9 @@ export default function AnnotationsPanel({ activeViewportId, sourceImageIds }: A
       <AnnotationsSidePanel
         containerCount={panel.containerCount}
         canCreate={panel.canCreate}
-        anyDirty={panel.anyDirty}
+        unsavedCount={panel.unsavedCount}
         onCreate={panel.onCreate}
-        onSaveAll={panel.onSaveAll}
+        onReviewUnsaved={panel.onReviewUnsaved}
         toolbox={toolbox}
       >
         <ContainerList
@@ -51,6 +51,14 @@ export default function AnnotationsPanel({ activeViewportId, sourceImageIds }: A
           onEditConsumed={panel.onEditConsumed}
         />
       </AnnotationsSidePanel>
+      {panel.reviewDialog && (
+        <ReviewUnsavedDialog
+          entries={panel.reviewDialog.entries}
+          onSaveOne={panel.reviewDialog.onSaveOne}
+          onSaveAll={panel.reviewDialog.onSaveAll}
+          onClose={panel.reviewDialog.onClose}
+        />
+      )}
       {panel.conflictDialog && (
         <ConflictDialog
           containerLabel={panel.conflictDialog.containerLabel}

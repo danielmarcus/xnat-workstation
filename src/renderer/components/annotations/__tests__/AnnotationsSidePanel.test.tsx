@@ -12,17 +12,18 @@ import AnnotationsSidePanel from '../AnnotationsSidePanel';
 describe('PanelHeader', () => {
   const setup = (over: Partial<React.ComponentProps<typeof PanelHeader>> = {}) => {
     const onCreate = vi.fn();
-    const onSaveAll = vi.fn();
-    render(<PanelHeader canCreate anyDirty onCreate={onCreate} onSaveAll={onSaveAll} {...over} />);
-    return { onCreate, onSaveAll };
+    const onReviewUnsaved = vi.fn();
+    render(<PanelHeader canCreate unsavedCount={2} onCreate={onCreate} onReviewUnsaved={onReviewUnsaved} {...over} />);
+    return { onCreate, onReviewUnsaved };
   };
 
-  it('renders the three type create buttons + Save-all', () => {
+  it('renders the three type create buttons + the unsaved indicator', () => {
     setup();
     expect(screen.getByLabelText('New Structure (RTSTRUCT)')).toBeTruthy();
     expect(screen.getByLabelText('New Segmentation (SEG)')).toBeTruthy();
     expect(screen.getByLabelText('New Measurement (SR)')).toBeTruthy();
-    expect(screen.getByLabelText('Save all annotations')).toBeTruthy();
+    expect(screen.getByTestId('unsaved-indicator')).toBeTruthy();
+    expect(screen.getByTestId('unsaved-count').textContent).toBe('2');
   });
 
   it('disables create buttons when no scan is loaded (canCreate=false)', () => {
@@ -36,25 +37,26 @@ describe('PanelHeader', () => {
     expect(onCreate).toHaveBeenCalledWith('SEG');
   });
 
-  it('disables Save-all when nothing is dirty and fires onSaveAll when enabled', async () => {
-    const { onSaveAll } = setup({ anyDirty: false });
-    expect((screen.getByLabelText('Save all annotations') as HTMLButtonElement).disabled).toBe(true);
-    expect(onSaveAll).not.toHaveBeenCalled();
+  it('disables the unsaved indicator when nothing is unsaved', async () => {
+    const { onReviewUnsaved } = setup({ unsavedCount: 0 });
+    expect((screen.getByTestId('unsaved-indicator') as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByTestId('unsaved-count')).toBeNull();
+    expect(onReviewUnsaved).not.toHaveBeenCalled();
   });
 
-  it('fires onSaveAll when dirty and clicked', async () => {
-    const { onSaveAll } = setup({ anyDirty: true });
-    await userEvent.click(screen.getByLabelText('Save all annotations'));
-    expect(onSaveAll).toHaveBeenCalled();
+  it('opens the review dialog when there are unsaved annotations and the indicator is clicked', async () => {
+    const { onReviewUnsaved } = setup({ unsavedCount: 3 });
+    await userEvent.click(screen.getByTestId('unsaved-indicator'));
+    expect(onReviewUnsaved).toHaveBeenCalled();
   });
 });
 
 describe('AnnotationsSidePanel (shell)', () => {
   const base = {
     canCreate: true,
-    anyDirty: false,
+    unsavedCount: 0,
     onCreate: vi.fn(),
-    onSaveAll: vi.fn(),
+    onReviewUnsaved: vi.fn(),
   };
 
   it('shows the no-scan empty state when create is disabled', () => {
