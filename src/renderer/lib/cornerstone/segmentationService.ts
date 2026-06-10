@@ -263,10 +263,16 @@ const saveQueue = createSaveQueue({
   saveContainer: (containerId) => saveTransport(containerId),
   isGestureActive: () => gestureActive,
   debounceMs: () => {
+    // Reuse the backup cadence as the autosave debounce interval (a sensible
+    // shared "how often to autosave" setting); the ENABLE decision below is what
+    // matters and is gated on the XNAT-autosave flag, not local backup.
     const backupPrefs = usePreferencesStore.getState().preferences.backup;
     return backupPrefs.intervalSeconds > 0 ? backupPrefs.intervalSeconds * 1000 : AUTO_SAVE_DELAY;
   },
-  isAutoSaveEnabled: () => usePreferencesStore.getState().preferences.backup.enabled,
+  // This queue saves to XNAT — gate it on the XNAT-autosave opt-in, NOT the
+  // local-backup flag. (Previously read backup.enabled, so XNAT autosave silently
+  // never scheduled unless local backup also happened to be on.)
+  isAutoSaveEnabled: () => xnatAutosaveEnabled,
   onPhase: (containerId, phase) => {
     // The saveQueue's generic phase callback only marks the in-flight 'saving'
     // state. Terminal states are owned by the injected transport's onResult
@@ -4217,6 +4223,15 @@ export const segmentationService = {
   /** Opt into driving the per-container saveQueue from edits (autosave-to-XNAT). Default off. */
   setXnatAutosaveEnabled(enabled: boolean): void {
     xnatAutosaveEnabled = enabled;
+    // Turning autosave ON should also save work that's ALREADY dirty — not just
+    // future edits. notifyDirty otherwise only fires on the next edit, so a
+    // container dirtied before the toggle was flipped would sit unsaved forever.
+    if (enabled) {
+      const dirty = useSegmentationManagerStore.getState().dirtySegIds;
+      for (const id of Object.keys(dirty)) {
+        if (dirty[id]) saveQueue.notifyDirty(id);
+      }
+    }
   },
 
   /** Inject the H7 conflict resolver (transport wiring composes rebase+resave / reload). */

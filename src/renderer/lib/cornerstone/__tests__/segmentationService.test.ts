@@ -12,6 +12,7 @@ vi.mock('@cornerstonejs/dicom-image-loader', () => ({
 import { useSegmentationManagerStore } from '../../../stores/segmentationManagerStore';
 import { useSegmentationStore } from '../../../stores/segmentationStore';
 import { useViewerStore } from '../../../stores/viewerStore';
+import { usePreferencesStore } from '../../../stores/preferencesStore';
 import {
   createAdaptersModuleMock,
   createCoreModuleMock,
@@ -37,6 +38,9 @@ async function importSegmentationService(): Promise<void> {
   }));
   vi.doMock('../../../stores/viewerStore', () => ({
     useViewerStore,
+  }));
+  vi.doMock('../../../stores/preferencesStore', () => ({
+    usePreferencesStore,
   }));
   vi.doMock('@cornerstonejs/core', () => createCoreModuleMock(cs));
   vi.doMock('@cornerstonejs/tools', () => createToolsModuleMock(cs));
@@ -508,5 +512,65 @@ describe('segmentationService', () => {
       message: expect.stringMatching(/frame of reference/i),
     }));
     cs.eventTarget.removeEventListener(Events.ANNOTATION_COMPLETED, completedSpy);
+  });
+
+  describe('XNAT autosave gating (regression: decoupled from local backup)', () => {
+    function setBackup(enabled: boolean, intervalSeconds: number) {
+      usePreferencesStore.setState((s) => ({
+        preferences: { ...s.preferences, backup: { ...s.preferences.backup, enabled, intervalSeconds } },
+      }));
+    }
+
+    it('autosaves an edit when XNAT autosave is ON even though local backup is OFF', async () => {
+      vi.useFakeTimers();
+      try {
+        setBackup(false, 1); // local backup OFF, 1s debounce — the user's exact scenario
+        segmentationService.initialize();
+        const save = vi.fn(async () => ({ ok: true as const }));
+        segmentationService.setSaveTransport(save);
+        segmentationService.setXnatAutosaveEnabled(true);
+
+        segmentationService.notifyContainerDirty('seg-x');
+        await vi.advanceTimersByTimeAsync(1100);
+
+        expect(save).toHaveBeenCalledWith('seg-x');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('turning XNAT autosave ON saves work that is ALREADY dirty (not just future edits)', async () => {
+      vi.useFakeTimers();
+      try {
+        setBackup(false, 1);
+        segmentationService.initialize();
+        useSegmentationManagerStore.getState().markDirty('seg-dirty');
+        const save = vi.fn(async () => ({ ok: true as const }));
+        segmentationService.setSaveTransport(save);
+
+        segmentationService.setXnatAutosaveEnabled(true); // should pick up the already-dirty container
+        await vi.advanceTimersByTimeAsync(1100);
+
+        expect(save).toHaveBeenCalledWith('seg-dirty');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('does NOT autosave when XNAT autosave is OFF (manual-only)', async () => {
+      vi.useFakeTimers();
+      try {
+        setBackup(true, 1); // local backup ON must NOT drive XNAT autosave
+        segmentationService.initialize();
+        const save = vi.fn(async () => ({ ok: true as const }));
+        segmentationService.setSaveTransport(save);
+        // xnatAutosaveEnabled stays false (default)
+        segmentationService.notifyContainerDirty('seg-y');
+        await vi.advanceTimersByTimeAsync(2000);
+        expect(save).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 });
