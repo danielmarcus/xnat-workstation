@@ -21,6 +21,7 @@ const {
     initialize: vi.fn(),
     dispose: vi.fn(),
     setBrushSize: vi.fn(),
+    setXnatAutosaveEnabled: vi.fn(),
     undo: vi.fn(),
     redo: vi.fn(),
     deleteSelectedContourComponents: vi.fn(),

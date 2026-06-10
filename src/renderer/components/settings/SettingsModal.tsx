@@ -242,6 +242,8 @@ export default function SettingsModal({ open, onClose, onRecover, initialTab }: 
   const deletionPrefs = usePreferencesStore((s) => s.preferences.deletion);
   const setTrashOnServerDelete = usePreferencesStore((s) => s.setTrashOnServerDelete);
   const setTrashResourceName = usePreferencesStore((s) => s.setTrashResourceName);
+  const xnatAutosaveEnabled = usePreferencesStore((s) => s.preferences.xnatAutosaveEnabled ?? false);
+  const setXnatAutosaveEnabled = usePreferencesStore((s) => s.setXnatAutosaveEnabled);
   const resetAll = usePreferencesStore((s) => s.resetAll);
 
   // ─── Backup tab state ──────────────────────────────────────
@@ -1149,6 +1151,23 @@ export default function SettingsModal({ open, onClose, onRecover, initialTab }: 
                       </div>
                     </div>
                   )}
+                </div>
+
+                {/* Server autosave settings */}
+                <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-4 space-y-2">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={xnatAutosaveEnabled}
+                      onChange={(e) => setXnatAutosaveEnabled(e.target.checked)}
+                      className="w-3.5 h-3.5 rounded border-zinc-600 bg-zinc-800 accent-blue-500"
+                    />
+                    <span className="text-xs text-zinc-300">Automatically save annotations to XNAT</span>
+                  </label>
+                  <div className="text-[10px] text-zinc-600">
+                    When enabled, annotation edits are written back to the XNAT server as you work.
+                    Off by default — leave this off to keep changes local until you save manually.
+                  </div>
                 </div>
 
                 {/* Server deletion settings */}

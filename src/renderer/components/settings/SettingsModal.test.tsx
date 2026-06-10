@@ -74,6 +74,13 @@ describe('SettingsModal', () => {
           quitAndInstall: updaterQuitAndInstallMock,
           onStatus: updaterOnStatusMock,
         },
+        backup: {
+          getCachePath: vi.fn(async () => ({ ok: true, path: '/tmp/backups' })),
+          listAllSessions: vi.fn(async () => ({ ok: true, sessions: [] })),
+        },
+        shell: {
+          openExternal: vi.fn(),
+        },
       },
     });
     Object.defineProperty(navigator, 'clipboard', {
@@ -271,6 +278,27 @@ describe('SettingsModal', () => {
     expect(prefs.annotation.defaultColorSequence).toEqual(DEFAULT_PREFERENCES.annotation.defaultColorSequence);
     expect(prefs.updates).toEqual(DEFAULT_PREFERENCES.updates);
     expect(prefs.interpolation).toEqual(DEFAULT_PREFERENCES.interpolation);
+  });
+
+  it('toggles the XNAT autosave opt-in (default OFF) in the File Backup tab', async () => {
+    const user = userEvent.setup();
+    render(<SettingsModal open onClose={() => {}} />);
+
+    // Default OFF — the preference starts false.
+    expect(usePreferencesStore.getState().preferences.xnatAutosaveEnabled).toBe(false);
+
+    await user.click(screen.getByRole('button', { name: 'File Backup' }));
+    const autosaveCheckbox = screen.getByRole('checkbox', {
+      name: 'Automatically save annotations to XNAT',
+    });
+    expect(autosaveCheckbox).not.toBeChecked();
+
+    await user.click(autosaveCheckbox);
+    expect(usePreferencesStore.getState().preferences.xnatAutosaveEnabled).toBe(true);
+    expect(autosaveCheckbox).toBeChecked();
+
+    await user.click(autosaveCheckbox);
+    expect(usePreferencesStore.getState().preferences.xnatAutosaveEnabled).toBe(false);
   });
 
   it('shows updater status and supports manual update actions', async () => {

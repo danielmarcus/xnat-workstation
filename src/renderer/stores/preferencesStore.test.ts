@@ -229,4 +229,40 @@ describe('usePreferencesStore', () => {
 
     expect(merged.preferences.updates).toEqual(DEFAULT_PREFERENCES.updates);
   });
+
+  it('XNAT autosave opt-in defaults OFF and toggles via setXnatAutosaveEnabled', () => {
+    expect(usePreferencesStore.getState().preferences.xnatAutosaveEnabled).toBe(false);
+
+    usePreferencesStore.getState().setXnatAutosaveEnabled(true);
+    expect(usePreferencesStore.getState().preferences.xnatAutosaveEnabled).toBe(true);
+
+    usePreferencesStore.getState().setXnatAutosaveEnabled(false);
+    expect(usePreferencesStore.getState().preferences.xnatAutosaveEnabled).toBe(false);
+  });
+
+  it('XNAT autosave defaults OFF when persisted value is missing/malformed; explicit true survives', () => {
+    const merge = persistApi().getOptions().merge;
+    const currentState = usePreferencesStore.getInitialState();
+
+    // Missing entirely → OFF (back-compat for prefs that predate the flag).
+    const missing = merge(
+      { preferences: { updates: { enabled: true, autoDownload: true } } },
+      currentState,
+    ) as ReturnType<typeof usePreferencesStore.getState>;
+    expect(missing.preferences.xnatAutosaveEnabled).toBe(false);
+
+    // Malformed (non-boolean) → OFF.
+    const malformed = merge(
+      { preferences: { xnatAutosaveEnabled: 'yes' } },
+      currentState,
+    ) as ReturnType<typeof usePreferencesStore.getState>;
+    expect(malformed.preferences.xnatAutosaveEnabled).toBe(false);
+
+    // Explicit true survives the merge.
+    const enabled = merge(
+      { preferences: { xnatAutosaveEnabled: true } },
+      currentState,
+    ) as ReturnType<typeof usePreferencesStore.getState>;
+    expect(enabled.preferences.xnatAutosaveEnabled).toBe(true);
+  });
 });

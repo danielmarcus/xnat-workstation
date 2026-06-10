@@ -157,6 +157,14 @@ export interface PreferencesV1 {
   interpolation: InterpolationPreferences;
   backup: BackupPreferences;
   deletion: DeletionPreferences;
+  /**
+   * Opt-in (default OFF): when true, annotation edits autosave back to XNAT via
+   * the real upload transport. When false (default), the in-memory/E2E stub
+   * transport stays in place and NOTHING writes to the server. This is the
+   * CNDA-facing safety switch — see useXnatAutosaveOptIn / composeXnatTransport.
+   * Optional for back-compat with persisted prefs that predate this flag.
+   */
+  xnatAutosaveEnabled?: boolean;
   /** Optional for back-compat with persisted prefs that predate feature flags. */
   features?: FeaturePreferences;
 }
@@ -231,5 +239,8 @@ export const DEFAULT_PREFERENCES: PreferencesV1 = {
   interpolation: { ...DEFAULT_INTERPOLATION_PREFERENCES },
   backup: { ...DEFAULT_BACKUP_PREFERENCES },
   deletion: { ...DEFAULT_DELETION_PREFERENCES },
+  // CNDA safety: server autosave defaults OFF. Nothing writes to XNAT until the
+  // user opts in via Settings.
+  xnatAutosaveEnabled: false,
   features: { ...DEFAULT_FEATURE_PREFERENCES },
 };

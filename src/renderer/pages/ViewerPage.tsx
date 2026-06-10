@@ -25,6 +25,7 @@ import { undoService } from '../lib/cornerstone/undoService';
 import { unifiedToolService } from '../lib/cornerstone/unifiedToolService';
 import { viewportLayoutService } from '../lib/cornerstone/viewportLayoutService';
 import { useHotkeys } from '../hooks/useHotkeys';
+import { useXnatAutosaveOptIn } from '../hooks/useXnatAutosaveOptIn';
 import { useAnnotationStore } from '../stores/annotationStore';
 import { useSegmentationStore } from '../stores/segmentationStore';
 import { useViewerStore } from '../stores/viewerStore';
@@ -64,6 +65,9 @@ export default function ViewerPage({
 
   // Install global keyboard shortcuts.
   useHotkeys();
+  // XNAT-autosave opt-in (default OFF — composes the real transport only when the
+  // user enables it in Settings; inert + no server writes otherwise).
+  useXnatAutosaveOptIn();
 
   // Initialize the unified viewport + annotation services once on mount.
   useEffect(() => {

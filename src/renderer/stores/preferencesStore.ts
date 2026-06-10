@@ -58,6 +58,8 @@ interface PreferencesStore {
   // ─── Deletion ─────────────────────────────────────────────
   setTrashOnServerDelete: (enabled: boolean) => void;
   setTrashResourceName: (name: string) => void;
+  // ─── XNAT autosave (opt-in, default OFF) ───────────────────
+  setXnatAutosaveEnabled: (enabled: boolean) => void;
   // ─── Feature flags ─────────────────────────────────────────
   setMultiviewportEnabled: (enabled: boolean) => void;
   resetAll: () => void;
@@ -134,6 +136,7 @@ function makeDefaultPreferences(): PreferencesV1 {
     interpolation: { ...DEFAULT_INTERPOLATION_PREFERENCES },
     backup: { ...DEFAULT_BACKUP_PREFERENCES },
     deletion: { ...DEFAULT_DELETION_PREFERENCES },
+    xnatAutosaveEnabled: DEFAULT_PREFERENCES.xnatAutosaveEnabled ?? false,
     features: { ...DEFAULT_FEATURE_PREFERENCES },
   };
 }
@@ -608,6 +611,16 @@ export const usePreferencesStore = create<PreferencesStore>()(
           },
         })),
 
+      // ─── XNAT autosave (opt-in, default OFF) ─────────────────
+
+      setXnatAutosaveEnabled: (enabled) =>
+        set((state) => ({
+          preferences: {
+            ...state.preferences,
+            xnatAutosaveEnabled: enabled,
+          },
+        })),
+
       resetAll: () =>
         set({
           preferences: makeDefaultPreferences(),
@@ -694,6 +707,11 @@ export const usePreferencesStore = create<PreferencesStore>()(
             interpolation: mergedInterpolation,
             backup: mergedBackup,
             deletion: mergedDeletion,
+            // CNDA safety: server autosave is opt-in. Any persisted value that
+            // isn't an explicit `true` (including missing / malformed) defaults
+            // to OFF so an upgrade never silently enables server writes.
+            xnatAutosaveEnabled:
+              (incoming as Partial<PreferencesV1>).xnatAutosaveEnabled === true,
             features: mergeFeaturePreferences(
               base.preferences.features ?? DEFAULT_FEATURE_PREFERENCES,
               (incoming as Partial<PreferencesV1>).features,
