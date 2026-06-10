@@ -397,10 +397,9 @@ describe('XnatClient', () => {
           ],
         }),
       )
-      .mockResolvedValueOnce(makeJsonResponse({ ResultSet: { Result: [] } }))
-      .mockResolvedValueOnce(new Response('', { status: 200 }))
-      .mockResolvedValueOnce(new Response('', { status: 200 }))
-      .mockResolvedValueOnce(new Response('', { status: 200 }));
+      .mockResolvedValueOnce(makeJsonResponse({ ResultSet: { Result: [] } })) // findNextDerivedScanId
+      .mockResolvedValueOnce(new Response('', { status: 200 })) // create scan
+      .mockResolvedValueOnce(new Response('', { status: 200 })); // upload file (pullDataFromHeaders removed)
 
     const segUpload = await client.uploadDicomSegAsScan(
       'P1',
@@ -413,13 +412,6 @@ describe('XnatClient', () => {
     );
     expect(segUpload.scanId).toBe('3011');
     expect(segUpload.url).toContain('/data/experiments/E1/scans/3011');
-    expect(mocks.fetch).toHaveBeenNthCalledWith(
-      5,
-      'https://xnat.example/data/experiments/E1/scans/3011?pullDataFromHeaders=true',
-      expect.objectContaining({
-        method: 'PUT',
-      }),
-    );
 
     mocks.fetch
       .mockResolvedValueOnce(
@@ -452,18 +444,10 @@ describe('XnatClient', () => {
     ).rejects.toThrow('Permission denied: you do not have write access to this project');
 
     mocks.fetch
-      .mockResolvedValueOnce(new Response('delete failed', { status: 500 }))
-      .mockResolvedValueOnce(new Response('', { status: 200 }))
-      .mockResolvedValueOnce(new Response('', { status: 200 }));
+      .mockResolvedValueOnce(new Response('delete failed', { status: 500 })) // delete old files (warn + continue)
+      .mockResolvedValueOnce(new Response('', { status: 200 })); // upload file (pullDataFromHeaders removed)
     const segOverwrite = await client.overwriteDicomSegInScan('E1', '17', Buffer.from([1, 2, 3]), 'Seg Series');
     expect(segOverwrite.scanId).toBe('17');
-    expect(mocks.fetch).toHaveBeenNthCalledWith(
-      11,
-      'https://xnat.example/data/experiments/E1/scans/17?pullDataFromHeaders=true',
-      expect.objectContaining({
-        method: 'PUT',
-      }),
-    );
 
     mocks.fetch
       .mockResolvedValueOnce(new Response('', { status: 404 }))
@@ -472,7 +456,7 @@ describe('XnatClient', () => {
       client.overwriteDicomRtStructInScan('E1', '18', Buffer.from([1, 2, 3]), 'RT Series'),
     ).rejects.toThrow('Failed to overwrite RTSTRUCT in scan 18: 500 upload failed');
     expect(mocks.fetch).toHaveBeenNthCalledWith(
-      13,
+      11,
       'https://xnat.example/data/experiments/E1/scans/18/resources/secondary/files/rtstruct.dcm?format=DICOM&content=secondary&label=secondary',
       expect.objectContaining({
         method: 'PUT',
@@ -524,9 +508,8 @@ describe('XnatClient', () => {
         }),
       )
       .mockResolvedValueOnce(makeJsonResponse({ ResultSet: { Result: [] } }))
-      .mockResolvedValueOnce(new Response('', { status: 200 }))
-      .mockResolvedValueOnce(new Response('', { status: 200 }))
-      .mockResolvedValueOnce(new Response('', { status: 200 }));
+      .mockResolvedValueOnce(new Response('', { status: 200 })) // create scan
+      .mockResolvedValueOnce(new Response('', { status: 200 })); // upload file (pullDataFromHeaders removed)
 
     await client.uploadDicomRtStructAsScan(
       'P1',
@@ -547,14 +530,13 @@ describe('XnatClient', () => {
     );
 
     mocks.fetch
-      .mockResolvedValueOnce(new Response('', { status: 404 }))
-      .mockResolvedValueOnce(new Response('', { status: 200 }))
-      .mockResolvedValueOnce(new Response('', { status: 200 }));
+      .mockResolvedValueOnce(new Response('', { status: 404 })) // delete old files
+      .mockResolvedValueOnce(new Response('', { status: 200 })); // upload file (pullDataFromHeaders removed)
 
     await client.overwriteDicomRtStructInScan('E1', '18', Buffer.from([1, 2, 3]), 'RT Series');
 
     expect(mocks.fetch).toHaveBeenNthCalledWith(
-      7,
+      6,
       'https://xnat.example/data/experiments/E1/scans/18/resources/secondary/files/rtstruct.dcm?format=DICOM&content=secondary&label=secondary',
       expect.objectContaining({
         method: 'PUT',

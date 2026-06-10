@@ -782,20 +782,6 @@ export class XnatClient {
   // ─── Upload ───────────────────────────────────────────────────
 
   /**
-   * Ask XNAT to re-extract metadata for a specific scan from archived DICOM headers.
-   * This makes scan-level DICOM attributes visible in the XNAT UI after manual
-   * resource uploads that bypass the normal session importer flow.
-   */
-  private async pullDataFromHeaders(sessionId: string, scanId: string): Promise<void> {
-    const response = await this.authenticatedFetch(
-      `/data/experiments/${encodeURIComponent(sessionId)}`
-        + `/scans/${encodeURIComponent(scanId)}?pullDataFromHeaders=true`,
-      { method: 'PUT' },
-    );
-    await response.text().catch(() => {});
-  }
-
-  /**
    * Derive an optimistic-concurrency version token for an uploaded/overwritten
    * scan file. The token's only contract is that it CHANGES whenever the
    * server-side object changes, so a stale token surfaces a conflict.
@@ -1040,14 +1026,9 @@ export class XnatClient {
     const scanUrl = `${this.baseUrl}/data/experiments/${encodeURIComponent(targetSessionId)}/scans/${encodeURIComponent(targetScanId)}`;
     const versionToken = this.deriveVersionToken(scanUrl, fileResp, dicomWithScanNumber);
 
-    try {
-      await this.pullDataFromHeaders(targetSessionId, targetScanId);
-    } catch (err) {
-      console.warn(
-        `[xnatClient] SEG upload succeeded but scan-level pullDataFromHeaders failed for ${targetSessionId}/${targetScanId}:`,
-        err,
-      );
-    }
+    // NB: the post-upload `?pullDataFromHeaders=true` scan refresh was removed — it
+    // is broken server-side on CNDA (returns HTTP 500) and added the full latency
+    // of a doomed call to every save. The file upload above is the source of truth.
 
     return { url: scanUrl, scanId: targetScanId, versionToken };
   }
@@ -1130,14 +1111,7 @@ export class XnatClient {
     const scanUrl = `${this.baseUrl}/data/experiments/${encodeURIComponent(targetSessionId)}/scans/${encodeURIComponent(targetScanId)}`;
     const versionToken = this.deriveVersionToken(scanUrl, fileResp, dicomWithScanNumber);
 
-    try {
-      await this.pullDataFromHeaders(targetSessionId, targetScanId);
-    } catch (err) {
-      console.warn(
-        `[xnatClient] RTSTRUCT upload succeeded but scan-level pullDataFromHeaders failed for ${targetSessionId}/${targetScanId}:`,
-        err,
-      );
-    }
+    // pullDataFromHeaders refresh removed — broken server-side (HTTP 500), see uploadDicomSegAsScan.
 
     return { url: scanUrl, scanId: targetScanId, versionToken };
   }
@@ -1192,15 +1166,7 @@ export class XnatClient {
     const scanUrl = `${this.baseUrl}${basePath}`;
     const versionToken = this.deriveVersionToken(scanUrl, fileResp, dicomWithScanNumber);
 
-    // Best-effort metadata refresh so DICOM-derived scan attributes are repopulated in XNAT.
-    try {
-      await this.pullDataFromHeaders(sessionId, targetScanId);
-    } catch (err) {
-      console.warn(
-        `[xnatClient] SEG overwrite succeeded but scan-level pullDataFromHeaders failed for ${sessionId}/${targetScanId}:`,
-        err,
-      );
-    }
+    // pullDataFromHeaders refresh removed — broken server-side (HTTP 500), see uploadDicomSegAsScan.
 
     console.log(`[xnatClient] Overwrite successful: ${scanUrl}`);
     return { url: scanUrl, scanId: targetScanId, versionToken };
@@ -1251,14 +1217,7 @@ export class XnatClient {
     const scanUrl = `${this.baseUrl}${basePath}`;
     const versionToken = this.deriveVersionToken(scanUrl, fileResp, dicomWithScanNumber);
 
-    try {
-      await this.pullDataFromHeaders(sessionId, targetScanId);
-    } catch (err) {
-      console.warn(
-        `[xnatClient] RTSTRUCT overwrite succeeded but scan-level pullDataFromHeaders failed for ${sessionId}/${targetScanId}:`,
-        err,
-      );
-    }
+    // pullDataFromHeaders refresh removed — broken server-side (HTTP 500), see uploadDicomSegAsScan.
 
     console.log(`[xnatClient] RTSTRUCT overwrite successful: ${scanUrl}`);
     return { url: scanUrl, scanId: targetScanId, versionToken };
