@@ -35,12 +35,16 @@ export interface MemberRowProps {
   autoEdit?: boolean;
   /** Called once after a freshly-created row enters edit mode (clears the pending flag). */
   onEditConsumed?: () => void;
+  /** Settings color sequence (palette swatches offered in the color picker). */
+  palette?: [number, number, number, number][];
   onSelect: (additive: boolean) => void;
   onActivate: () => void;
   onCycleVisibility: () => void;
   onToggleLock: () => void;
   onDelete: () => void;
   onRename: (name: string) => void;
+  /** Change the member's display color (RGBA). Absent ⇒ the swatch is read-only. */
+  onColorChange?: (color: [number, number, number, number]) => void;
 }
 
 function swatchColor(color?: [number, number, number, number]): string {
@@ -49,10 +53,23 @@ function swatchColor(color?: [number, number, number, number]): string {
   return `rgb(${r}, ${g}, ${b})`;
 }
 
+function toHex(color?: [number, number, number, number]): string {
+  const [r, g, b] = color ?? [113, 113, 122, 255];
+  const h = (n: number) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, '0');
+  return `#${h(r)}${h(g)}${h(b)}`;
+}
+
+function hexToRgba(hex: string): [number, number, number, number] | null {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return null;
+  const n = parseInt(m[1], 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255, 255];
+}
+
 export default function MemberRow(props: MemberRowProps) {
   const {
     member, visibility, lockState, active, selected, provenance, eligibility = 'native',
-    sourceSeriesLabel, metric, empty, autoEdit, onEditConsumed, onSelect, onActivate, onCycleVisibility, onToggleLock, onDelete, onRename,
+    sourceSeriesLabel, metric, empty, autoEdit, onEditConsumed, palette, onSelect, onActivate, onCycleVisibility, onToggleLock, onDelete, onRename, onColorChange,
   } = props;
 
   const differentFor = eligibility === 'different-for';
@@ -63,6 +80,10 @@ export default function MemberRow(props: MemberRowProps) {
 
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(member.label);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  // Color is a display property → editable whenever the member is viewable here
+  // (even when locked); only different-FoR (not viewable) members can't be recolored.
+  const colorEditable = !!onColorChange && !differentFor;
   const inputRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     if (editing && inputRef.current) { inputRef.current.focus(); inputRef.current.select(); }
@@ -101,7 +122,58 @@ export default function MemberRow(props: MemberRowProps) {
       onClick={(e) => onSelect(e.ctrlKey || e.metaKey || e.shiftKey)}
       onDoubleClick={onActivate}
     >
-      <span className="inline-block w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: swatchColor(member.color) }} aria-hidden="true" />
+      {colorEditable ? (
+        <span className="relative shrink-0 flex items-center">
+          <button
+            type="button"
+            className="inline-block w-2.5 h-2.5 rounded-sm border border-zinc-600 hover:border-zinc-300"
+            style={{ background: swatchColor(member.color) }}
+            title="Change color"
+            aria-label="Change color"
+            data-testid={`color-swatch-${member.id}`}
+            onClick={(e) => { e.stopPropagation(); setPickerOpen((v) => !v); }}
+          />
+          {pickerOpen && (
+            <>
+              {/* click-away backdrop */}
+              <span className="fixed inset-0 z-40" onClick={(e) => { e.stopPropagation(); setPickerOpen(false); }} />
+              <div
+                className="absolute left-0 top-4 z-50 w-40 rounded-md border border-zinc-700 bg-zinc-900 shadow-xl p-1.5"
+                data-testid={`color-picker-${member.id}`}
+                onClick={(e) => e.stopPropagation()}
+              >
+                {palette && palette.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mb-1.5">
+                    {palette.map((c, i) => (
+                      <button
+                        key={i}
+                        type="button"
+                        className="w-4 h-4 rounded-sm border border-zinc-600 hover:border-white"
+                        style={{ background: swatchColor(c) }}
+                        title={`Color ${i + 1}`}
+                        aria-label={`Set color ${i + 1}`}
+                        onClick={() => { onColorChange?.(c); setPickerOpen(false); }}
+                      />
+                    ))}
+                  </div>
+                )}
+                <label className="flex items-center gap-1.5 text-[10px] text-zinc-400">
+                  <input
+                    type="color"
+                    value={toHex(member.color)}
+                    aria-label="Custom color"
+                    className="w-5 h-5 bg-transparent border-0 p-0 cursor-pointer"
+                    onChange={(e) => { const rgba = hexToRgba(e.target.value); if (rgba) onColorChange?.(rgba); }}
+                  />
+                  Custom
+                </label>
+              </div>
+            </>
+          )}
+        </span>
+      ) : (
+        <span className="inline-block w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: swatchColor(member.color) }} aria-hidden="true" />
+      )}
 
       {editing ? (
         <input

@@ -19,7 +19,7 @@ const noopHandlers: ContainerListHandlers = {
   onResolveConflict: vi.fn(),
   onKebab: vi.fn(), onDeleteContainer: vi.fn(), onRenameContainer: vi.fn(), onSelectMember: vi.fn(),
   onActivateMember: vi.fn(), onCycleVisibility: vi.fn(), onToggleLock: vi.fn(), onDeleteMember: vi.fn(),
-  onRenameMember: vi.fn(),
+  onRenameMember: vi.fn(), onColorChange: vi.fn(),
 };
 
 function renderList(expanded: boolean, over: Partial<React.ComponentProps<typeof ContainerList>> = {}) {

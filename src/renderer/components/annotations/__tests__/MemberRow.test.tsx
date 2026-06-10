@@ -90,6 +90,32 @@ describe('MemberRow', () => {
     expect((screen.getByLabelText('Delete member') as HTMLButtonElement).disabled).toBe(true);
   });
 
+  it('color swatch is read-only when no onColorChange handler is given', () => {
+    setup();
+    expect(screen.queryByTestId('color-swatch-1')).toBeNull(); // a plain swatch, not a button
+  });
+
+  it('opens the color picker and changes color from a palette swatch', async () => {
+    const onColorChange = vi.fn();
+    const palette: [number, number, number, number][] = [[16, 32, 48, 255], [200, 100, 50, 255]];
+    setup({ palette, onColorChange });
+
+    // No picker until the swatch is clicked.
+    expect(screen.queryByTestId('color-picker-1')).toBeNull();
+    await userEvent.click(screen.getByTestId('color-swatch-1'));
+    expect(screen.getByTestId('color-picker-1')).toBeTruthy();
+
+    // Picking the 2nd palette swatch fires onColorChange with its RGBA + closes.
+    await userEvent.click(screen.getByLabelText('Set color 2'));
+    expect(onColorChange).toHaveBeenCalledWith([200, 100, 50, 255]);
+    expect(screen.queryByTestId('color-picker-1')).toBeNull();
+  });
+
+  it('different-FoR member cannot be recolored (no swatch button)', () => {
+    setup({ eligibility: 'different-for', onColorChange: vi.fn(), palette: [[1, 2, 3, 255]] });
+    expect(screen.queryByTestId('color-swatch-1')).toBeNull();
+  });
+
   it('starts in inline-edit mode when autoEdit is set (create-in-edit-mode, D7.6)', () => {
     const onEditConsumed = vi.fn();
     setup({ autoEdit: true, onEditConsumed });

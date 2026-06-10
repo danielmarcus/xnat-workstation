@@ -22,6 +22,7 @@ import { useAnnotationStore } from '../stores/annotationStore';
 import { useAnnotationSelectionStore } from '../stores/annotationSelectionStore';
 import { useViewerStore } from '../stores/viewerStore';
 import { useTransportStore } from '../stores/transportStore';
+import { usePreferencesStore } from '../stores/preferencesStore';
 import { segmentationService } from '../lib/cornerstone/segmentationService';
 import { unifiedToolService } from '../lib/cornerstone/unifiedToolService';
 import { segmentationManager } from '../lib/segmentation/segmentationManagerSingleton';
@@ -35,6 +36,13 @@ function rgbaToCss(color?: [number, number, number, number]): string | undefined
   return `rgb(${color[0]}, ${color[1]}, ${color[2]})`;
 }
 
+function hexToRgba(hex: string): [number, number, number, number] | null {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return null;
+  const n = parseInt(m[1], 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255, 255];
+}
+
 export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: string[]) {
   const segmentations = useSegmentationStore((s) => s.segmentations);
   const xnatOriginMap = useSegmentationStore((s) => s.xnatOriginMap);
@@ -44,6 +52,8 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
   const annotations = useAnnotationStore((s) => s.annotations);
   // Live per-container transport state (saving / conflict / error) surfaced in-place.
   const transportEntries = useTransportStore((s) => s.entries);
+  // Settings color sequence → palette swatches offered in the member color picker.
+  const colorSequence = usePreferencesStore((s) => s.preferences.annotation.defaultColorSequence);
 
   const activeMember = useAnnotationSelectionStore((s) => s.activeMember);
   const selection = useAnnotationSelectionStore((s) => s.selection);
@@ -197,7 +207,18 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
       const idx = Number(mid);
       if (Number.isInteger(idx) && idx > 0) segmentationManager.renameSegment(cid, idx, name);
     },
+    onColorChange: (cid, mid, color) => {
+      const idx = Number(mid);
+      // userChangedSegmentColor updates Cornerstone AND persists to the presentation
+      // cache (so the projection's member.color reflects it + it survives reload).
+      if (Number.isInteger(idx) && idx > 0) segmentationManager.userChangedSegmentColor(cid, idx, color);
+    },
   };
+
+  // Settings color sequence as an RGBA palette for the member color picker.
+  const palette = colorSequence
+    .map((hex) => hexToRgba(hex))
+    .filter((c): c is [number, number, number, number] => c !== null);
 
   const onSelectTool = (toolId: string) => {
     const toolName = CATALOG_TO_TOOLNAME[toolId];
@@ -285,6 +306,7 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
     isActive: (cid: string, mid: string) => activeMember?.containerId === cid && activeMember?.memberId === mid,
     isSelected: (cid: string, mid: string) => selection.some((r) => r.containerId === cid && r.memberId === mid),
     metricOf,
+    palette,
     // transport (in-place row state) + H7 conflict dialog
     transportOf,
     conflictDialog,
