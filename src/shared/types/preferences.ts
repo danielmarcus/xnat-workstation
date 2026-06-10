@@ -165,6 +165,12 @@ export interface PreferencesV1 {
    * Optional for back-compat with persisted prefs that predate this flag.
    */
   xnatAutosaveEnabled?: boolean;
+  /**
+   * Debounce interval (seconds) for XNAT auto-save — how long after the last edit
+   * a container is saved to the server. Independent of the local-backup cadence.
+   * Optional for back-compat; defaults to 10s.
+   */
+  xnatAutosaveIntervalSeconds?: number;
   /** Optional for back-compat with persisted prefs that predate feature flags. */
   features?: FeaturePreferences;
 }
@@ -242,5 +248,6 @@ export const DEFAULT_PREFERENCES: PreferencesV1 = {
   // CNDA safety: server autosave defaults OFF. Nothing writes to XNAT until the
   // user opts in via Settings.
   xnatAutosaveEnabled: false,
+  xnatAutosaveIntervalSeconds: 10,
   features: { ...DEFAULT_FEATURE_PREFERENCES },
 };

@@ -244,6 +244,8 @@ export default function SettingsModal({ open, onClose, onRecover, initialTab }: 
   const setTrashResourceName = usePreferencesStore((s) => s.setTrashResourceName);
   const xnatAutosaveEnabled = usePreferencesStore((s) => s.preferences.xnatAutosaveEnabled ?? false);
   const setXnatAutosaveEnabled = usePreferencesStore((s) => s.setXnatAutosaveEnabled);
+  const xnatAutosaveIntervalSeconds = usePreferencesStore((s) => s.preferences.xnatAutosaveIntervalSeconds ?? 10);
+  const setXnatAutosaveIntervalSeconds = usePreferencesStore((s) => s.setXnatAutosaveIntervalSeconds);
   const resetAll = usePreferencesStore((s) => s.resetAll);
 
   // ─── Backup tab state ──────────────────────────────────────
@@ -1167,6 +1169,35 @@ export default function SettingsModal({ open, onClose, onRecover, initialTab }: 
                   <div className="text-[10px] text-zinc-600">
                     When enabled, annotation edits are written back to the XNAT server as you work.
                     Off by default — leave this off to keep changes local until you save manually.
+                  </div>
+
+                  {/* Autosave frequency (own setting, independent of local backup) */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-xs text-zinc-300">Auto-save frequency</label>
+                      <span className="text-[11px] text-zinc-400 tabular-nums" data-testid="xnat-autosave-interval-value">
+                        {xnatAutosaveIntervalSeconds}s
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min={5}
+                      max={120}
+                      step={5}
+                      value={xnatAutosaveIntervalSeconds}
+                      onChange={(e) => setXnatAutosaveIntervalSeconds(parseInt(e.target.value, 10))}
+                      disabled={!xnatAutosaveEnabled}
+                      aria-label="XNAT auto-save frequency (seconds)"
+                      data-testid="xnat-autosave-interval"
+                      className="w-full h-1 bg-zinc-700 rounded-full appearance-none cursor-pointer accent-blue-500 disabled:opacity-50"
+                    />
+                    <div className="flex justify-between text-[10px] text-zinc-600 mt-0.5">
+                      <span>5s</span>
+                      <span>120s</span>
+                    </div>
+                    <div className="text-[10px] text-zinc-600 mt-1">
+                      Saves this many seconds after your last edit (independent of the local-backup interval above).
+                    </div>
                   </div>
                 </div>
 

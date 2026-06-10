@@ -263,11 +263,9 @@ const saveQueue = createSaveQueue({
   saveContainer: (containerId) => saveTransport(containerId),
   isGestureActive: () => gestureActive,
   debounceMs: () => {
-    // Reuse the backup cadence as the autosave debounce interval (a sensible
-    // shared "how often to autosave" setting); the ENABLE decision below is what
-    // matters and is gated on the XNAT-autosave flag, not local backup.
-    const backupPrefs = usePreferencesStore.getState().preferences.backup;
-    return backupPrefs.intervalSeconds > 0 ? backupPrefs.intervalSeconds * 1000 : AUTO_SAVE_DELAY;
+    // XNAT autosave has its OWN cadence, independent of the local-backup interval.
+    const sec = usePreferencesStore.getState().preferences.xnatAutosaveIntervalSeconds ?? 10;
+    return sec > 0 ? sec * 1000 : AUTO_SAVE_DELAY;
   },
   // This queue saves to XNAT — gate it on the XNAT-autosave opt-in, NOT the
   // local-backup flag. (Previously read backup.enabled, so XNAT autosave silently

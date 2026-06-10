@@ -240,6 +240,27 @@ describe('usePreferencesStore', () => {
     expect(usePreferencesStore.getState().preferences.xnatAutosaveEnabled).toBe(false);
   });
 
+  it('XNAT autosave interval defaults to 10s and is set via setXnatAutosaveIntervalSeconds', () => {
+    expect(usePreferencesStore.getState().preferences.xnatAutosaveIntervalSeconds).toBe(10);
+    usePreferencesStore.getState().setXnatAutosaveIntervalSeconds(30);
+    expect(usePreferencesStore.getState().preferences.xnatAutosaveIntervalSeconds).toBe(30);
+  });
+
+  it('XNAT autosave interval merges from persisted prefs and defaults to 10 when absent', () => {
+    const merge = persistApi().getOptions().merge;
+    const currentState = usePreferencesStore.getInitialState();
+    const persisted = merge(
+      { preferences: { xnatAutosaveIntervalSeconds: 45 } },
+      currentState,
+    ) as ReturnType<typeof usePreferencesStore.getState>;
+    expect(persisted.preferences.xnatAutosaveIntervalSeconds).toBe(45);
+    const absent = merge(
+      { preferences: { updates: { enabled: true, autoDownload: true } } },
+      currentState,
+    ) as ReturnType<typeof usePreferencesStore.getState>;
+    expect(absent.preferences.xnatAutosaveIntervalSeconds).toBe(10);
+  });
+
   it('XNAT autosave defaults OFF when persisted value is missing/malformed; explicit true survives', () => {
     const merge = persistApi().getOptions().merge;
     const currentState = usePreferencesStore.getInitialState();

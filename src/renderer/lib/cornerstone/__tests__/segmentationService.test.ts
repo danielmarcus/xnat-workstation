@@ -515,9 +515,15 @@ describe('segmentationService', () => {
   });
 
   describe('XNAT autosave gating (regression: decoupled from local backup)', () => {
-    function setBackup(enabled: boolean, intervalSeconds: number) {
+    // Sets local-backup state (to prove the gate doesn't depend on it) AND the
+    // XNAT autosave debounce interval (its own setting — what debounceMs reads).
+    function setBackup(localBackupEnabled: boolean, intervalSeconds: number) {
       usePreferencesStore.setState((s) => ({
-        preferences: { ...s.preferences, backup: { ...s.preferences.backup, enabled, intervalSeconds } },
+        preferences: {
+          ...s.preferences,
+          backup: { ...s.preferences.backup, enabled: localBackupEnabled, intervalSeconds },
+          xnatAutosaveIntervalSeconds: intervalSeconds,
+        },
       }));
     }
 

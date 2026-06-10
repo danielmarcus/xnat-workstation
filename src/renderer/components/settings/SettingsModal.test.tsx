@@ -301,6 +301,25 @@ describe('SettingsModal', () => {
     expect(usePreferencesStore.getState().preferences.xnatAutosaveEnabled).toBe(false);
   });
 
+  it('XNAT auto-save frequency slider is disabled until autosave is on, then sets its own interval', async () => {
+    const user = userEvent.setup();
+    render(<SettingsModal open onClose={() => {}} />);
+    await user.click(screen.getByRole('button', { name: 'File Backup' }));
+
+    const slider = screen.getByTestId('xnat-autosave-interval') as HTMLInputElement;
+    // Disabled while XNAT autosave is off; its own default is 10s.
+    expect(slider).toBeDisabled();
+    expect(screen.getByTestId('xnat-autosave-interval-value').textContent).toBe('10s');
+
+    // Enable autosave → the frequency slider becomes editable.
+    await user.click(screen.getByRole('checkbox', { name: 'Automatically save annotations to XNAT' }));
+    expect(slider).toBeEnabled();
+
+    // Setting it updates the dedicated preference (not the local-backup interval).
+    fireEvent.change(slider, { target: { value: '30' } });
+    expect(usePreferencesStore.getState().preferences.xnatAutosaveIntervalSeconds).toBe(30);
+  });
+
   it('shows updater status and supports manual update actions', async () => {
     const user = userEvent.setup();
     updaterGetStateMock.mockResolvedValueOnce({

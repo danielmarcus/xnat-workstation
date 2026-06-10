@@ -60,6 +60,7 @@ interface PreferencesStore {
   setTrashResourceName: (name: string) => void;
   // ─── XNAT autosave (opt-in, default OFF) ───────────────────
   setXnatAutosaveEnabled: (enabled: boolean) => void;
+  setXnatAutosaveIntervalSeconds: (seconds: number) => void;
   // ─── Feature flags ─────────────────────────────────────────
   setMultiviewportEnabled: (enabled: boolean) => void;
   resetAll: () => void;
@@ -137,6 +138,7 @@ function makeDefaultPreferences(): PreferencesV1 {
     backup: { ...DEFAULT_BACKUP_PREFERENCES },
     deletion: { ...DEFAULT_DELETION_PREFERENCES },
     xnatAutosaveEnabled: DEFAULT_PREFERENCES.xnatAutosaveEnabled ?? false,
+    xnatAutosaveIntervalSeconds: DEFAULT_PREFERENCES.xnatAutosaveIntervalSeconds ?? 10,
     features: { ...DEFAULT_FEATURE_PREFERENCES },
   };
 }
@@ -621,6 +623,14 @@ export const usePreferencesStore = create<PreferencesStore>()(
           },
         })),
 
+      setXnatAutosaveIntervalSeconds: (seconds) =>
+        set((state) => ({
+          preferences: {
+            ...state.preferences,
+            xnatAutosaveIntervalSeconds: seconds,
+          },
+        })),
+
       resetAll: () =>
         set({
           preferences: makeDefaultPreferences(),
@@ -712,6 +722,10 @@ export const usePreferencesStore = create<PreferencesStore>()(
             // to OFF so an upgrade never silently enables server writes.
             xnatAutosaveEnabled:
               (incoming as Partial<PreferencesV1>).xnatAutosaveEnabled === true,
+            xnatAutosaveIntervalSeconds:
+              typeof (incoming as Partial<PreferencesV1>).xnatAutosaveIntervalSeconds === 'number'
+                ? (incoming as Partial<PreferencesV1>).xnatAutosaveIntervalSeconds
+                : (DEFAULT_PREFERENCES.xnatAutosaveIntervalSeconds ?? 10),
             features: mergeFeaturePreferences(
               base.preferences.features ?? DEFAULT_FEATURE_PREFERENCES,
               (incoming as Partial<PreferencesV1>).features,
