@@ -481,4 +481,51 @@ describe('SegmentationManager', () => {
     );
     expect(segmentationServiceMock.setLabel).toHaveBeenCalledWith('rt-loaded', 'Loaded RT');
   });
+
+  describe('applySessionSwitch (A13 retention, Change 1c)', () => {
+    function seed(opts: {
+      from: string;
+      segs: Array<{ id: string; sessionId?: string; dirty?: boolean }>;
+    }) {
+      mockViewerStore.setState({ xnatContext: { sessionId: opts.from } as never });
+      useSegmentationStore.setState({
+        segmentations: opts.segs.map((s) => ({ segmentationId: s.id, label: s.id, segments: [] })) as never,
+        xnatOriginMap: Object.fromEntries(
+          opts.segs.filter((s) => s.sessionId).map((s) => [s.id, { scanId: '3001', sourceScanId: '4', projectId: 'P', sessionId: s.sessionId }]),
+        ) as never,
+      });
+      useSegmentationManagerStore.setState({
+        dirtySegIds: Object.fromEntries(opts.segs.filter((s) => s.dirty).map((s) => [s.id, true])),
+      });
+    }
+
+    it('keeps target-session, retains dirty other-session, unloads only clean other-session', () => {
+      seed({
+        from: 'S1',
+        segs: [
+          { id: 'newB', sessionId: 'S2' },           // target session → keep
+          { id: 'oldClean', sessionId: 'S1' },        // other session, clean → unload
+          { id: 'oldDirty', sessionId: 'S1', dirty: true }, // other session, dirty → retain
+        ],
+      });
+      const manager = new SegmentationManager();
+      const decisions = manager.applySessionSwitch('S2');
+
+      const by = Object.fromEntries(decisions.map((d) => [d.containerId, d.disposition]));
+      expect(by).toEqual({ newB: 'keep', oldClean: 'unload', oldDirty: 'retain-unsaved' });
+      // Only the clean other-session container is actually removed.
+      expect(segmentationServiceMock.removeSegmentation).toHaveBeenCalledTimes(1);
+      expect(segmentationServiceMock.removeSegmentation).toHaveBeenCalledWith('oldClean');
+      expect(segmentationServiceMock.removeSegmentation).not.toHaveBeenCalledWith('oldDirty');
+      expect(segmentationServiceMock.removeSegmentation).not.toHaveBeenCalledWith('newB');
+    });
+
+    it('retains a dirty never-saved (no-XNAT-origin) container — treated as the current session', () => {
+      seed({ from: 'S1', segs: [{ id: 'localDirty', dirty: true }] }); // no sessionId → current session
+      const manager = new SegmentationManager();
+      const decisions = manager.applySessionSwitch('S2');
+      expect(decisions[0]).toEqual({ containerId: 'localDirty', disposition: 'retain-unsaved' });
+      expect(segmentationServiceMock.removeSegmentation).not.toHaveBeenCalled();
+    });
+  });
 });

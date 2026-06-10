@@ -17,6 +17,7 @@ import { rtStructService } from '../cornerstone/rtStructService';
 import { useSegmentationManagerStore, type RGBA } from '../../stores/segmentationManagerStore';
 import { useSegmentationStore } from '../../stores/segmentationStore';
 import { useViewerStore } from '../../stores/viewerStore';
+import { decideSessionLifecycle, type LifecycleDecision, type LoadedContainerRef } from '../annotations/sessionLifecycle';
 import {
   ToolName,
   SEGMENTATION_TOOLS,
@@ -855,6 +856,37 @@ export class SegmentationManager {
    */
   removeSegmentation(segmentationId: string): void {
     segmentationService.removeSegmentation(segmentationId);
+  }
+
+  /**
+   * Apply the A13 session-switch lifecycle (Change 1c). When the viewer moves to a
+   * different XNAT session, containers of the session being switched TO are kept,
+   * clean containers of OTHER sessions are unloaded, and DIRTY other-session
+   * containers are RETAINED in memory (never silently dropped) — they stop
+   * rendering (they're not attached to the new session's viewports) but stay in the
+   * panel list with the unsaved indicator so the user can still review + save them.
+   *
+   * Only the 'unload' set is removed (via removeSegmentation, which cleans up its
+   * per-container store state); retained containers keep their dirty flags +
+   * presentation. Returns the dispositions (for logging/tests). A container with no
+   * XNAT origin (a never-saved local creation) counts as the current session, so
+   * dirty new work is retained, not lost.
+   */
+  applySessionSwitch(toSessionId: string): LifecycleDecision[] {
+    const viewer = useViewerStore.getState();
+    const fromSessionId = viewer.xnatContext?.sessionId ?? viewer.sessionId ?? null;
+    const { segmentations, xnatOriginMap } = useSegmentationStore.getState();
+    const { dirtySegIds } = useSegmentationManagerStore.getState();
+    const containers: LoadedContainerRef[] = segmentations.map((seg) => ({
+      containerId: seg.segmentationId,
+      sessionId: xnatOriginMap[seg.segmentationId]?.sessionId ?? fromSessionId ?? '',
+      dirty: !!dirtySegIds[seg.segmentationId],
+    }));
+    const decisions = decideSessionLifecycle({ fromSessionId, toSessionId, containers });
+    for (const d of decisions) {
+      if (d.disposition === 'unload') this.removeSegmentation(d.containerId);
+    }
+    return decisions;
   }
 
   /**

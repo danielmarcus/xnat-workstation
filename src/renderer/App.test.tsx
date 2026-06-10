@@ -622,7 +622,7 @@ describe('App', () => {
     expect(screen.getByTestId('xnat-browser')).toBeInTheDocument();
   });
 
-  it('prompts unsaved annotation dialog and honors cancel/continue decisions', async () => {
+  it('loads a scan without a save/discard prompt when there are unsaved annotations (retention model, Change 1c)', async () => {
     const user = userEvent.setup();
     setConnectedConnectionState();
     useSegmentationStore.setState({
@@ -634,16 +634,11 @@ describe('App', () => {
     render(<App />);
     await screen.findByTestId('viewer-page');
 
+    // Retention replaces the old prompt-and-wipe: loading proceeds without a
+    // save/discard prompt; dirty work is retained (never silently dropped).
     await user.click(screen.getByRole('button', { name: 'Trigger Load Scan' }));
-    expect(await screen.findByText('Unsaved annotations')).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Return to session.' }));
-    expect(screen.queryByText('Unsaved annotations')).not.toBeInTheDocument();
-    expect(mocks.dicomwebLoader.getScanImageIds).not.toHaveBeenCalled();
-
-    await user.click(screen.getByRole('button', { name: 'Trigger Load Scan' }));
-    expect(await screen.findByText('Unsaved annotations')).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: /Continue without saving/ }));
     await waitFor(() => expect(mocks.dicomwebLoader.getScanImageIds).toHaveBeenCalled());
+    expect(screen.queryByText('Unsaved annotations')).not.toBeInTheDocument();
   });
 
   it('shows loading and error browser status tones during scan load', async () => {

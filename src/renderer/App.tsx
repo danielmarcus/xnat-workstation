@@ -49,10 +49,8 @@ import {
   findSourceScanBySeriesUID,
   findSourceScanByReferencedSopInstanceUIDs,
 } from './lib/app/appHelpers';
-import { useUnsavedNavigationDialog } from './lib/app/useUnsavedNavigationDialog';
 import { useBookmarks } from './lib/app/useBookmarks';
 import BookmarksDropdown from './components/app/BookmarksDropdown';
-import UnsavedNavigationDialog from './components/app/UnsavedNavigationDialog';
 import CloseUnsavedDialog from './components/app/CloseUnsavedDialog';
 import { useAppCloseGuard } from './hooks/useAppCloseGuard';
 
@@ -708,28 +706,6 @@ export default function App() {
     [],
   );
 
-  const discardCurrentAnnotations = useCallback(() => {
-    const segStore = useSegmentationStore.getState();
-    for (const seg of [...segStore.segmentations]) {
-      try {
-        segmentationManager.removeSegmentation(seg.segmentationId);
-      } catch (err) {
-        console.error('[App] Failed to remove segmentation during discard:', err);
-      }
-    }
-    segStore._markClean();
-
-    // Delete local backup files for this session since the user confirmed discard
-    const currentSessionId = useViewerStore.getState().sessionId;
-    if (currentSessionId) {
-      backupService.deleteSessionBackups(currentSessionId).catch((err) => {
-        console.warn('[App] Failed to delete backup after discard:', err);
-      });
-    }
-  }, []);
-
-  const unsavedNavigation = useUnsavedNavigationDialog(discardCurrentAnnotations);
-
   const {
     pinnedItems,
     recentSessions,
@@ -856,17 +832,6 @@ export default function App() {
 
   // Active panel from viewer store
   const activeViewportId = useViewerStore((s) => s.activeViewportId);
-
-  const promptToSaveUnsavedAnnotations = useCallback(async (): Promise<boolean> => {
-    const segStore = useSegmentationStore.getState();
-    // If there are no segmentations loaded, there's nothing to save
-    if (segStore.segmentations.length === 0) return true;
-    const hasUnsaved =
-      segStore.hasUnsavedChanges || segmentationManager.hasDirtySegmentations();
-    if (!hasUnsaved) return true;
-
-    return unsavedNavigation.prompt();
-  }, [unsavedNavigation]);
 
   useEffect(() => {
     return () => {
@@ -1334,19 +1299,19 @@ export default function App() {
   ) => {
     if (!isConnected) return;
 
-    // Prompt to save/discard unsaved annotations before switching scans.
-    if (!(await promptToSaveUnsavedAnnotations())) return;
-
     const currentSessionId = useViewerStore.getState().xnatContext?.sessionId ?? null;
     if (currentSessionId && currentSessionId !== sessionId) {
-      // Re-read state AFTER the prompt — discardCurrentAnnotations may have
-      // already removed segmentations if the user chose to proceed.
-      for (const seg of [...useSegmentationStore.getState().segmentations]) {
-        segmentationManager.removeSegmentation(seg.segmentationId);
-      }
+      // Session switch (A13 / Change 1c): retain dirty other-session containers in
+      // memory and unload only the clean ones — unsaved work is never silently
+      // dropped (it stops rendering because it isn't attached to the new session's
+      // viewports, but stays in the panel list with the unsaved indicator). This
+      // replaces the old prompt-and-wipe. NB: we deliberately do NOT blanket-reset
+      // segmentationManagerStore here — that would clear the per-container dirty
+      // flags retention depends on; removeSegmentation cleans up only the unloaded
+      // containers' state, leaving retained ones intact.
+      segmentationManager.applySessionSwitch(sessionId);
       clearSegLoadingLocks();
       useSessionDerivedIndexStore.getState().clear();
-      useSegmentationManagerStore.getState().reset();
       dicomwebLoader.clearScanImageIdsCache(currentSessionId);
     }
 
@@ -2088,7 +2053,7 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  }, [isConnected, refreshBookmarks, recordLoadedOverlay, promptToSaveUnsavedAnnotations, setBrowserStatusMessage]);
+  }, [isConnected, refreshBookmarks, recordLoadedOverlay, setBrowserStatusMessage]);
 
   /**
    * Load ALL scans from an XNAT session using hanging protocols.
@@ -2107,24 +2072,19 @@ export default function App() {
     ) => {
       if (!isConnected) return;
 
-      // Prompt to save/discard unsaved annotations before switching sessions.
-      if (!(await promptToSaveUnsavedAnnotations())) return;
-
       const previousSessionId = useViewerStore.getState().sessionId;
       if (previousSessionId && previousSessionId !== sessionId) {
+        // Session switch (A13 / Change 1c): retain dirty other-session containers,
+        // unload only the clean ones (see loadFromXnatScan for the rationale).
+        // Replaces prompt-and-wipe; NOT a blanket manager-store reset (that would
+        // clear the dirty flags retention depends on).
+        segmentationManager.applySessionSwitch(sessionId);
         dicomwebLoader.clearScanImageIdsCache(previousSessionId);
       }
 
-      // Re-read state AFTER the prompt — discardCurrentAnnotations may have
-      // already removed segmentations if the user chose to proceed.
-      for (const seg of [...useSegmentationStore.getState().segmentations]) {
-        segmentationManager.removeSegmentation(seg.segmentationId);
-      }
-
-      // Clear stale loading locks, derived index, and manager state from previous session
+      // Clear stale loading locks + derived index from the previous session.
       clearSegLoadingLocks();
       useSessionDerivedIndexStore.getState().clear();
-      useSegmentationManagerStore.getState().reset();
 
       try {
         setLoading(true);
@@ -2365,7 +2325,7 @@ export default function App() {
         setLoading(false);
       }
     },
-    [isConnected, refreshBookmarks, promptToSaveUnsavedAnnotations, promptRecoveryConfirm, setBrowserStatusMessage],
+    [isConnected, refreshBookmarks, promptRecoveryConfirm, setBrowserStatusMessage],
   );
 
   /**
@@ -2985,12 +2945,6 @@ export default function App() {
           <p className="text-blue-200 text-xl font-semibold">Drop DICOM files here</p>
         </div>
       )}
-
-      <UnsavedNavigationDialog
-        open={unsavedNavigation.open}
-        onProceedWithoutSaving={() => unsavedNavigation.resolve(true)}
-        onCancel={() => unsavedNavigation.resolve(false)}
-      />
 
       <CloseUnsavedDialog
         open={closeGuard.promptOpen}

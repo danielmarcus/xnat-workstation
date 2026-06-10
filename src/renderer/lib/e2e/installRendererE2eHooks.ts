@@ -107,8 +107,12 @@ declare global {
       getUnifiedToolsWithPrimary: () => string[];
       /** Create a labelmap segmentation + attach it to all unified viewports + set active. */
       createUnifiedLabelmapSegmentation: (label?: string) => Promise<{ segmentationId: string; segmentIndex: number }>;
-      /** L3 harness: seed a dirty container tagged to one session + set the active session to another. */
-      seedRetainedUnsavedSession: (containerSessionId: string, activeSessionId: string) => Promise<string>;
+      /** Session-switch harness: create a labelmap tagged to a session, optionally dirty. */
+      seedSessionContainer: (sessionId: string, dirty: boolean) => Promise<string>;
+      /** Set the active viewer session (the one being left on a switch). */
+      setViewerSession: (sessionId: string) => void;
+      /** Drive the real A13 session-switch retention (Change 1c). */
+      applySessionSwitch: (toSessionId: string) => void;
       /** Set the brush radius for the unified tool group. */
       setUnifiedBrushSize: (size: number) => void;
       /** Total non-zero labelmap voxels across all segmentations (0 = nothing painted). */
@@ -597,7 +601,9 @@ export function installRendererE2eHooks(): void {
     // container left unsaved in a session you've navigated away from. Drives the
     // REAL banner data path (stores → selector → render); the production trigger
     // (session-switch retention, L2) is the deferred App-flow integration.
-    seedRetainedUnsavedSession: async (containerSessionId: string, activeSessionId: string) => {
+    // Session-switch retention harness (Change 1c): create a labelmap tagged to a
+    // given XNAT session, optionally dirty. Does NOT change the active session.
+    seedSessionContainer: async (sessionId: string, dirty: boolean) => {
       const viewportIds = unifiedToolService.getViewportIds();
       const findReadyVolume = (): string | undefined => {
         for (const vp of viewportIds) {
@@ -613,14 +619,24 @@ export function installRendererE2eHooks(): void {
         referencedVolumeId = findReadyVolume();
       }
       if (!referencedVolumeId) throw new Error('Shared volume not ready');
-      const { segmentationId } = await unifiedSegService.createVolumeLabelmap(referencedVolumeId, viewportIds, 'Stranded SEG');
+      const { segmentationId } = await unifiedSegService.createVolumeLabelmap(referencedVolumeId, viewportIds, `SEG ${sessionId}`);
       useSegmentationStore.getState().setXnatOrigin(segmentationId, {
-        scanId: '3001', sourceScanId: '4', projectId: 'P', sessionId: containerSessionId,
+        scanId: '3001', sourceScanId: '4', projectId: 'P', sessionId,
       });
-      useSegmentationManagerStore.getState().markDirty(segmentationId);
-      useViewerStore.setState({ sessionId: activeSessionId });
+      // Creating a labelmap fires an ASYNC data-modified that auto-marks it dirty;
+      // wait for that to settle, then set the requested dirty state authoritatively.
+      await new Promise((r) => setTimeout(r, 400));
+      if (dirty) useSegmentationManagerStore.getState().markDirty(segmentationId);
+      else useSegmentationManagerStore.getState().clearDirty(segmentationId);
       return segmentationId;
     },
+    /** Set the active viewer session (the session being "left" on a switch). */
+    setViewerSession: (sessionId: string) => {
+      const v = useViewerStore.getState();
+      useViewerStore.setState({ sessionId, xnatContext: { ...(v.xnatContext ?? {}), sessionId } as never });
+    },
+    /** Drive the real A13 session-switch retention (Change 1c). */
+    applySessionSwitch: (toSessionId: string) => segmentationManager.applySessionSwitch(toSessionId),
     setUnifiedBrushSize: (size: number) => unifiedToolService.setBrushSize(size),
     isUnifiedVolumeReady: () => {
       for (const vp of unifiedToolService.getViewportIds()) {
