@@ -276,6 +276,32 @@ describe('XnatClient', () => {
     );
   });
 
+  it('downloadScanFile skips a candidate that 404s and uses a later working file (load-completeness fix)', async () => {
+    const client = new XnatClient('https://xnat.example');
+    await client.setAuthFromBrowserLogin({ jsessionId: 'J1', username: 'dan', serverCookies: [], csrfToken: null });
+
+    mockCatalog404(); // catalog endpoint 404 → fall back to /files
+    mocks.fetch
+      .mockResolvedValueOnce(
+        makeJsonResponse({
+          ResultSet: {
+            Result: [
+              { Name: 'segmentation.dcm', URI: '/missing', file_format: 'DICOM' }, // stale/404
+              { Name: 'real.dcm', URI: '/real', file_format: 'DICOM' },
+            ],
+          },
+        }),
+      )
+      .mockResolvedValueOnce(new Response('not found', { status: 404 }))
+      .mockResolvedValueOnce(new Response(new Uint8Array([0x02, 0x00, 0x00, 0x00, 0xcc, 0xdd]), { status: 200 }));
+
+    const buffer = await client.downloadScanFile('XNAT_E001', '3003');
+    expect(Buffer.isBuffer(buffer)).toBe(true);
+    expect(buffer.toString('ascii', 128, 132)).toBe('DICM'); // the 404 candidate was skipped, /real used
+    expect(mocks.fetch).toHaveBeenNthCalledWith(3, 'https://xnat.example/missing', expect.any(Object));
+    expect(mocks.fetch).toHaveBeenNthCalledWith(4, 'https://xnat.example/real', expect.any(Object));
+  });
+
   it('resolves SOPClassUID when getScans includes SOP UID metadata probing', async () => {
     const client = new XnatClient('https://xnat.example');
     await client.setAuthFromBrowserLogin({

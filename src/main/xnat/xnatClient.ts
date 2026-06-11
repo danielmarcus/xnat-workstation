@@ -743,37 +743,58 @@ export class XnatClient {
    * Returns the first file as a Buffer (SEG scans typically have one file).
    */
   async downloadScanFile(sessionId: string, scanId: string): Promise<Buffer> {
-    const fileEntries = await this.getScanFiles(sessionId, scanId);
-    if (fileEntries.length === 0) {
-      throw new Error(`No DICOM files found in scan ${scanId}`);
-    }
-
+    const tried = new Set<string>();
     let lastReason = '';
-    for (const { uri } of fileEntries) {
-      console.log(`[xnatClient] Downloading scan file: ${uri}`);
-      const response = await this.authenticatedFetch(uri);
-      const rawBuffer = Buffer.from(await response.arrayBuffer());
-      const buffer = this.normalizeDicomPart10(rawBuffer);
 
-      if (this.hasDicomPart10Prefix(buffer)) {
-        if (buffer.length !== rawBuffer.length) {
-          console.warn(
-            `[xnatClient] Added missing DICOM preamble for scan ${scanId} file ${uri} `
-            + `(${rawBuffer.length} -> ${buffer.length} bytes)`,
-          );
+    // Try a set of candidate file URIs; return the first that yields valid DICOM.
+    const tryCandidates = async (uris: string[]): Promise<Buffer | null> => {
+      for (const uri of uris) {
+        if (!uri || tried.has(uri)) continue;
+        tried.add(uri);
+        console.log(`[xnatClient] Downloading scan file: ${uri}`);
+        let response: Response;
+        try {
+          // authenticatedFetch THROWS on a non-ok status (e.g. 404 for a stale
+          // catalog entry) — catch it so one bad candidate doesn't abort the load;
+          // we fall through to the next candidate / the /files fallback.
+          response = await this.authenticatedFetch(uri);
+        } catch (err) {
+          lastReason = err instanceof Error ? err.message : String(err);
+          console.warn(`[xnatClient] download candidate failed (${lastReason}) — trying next`);
+          continue;
         }
-        return buffer;
+        const rawBuffer = Buffer.from(await response.arrayBuffer());
+        const buffer = this.normalizeDicomPart10(rawBuffer);
+        if (this.hasDicomPart10Prefix(buffer)) {
+          if (buffer.length !== rawBuffer.length) {
+            console.warn(
+              `[xnatClient] Added missing DICOM preamble for scan ${scanId} file ${uri} `
+              + `(${rawBuffer.length} -> ${buffer.length} bytes)`,
+            );
+          }
+          return buffer;
+        }
+        lastReason = this.looksLikeHtml(rawBuffer)
+          ? `Received HTML instead of DICOM from ${uri}`
+          : `Invalid DICOM prefix from ${uri} (first bytes: ${rawBuffer.subarray(0, 8).toString('hex') || 'empty'})`;
+        console.warn(`[xnatClient] Skipping non-DICOM scan file candidate: ${lastReason}`);
       }
+      return null;
+    };
 
-      if (this.looksLikeHtml(rawBuffer)) {
-        lastReason = `Received HTML instead of DICOM from ${uri}`;
-      } else {
-        const headHex = rawBuffer.subarray(0, Math.min(rawBuffer.length, 8)).toString('hex');
-        lastReason = `Invalid DICOM prefix from ${uri} (first bytes: ${headHex || 'empty'})`;
-      }
-      console.warn(`[xnatClient] Skipping non-DICOM scan file candidate: ${lastReason}`);
-    }
+    // 1. Catalog-derived candidates (getScanFiles prefers cat.xml — fast, ordered).
+    const catalog = await this.getScanFiles(sessionId, scanId).catch(() => []);
+    const fromCatalog = await tryCandidates(catalog.map((e) => e.uri));
+    if (fromCatalog) return fromCatalog;
 
+    // 2. Fallback to the live /files listing — the catalog can be STALE (lists a
+    //    file that 404s, e.g. a SEG stored under a non-default name or after an
+    //    overwrite whose metadata refresh failed), so this recovers the real file.
+    const legacy = await this._getScanFilesLegacy(sessionId, scanId).catch(() => []);
+    const fromLegacy = await tryCandidates(legacy.map((e) => e.uri));
+    if (fromLegacy) return fromLegacy;
+
+    if (tried.size === 0) throw new Error(`No DICOM files found in scan ${scanId}`);
     throw new Error(
       `No valid DICOM Part 10 file found in scan ${scanId}. ${lastReason || 'All candidates failed.'}`,
     );
