@@ -24,6 +24,7 @@ const segmentationServiceMock = vi.hoisted(() => ({
   setActiveSegmentIndex: vi.fn(),
   activateOnViewport: vi.fn(),
   setSegmentColor: vi.fn(),
+  notifyContainerDirty: vi.fn(),
   getSegmentVisibility: vi.fn(() => true),
   setSegmentVisibility: vi.fn(),
   toggleSegmentLocked: vi.fn(),
@@ -266,6 +267,23 @@ describe('SegmentationManager', () => {
     expect(segmentationServiceMock.setSegmentVisibility).toHaveBeenCalledWith('panel_0', 'seg-1', 1, false);
     expect(segmentationServiceMock.setSegmentVisibility).toHaveBeenCalledWith('panel_1', 'seg-1', 1, false);
     expect(useSegmentationManagerStore.getState().presentation['seg-1']?.visibility[1]).toBe(false);
+  });
+
+  it('persists a color change AND marks the container dirty so the new color is re-saved (round-trips to the DICOM SEG, not reverting on reload)', () => {
+    const manager = new SegmentationManager();
+    const newColor: [number, number, number, number] = [12, 34, 56, 255];
+
+    manager.userChangedSegmentColor('seg-1', 2, newColor);
+
+    // Applies to Cornerstone + caches in presentation state (cross-recreation).
+    expect(segmentationServiceMock.setSegmentColor).toHaveBeenCalledWith('seg-1', 2, newColor);
+    expect(useSegmentationManagerStore.getState().presentation['seg-1']?.color[2]).toEqual(newColor);
+
+    // The actual fix: a color change is a real edit → container dirty + queued for
+    // save, so export writes the new RecommendedDisplayCIELabValue. Without this the
+    // color reverts to the file's saved value on reload.
+    expect(useSegmentationManagerStore.getState().dirtySegIds['seg-1']).toBe(true);
+    expect(segmentationServiceMock.notifyContainerDirty).toHaveBeenCalledWith('seg-1');
   });
 
   it('toggles lock state, persists state, and deactivates Cornerstone tool when locking active segment', () => {

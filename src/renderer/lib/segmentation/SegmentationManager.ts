@@ -719,6 +719,17 @@ export class SegmentationManager {
 
     // Cache in managerStore for preservation across viewport recreation
     useSegmentationManagerStore.getState().setPresentation(segmentationId, segmentIndex, { color });
+
+    // A color change is a real edit to the container: the chosen color is written
+    // into the DICOM SEG's RecommendedDisplayCIELabValue on export (dicomSegExport
+    // reads the live CS color) and read back on import. Without marking the
+    // container dirty + queueing a save, the new color lives only in CS/presentation
+    // state and reverts to the file's saved color on reload. Mirrors the edit-path
+    // dirty sequence; the saveQueue self-gates on the autosave opt-in (manual flush
+    // always works), so this is safe when autosave is off.
+    useSegmentationStore.getState()._markDirty();
+    useSegmentationManagerStore.getState().markDirty(segmentationId);
+    segmentationService.notifyContainerDirty(segmentationId);
   }
 
   /**
