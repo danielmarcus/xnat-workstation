@@ -8,8 +8,8 @@ describe('actionForEligibility', () => {
   it('cross-series-show ⇒ attach, non-native, read-only', () => {
     expect(actionForEligibility('cross-series-show')).toEqual({ attach: true, nonNative: true, readOnly: true });
   });
-  it('cross-series-hide ⇒ attach but hidden, read-only (so the "show related" toggle can reveal it)', () => {
-    expect(actionForEligibility('cross-series-hide')).toEqual({ attach: true, nonNative: true, readOnly: true, hidden: true });
+  it('cross-series-hide ⇒ do NOT attach (not-attaching is the only reliable per-viewport hide for a shared volume labelmap)', () => {
+    expect(actionForEligibility('cross-series-hide')).toEqual({ attach: false, nonNative: false, readOnly: true });
   });
   it('different-for ⇒ do NOT attach', () => {
     expect(actionForEligibility('different-for')).toEqual({ attach: false, nonNative: false, readOnly: true });

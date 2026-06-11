@@ -13,6 +13,7 @@ vi.mock('@cornerstonejs/core', () => ({
   metaData: { get: (mod: string, id: string) => m.metaGet(mod, id) },
   volumeLoader: { createAndCacheDerivedLabelmapVolume: vi.fn() },
   getRenderingEngine: vi.fn(),
+  cache: { getVolume: vi.fn() }, // readSourceVolumeGeometry/readLabelmapVoxels (signal 10/23)
 }));
 vi.mock('@cornerstonejs/tools', () => ({
   segmentation: {
@@ -34,6 +35,12 @@ vi.mock('@cornerstonejs/polymorphic-segmentation', () => ({
 }));
 vi.mock('../viewportService', () => ({
   viewportService: { getViewport: (id: string) => m.getViewport(id), ENGINE_ID: 'xnatRenderingEngine' },
+}));
+// viewerStore transitively imports unifiedToolService → SafePaintFillTool (a heavy
+// Cornerstone tool subclass). The eligibility/draw-gate logic under test never reads
+// viewerStore, so stub the boundary to keep that whole tool chain out of the graph.
+vi.mock('../../../stores/viewerStore', () => ({
+  useViewerStore: { getState: () => ({ activeViewportId: 'panel_0' }) },
 }));
 
 import { unifiedSegService, attachLabelmapWithEligibility, canDrawOnViewport } from '../unifiedSegService';

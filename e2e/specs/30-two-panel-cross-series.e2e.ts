@@ -147,16 +147,27 @@ test('signal 9b (D9): the non-native labelmap style visibly changes (dims) the S
     .toBe(true);
 });
 
-// PENDING — A2c displacement-hide. The cross-series attach is now eligibility-gated,
-// but classifyEligibility still receives no bulkDisplacementMm (the live two-volume
-// scalar-data read isn't wired), so a displaced sibling classifies cross-series-SHOW
-// instead of -HIDE. Needs: read both volumes' scalar data + bulkDisplacement (Slice
-// 1, unit-tested) fed into the attach classification → > threshold ⇒ visibility off.
-test.fixme('signal 10 (A2c): a SEG on one breath-hold series is HIDDEN on the displaced same-FoR sibling', async ({ page }) => {
+// signal 10 (A2c): a SEG on one breath-hold series is HIDDEN on the displaced same-FoR
+// sibling. The attach is eligibility-gated AND fed the live two-volume displacement
+// (bulkDisplacementForPair reads both source volumes' scalar data → centroid delta).
+// The breath-hold pair is bulk-shifted ~20mm > the 10mm threshold ⇒ cross-series-HIDE,
+// which (unlike the same-exam T1/T2 in signal 9) does NOT attach: for a shared derived
+// volume labelmap, not-attaching is the only reliable per-viewport hide. Contrast with
+// signal 9, where the un-displaced sibling classifies cross-series-SHOW and DOES attach.
+test('signal 10 (A2c): a SEG on one breath-hold series is HIDDEN on the displaced same-FoR sibling', async ({ page }) => {
   await loadTwoSeries(page, 'breath-hold-pair', 'bh1-slice', 'bh2-slice');
   const p1 = canvas(page, 'panel_1');
+  await expect(canvas(page, 'panel_0')).toBeVisible({ timeout: 30_000 });
+  await expect(p1).toBeVisible({ timeout: 30_000 });
+
   const p1Before = await p1.screenshot();
-  await paintSegOnPanel0(page, 'BH SEG');
-  await page.waitForTimeout(2000);
+  const segId = await paintSegOnPanel0(page, 'BH SEG');
+
+  // Structural: the displaced sibling is NOT attached (A2c hide), while the native
+  // panel IS — the inverse of signal 9 (cross-series-show) on the same harness.
+  const vps = await segViewportIds(page, segId);
+  expect(vps).toContain('panel_0');
+  expect(vps).not.toContain('panel_1');
+  // Visual: panel_1 is unchanged by the paint on panel_0 (nothing rendered there).
   expect((await p1.screenshot()).equals(p1Before)).toBe(true);
 });

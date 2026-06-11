@@ -18,8 +18,6 @@ export interface EligibilityAction {
   nonNative: boolean;
   /** Edits/handles are not allowed against this viewport (A2b/A2c read-only). */
   readOnly: boolean;
-  /** Attached but visibility off by default (A2c — the "show related" toggle reveals). */
-  hidden?: boolean;
 }
 
 export function actionForEligibility(eligibility: Eligibility): EligibilityAction {
@@ -29,7 +27,11 @@ export function actionForEligibility(eligibility: Eligibility): EligibilityActio
     case 'cross-series-show':
       return { attach: true, nonNative: true, readOnly: true };
     case 'cross-series-hide':
-      return { attach: true, nonNative: true, readOnly: true, hidden: true };
+      // A2c displaced sibling: do NOT attach. For a shared derived volume labelmap,
+      // not-attaching is the only reliable per-viewport hide — Cornerstone's actor
+      // visibility is viewport-wide, so attaching-then-hiding can't suppress it. The
+      // container still LISTS (store-driven); the "show related" toggle re-attaches.
+      return { attach: false, nonNative: false, readOnly: true };
     case 'different-for':
     default:
       return { attach: false, nonNative: false, readOnly: true };

@@ -33,6 +33,7 @@ import {
 } from './segmentationService/voxelClipboard';
 import { useSegmentationStore } from '../../stores/segmentationStore';
 import { useViewerStore } from '../../stores/viewerStore';
+import { bulkDisplacementMm, type VolumeGeometry as SourceVolumeGeometry } from './bulkDisplacement';
 
 let counter = 0;
 /** Segmentations created on the unified path, so they can be re-attached to
@@ -43,6 +44,59 @@ const created = new Set<string>();
  *  (A2a–d): a container must not render on a different-FoR viewport, and renders
  *  with the non-native style on a same-FoR sibling series. */
 const containerSpatial = new Map<string, ContainerSpatialId>();
+
+// ─── A2c displacement-hide (signal 10) ───────────────────────────────────────
+/** Source ImageVolume id each container was derived from (its NATIVE volume). */
+const containerNativeVolume = new Map<string, string>();
+/** Memoized bulk displacement (mm) per `nativeVolumeId|viewportVolumeId` pair. */
+const displacementCache = new Map<string, number | null>();
+
+/** Read a SOURCE volume's geometry + scalar data for the displacement estimate
+ *  (distinct from readLabelmapVoxels, which reads the labelmap). Streaming volumes
+ *  expose data via getCompleteScalarDataArray(). null ⇒ unknown ⇒ caller defaults to show. */
+function readSourceVolumeGeometry(volumeId: string | null | undefined): SourceVolumeGeometry | null {
+  if (!volumeId) return null;
+  try {
+    const vol = cache.getVolume(volumeId) as any;
+    if (!vol) return null;
+    const img = vol.imageData;
+    const dimensions = vol.dimensions ?? img?.getDimensions?.();
+    const spacing = vol.spacing ?? img?.getSpacing?.();
+    const origin = vol.origin ?? img?.getOrigin?.();
+    const scalarData =
+      vol.voxelManager?.getCompleteScalarDataArray?.() ?? vol.voxelManager?.getScalarData?.() ?? vol.scalarData;
+    if (!dimensions || !spacing || !origin || !scalarData?.length) return null;
+    return { scalarData, dimensions, spacing, origin };
+  } catch {
+    return null;
+  }
+}
+
+/** The source ImageVolume id a viewport is currently displaying (first volume). */
+function getViewportSourceVolumeId(viewportId: string): string | null {
+  try {
+    const vp = viewportService.getViewport(viewportId) as { getAllVolumeIds?: () => string[] } | undefined;
+    return vp?.getAllVolumeIds?.()?.[0] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Bulk-anatomy displacement (mm) between a container's native volume and a viewport's
+ *  volume (memoized). null = unknown ⇒ classifier defaults to show. */
+function bulkDisplacementForPair(segmentationId: string, viewportId: string): number | null {
+  const nativeVolumeId = containerNativeVolume.get(segmentationId);
+  const vpVolumeId = getViewportSourceVolumeId(viewportId);
+  if (!nativeVolumeId || !vpVolumeId || nativeVolumeId === vpVolumeId) return null;
+  const key = `${nativeVolumeId}|${vpVolumeId}`;
+  const cached = displacementCache.get(key);
+  if (cached !== undefined) return cached;
+  const a = readSourceVolumeGeometry(nativeVolumeId);
+  const b = readSourceVolumeGeometry(vpVolumeId);
+  const mm = a && b ? bulkDisplacementMm(a, b) : null;
+  displacementCache.set(key, mm);
+  return mm;
+}
 
 // ─── Voxel copy/paste (D6 / signal 23) ───────────────────────────────────────
 let voxelClip: VoxelRegionClip | null = null;
@@ -140,12 +194,25 @@ export function attachLabelmapWithEligibility(segmentationId: string, viewportId
     const cspatial = containerSpatial.get(segmentationId);
     const vspatial = resolveViewportSpatial(viewportId);
     if (cspatial?.frameOfReferenceUID && vspatial?.frameOfReferenceUID) {
-      action = actionForEligibility(classifyEligibility({ container: cspatial, viewport: vspatial }));
+      // Classify once cheaply; only a same-FoR sibling series (cross-series-*) needs
+      // the expensive two-volume displacement read (A2c) — native / different-FoR don't.
+      const prelim = classifyEligibility({ container: cspatial, viewport: vspatial });
+      const bulkDisplacementMm =
+        prelim === 'cross-series-show' || prelim === 'cross-series-hide'
+          ? bulkDisplacementForPair(segmentationId, viewportId)
+          : undefined;
+      action = actionForEligibility(
+        classifyEligibility({ container: cspatial, viewport: vspatial, bulkDisplacementMm }),
+      );
     }
   } catch {
     action = actionForEligibility('native');
   }
-  if (!action.attach) return; // A2d different-FoR: do not render here
+  // A2d different-FoR OR A2c displaced sibling (cross-series-hide): do not render here.
+  // For a shared derived volume labelmap, NOT attaching is the only reliable per-viewport
+  // hide — CS3D actor visibility is viewport-wide (visibility-off can't suppress it). The
+  // container stays LISTED (the panel reads the segmentation store, not viewport attach).
+  if (!action.attach) return;
   csSegmentation.addLabelmapRepresentationToViewport(viewportId, [{ segmentationId }]);
   if (action.nonNative) {
     try {
@@ -155,17 +222,6 @@ export function attachLabelmapWithEligibility(segmentationId: string, viewportId
       );
     } catch {
       /* style is best-effort, never blocks attach */
-    }
-  }
-  if (action.hidden) {
-    try {
-      (csSegmentation as any).config?.visibility?.setSegmentationRepresentationVisibility?.(
-        viewportId,
-        { segmentationId, type: ToolEnums.SegmentationRepresentations.Labelmap },
-        false,
-      );
-    } catch {
-      /* visibility toggle best-effort */
     }
   }
   if (!action.readOnly) {
@@ -264,6 +320,7 @@ export const unifiedSegService = {
     // series. Record that BEFORE attaching so the eligibility gate can classify the
     // other viewports against it.
     recordContainerSpatial(segmentationId, viewportIds[0]);
+    containerNativeVolume.set(segmentationId, referencedVolumeId); // native volume for A2c displacement (signal 10)
     for (const viewportId of viewportIds) {
       // FoR-eligibility gate (A2a–d): the native viewport(s) attach solid + active;
       // a same-FoR sibling series attaches non-native (dimmed) + read-only; a
@@ -287,6 +344,7 @@ export const unifiedSegService = {
       if (!csSegmentation.state.getSegmentation(segmentationId)) {
         created.delete(segmentationId);
         containerSpatial.delete(segmentationId);
+        containerNativeVolume.delete(segmentationId);
         continue;
       }
       try {
@@ -481,6 +539,8 @@ export const unifiedSegService = {
   reset(): void {
     created.clear();
     containerSpatial.clear();
+    containerNativeVolume.clear();
+    displacementCache.clear();
     voxelClip = null;
     voxelClipSourceFocal = null;
   },
