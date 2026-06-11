@@ -3987,6 +3987,12 @@ export const segmentationService = {
    * worker. Returns a map segmentIndex → metrics. Best-effort: a failure (no
    * labelmap / worker error) resolves to an empty/partial map + a warning rather
    * than throwing, so the CSV export still produces structural rows.
+   *
+   * MULTI-LAYER GROUPS: a loaded SEG's `segmentationId` is a virtual group id —
+   * Cornerstone has no labelmap registered under it, so getStatistics must be
+   * called per real sub-seg layer (resolveSubSegId), addressing each layer's
+   * in-layer index 1 (mirrors visibility.ts / dicomSegExport.ts). Passing the
+   * group id straight through returns nothing — which left every CSV stat blank.
    */
   async getSegmentStatistics(
     segmentationId: string,
@@ -4000,37 +4006,59 @@ export const segmentationService = {
     stdDev?: number;
     intensityUnit?: string;
   }>> {
-    const out: Record<number, {
+    type SegStats = {
       voxelCount?: number; volumeMm3?: number; mean?: number;
       min?: number; max?: number; stdDev?: number; intensityUnit?: string;
-    }> = {};
+    };
+    const out: Record<number, SegStats> = {};
     const indices = segmentIndices.filter((n) => Number.isInteger(n) && n > 0);
     if (indices.length === 0) return out;
+
     const scalar = (s: unknown): number | undefined => {
       const v = (s as { value?: unknown } | undefined)?.value;
       return typeof v === 'number' && Number.isFinite(v) ? v : undefined;
     };
+    const normalize = (named: any): SegStats | undefined =>
+      named
+        ? {
+            voxelCount: scalar(named.count ?? named.voxelCount),
+            volumeMm3: scalar(named.volume),
+            mean: scalar(named.mean),
+            min: scalar(named.min),
+            max: scalar(named.max),
+            stdDev: scalar(named.stdDev),
+            intensityUnit: named.mean?.unit ?? undefined,
+          }
+        : undefined;
+    const getStats = (csToolUtilities as any).segmentation.getStatistics as (args: {
+      segmentationId: string; segmentIndices: number[] | number; mode?: 'collective' | 'individual';
+    }) => Promise<any>;
+
     try {
-      const result = (await (csToolUtilities as any).segmentation.getStatistics({
-        segmentationId,
-        segmentIndices: indices,
-        mode: 'individual',
-      })) as Record<number, any> | undefined;
-      if (!result) return out;
-      for (const idx of indices) {
-        // mode 'individual' keys by segment index; tolerate a single-index
-        // collective result that returns the NamedStatistics directly.
-        const named = result[idx] ?? (indices.length === 1 ? (result as any) : undefined);
-        if (!named) continue;
-        out[idx] = {
-          voxelCount: scalar(named.count ?? named.voxelCount),
-          volumeMm3: scalar(named.volume),
-          mean: scalar(named.mean),
-          min: scalar(named.min),
-          max: scalar(named.max),
-          stdDev: scalar(named.stdDev),
-          intensityUnit: named.mean?.unit ?? undefined,
-        };
+      if (isMultiLayerGroup(segmentationId)) {
+        // Each segment is its own cs labelmap layer; stats live at in-layer index 1.
+        for (const idx of indices) {
+          const subSegId = resolveSubSegId(segmentationId, idx);
+          if (!subSegId) continue;
+          try {
+            const res = await getStats({ segmentationId: subSegId, segmentIndices: [1], mode: 'collective' });
+            const norm = normalize(res?.[1] ?? res); // collective → NamedStatistics directly
+            if (norm) out[idx] = norm;
+          } catch (e) {
+            console.warn(
+              `[segmentationService] getSegmentStatistics(sub-seg ${subSegId}, seg ${idx}) failed:`,
+              e instanceof Error ? e.message : e,
+            );
+          }
+        }
+      } else {
+        const result = await getStats({ segmentationId, segmentIndices: indices, mode: 'individual' });
+        if (result) {
+          for (const idx of indices) {
+            const norm = normalize(result[idx] ?? (indices.length === 1 ? result : undefined));
+            if (norm) out[idx] = norm;
+          }
+        }
       }
     } catch (err) {
       console.warn(
