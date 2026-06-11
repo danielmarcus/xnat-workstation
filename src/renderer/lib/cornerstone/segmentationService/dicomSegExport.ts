@@ -50,8 +50,14 @@ export interface DicomSegExportDeps {
   getDefaultColors(): [number, number, number, number][];
 }
 
+/** Segment-index → RGBA color, overriding the per-viewport color read during export.
+ *  The multi-layer-group export uses this to carry the group's metaMap colors (the
+ *  source of truth the user edits) into the legacy exporter, whose temp segmentation
+ *  is never attached to a viewport (so the viewport color read finds nothing). */
+export type SegmentColorOverrides = Map<number, [number, number, number, number]>;
+
 export interface DicomSegExport {
-  exportToDicomSeg(segmentationId: string): Promise<string>;
+  exportToDicomSeg(segmentationId: string, colorOverrides?: SegmentColorOverrides): Promise<string>;
   _exportGroupToDicomSeg(groupId: string): Promise<string>;
 }
 
@@ -69,7 +75,10 @@ export function createDicomSegExport(deps: DicomSegExportDeps): DicomSegExport {
    * 5. Serialize derivation dataset to ArrayBuffer via dcmjs
    * 6. Return base64-encoded string for IPC transport
    */
-  async function exportToDicomSeg(segmentationId: string): Promise<string> {
+  async function exportToDicomSeg(
+    segmentationId: string,
+    colorOverrides?: SegmentColorOverrides,
+  ): Promise<string> {
     // ─── Multi-layer group path ─────────────────────────────
     // Composite all sub-seg binary layers into multi-valued labelmaps,
     // build a temporary Cornerstone segmentation for the legacy export path.
@@ -425,21 +434,29 @@ export function createDicomSegExport(deps: DicomSegExportDeps): DicomSegExport {
           continue;
         }
 
-        // Get color for recommended display
+        // Get color for recommended display. An explicit override (the group
+        // export's metaMap color) wins — the temp segmentation it builds is never
+        // attached to a viewport, so the viewport read below would find nothing and
+        // fall back to the default palette, dropping the user's chosen color.
         let color = deps.getDefaultColors()[(idx - 1) % deps.getDefaultColors().length];
-        const viewportIds = csSegmentation.state.getViewportIdsWithSegmentation(segmentationId);
-        if (viewportIds.length > 0) {
-          try {
-            const c = csSegmentation.config.color.getSegmentIndexColor(
-              viewportIds[0],
-              segmentationId,
-              idx,
-            );
-            if (c && c.length >= 3) {
-              color = [c[0], c[1], c[2], c[3] ?? 255];
+        const override = colorOverrides?.get(idx);
+        if (override && override.length >= 3) {
+          color = [override[0], override[1], override[2], override[3] ?? 255];
+        } else {
+          const viewportIds = csSegmentation.state.getViewportIdsWithSegmentation(segmentationId);
+          if (viewportIds.length > 0) {
+            try {
+              const c = csSegmentation.config.color.getSegmentIndexColor(
+                viewportIds[0],
+                segmentationId,
+                idx,
+              );
+              if (c && c.length >= 3) {
+                color = [c[0], c[1], c[2], c[3] ?? 255];
+              }
+            } catch {
+              // Use default
             }
-          } catch {
-            // Use default
           }
         }
 
@@ -1045,30 +1062,18 @@ export function createDicomSegExport(deps: DicomSegExportDeps): DicomSegExport {
       compositedSlices.push(composited);
     }
 
-    // Build segment metadata
-    const segmentMetadata: any[] = [null]; // index 0 = background
+    // Per-segment colors come from the group's metaMap (the source of truth the
+    // user edits). The temp segmentation below is never attached to a viewport, so
+    // the legacy exporter's viewport color read would find nothing and fall back to
+    // the default palette — losing the user's color. Pass these through explicitly.
     const maxIdx = subSegArr.length;
+    const colorOverrides: SegmentColorOverrides = new Map();
     for (let idx = 1; idx <= maxIdx; idx++) {
-      if (!subSegArr[idx - 1]) {
-        segmentMetadata.push(null);
-        continue;
+      if (!subSegArr[idx - 1]) continue;
+      const c = metaMap?.get(idx)?.color;
+      if (c && c.length >= 3) {
+        colorOverrides.set(idx, [c[0], c[1], c[2], c[3] ?? 255]);
       }
-      const meta = metaMap?.get(idx);
-      const color = meta?.color ?? deps.getDefaultColors()[(idx - 1) % deps.getDefaultColors().length];
-      const normalizedRgb = [color[0] / 255, color[1] / 255, color[2] / 255];
-      const cieLabValues =
-        (dcmjsData as any).Colors?.rgb2DICOMLAB?.(normalizedRgb) ?? [0, 0, 0];
-
-      segmentMetadata.push({
-        SegmentLabel: meta?.label ?? `Segment ${idx}`,
-        SegmentDescription: meta?.label ?? `Segment ${idx}`,
-        SegmentNumber: idx,
-        SegmentAlgorithmType: 'SEMIAUTOMATIC',
-        SegmentAlgorithmName: 'XNAT Workstation',
-        SegmentedPropertyCategoryCodeSequence: SEGMENTED_PROPERTY_CATEGORY_CODE,
-        SegmentedPropertyTypeCodeSequence: SEGMENTED_PROPERTY_TYPE_CODE,
-        RecommendedDisplayCIELabValue: cieLabValues,
-      });
     }
 
     // Create a temporary single-layer Cornerstone segmentation with the
@@ -1128,8 +1133,9 @@ export function createDicomSegExport(deps: DicomSegExportDeps): DicomSegExport {
       // Track source image IDs for the temp seg
       sourceImageTracking.setSourceImageIds(tempSegId, [...srcImageIds]);
 
-      // Delegate to the legacy export path
-      const result = await exportToDicomSeg(tempSegId);
+      // Delegate to the legacy export path, carrying the group's per-segment colors
+      // (the temp seg has no viewport for the legacy path to read color from).
+      const result = await exportToDicomSeg(tempSegId, colorOverrides);
 
       return result;
     } finally {

@@ -175,7 +175,7 @@ const segIoMocks = vi.hoisted(() => {
       },
     })),
     dicomlab2RGB: vi.fn(() => [0.8, 0.4, 0.2]),
-    rgb2DICOMLAB: vi.fn(() => [10, 20, 30]),
+    rgb2DICOMLAB: vi.fn((_rgb: number[]) => [10, 20, 30]),
     denaturalizeDataset: vi.fn((dataset: any) => dataset),
     writeDicomDict: vi.fn(() => {
       const bytes = new Uint8Array([65, 66, 67]);
@@ -560,6 +560,29 @@ describe('segmentationService load/export integration (mocked cornerstone)', () 
       }),
       expect.objectContaining({ kind: 'SEG' }),
     );
+  });
+
+  it('exports the user-chosen segment color (not the default palette) into the SEG metadata', async () => {
+    // Regression: a multi-layer-group SEG exported via the temp-seg delegation lost
+    // the user's color. The group export read color from the temp segmentation's
+    // viewport attachment (it has none) and fell back to DEFAULT_COLORS — so a
+    // yellow segment saved + reloaded as default red. The export must use the
+    // group's metaMap color (the source of truth the user edits), surfaced here as
+    // the RGB handed to rgb2DICOMLAB → RecommendedDisplayCIELabValue.
+    const loaded = await segmentationService.loadDicomSeg(new ArrayBuffer(8), ['src-1', 'src-2']);
+
+    // User sets segment 1 to PURE YELLOW via the real color-change path.
+    segmentationService.setSegmentColor(loaded.segmentationId, 1, [255, 255, 0, 255]);
+
+    segIoMocks.rgb2DICOMLAB.mockClear();
+    await segmentationService.exportToDicomSeg(loaded.segmentationId);
+
+    // The export must convert the user's normalized yellow [1,1,0] for segment 1 —
+    // NOT the default-red normalization it fell back to before the fix.
+    const convertedRgb = segIoMocks.rgb2DICOMLAB.mock.calls.map((c) => c[0]);
+    expect(convertedRgb).toContainEqual([1, 1, 0]);
+    const defaultRedNormalized = [220 / 255, 50 / 255, 50 / 255];
+    expect(convertedRgb).not.toContainEqual(defaultRedNormalized);
   });
 
   it('appends the current user to an existing SEG OperatorsName value', async () => {
