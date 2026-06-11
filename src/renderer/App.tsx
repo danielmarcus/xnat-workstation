@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { initCornerstone } from './lib/cornerstone/init';
 import ViewerPage from './pages/ViewerPage';
 import ExportDropdown from './components/viewer/ExportDropdown';
@@ -30,6 +30,7 @@ import { viewportReadyService } from './lib/cornerstone/viewportReadyService';
 import { useSessionDerivedIndexStore, isSegScan, isRtStructScan, isDerivedScan } from './stores/sessionDerivedIndexStore';
 import { useSegmentationManagerStore } from './stores/segmentationManagerStore';
 import { segmentationManager } from './lib/segmentation/segmentationManagerSingleton';
+import { sessionsWithUnsaved, type LoadedContainerRef } from './lib/annotations/sessionLifecycle';
 import { getSegReferenceInfo } from './lib/dicom/segReferencedSeriesUid';
 import { applyPreferences } from './lib/preferences/applyPreferences';
 import { backupService } from './lib/backup/backupService';
@@ -687,7 +688,7 @@ export default function App() {
   const browserWidthRef = useRef(288); // persists width when collapsed
   const isResizingRef = useRef(false);
   const preferences = usePreferencesStore((s) => s.preferences);
-  const [backupBannerCount, setBackupBannerCount] = useState(0);
+  const [backupSessionIds, setBackupSessionIds] = useState<string[]>([]);
   const [backupBannerDismissed, setBackupBannerDismissed] = useState(false);
   const [settingsInitialTabRequest, setSettingsInitialTabRequest] = useState<string | undefined>(undefined);
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
@@ -892,19 +893,51 @@ export default function App() {
   const connectedServerUrl = useConnectionStore((s) => s.connection?.serverUrl ?? '');
   useEffect(() => {
     if (!connectedServerUrl) {
-      setBackupBannerCount(0);
+      setBackupSessionIds([]);
       return;
     }
     backupService.listAllBackups().then((sessions) => {
-      // Only count entries for the currently connected server
+      // Only the currently connected server's backed-up sessions.
       const matching = sessions.filter((s) => s.serverUrl === connectedServerUrl);
-      setBackupBannerCount(matching.length);
-      setBackupBannerDismissed(false);
+      setBackupSessionIds(matching.map((s) => s.sessionId));
       if (matching.length > 0) {
         console.log(`[App] Found ${matching.length} session(s) with backed-up annotations for ${connectedServerUrl}`);
       }
     }).catch(() => { /* ignore */ });
   }, [connectedServerUrl]);
+
+  // ─── Cross-session unsaved-work banner (A13 / signal 26) ──────────────────
+  // Reflect unsaved annotations from OTHER sessions immediately, from the
+  // authoritative in-memory dirty state (sessionsWithUnsaved), unioned with the
+  // local-fs backups the debounced auto-save writes a beat later. Without the
+  // in-memory half, the banner lags the auto-save timer after a session switch
+  // (the dirty container is retained, but the banner wouldn't show it yet).
+  const allSegmentations = useSegmentationStore((s) => s.segmentations);
+  const xnatOriginMap = useSegmentationStore((s) => s.xnatOriginMap);
+  const dirtySegIds = useSegmentationManagerStore((s) => s.dirtySegIds);
+  const activeSessionId = useViewerStore((s) => s.xnatContext?.sessionId ?? s.sessionId ?? null);
+
+  const inMemoryUnsavedSessionIds = useMemo(() => {
+    const refs: LoadedContainerRef[] = allSegmentations.map((seg) => ({
+      containerId: seg.segmentationId,
+      sessionId: xnatOriginMap[seg.segmentationId]?.sessionId ?? '',
+      dirty: !!dirtySegIds[seg.segmentationId],
+    }));
+    return sessionsWithUnsaved(refs, activeSessionId ?? '');
+  }, [allSegmentations, xnatOriginMap, dirtySegIds, activeSessionId]);
+
+  // Distinct sessions with unsaved annotations (disk-backed OR retained in memory).
+  const unsavedSessionIds = useMemo(
+    () => Array.from(new Set([...backupSessionIds, ...inMemoryUnsavedSessionIds])),
+    [backupSessionIds, inMemoryUnsavedSessionIds],
+  );
+  const unsavedSessionCount = unsavedSessionIds.length;
+
+  // Re-surface the banner whenever a NEW unsaved session appears, even if dismissed.
+  const unsavedSig = useMemo(() => [...unsavedSessionIds].sort().join('|'), [unsavedSessionIds]);
+  useEffect(() => {
+    if (unsavedSig) setBackupBannerDismissed(false);
+  }, [unsavedSig]);
 
   // ─── Initialize SegmentationManager once Cornerstone is ready ──
   useEffect(() => {
@@ -2739,14 +2772,20 @@ export default function App() {
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
     >
-      {/* Backup recovery notification banner */}
-      {backupBannerCount > 0 && !backupBannerDismissed && (
-        <div className="shrink-0 bg-blue-950/60 border-b border-blue-800/50 px-3 py-1.5 flex items-center gap-2">
+      {/* Unsaved-work banner: sessions with annotations not yet saved to XNAT —
+          retained in memory across a session switch (A13/signal 26) and/or backed
+          up to local disk (E3 recovery). The one routine-adjacent banner, justified
+          as data-loss prevention per the CLAUDE.md surface taxonomy. */}
+      {unsavedSessionCount > 0 && !backupBannerDismissed && (
+        <div
+          data-testid="unsaved-sessions-banner"
+          className="shrink-0 bg-blue-950/60 border-b border-blue-800/50 px-3 py-1.5 flex items-center gap-2"
+        >
           <svg className="w-3.5 h-3.5 text-blue-400 shrink-0" viewBox="0 0 20 20" fill="currentColor">
             <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a.75.75 0 000 1.5h.253a.25.25 0 01.244.304l-.459 2.066A1.75 1.75 0 0010.747 15H11a.75.75 0 000-1.5h-.253a.25.25 0 01-.244-.304l.459-2.066A1.75 1.75 0 009.253 9H9z" clipRule="evenodd" />
           </svg>
-          <span className="text-[11px] text-blue-200">
-            There {backupBannerCount === 1 ? 'is' : 'are'} {backupBannerCount} session{backupBannerCount !== 1 ? 's' : ''} with annotations that have not been saved.{' '}
+          <span className="text-[11px] text-blue-200" data-testid="unsaved-sessions-banner-text">
+            There {unsavedSessionCount === 1 ? 'is' : 'are'} {unsavedSessionCount} session{unsavedSessionCount !== 1 ? 's' : ''} with annotations that have not been saved.{' '}
             <button
               type="button"
               onClick={() => setSettingsInitialTabRequest('backup')}

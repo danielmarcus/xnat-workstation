@@ -49,3 +49,25 @@ test('Change 1c: switching sessions retains dirty work, unloads clean work', asy
   // The unsaved indicator still surfaces the held-over work.
   await expect(panel.locator('[data-testid="unsaved-count"]')).toHaveText('1');
 });
+
+test('signal 26: after switching the active session away, the unsaved-work banner surfaces the retained session', async ({ page }) => {
+  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.setMultiviewportEnabled(true));
+  await loadFixture(page, 'ct-axial-300', 'panel_0');
+
+  const banner = page.locator('[data-testid="unsaved-sessions-banner"]');
+
+  // Viewing session A; seed a DIRTY container in A. While A is active, its own
+  // unsaved work shows in-panel (not as the cross-session banner).
+  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.setViewerSession('SESSION_A'));
+  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.seedSessionContainer('SESSION_A', true));
+  await expect(banner).toHaveCount(0);
+
+  // Switch the active session to B: A's dirty container is retained in memory; the
+  // banner must now surface it — immediately, from the in-memory dirty state, with
+  // no dependency on the local-backup auto-save timer having fired.
+  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.applySessionSwitch('SESSION_B'));
+  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.setViewerSession('SESSION_B'));
+
+  await expect(banner).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator('[data-testid="unsaved-sessions-banner-text"]')).toContainText('1 session');
+});
