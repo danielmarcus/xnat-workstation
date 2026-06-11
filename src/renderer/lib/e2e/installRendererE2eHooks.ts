@@ -13,6 +13,7 @@ import { useAnnotationStore } from '../../stores/annotationStore';
 import { usePreferencesStore } from '../../stores/preferencesStore';
 import { useUnifiedLayoutStore, type LayoutPreset } from '../../stores/unifiedLayoutStore';
 import { volumeService } from '../cornerstone/volumeService';
+import { viewportService } from '../cornerstone/viewportService';
 import { unifiedToolService } from '../cornerstone/unifiedToolService';
 import { unifiedSegService } from '../cornerstone/unifiedSegService';
 import { undoService } from '../cornerstone/undoService';
@@ -117,6 +118,12 @@ declare global {
       setUnifiedBrushSize: (size: number) => void;
       /** Total non-zero labelmap voxels across all segmentations (0 = nothing painted). */
       getPaintedVoxelCount: () => number;
+      /** Copy the active segment's voxel region to the clipboard (D6 / signal 23). */
+      copyActiveSegmentVoxels: () => boolean;
+      /** Paste the voxel clipboard into the active segment at the current slice (signal 23). */
+      pasteActiveSegmentVoxels: () => boolean;
+      /** Scroll the active viewport by `delta` slices (drives copy→scroll→paste). */
+      scrollActiveViewport: (delta: number) => void;
       /** Whether a unified viewport has a cached source volume (ready for a derived labelmap). */
       isUnifiedVolumeReady: () => boolean;
       /** Remove all segmentations (test isolation in the worker-scoped app). */
@@ -638,6 +645,10 @@ export function installRendererE2eHooks(): void {
     /** Drive the real A13 session-switch retention (Change 1c). */
     applySessionSwitch: (toSessionId: string) => segmentationManager.applySessionSwitch(toSessionId),
     setUnifiedBrushSize: (size: number) => unifiedToolService.setBrushSize(size),
+    copyActiveSegmentVoxels: () => unifiedSegService.copyActiveSegmentVoxels(),
+    pasteActiveSegmentVoxels: () => unifiedSegService.pasteActiveSegmentVoxels(),
+    scrollActiveViewport: (delta: number) =>
+      viewportService.scroll(useViewerStore.getState().activeViewportId, delta),
     isUnifiedVolumeReady: () => {
       for (const vp of unifiedToolService.getViewportIds()) {
         const ee = getEnabledElementByViewportId(vp) as

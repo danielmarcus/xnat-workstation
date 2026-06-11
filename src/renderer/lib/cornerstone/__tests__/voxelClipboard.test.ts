@@ -99,6 +99,28 @@ describe('voxelClipboard — pasteVoxelRegion (NN resample)', () => {
     expect(target[idx(g, 2, 1, 0)]).toBe(7);
   });
 
+  it('routes writes through writeTarget when provided (live voxelManager path, signal 23)', () => {
+    const g = grid([6, 6, 1]);
+    const src = emptyData(g);
+    src[idx(g, 1, 1, 0)] = 3;
+    src[idx(g, 2, 1, 0)] = 3;
+    const clip = copyVoxelRegion({ geometry: g, data: src }, 3)!;
+
+    const target = emptyData(g);
+    const writes: Array<[number, number]> = [];
+    const res = pasteVoxelRegion(clip, { geometry: g, data: target }, {
+      targetSegmentIndex: 7,
+      overlap: 'overwrite',
+      writeTarget: (flatIndex, value) => writes.push([flatIndex, value]),
+    });
+    // Writes go through the callback, NOT target.data (which stays untouched).
+    expect(res.written).toBe(2);
+    expect(writes).toHaveLength(2);
+    expect(writes.every(([, v]) => v === 7)).toBe(true);
+    expect(writes.map(([i]) => i).sort((a, b) => a - b)).toEqual([idx(g, 1, 1, 0), idx(g, 2, 1, 0)]);
+    expect(target[idx(g, 1, 1, 0)]).toBe(0); // untouched — caller owns the write
+  });
+
   it('preserves world geometry across a finer target grid (NN fills the footprint densely)', () => {
     const coarse = grid([4, 4, 1], [2, 2, 2]); // 2mm voxels
     const src = emptyData(coarse);

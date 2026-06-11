@@ -49,6 +49,15 @@ export interface PasteOptions {
   translationWorld?: Vec3;
   /** Alt-modifier: clear the active member where the clip is set instead of painting it. */
   subtract?: boolean;
+  /**
+   * Optional live writer. When provided, each written voxel goes through this
+   * callback (flat column-major index, value) INSTEAD of `target.data[ti] = v` — so a
+   * caller can route writes through a Cornerstone voxelManager's setAtIndex (the
+   * brush's own write path), which is required for a derived volume labelmap whose
+   * scalar array read-back is a copy. `target.data` is still read for the subtract
+   * check and bounds.
+   */
+  writeTarget?: (flatIndex: number, value: number) => void;
 }
 
 export interface PasteResult {
@@ -203,14 +212,18 @@ export function pasteVoxelRegion(
         if (clip.data[colMajor(cdims, ci[0], ci[1], ci[2])] !== 1) continue;
 
         const ti = colMajor(tdims, i, j, k);
+        const write = (v: number) => {
+          if (opts.writeTarget) opts.writeTarget(ti, v);
+          else (target.data as { [k: number]: number })[ti] = v;
+        };
         if (opts.subtract) {
           if (target.data[ti] === opts.targetSegmentIndex) {
-            target.data[ti] = 0;
+            write(0);
             written++;
           }
         } else {
           // additive + overwrite both paint the active member at painted voxels (C6).
-          target.data[ti] = opts.targetSegmentIndex;
+          write(opts.targetSegmentIndex);
           written++;
         }
       }

@@ -19,6 +19,7 @@ import { useSegmentationStore } from '../../stores/segmentationStore';
 import { useAnnotationStore } from '../../stores/annotationStore';
 import { viewportService } from '../cornerstone/viewportService';
 import { segmentationService } from '../cornerstone/segmentationService';
+import { unifiedSegService } from '../cornerstone/unifiedSegService';
 
 // ─── Reverse Lookup Table ─────────────────────────────────────────
 
@@ -216,9 +217,17 @@ function dispatchAction(action: HotkeyAction): boolean {
       segmentationService.redo();
       return true;
     case 'edit.copy':
-      return segmentationService.copySelectedContourAnnotation();
+      // Contour selection wins; otherwise copy the active labelmap segment voxels (D6 / signal 23).
+      return (
+        segmentationService.copySelectedContourAnnotation() ||
+        unifiedSegService.copyActiveSegmentVoxels()
+      );
     case 'edit.paste':
-      return segmentationService.pasteCopiedContourAnnotationToActiveSlice();
+      // Prefer a voxel clipboard (NN-resampled, translated to the current slice);
+      // otherwise paste a copied contour.
+      return unifiedSegService.hasVoxelClipboard()
+        ? unifiedSegService.pasteActiveSegmentVoxels()
+        : segmentationService.pasteCopiedContourAnnotationToActiveSlice();
     case 'edit.delete':
       segmentationService.deleteSelectedContourComponents();
       return true;
