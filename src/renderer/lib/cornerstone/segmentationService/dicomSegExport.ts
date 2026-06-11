@@ -26,6 +26,7 @@ import {
   serializeDerivedDicomDataset,
   requireSingleStudyReference,
   collectSourceDicomReferences,
+  applyConformantPatientAge,
 } from '../dicomExportHelpers';
 import {
   formatOperatorsNameForConnection,
@@ -874,6 +875,21 @@ export function createDicomSegExport(deps: DicomSegExportDeps): DicomSegExport {
     dataset.Modality = 'SEG';
     dataset.Rows = rows;
     dataset.Columns = columns;
+    // PatientAge (0010,1010, VR AS) reaches this dataset NON-conformant even when the
+    // SOURCE is valid: the Cornerstone loader normalizes the age to a bare integer —
+    // wadors `getNumberValue('00101010')`, wadouri `dataSet.intString('x00101010')` —
+    // so a conformant "030Y" becomes "30" (leading zero + unit dropped), and the SEG
+    // adapter copies that into dataset.PatientAge. A 2-char AS then trips dcmjs's
+    // fixed-length check on every read ("Invalid length for fixed length tag, vr AS").
+    // The loader has discarded the unit, so the value can't be made conformant without
+    // fabricating it — capture + drop + re-apply via the shared helper, which keeps it
+    // only if conformant (here: omit). PatientAge is optional + non-authoritative for a
+    // derived SEG (XNAT carries the session's age), so omitting a malformed copy is the
+    // DICOM-conformant choice. dicomContext.applyConformantPatientAge alone is
+    // insufficient: it sets-if-conformant but doesn't DELETE the adapter's bad value.
+    const copiedPatientAge = dataset.PatientAge;
+    delete dataset.PatientAge;
+    applyConformantPatientAge(dataset, copiedPatientAge, 'SEG');
     if (typeof dataset.BitsAllocated !== 'number' || dataset.BitsAllocated <= 0) {
       dataset.BitsAllocated = 1;
     }
