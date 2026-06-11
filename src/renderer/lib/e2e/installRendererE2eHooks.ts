@@ -124,6 +124,8 @@ declare global {
       pasteActiveSegmentVoxels: () => boolean;
       /** Scroll the active viewport by `delta` slices (drives copy→scroll→paste). */
       scrollActiveViewport: (delta: number) => void;
+      /** Apply the D9 non-native (dimmed) labelmap style to a seg on a viewport (signal 9b). */
+      applyNonNativeLabelmapStyle: (segmentationId: string, viewportId: string) => void;
       /** Whether a unified viewport has a cached source volume (ready for a derived labelmap). */
       isUnifiedVolumeReady: () => boolean;
       /** Remove all segmentations (test isolation in the worker-scoped app). */
@@ -649,6 +651,8 @@ export function installRendererE2eHooks(): void {
     pasteActiveSegmentVoxels: () => unifiedSegService.pasteActiveSegmentVoxels(),
     scrollActiveViewport: (delta: number) =>
       viewportService.scroll(useViewerStore.getState().activeViewportId, delta),
+    applyNonNativeLabelmapStyle: (segmentationId: string, viewportId: string) =>
+      unifiedSegService.applyNonNativeLabelmapStyle(segmentationId, viewportId),
     isUnifiedVolumeReady: () => {
       for (const vp of unifiedToolService.getViewportIds()) {
         const ee = getEnabledElementByViewportId(vp) as

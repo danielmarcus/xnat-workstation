@@ -462,6 +462,21 @@ export const unifiedSegService = {
     return true;
   },
 
+  /**
+   * Apply the D9 non-native (dimmed) labelmap style to a segmentation on one viewport
+   * and re-render (signal 9b). Same style attachLabelmapWithEligibility uses for a
+   * cross-series sibling — exposed so the visible dimming can be exercised directly.
+   */
+  applyNonNativeLabelmapStyle(segmentationId: string, viewportId: string): void {
+    try {
+      csSegmentation.segmentationStyle.setStyle(
+        { type: ToolEnums.SegmentationRepresentations.Labelmap, viewportId, segmentationId },
+        nonNativeStyleFor('Labelmap') as never,
+      );
+      csToolUtilities.segmentation.triggerSegmentationRender(viewportId);
+    } catch { /* best-effort */ }
+  },
+
   /** Forget all tracked unified segmentations (test isolation). */
   reset(): void {
     created.clear();

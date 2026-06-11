@@ -31,6 +31,8 @@ interface E2EHooks {
   setUnifiedBrushSize: (size: number) => void;
   getPaintedVoxelCount: () => number;
   getSegmentationViewportIds: (segmentationId: string) => string[];
+  applyNonNativeLabelmapStyle: (segmentationId: string, viewportId: string) => void;
+  resetUnifiedSegmentations: () => void;
 }
 type Win = { __XNAT_E2E__: E2EHooks };
 
@@ -72,6 +74,10 @@ const segViewportIds = (page: Page, segId: string) =>
 
 test.beforeEach(async ({ page }) => {
   await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.setMultiviewportEnabled(true));
+  // Isolate from any segmentation a prior test left in the worker-scoped app — without
+  // this, a SEG painted in one test leaks into the next and corrupts its eligibility
+  // (the documented "passes alone, fails combined" cross-test pollution).
+  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.resetUnifiedSegmentations());
 });
 
 test('harness: two same-exam series load into a 1×2 grid and render independently', async ({ page }) => {
@@ -117,13 +123,29 @@ test('signal 11 (A2d): a SEG created on the CT panel is NOT attached to the diff
   expect(vps).not.toContain('panel_1');
 });
 
-// PENDING — D9 non-native styling pixel-diff. With the eligibility attach now in the
-// create flow (signal 9 above), the same-FoR sibling attaches with the non-native
-// (dimmed) style — verified at the unit layer (eligibilityStyle +
-// attachLabelmapWithEligibility setStyle, Slice 2). A pixel-level "dimmer than the
-// native panel" assertion needs a tolerance diff (the two panels show different base
-// series, so raw equality can't isolate overlay opacity).
-test.fixme('signal 9b (D9): the cross-series SEG renders visibly DIMMED vs the native panel (pixel)', async () => {});
+// signal 9b (D9): the non-native (cross-series) labelmap style visibly dims the SEG.
+// Asserted on the SAME panel (native render vs the dimmed style) so there's no
+// different-base-series confound: paint a SEG native on panel_0, then apply the D9
+// non-native style to that same SEG/panel — the render changes (reduced fill opacity +
+// thin outline). That the change is specifically "dimmer" is unit-verified
+// (eligibilityStyle.nonNativeStyleFor reduced fillAlpha, Slice 2); here we confirm the
+// style is actually applied + visible live (not a no-op).
+test('signal 9b (D9): the non-native labelmap style visibly changes (dims) the SEG render', async ({ page }) => {
+  await loadTwoSeries(page, 'mr-t1-t2-sameexam', 't1-slice', 't2-slice');
+  const p0 = canvas(page, 'panel_0');
+  await expect(p0).toBeVisible({ timeout: 30_000 });
+
+  const segId = await paintSegOnPanel0(page, 'D9 SEG'); // renders native (full opacity) on panel_0
+  const nativeShot = await p0.screenshot();
+
+  await page.evaluate(
+    (s) => (window as unknown as Win).__XNAT_E2E__.applyNonNativeLabelmapStyle(s, 'panel_0'),
+    segId,
+  );
+  await expect
+    .poll(async () => !(await p0.screenshot()).equals(nativeShot), { timeout: 15_000 })
+    .toBe(true);
+});
 
 // PENDING — A2c displacement-hide. The cross-series attach is now eligibility-gated,
 // but classifyEligibility still receives no bulkDisplacementMm (the live two-volume
