@@ -119,13 +119,27 @@ export default function ContainerRow(props: ContainerRowProps) {
           aria-label="Rename container"
         />
       ) : (
-        <span
-          className="text-[11px] text-zinc-200 font-medium truncate flex-1"
-          onDoubleClick={beginEdit}
-          title={container.label}
-        >
-          {container.label}
-        </span>
+        <div className="flex-1 min-w-0 flex items-baseline gap-1.5">
+          <span
+            className="text-[11px] text-zinc-200 font-medium truncate min-w-0"
+            onDoubleClick={beginEdit}
+            title={container.label}
+          >
+            {container.label}
+          </span>
+          {/* XNAT scan number of this annotation (e.g. a 30xx SEG scan), shown next
+              to the label so panel rows map to scans in XNAT. Absent until the
+              annotation has been saved (a new one has no scan id yet). */}
+          {container.source.scanId && (
+            <span
+              className="text-[9px] text-zinc-500 tabular-nums shrink-0"
+              title={`XNAT scan ${container.source.scanId}`}
+              data-testid={`container-scan-${container.id}`}
+            >
+              #{container.source.scanId}
+            </span>
+          )}
+        </div>
       )}
 
       {/* Transport status (in-place; no toast/banner) — saving / conflict / error. */}

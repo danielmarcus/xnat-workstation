@@ -32,6 +32,21 @@ describe('ContainerRow', () => {
     expect(screen.getByTestId('member-count').textContent).toBe('1');
   });
 
+  it('shows the annotation XNAT scan number next to the label when persisted, and nothing for a never-saved container', () => {
+    const { rerender } = render(
+      <ContainerRow
+        container={makeContainer({ source: { projectId: 'P', subjectId: 'S', sessionId: 'E', sourceScanId: '4', scanId: '3003' } })}
+        expanded onToggleExpand={vi.fn()} onApproveToggle={vi.fn()} onAddMember={vi.fn()} onSave={vi.fn()} onKebab={vi.fn()} onDelete={vi.fn()} onRename={vi.fn()} />,
+    );
+    expect(screen.getByTestId('container-scan-rt-1').textContent).toBe('#3003');
+
+    // A new (unsaved) container has no scanId yet → no scan token rendered.
+    rerender(
+      <ContainerRow container={makeContainer()} expanded onToggleExpand={vi.fn()} onApproveToggle={vi.fn()} onAddMember={vi.fn()} onSave={vi.fn()} onKebab={vi.fn()} onDelete={vi.fn()} onRename={vi.fn()} />,
+    );
+    expect(screen.queryByTestId('container-scan-rt-1')).toBeNull();
+  });
+
   it('shows a dirty dot when dirty, and a cross-panel pill when clean + rendering elsewhere', () => {
     const { rerender } = render(
       <ContainerRow container={makeContainer({ dirty: true })} expanded onToggleExpand={vi.fn()} onApproveToggle={vi.fn()} onAddMember={vi.fn()} onSave={vi.fn()} onKebab={vi.fn()} onDelete={vi.fn()} onRename={vi.fn()} />,
