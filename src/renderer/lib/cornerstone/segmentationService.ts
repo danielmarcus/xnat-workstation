@@ -4030,27 +4030,42 @@ export const segmentationService = {
             intensityUnit: named.mean?.unit ?? undefined,
           }
         : undefined;
-    const getStats = (csToolUtilities as any).segmentation.getStatistics as (args: {
+    const rawGetStats = (csToolUtilities as any).segmentation.getStatistics as (args: {
       segmentationId: string; segmentIndices: number[] | number; mode?: 'collective' | 'individual';
     }) => Promise<any>;
+    // Time-bound each worker call: the Cornerstone statistics worker can stall (no
+    // reference volume, worker pool busy). Without this, a single hung call would
+    // block the whole CSV export (the export awaits this) → "clicking does nothing".
+    // On timeout we resolve undefined → that segment's metric cells stay blank, but
+    // the export always proceeds.
+    const getStats = (args: Parameters<typeof rawGetStats>[0]): Promise<any> =>
+      Promise.race([
+        rawGetStats(args).catch(() => undefined),
+        new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 4000)),
+      ]);
 
     try {
       if (isMultiLayerGroup(segmentationId)) {
         // Each segment is its own cs labelmap layer; stats live at in-layer index 1.
-        for (const idx of indices) {
-          const subSegId = resolveSubSegId(segmentationId, idx);
-          if (!subSegId) continue;
-          try {
-            const res = await getStats({ segmentationId: subSegId, segmentIndices: [1], mode: 'collective' });
-            const norm = normalize(res?.[1] ?? res); // collective → NamedStatistics directly
-            if (norm) out[idx] = norm;
-          } catch (e) {
-            console.warn(
-              `[segmentationService] getSegmentStatistics(sub-seg ${subSegId}, seg ${idx}) failed:`,
-              e instanceof Error ? e.message : e,
-            );
-          }
-        }
+        // Run the layers in PARALLEL so total time is bounded by one timeout, not
+        // N × per-call timeout (a sequential loop over many hung layers would still
+        // stall the export well past any single budget).
+        await Promise.all(
+          indices.map(async (idx) => {
+            const subSegId = resolveSubSegId(segmentationId, idx);
+            if (!subSegId) return;
+            try {
+              const res = await getStats({ segmentationId: subSegId, segmentIndices: [1], mode: 'collective' });
+              const norm = normalize(res?.[1] ?? res); // collective → NamedStatistics directly
+              if (norm) out[idx] = norm;
+            } catch (e) {
+              console.warn(
+                `[segmentationService] getSegmentStatistics(sub-seg ${subSegId}, seg ${idx}) failed:`,
+                e instanceof Error ? e.message : e,
+              );
+            }
+          }),
+        );
       } else {
         const result = await getStats({ segmentationId, segmentIndices: indices, mode: 'individual' });
         if (result) {
