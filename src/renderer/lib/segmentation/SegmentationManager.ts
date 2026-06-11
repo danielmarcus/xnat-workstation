@@ -733,6 +733,49 @@ export class SegmentationManager {
   }
 
   /**
+   * Set visibility for EVERY member of a container (kebab "Hide all" / "Show all").
+   * Applies to all attached viewports and persists into the presentation cache so
+   * the panel eye-icons reflect it. Pure presentation — does not mark dirty.
+   */
+  setAllMembersVisible(segmentationId: string, visible: boolean): void {
+    const summary = useSegmentationStore
+      .getState()
+      .segmentations.find((s) => s.segmentationId === segmentationId);
+    if (!summary) return;
+    const vpIds = segmentationService.getViewportIdsForSegmentation(segmentationId);
+    const mgr = useSegmentationManagerStore.getState();
+    for (const seg of summary.segments) {
+      const idx = seg.segmentIndex;
+      if (!Number.isInteger(idx) || idx <= 0) continue;
+      for (const vpId of vpIds) {
+        segmentationService.setSegmentVisibility(vpId, segmentationId, idx, visible);
+      }
+      mgr.setPresentation(segmentationId, idx, { visible });
+    }
+  }
+
+  /**
+   * Set lock for EVERY member of a container (kebab "Lock all" / "Unlock all").
+   * setSegmentLocked is toggle-only, so toggle each member whose state differs
+   * from the target; persist into the presentation cache for the lock icons.
+   */
+  setAllMembersLocked(segmentationId: string, locked: boolean): void {
+    const summary = useSegmentationStore
+      .getState()
+      .segmentations.find((s) => s.segmentationId === segmentationId);
+    if (!summary) return;
+    const mgr = useSegmentationManagerStore.getState();
+    for (const seg of summary.segments) {
+      const idx = seg.segmentIndex;
+      if (!Number.isInteger(idx) || idx <= 0) continue;
+      if (segmentationService.getSegmentLocked(segmentationId, idx) !== locked) {
+        segmentationService.toggleSegmentLocked(segmentationId, idx);
+      }
+      mgr.setPresentation(segmentationId, idx, { locked });
+    }
+  }
+
+  /**
    * User toggled segment visibility.
    */
   userToggledVisibility(viewportId: string, segmentationId: string, segmentIndex: number): void {

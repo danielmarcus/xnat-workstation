@@ -28,7 +28,7 @@ const segmentationServiceMock = vi.hoisted(() => ({
   getSegmentVisibility: vi.fn(() => true),
   setSegmentVisibility: vi.fn(),
   toggleSegmentLocked: vi.fn(),
-  getSegmentLocked: vi.fn(() => false),
+  getSegmentLocked: vi.fn((_segmentationId: string, _segmentIndex: number) => false),
   createStackSegmentation: vi.fn(async () => 'seg-new'),
   ensureEmptySegmentation: vi.fn(),
   createContourSegmentation: vi.fn(async () => 'rt-new'),
@@ -284,6 +284,61 @@ describe('SegmentationManager', () => {
     // color reverts to the file's saved value on reload.
     expect(useSegmentationManagerStore.getState().dirtySegIds['seg-1']).toBe(true);
     expect(segmentationServiceMock.notifyContainerDirty).toHaveBeenCalledWith('seg-1');
+  });
+
+  it('hides/shows ALL members across viewports and persists each into presentation (kebab Hide all)', () => {
+    const manager = new SegmentationManager();
+    useSegmentationStore.setState({
+      ...useSegmentationStore.getState(),
+      segmentations: [
+        {
+          segmentationId: 'seg-1',
+          label: 'Seg 1',
+          isActive: true,
+          segments: [
+            { segmentIndex: 1, label: 'A', color: [255, 0, 0, 255], visible: true, locked: false },
+            { segmentIndex: 2, label: 'B', color: [0, 255, 0, 255], visible: true, locked: false },
+          ],
+        },
+      ],
+    });
+    segmentationServiceMock.getViewportIdsForSegmentation.mockReturnValue(['panel_0', 'panel_1']);
+
+    manager.setAllMembersVisible('seg-1', false);
+
+    // Applied to every (segment × viewport) pair.
+    expect(segmentationServiceMock.setSegmentVisibility).toHaveBeenCalledWith('panel_0', 'seg-1', 1, false);
+    expect(segmentationServiceMock.setSegmentVisibility).toHaveBeenCalledWith('panel_1', 'seg-1', 2, false);
+    expect(segmentationServiceMock.setSegmentVisibility).toHaveBeenCalledTimes(4);
+    expect(useSegmentationManagerStore.getState().presentation['seg-1']?.visibility[1]).toBe(false);
+    expect(useSegmentationManagerStore.getState().presentation['seg-1']?.visibility[2]).toBe(false);
+  });
+
+  it('locks ALL members (toggling only those whose state differs) and persists into presentation (kebab Lock all)', () => {
+    const manager = new SegmentationManager();
+    useSegmentationStore.setState({
+      ...useSegmentationStore.getState(),
+      segmentations: [
+        {
+          segmentationId: 'seg-1',
+          label: 'Seg 1',
+          isActive: true,
+          segments: [
+            { segmentIndex: 1, label: 'A', color: [255, 0, 0, 255], visible: true, locked: false },
+            { segmentIndex: 2, label: 'B', color: [0, 255, 0, 255], visible: true, locked: false },
+          ],
+        },
+      ],
+    });
+    // segment 1 already locked, segment 2 unlocked → only segment 2 needs a toggle.
+    segmentationServiceMock.getSegmentLocked.mockImplementation((_id: string, idx: number) => idx === 1);
+
+    manager.setAllMembersLocked('seg-1', true);
+
+    expect(segmentationServiceMock.toggleSegmentLocked).toHaveBeenCalledTimes(1);
+    expect(segmentationServiceMock.toggleSegmentLocked).toHaveBeenCalledWith('seg-1', 2);
+    expect(useSegmentationManagerStore.getState().presentation['seg-1']?.locked[1]).toBe(true);
+    expect(useSegmentationManagerStore.getState().presentation['seg-1']?.locked[2]).toBe(true);
   });
 
   it('toggles lock state, persists state, and deactivates Cornerstone tool when locking active segment', () => {

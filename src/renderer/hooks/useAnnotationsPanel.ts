@@ -24,9 +24,11 @@ import { useViewerStore } from '../stores/viewerStore';
 import { useTransportStore } from '../stores/transportStore';
 import { usePreferencesStore } from '../stores/preferencesStore';
 import { segmentationService } from '../lib/cornerstone/segmentationService';
+import { rtStructService } from '../lib/cornerstone/rtStructService';
 import { unifiedToolService } from '../lib/cornerstone/unifiedToolService';
 import { segmentationManager } from '../lib/segmentation/segmentationManagerSingleton';
 import { projectContainers } from '../lib/annotations/containerProjection';
+import { buildContainerCsv } from '../lib/annotations/containerCsv';
 import { CATALOG_TO_TOOLNAME, TOOLNAME_TO_CATALOG } from '../components/annotations/toolCatalog';
 import type { ContainerListHandlers } from '../components/annotations/ContainerList';
 import type { RowTransport } from '../components/annotations/ContainerRow';
@@ -162,7 +164,39 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
     },
     onSaveContainer: (id) => { void segmentationService.flushContainerSave(id); }, // manual save → injected transport
     onResolveConflict: (id) => setConflictDialogId(id), // open the H7 resolver (in-place badge → dialog)
-    onKebab: () => console.warn('[annotationsPanel] container kebab menu — TODO (hide-all/lock-all/export/revert).'),
+    onKebab: () => {}, // open/close handled in-row (ContainerRow owns the menu state)
+    onSetAllVisible: (id, visible) => segmentationManager.setAllMembersVisible(id, visible),
+    onSetAllLocked: (id, locked) => segmentationManager.setAllMembersLocked(id, locked),
+    onExportContainerDicom: (id) => {
+      void (async () => {
+        try {
+          const container = containers.find((c) => c.id === id);
+          const kind = container?.kind ?? segmentationService.getPreferredDicomType(id);
+          const name = `${(container?.label || 'annotation').replace(/[^\w.-]+/g, '_')}.dcm`;
+          if (kind === 'RTSTRUCT') {
+            const base64 = await rtStructService.exportToRtStruct(id);
+            await window.electronAPI?.export?.saveDicomRtStruct(base64, name);
+          } else {
+            const base64 = await segmentationService.exportToDicomSeg(id);
+            await window.electronAPI?.export?.saveDicomSeg(base64, name);
+          }
+        } catch (err) {
+          console.error('[annotationsPanel] export to DICOM failed:', err);
+        }
+      })();
+    },
+    onExportContainerCsv: (id) => {
+      void (async () => {
+        try {
+          const container = containers.find((c) => c.id === id);
+          if (!container) return;
+          const name = `${(container.label || 'annotation').replace(/[^\w.-]+/g, '_')}.csv`;
+          await window.electronAPI?.export?.saveReport(buildContainerCsv(container), name);
+        } catch (err) {
+          console.error('[annotationsPanel] export to CSV failed:', err);
+        }
+      })();
+    },
     onDeleteContainer: (id) => segmentationManager.removeSegmentation(id),
     onRenameContainer: (id, name) => segmentationManager.renameSegmentation(id, name),
     onContainerEditCommit: (id) => {

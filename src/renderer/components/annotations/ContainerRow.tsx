@@ -7,7 +7,7 @@
  * dirty & unapproved), kebab "⋮", delete "✕". Approved containers lock add/save/
  * delete (D7.11). Behaviour injected via callbacks.
  */
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { Container } from '@shared/types/annotation';
 import {
   KindGlyph,
@@ -53,10 +53,20 @@ export interface ContainerRowProps {
   onKebab: () => void;
   onDelete: () => void;
   onRename: (name: string) => void;
+  /** Kebab: set visibility for every member ("Hide all" / "Show all"). */
+  onSetAllVisible?: (visible: boolean) => void;
+  /** Kebab: set lock for every member ("Lock all" / "Unlock all"). */
+  onSetAllLocked?: (locked: boolean) => void;
+  /** Kebab: discard unsaved changes back to last-saved. Item shown only when provided. */
+  onRevert?: () => void;
+  /** Kebab: export this container as a standalone DICOM file to local disk. */
+  onExportDicom?: () => void;
+  /** Kebab: export this container's per-member metrics as a CSV file. */
+  onExportCsv?: () => void;
 }
 
 export default function ContainerRow(props: ContainerRowProps) {
-  const { container, expanded, transport, onResolveConflict, crossPanelCount, autoEdit, onEditConsumed, onCommitName, onToggleExpand, onApproveToggle, onAddMember, onSave, onKebab, onDelete, onRename } = props;
+  const { container, expanded, transport, onResolveConflict, crossPanelCount, autoEdit, onEditConsumed, onCommitName, onToggleExpand, onApproveToggle, onAddMember, onSave, onKebab, onDelete, onRename, onSetAllVisible, onSetAllLocked, onRevert, onExportDicom, onExportCsv } = props;
   const saving = transport?.phase === 'saving' || transport?.phase === 'loading';
   const conflict = transport?.phase === 'error' && transport?.errorKind === 'conflict';
   const errored = transport?.phase === 'error' && transport?.errorKind !== 'conflict';
@@ -65,7 +75,12 @@ export default function ContainerRow(props: ContainerRowProps) {
 
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(container.label);
+  const [menuOpen, setMenuOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Kebab aggregate state → "Hide all" vs "Show all", "Lock all" vs "Unlock all".
+  const anyVisible = container.members.some((m) => m.visible);
+  const anyUnlocked = container.members.some((m) => !m.locked);
 
   useEffect(() => {
     if (editing && inputRef.current) {
@@ -203,9 +218,64 @@ export default function ContainerRow(props: ContainerRowProps) {
         <SaveGlyph size={13} />
       </button>
 
-      <button type="button" className="text-zinc-600 hover:text-zinc-300" aria-label="Container menu" onClick={onKebab}>
-        <KebabGlyph />
-      </button>
+      <div className="relative">
+        <button
+          type="button"
+          className="text-zinc-600 hover:text-zinc-300"
+          aria-label="Container menu"
+          aria-haspopup="menu"
+          aria-expanded={menuOpen}
+          onClick={() => { onKebab(); setMenuOpen((v) => !v); }}
+        >
+          <KebabGlyph />
+        </button>
+        {menuOpen && (
+          <>
+            {/* click-away backdrop */}
+            <span className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
+            <div
+              className="absolute right-0 top-5 z-50 w-44 rounded-md border border-zinc-700 bg-zinc-900 shadow-xl py-1 text-[11px]"
+              role="menu"
+              data-testid={`container-menu-${container.id}`}
+            >
+              <MenuItem
+                testid={`menu-visibility-${container.id}`}
+                onClick={() => { onSetAllVisible?.(!anyVisible); setMenuOpen(false); }}
+              >
+                {anyVisible ? 'Hide all' : 'Show all'}
+              </MenuItem>
+              <MenuItem
+                testid={`menu-lock-${container.id}`}
+                onClick={() => { onSetAllLocked?.(anyUnlocked); setMenuOpen(false); }}
+              >
+                {anyUnlocked ? 'Lock all' : 'Unlock all'}
+              </MenuItem>
+              {onRevert && (
+                <MenuItem
+                  testid={`menu-revert-${container.id}`}
+                  disabled={!dirty}
+                  onClick={() => { onRevert(); setMenuOpen(false); }}
+                >
+                  Revert
+                </MenuItem>
+              )}
+              <div className="my-1 border-t border-zinc-800" role="separator" />
+              <MenuItem
+                testid={`menu-export-dicom-${container.id}`}
+                onClick={() => { onExportDicom?.(); setMenuOpen(false); }}
+              >
+                Export to DICOM…
+              </MenuItem>
+              <MenuItem
+                testid={`menu-export-csv-${container.id}`}
+                onClick={() => { onExportCsv?.(); setMenuOpen(false); }}
+              >
+                Export to CSV…
+              </MenuItem>
+            </div>
+          </>
+        )}
+      </div>
 
       <button
         type="button"
@@ -218,5 +288,30 @@ export default function ContainerRow(props: ContainerRowProps) {
         <DeleteGlyph />
       </button>
     </div>
+  );
+}
+
+function MenuItem(props: {
+  children: React.ReactNode;
+  onClick: () => void;
+  disabled?: boolean;
+  testid?: string;
+}) {
+  const { children, onClick, disabled, testid } = props;
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      disabled={disabled}
+      data-testid={testid}
+      className={
+        disabled
+          ? 'block w-full text-left px-2.5 py-1 text-zinc-600 cursor-not-allowed'
+          : 'block w-full text-left px-2.5 py-1 text-zinc-200 hover:bg-zinc-800'
+      }
+      onClick={onClick}
+    >
+      {children}
+    </button>
   );
 }

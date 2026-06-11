@@ -47,6 +47,50 @@ describe('ContainerRow', () => {
     expect(screen.queryByTestId('container-scan-rt-1')).toBeNull();
   });
 
+  it('opens the kebab menu and fires hide-all / export actions; Revert only shows when wired', async () => {
+    const onSetAllVisible = vi.fn();
+    const onExportDicom = vi.fn();
+    const onExportCsv = vi.fn();
+    // Members default visible:true → menu offers "Hide all" (sets visible=false).
+    setup({ onSetAllVisible, onExportDicom, onExportCsv });
+
+    // Menu is closed until the kebab is clicked.
+    expect(screen.queryByTestId('container-menu-rt-1')).toBeNull();
+    await userEvent.click(screen.getByLabelText('Container menu'));
+    expect(screen.getByTestId('container-menu-rt-1')).toBeTruthy();
+
+    // Export items are always present (fully supported).
+    expect(screen.getByTestId('menu-export-dicom-rt-1')).toBeTruthy();
+    expect(screen.getByTestId('menu-export-csv-rt-1')).toBeTruthy();
+    // Revert is absent when no onRevert handler is provided.
+    expect(screen.queryByTestId('menu-revert-rt-1')).toBeNull();
+
+    await userEvent.click(screen.getByTestId('menu-visibility-rt-1'));
+    expect(onSetAllVisible).toHaveBeenCalledWith(false);
+    // Acting on an item closes the menu.
+    expect(screen.queryByTestId('container-menu-rt-1')).toBeNull();
+  });
+
+  it('Revert menu item is enabled only when dirty', async () => {
+    const onRevert = vi.fn();
+    const { rerender } = render(
+      <ContainerRow container={makeContainer({ dirty: false })} expanded onRevert={onRevert}
+        onToggleExpand={vi.fn()} onApproveToggle={vi.fn()} onAddMember={vi.fn()} onSave={vi.fn()} onKebab={vi.fn()} onDelete={vi.fn()} onRename={vi.fn()} />,
+    );
+    await userEvent.click(screen.getByLabelText('Container menu'));
+    expect((screen.getByTestId('menu-revert-rt-1') as HTMLButtonElement).disabled).toBe(true);
+
+    // Menu stays open across the prop change; re-query (re-clicking would toggle it shut).
+    rerender(
+      <ContainerRow container={makeContainer({ dirty: true })} expanded onRevert={onRevert}
+        onToggleExpand={vi.fn()} onApproveToggle={vi.fn()} onAddMember={vi.fn()} onSave={vi.fn()} onKebab={vi.fn()} onDelete={vi.fn()} onRename={vi.fn()} />,
+    );
+    const revert = screen.getByTestId('menu-revert-rt-1') as HTMLButtonElement;
+    expect(revert.disabled).toBe(false);
+    await userEvent.click(revert);
+    expect(onRevert).toHaveBeenCalled();
+  });
+
   it('shows a dirty dot when dirty, and a cross-panel pill when clean + rendering elsewhere', () => {
     const { rerender } = render(
       <ContainerRow container={makeContainer({ dirty: true })} expanded onToggleExpand={vi.fn()} onApproveToggle={vi.fn()} onAddMember={vi.fn()} onSave={vi.fn()} onKebab={vi.fn()} onDelete={vi.fn()} onRename={vi.fn()} />,
