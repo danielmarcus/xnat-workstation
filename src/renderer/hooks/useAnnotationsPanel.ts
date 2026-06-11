@@ -28,7 +28,7 @@ import { rtStructService } from '../lib/cornerstone/rtStructService';
 import { unifiedToolService } from '../lib/cornerstone/unifiedToolService';
 import { segmentationManager } from '../lib/segmentation/segmentationManagerSingleton';
 import { projectContainers } from '../lib/annotations/containerProjection';
-import { buildContainerCsv } from '../lib/annotations/containerCsv';
+import { buildContainerCsv, type MemberStats } from '../lib/annotations/containerCsv';
 import { CATALOG_TO_TOOLNAME, TOOLNAME_TO_CATALOG } from '../components/annotations/toolCatalog';
 import type { ContainerListHandlers } from '../components/annotations/ContainerList';
 import type { RowTransport } from '../components/annotations/ContainerRow';
@@ -190,8 +190,19 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
         try {
           const container = containers.find((c) => c.id === id);
           if (!container) return;
+          // Compute per-segment metrics (voxel count / volume / intensity) before
+          // building the CSV; best-effort (blank cells if stats are unavailable).
+          const indices = container.members
+            .map((m) => m.segmentIndex ?? Number(m.id))
+            .filter((n) => Number.isInteger(n) && n > 0);
+          const byIndex = await segmentationService.getSegmentStatistics(id, indices);
+          const byMember: Record<string, MemberStats> = {};
+          for (const m of container.members) {
+            const idx = m.segmentIndex ?? Number(m.id);
+            if (Number.isInteger(idx) && byIndex[idx]) byMember[m.id] = byIndex[idx];
+          }
           const name = `${(container.label || 'annotation').replace(/[^\w.-]+/g, '_')}.csv`;
-          await window.electronAPI?.export?.saveReport(buildContainerCsv(container), name);
+          await window.electronAPI?.export?.saveReport(buildContainerCsv(container, byMember), name);
         } catch (err) {
           console.error('[annotationsPanel] export to CSV failed:', err);
         }

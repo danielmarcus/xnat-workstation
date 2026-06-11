@@ -3982,6 +3982,66 @@ export const segmentationService = {
   },
 
   /**
+   * Compute per-segment statistics (voxel count, volume, and intensity stats
+   * sampled from the reference image) via Cornerstone's labelmap statistics
+   * worker. Returns a map segmentIndex → metrics. Best-effort: a failure (no
+   * labelmap / worker error) resolves to an empty/partial map + a warning rather
+   * than throwing, so the CSV export still produces structural rows.
+   */
+  async getSegmentStatistics(
+    segmentationId: string,
+    segmentIndices: number[],
+  ): Promise<Record<number, {
+    voxelCount?: number;
+    volumeMm3?: number;
+    mean?: number;
+    min?: number;
+    max?: number;
+    stdDev?: number;
+    intensityUnit?: string;
+  }>> {
+    const out: Record<number, {
+      voxelCount?: number; volumeMm3?: number; mean?: number;
+      min?: number; max?: number; stdDev?: number; intensityUnit?: string;
+    }> = {};
+    const indices = segmentIndices.filter((n) => Number.isInteger(n) && n > 0);
+    if (indices.length === 0) return out;
+    const scalar = (s: unknown): number | undefined => {
+      const v = (s as { value?: unknown } | undefined)?.value;
+      return typeof v === 'number' && Number.isFinite(v) ? v : undefined;
+    };
+    try {
+      const result = (await (csToolUtilities as any).segmentation.getStatistics({
+        segmentationId,
+        segmentIndices: indices,
+        mode: 'individual',
+      })) as Record<number, any> | undefined;
+      if (!result) return out;
+      for (const idx of indices) {
+        // mode 'individual' keys by segment index; tolerate a single-index
+        // collective result that returns the NamedStatistics directly.
+        const named = result[idx] ?? (indices.length === 1 ? (result as any) : undefined);
+        if (!named) continue;
+        out[idx] = {
+          voxelCount: scalar(named.count ?? named.voxelCount),
+          volumeMm3: scalar(named.volume),
+          mean: scalar(named.mean),
+          min: scalar(named.min),
+          max: scalar(named.max),
+          stdDev: scalar(named.stdDev),
+          intensityUnit: named.mean?.unit ?? undefined,
+        };
+      }
+    } catch (err) {
+      console.warn(
+        '[segmentationService] getSegmentStatistics failed:',
+        err instanceof Error ? err.message : err,
+      );
+    }
+    return out;
+  },
+
+  /**
    * Export a multi-layer group to DICOM SEG (composite sub-seg layers).
    * Delegates to ./segmentationService/dicomSegExport.
    */
