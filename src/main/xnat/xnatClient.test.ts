@@ -39,7 +39,7 @@ vi.mock('dcmjs', () => ({
   },
 }));
 
-import { XnatAuthError, XnatClient } from './xnatClient';
+import { summarizeErrorBody, XnatAuthError, XnatClient } from './xnatClient';
 
 function makeJsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -52,6 +52,33 @@ function makeJsonResponse(body: unknown, status = 200): Response {
 function mockCatalog404(): void {
   mocks.fetch.mockResolvedValueOnce(new Response('Not Found', { status: 404 }));
 }
+
+describe('summarizeErrorBody', () => {
+  it('collapses a Tomcat HTML error page to its status title (no markup flood)', () => {
+    const html =
+      '<!doctype html><html lang="en"><head><title>HTTP Status 404 – Not Found</title>'
+      + '<style>body{}</style></head><body><h1>HTTP Status 404 – Not Found</h1>'
+      + '<p><b>Message</b> Unable to find file.</p></body></html>';
+    const summary = summarizeErrorBody(html, 'Not Found');
+    expect(summary).toBe('HTTP Status 404 – Not Found');
+    expect(summary).not.toContain('<');
+  });
+
+  it('keeps a short plain-text body (real API messages survive)', () => {
+    expect(summarizeErrorBody('server issue', 'Internal Server Error')).toBe('server issue');
+  });
+
+  it('falls back to the HTTP statusText for an empty body', () => {
+    expect(summarizeErrorBody('', 'Not Found')).toBe('Not Found');
+  });
+
+  it('caps an overlong plain-text body', () => {
+    const long = 'x'.repeat(500);
+    const summary = summarizeErrorBody(long);
+    expect(summary.length).toBeLessThan(220);
+    expect(summary.endsWith('…')).toBe(true);
+  });
+});
 
 describe('XnatClient', () => {
   beforeEach(() => {

@@ -516,7 +516,11 @@ export const useSessionDerivedIndexStore = create<SessionDerivedIndexState>((set
 
       return refUid;
     } catch (err) {
-      console.warn(`[sessionDerivedIndex] Failed to get referenced SeriesUID for derived scan #${derivedScanId}:`, err);
+      // Expected for stale/orphaned derived-scan catalog entries whose files 404 — the
+      // provisional scan-ID-convention index still maps them, so this is recoverable.
+      // Log the concise reason only (no stack/HTML flood).
+      const reason = err instanceof Error ? err.message : String(err);
+      console.warn(`[sessionDerivedIndex] No referenced SeriesUID for derived scan #${derivedScanId} (using provisional mapping): ${reason}`);
       return null;
     }
   },

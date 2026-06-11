@@ -25,6 +25,24 @@ export class XnatAuthError extends Error {
   }
 }
 
+/**
+ * Condense an HTTP error body into a one-line reason for error messages/logs.
+ * XNAT (Tomcat) returns a full HTML page on 404/500; embedding it verbatim floods
+ * the console with markup (e.g. on the expected 404s for stale/orphaned derived-scan
+ * catalog entries). For an HTML body, prefer the page's <title> ("HTTP Status 404 –
+ * Not Found"), else the HTTP statusText. Plain-text bodies are kept (capped) so real
+ * API messages like "server issue" survive.
+ */
+export function summarizeErrorBody(body: string, statusText = ''): string {
+  const trimmed = (body ?? '').trim();
+  if (!trimmed) return statusText;
+  if (/^<(?:!doctype|html)\b/i.test(trimmed)) {
+    const title = trimmed.match(/<title>([^<]+)<\/title>/i)?.[1]?.trim();
+    return title || statusText || 'request failed';
+  }
+  return trimmed.length > 200 ? `${trimmed.slice(0, 200)}…` : trimmed;
+}
+
 export class XnatClient {
   private baseUrl: string;
   private username: string = '';
@@ -259,10 +277,11 @@ export class XnatClient {
 
     if (!response.ok) {
       const text = await response.text().catch(() => '');
+      const summary = summarizeErrorBody(text, response.statusText);
       if (response.status === 401) {
-        throw new XnatAuthError(`401 ${text}`.trim());
+        throw new XnatAuthError(`401 ${summary}`.trim());
       }
-      throw new Error(`XNAT API error: ${response.status} ${text}`.trim());
+      throw new Error(`XNAT API error: ${response.status} ${summary}`.trim());
     }
 
     // XNAT returns 200 with an HTML login page instead of 401 when the
