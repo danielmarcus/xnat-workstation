@@ -99,6 +99,36 @@ describe('projectContainers', () => {
     expect(projectContainers(baseInputs())).toEqual([]);
   });
 
+  it('emits a created SR container even when empty, and routes affiliated measurements (D7.1)', () => {
+    const containers = projectContainers({
+      ...baseInputs(),
+      srContainers: [{ id: 'sr:local:1', label: 'Lesions' }, { id: 'sr:local:2', label: 'Nodes' }],
+      annotations: [
+        { annotationUID: 'm1', toolName: 'Length', displayName: 'Length', displayText: '1mm', label: '' },
+        { annotationUID: 'm2', toolName: 'Angle', displayName: 'Angle', displayText: '2°', label: '' },
+      ],
+      srAffiliation: { m1: 'sr:local:1' }, // m1 → Lesions; m2 unaffiliated
+    });
+    const lesions = containers.find((c) => c.id === 'sr:local:1');
+    const nodes = containers.find((c) => c.id === 'sr:local:2');
+    const fallback = containers.find((c) => c.id === 'sr:measurements');
+    expect(lesions).toMatchObject({ kind: 'SR', label: 'Lesions' });
+    expect(lesions!.members.map((m) => m.id)).toEqual(['m1']);
+    expect(nodes!.members).toHaveLength(0); // created but empty — still listed
+    expect(fallback!.members.map((m) => m.id)).toEqual(['m2']); // unaffiliated → default
+  });
+
+  it('does not emit a default container when every measurement is affiliated', () => {
+    const containers = projectContainers({
+      ...baseInputs(),
+      srContainers: [{ id: 'sr:local:1', label: 'A' }],
+      annotations: [{ annotationUID: 'm1', toolName: 'Length', displayName: 'Length', displayText: '1mm', label: '' }],
+      srAffiliation: { m1: 'sr:local:1' },
+    });
+    expect(containers.find((c) => c.id === 'sr:measurements')).toBeUndefined();
+    expect(containers.filter((c) => c.kind === 'SR')).toHaveLength(1);
+  });
+
   it('orders SEG/RTSTRUCT containers (input order) before the SR container', () => {
     const containers = projectContainers({
       ...baseInputs(),

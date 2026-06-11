@@ -49,10 +49,14 @@ export interface ProjectionInputs {
   kindOf: (segmentationId: string) => ContainerKind;
   /** Optional approval-state resolver (D7.11 persistence — wired in a later slice). */
   approvalOf?: (id: string) => ApprovalStatus | undefined;
-  /** Synthetic SR container identity (defaults provided). */
+  /** Synthetic default-SR container identity (for measurements with no SR affiliation). */
   srContainerId?: string;
   srLabel?: string;
   srSource?: SourceIdentity;
+  /** User-created SR (Measurement) containers — each emitted even when empty (D7.1). */
+  srContainers?: Array<{ id: string; label: string }>;
+  /** annotationUID → SR container id (which created container a measurement belongs to). */
+  srAffiliation?: Record<string, string>;
 }
 
 function sourceFromOrigin(origin: XnatOrigin | undefined): SourceIdentity {
@@ -98,32 +102,64 @@ function projectSegmentationContainer(
   };
 }
 
-function projectMeasurementContainer(inputs: ProjectionInputs): Container | null {
-  if (inputs.annotations.length === 0) return null;
-  const id = inputs.srContainerId ?? 'sr:measurements';
-  const members: Member[] = inputs.annotations.map((a) => ({
+function measurementMember(a: AnnotationSummary): Member {
+  return {
     id: a.annotationUID,
     label: a.label || a.displayName,
     visible: true,
     locked: false,
     toolName: a.toolName,
     annotationUID: a.annotationUID,
-  }));
-  return {
-    id,
-    kind: 'SR',
-    label: inputs.srLabel ?? 'Measurements',
-    members,
-    source: inputs.srSource ?? sourceFromOrigin(undefined),
-    dirty: !!inputs.dirtySegIds[id],
   };
+}
+
+/**
+ * Project SR (Measurement) containers (D7.1). Each user-created SR container is
+ * emitted even when empty, carrying the measurements affiliated to it. Measurements
+ * with no affiliation fall into the default "Measurements" container (emitted only
+ * when such measurements exist), preserving the pre-multi-SR behavior.
+ */
+function projectMeasurementContainers(inputs: ProjectionInputs): Container[] {
+  const affiliation = inputs.srAffiliation ?? {};
+  const created = inputs.srContainers ?? [];
+  const out: Container[] = [];
+
+  for (const c of created) {
+    const members = inputs.annotations.filter((a) => affiliation[a.annotationUID] === c.id).map(measurementMember);
+    out.push({
+      id: c.id,
+      kind: 'SR',
+      label: c.label,
+      members,
+      source: inputs.srSource ?? sourceFromOrigin(undefined),
+      dirty: !!inputs.dirtySegIds[c.id],
+    });
+  }
+
+  // Unaffiliated measurements → the default container (legacy singleton behavior).
+  const createdIds = new Set(created.map((c) => c.id));
+  const unaffiliated = inputs.annotations.filter((a) => {
+    const srId = affiliation[a.annotationUID];
+    return !srId || !createdIds.has(srId);
+  });
+  if (unaffiliated.length > 0) {
+    const id = inputs.srContainerId ?? 'sr:measurements';
+    out.push({
+      id,
+      kind: 'SR',
+      label: inputs.srLabel ?? 'Measurements',
+      members: unaffiliated.map(measurementMember),
+      source: inputs.srSource ?? sourceFromOrigin(undefined),
+      dirty: !!inputs.dirtySegIds[id],
+    });
+  }
+  return out;
 }
 
 export function projectContainers(inputs: ProjectionInputs): Container[] {
   const containers: Container[] = inputs.segmentations.map((seg) =>
     projectSegmentationContainer(seg, inputs),
   );
-  const sr = projectMeasurementContainer(inputs);
-  if (sr) containers.push(sr);
+  containers.push(...projectMeasurementContainers(inputs));
   return containers;
 }

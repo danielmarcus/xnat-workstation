@@ -52,6 +52,8 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
   const presentation = useSegmentationManagerStore((s) => s.presentation);
   const dirtySegIds = useSegmentationManagerStore((s) => s.dirtySegIds);
   const annotations = useAnnotationStore((s) => s.annotations);
+  const srContainers = useAnnotationStore((s) => s.srContainers);
+  const srAffiliation = useAnnotationStore((s) => s.srAffiliation);
   // Live per-container transport state (saving / conflict / error) surfaced in-place.
   const transportEntries = useTransportStore((s) => s.entries);
   // Settings color sequence → palette swatches offered in the member color picker.
@@ -86,6 +88,8 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
         presentation,
         dirtySegIds,
         xnatOriginMap,
+        srContainers,
+        srAffiliation,
         kindOf: (id) => {
           try {
             return segmentationService.getPreferredDicomType(id) as ContainerKind;
@@ -94,7 +98,7 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
           }
         },
       }),
-    [segmentations, annotations, presentation, dirtySegIds, xnatOriginMap],
+    [segmentations, annotations, presentation, dirtySegIds, xnatOriginMap, srContainers, srAffiliation],
   );
 
   const canCreate = sourceImageIds.length > 0;
@@ -109,6 +113,11 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
   // ── Bridge: mirror the new active member into the legacy active state so drawing targets it. ──
   const activateAndBridge = (containerId: string, memberId: string) => {
     useAnnotationSelectionStore.getState().activate(containerId, memberId);
+    if (containerId.startsWith('sr:')) {
+      // Activating an SR container routes subsequently-drawn measurements into it (D7.1).
+      useAnnotationStore.getState().setActiveSrContainer(containerId);
+      return;
+    }
     const segStore = useSegmentationStore.getState();
     segStore.setActiveSegmentation(containerId);
     const idx = Number(memberId);
@@ -118,7 +127,11 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
   const onCreate = (kind: ContainerKind) => {
     if (!canCreate) return;
     if (kind === 'SR') {
-      console.warn('[annotationsPanel] New Measurement (SR) container — not yet implemented (use a measurement tool).');
+      // D7.1: create an empty Measurement (SR) container, make it active (so drawn
+      // measurements route into it), and start its name in inline-edit mode.
+      const srId = useAnnotationStore.getState().createSrContainer('Measurement');
+      useAnnotationSelectionStore.getState().activate(srId, srId);
+      setAutoEditContainerId(srId);
       return;
     }
     void (async () => {
@@ -208,8 +221,14 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
         }
       })();
     },
-    onDeleteContainer: (id) => segmentationManager.removeSegmentation(id),
-    onRenameContainer: (id, name) => segmentationManager.renameSegmentation(id, name),
+    onDeleteContainer: (id) =>
+      id.startsWith('sr:')
+        ? useAnnotationStore.getState().removeSrContainer(id)
+        : segmentationManager.removeSegmentation(id),
+    onRenameContainer: (id, name) =>
+      id.startsWith('sr:')
+        ? useAnnotationStore.getState().renameSrContainer(id, name)
+        : segmentationManager.renameSegmentation(id, name),
     onContainerEditCommit: (id) => {
       // Two-step create: once the freshly-created container's name is accepted,
       // advance to editing its default member's name (D7.6).
