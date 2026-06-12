@@ -90,6 +90,7 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
         xnatOriginMap,
         srContainers,
         srAffiliation,
+        activeSessionId: activeSessionId ?? undefined,
         kindOf: (id) => {
           try {
             return segmentationService.getPreferredDicomType(id) as ContainerKind;
@@ -98,7 +99,7 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
           }
         },
       }),
-    [segmentations, annotations, presentation, dirtySegIds, xnatOriginMap, srContainers, srAffiliation],
+    [segmentations, annotations, presentation, dirtySegIds, xnatOriginMap, srContainers, srAffiliation, activeSessionId],
   );
 
   const canCreate = sourceImageIds.length > 0;

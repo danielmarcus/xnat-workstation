@@ -50,6 +50,47 @@ describe('projectContainers', () => {
     expect(c.members[1]).toMatchObject({ id: '2', label: 'Spleen', segmentIndex: 2, visible: false, locked: true });
   });
 
+  it('A13: scopes the panel to the active session, holding over a known different session', () => {
+    const seg = (id: string) => ({
+      segmentationId: id,
+      label: id,
+      isActive: false,
+      segments: [{ segmentIndex: 1, label: 'x', color: [1, 2, 3, 255] as [number, number, number, number], visible: true, locked: false }],
+    });
+    const containers = projectContainers({
+      ...baseInputs(),
+      segmentations: [seg('seg-A'), seg('seg-B'), seg('seg-local')],
+      xnatOriginMap: {
+        'seg-A': { scanId: '3004', sourceScanId: '4', projectId: 'P', sessionId: 'SESS_A' },
+        'seg-B': { scanId: '3004', sourceScanId: '4', projectId: 'P', sessionId: 'SESS_B' },
+        // seg-local: no origin → unknown session (freshly created in the active session)
+      },
+      activeSessionId: 'SESS_A',
+    });
+    const ids = containers.map((c) => c.id);
+    expect(ids).toContain('seg-A'); // active session → shown
+    expect(ids).toContain('seg-local'); // unknown session (new local) → shown
+    expect(ids).not.toContain('seg-B'); // known other session → held over (excluded)
+  });
+
+  it('shows every container when no active session is set (offline/local — no scoping)', () => {
+    const seg = (id: string) => ({
+      segmentationId: id,
+      label: id,
+      isActive: false,
+      segments: [{ segmentIndex: 1, label: 'x', color: [1, 2, 3, 255] as [number, number, number, number], visible: true, locked: false }],
+    });
+    const containers = projectContainers({
+      ...baseInputs(),
+      segmentations: [seg('seg-A'), seg('seg-B')],
+      xnatOriginMap: {
+        'seg-A': { scanId: '1', sourceScanId: '1', projectId: 'P', sessionId: 'SESS_A' },
+        'seg-B': { scanId: '1', sourceScanId: '1', projectId: 'P', sessionId: 'SESS_B' },
+      },
+    });
+    expect(containers.map((c) => c.id).sort()).toEqual(['seg-A', 'seg-B']);
+  });
+
   it('lets manager-store presentation overrides win over the summary color/visibility/lock', () => {
     const containers = projectContainers({
       ...baseInputs(),

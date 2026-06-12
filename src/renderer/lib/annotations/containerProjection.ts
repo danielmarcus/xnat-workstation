@@ -57,6 +57,23 @@ export interface ProjectionInputs {
   srContainers?: Array<{ id: string; label: string }>;
   /** annotationUID → SR container id (which created container a measurement belongs to). */
   srAffiliation?: Record<string, string>;
+  /** Active viewer session. When set, the panel re-scopes to it (A13: one study at a
+   *  time) — containers belonging to a KNOWN different session are held over (retained
+   *  in memory + surfaced via the unsaved-work banner) and excluded here. Unset ⇒ no
+   *  scoping (offline/local). */
+  activeSessionId?: string;
+}
+
+/**
+ * A13 panel scoping: a container is shown when it belongs to the active session, or
+ * when its session is unknown (a freshly-created local container not yet tagged to a
+ * session — it belongs to wherever it was made). A container with a KNOWN, different
+ * session is held over and excluded so the panel shows one study at a time.
+ */
+function inActiveSession(c: Container, activeSessionId?: string): boolean {
+  if (!activeSessionId) return true;
+  const sid = c.source?.sessionId;
+  return !sid || sid === activeSessionId;
 }
 
 function sourceFromOrigin(origin: XnatOrigin | undefined): SourceIdentity {
@@ -161,5 +178,5 @@ export function projectContainers(inputs: ProjectionInputs): Container[] {
     projectSegmentationContainer(seg, inputs),
   );
   containers.push(...projectMeasurementContainers(inputs));
-  return containers;
+  return containers.filter((c) => inActiveSession(c, inputs.activeSessionId));
 }

@@ -15,8 +15,15 @@ interface E2EHooks {
   setViewerSession: (sessionId: string) => void;
   applySessionSwitch: (toSessionId: string) => void;
   getSegmentationCount: () => number;
+  resetUnifiedSegmentations: () => void;
 }
 type Win = { __XNAT_E2E__: E2EHooks };
+
+// Isolate from any container/session a prior test left in the worker-scoped app
+// (the documented "passes alone, fails combined" cross-test pollution).
+test.beforeEach(async ({ page }) => {
+  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.resetUnifiedSegmentations());
+});
 
 test('Change 1c: switching sessions retains dirty work, unloads clean work', async ({ page }) => {
   await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.setMultiviewportEnabled(true));
@@ -50,24 +57,35 @@ test('Change 1c: switching sessions retains dirty work, unloads clean work', asy
   await expect(panel.locator('[data-testid="unsaved-count"]')).toHaveText('1');
 });
 
-test('signal 26: after switching the active session away, the unsaved-work banner surfaces the retained session', async ({ page }) => {
+test('signal 26: switching the active session re-scopes the panel + surfaces the retained session in the banner', async ({ page }) => {
   await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.setMultiviewportEnabled(true));
   await loadFixture(page, 'ct-axial-300', 'panel_0');
 
+  const panel = page.locator('[data-testid="annotations-side-panel"]');
+  // Open the panel idempotently — a prior test in this worker may have left it open
+  // (the "Show segmentation panel" button is a toggle).
+  if (!(await panel.isVisible())) {
+    await page.getByRole('button', { name: 'Show segmentation panel' }).click();
+  }
+  await expect(panel).toBeVisible({ timeout: 15_000 });
   const banner = page.locator('[data-testid="unsaved-sessions-banner"]');
 
-  // Viewing session A; seed a DIRTY container in A. While A is active, its own
-  // unsaved work shows in-panel (not as the cross-session banner).
+  // Viewing session A; seed a DIRTY container in A. While A is active, it's LISTED in
+  // the panel and there's no cross-session banner.
   await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.setViewerSession('SESSION_A'));
-  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.seedSessionContainer('SESSION_A', true));
+  const dirtyId = await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.seedSessionContainer('SESSION_A', true));
+  await expect(panel.locator(`[data-testid="container-row-${dirtyId}"]`)).toBeVisible();
   await expect(banner).toHaveCount(0);
 
-  // Switch the active session to B: A's dirty container is retained in memory; the
-  // banner must now surface it — immediately, from the in-memory dirty state, with
-  // no dependency on the local-backup auto-save timer having fired.
+  // Switch the active session to B: A's dirty container is RETAINED in memory but the
+  // panel re-scopes to B (A13: one study at a time) — the held-over row disappears
+  // from the panel — and the banner surfaces it instead (immediately, from the
+  // in-memory dirty state, no dependency on the auto-save backup timer).
   await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.applySessionSwitch('SESSION_B'));
   await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.setViewerSession('SESSION_B'));
 
+  await expect(panel.locator(`[data-testid="container-row-${dirtyId}"]`)).toHaveCount(0); // re-scoped out of the panel
+  await expect(page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.getSegmentationCount())).resolves.toBe(1); // still retained in memory
   await expect(banner).toBeVisible({ timeout: 10_000 });
   await expect(page.locator('[data-testid="unsaved-sessions-banner-text"]')).toContainText('1 session');
 });
