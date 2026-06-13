@@ -29,7 +29,8 @@ export interface MockXnatApi extends XnatUploadApi {
 export function createMockXnatApi(): MockXnatApi {
   // key = `${sessionId}/${scanId}`
   const scans = new Map<string, ScanState>();
-  let nextSegScan = 3001;
+  let nextSegScan = 3001; // SEG scan-id convention (30xx)
+  let nextRtScan = 4001;  // RTSTRUCT scan-id convention (40xx)
   let failNext: { kind: 'transient' | 'permanent'; error?: string } | null = null;
   const key = (s: string, sc: string) => `${s}/${sc}`;
   const tokenOf = (sessionId: string, scanId: string, version: number) => `${sessionId}/${scanId}:v${version}`;
@@ -41,27 +42,40 @@ export function createMockXnatApi(): MockXnatApi {
     return { ok: false, error: f.error ?? `${f.kind} error`, kind: f.kind };
   }
 
+  // Shared first-save: allocate a scan id (by kind convention) + store v1.
+  function doUpload(p: { sessionId: string; dicomBase64: string }, scanId: string): XnatWriteResult {
+    scans.set(key(p.sessionId, scanId), { version: 1, dicomBase64: p.dicomBase64 });
+    return { ok: true, scanId, versionToken: tokenOf(p.sessionId, scanId, 1) };
+  }
+
+  // Shared update: optimistic-version check → conflict on a stale base token, else bump.
+  function doOverwrite(p: { sessionId: string; targetScanId: string; dicomBase64: string; baseVersionToken: string | null }): XnatWriteResult {
+    const k = key(p.sessionId, p.targetScanId);
+    const cur = scans.get(k);
+    const currentToken = cur ? tokenOf(p.sessionId, p.targetScanId, cur.version) : null;
+    if (cur && p.baseVersionToken !== currentToken) {
+      return { ok: false, error: 'version conflict', conflict: true, serverVersionToken: currentToken ?? undefined };
+    }
+    const version = (cur?.version ?? 0) + 1;
+    scans.set(k, { version, dicomBase64: p.dicomBase64 });
+    return { ok: true, scanId: p.targetScanId, versionToken: tokenOf(p.sessionId, p.targetScanId, version) };
+  }
+
   return {
     async uploadSeg(p) {
-      const fail = takeFailure();
-      if (fail) return fail;
-      const scanId = String(nextSegScan++);
-      scans.set(key(p.sessionId, scanId), { version: 1, dicomBase64: p.dicomBase64 });
-      return { ok: true, scanId, versionToken: tokenOf(p.sessionId, scanId, 1) };
+      return takeFailure() ?? doUpload(p, String(nextSegScan++));
+    },
+
+    async uploadRtStruct(p) {
+      return takeFailure() ?? doUpload(p, String(nextRtScan++));
     },
 
     async overwriteSeg(p) {
-      const fail = takeFailure();
-      if (fail) return fail;
-      const k = key(p.sessionId, p.targetScanId);
-      const cur = scans.get(k);
-      const currentToken = cur ? tokenOf(p.sessionId, p.targetScanId, cur.version) : null;
-      if (cur && p.baseVersionToken !== currentToken) {
-        return { ok: false, error: 'version conflict', conflict: true, serverVersionToken: currentToken ?? undefined };
-      }
-      const version = (cur?.version ?? 0) + 1;
-      scans.set(k, { version, dicomBase64: p.dicomBase64 });
-      return { ok: true, scanId: p.targetScanId, versionToken: tokenOf(p.sessionId, p.targetScanId, version) };
+      return takeFailure() ?? doOverwrite(p);
+    },
+
+    async overwriteRtStruct(p) {
+      return takeFailure() ?? doOverwrite(p);
     },
 
     async getVersion(p) {

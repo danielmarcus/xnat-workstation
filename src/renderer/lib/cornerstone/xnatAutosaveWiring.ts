@@ -181,9 +181,9 @@ export function composeXnatTransport(): void {
       useSegmentationStore.getState().segmentations.find((s) => s.segmentationId === id)?.label,
   };
 
-  const api = createXnatUploadApi(xnat, {
-    overwriteKindOf: (targetScanId) => segmentationService.getPreferredDicomType(targetScanId),
-  });
+  // The transport routes SEG vs RTSTRUCT by the container's kind (from the serialized
+  // payload), so the wrapper needs no scan-id-based kind guess.
+  const api = createXnatUploadApi(xnat);
 
   const svc = createXnatTransportService({
     api,

@@ -73,17 +73,6 @@ export interface XnatUploadElectronApi {
   ): Promise<XnatWriteIpcResult>;
 }
 
-export interface CreateXnatUploadApiOptions {
-  /**
-   * Resolve the container kind for an overwrite so the wrapper picks the SEG vs
-   * RTSTRUCT channel. The `XnatUploadApi.overwriteSeg` signature does not carry a
-   * kind, so without this hook overwrites default to the SEG channel (the SEG
-   * scan-id convention is the common path). A future RTSTRUCT round-trip wires
-   * this to a real container-kind lookup keyed by `targetScanId`.
-   */
-  overwriteKindOf?: (targetScanId: string) => 'SEG' | 'RTSTRUCT';
-}
-
 const HTTP_STATUS_RE = /\b(4\d\d|5\d\d)\b/;
 
 /** Classify a failed IPC result into transient | permanent and detect conflicts. */
@@ -143,44 +132,51 @@ function mapSuccess(res: XnatWriteIpcResult): XnatWriteResult {
   return { ok: true, scanId: res.scanId, versionToken: res.versionToken };
 }
 
-export function createXnatUploadApi(
-  electronApi: XnatUploadElectronApi,
-  options: CreateXnatUploadApiOptions = {},
-): XnatUploadApi {
-  const overwriteKindOf = options.overwriteKindOf ?? (() => 'SEG' as const);
-
+export function createXnatUploadApi(electronApi: XnatUploadElectronApi): XnatUploadApi {
   function mapResult(res: XnatWriteIpcResult): XnatWriteResult {
     return res.ok ? mapSuccess(res) : classifyFailure(res);
   }
+  // A thrown IPC call (transport-level failure) is transient by default.
+  const asTransient = (err: unknown): XnatWriteResult => ({
+    ok: false,
+    error: err instanceof Error ? err.message : String(err),
+    kind: 'transient',
+  });
 
   return {
     async uploadSeg(p) {
       try {
-        const res = await electronApi.uploadDicomSeg(
-          p.projectId,
-          p.subjectId,
-          p.sessionId,
-          p.sessionLabel,
-          p.sourceScanId,
-          p.dicomBase64,
-          p.label,
-        );
-        return mapResult(res);
+        return mapResult(await electronApi.uploadDicomSeg(
+          p.projectId, p.subjectId, p.sessionId, p.sessionLabel, p.sourceScanId, p.dicomBase64, p.label,
+        ));
       } catch (err) {
-        // A thrown IPC call (transport-level failure) is transient by default.
-        return { ok: false, error: err instanceof Error ? err.message : String(err), kind: 'transient' };
+        return asTransient(err);
+      }
+    },
+
+    async uploadRtStruct(p) {
+      try {
+        return mapResult(await electronApi.uploadDicomRtStruct(
+          p.projectId, p.subjectId, p.sessionId, p.sessionLabel, p.sourceScanId, p.dicomBase64, p.label,
+        ));
+      } catch (err) {
+        return asTransient(err);
       }
     },
 
     async overwriteSeg(p) {
       try {
-        const kind = overwriteKindOf(p.targetScanId);
-        const res = kind === 'RTSTRUCT'
-          ? await electronApi.overwriteDicomRtStruct(p.sessionId, p.targetScanId, p.dicomBase64, p.seriesDescription)
-          : await electronApi.overwriteDicomSeg(p.sessionId, p.targetScanId, p.dicomBase64, p.seriesDescription);
-        return mapResult(res);
+        return mapResult(await electronApi.overwriteDicomSeg(p.sessionId, p.targetScanId, p.dicomBase64, p.seriesDescription));
       } catch (err) {
-        return { ok: false, error: err instanceof Error ? err.message : String(err), kind: 'transient' };
+        return asTransient(err);
+      }
+    },
+
+    async overwriteRtStruct(p) {
+      try {
+        return mapResult(await electronApi.overwriteDicomRtStruct(p.sessionId, p.targetScanId, p.dicomBase64, p.seriesDescription));
+      } catch (err) {
+        return asTransient(err);
       }
     },
 

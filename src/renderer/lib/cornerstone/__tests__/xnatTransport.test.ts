@@ -11,10 +11,15 @@ import type { SerializedContainer } from '../annotationTransport';
  * H5; version polling H6) without a live server. The real electronAPI.xnat is the
  * production XnatUploadApi (its handlers must be extended to return version tokens).
  */
-function ser(containerId: string, scanId?: string, base64 = 'AAAA'): SerializedContainer {
+function ser(
+  containerId: string,
+  scanId?: string,
+  base64 = 'AAAA',
+  kind: SerializedContainer['kind'] = 'SEG',
+): SerializedContainer {
   return {
     containerId,
-    kind: 'SEG',
+    kind,
     base64,
     source: { projectId: 'P', subjectId: 'S', sessionId: 'E1', sessionLabel: 'EXP', sourceScanId: '4', scanId },
   };
@@ -69,6 +74,28 @@ describe('createXnatTransport over the mock XNAT API', () => {
     const t = createXnatTransport(api);
     const r = await t.save(ser('c1'), null);
     if (!r.ok) expect(r.kind).toBe('transient');
+  });
+
+  it('routes by container kind: a SEG container uploads via the SEG channel (30xx scan id)', async () => {
+    const t = createXnatTransport(createMockXnatApi());
+    const r = await t.save(ser('seg1', undefined, 'AAAA', 'SEG'), null);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.scanId?.startsWith('30')).toBe(true); // SEG convention
+  });
+
+  it('routes by container kind: an RTSTRUCT container uploads via the RTSTRUCT channel (40xx scan id), then overwrites it', async () => {
+    const t = createXnatTransport(createMockXnatApi());
+    const first = await t.save(ser('rt1', undefined, 'AAAA', 'RTSTRUCT'), null);
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    expect(first.scanId?.startsWith('40')).toBe(true); // RTSTRUCT convention — proves the RTSTRUCT channel
+    // A follow-up save overwrites the same RTSTRUCT scan (not a new upload) and advances the version.
+    const second = await t.save(ser('rt1', undefined, 'BBBB', 'RTSTRUCT'), first.versionToken);
+    expect(second.ok).toBe(true);
+    if (second.ok) {
+      expect(second.scanId).toBe(first.scanId);
+      expect(second.versionToken).not.toBe(first.versionToken);
+    }
   });
 
   it('getServerVersion reflects the mapped scan version; external edit bumps it (H6)', async () => {

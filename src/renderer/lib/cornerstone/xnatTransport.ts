@@ -20,16 +20,23 @@ export interface XnatWriteOk { ok: true; scanId: string; versionToken: string }
 export interface XnatWriteErr { ok: false; error: string; kind?: 'transient' | 'permanent'; conflict?: boolean; serverVersionToken?: string }
 export type XnatWriteResult = XnatWriteOk | XnatWriteErr;
 
+/** First-save (create) params — shared by SEG + RTSTRUCT. */
+export interface XnatUploadParams {
+  projectId: string; subjectId: string; sessionId: string; sessionLabel: string;
+  sourceScanId: string; dicomBase64: string; label?: string;
+}
+/** Update (overwrite) params — shared by SEG + RTSTRUCT. */
+export interface XnatOverwriteParams {
+  sessionId: string; targetScanId: string; dicomBase64: string; baseVersionToken: string | null;
+  seriesDescription?: string;
+}
+
 /** The XNAT persistence surface the adapter needs (real electronAPI.xnat or the mock). */
 export interface XnatUploadApi {
-  uploadSeg(p: {
-    projectId: string; subjectId: string; sessionId: string; sessionLabel: string;
-    sourceScanId: string; dicomBase64: string; label?: string;
-  }): Promise<XnatWriteResult>;
-  overwriteSeg(p: {
-    sessionId: string; targetScanId: string; dicomBase64: string; baseVersionToken: string | null;
-    seriesDescription?: string;
-  }): Promise<XnatWriteResult>;
+  uploadSeg(p: XnatUploadParams): Promise<XnatWriteResult>;
+  uploadRtStruct(p: XnatUploadParams): Promise<XnatWriteResult>;
+  overwriteSeg(p: XnatOverwriteParams): Promise<XnatWriteResult>;
+  overwriteRtStruct(p: XnatOverwriteParams): Promise<XnatWriteResult>;
   getVersion(p: { sessionId: string; scanId: string }): Promise<string | null>;
 }
 
@@ -42,10 +49,14 @@ export function createXnatTransport(api: XnatUploadApi): AnnotationTransport {
       const { source } = serialized;
       const known = target.get(serialized.containerId);
       const scanId = known?.scanId ?? source.scanId;
+      // Route by the container's actual kind (the transport knows it from the
+      // serialized payload) — NOT a guess from the scan id. RTSTRUCT uses the
+      // RTSTRUCT channel; everything else (SEG; SR has no write channel yet) the SEG one.
+      const isRtStruct = serialized.kind === 'RTSTRUCT';
 
       let res: XnatWriteResult;
       if (!scanId) {
-        res = await api.uploadSeg({
+        const p = {
           projectId: source.projectId,
           subjectId: source.subjectId,
           sessionId: source.sessionId,
@@ -53,15 +64,17 @@ export function createXnatTransport(api: XnatUploadApi): AnnotationTransport {
           sourceScanId: source.sourceScanId,
           dicomBase64: serialized.base64,
           label: serialized.label,
-        });
+        };
+        res = isRtStruct ? await api.uploadRtStruct(p) : await api.uploadSeg(p);
       } else {
-        res = await api.overwriteSeg({
+        const p = {
           sessionId: source.sessionId,
           targetScanId: scanId,
           dicomBase64: serialized.base64,
           baseVersionToken,
           seriesDescription: serialized.label,
-        });
+        };
+        res = isRtStruct ? await api.overwriteRtStruct(p) : await api.overwriteSeg(p);
       }
 
       if (res.ok) {

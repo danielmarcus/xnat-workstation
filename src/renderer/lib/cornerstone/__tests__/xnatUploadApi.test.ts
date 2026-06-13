@@ -185,26 +185,7 @@ describe('createXnatUploadApi', () => {
       if (!res.ok) expect(res.kind).toBe('transient');
     });
 
-    it('routes to RTSTRUCT channel when overwriteKindOf says RTSTRUCT', async () => {
-      const overwriteDicomSeg = vi.fn();
-      const overwriteDicomRtStruct = vi.fn().mockResolvedValue({
-        ok: true,
-        scanId: '3004',
-        versionToken: 'sha1:rt',
-      });
-      const api = createXnatUploadApi(
-        fakeApi({ overwriteDicomSeg, overwriteDicomRtStruct }),
-        { overwriteKindOf: () => 'RTSTRUCT' },
-      );
-
-      const res = await api.overwriteSeg(OVERWRITE_ARGS);
-
-      expect(res).toEqual({ ok: true, scanId: '3004', versionToken: 'sha1:rt' });
-      expect(overwriteDicomRtStruct).toHaveBeenCalledWith('E1', '3004', 'QkJCQg==', 'Liver');
-      expect(overwriteDicomSeg).not.toHaveBeenCalled();
-    });
-
-    it('defaults to the SEG channel when no kind resolver is given', async () => {
+    it('overwriteSeg always uses the SEG channel (kind routing is the transport\'s job, not a scan-id guess)', async () => {
       const overwriteDicomSeg = vi.fn().mockResolvedValue({ ok: true, scanId: '3004', versionToken: 'sha1:x' });
       const overwriteDicomRtStruct = vi.fn();
       const api = createXnatUploadApi(fakeApi({ overwriteDicomSeg, overwriteDicomRtStruct }));
@@ -213,6 +194,45 @@ describe('createXnatUploadApi', () => {
 
       expect(overwriteDicomSeg).toHaveBeenCalledTimes(1);
       expect(overwriteDicomRtStruct).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('RTSTRUCT channel', () => {
+    it('uploadRtStruct → uploadDicomRtStruct (first save), passing through scanId + versionToken', async () => {
+      const uploadDicomRtStruct = vi.fn().mockResolvedValue({ ok: true, scanId: '4004', versionToken: 'sha1:rt1' });
+      const uploadDicomSeg = vi.fn();
+      const api = createXnatUploadApi(fakeApi({ uploadDicomRtStruct, uploadDicomSeg }));
+
+      const res = await api.uploadRtStruct(UPLOAD_ARGS);
+
+      expect(res).toEqual({ ok: true, scanId: '4004', versionToken: 'sha1:rt1' });
+      expect(uploadDicomRtStruct).toHaveBeenCalledWith('P', 'S', 'E1', 'SESS_LABEL', '4', 'QUFBQQ==', undefined);
+      expect(uploadDicomSeg).not.toHaveBeenCalled();
+    });
+
+    it('overwriteRtStruct → overwriteDicomRtStruct (update), never the SEG channel', async () => {
+      const overwriteDicomRtStruct = vi.fn().mockResolvedValue({ ok: true, scanId: '4004', versionToken: 'sha1:rt2' });
+      const overwriteDicomSeg = vi.fn();
+      const api = createXnatUploadApi(fakeApi({ overwriteDicomRtStruct, overwriteDicomSeg }));
+
+      const res = await api.overwriteRtStruct(OVERWRITE_ARGS);
+
+      expect(res).toEqual({ ok: true, scanId: '4004', versionToken: 'sha1:rt2' });
+      expect(overwriteDicomRtStruct).toHaveBeenCalledWith('E1', '3004', 'QkJCQg==', 'Liver');
+      expect(overwriteDicomSeg).not.toHaveBeenCalled();
+    });
+
+    it('classifies an RTSTRUCT upload failure (conflict) like the SEG channel', async () => {
+      const uploadDicomRtStruct = vi.fn().mockResolvedValue({ ok: false, error: 'HTTP 409 version conflict', serverVersionToken: 'sha1:srv' });
+      const api = createXnatUploadApi(fakeApi({ uploadDicomRtStruct }));
+
+      const res = await api.uploadRtStruct(UPLOAD_ARGS);
+
+      expect(res.ok).toBe(false);
+      if (!res.ok) {
+        expect(res.conflict).toBe(true);
+        expect(res.serverVersionToken).toBe('sha1:srv');
+      }
     });
   });
 
