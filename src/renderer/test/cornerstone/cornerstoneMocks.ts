@@ -101,6 +101,7 @@ export interface CornerstoneMockState {
         AXIAL: string;
         SAGITTAL: string;
         CORONAL: string;
+        ACQUISITION: string;
       };
     };
   };
@@ -466,6 +467,7 @@ export function createCornerstoneMockState(): CornerstoneMockState {
         AXIAL: 'axial',
         SAGITTAL: 'sagittal',
         CORONAL: 'coronal',
+        ACQUISITION: 'acquisition',
       },
     },
   };

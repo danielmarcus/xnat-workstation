@@ -59,6 +59,31 @@ function planeOrientation(plane: MPRPlane): Enums.OrientationAxis {
   return map[plane];
 }
 
+/**
+ * Choose the Cornerstone OrientationAxis a volume viewport is created with.
+ *
+ * The key case: a non-MPR panel opening in its NATIVE plane uses
+ * `OrientationAxis.ACQUISITION` — the TRUE acquisition plane — NOT the nearest
+ * orthogonal axis. An obliquely-acquired scan (e.g. a sagittal series with the
+ * patient's head tilted a few degrees) would otherwise be re-sliced onto upright
+ * anatomical planes, so the displayed slice grid no longer matches the source
+ * slices: scrolling steps through more slices than were acquired, and a labelmap
+ * that lives on ONE acquisition slice spans two display slices. ACQUISITION keeps
+ * the viewport 1:1 with the source images (and any loaded SEG).
+ *
+ * An explicit dropdown/MPR-layout plane request always wins (orthogonal reformat,
+ * the user's deliberate choice). The layout fallback stays orthogonal too.
+ */
+export function chooseOrientationAxis(opts: {
+  explicit?: MPRPlane;
+  preferNative: boolean;
+  resolvedPlane: MPRPlane;
+}): Enums.OrientationAxis {
+  if (opts.explicit) return planeOrientation(opts.explicit);
+  if (opts.preferNative) return Enums.OrientationAxis.ACQUISITION;
+  return planeOrientation(opts.resolvedPlane);
+}
+
 /** Track which elements are associated with which viewport IDs */
 const elements = new Map<string, HTMLDivElement>();
 /** Track the shared volumeId each unified volume viewport holds (for release). */
@@ -190,7 +215,15 @@ export const viewportService = {
       viewportId,
       type: Enums.ViewportType.ORTHOGRAPHIC,
       element,
-      defaultOptions: { orientation: planeOrientation(resolvedPlane) },
+      // Native single-series panels open on the true ACQUISITION plane (1:1 with the
+      // source slices + any loaded SEG); explicit/MPR requests get the orthogonal axis.
+      defaultOptions: {
+        orientation: chooseOrientationAxis({
+          explicit: opts.orientation,
+          preferNative,
+          resolvedPlane,
+        }),
+      },
     });
     const { volumeId, created } = await volumeService.acquire(
       opts.scanId,

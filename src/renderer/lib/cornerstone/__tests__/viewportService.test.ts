@@ -10,11 +10,12 @@ const cs = createCornerstoneMockState();
 
 let viewportService: (typeof import('../viewportService'))['viewportService'];
 let resolveInitialPlane: (typeof import('../viewportService'))['resolveInitialPlane'];
+let chooseOrientationAxis: (typeof import('../viewportService'))['chooseOrientationAxis'];
 
 beforeAll(async () => {
   vi.doMock('@cornerstonejs/core', () => createCoreModuleMock(cs));
 
-  ({ viewportService, resolveInitialPlane } = await import('../viewportService'));
+  ({ viewportService, resolveInitialPlane, chooseOrientationAxis } = await import('../viewportService'));
 });
 
 describe('viewportService', () => {
@@ -217,6 +218,18 @@ describe('viewportService', () => {
     expect(resolveInitialPlane({ preferNative: false, layoutPlane: 'CORONAL', nativePlane: 'SAGITTAL' })).toBe('CORONAL');
     // A degenerate native ('STACK') falls back to the layout plane.
     expect(resolveInitialPlane({ preferNative: true, layoutPlane: 'AXIAL', nativePlane: 'STACK' })).toBe('AXIAL');
+  });
+
+  it('chooseOrientationAxis: a native panel opens on the ACQUISITION plane, not an orthogonal axis', () => {
+    // The fix: a non-MPR panel in native mode renders the true acquisition plane so
+    // it stays 1:1 with the source slices (and any loaded SEG). An obliquely-acquired
+    // scan must NOT be re-sliced onto an upright orthogonal plane.
+    expect(chooseOrientationAxis({ preferNative: true, resolvedPlane: 'SAGITTAL' })).toBe('acquisition');
+    expect(chooseOrientationAxis({ preferNative: true, resolvedPlane: 'AXIAL' })).toBe('acquisition');
+    // An explicit dropdown/MPR choice wins → that orthogonal plane (deliberate reformat).
+    expect(chooseOrientationAxis({ explicit: 'CORONAL', preferNative: true, resolvedPlane: 'SAGITTAL' })).toBe('coronal');
+    // The layout fallback (3-plane MPR presets) stays orthogonal.
+    expect(chooseOrientationAxis({ preferNative: false, resolvedPlane: 'AXIAL' })).toBe('axial');
   });
 
   it('getMmPerDisplayPixel derives mm/CSS-px from the camera parallelScale and element height', () => {
