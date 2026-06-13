@@ -205,11 +205,21 @@ export function mprPanelId(index: number): string {
 
 // ─── MPR (Multiplanar Reconstruction) ─────────────────────────
 
-/** Orientation axis for MPR planes */
+/** Orientation axis for MPR planes (orthogonal anatomical reformats) */
 export type MPRPlane = 'AXIAL' | 'SAGITTAL' | 'CORONAL';
 
-/** Per-viewport viewing orientation (stack/original or orthographic plane) */
-export type ViewportOrientation = 'STACK' | MPRPlane;
+/**
+ * A volume viewport's user-selectable display orientation: the three orthogonal MPR
+ * planes plus ACQUISITION — the scan's native acquisition plane (1:1 with the source
+ * slices + any loaded SEG). ACQUISITION is the default for a single series; the
+ * orthogonal planes are reformats. (An obliquely-acquired scan reformatted onto an
+ * orthogonal plane re-slices the volume, so a single-slice segmentation would span
+ * multiple display slices — ACQUISITION avoids that.)
+ */
+export type DisplayPlane = MPRPlane | 'ACQUISITION';
+
+/** Per-viewport viewing orientation (stack/original, acquisition, or orthographic plane) */
+export type ViewportOrientation = 'STACK' | DisplayPlane;
 
 /** Fixed MPR panel assignments: 3 orthogonal planes */
 export const MPR_PANELS: { panelIndex: number; plane: MPRPlane; label: string }[] = [

@@ -15,9 +15,8 @@ import {
   Enums,
   type Types,
 } from '@cornerstonejs/core';
-import type { MPRPlane, ViewportOrientation } from '@shared/types/viewer';
+import type { MPRPlane, DisplayPlane } from '@shared/types/viewer';
 import { volumeService } from './volumeService';
-import { metadataService } from './metadataService';
 import { chooseViewportType, type ViewportType, type ViewportTypeInput } from './viewportType';
 
 const ENGINE_ID = 'xnatRenderingEngine';
@@ -35,53 +34,35 @@ const ENGINE_ID = 'xnatRenderingEngine';
  * Pure + exported for unit testing.
  */
 export function resolveInitialPlane(opts: {
-  explicit?: MPRPlane;
+  explicit?: DisplayPlane;
   preferNative: boolean;
   layoutPlane: MPRPlane;
-  nativePlane: ViewportOrientation;
-}): MPRPlane {
-  if (opts.preferNative) return opts.nativePlane !== 'STACK' ? opts.nativePlane : opts.layoutPlane;
+}): DisplayPlane {
+  // A non-MPR (native) panel opens on the ACQUISITION plane — the scan's own
+  // acquisition geometry, 1:1 with the source slices and any loaded SEG — NOT an
+  // orthogonal reformat. (An obliquely-acquired scan reformatted onto an upright
+  // anatomical plane re-slices the volume, so its slice grid no longer matches the
+  // source and a single-slice segmentation spans multiple display slices.) An
+  // explicit/MPR-layout choice is applied later via setOrientation, not here.
+  if (opts.preferNative) return 'ACQUISITION';
   return opts.explicit ?? opts.layoutPlane;
 }
 
 /**
- * Map an MPR plane → Cornerstone OrientationAxis. Read lazily (at call time, not
+ * Map a display plane → Cornerstone OrientationAxis. Read lazily (at call time, not
  * module load) so the module imports cleanly even where Enums.OrientationAxis is
  * absent (e.g. the unit-test core mock); only the volume path ever calls it.
+ * ACQUISITION → the volume's native acquisition plane (the others are orthogonal).
  */
-function planeOrientation(plane: MPRPlane): Enums.OrientationAxis {
+function planeOrientation(plane: DisplayPlane): Enums.OrientationAxis {
   const { OrientationAxis } = Enums;
-  const map: Record<MPRPlane, Enums.OrientationAxis> = {
+  const map: Record<DisplayPlane, Enums.OrientationAxis> = {
     AXIAL: OrientationAxis.AXIAL,
     SAGITTAL: OrientationAxis.SAGITTAL,
     CORONAL: OrientationAxis.CORONAL,
+    ACQUISITION: OrientationAxis.ACQUISITION,
   };
   return map[plane];
-}
-
-/**
- * Choose the Cornerstone OrientationAxis a volume viewport is created with.
- *
- * The key case: a non-MPR panel opening in its NATIVE plane uses
- * `OrientationAxis.ACQUISITION` — the TRUE acquisition plane — NOT the nearest
- * orthogonal axis. An obliquely-acquired scan (e.g. a sagittal series with the
- * patient's head tilted a few degrees) would otherwise be re-sliced onto upright
- * anatomical planes, so the displayed slice grid no longer matches the source
- * slices: scrolling steps through more slices than were acquired, and a labelmap
- * that lives on ONE acquisition slice spans two display slices. ACQUISITION keeps
- * the viewport 1:1 with the source images (and any loaded SEG).
- *
- * An explicit dropdown/MPR-layout plane request always wins (orthogonal reformat,
- * the user's deliberate choice). The layout fallback stays orthogonal too.
- */
-export function chooseOrientationAxis(opts: {
-  explicit?: MPRPlane;
-  preferNative: boolean;
-  resolvedPlane: MPRPlane;
-}): Enums.OrientationAxis {
-  if (opts.explicit) return planeOrientation(opts.explicit);
-  if (opts.preferNative) return Enums.OrientationAxis.ACQUISITION;
-  return planeOrientation(opts.resolvedPlane);
 }
 
 /** Track which elements are associated with which viewport IDs */
@@ -152,14 +133,14 @@ export const viewportService = {
       frameOfReferenceUID: string;
       imageIds: string[];
       meta?: ViewportTypeInput;
-      /** Explicit plane request (e.g. a user's dropdown choice). Wins over native. */
-      orientation?: MPRPlane;
+      /** Explicit plane request (e.g. a user's dropdown choice, incl. ACQUISITION). Wins over native. */
+      orientation?: DisplayPlane;
       /** The layout's designated plane (MPR preset / fallback). */
       layoutOrientation?: MPRPlane;
-      /** Non-MPR panels open in the scan's native plane unless `orientation` is set. */
+      /** Non-MPR panels open in the scan's native (acquisition) plane unless `orientation` is set. */
       preferNativeOrientation?: boolean;
     },
-  ): Promise<{ type: ViewportType; volumeId: string | null; orientation: MPRPlane }> {
+  ): Promise<{ type: ViewportType; volumeId: string | null; orientation: DisplayPlane }> {
     const engine = ensureEngine();
     if (elements.has(viewportId)) {
       try { engine.disableElement(viewportId); } catch { /* ok */ }
@@ -189,7 +170,6 @@ export const viewportService = {
         explicit: opts.orientation,
         preferNative,
         layoutPlane,
-        nativePlane: metadataService.getNativeOrientation(opts.imageIds[0]),
       });
       console.log('[viewportService] Unified viewport (stack):', viewportId);
       return { type, volumeId: null, orientation: resolvedPlane };
@@ -209,7 +189,6 @@ export const viewportService = {
       explicit: opts.orientation,
       preferNative,
       layoutPlane,
-      nativePlane: metadataService.getNativeOrientation(opts.imageIds[0]),
     });
     engine.enableElement({
       viewportId,
@@ -217,13 +196,7 @@ export const viewportService = {
       element,
       // Native single-series panels open on the true ACQUISITION plane (1:1 with the
       // source slices + any loaded SEG); explicit/MPR requests get the orthogonal axis.
-      defaultOptions: {
-        orientation: chooseOrientationAxis({
-          explicit: opts.orientation,
-          preferNative,
-          resolvedPlane,
-        }),
-      },
+      defaultOptions: { orientation: planeOrientation(resolvedPlane) },
     });
     const { volumeId, created } = await volumeService.acquire(
       opts.scanId,
@@ -480,13 +453,14 @@ export const viewportService = {
   },
 
   /**
-   * Reorient a VOLUME viewport in place (axial ⇄ sagittal ⇄ coronal) — drives the
-   * orientation selector. Uses VolumeViewport.setOrientation, which reformats the
-   * camera without reloading the (shared, ref-counted) volume. No-op on STACK
-   * viewports (they have no setOrientation — a single-plane stack can't reformat)
-   * and before the viewport exists. Soft (no throw).
+   * Reorient a VOLUME viewport in place (acquisition ⇄ axial ⇄ sagittal ⇄ coronal) —
+   * drives the orientation selector. Uses VolumeViewport.setOrientation, which
+   * reformats the camera without reloading the (shared, ref-counted) volume.
+   * ACQUISITION returns to the scan's native plane. No-op on STACK viewports (they
+   * have no setOrientation — a single-plane stack can't reformat) and before the
+   * viewport exists. Soft (no throw).
    */
-  setOrientation(viewportId: string, plane: MPRPlane): void {
+  setOrientation(viewportId: string, plane: DisplayPlane): void {
     const engine = getEngine();
     if (!engine) return;
     let vp: any;

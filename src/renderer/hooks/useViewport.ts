@@ -17,7 +17,7 @@ import { evaluateDrawBlock } from '../lib/cornerstone/drawGestureGuard';
 import { useViewerStore } from '../stores/viewerStore';
 import { useAnnotationSelectionStore } from '../stores/annotationSelectionStore';
 import { useMetadataStore } from '../stores/metadataStore';
-import { ToolName, type MPRPlane } from '@shared/types/viewer';
+import { ToolName, type MPRPlane, type DisplayPlane } from '@shared/types/viewer';
 
 export interface UseViewportArgs {
   panelId: string;
@@ -25,8 +25,8 @@ export interface UseViewportArgs {
   /** Volume-sharing key — same scanId+FoR ⇒ shared ImageVolume across panels. */
   scanId: string;
   frameOfReferenceUID?: string;
-  /** Explicit plane to display (a user/stored choice). Undefined ⇒ resolve native. */
-  orientation?: MPRPlane;
+  /** Explicit plane to display (a user/stored choice, incl. ACQUISITION). Undefined ⇒ resolve native. */
+  orientation?: DisplayPlane;
   /** Layout's designated plane (MPR preset / fallback). */
   layoutOrientation?: MPRPlane;
   /** Open in the scan's native plane when no explicit orientation is given. */

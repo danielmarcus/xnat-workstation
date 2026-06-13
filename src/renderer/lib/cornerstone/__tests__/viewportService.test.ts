@@ -10,12 +10,11 @@ const cs = createCornerstoneMockState();
 
 let viewportService: (typeof import('../viewportService'))['viewportService'];
 let resolveInitialPlane: (typeof import('../viewportService'))['resolveInitialPlane'];
-let chooseOrientationAxis: (typeof import('../viewportService'))['chooseOrientationAxis'];
 
 beforeAll(async () => {
   vi.doMock('@cornerstonejs/core', () => createCoreModuleMock(cs));
 
-  ({ viewportService, resolveInitialPlane, chooseOrientationAxis } = await import('../viewportService'));
+  ({ viewportService, resolveInitialPlane } = await import('../viewportService'));
 });
 
 describe('viewportService', () => {
@@ -208,28 +207,18 @@ describe('viewportService', () => {
     expect(volume.scroll).toHaveBeenCalledWith(70);
   });
 
-  it('resolveInitialPlane: a non-MPR panel ALWAYS opens native (no carry-over from the previous scan)', () => {
-    // Non-MPR opens in the new scan's native plane regardless of any stale/explicit
-    // selection — so a prior sagittal scan does not force the next axial scan sagittal.
-    expect(resolveInitialPlane({ explicit: 'SAGITTAL', preferNative: true, layoutPlane: 'AXIAL', nativePlane: 'AXIAL' })).toBe('AXIAL');
-    expect(resolveInitialPlane({ preferNative: true, layoutPlane: 'AXIAL', nativePlane: 'SAGITTAL' })).toBe('SAGITTAL');
-    // MPR (not preferNative) uses its designated (explicit/layout) plane.
-    expect(resolveInitialPlane({ explicit: 'SAGITTAL', preferNative: false, layoutPlane: 'AXIAL', nativePlane: 'AXIAL' })).toBe('SAGITTAL');
-    expect(resolveInitialPlane({ preferNative: false, layoutPlane: 'CORONAL', nativePlane: 'SAGITTAL' })).toBe('CORONAL');
-    // A degenerate native ('STACK') falls back to the layout plane.
-    expect(resolveInitialPlane({ preferNative: true, layoutPlane: 'AXIAL', nativePlane: 'STACK' })).toBe('AXIAL');
-  });
-
-  it('chooseOrientationAxis: a native panel opens on the ACQUISITION plane, not an orthogonal axis', () => {
-    // The fix: a non-MPR panel in native mode renders the true acquisition plane so
-    // it stays 1:1 with the source slices (and any loaded SEG). An obliquely-acquired
-    // scan must NOT be re-sliced onto an upright orthogonal plane.
-    expect(chooseOrientationAxis({ preferNative: true, resolvedPlane: 'SAGITTAL' })).toBe('acquisition');
-    expect(chooseOrientationAxis({ preferNative: true, resolvedPlane: 'AXIAL' })).toBe('acquisition');
-    // An explicit dropdown/MPR choice wins → that orthogonal plane (deliberate reformat).
-    expect(chooseOrientationAxis({ explicit: 'CORONAL', preferNative: true, resolvedPlane: 'SAGITTAL' })).toBe('coronal');
-    // The layout fallback (3-plane MPR presets) stays orthogonal.
-    expect(chooseOrientationAxis({ preferNative: false, resolvedPlane: 'AXIAL' })).toBe('axial');
+  it('resolveInitialPlane: a non-MPR panel opens on the ACQUISITION plane (1:1 with the source slices)', () => {
+    // The fix: a non-MPR (native) panel opens on the ACQUISITION plane — the scan's
+    // own acquisition geometry, NOT an orthogonal reformat — regardless of any stale
+    // explicit selection. This keeps a single-slice segmentation on one display slice
+    // even for an obliquely-acquired scan.
+    expect(resolveInitialPlane({ explicit: 'SAGITTAL', preferNative: true, layoutPlane: 'AXIAL' })).toBe('ACQUISITION');
+    expect(resolveInitialPlane({ preferNative: true, layoutPlane: 'AXIAL' })).toBe('ACQUISITION');
+    // MPR (not preferNative) uses its designated (explicit/layout) orthogonal plane.
+    expect(resolveInitialPlane({ explicit: 'SAGITTAL', preferNative: false, layoutPlane: 'AXIAL' })).toBe('SAGITTAL');
+    expect(resolveInitialPlane({ preferNative: false, layoutPlane: 'CORONAL' })).toBe('CORONAL');
+    // An explicit ACQUISITION request (the dropdown's "Acquisition" entry) is honored on a non-native panel too.
+    expect(resolveInitialPlane({ explicit: 'ACQUISITION', preferNative: false, layoutPlane: 'AXIAL' })).toBe('ACQUISITION');
   });
 
   it('getMmPerDisplayPixel derives mm/CSS-px from the camera parallelScale and element height', () => {

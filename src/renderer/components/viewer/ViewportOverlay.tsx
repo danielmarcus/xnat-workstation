@@ -20,7 +20,7 @@ import { usePreferencesStore } from '../../stores/preferencesStore';
 import { EMPTY_OVERLAY } from '@shared/types/dicom';
 import { DEFAULT_OVERLAY_CORNERS } from '@shared/types/preferences';
 import type { OverlayCornerId, OverlayFieldKey } from '@shared/types/preferences';
-import type { MPRPlane } from '@shared/types/viewer';
+import type { MPRPlane, DisplayPlane } from '@shared/types/viewer';
 
 interface ViewportOverlayProps {
   panelId: string;
@@ -74,7 +74,10 @@ export default function ViewportOverlay({ panelId }: ViewportOverlayProps): Reac
 
   const corners = overlayPrefs.corners ?? DEFAULT_OVERLAY_CORNERS;
   const displayOrientation = panelOrientation === 'STACK' ? nativeOrientation : panelOrientation;
-  const markers = ORIENTATION_LABELS[displayOrientation as MPRPlane] ?? ORIENTATION_LABELS.AXIAL;
+  // The ACQUISITION plane has no fixed anatomical marker set; approximate it with the
+  // scan's nearest orthogonal native plane (it's within a few degrees of it).
+  const markerPlane = displayOrientation === 'ACQUISITION' ? nativeOrientation : displayOrientation;
+  const markers = ORIENTATION_LABELS[markerPlane as MPRPlane] ?? ORIENTATION_LABELS.AXIAL;
   const crosshairText =
     crosshairPoint && (!crosshairSourcePanelId || crosshairSourcePanelId === panelId)
       ? `${crosshairPoint[0].toFixed(1)}, ${crosshairPoint[1].toFixed(1)}, ${crosshairPoint[2].toFixed(1)}`
@@ -147,7 +150,7 @@ export default function ViewportOverlay({ panelId }: ViewportOverlayProps): Reac
           onClick={(e) => e.stopPropagation()}
           onChange={(e) => {
             e.stopPropagation();
-            setPanelOrientation(panelId, e.target.value as MPRPlane);
+            setPanelOrientation(panelId, e.target.value as DisplayPlane);
             // Return focus to the viewport so the wheel / arrow keys navigate the
             // image instead of cycling the still-focused dropdown.
             const panel = e.currentTarget.closest('[data-panel-id]') as HTMLElement | null;
@@ -158,6 +161,7 @@ export default function ViewportOverlay({ panelId }: ViewportOverlayProps): Reac
           title="Viewport orientation"
           className="pointer-events-auto bg-zinc-900/85 border border-zinc-700 text-white text-[10px] rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-sky-500 disabled:opacity-40"
         >
+          <option value="ACQUISITION">Acquisition</option>
           <option value="AXIAL">Axial</option>
           <option value="SAGITTAL">Sagittal</option>
           <option value="CORONAL">Coronal</option>

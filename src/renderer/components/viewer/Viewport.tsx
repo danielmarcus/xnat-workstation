@@ -13,7 +13,7 @@ import ViewportRuler from './ViewportRuler';
 import ViewportScrollbar from './ViewportScrollbar';
 import ViewportStatusOverlay from './ViewportStatusOverlay';
 import ViewportTimeScrubber from './ViewportTimeScrubber';
-import type { MPRPlane } from '@shared/types/viewer';
+import type { MPRPlane, DisplayPlane } from '@shared/types/viewer';
 
 interface ViewportProps {
   panelId: string;
@@ -40,7 +40,7 @@ export default function Viewport({
   // MPR panels are pinned to their designated ortho plane. Non-MPR panels follow
   // the stored plane (a user dropdown choice or the resolved native plane); when
   // nothing is stored yet, `undefined` lets the service resolve the native plane.
-  const requestedOrientation: MPRPlane | undefined = preferNative
+  const requestedOrientation: DisplayPlane | undefined = preferNative
     ? (stored && stored !== 'STACK' ? stored : undefined)
     : layoutPlane;
   const { containerRef, loadState } = useViewport({
