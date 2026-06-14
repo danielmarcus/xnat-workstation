@@ -61,6 +61,7 @@ import type { Types as ToolTypes } from '@cornerstonejs/tools';
 import SafePaintFillTool from './tools/SafePaintFillTool';
 import { ToolName } from '@shared/types/viewer';
 import { viewportService } from './viewportService';
+import { ensureContourEditPrereq } from './contourEditPrereq';
 
 const UNIFIED_TOOL_GROUP_ID = 'xnatToolGroup_unified';
 
@@ -245,6 +246,15 @@ export const unifiedToolService = {
     if (!csName) {
       console.warn('[unifiedToolService] Unsupported tool for unified path:', toolName);
       return;
+    }
+    // Contour Fill (signal 30): the LabelmapEditWithContour tool draws a contour
+    // segmentation that it rasterizes into the active labelmap — but it THROWS on
+    // draw-start unless the active labelmap already carries a Contour representation.
+    // Add it at activation time (the tool's own reactive setup doesn't fire when the
+    // viewport + seg already exist). Runs before the early-return so re-selecting the
+    // tool after switching the active segment re-establishes the prerequisite.
+    if (toolName === ToolName.LabelmapEditWithContour) {
+      ensureContourEditPrereq(toolGroup.getViewportIds());
     }
     if (csName === currentPrimary) {
       activeToolName = toolName;
