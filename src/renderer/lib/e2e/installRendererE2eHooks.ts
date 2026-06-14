@@ -59,7 +59,7 @@ declare global {
       createLockAwareUndoRedoTestMemo: (segmentationId: string, segmentIndex: number) => boolean;
       getLockAwareUndoRedoCounter: () => number;
       createTestStructure: (panelId: string, label: string) => Promise<string>;
-      createTestContour: (panelId: string, segmentationId: string, segmentIndex?: number) => string | null;
+      createTestContour: (panelId: string, segmentationId: string, segmentIndex?: number, provenance?: string) => string | null;
       /**
        * Offline viewer entry for local-fixture E2E: forces the connection store
        * into a synthetic "connected" state so App renders the viewer chrome
@@ -315,7 +315,7 @@ export function installRendererE2eHooks(): void {
       segmentationManager.userSelectedSegmentation(panelId, segmentationId, segmentIndex);
       return segmentationId;
     },
-    createTestContour: (panelId: string, segmentationId: string, segmentIndex = 1) => {
+    createTestContour: (panelId: string, segmentationId: string, segmentIndex = 1, provenance?: string) => {
       const enabledElement = getEnabledElementByViewportId(panelId) as
         | {
             viewport?: {
@@ -378,6 +378,7 @@ export function installRendererE2eHooks(): void {
                 sliceIndex: currentSliceIndex ?? undefined,
                 viewPlaneNormal,
                 viewUp,
+                ...(provenance ? { provenance } : {}),
               },
               data: {
                 contour: {
@@ -469,6 +470,7 @@ export function installRendererE2eHooks(): void {
           sliceIndex: currentSliceIndex ?? undefined,
           viewPlaneNormal,
           viewUp,
+          ...(provenance ? { provenance } : {}),
         },
         data: {
           contour: {

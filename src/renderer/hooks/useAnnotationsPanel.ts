@@ -25,6 +25,7 @@ import { useTransportStore } from '../stores/transportStore';
 import { usePreferencesStore } from '../stores/preferencesStore';
 import { segmentationService } from '../lib/cornerstone/segmentationService';
 import { rtStructService } from '../lib/cornerstone/rtStructService';
+import { segmentProvenance } from '../lib/cornerstone/interpolationAcceptance';
 import { unifiedToolService } from '../lib/cornerstone/unifiedToolService';
 import { segmentationManager } from '../lib/segmentation/segmentationManagerSingleton';
 import { projectContainers } from '../lib/annotations/containerProjection';
@@ -355,6 +356,14 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
   const metricOf = (_containerId: string, member: { annotationUID?: string }): string | undefined =>
     member.annotationUID ? measurementText.get(member.annotationUID) || undefined : undefined;
 
+  // Provenance badge (signal 22): a contour member is 'interpolated' when any of its
+  // contours was stamped by interpolation (interpolationAcceptance). The container id
+  // is the Cornerstone segmentationId; the member's segment index is its ROI/segment.
+  const provenanceOf = (containerId: string, member: { segmentIndex?: number; roiNumber?: number }) => {
+    const idx = member.segmentIndex ?? member.roiNumber;
+    return idx == null ? undefined : segmentProvenance(containerId, idx);
+  };
+
   return {
     containers,
     containerCount: containers.length,
@@ -378,6 +387,7 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
     isActive: (cid: string, mid: string) => activeMember?.containerId === cid && activeMember?.memberId === mid,
     isSelected: (cid: string, mid: string) => selection.some((r) => r.containerId === cid && r.memberId === mid),
     metricOf,
+    provenanceOf,
     palette,
     // transport (in-place row state) + H7 conflict dialog
     transportOf,
