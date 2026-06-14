@@ -35,8 +35,10 @@ function fakeApi(overrides: Partial<XnatUploadElectronApi>): XnatUploadElectronA
   return {
     uploadDicomSeg: overrides.uploadDicomSeg ?? reject,
     uploadDicomRtStruct: overrides.uploadDicomRtStruct ?? reject,
+    uploadDicomSr: overrides.uploadDicomSr ?? reject,
     overwriteDicomSeg: overrides.overwriteDicomSeg ?? reject,
     overwriteDicomRtStruct: overrides.overwriteDicomRtStruct ?? reject,
+    overwriteDicomSr: overrides.overwriteDicomSr ?? reject,
   };
 }
 

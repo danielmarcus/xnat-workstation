@@ -65,7 +65,22 @@ export interface XnatUploadElectronApi {
     dicomBase64: string,
     seriesDescription?: string,
   ): Promise<XnatWriteIpcResult>;
+  uploadDicomSr(
+    projectId: string,
+    subjectId: string,
+    sessionId: string,
+    sessionLabel: string,
+    sourceScanId: string,
+    dicomBase64: string,
+    label?: string,
+  ): Promise<XnatWriteIpcResult>;
   overwriteDicomRtStruct(
+    sessionId: string,
+    targetScanId: string,
+    dicomBase64: string,
+    seriesDescription?: string,
+  ): Promise<XnatWriteIpcResult>;
+  overwriteDicomSr(
     sessionId: string,
     targetScanId: string,
     dicomBase64: string,
@@ -164,6 +179,16 @@ export function createXnatUploadApi(electronApi: XnatUploadElectronApi): XnatUpl
       }
     },
 
+    async uploadSr(p) {
+      try {
+        return mapResult(await electronApi.uploadDicomSr(
+          p.projectId, p.subjectId, p.sessionId, p.sessionLabel, p.sourceScanId, p.dicomBase64, p.label,
+        ));
+      } catch (err) {
+        return asTransient(err);
+      }
+    },
+
     async overwriteSeg(p) {
       try {
         return mapResult(await electronApi.overwriteDicomSeg(p.sessionId, p.targetScanId, p.dicomBase64, p.seriesDescription));
@@ -175,6 +200,14 @@ export function createXnatUploadApi(electronApi: XnatUploadElectronApi): XnatUpl
     async overwriteRtStruct(p) {
       try {
         return mapResult(await electronApi.overwriteDicomRtStruct(p.sessionId, p.targetScanId, p.dicomBase64, p.seriesDescription));
+      } catch (err) {
+        return asTransient(err);
+      }
+    },
+
+    async overwriteSr(p) {
+      try {
+        return mapResult(await electronApi.overwriteDicomSr(p.sessionId, p.targetScanId, p.dicomBase64, p.seriesDescription));
       } catch (err) {
         return asTransient(err);
       }

@@ -75,6 +75,15 @@ export interface ElectronAPI {
       dicomBase64: string,
       label?: string,
     ): Promise<XnatUploadResult>;
+    uploadDicomSr(
+      projectId: string,
+      subjectId: string,
+      sessionId: string,
+      sessionLabel: string,
+      sourceScanId: string,
+      dicomBase64: string,
+      label?: string,
+    ): Promise<XnatUploadResult>;
     overwriteDicomSeg(
       sessionId: string,
       targetScanId: string,
@@ -82,6 +91,12 @@ export interface ElectronAPI {
       seriesDescription?: string,
     ): Promise<XnatUploadResult>;
     overwriteDicomRtStruct(
+      sessionId: string,
+      targetScanId: string,
+      dicomBase64: string,
+      seriesDescription?: string,
+    ): Promise<XnatUploadResult>;
+    overwriteDicomSr(
       sessionId: string,
       targetScanId: string,
       dicomBase64: string,

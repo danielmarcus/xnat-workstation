@@ -35,8 +35,10 @@ export interface XnatOverwriteParams {
 export interface XnatUploadApi {
   uploadSeg(p: XnatUploadParams): Promise<XnatWriteResult>;
   uploadRtStruct(p: XnatUploadParams): Promise<XnatWriteResult>;
+  uploadSr(p: XnatUploadParams): Promise<XnatWriteResult>;
   overwriteSeg(p: XnatOverwriteParams): Promise<XnatWriteResult>;
   overwriteRtStruct(p: XnatOverwriteParams): Promise<XnatWriteResult>;
+  overwriteSr(p: XnatOverwriteParams): Promise<XnatWriteResult>;
   getVersion(p: { sessionId: string; scanId: string }): Promise<string | null>;
 }
 
@@ -50,9 +52,9 @@ export function createXnatTransport(api: XnatUploadApi): AnnotationTransport {
       const known = target.get(serialized.containerId);
       const scanId = known?.scanId ?? source.scanId;
       // Route by the container's actual kind (the transport knows it from the
-      // serialized payload) — NOT a guess from the scan id. RTSTRUCT uses the
-      // RTSTRUCT channel; everything else (SEG; SR has no write channel yet) the SEG one.
-      const isRtStruct = serialized.kind === 'RTSTRUCT';
+      // serialized payload) — NOT a guess from the scan id. Each modality uses its own
+      // channel: RTSTRUCT, SR, or (default) SEG.
+      const kind = serialized.kind;
 
       let res: XnatWriteResult;
       if (!scanId) {
@@ -65,7 +67,9 @@ export function createXnatTransport(api: XnatUploadApi): AnnotationTransport {
           dicomBase64: serialized.base64,
           label: serialized.label,
         };
-        res = isRtStruct ? await api.uploadRtStruct(p) : await api.uploadSeg(p);
+        res = kind === 'RTSTRUCT' ? await api.uploadRtStruct(p)
+          : kind === 'SR' ? await api.uploadSr(p)
+            : await api.uploadSeg(p);
       } else {
         const p = {
           sessionId: source.sessionId,
@@ -74,7 +78,9 @@ export function createXnatTransport(api: XnatUploadApi): AnnotationTransport {
           baseVersionToken,
           seriesDescription: serialized.label,
         };
-        res = isRtStruct ? await api.overwriteRtStruct(p) : await api.overwriteSeg(p);
+        res = kind === 'RTSTRUCT' ? await api.overwriteRtStruct(p)
+          : kind === 'SR' ? await api.overwriteSr(p)
+            : await api.overwriteSeg(p);
       }
 
       if (res.ok) {

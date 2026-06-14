@@ -98,6 +98,20 @@ describe('createXnatTransport over the mock XNAT API', () => {
     }
   });
 
+  it('routes by container kind: an SR container uploads via the SR channel (50xx scan id), then overwrites it', async () => {
+    const t = createXnatTransport(createMockXnatApi());
+    const first = await t.save(ser('sr1', undefined, 'AAAA', 'SR'), null);
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    expect(first.scanId?.startsWith('50')).toBe(true); // SR convention — proves the SR channel
+    const second = await t.save(ser('sr1', undefined, 'BBBB', 'SR'), first.versionToken);
+    expect(second.ok).toBe(true);
+    if (second.ok) {
+      expect(second.scanId).toBe(first.scanId);
+      expect(second.versionToken).not.toBe(first.versionToken);
+    }
+  });
+
   it('getServerVersion reflects the mapped scan version; external edit bumps it (H6)', async () => {
     const api = createMockXnatApi();
     const t = createXnatTransport(api);

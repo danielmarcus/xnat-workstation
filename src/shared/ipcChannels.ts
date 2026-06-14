@@ -34,8 +34,10 @@ export const IPC = {
   // XNAT upload (renderer → main)
   XNAT_UPLOAD_DICOM_SEG: 'xnat:upload-dicom-seg',
   XNAT_UPLOAD_DICOM_RTSTRUCT: 'xnat:upload-dicom-rtstruct',
+  XNAT_UPLOAD_DICOM_SR: 'xnat:upload-dicom-sr',
   XNAT_OVERWRITE_DICOM_SEG: 'xnat:overwrite-dicom-seg',
   XNAT_OVERWRITE_DICOM_RTSTRUCT: 'xnat:overwrite-dicom-rtstruct',
+  XNAT_OVERWRITE_DICOM_SR: 'xnat:overwrite-dicom-sr',
   XNAT_PREPARE_DICOM_UPLOAD: 'xnat:prepare-dicom-upload',
 
   // XNAT scan deletion (renderer → main)

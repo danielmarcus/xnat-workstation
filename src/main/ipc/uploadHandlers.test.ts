@@ -59,6 +59,8 @@ describe('registerUploadHandlers', () => {
       IPC.XNAT_DELETE_SCAN,
       IPC.XNAT_DOWNLOAD_TEMP_FILE,
       IPC.XNAT_UPLOAD_DICOM_RTSTRUCT,
+      IPC.XNAT_UPLOAD_DICOM_SR,
+      IPC.XNAT_OVERWRITE_DICOM_SR,
     ]);
   });
 

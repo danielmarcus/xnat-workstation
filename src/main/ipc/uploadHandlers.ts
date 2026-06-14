@@ -375,4 +375,68 @@ export function registerUploadHandlers(): void {
       }
     },
   );
+
+  // ─── Upload DICOM-SR to XNAT (as a scan) ───────────────────────
+  ipcMain.handle(
+    IPC.XNAT_UPLOAD_DICOM_SR,
+    async (
+      _event,
+      projectId: string,
+      subjectId: string,
+      sessionId: string,
+      sessionLabel: string,
+      sourceScanId: string,
+      dicomSrBase64: string,
+      label?: string,
+    ) => {
+      const client = sessionManager.getClient();
+      if (!client) {
+        return { ok: false, error: 'Not connected to XNAT' };
+      }
+      try {
+        const buffer = Buffer.from(dicomSrBase64, 'base64');
+        console.log(
+          `[uploadHandlers] Uploading DICOM SR (${buffer.length} bytes)`,
+          `to ${projectId}/${subjectId}/${sessionLabel} (source scan: ${sourceScanId})`,
+        );
+        const result = await client.uploadDicomSrAsScan(
+          projectId, subjectId, sessionId, sessionLabel, sourceScanId, buffer, label,
+        );
+        return { ok: true, url: result.url, scanId: result.scanId, versionToken: result.versionToken };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error('[uploadHandlers] SR upload failed:', msg);
+        sessionManager.handleAuthFailure(err);
+        return { ok: false, error: msg };
+      }
+    },
+  );
+
+  // ─── Overwrite DICOM-SR in existing scan ───────────────────────
+  ipcMain.handle(
+    IPC.XNAT_OVERWRITE_DICOM_SR,
+    async (
+      _event,
+      sessionId: string,
+      targetScanId: string,
+      dicomSrBase64: string,
+      seriesDescription?: string,
+    ) => {
+      const client = sessionManager.getClient();
+      if (!client) {
+        return { ok: false, error: 'Not connected to XNAT' };
+      }
+      try {
+        const buffer = Buffer.from(dicomSrBase64, 'base64');
+        console.log(`[uploadHandlers] Overwriting DICOM SR in scan ${targetScanId} (${buffer.length} bytes)`);
+        const result = await client.overwriteDicomSrInScan(sessionId, targetScanId, buffer, seriesDescription);
+        return { ok: true, url: result.url, scanId: result.scanId, versionToken: result.versionToken };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error('[uploadHandlers] SR overwrite failed:', msg);
+        sessionManager.handleAuthFailure(err);
+        return { ok: false, error: msg };
+      }
+    },
+  );
 }

@@ -31,6 +31,7 @@ export function createMockXnatApi(): MockXnatApi {
   const scans = new Map<string, ScanState>();
   let nextSegScan = 3001; // SEG scan-id convention (30xx)
   let nextRtScan = 4001;  // RTSTRUCT scan-id convention (40xx)
+  let nextSrScan = 5001;  // SR scan-id convention (50xx)
   let failNext: { kind: 'transient' | 'permanent'; error?: string } | null = null;
   const key = (s: string, sc: string) => `${s}/${sc}`;
   const tokenOf = (sessionId: string, scanId: string, version: number) => `${sessionId}/${scanId}:v${version}`;
@@ -70,11 +71,19 @@ export function createMockXnatApi(): MockXnatApi {
       return takeFailure() ?? doUpload(p, String(nextRtScan++));
     },
 
+    async uploadSr(p) {
+      return takeFailure() ?? doUpload(p, String(nextSrScan++));
+    },
+
     async overwriteSeg(p) {
       return takeFailure() ?? doOverwrite(p);
     },
 
     async overwriteRtStruct(p) {
+      return takeFailure() ?? doOverwrite(p);
+    },
+
+    async overwriteSr(p) {
       return takeFailure() ?? doOverwrite(p);
     },
 

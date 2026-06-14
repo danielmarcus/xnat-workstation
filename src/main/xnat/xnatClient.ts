@@ -917,7 +917,7 @@ export class XnatClient {
     subjectId: string,
     sessionId: string,
     sessionLabel: string,
-    kind: 'SEG' | 'RTSTRUCT',
+    kind: 'SEG' | 'RTSTRUCT' | 'SR',
   ): Promise<{
     targetSessionId: string;
     targetSessionLabel: string;
@@ -941,7 +941,7 @@ export class XnatClient {
   private async findNextDerivedScanId(
     sessionId: string,
     sourceScanId: string,
-    kind: 'SEG' | 'RTSTRUCT',
+    kind: 'SEG' | 'RTSTRUCT' | 'SR',
   ): Promise<string> {
     const existingScans = await this.getScans(sessionId);
     const existingScanIds = new Set(existingScans.map((s) => s.id));
@@ -949,7 +949,7 @@ export class XnatClient {
     const suffix = Number.isNaN(srcNum)
       ? sourceScanId
       : String(srcNum).padStart(2, '0');
-    const prefixStart = kind === 'SEG' ? 30 : 40;
+    const prefixStart = kind === 'SEG' ? 30 : kind === 'RTSTRUCT' ? 40 : 50;
 
     for (let prefix = prefixStart; prefix < 100; prefix++) {
       const candidate = `${prefix}${suffix}`;
@@ -965,7 +965,7 @@ export class XnatClient {
    * If targetScanId is provided, that scan ID is used directly (overwrite path).
    */
   async prepareDicomForUpload(
-    kind: 'SEG' | 'RTSTRUCT',
+    kind: 'SEG' | 'RTSTRUCT' | 'SR',
     projectId: string,
     subjectId: string,
     sessionId: string,
@@ -1260,6 +1260,106 @@ export class XnatClient {
     // pullDataFromHeaders refresh removed — broken server-side (HTTP 500), see uploadDicomSegAsScan.
 
     console.log(`[xnatClient] RTSTRUCT overwrite successful: ${scanUrl}`);
+    return { url: scanUrl, scanId: targetScanId, versionToken };
+  }
+
+  /**
+   * Upload a DICOM-SR document to an XNAT session as a new scan (50xx convention).
+   * Mirrors uploadDicomRtStructAsScan.
+   *
+   * NOTE (live-verify): the SR scan xsiType (`xnat:srScanData`) is the conventional XNAT
+   * type for Structured Report scans, but the exact xsiType/type a given XNAT accepts is
+   * server-specific — confirm against the live CNDA on first SR save and adjust if the
+   * scan-create PUT is rejected (mirrors how SEG/RTSTRUCT xsiTypes were settled live).
+   */
+  async uploadDicomSrAsScan(
+    projectId: string,
+    subjectId: string,
+    sessionId: string,
+    sessionLabel: string,
+    sourceScanId: string,
+    dicomBuffer: Buffer,
+    seriesDescription: string = 'Measurements',
+  ): Promise<{ url: string; scanId: string; versionToken: string }> {
+    if (!this.jsessionId || this._disconnected) throw new XnatAuthError('Not authenticated');
+    const { targetSessionId, targetSessionLabel, targetProjectId, targetSubjectId } =
+      await this.resolveUploadRouting(projectId, subjectId, sessionId, sessionLabel, 'SR');
+    const targetScanId = await this.findNextDerivedScanId(targetSessionId, sourceScanId, 'SR');
+    const prepared = await this.prepareDicomForUpload(
+      'SR', projectId, subjectId, sessionId, sessionLabel, sourceScanId, dicomBuffer, targetScanId, seriesDescription,
+    );
+    const dicomWithScanNumber = prepared.dicomBuffer;
+
+    console.log(
+      `[xnatClient] Uploading DICOM SR as scan ${targetScanId}`,
+      `(experiment: ${targetSessionId}, source scan: ${sourceScanId}, ${(dicomBuffer.length / 1024).toFixed(1)} KB)`,
+    );
+
+    const basePath = `/data/projects/${encodeURIComponent(targetProjectId)}`
+      + `/subjects/${encodeURIComponent(targetSubjectId)}`
+      + `/experiments/${encodeURIComponent(targetSessionLabel)}`
+      + `/scans/${encodeURIComponent(targetScanId)}`;
+
+    const createParams = new URLSearchParams({
+      xsiType: 'xnat:srScanData',
+      'xnat:srScanData/type': 'SR',
+      'xnat:srScanData/series_description': seriesDescription,
+    });
+    const createResp = await this.xfetch(`${this.baseUrl}${basePath}?${createParams.toString()}`, { method: 'PUT' });
+    if (!createResp.ok) {
+      const text = await createResp.text().catch(() => '');
+      if (createResp.status === 403) {
+        throw new Error('Permission denied: you do not have write access to this project');
+      }
+      throw new Error(`Failed to create SR scan ${targetScanId}: ${createResp.status} ${text}`.trim());
+    }
+
+    const srFileParams = new URLSearchParams({ format: 'DICOM', content: 'secondary', label: 'secondary' });
+    const fileUrl = `${this.baseUrl}${basePath}/resources/secondary/files/sr.dcm?${srFileParams.toString()}`;
+    const fileResp = await this.xfetch(fileUrl, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/dicom' },
+      body: new Uint8Array(dicomWithScanNumber),
+    });
+    if (!fileResp.ok) {
+      const text = await fileResp.text().catch(() => '');
+      throw new Error(`Failed to upload SR file to scan ${targetScanId}: ${fileResp.status} ${text}`.trim());
+    }
+
+    const scanUrl = `${this.baseUrl}/data/experiments/${encodeURIComponent(targetSessionId)}/scans/${encodeURIComponent(targetScanId)}`;
+    const versionToken = this.deriveVersionToken(scanUrl, fileResp, dicomWithScanNumber);
+    return { url: scanUrl, scanId: targetScanId, versionToken };
+  }
+
+  /** Overwrite the DICOM-SR file within an existing scan. Mirrors overwriteDicomRtStructInScan. */
+  async overwriteDicomSrInScan(
+    sessionId: string,
+    targetScanId: string,
+    dicomBuffer: Buffer,
+    seriesDescription?: string,
+  ): Promise<{ url: string; scanId: string; versionToken: string }> {
+    if (!this.jsessionId || this._disconnected) throw new XnatAuthError('Not authenticated');
+    console.log(`[xnatClient] Overwriting DICOM SR in scan ${targetScanId} (${(dicomBuffer.length / 1024).toFixed(1)} KB)`);
+
+    const basePath = `/data/experiments/${encodeURIComponent(sessionId)}/scans/${encodeURIComponent(targetScanId)}`;
+    await this.deleteScanResourceFiles(basePath, 'secondary', '[xnatClient] SR overwrite:');
+
+    const dicomWithScanNumber = this.withUploadMetadata(dicomBuffer, targetScanId, seriesDescription);
+    const srFileParams = new URLSearchParams({ format: 'DICOM', content: 'secondary', label: 'secondary' });
+    const fileUrl = `${this.baseUrl}${basePath}/resources/secondary/files/sr.dcm?${srFileParams.toString()}`;
+    const fileResp = await this.xfetch(fileUrl, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/dicom' },
+      body: new Uint8Array(dicomWithScanNumber),
+    });
+    if (!fileResp.ok) {
+      const text = await fileResp.text().catch(() => '');
+      throw new Error(`Failed to overwrite SR in scan ${targetScanId}: ${fileResp.status} ${text}`.trim());
+    }
+
+    const scanUrl = `${this.baseUrl}${basePath}`;
+    const versionToken = this.deriveVersionToken(scanUrl, fileResp, dicomWithScanNumber);
+    console.log(`[xnatClient] SR overwrite successful: ${scanUrl}`);
     return { url: scanUrl, scanId: targetScanId, versionToken };
   }
 
