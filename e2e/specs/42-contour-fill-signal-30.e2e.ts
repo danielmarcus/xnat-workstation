@@ -21,11 +21,12 @@
  * (`unifiedSegService.ensureContourEditPrereq`, invoked from `setActiveTool`) adds
  * that representation at tool-activation time.
  *
- * KNOWN GAP (separate follow-up): signal 30's "undo reverts the fill as ONE entry"
- * is NOT yet satisfied — Cornerstone's `viewportContoursToLabelmap` writes the voxels
- * then only fires SEGMENTATION_DATA_MODIFIED; it never finalizes a history memo, so
- * the fill isn't on the undo ring. That needs an app-boundary memo workaround and is
- * tracked separately; this spec asserts the primary clause (the fill rasterizes).
+ * Undo (signal 30's second clause — "undo reverts the fill as ONE entry"):
+ * Cornerstone's `viewportContoursToLabelmap` writes the voxels then only fires
+ * SEGMENTATION_DATA_MODIFIED; it never finalizes a history memo, so the fill would be
+ * absent from the undo ring. `installContourFillUndo` bridges that at the app boundary
+ * (before/after labelmap snapshot → one custom memo). This spec asserts BOTH: the fill
+ * rasterizes, and a single undo reverts the entire fill.
  */
 import { test, expect } from '../fixtures/electron-app';
 import type { Page } from '@playwright/test';
@@ -40,6 +41,8 @@ interface E2EHooks {
   getPaintedVoxelCount: () => number;
   isUnifiedVolumeReady: () => boolean;
   resetUnifiedSegmentations: () => void;
+  canUnifiedUndo: () => boolean;
+  triggerUnifiedUndo: () => void;
 }
 type Win = { __XNAT_E2E__: E2EHooks };
 
@@ -135,4 +138,11 @@ test('Contour Fill rasterizes the enclosed region into the active segment (signa
         + `pageErrors=${JSON.stringify(pageErrors)} consoleErrors=${JSON.stringify(consoleErrors.slice(0, 8))}`,
     })
     .toBeGreaterThan(0);
+
+  // CONTRACT (signal 30): a single undo reverts the ENTIRE fill.
+  expect(await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.canUnifiedUndo())).toBe(true);
+  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.triggerUnifiedUndo());
+  await expect
+    .poll(() => paintedVoxels(page), { timeout: 10_000, message: 'one undo should revert the whole contour fill' })
+    .toBe(0);
 });
