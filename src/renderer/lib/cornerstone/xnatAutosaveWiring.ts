@@ -18,8 +18,10 @@
  */
 import { useSegmentationStore } from '../../stores/segmentationStore';
 import { useViewerStore } from '../../stores/viewerStore';
+import { useAnnotationStore } from '../../stores/annotationStore';
 import { segmentationService } from './segmentationService';
 import { rtStructService } from './rtStructService';
+import { exportMeasurementsToDicomSr } from './srExport';
 import { createXnatUploadApi } from './xnatUploadApi';
 import { createXnatTransportService } from './transportService';
 import type { SerializedContainer } from './annotationTransport';
@@ -48,6 +50,8 @@ export interface BuildSerializedContainerDeps {
   exportSeg: (id: string) => Promise<string>;
   /** Export an RTSTRUCT container to base64 DICOM. */
   exportRtStruct: (id: string) => Promise<string>;
+  /** Export an SR (Measurement) container to base64 DICOM-SR; null if it has no measurements. */
+  exportSr: (id: string) => Promise<string | null>;
   /** Resolve the XNAT origin; `undefined` ⇒ no save target. */
   originOf: (id: string) => XnatOrigin | undefined;
   /** Resolve the missing SourceIdentity fields from the viewer layer. */
@@ -79,7 +83,12 @@ export async function buildSerializedContainer(
   const base64 =
     kind === 'RTSTRUCT'
       ? await deps.exportRtStruct(containerId)
-      : await deps.exportSeg(containerId);
+      : kind === 'SR'
+        ? await deps.exportSr(containerId)
+        : await deps.exportSeg(containerId);
+  // An SR container with no measurements has nothing to serialize → no-op (null), same
+  // as no-origin: the transportSaver maps null to a permanent "no content" outcome.
+  if (base64 == null) return null;
 
   const viewer = deps.viewerContextOf(containerId);
   const source: SourceIdentity = {
@@ -148,7 +157,29 @@ export function composeXnatTransport(): void {
     return;
   }
 
-  const kindOf = (id: string): ContainerKind => segmentationService.getPreferredDicomType(id);
+  // SR containers are annotationStore-backed (synthetic `sr:` ids), not segmentations,
+  // so getPreferredDicomType (a segmentation lookup) can't classify them.
+  const kindOf = (id: string): ContainerKind =>
+    id.startsWith('sr:') ? 'SR' : segmentationService.getPreferredDicomType(id);
+
+  /** The measurement UIDs belonging to an SR container (mirrors containerProjection's
+   *  affiliation grouping: a created container gets its affiliated measurements; the
+   *  default container gets the unaffiliated ones). */
+  const srMemberUids = (containerId: string): string[] => {
+    const { annotations, srContainers, srAffiliation } = useAnnotationStore.getState();
+    const createdIds = new Set((srContainers ?? []).map((c) => c.id));
+    const aff = srAffiliation ?? {};
+    return annotations
+      .filter((a) =>
+        createdIds.has(containerId)
+          ? aff[a.annotationUID] === containerId
+          : !aff[a.annotationUID] || !createdIds.has(aff[a.annotationUID]))
+      .map((a) => a.annotationUID);
+  };
+
+  /** The SR container's label (created container's label, or the default "Measurements"). */
+  const srLabelOf = (containerId: string): string =>
+    (useAnnotationStore.getState().srContainers ?? []).find((c) => c.id === containerId)?.label ?? 'Measurements';
 
   const originOf = (id: string): XnatOrigin | undefined => {
     const v = useViewerStore.getState();
@@ -175,10 +206,13 @@ export function composeXnatTransport(): void {
     kindOf,
     exportSeg: (id) => segmentationService.exportToDicomSeg(id),
     exportRtStruct: (id) => rtStructService.exportToRtStruct(id),
+    exportSr: (id) => exportMeasurementsToDicomSr(srMemberUids(id), { seriesDescription: srLabelOf(id) }),
     originOf,
     viewerContextOf,
     labelOf: (id) =>
-      useSegmentationStore.getState().segmentations.find((s) => s.segmentationId === id)?.label,
+      id.startsWith('sr:')
+        ? srLabelOf(id)
+        : useSegmentationStore.getState().segmentations.find((s) => s.segmentationId === id)?.label,
   };
 
   // The transport routes SEG vs RTSTRUCT by the container's kind (from the serialized

@@ -47,6 +47,7 @@ function makeDeps(overrides: Partial<BuildSerializedContainerDeps> = {}): BuildS
     kindOf: () => 'SEG',
     exportSeg: vi.fn(async () => 'SEG_BASE64'),
     exportRtStruct: vi.fn(async () => 'RTSTRUCT_BASE64'),
+    exportSr: vi.fn(async () => 'SR_BASE64'),
     originOf: () => ({ projectId: 'P1', sessionId: 'E1', sourceScanId: '4', scanId: '3004' }),
     viewerContextOf: () => ({ subjectId: 'SUBJ1', sessionLabel: 'EXP_LABEL' }),
     labelOf: () => 'Liver',
@@ -127,6 +128,24 @@ describe('buildSerializedContainer (pure)', () => {
     expect(exportSeg).not.toHaveBeenCalled();
     expect(result?.kind).toBe('RTSTRUCT');
     expect(result?.base64).toBe('RTSTRUCT_BASE64');
+  });
+
+  it('routes an SR container to exportSr', async () => {
+    const exportSr = vi.fn(async () => 'SR_BASE64');
+    const exportSeg = vi.fn(async () => 'SEG_BASE64');
+    const deps = makeDeps({ kindOf: () => 'SR', exportSr, exportSeg });
+
+    const result = await buildSerializedContainer('sr:measurements', deps);
+
+    expect(exportSr).toHaveBeenCalledWith('sr:measurements');
+    expect(exportSeg).not.toHaveBeenCalled();
+    expect(result?.kind).toBe('SR');
+    expect(result?.base64).toBe('SR_BASE64');
+  });
+
+  it('returns null for an SR container with no measurements (exportSr → null), never assembling a save', async () => {
+    const deps = makeDeps({ kindOf: () => 'SR', exportSr: vi.fn(async () => null) });
+    expect(await buildSerializedContainer('sr:measurements', deps)).toBeNull();
   });
 
   it('returns null (no save target) when origin is unknown — and never exports', async () => {
