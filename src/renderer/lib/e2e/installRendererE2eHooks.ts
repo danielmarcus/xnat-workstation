@@ -142,6 +142,12 @@ declare global {
       canUnifiedUndo: () => boolean;
       /** Undo the last edit via the global history (works after the source panel closed). */
       triggerUnifiedUndo: () => void;
+      /** The toolbar undo/redo enabled state (segmentationStore.canUndo/canRedo). */
+      getUndoRedoState: () => { canUndo: boolean; canRedo: boolean };
+      /** Drive the real toolbar Undo button path (segmentationService.undo). */
+      triggerToolbarUndo: () => void;
+      /** Drive the real toolbar Redo button path (segmentationService.redo). */
+      triggerToolbarRedo: () => void;
       /** A panel's camera focal point (world coords) — the volume centre for a centred view. */
       getPanelFocalPoint: (panelId: string) => [number, number, number] | null;
       /** Convert a world point to PAGE coordinates on a panel's canvas (DPR-corrected). */
@@ -690,6 +696,12 @@ export function installRendererE2eHooks(): void {
         return 0;
       }
     },
+    getUndoRedoState: () => {
+      const s = useSegmentationStore.getState();
+      return { canUndo: s.canUndo, canRedo: s.canRedo };
+    },
+    triggerToolbarUndo: () => segmentationService.undo(),
+    triggerToolbarRedo: () => segmentationService.redo(),
     canUnifiedUndo: () => undoService.canUndo(),
     triggerUnifiedUndo: () => undoService.undo(),
     getPanelFocalPoint: (panelId: string) => {

@@ -806,6 +806,21 @@ function refreshUndoState(): void {
   useSegmentationStore.getState()._refreshUndoState(canUndo, canRedo);
 }
 
+// Edits push their undo memo when the gesture ENDS (e.g. BrushTool.doneEditMemo on
+// mouseUp), which is AFTER the SEGMENTATION_DATA_MODIFIED events fire mid-stroke — and
+// the history ring emits no "pushed" event. So refresh the toolbar canUndo/canRedo flags
+// on a short debounce after a data-modified, which lands once the gesture (and its memo
+// push) has settled. Without this the toolbar Undo/Redo buttons stay disabled after an
+// edit even though the history has an entry.
+let undoStateRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+function scheduleUndoStateRefresh(): void {
+  if (undoStateRefreshTimer) clearTimeout(undoStateRefreshTimer);
+  undoStateRefreshTimer = setTimeout(() => {
+    undoStateRefreshTimer = null;
+    refreshUndoState();
+  }, 150);
+}
+
 function renderAllSegmentationViewports(): void {
   const viewportIds = new Set<string>();
   for (const seg of csSegmentation.state.getSegmentations()) {
@@ -1234,6 +1249,9 @@ function onSegmentationDataModified(evt?: Event): void {
       scheduleLabelmapInterpolation();
     }
   }
+  // Refresh toolbar undo/redo availability after the edit's memo settles (see
+  // scheduleUndoStateRefresh) — runs regardless of dirty-tracking suppression.
+  scheduleUndoStateRefresh();
 }
 
 /** Called when an annotation is completed/modified — triggers auto-save for contour segmentations. */
