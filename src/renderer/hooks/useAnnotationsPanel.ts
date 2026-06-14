@@ -26,6 +26,7 @@ import { usePreferencesStore } from '../stores/preferencesStore';
 import { segmentationService } from '../lib/cornerstone/segmentationService';
 import { rtStructService } from '../lib/cornerstone/rtStructService';
 import { segmentProvenance } from '../lib/cornerstone/interpolationAcceptance';
+import { getAnnotationUIDs } from '../lib/cornerstone/contourRepresentation';
 import { unifiedToolService } from '../lib/cornerstone/unifiedToolService';
 import { segmentationManager } from '../lib/segmentation/segmentationManagerSingleton';
 import { projectContainers } from '../lib/annotations/containerProjection';
@@ -364,6 +365,19 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
     return idx == null ? undefined : segmentProvenance(containerId, idx);
   };
 
+  // Empty-member marker (signal 17): a contour (RTSTRUCT) member with no contour
+  // geometry yet. Drawing into the active member appends to it (the active-member is
+  // the draw target) and this marker clears on the next projection. SEG emptiness is
+  // not cheaply derivable here (no per-segment voxel count in the summary) — surfaced
+  // only for contour members for now.
+  const kindById = new Map(containers.map((c) => [c.id, c.kind]));
+  const emptyOf = (containerId: string, member: { segmentIndex?: number; roiNumber?: number }): boolean => {
+    if (kindById.get(containerId) !== 'RTSTRUCT') return false;
+    const idx = member.segmentIndex ?? member.roiNumber;
+    if (idx == null) return false;
+    return (getAnnotationUIDs(containerId, idx)?.size ?? 0) === 0;
+  };
+
   return {
     containers,
     containerCount: containers.length,
@@ -388,6 +402,7 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
     isSelected: (cid: string, mid: string) => selection.some((r) => r.containerId === cid && r.memberId === mid),
     metricOf,
     provenanceOf,
+    emptyOf,
     palette,
     // transport (in-place row state) + H7 conflict dialog
     transportOf,

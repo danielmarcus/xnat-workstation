@@ -47,6 +47,7 @@ export default function AnnotationsPanel({ activeViewportId, sourceImageIds }: A
           isSelected={panel.isSelected}
           metricOf={panel.metricOf}
           provenanceOf={panel.provenanceOf}
+          emptyOf={panel.emptyOf}
           palette={panel.palette}
           transportOf={panel.transportOf}
           autoEditContainerId={panel.autoEditContainerId}
