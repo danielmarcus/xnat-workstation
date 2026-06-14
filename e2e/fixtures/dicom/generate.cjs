@@ -55,7 +55,20 @@ function writeCtSeries(outDir, opts) {
     sopClassUID = CT_IMAGE_STORAGE,
     seriesNumber = 1,
     filePrefix = '',
+    // ImageOrientationPatient [rowX,rowY,rowZ, colX,colY,colZ]. Default = pure axial.
+    // A non-axis-aligned value yields an OBLIQUE acquisition plane — exercising code that
+    // assumes world-axis-aligned slices (e.g. contour-fill rasterization, which projects
+    // the polyline onto a world axis and throws on oblique planes).
+    imageOrientationPatient = [1, 0, 0, 0, 1, 0],
   } = opts;
+  const rowCos = imageOrientationPatient.slice(0, 3);
+  const colCos = imageOrientationPatient.slice(3, 6);
+  // Slice normal = rowCos × colCos (advances ImagePositionPatient between slices).
+  const normal = [
+    rowCos[1] * colCos[2] - rowCos[2] * colCos[1],
+    rowCos[2] * colCos[0] - rowCos[0] * colCos[2],
+    rowCos[0] * colCos[1] - rowCos[1] * colCos[0],
+  ];
 
   const studyUID = opts.studyUID || DicomMetaDictionary.uid();
   const seriesUID = DicomMetaDictionary.uid();
@@ -72,13 +85,18 @@ function writeCtSeries(outDir, opts) {
   for (let s = 0; s < numSlices; s++) {
     const sopInstanceUID = DicomMetaDictionary.uid();
     const pixels = new Int16Array(rows * cols);
-    const z = (s - cz) * sliceThickness;
+    const sa = (s - cz) * sliceThickness; // signed distance along the slice normal
     let i = 0;
     for (let r = 0; r < rows; r++) {
-      const y = (r - cy) * pixelSpacing[0];
+      const ra = (r - cy) * pixelSpacing[0];
       for (let c = 0; c < cols; c++) {
-        const x = (c - cx) * pixelSpacing[1];
-        pixels[i++] = voxel(x, y, z);
+        const ca = (c - cx) * pixelSpacing[1];
+        // World position of voxel (r,c,s) = ca·rowCos + ra·colCos + sa·normal (centred).
+        // For the default axial orientation this collapses to (x, y, z) exactly.
+        const wx = ca * rowCos[0] + ra * colCos[0] + sa * normal[0];
+        const wy = ca * rowCos[1] + ra * colCos[1] + sa * normal[1];
+        const wz = ca * rowCos[2] + ra * colCos[2] + sa * normal[2];
+        pixels[i++] = voxel(wx, wy, wz);
       }
     }
 
@@ -115,9 +133,14 @@ function writeCtSeries(outDir, opts) {
       PixelSpacing: pixelSpacing,
       SliceThickness: sliceThickness,
       SpacingBetweenSlices: sliceThickness,
-      ImageOrientationPatient: [1, 0, 0, 0, 1, 0],
-      ImagePositionPatient: [-cx * pixelSpacing[1], -cy * pixelSpacing[0], z],
-      SliceLocation: z,
+      ImageOrientationPatient: imageOrientationPatient,
+      // IPP = world position of pixel (0,0) on this slice = -cx·rowCos - cy·colCos + sa·normal.
+      ImagePositionPatient: [
+        -cx * pixelSpacing[1] * rowCos[0] - cy * pixelSpacing[0] * colCos[0] + sa * normal[0],
+        -cx * pixelSpacing[1] * rowCos[1] - cy * pixelSpacing[0] * colCos[1] + sa * normal[1],
+        -cx * pixelSpacing[1] * rowCos[2] - cy * pixelSpacing[0] * colCos[2] + sa * normal[2],
+      ],
+      SliceLocation: sa,
       WindowCenter: 0,
       WindowWidth: 2000,
       PixelData: pixels.buffer,
@@ -138,7 +161,15 @@ function writeCtSeries(outDir, opts) {
 
     const filename = `${filePrefix}slice-${String(s + 1).padStart(3, '0')}.dcm`;
     fs.writeFileSync(path.join(outDir, filename), Buffer.from(buffer));
-    slices.push({ sopInstanceUID, z, ipp: [-cx * pixelSpacing[1], -cy * pixelSpacing[0], z] });
+    slices.push({
+      sopInstanceUID,
+      z: sa,
+      ipp: [
+        -cx * pixelSpacing[1] * rowCos[0] - cy * pixelSpacing[0] * colCos[0] + sa * normal[0],
+        -cx * pixelSpacing[1] * rowCos[1] - cy * pixelSpacing[0] * colCos[1] + sa * normal[1],
+        -cx * pixelSpacing[1] * rowCos[2] - cy * pixelSpacing[0] * colCos[2] + sa * normal[2],
+      ],
+    });
   }
 
   return { count: numSlices, rows, cols, studyUID, seriesUID, frameOfReferenceUID, pixelSpacing, slices };
@@ -151,6 +182,22 @@ function generateCtAxial300(outDir) {
     seriesDescription: 'CT AXIAL 300 (sphere phantom)',
     patientId: 'CT-AXIAL-300',
     patientName: 'PHANTOM^SPHERE',
+    voxel: (x, y, z) => (Math.sqrt(x * x + y * y + z * z) <= radiusMm ? 300 : -1000),
+  });
+}
+
+function generateCtOblique(outDir) {
+  // Same sphere phantom, acquired on an OBLIQUE plane (~30° tilt about X). The
+  // acquisition plane has no constant world axis, so a contour drawn on it is oblique in
+  // world space — the case that broke Cornerstone's world-space contour-fill rasterizer.
+  const radiusMm = 24;
+  const cos30 = Math.cos(Math.PI / 6);
+  const sin30 = Math.sin(Math.PI / 6);
+  return writeCtSeries(outDir, {
+    seriesDescription: 'CT OBLIQUE (sphere, ~30deg tilt)',
+    patientId: 'CT-OBLIQUE',
+    patientName: 'PHANTOM^OBLIQUE',
+    imageOrientationPatient: [1, 0, 0, 0, cos30, sin30],
     voxel: (x, y, z) => (Math.sqrt(x * x + y * y + z * z) <= radiusMm ? 300 : -1000),
   });
 }
@@ -578,6 +625,7 @@ function generateCineUs(outDir) {
 
 const GENERATORS = {
   'ct-axial-300': generateCtAxial300,
+  'ct-oblique': generateCtOblique,
   'ct-axial-anatomy': generateCtAxialAnatomy,
   'rtstruct-typed': generateRtstructTyped,
   'seg-multilabel': generateSegMultilabel,
