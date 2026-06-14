@@ -19,6 +19,7 @@ const m = vi.hoisted(() => ({
 
 const EV_INTERP = 'ANNOTATION_INTERPOLATION_PROCESS_COMPLETED';
 const EV_SELECT = 'ANNOTATION_SELECTION_CHANGE';
+const EV_MODIFIED = 'ANNOTATION_MODIFIED';
 
 vi.mock('@cornerstonejs/core', () => ({
   eventTarget: {
@@ -29,7 +30,7 @@ vi.mock('@cornerstonejs/core', () => ({
 vi.mock('@cornerstonejs/tools', () => ({
   annotation: { state: { getAllAnnotations: m.getAllAnnotations, getAnnotation: m.getAnnotation } },
   // Literals inlined — the factory is hoisted above the const declarations below.
-  Enums: { Events: { ANNOTATION_INTERPOLATION_PROCESS_COMPLETED: 'ANNOTATION_INTERPOLATION_PROCESS_COMPLETED', ANNOTATION_SELECTION_CHANGE: 'ANNOTATION_SELECTION_CHANGE' } },
+  Enums: { Events: { ANNOTATION_INTERPOLATION_PROCESS_COMPLETED: 'ANNOTATION_INTERPOLATION_PROCESS_COMPLETED', ANNOTATION_SELECTION_CHANGE: 'ANNOTATION_SELECTION_CHANGE', ANNOTATION_MODIFIED: 'ANNOTATION_MODIFIED' } },
 }));
 vi.mock('../contourRepresentation', () => ({ addAnnotation: m.addAnnotation }));
 
@@ -116,5 +117,19 @@ describe('contour provenance (signal 22)', () => {
 
     expect(clearContourProvenance({ metadata: { provenance: 'manual' } })).toBe(false);
     expect(clearContourProvenance({})).toBe(false);
+  });
+
+  it('a user edit (ANNOTATION_MODIFIED) flips an interpolated contour to manual; leaves others alone', () => {
+    initialize();
+    const handler = m.listeners.get(EV_MODIFIED);
+    expect(handler, 'annotation-modified handler must be registered').toBeDefined();
+
+    const interp = { metadata: { provenance: 'interpolated' } };
+    handler!({ detail: { annotation: interp } } as unknown as Event);
+    expect(interp.metadata.provenance).toBe('manual'); // edit cleared the marker
+
+    const manual = { metadata: { provenance: 'manual' } };
+    handler!({ detail: { annotation: manual } } as unknown as Event);
+    expect(manual.metadata.provenance).toBe('manual'); // unchanged
   });
 });
