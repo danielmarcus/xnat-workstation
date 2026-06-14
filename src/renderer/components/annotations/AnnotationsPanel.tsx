@@ -25,6 +25,7 @@ export default function AnnotationsPanel({ activeViewportId, sourceImageIds }: A
       activeMemberColor={panel.toolbox.activeMemberColor}
       activeToolId={panel.toolbox.activeToolId}
       onSelectTool={panel.toolbox.onSelectTool}
+      controls={panel.toolbox.controls}
     />
   ) : undefined;
 

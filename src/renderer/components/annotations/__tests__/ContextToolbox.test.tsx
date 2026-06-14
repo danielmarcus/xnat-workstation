@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import ContextToolbox from '../ContextToolbox';
 
@@ -51,6 +51,22 @@ describe('ContextToolbox', () => {
     const slider = screen.getByLabelText('Labelmap opacity') as HTMLInputElement;
     expect(slider.value).toBe('60');
     expect(screen.getByText('Backed up · 2s ago')).toBeTruthy();
+  });
+
+  it('shows the brush-size control and fires onBrushSizeChange', () => {
+    const onBrushSizeChange = vi.fn();
+    setup({
+      controls: { activeSegmentLabel: 'Segment 2', opacity: 0.5, onOpacityChange: vi.fn(), brushSize: 12, onBrushSizeChange },
+    });
+    const slider = screen.getByLabelText('Brush size') as HTMLInputElement;
+    expect(slider.value).toBe('12');
+    fireEvent.change(slider, { target: { value: '30' } });
+    expect(onBrushSizeChange).toHaveBeenCalledWith(30);
+  });
+
+  it('omits the brush-size control when brushSize is not provided', () => {
+    setup({ controls: { activeSegmentLabel: 'Segment 2', opacity: 0.5, onOpacityChange: vi.fn() } });
+    expect(screen.queryByLabelText('Brush size')).toBeNull();
   });
 
   it('renders icon-only (no labels) when compact', () => {

@@ -58,6 +58,13 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
   const transportEntries = useTransportStore((s) => s.entries);
   // Settings color sequence → palette swatches offered in the member color picker.
   const colorSequence = usePreferencesStore((s) => s.preferences.annotation.defaultColorSequence);
+  // SEG controls strip: labelmap opacity (global style) + brush radius. Opacity lives
+  // in the store; brush size has no service getter, so track it locally (the slider is
+  // the only brush-size control).
+  const fillAlpha = useSegmentationStore((s) => s.fillAlpha);
+  const renderOutline = useSegmentationStore((s) => s.renderOutline);
+  const setFillAlpha = useSegmentationStore((s) => s.setFillAlpha);
+  const [brushSize, setBrushSize] = useState(25);
 
   const activeMember = useAnnotationSelectionStore((s) => s.activeMember);
   const selection = useAnnotationSelectionStore((s) => s.selection);
@@ -383,6 +390,24 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
           activeMemberColor: rgbaToCss(activeMemberObj?.color),
           activeToolId,
           onSelectTool,
+          // SEG-only controls strip: labelmap opacity + brush radius apply to the
+          // labelmap; RTSTRUCT/SR have no equivalent here.
+          controls: activeContainer.kind === 'SEG'
+            ? {
+                activeSegmentLabel: activeMemberObj?.label ?? '',
+                activeSegmentColor: rgbaToCss(activeMemberObj?.color),
+                opacity: fillAlpha,
+                onOpacityChange: (v: number) => {
+                  setFillAlpha(v);
+                  segmentationService.updateStyle(v, renderOutline);
+                },
+                brushSize,
+                onBrushSizeChange: (v: number) => {
+                  setBrushSize(v);
+                  unifiedToolService.setBrushSize(v);
+                },
+              }
+            : undefined,
         }
       : null,
   };

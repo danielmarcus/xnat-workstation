@@ -24,6 +24,9 @@ export interface ContextToolboxControls {
   /** Labelmap opacity 0–1. */
   opacity: number;
   onOpacityChange: (value: number) => void;
+  /** Brush radius in voxels (the segmentation brush family). Omit to hide the control. */
+  brushSize?: number;
+  onBrushSizeChange?: (value: number) => void;
   /** Silent in-place backup status text, e.g. "Backed up · 2s ago" (null = hidden). */
   backupStatus?: string | null;
 }
@@ -106,6 +109,21 @@ export default function ContextToolbox(props: ContextToolboxProps) {
               />
               <span className="text-[10px] text-zinc-300">{Math.round(controls.opacity * 100)}%</span>
             </div>
+            {controls.brushSize != null && controls.onBrushSizeChange && (
+              <div className="flex items-center gap-2 mt-1.5">
+                <span className="text-[10px] text-zinc-400 whitespace-nowrap">Brush size</span>
+                <input
+                  type="range"
+                  min={1}
+                  max={50}
+                  value={controls.brushSize}
+                  onChange={(e) => controls.onBrushSizeChange!(Number(e.target.value))}
+                  aria-label="Brush size"
+                  className="flex-1 accent-blue-500"
+                />
+                <span className="text-[10px] text-zinc-300">{controls.brushSize}px</span>
+              </div>
+            )}
           </div>
           {controls.backupStatus && (
             <div className="px-3 py-1.5 border-t border-zinc-800 flex items-center gap-1.5 text-[10px] text-emerald-400/90">
