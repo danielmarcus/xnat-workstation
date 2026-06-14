@@ -29,9 +29,18 @@ export function evaluateDrawBlock(params: {
   /** The FoR decision (unifiedSegService.canDrawOnViewport). */
   decide: (activeContainerId: string, viewportId: string) => { allowed: boolean; reason?: string };
   viewportId: string;
+  /** Whether the active segment (what an edit would write) is locked (signal 21/29). */
+  isActiveSegmentLocked?: () => boolean;
 }): DrawBlockResult {
-  const { activeTool, activeContainerId, decide, viewportId } = params;
+  const { activeTool, activeContainerId, decide, viewportId, isActiveSegmentLocked } = params;
   if (!activeTool || !DRAWING_TOOL_NAMES.has(activeTool)) return { block: false };
+  // Locked active segment: block at gesture-start regardless of the active-container
+  // model. The brush writes into the active SEGMENTATION; Cornerstone won't stop a
+  // locked segment from accepting NEW voxels, so we gate it here. Checked before the
+  // fail-open path so it applies even in the bare (no active-container) brush flow.
+  if (isActiveSegmentLocked?.()) {
+    return { block: true, reason: 'Segment is locked — unlock it to edit.' };
+  }
   if (!activeContainerId) return { block: false }; // fail open — legacy flow must draw
   const d = decide(activeContainerId, viewportId);
   return d.allowed ? { block: false } : { block: true, reason: d.reason };

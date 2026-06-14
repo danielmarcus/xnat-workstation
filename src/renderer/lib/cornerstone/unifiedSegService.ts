@@ -535,6 +535,31 @@ export const unifiedSegService = {
     } catch { /* best-effort */ }
   },
 
+  /**
+   * Is the active segment (the one an edit would write into) locked? (signal 21/29.)
+   * Cornerstone's voxel strategies only prevent OVERWRITING locked voxels — they do
+   * NOT prevent ADDING to a locked active segment on empty space — so the "locking a
+   * segment blocks editing at gesture-start" policy is enforced app-side (the
+   * drawGestureGuard consults this). Reads the active segmentation + its active segment
+   * index and the Cornerstone lock state.
+   */
+  isActiveSegmentLocked(): boolean {
+    const segmentationId = useSegmentationStore.getState().activeSegmentationId;
+    if (!segmentationId) return false;
+    let idx: number | undefined;
+    try {
+      idx = csSegmentation.segmentIndex.getActiveSegmentIndex(segmentationId);
+    } catch {
+      idx = undefined;
+    }
+    if (!idx) return false;
+    try {
+      return csSegmentation.segmentLocking.isSegmentIndexLocked(segmentationId, idx);
+    } catch {
+      return false;
+    }
+  },
+
   /** Forget all tracked unified segmentations (test isolation). */
   reset(): void {
     created.clear();

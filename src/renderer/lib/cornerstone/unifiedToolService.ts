@@ -256,6 +256,19 @@ export const unifiedToolService = {
     if (toolName === ToolName.LabelmapEditWithContour) {
       ensureContourEditPrereq(toolGroup.getViewportIds());
     }
+    // Brush family (Brush / Eraser / ThresholdBrush) all share BrushTool — only the
+    // active STRATEGY differs (fill / erase / threshold). The strategy must be set on
+    // EVERY selection, including switches WITHIN the family: Brush→Eraser keep the same
+    // BrushTool primary binding, so they hit the `csName === currentPrimary` early
+    // return below — selecting it after the binding swap would never run. Set it here,
+    // before the early return, so the eraser actually erases.
+    if (csName === BrushTool.toolName) {
+      try {
+        toolGroup.setActiveStrategy(BrushTool.toolName, BRUSH_STRATEGY[toolName] ?? 'FILL_INSIDE_CIRCLE');
+      } catch {
+        /* default strategy */
+      }
+    }
     if (csName === currentPrimary) {
       activeToolName = toolName;
       return;
@@ -270,15 +283,6 @@ export const unifiedToolService = {
     const oldBase = NAV_BASE_BINDING[currentPrimary];
     if (oldBase !== undefined) {
       toolGroup.setToolActive(currentPrimary, { bindings: [{ mouseButton: oldBase }] });
-    }
-
-    // Brush family share BrushTool — pick the fill/erase/threshold strategy by ToolName.
-    if (csName === BrushTool.toolName) {
-      try {
-        toolGroup.setActiveStrategy(BrushTool.toolName, BRUSH_STRATEGY[toolName] ?? 'FILL_INSIDE_CIRCLE');
-      } catch {
-        /* default strategy */
-      }
     }
 
     // Promote the new tool to Primary (merges with its own fixed nav binding,

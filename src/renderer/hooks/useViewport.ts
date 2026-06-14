@@ -191,6 +191,7 @@ export function useViewport({
         activeContainerId: useAnnotationSelectionStore.getState().activeMember?.containerId ?? null,
         decide: (acid, vp) => canDrawOnViewport(acid, vp),
         viewportId: panelId,
+        isActiveSegmentLocked: () => unifiedSegService.isActiveSegmentLocked(),
       });
       if (block) {
         e.stopImmediatePropagation();
