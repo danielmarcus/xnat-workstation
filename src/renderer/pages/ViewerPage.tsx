@@ -29,6 +29,7 @@ import { useXnatAutosaveOptIn } from '../hooks/useXnatAutosaveOptIn';
 import { useAnnotationStore } from '../stores/annotationStore';
 import { useSegmentationStore } from '../stores/segmentationStore';
 import { useViewerStore } from '../stores/viewerStore';
+import { usePreferencesStore } from '../stores/preferencesStore';
 
 interface ViewerPageProps {
   panelImageIds: Record<string, string[]>;
@@ -87,6 +88,14 @@ export default function ViewerPage({
       toolService.destroy();
     };
   }, []);
+
+  // Propagate the inter-slice interpolation preference to the unified tool group live
+  // (signal 13). The unified contour tools default to interpolation OFF, so this is what
+  // actually enables it (and lets the Settings toggle disable it).
+  const interpolationEnabled = usePreferencesStore((s) => s.preferences.interpolation.enabled);
+  useEffect(() => {
+    unifiedToolService.setInterpolationEnabled(interpolationEnabled);
+  }, [interpolationEnabled]);
 
   return (
     <div className="flex flex-col flex-1 min-h-0">

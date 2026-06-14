@@ -62,6 +62,7 @@ import SafePaintFillTool from './tools/SafePaintFillTool';
 import { ToolName } from '@shared/types/viewer';
 import { viewportService } from './viewportService';
 import { ensureContourEditPrereq } from './contourEditPrereq';
+import { usePreferencesStore } from '../../stores/preferencesStore';
 
 const UNIFIED_TOOL_GROUP_ID = 'xnatToolGroup_unified';
 
@@ -124,6 +125,31 @@ const BRUSH_STRATEGY: Partial<Record<ToolName, string>> = {
   [ToolName.Eraser]: 'ERASE_INSIDE_CIRCLE',
   [ToolName.ThresholdBrush]: 'THRESHOLD_INSIDE_CIRCLE',
 };
+
+/**
+ * Contour-segmentation tools that support inter-slice interpolation (signal 13). When
+ * `interpolation.enabled` is set on these, drawing contours on non-adjacent slices of
+ * the same segment makes Cornerstone auto-generate the in-between contours. The legacy
+ * tool group configured this; the unified group must too, or interpolation is silently
+ * off on the active path.
+ */
+const CONTOUR_INTERPOLATION_TOOL_NAMES = [
+  PlanarFreehandContourSegmentationTool.toolName,
+  SplineContourSegmentationTool.toolName,
+  LivewireContourSegmentationTool.toolName,
+  LabelMapEditWithContourTool.toolName,
+] as const;
+
+/** Apply the interpolation flag to every contour-interpolation tool in the group. */
+function applyInterpolation(toolGroup: ToolTypes.IToolGroup, enabled: boolean): void {
+  for (const toolName of CONTOUR_INTERPOLATION_TOOL_NAMES) {
+    try {
+      toolGroup.setToolConfiguration(toolName, { interpolation: { enabled } });
+    } catch (err) {
+      console.debug(`[unifiedToolService] interpolation config for ${toolName} failed:`, err);
+    }
+  }
+}
 
 /**
  * Fixed, non-Primary mouse binding for the nav tools — always preserved so
@@ -214,6 +240,10 @@ function ensureToolGroup(): ToolTypes.IToolGroup | undefined {
       /* not all tools support passive; safe to ignore */
     }
   }
+
+  // Inter-slice contour interpolation (signal 13): enable per the user's preference so
+  // drawing contours on non-adjacent slices auto-generates the in-between contours.
+  applyInterpolation(toolGroup, usePreferencesStore.getState().preferences.interpolation.enabled);
 
   currentPrimary = WindowLevelTool.toolName;
   console.log('[unifiedToolService] Unified tool group initialized');
@@ -356,6 +386,12 @@ export const unifiedToolService = {
     } catch (err) {
       console.warn('[unifiedToolService] setBrushThreshold failed:', err);
     }
+  },
+
+  /** Enable/disable inter-slice contour interpolation live (signal 13). Idempotent. */
+  setInterpolationEnabled(enabled: boolean): void {
+    const toolGroup = getToolGroup();
+    if (toolGroup) applyInterpolation(toolGroup, enabled);
   },
 
   /**
