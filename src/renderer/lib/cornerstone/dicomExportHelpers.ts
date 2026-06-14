@@ -18,7 +18,7 @@ export const WORKSTATION_DICOM_METADATA = Object.freeze({
   StationName: 'XNATWS',
 });
 
-export type DerivedDicomKind = 'SEG' | 'RTSTRUCT';
+export type DerivedDicomKind = 'SEG' | 'RTSTRUCT' | 'SR';
 
 export interface SourceDicomReference {
   imageId: string;

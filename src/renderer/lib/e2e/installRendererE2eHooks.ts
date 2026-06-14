@@ -25,6 +25,7 @@ import type { TransportSaver } from '../cornerstone/transportSaver';
 import { useTransportStore } from '../../stores/transportStore';
 import * as contourRep from '../cornerstone/contourRepresentation';
 import { toolService } from '../cornerstone/toolService';
+import { exportMeasurementsToDicomSr } from '../cornerstone/srExport';
 import { ToolName } from '@shared/types/viewer';
 
 type ActiveSegmentationState = {
@@ -68,6 +69,8 @@ declare global {
       enterLocalViewer: () => void;
       /** Number of measurement annotations currently tracked (annotationStore). */
       getMeasurementCount: () => number;
+      /** Serialize all current measurements to a DICOM-SR (base64), or null if none. */
+      exportSrBase64: () => Promise<string | null>;
       /** Toggle the multiviewport feature flag (must be set before the viewer mounts). */
       setMultiviewportEnabled: (enabled: boolean) => void;
       /** Cornerstone viewport type for a panel ('stack' | 'orthographic' | …) or null. */
@@ -525,6 +528,8 @@ export function installRendererE2eHooks(): void {
       });
     },
     getMeasurementCount: () => useAnnotationStore.getState().annotations.length,
+    exportSrBase64: () =>
+      exportMeasurementsToDicomSr(useAnnotationStore.getState().annotations.map((a) => a.annotationUID)),
     setMultiviewportEnabled: (enabled: boolean) => {
       usePreferencesStore.getState().setMultiviewportEnabled(enabled);
     },
