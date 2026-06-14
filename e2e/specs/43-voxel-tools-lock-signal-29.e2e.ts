@@ -105,6 +105,27 @@ test('locking the active segment blocks the brush at gesture-start (signal 29 / 
   expect(await paintedVoxels(page)).toBe(0);
 });
 
+test('rectangle scissors fill the active segment inside the drawn region (signal 29)', async ({ page }) => {
+  await setup(page);
+  await createLabelmap(page, 'Scissors SEG');
+  await setTool(page, 'RectangleScissors');
+  expect(await paintedVoxels(page)).toBe(0);
+
+  // Drag a rectangle across the centre via real mouse events; on release the scissors
+  // rasterize the enclosed region into the active segment.
+  const box = (await page.locator('[data-testid="unified-viewport-element:panel_0"] canvas').boundingBox())!;
+  expect(box).not.toBeNull();
+  await page.mouse.move(box.x + box.width * 0.4, box.y + box.height * 0.4);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width * 0.6, box.y + box.height * 0.45, { steps: 6 });
+  await page.mouse.move(box.x + box.width * 0.6, box.y + box.height * 0.6, { steps: 6 });
+  await page.mouse.up();
+
+  await expect
+    .poll(() => paintedVoxels(page), { timeout: 15_000, message: 'rectangle scissors should fill the enclosed region' })
+    .toBeGreaterThan(0);
+});
+
 /** Poll until the painted-voxel count reaches at least `min`, returning the count. */
 async function expectPaintedAtLeast(page: Page, min: number): Promise<number> {
   await expect
