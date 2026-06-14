@@ -126,6 +126,31 @@ test('rectangle scissors fill the active segment inside the drawn region (signal
     .toBeGreaterThan(0);
 });
 
+test('sphere scissors fill a 3D region — voxels span multiple slices (signal 29)', async ({ page }) => {
+  await setup(page);
+  await createLabelmap(page, 'Sphere SEG');
+  await setTool(page, 'SphereScissors');
+  expect(await paintedVoxels(page)).toBe(0);
+
+  // Drag a circle on the volume panel; on release the sphere scissors rasterize a 3D
+  // ball into the active segment (it extrudes through slices, unlike the planar
+  // rectangle scissors above).
+  const box = (await page.locator('[data-testid="unified-viewport-element:panel_0"] canvas').boundingBox())!;
+  expect(box).not.toBeNull();
+  const cx = box.x + box.width / 2;
+  const cy = box.y + box.height / 2;
+  const r = Math.min(box.width, box.height) * 0.18;
+  await page.mouse.move(cx, cy);
+  await page.mouse.down();
+  await page.mouse.move(cx + r, cy, { steps: 6 });
+  await page.mouse.move(cx + r, cy + r, { steps: 6 });
+  await page.mouse.up();
+
+  await expect
+    .poll(() => paintedVoxels(page), { timeout: 15_000, message: 'sphere scissors should fill a 3D region' })
+    .toBeGreaterThan(0);
+});
+
 /** Poll until the painted-voxel count reaches at least `min`, returning the count. */
 async function expectPaintedAtLeast(page: Page, min: number): Promise<number> {
   await expect
