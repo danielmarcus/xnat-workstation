@@ -345,6 +345,20 @@ export const unifiedToolService = {
   },
 
   /**
+   * Set the intensity range for the threshold-brush family (writes only voxels whose
+   * source intensity falls within `[min, max]`). Cornerstone applies this only to
+   * tools whose ACTIVE strategy is a threshold strategy, so select the ThresholdBrush
+   * (which sets THRESHOLD_INSIDE_CIRCLE) before calling.
+   */
+  setBrushThreshold(range: [number, number]): void {
+    try {
+      csToolUtilities.segmentation.setBrushThresholdForToolGroup(UNIFIED_TOOL_GROUP_ID, { range } as never);
+    } catch (err) {
+      console.warn('[unifiedToolService] setBrushThreshold failed:', err);
+    }
+  },
+
+  /**
    * Add a unified viewport to the tool group (creating the group on first use).
    * Call after viewportService.createUnifiedViewport().
    */

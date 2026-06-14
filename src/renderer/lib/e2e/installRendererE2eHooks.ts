@@ -116,6 +116,8 @@ declare global {
       applySessionSwitch: (toSessionId: string) => void;
       /** Set the brush radius for the unified tool group. */
       setUnifiedBrushSize: (size: number) => void;
+      /** Set the threshold-brush intensity range (select ThresholdBrush first). */
+      setUnifiedBrushThreshold: (range: [number, number]) => void;
       /** Total non-zero labelmap voxels across all segmentations (0 = nothing painted). */
       getPaintedVoxelCount: () => number;
       /** Copy the active segment's voxel region to the clipboard (D6 / signal 23). */
@@ -647,6 +649,7 @@ export function installRendererE2eHooks(): void {
     /** Drive the real A13 session-switch retention (Change 1c). */
     applySessionSwitch: (toSessionId: string) => segmentationManager.applySessionSwitch(toSessionId),
     setUnifiedBrushSize: (size: number) => unifiedToolService.setBrushSize(size),
+    setUnifiedBrushThreshold: (range: [number, number]) => unifiedToolService.setBrushThreshold(range),
     copyActiveSegmentVoxels: () => unifiedSegService.copyActiveSegmentVoxels(),
     pasteActiveSegmentVoxels: () => unifiedSegService.pasteActiveSegmentVoxels(),
     scrollActiveViewport: (delta: number) =>
