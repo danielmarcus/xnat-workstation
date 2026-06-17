@@ -104,7 +104,12 @@ const UNIFIED_TOOL_MAP: Partial<Record<ToolName, string>> = {
   [ToolName.RegionSegment]: RegionSegmentTool.toolName,
   [ToolName.RegionSegmentPlus]: RegionSegmentPlusTool.toolName,
   [ToolName.SegmentSelect]: SegmentSelectTool.toolName,
-  [ToolName.SegmentBidirectional]: SegmentBidirectionalTool.toolName,
+  // SegmentBidirectional is intentionally NOT activatable on the unified path: its
+  // renderAnnotation crashes for our multi-layer-group SEGs (the group id has no
+  // colour LUT, so Cornerstone's getSegmentIndexColor returns null and the tool reads
+  // `.slice` of it). That throw aborts the whole annotation render pass, which also
+  // drops the brush cursor. It stays in FULL_SET (registered) but can't be selected
+  // until it's made group-aware. (Toolbox shows it disabled — see toolCatalog.)
   [ToolName.CircleROIThreshold]: CircleROIStartEndThresholdTool.toolName,
   [ToolName.LabelmapEditWithContour]: LabelMapEditWithContourTool.toolName,
   // Measurement (annotation) tools

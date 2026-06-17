@@ -43,7 +43,7 @@ const SEG_TOOLS: ToolDef[] = [
   { id: 'circleMulti', label: 'Circle Multi', title: 'Circle threshold (multi-slice)', icon: S(<><circle cx="9" cy="6" r="3.5" /><path d="M2.5 7.5v6h6" /></>) },
   { id: 'contourFill', label: 'Contour Fill', title: 'Contour fill (draw boundary → fill)', icon: S(<path d="M4 8c0-3 8-3 8 0s-8 3-8 0z" fill="currentColor" fillOpacity={0.25} />) },
   { id: 'select', label: 'Select', title: 'Select segment', icon: S(<path d="M4 3l8 5-3.5 1.2L7 13z" />) },
-  { id: 'segBidirectional', label: 'Bidir.', title: 'Segment bidirectional measure', icon: S(<path d="M3 8h10M8 3v10" />) },
+  { id: 'segBidirectional', label: 'Bidir.', title: 'Segment bidirectional measure — disabled (crashes on multi-layer-group segmentations; pending a group-aware fix)', planned: true, icon: S(<path d="M3 8h10M8 3v10" />) },
 ];
 
 const STRUCTURE_TOOLS: ToolDef[] = [
