@@ -15,6 +15,7 @@ import {
 } from '@cornerstonejs/tools';
 import { useAnnotationStore } from '../../stores/annotationStore';
 import type { AnnotationSummary } from '../../stores/annotationStore';
+import { useSegmentationManagerStore } from '../../stores/segmentationManagerStore';
 import { TOOL_DISPLAY_NAMES, ToolName } from '@shared/types/viewer';
 
 const Events = ToolEnums.Events;
@@ -120,9 +121,33 @@ function syncAnnotations(): void {
   }
 }
 
-/** Event handler — sync on any annotation change */
-function onAnnotationEvent(): void {
-  syncAnnotations();
+/**
+ * Mark the SR (Measurement) container a just-changed measurement belongs to as
+ * dirty, so the per-container Save icon enables + autosave fires (the save/autosave
+ * paths are dirty-gated). Resolve the container from the affiliation map (set by
+ * _sync for new measurements) → active SR container → the default "Measurements".
+ * Only our measurement tools count (skip crosshairs/etc.). dirty is cleared
+ * generically on save success (segmentationService onPhase 'idle' → clearDirty).
+ */
+function markSrContainerDirty(evt: Event): void {
+  try {
+    const ann = (evt as CustomEvent<{ annotation?: { annotationUID?: string; metadata?: { toolName?: string } } }>)
+      .detail?.annotation;
+    const uid = ann?.annotationUID;
+    const toolName = ann?.metadata?.toolName ?? '';
+    if (!uid || !(toolName in CS_NAME_TO_TOOL_NAME)) return;
+    const { srAffiliation, activeSrContainerId } = useAnnotationStore.getState();
+    const containerId = srAffiliation[uid] ?? activeSrContainerId ?? 'sr:measurements';
+    useSegmentationManagerStore.getState().markDirty(containerId);
+  } catch (err) {
+    console.warn('[annotationService] markSrContainerDirty failed:', err);
+  }
+}
+
+/** Event handler — sync on any annotation change, then mark its SR container dirty. */
+function onAnnotationEvent(evt: Event): void {
+  syncAnnotations(); // assigns affiliation for a new measurement UID first
+  markSrContainerDirty(evt); // …then the affiliation resolves to the right container
 }
 
 function onAnnotationSelectionChange(evt: Event): void {

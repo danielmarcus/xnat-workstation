@@ -51,4 +51,11 @@ test('a drawn Length measurement appears as a member of the Measurement (SR) con
   await expect(panel.locator('[data-testid^="member-row-"]')).toHaveCount(1);
   // The member carries its formatted value (metricOf → displayText, signal 32).
   await expect(panel.getByText(/\d/).first()).toBeVisible();
+
+  // SR-A: drawing a measurement marks the SR container DIRTY, so the per-container
+  // Save icon enables (it was permanently disabled before — the dirty flag was
+  // never wired for SR, only for SEG). This is the real draw→dirty→save-enabled path.
+  const saveBtn = panel.getByLabel('Save container');
+  await expect(saveBtn).toBeEnabled({ timeout: 10_000 });
+  await expect(panel.locator('[data-testid="dirty-dot"]')).toBeVisible();
 });
