@@ -3,13 +3,15 @@
  * W/L presets, action buttons, cine controls, layout picker, and protocol picker.
  */
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { metaData } from '@cornerstonejs/core';
 import { useViewerStore } from '../../stores/viewerStore';
 import { useSegmentationStore } from '../../stores/segmentationStore';
 import { ToolName, presetsForModality } from '@shared/types/viewer';
 import type { LayoutType } from '@shared/types/viewer';
 import { BUILT_IN_PROTOCOLS } from '@shared/types/hangingProtocol';
+import CollapsibleGroup from './CollapsibleGroup';
 import SettingsModal from '../settings/SettingsModal';
+import { useToolbarCollapse } from '../../hooks/useToolbarCollapse';
+import { useActiveModality } from '../../hooks/useActiveModality';
 import {
   IconWindowLevel,
   IconCrosshairs,
@@ -133,7 +135,7 @@ const LAYOUT_PRESETS: { id: LayoutType; label: string; rows: number; cols: numbe
   { id: '2x2', label: '2 x 2', rows: 2, cols: 2 },
 ];
 
-function LayoutDropdown({ disabled }: { disabled: boolean }) {
+function LayoutDropdown({ disabled, hideLabel = false }: { disabled: boolean; hideLabel?: boolean }) {
   const [open, setOpen] = useState(false);
   const [dropdownPos, setDropdownPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
   const [customRows, setCustomRows] = useState(2);
@@ -198,7 +200,7 @@ function LayoutDropdown({ disabled }: { disabled: boolean }) {
         }`}
       >
         <LayoutGridIcon rows={2} cols={2} />
-        <span className="tabular-nums">{currentLabel}</span>
+        {!hideLabel && <span className="tabular-nums">{currentLabel}</span>}
         <IconChevronDown className="w-3 h-3" />
       </button>
 
@@ -330,19 +332,8 @@ function WLPresetsDropdown({ hideLabel = false }: { hideLabel?: boolean }) {
   const applyWLPreset = useViewerStore((s) => s.applyWLPreset);
   const setActiveTool = useViewerStore((s) => s.setActiveTool);
   // Presets are scoped to the active scan's modality (CT/MR/PT/…), not hardcoded CT.
-  // Read modality from the active viewport's series metadata; re-resolves when the
-  // active panel's images change (scan load/switch).
-  const activeViewportId = useViewerStore((s) => s.activeViewportId);
-  const activeImageId = useViewerStore((s) => s.panelImageIdsMap[s.activeViewportId]?.[0]);
-  let modality: string | undefined;
-  try {
-    modality = activeImageId
-      ? (metaData.get('generalSeriesModule', activeImageId) as { modality?: string } | undefined)?.modality
-      : undefined;
-  } catch {
-    modality = undefined;
-  }
-  void activeViewportId; // (subscription keeps the dropdown re-resolving on panel switch)
+  // The hook re-resolves when the active panel's images change (scan load/switch).
+  const modality = useActiveModality();
   const presets = presetsForModality(modality);
 
   useEffect(() => {
@@ -524,6 +515,11 @@ export default function Toolbar({
 }: ToolbarProps) {
   const [showSettings, setShowSettings] = useState(false);
   const [settingsInitialTab, setSettingsInitialTab] = useState<string | undefined>(undefined);
+  // Organized collapse: as the window narrows, hide labels (level 1) then fold the
+  // center groups into icon-trigger popovers (cine → transform → navigation). The
+  // BrowserWindow minWidth stops the window shrinking past the fully-collapsed width.
+  const toolbarContentRef = useRef<HTMLDivElement>(null);
+  const { textCollapsed, isGroupCollapsed } = useToolbarCollapse(toolbarContentRef);
 
   // Open Settings to a specific tab when requested by parent (e.g. banner link)
   useEffect(() => {
@@ -554,109 +550,128 @@ export default function Toolbar({
 
   return (
     <>
-      {/* Frozen toolbar §10 — flat left→right viewer controls (no collapsible groups;
-          horizontal-scroll when narrow). Annotation create/edit/save lives in the side
-          panel, not here. */}
+      {/* Frozen toolbar §10 styling, with organized collapse: the measured center
+          content (overflow-hidden) folds groups into icon-trigger popovers as it
+          narrows; the right group (Annotate · Tags · Settings) stays inline. */}
       <div data-testid="toolbar" className="h-10 bg-zinc-900 border-b border-zinc-800 flex items-center shrink-0">
-        <div className="flex-1 min-w-0 flex items-center gap-1 px-2 overflow-x-auto text-zinc-300">
+        <div className="flex-1 min-w-0">
+          <div ref={toolbarContentRef} className="flex items-center gap-1 px-2 overflow-hidden text-zinc-300">
 
-          {/* Logo · connection chip · Import · Export · Favorites (supplied by App). */}
-          {leftSlot}
-          <Separator />
+            {/* Logo · connection chip · Import · Export · Favorites (supplied by App). */}
+            {leftSlot}
+            <Separator />
 
-          {/* Layout · Hanging */}
-          <LayoutDropdown disabled={false} />
-          {onApplyProtocol && (
-            <ProtocolPickerDropdown
-              onApplyProtocol={onApplyProtocol}
-              currentProtocolId={currentProtocol?.id ?? null}
-              disabled={!hasSessionData || !sessionScans || sessionScans.length === 0}
+            {/* Layout · Hanging */}
+            <LayoutDropdown disabled={false} hideLabel={textCollapsed} />
+            {onApplyProtocol && (
+              <ProtocolPickerDropdown
+                onApplyProtocol={onApplyProtocol}
+                currentProtocolId={currentProtocol?.id ?? null}
+                disabled={!hasSessionData || !sessionScans || sessionScans.length === 0}
+                hideLabel={textCollapsed}
+              />
+            )}
+            <Separator />
+
+            {/* Windowing: Crosshairs · Pan · Zoom · W/L · Soft-tissue preset · Invert */}
+            <CollapsibleGroup
+              collapsed={isGroupCollapsed('navigation')}
+              triggerIcon={<IconCrosshairs className="w-3.5 h-3.5" />}
+              triggerTitle="Navigation tools"
+            >
+              <IconButton
+                icon={<IconCrosshairs className="w-3.5 h-3.5" />}
+                active={activeTool === ToolName.Crosshairs}
+                onClick={() => setActiveTool(ToolName.Crosshairs)}
+                title="Crosshairs (left-click to sync; left-drag W/L)"
+              />
+              <IconButton
+                icon={<IconPan className="w-3.5 h-3.5" />}
+                active={activeTool === ToolName.Pan}
+                onClick={() => setActiveTool(ToolName.Pan)}
+                title="Pan (left-click drag)"
+              />
+              <IconButton
+                icon={<IconZoom className="w-3.5 h-3.5" />}
+                active={activeTool === ToolName.Zoom}
+                onClick={() => setActiveTool(ToolName.Zoom)}
+                title="Zoom (left-click drag)"
+              />
+              <IconButton
+                icon={<IconWindowLevel className="w-3.5 h-3.5" />}
+                active={activeTool === ToolName.WindowLevel}
+                onClick={() => setActiveTool(ToolName.WindowLevel)}
+                title="Window/Level (left-click drag)"
+              />
+              <WLPresetsDropdown hideLabel={textCollapsed} />
+              <IconButton
+                icon={<IconInvert className="w-3.5 h-3.5" />}
+                onClick={toggleInvert}
+                title="Invert grayscale (negative)"
+              />
+            </CollapsibleGroup>
+            <Separator />
+
+            {/* Transform: Rotate · Flip H · Flip V · Reset */}
+            <CollapsibleGroup
+              collapsed={isGroupCollapsed('transform')}
+              triggerIcon={<IconRotate90 className="w-3.5 h-3.5" />}
+              triggerTitle="Transform"
+            >
+              <IconButton icon={<IconRotate90 className="w-3.5 h-3.5" />} onClick={rotate90} title="Rotate 90°" />
+              <IconButton icon={<IconFlipH className="w-3.5 h-3.5" />} onClick={flipH} title="Flip horizontal" />
+              <IconButton icon={<IconFlipV className="w-3.5 h-3.5" />} onClick={flipV} title="Flip vertical" />
+              <IconButton icon={<IconReset className="w-3.5 h-3.5" />} onClick={resetViewport} title="Reset viewport" />
+            </CollapsibleGroup>
+            <Separator />
+
+            {/* Undo · Redo (active container, A8) */}
+            <IconButton
+              icon={<IconUndo className="w-3.5 h-3.5" />}
+              onClick={() => segmentationService.undo()}
+              title="Undo (Ctrl+Z) — active container"
+              disabled={!canUndo}
             />
-          )}
-          <Separator />
-
-          {/* Windowing: Crosshairs · Pan · Zoom · W/L · Soft-tissue preset · Invert */}
-          <IconButton
-            icon={<IconCrosshairs className="w-3.5 h-3.5" />}
-            active={activeTool === ToolName.Crosshairs}
-            onClick={() => setActiveTool(ToolName.Crosshairs)}
-            title="Crosshairs (left-click to sync; left-drag W/L)"
-          />
-          <IconButton
-            icon={<IconPan className="w-3.5 h-3.5" />}
-            active={activeTool === ToolName.Pan}
-            onClick={() => setActiveTool(ToolName.Pan)}
-            title="Pan (left-click drag)"
-          />
-          <IconButton
-            icon={<IconZoom className="w-3.5 h-3.5" />}
-            active={activeTool === ToolName.Zoom}
-            onClick={() => setActiveTool(ToolName.Zoom)}
-            title="Zoom (left-click drag)"
-          />
-          <IconButton
-            icon={<IconWindowLevel className="w-3.5 h-3.5" />}
-            active={activeTool === ToolName.WindowLevel}
-            onClick={() => setActiveTool(ToolName.WindowLevel)}
-            title="Window/Level (left-click drag)"
-          />
-          <WLPresetsDropdown />
-          <IconButton
-            icon={<IconInvert className="w-3.5 h-3.5" />}
-            onClick={toggleInvert}
-            title="Invert grayscale (negative)"
-          />
-          <Separator />
-
-          {/* Transform: Rotate · Flip H · Flip V · Reset */}
-          <IconButton icon={<IconRotate90 className="w-3.5 h-3.5" />} onClick={rotate90} title="Rotate 90°" />
-          <IconButton icon={<IconFlipH className="w-3.5 h-3.5" />} onClick={flipH} title="Flip horizontal" />
-          <IconButton icon={<IconFlipV className="w-3.5 h-3.5" />} onClick={flipV} title="Flip vertical" />
-          <IconButton icon={<IconReset className="w-3.5 h-3.5" />} onClick={resetViewport} title="Reset viewport" />
-          <Separator />
-
-          {/* Undo · Redo (active container, A8) */}
-          <IconButton
-            icon={<IconUndo className="w-3.5 h-3.5" />}
-            onClick={() => segmentationService.undo()}
-            title="Undo (Ctrl+Z) — active container"
-            disabled={!canUndo}
-          />
-          <IconButton
-            icon={<IconRedo className="w-3.5 h-3.5" />}
-            onClick={() => segmentationService.redo()}
-            title="Redo (Ctrl+Shift+Z)"
-            disabled={!canRedo}
-          />
-          <Separator />
-
-          {/* Cine */}
-          <IconButton
-            icon={cine.isPlaying ? <IconStop className="w-3.5 h-3.5" /> : <IconPlay className="w-3.5 h-3.5" />}
-            active={cine.isPlaying}
-            onClick={toggleCine}
-            title={cine.isPlaying ? 'Stop cine' : 'Play cine'}
-          />
-          <div className="flex items-center gap-1.5 shrink-0">
-            <input
-              type="range"
-              min={1}
-              max={60}
-              value={cine.fps}
-              onChange={(e) => setCineFps(parseInt(e.target.value, 10))}
-              className="w-14 h-1 accent-blue-500 cursor-pointer"
-              title={`${cine.fps} FPS`}
+            <IconButton
+              icon={<IconRedo className="w-3.5 h-3.5" />}
+              onClick={() => segmentationService.redo()}
+              title="Redo (Ctrl+Shift+Z)"
+              disabled={!canRedo}
             />
-            <span className="w-10 text-right tabular-nums text-[10px] text-zinc-500">{cine.fps} fps</span>
+            <Separator />
+
+            {/* Cine */}
+            <CollapsibleGroup
+              collapsed={isGroupCollapsed('cine')}
+              triggerIcon={<IconPlay className="w-3.5 h-3.5" />}
+              triggerTitle="Cine playback"
+            >
+              <IconButton
+                icon={cine.isPlaying ? <IconStop className="w-3.5 h-3.5" /> : <IconPlay className="w-3.5 h-3.5" />}
+                active={cine.isPlaying}
+                onClick={toggleCine}
+                title={cine.isPlaying ? 'Stop cine' : 'Play cine'}
+              />
+              <div className="flex items-center gap-1.5 shrink-0">
+                <input
+                  type="range"
+                  min={1}
+                  max={60}
+                  value={cine.fps}
+                  onChange={(e) => setCineFps(parseInt(e.target.value, 10))}
+                  className="w-14 h-1 accent-blue-500 cursor-pointer"
+                  title={`${cine.fps} FPS`}
+                />
+                <span className="w-10 text-right tabular-nums text-[10px] text-zinc-500">{cine.fps} fps</span>
+              </div>
+            </CollapsibleGroup>
           </div>
+        </div>
 
-          {/* Spacer — pushes the right group (Annotate · Tags · Settings) to the edge. */}
-          <span className="flex-1" />
-
-          {/* Right group: Annotate (blue) · Tags · Settings */}
-          <SegmentationPanelToggle label="Annotate" />
-          {onToggleDicomPanel && <DicomTagsToggle active={showDicomPanel} onToggle={onToggleDicomPanel} />}
-          <Separator />
+        {/* Right group — always inline: Annotate (blue when open) · Tags · Settings. */}
+        <div className="shrink-0 flex items-center gap-1 px-2 border-l border-zinc-800">
+          <SegmentationPanelToggle label="Annotate" hideLabel={textCollapsed} />
+          {onToggleDicomPanel && <DicomTagsToggle active={showDicomPanel} onToggle={onToggleDicomPanel} hideLabel={textCollapsed} />}
           <IconButton
             icon={<IconSettings className="w-3.5 h-3.5" />}
             active={showSettings}
