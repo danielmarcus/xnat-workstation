@@ -8,9 +8,7 @@ import { useSegmentationStore } from '../../stores/segmentationStore';
 import { ToolName, WL_PRESETS } from '@shared/types/viewer';
 import type { LayoutType } from '@shared/types/viewer';
 import { BUILT_IN_PROTOCOLS } from '@shared/types/hangingProtocol';
-import CollapsibleGroup from './CollapsibleGroup';
 import SettingsModal from '../settings/SettingsModal';
-import { useToolbarCollapse } from '../../hooks/useToolbarCollapse';
 import {
   IconWindowLevel,
   IconCrosshairs,
@@ -36,39 +34,35 @@ import { segmentationService } from '../../lib/cornerstone/segmentationService';
 
 // ─── Shared Button Components ─────────────────────────────────────
 
-/** Icon + optional label toolbar button */
+/** Icon + label toolbar button — §10 ghost style (transparent; hover bg; active = blue). */
 function ToolButton({
   icon,
   label,
   active,
   onClick,
   title,
-  hideLabel,
 }: {
   icon?: React.ReactNode;
   label?: string;
   active?: boolean;
   onClick: () => void;
   title?: string;
-  hideLabel?: boolean;
 }) {
   return (
     <button
       onClick={onClick}
       title={title ?? label}
-      className={`flex items-center gap-1.5 px-2 py-1.5 text-xs font-medium rounded transition-colors ${
-        active
-          ? 'bg-blue-600 text-white'
-          : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700 hover:text-white'
+      className={`flex items-center gap-1.5 px-2 py-1.5 text-[11px] rounded transition-colors shrink-0 ${
+        active ? 'bg-blue-600 text-white' : 'text-zinc-300 hover:bg-zinc-800'
       }`}
     >
       {icon}
-      {label && !hideLabel && <span>{label}</span>}
+      {label && <span>{label}</span>}
     </button>
   );
 }
 
-/** Icon-only toolbar button (smaller padding) */
+/** Icon-only toolbar button — §10 ghost style. */
 function IconButton({
   icon,
   active,
@@ -87,12 +81,12 @@ function IconButton({
       onClick={onClick}
       title={title}
       disabled={disabled}
-      className={`flex items-center justify-center p-1.5 rounded transition-colors ${
+      className={`flex items-center justify-center px-2 py-1.5 rounded transition-colors shrink-0 ${
         disabled
-          ? 'bg-zinc-800 text-zinc-600 cursor-not-allowed opacity-40'
+          ? 'text-zinc-600 cursor-not-allowed opacity-40'
           : active
             ? 'bg-blue-600 text-white'
-            : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-white'
+            : 'text-zinc-300 hover:bg-zinc-800'
       }`}
     >
       {icon}
@@ -100,9 +94,9 @@ function IconButton({
   );
 }
 
-/** Separator line between toolbar groups */
+/** Separator line between toolbar groups (§10: thin zinc rule). */
 function Separator() {
-  return <div className="w-px h-6 bg-zinc-700 mx-0.5" />;
+  return <span className="w-px h-5 bg-zinc-700 mx-1.5 shrink-0" />;
 }
 
 function LayoutGridIcon({ rows, cols, className = '' }: { rows: number; cols: number; className?: string }) {
@@ -194,15 +188,16 @@ function LayoutDropdown({ disabled }: { disabled: boolean }) {
         onClick={handleToggle}
         title={`Viewport layout (${currentLabel})`}
         disabled={disabled}
-        className={`flex items-center gap-1 px-2 py-1.5 rounded transition-colors ${
+        className={`flex items-center gap-1 px-2 py-1.5 text-[11px] rounded transition-colors shrink-0 ${
           disabled
-            ? 'bg-zinc-800 text-zinc-600 cursor-not-allowed'
+            ? 'text-zinc-600 cursor-not-allowed'
             : open
               ? 'bg-blue-600 text-white'
-              : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700 hover:text-white'
+              : 'text-zinc-300 hover:bg-zinc-800'
         }`}
       >
         <LayoutGridIcon rows={2} cols={2} />
+        <span className="tabular-nums">{currentLabel}</span>
         <IconChevronDown className="w-3 h-3" />
       </button>
 
@@ -289,10 +284,9 @@ function SegmentationPanelToggle({ label = 'Annotate', showCount = false, hideLa
       // shown or collapsed away (the toolbar's collapse state varies with width) —
       // describes the action, and keeps the name selector deterministic.
       aria-label={showPanel ? 'Hide segmentation panel' : 'Show segmentation panel'}
-      className={`flex items-center gap-1.5 px-2 py-1.5 text-xs font-medium rounded transition-colors ${
-        showPanel
-          ? 'bg-blue-600 text-white'
-          : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700 hover:text-white'
+      // §10: Annotate is the blue accent button (opens/closes the Annotations panel).
+      className={`flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] rounded transition-colors shrink-0 ${
+        showPanel ? 'bg-blue-700 text-white' : 'bg-blue-600 text-white hover:bg-blue-500'
       }`}
     >
       <IconSegment className="w-3.5 h-3.5" />
@@ -316,10 +310,8 @@ function DicomTagsToggle({
     <button
       onClick={onToggle}
       title={active ? 'Hide DICOM tags' : 'Show DICOM tags'}
-      className={`flex items-center gap-1.5 px-2 py-1.5 text-xs font-medium rounded transition-colors ${
-        active
-          ? 'bg-blue-600 text-white'
-          : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700 hover:text-white'
+      className={`flex items-center gap-1.5 px-2 py-1.5 text-[11px] rounded transition-colors shrink-0 ${
+        active ? 'bg-blue-600 text-white' : 'text-zinc-300 hover:bg-zinc-800'
       }`}
     >
       <IconDocument className="w-3.5 h-3.5" />
@@ -365,10 +357,8 @@ function WLPresetsDropdown({ hideLabel = false }: { hideLabel?: boolean }) {
       <button
         ref={buttonRef}
         onClick={handleToggle}
-        className={`flex items-center gap-1 text-xs font-medium px-2 py-1.5 rounded transition-colors ${
-          open
-            ? 'bg-blue-600 text-white'
-            : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700 hover:text-white'
+        className={`flex items-center gap-1 text-[11px] px-2 py-1.5 rounded transition-colors shrink-0 ${
+          open ? 'bg-blue-600 text-white' : 'text-zinc-300 hover:bg-zinc-800'
         }`}
         title="Window/Level presets"
       >
@@ -451,17 +441,17 @@ function ProtocolPickerDropdown({
         ref={buttonRef}
         onClick={handleToggle}
         disabled={disabled}
-        className={`flex items-center gap-1 text-xs font-medium px-2 py-1.5 rounded transition-colors ${
+        className={`flex items-center gap-1 text-[11px] px-2 py-1.5 rounded transition-colors shrink-0 ${
           disabled
-            ? 'bg-zinc-800 text-zinc-600 cursor-not-allowed'
+            ? 'text-zinc-600 cursor-not-allowed'
             : open
               ? 'bg-blue-600 text-white'
-              : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700 hover:text-white'
+              : 'text-zinc-300 hover:bg-zinc-800'
         }`}
         title={disabled ? 'No applicable hanging protocols' : 'Hanging protocol'}
       >
         <IconProtocol className="w-3.5 h-3.5" />
-        {!hideLabel && <span>Protocol</span>}
+        {!hideLabel && <span>Hanging</span>}
         <IconChevronDown className="w-3 h-3" />
       </button>
       {open && (
@@ -518,8 +508,6 @@ export default function Toolbar({
 }: ToolbarProps) {
   const [showSettings, setShowSettings] = useState(false);
   const [settingsInitialTab, setSettingsInitialTab] = useState<string | undefined>(undefined);
-  const toolbarContentRef = useRef<HTMLDivElement>(null);
-  const { textCollapsed, isGroupCollapsed } = useToolbarCollapse(toolbarContentRef);
 
   // Open Settings to a specific tab when requested by parent (e.g. banner link)
   useEffect(() => {
@@ -550,177 +538,109 @@ export default function Toolbar({
 
   return (
     <>
-      <div data-testid="toolbar" className="h-10 bg-zinc-900 border-b border-zinc-800 flex items-center px-2 gap-1 shrink-0">
-        <div className="flex-1 min-w-0">
-          <div ref={toolbarContentRef} className="flex items-center gap-1 overflow-hidden">
+      {/* Frozen toolbar §10 — flat left→right viewer controls (no collapsible groups;
+          horizontal-scroll when narrow). Annotation create/edit/save lives in the side
+          panel, not here. */}
+      <div data-testid="toolbar" className="h-10 bg-zinc-900 border-b border-zinc-800 flex items-center shrink-0">
+        <div className="flex-1 min-w-0 flex items-center gap-1 px-2 overflow-x-auto text-zinc-300">
 
-      {/* ─── Left Slot (XNAT logo, connection, etc.) ─── */}
-      {leftSlot && (
-        <>
+          {/* Logo · connection chip · Import · Export · Favorites (supplied by App). */}
           {leftSlot}
           <Separator />
-        </>
-      )}
 
-      {/* ─── Layout Picker ──────────────────────────────── */}
-      <div className="flex items-center gap-0.5">
-        <LayoutDropdown disabled={false} />
-      </div>
-
-      {/* ─── Protocol Picker ──────────────────────────────── */}
-      {onApplyProtocol && (
-        <>
+          {/* Layout · Hanging */}
+          <LayoutDropdown disabled={false} />
+          {onApplyProtocol && (
+            <ProtocolPickerDropdown
+              onApplyProtocol={onApplyProtocol}
+              currentProtocolId={currentProtocol?.id ?? null}
+              disabled={!hasSessionData || !sessionScans || sessionScans.length === 0}
+            />
+          )}
           <Separator />
-          <ProtocolPickerDropdown
-            onApplyProtocol={onApplyProtocol}
-            currentProtocolId={currentProtocol?.id ?? null}
-            disabled={!hasSessionData || !sessionScans || sessionScans.length === 0}
-            hideLabel={textCollapsed}
-          />
-        </>
-      )}
 
-      <Separator />
-
-      {/* ─── Navigation Tools (Cross, W/L, Presets, Pan, Zoom) ── */}
-      <CollapsibleGroup
-        collapsed={isGroupCollapsed('navigation')}
-        triggerIcon={<IconCrosshairs className="w-3.5 h-3.5" />}
-        triggerTitle="Navigation tools"
-      >
-          <ToolButton
+          {/* Windowing: Crosshairs · Pan · Zoom · W/L · Soft-tissue preset · Invert */}
+          <IconButton
             icon={<IconCrosshairs className="w-3.5 h-3.5" />}
-            label="Cross"
             active={activeTool === ToolName.Crosshairs}
             onClick={() => setActiveTool(ToolName.Crosshairs)}
-            title="Crosshairs (left-click to sync; hold Shift+move for dynamic sync; left-drag W/L)"
-            hideLabel={textCollapsed}
+            title="Crosshairs (left-click to sync; left-drag W/L)"
           />
-          <ToolButton
-            icon={<IconWindowLevel className="w-3.5 h-3.5" />}
-            label="W/L"
-            active={activeTool === ToolName.WindowLevel}
-            onClick={() => setActiveTool(ToolName.WindowLevel)}
-            title="Window/Level (left-click drag)"
-            hideLabel={textCollapsed}
-          />
-          <WLPresetsDropdown hideLabel={textCollapsed} />
-          <ToolButton
+          <IconButton
             icon={<IconPan className="w-3.5 h-3.5" />}
-            label="Pan"
             active={activeTool === ToolName.Pan}
             onClick={() => setActiveTool(ToolName.Pan)}
             title="Pan (left-click drag)"
-            hideLabel={textCollapsed}
           />
-          <ToolButton
+          <IconButton
             icon={<IconZoom className="w-3.5 h-3.5" />}
-            label="Zoom"
             active={activeTool === ToolName.Zoom}
             onClick={() => setActiveTool(ToolName.Zoom)}
             title="Zoom (left-click drag)"
-            hideLabel={textCollapsed}
           />
-      </CollapsibleGroup>
-      {/* ─── Annotation Tools (Annotate, Measure, Undo, Redo) ── */}
-      <Separator />
-      <CollapsibleGroup
-        collapsed={isGroupCollapsed('annotation')}
-        triggerIcon={<IconSegment className="w-3.5 h-3.5" />}
-        triggerTitle="Annotation tools"
-      >
-        <SegmentationPanelToggle label="Annotate" hideLabel={textCollapsed} />
-        {/* Editing tools (brush, measurement, etc.) live in the Annotations side-panel
-            toolbox (kind-adaptive), NOT the toolbar — frozen toolbar §10 holds viewer
-            controls only. The measurement dropdown (SR-C) and the interim brush control
-            were removed for this reason. */}
-        <IconButton
-          icon={<IconUndo className="w-3.5 h-3.5" />}
-          onClick={() => segmentationService.undo()}
-          title="Undo (Ctrl+Z)"
-          disabled={!canUndo}
-        />
-        <IconButton
-          icon={<IconRedo className="w-3.5 h-3.5" />}
-          onClick={() => segmentationService.redo()}
-          title="Redo (Ctrl+Shift+Z)"
-          disabled={!canRedo}
-        />
-      </CollapsibleGroup>
-
-      <Separator />
-
-      {/* ─── Transform Actions (Reset, Invert, Rotate, Flip) ── */}
-      <CollapsibleGroup
-        collapsed={isGroupCollapsed('transform')}
-        triggerIcon={<IconReset className="w-3.5 h-3.5" />}
-        triggerTitle="Transform"
-      >
-        <IconButton
-          icon={<IconReset className="w-3.5 h-3.5" />}
-          onClick={resetViewport}
-          title="Reset viewport"
-        />
-        <IconButton
-          icon={<IconInvert className="w-3.5 h-3.5" />}
-          onClick={toggleInvert}
-          title="Toggle invert"
-        />
-        <IconButton
-          icon={<IconRotate90 className="w-3.5 h-3.5" />}
-          onClick={rotate90}
-          title="Rotate 90°"
-        />
-        <IconButton
-          icon={<IconFlipH className="w-3.5 h-3.5" />}
-          onClick={flipH}
-          title="Flip horizontal"
-        />
-        <IconButton
-          icon={<IconFlipV className="w-3.5 h-3.5" />}
-          onClick={flipV}
-          title="Flip vertical"
-        />
-      </CollapsibleGroup>
-
-      {/* ─── Cine Controls ──────────────────────────────── */}
-      <Separator />
-      <CollapsibleGroup
-        collapsed={isGroupCollapsed('cine')}
-        triggerIcon={<IconPlay className="w-3.5 h-3.5" />}
-        triggerTitle="Cine playback"
-      >
-        <IconButton
-          icon={cine.isPlaying ? <IconStop className="w-3.5 h-3.5" /> : <IconPlay className="w-3.5 h-3.5" />}
-          active={cine.isPlaying}
-          onClick={toggleCine}
-          title={cine.isPlaying ? 'Stop cine' : 'Play cine'}
-        />
-        <div className="flex items-center gap-1.5 text-xs text-zinc-400">
-          <input
-            type="range"
-            min={1}
-            max={60}
-            value={cine.fps}
-            onChange={(e) => setCineFps(parseInt(e.target.value, 10))}
-            className="w-14 h-1 accent-blue-500 cursor-pointer"
-            title={`${cine.fps} FPS`}
+          <IconButton
+            icon={<IconWindowLevel className="w-3.5 h-3.5" />}
+            active={activeTool === ToolName.WindowLevel}
+            onClick={() => setActiveTool(ToolName.WindowLevel)}
+            title="Window/Level (left-click drag)"
           />
-          <span className="w-8 text-right tabular-nums text-[11px]">{cine.fps} fps</span>
-        </div>
-      </CollapsibleGroup>
-
-      {/* ─── DICOM Tags Toggle ─────────────────────────── */}
-      {onToggleDicomPanel && !isGroupCollapsed('dicomTags') && (
-        <>
+          <WLPresetsDropdown />
+          <IconButton
+            icon={<IconInvert className="w-3.5 h-3.5" />}
+            onClick={toggleInvert}
+            title="Invert grayscale (negative)"
+          />
           <Separator />
-          <DicomTagsToggle active={showDicomPanel} onToggle={onToggleDicomPanel} hideLabel={textCollapsed} />
-        </>
-      )}
 
+          {/* Transform: Rotate · Flip H · Flip V · Reset */}
+          <IconButton icon={<IconRotate90 className="w-3.5 h-3.5" />} onClick={rotate90} title="Rotate 90°" />
+          <IconButton icon={<IconFlipH className="w-3.5 h-3.5" />} onClick={flipH} title="Flip horizontal" />
+          <IconButton icon={<IconFlipV className="w-3.5 h-3.5" />} onClick={flipV} title="Flip vertical" />
+          <IconButton icon={<IconReset className="w-3.5 h-3.5" />} onClick={resetViewport} title="Reset viewport" />
+          <Separator />
+
+          {/* Undo · Redo (active container, A8) */}
+          <IconButton
+            icon={<IconUndo className="w-3.5 h-3.5" />}
+            onClick={() => segmentationService.undo()}
+            title="Undo (Ctrl+Z) — active container"
+            disabled={!canUndo}
+          />
+          <IconButton
+            icon={<IconRedo className="w-3.5 h-3.5" />}
+            onClick={() => segmentationService.redo()}
+            title="Redo (Ctrl+Shift+Z)"
+            disabled={!canRedo}
+          />
+          <Separator />
+
+          {/* Cine */}
+          <IconButton
+            icon={cine.isPlaying ? <IconStop className="w-3.5 h-3.5" /> : <IconPlay className="w-3.5 h-3.5" />}
+            active={cine.isPlaying}
+            onClick={toggleCine}
+            title={cine.isPlaying ? 'Stop cine' : 'Play cine'}
+          />
+          <div className="flex items-center gap-1.5 shrink-0">
+            <input
+              type="range"
+              min={1}
+              max={60}
+              value={cine.fps}
+              onChange={(e) => setCineFps(parseInt(e.target.value, 10))}
+              className="w-14 h-1 accent-blue-500 cursor-pointer"
+              title={`${cine.fps} FPS`}
+            />
+            <span className="w-10 text-right tabular-nums text-[10px] text-zinc-500">{cine.fps} fps</span>
           </div>
-        </div>
-        <div className="shrink-0 flex items-center gap-1 border-l border-zinc-800 pl-2">
+
+          {/* Spacer — pushes the right group (Annotate · Tags · Settings) to the edge. */}
+          <span className="flex-1" />
+
+          {/* Right group: Annotate (blue) · Tags · Settings */}
+          <SegmentationPanelToggle label="Annotate" />
+          {onToggleDicomPanel && <DicomTagsToggle active={showDicomPanel} onToggle={onToggleDicomPanel} />}
+          <Separator />
           <IconButton
             icon={<IconSettings className="w-3.5 h-3.5" />}
             active={showSettings}

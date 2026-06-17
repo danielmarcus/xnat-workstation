@@ -61,11 +61,11 @@ describe('Toolbar', () => {
       />,
     );
 
-    await user.click(screen.getByRole('button', { name: 'Pan' }));
+    await user.click(screen.getByTitle('Pan (left-click drag)'));
     expect(setActiveTool).toHaveBeenCalledWith(ToolName.Pan);
 
     await user.click(screen.getByTitle('Reset viewport'));
-    await user.click(screen.getByTitle('Toggle invert'));
+    await user.click(screen.getByTitle('Invert grayscale (negative)'));
     await user.click(screen.getByTitle('Rotate 90°'));
     await user.click(screen.getByTitle('Flip horizontal'));
     await user.click(screen.getByTitle('Flip vertical'));
@@ -136,7 +136,7 @@ describe('Toolbar', () => {
 
     render(<Toolbar onApplyProtocol={onApplyProtocol} />);
 
-    const protocolButton = screen.getByRole('button', { name: /protocol/i });
+    const protocolButton = screen.getByRole('button', { name: /hanging/i });
     expect(protocolButton).toBeDisabled();
     expect(protocolButton).toHaveAttribute('title', 'No applicable hanging protocols');
 
@@ -156,7 +156,7 @@ describe('Toolbar', () => {
     });
 
     const view = render(<Toolbar />);
-    const undoButton = screen.getByTitle('Undo (Ctrl+Z)');
+    const undoButton = screen.getByTitle('Undo (Ctrl+Z) — active container');
     const redoButton = screen.getByTitle('Redo (Ctrl+Shift+Z)');
     expect(undoButton).toBeDisabled();
     expect(redoButton).toBeDisabled();
@@ -168,7 +168,7 @@ describe('Toolbar', () => {
     });
     view.rerender(<Toolbar />);
 
-    await user.click(screen.getByTitle('Undo (Ctrl+Z)'));
+    await user.click(screen.getByTitle('Undo (Ctrl+Z) — active container'));
     await user.click(screen.getByTitle('Redo (Ctrl+Shift+Z)'));
     expect(segmentationServiceMock.undo).toHaveBeenCalledTimes(1);
     expect(segmentationServiceMock.redo).toHaveBeenCalledTimes(1);
@@ -192,7 +192,7 @@ describe('Toolbar', () => {
     );
 
     expect(screen.getByTestId('left-slot-marker')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Pan' })).toBeInTheDocument();
+    expect(screen.getByTitle('Pan (left-click drag)')).toBeInTheDocument();
   });
 
   it('supports dropdown close-on-outside-click and tags toggle active title', async () => {
