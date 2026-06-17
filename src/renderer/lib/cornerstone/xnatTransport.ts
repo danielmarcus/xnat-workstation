@@ -71,6 +71,24 @@ export function createXnatTransport(api: XnatUploadApi): AnnotationTransport {
           : kind === 'SR' ? await api.uploadSr(p)
             : await api.uploadSeg(p);
       } else {
+        // CLIENT-SIDE conflict detection (H5/H6). XNAT has no native optimistic
+        // concurrency — overwrite is last-write-wins — so before clobbering, poll
+        // the server's CURRENT version and compare to the base we hold. A mismatch
+        // means the server advanced since our base (an external edit) → conflict,
+        // don't overwrite. Degrade to last-write-wins (proceed) when there's no base
+        // to compare against, or the server version is unknown (null) — the same
+        // behavior as before H6, so a blind server never regresses.
+        if (baseVersionToken) {
+          const serverToken = await api.getVersion({ sessionId: source.sessionId, scanId });
+          if (serverToken && serverToken !== baseVersionToken) {
+            return {
+              ok: false,
+              kind: 'conflict',
+              error: 'Server version changed since last save (external edit detected)',
+              serverVersionToken: serverToken,
+            };
+          }
+        }
         const p = {
           sessionId: source.sessionId,
           targetScanId: scanId,
@@ -78,6 +96,8 @@ export function createXnatTransport(api: XnatUploadApi): AnnotationTransport {
           baseVersionToken,
           seriesDescription: serialized.label,
         };
+        // The overwrite itself stays last-write-wins on the server; the reactive
+        // res.conflict branch below still handles any server that DOES return 409.
         res = kind === 'RTSTRUCT' ? await api.overwriteRtStruct(p)
           : kind === 'SR' ? await api.overwriteSr(p)
             : await api.overwriteSeg(p);

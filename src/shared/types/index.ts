@@ -102,6 +102,8 @@ export interface ElectronAPI {
       dicomBase64: string,
       seriesDescription?: string,
     ): Promise<XnatUploadResult>;
+    /** Poll the current server-side version token for a scan (H6). Null = unknown. */
+    getScanVersion(sessionId: string, scanId: string): Promise<string | null>;
     prepareDicomForUpload(
       type: 'SEG' | 'RTSTRUCT',
       projectId: string,

@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createXnatTransport } from '../xnatTransport';
 import { createMockXnatApi } from '../mockXnatApi';
+import type { XnatUploadApi } from '../xnatTransport';
 import type { SerializedContainer } from '../annotationTransport';
 
 /**
@@ -120,5 +121,67 @@ describe('createXnatTransport over the mock XNAT API', () => {
     expect(await t.getServerVersion('c1')).toBe(token1);
     api._externalEdit('E1', first.ok ? first.scanId! : '');
     expect(await t.getServerVersion('c1')).not.toBe(token1);
+  });
+
+  // ── Client-side pre-overwrite conflict detection (#64-A, H5/H6) ──
+  // Real XNAT has no native optimistic concurrency, so the transport polls
+  // getVersion BEFORE an overwrite and compares it to the base token it holds.
+  describe('client-side pre-overwrite conflict check', () => {
+    const W_OK = { ok: true as const, scanId: '3004', versionToken: 'v-after-overwrite' };
+    function fakeApi(over: Partial<XnatUploadApi>): XnatUploadApi {
+      return {
+        uploadSeg: vi.fn(async () => ({ ok: true as const, scanId: '3004', versionToken: 'v1' })),
+        uploadRtStruct: vi.fn(async () => ({ ok: true as const, scanId: '4004', versionToken: 'v1' })),
+        uploadSr: vi.fn(async () => ({ ok: true as const, scanId: '5004', versionToken: 'v1' })),
+        overwriteSeg: vi.fn(async () => W_OK),
+        overwriteRtStruct: vi.fn(async () => W_OK),
+        overwriteSr: vi.fn(async () => W_OK),
+        getVersion: vi.fn(async () => null),
+        ...over,
+      };
+    }
+
+    it('polls the server version and CONFLICTS (without overwriting) when it differs from the base', async () => {
+      const overwriteSeg = vi.fn(async () => W_OK);
+      const getVersion = vi.fn(async () => 'sha1:server-moved-on');
+      const t = createXnatTransport(fakeApi({ overwriteSeg, getVersion }));
+
+      // scanId in source → straight to the overwrite branch (no prior upload needed).
+      const r = await t.save(ser('c1', '3004'), 'sha1:my-base');
+
+      expect(getVersion).toHaveBeenCalledWith({ sessionId: 'E1', scanId: '3004' });
+      expect(r.ok).toBe(false);
+      if (!r.ok) {
+        expect(r.kind).toBe('conflict');
+        expect(r.serverVersionToken).toBe('sha1:server-moved-on');
+      }
+      expect(overwriteSeg).not.toHaveBeenCalled(); // never clobbered the server
+    });
+
+    it('proceeds with the overwrite when the server version MATCHES the base', async () => {
+      const overwriteSeg = vi.fn(async () => W_OK);
+      const t = createXnatTransport(fakeApi({ overwriteSeg, getVersion: vi.fn(async () => 'sha1:my-base') }));
+      const r = await t.save(ser('c1', '3004'), 'sha1:my-base');
+      expect(r.ok).toBe(true);
+      expect(overwriteSeg).toHaveBeenCalledTimes(1);
+    });
+
+    it('degrades to last-write-wins (proceeds) when the server version is unknown (null)', async () => {
+      const overwriteSeg = vi.fn(async () => W_OK);
+      const t = createXnatTransport(fakeApi({ overwriteSeg, getVersion: vi.fn(async () => null) }));
+      const r = await t.save(ser('c1', '3004'), 'sha1:my-base');
+      expect(r.ok).toBe(true);
+      expect(overwriteSeg).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not poll on a FIRST save (no scan id → upload, nothing to conflict with)', async () => {
+      const getVersion = vi.fn(async () => 'sha1:whatever');
+      const uploadSeg = vi.fn(async () => ({ ok: true as const, scanId: '3004', versionToken: 'v1' }));
+      const t = createXnatTransport(fakeApi({ uploadSeg, getVersion }));
+      const r = await t.save(ser('c1'), null); // no scanId, base null
+      expect(r.ok).toBe(true);
+      expect(getVersion).not.toHaveBeenCalled();
+      expect(uploadSeg).toHaveBeenCalledTimes(1);
+    });
   });
 });

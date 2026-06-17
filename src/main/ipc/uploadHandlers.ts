@@ -132,6 +132,25 @@ export function registerUploadHandlers(): void {
     },
   );
 
+  // ─── Poll current server-side version token for a scan (H6) ────
+  // Read-only: lets the renderer's pre-overwrite check detect external changes
+  // (XNAT has no native optimistic concurrency). Returns null when unknown.
+  ipcMain.handle(
+    IPC.XNAT_GET_SCAN_VERSION,
+    async (_event, sessionId: string, scanId: string): Promise<string | null> => {
+      const client = sessionManager.getClient();
+      if (!client) return null;
+      try {
+        return await client.getScanVersionToken(sessionId, scanId);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn('[uploadHandlers] getScanVersion failed:', msg);
+        sessionManager.handleAuthFailure(err);
+        return null;
+      }
+    },
+  );
+
   // ─── Overwrite DICOM RTSTRUCT in existing scan ─────────────────
   ipcMain.handle(
     IPC.XNAT_OVERWRITE_DICOM_RTSTRUCT,

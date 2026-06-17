@@ -39,6 +39,8 @@ export const IPC = {
   XNAT_OVERWRITE_DICOM_RTSTRUCT: 'xnat:overwrite-dicom-rtstruct',
   XNAT_OVERWRITE_DICOM_SR: 'xnat:overwrite-dicom-sr',
   XNAT_PREPARE_DICOM_UPLOAD: 'xnat:prepare-dicom-upload',
+  // Poll the current server-side version token for a scan's annotation file (H6).
+  XNAT_GET_SCAN_VERSION: 'xnat:get-scan-version',
 
   // XNAT scan deletion (renderer → main)
   XNAT_DELETE_SCAN: 'xnat:delete-scan',

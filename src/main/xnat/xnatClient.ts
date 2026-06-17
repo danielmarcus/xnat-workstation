@@ -851,6 +851,60 @@ export class XnatClient {
     return `sha1:${hash}`;
   }
 
+  /**
+   * Poll the CURRENT server-side version token for a scan's annotation file (H6).
+   *
+   * XNAT has no native optimistic concurrency — overwrite is last-write-wins — so
+   * the renderer detects external changes by comparing this against the base token
+   * it holds from its last save. To be comparable, this MUST mirror
+   * `deriveVersionToken`'s scheme exactly (ETag → Last-Modified → sha1 over
+   * `scanUrl + '\0' + bytes`), sourced from a GET of the STORED file. The common
+   * case is the sha1 branch (XNAT file responses rarely carry ETag/Last-Modified —
+   * see deriveVersionToken); it matches the base token iff the server stored our
+   * uploaded bytes verbatim (the byte-round-trip the live verification must confirm).
+   *
+   * Returns null when the version can't be determined (no file / fetch failure) —
+   * the caller treats null as "unknown" and proceeds, degrading safely to
+   * last-write-wins (the pre-H6 behavior, so no regression when polling is blind).
+   */
+  async getScanVersionToken(sessionId: string, scanId: string): Promise<string | null> {
+    if (!this.jsessionId || this._disconnected) throw new XnatAuthError('Not authenticated');
+    const basePath = `/data/experiments/${encodeURIComponent(sessionId)}/scans/${encodeURIComponent(scanId)}`;
+    const scanUrl = `${this.baseUrl}${basePath}`;
+
+    let files: Array<{ uri: string }>;
+    try {
+      files = await this.getScanFiles(sessionId, scanId);
+    } catch (err) {
+      console.warn(`[xnatClient] getScanVersionToken: file listing failed for scan ${scanId}:`, err);
+      return null;
+    }
+    if (files.length === 0) return null;
+
+    const uri = files[0].uri;
+    const fileUrl = uri.startsWith('http')
+      ? uri
+      : `${this.baseUrl}${uri.startsWith('/') ? '' : '/'}${uri}`;
+    try {
+      const resp = await this.xfetch(fileUrl, { method: 'GET' });
+      if (!resp.ok) return null;
+      const etag = resp.headers.get('etag');
+      if (etag && etag.trim().length > 0) return `etag:${etag.trim()}`;
+      const lastModified = resp.headers.get('last-modified');
+      if (lastModified && lastModified.trim().length > 0) return `lm:${lastModified.trim()}`;
+      const buf = Buffer.from(await resp.arrayBuffer());
+      const hash = createHash('sha1')
+        .update(scanUrl)
+        .update('\0')
+        .update(new Uint8Array(buf))
+        .digest('hex');
+      return `sha1:${hash}`;
+    } catch (err) {
+      console.warn(`[xnatClient] getScanVersionToken: version fetch failed for scan ${scanId}:`, err);
+      return null;
+    }
+  }
+
   private async deleteScanResourceFiles(
     basePath: string,
     resourceLabel: string,

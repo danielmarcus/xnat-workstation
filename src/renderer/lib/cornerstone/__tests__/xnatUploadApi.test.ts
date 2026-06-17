@@ -39,6 +39,7 @@ function fakeApi(overrides: Partial<XnatUploadElectronApi>): XnatUploadElectronA
     overwriteDicomSeg: overrides.overwriteDicomSeg ?? reject,
     overwriteDicomRtStruct: overrides.overwriteDicomRtStruct ?? reject,
     overwriteDicomSr: overrides.overwriteDicomSr ?? reject,
+    getScanVersion: overrides.getScanVersion ?? reject,
   };
 }
 
@@ -238,9 +239,21 @@ describe('createXnatUploadApi', () => {
     });
   });
 
-  describe('getVersion', () => {
-    it('returns null (no cheap version IPC yet — matches getServerVersion "unknown")', async () => {
-      const api = createXnatUploadApi(fakeApi({}));
+  describe('getVersion (H6 — server-version poll)', () => {
+    it('passes through the server token from the getScanVersion IPC', async () => {
+      const getScanVersion = vi.fn().mockResolvedValue('sha1:server-current');
+      const api = createXnatUploadApi(fakeApi({ getScanVersion }));
+      await expect(api.getVersion({ sessionId: 'E1', scanId: '3004' })).resolves.toBe('sha1:server-current');
+      expect(getScanVersion).toHaveBeenCalledWith('E1', '3004');
+    });
+
+    it('returns null when the IPC reports the version is unknown', async () => {
+      const api = createXnatUploadApi(fakeApi({ getScanVersion: vi.fn().mockResolvedValue(null) }));
+      await expect(api.getVersion({ sessionId: 'E1', scanId: '3004' })).resolves.toBeNull();
+    });
+
+    it('returns null (not throw) when the version IPC fails — degrades to last-write-wins', async () => {
+      const api = createXnatUploadApi(fakeApi({ getScanVersion: vi.fn().mockRejectedValue(new Error('IPC closed')) }));
       await expect(api.getVersion({ sessionId: 'E1', scanId: '3004' })).resolves.toBeNull();
     });
   });

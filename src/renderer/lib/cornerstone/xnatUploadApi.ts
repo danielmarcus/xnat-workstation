@@ -86,6 +86,8 @@ export interface XnatUploadElectronApi {
     dicomBase64: string,
     seriesDescription?: string,
   ): Promise<XnatWriteIpcResult>;
+  /** Poll the current server-side version token for a scan (H6). Null = unknown. */
+  getScanVersion(sessionId: string, scanId: string): Promise<string | null>;
 }
 
 const HTTP_STATUS_RE = /\b(4\d\d|5\d\d)\b/;
@@ -214,14 +216,18 @@ export function createXnatUploadApi(electronApi: XnatUploadElectronApi): XnatUpl
     },
 
     /**
-     * No cheap "head/metadata version" IPC exists today, so external-change
-     * detection (H6) cannot be polled from the live surface yet — return null
-     * ("unknown"), which matches `getServerVersion` semantics (the transport
-     * treats null as "no known server version"). A future step may add a light
-     * catalog/HEAD IPC; until then this is intentionally a no-op.
+     * Poll the current server-side version token for a scan (H6) via the main
+     * process (which GETs the stored annotation file + derives a token in the same
+     * scheme as the upload's base token). Returns null ("unknown") when the version
+     * can't be determined or the IPC throws — the transport treats null as "no
+     * known server version" and proceeds (degrading safely to last-write-wins).
      */
-    async getVersion() {
-      return null;
+    async getVersion(p) {
+      try {
+        return await electronApi.getScanVersion(p.sessionId, p.scanId);
+      } catch {
+        return null;
+      }
     },
   };
 }
