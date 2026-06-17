@@ -78,7 +78,9 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
   const fillAlpha = useSegmentationStore((s) => s.fillAlpha);
   const renderOutline = useSegmentationStore((s) => s.renderOutline);
   const setFillAlpha = useSegmentationStore((s) => s.setFillAlpha);
-  const [brushSize, setBrushSize] = useState(25);
+  const [brushSize, setBrushSize] = useState(
+    () => usePreferencesStore.getState().preferences.annotation.defaultBrushSize,
+  );
 
   const activeMember = useAnnotationSelectionStore((s) => s.activeMember);
   const selection = useAnnotationSelectionStore((s) => s.selection);

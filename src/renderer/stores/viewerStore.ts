@@ -28,6 +28,7 @@ import { viewportService } from '../lib/cornerstone/viewportService';
 // eslint-disable-next-line no-restricted-imports -- unified path tool routing (annotation rebuild P1.8)
 import { unifiedToolService } from '../lib/cornerstone/unifiedToolService';
 import { useUnifiedLayoutStore } from './unifiedLayoutStore';
+import { usePreferencesStore } from './preferencesStore';
 
 /** Module-scope cine interval IDs keyed by panelId (not serializable, kept outside store) */
 const cineIntervals = new Map<string, ReturnType<typeof setInterval>>();
@@ -169,7 +170,8 @@ export const useViewerStore = create<ViewerStore>((set, get) => ({
   viewports: {},
   cineStates: {},
   activeTool: ToolName.WindowLevel,
-  brushSize: 10,
+  // Default to the configured preference (persist-hydrated synchronously at load).
+  brushSize: usePreferencesStore.getState().preferences.annotation.defaultBrushSize,
   currentProtocol: null,
   sessionScans: null,
   sessionId: null,

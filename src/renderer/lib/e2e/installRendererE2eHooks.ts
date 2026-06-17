@@ -153,6 +153,8 @@ declare global {
       /** Cornerstone's ACTIVE segmentation id on a viewport — the actual brush target.
        *  For a multi-layer group this is the active sub-seg layer id. Null if none. */
       getCsActiveSegmentationId: (panelId: string) => string | null;
+      /** Current brush radius on the unified tool group (null if unset). */
+      getUnifiedBrushSize: () => number | null;
       /** Whether the global (viewport-independent) undo history has an undo available. */
       canUnifiedUndo: () => boolean;
       /** Undo the last edit via the global history (works after the source panel closed). */
@@ -757,6 +759,7 @@ export function installRendererE2eHooks(): void {
         return null;
       }
     },
+    getUnifiedBrushSize: () => unifiedToolService.getBrushSize(),
     getUndoRedoState: () => {
       const s = useSegmentationStore.getState();
       return { canUndo: s.canUndo, canRedo: s.canRedo };

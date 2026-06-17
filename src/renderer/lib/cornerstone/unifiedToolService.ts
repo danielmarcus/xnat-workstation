@@ -428,8 +428,33 @@ export const unifiedToolService = {
   addViewport(viewportId: string): void {
     const toolGroup = ensureToolGroup();
     if (!toolGroup) return;
+    const wasEmpty = toolGroup.getViewportIds().length === 0;
     toolGroup.addViewport(viewportId, viewportService.ENGINE_ID);
+    if (wasEmpty) {
+      // Seed the configured default brush radius once the group has a viewport
+      // (setBrushSizeForToolGroup is a no-op before one exists). Only on the FIRST
+      // viewport so later additions (e.g. an MPR layout) keep the user's current size.
+      try {
+        csToolUtilities.segmentation.setBrushSizeForToolGroup(
+          UNIFIED_TOOL_GROUP_ID,
+          usePreferencesStore.getState().preferences.annotation.defaultBrushSize,
+        );
+      } catch {
+        /* ignore */
+      }
+    }
     console.log('[unifiedToolService] Viewport added:', viewportId);
+  },
+
+  /** Current brush radius on the unified tool group (Cornerstone), or null. */
+  getBrushSize(): number | null {
+    try {
+      return (csToolUtilities.segmentation as unknown as {
+        getBrushSizeForToolGroup?: (id: string) => number;
+      }).getBrushSizeForToolGroup?.(UNIFIED_TOOL_GROUP_ID) ?? null;
+    } catch {
+      return null;
+    }
   },
 
   /**
