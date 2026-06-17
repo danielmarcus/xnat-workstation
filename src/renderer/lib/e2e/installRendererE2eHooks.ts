@@ -19,6 +19,7 @@ import { unifiedSegService } from '../cornerstone/unifiedSegService';
 import { undoService } from '../cornerstone/undoService';
 import { segmentationManager } from '../segmentation/segmentationManagerSingleton';
 import { segmentationService } from '../cornerstone/segmentationService';
+import { annotationService } from '../cornerstone/annotationService';
 import { createMockXnatApi, type MockXnatApi } from '../cornerstone/mockXnatApi';
 import { createXnatTransportService } from '../cornerstone/transportService';
 import type { TransportSaver } from '../cornerstone/transportSaver';
@@ -135,6 +136,8 @@ declare global {
       isUnifiedVolumeReady: () => boolean;
       /** Remove all segmentations (test isolation in the worker-scoped app). */
       resetUnifiedSegmentations: () => void;
+      /** Remove all measurement annotations (test isolation for SR/measurement specs). */
+      clearAllAnnotations: () => void;
       /** The global unsaved-changes (dirty) flag. */
       getDirtyFlag: () => boolean;
       /** Number of segmentations in Cornerstone state (the unified seg lives here, not the store). */
@@ -688,6 +691,10 @@ export function installRendererE2eHooks(): void {
       unifiedSegService.reset();
       useSegmentationStore.setState({ hasUnsavedChanges: false });
     },
+    /** Remove all measurement annotations (test isolation for SR/measurement specs
+     *  that share the worker-scoped app — avoids the "passes alone, fails combined"
+     *  pollution where one spec's measurements leak into the next). */
+    clearAllAnnotations: () => annotationService.removeAllAnnotations(),
     getDirtyFlag: () => useSegmentationStore.getState().hasUnsavedChanges,
     getCsSegmentationCount: () =>
       ((csSegmentation.state as unknown as { getSegmentations?: () => unknown[] }).getSegmentations?.() ?? []).length,

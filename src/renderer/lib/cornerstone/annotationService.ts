@@ -13,6 +13,7 @@ import {
   annotation as csAnnotation,
   Enums as ToolEnums,
 } from '@cornerstonejs/tools';
+import { getRenderingEngines } from '@cornerstonejs/core';
 import { useAnnotationStore } from '../../stores/annotationStore';
 import type { AnnotationSummary } from '../../stores/annotationStore';
 import { useSegmentationManagerStore } from '../../stores/segmentationManagerStore';
@@ -106,12 +107,16 @@ function syncAnnotations(): void {
       if (!(toolName in CS_NAME_TO_TOOL_NAME)) continue;
 
       const tn = CS_NAME_TO_TOOL_NAME[toolName];
+      const uid = ann.annotationUID ?? '';
       summaries.push({
-        annotationUID: ann.annotationUID ?? '',
+        annotationUID: uid,
         toolName,
         displayName: tn ? TOOL_DISPLAY_NAMES[tn] : toolName,
         displayText: formatDisplayText(ann),
         label: ann.data?.label ?? '',
+        // Source the member eye/lock icons from the live Cornerstone annotation state.
+        visible: uid ? csAnnotation.visibility.isAnnotationVisible(uid) !== false : true,
+        locked: uid ? csAnnotation.locking.isAnnotationLocked(uid) === true : false,
       });
     }
 
@@ -141,6 +146,16 @@ function markSrContainerDirty(evt: Event): void {
     useSegmentationManagerStore.getState().markDirty(containerId);
   } catch (err) {
     console.warn('[annotationService] markSrContainerDirty failed:', err);
+  }
+}
+
+/** Re-render all viewports so an annotation visibility/lock/label change shows
+ *  immediately (these mutations don't emit a Cornerstone event that repaints). */
+function renderAnnotations(): void {
+  try {
+    for (const engine of getRenderingEngines() ?? []) engine?.render();
+  } catch {
+    /* no engine yet — nothing to repaint */
   }
 }
 
@@ -186,6 +201,43 @@ export const annotationService = {
       syncAnnotations();
     } catch (err) {
       console.error('[annotationService] Failed to remove annotation:', err);
+    }
+  },
+
+  /** Rename a measurement annotation (sets its label) by UID, then re-sync. */
+  setAnnotationLabel(uid: string, label: string): void {
+    try {
+      const ann = csAnnotation.state.getAnnotation(uid);
+      if (ann) {
+        ann.data = ann.data ?? {};
+        (ann.data as { label?: string }).label = label;
+        syncAnnotations();
+        renderAnnotations();
+      }
+    } catch (err) {
+      console.error('[annotationService] Failed to set annotation label:', err);
+    }
+  },
+
+  /** Show/hide a measurement annotation by UID (member eye icon), then re-sync. */
+  setAnnotationVisibility(uid: string, visible: boolean): void {
+    try {
+      csAnnotation.visibility.setAnnotationVisibility(uid, visible);
+      syncAnnotations();
+      renderAnnotations();
+    } catch (err) {
+      console.error('[annotationService] Failed to set annotation visibility:', err);
+    }
+  },
+
+  /** Lock/unlock a measurement annotation by UID (member lock icon), then re-sync. */
+  setAnnotationLocked(uid: string, locked: boolean): void {
+    try {
+      csAnnotation.locking.setAnnotationLocked(uid, locked);
+      syncAnnotations();
+      renderAnnotations();
+    } catch (err) {
+      console.error('[annotationService] Failed to set annotation lock:', err);
     }
   },
 

@@ -24,6 +24,7 @@ import { useViewerStore } from '../stores/viewerStore';
 import { useTransportStore } from '../stores/transportStore';
 import { usePreferencesStore } from '../stores/preferencesStore';
 import { segmentationService } from '../lib/cornerstone/segmentationService';
+import { annotationService } from '../lib/cornerstone/annotationService';
 import { rtStructService } from '../lib/cornerstone/rtStructService';
 import { segmentProvenance } from '../lib/cornerstone/interpolationAcceptance';
 import { getAnnotationUIDs } from '../lib/cornerstone/contourRepresentation';
@@ -231,10 +232,17 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
         }
       })();
     },
-    onDeleteContainer: (id) =>
-      id.startsWith('sr:')
-        ? useAnnotationStore.getState().removeSrContainer(id)
-        : segmentationManager.removeSegmentation(id),
+    onDeleteContainer: (id) => {
+      if (id.startsWith('sr:')) {
+        // Remove the underlying Cornerstone measurement annotations first (otherwise
+        // they linger on the viewport after the panel row is gone), then drop the
+        // container entry + its affiliations.
+        containers.find((c) => c.id === id)?.members.forEach((m) => annotationService.removeAnnotation(m.id));
+        useAnnotationStore.getState().removeSrContainer(id);
+      } else {
+        segmentationManager.removeSegmentation(id);
+      }
+    },
     onRenameContainer: (id, name) =>
       id.startsWith('sr:')
         ? useAnnotationStore.getState().renameSrContainer(id, name)
@@ -258,10 +266,17 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
     },
     onActivateMember: (cid, mid) => activateAndBridge(cid, mid),
     onCycleVisibility: (cid, mid) => {
-      const idx = Number(mid);
       const container = containers.find((c) => c.id === cid);
       const member = container?.members.find((m) => m.id === mid);
-      if (!member || !Number.isInteger(idx)) return;
+      if (!member) return;
+      // SR measurement members are keyed by annotationUID (a string), not a numeric
+      // SEG segment index — operate on the Cornerstone annotation directly.
+      if (cid.startsWith('sr:')) {
+        annotationService.setAnnotationVisibility(mid, !member.visible);
+        return;
+      }
+      const idx = Number(mid);
+      if (!Number.isInteger(idx)) return;
       const next = !member.visible;
       segmentationService.setSegmentVisibility(activeViewportId, cid, idx, next);
       // setSegmentVisibility updates Cornerstone but NOT the presentation store the
@@ -270,14 +285,21 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
       useSegmentationManagerStore.getState().setPresentation(cid, idx, { visible: next });
     },
     onToggleLock: (cid, mid) => {
+      if (cid.startsWith('sr:')) {
+        const member = containers.find((c) => c.id === cid)?.members.find((m) => m.id === mid);
+        annotationService.setAnnotationLocked(mid, !(member?.locked ?? false));
+        return;
+      }
       const idx = Number(mid);
       if (Number.isInteger(idx) && idx > 0) segmentationService.toggleSegmentLocked(cid, idx);
     },
     onDeleteMember: (cid, mid) => {
+      if (cid.startsWith('sr:')) { annotationService.removeAnnotation(mid); return; }
       const idx = Number(mid);
       if (Number.isInteger(idx) && idx > 0) segmentationService.removeSegment(cid, idx);
     },
     onRenameMember: (cid, mid, name) => {
+      if (cid.startsWith('sr:')) { annotationService.setAnnotationLabel(mid, name); return; }
       const idx = Number(mid);
       if (Number.isInteger(idx) && idx > 0) segmentationManager.renameSegment(cid, idx, name);
     },

@@ -15,6 +15,11 @@ export interface AnnotationSummary {
   displayName: string;     // Human-readable tool name (e.g. 'Length', 'Ellipse ROI')
   displayText: string;     // Formatted measurement (e.g. '12.5 mm', '45.2°')
   label: string;           // User-provided label (ArrowAnnotate) or empty
+  /** Cornerstone annotation visibility (drives the member eye icon). Set by syncAnnotations;
+   *  optional so existing fixtures need no change — measurementMember defaults it to true. */
+  visible?: boolean;
+  /** Cornerstone annotation lock state (drives the member lock icon). Defaults to false. */
+  locked?: boolean;
 }
 
 /** A user-created Measurement (SR) container (D7.1). Measurements drawn while it is

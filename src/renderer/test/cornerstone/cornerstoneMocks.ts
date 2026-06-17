@@ -129,6 +129,14 @@ export interface CornerstoneMockState {
         removeAnnotation: ReturnType<typeof vi.fn>;
         removeAllAnnotations: ReturnType<typeof vi.fn>;
       };
+      visibility: {
+        isAnnotationVisible: ReturnType<typeof vi.fn>;
+        setAnnotationVisibility: ReturnType<typeof vi.fn>;
+      };
+      locking: {
+        isAnnotationLocked: ReturnType<typeof vi.fn>;
+        setAnnotationLocked: ReturnType<typeof vi.fn>;
+      };
       selection: {
         getAnnotationsSelected: ReturnType<typeof vi.fn>;
         setAnnotationSelected: ReturnType<typeof vi.fn>;
@@ -307,6 +315,8 @@ export function createCornerstoneMockState(): CornerstoneMockState {
 
   const annotations: any[] = [];
   const selectedAnnotationUIDs = new Set<string>();
+  const annotationVisibleByUid = new Map<string, boolean>();
+  const annotationLockedByUid = new Map<string, boolean>();
   const segmentations: any[] = [];
   const viewportIdsBySegmentation = new Map<string, string[]>();
   const colorsByKey = new Map<string, RGBA>();
@@ -520,6 +530,18 @@ export function createCornerstoneMockState(): CornerstoneMockState {
           selectedAnnotationUIDs.clear();
         }),
       },
+      visibility: {
+        isAnnotationVisible: vi.fn((uid: string) => annotationVisibleByUid.get(uid) ?? true),
+        setAnnotationVisibility: vi.fn((uid: string, visible: boolean) => {
+          annotationVisibleByUid.set(uid, visible);
+        }),
+      },
+      locking: {
+        isAnnotationLocked: vi.fn((uid: string) => annotationLockedByUid.get(uid) ?? false),
+        setAnnotationLocked: vi.fn((uid: string, locked: boolean) => {
+          annotationLockedByUid.set(uid, locked);
+        }),
+      },
       selection: {
         getAnnotationsSelected: vi.fn(() => Array.from(selectedAnnotationUIDs)),
         setAnnotationSelected: vi.fn((uid: string, selected = true, preserveSelected = false) => {
@@ -700,6 +722,8 @@ export function createCornerstoneMockState(): CornerstoneMockState {
       eventTarget.clear();
       annotations.length = 0;
       selectedAnnotationUIDs.clear();
+      annotationVisibleByUid.clear();
+      annotationLockedByUid.clear();
       segmentations.length = 0;
       viewportIdsBySegmentation.clear();
       colorsByKey.clear();

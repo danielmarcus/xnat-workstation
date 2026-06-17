@@ -123,8 +123,8 @@ function measurementMember(a: AnnotationSummary): Member {
   return {
     id: a.annotationUID,
     label: a.label || a.displayName,
-    visible: true,
-    locked: false,
+    visible: a.visible ?? true,
+    locked: a.locked ?? false,
     toolName: a.toolName,
     annotationUID: a.annotationUID,
   };

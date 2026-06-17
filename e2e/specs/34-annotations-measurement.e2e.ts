@@ -18,14 +18,23 @@ interface E2EHooks {
   setMultiviewportEnabled: (v: boolean) => void;
   setActiveUnifiedTool: (toolName: string) => void;
   getMeasurementCount: () => number;
+  clearAllAnnotations: () => void;
 }
 type Win = { __XNAT_E2E__: E2EHooks };
+
+// Isolate from any measurement a prior spec left in the worker-scoped app.
+test.beforeEach(async ({ page }) => {
+  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.clearAllAnnotations());
+});
 
 test('a drawn Length measurement appears as a member of the Measurement (SR) container', async ({ page }) => {
   await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.setMultiviewportEnabled(true));
   await loadFixture(page, 'ct-axial-300', 'panel_0');
-  await page.getByRole('button', { name: 'Show segmentation panel' }).click();
+  // Open idempotently — the toggle may already be open from a prior spec in the worker.
   const panel = page.locator('[data-testid="annotations-side-panel"]');
+  if (!(await panel.isVisible())) {
+    await page.getByRole('button', { name: 'Show segmentation panel' }).click();
+  }
   await expect(panel).toBeVisible({ timeout: 15_000 });
   await expect(panel.getByText('No annotations yet')).toBeVisible();
 
