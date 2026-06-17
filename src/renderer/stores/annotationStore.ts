@@ -20,6 +20,9 @@ export interface AnnotationSummary {
   visible?: boolean;
   /** Cornerstone annotation lock state (drives the member lock icon). Defaults to false. */
   locked?: boolean;
+  /** The measurement's display color (RGBA), read from the Cornerstone annotation
+   *  style. Drives the member color swatch; undefined ⇒ swatch shows grey. */
+  color?: [number, number, number, number];
   /** The XNAT session active when this measurement was authored. Drives session-
    *  scoping of the default Measurements container (the explicit-container case uses
    *  the container's own sessionId). Empty/undefined = no session (local fixtures). */

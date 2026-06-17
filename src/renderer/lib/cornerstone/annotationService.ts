@@ -17,12 +17,71 @@ import { getRenderingEngines } from '@cornerstonejs/core';
 import { useAnnotationStore } from '../../stores/annotationStore';
 import type { AnnotationSummary } from '../../stores/annotationStore';
 import { useSegmentationManagerStore } from '../../stores/segmentationManagerStore';
+import { usePreferencesStore } from '../../stores/preferencesStore';
 import { TOOL_DISPLAY_NAMES, ToolName } from '@shared/types/viewer';
+
+type RGBA = [number, number, number, number];
 
 /** annotationUID → the XNAT session active when the measurement was first synced.
  *  Persisted so a measurement keeps its authoring session even after the viewer
  *  switches sessions (drives session-scoping of the default Measurements container). */
 const annotationSessionByUid = new Map<string, string>();
+
+/** Cycles the settings color sequence as new measurements get their default color. */
+let measurementColorCounter = 0;
+
+function hexToRgba(hex: string): RGBA | null {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return null;
+  const n = parseInt(m[1], 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255, 255];
+}
+
+function rgbStringToRgba(s: string | undefined): RGBA | undefined {
+  if (!s) return undefined;
+  const m = /rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i.exec(s);
+  return m ? [Number(m[1]), Number(m[2]), Number(m[3]), 255] : undefined;
+}
+
+const rgbaToRgbString = (c: RGBA): string => `rgb(${c[0]}, ${c[1]}, ${c[2]})`;
+
+/** Next default measurement color from the settings color sequence (so a drawn
+ *  measurement renders in a real color, not Cornerstone's green-active/yellow-default).
+ *  Falls back to red if the sequence is empty/unavailable. */
+function nextDefaultMeasurementColor(): RGBA {
+  let palette: RGBA[] = [];
+  try {
+    const seq = usePreferencesStore.getState().preferences?.annotation?.defaultColorSequence ?? [];
+    palette = seq.map(hexToRgba).filter((c): c is RGBA => c !== null);
+  } catch { /* preferences unavailable — fall through to the fallback */ }
+  if (palette.length === 0) return [255, 0, 0, 255];
+  return palette[measurementColorCounter++ % palette.length];
+}
+
+/** Set a measurement annotation's display color in Cornerstone (all states → one
+ *  color, so it's stable while active/selected/locked, not green-then-yellow). */
+function applyMeasurementColor(uid: string, rgba: RGBA): void {
+  const rgb = rgbaToRgbString(rgba);
+  try {
+    csAnnotation.config.style.setAnnotationStyles(uid, {
+      color: rgb, colorHighlighted: rgb, colorSelected: rgb, colorLocked: rgb,
+    } as never);
+  } catch (err) {
+    console.warn('[annotationService] setAnnotationStyles failed:', err);
+  }
+}
+
+/** Read a measurement annotation's current display color (rgba) or undefined. */
+function readMeasurementColor(uid: string): RGBA | undefined {
+  try {
+    const styles = (csAnnotation.config.style as {
+      getAnnotationToolStyles?: (u: string) => { color?: string } | undefined;
+    }).getAnnotationToolStyles?.(uid);
+    return rgbStringToRgba(styles?.color);
+  } catch {
+    return undefined;
+  }
+}
 
 /** The active XNAT session, mirrored from viewerStore via a runtime subscription set
  *  up in initialize(). Kept as a local (not a static `import { useViewerStore }`) so
@@ -123,6 +182,13 @@ function syncAnnotations(): void {
       // Record the authoring session once (first sight); reuse thereafter so the
       // measurement keeps its session across later viewer session switches.
       if (uid && !annotationSessionByUid.has(uid)) annotationSessionByUid.set(uid, currentSessionId);
+      // Resolve the measurement's color: a user/previously-assigned style, else assign
+      // one from the settings sequence on first sight (so it's not green/yellow default).
+      let color = uid ? readMeasurementColor(uid) : undefined;
+      if (uid && !color) {
+        color = nextDefaultMeasurementColor();
+        applyMeasurementColor(uid, color);
+      }
       summaries.push({
         annotationUID: uid,
         toolName,
@@ -133,6 +199,7 @@ function syncAnnotations(): void {
         visible: uid ? csAnnotation.visibility.isAnnotationVisible(uid) !== false : true,
         locked: uid ? csAnnotation.locking.isAnnotationLocked(uid) === true : false,
         sessionId: uid ? annotationSessionByUid.get(uid) : undefined,
+        color,
       });
     }
 
@@ -223,9 +290,25 @@ export const annotationService = {
   removeAnnotation(uid: string): void {
     try {
       csAnnotation.state.removeAnnotation(uid);
+      annotationSessionByUid.delete(uid);
       syncAnnotations();
+      // Repaint so the deleted measurement actually leaves the viewport — removeAnnotation
+      // mutates state but emits no render event, so without this the SVG overlay lingers.
+      renderAnnotations();
     } catch (err) {
       console.error('[annotationService] Failed to remove annotation:', err);
+    }
+  },
+
+  /** Set a measurement annotation's display color by UID (member color swatch),
+   *  then re-sync (swatch reflects it) + repaint (the drawn measurement recolors). */
+  setAnnotationColor(uid: string, color: RGBA): void {
+    try {
+      applyMeasurementColor(uid, color);
+      syncAnnotations();
+      renderAnnotations();
+    } catch (err) {
+      console.error('[annotationService] Failed to set annotation color:', err);
     }
   },
 
@@ -273,6 +356,7 @@ export const annotationService = {
     try {
       csAnnotation.state.removeAllAnnotations();
       annotationSessionByUid.clear();
+      measurementColorCounter = 0;
       syncAnnotations();
     } catch (err) {
       console.error('[annotationService] Failed to clear annotations:', err);

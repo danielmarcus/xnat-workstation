@@ -196,16 +196,21 @@ export default function ContainerRow(props: ContainerRowProps) {
         <ApproveGlyph filled={approved} />
       </button>
 
-      <button
-        type="button"
-        disabled={approved}
-        className={approved ? 'text-zinc-700 cursor-not-allowed' : 'text-zinc-400 hover:text-zinc-100'}
-        title={approved ? 'Add member — container is approved (locked); revoke approval to edit' : 'Add member to this container'}
-        aria-label="Add member"
-        onClick={onAddMember}
-      >
-        <PlusGlyph size={13} />
-      </button>
+      {/* No "+" for Measurement (SR) containers: a measurement has no empty member to
+          add — it's authored by drawing with a measurement tool from the toolbox. The
+          button only applies to SEG segments / RTSTRUCT ROIs. */}
+      {container.kind !== 'SR' && (
+        <button
+          type="button"
+          disabled={approved}
+          className={approved ? 'text-zinc-700 cursor-not-allowed' : 'text-zinc-400 hover:text-zinc-100'}
+          title={approved ? 'Add member — container is approved (locked); revoke approval to edit' : 'Add member to this container'}
+          aria-label="Add member"
+          onClick={onAddMember}
+        >
+          <PlusGlyph size={13} />
+        </button>
+      )}
 
       <button
         type="button"

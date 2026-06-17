@@ -137,6 +137,12 @@ export interface CornerstoneMockState {
         isAnnotationLocked: ReturnType<typeof vi.fn>;
         setAnnotationLocked: ReturnType<typeof vi.fn>;
       };
+      config: {
+        style: {
+          getAnnotationToolStyles: ReturnType<typeof vi.fn>;
+          setAnnotationStyles: ReturnType<typeof vi.fn>;
+        };
+      };
       selection: {
         getAnnotationsSelected: ReturnType<typeof vi.fn>;
         setAnnotationSelected: ReturnType<typeof vi.fn>;
@@ -317,6 +323,7 @@ export function createCornerstoneMockState(): CornerstoneMockState {
   const selectedAnnotationUIDs = new Set<string>();
   const annotationVisibleByUid = new Map<string, boolean>();
   const annotationLockedByUid = new Map<string, boolean>();
+  const annotationStylesByUid = new Map<string, Record<string, unknown>>();
   const segmentations: any[] = [];
   const viewportIdsBySegmentation = new Map<string, string[]>();
   const colorsByKey = new Map<string, RGBA>();
@@ -542,6 +549,14 @@ export function createCornerstoneMockState(): CornerstoneMockState {
           annotationLockedByUid.set(uid, locked);
         }),
       },
+      config: {
+        style: {
+          getAnnotationToolStyles: vi.fn((uid: string) => annotationStylesByUid.get(uid)),
+          setAnnotationStyles: vi.fn((uid: string, styles: Record<string, unknown>) => {
+            annotationStylesByUid.set(uid, styles);
+          }),
+        },
+      },
       selection: {
         getAnnotationsSelected: vi.fn(() => Array.from(selectedAnnotationUIDs)),
         setAnnotationSelected: vi.fn((uid: string, selected = true, preserveSelected = false) => {
@@ -724,6 +739,7 @@ export function createCornerstoneMockState(): CornerstoneMockState {
       selectedAnnotationUIDs.clear();
       annotationVisibleByUid.clear();
       annotationLockedByUid.clear();
+      annotationStylesByUid.clear();
       segmentations.length = 0;
       viewportIdsBySegmentation.clear();
       colorsByKey.clear();

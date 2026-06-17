@@ -16,7 +16,6 @@
  */
 import { useMemo, useState } from 'react';
 import type { ContainerKind } from '@shared/types/annotation';
-import { ToolName } from '@shared/types/viewer';
 import { useSegmentationStore } from '../stores/segmentationStore';
 import { useSegmentationManagerStore } from '../stores/segmentationManagerStore';
 import { useAnnotationStore } from '../stores/annotationStore';
@@ -179,18 +178,10 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
     onApproveToggle: () => console.warn('[annotationsPanel] approve/revoke — D7.11 approval persistence is transport-workstream (TODO).'),
     onAddMember: (id) => {
       const container = containers.find((c) => c.id === id);
-      // SR (Measurement) members are born from DRAWING — there is no empty measurement
-      // to add (and segmentationManager.addSegment throws on a non-multi-layer-group id).
-      // So "+" on a measurement container makes it the active SR container (new draws
-      // route into it) and activates a measurement tool, so the next drawn shape becomes
-      // its member, named by its tool (e.g. "Length 1" — requirements D7.6).
-      if (container?.kind === 'SR') {
-        activateAndBridge(id, '');
-        if (unifiedToolService.isToolSupported(ToolName.Length)) {
-          useViewerStore.getState().setActiveTool(ToolName.Length);
-        }
-        return;
-      }
+      // Measurement (SR) containers have no "+" affordance (the button isn't rendered):
+      // a measurement is authored by drawing with a measurement tool, not by adding an
+      // empty member. Defensive no-op in case the handler is invoked for an SR id.
+      if (container?.kind === 'SR') return;
       void (async () => {
         try {
           const defaultLabel = `${container?.kind === 'RTSTRUCT' ? 'ROI' : 'Segment'} ${(container?.members.length ?? 0) + 1}`;
@@ -320,6 +311,9 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
       if (Number.isInteger(idx) && idx > 0) segmentationManager.renameSegment(cid, idx, name);
     },
     onColorChange: (cid, mid, color) => {
+      // SR measurement members are keyed by annotationUID — set the Cornerstone
+      // annotation's display color directly (the numeric-index SEG path NaNs on a UID).
+      if (cid.startsWith('sr:')) { annotationService.setAnnotationColor(mid, color); return; }
       const idx = Number(mid);
       // userChangedSegmentColor updates Cornerstone AND persists to the presentation
       // cache (so the projection's member.color reflects it + it survives reload).

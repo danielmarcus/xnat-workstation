@@ -125,6 +125,7 @@ function measurementMember(a: AnnotationSummary): Member {
     label: a.label || a.displayName,
     visible: a.visible ?? true,
     locked: a.locked ?? false,
+    ...(a.color ? { color: a.color } : {}),
     toolName: a.toolName,
     annotationUID: a.annotationUID,
   };
