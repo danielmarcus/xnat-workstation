@@ -52,8 +52,14 @@ export interface PerContainerHistoryDeps {
 }
 
 export interface PerContainerHistory {
-  /** Route a freshly-pushed memo into its container's undo stack (clears its redo). */
-  record(memo: ContainerHistoryMemo): void;
+  /**
+   * Route a freshly-pushed memo into its container's undo stack (clears its redo).
+   * `containerId` overrides the partition key — callers pass it when the memo's raw
+   * `segmentationId` is NOT the user-facing container id (e.g. a multi-layer group's
+   * sub-seg `…_layer_N` must be filed under the GROUP id the panel activates, so
+   * `canUndo(activeContainerId)` finds it). Falls back to `memo.segmentationId`.
+   */
+  record(memo: ContainerHistoryMemo, containerId?: string): void;
   /** Undo the last edit of one container. Returns false if nothing to undo. */
   undo(containerId: string): boolean;
   /** Redo the last undone edit of one container. Returns false if nothing to redo. */
@@ -88,18 +94,20 @@ export function createPerContainerHistory(deps: PerContainerHistoryDeps): PerCon
     return s;
   }
 
-  function record(memo: ContainerHistoryMemo): void {
-    const containerId = memo?.segmentationId;
-    if (typeof containerId !== 'string' || containerId.length === 0) {
+  function record(memo: ContainerHistoryMemo, containerId?: string): void {
+    const key = (typeof containerId === 'string' && containerId.length > 0)
+      ? containerId
+      : memo?.segmentationId;
+    if (typeof key !== 'string' || key.length === 0) {
       return; // untagged — cannot be partitioned; remains on the global ring only
     }
-    const s = stacksFor(containerId);
+    const s = stacksFor(key);
     s.undo.push(memo);
     if (s.undo.length > capacity) {
       s.undo.splice(0, s.undo.length - capacity); // evict oldest cleanly
     }
     s.redo.length = 0; // a fresh edit invalidates redo (standard editor convention)
-    deps.onContainerDirtied(containerId);
+    deps.onContainerDirtied(key);
   }
 
   function undo(containerId: string): boolean {

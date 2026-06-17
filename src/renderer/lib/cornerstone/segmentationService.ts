@@ -300,7 +300,16 @@ const undoHistory = createUndoHistory({
   // at call time — matching the original in-function access — rather than at
   // module-init, which would fail against partial dialogStore test mocks.
   showAlertDialog: (opts) => showAlertDialog(opts),
-  recordContainerMemo: (memo) => perContainerHistory.record(memo ?? {}),
+  recordContainerMemo: (memo) => {
+    // A memo's raw `segmentationId` is the Cornerstone seg it edited. For a
+    // multi-layer group that is the sub-seg (`…_layer_N`), but the panel/toolbar
+    // track undo by the GROUP id (what activeMember.containerId / activeUndoContainerId
+    // return). File the memo under the group id so canUndo(activeContainerId) finds
+    // it; flat segs (no group) keep their own id.
+    const subId = (memo as { segmentationId?: string } | undefined)?.segmentationId;
+    const containerId = subId ? (mlg.getGroupInfoForSubSeg(subId)?.groupId ?? subId) : undefined;
+    perContainerHistory.record(memo ?? {}, containerId);
+  },
 });
 const {
   getTopUndoHistoryEntry,

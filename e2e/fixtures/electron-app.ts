@@ -73,13 +73,24 @@ export const test = base.extend<
   resetState: [async ({ electronApp }, use) => {
     try {
       const win = await electronApp.firstWindow();
-      await win.reload({ waitUntil: 'domcontentloaded' });
-      // The E2E hooks are (re)installed synchronously on renderer boot; wait for
-      // them so the first action of the test doesn't race the reload.
+      await win.reload({ waitUntil: 'load' });
+      // Wait until the renderer has actually BOOTED — not just hit DOMContentLoaded.
+      // The E2E hooks install synchronously at module load (main.tsx, BEFORE React
+      // mounts), so `__XNAT_E2E__` alone resolves too early: the test's first
+      // page.evaluate can then race the tail of the reload ("Execution context was
+      // destroyed, most likely because of a navigation"). Also require the React
+      // root to have rendered, which only happens once the post-reload render cycle
+      // has settled — making the page stable before the test's first action.
       await win
-        .waitForFunction(() => !!(window as unknown as { __XNAT_E2E__?: unknown }).__XNAT_E2E__, null, {
-          timeout: 15_000,
-        })
+        .waitForFunction(
+          () => {
+            const w = window as unknown as { __XNAT_E2E__?: unknown };
+            const root = document.getElementById('root');
+            return !!w.__XNAT_E2E__ && !!root && root.childElementCount > 0;
+          },
+          null,
+          { timeout: 15_000 },
+        )
         .catch(() => {});
     } catch {
       // No window yet — nothing to reset.
