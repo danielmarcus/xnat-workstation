@@ -27,6 +27,7 @@ import { useTransportStore } from '../../stores/transportStore';
 import * as contourRep from '../cornerstone/contourRepresentation';
 import { toolService } from '../cornerstone/toolService';
 import { exportMeasurementsToDicomSr } from '../cornerstone/srExport';
+import { importMeasurementsFromDicomSr } from '../cornerstone/srImport';
 import { ToolName } from '@shared/types/viewer';
 
 type ActiveSegmentationState = {
@@ -72,6 +73,8 @@ declare global {
       getMeasurementCount: () => number;
       /** Serialize all current measurements to a DICOM-SR (base64), or null if none. */
       exportSrBase64: () => Promise<string | null>;
+      /** Reconstruct measurements from an SR base64 onto the active viewport (SR-D). Returns count added. */
+      importSrBase64: (base64: string) => number;
       /** Toggle the multiviewport feature flag (must be set before the viewer mounts). */
       setMultiviewportEnabled: (enabled: boolean) => void;
       /** Cornerstone viewport type for a panel ('stack' | 'orthographic' | …) or null. */
@@ -535,6 +538,21 @@ export function installRendererE2eHooks(): void {
     getMeasurementCount: () => useAnnotationStore.getState().annotations.length,
     exportSrBase64: () =>
       exportMeasurementsToDicomSr(useAnnotationStore.getState().annotations.map((a) => a.annotationUID)),
+    /** Reconstruct measurements from an SR base64 onto the active viewport's images
+     *  (SR-D import round-trip). Re-syncs the store + clears the load-induced dirty
+     *  (a reload is not a local edit). Returns the number of measurements added. */
+    importSrBase64: (base64: string): number => {
+      const vpId = useViewerStore.getState().activeViewportId;
+      const ee = getEnabledElementByViewportId(vpId);
+      const imageIds = (ee?.viewport as { getImageIds?: () => string[] } | undefined)?.getImageIds?.() ?? [];
+      const bin = atob(base64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      const added = importMeasurementsFromDicomSr(bytes.buffer, imageIds);
+      annotationService.sync();
+      useSegmentationManagerStore.getState().clearDirty('sr:measurements');
+      return added.length;
+    },
     setMultiviewportEnabled: (enabled: boolean) => {
       usePreferencesStore.getState().setMultiviewportEnabled(enabled);
     },
