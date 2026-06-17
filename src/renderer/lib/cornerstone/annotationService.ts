@@ -19,6 +19,18 @@ import type { AnnotationSummary } from '../../stores/annotationStore';
 import { useSegmentationManagerStore } from '../../stores/segmentationManagerStore';
 import { TOOL_DISPLAY_NAMES, ToolName } from '@shared/types/viewer';
 
+/** annotationUID → the XNAT session active when the measurement was first synced.
+ *  Persisted so a measurement keeps its authoring session even after the viewer
+ *  switches sessions (drives session-scoping of the default Measurements container). */
+const annotationSessionByUid = new Map<string, string>();
+
+/** The active XNAT session, mirrored from viewerStore via a runtime subscription set
+ *  up in initialize(). Kept as a local (not a static `import { useViewerStore }`) so
+ *  this cornerstone service doesn't pull the viewerStore→unifiedToolService→tools
+ *  graph into its module load — that coupling broke the service's unit-test mock.
+ *  Empty until the subscription is wired (local fixtures / pre-init) ⇒ session-agnostic. */
+let currentSessionId = '';
+
 const Events = ToolEnums.Events;
 
 /** Map Cornerstone tool class name → our ToolName enum (for display name lookup) */
@@ -108,6 +120,9 @@ function syncAnnotations(): void {
 
       const tn = CS_NAME_TO_TOOL_NAME[toolName];
       const uid = ann.annotationUID ?? '';
+      // Record the authoring session once (first sight); reuse thereafter so the
+      // measurement keeps its session across later viewer session switches.
+      if (uid && !annotationSessionByUid.has(uid)) annotationSessionByUid.set(uid, currentSessionId);
       summaries.push({
         annotationUID: uid,
         toolName,
@@ -117,6 +132,7 @@ function syncAnnotations(): void {
         // Source the member eye/lock icons from the live Cornerstone annotation state.
         visible: uid ? csAnnotation.visibility.isAnnotationVisible(uid) !== false : true,
         locked: uid ? csAnnotation.locking.isAnnotationLocked(uid) === true : false,
+        sessionId: uid ? annotationSessionByUid.get(uid) : undefined,
       });
     }
 
@@ -187,6 +203,15 @@ export const annotationService = {
     eventTarget.addEventListener(Events.ANNOTATION_REMOVED, onAnnotationEvent);
     eventTarget.addEventListener(Events.ANNOTATION_SELECTION_CHANGE, onAnnotationSelectionChange);
 
+    // Mirror the active session for measurement session-scoping. Dynamic import keeps
+    // viewerStore (and its tool graph) out of this module's static import graph.
+    void import('../../stores/viewerStore')
+      .then(({ useViewerStore }) => {
+        currentSessionId = useViewerStore.getState().sessionId ?? '';
+        useViewerStore.subscribe((s) => { currentSessionId = s.sessionId ?? ''; });
+      })
+      .catch(() => { /* viewerStore unavailable (tests) — session stays agnostic */ });
+
     initialized = true;
     console.log('[annotationService] Initialized — listening for annotation events');
   },
@@ -247,6 +272,7 @@ export const annotationService = {
   removeAllAnnotations(): void {
     try {
       csAnnotation.state.removeAllAnnotations();
+      annotationSessionByUid.clear();
       syncAnnotations();
     } catch (err) {
       console.error('[annotationService] Failed to clear annotations:', err);
@@ -288,7 +314,7 @@ export const annotationService = {
     // SR is actually imported — not at annotationService module-load time.
     const { importMeasurementsFromDicomSr } = await import('./srImport');
     const store = useAnnotationStore.getState();
-    const containerId = store.createSrContainer(options.label ?? 'Measurements');
+    const containerId = store.createSrContainer(options.label ?? 'Measurements', currentSessionId || undefined);
     const addedUIDs = importMeasurementsFromDicomSr(arrayBuffer, sourceImageIds);
 
     if (addedUIDs.length === 0) {

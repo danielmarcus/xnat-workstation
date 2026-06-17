@@ -20,6 +20,10 @@ export interface AnnotationSummary {
   visible?: boolean;
   /** Cornerstone annotation lock state (drives the member lock icon). Defaults to false. */
   locked?: boolean;
+  /** The XNAT session active when this measurement was authored. Drives session-
+   *  scoping of the default Measurements container (the explicit-container case uses
+   *  the container's own sessionId). Empty/undefined = no session (local fixtures). */
+  sessionId?: string;
 }
 
 /** A user-created Measurement (SR) container (D7.1). Measurements drawn while it is
@@ -27,6 +31,10 @@ export interface AnnotationSummary {
 export interface SrContainerSummary {
   id: string;
   label: string;
+  /** The XNAT session this container belongs to, so the panel scopes it to its
+   *  session (A13: one study at a time) — mirrors a SEG's xnatOrigin.sessionId.
+   *  Empty/undefined = session-agnostic (local fixtures). */
+  sessionId?: string;
 }
 
 interface AnnotationStore {
@@ -57,8 +65,9 @@ interface AnnotationStore {
   /** Toggle annotation list panel visibility */
   togglePanel: () => void;
 
-  /** Create a new empty SR container, make it active, and return its id (D7.1). */
-  createSrContainer: (label: string) => string;
+  /** Create a new empty SR container, make it active, and return its id (D7.1).
+   *  Pass the current XNAT session so the container is session-scoped in the panel. */
+  createSrContainer: (label: string, sessionId?: string) => string;
   /** Rename a created SR container. */
   renameSrContainer: (id: string, label: string) => void;
   /** Remove a created SR container (its measurements fall back to the default). */
@@ -96,9 +105,9 @@ export const useAnnotationStore = create<AnnotationStore>((set) => ({
 
   togglePanel: () => set((s) => ({ showPanel: !s.showPanel })),
 
-  createSrContainer: (label) => {
+  createSrContainer: (label, sessionId) => {
     const id = `sr:local:${++srCounter}`;
-    set((s) => ({ srContainers: [...s.srContainers, { id, label }], activeSrContainerId: id }));
+    set((s) => ({ srContainers: [...s.srContainers, { id, label, sessionId }], activeSrContainerId: id }));
     return id;
   },
 

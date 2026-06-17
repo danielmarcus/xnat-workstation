@@ -54,7 +54,7 @@ export interface ProjectionInputs {
   srLabel?: string;
   srSource?: SourceIdentity;
   /** User-created SR (Measurement) containers — each emitted even when empty (D7.1). */
-  srContainers?: Array<{ id: string; label: string }>;
+  srContainers?: Array<{ id: string; label: string; sessionId?: string }>;
   /** annotationUID → SR container id (which created container a measurement belongs to). */
   srAffiliation?: Record<string, string>;
   /** Active viewer session. When set, the panel re-scopes to it (A13: one study at a
@@ -141,14 +141,21 @@ function projectMeasurementContainers(inputs: ProjectionInputs): Container[] {
   const created = inputs.srContainers ?? [];
   const out: Container[] = [];
 
+  // The container's session scopes it to its study (A13). Explicit containers carry
+  // their own sessionId; fall back to a member's authoring session. This is what lets
+  // inActiveSession hide measurements when the viewer moves to another session.
+  const withSession = (base: SourceIdentity, sessionId: string | undefined): SourceIdentity =>
+    sessionId ? { ...base, sessionId } : base;
+
   for (const c of created) {
-    const members = inputs.annotations.filter((a) => affiliation[a.annotationUID] === c.id).map(measurementMember);
+    const annsForC = inputs.annotations.filter((a) => affiliation[a.annotationUID] === c.id);
+    const members = annsForC.map(measurementMember);
     out.push({
       id: c.id,
       kind: 'SR',
       label: c.label,
       members,
-      source: inputs.srSource ?? sourceFromOrigin(undefined),
+      source: withSession(inputs.srSource ?? sourceFromOrigin(undefined), c.sessionId ?? annsForC[0]?.sessionId),
       dirty: !!inputs.dirtySegIds[c.id],
     });
   }
@@ -166,7 +173,7 @@ function projectMeasurementContainers(inputs: ProjectionInputs): Container[] {
       kind: 'SR',
       label: inputs.srLabel ?? 'Measurements',
       members: unaffiliated.map(measurementMember),
-      source: inputs.srSource ?? sourceFromOrigin(undefined),
+      source: withSession(inputs.srSource ?? sourceFromOrigin(undefined), unaffiliated[0]?.sessionId),
       dirty: !!inputs.dirtySegIds[id],
     });
   }

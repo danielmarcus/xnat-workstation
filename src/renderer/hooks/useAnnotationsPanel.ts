@@ -16,6 +16,7 @@
  */
 import { useMemo, useState } from 'react';
 import type { ContainerKind } from '@shared/types/annotation';
+import { ToolName } from '@shared/types/viewer';
 import { useSegmentationStore } from '../stores/segmentationStore';
 import { useSegmentationManagerStore } from '../stores/segmentationManagerStore';
 import { useAnnotationStore } from '../stores/annotationStore';
@@ -139,8 +140,11 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
     if (!canCreate) return;
     if (kind === 'SR') {
       // D7.1: create an empty Measurement (SR) container, make it active (so drawn
-      // measurements route into it), and start its name in inline-edit mode.
-      const srId = useAnnotationStore.getState().createSrContainer('Measurement');
+      // measurements route into it), and start its name in inline-edit mode. Stamp the
+      // current session so the panel scopes it to this study (A13).
+      const srId = useAnnotationStore
+        .getState()
+        .createSrContainer('Measurement', useViewerStore.getState().sessionId ?? undefined);
       useAnnotationSelectionStore.getState().activate(srId, srId);
       setAutoEditContainerId(srId);
       return;
@@ -174,9 +178,21 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
       }),
     onApproveToggle: () => console.warn('[annotationsPanel] approve/revoke — D7.11 approval persistence is transport-workstream (TODO).'),
     onAddMember: (id) => {
+      const container = containers.find((c) => c.id === id);
+      // SR (Measurement) members are born from DRAWING — there is no empty measurement
+      // to add (and segmentationManager.addSegment throws on a non-multi-layer-group id).
+      // So "+" on a measurement container makes it the active SR container (new draws
+      // route into it) and activates a measurement tool, so the next drawn shape becomes
+      // its member, named by its tool (e.g. "Length 1" — requirements D7.6).
+      if (container?.kind === 'SR') {
+        activateAndBridge(id, '');
+        if (unifiedToolService.isToolSupported(ToolName.Length)) {
+          useViewerStore.getState().setActiveTool(ToolName.Length);
+        }
+        return;
+      }
       void (async () => {
         try {
-          const container = containers.find((c) => c.id === id);
           const defaultLabel = `${container?.kind === 'RTSTRUCT' ? 'ROI' : 'Segment'} ${(container?.members.length ?? 0) + 1}`;
           const idx = await segmentationManager.addSegment(id, defaultLabel);
           activateAndBridge(id, String(idx));
