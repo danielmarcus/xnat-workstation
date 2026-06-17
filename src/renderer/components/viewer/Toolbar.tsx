@@ -8,7 +8,6 @@ import { useSegmentationStore } from '../../stores/segmentationStore';
 import { ToolName, WL_PRESETS } from '@shared/types/viewer';
 import type { LayoutType } from '@shared/types/viewer';
 import { BUILT_IN_PROTOCOLS } from '@shared/types/hangingProtocol';
-import BrushControl from './BrushControl';
 import CollapsibleGroup from './CollapsibleGroup';
 import SettingsModal from '../settings/SettingsModal';
 import { useToolbarCollapse } from '../../hooks/useToolbarCollapse';
@@ -631,11 +630,10 @@ export default function Toolbar({
         triggerTitle="Annotation tools"
       >
         <SegmentationPanelToggle label="Annotate" hideLabel={textCollapsed} />
-        {/* Measurement-tool dropdown removed (frozen toolbar §10): measurement tools
-            now live in the Annotations side-panel toolbox (kind-adaptive, when a
-            Measurement container is active). */}
-        {/* Interim brush + size control (the full editing toolbox is Phase-3 side panel). */}
-        <BrushControl hideLabel={textCollapsed} />
+        {/* Editing tools (brush, measurement, etc.) live in the Annotations side-panel
+            toolbox (kind-adaptive), NOT the toolbar — frozen toolbar §10 holds viewer
+            controls only. The measurement dropdown (SR-C) and the interim brush control
+            were removed for this reason. */}
         <IconButton
           icon={<IconUndo className="w-3.5 h-3.5" />}
           onClick={() => segmentationService.undo()}
