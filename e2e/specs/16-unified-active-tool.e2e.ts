@@ -70,11 +70,14 @@ test('unified setActiveTool swaps the Primary slot, keeping nav (flag on)', asyn
   expect(await toolMode(page, CS.pan)).toBe('Active');
   expect(await toolMode(page, CS.zoom)).toBe('Active');
 
-  // Switch to Length → Length takes Primary, the contour tool demotes to Passive.
+  // Switch to Length → Length takes Primary. The contour tool is handle-based, so
+  // when it stops being the active tool it demotes to ENABLED (view-only), not Passive
+  // — edit-scoping (commit e9245aa / spec 64): a structure contour is editable only
+  // while its own tool is active, so a measurement tool active can't grab it.
   await setTool(page, 'Length');
   expect(await activeTool(page)).toBe('Length');
   await expect.poll(() => toolMode(page, CS.length), { timeout: 10_000 }).toBe('Active');
-  expect(await toolMode(page, CS.contour)).toBe('Passive');
+  expect(await toolMode(page, CS.contour)).toBe('Enabled');
 });
 
 test('the full toolbox tool set is registered + activatable on the unified group (R3.8b)', async ({ page }) => {

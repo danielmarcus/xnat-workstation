@@ -145,9 +145,14 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
   };
 
   // ── Bridge: mirror the new active member into the legacy active state so drawing targets it. ──
-  const activateAndBridge = (containerId: string, memberId: string) => {
+  // `kindHint` is required when activating a JUST-CREATED container: the projected
+  // `containers` list is captured at the last render and does not yet include the new
+  // container, so the fallback lookup returns undefined and the drawing tool would never
+  // switch (the create's "no tool active → can't draw" bug). Existing-container callers
+  // (row/name click) omit it and the lookup resolves normally.
+  const activateAndBridge = (containerId: string, memberId: string, kindHint?: ContainerKind) => {
     useAnnotationSelectionStore.getState().activate(containerId, memberId);
-    const kind = containers.find((c) => c.id === containerId)?.kind;
+    const kind = kindHint ?? containers.find((c) => c.id === containerId)?.kind;
     if (kind) ensureToolForKind(kind);
     if (containerId.startsWith('sr:')) {
       // Activating an SR container routes subsequently-drawn measurements into it (D7.1).
@@ -184,7 +189,7 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
           // SEG with a default Segment 1 (createDefaultSegment) so the container is drawable immediately.
           segId = await segmentationManager.createNewSegmentation(activeViewportId, sourceImageIds, undefined, true);
         }
-        activateAndBridge(segId, '1');
+        activateAndBridge(segId, '1', kind); // pass the kind — the new container isn't in `containers` yet
         setAutoEditContainerId(segId); // create-in-edit-mode (D7.6): edit the container name first…
         setCreateFlow({ containerId: segId, memberKey: `${segId} 1` }); // …then its default member.
       } catch (err) {
