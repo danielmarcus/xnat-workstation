@@ -165,6 +165,34 @@ const NAV_BASE_BINDING: Record<string, number> = {
   [StackScrollTool.toolName]: Wheel,
 };
 
+/**
+ * Handle-based annotation tools (measurement + contour-segmentation) whose existing
+ * annotations can be GRABBED and dragged whenever the tool is merely Passive. We keep
+ * them ENABLED (rendered, view-only) when they're not the active tool, so an existing
+ * structure contour / measurement can only be edited when its own tool is active — a
+ * measurement tool active no longer lets you drag a structure contour. Brush/scissors/
+ * labelmap tools aren't handle-based (no draggable handles), so they demote to Passive
+ * as before; nav tools keep their fixed bindings.
+ */
+const HANDLE_EDITABLE_TOOL_NAMES: ReadonlySet<string> = new Set([
+  LengthTool.toolName, AngleTool.toolName, BidirectionalTool.toolName,
+  EllipticalROITool.toolName, RectangleROITool.toolName, CircleROITool.toolName,
+  ProbeTool.toolName, ArrowAnnotateTool.toolName, PlanarFreehandROITool.toolName,
+  PlanarFreehandContourSegmentationTool.toolName, SplineContourSegmentationTool.toolName,
+  LivewireContourSegmentationTool.toolName, SculptorTool.toolName,
+]);
+
+/** Idle (not-the-active-tool) mode: handle-based annotation tools go view-only
+ *  (Enabled) so their annotations can't be grabbed; everything else stays Passive. */
+function setIdleToolMode(toolGroup: ToolTypes.IToolGroup, toolName: string): void {
+  try {
+    if (HANDLE_EDITABLE_TOOL_NAMES.has(toolName)) toolGroup.setToolEnabled(toolName);
+    else toolGroup.setToolPassive(toolName);
+  } catch {
+    /* not all tools support every mode; safe to ignore */
+  }
+}
+
 // The tool currently bound to Primary; tracked so we demote it (rather than
 // re-`setToolActive` everything, which MERGES bindings in CS3D v4) on a switch.
 // Default = Window/Level (the native CrosshairsTool is disabled — see header).
@@ -230,15 +258,13 @@ function ensureToolGroup(): ToolTypes.IToolGroup | undefined {
   toolGroup.setToolActive(PanTool.toolName, { bindings: [{ mouseButton: Auxiliary }] });
   toolGroup.setToolActive(ZoomTool.toolName, { bindings: [{ mouseButton: Secondary }] });
   toolGroup.setToolActive(StackScrollTool.toolName, { bindings: [{ mouseButton: Wheel }] });
-  // Editing tools start passive (visible, not the active primary).
-  toolGroup.setToolPassive(LengthTool.toolName);
-  toolGroup.setToolPassive(PlanarFreehandContourSegmentationTool.toolName);
+  // Editing tools start idle (visible, not the active primary). Handle-based
+  // annotation tools idle as ENABLED (view-only) so existing structure contours /
+  // measurements aren't grabbable until their own tool is active; the rest go Passive.
+  setIdleToolMode(toolGroup, LengthTool.toolName);
+  setIdleToolMode(toolGroup, PlanarFreehandContourSegmentationTool.toolName);
   for (const Tool of FULL_SET) {
-    try {
-      toolGroup.setToolPassive(Tool.toolName);
-    } catch {
-      /* not all tools support passive; safe to ignore */
-    }
+    setIdleToolMode(toolGroup, Tool.toolName);
   }
 
   // Inter-slice contour interpolation (signal 13): enable per the user's preference so
@@ -308,8 +334,9 @@ export const unifiedToolService = {
     // Primary binding), then restore its fixed nav binding if it has one
     // (Pan=middle, Zoom=right, StackScroll=wheel). Doing this for every tool —
     // not just a PRIMARY_CAPABLE subset — is what stops Pan/Zoom from getting
-    // stuck on the left button and blocking subsequent tool switches.
-    toolGroup.setToolPassive(currentPrimary);
+    // stuck on the left button and blocking subsequent tool switches. Handle-based
+    // annotation tools demote to ENABLED (view-only) so they're not editable while idle.
+    setIdleToolMode(toolGroup, currentPrimary);
     const oldBase = NAV_BASE_BINDING[currentPrimary];
     if (oldBase !== undefined) {
       toolGroup.setToolActive(currentPrimary, { bindings: [{ mouseButton: oldBase }] });

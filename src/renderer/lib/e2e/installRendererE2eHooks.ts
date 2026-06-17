@@ -110,6 +110,8 @@ declare global {
       getActiveUnifiedTool: () => string | null;
       /** Cornerstone mode ('Active'/'Passive'/…) of a tool in the unified group. */
       getUnifiedToolMode: (csToolName: string) => string | null;
+      /** Cornerstone annotation lock state for a UID. */
+      getAnnotationLockState: (uid: string) => boolean;
       /** Cornerstone tool names currently holding the Primary (left-click) binding. */
       getUnifiedToolsWithPrimary: () => string[];
       /** Create a labelmap segmentation + attach it to all unified viewports + set active. */
@@ -607,6 +609,8 @@ export function installRendererE2eHooks(): void {
     setActiveUnifiedTool: (toolName: ToolName) => unifiedToolService.setActiveTool(toolName),
     getActiveUnifiedTool: () => unifiedToolService.getActiveToolName(),
     getUnifiedToolMode: (csToolName: string) => unifiedToolService.getToolMode(csToolName),
+    /** Cornerstone annotation lock state for a UID (drives the locked-structure test). */
+    getAnnotationLockState: (uid: string) => csAnnotation.locking.isAnnotationLocked(uid) === true,
     getUnifiedToolsWithPrimary: () => unifiedToolService.getToolsWithPrimaryBinding(),
     createUnifiedLabelmapSegmentation: async (label?: string) => {
       const viewportIds = unifiedToolService.getViewportIds();
