@@ -1,7 +1,6 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { initCornerstone } from './lib/cornerstone/init';
 import ViewerPage from './pages/ViewerPage';
-import ExportDropdown from './components/viewer/ExportDropdown';
 import LoginForm from './components/connection/LoginForm';
 import ConnectionStatus from './components/connection/ConnectionStatus';
 import XnatBrowser from './components/connection/XnatBrowser';
@@ -18,7 +17,7 @@ import { panelId } from '@shared/types/viewer';
 import { BUILT_IN_PROTOCOLS } from '@shared/types/hangingProtocol';
 import type { XnatScan } from '@shared/types/xnat';
 import type { UpdateStatus } from '@shared/types';
-import { IconOpenFile, XnatLogo } from './components/icons';
+import { XnatLogo } from './components/icons';
 import {
   saveRecentSession as saveRecentSessionUtil,
   migrateOldStorage,
@@ -2937,13 +2936,20 @@ export default function App() {
         onSettingsInitialTabRequestConsumed={() => setSettingsInitialTabRequest(undefined)}
         leftSlot={
           <>
-            <XnatLogo className="w-7 h-7 shrink-0" />
-            <div className="w-px h-5 bg-zinc-700 mx-0.5" />
+            {/* Frozen toolbar §10 left group — logo · connection chip · sep ·
+                Import · Export(held) · Favorites — all §10 ghost icon+label style. */}
+            <XnatLogo className="h-[22px] w-[22px] shrink-0" />
             <ConnectionStatus />
-            <div className="w-px h-5 bg-zinc-700 mx-0.5" />
-            {/* Import — icon only */}
-            <label className="flex items-center justify-center p-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white rounded cursor-pointer transition-colors" title="Import">
-              <IconOpenFile className="w-3.5 h-3.5" />
+            <span className="w-px h-5 bg-zinc-700 mx-1.5 shrink-0" />
+            {/* Import — local DICOM load */}
+            <label
+              className="flex items-center gap-1.5 px-2 py-1.5 rounded text-[11px] text-zinc-300 hover:bg-zinc-800 cursor-pointer transition-colors shrink-0"
+              title="Import / load DICOM files"
+            >
+              <svg viewBox="0 0 16 16" width={14} height={14} fill="none" stroke="currentColor" strokeWidth={1.4}>
+                <path d="M8 2.5v7M5 6.5l3 3 3-3M3 13h10" />
+              </svg>
+              <span>Import</span>
               <input
                 type="file"
                 multiple
@@ -2953,9 +2959,20 @@ export default function App() {
                 data-testid="local-import-input"
               />
             </label>
-            {/* Export — icon only */}
-            <ExportDropdown />
-            <div className="relative">
+            {/* Export — greyed out for now (held); the ExportDropdown wiring stays in
+                the codebase for when it's re-enabled. */}
+            <button
+              type="button"
+              disabled
+              className="flex items-center gap-1.5 px-2 py-1.5 rounded text-[11px] text-zinc-600 cursor-not-allowed shrink-0"
+              title="Export — coming soon"
+            >
+              <svg viewBox="0 0 16 16" width={14} height={14} fill="none" stroke="currentColor" strokeWidth={1.4}>
+                <path d="M8 9.5v-7M5 5.5l3-3 3 3M3 13h10" />
+              </svg>
+              <span>Export</span>
+            </button>
+            <div className="relative shrink-0">
               <BookmarksDropdown
                 pinnedItems={pinnedItems}
                 recentSessions={recentSessions}

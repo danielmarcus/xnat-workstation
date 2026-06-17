@@ -486,7 +486,7 @@ describe('App', () => {
     expect(await screen.findByTestId('viewer-page')).toBeInTheDocument();
     expect(screen.getByText('Connected to XNAT')).toBeInTheDocument();
 
-    await user.click(screen.getByTitle('Pinned & Recent'));
+    await user.click(screen.getByTitle('Favorites — pinned & recent'));
     expect(screen.getByText('Pinned')).toBeInTheDocument();
     expect(screen.getByText('Recent')).toBeInTheDocument();
     expect(screen.getAllByText('Project Alpha').length).toBeGreaterThan(0);
