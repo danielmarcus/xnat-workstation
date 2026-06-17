@@ -150,6 +150,9 @@ declare global {
       getCsSegmentationCount: () => number;
       /** Number of segmentation representations on a viewport (0 ⇒ structure not attached). */
       getViewportSegRepCount: (panelId: string) => number;
+      /** Cornerstone's ACTIVE segmentation id on a viewport — the actual brush target.
+       *  For a multi-layer group this is the active sub-seg layer id. Null if none. */
+      getCsActiveSegmentationId: (panelId: string) => string | null;
       /** Whether the global (viewport-independent) undo history has an undo available. */
       canUnifiedUndo: () => boolean;
       /** Undo the last edit via the global history (works after the source panel closed). */
@@ -742,6 +745,16 @@ export function installRendererE2eHooks(): void {
         return (fn?.(panelId) ?? []).length;
       } catch {
         return 0;
+      }
+    },
+    getCsActiveSegmentationId: (panelId: string) => {
+      try {
+        const active = (csSegmentation.activeSegmentation as unknown as {
+          getActiveSegmentation?: (vp: string) => { segmentationId?: string } | undefined;
+        }).getActiveSegmentation?.(panelId);
+        return active?.segmentationId ?? null;
+      } catch {
+        return null;
       }
     },
     getUndoRedoState: () => {

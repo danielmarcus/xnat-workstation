@@ -162,7 +162,15 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
     const segStore = useSegmentationStore.getState();
     segStore.setActiveSegmentation(containerId);
     const idx = Number(memberId);
-    if (Number.isInteger(idx) && idx > 0) segStore.setActiveSegmentIndex(idx);
+    if (Number.isInteger(idx) && idx > 0) {
+      // Route CORNERSTONE's active segmentation (the brush target), not just the
+      // store. For a multi-layer group this activates the selected segment's sub-seg
+      // layer; the store-only setActiveSegmentIndex left the brush painting whichever
+      // segmentation Cornerstone last activated (e.g. the most-recently-created one),
+      // so selecting one segment but painting into another.
+      segmentationService.setActiveSegmentIndex(containerId, idx);
+    }
+    segmentationService.activateOnViewport(useViewerStore.getState().activeViewportId, containerId);
   };
 
   const onCreate = (kind: ContainerKind) => {
