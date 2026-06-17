@@ -270,6 +270,47 @@ export const annotationService = {
   },
 
   /**
+   * Load measurements from a DICOM-SR ArrayBuffer into a NEW SR (Measurement)
+   * container (SR-D import — the production reload path, used by App.tsx for both
+   * the local-file and XNAT-scan SR routes). Reconstructs the annotations
+   * (srImport, adapter-owned), affiliates them with the container, re-syncs the
+   * panel, and clears the load-induced dirty (a reload is not a local edit). If the
+   * SR carried no reconstructable measurements the empty container is dropped.
+   * Returns the container id and the number of measurements loaded.
+   */
+  async loadMeasurementsFromArrayBuffer(
+    arrayBuffer: ArrayBuffer,
+    sourceImageIds: string[],
+    options: { label?: string } = {},
+  ): Promise<{ containerId: string; count: number }> {
+    // Lazy-load srImport so the heavy @cornerstonejs/adapters package (which runs
+    // module-init side effects against @cornerstonejs/core) is only pulled in when an
+    // SR is actually imported — not at annotationService module-load time.
+    const { importMeasurementsFromDicomSr } = await import('./srImport');
+    const store = useAnnotationStore.getState();
+    const containerId = store.createSrContainer(options.label ?? 'Measurements');
+    const addedUIDs = importMeasurementsFromDicomSr(arrayBuffer, sourceImageIds);
+
+    if (addedUIDs.length === 0) {
+      store.removeSrContainer(containerId);
+      syncAnnotations();
+      return { containerId, count: 0 };
+    }
+
+    // Deterministically affiliate the reconstructed annotations with the container
+    // (createSrContainer made it active, so syncAnnotations would also auto-route
+    // them — this makes the mapping explicit and load-order-independent).
+    useAnnotationStore.setState((s) => {
+      const aff = { ...s.srAffiliation };
+      for (const uid of addedUIDs) aff[uid] = containerId;
+      return { srAffiliation: aff };
+    });
+    syncAnnotations();
+    useSegmentationManagerStore.getState().clearDirty(containerId);
+    return { containerId, count: addedUIDs.length };
+  },
+
+  /**
    * Force a re-sync of annotation summaries (e.g. after viewport changes).
    */
   sync: syncAnnotations,

@@ -9,6 +9,7 @@ import { useConnectionStore } from './stores/connectionStore';
 import { useViewerStore } from './stores/viewerStore';
 import { useUnifiedLayoutStore } from './stores/unifiedLayoutStore';
 import { useSegmentationStore } from './stores/segmentationStore';
+import { useAnnotationStore } from './stores/annotationStore';
 import { usePreferencesStore } from './stores/preferencesStore';
 import { wadouri } from '@cornerstonejs/dicom-image-loader';
 import { dicomwebLoader } from './lib/cornerstone/dicomwebLoader';
@@ -35,6 +36,7 @@ import { getSegReferenceInfo } from './lib/dicom/segReferencedSeriesUid';
 import { applyPreferences } from './lib/preferences/applyPreferences';
 import { backupService } from './lib/backup/backupService';
 import { segmentationService } from './lib/cornerstone/segmentationService';
+import { annotationService } from './lib/cornerstone/annotationService';
 import AppDialogHost from './components/dialog/AppDialogHost';
 import { showConfirmDialog } from './stores/dialogStore';
 import {
@@ -60,6 +62,19 @@ const SEG_SOP_CLASS_UID = '1.2.840.10008.5.1.4.1.1.66.4';
 
 /** DICOM RTSTRUCT SOP Class UID */
 const RTSTRUCT_SOP_CLASS_UID = '1.2.840.10008.5.1.4.1.1.481.3';
+
+/** DICOM-SR (Measurement) SOP Class UIDs — the Structured Report family. srExport
+ *  emits Comprehensive 3D SR (…88.34); recognize the whole family on load so any
+ *  saved Measurement set routes to the SR importer instead of being mis-loaded as
+ *  an image. */
+const SR_SOP_CLASS_UIDS = new Set([
+  '1.2.840.10008.5.1.4.1.1.88.11', // Basic Text SR
+  '1.2.840.10008.5.1.4.1.1.88.22', // Enhanced SR
+  '1.2.840.10008.5.1.4.1.1.88.33', // Comprehensive SR
+  '1.2.840.10008.5.1.4.1.1.88.34', // Comprehensive 3D SR
+]);
+const isSrSopClass = (sopClassUid: string | undefined): boolean =>
+  !!sopClassUid && SR_SOP_CLASS_UIDS.has(sopClassUid);
 const XNAT_SCAN_DRAG_MIME = 'application/x-xnat-scan';
 const XNAT_SCAN_DRAG_FALLBACK_MIME = 'text/x-xnat-scan';
 
@@ -1033,6 +1048,7 @@ export default function App() {
     const regularFiles: File[] = [];
     const segFiles: File[] = [];
     const rtStructFiles: File[] = [];
+    const srFiles: File[] = [];
 
     for (const file of dicomFiles) {
       try {
@@ -1046,6 +1062,8 @@ export default function App() {
           segFiles.push(file);
         } else if (sopClassUid === RTSTRUCT_SOP_CLASS_UID) {
           rtStructFiles.push(file);
+        } else if (isSrSopClass(sopClassUid)) {
+          srFiles.push(file);
         } else {
           regularFiles.push(file);
         }
@@ -1223,6 +1241,60 @@ export default function App() {
       const segStore2 = useSegmentationStore.getState();
       if (!segStore2.showPanel) {
         segStore2.togglePanel();
+      }
+    }
+
+    // Load DICOM-SR files as Measurement containers (SR-D import). Measurements are
+    // annotation-store-backed (not Cornerstone segmentations), so they route through
+    // annotationService rather than segmentationManager.
+    if (srFiles.length > 0) {
+      const sourceImageIds = newImageIds.length > 0
+        ? newImageIds
+        : (panelImageIdsRef.current[targetPanel] ?? []);
+
+      if (sourceImageIds.length === 0) {
+        console.warn('[App] Cannot load DICOM-SR — no source images loaded in active panel');
+        setBrowserStatusMessage(
+          'Cannot display local Measurements',
+          'error',
+          'Load source images first, then import the SR file.',
+        );
+      } else {
+        // Small delay to let Cornerstone register the source images (if loaded together)
+        if (newImageIds.length > 0) {
+          await new Promise((r) => setTimeout(r, 200));
+        }
+
+        for (const file of srFiles) {
+          try {
+            setBrowserStatusMessage('Loading local Measurements...', 'loading', file.name);
+            const arrayBuffer = await file.arrayBuffer();
+            const { count } = await annotationService.loadMeasurementsFromArrayBuffer(
+              arrayBuffer,
+              sourceImageIds,
+              { label: file.name.replace(/\.dcm$/i, '') },
+            );
+            console.log(`[App] Loaded DICOM-SR file "${file.name}" — ${count} measurement(s)`);
+            setBrowserStatusMessage(
+              count > 0 ? 'Loaded local Measurements' : 'No measurements in SR',
+              count > 0 ? 'success' : 'info',
+              `${file.name}: ${count} measurement(s) on ${targetPanel}.`,
+            );
+          } catch (err) {
+            console.error(`[App] Failed to load DICOM-SR "${file.name}":`, err);
+            setBrowserStatusMessage(
+              'Failed to load local Measurements',
+              'error',
+              `${file.name}: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
+        }
+
+        // Open the annotations side panel so the loaded measurements are visible.
+        const annStore = useAnnotationStore.getState();
+        if (!annStore.showPanel) {
+          annStore.togglePanel();
+        }
       }
     }
   }, [setBrowserStatusMessage]);
