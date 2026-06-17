@@ -3,9 +3,10 @@
  * W/L presets, action buttons, cine controls, layout picker, and protocol picker.
  */
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { metaData } from '@cornerstonejs/core';
 import { useViewerStore } from '../../stores/viewerStore';
 import { useSegmentationStore } from '../../stores/segmentationStore';
-import { ToolName, WL_PRESETS } from '@shared/types/viewer';
+import { ToolName, presetsForModality } from '@shared/types/viewer';
 import type { LayoutType } from '@shared/types/viewer';
 import { BUILT_IN_PROTOCOLS } from '@shared/types/hangingProtocol';
 import SettingsModal from '../settings/SettingsModal';
@@ -328,6 +329,21 @@ function WLPresetsDropdown({ hideLabel = false }: { hideLabel?: boolean }) {
   const dropdownRef = useRef<HTMLDivElement>(null);
   const applyWLPreset = useViewerStore((s) => s.applyWLPreset);
   const setActiveTool = useViewerStore((s) => s.setActiveTool);
+  // Presets are scoped to the active scan's modality (CT/MR/PT/…), not hardcoded CT.
+  // Read modality from the active viewport's series metadata; re-resolves when the
+  // active panel's images change (scan load/switch).
+  const activeViewportId = useViewerStore((s) => s.activeViewportId);
+  const activeImageId = useViewerStore((s) => s.panelImageIdsMap[s.activeViewportId]?.[0]);
+  let modality: string | undefined;
+  try {
+    modality = activeImageId
+      ? (metaData.get('generalSeriesModule', activeImageId) as { modality?: string } | undefined)?.modality
+      : undefined;
+  } catch {
+    modality = undefined;
+  }
+  void activeViewportId; // (subscription keeps the dropdown re-resolving on panel switch)
+  const presets = presetsForModality(modality);
 
   useEffect(() => {
     if (!open) return;
@@ -372,7 +388,7 @@ function WLPresetsDropdown({ hideLabel = false }: { hideLabel?: boolean }) {
           className="fixed z-50 bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl p-1.5 min-w-[200px]"
           style={{ top: dropdownPos.top, left: dropdownPos.left }}
         >
-          {WL_PRESETS.map((preset) => (
+          {presets.map((preset) => (
             <button
               key={preset.name}
               onClick={() => {

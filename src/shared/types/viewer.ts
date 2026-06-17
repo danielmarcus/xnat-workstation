@@ -140,14 +140,48 @@ export interface WLPreset {
   level: number;
 }
 
-/** Standard CT window/level presets */
-export const WL_PRESETS: WLPreset[] = [
-  { name: 'CT Soft Tissue', window: 400, level: 40 },
-  { name: 'CT Lung', window: 1500, level: -600 },
-  { name: 'CT Bone', window: 2500, level: 480 },
-  { name: 'CT Brain', window: 80, level: 40 },
-  { name: 'CT Abdomen', window: 400, level: 60 },
+/** Standard CT window/level presets (HU-based). */
+export const CT_WL_PRESETS: WLPreset[] = [
+  { name: 'Soft Tissue', window: 400, level: 40 },
+  { name: 'Lung', window: 1500, level: -600 },
+  { name: 'Bone', window: 2500, level: 480 },
+  { name: 'Brain', window: 80, level: 40 },
+  { name: 'Abdomen', window: 400, level: 60 },
+  { name: 'Mediastinum', window: 350, level: 40 },
 ];
+
+/** MR window/level presets. MR pixel intensity is acquisition-dependent (no universal
+ *  HU scale), so these are reasonable starting points, not absolutes. */
+export const MR_WL_PRESETS: WLPreset[] = [
+  { name: 'Default', window: 1000, level: 500 },
+  { name: 'Brain', window: 600, level: 300 },
+  { name: 'T2 / Fluid', window: 1400, level: 700 },
+  { name: 'Spine', window: 800, level: 400 },
+];
+
+/** PET window/level presets (raw stored values; SUV scaling is acquisition-dependent). */
+export const PT_WL_PRESETS: WLPreset[] = [
+  { name: 'Default', window: 10000, level: 5000 },
+  { name: 'Hot', window: 6000, level: 3000 },
+];
+
+/** Window/level presets grouped by DICOM modality. */
+export const WL_PRESET_GROUPS: Record<string, WLPreset[]> = {
+  CT: CT_WL_PRESETS,
+  MR: MR_WL_PRESETS,
+  PT: PT_WL_PRESETS,
+};
+
+/** The W/L presets appropriate to a DICOM modality. Unknown / other modalities fall
+ *  back to the CT set (the most broadly useful HU presets, and the safe default before
+ *  a scan's metadata is available). */
+export function presetsForModality(modality?: string | null): WLPreset[] {
+  const key = (modality ?? '').trim().toUpperCase();
+  return WL_PRESET_GROUPS[key] ?? CT_WL_PRESETS;
+}
+
+/** Back-compat default export (the CT set). Prefer presetsForModality(). */
+export const WL_PRESETS: WLPreset[] = CT_WL_PRESETS;
 
 /** Cine playback state */
 export interface CineState {
