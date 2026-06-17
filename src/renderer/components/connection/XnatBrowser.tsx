@@ -17,7 +17,7 @@ import type {
 } from '@shared/types/xnat';
 import { useConnectionStore } from '../../stores/connectionStore';
 import {
-  IconPin,
+  IconStar,
   IconGrid4,
   IconList as IconListView,
   IconSegmentationAnnotation,
@@ -1112,7 +1112,7 @@ export default function XnatBrowser({
                         }`}
                         title={pinned ? 'Unpin' : 'Pin'}
                       >
-                        <IconPin className="w-3 h-3" filled={pinned} />
+                        <IconStar className="w-3 h-3" filled={pinned} />
                       </button>
                     </div>
                   );
@@ -1163,7 +1163,7 @@ export default function XnatBrowser({
                         }`}
                         title={pinned ? 'Unpin' : 'Pin'}
                       >
-                        <IconPin className="w-3 h-3" filled={pinned} />
+                        <IconStar className="w-3 h-3" filled={pinned} />
                       </button>
                     </div>
                   );
@@ -1245,7 +1245,7 @@ export default function XnatBrowser({
                                 }`}
                                 title={isPinnedSession ? 'Unpin' : 'Pin'}
                               >
-                                <IconPin className="w-3 h-3" filled={isPinnedSession} />
+                                <IconStar className="w-3 h-3" filled={isPinnedSession} />
                               </button>
                             )}
                           </div>

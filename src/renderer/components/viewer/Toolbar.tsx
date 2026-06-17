@@ -284,9 +284,9 @@ function SegmentationPanelToggle({ label = 'Annotate', showCount = false, hideLa
       // shown or collapsed away (the toolbar's collapse state varies with width) —
       // describes the action, and keeps the name selector deterministic.
       aria-label={showPanel ? 'Hide segmentation panel' : 'Show segmentation panel'}
-      // §10: Annotate is the blue accent button (opens/closes the Annotations panel).
+      // Highlighted (blue) ONLY while the Annotations panel is open; ghost otherwise.
       className={`flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] rounded transition-colors shrink-0 ${
-        showPanel ? 'bg-blue-700 text-white' : 'bg-blue-600 text-white hover:bg-blue-500'
+        showPanel ? 'bg-blue-600 text-white' : 'text-zinc-300 hover:bg-zinc-800'
       }`}
     >
       <IconSegment className="w-3.5 h-3.5" />

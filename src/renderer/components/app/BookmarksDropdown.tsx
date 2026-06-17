@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { NavigateToTarget, PinnedItem, RecentSession } from '../../lib/pinnedItems';
-import { IconChevronDown, IconPin } from '../icons';
+import { IconChevronDown, IconStar } from '../icons';
 
 interface BookmarksDropdownProps {
   pinnedItems: PinnedItem[];
@@ -64,7 +64,7 @@ export default function BookmarksDropdown({
         }`}
         title={hasBookmarks ? 'Favorites — pinned & recent' : 'No pinned or recent items'}
       >
-        <IconPin className="w-3.5 h-3.5" filled={pinnedItems.length > 0} />
+        <IconStar className="w-3.5 h-3.5" filled={pinnedItems.length > 0} />
         <span>Favorites</span>
         <IconChevronDown className="w-3 h-3" />
       </button>
@@ -193,7 +193,7 @@ export default function BookmarksDropdown({
                     className="text-zinc-500 hover:text-amber-400 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
                     title="Pin this session"
                   >
-                    <IconPin className="w-3 h-3" />
+                    <IconStar className="w-3 h-3" />
                   </button>
                 </div>
               ))}

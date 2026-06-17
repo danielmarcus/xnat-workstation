@@ -103,12 +103,14 @@ export function IconInvert(props: IconProps) {
   );
 }
 
-/** Rotate 90° — circular arrow */
+/** Rotate 90° — image (box) + rotation arrow (§10; deliberately distinct from the
+ *  Reset refresh-arrow so the two toolbar buttons don't look alike). */
 export function IconRotate90(props: IconProps) {
   return (
     <svg {...defaults(props)}>
-      <path d="M13 8 A5 5 0 1 1 8 3" />
-      <polyline points="10,1 13,3 10,5" fill="none" />
+      <rect x="3" y="7.5" width="6.5" height="6" rx="1" />
+      <path d="M9.5 7.5V5A3 3 0 0 0 6.5 2H5" />
+      <path d="M6.3 0.8L4.5 2 6.3 3.5" fill="none" />
     </svg>
   );
 }
@@ -655,13 +657,12 @@ export function XnatLogo({ className, size }: IconProps) {
   );
 }
 
-/** Pin — pushpin icon (filled or outline) */
-export function IconPin(props: IconProps & { filled?: boolean }) {
+/** Star — favorite/pin marker (filled when favorited, outline otherwise). */
+export function IconStar(props: IconProps & { filled?: boolean }) {
   const p = defaults(props);
   return (
     <svg {...p} fill={props.filled ? 'currentColor' : 'none'}>
-      <path d="M9.5 2L13 5.5 9.5 9l-1-1-3 3.5L2 14l2.5-3.5L8 7.5l-1-1z" />
-      <line x1="10" y1="6" x2="13" y2="3" />
+      <path d="M8 2.2l1.6 3.5 3.8.4-2.9 2.5.9 3.7L8 10.9 4.6 12.8l.9-3.7L2.6 6.1l3.8-.4z" />
     </svg>
   );
 }
