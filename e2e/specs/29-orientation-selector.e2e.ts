@@ -27,11 +27,12 @@ test('the orientation selector reformats a volume from axial to sagittal (flag o
   await page.locator('[data-testid="local-import-input"]').setInputFiles(files);
   await expect(page.locator('[data-testid="unified-viewport-element:panel_0"] canvas')).toBeVisible({ timeout: 30_000 });
 
-  // Axial: 16 slices. The orientation dropdown is shown and reads "Axial".
+  // Axial-acquired volume: 16 slices. The orientation dropdown defaults to
+  // "Acquisition" (the acquired plane — here axial), so the slice total is 16.
   await expect.poll(() => sliceTotal(page), { timeout: 20_000 }).toBe(16);
   const select = page.locator('[data-testid="orientation-select:panel_0"]');
   await expect(select).toBeVisible();
-  await expect(select).toHaveValue('AXIAL');
+  await expect(select).toHaveValue('ACQUISITION');
 
   // Switch to Sagittal ⇒ the volume reformats along the 128-wide axis: the slice
   // total jumps well above the 16 axial slices (proves an in-place reorient).

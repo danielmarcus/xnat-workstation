@@ -32,17 +32,18 @@ test('switching tools keeps exactly one tool on the Primary button (Pan -> Zoom)
   // Default: Window/Level holds the Primary button.
   await expect.poll(() => primaryTools(page), { timeout: 10_000 }).toEqual(['WindowLevel']);
 
-  // Click the real Pan button → only Pan on Primary. (Full title — the bare "Pan"
-  // substring also matches the "Show segmentation panel" toggle.)
-  await page.getByRole('button', { name: 'Pan (left-click drag)' }).click();
+  // Click the real Pan button → only Pan on Primary. (Locate by the button's
+  // title — the visible label is the short "Pan", whose accessible name also
+  // matches the "Show segmentation panel" toggle.)
+  await page.locator('button[title="Pan (left-click drag)"]').click();
   await expect.poll(() => primaryTools(page), { timeout: 10_000 }).toEqual(['Pan']);
 
   // Click the real Zoom button → only Zoom on Primary (the bug left BOTH here).
-  await page.getByRole('button', { name: 'Zoom (left-click drag)' }).click();
+  await page.locator('button[title="Zoom (left-click drag)"]').click();
   await expect.poll(() => primaryTools(page), { timeout: 10_000 }).toEqual(['Zoom']);
 
-  // Back to W/L → only W/L. (Full title — "W/L" also appears in the Crosshairs
-  // tooltip + the W/L-presets button.)
-  await page.getByRole('button', { name: 'Window/Level (left-click drag)' }).click();
+  // Back to W/L → only W/L. (By title — the short "W/L" label also appears on the
+  // W/L-presets button.)
+  await page.locator('button[title="Window/Level (left-click drag)"]').click();
   await expect.poll(() => primaryTools(page), { timeout: 10_000 }).toEqual(['WindowLevel']);
 });

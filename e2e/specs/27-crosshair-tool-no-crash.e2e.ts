@@ -39,9 +39,11 @@ test('Crosshairs tool routes to W/L and survives mouse-move in a single viewport
   // Select a different primary first, then the real "Cross" button. Selecting
   // Crosshairs must land the Cornerstone Primary slot on Window/Level (NOT the
   // native CrosshairsTool), so a drag still does W/L.
-  await page.getByRole('button', { name: 'Pan' }).click();
+  // Locate by title — the short visible labels ("Pan", "Cross") have accessible
+  // names that collide with other buttons ("Show segmentation panel" etc.).
+  await page.locator('button[title="Pan (left-click drag)"]').click();
   await expect.poll(() => primaryTools(page), { timeout: 10_000 }).toEqual(['Pan']);
-  await page.getByRole('button', { name: 'Cross' }).click();
+  await page.locator('button[title^="Crosshairs"]').click();
   await expect.poll(() => primaryTools(page), { timeout: 10_000 }).toEqual(['WindowLevel']);
 
   // The crash gesture: hover + press + move + release over the viewport. The native
