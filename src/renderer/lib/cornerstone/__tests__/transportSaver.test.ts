@@ -61,6 +61,26 @@ describe('createTransportSaver', () => {
     expect(await saver.saveContainer('c1')).toEqual({ ok: true });
   });
 
+  it('re-bases the token on the post-save server version (GET), not the PUT-response token (#64-A)', async () => {
+    // Real XNAT issues a PUT-response token that does NOT match a later GET of the
+    // same file, which would false-positive the next save's pre-overwrite check.
+    // The saver must adopt the GET token (getServerVersion) as the base.
+    const saveBases: (string | null)[] = [];
+    const transport = {
+      save: vi.fn(async (_s: SerializedContainer, base: string | null) => {
+        saveBases.push(base);
+        return { ok: true as const, versionToken: 'put-token', scanId: '3004' };
+      }),
+      getServerVersion: vi.fn(async () => 'get-token'),
+    } as unknown as Parameters<typeof createTransportSaver>[0]['transport'];
+
+    const saver = createTransportSaver({ transport, serialize: fakeSerialize() });
+    await saver.saveContainer('c1');
+    expect(saver.baseToken('c1')).toBe('get-token'); // the GET token, not 'put-token'
+    await saver.saveContainer('c1');
+    expect(saveBases).toEqual([null, 'get-token']); // 2nd save is based on the GET token
+  });
+
   it('reports each H5 result via onResult', async () => {
     const transport = createInMemoryTransport();
     const onResult = vi.fn();

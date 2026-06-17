@@ -53,7 +53,22 @@ export function createTransportSaver(deps: TransportSaverDeps): TransportSaver {
       deps.onResult?.(containerId, result);
 
       if (result.ok) {
-        baseTokens.set(containerId, result.versionToken);
+        // Re-base on the server's STORED version (a GET via getServerVersion), not
+        // the PUT-response token. XNAT issues a token on PUT that does NOT match a
+        // later GET of the same file (it re-encodes / re-derives), so using the
+        // PUT token as the base would false-positive the NEXT save's pre-overwrite
+        // check (getVersion polls via GET). Sourcing both the base and the pre-check
+        // from getServerVersion (the same GET observable) makes a clean repeat-save
+        // match while still catching real external edits. Falls back to the PUT
+        // token if the poll is unavailable (null).
+        let nextBase = result.versionToken;
+        try {
+          const stored = await deps.transport.getServerVersion(containerId);
+          if (stored) nextBase = stored;
+        } catch {
+          // keep the PUT-response token as the base
+        }
+        baseTokens.set(containerId, nextBase);
         return { ok: true };
       }
       return { ok: false, kind: result.kind, error: result.error };
