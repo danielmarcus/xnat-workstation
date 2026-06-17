@@ -9,6 +9,8 @@
  */
 import { test as base, _electron, type ElectronApplication, type Page } from '@playwright/test';
 import path from 'path';
+import os from 'os';
+import fs from 'fs';
 
 export type ElectronFixtures = {
   electronApp: ElectronApplication;
@@ -24,8 +26,17 @@ export const test = base.extend<
     const projectRoot = path.resolve(__dirname, '..', '..');
     const mainEntry = path.join(projectRoot, 'dist', 'main', 'main', 'index.js');
 
+    // Launch with an ISOLATED, throwaway user-data-dir. Without this the E2E app
+    // shares the real app's profile (~/Library/Application Support/XNAT), so it
+    // inherits persisted UI/session state — a collapsed toolbar group, a logged-in
+    // session, a remembered layout — which silently breaks specs (e.g. a collapsed
+    // annotation group hides the toolbar Undo button) and conflicts with a running
+    // `npm run dev` instance (shared profile / Chromium singleton lock). A fresh dir
+    // per worker guarantees a clean profile and never touches the user's real data.
+    const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'xnat-e2e-profile-'));
+
     const app = await _electron.launch({
-      args: [mainEntry],
+      args: [mainEntry, `--user-data-dir=${userDataDir}`],
       cwd: projectRoot,
       env: {
         ...process.env,
@@ -45,6 +56,11 @@ export const test = base.extend<
       if (pid) process.kill(pid, 'SIGKILL');
     } catch {
       // Process may already be gone
+    }
+    try {
+      fs.rmSync(userDataDir, { recursive: true, force: true });
+    } catch {
+      // Best-effort cleanup of the throwaway profile.
     }
   }, { scope: 'worker' }],
 
