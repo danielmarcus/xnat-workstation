@@ -16,6 +16,7 @@
  */
 import { useMemo, useState } from 'react';
 import type { ContainerKind } from '@shared/types/annotation';
+import { ToolName } from '@shared/types/viewer';
 import { useSegmentationStore } from '../stores/segmentationStore';
 import { useSegmentationManagerStore } from '../stores/segmentationManagerStore';
 import { useAnnotationStore } from '../stores/annotationStore';
@@ -32,7 +33,7 @@ import { unifiedToolService } from '../lib/cornerstone/unifiedToolService';
 import { segmentationManager } from '../lib/segmentation/segmentationManagerSingleton';
 import { projectContainers } from '../lib/annotations/containerProjection';
 import { buildContainerCsv, type MemberStats } from '../lib/annotations/containerCsv';
-import { CATALOG_TO_TOOLNAME, TOOLNAME_TO_CATALOG } from '../components/annotations/toolCatalog';
+import { CATALOG_TO_TOOLNAME, TOOLNAME_TO_CATALOG, toolsForKind } from '../components/annotations/toolCatalog';
 import type { ContainerListHandlers } from '../components/annotations/ContainerList';
 import type { RowTransport } from '../components/annotations/ContainerRow';
 
@@ -47,6 +48,16 @@ function hexToRgba(hex: string): [number, number, number, number] | null {
   const n = parseInt(m[1], 16);
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255, 255];
 }
+
+/** The tool a kind activates by default when its container becomes active and the
+ *  current tool doesn't belong to that kind — so drawing produces the active
+ *  container's annotation type (SEG → brush, RTSTRUCT → freehand contour, SR → length).
+ *  Each is a registered/supported tool on the unified group. */
+const DEFAULT_TOOL_BY_KIND: Record<ContainerKind, ToolName> = {
+  SEG: ToolName.Brush,
+  RTSTRUCT: ToolName.FreehandContour,
+  SR: ToolName.Length,
+};
 
 export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: string[]) {
   const segmentations = useSegmentationStore((s) => s.segmentations);
@@ -121,9 +132,23 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
   const activeContainer = activeMember ? containers.find((c) => c.id === activeMember.containerId) : undefined;
   const activeMemberObj = activeContainer?.members.find((m) => m.id === activeMember?.memberId);
 
+  // Switch the active tool to the kind's default when the current tool doesn't belong
+  // to that kind — so moving between annotation types switches the drawing tool to
+  // match (a measurement tool stays selected across SR containers, but moving to a SEG
+  // container swaps to the brush, etc.).
+  const ensureToolForKind = (kind: ContainerKind) => {
+    const currentCatalogId = activeTool ? TOOLNAME_TO_CATALOG[activeTool] : undefined;
+    const validIds = new Set(toolsForKind(kind).map((t) => t.id));
+    if (currentCatalogId && validIds.has(currentCatalogId)) return; // current tool already fits
+    const next = DEFAULT_TOOL_BY_KIND[kind];
+    if (unifiedToolService.isToolSupported(next)) useViewerStore.getState().setActiveTool(next);
+  };
+
   // ── Bridge: mirror the new active member into the legacy active state so drawing targets it. ──
   const activateAndBridge = (containerId: string, memberId: string) => {
     useAnnotationSelectionStore.getState().activate(containerId, memberId);
+    const kind = containers.find((c) => c.id === containerId)?.kind;
+    if (kind) ensureToolForKind(kind);
     if (containerId.startsWith('sr:')) {
       // Activating an SR container routes subsequently-drawn measurements into it (D7.1).
       useAnnotationStore.getState().setActiveSrContainer(containerId);
@@ -145,6 +170,7 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
         .getState()
         .createSrContainer('Measurement', useViewerStore.getState().sessionId ?? undefined);
       useAnnotationSelectionStore.getState().activate(srId, srId);
+      ensureToolForKind('SR'); // ready a measurement tool so drawing targets the new set
       setAutoEditContainerId(srId);
       return;
     }
@@ -272,6 +298,13 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
       else sel.selectOnly(cid, mid);
     },
     onActivateMember: (cid, mid) => activateAndBridge(cid, mid),
+    onActivateContainer: (cid) => {
+      // Clicking a container's name activates it (no specific member): switches the
+      // active annotation type (toolbox + drawing tool) and, for SR, makes it the
+      // active Measurement container so new measurements route into it.
+      const container = containers.find((c) => c.id === cid);
+      activateAndBridge(cid, container?.members[0]?.id ?? '');
+    },
     onCycleVisibility: (cid, mid) => {
       const container = containers.find((c) => c.id === cid);
       const member = container?.members.find((m) => m.id === mid);

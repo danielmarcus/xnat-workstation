@@ -47,6 +47,9 @@ export interface ContainerRowProps {
   /** Called when the inline name edit is accepted (Enter/blur), NOT on Esc-cancel. */
   onCommitName?: () => void;
   onToggleExpand: () => void;
+  /** Activate this container (make it the active annotation target) — clicking its
+   *  name. Switches the panel/toolbox to its kind + routes new drawing into it. */
+  onActivate?: () => void;
   onApproveToggle: () => void;
   onAddMember: () => void;
   onSave: () => void;
@@ -66,7 +69,7 @@ export interface ContainerRowProps {
 }
 
 export default function ContainerRow(props: ContainerRowProps) {
-  const { container, expanded, transport, onResolveConflict, crossPanelCount, autoEdit, onEditConsumed, onCommitName, onToggleExpand, onApproveToggle, onAddMember, onSave, onKebab, onDelete, onRename, onSetAllVisible, onSetAllLocked, onRevert, onExportDicom, onExportCsv } = props;
+  const { container, expanded, transport, onResolveConflict, crossPanelCount, autoEdit, onEditConsumed, onCommitName, onToggleExpand, onActivate, onApproveToggle, onAddMember, onSave, onKebab, onDelete, onRename, onSetAllVisible, onSetAllLocked, onRevert, onExportDicom, onExportCsv } = props;
   const saving = transport?.phase === 'saving' || transport?.phase === 'loading';
   const conflict = transport?.phase === 'error' && transport?.errorKind === 'conflict';
   const errored = transport?.phase === 'error' && transport?.errorKind !== 'conflict';
@@ -134,7 +137,11 @@ export default function ContainerRow(props: ContainerRowProps) {
           aria-label="Rename container"
         />
       ) : (
-        <div className="flex-1 min-w-0 flex items-baseline gap-1.5">
+        <div
+          className="flex-1 min-w-0 flex items-baseline gap-1.5 cursor-pointer"
+          onClick={onActivate}
+          data-testid={`container-activate-${container.id}`}
+        >
           <span
             className="text-[11px] text-zinc-200 font-medium truncate min-w-0"
             onDoubleClick={beginEdit}

@@ -20,6 +20,7 @@ const noopHandlers: ContainerListHandlers = {
   onKebab: vi.fn(), onSetAllVisible: vi.fn(), onSetAllLocked: vi.fn(),
   onExportContainerDicom: vi.fn(), onExportContainerCsv: vi.fn(),
   onDeleteContainer: vi.fn(), onRenameContainer: vi.fn(), onSelectMember: vi.fn(),
+  onActivateContainer: vi.fn(),
   onActivateMember: vi.fn(), onCycleVisibility: vi.fn(), onToggleLock: vi.fn(), onDeleteMember: vi.fn(),
   onRenameMember: vi.fn(), onColorChange: vi.fn(),
 };
