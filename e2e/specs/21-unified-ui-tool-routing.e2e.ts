@@ -27,17 +27,20 @@ test('toolbar Length selection routes to the unified tool group (flag on)', asyn
   await expect(page.locator('[data-testid="unified-viewport-element:panel_0"] canvas'))
     .toBeVisible({ timeout: 30_000 });
 
-  // Select the Length tool through the REAL toolbar (same affordance as the
-  // walking skeleton): expand the annotation-tools group if collapsed, open the
-  // measurement dropdown, click Length.
-  const annotationGroupTrigger = page.locator('button[title="Annotation tools"]');
-  if (await annotationGroupTrigger.isVisible().catch(() => false)) {
-    await annotationGroupTrigger.click();
+  // Select Length through the REAL UI. The toolbar measurement dropdown was removed
+  // (frozen §10 — measurement tools moved to the kind-adaptive side-panel toolbox),
+  // so drive the toolbox: open the panel, create a Measurement container (→ toolbox
+  // shows measurement tools), click Length.
+  const panel = page.locator('[data-testid="annotations-side-panel"]');
+  if (!(await panel.isVisible().catch(() => false))) {
+    await page.getByRole('button', { name: 'Show segmentation panel' }).click();
   }
-  const measureTrigger = page.locator('button[title="Annotation & measurement tools"]');
-  await measureTrigger.waitFor({ state: 'visible', timeout: 5_000 });
-  await measureTrigger.click();
-  await page.getByRole('button', { name: 'Length', exact: true }).click();
+  await expect(panel).toBeVisible({ timeout: 15_000 });
+  await panel.getByRole('button', { name: 'New Measurement (SR)' }).click();
+  await panel.getByLabel('Rename container').press('Enter');
+  const toolbox = panel.locator('[data-testid="context-toolbox"]');
+  await expect(toolbox).toBeVisible({ timeout: 10_000 });
+  await toolbox.getByLabel('Length').click();
 
   // The selection reached the unified tool group (not the old toolService).
   await expect

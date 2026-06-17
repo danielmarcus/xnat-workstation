@@ -36,18 +36,14 @@ test.describe('Walking skeleton — offline local fixture, real stack', () => {
       await expect(annotationPanel).toBeVisible({ timeout: 5_000 });
     }
 
-    // Select the Length tool. The toolbar may collapse the annotation tools
-    // into an "Annotation tools" group (narrow window), so expand it if present,
-    // then open the measurement dropdown by its stable title (the "Measure"
-    // text label is hidden when collapsed).
-    const annotationGroupTrigger = page.locator('button[title="Annotation tools"]');
-    if (await annotationGroupTrigger.isVisible().catch(() => false)) {
-      await annotationGroupTrigger.click();
-    }
-    const measureTrigger = page.locator('button[title="Annotation & measurement tools"]');
-    await measureTrigger.waitFor({ state: 'visible', timeout: 5_000 });
-    await measureTrigger.click();
-    await page.getByRole('button', { name: 'Length', exact: true }).click();
+    // Select the Length tool. The toolbar's measurement dropdown was removed
+    // (measurement tools moved to the Annotations side-panel toolbox, frozen §10);
+    // activate Length via the unified tool service, which is the same routing the
+    // side-panel toolbox uses (viewerStore.setActiveTool → unifiedToolService).
+    await page.evaluate(() => {
+      (window as unknown as { __XNAT_E2E__: { setActiveUnifiedTool: (t: string) => void } })
+        .__XNAT_E2E__.setActiveUnifiedTool('Length');
+    });
 
     // Draw a measurement on the rendered image.
     await viewer.canvas.drawLine({ x: 0.35, y: 0.35 }, { x: 0.65, y: 0.65 });

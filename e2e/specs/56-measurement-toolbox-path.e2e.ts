@@ -1,12 +1,10 @@
 /**
- * SR-B — measurement member controls operate on the Cornerstone annotation (by UID).
- *
- * Bug (live CNDA review): the member-row controls (delete/lock/rename/visibility)
- * did `Number(memberId)` and bailed unless it was a positive integer — SEG
- * segment-index semantics. Measurement member ids are annotation UIDs (strings), so
- * every control silently no-op'd; measurements could not be deleted. This drives the
- * REAL affordance: draw a Length → click the member's Delete → the measurement is
- * actually removed (member row gone + Cornerstone measurement count back to 0).
+ * SR-C — the side-panel toolbox is the measurement-tool path (the toolbar's
+ * "Measure" dropdown was removed; frozen §10 puts measurement tools in the
+ * kind-adaptive side-panel toolbox). This proves removal stranded nothing: create
+ * a Measurement container, pick Length FROM THE TOOLBOX (real click, not the e2e
+ * tool hook, not the old toolbar dropdown), draw, and the measurement registers as
+ * a member.
  */
 import { test, expect } from '../fixtures/electron-app';
 import type { Page } from '@playwright/test';
@@ -14,7 +12,6 @@ import { loadFixture } from '../helpers/local-fixture';
 
 interface E2EHooks {
   setMultiviewportEnabled: (v: boolean) => void;
-  setActiveUnifiedTool: (toolName: string) => void;
   getMeasurementCount: () => number;
   clearAllContainers: () => void;
 }
@@ -27,18 +24,32 @@ const cleanSlate = async (page: import('@playwright/test').Page) =>
 test.beforeEach(({ page }) => cleanSlate(page));
 test.afterEach(({ page }) => cleanSlate(page));
 
-test('SR-B: deleting a measurement member removes the real annotation', async ({ page }) => {
+test('SR-C: a measurement is created via the side-panel toolbox (no toolbar dropdown)', async ({ page }) => {
   await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.setMultiviewportEnabled(true));
   await loadFixture(page, 'ct-axial-300', 'panel_0');
-  // Open idempotently — the toggle may already be open from a prior spec in the worker.
+
   const panel = page.locator('[data-testid="annotations-side-panel"]');
   if (!(await panel.isVisible())) {
     await page.getByRole('button', { name: 'Show segmentation panel' }).click();
   }
   await expect(panel).toBeVisible({ timeout: 15_000 });
 
-  // Draw a Length (real gesture).
-  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.setActiveUnifiedTool('Length'));
+  // The toolbar no longer carries a measurement-tool dropdown.
+  await expect(page.locator('[data-testid="annotation-tool-dropdown"]')).toHaveCount(0);
+
+  // Create + name a Measurement container → it becomes active → the toolbox adapts.
+  await panel.getByRole('button', { name: 'New Measurement (SR)' }).click();
+  await expect(panel.getByLabel('Rename container')).toBeVisible({ timeout: 15_000 });
+  await panel.getByLabel('Rename container').press('Enter');
+
+  const toolbox = panel.locator('[data-testid="context-toolbox"]');
+  await expect(toolbox).toBeVisible({ timeout: 10_000 });
+  await expect(toolbox.getByText('Measurement tools')).toBeVisible();
+
+  // Activate Length FROM THE TOOLBOX (the replacement for the removed toolbar dropdown).
+  await toolbox.getByLabel('Length').click();
+
+  // Draw a length on the canvas (real gesture).
   const canvas = page.locator('[data-testid="unified-viewport-element:panel_0"] canvas');
   const box = await canvas.boundingBox();
   expect(box).not.toBeNull();
@@ -48,18 +59,9 @@ test('SR-B: deleting a measurement member removes the real annotation', async ({
   await page.mouse.move(box!.x + box!.width * 0.65, cy, { steps: 6 });
   await page.mouse.up();
 
+  // The measurement registered via the toolbox-selected tool.
   await expect
     .poll(() => page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.getMeasurementCount()), { timeout: 15_000 })
     .toBe(1);
-  const member = panel.locator('[data-testid^="member-row-"]');
-  await expect(member).toHaveCount(1);
-
-  // Delete the measurement member via the real row control.
-  await member.getByLabel('Delete member').click();
-
-  // The Cornerstone annotation is actually gone (not just hidden) + the row is removed.
-  await expect
-    .poll(() => page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.getMeasurementCount()), { timeout: 10_000 })
-    .toBe(0);
-  await expect(panel.locator('[data-testid^="member-row-"]')).toHaveCount(0);
+  await expect(panel.locator('[data-testid^="member-row-"]')).toHaveCount(1);
 });

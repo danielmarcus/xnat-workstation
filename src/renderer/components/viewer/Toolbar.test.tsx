@@ -16,10 +16,6 @@ vi.mock('../../lib/cornerstone/segmentationService', () => ({
   segmentationService: segmentationServiceMock,
 }));
 
-vi.mock('./AnnotationToolDropdown', () => ({
-  default: () => <div data-testid="annotation-tool-dropdown" />,
-}));
-
 function resetStores(): void {
   useViewerStore.setState(useViewerStore.getInitialState(), true);
   useSegmentationStore.setState(useSegmentationStore.getInitialState(), true);

@@ -8,7 +8,6 @@ import { useSegmentationStore } from '../../stores/segmentationStore';
 import { ToolName, WL_PRESETS } from '@shared/types/viewer';
 import type { LayoutType } from '@shared/types/viewer';
 import { BUILT_IN_PROTOCOLS } from '@shared/types/hangingProtocol';
-import AnnotationToolDropdown from './AnnotationToolDropdown';
 import BrushControl from './BrushControl';
 import CollapsibleGroup from './CollapsibleGroup';
 import SettingsModal from '../settings/SettingsModal';
@@ -287,6 +286,10 @@ function SegmentationPanelToggle({ label = 'Annotate', showCount = false, hideLa
     <button
       onClick={togglePanel}
       title={showPanel ? 'Hide segmentation panel' : 'Show segmentation panel'}
+      // Stable accessible name regardless of whether the "Annotate" text label is
+      // shown or collapsed away (the toolbar's collapse state varies with width) —
+      // describes the action, and keeps the name selector deterministic.
+      aria-label={showPanel ? 'Hide segmentation panel' : 'Show segmentation panel'}
       className={`flex items-center gap-1.5 px-2 py-1.5 text-xs font-medium rounded transition-colors ${
         showPanel
           ? 'bg-blue-600 text-white'
@@ -628,7 +631,9 @@ export default function Toolbar({
         triggerTitle="Annotation tools"
       >
         <SegmentationPanelToggle label="Annotate" hideLabel={textCollapsed} />
-        <AnnotationToolDropdown hideLabel={textCollapsed} />
+        {/* Measurement-tool dropdown removed (frozen toolbar §10): measurement tools
+            now live in the Annotations side-panel toolbox (kind-adaptive, when a
+            Measurement container is active). */}
         {/* Interim brush + size control (the full editing toolbox is Phase-3 side panel). */}
         <BrushControl hideLabel={textCollapsed} />
         <IconButton

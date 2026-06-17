@@ -18,14 +18,17 @@ interface E2EHooks {
   setMultiviewportEnabled: (v: boolean) => void;
   setActiveUnifiedTool: (toolName: string) => void;
   getMeasurementCount: () => number;
-  clearAllAnnotations: () => void;
+  clearAllContainers: () => void;
 }
 type Win = { __XNAT_E2E__: E2EHooks };
 
-// Isolate from any measurement a prior spec left in the worker-scoped app.
-test.beforeEach(async ({ page }) => {
-  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.clearAllAnnotations());
-});
+// Full clean slate (segmentations + measurements, cs + stores) before AND after —
+// the worker-scoped app is shared, and a drawn measurement now marks its SR
+// container dirty (SR-A), which would otherwise leak into downstream specs' counts.
+const cleanSlate = async (page: import('@playwright/test').Page) =>
+  page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.clearAllContainers());
+test.beforeEach(({ page }) => cleanSlate(page));
+test.afterEach(({ page }) => cleanSlate(page));
 
 test('a drawn Length measurement appears as a member of the Measurement (SR) container', async ({ page }) => {
   await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.setMultiviewportEnabled(true));

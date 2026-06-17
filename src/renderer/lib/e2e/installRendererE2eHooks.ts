@@ -138,6 +138,8 @@ declare global {
       resetUnifiedSegmentations: () => void;
       /** Remove all measurement annotations (test isolation for SR/measurement specs). */
       clearAllAnnotations: () => void;
+      /** Full panel clean-slate (segmentations + measurements, cs + stores). */
+      clearAllContainers: () => void;
       /** The global unsaved-changes (dirty) flag. */
       getDirtyFlag: () => boolean;
       /** Number of segmentations in Cornerstone state (the unified seg lives here, not the store). */
@@ -695,6 +697,21 @@ export function installRendererE2eHooks(): void {
      *  that share the worker-scoped app — avoids the "passes alone, fails combined"
      *  pollution where one spec's measurements leak into the next). */
     clearAllAnnotations: () => annotationService.removeAllAnnotations(),
+    /** Full panel clean-slate for measurement specs: clear segmentations AND
+     *  measurements at BOTH the Cornerstone and the store-summary layer (the panel
+     *  projects from the stores, so a cs-only reset leaves phantom container rows). */
+    clearAllContainers: () => {
+      try {
+        (csSegmentation as unknown as { removeAllSegmentations?: () => void }).removeAllSegmentations?.();
+      } catch {
+        /* ignore */
+      }
+      unifiedSegService.reset();
+      useSegmentationManagerStore.getState().reset();
+      useSegmentationStore.setState({ segmentations: [], hasUnsavedChanges: false } as Partial<ReturnType<typeof useSegmentationStore.getState>>);
+      annotationService.removeAllAnnotations();
+      useAnnotationStore.setState({ srContainers: [], srAffiliation: {}, activeSrContainerId: null } as Partial<ReturnType<typeof useAnnotationStore.getState>>);
+    },
     getDirtyFlag: () => useSegmentationStore.getState().hasUnsavedChanges,
     getCsSegmentationCount: () =>
       ((csSegmentation.state as unknown as { getSegmentations?: () => unknown[] }).getSegmentations?.() ?? []).length,
