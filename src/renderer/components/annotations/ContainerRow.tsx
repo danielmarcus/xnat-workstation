@@ -66,10 +66,15 @@ export interface ContainerRowProps {
   onExportDicom?: () => void;
   /** Kebab: export this container's per-member metrics as a CSV file. */
   onExportCsv?: () => void;
+  /** Kebab: delete this container's scan on the XNAT server. Item shown only when
+   *  provided AND the container has a server copy (source.scanId). */
+  onDeleteFromServer?: () => void;
 }
 
 export default function ContainerRow(props: ContainerRowProps) {
-  const { container, expanded, transport, onResolveConflict, crossPanelCount, autoEdit, onEditConsumed, onCommitName, onToggleExpand, onActivate, onApproveToggle, onAddMember, onSave, onKebab, onDelete, onRename, onSetAllVisible, onSetAllLocked, onRevert, onExportDicom, onExportCsv } = props;
+  const { container, expanded, transport, onResolveConflict, crossPanelCount, autoEdit, onEditConsumed, onCommitName, onToggleExpand, onActivate, onApproveToggle, onAddMember, onSave, onKebab, onDelete, onRename, onSetAllVisible, onSetAllLocked, onRevert, onExportDicom, onExportCsv, onDeleteFromServer } = props;
+  // The container has a server copy iff its source carries an XNAT scan id.
+  const onServer = !!container.source?.scanId;
   const saving = transport?.phase === 'saving' || transport?.phase === 'loading';
   const conflict = transport?.phase === 'error' && transport?.errorKind === 'conflict';
   const errored = transport?.phase === 'error' && transport?.errorKind !== 'conflict';
@@ -284,6 +289,19 @@ export default function ContainerRow(props: ContainerRowProps) {
               >
                 Export to CSV…
               </MenuItem>
+              {onDeleteFromServer && onServer && (
+                <>
+                  <div className="my-1 border-t border-zinc-800" role="separator" />
+                  <MenuItem
+                    testid={`menu-delete-server-${container.id}`}
+                    disabled={approved}
+                    danger
+                    onClick={() => { onDeleteFromServer(); setMenuOpen(false); }}
+                  >
+                    Delete from XNAT…
+                  </MenuItem>
+                </>
+              )}
             </div>
           </>
         )}
@@ -293,7 +311,7 @@ export default function ContainerRow(props: ContainerRowProps) {
         type="button"
         disabled={approved}
         className={approved ? 'text-zinc-700 cursor-not-allowed' : 'text-zinc-500 hover:text-red-400'}
-        title={approved ? 'Delete — approved (locked); revoke first' : 'Delete (locally / from XNAT)'}
+        title={approved ? 'Delete — approved (locked); revoke first' : 'Remove from workstation (local only)'}
         aria-label="Delete container"
         onClick={onDelete}
       >
@@ -308,8 +326,10 @@ function MenuItem(props: {
   onClick: () => void;
   disabled?: boolean;
   testid?: string;
+  /** Destructive item — red text (e.g. "Delete from XNAT…"). */
+  danger?: boolean;
 }) {
-  const { children, onClick, disabled, testid } = props;
+  const { children, onClick, disabled, testid, danger } = props;
   return (
     <button
       type="button"
@@ -319,7 +339,9 @@ function MenuItem(props: {
       className={
         disabled
           ? 'block w-full text-left px-2.5 py-1 text-zinc-600 cursor-not-allowed'
-          : 'block w-full text-left px-2.5 py-1 text-zinc-200 hover:bg-zinc-800'
+          : danger
+            ? 'block w-full text-left px-2.5 py-1 text-red-400 hover:bg-zinc-800'
+            : 'block w-full text-left px-2.5 py-1 text-zinc-200 hover:bg-zinc-800'
       }
       onClick={onClick}
     >

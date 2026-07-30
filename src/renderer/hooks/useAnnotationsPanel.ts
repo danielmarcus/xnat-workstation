@@ -72,6 +72,9 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
   const transportEntries = useTransportStore((s) => s.entries);
   // Settings color sequence → palette swatches offered in the member color picker.
   const colorSequence = usePreferencesStore((s) => s.preferences.annotation.defaultColorSequence);
+  // Deletion preference: whether a server delete copies to a trash resource first
+  // (recoverable) or permanently removes the scan.
+  const deletionPrefs = usePreferencesStore((s) => s.preferences.deletion);
   // SEG controls strip: labelmap opacity (global style) + brush radius. Opacity lives
   // in the store; brush size has no service getter, so track it locally (the slider is
   // the only brush-size control).
@@ -101,6 +104,11 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
   const [conflictDialogId, setConflictDialogId] = useState<string | null>(null);
   // Review & save unsaved annotations dialog (opened from the in-panel indicator).
   const [reviewOpen, setReviewOpen] = useState(false);
+  // Delete-from-XNAT confirmation (opened from the container kebab). Holds the pending
+  // container id; busy while the server call is in flight; error surfaces inline.
+  const [deleteServerId, setDeleteServerId] = useState<string | null>(null);
+  const [deleteServerBusy, setDeleteServerBusy] = useState(false);
+  const [deleteServerError, setDeleteServerError] = useState<string | null>(null);
   const activeSessionId = useViewerStore((s) => s.sessionId);
 
   const containers = useMemo(
@@ -208,6 +216,21 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
     })();
   };
 
+  // Remove a container from the workstation only (Cornerstone + stores). Does NOT
+  // touch the server — that's onDeleteFromServer. Shared by the row Delete button and
+  // the post-server-delete cleanup.
+  const removeContainerLocally = (id: string) => {
+    if (id.startsWith('sr:')) {
+      // Remove the underlying Cornerstone measurement annotations first (otherwise
+      // they linger on the viewport after the panel row is gone), then drop the
+      // container entry + its affiliations.
+      containers.find((c) => c.id === id)?.members.forEach((m) => annotationService.removeAnnotation(m.id));
+      useAnnotationStore.getState().removeSrContainer(id);
+    } else {
+      segmentationManager.removeSegmentation(id);
+    }
+  };
+
   const handlers: ContainerListHandlers = {
     onToggleExpand: (id) =>
       setCollapsed((prev) => {
@@ -280,16 +303,12 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
         }
       })();
     },
-    onDeleteContainer: (id) => {
-      if (id.startsWith('sr:')) {
-        // Remove the underlying Cornerstone measurement annotations first (otherwise
-        // they linger on the viewport after the panel row is gone), then drop the
-        // container entry + its affiliations.
-        containers.find((c) => c.id === id)?.members.forEach((m) => annotationService.removeAnnotation(m.id));
-        useAnnotationStore.getState().removeSrContainer(id);
-      } else {
-        segmentationManager.removeSegmentation(id);
-      }
+    onDeleteContainer: (id) => removeContainerLocally(id),
+    // Kebab "Delete from XNAT…" — open the confirm dialog (only reachable for
+    // containers with a server scan; ContainerRow gates the menu item).
+    onDeleteFromServer: (id) => {
+      setDeleteServerError(null);
+      setDeleteServerId(id);
     },
     onRenameContainer: (id, name) =>
       id.startsWith('sr:')
@@ -431,6 +450,65 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
         }
       : null;
 
+  // ── Delete from XNAT (kebab → confirm → deleteScan) ──
+  // Reads the authoritative origin from xnatOriginMap (not the projected container,
+  // to avoid projection lag). Honors the trash-on-delete preference: with trash on the
+  // scan's files are copied to a recoverable trash resource before removal; off = a
+  // permanent server delete. On success the container is also removed locally (it no
+  // longer exists on the server) and its origin mapping is cleared so a later save
+  // won't try to overwrite a deleted scan.
+  const deleteServerContainer = deleteServerId ? containers.find((c) => c.id === deleteServerId) : undefined;
+  const deleteServerOrigin = deleteServerId ? xnatOriginMap[deleteServerId] : undefined;
+  const deleteFromServerDialog =
+    deleteServerId && deleteServerOrigin?.scanId
+      ? {
+          title: `Delete “${deleteServerContainer?.label ?? 'annotation'}” from XNAT?`,
+          scanId: deleteServerOrigin.scanId,
+          toTrash: deletionPrefs.trashOnServerDelete,
+          busy: deleteServerBusy,
+          error: deleteServerError ?? undefined,
+          onConfirm: () => {
+            const id = deleteServerId;
+            const { sessionId, scanId } = deleteServerOrigin;
+            setDeleteServerBusy(true);
+            setDeleteServerError(null);
+            void (async () => {
+              try {
+                const trashResource = deletionPrefs.trashOnServerDelete
+                  ? deletionPrefs.trashResourceName
+                  : undefined;
+                const resp = await window.electronAPI.xnat.deleteScan(sessionId, scanId, trashResource);
+                if (!resp.ok) {
+                  setDeleteServerError(resp.error ?? 'Failed to delete from XNAT.');
+                  return;
+                }
+                // Server copy gone → remove locally + drop the origin mapping.
+                removeContainerLocally(id);
+                useSegmentationStore.getState().clearXnatOrigin(id);
+                // Best-effort: refresh the session scan list so the deleted scan
+                // disappears from the XNAT browser sidebar.
+                if (sessionId) {
+                  try {
+                    const scans = await window.electronAPI.xnat.getScans(sessionId);
+                    useViewerStore.getState().setSessionData(sessionId, scans);
+                  } catch { /* best-effort */ }
+                }
+                setDeleteServerId(null);
+              } catch (err) {
+                setDeleteServerError(err instanceof Error ? err.message : String(err));
+              } finally {
+                setDeleteServerBusy(false);
+              }
+            })();
+          },
+          onCancel: () => {
+            if (deleteServerBusy) return; // don't dismiss mid-flight
+            setDeleteServerId(null);
+            setDeleteServerError(null);
+          },
+        }
+      : null;
+
   // Measurement value/unit per member (signal 32): SR members carry an annotationUID
   // → the annotation's formatted displayText (e.g. "12.5 mm", "45°").
   const measurementText = new Map(annotations.map((a) => [a.annotationUID, a.displayText]));
@@ -487,6 +565,8 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
     // transport (in-place row state) + H7 conflict dialog
     transportOf,
     conflictDialog,
+    // Delete-from-XNAT confirmation (kebab → confirm → deleteScan).
+    deleteFromServerDialog,
     // toolbox
     toolbox: activeContainer
       ? {

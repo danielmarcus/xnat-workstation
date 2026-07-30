@@ -71,6 +71,44 @@ describe('ContainerRow', () => {
     expect(screen.queryByTestId('container-menu-rt-1')).toBeNull();
   });
 
+  it('offers "Delete from XNAT…" only when the container is on the server + a handler is wired, and fires it', async () => {
+    const onDeleteFromServer = vi.fn();
+
+    // Never-saved container (no source.scanId): item is absent even with a handler.
+    const { rerender } = render(
+      <ContainerRow container={makeContainer()} expanded onDeleteFromServer={onDeleteFromServer}
+        onToggleExpand={vi.fn()} onApproveToggle={vi.fn()} onAddMember={vi.fn()} onSave={vi.fn()} onKebab={vi.fn()} onDelete={vi.fn()} onRename={vi.fn()} />,
+    );
+    await userEvent.click(screen.getByLabelText('Container menu'));
+    expect(screen.queryByTestId('menu-delete-server-rt-1')).toBeNull();
+
+    // On-server container (has source.scanId): item appears and fires the handler.
+    rerender(
+      <ContainerRow container={makeContainer({ source: { projectId: 'P', subjectId: 'S', sessionId: 'E', sourceScanId: '4', scanId: '3003' } })}
+        expanded onDeleteFromServer={onDeleteFromServer}
+        onToggleExpand={vi.fn()} onApproveToggle={vi.fn()} onAddMember={vi.fn()} onSave={vi.fn()} onKebab={vi.fn()} onDelete={vi.fn()} onRename={vi.fn()} />,
+    );
+    const item = screen.getByTestId('menu-delete-server-rt-1');
+    expect(item).toBeTruthy();
+    await userEvent.click(item);
+    expect(onDeleteFromServer).toHaveBeenCalledTimes(1);
+  });
+
+  it('disables "Delete from XNAT…" for an approved (locked) container', async () => {
+    const onDeleteFromServer = vi.fn();
+    render(
+      <ContainerRow
+        container={makeContainer({ approval: 'APPROVED', source: { projectId: 'P', subjectId: 'S', sessionId: 'E', sourceScanId: '4', scanId: '3003' } })}
+        expanded onDeleteFromServer={onDeleteFromServer}
+        onToggleExpand={vi.fn()} onApproveToggle={vi.fn()} onAddMember={vi.fn()} onSave={vi.fn()} onKebab={vi.fn()} onDelete={vi.fn()} onRename={vi.fn()} />,
+    );
+    await userEvent.click(screen.getByLabelText('Container menu'));
+    const item = screen.getByTestId('menu-delete-server-rt-1') as HTMLButtonElement;
+    expect(item.disabled).toBe(true);
+    await userEvent.click(item);
+    expect(onDeleteFromServer).not.toHaveBeenCalled();
+  });
+
   it('Revert menu item is enabled only when dirty', async () => {
     const onRevert = vi.fn();
     const { rerender } = render(

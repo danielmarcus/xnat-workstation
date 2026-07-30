@@ -15,6 +15,23 @@ describe('ConfirmDialog', () => {
     await userEvent.click(screen.getByText('Delete'));
     expect(onConfirm).toHaveBeenCalled();
   });
+
+  it('disables both buttons and shows the busy label while a confirm is in flight', async () => {
+    const onConfirm = vi.fn();
+    const onCancel = vi.fn();
+    render(<ConfirmDialog title="Delete from XNAT?" confirmLabel="Delete from XNAT" busyLabel="Deleting…" variant="danger" busy onConfirm={onConfirm} onCancel={onCancel} />);
+    expect(screen.getByText('Deleting…')).toBeTruthy();
+    const buttons = screen.getAllByRole('button') as HTMLButtonElement[];
+    expect(buttons.every((b) => b.disabled)).toBe(true);
+    await userEvent.click(screen.getByText('Deleting…'));
+    expect(onConfirm).not.toHaveBeenCalled();
+  });
+
+  it('surfaces an error in red and turns the confirm button into a Retry', () => {
+    render(<ConfirmDialog title="Delete from XNAT?" confirmLabel="Delete from XNAT" variant="danger" error="Server said no." onConfirm={vi.fn()} onCancel={vi.fn()} />);
+    expect(screen.getByRole('alert').textContent).toBe('Server said no.');
+    expect(screen.getByText('Retry')).toBeTruthy();
+  });
 });
 
 describe('NameEntryDialog', () => {

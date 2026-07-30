@@ -7,7 +7,7 @@
 import AnnotationsSidePanel from './AnnotationsSidePanel';
 import ContainerList from './ContainerList';
 import ContextToolbox from './ContextToolbox';
-import { ConflictDialog, ReviewUnsavedDialog } from './dialogs';
+import { ConfirmDialog, ConflictDialog, ReviewUnsavedDialog } from './dialogs';
 import { useAnnotationsPanel } from '../../hooks/useAnnotationsPanel';
 
 export interface AnnotationsPanelProps {
@@ -70,6 +70,23 @@ export default function AnnotationsPanel({ activeViewportId, sourceImageIds }: A
           onDiscardLocal={panel.conflictDialog.onDiscardLocal}
           onInspect={panel.conflictDialog.onInspect}
           onCancel={panel.conflictDialog.onCancel}
+        />
+      )}
+      {panel.deleteFromServerDialog && (
+        <ConfirmDialog
+          title={panel.deleteFromServerDialog.title}
+          body={
+            panel.deleteFromServerDialog.toTrash
+              ? `Scan ${panel.deleteFromServerDialog.scanId} will be moved to the server trash resource (recoverable) and removed from the workstation.`
+              : `Scan ${panel.deleteFromServerDialog.scanId} will be permanently deleted from the server and removed from the workstation. This cannot be undone.`
+          }
+          confirmLabel="Delete from XNAT"
+          busyLabel="Deleting…"
+          variant="danger"
+          busy={panel.deleteFromServerDialog.busy}
+          error={panel.deleteFromServerDialog.error}
+          onConfirm={panel.deleteFromServerDialog.onConfirm}
+          onCancel={panel.deleteFromServerDialog.onCancel}
         />
       )}
     </div>

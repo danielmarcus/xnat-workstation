@@ -33,18 +33,34 @@ export function ConfirmDialog(props: {
   variant: ConfirmVariant;
   onConfirm: () => void;
   onCancel: () => void;
+  /** While an async confirm is in flight: disables both buttons + shows busyLabel. */
+  busy?: boolean;
+  busyLabel?: string;
+  /** Error from a failed confirm, shown in red; the confirm button becomes a retry. */
+  error?: string;
 }) {
-  const { title, body, confirmLabel, variant, onConfirm, onCancel } = props;
+  const { title, body, confirmLabel, variant, onConfirm, onCancel, busy = false, busyLabel, error } = props;
   return (
     <ModalShell>
       <div className="text-xs text-zinc-200 font-medium mb-1">{title}</div>
       {body && <p className="text-[10px] text-zinc-500">{body}</p>}
+      {error && <p className="mt-1 text-[10px] text-red-400" role="alert">{error}</p>}
       <div className="mt-3 flex justify-end gap-2">
-        <button type="button" className="text-[11px] px-2.5 py-1 rounded text-zinc-400 hover:text-zinc-200" onClick={onCancel}>
+        <button
+          type="button"
+          disabled={busy}
+          className="text-[11px] px-2.5 py-1 rounded text-zinc-400 hover:text-zinc-200 disabled:opacity-50 disabled:cursor-not-allowed"
+          onClick={onCancel}
+        >
           Cancel
         </button>
-        <button type="button" className={`text-[11px] px-2.5 py-1 rounded text-white ${CONFIRM_BTN[variant]}`} onClick={onConfirm}>
-          {confirmLabel}
+        <button
+          type="button"
+          disabled={busy}
+          className={`text-[11px] px-2.5 py-1 rounded text-white disabled:opacity-60 disabled:cursor-not-allowed ${CONFIRM_BTN[variant]}`}
+          onClick={onConfirm}
+        >
+          {busy ? (busyLabel ?? confirmLabel) : error ? 'Retry' : confirmLabel}
         </button>
       </div>
     </ModalShell>
