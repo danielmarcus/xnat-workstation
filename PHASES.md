@@ -1,6 +1,8 @@
 # XNAT Workstation — Development Phases
 
-> **Current focus:** the **Multi-Viewport Annotation Rebuild** — restarting from scratch on branch `annotation-cleanup`. The historical product phases 0–12 below are complete/in-progress as marked. The active rebuild and its own phase plan live in the **Active Work** section (after Phase 12); its phase numbers are scoped to the rebuild and are distinct from the product phases here. Specs are in `docs/`.
+> **Current focus:** the **Multi-Viewport Annotation Rebuild** — on branch `annotation-cleanup` (206 commits ahead of `main`, not yet merged). The historical product phases 0–12 below are complete/in-progress as marked. The active rebuild and its own phase plan live in the **Active Work** section (after Phase 12); its phase numbers are scoped to the rebuild and are distinct from the product phases here. Specs are in `docs/`.
+>
+> **Rebuild status (2026-07-30):** Phases 0–5 ✅ · Transport ✅ code-complete + CNDA-live-verified · Phase-3 list panel ✅ built/mounted (behind `REBUILT_ANNOTATIONS_PANEL`, on by default) · toolbar rebuilt to the frozen §10 mockup + polish (star favorites, ghost Annotate-when-closed, distinct rotate icon, modality-scoped W/L presets, organized responsive collapse) · Measurement/SR round-trip + UI bug-fix pass done. **Remaining before merge:** the **legacy-panel cutover** (Phase 6) — close the parity gaps the old `SegmentationPanel`/`AnnotationListPanel` still cover (save-to-XNAT UI, approval persistence, brush-size control, segment statistics), then delete them + drop the flag; plus the **CNDA-gated live-verification residuals** (#74 upload E2E, signals 25/26 browser-driven auto-load, #64-H6).
 
 ## Phase 0: Prove Cornerstone3D Works in Electron + Vite (Complete)
 - Scaffold Electron + Vite 5 + React 19 + TypeScript + Tailwind project
@@ -294,19 +296,26 @@ Current rendering map (Explore): one shared `RenderingEngine`; STACK via `viewpo
   - **Signal 35 fully green** — the keyboard-scoping/focus model was already complete (document-level hotkeys, view shortcuts target activeViewportId, sky-blue active ring); the scoping agent confirmed it, spec 35 verifies it.
   - **🔜 Remaining Phase-3 signals (genuinely gated — need a feature/transport, not just an E2E):** 17/19/20/22 already green (Phase 1). 25/26 (auto-load lifecycle, A13) need the XNAT-browser-driven auto-load + same-session navigate-preserve + dirty-retention banner — **not offline-testable** with the local-fixture harness. 27 (conflict, H7) needs the XNAT transport workstream. The explicit "New Measurement (SR)" create-empty-set button + multi-SR-container routing is deferred per the D7.1 measurement skeleton.
 
-### Rebuild Phase 4 — Interpolation cleanup (Not started)
+### Rebuild Phase 4 — Interpolation cleanup (✅ COMPLETE)
 - Delete `interpolationAcceptance.ts`; write-through auto-accept; provenance stamping (interpolated → manual on edit); single undo entry per interpolation op.
-- **Acceptance:** signal 13.
+- **Acceptance:** signal 13. ✅
+- **Landed:** `b11eaf1` (B5 write-through — always auto-accept, drop the promote gate) · `0955f93` (signal 13 — inter-slice contour interpolation on the unified path) · `80c8112` (interpolated-provenance badge in the panel) · `a487bb9` (signal 22 — flip interpolated → manual on user edit).
 
-### Rebuild Phase 5 — Tool audit + Contour Fill fix (Not started)
+### Rebuild Phase 5 — Tool audit + Contour Fill fix (✅ COMPLETE)
 - Audit `SafePaintFillTool` vs. stock `PaintFillTool` against requirements C3 behavior (preview / commit / cancel); fix `LabelMapEditWithContourTool` (Contour Fill); verify smart-brush + Sculptor on the container model; meet the D8 performance budget (≥ 30 fps, 4 panels).
-- **Acceptance:** signals 16, 21, 24, and the voxel-region portion of 23.
+- **Acceptance:** signals 16, 21, 24, and the voxel-region portion of 23. ✅
+- **Landed:** `2ff97bd` (Contour Fill — add the contour-edit prerequisite at tool activation) · `685e04a` (Contour Fill undo — bridge the missing history memo) · `15c1691` (fix Contour Fill on **oblique** acquisition planes — index-space rasterizer, `ct-oblique` fixture). Perf budget (D8) remains a real-data/real-hardware measurement, not offline-verifiable (same note as the Phase-1 perf budget).
 
-### Rebuild Phase 6 — Flag removal & cleanup (Not started)
-- Remove `multiviewport.enabled`; delete legacy `!enabled` code paths; dead-code / stale-import / docs pass.
-- **Acceptance:** clean codebase, no flag remnants.
+### Rebuild Phase 6 — Legacy-panel cutover + flag removal (🔜 Next milestone — gated on parity)
+- **Prerequisite — close the parity gaps** the legacy `SegmentationPanel`/`AnnotationListPanel` still cover but the rebuilt `AnnotationsSidePanel` does not (why the `REBUILT_ANNOTATIONS_PANEL` flag is still the fallback):
+  - **Save-to-XNAT UI** — surface manual save + autosave/queue state in the new panel (the transport itself is done + CNDA-verified; the new panel's affordance is the gap).
+  - **Approval persistence** — approve/revoke state must round-trip (the new panel has the affordance; persistence wiring is the gap).
+  - **Brush-size control** — replace the interim toolbar `BrushControl` (Phase-1 C5b) with the side-panel context-toolbox control.
+  - **Segment statistics** — volume / HU stats / CSV export (listed under Future Enhancements; legacy panel exposes a subset).
+- **Then cut over:** delete `SegmentationPanel` + `AnnotationListPanel`, remove `multiviewport.enabled` + `REBUILT_ANNOTATIONS_PANEL`; delete legacy `!enabled` code paths; dead-code / stale-import / docs pass.
+- **Acceptance:** new panel at parity, legacy panels deleted, clean codebase, no flag remnants.
 
-### Transport workstream — parallel track (sequencing) (Not started)
+### Transport workstream — parallel track (sequencing) (✅ Code-complete + LIVE-VERIFIED on CNDA)
 > The XNAT transport/persistence layer ([`docs/annotation-xnat-integration-requirements.md`](docs/annotation-xnat-integration-requirements.md)) is a **separate workstream** behind the requirements **§H boundary**. The rebuild Phases 0–6 build against §H using an in-memory transport double (design §8); they do **not** block on the 33 transport-internal stubs. This track gives that workstream an explicit slot so it stops being unscheduled. (Much of it formalizes/hardens transport that **already exists in code** — save/load SEG+RTSTRUCT, autosave, local backup/recovery — rather than greenfield.)
 >
 > - **T-spec (parallel with Rebuild Phases 0–2):** fill the 33 "to fill in" stubs (A1–A4, B1–B6, C1–C8, D1–D4, E1–E5, F1–F5). The **§H boundary itself** + the Phase-3-blocking *result semantics* (C7 save-error taxonomy, D3 conflict dialog, and the result-only slivers A4/B3/C4/C5/D4/B6/C8/E5 — see [gaps doc §2](docs/multiviewport-annotation-gaps.md)) are filled **first**, as part of the rebuild spec work, because Phase 3 reacts to them. ✅ §H H5–H7 + the clean-container branch defined + signal 27 added (2026-06-05).
