@@ -225,6 +225,8 @@ const perContainerHistory = createPerContainerHistory({
     if (isDirtyTrackingSuppressed()) return;
     useSegmentationManagerStore.getState().markDirty(containerId);
     useSegmentationStore.getState()._markDirty();
+    // Derived per-segment statistics (panel row metrics) recompute off this epoch.
+    useSegmentationStore.getState()._bumpEditEpoch();
   },
 });
 
@@ -1243,6 +1245,10 @@ function onSegmentationDataModified(evt?: Event): void {
       };
     }
     useSegmentationStore.getState()._markDirty();
+    // Derived per-segment statistics (the panel's inline row metrics) recompute off
+    // this epoch once edits settle — the stats run a Cornerstone worker, so the UI
+    // debounces on it rather than computing per event.
+    useSegmentationStore.getState()._bumpEditEpoch();
     const dirtySegId =
       resolvedSegId
       ?? useSegmentationStore.getState().activeSegmentationId

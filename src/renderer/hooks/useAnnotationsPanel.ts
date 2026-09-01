@@ -34,6 +34,7 @@ import { segmentationManager } from '../lib/segmentation/segmentationManagerSing
 import { projectContainers } from '../lib/annotations/containerProjection';
 import { buildContainerCsv, type MemberStats } from '../lib/annotations/containerCsv';
 import { formatBackupStatus } from '../lib/annotations/backupStatus';
+import { useSegmentMetrics } from './useSegmentMetrics';
 import { CATALOG_TO_TOOLNAME, TOOLNAME_TO_CATALOG, toolsForKind } from '../components/annotations/toolCatalog';
 import type { ContainerListHandlers } from '../components/annotations/ContainerList';
 import type { RowTransport } from '../components/annotations/ContainerRow';
@@ -153,6 +154,11 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
       }),
     [segmentations, annotations, presentation, dirtySegIds, xnatOriginMap, srContainers, srAffiliation, activeSessionId],
   );
+
+  // Inline per-segment metrics for the visible SEG rows (mockup §3). Expensive
+  // (Cornerstone statistics worker), so the hook debounces on the edit epoch and only
+  // computes for expanded containers.
+  const segmentMetricOf = useSegmentMetrics(containers, (id) => !collapsed.has(id));
 
   const canCreate = sourceImageIds.length > 0;
   const anyDirty = hasUnsavedChanges || Object.values(dirtySegIds).some(Boolean);
@@ -566,10 +572,17 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
       : null;
 
   // Measurement value/unit per member (signal 32): SR members carry an annotationUID
-  // → the annotation's formatted displayText (e.g. "12.5 mm", "45°").
+  // → the annotation's formatted displayText (e.g. "12.5 mm", "45°"). SEG members show
+  // their inline geometry metric in the same slot (mockup §3, e.g. "86 cm³").
   const measurementText = new Map(annotations.map((a) => [a.annotationUID, a.displayText]));
-  const metricOf = (_containerId: string, member: { annotationUID?: string }): string | undefined =>
-    member.annotationUID ? measurementText.get(member.annotationUID) || undefined : undefined;
+  const metricOf = (
+    containerId: string,
+    member: { annotationUID?: string; segmentIndex?: number; id?: string },
+  ): string | undefined => {
+    if (member.annotationUID) return measurementText.get(member.annotationUID) || undefined;
+    const index = member.segmentIndex ?? Number(member.id);
+    return Number.isInteger(index) && index > 0 ? segmentMetricOf(containerId, index) : undefined;
+  };
 
   // Provenance badge (signal 22): a contour member is 'interpolated' when any of its
   // contours was stamped by interpolation (interpolationAcceptance). The container id

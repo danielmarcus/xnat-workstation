@@ -82,6 +82,14 @@ interface SegmentationStore {
   /** Timestamp of last successful auto-save */
   lastAutoSaveTime: number | null;
 
+  /**
+   * Monotonic counter bumped whenever labelmap pixel data changes. Lets the UI
+   * recompute derived-but-expensive values (per-segment volume/HU statistics run a
+   * Cornerstone worker) after edits settle, without hooks subscribing to
+   * Cornerstone events directly.
+   */
+  editEpoch: number;
+
   // ─── XNAT Origin Tracking ─────────────────────────────────
 
   /**
@@ -173,6 +181,8 @@ interface SegmentationStore {
 
   /** Mark that unsaved changes exist */
   _markDirty: () => void;
+  /** Internal: note that labelmap pixel data changed (bumps editEpoch). */
+  _bumpEditEpoch: () => void;
 
   /** Mark that all changes have been saved */
   _markClean: () => void;
@@ -194,6 +204,7 @@ export const useSegmentationStore = create<SegmentationStore>((set) => ({
   canUndo: false,
   canRedo: false,
   autoSaveStatus: 'idle',
+  editEpoch: 0,
   lastAutoSaveTime: null,
   xnatOriginMap: {},
   dicomTypeBySegmentationId: {},
@@ -272,6 +283,8 @@ export const useSegmentationStore = create<SegmentationStore>((set) => ({
   hasUnsavedChanges: false,
 
   _markDirty: () => set({ hasUnsavedChanges: true }),
+
+  _bumpEditEpoch: () => set((s) => ({ editEpoch: s.editEpoch + 1 })),
 
   _markClean: () => {
     set({ hasUnsavedChanges: false });
