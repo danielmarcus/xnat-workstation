@@ -48,8 +48,13 @@ const viewportServiceMock = {
   scrollToIndex: vi.fn(),
 };
 
-const segmentationServiceMock = {
+// Brush size has ONE entry point (Phase-6 cutover): unifiedToolService.setBrushSize
+// clamps, writes the unified tool group, and writes segmentationStore.
+const unifiedToolServiceMock = {
   setBrushSize: vi.fn(),
+};
+
+const segmentationServiceMock = {
   undo: vi.fn(),
   redo: vi.fn(),
   copySelectedContourAnnotation: vi.fn(() => true),
@@ -72,6 +77,7 @@ beforeAll(async () => {
   }));
   vi.doMock('../../cornerstone/viewportService', () => ({ viewportService: viewportServiceMock }));
   vi.doMock('../../cornerstone/segmentationService', () => ({ segmentationService: segmentationServiceMock }));
+  vi.doMock('../../cornerstone/unifiedToolService', () => ({ unifiedToolService: unifiedToolServiceMock }));
 
   ({ hotkeyService } = await import('../hotkeyService'));
 });
@@ -245,8 +251,9 @@ describe('hotkeyService', () => {
     expect(segmentationServiceMock.copySelectedContourAnnotation).toHaveBeenCalledTimes(1);
     expect(segmentationServiceMock.pasteCopiedContourAnnotationToActiveSlice).toHaveBeenCalledTimes(1);
     expect(segmentationServiceMock.deleteSelectedContourComponents).toHaveBeenCalledTimes(1);
-    expect(segmentationServiceMock.setBrushSize).toHaveBeenCalled();
-    expect(segmentationState.setBrushSize).toHaveBeenCalled();
+    // '=' then '[' → +2 and −2 off the store's 5 (the mocked single entry point
+    // doesn't write the store back, so both read the same base).
+    expect(unifiedToolServiceMock.setBrushSize.mock.calls.map((c) => c[0])).toEqual([7, 3]);
     expect(viewerState.applyWLPreset).toHaveBeenCalledTimes(1);
   });
 

@@ -19,6 +19,7 @@ import { useSegmentationStore } from '../../stores/segmentationStore';
 import { viewportService } from '../cornerstone/viewportService';
 import { segmentationService } from '../cornerstone/segmentationService';
 import { unifiedSegService } from '../cornerstone/unifiedSegService';
+import { unifiedToolService } from '../cornerstone/unifiedToolService';
 
 // ─── Reverse Lookup Table ─────────────────────────────────────────
 
@@ -190,20 +191,14 @@ function dispatchAction(action: HotkeyAction): boolean {
     }
 
     // Brush size
-    case 'brush.decrease': {
-      const segStore = useSegmentationStore.getState();
-      const newSize = Math.max(1, segStore.brushSize - 2);
-      segStore.setBrushSize(newSize);
-      segmentationService.setBrushSize(newSize);
+    case 'brush.decrease':
+      // Single entry point: clamps, writes the unified tool group (the group the
+      // brush actually runs on) and the store the panel slider reads.
+      unifiedToolService.setBrushSize(useSegmentationStore.getState().brushSize - 2);
       return true;
-    }
-    case 'brush.increase': {
-      const segStore = useSegmentationStore.getState();
-      const newSize = Math.min(100, segStore.brushSize + 2);
-      segStore.setBrushSize(newSize);
-      segmentationService.setBrushSize(newSize);
+    case 'brush.increase':
+      unifiedToolService.setBrushSize(useSegmentationStore.getState().brushSize + 2);
       return true;
-    }
 
     // Edit actions
     case 'edit.undo':

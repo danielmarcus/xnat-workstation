@@ -5,7 +5,9 @@ const mocked = vi.hoisted(() => ({
   setHotkeyMap: vi.fn(),
   mergeOverrides: vi.fn(),
   setDefaultColorSequence: vi.fn(),
-  setBrushSize: vi.fn(),
+  // Brush size now has ONE entry point: unifiedToolService.setBrushSize (clamps,
+  // writes the unified tool group AND segmentationStore.brushSize).
+  setUnifiedBrushSize: vi.fn(),
   updateStyle: vi.fn(),
   updateContourStyle: vi.fn(),
   applyScissorPreferences: vi.fn(),
@@ -29,9 +31,14 @@ vi.mock('../hotkeys/hotkeyService', () => ({
 vi.mock('../cornerstone/segmentationService', () => ({
   segmentationService: {
     setDefaultColorSequence: mocked.setDefaultColorSequence,
-    setBrushSize: mocked.setBrushSize,
     updateStyle: mocked.updateStyle,
     updateContourStyle: mocked.updateContourStyle,
+  },
+}));
+
+vi.mock('../cornerstone/unifiedToolService', () => ({
+  unifiedToolService: {
+    setBrushSize: (...args: unknown[]) => mocked.setUnifiedBrushSize(...args),
   },
 }));
 
@@ -90,7 +97,6 @@ describe('applyPreferences', () => {
     );
 
     expect(mocked.segmentationState.setShowViewportContextOverlay).toHaveBeenCalledWith(false);
-    expect(mocked.segmentationState.setBrushSize).toHaveBeenCalledWith(100);
     expect(mocked.segmentationState.setContourLineWidth).toHaveBeenCalledWith(1);
     expect(mocked.segmentationState.setRenderOutline).toHaveBeenCalledWith(false);
     expect(mocked.segmentationState.setAutoLoadSegOnScanClick).toHaveBeenCalledWith(false);
@@ -100,7 +106,7 @@ describe('applyPreferences', () => {
       [17, 34, 51, 255],
       [171, 205, 239, 255],
     ]);
-    expect(mocked.setBrushSize).toHaveBeenCalledWith(100);
+    expect(mocked.setUnifiedBrushSize).toHaveBeenCalledWith(100);
     expect(mocked.updateStyle).toHaveBeenCalledWith(1, false);
     expect(mocked.updateContourStyle).toHaveBeenCalledWith(1);
     expect(mocked.applyScissorPreferences).toHaveBeenCalledTimes(1);
@@ -113,7 +119,7 @@ describe('applyPreferences', () => {
     expect(mocked.segmentationState.setShowViewportContextOverlay).toHaveBeenCalledWith(
       DEFAULT_PREFERENCES.overlay.showViewportContextOverlay,
     );
-    expect(mocked.segmentationState.setBrushSize).toHaveBeenCalledWith(
+    expect(mocked.setUnifiedBrushSize).toHaveBeenCalledWith(
       DEFAULT_PREFERENCES.annotation.defaultBrushSize,
     );
     expect(mocked.segmentationState.setContourLineWidth).toHaveBeenCalledWith(

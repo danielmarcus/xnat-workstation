@@ -63,6 +63,7 @@ import { ToolName } from '@shared/types/viewer';
 import { viewportService } from './viewportService';
 import { ensureContourEditPrereq } from './contourEditPrereq';
 import { usePreferencesStore } from '../../stores/preferencesStore';
+import { useSegmentationStore } from '../../stores/segmentationStore';
 
 const UNIFIED_TOOL_GROUP_ID = 'xnatToolGroup_unified';
 
@@ -397,13 +398,21 @@ export const unifiedToolService = {
     });
   },
 
-  /** Set the brush radius for the unified tool group. */
+  /**
+   * Set the brush radius — the SINGLE entry point for brush size (Phase-6 cutover).
+   * Clamps to [1,100], writes Cornerstone's unified tool group (the only group the
+   * brush runs on) AND `segmentationStore.brushSize`, which is the one piece of
+   * state the UI (panel slider) and the `[` / `]` hotkeys both read. Callers must
+   * not write the store separately.
+   */
   setBrushSize(size: number): void {
+    const clamped = Math.max(1, Math.min(100, Math.round(size)));
     try {
-      csToolUtilities.segmentation.setBrushSizeForToolGroup(UNIFIED_TOOL_GROUP_ID, size);
+      csToolUtilities.segmentation.setBrushSizeForToolGroup(UNIFIED_TOOL_GROUP_ID, clamped);
     } catch (err) {
       console.warn('[unifiedToolService] setBrushSize failed:', err);
     }
+    useSegmentationStore.getState().setBrushSize(clamped);
   },
 
   /**

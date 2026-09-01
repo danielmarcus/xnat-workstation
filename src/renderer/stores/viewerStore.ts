@@ -28,7 +28,6 @@ import { viewportService } from '../lib/cornerstone/viewportService';
 // eslint-disable-next-line no-restricted-imports -- unified path tool routing (annotation rebuild P1.8)
 import { unifiedToolService } from '../lib/cornerstone/unifiedToolService';
 import { useUnifiedLayoutStore } from './unifiedLayoutStore';
-import { usePreferencesStore } from './preferencesStore';
 
 /** Module-scope cine interval IDs keyed by panelId (not serializable, kept outside store) */
 const cineIntervals = new Map<string, ReturnType<typeof setInterval>>();
@@ -63,9 +62,6 @@ interface ViewerStore {
 
   // ─── Global State ─────────────────────────────────────────────
   activeTool: ToolName;
-  /** Brush radius for the segmentation brush tools (interim toolbar control). */
-  brushSize: number;
-
   // ─── Hanging Protocol State ─────────────────────────────────────
   currentProtocol: HangingProtocol | null;
   sessionScans: XnatScan[] | null;
@@ -128,7 +124,6 @@ interface ViewerStore {
 
   // ─── Tool / Viewport Actions (target active viewport) ────────
   setActiveTool: (tool: ToolName) => void;
-  setBrushSize: (size: number) => void;
   applyWLPreset: (preset: WLPreset) => void;
   resetViewport: () => void;
   toggleInvert: () => void;
@@ -170,8 +165,6 @@ export const useViewerStore = create<ViewerStore>((set, get) => ({
   viewports: {},
   cineStates: {},
   activeTool: ToolName.WindowLevel,
-  // Default to the configured preference (persist-hydrated synchronously at load).
-  brushSize: usePreferencesStore.getState().preferences.annotation.defaultBrushSize,
   currentProtocol: null,
   sessionScans: null,
   sessionId: null,
@@ -486,12 +479,6 @@ export const useViewerStore = create<ViewerStore>((set, get) => ({
     // (no viewport attached) and the viewer got stuck on Window/Level.
     unifiedToolService.setActiveTool(tool);
     set({ activeTool: tool });
-  },
-
-  setBrushSize: (size) => {
-    const clamped = Math.max(1, Math.min(100, Math.round(size)));
-    unifiedToolService.setBrushSize(clamped);
-    set({ brushSize: clamped });
   },
 
   applyWLPreset: (preset) => {

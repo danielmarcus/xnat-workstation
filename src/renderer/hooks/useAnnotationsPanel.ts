@@ -76,9 +76,9 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
   // Deletion preference: whether a server delete copies to a trash resource first
   // (recoverable) or permanently removes the scan.
   const deletionPrefs = usePreferencesStore((s) => s.preferences.deletion);
-  // SEG controls strip: labelmap opacity (global style) + brush radius. Opacity lives
-  // in the store; brush size has no service getter, so track it locally (the slider is
-  // the only brush-size control).
+  // SEG controls strip: labelmap opacity (global style) + brush radius. Both live in
+  // the store — brush size is shared with the `[` / `]` hotkeys, so the slider must
+  // read the same state (a private copy would drift).
   const fillAlpha = useSegmentationStore((s) => s.fillAlpha);
   const renderOutline = useSegmentationStore((s) => s.renderOutline);
   const setFillAlpha = useSegmentationStore((s) => s.setFillAlpha);
@@ -87,9 +87,7 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
   const backupEnabled = usePreferencesStore((s) => s.preferences.backup.enabled);
   const autoSaveStatus = useSegmentationStore((s) => s.autoSaveStatus);
   const lastAutoSaveTime = useSegmentationStore((s) => s.lastAutoSaveTime);
-  const [brushSize, setBrushSize] = useState(
-    () => usePreferencesStore.getState().preferences.annotation.defaultBrushSize,
-  );
+  const brushSize = useSegmentationStore((s) => s.brushSize);
 
   // The "Backed up · Ns ago" suffix has to age, so tick a clock once a second while
   // the row is showing a completed backup (and only then — no idle timers).
@@ -648,10 +646,8 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
                   segmentationService.updateStyle(v, renderOutline);
                 },
                 brushSize,
-                onBrushSizeChange: (v: number) => {
-                  setBrushSize(v);
-                  unifiedToolService.setBrushSize(v);
-                },
+                // Single entry point: clamps + writes the unified tool group + the store.
+                onBrushSizeChange: (v: number) => unifiedToolService.setBrushSize(v),
               }
             : undefined,
         }

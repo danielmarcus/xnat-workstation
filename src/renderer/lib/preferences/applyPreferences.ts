@@ -1,6 +1,7 @@
 import { DEFAULT_PREFERENCES, type PreferencesV1 } from '@shared/types/preferences';
 import { segmentationService } from '../cornerstone/segmentationService';
 import { toolService } from '../cornerstone/toolService';
+import { unifiedToolService } from '../cornerstone/unifiedToolService';
 import { useSegmentationStore } from '../../stores/segmentationStore';
 import { DEFAULT_HOTKEY_MAP } from '../hotkeys/defaultHotkeyMap';
 import { hotkeyService } from '../hotkeys/hotkeyService';
@@ -43,14 +44,14 @@ export function applyPreferences(preferences: PreferencesV1): void {
 
   const segmentationState = useSegmentationStore.getState();
   segmentationState.setShowViewportContextOverlay(showViewportContextOverlay);
-  segmentationState.setBrushSize(brushSize);
   segmentationState.setContourLineWidth(contourThickness);
   segmentationState.setRenderOutline(annotationPrefs.defaultMaskOutlines);
   segmentationState.setAutoLoadSegOnScanClick(autoDisplayAnnotations);
   segmentationState.setFillAlpha(segmentOpacity);
 
   segmentationService.setDefaultColorSequence(colorSequence);
-  segmentationService.setBrushSize(brushSize);
+  // Brush size has ONE entry point (clamps + unified tool group + store).
+  unifiedToolService.setBrushSize(brushSize);
   segmentationService.updateStyle(segmentOpacity, annotationPrefs.defaultMaskOutlines);
   segmentationService.updateContourStyle(contourThickness);
   toolService.applyScissorPreferences();
