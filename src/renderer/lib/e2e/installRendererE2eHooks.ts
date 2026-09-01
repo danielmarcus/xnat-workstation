@@ -27,6 +27,7 @@ import { useTransportStore } from '../../stores/transportStore';
 import * as contourRep from '../cornerstone/contourRepresentation';
 import { toolService } from '../cornerstone/toolService';
 import { setXnatScanApi } from '../xnat/scanApi';
+import { dicomwebLoader } from '../cornerstone/dicomwebLoader';
 import type { XnatScan } from '@shared/types/xnat';
 import { exportMeasurementsToDicomSr } from '../cornerstone/srExport';
 import { ToolName } from '@shared/types/viewer';
@@ -747,6 +748,11 @@ export function installRendererE2eHooks(): void {
       });
     },
     restoreXnatScanApi: () => setXnatScanApi(null),
+    getPanelImageIds: (panelId: string) => useViewerStore.getState().panelImageIdsMap[panelId] ?? [],
+    primeScanImageIds: (sessionId: string, scanId: string, imageIds: string[]) =>
+      dicomwebLoader.primeScanImageIds(sessionId, scanId, imageIds),
+    setAutoLoadAnnotations: (enabled: boolean) =>
+      useSegmentationStore.getState().setAutoLoadSegOnScanClick(enabled),
     canDrawOnActiveViewport: () =>
       canDrawOnViewport(
         useAnnotationSelectionStore.getState().activeMember?.containerId ?? null,

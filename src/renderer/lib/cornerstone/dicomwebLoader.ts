@@ -249,6 +249,16 @@ async function sortImageIdsByDicomMetadata(
 }
 
 export const dicomwebLoader = {
+  /**
+   * Seed the scan → imageIds cache. Production never calls this (the cache fills
+   * itself from `getScanFiles`); the offline E2E harness uses it to serve local
+   * fixture imageIds as if they had come from XNAT, so the real scan-click load path
+   * can run without a DICOMweb server.
+   */
+  primeScanImageIds(sessionId: string, scanId: string, imageIds: string[]): void {
+    scanImageIdsCache.set(scanCacheKey(sessionId, scanId), { imageIds: [...imageIds] });
+  },
+
   clearScanImageIdsCache(sessionId?: string): void {
     if (!sessionId) {
       scanImageIdsCache.clear();
