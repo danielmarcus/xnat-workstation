@@ -46,11 +46,22 @@ describe('ContextToolbox', () => {
   it('shows the SEG controls strip (opacity) + silent backup status when provided', async () => {
     const onOpacityChange = vi.fn();
     setup({
-      controls: { activeSegmentLabel: 'Segment 2', opacity: 0.6, onOpacityChange, backupStatus: 'Backed up · 2s ago' },
+      controls: { activeSegmentLabel: 'Segment 2', opacity: 0.6, onOpacityChange },
+      backupStatus: 'Backed up · 2s ago',
     });
     const slider = screen.getByLabelText('Labelmap opacity') as HTMLInputElement;
     expect(slider.value).toBe('60');
     expect(screen.getByText('Backed up · 2s ago')).toBeTruthy();
+  });
+
+  it('shows the backup row for a non-SEG kind too (it is not a SEG control)', () => {
+    setup({ kind: 'SR', backupStatus: 'Backing up…', backupStatusKind: 'saving' });
+    expect(screen.getByTestId('backup-status').textContent).toContain('Backing up…');
+  });
+
+  it('hides the backup row when there is no status', () => {
+    setup({});
+    expect(screen.queryByTestId('backup-status')).toBeNull();
   });
 
   it('shows the brush-size control and fires onBrushSizeChange', () => {

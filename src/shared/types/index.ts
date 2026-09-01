@@ -167,6 +167,10 @@ export interface ElectronAPI {
       dicomBase64: string,
       defaultName?: string,
     ): Promise<{ ok: boolean; path?: string; error?: string }>;
+    saveDicomSr(
+      dicomBase64: string,
+      defaultName?: string,
+    ): Promise<{ ok: boolean; path?: string; error?: string }>;
     saveViewportCapture(
       bounds: { x: number; y: number; width: number; height: number },
       defaultName?: string,

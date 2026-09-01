@@ -14,7 +14,7 @@
  * TODO): approval persistence (D7.11 — transport), SR-container create, save-to-
  * XNAT (transport workstream), and tool-id → Cornerstone routing (R3.8b).
  */
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { ContainerKind } from '@shared/types/annotation';
 import { ToolName } from '@shared/types/viewer';
 import { useSegmentationStore } from '../stores/segmentationStore';
@@ -33,6 +33,7 @@ import { unifiedToolService } from '../lib/cornerstone/unifiedToolService';
 import { segmentationManager } from '../lib/segmentation/segmentationManagerSingleton';
 import { projectContainers } from '../lib/annotations/containerProjection';
 import { buildContainerCsv, type MemberStats } from '../lib/annotations/containerCsv';
+import { formatBackupStatus } from '../lib/annotations/backupStatus';
 import { CATALOG_TO_TOOLNAME, TOOLNAME_TO_CATALOG, toolsForKind } from '../components/annotations/toolCatalog';
 import type { ContainerListHandlers } from '../components/annotations/ContainerList';
 import type { RowTransport } from '../components/annotations/ContainerRow';
@@ -81,9 +82,31 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
   const fillAlpha = useSegmentationStore((s) => s.fillAlpha);
   const renderOutline = useSegmentationStore((s) => s.renderOutline);
   const setFillAlpha = useSegmentationStore((s) => s.setFillAlpha);
+  // Silent in-place local-backup status (§3.4) — the toolbox row the legacy panel
+  // footer used to carry. Gated on the user's backup preference.
+  const backupEnabled = usePreferencesStore((s) => s.preferences.backup.enabled);
+  const autoSaveStatus = useSegmentationStore((s) => s.autoSaveStatus);
+  const lastAutoSaveTime = useSegmentationStore((s) => s.lastAutoSaveTime);
   const [brushSize, setBrushSize] = useState(
     () => usePreferencesStore.getState().preferences.annotation.defaultBrushSize,
   );
+
+  // The "Backed up · Ns ago" suffix has to age, so tick a clock once a second while
+  // the row is showing a completed backup (and only then — no idle timers).
+  const [backupClock, setBackupClock] = useState(() => Date.now());
+  const backupTicking = backupEnabled && autoSaveStatus === 'saved' && lastAutoSaveTime != null;
+  useEffect(() => {
+    if (!backupTicking) return;
+    setBackupClock(Date.now());
+    const id = setInterval(() => setBackupClock(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [backupTicking, lastAutoSaveTime]);
+  const backup = formatBackupStatus({
+    enabled: backupEnabled,
+    status: autoSaveStatus,
+    lastSavedAt: lastAutoSaveTime,
+    now: backupClock,
+  });
 
   const activeMember = useAnnotationSelectionStore((s) => s.activeMember);
   const selection = useAnnotationSelectionStore((s) => s.selection);
@@ -268,7 +291,21 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
           const container = containers.find((c) => c.id === id);
           const kind = container?.kind ?? segmentationService.getPreferredDicomType(id);
           const name = `${(container?.label || 'annotation').replace(/[^\w.-]+/g, '_')}.dcm`;
-          if (kind === 'RTSTRUCT') {
+          if (kind === 'SR') {
+            // Measurements serialize through the SR adapter, not the SEG path (the
+            // members ARE the annotation UIDs). Lazy import: adaptersSR's module
+            // init pulls in core-dependent code we keep off the import graph.
+            const { exportMeasurementsToDicomSr } = await import('../lib/cornerstone/srExport');
+            const base64 = await exportMeasurementsToDicomSr(
+              (container?.members ?? []).map((m) => m.id),
+              { seriesDescription: container?.label },
+            );
+            if (!base64) {
+              console.warn('[annotationsPanel] export to DICOM SR skipped — no serializable measurements.');
+              return;
+            }
+            await window.electronAPI?.export?.saveDicomSr(base64, name);
+          } else if (kind === 'RTSTRUCT') {
             const base64 = await rtStructService.exportToRtStruct(id);
             await window.electronAPI?.export?.saveDicomRtStruct(base64, name);
           } else {
@@ -562,6 +599,9 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
     provenanceOf,
     emptyOf,
     palette,
+    // Silent in-place local-backup row at the foot of the toolbox (§3.4); null when
+    // backup is off or nothing has been backed up yet.
+    backupStatus: backup,
     // transport (in-place row state) + H7 conflict dialog
     transportOf,
     conflictDialog,

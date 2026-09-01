@@ -69,6 +69,7 @@ export const IPC = {
   EXPORT_SAVE_ALL_SLICES: 'export:save-all-slices',
   EXPORT_SAVE_REPORT: 'export:save-report',
   EXPORT_SAVE_DICOM_RTSTRUCT: 'export:save-dicom-rtstruct',
+  EXPORT_SAVE_DICOM_SR: 'export:save-dicom-sr',
   EXPORT_SAVE_VIEWPORT_CAPTURE: 'export:save-viewport-capture',
 
   // Shell (renderer → main)

@@ -75,6 +75,7 @@ describe('registerExportHandlers', () => {
       IPC.EXPORT_SAVE_REPORT,
       IPC.EXPORT_SAVE_DICOM_SEG,
       IPC.EXPORT_SAVE_DICOM_RTSTRUCT,
+      IPC.EXPORT_SAVE_DICOM_SR,
       IPC.EXPORT_SAVE_DICOM,
     ]);
   });

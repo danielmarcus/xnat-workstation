@@ -737,6 +737,14 @@ export function installRendererE2eHooks(): void {
       useAnnotationStore.setState({ srContainers: [], srAffiliation: {}, activeSrContainerId: null } as Partial<ReturnType<typeof useAnnotationStore.getState>>);
     },
     getDirtyFlag: () => useSegmentationStore.getState().hasUnsavedChanges,
+    /**
+     * Drive the local-auto-backup status the annotations toolbox surfaces (§3.4).
+     * The real producer (segmentationService.autoSaveToLocalBackup → backupService)
+     * needs a live XNAT session context, which the offline fixture harness cannot
+     * supply — so the store is the injection point for the store→hook→render seam.
+     */
+    setLocalBackupStatus: (status: 'idle' | 'saving' | 'saved' | 'error') =>
+      useSegmentationStore.getState()._setAutoSaveStatus(status),
     getCsSegmentationCount: () =>
       ((csSegmentation.state as unknown as { getSegmentations?: () => unknown[] }).getSegmentations?.() ?? []).length,
     getViewportSegRepCount: (panelId: string) => {

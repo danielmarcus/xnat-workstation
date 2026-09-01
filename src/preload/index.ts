@@ -158,6 +158,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke(IPC.EXPORT_SAVE_DICOM_SEG, dicomBase64, defaultName),
     saveDicomRtStruct: (dicomBase64: string, defaultName?: string) =>
       ipcRenderer.invoke(IPC.EXPORT_SAVE_DICOM_RTSTRUCT, dicomBase64, defaultName),
+    saveDicomSr: (dicomBase64: string, defaultName?: string) =>
+      ipcRenderer.invoke(IPC.EXPORT_SAVE_DICOM_SR, dicomBase64, defaultName),
     saveViewportCapture: (
       bounds: { x: number; y: number; width: number; height: number },
       defaultName?: string,

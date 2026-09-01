@@ -26,6 +26,8 @@ export default function AnnotationsPanel({ activeViewportId, sourceImageIds }: A
       activeToolId={panel.toolbox.activeToolId}
       onSelectTool={panel.toolbox.onSelectTool}
       controls={panel.toolbox.controls}
+      backupStatus={panel.backupStatus?.text}
+      backupStatusKind={panel.backupStatus?.kind}
     />
   ) : undefined;
 

@@ -27,8 +27,37 @@ export interface ContextToolboxControls {
   /** Brush radius in voxels (the segmentation brush family). Omit to hide the control. */
   brushSize?: number;
   onBrushSizeChange?: (value: number) => void;
-  /** Silent in-place backup status text, e.g. "Backed up · 2s ago" (null = hidden). */
-  backupStatus?: string | null;
+}
+
+const BACKUP_ROW_STYLE: Record<'saving' | 'saved' | 'error', string> = {
+  saving: 'text-blue-400',
+  saved: 'text-emerald-400/90',
+  error: 'text-red-400',
+};
+
+function BackupIcon({ kind }: { kind: 'saving' | 'saved' | 'error' }) {
+  if (kind === 'saving') {
+    return (
+      <svg className="animate-spin" viewBox="0 0 24 24" width={11} height={11} fill="none" stroke="currentColor" strokeWidth={3}>
+        <circle cx="12" cy="12" r="10" className="opacity-25" />
+        <path d="M4 12a8 8 0 018-8" strokeLinecap="round" className="opacity-75" />
+      </svg>
+    );
+  }
+  if (kind === 'error') {
+    return (
+      <svg viewBox="0 0 16 16" width={11} height={11} fill="none" stroke="currentColor" strokeWidth={2}>
+        <circle cx="8" cy="8" r="6" />
+        <line x1="8" y1="5" x2="8" y2="9" />
+        <circle cx="8" cy="11.5" r="0.5" fill="currentColor" />
+      </svg>
+    );
+  }
+  return (
+    <svg viewBox="0 0 16 16" width={11} height={11} fill="none" stroke="currentColor" strokeWidth={2}>
+      <path d="M3 8.5l3 3 7-7" />
+    </svg>
+  );
 }
 
 export interface ContextToolboxProps {
@@ -44,10 +73,23 @@ export interface ContextToolboxProps {
   compact?: boolean;
   /** SEG-only controls strip. */
   controls?: ContextToolboxControls;
+  /**
+   * Silent in-place local-backup status text, e.g. "Backed up · 2s ago"
+   * (null/undefined = hidden). Sits at the foot of the toolbox (§3.4) for every
+   * annotation kind — local backup is not a SEG-only concern, so it is not part
+   * of the SEG controls strip.
+   */
+  backupStatus?: string | null;
+  /**
+   * Which backup state the text reports. The mockup depicts the success row
+   * (emerald check); in-flight and failed backups reuse the row with their own
+   * icon/color rather than a toast (§3.4). Defaults to 'saved'.
+   */
+  backupStatusKind?: 'saving' | 'saved' | 'error';
 }
 
 export default function ContextToolbox(props: ContextToolboxProps) {
-  const { kind, activeMemberName, activeMemberColor, activeToolId, disabledToolIds = [], onSelectTool, compact, controls } = props;
+  const { kind, activeMemberName, activeMemberColor, activeToolId, disabledToolIds = [], onSelectTool, compact, controls, backupStatus, backupStatusKind } = props;
   const tools = toolsForKind(kind);
   const disabled = new Set(disabledToolIds);
   const nameColor = activeMemberColor ?? KIND_COLOR[kind];
@@ -125,13 +167,17 @@ export default function ContextToolbox(props: ContextToolboxProps) {
               </div>
             )}
           </div>
-          {controls.backupStatus && (
-            <div className="px-3 py-1.5 border-t border-zinc-800 flex items-center gap-1.5 text-[10px] text-emerald-400/90">
-              <svg viewBox="0 0 16 16" width={11} height={11} fill="none" stroke="currentColor" strokeWidth={2}><path d="M3 8.5l3 3 7-7" /></svg>
-              {controls.backupStatus}
-            </div>
-          )}
         </>
+      )}
+
+      {backupStatus && (
+        <div
+          data-testid="backup-status"
+          className={`px-3 py-1.5 border-t border-zinc-800 flex items-center gap-1.5 text-[10px] ${BACKUP_ROW_STYLE[backupStatusKind ?? 'saved']}`}
+        >
+          <BackupIcon kind={backupStatusKind ?? 'saved'} />
+          {backupStatus}
+        </div>
       )}
     </div>
   );

@@ -307,6 +307,38 @@ export function registerExportHandlers(): void {
     },
   );
 
+  // ─── Save DICOM SR File ─────────────────────────────────────────
+  ipcMain.handle(
+    IPC.EXPORT_SAVE_DICOM_SR,
+    async (_event, dicomBase64: string, defaultName?: string) => {
+      try {
+        const win = BrowserWindow.getFocusedWindow();
+        if (!win) return { ok: false, error: 'No focused window' };
+
+        const result = await dialog.showSaveDialog(win, {
+          defaultPath: defaultName ?? 'measurements.dcm',
+          filters: [
+            { name: 'DICOM SR File', extensions: ['dcm'] },
+            { name: 'All Files', extensions: ['*'] },
+          ],
+        });
+
+        if (result.canceled || !result.filePath) {
+          return { ok: false };
+        }
+
+        const buffer = Buffer.from(dicomBase64, 'base64');
+        await fs.writeFile(result.filePath, buffer);
+        console.log(`[exportHandlers] Saved DICOM SR (${buffer.length} bytes) to ${result.filePath}`);
+        return { ok: true, path: result.filePath };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error('[exportHandlers] saveDicomSr error:', msg);
+        return { ok: false, error: msg };
+      }
+    },
+  );
+
   // ─── Save DICOM File ─────────────────────────────────────────
   ipcMain.handle(
     IPC.EXPORT_SAVE_DICOM,
