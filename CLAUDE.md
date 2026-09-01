@@ -33,7 +33,8 @@ src/
     App.tsx                 # Top-level app: login flow, scan loading, panel management
     components/
       connection/           # LoginForm, XnatBrowser, ConnectionStatus
-      viewer/               # CornerstoneViewport, Toolbar, SegmentationPanel, etc.
+      viewer/               # Viewport, UnifiedViewportGrid, Toolbar, DicomHeaderPanel, etc.
+      annotations/          # The Annotations side panel (the only annotation surface)
       icons.tsx             # Icon components (XnatLogo uses PNG asset import)
     lib/cornerstone/        # Cornerstone3D service layer (singleton modules)
       init.ts               # Cornerstone3D initialization, tool registration
@@ -42,7 +43,8 @@ src/
       segmentationService.ts  # Segmentation CRUD, DICOM SEG import/export
       annotationService.ts  # Annotation event sync to Zustand store
       dicomwebLoader.ts     # DICOMweb image loading via XNAT proxy
-      mprService.ts         # Multi-planar reconstruction
+      unifiedToolService.ts # The single Cornerstone tool group (stack + volume/MPR)
+      unifiedSegService.ts  # Unified-path segmentation create/attach/eligibility
       metadataService.ts    # Metadata provider helpers
     stores/                 # Zustand stores
       viewerStore.ts        # Panel layout, active images, XNAT session state
@@ -179,9 +181,9 @@ All data handling must follow DICOM standards wherever applicable. This includes
 - After generating DICOM objects (SEG, SR, etc.), validate the output dataset before serialization: check that Rows, Columns, NumberOfFrames, PixelData size, and segment metadata are all internally consistent.
 - When loading external DICOM files, detect and report malformed data (e.g., Rows=0, empty PixelData) with clear error messages rather than crashing deep in the adapter stack.
 
-## UI Architecture (annotation rebuild — target design)
+## UI Architecture (annotation rebuild)
 
-> **Status:** This branch (`annotation-cleanup`) rebuilds the multi-viewport annotation feature from scratch against the specs in `docs/`. The architecture below is the **target** those specs describe — it is the design contract, **not** a description of the code as it currently stands on this branch (which starts from the pre-rewrite app). Don't assume a component or store named here already exists; verify before relying on it.
+> **Status:** the multi-viewport annotation rebuild is BUILT on this branch (`annotation-cleanup`). Rebuild Phases 0–6 are complete: the unified viewport path is the only viewport path (P1.8d), the rebuilt Annotations side panel is the only annotation surface (the legacy `SegmentationPanel` / `AnnotationListPanel` and the `REBUILT_ANNOTATIONS_PANEL` + `multiviewportEnabled` flags were deleted in the Phase-6 cutover), and the XNAT transport is live-verified. The architecture below therefore describes the code as well as the specs in `docs/` — but individual net-new spec features are still open (approval persistence D7.11, inline per-segment stats, SR reload from an XNAT scan-click); verify before relying on one.
 
 The viewer UI is composed of four surfaces plus a shared modal/toast overlay layer:
 
