@@ -18,6 +18,8 @@ export interface ResolvedPanel {
   /** Open in the scan's NATIVE plane (single / generic grid). False only for the
    *  MPR preset, whose panels are fixed to their designated ortho planes. */
   preferNative: boolean;
+  /** Render as a 3D volume rendering instead of a slice (C5c — MPR's 4th slot). */
+  render3d: boolean;
 }
 
 export function useViewportLayout(): {
@@ -42,6 +44,7 @@ export function useViewportLayout(): {
       orientation: p.orientation,
       sourcePanelId: p.sourcePanelId ?? p.panelId,
       preferNative: true,
+      render3d: false,
     }));
     grid = { rows: layout.rows, cols: layout.cols };
   } else {
@@ -54,6 +57,7 @@ export function useViewportLayout(): {
       orientation: p.orientation,
       sourcePanelId: 'panel_0',
       preferNative: !isMpr,
+      render3d: p.render3d === true,
     }));
     const g = viewportLayoutService.presetGrid(preset);
     grid = { rows: g.rows, cols: g.cols };

@@ -52,10 +52,12 @@ describe('viewportLayoutService (skeleton)', () => {
       expect(viewportLayoutService.presetGrid('single')).toEqual({ cols: 1, rows: 1 });
     });
 
-    it('mpr-2x2 preset → four panels (axial/sagittal/coronal/axial) on a 2x2 grid', () => {
+    it('mpr-2x2 preset → three slice planes + a 3D render on a 2x2 grid (C5c)', () => {
       const panels = viewportLayoutService.getPresetPanels('mpr-2x2');
       expect(panels.map((p) => p.panelId)).toEqual(['panel_0', 'panel_1', 'panel_2', 'panel_3']);
-      expect(panels.map((p) => p.orientation)).toEqual(['AXIAL', 'SAGITTAL', 'CORONAL', 'AXIAL']);
+      expect(panels.map((p) => p.orientation)).toEqual(['AXIAL', 'SAGITTAL', 'CORONAL', 'CORONAL']);
+      // Only the fourth slot is a volume rendering; the other three stay slice views.
+      expect(panels.map((p) => p.render3d === true)).toEqual([false, false, false, true]);
       expect(viewportLayoutService.presetGrid('mpr-2x2')).toEqual({ cols: 2, rows: 2 });
     });
 

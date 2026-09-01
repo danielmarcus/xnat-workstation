@@ -24,6 +24,7 @@ interface E2EHooks {
 type WinWithHooks = { __XNAT_E2E__: E2EHooks };
 
 const UNIFIED_GROUP = 'xnatToolGroup_unified';
+const VOLUME_3D_GROUP = 'xnatToolGroup_volume3d';
 
 const setPreset = (page: Page, preset: 'single' | 'mpr-2x2') =>
   page.evaluate((p) => (window as unknown as WinWithHooks).__XNAT_E2E__.setLayoutPreset(p), preset);
@@ -35,6 +36,8 @@ const groupViewportIds = (page: Page) =>
   page.evaluate(() => (window as unknown as WinWithHooks).__XNAT_E2E__.getUnifiedToolGroupViewportIds());
 
 const MPR_PANEL_IDS = ['panel_0', 'panel_1', 'panel_2', 'panel_3'];
+/** MPR's slice planes (panel_3 is the 3D render — see e2e/77). */
+const SLICE_PANEL_IDS = ['panel_0', 'panel_1', 'panel_2'];
 
 test('unified viewports join one tool group with the real CrosshairsTool (flag on)', async ({ page }) => {
   await enterLocalViewer(page);
@@ -58,24 +61,27 @@ test('unified viewports join one tool group with the real CrosshairsTool (flag o
     })
     .toBe(true);
 
-  // MPR-2×2: all four panels join the SAME unified group.
+  // MPR-2×2: the three SLICE panels join the SAME unified group. The fourth is the
+  // 3D volume rendering (C5c) and deliberately does NOT — slice tools (brush,
+  // contours, crosshairs) assume a slice plane, so it has its own rotate group.
   await setPreset(page, 'mpr-2x2');
   for (const panelId of MPR_PANEL_IDS) {
     await expect(page.locator(`[data-testid="unified-viewport-element:${panelId}"] canvas`))
       .toBeVisible({ timeout: 30_000 });
+    const expectedGroup = panelId === 'panel_3' ? VOLUME_3D_GROUP : UNIFIED_GROUP;
     await expect
       .poll(() => toolGroupId(page, panelId), {
         timeout: 20_000,
-        message: `${panelId} should belong to the unified tool group`,
+        message: `${panelId} should belong to ${expectedGroup}`,
       })
-      .toBe(UNIFIED_GROUP);
+      .toBe(expectedGroup);
   }
 
-  // The group holds exactly the four MPR panels.
+  // The slice group holds exactly the three slice panels.
   await expect
     .poll(async () => (await groupViewportIds(page)).slice().sort(), {
       timeout: 20_000,
-      message: 'unified tool group should contain all four MPR panels',
+      message: 'unified tool group should contain the three MPR slice panels',
     })
-    .toEqual([...MPR_PANEL_IDS].sort());
+    .toEqual(SLICE_PANEL_IDS.slice().sort());
 });

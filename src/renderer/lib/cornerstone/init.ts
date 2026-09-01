@@ -26,6 +26,7 @@ import {
   SphereScissorsTool,
   SculptorTool,
   SegmentSelectTool,
+  TrackballRotateTool,
   RegionSegmentTool,
   RegionSegmentPlusTool,
   SegmentBidirectionalTool,
@@ -119,6 +120,9 @@ export async function initCornerstone(): Promise<void> {
   // Segmentation tools — utility
   addTool(SegmentSelectTool);
   addTool(SegmentBidirectionalTool);
+
+  // 3D volume-rendering interaction (C5c — the MPR layout's fourth slot).
+  addTool(TrackballRotateTool);
 
   // ---------- 3. Initialize DICOM Image Loader ----------
   // V4 uses CentralizedWebWorkerManager and import.meta.url for worker loading.

@@ -38,6 +38,7 @@ export default function UnifiedViewportGrid({ panelImageIds }: UnifiedViewportGr
               scanId={scanId}
               orientation={p.orientation}
               preferNative={p.preferNative}
+              render3d={p.render3d}
             />
           </div>
         );

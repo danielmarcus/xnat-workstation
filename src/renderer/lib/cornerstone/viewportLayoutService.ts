@@ -32,6 +32,11 @@ export interface PanelSpec {
    * preset helpers (filled by useViewportLayout); always set by gridPanels.
    */
   sourcePanelId?: string;
+  /**
+   * Render this panel as a 3D volume rendering rather than a reformatted slice
+   * (requirements C5c — the MPR layout's fourth slot).
+   */
+  render3d?: boolean;
 }
 
 const DEFAULT_LAYOUT: ViewportLayout = { rows: 1, cols: 1 };
@@ -73,8 +78,8 @@ export const viewportLayoutService = {
   /**
    * Panel specs for a layout preset — the unified grid renders one Viewport per
    * spec, all sharing the scan's single volume (P1.1) with per-panel orientation.
-   * MPR-2×2: axial + sagittal + coronal + a fourth (axial) slot. (The design's
-   * 3D-volume-rendering slot is a later refinement.)
+   * MPR-2×2: axial + sagittal + coronal + a 3D volume rendering in the fourth
+   * slot (C5c) — all four sharing the one volume.
    */
   getPresetPanels(preset: LayoutPreset): PanelSpec[] {
     if (preset === 'mpr-2x2') {
@@ -82,7 +87,7 @@ export const viewportLayoutService = {
         { panelId: 'panel_0', orientation: 'AXIAL' },
         { panelId: 'panel_1', orientation: 'SAGITTAL' },
         { panelId: 'panel_2', orientation: 'CORONAL' },
-        { panelId: 'panel_3', orientation: 'AXIAL' },
+        { panelId: 'panel_3', orientation: 'CORONAL', render3d: true },
       ];
     }
     return [{ panelId: 'panel_0', orientation: 'AXIAL' }];

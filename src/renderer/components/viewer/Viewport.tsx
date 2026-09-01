@@ -25,6 +25,8 @@ interface ViewportProps {
   orientation?: MPRPlane;
   /** Open in the scan's native plane (single / generic grid); false for MPR. */
   preferNative?: boolean;
+  /** Render a 3D volume rendering instead of a slice (C5c — MPR's 4th slot). */
+  render3d?: boolean;
 }
 
 export default function Viewport({
@@ -34,6 +36,7 @@ export default function Viewport({
   frameOfReferenceUID,
   orientation,
   preferNative = false,
+  render3d = false,
 }: ViewportProps) {
   const layoutPlane: MPRPlane = orientation ?? 'AXIAL';
   const stored = useViewerStore((s) => s.panelOrientationMap[panelId]);
@@ -51,6 +54,7 @@ export default function Viewport({
     orientation: requestedOrientation,
     layoutOrientation: layoutPlane,
     preferNative,
+    render3d,
   });
   const isActive = useViewerStore((s) => s.activeViewportId === panelId);
   const setActiveViewport = useViewerStore((s) => s.setActiveViewport);
@@ -76,11 +80,17 @@ export default function Viewport({
         data-testid={`unified-viewport-element:${panelId}`}
         className="w-full h-full"
       />
-      <ViewportOverlay panelId={panelId} />
-      <ViewportReticle panelId={panelId} />
-      <ViewportRuler panelId={panelId} />
-      <ViewportScrollbar panelId={panelId} />
-      <ViewportTimeScrubber panelId={panelId} />
+      <ViewportOverlay panelId={panelId} render3d={render3d} />
+      {/* Slice-plane chrome: a 3D volume rendering has no in-plane reticle, no mm
+          scale bar for a projected view, no slice track to scrub and no time axis. */}
+      {!render3d && (
+        <>
+          <ViewportReticle panelId={panelId} />
+          <ViewportRuler panelId={panelId} />
+          <ViewportScrollbar panelId={panelId} />
+          <ViewportTimeScrubber panelId={panelId} />
+        </>
+      )}
       {imageIds.length > 0 && <ViewportStatusOverlay panelId={panelId} state={loadState} />}
     </div>
   );

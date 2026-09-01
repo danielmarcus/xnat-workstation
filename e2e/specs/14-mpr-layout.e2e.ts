@@ -34,7 +34,7 @@ const sharedRefCount = (page: Page, scanId: string, frameOfReferenceUID: string)
 
 const MPR_PANEL_IDS = ['panel_0', 'panel_1', 'panel_2', 'panel_3'];
 
-test('mpr-2x2 preset renders 4 volume viewports sharing ONE volume (flag on)', async ({ page }) => {
+test('mpr-2x2 preset renders 3 slice planes + a 3D render, all sharing ONE volume', async ({ page }) => {
   // Enable the unified path BEFORE the viewer mounts.
   await enterLocalViewer(page);
 
@@ -55,19 +55,22 @@ test('mpr-2x2 preset renders 4 volume viewports sharing ONE volume (flag on)', a
   // Switch to MPR-2×2.
   await setPreset(page, 'mpr-2x2');
 
-  // All four panels mount an orthographic (volume) viewport + canvas.
+  // All four panels mount a canvas. The first three are reformatted slice planes;
+  // the fourth is the 3D volume rendering (C5c) — see e2e/77 for its own coverage.
   for (const panelId of MPR_PANEL_IDS) {
     await expect(page.locator(`[data-testid="unified-viewport-element:${panelId}"] canvas`))
       .toBeVisible({ timeout: 30_000 });
+    const expectedType = panelId === 'panel_3' ? 'volume3d' : 'orthographic';
     await expect
       .poll(() => viewportType(page, panelId), {
         timeout: 20_000,
-        message: `${panelId} should be a volume (orthographic) viewport`,
+        message: `${panelId} should be a ${expectedType} viewport`,
       })
-      .toBe('orthographic');
+      .toBe(expectedType);
   }
 
-  // The four panels share ONE volume (one load, held four times) — not four volumes.
+  // All four panels — including the 3D one — share ONE volume (one load, held four
+  // times), not four volumes.
   await expect
     .poll(() => sharedRefCount(page, 'local:scan', ''), {
       timeout: 20_000,

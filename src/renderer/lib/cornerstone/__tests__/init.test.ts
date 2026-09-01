@@ -48,6 +48,7 @@ async function loadInitModule(options?: { splineRegistered?: boolean }): Promise
     RegionSegmentTool: { toolName: 'RegionSegment' },
     RegionSegmentPlusTool: { toolName: 'RegionSegmentPlus' },
     SegmentBidirectionalTool: { toolName: 'SegmentBidirectional' },
+    TrackballRotateTool: { toolName: 'TrackballRotate' },
     RectangleROIThresholdTool: { toolName: 'RectangleROIThreshold' },
     CircleROIStartEndThresholdTool: { toolName: 'CircleROIStartEndThreshold' },
     LabelMapEditWithContourTool: { toolName: 'LabelMapEditWithContour' },

@@ -31,6 +31,8 @@ export interface UseViewportArgs {
   layoutOrientation?: MPRPlane;
   /** Open in the scan's native plane when no explicit orientation is given. */
   preferNative?: boolean;
+  /** Render a 3D volume rendering instead of a reformatted slice (C5c). */
+  render3d?: boolean;
 }
 
 export function useViewport({
@@ -41,6 +43,7 @@ export function useViewport({
   orientation,
   layoutOrientation = 'AXIAL',
   preferNative = false,
+  render3d = false,
 }: UseViewportArgs): {
   containerRef: React.RefObject<HTMLDivElement | null>;
   loadState: 'loading' | 'ready' | 'error';
@@ -96,14 +99,21 @@ export function useViewport({
         orientation,
         layoutOrientation,
         preferNativeOrientation: preferNative,
+        render3d,
       })
       .then((result) => {
         // Join the unified tool group once the viewport exists. Guard the async
         // gap against a fast unmount.
         if (cancelled) return;
-        unifiedToolService.addViewport(panelId);
-        // Re-attach any existing segmentations so structures survive layout swaps.
-        unifiedSegService.attachExistingToViewport(panelId);
+        if (render3d) {
+          // A 3D render has no slice plane: it joins its own rotate/zoom/pan group
+          // instead of the slice group, and no segmentation is attached to it (C5c).
+          unifiedToolService.add3dViewport(panelId);
+        } else {
+          unifiedToolService.addViewport(panelId);
+          // Re-attach any existing segmentations so structures survive layout swaps.
+          unifiedSegService.attachExistingToViewport(panelId);
+        }
         // Wire display-state sync (events → stores) + read the initial state, so
         // slice index / W/L / zoom / metadata are live. Handles stack AND volume.
         disposeSync = viewportService.subscribeViewportEvents(panelId, el, syncState);
@@ -150,6 +160,7 @@ export function useViewport({
       resizeObserver.disconnect();
       disposeSync?.();
       unifiedToolService.removeViewport(panelId);
+      unifiedToolService.remove3dViewport(panelId);
       viewportService.destroyUnifiedViewport(panelId);
       // Clean up per-panel state so the stores don't leak orphaned panels.
       useViewerStore.getState().stopCine(panelId);

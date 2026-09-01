@@ -3,8 +3,10 @@
  * (offline, flag on).
  *
  * MPR-2×2 of one CT over a shared volume + a volume labelmap on every panel.
- * Brush-paint on panel_3, then switch to the `single` layout (which destroys
- * panels 1–3, including panel_3 — the panel the stroke was drawn on). Undo via
+ * Brush-paint on panel_2 (a reformatted SLICE panel of the MPR layout — panel_3 is
+ * the 3D volume rendering, C5c, which is deliberately not a drawing surface), then
+ * switch to the `single` layout, which destroys panels 1–3 including the panel the
+ * stroke was drawn on. Undo via
  * the GLOBAL history ring (viewport-independent) and confirm the stroke is
  * undone: the labelmap returns to zero painted voxels (structural) and the
  * surviving axial panel reverts (visual). This is the architectural point —
@@ -65,26 +67,26 @@ test('undo restores a brush stroke after its panel was closed (flag on)', async 
   // prior spec). Undo of THIS stroke must return to exactly this baseline.
   const beforeVoxels = await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.getPaintedVoxelCount());
 
-  // Brush on panel_3 — the panel we will close.
-  const p3 = await page.locator('[data-testid="unified-viewport-element:panel_3"] canvas').boundingBox();
-  expect(p3).not.toBeNull();
-  await brushStroke(page, p3!);
+  // Brush on panel_2 — a slice panel that the single layout will close.
+  const p2 = await page.locator('[data-testid="unified-viewport-element:panel_2"] canvas').boundingBox();
+  expect(p2).not.toBeNull();
+  await brushStroke(page, p2!);
 
   await expect
     .poll(() => page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.getPaintedVoxelCount()), { timeout: 15_000 })
     .toBeGreaterThan(beforeVoxels);
   expect(await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.canUnifiedUndo())).toBe(true);
 
-  // Close panel_3 by switching to the single layout.
+  // Close the source panel by switching to the single layout.
   await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.setLayoutPreset('single'));
-  await expect(page.locator('[data-testid="unified-viewport-element:panel_3"]')).toHaveCount(0, { timeout: 15_000 });
+  await expect(page.locator('[data-testid="unified-viewport-element:panel_2"]')).toHaveCount(0, { timeout: 15_000 });
   const axCanvas = page.locator('[data-testid="unified-viewport-element:panel_0"] canvas');
   await expect(axCanvas).toBeVisible();
   // The paint persists on the surviving axial panel across the layout swap.
   await page.waitForTimeout(500);
   const paintedShot = await axCanvas.screenshot();
 
-  // Undo via the global history — the source panel (panel_3) is gone.
+  // Undo via the global history — the source panel (panel_2) is gone.
   await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.triggerUnifiedUndo());
 
   // Structural: the stroke is undone — labelmap back to the pre-stroke baseline.

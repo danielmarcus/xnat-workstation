@@ -24,6 +24,13 @@ import type { MPRPlane, DisplayPlane } from '@shared/types/viewer';
 
 interface ViewportOverlayProps {
   panelId: string;
+  /**
+   * The panel is a 3D volume rendering (C5c). Slice-only readouts are suppressed:
+   * a 3D view has no slice index, no slice thickness, no reformat plane to pick and
+   * no in-plane patient edge-markers, so showing them (or an orientation dropdown
+   * that cannot act) would be a lie about what the panel is.
+   */
+  render3d?: boolean;
 }
 
 /**
@@ -42,7 +49,7 @@ function titleCase(s: string): string {
   return s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : s;
 }
 
-export default function ViewportOverlay({ panelId }: ViewportOverlayProps): React.ReactElement | null {
+export default function ViewportOverlay({ panelId, render3d = false }: ViewportOverlayProps): React.ReactElement | null {
   const vp = useViewerStore((s) => s.viewports[panelId]);
   const overlay = useMetadataStore((s) => s.overlays[panelId]) ?? EMPTY_OVERLAY;
   const overlayPrefs = usePreferencesStore((s) => s.preferences.overlay);
@@ -83,8 +90,23 @@ export default function ViewportOverlay({ panelId }: ViewportOverlayProps): Reac
       ? `${crosshairPoint[0].toFixed(1)}, ${crosshairPoint[1].toFixed(1)}, ${crosshairPoint[2].toFixed(1)}`
       : null;
 
+  /**
+   * Fields that describe a SLICE. A 3D volume rendering has none of them, so they are
+   * suppressed there rather than shown with meaningless values (the capture that
+   * prompted this showed "1 / 1", "Thick: 3 mm" and a reformat dropdown on a 3D view).
+   */
+  const SLICE_ONLY_FIELDS: OverlayFieldKey[] = [
+    'orientationSelector',
+    'imageIndex',
+    'sliceLocation',
+    'sliceThickness',
+    'windowLevel',
+    'dimensions',
+  ];
+
   /** The display string for a field key, or null when there's nothing to show. */
   const fieldText = (field: OverlayFieldKey): string | null => {
+    if (render3d && SLICE_ONLY_FIELDS.includes(field)) return null;
     switch (field) {
       case 'orientationSelector':
         return displayOrientation ? titleCase(displayOrientation) : null;
@@ -137,6 +159,8 @@ export default function ViewportOverlay({ panelId }: ViewportOverlayProps): Reac
   /** A field's rendered node — an interactive control for orientationSelector, a
    *  text string for everything else, or null when there's nothing to show. */
   const renderField = (field: OverlayFieldKey): React.ReactNode => {
+    // 3D: no reformat plane to choose (the dropdown would be inert).
+    if (render3d && SLICE_ONLY_FIELDS.includes(field)) return null;
     if (field === 'orientationSelector') {
       // The interactive plane selector: change a volume's reformat plane (axial ⇄
       // sagittal ⇄ coronal). pointer-events-auto (the overlay is pointer-events-none);
@@ -206,8 +230,9 @@ export default function ViewportOverlay({ panelId }: ViewportOverlayProps): Reac
         </div>
       )}
 
-      {/* Patient-orientation edge-markers (A/P/R/L/S/I) for the current plane. */}
-      {showMarkers && (
+      {/* Patient-orientation edge-markers (A/P/R/L/S/I) for the current plane —
+          in-plane only, so not on a 3D render. */}
+      {showMarkers && !render3d && (
         <div
           data-testid={`overlay-orientation-markers:${panelId}`}
           className="absolute inset-0 text-[11px] font-bold text-zinc-200 [text-shadow:_0_1px_2px_rgb(0_0_0_/_85%)]"

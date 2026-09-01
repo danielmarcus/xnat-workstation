@@ -22,6 +22,13 @@ import { chooseViewportType, type ViewportType, type ViewportTypeInput } from '.
 const ENGINE_ID = 'xnatRenderingEngine';
 
 /**
+ * Transfer-function preset for the 3D volume-rendering slot (C5c). Cornerstone ships
+ * the standard VTK presets; CT-Bone reads well for the CT-dominated data this app
+ * shows and needs no per-series tuning.
+ */
+const VOLUME_3D_PRESET = 'CT-Bone';
+
+/**
  * Resolve the plane a freshly-created viewport should open in. A viewport is
  * (re)created only on mount or a SCAN change, so the initial plane must reflect the
  * scan being loaded — never a stale selection carried over from a previous scan:
@@ -139,6 +146,13 @@ export const viewportService = {
       layoutOrientation?: MPRPlane;
       /** Non-MPR panels open in the scan's native (acquisition) plane unless `orientation` is set. */
       preferNativeOrientation?: boolean;
+      /**
+       * Render this panel as a 3D VOLUME RENDERING instead of a reformatted slice
+       * (requirements C5c — the MPR layout's fourth slot). Uses Cornerstone's
+       * VOLUME_3D viewport with a transfer-function preset; ignored for data that
+       * can only be a stack (a 3D render needs a volume).
+       */
+      render3d?: boolean;
     },
   ): Promise<{ type: ViewportType; volumeId: string | null; orientation: DisplayPlane }> {
     const engine = ensureEngine();
@@ -173,6 +187,44 @@ export const viewportService = {
       });
       console.log('[viewportService] Unified viewport (stack):', viewportId);
       return { type, volumeId: null, orientation: resolvedPlane };
+    }
+
+    // ── 3D volume rendering (C5c) ──
+    if (opts.render3d) {
+      await Promise.all(
+        opts.imageIds.map((id) => imageLoader.loadAndCacheImage(id).catch(() => undefined)),
+      );
+      engine.enableElement({
+        viewportId,
+        type: Enums.ViewportType.VOLUME_3D,
+        element,
+        defaultOptions: { orientation: Enums.OrientationAxis.CORONAL, background: [0, 0, 0] as Types.Point3 },
+      });
+      const acquired = await volumeService.acquire(
+        opts.scanId,
+        opts.frameOfReferenceUID,
+        opts.imageIds,
+      );
+      viewportVolumes.set(viewportId, acquired.volumeId);
+      const vp3d = engine.getViewport(viewportId) as Types.IVolumeViewport;
+      await vp3d.setVolumes([{ volumeId: acquired.volumeId }]);
+      try {
+        // A transfer-function preset is what makes a 3D render legible; without one
+        // the volume renders as a near-opaque block. CT-Bone is the safe default for
+        // the CT-dominated data this app shows.
+        vp3d.setProperties({ preset: VOLUME_3D_PRESET });
+      } catch (err) {
+        console.warn('[viewportService] 3D preset failed (rendering without it):', err);
+      }
+      vp3d.render();
+      if (acquired.created) {
+        volumeService
+          .load(acquired.volumeId)
+          .catch((err) => console.warn('[viewportService] Volume load failed:', acquired.volumeId, err));
+      }
+      console.log('[viewportService] Unified viewport (3D):', viewportId, acquired.volumeId);
+      // A 3D render has no slice plane; report the layout plane for the overlay label.
+      return { type: 'volume', volumeId: acquired.volumeId, orientation: layoutPlane };
     }
 
     // Volume path — shared + ref-counted by (scanId, FoR).

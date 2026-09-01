@@ -51,6 +51,7 @@ import {
   RegionSegmentTool,
   RegionSegmentPlusTool,
   SegmentBidirectionalTool,
+  TrackballRotateTool,
   RectangleROIThresholdTool,
   CircleROIStartEndThresholdTool,
   LabelMapEditWithContourTool,
@@ -66,6 +67,8 @@ import { usePreferencesStore } from '../../stores/preferencesStore';
 import { useSegmentationStore } from '../../stores/segmentationStore';
 
 const UNIFIED_TOOL_GROUP_ID = 'xnatToolGroup_unified';
+/** Separate group for the 3D volume-rendering slot (rotate/zoom/pan only). */
+const VOLUME_3D_TOOL_GROUP_ID = 'xnatToolGroup_volume3d';
 
 const { Primary, Auxiliary, Secondary, Wheel } = ToolEnums.MouseBindings;
 
@@ -458,6 +461,45 @@ export const unifiedToolService = {
       }
     }
     console.log('[unifiedToolService] Viewport added:', viewportId);
+  },
+
+  /**
+   * Join a 3D volume-rendering viewport (C5c) to its OWN tool group. It must not
+   * join the slice group: brush/contour/crosshair tools assume a slice plane, and a
+   * 3D render has none. This group carries rotate (primary drag) plus zoom/pan on
+   * the same non-primary buttons the slice group uses, so navigation feels the same.
+   */
+  add3dViewport(viewportId: string): void {
+    try {
+      let group = ToolGroupManager.getToolGroup(VOLUME_3D_TOOL_GROUP_ID);
+      if (!group) {
+        group = ToolGroupManager.createToolGroup(VOLUME_3D_TOOL_GROUP_ID);
+        if (!group) return;
+        group.addTool(TrackballRotateTool.toolName);
+        group.addTool(ZoomTool.toolName);
+        group.addTool(PanTool.toolName);
+        group.setToolActive(TrackballRotateTool.toolName, { bindings: [{ mouseButton: Primary }] });
+        group.setToolActive(ZoomTool.toolName, { bindings: [{ mouseButton: Secondary }] });
+        group.setToolActive(PanTool.toolName, { bindings: [{ mouseButton: Auxiliary }] });
+      }
+      group.addViewport(viewportId, viewportService.ENGINE_ID);
+      console.log('[unifiedToolService] 3D viewport added:', viewportId);
+    } catch (err) {
+      // A 3D panel without interaction still RENDERS; never break the layout for it.
+      console.warn('[unifiedToolService] add3dViewport failed:', err);
+    }
+  },
+
+  /** Remove a viewport from the 3D group (panel unmount). */
+  remove3dViewport(viewportId: string): void {
+    try {
+      ToolGroupManager.getToolGroup(VOLUME_3D_TOOL_GROUP_ID)?.removeViewports(
+        viewportService.ENGINE_ID,
+        viewportId,
+      );
+    } catch (err) {
+      console.debug('[unifiedToolService] remove3dViewport:', err);
+    }
   },
 
   /** Current brush radius on the unified tool group (Cornerstone), or null. */
