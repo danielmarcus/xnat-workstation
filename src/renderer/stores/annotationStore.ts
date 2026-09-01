@@ -38,6 +38,10 @@ export interface SrContainerSummary {
    *  session (A13: one study at a time) — mirrors a SEG's xnatOrigin.sessionId.
    *  Empty/undefined = session-agnostic (local fixtures). */
   sessionId?: string;
+  /** The XNAT scan this container was LOADED from (SR reload), when it came from the
+   *  server. Lets a repeat click on the same Measurement scan surface the existing
+   *  container instead of importing every measurement a second time. */
+  xnatScanId?: string;
 }
 
 interface AnnotationStore {
@@ -64,7 +68,7 @@ interface AnnotationStore {
 
   /** Create a new empty SR container, make it active, and return its id (D7.1).
    *  Pass the current XNAT session so the container is session-scoped in the panel. */
-  createSrContainer: (label: string, sessionId?: string) => string;
+  createSrContainer: (label: string, sessionId?: string, xnatScanId?: string) => string;
   /** Rename a created SR container. */
   renameSrContainer: (id: string, label: string) => void;
   /** Remove a created SR container (its measurements fall back to the default). */
@@ -99,9 +103,12 @@ export const useAnnotationStore = create<AnnotationStore>((set) => ({
 
   select: (uid) => set({ selectedUID: uid }),
 
-  createSrContainer: (label, sessionId) => {
+  createSrContainer: (label, sessionId, xnatScanId) => {
     const id = `sr:local:${++srCounter}`;
-    set((s) => ({ srContainers: [...s.srContainers, { id, label, sessionId }], activeSrContainerId: id }));
+    set((s) => ({
+      srContainers: [...s.srContainers, { id, label, sessionId, xnatScanId }],
+      activeSrContainerId: id,
+    }));
     return id;
   },
 

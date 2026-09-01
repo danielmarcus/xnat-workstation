@@ -27,7 +27,9 @@ import { viewportService } from './lib/cornerstone/viewportService';
 import { imageLoader, cache } from '@cornerstonejs/core';
 import * as dicomParser from 'dicom-parser';
 import { viewportReadyService } from './lib/cornerstone/viewportReadyService';
-import { useSessionDerivedIndexStore, isSegScan, isRtStructScan, isDerivedScan } from './stores/sessionDerivedIndexStore';
+import { useSessionDerivedIndexStore, isSegScan, isRtStructScan, isSrScan, isDerivedScan } from './stores/sessionDerivedIndexStore';
+import { getSrReferenceInfo } from './lib/dicom/srReferences';
+import { xnatScanApi } from './lib/xnat/scanApi';
 import { useSegmentationManagerStore } from './stores/segmentationManagerStore';
 import { segmentationManager } from './lib/segmentation/segmentationManagerSingleton';
 import { sessionsWithUnsaved, type LoadedContainerRef } from './lib/annotations/sessionLifecycle';
@@ -580,7 +582,7 @@ export async function downloadSegArrayBuffer(
   sessionId: string,
   scanId: string,
 ): Promise<ArrayBuffer> {
-  const result = await window.electronAPI.xnat.downloadScanFile(sessionId, scanId);
+  const result = await xnatScanApi.downloadScanFile(sessionId, scanId);
   if (!result.ok || !result.data) {
     throw new Error(result.error || 'Failed to download scan file');
   }
@@ -1449,7 +1451,7 @@ export default function App() {
         cachedSessionScans = viewerState.sessionScans;
         return cachedSessionScans;
       }
-      const scansForSession = await window.electronAPI.xnat.getScans(sessionId);
+      const scansForSession = await xnatScanApi.getScans(sessionId);
       useViewerStore.getState().setSessionData(sessionId, scansForSession);
       cachedSessionScans = scansForSession;
       return scansForSession;
@@ -1952,6 +1954,121 @@ export default function App() {
         // 8. Open segmentation panel
         const segStore2 = useSegmentationStore.getState();
         if (!segStore2.showPanel) segStore2.togglePanel();
+      } else if (isSrScan(effectiveScan)) {
+        // ─── SR scan: load measurements onto their source series ───
+        // The reload half of the Measurement round-trip (the upload half is the
+        // transport's uploadSr). Mirrors the RTSTRUCT branch: download → resolve the
+        // referenced series → make sure those images are on a panel → hand the bytes
+        // to annotationService (the same entry the local-file SR import uses).
+        if (!acquireSegLock(scanId)) {
+          setLoading(false);
+          setBrowserStatusMessage('Annotation load already in progress', 'info', `SR #${scanId}`);
+          return;
+        }
+
+        try {
+          // Already loaded in this session? Re-loading would duplicate every
+          // measurement, so just surface the existing container. Keyed on the scan id
+          // recorded ON the container (an unresolvable source scan means no
+          // xnatOriginMap entry, so that map cannot be the guard).
+          const alreadyLoaded = useAnnotationStore.getState().srContainers.some(
+            (c) => c.xnatScanId === scanId && (c.sessionId ?? sessionId) === sessionId,
+          );
+          if (alreadyLoaded) {
+            console.log(`[App] SR scan #${scanId} already loaded — showing the existing container`);
+            const segStoreSrExisting = useSegmentationStore.getState();
+            if (!segStoreSrExisting.showPanel) segStoreSrExisting.togglePanel();
+            setBrowserStatusMessage('Measurements already loaded', 'info', `SR #${scanId}`);
+            return;
+          }
+
+          setBrowserStatusMessage('Downloading Measurements...', 'loading', `SR #${scanId}`);
+          const srBuffer = await downloadSegArrayBuffer(sessionId, scanId);
+          console.log(`[App] Downloaded SR file (${srBuffer.byteLength} bytes)`);
+
+          setBrowserStatusMessage('Resolving Measurement references...', 'loading', `SR #${scanId}`);
+          const srRefs = getSrReferenceInfo(srBuffer);
+
+          // Resolve the source images: an already-open panel showing that series
+          // first, then the session's scans, then (last resort) the active panel —
+          // measurements without resolvable references still import onto whatever is
+          // displayed rather than failing outright.
+          let srSourceIds: string[] | null = null;
+          let srTargetPanel = targetPanel;
+          let resolvedSrSourceScanId: string | null = null;
+
+          if (srRefs.referencedSeriesUID) {
+            const match = findPanelBySeriesUID(srRefs.referencedSeriesUID, panelImageIdsRef.current);
+            if (match) {
+              console.log(`[App] SR matched to ${match.panelId} via SeriesInstanceUID`);
+              srSourceIds = match.imageIds;
+              srTargetPanel = match.panelId;
+              resolvedSrSourceScanId = useViewerStore.getState().panelScanMap[match.panelId] ?? null;
+            } else {
+              const sessionScans = await ensureSessionScans();
+              const scanMatch = sessionScans.length > 0
+                ? await findSourceScanBySeriesUID(sessionId, srRefs.referencedSeriesUID, sessionScans, {
+                  getScanImageIds: (sid, sourceScanId) => dicomwebLoader.getScanImageIds(sid, sourceScanId),
+                })
+                : null;
+              if (scanMatch) {
+                resolvedSrSourceScanId = scanMatch.scanId;
+                srSourceIds = await ensureSourceScanOnPanel(srTargetPanel, scanMatch.scanId);
+              }
+            }
+          }
+
+          if (!srSourceIds || srSourceIds.length === 0) {
+            srSourceIds = panelImageIdsRef.current[srTargetPanel] ?? [];
+            resolvedSrSourceScanId = resolvedSrSourceScanId
+              ?? useViewerStore.getState().panelScanMap[srTargetPanel]
+              ?? null;
+            console.warn(
+              `[App] SR #${scanId}: no resolvable referenced series — importing onto ${srTargetPanel}`,
+            );
+          }
+
+          if (srSourceIds.length === 0) {
+            setBrowserStatusMessage(
+              'Cannot display Measurements',
+              'error',
+              'Load the source images first, then click the Measurement scan.',
+            );
+            return;
+          }
+
+          const srLabel = effectiveScan.seriesDescription?.trim() || `Measurements ${scanId}`;
+          const { containerId, count } = await annotationService.loadMeasurementsFromArrayBuffer(
+            srBuffer,
+            srSourceIds,
+            { label: srLabel, xnatScanId: scanId },
+          );
+
+          if (count === 0) {
+            setBrowserStatusMessage('No measurements in SR', 'info', `SR #${scanId}`);
+          } else {
+            // Track the origin so a later save OVERWRITES this SR scan instead of
+            // creating a new one (H8), exactly like SEG/RTSTRUCT.
+            if (resolvedSrSourceScanId) {
+              useSegmentationStore.getState().setXnatOrigin(containerId, {
+                scanId,
+                sourceScanId: resolvedSrSourceScanId,
+                projectId: context.projectId,
+                sessionId,
+              });
+            }
+            setBrowserStatusMessage(
+              'Loaded Measurements',
+              'success',
+              `${count} measurement(s) from SR #${scanId} on ${srTargetPanel}.`,
+            );
+          }
+
+          const segStoreSr = useSegmentationStore.getState();
+          if (!segStoreSr.showPanel) segStoreSr.togglePanel();
+        } finally {
+          releaseSegLock(scanId);
+        }
       } else {
         // ─── Regular scan: load as image stack ────────────────────
         setBrowserStatusMessage('Loading image stack...', 'loading', `Scan #${scanId}`);
@@ -2430,6 +2547,18 @@ export default function App() {
     },
     [isConnected, refreshBookmarks, promptRecoveryConfirm, setBrowserStatusMessage],
   );
+
+  /**
+   * E2E seam: expose the REAL scan-load entry so offline specs can drive the exact
+   * code path an XNAT-browser click takes (the browser calls this same callback via
+   * `onLoadScan`), with `electronAPI.xnat` faked per spec. Keeps the acceptance test
+   * on the production path instead of a re-implementation of it.
+   */
+  useEffect(() => {
+    const w = window as unknown as { __XNAT_E2E_APP__?: { loadFromXnatScan: typeof loadFromXnatScan } };
+    w.__XNAT_E2E_APP__ = { loadFromXnatScan };
+    return () => { delete w.__XNAT_E2E_APP__; };
+  }, [loadFromXnatScan]);
 
   /**
    * Re-apply a different hanging protocol to the current session.

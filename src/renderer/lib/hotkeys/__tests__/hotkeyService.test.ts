@@ -80,7 +80,9 @@ beforeAll(async () => {
   vi.doMock('../../cornerstone/unifiedToolService', () => ({ unifiedToolService: unifiedToolServiceMock }));
 
   ({ hotkeyService } = await import('../hotkeyService'));
-});
+  // The dynamic import pulls the Cornerstone service graph; 10s is not enough headroom
+  // when the suite runs in parallel with other heavy files.
+}, 60_000);
 
 function resetState(): void {
   viewerState.mprActive = false;

@@ -393,14 +393,18 @@ export const annotationService = {
   async loadMeasurementsFromArrayBuffer(
     arrayBuffer: ArrayBuffer,
     sourceImageIds: string[],
-    options: { label?: string } = {},
+    options: { label?: string; xnatScanId?: string } = {},
   ): Promise<{ containerId: string; count: number }> {
     // Lazy-load srImport so the heavy @cornerstonejs/adapters package (which runs
     // module-init side effects against @cornerstonejs/core) is only pulled in when an
     // SR is actually imported — not at annotationService module-load time.
     const { importMeasurementsFromDicomSr } = await import('./srImport');
     const store = useAnnotationStore.getState();
-    const containerId = store.createSrContainer(options.label ?? 'Measurements', currentSessionId || undefined);
+    const containerId = store.createSrContainer(
+      options.label ?? 'Measurements',
+      currentSessionId || undefined,
+      options.xnatScanId,
+    );
     const addedUIDs = importMeasurementsFromDicomSr(arrayBuffer, sourceImageIds);
 
     if (addedUIDs.length === 0) {

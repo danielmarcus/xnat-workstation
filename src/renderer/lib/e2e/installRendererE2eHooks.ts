@@ -26,6 +26,8 @@ import type { TransportSaver } from '../cornerstone/transportSaver';
 import { useTransportStore } from '../../stores/transportStore';
 import * as contourRep from '../cornerstone/contourRepresentation';
 import { toolService } from '../cornerstone/toolService';
+import { setXnatScanApi } from '../xnat/scanApi';
+import type { XnatScan } from '@shared/types/xnat';
 import { exportMeasurementsToDicomSr } from '../cornerstone/srExport';
 import { ToolName } from '@shared/types/viewer';
 
@@ -732,6 +734,19 @@ export function installRendererE2eHooks(): void {
       useAnnotationStore.setState({ srContainers: [], srAffiliation: {}, activeSrContainerId: null } as Partial<ReturnType<typeof useAnnotationStore.getState>>);
     },
     getDirtyFlag: () => useSegmentationStore.getState().hasUnsavedChanges,
+    installFakeXnatScanApi: (config: { sessionId: string; scans: unknown[]; filesByScanId: Record<string, string> }) => {
+      setXnatScanApi({
+        getScans: async (sessionId: string) =>
+          (sessionId === config.sessionId ? (config.scans as XnatScan[]) : []),
+        downloadScanFile: async (sessionId: string, scanId: string) => {
+          const data = config.filesByScanId[scanId];
+          return data
+            ? { ok: true, data }
+            : { ok: false, error: `[e2e fake] no file for scan ${scanId} in ${sessionId}` };
+        },
+      });
+    },
+    restoreXnatScanApi: () => setXnatScanApi(null),
     canDrawOnActiveViewport: () =>
       canDrawOnViewport(
         useAnnotationSelectionStore.getState().activeMember?.containerId ?? null,

@@ -18,6 +18,13 @@ vi.mock('./lib/diagnostics/rendererLogBuffer', () => ({
   installRendererLogCapture: vi.fn(),
 }));
 
+// These two import the REAL ./main (only react-dom, App and the log capture are
+// mocked), so they pay for the renderer's whole module graph — Cornerstone services,
+// stores and the e2e hooks. That import alone runs ~4s on a warm machine and grows
+// with the app, so the default 5s timeout leaves no headroom; the assertions here are
+// about wiring, not speed.
+const IMPORT_TIMEOUT_MS = 30_000;
+
 describe('renderer entrypoint', () => {
   beforeEach(() => {
     vi.resetModules();
@@ -35,7 +42,7 @@ describe('renderer entrypoint', () => {
 
     const renderedTree = renderMock.mock.calls[0][0] as React.ReactElement;
     expect(renderedTree.type).toBe(React.StrictMode);
-  });
+  }, IMPORT_TIMEOUT_MS);
 
   it('throws a clear error when #root is missing', async () => {
     document.body.innerHTML = '';
@@ -45,5 +52,5 @@ describe('renderer entrypoint', () => {
     );
     expect(createRootMock).not.toHaveBeenCalled();
     expect(renderMock).not.toHaveBeenCalled();
-  });
+  }, IMPORT_TIMEOUT_MS);
 });
