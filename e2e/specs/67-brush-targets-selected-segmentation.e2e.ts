@@ -14,7 +14,6 @@ import type { Page, Locator } from '@playwright/test';
 import { loadFixture } from '../helpers/local-fixture';
 
 interface E2EHooks {
-  setMultiviewportEnabled: (v: boolean) => void;
   getCsActiveSegmentationId: (panelId: string) => string | null;
 }
 type Win = { __XNAT_E2E__: E2EHooks };
@@ -31,7 +30,6 @@ async function createSeg(panel: Locator, name: string) {
 }
 
 test('selecting a segmentation routes the brush to it (not the last-created)', async ({ page }) => {
-  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.setMultiviewportEnabled(true));
   await loadFixture(page, 'ct-axial-300', 'panel_0');
   await page.getByRole('button', { name: 'Show segmentation panel' }).click();
   const panel = page.locator('[data-testid="annotations-side-panel"]');

@@ -14,7 +14,6 @@ import type { Page } from '@playwright/test';
 import { loadFixture } from '../helpers/local-fixture';
 
 interface E2EHooks {
-  setMultiviewportEnabled: (v: boolean) => void;
   setActiveUnifiedTool: (toolName: string) => void;
   getMeasurementCount: () => number;
   clearAllContainers: () => void;
@@ -36,7 +35,6 @@ const svgStrokes = (page: Page) =>
   );
 
 test('a measurement gets a real display color (not green/yellow) and the swatch picker recolors it', async ({ page }) => {
-  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.setMultiviewportEnabled(true));
   await loadFixture(page, 'ct-axial-300', 'panel_0');
 
   const panel = page.locator('[data-testid="annotations-side-panel"]');

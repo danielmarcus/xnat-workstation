@@ -14,7 +14,6 @@ import { test, expect } from '../fixtures/electron-app';
 import { loadFixture } from '../helpers/local-fixture';
 
 interface E2EHooks {
-  setMultiviewportEnabled: (v: boolean) => void;
   setActiveUnifiedTool: (toolName: string) => void;
   getMeasurementCount: () => number;
   getHighlightedAnnotationUIDs: () => string[];
@@ -28,7 +27,6 @@ test.beforeEach(({ page }) => cleanSlate(page));
 test.afterEach(({ page }) => cleanSlate(page));
 
 test('clicking a measurement row highlights that annotation on the viewport', async ({ page }) => {
-  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.setMultiviewportEnabled(true));
   await loadFixture(page, 'ct-axial-300', 'panel_0');
 
   const panel = page.locator('[data-testid="annotations-side-panel"]');

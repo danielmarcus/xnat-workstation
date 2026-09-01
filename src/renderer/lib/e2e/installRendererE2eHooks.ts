@@ -10,7 +10,6 @@ import { useSegmentationManagerStore } from '../../stores/segmentationManagerSto
 import { useViewerStore } from '../../stores/viewerStore';
 import { useConnectionStore } from '../../stores/connectionStore';
 import { useAnnotationStore } from '../../stores/annotationStore';
-import { usePreferencesStore } from '../../stores/preferencesStore';
 import { useUnifiedLayoutStore, type LayoutPreset } from '../../stores/unifiedLayoutStore';
 import { volumeService } from '../cornerstone/volumeService';
 import { viewportService } from '../cornerstone/viewportService';
@@ -74,8 +73,6 @@ declare global {
       exportSrBase64: () => Promise<string | null>;
       /** Reconstruct measurements from an SR base64 onto the active viewport (SR-D). Returns count added. */
       importSrBase64: (base64: string) => Promise<number>;
-      /** Toggle the multiviewport feature flag (must be set before the viewer mounts). */
-      setMultiviewportEnabled: (enabled: boolean) => void;
       /** Cornerstone viewport type for a panel ('stack' | 'orthographic' | …) or null. */
       getViewportType: (panelId: string) => string | null;
       /** Viewport ids a segmentation is currently attached to (FoR-eligibility outcome). */
@@ -556,9 +553,6 @@ export function installRendererE2eHooks(): void {
       for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
       const { count } = await annotationService.loadMeasurementsFromArrayBuffer(bytes.buffer, imageIds);
       return count;
-    },
-    setMultiviewportEnabled: (enabled: boolean) => {
-      usePreferencesStore.getState().setMultiviewportEnabled(enabled);
     },
     getViewportType: (panelId: string) => {
       const ee = getEnabledElementByViewportId(panelId) as { viewport?: { type?: string } } | undefined;

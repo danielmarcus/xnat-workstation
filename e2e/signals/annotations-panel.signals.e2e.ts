@@ -12,17 +12,9 @@
 import { test, expect } from '../fixtures/electron-app';
 import { loadCtAxial300 } from '../helpers/local-fixture';
 
-async function enableMultiviewportAndLoad(page: import('@playwright/test').Page) {
-  await page.evaluate(() => {
-    (window as unknown as { __XNAT_E2E__: { setMultiviewportEnabled: (v: boolean) => void } })
-      .__XNAT_E2E__.setMultiviewportEnabled(true);
-  });
-  await loadCtAxial300(page);
-}
-
 test.describe('Signal 31 — list-panel structure & create actions (D7.6)', () => {
   test('rebuilt Annotations panel exposes three create buttons and save-all', async ({ page }) => {
-    await enableMultiviewportAndLoad(page);
+    await loadCtAxial300(page);
 
     const panel = page.locator('[data-testid="annotations-panel"]');
     await expect(panel, 'rebuilt Annotations panel should be mounted').toBeVisible({ timeout: 5_000 });
@@ -36,7 +28,7 @@ test.describe('Signal 31 — list-panel structure & create actions (D7.6)', () =
 
 test.describe('Signal 32 — Measurement (SR) container is a first-class peer (D7.1)', () => {
   test('creating a Measurement container and drawing a length yields a member row with value+unit', async ({ page }) => {
-    await enableMultiviewportAndLoad(page);
+    await loadCtAxial300(page);
 
     const createMeasurement = page.locator('[data-testid="create-measurement"]');
     await expect(createMeasurement, 'rebuilt "create Measurement" action should exist').toBeVisible({ timeout: 5_000 });
@@ -58,7 +50,7 @@ test.describe('Signal 32 — Measurement (SR) container is a first-class peer (D
 
 test.describe('Signal 33 — selection model: single-click selects globally (A11, D7.5)', () => {
   test('single-clicking a member row selects it (highlighted)', async ({ page }) => {
-    await enableMultiviewportAndLoad(page);
+    await loadCtAxial300(page);
 
     const createMeasurement = page.locator('[data-testid="create-measurement"]');
     await expect(createMeasurement, 'rebuilt "create Measurement" action should exist').toBeVisible({ timeout: 5_000 });

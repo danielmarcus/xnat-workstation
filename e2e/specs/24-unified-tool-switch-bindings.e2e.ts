@@ -12,7 +12,6 @@ import type { Page } from '@playwright/test';
 import { ensureFixture, enterLocalViewer } from '../helpers/local-fixture';
 
 interface E2EHooks {
-  setMultiviewportEnabled: (v: boolean) => void;
   getUnifiedToolsWithPrimary: () => string[];
 }
 type Win = { __XNAT_E2E__: E2EHooks };
@@ -21,7 +20,6 @@ const primaryTools = (page: Page) =>
   page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.getUnifiedToolsWithPrimary());
 
 test('switching tools keeps exactly one tool on the Primary button (Pan -> Zoom) (flag on)', async ({ page }) => {
-  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.setMultiviewportEnabled(true));
   await enterLocalViewer(page);
 
   const files = ensureFixture('ct-axial-300');

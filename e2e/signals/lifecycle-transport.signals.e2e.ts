@@ -11,16 +11,8 @@
 import { test, expect } from '../fixtures/electron-app';
 import { ensureFixture, enterLocalViewer, loadLocalDicom } from '../helpers/local-fixture';
 
-async function enableMv(page: import('@playwright/test').Page) {
-  await page.evaluate(() => {
-    (window as unknown as { __XNAT_E2E__: { setMultiviewportEnabled: (v: boolean) => void } })
-      .__XNAT_E2E__.setMultiviewportEnabled(true);
-  });
-}
-
 test.describe('Signal 25 — auto-load + navigate within a session (A13, B5)', () => {
   test('a session with a saved RTSTRUCT auto-loads into the panel and lists its members', async ({ page }) => {
-    await enableMv(page);
     await enterLocalViewer(page);
     await loadLocalDicom(page, ensureFixture('rtstruct-typed')); // source + RTSTRUCT
     const panel = page.locator('[data-testid="annotations-panel"]');
@@ -35,7 +27,6 @@ test.describe('Signal 25 — auto-load + navigate within a session (A13, B5)', (
 
 test.describe('Signal 26 — session switch + unsaved retention (A13, E3)', () => {
   test('dirty containers are retained across a session switch and surfaced in a banner', async ({ page }) => {
-    await enableMv(page);
     await enterLocalViewer(page);
     await loadLocalDicom(page, ensureFixture('rtstruct-typed'));
     await expect(
@@ -51,7 +42,6 @@ test.describe('Signal 26 — session switch + unsaved retention (A13, E3)', () =
 
 test.describe('Signal 14 — queue-next-save during in-flight autosave (E2)', () => {
   test('rapid edits while a save is in flight queue a follow-up save; no edits lost', async ({ page }) => {
-    await enableMv(page);
     await enterLocalViewer(page);
     await loadLocalDicom(page, ensureFixture('seg-multilabel'));
     await expect(
@@ -66,7 +56,6 @@ test.describe('Signal 14 — queue-next-save during in-flight autosave (E2)', ()
 
 test.describe('Signal 15 — undo across the save point (A9)', () => {
   test('undoing past a save re-sets the dirty flag; a new save flushes the post-undo state', async ({ page }) => {
-    await enableMv(page);
     await enterLocalViewer(page);
     await loadLocalDicom(page, ensureFixture('seg-multilabel'));
     const panel = page.locator('[data-testid="annotations-panel"]');

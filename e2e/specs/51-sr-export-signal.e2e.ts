@@ -17,7 +17,6 @@ import type { Page } from '@playwright/test';
 import { loadFixture } from '../helpers/local-fixture';
 
 interface E2EHooks {
-  setMultiviewportEnabled: (v: boolean) => void;
   setActiveUnifiedTool: (toolName: string) => void;
   getMeasurementCount: () => number;
   exportSrBase64: () => Promise<string | null>;
@@ -25,7 +24,6 @@ interface E2EHooks {
 type Win = { __XNAT_E2E__: E2EHooks };
 
 test('a drawn Length measurement serializes to a conformant DICOM-SR (SR write)', async ({ page }) => {
-  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.setMultiviewportEnabled(true));
   await loadFixture(page, 'ct-axial-300', 'panel_0');
 
   // Draw a Length on the axial panel via a real gesture.

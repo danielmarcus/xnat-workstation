@@ -22,7 +22,6 @@ import type { Page } from '@playwright/test';
 import { ensureFixture, enterLocalViewer } from '../helpers/local-fixture';
 
 interface E2EHooks {
-  setMultiviewportEnabled: (v: boolean) => void;
   setActiveUnifiedTool: (toolName: string) => void;
   isUnifiedVolumeReady: () => boolean;
   resetUnifiedSegmentations: () => void;
@@ -55,7 +54,6 @@ async function drawContourLoop(page: Page, box: { x: number; y: number; width: n
 }
 
 test('drawing a contour on two slices interpolates the contours between them (signal 13)', async ({ page }) => {
-  await hook(page, 'setMultiviewportEnabled', true);
   await enterLocalViewer(page);
   const files = ensureFixture('ct-axial-300');
   await page.locator('[data-testid="local-import-input"]').setInputFiles(files);

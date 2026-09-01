@@ -21,7 +21,6 @@ import type { Page } from '@playwright/test';
 import { ensureFixture, enterLocalViewer } from '../helpers/local-fixture';
 
 interface E2EHooks {
-  setMultiviewportEnabled: (v: boolean) => void;
   setActiveUnifiedTool: (toolName: string) => void;
   createUnifiedLabelmapSegmentation: (label?: string) => Promise<{ segmentationId: string; segmentIndex: number }>;
   setUnifiedBrushSize: (size: number) => void;
@@ -51,7 +50,6 @@ async function brushStroke(page: Page, box: { x: number; y: number; width: numbe
 }
 
 test.beforeEach(async ({ page }) => {
-  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.setMultiviewportEnabled(true));
   // Isolate from any segmentation a prior test left in the worker-scoped app.
   await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.resetUnifiedSegmentations());
 });

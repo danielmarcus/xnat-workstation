@@ -18,7 +18,6 @@ import type { Page } from '@playwright/test';
 import { loadFixture } from '../helpers/local-fixture';
 
 interface E2EHooks {
-  setMultiviewportEnabled: (v: boolean) => void;
   setLocalBackupStatus: (status: 'idle' | 'saving' | 'saved' | 'error') => void;
 }
 type Win = { __XNAT_E2E__: E2EHooks };
@@ -29,7 +28,6 @@ const setBackupState = (page: Page, status: 'idle' | 'saving' | 'saved' | 'error
   page.evaluate((s) => (window as unknown as Win).__XNAT_E2E__.setLocalBackupStatus(s), status);
 
 test('the annotations toolbox surfaces the live local-backup state', async ({ page }) => {
-  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.setMultiviewportEnabled(true));
   await loadFixture(page, 'ct-axial-300', 'panel_0');
 
   await openPanel(page);

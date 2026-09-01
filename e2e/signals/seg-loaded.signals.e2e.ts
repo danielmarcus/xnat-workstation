@@ -9,16 +9,8 @@
 import { test, expect } from '../fixtures/electron-app';
 import { ensureFixture, enterLocalViewer, loadLocalDicom, loadCtAxialAnatomy } from '../helpers/local-fixture';
 
-async function enableMv(page: import('@playwright/test').Page) {
-  await page.evaluate(() => {
-    (window as unknown as { __XNAT_E2E__: { setMultiviewportEnabled: (v: boolean) => void } })
-      .__XNAT_E2E__.setMultiviewportEnabled(true);
-  });
-}
-
 test.describe('Signal 24 — SEG round-trip + 3D continuity (C7, C8)', () => {
   test('a loaded multi-segment SEG lists all segments in the rebuilt panel', async ({ page }) => {
-    await enableMv(page);
     const files = ensureFixture('seg-multilabel');
     await enterLocalViewer(page);
     await loadLocalDicom(page, files);
@@ -40,7 +32,6 @@ test.describe('Signal 24 — SEG round-trip + 3D continuity (C7, C8)', () => {
 
 test.describe('Signal 30 — Contour Fill must-fix (C3; Phase-5 gate)', () => {
   test('LabelMapEditWithContourTool rasterizes a boundary into the active segment as one undo entry', async ({ page }) => {
-    await enableMv(page);
     await loadCtAxialAnatomy(page);
     const createSeg = page.locator('[data-testid="create-segmentation"]');
     await expect(createSeg, 'rebuilt create-Segmentation action should exist').toBeVisible({ timeout: 5_000 });

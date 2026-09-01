@@ -16,7 +16,6 @@ import type { Page } from '@playwright/test';
 import { loadFixture } from '../helpers/local-fixture';
 
 interface E2EHooks {
-  setMultiviewportEnabled: (v: boolean) => void;
   setActiveUnifiedTool: (toolName: string) => void;
   setUnifiedBrushSize: (size: number) => void;
   getPaintedVoxelCount: () => number;
@@ -42,7 +41,6 @@ async function brushStroke(page: Page, box: { x: number; y: number; width: numbe
 }
 
 test('toolbar Undo enables + reverts after painting a panel-created (active) SEG', async ({ page }) => {
-  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.setMultiviewportEnabled(true));
   await loadFixture(page, 'ct-axial-300', 'panel_0');
   await expect.poll(() => hook<boolean>(page, 'isUnifiedVolumeReady'), { timeout: 30_000 }).toBe(true);
 

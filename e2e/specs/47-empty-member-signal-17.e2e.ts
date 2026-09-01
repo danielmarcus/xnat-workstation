@@ -17,7 +17,6 @@ import type { Page } from '@playwright/test';
 import { loadFixture } from '../helpers/local-fixture';
 
 interface E2EHooks {
-  setMultiviewportEnabled: (v: boolean) => void;
   resetUnifiedSegmentations: () => void;
   createTestStructure: (panelId: string, label: string) => Promise<string>;
   createTestContour: (panelId: string, segmentationId: string, segmentIndex?: number, provenance?: string) => string | null;
@@ -31,7 +30,6 @@ async function ensurePanelOpen(page: Page) {
 }
 
 test('an empty member shows the "(empty)" marker; drawing appends to it and clears it (signal 17)', async ({ page }) => {
-  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.setMultiviewportEnabled(true));
   await loadFixture(page, 'ct-axial-300', 'panel_0');
   await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.resetUnifiedSegmentations());
 

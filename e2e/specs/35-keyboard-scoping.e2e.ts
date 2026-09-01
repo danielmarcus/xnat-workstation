@@ -10,7 +10,6 @@ import type { Page } from '@playwright/test';
 import { ensureFixture, enterLocalViewer, loadLocalDicom } from '../helpers/local-fixture';
 
 interface E2EHooks {
-  setMultiviewportEnabled: (v: boolean) => void;
   getActiveViewportId: () => string | null;
   getActiveUnifiedTool: () => string | null;
 }
@@ -22,7 +21,6 @@ const activeViewport = (page: Page) => page.evaluate(() => (window as unknown as
 const activeTool = (page: Page) => page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.getActiveUnifiedTool());
 
 test('active-viewport indicator + view-shortcuts scoped to active panel + global shortcut fires', async ({ page }) => {
-  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.setMultiviewportEnabled(true));
   await enterLocalViewer(page);
   // panel_0 = scan A; 1×2 layout; panel_1 = scan B (independent canvases).
   await loadLocalDicom(page, ensureFixture('ct-axial-300'), 'panel_0');

@@ -1,17 +1,6 @@
 import type { XnatUploadContext } from '@shared/types/xnat';
 import { ToolName } from '@shared/types/viewer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { usePreferencesStore } from './preferencesStore';
-
-/** Pin the OLD viewport path for these old-path tests (default flag is now on). */
-function disableMultiviewport(): void {
-  usePreferencesStore.setState((s) => ({
-    preferences: {
-      ...s.preferences,
-      features: { ...(s.preferences.features ?? { multiviewportEnabled: true }), multiviewportEnabled: false },
-    },
-  }));
-}
 
 const mocked = vi.hoisted(() => ({
   viewportService: {
@@ -75,7 +64,6 @@ function context(scanId: string, sessionLabel: string): XnatUploadContext {
 describe('useViewerStore', () => {
   beforeEach(() => {
     resetStore();
-    disableMultiviewport();
   });
 
   afterEach(() => {

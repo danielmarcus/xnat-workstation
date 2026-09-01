@@ -4,7 +4,6 @@ import type { HotkeyMap } from '@shared/types/hotkeys';
 import { hotkeyService } from '../lib/hotkeys/hotkeyService';
 import { dispatchKey } from '../test/hotkeys/keyboard';
 import { useViewerStore } from '../stores/viewerStore';
-import { usePreferencesStore } from '../stores/preferencesStore';
 import ViewerPage from './ViewerPage';
 
 const {
@@ -70,14 +69,6 @@ vi.mock('../lib/cornerstone/annotationService', () => ({
 
 describe('ViewerPage hotkeys integration', () => {
   beforeEach(() => {
-    // These tests exercise the OLD viewport path; the unified flag now defaults
-    // on, so pin it off here (the old path is removed in P1.8d, with these tests).
-    usePreferencesStore.setState((s) => ({
-      preferences: {
-        ...s.preferences,
-        features: { ...(s.preferences.features ?? { multiviewportEnabled: true }), multiviewportEnabled: false },
-      },
-    }));
     useViewerStore.setState(useViewerStore.getInitialState(), true);
     useViewerStore.setState({
       ...useViewerStore.getState(),

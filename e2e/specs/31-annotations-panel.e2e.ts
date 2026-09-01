@@ -10,13 +10,9 @@ import { test, expect } from '../fixtures/electron-app';
 import type { Page } from '@playwright/test';
 import { loadFixture } from '../helpers/local-fixture';
 
-interface E2EHooks { setMultiviewportEnabled: (v: boolean) => void }
-type Win = { __XNAT_E2E__: E2EHooks };
-
 const openPanel = (page: Page) => page.getByRole('button', { name: 'Show segmentation panel' }).click();
 
 test('the rebuilt Annotations panel opens, creates a container, and shows the toolbox', async ({ page }) => {
-  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.setMultiviewportEnabled(true));
   await loadFixture(page, 'ct-axial-300', 'panel_0');
 
   // Open the panel from the toolbar.

@@ -15,7 +15,6 @@ import type { Page } from '@playwright/test';
 import { loadFixture } from '../helpers/local-fixture';
 
 interface E2EHooks {
-  setMultiviewportEnabled: (v: boolean) => void;
   getUnifiedBrushSize: () => number | null;
 }
 type Win = { __XNAT_E2E__: E2EHooks };
@@ -25,7 +24,6 @@ type Win = { __XNAT_E2E__: E2EHooks };
 const CONFIGURED_DEFAULT = 5;
 
 test('the brush radius defaults to the configured preference (not a hardcoded value)', async ({ page }) => {
-  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.setMultiviewportEnabled(true));
   await loadFixture(page, 'ct-axial-300', 'panel_0');
 
   await expect

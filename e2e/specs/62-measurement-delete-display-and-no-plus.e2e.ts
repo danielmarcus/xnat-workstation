@@ -14,7 +14,6 @@ import type { Page } from '@playwright/test';
 import { loadFixture } from '../helpers/local-fixture';
 
 interface E2EHooks {
-  setMultiviewportEnabled: (v: boolean) => void;
   setActiveUnifiedTool: (toolName: string) => void;
   getMeasurementCount: () => number;
   clearAllContainers: () => void;
@@ -30,7 +29,6 @@ const svgAnnotations = (page: Page) =>
   page.locator('[data-testid="unified-viewport-element:panel_0"] .svg-layer [data-annotation-uid]');
 
 test('deleting a measurement removes it from the viewport display, and SR containers have no "+"', async ({ page }) => {
-  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.setMultiviewportEnabled(true));
   await loadFixture(page, 'ct-axial-300', 'panel_0');
 
   const panel = page.locator('[data-testid="annotations-side-panel"]');

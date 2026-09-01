@@ -11,7 +11,6 @@ import type { Page } from '@playwright/test';
 import { loadFixture } from '../helpers/local-fixture';
 
 interface E2EHooks {
-  setMultiviewportEnabled: (v: boolean) => void;
   setActiveUnifiedTool: (toolName: string) => void;
   getMeasurementCount: () => number;
   clearAllContainers: () => void;
@@ -26,7 +25,6 @@ test.beforeEach(({ page }) => cleanSlate(page));
 test.afterEach(({ page }) => cleanSlate(page));
 
 test('SR-D: a measurement survives an SR export→import round-trip', async ({ page }) => {
-  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.setMultiviewportEnabled(true));
   await loadFixture(page, 'ct-axial-300', 'panel_0');
 
   const panel = page.locator('[data-testid="annotations-side-panel"]');

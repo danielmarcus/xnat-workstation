@@ -18,15 +18,12 @@ import type { Page } from '@playwright/test';
 import { ensureFixture, enterLocalViewer } from '../helpers/local-fixture';
 
 interface E2EHooks {
-  setMultiviewportEnabled: (v: boolean) => void;
   setActiveUnifiedTool: (toolName: string) => void;
   getActiveUnifiedTool: () => string | null;
   getUnifiedToolMode: (csToolName: string) => string | null;
 }
 type WinWithHooks = { __XNAT_E2E__: E2EHooks };
 
-const setEnabled = (page: Page, v: boolean) =>
-  page.evaluate((on) => (window as unknown as WinWithHooks).__XNAT_E2E__.setMultiviewportEnabled(on), v);
 const setTool = (page: Page, t: string) =>
   page.evaluate((tn) => (window as unknown as WinWithHooks).__XNAT_E2E__.setActiveUnifiedTool(tn), t);
 const activeTool = (page: Page) =>
@@ -45,7 +42,6 @@ const CS = {
 };
 
 test('unified setActiveTool swaps the Primary slot, keeping nav (flag on)', async ({ page }) => {
-  await setEnabled(page, true);
   await enterLocalViewer(page);
 
   const files = ensureFixture('ct-axial-300');
@@ -81,7 +77,6 @@ test('unified setActiveTool swaps the Primary slot, keeping nav (flag on)', asyn
 });
 
 test('the full toolbox tool set is registered + activatable on the unified group (R3.8b)', async ({ page }) => {
-  await setEnabled(page, true);
   await enterLocalViewer(page);
   const files = ensureFixture('ct-axial-300');
   await page.locator('[data-testid="local-import-input"]').setInputFiles(files);

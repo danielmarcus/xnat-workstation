@@ -12,7 +12,6 @@ import type { Page } from '@playwright/test';
 import { ensureFixture, enterLocalViewer } from '../helpers/local-fixture';
 
 interface E2EHooks {
-  setMultiviewportEnabled: (v: boolean) => void;
   setLayoutPreset: (preset: 'single' | 'mpr-2x2') => void;
   getActiveViewportId: () => string | null;
 }
@@ -22,7 +21,6 @@ const activeViewport = (page: Page) =>
   page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.getActiveViewportId());
 
 test('clicking a panel makes it the active viewport (flag on)', async ({ page }) => {
-  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.setMultiviewportEnabled(true));
   await enterLocalViewer(page);
 
   const files = ensureFixture('ct-axial-300');

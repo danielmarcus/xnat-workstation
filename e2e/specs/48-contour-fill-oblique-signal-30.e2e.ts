@@ -19,7 +19,6 @@ import type { Page } from '@playwright/test';
 import { ensureFixture, enterLocalViewer } from '../helpers/local-fixture';
 
 interface E2EHooks {
-  setMultiviewportEnabled: (v: boolean) => void;
   setActiveUnifiedTool: (toolName: string) => void;
   createUnifiedLabelmapSegmentation: (label?: string) => Promise<{ segmentationId: string; segmentIndex: number }>;
   getPaintedVoxelCount: () => number;
@@ -28,7 +27,6 @@ interface E2EHooks {
 }
 type Win = { __XNAT_E2E__: E2EHooks };
 
-const enableFlag = (page: Page) => page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.setMultiviewportEnabled(true));
 const setTool = (page: Page, t: string) => page.evaluate((tn) => (window as unknown as Win).__XNAT_E2E__.setActiveUnifiedTool(tn), t);
 const createLabelmap = (page: Page, l: string) => page.evaluate((label) => (window as unknown as Win).__XNAT_E2E__.createUnifiedLabelmapSegmentation(label), l);
 const paintedVoxels = (page: Page) => page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.getPaintedVoxelCount());
@@ -55,7 +53,6 @@ test('Contour Fill rasterizes on an OBLIQUE acquisition plane without throwing (
   const consoleErrors: string[] = [];
   page.on('console', (m) => { if (m.type() === 'error') consoleErrors.push(m.text()); });
 
-  await enableFlag(page);
   await enterLocalViewer(page);
   const files = ensureFixture('ct-oblique');
   await page.locator('[data-testid="local-import-input"]').setInputFiles(files);

@@ -21,7 +21,6 @@ import type { Page } from '@playwright/test';
 import { ensureFixture, enterLocalViewer } from '../helpers/local-fixture';
 
 interface E2EHooks {
-  setMultiviewportEnabled: (v: boolean) => void;
   setActiveUnifiedTool: (toolName: string) => void;
   createUnifiedLabelmapSegmentation: (label?: string) => Promise<{ segmentationId: string; segmentIndex: number }>;
   setUnifiedBrushSize: (size: number) => void;
@@ -32,7 +31,6 @@ interface E2EHooks {
 }
 type Win = { __XNAT_E2E__: E2EHooks };
 
-const enableFlag = (page: Page) => page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.setMultiviewportEnabled(true));
 const setTool = (page: Page, t: string) => page.evaluate((tn) => (window as unknown as Win).__XNAT_E2E__.setActiveUnifiedTool(tn), t);
 const setBrushSize = (page: Page, n: number) => page.evaluate((s) => (window as unknown as Win).__XNAT_E2E__.setUnifiedBrushSize(s), n);
 const paintedVoxels = (page: Page) => page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.getPaintedVoxelCount());
@@ -54,7 +52,6 @@ async function stroke(page: Page, box: { x: number; y: number; width: number; he
 }
 
 async function setup(page: Page) {
-  await enableFlag(page);
   await enterLocalViewer(page);
   const files = ensureFixture('ct-axial-300');
   await page.locator('[data-testid="local-import-input"]').setInputFiles(files);

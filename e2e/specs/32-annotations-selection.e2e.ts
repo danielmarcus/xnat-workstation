@@ -10,14 +10,10 @@ import { test, expect } from '../fixtures/electron-app';
 import type { Page } from '@playwright/test';
 import { loadFixture } from '../helpers/local-fixture';
 
-interface E2EHooks { setMultiviewportEnabled: (v: boolean) => void }
-type Win = { __XNAT_E2E__: E2EHooks };
-
 const panelOf = (page: Page) => page.locator('[data-testid="annotations-side-panel"]');
 const row = (page: Page, id: string) => panelOf(page).locator(`[data-testid="member-row-${id}"]`);
 
 async function setupTwoMemberSeg(page: Page) {
-  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.setMultiviewportEnabled(true));
   await loadFixture(page, 'ct-axial-300', 'panel_0');
   await page.getByRole('button', { name: 'Show segmentation panel' }).click();
   const panel = panelOf(page);

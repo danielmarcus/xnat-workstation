@@ -14,13 +14,9 @@ import { test, expect } from '../fixtures/electron-app';
 import type { Page } from '@playwright/test';
 import { loadFixture } from '../helpers/local-fixture';
 
-interface E2EHooks { setMultiviewportEnabled: (v: boolean) => void }
-type Win = { __XNAT_E2E__: E2EHooks };
-
 const panelOf = (page: Page) => page.locator('[data-testid="annotations-side-panel"]');
 
 test('the context toolbox offers only the active kind’s tools; planned tools are disabled', async ({ page }) => {
-  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.setMultiviewportEnabled(true));
   await loadFixture(page, 'ct-axial-300', 'panel_0');
   await page.getByRole('button', { name: 'Show segmentation panel' }).click();
   const panel = panelOf(page);

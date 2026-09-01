@@ -33,7 +33,6 @@ import type { Page } from '@playwright/test';
 import { ensureFixture, enterLocalViewer } from '../helpers/local-fixture';
 
 interface E2EHooks {
-  setMultiviewportEnabled: (v: boolean) => void;
   setActiveUnifiedTool: (toolName: string) => void;
   createUnifiedLabelmapSegmentation: (label?: string) => Promise<{ segmentationId: string; segmentIndex: number }>;
   getActiveUnifiedTool: () => string | null;
@@ -46,8 +45,6 @@ interface E2EHooks {
 }
 type Win = { __XNAT_E2E__: E2EHooks };
 
-const enableFlag = (page: Page) =>
-  page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.setMultiviewportEnabled(true));
 const setTool = (page: Page, t: string) =>
   page.evaluate((tn) => (window as unknown as Win).__XNAT_E2E__.setActiveUnifiedTool(tn), t);
 const activeTool = (page: Page) =>
@@ -100,7 +97,6 @@ test('Contour Fill rasterizes the enclosed region into the active segment (signa
     if (m.type() === 'error') consoleErrors.push(m.text());
   });
 
-  await enableFlag(page);
   await enterLocalViewer(page);
 
   const files = ensureFixture('ct-axial-300');

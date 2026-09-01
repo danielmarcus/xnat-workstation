@@ -15,7 +15,6 @@ import type { Page } from '@playwright/test';
 import { ensureFixture, enterLocalViewer } from '../helpers/local-fixture';
 
 interface E2EHooks {
-  setMultiviewportEnabled: (v: boolean) => void;
   setActiveUnifiedTool: (toolName: string) => void;
   createUnifiedLabelmapSegmentation: (label?: string) => Promise<{ segmentationId: string; segmentIndex: number }>;
   setUnifiedBrushSize: (size: number) => void;
@@ -44,7 +43,6 @@ async function brushStroke(page: Page, box: { x: number; y: number; width: numbe
 }
 
 test('a copied voxel region pastes (NN-resampled) at a scrolled-to slice — signal 23', async ({ page }) => {
-  await ev(page, (h) => h.setMultiviewportEnabled(true));
   await enterLocalViewer(page);
   await page.locator('[data-testid="local-import-input"]').setInputFiles(ensureFixture('ct-axial-300'));
   const p0 = page.locator('[data-testid="unified-viewport-element:panel_0"] canvas');

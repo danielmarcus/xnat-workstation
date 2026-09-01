@@ -9,9 +9,6 @@ import { test, expect } from '../fixtures/electron-app';
 import type { Page } from '@playwright/test';
 import { ensureFixture, enterLocalViewer } from '../helpers/local-fixture';
 
-interface E2EHooks { setMultiviewportEnabled: (v: boolean) => void; }
-type Win = { __XNAT_E2E__: E2EHooks };
-
 const sliceIndex = async (page: Page): Promise<number> => {
   const txt = (await page.locator('[data-testid="overlay-field-imageIndex:panel_0"]').textContent())?.trim() ?? '';
   const m = txt.match(/^(\d+)\s*\/\s*16$/);
@@ -19,7 +16,6 @@ const sliceIndex = async (page: Page): Promise<number> => {
 };
 
 test('the slice scrollbar scrubs the viewport (flag on)', async ({ page }: { page: Page }) => {
-  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.setMultiviewportEnabled(true));
   await enterLocalViewer(page);
 
   const files = ensureFixture('ct-axial-300');

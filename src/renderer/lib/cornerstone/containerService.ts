@@ -5,7 +5,7 @@
  * coordinating Cornerstone3D state with the unified `Container` model
  * (src/shared/types/annotation.ts). For this slice it is intentionally inert:
  * a pure in-memory registry plus initialize/dispose, with NO Cornerstone wiring
- * yet. Nothing in the shipping app consumes it (gated behind multiviewport).
+ * yet. Nothing in the shipping app consumes it.
  *
  * Follows the singleton-module + initialize()/dispose() pattern of
  * annotationService.ts.

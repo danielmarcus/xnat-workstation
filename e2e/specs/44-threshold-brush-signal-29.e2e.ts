@@ -20,7 +20,6 @@ import type { Page } from '@playwright/test';
 import { ensureFixture, enterLocalViewer } from '../helpers/local-fixture';
 
 interface E2EHooks {
-  setMultiviewportEnabled: (v: boolean) => void;
   setActiveUnifiedTool: (toolName: string) => void;
   createUnifiedLabelmapSegmentation: (label?: string) => Promise<{ segmentationId: string; segmentIndex: number }>;
   setUnifiedBrushSize: (size: number) => void;
@@ -31,7 +30,6 @@ interface E2EHooks {
 }
 type Win = { __XNAT_E2E__: E2EHooks };
 
-const enableFlag = (page: Page) => page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.setMultiviewportEnabled(true));
 const setTool = (page: Page, t: string) => page.evaluate((tn) => (window as unknown as Win).__XNAT_E2E__.setActiveUnifiedTool(tn), t);
 const setBrushSize = (page: Page, n: number) => page.evaluate((s) => (window as unknown as Win).__XNAT_E2E__.setUnifiedBrushSize(s), n);
 const setThreshold = (page: Page, r: [number, number]) => page.evaluate((rr) => (window as unknown as Win).__XNAT_E2E__.setUnifiedBrushThreshold(rr), r);
@@ -54,7 +52,6 @@ async function centreStroke(page: Page, box: { x: number; y: number; width: numb
 }
 
 test('threshold brush writes only in-range voxels — fewer than a plain fill (signal 29)', async ({ page }) => {
-  await enableFlag(page);
   await enterLocalViewer(page);
   const files = ensureFixture('ct-axial-anatomy');
   await page.locator('[data-testid="local-import-input"]').setInputFiles(files);

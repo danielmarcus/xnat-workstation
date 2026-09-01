@@ -15,7 +15,6 @@ import type { Page } from '@playwright/test';
 import { ensureFixture, enterLocalViewer } from '../helpers/local-fixture';
 
 interface E2EHooks {
-  setMultiviewportEnabled: (v: boolean) => void;
   setLayoutPreset: (preset: 'single' | 'mpr-2x2') => void;
   setActiveUnifiedTool: (toolName: string) => void;
   createUnifiedLabelmapSegmentation: (label?: string) => Promise<{ segmentationId: string; segmentIndex: number }>;
@@ -41,7 +40,6 @@ async function brushStroke(page: Page, box: { x: number; y: number; width: numbe
 }
 
 test('undo restores a brush stroke after its panel was closed (flag on)', async ({ page }) => {
-  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.setMultiviewportEnabled(true));
   await enterLocalViewer(page);
   const files = ensureFixture('ct-axial-300');
   await page.locator('[data-testid="local-import-input"]').setInputFiles(files);

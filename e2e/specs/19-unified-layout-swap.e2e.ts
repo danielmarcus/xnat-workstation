@@ -16,7 +16,6 @@ import type { Page } from '@playwright/test';
 import { ensureFixture, enterLocalViewer } from '../helpers/local-fixture';
 
 interface E2EHooks {
-  setMultiviewportEnabled: (v: boolean) => void;
   setLayoutPreset: (preset: 'single' | 'mpr-2x2') => void;
   setActiveUnifiedTool: (toolName: string) => void;
   createUnifiedLabelmapSegmentation: (label?: string) => Promise<{ segmentationId: string; segmentIndex: number }>;
@@ -30,8 +29,6 @@ interface E2EHooks {
 }
 type Win = { __XNAT_E2E__: E2EHooks };
 
-const enableFlag = (page: Page) =>
-  page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.setMultiviewportEnabled(true));
 const volumeReady = (page: Page) =>
   page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.isUnifiedVolumeReady());
 const resetSegs = (page: Page) =>
@@ -73,7 +70,6 @@ async function brushStroke(page: Page, box: { x: number; y: number; width: numbe
 }
 
 test('rapid layout swaps lose no structures + keep one dirty flag (flag on)', async ({ page }) => {
-  await enableFlag(page);
   await enterLocalViewer(page);
   const files = ensureFixture('ct-axial-300');
   await page.locator('[data-testid="local-import-input"]').setInputFiles(files);

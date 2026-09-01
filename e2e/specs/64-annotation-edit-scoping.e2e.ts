@@ -15,7 +15,6 @@ import type { Page } from '@playwright/test';
 import { loadFixture } from '../helpers/local-fixture';
 
 interface E2EHooks {
-  setMultiviewportEnabled: (v: boolean) => void;
   setActiveUnifiedTool: (toolName: string) => void;
   getUnifiedToolMode: (csToolName: string) => string | null;
 }
@@ -25,7 +24,6 @@ const mode = (page: Page, csTool: string) =>
   page.evaluate((t) => (window as unknown as Win).__XNAT_E2E__.getUnifiedToolMode(t), csTool);
 
 test('handle-based annotations are editable only when their own tool is active', async ({ page }) => {
-  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.setMultiviewportEnabled(true));
   await loadFixture(page, 'ct-axial-300', 'panel_0');
 
   // A measurement tool active → the contour-segmentation (structure) tools are view-only

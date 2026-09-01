@@ -22,7 +22,6 @@ import type { Page } from '@playwright/test';
 import { ensureFixture, enterLocalViewer } from '../helpers/local-fixture';
 
 interface E2EHooks {
-  setMultiviewportEnabled: (v: boolean) => void;
   setLayoutPreset: (preset: 'single' | 'mpr-2x2') => void;
   setActiveUnifiedTool: (toolName: string) => void;
   isUnifiedVolumeReady: () => boolean;
@@ -40,7 +39,6 @@ const ev = <T,>(page: Page, fn: keyof E2EHooks, ...args: unknown[]): Promise<T> 
   ) as Promise<T>;
 
 test('freehand contour is rasterized by PolySeg into a labelmap + renders (flag on)', async ({ page }) => {
-  await ev(page, 'setMultiviewportEnabled', true);
   await enterLocalViewer(page);
   const files = ensureFixture('ct-axial-300');
   await page.locator('[data-testid="local-import-input"]').setInputFiles(files);

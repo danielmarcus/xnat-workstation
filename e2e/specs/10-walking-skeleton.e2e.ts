@@ -22,10 +22,6 @@ test.describe('Walking skeleton — offline local fixture, real stack', () => {
     // Unified viewport path (the only path after P1.8d). Set explicitly ON since
     // the flag persists in localStorage across test runs. The toolbar Length
     // selection routes through viewerStore → unifiedToolService (P1.8a).
-    await page.evaluate(() => {
-      (window as unknown as { __XNAT_E2E__: { setMultiviewportEnabled: (v: boolean) => void } })
-        .__XNAT_E2E__.setMultiviewportEnabled(true);
-    });
     const viewer = await loadCtAxial300(page);
     await expect(viewer.viewportCanvas).toBeVisible();
 

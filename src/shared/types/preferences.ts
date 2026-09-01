@@ -127,24 +127,6 @@ export const DEFAULT_DELETION_PREFERENCES: DeletionPreferences = {
   trashResourceName: 'trash',
 };
 
-// ─── Feature Flags ──────────────────────────────────────────────
-
-export interface FeaturePreferences {
-  /**
-   * Gates the multi-viewport annotation rebuild. Default OFF — the rebuilt
-   * surfaces stay dark until a phase opts a path in. Phase 0 only reads this
-   * for the walking-skeleton signal; existing call sites are untouched.
-   */
-  multiviewportEnabled: boolean;
-}
-
-export const DEFAULT_FEATURE_PREFERENCES: FeaturePreferences = {
-  // Unified viewport path is the default (annotation rebuild P1.8). The old
-  // CornerstoneViewport/MPR path is being removed; this flag stays only as a
-  // transitional escape hatch until the legacy modules are deleted.
-  multiviewportEnabled: true,
-};
-
 // ─── Top-level Preferences ──────────────────────────────────────
 
 export interface PreferencesV1 {
@@ -171,8 +153,6 @@ export interface PreferencesV1 {
    * Optional for back-compat; defaults to 10s.
    */
   xnatAutosaveIntervalSeconds?: number;
-  /** Optional for back-compat with persisted prefs that predate feature flags. */
-  features?: FeaturePreferences;
 }
 
 export const DEFAULT_OVERLAY_CORNERS: Record<OverlayCornerId, OverlayFieldKey[]> = {
@@ -249,5 +229,4 @@ export const DEFAULT_PREFERENCES: PreferencesV1 = {
   // user opts in via Settings.
   xnatAutosaveEnabled: false,
   xnatAutosaveIntervalSeconds: 10,
-  features: { ...DEFAULT_FEATURE_PREFERENCES },
 };

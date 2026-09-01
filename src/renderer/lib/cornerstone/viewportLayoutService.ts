@@ -5,7 +5,7 @@
  * orientation, and crosshair sync. It overlaps with viewerStore.ts today; the
  * rebuild will consolidate layout ownership here. For this slice it is a small,
  * self-contained holder for a grid descriptor plus initialize/dispose, with NO
- * Cornerstone or viewerStore wiring (additive, inert, gated behind multiviewport).
+ * Cornerstone or viewerStore wiring (additive, inert).
  *
  * Follows the singleton-module + initialize()/dispose() pattern of
  * annotationService.ts.

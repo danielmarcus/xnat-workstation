@@ -14,7 +14,6 @@ import type { Page } from '@playwright/test';
 import { ensureFixture, enterLocalViewer } from '../helpers/local-fixture';
 
 interface E2EHooks {
-  setMultiviewportEnabled: (v: boolean) => void;
   getActiveViewportId: () => string | null;
 }
 type Win = { __XNAT_E2E__: E2EHooks };
@@ -23,7 +22,6 @@ const activeViewport = (page: Page) =>
   page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.getActiveViewportId());
 
 test('the layout dropdown switches the unified grid to 2x2 and selection works (flag on)', async ({ page }) => {
-  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.setMultiviewportEnabled(true));
   await enterLocalViewer(page);
 
   const files = ensureFixture('ct-axial-300');

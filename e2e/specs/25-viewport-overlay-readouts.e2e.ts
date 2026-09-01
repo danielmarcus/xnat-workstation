@@ -11,11 +11,7 @@ import { test, expect } from '../fixtures/electron-app';
 import type { Page } from '@playwright/test';
 import { ensureFixture, enterLocalViewer } from '../helpers/local-fixture';
 
-interface E2EHooks { setMultiviewportEnabled: (v: boolean) => void; }
-type Win = { __XNAT_E2E__: E2EHooks };
-
 test('viewport overlay shows live slice counter + W/L + zoom on load (flag on)', async ({ page }: { page: Page }) => {
-  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.setMultiviewportEnabled(true));
   await enterLocalViewer(page);
 
   const files = ensureFixture('ct-axial-300');

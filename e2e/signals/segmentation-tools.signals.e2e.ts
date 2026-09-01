@@ -13,17 +13,9 @@
 import { test, expect } from '../fixtures/electron-app';
 import { loadCtAxialAnatomy } from '../helpers/local-fixture';
 
-async function enableMultiviewportAndLoadAnatomy(page: import('@playwright/test').Page) {
-  await page.evaluate(() => {
-    (window as unknown as { __XNAT_E2E__: { setMultiviewportEnabled: (v: boolean) => void } })
-      .__XNAT_E2E__.setMultiviewportEnabled(true);
-  });
-  return loadCtAxialAnatomy(page);
-}
-
 test.describe('Signal 21 — region-segment (smart brush) intensity tolerance (C3)', () => {
   test('seed inside a homogeneous region fills connected in-tolerance voxels into the active segment; lock blocks', async ({ page }) => {
-    const viewer = await enableMultiviewportAndLoadAnatomy(page);
+    const viewer = await loadCtAxialAnatomy(page);
     await expect(viewer.viewportCanvas).toBeVisible();
 
     // Rebuilt entry point — create a Segmentation container.
@@ -44,7 +36,7 @@ test.describe('Signal 21 — region-segment (smart brush) intensity tolerance (C
 
 test.describe('Signal 16 — 3D paint-fill + MPR resample + single-entry undo (A6/C8)', () => {
   test('paint-fill on axial appears resampled on a sagittal MPR; undo reverts the whole fill as one entry', async ({ page }) => {
-    const viewer = await enableMultiviewportAndLoadAnatomy(page);
+    const viewer = await loadCtAxialAnatomy(page);
     await expect(viewer.viewportCanvas).toBeVisible();
 
     const createSeg = page.locator('[data-testid="create-segmentation"]');

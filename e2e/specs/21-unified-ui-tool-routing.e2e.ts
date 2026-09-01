@@ -13,14 +13,12 @@ import type { Page } from '@playwright/test';
 import { ensureFixture, enterLocalViewer } from '../helpers/local-fixture';
 
 interface E2EHooks {
-  setMultiviewportEnabled: (v: boolean) => void;
   getActiveUnifiedTool: () => string | null;
   getUnifiedToolMode: (csToolName: string) => string | null;
 }
 type Win = { __XNAT_E2E__: E2EHooks };
 
 test('toolbar Length selection routes to the unified tool group (flag on)', async ({ page }) => {
-  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.setMultiviewportEnabled(true));
   await enterLocalViewer(page);
   const files = ensureFixture('ct-axial-300');
   await page.locator('[data-testid="local-import-input"]').setInputFiles(files);

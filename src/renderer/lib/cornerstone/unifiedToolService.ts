@@ -1,6 +1,6 @@
 /**
  * Unified Tool Service (Phase 1) — the single Cornerstone3D tool group for the
- * new unified-viewport path, gated behind `multiviewport.enabled`.
+ * new unified-viewport path (the only viewport path).
  *
  * Replaces the old two-group split (toolService's `xnatToolGroup_primary` for
  * stack + mprToolService's `xnatToolGroup_mpr` for volume). One group serves

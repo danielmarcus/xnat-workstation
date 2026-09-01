@@ -25,7 +25,6 @@ import type { Page } from '@playwright/test';
 import { loadTwoSeries } from '../helpers/local-fixture';
 
 interface E2EHooks {
-  setMultiviewportEnabled: (v: boolean) => void;
   setActiveUnifiedTool: (toolName: string) => void;
   createUnifiedLabelmapSegmentation: (label?: string) => Promise<{ segmentationId: string; segmentIndex: number }>;
   setUnifiedBrushSize: (size: number) => void;
@@ -73,7 +72,6 @@ const segViewportIds = (page: Page, segId: string) =>
   page.evaluate((s) => (window as unknown as Win).__XNAT_E2E__.getSegmentationViewportIds(s), segId);
 
 test.beforeEach(async ({ page }) => {
-  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.setMultiviewportEnabled(true));
   // Isolate from any segmentation a prior test left in the worker-scoped app — without
   // this, a SEG painted in one test leaks into the next and corrupts its eligibility
   // (the documented "passes alone, fails combined" cross-test pollution).

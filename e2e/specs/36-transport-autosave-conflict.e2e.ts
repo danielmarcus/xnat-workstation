@@ -9,7 +9,6 @@ import type { Page } from '@playwright/test';
 import { ensureFixture, enterLocalViewer, loadLocalDicom } from '../helpers/local-fixture';
 
 interface E2EHooks {
-  setMultiviewportEnabled: (v: boolean) => void;
   setActiveUnifiedTool: (toolName: string) => void;
   setUnifiedBrushSize: (size: number) => void;
   createUnifiedLabelmapSegmentation: (label?: string) => Promise<{ segmentationId: string; segmentIndex: number }>;
@@ -32,7 +31,6 @@ async function brush(page: Page, box: { x: number; y: number; width: number; hei
 }
 
 async function setup(page: Page): Promise<string> {
-  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.setMultiviewportEnabled(true));
   await enterLocalViewer(page);
   await loadLocalDicom(page, ensureFixture('ct-axial-300'), 'panel_0');
   await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.installMockXnatTransport());

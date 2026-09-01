@@ -11,9 +11,6 @@ import { test, expect } from '../fixtures/electron-app';
 import type { Page } from '@playwright/test';
 import { ensureFixture, enterLocalViewer } from '../helpers/local-fixture';
 
-interface E2EHooks { setMultiviewportEnabled: (v: boolean) => void; }
-type Win = { __XNAT_E2E__: E2EHooks };
-
 const chooseLayout = async (page: Page, name: string) => {
   await page.locator('[title^="Viewport layout"]').click();
   await page.getByRole('button', { name }).click();
@@ -21,7 +18,6 @@ const chooseLayout = async (page: Page, name: string) => {
 const panel = (page: Page, pid: string) => page.locator(`[data-testid="unified-viewport:${pid}"]`);
 
 test('layout dropdown drives generic grids + each panel holds its own scan (flag on)', async ({ page }) => {
-  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.setMultiviewportEnabled(true));
   await enterLocalViewer(page);
   const files = ensureFixture('ct-axial-300');
   await page.locator('[data-testid="local-import-input"]').setInputFiles(files);

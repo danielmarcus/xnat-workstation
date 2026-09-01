@@ -16,15 +16,12 @@ import type { Page } from '@playwright/test';
 import { ensureFixture, enterLocalViewer } from '../helpers/local-fixture';
 
 interface E2EHooks {
-  setMultiviewportEnabled: (v: boolean) => void;
   setLayoutPreset: (preset: 'single' | 'mpr-2x2') => void;
   getViewportType: (panelId: string) => string | null;
   getSharedVolumeRefCount: (scanId: string, frameOfReferenceUID: string) => number;
 }
 type WinWithHooks = { __XNAT_E2E__: E2EHooks };
 
-const setEnabled = (page: Page, v: boolean) =>
-  page.evaluate((on) => (window as unknown as WinWithHooks).__XNAT_E2E__.setMultiviewportEnabled(on), v);
 const setPreset = (page: Page, preset: 'single' | 'mpr-2x2') =>
   page.evaluate((p) => (window as unknown as WinWithHooks).__XNAT_E2E__.setLayoutPreset(p), preset);
 const viewportType = (page: Page, panelId: string) =>
@@ -39,7 +36,6 @@ const MPR_PANEL_IDS = ['panel_0', 'panel_1', 'panel_2', 'panel_3'];
 
 test('mpr-2x2 preset renders 4 volume viewports sharing ONE volume (flag on)', async ({ page }) => {
   // Enable the unified path BEFORE the viewer mounts.
-  await setEnabled(page, true);
   await enterLocalViewer(page);
 
   // Load the 16-slice CT through the app's real local-import path.

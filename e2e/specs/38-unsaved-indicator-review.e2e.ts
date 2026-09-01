@@ -9,7 +9,6 @@ import type { Page } from '@playwright/test';
 import { loadFixture } from '../helpers/local-fixture';
 
 interface E2EHooks {
-  setMultiviewportEnabled: (v: boolean) => void;
   setActiveUnifiedTool: (toolName: string) => void;
   setUnifiedBrushSize: (size: number) => void;
   installMockXnatTransport: () => void;
@@ -29,7 +28,6 @@ async function brush(page: Page) {
 }
 
 test('Change 1a: unsaved annotations show a panel indicator → review dialog → Save clears it', async ({ page }) => {
-  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.setMultiviewportEnabled(true));
   await loadFixture(page, 'ct-axial-300', 'panel_0');
 
   await page.getByRole('button', { name: 'Show segmentation panel' }).click();

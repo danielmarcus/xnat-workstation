@@ -19,7 +19,6 @@ import type { Page } from '@playwright/test';
 import { loadFixture } from '../helpers/local-fixture';
 
 interface E2EHooks {
-  setMultiviewportEnabled: (v: boolean) => void;
   setActiveUnifiedTool: (t: string) => void;
   getActiveUnifiedTool: () => string | null;
   setUnifiedBrushSize: (n: number) => void;
@@ -33,7 +32,6 @@ test('SegmentBidirectional is not activatable and never crashes the brush cursor
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(String(e.message)));
 
-  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.setMultiviewportEnabled(true));
   await loadFixture(page, 'ct-axial-300', 'panel_0');
   await page.getByRole('button', { name: 'Show segmentation panel' }).click();
   const panel = page.locator('[data-testid="annotations-side-panel"]');

@@ -11,17 +11,9 @@
 import { test, expect } from '../fixtures/electron-app';
 import { loadCtAxial300 } from '../helpers/local-fixture';
 
-async function enableMvAndLoad(page: import('@playwright/test').Page) {
-  await page.evaluate(() => {
-    (window as unknown as { __XNAT_E2E__: { setMultiviewportEnabled: (v: boolean) => void } })
-      .__XNAT_E2E__.setMultiviewportEnabled(true);
-  });
-  return loadCtAxial300(page);
-}
-
 test.describe('Signal 17 — empty active member appends, not a new member (A-foundational)', () => {
   test('a freshly created container has an empty active member; drawing fills it and clears the empty marker', async ({ page }) => {
-    await enableMvAndLoad(page);
+    await loadCtAxial300(page);
     const createSeg = page.locator('[data-testid="create-segmentation"]');
     await expect(createSeg, 'rebuilt create-Segmentation action should exist').toBeVisible({ timeout: 5_000 });
     await createSeg.click();
@@ -37,7 +29,7 @@ test.describe('Signal 17 — empty active member appends, not a new member (A-fo
 
 test.describe('Signal 19 — approval locks all members (D7; DICOM ApprovalStatus)', () => {
   test('approving a structure-set edit-locks members and shows an approval badge', async ({ page }) => {
-    await enableMvAndLoad(page);
+    await loadCtAxial300(page);
     const createStructure = page.locator('[data-testid="create-structure"]');
     await expect(createStructure, 'rebuilt create-Structure action should exist').toBeVisible({ timeout: 5_000 });
     await createStructure.click();
@@ -54,7 +46,7 @@ test.describe('Signal 19 — approval locks all members (D7; DICOM ApprovalStatu
 
 test.describe('Signal 20 — member visibility tri-state filled/outlined/hidden (D7.3)', () => {
   test('cycling a member visibility control switches its render mode', async ({ page }) => {
-    await enableMvAndLoad(page);
+    await loadCtAxial300(page);
     const createSeg = page.locator('[data-testid="create-segmentation"]');
     await expect(createSeg, 'rebuilt create-Segmentation action should exist').toBeVisible({ timeout: 5_000 });
     await createSeg.click();
@@ -71,7 +63,7 @@ test.describe('Signal 20 — member visibility tri-state filled/outlined/hidden 
 
 test.describe('Signal 28 — undo/redo per-container history isolation (A8)', () => {
   test('undo on the active container reverts only its own last op; a fresh edit invalidates redo', async ({ page }) => {
-    await enableMvAndLoad(page);
+    await loadCtAxial300(page);
     const createSeg = page.locator('[data-testid="create-segmentation"]');
     await expect(createSeg, 'rebuilt create-Segmentation action should exist').toBeVisible({ timeout: 5_000 });
 

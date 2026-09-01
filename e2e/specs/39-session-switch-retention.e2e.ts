@@ -10,7 +10,6 @@ import { test, expect } from '../fixtures/electron-app';
 import { loadFixture } from '../helpers/local-fixture';
 
 interface E2EHooks {
-  setMultiviewportEnabled: (v: boolean) => void;
   seedSessionContainer: (sessionId: string, dirty: boolean) => Promise<string>;
   setViewerSession: (sessionId: string) => void;
   applySessionSwitch: (toSessionId: string) => void;
@@ -26,7 +25,6 @@ test.beforeEach(async ({ page }) => {
 });
 
 test('Change 1c: switching sessions retains dirty work, unloads clean work', async ({ page }) => {
-  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.setMultiviewportEnabled(true));
   await loadFixture(page, 'ct-axial-300', 'panel_0');
 
   await page.getByRole('button', { name: 'Show segmentation panel' }).click();
@@ -58,7 +56,6 @@ test('Change 1c: switching sessions retains dirty work, unloads clean work', asy
 });
 
 test('signal 26: switching the active session re-scopes the panel + surfaces the retained session in the banner', async ({ page }) => {
-  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.setMultiviewportEnabled(true));
   await loadFixture(page, 'ct-axial-300', 'panel_0');
 
   const panel = page.locator('[data-testid="annotations-side-panel"]');

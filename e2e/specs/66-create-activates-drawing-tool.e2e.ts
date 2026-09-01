@@ -17,7 +17,6 @@ import type { Page } from '@playwright/test';
 import { loadFixture } from '../helpers/local-fixture';
 
 interface E2EHooks {
-  setMultiviewportEnabled: (v: boolean) => void;
   getActiveUnifiedTool: () => string | null;
 }
 type Win = { __XNAT_E2E__: E2EHooks };
@@ -32,7 +31,6 @@ const CASES = [
 
 for (const c of CASES) {
   test(`creating "${c.button}" auto-activates its drawing tool (${c.expectedTool})`, async ({ page }) => {
-    await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.setMultiviewportEnabled(true));
     await loadFixture(page, 'ct-axial-300', 'panel_0');
 
     await page.getByRole('button', { name: 'Show segmentation panel' }).click();

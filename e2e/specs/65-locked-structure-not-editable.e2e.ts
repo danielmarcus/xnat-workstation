@@ -14,7 +14,6 @@ import type { Page } from '@playwright/test';
 import { loadFixture } from '../helpers/local-fixture';
 
 interface E2EHooks {
-  setMultiviewportEnabled: (v: boolean) => void;
   createTestStructure: (panelId: string, label: string) => Promise<string>;
   createTestContour: (panelId: string, segmentationId: string, segmentIndex?: number, provenance?: string) => string | null;
   getAnnotationLockState: (uid: string) => boolean;
@@ -28,7 +27,6 @@ test.beforeEach(({ page }) => cleanSlate(page));
 test.afterEach(({ page }) => cleanSlate(page));
 
 test('locking a structure locks its contour annotations (edits blocked)', async ({ page }) => {
-  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.setMultiviewportEnabled(true));
   await loadFixture(page, 'ct-axial-300', 'panel_0');
 
   const panel = page.locator('[data-testid="annotations-side-panel"]');

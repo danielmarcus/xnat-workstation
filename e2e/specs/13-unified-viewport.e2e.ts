@@ -15,10 +15,6 @@ import { ensureFixture, enterLocalViewer } from '../helpers/local-fixture';
 
 test('unified Viewport renders ct-axial-300 (16-slice CT) as a VOLUME (flag on)', async ({ page }) => {
   // Enable BEFORE the viewer mounts so ViewerPage renders the unified grid.
-  await page.evaluate(() => {
-    (window as unknown as { __XNAT_E2E__: { setMultiviewportEnabled: (v: boolean) => void } })
-      .__XNAT_E2E__.setMultiviewportEnabled(true);
-  });
   await enterLocalViewer(page);
 
   // Load via the app's real local-import path; the unified grid reads panelImageIds.

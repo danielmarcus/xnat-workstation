@@ -11,7 +11,6 @@ import type { Page } from '@playwright/test';
 import { loadFixture } from '../helpers/local-fixture';
 
 interface E2EHooks {
-  setMultiviewportEnabled: (v: boolean) => void;
   setActiveUnifiedTool: (toolName: string) => void;
   setUnifiedBrushSize: (size: number) => void;
   installMockXnatTransport: () => void;
@@ -36,7 +35,6 @@ const entry = (page: Page, id: string) =>
   page.evaluate((s) => (window as unknown as Win).__XNAT_E2E__.getTransportEntry(s), id);
 
 test('signal 27: a save conflict shows a row badge → ConflictDialog → Keep local resolves it', async ({ page }) => {
-  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.setMultiviewportEnabled(true));
   await loadFixture(page, 'ct-axial-300', 'panel_0');
 
   // Open the real panel + install the mock transport (autosave-to-XNAT opt-in on).
