@@ -254,6 +254,23 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
     }
   };
 
+  /**
+   * Measurements only: mirror the panel's row selection onto the VIEWPORT highlight
+   * (Cornerstone `annotation.highlighted`) — the legacy AnnotationListPanel's row
+   * click did this, and it is the one behaviour of that panel the rebuilt list did
+   * not cover. A member id of an SR container IS its annotation UID. Deselecting
+   * clears the highlight.
+   */
+  const syncMeasurementHighlight = (containerId: string, memberId: string) => {
+    const isMeasurement =
+      containerId.startsWith('sr:') || containers.find((c) => c.id === containerId)?.kind === 'SR';
+    if (!isMeasurement) return;
+    const stillSelected = useAnnotationSelectionStore
+      .getState()
+      .selection.some((r) => r.containerId === containerId && r.memberId === memberId);
+    annotationService.selectAnnotation(stillSelected ? memberId : null);
+  };
+
   const handlers: ContainerListHandlers = {
     onToggleExpand: (id) =>
       setCollapsed((prev) => {
@@ -367,8 +384,12 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
       const sel = useAnnotationSelectionStore.getState();
       if (additive) sel.toggleSelected(cid, mid);
       else sel.selectOnly(cid, mid);
+      syncMeasurementHighlight(cid, mid);
     },
-    onActivateMember: (cid, mid) => activateAndBridge(cid, mid),
+    onActivateMember: (cid, mid) => {
+      activateAndBridge(cid, mid);
+      syncMeasurementHighlight(cid, mid);
+    },
     onActivateContainer: (cid) => {
       // Clicking a container's name activates it (no specific member): switches the
       // active annotation type (toolbox + drawing tool) and, for SR, makes it the

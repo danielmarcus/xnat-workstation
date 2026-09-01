@@ -737,6 +737,11 @@ export function installRendererE2eHooks(): void {
       useAnnotationStore.setState({ srContainers: [], srAffiliation: {}, activeSrContainerId: null } as Partial<ReturnType<typeof useAnnotationStore.getState>>);
     },
     getDirtyFlag: () => useSegmentationStore.getState().hasUnsavedChanges,
+    /** Cornerstone's own highlight state — what the viewport actually renders emphasized. */
+    getHighlightedAnnotationUIDs: () =>
+      (csAnnotation.state.getAllAnnotations() as Array<{ annotationUID?: string; highlighted?: boolean }>)
+        .filter((a) => a.highlighted)
+        .map((a) => a.annotationUID ?? ''),
     /**
      * Drive the local-auto-backup status the annotations toolbox surfaces (§3.4).
      * The real producer (segmentationService.autoSaveToLocalBackup → backupService)
