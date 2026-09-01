@@ -1289,11 +1289,10 @@ export default function App() {
           }
         }
 
-        // Open the annotations side panel so the loaded measurements are visible.
-        const annStore = useAnnotationStore.getState();
-        if (!annStore.showPanel) {
-          annStore.togglePanel();
-        }
+        // Open the Annotations side panel so the loaded measurements are visible
+        // (same toggle the SEG/RTSTRUCT load paths use — one annotation surface).
+        const segStoreSr = useSegmentationStore.getState();
+        if (!segStoreSr.showPanel) segStoreSr.togglePanel();
       }
     }
   }, [setBrowserStatusMessage]);

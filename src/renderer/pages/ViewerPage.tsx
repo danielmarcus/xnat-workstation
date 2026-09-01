@@ -1,22 +1,15 @@
 /**
  * ViewerPage — composes Toolbar + the unified viewport grid + side panels into a
  * full-height viewer layout. The unified viewport path (Cornerstone3D) is the
- * only path; the legacy stack/MPR viewport components were removed in P1.8d.
+ * only path; the legacy stack/MPR viewport components were removed in P1.8d, and
+ * the legacy SegmentationPanel / AnnotationListPanel in the Phase-6 cutover — the
+ * rebuilt Annotations side panel is the only annotation surface.
  */
 import { useEffect, useState, useCallback } from 'react';
 import Toolbar from '../components/viewer/Toolbar';
 import UnifiedViewportGrid from '../components/viewer/UnifiedViewportGrid';
-import AnnotationListPanel from '../components/viewer/AnnotationListPanel';
-import SegmentationPanel from '../components/viewer/SegmentationPanel';
 import AnnotationsPanel from '../components/annotations/AnnotationsPanel';
 import DicomHeaderPanel from '../components/viewer/DicomHeaderPanel';
-
-/**
- * Rebuild Phase 3 (R3.8): mount the rebuilt Annotations side panel on the existing
- * "Segment" toggle. Flag kept so the legacy SegmentationPanel is one flip away
- * during visual sign-off; R3.8b deletes the legacy panel and removes this flag.
- */
-const REBUILT_ANNOTATIONS_PANEL = true;
 import { toolService } from '../lib/cornerstone/toolService';
 import { annotationService } from '../lib/cornerstone/annotationService';
 import { segmentationService } from '../lib/cornerstone/segmentationService';
@@ -26,7 +19,6 @@ import { unifiedToolService } from '../lib/cornerstone/unifiedToolService';
 import { viewportLayoutService } from '../lib/cornerstone/viewportLayoutService';
 import { useHotkeys } from '../hooks/useHotkeys';
 import { useXnatAutosaveOptIn } from '../hooks/useXnatAutosaveOptIn';
-import { useAnnotationStore } from '../stores/annotationStore';
 import { useSegmentationStore } from '../stores/segmentationStore';
 import { useViewerStore } from '../stores/viewerStore';
 import { usePreferencesStore } from '../stores/preferencesStore';
@@ -55,7 +47,6 @@ export default function ViewerPage({
   settingsInitialTabRequest,
   onSettingsInitialTabRequestConsumed,
 }: ViewerPageProps) {
-  const showAnnotationPanel = useAnnotationStore((s) => s.showPanel);
   const showSegPanel = useSegmentationStore((s) => s.showPanel);
   const [showDicomPanel, setShowDicomPanel] = useState(false);
 
@@ -115,13 +106,8 @@ export default function ViewerPage({
           <div className="flex-1 min-w-0 relative">
             <UnifiedViewportGrid panelImageIds={panelImageIds} />
           </div>
-          {showAnnotationPanel && <AnnotationListPanel />}
           {showSegPanel && (
-            REBUILT_ANNOTATIONS_PANEL ? (
-              <AnnotationsPanel activeViewportId={activeViewportId} sourceImageIds={panelImageIds[activeViewportId] ?? []} />
-            ) : (
-              <SegmentationPanel sourceImageIds={panelImageIds[activeViewportId] ?? []} />
-            )
+            <AnnotationsPanel activeViewportId={activeViewportId} sourceImageIds={panelImageIds[activeViewportId] ?? []} />
           )}
           {showDicomPanel && <DicomHeaderPanel onClose={closeDicomPanel} />}
         </div>

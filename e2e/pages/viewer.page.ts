@@ -50,8 +50,9 @@ export class ViewerPage {
     return this.page.locator('[data-testid="toolbar"]');
   }
 
-  get segmentationPanel() {
-    return this.page.locator('[data-testid="segmentation-panel"]');
+  /** The Annotations side panel (the rebuilt panel — the only annotation surface). */
+  get annotationsPanel() {
+    return this.page.locator('[data-testid="annotations-side-panel"]');
   }
 
   // ─── Toolbar Actions ───────────────────────────────────────────
@@ -77,8 +78,8 @@ export class ViewerPage {
     await this.selectTool('Reset viewport');
   }
 
-  async openSegmentationPanel(timeout = 10_000) {
-    if (await this.segmentationPanel.isVisible().catch(() => false)) {
+  async openAnnotationsPanel(timeout = 10_000) {
+    if (await this.annotationsPanel.isVisible().catch(() => false)) {
       return;
     }
 
@@ -93,7 +94,7 @@ export class ViewerPage {
 
     await segmentationToggle.waitFor({ state: 'visible', timeout });
     await segmentationToggle.click();
-    await this.segmentationPanel.waitFor({ state: 'visible', timeout });
+    await this.annotationsPanel.waitFor({ state: 'visible', timeout });
   }
 
   // ─── Wait Helpers ──────────────────────────────────────────────

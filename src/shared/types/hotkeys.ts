@@ -48,7 +48,6 @@ export type HotkeyAction =
   | 'layout.2x1'
   | 'layout.2x2'
   // Panel toggles
-  | 'panel.toggleAnnotations'
   | 'panel.toggleSegmentation'
   | 'panel.nextViewport'
   // Brush size

@@ -44,12 +44,8 @@ vi.mock('../components/viewer/UnifiedViewportGrid', () => ({
   default: () => <div data-testid="unified-grid" />,
 }));
 
-vi.mock('../components/viewer/AnnotationListPanel', () => ({
-  default: () => <div data-testid="annotation-panel" />,
-}));
-
-vi.mock('../components/viewer/SegmentationPanel', () => ({
-  default: () => <div data-testid="segmentation-panel" />,
+vi.mock('../components/annotations/AnnotationsPanel', () => ({
+  default: () => <div data-testid="annotations-panel" />,
 }));
 
 vi.mock('../components/viewer/DicomHeaderPanel', () => ({

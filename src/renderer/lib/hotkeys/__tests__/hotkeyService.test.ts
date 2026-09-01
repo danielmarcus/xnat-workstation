@@ -43,10 +43,6 @@ const segmentationState = {
   }),
 };
 
-const annotationState = {
-  togglePanel: vi.fn(),
-};
-
 const viewportServiceMock = {
   zoomBy: vi.fn(),
   scrollToIndex: vi.fn(),
@@ -72,11 +68,6 @@ beforeAll(async () => {
   vi.doMock('../../../stores/segmentationStore', () => ({
     useSegmentationStore: {
       getState: () => segmentationState,
-    },
-  }));
-  vi.doMock('../../../stores/annotationStore', () => ({
-    useAnnotationStore: {
-      getState: () => annotationState,
     },
   }));
   vi.doMock('../../cornerstone/viewportService', () => ({ viewportService: viewportServiceMock }));
@@ -126,7 +117,7 @@ describe('hotkeyService', () => {
 
   it('ignores non-Tab hotkeys in form controls and contentEditable elements', () => {
     hotkeyService.setHotkeyMap({
-      [HOTKEY_ACTIONS.toggleAnnotations]: [{ key: 'a' }],
+      [HOTKEY_ACTIONS.togglePanel]: [{ key: 'a' }],
       [HOTKEY_ACTIONS.cycleViewport]: [{ key: 'Tab' }],
     });
     hotkeyService.install();
@@ -136,7 +127,7 @@ describe('hotkeyService', () => {
     dispatchKey({ key: 'a', target: makeInputTarget('SELECT') });
     dispatchKey({ key: 'a', target: makeDivTarget({ contentEditable: true }) });
 
-    expect(annotationState.togglePanel).not.toHaveBeenCalled();
+    expect(segmentationState.togglePanel).not.toHaveBeenCalled();
     expect(viewerState.setActiveViewport).not.toHaveBeenCalled();
 
     dispatchKey({ key: 'Tab', target: makeInputTarget('INPUT') });

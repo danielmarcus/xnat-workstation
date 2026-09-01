@@ -48,8 +48,7 @@ export const DEFAULT_HOTKEY_MAP: HotkeyMap = {
   'layout.2x2': [{ key: '4' }],
 
   // ─── Panel Toggles ──────────────────────────────────────────
-  'panel.toggleAnnotations':  [{ key: 'o' }], // O for list/overview
-  'panel.toggleSegmentation': [{ key: 'g' }], // G for seGmentation
+  'panel.toggleSegmentation': [{ key: 'g' }], // G — the Annotations side panel (the only annotation surface)
   'panel.nextViewport': [{ key: 'Tab' }, { key: 'Tab', modifiers: { shift: true } }],
 
   // ─── Brush Size ──────────────────────────────────────────────

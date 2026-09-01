@@ -4,7 +4,7 @@ export const HOTKEY_ACTIONS = {
   zoomIn: 'viewport.zoomIn',
   zoomOut: 'viewport.zoomOut',
   nextSlice: 'slice.next',
-  toggleAnnotations: 'panel.toggleAnnotations',
+  togglePanel: 'panel.toggleSegmentation',
   cycleViewport: 'panel.nextViewport',
 } satisfies Record<string, HotkeyAction>;
 
@@ -12,7 +12,7 @@ export const TEST_HOTKEY_MAP: HotkeyMap = {
   [HOTKEY_ACTIONS.zoomIn]: [{ key: 'K', modifiers: { ctrl: true, shift: true } }],
   [HOTKEY_ACTIONS.zoomOut]: [{ key: '-' }],
   [HOTKEY_ACTIONS.nextSlice]: [{ key: 'ArrowDown' }, { key: 'PageDown' }],
-  [HOTKEY_ACTIONS.toggleAnnotations]: [{ key: 'a' }],
+  [HOTKEY_ACTIONS.togglePanel]: [{ key: 'a' }],
   [HOTKEY_ACTIONS.cycleViewport]: [{ key: 'Tab' }],
 };
 

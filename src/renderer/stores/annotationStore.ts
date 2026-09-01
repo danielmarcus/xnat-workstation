@@ -47,9 +47,6 @@ interface AnnotationStore {
   /** Currently selected annotation UID (highlighted on viewport) */
   selectedUID: string | null;
 
-  /** Whether the annotation list panel is visible */
-  showPanel: boolean;
-
   /** User-created SR (Measurement) containers, newest last (D7.1). */
   srContainers: SrContainerSummary[];
   /** The SR container new measurements route into; null = the default "Measurements". */
@@ -64,9 +61,6 @@ interface AnnotationStore {
 
   /** Select an annotation by UID (or null to deselect) */
   select: (uid: string | null) => void;
-
-  /** Toggle annotation list panel visibility */
-  togglePanel: () => void;
 
   /** Create a new empty SR container, make it active, and return its id (D7.1).
    *  Pass the current XNAT session so the container is session-scoped in the panel. */
@@ -84,7 +78,6 @@ let srCounter = 0;
 export const useAnnotationStore = create<AnnotationStore>((set) => ({
   annotations: [],
   selectedUID: null,
-  showPanel: false,
   srContainers: [],
   activeSrContainerId: null,
   srAffiliation: {},
@@ -105,8 +98,6 @@ export const useAnnotationStore = create<AnnotationStore>((set) => ({
     }),
 
   select: (uid) => set({ selectedUID: uid }),
-
-  togglePanel: () => set((s) => ({ showPanel: !s.showPanel })),
 
   createSrContainer: (label, sessionId) => {
     const id = `sr:local:${++srCounter}`;

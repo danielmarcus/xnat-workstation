@@ -29,10 +29,11 @@ test.describe('Walking skeleton — offline local fixture, real stack', () => {
     const viewer = await loadCtAxial300(page);
     await expect(viewer.viewportCanvas).toBeVisible();
 
-    // Open the Annotations list panel (toggled with the 'O' hotkey).
-    const annotationPanel = page.locator('[data-testid="annotation-panel"]');
+    // Open the Annotations side panel (toggled with the 'G' hotkey — the legacy
+    // list panel and its 'O' hotkey were deleted in the Phase-6 cutover).
+    const annotationPanel = page.locator('[data-testid="annotations-side-panel"]');
     if (!(await annotationPanel.isVisible().catch(() => false))) {
-      await page.keyboard.press('o');
+      await page.keyboard.press('g');
       await expect(annotationPanel).toBeVisible({ timeout: 5_000 });
     }
 
@@ -50,10 +51,10 @@ test.describe('Walking skeleton — offline local fixture, real stack', () => {
     await page.waitForTimeout(1_000);
 
     // The measurement flowed through the real Cornerstone → annotationService →
-    // store → list path.
-    const count = page.locator('[data-testid="annotation-count"]');
-    await expect(count).toHaveText('1');
-    await expect(annotationPanel.locator('li').first()).toContainText('Length');
+    // store → panel path: a Measurement (SR) container with one member row.
+    await expect(annotationPanel.getByText('Measurements')).toBeVisible({ timeout: 10_000 });
+    await expect(annotationPanel.locator('[data-testid^="member-row-"]')).toHaveCount(1);
+    await expect(annotationPanel.locator('[data-testid^="member-row-"]').first()).toContainText('Length');
 
     // Independent cross-check via the renderer hook (no DOM dependency).
     const hookCount = await page.evaluate(() =>
