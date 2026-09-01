@@ -17,6 +17,8 @@ import { segmentation as csSegmentation, Enums as ToolEnums } from '@cornerstone
 import { adaptersSEG } from '@cornerstonejs/adapters';
 import { data as dcmjsData } from 'dcmjs';
 import { useConnectionStore } from '../../../stores/connectionStore';
+import { useApprovalStore } from '../../../stores/approvalStore';
+import { buildApprovalModule } from '../../annotations/approval';
 import { rtStructService } from '../rtStructService';
 import * as sourceImageTracking from '../sourceImageTracking';
 import * as mlg from '../multiLayerGroup';
@@ -925,6 +927,8 @@ export function createDicomSegExport(deps: DicomSegExportDeps): DicomSegExport {
 
     const { arrayBuffer } = serializeDerivedDicomDataset(dataset, {
       kind: 'SEG',
+      // Approval (D7.11) persists in the file, so a reload arrives edit-locked.
+      approval: buildApprovalModule(useApprovalStore.getState().approvalOf(segmentationId)),
       callerTag: 'segmentationService',
       defaultSOPClassUID: '1.2.840.10008.5.1.4.1.1.66.4',
       requiredDatasetFields: [

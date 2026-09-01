@@ -74,6 +74,16 @@ export default function AnnotationsPanel({ activeViewportId, sourceImageIds }: A
           onCancel={panel.conflictDialog.onCancel}
         />
       )}
+      {panel.approvalDialog && (
+        <ConfirmDialog
+          title={panel.approvalDialog.title}
+          body={panel.approvalDialog.body}
+          confirmLabel={panel.approvalDialog.confirmLabel}
+          variant={panel.approvalDialog.variant}
+          onConfirm={panel.approvalDialog.onConfirm}
+          onCancel={panel.approvalDialog.onCancel}
+        />
+      )}
       {panel.deleteFromServerDialog && (
         <ConfirmDialog
           title={panel.deleteFromServerDialog.title}

@@ -10,11 +10,12 @@ import { useSegmentationManagerStore } from '../../stores/segmentationManagerSto
 import { useViewerStore } from '../../stores/viewerStore';
 import { useConnectionStore } from '../../stores/connectionStore';
 import { useAnnotationStore } from '../../stores/annotationStore';
+import { useAnnotationSelectionStore } from '../../stores/annotationSelectionStore';
 import { useUnifiedLayoutStore, type LayoutPreset } from '../../stores/unifiedLayoutStore';
 import { volumeService } from '../cornerstone/volumeService';
 import { viewportService } from '../cornerstone/viewportService';
 import { unifiedToolService } from '../cornerstone/unifiedToolService';
-import { unifiedSegService } from '../cornerstone/unifiedSegService';
+import { unifiedSegService, canDrawOnViewport } from '../cornerstone/unifiedSegService';
 import { undoService } from '../cornerstone/undoService';
 import { segmentationManager } from '../segmentation/segmentationManagerSingleton';
 import { segmentationService } from '../cornerstone/segmentationService';
@@ -731,6 +732,11 @@ export function installRendererE2eHooks(): void {
       useAnnotationStore.setState({ srContainers: [], srAffiliation: {}, activeSrContainerId: null } as Partial<ReturnType<typeof useAnnotationStore.getState>>);
     },
     getDirtyFlag: () => useSegmentationStore.getState().hasUnsavedChanges,
+    canDrawOnActiveViewport: () =>
+      canDrawOnViewport(
+        useAnnotationSelectionStore.getState().activeMember?.containerId ?? null,
+        useViewerStore.getState().activeViewportId,
+      ),
     /** Cornerstone's own highlight state — what the viewport actually renders emphasized. */
     getHighlightedAnnotationUIDs: () =>
       (csAnnotation.state.getAllAnnotations() as Array<{ annotationUID?: string; highlighted?: boolean }>)

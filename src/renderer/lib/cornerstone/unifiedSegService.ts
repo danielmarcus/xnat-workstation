@@ -33,6 +33,7 @@ import {
 } from './segmentationService/voxelClipboard';
 import { useSegmentationStore } from '../../stores/segmentationStore';
 import { useViewerStore } from '../../stores/viewerStore';
+import { useApprovalStore } from '../../stores/approvalStore';
 import { bulkDisplacementMm, type VolumeGeometry as SourceVolumeGeometry } from './bulkDisplacement';
 
 let counter = 0;
@@ -250,6 +251,14 @@ export interface DrawDecision {
 export function canDrawOnViewport(activeContainerId: string | null, viewportId: string): DrawDecision {
   if (!activeContainerId) {
     return { allowed: false, reason: 'No active container — create or select one to draw into.' };
+  }
+  // Approval (D7.11) is a hard edit lock, checked before any spatial reasoning: an
+  // approved container cannot be drawn into on ANY viewport until it is revoked.
+  if (useApprovalStore.getState().isApproved(activeContainerId)) {
+    return {
+      allowed: false,
+      reason: 'This container is approved and edit-locked. Revoke its approval in the Annotations panel to edit.',
+    };
   }
   const cspatial = containerSpatial.get(activeContainerId);
   const vspatial = resolveViewportSpatial(viewportId);

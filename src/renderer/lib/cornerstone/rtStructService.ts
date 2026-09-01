@@ -25,6 +25,9 @@ import { adaptersRT } from '@cornerstonejs/adapters';
 import { useConnectionStore } from '../../stores/connectionStore';
 import { useSegmentationStore } from '../../stores/segmentationStore';
 import { segmentationService } from './segmentationService';
+import { useApprovalStore } from '../../stores/approvalStore';
+import { buildApprovalModule, parseApprovalModule } from '../annotations/approval';
+import type { ApprovalRecord } from '@shared/types/annotation';
 import * as contourRep from './contourRepresentation';
 import {
   formatOperatorsNameForConnection,
@@ -118,6 +121,8 @@ export interface RtStructParseResult {
   referencedSeriesUID: string | null;
   structureSetLabel: string;
   structureSetName: string;
+  /** Approval state recorded in the file (D7.11) — loads arrive edit-locked. */
+  approval: ApprovalRecord;
 }
 
 export interface LoadedRtStruct {
@@ -199,6 +204,13 @@ function parseRtStruct(arrayBuffer: ArrayBuffer): RtStructParseResult {
 
   const structureSetLabel = dataSet.string(TAG.StructureSetLabel) ?? 'RT Structure Set';
   const structureSetName = dataSet.string(TAG.StructureSetName) ?? '';
+  // Approval attributes (300E,00xx) come off the SAME parse — no second read.
+  const approval = parseApprovalModule({
+    ApprovalStatus: dataSet.string('x300e0002'),
+    ReviewDate: dataSet.string('x300e0004'),
+    ReviewTime: dataSet.string('x300e0005'),
+    ReviewerName: dataSet.string('x300e0008'),
+  });
 
   // ── Step 1: Parse StructureSetROISequence → map roiNumber → { name, frameOfRefUID }
   const roiInfoMap = new Map<number, { name: string; frameOfRefUID: string }>();
@@ -319,7 +331,7 @@ function parseRtStruct(arrayBuffer: ArrayBuffer): RtStructParseResult {
     referencedSeriesUID ? `(series: ${referencedSeriesUID})` : '(no series ref)',
   );
 
-  return { rois, referencedSeriesUID, structureSetLabel, structureSetName };
+  return { rois, referencedSeriesUID, structureSetLabel, structureSetName, approval };
 }
 
 /**
@@ -603,6 +615,9 @@ async function loadRtStructAsContours(
 
   // Sync segmentations to store
   segmentationService.sync();
+
+  // D7.11: a structure set saved as approved arrives edit-locked.
+  useApprovalStore.getState().seedApproval(segmentationId, parsed.approval);
 
   console.log(
     `[rtStructService] Loaded RTSTRUCT as contour segmentation: ${segmentationId}`,
@@ -1080,6 +1095,8 @@ async function exportToRtStruct(segmentationId: string): Promise<string> {
 
   const { arrayBuffer } = serializeDerivedDicomDataset(rtssDataset, {
     kind: 'RTSTRUCT',
+    // Approval (D7.11) persists in the file, so a reload arrives edit-locked.
+    approval: buildApprovalModule(useApprovalStore.getState().approvalOf(segmentationId)),
     callerTag: 'rtStructService',
     defaultSOPClassUID: '1.2.840.10008.5.1.4.1.1.481.3',
     requiredDatasetFields: [

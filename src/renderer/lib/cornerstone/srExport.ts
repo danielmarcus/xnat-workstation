@@ -12,6 +12,7 @@ import { metaData } from '@cornerstonejs/core';
 import { annotation as csAnnotation } from '@cornerstonejs/tools';
 import { adaptersSR, NO_IMAGE_ID } from '@cornerstonejs/adapters';
 import { serializeDerivedDicomDataset } from './dicomExportHelpers';
+import type { ApprovalModule } from '../annotations/approval';
 
 const MeasurementReport = (adaptersSR as { Cornerstone3D: { MeasurementReport: { generateReport: (toolState: unknown, mp: unknown, opts: unknown) => { dataset: Record<string, unknown> } } } }).Cornerstone3D.MeasurementReport;
 
@@ -48,7 +49,13 @@ export function buildMeasurementToolState(annotationUIDs: string[]): ToolState {
  */
 export async function exportMeasurementsToDicomSr(
   annotationUIDs: string[],
-  options: { seriesDescription?: string; seriesNumber?: number } = {},
+  options: {
+    seriesDescription?: string;
+    seriesNumber?: number;
+    /** Container approval state (D7.11) to persist — supplied by the caller, which
+     *  knows the container id (this function takes annotation UIDs). */
+    approval?: ApprovalModule;
+  } = {},
 ): Promise<string | null> {
   const toolState = buildMeasurementToolState(annotationUIDs);
   if (Object.keys(toolState).length === 0) return null;
@@ -60,6 +67,7 @@ export async function exportMeasurementsToDicomSr(
 
   const { arrayBuffer } = serializeDerivedDicomDataset(report.dataset, {
     kind: 'SR',
+    approval: options.approval,
     callerTag: 'srExport',
     defaultSOPClassUID: COMPREHENSIVE_3D_SR,
     includeContentDateTime: true,

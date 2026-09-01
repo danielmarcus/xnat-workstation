@@ -1,6 +1,7 @@
 import { wadouri } from '@cornerstonejs/dicom-image-loader';
 import { data as dcmjsData } from 'dcmjs';
 import { writeDicomDict } from './writeDicomDict';
+import type { ApprovalModule } from '../annotations/approval';
 
 declare const __APP_VERSION__: string;
 
@@ -46,6 +47,12 @@ export interface SourceDicomReference {
 
 export interface SerializeDerivedDicomOptions {
   kind: DerivedDicomKind;
+  /**
+   * Container approval state (D7.11) to persist as the DICOM approval attributes
+   * (`ApprovalStatus` + `Reviewer*`). Omit to leave the dataset's own values alone;
+   * pass an UNAPPROVED record to explicitly clear a previously-approved object.
+   */
+  approval?: ApprovalModule;
   callerTag: string;
   defaultSOPClassUID: string;
   requiredDatasetFields: string[];
@@ -452,6 +459,17 @@ export function serializeDerivedDicomDataset(
   options: SerializeDerivedDicomOptions,
 ): { arrayBuffer: ArrayBuffer; parsedDataset: any; parsedMeta: any } {
   applyWorkstationDicomMetadata(dataset);
+  if (options.approval) {
+    // Approval (D7.11) round-trips through the file, so a reload arrives locked.
+    // ReviewerName/Date/Time are deleted rather than blanked when unapproved — an
+    // empty person-name is legal but misleading, and absence IS the DICOM default.
+    dataset.ApprovalStatus = options.approval.ApprovalStatus;
+    for (const field of ['ReviewerName', 'ReviewDate', 'ReviewTime'] as const) {
+      const value = options.approval[field];
+      if (value) dataset[field] = value;
+      else delete dataset[field];
+    }
+  }
   applyGeneratedDateTimeFields(dataset, {
     includeContentDateTime: options.includeContentDateTime,
     includeStructureSetDateTime: options.includeStructureSetDateTime,

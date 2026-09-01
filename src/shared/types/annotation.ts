@@ -60,6 +60,26 @@ export type RtRoiInterpretedType =
 export type ApprovalStatus = 'UNAPPROVED' | 'APPROVED' | 'REJECTED';
 
 /**
+ * Persisted approval state for one container (requirements D7.11, design §2.6).
+ * Written to / read from the DICOM approval attributes — see
+ * `renderer/lib/annotations/approval` for the mapping.
+ */
+export interface ApprovalRecord {
+  approved: boolean;
+  /** DICOM ReviewerName (person-name form), when an identity is known. */
+  reviewerName: string | null;
+  /** Epoch ms of the approval; second-resolution once round-tripped through DICOM. */
+  reviewedAt: number | null;
+}
+
+/** One entry of the session-only approval audit trail (design §2.6). */
+export interface ApprovalEvent {
+  action: 'approve' | 'revoke';
+  by: string | null;
+  at: number;
+}
+
+/**
  * Where a container came from in XNAT and where it will be saved back to.
  * Drives the overwrite-vs-create-new decision on save and (via
  * frameOfReferenceUID) which viewports a container is eligible to render on.

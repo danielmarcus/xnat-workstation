@@ -62,6 +62,10 @@ import {
   isConformantAgeString,
 } from '../dicomExportHelpers';
 import { applySourceDicomContextToSegDataset } from '../segmentationService/dicomContext';
+import { buildApprovalModule, parseApprovalModule } from '../../annotations/approval';
+
+/** Fixed review timestamp for the approval round-trip (local time — DA/TM have no zone). */
+const AT = new Date(2026, 2, 4, 15, 6, 7).getTime();
 
 describe('dicomExportHelpers', () => {
   beforeEach(() => {
@@ -119,6 +123,75 @@ describe('dicomExportHelpers', () => {
       MediaStorageSOPInstanceUID: '1.2.3.4',
       TransferSyntaxUID: '1.2.840.10008.1.2.1',
     });
+  });
+
+  it('persists container approval as the DICOM approval attributes (D7.11 round-trip)', () => {
+    const base = () => ({
+      SOPClassUID: '1.2.3',
+      SOPInstanceUID: '1.2.3.4',
+      StudyInstanceUID: 'STUDY-1',
+      SeriesInstanceUID: 'SER-1',
+      Modality: 'SEG',
+      Rows: 2,
+      Columns: 2,
+      NumberOfFrames: 1,
+      PixelData: new Uint8Array([255]).buffer,
+      SegmentSequence: [{}],
+      PerFrameFunctionalGroupsSequence: [{}],
+      SharedFunctionalGroupsSequence: [{}],
+    });
+    const options = {
+      kind: 'SEG' as const,
+      callerTag: 'dicomExportHelpers.test',
+      defaultSOPClassUID: '1.2.840.10008.5.1.4.1.1.66.4',
+      requiredDatasetFields: ['SOPClassUID', 'SOPInstanceUID', 'StudyInstanceUID', 'SeriesInstanceUID', 'Modality'],
+    };
+
+    // Approved: status + reviewer + review date/time survive the write→read cycle,
+    // and parse back to the same record the panel holds.
+    const approved = serializeDerivedDicomDataset(base(), {
+      ...options,
+      approval: buildApprovalModule({ approved: true, reviewerName: 'Marcus^Daniel', reviewedAt: AT }),
+    });
+    expect(approved.parsedDataset).toMatchObject({
+      ApprovalStatus: 'APPROVED',
+      ReviewerName: 'Marcus^Daniel',
+    });
+    const readBack = parseApprovalModule(approved.parsedDataset);
+    expect(readBack.approved).toBe(true);
+    expect(readBack.reviewerName).toBe('Marcus^Daniel');
+    expect(readBack.reviewedAt).toBe(Math.floor(AT / 1000) * 1000);
+
+    // Revoked: the status flips and the stale reviewer stamps are REMOVED, not blanked
+    // (an empty person-name would read as "approved by nobody").
+    const revoked = serializeDerivedDicomDataset(
+      { ...base(), ReviewerName: 'Stale^Reviewer', ReviewDate: '20200101', ReviewTime: '010101' },
+      { ...options, approval: buildApprovalModule({ approved: false, reviewerName: null, reviewedAt: null }) },
+    );
+    expect(revoked.parsedDataset.ApprovalStatus).toBe('UNAPPROVED');
+    expect(revoked.parsedDataset.ReviewerName).toBeUndefined();
+    expect(revoked.parsedDataset.ReviewDate).toBeUndefined();
+    expect(parseApprovalModule(revoked.parsedDataset).approved).toBe(false);
+  });
+
+  it('leaves an existing ApprovalStatus alone when no approval is supplied', () => {
+    const result = serializeDerivedDicomDataset(
+      {
+        SOPClassUID: '1.2.3',
+        SOPInstanceUID: '1.2.3.4',
+        StudyInstanceUID: 'STUDY-1',
+        SeriesInstanceUID: 'SER-1',
+        Modality: 'SEG',
+        ApprovalStatus: 'APPROVED',
+      },
+      {
+        kind: 'SEG',
+        callerTag: 'dicomExportHelpers.test',
+        defaultSOPClassUID: '1.2.840.10008.5.1.4.1.1.66.4',
+        requiredDatasetFields: ['SOPClassUID', 'SOPInstanceUID'],
+      },
+    );
+    expect(result.parsedDataset.ApprovalStatus).toBe('APPROVED');
   });
 
   it('fails fast when a required dataset field is missing', () => {

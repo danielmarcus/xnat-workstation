@@ -22,6 +22,8 @@ import { useAnnotationStore } from '../../stores/annotationStore';
 import { segmentationService } from './segmentationService';
 import { rtStructService } from './rtStructService';
 import { exportMeasurementsToDicomSr } from './srExport';
+import { useApprovalStore } from '../../stores/approvalStore';
+import { buildApprovalModule } from '../annotations/approval';
 import { createXnatUploadApi } from './xnatUploadApi';
 import { createXnatTransportService } from './transportService';
 import type { SerializedContainer } from './annotationTransport';
@@ -206,7 +208,10 @@ export function composeXnatTransport(): void {
     kindOf,
     exportSeg: (id) => segmentationService.exportToDicomSeg(id),
     exportRtStruct: (id) => rtStructService.exportToRtStruct(id),
-    exportSr: (id) => exportMeasurementsToDicomSr(srMemberUids(id), { seriesDescription: srLabelOf(id) }),
+    exportSr: (id) => exportMeasurementsToDicomSr(srMemberUids(id), {
+      seriesDescription: srLabelOf(id),
+      approval: buildApprovalModule(useApprovalStore.getState().approvalOf(id)),
+    }),
     originOf,
     viewerContextOf,
     labelOf: (id) =>

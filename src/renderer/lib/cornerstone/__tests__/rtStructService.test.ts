@@ -341,6 +341,7 @@ describe('rtStructService', () => {
           ],
         },
       ],
+      approval: { approved: false, reviewerName: null, reviewedAt: null },
     };
 
     const result = await rtStructService.loadRtStructAsContours(parsed, ['img-1', 'img-2'], 'panel_0');

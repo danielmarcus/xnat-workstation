@@ -23,6 +23,8 @@ import { useAnnotationStore } from '../stores/annotationStore';
 import { useAnnotationSelectionStore } from '../stores/annotationSelectionStore';
 import { useViewerStore } from '../stores/viewerStore';
 import { useTransportStore } from '../stores/transportStore';
+import { useApprovalStore } from '../stores/approvalStore';
+import { useConnectionStore } from '../stores/connectionStore';
 import { usePreferencesStore } from '../stores/preferencesStore';
 import { segmentationService } from '../lib/cornerstone/segmentationService';
 import { annotationService } from '../lib/cornerstone/annotationService';
@@ -34,6 +36,7 @@ import { segmentationManager } from '../lib/segmentation/segmentationManagerSing
 import { projectContainers } from '../lib/annotations/containerProjection';
 import { buildContainerCsv, type MemberStats } from '../lib/annotations/containerCsv';
 import { formatBackupStatus } from '../lib/annotations/backupStatus';
+import { buildApprovalModule, formatReviewerName } from '../lib/annotations/approval';
 import { useSegmentMetrics } from './useSegmentMetrics';
 import { CATALOG_TO_TOOLNAME, TOOLNAME_TO_CATALOG, toolsForKind } from '../components/annotations/toolCatalog';
 import type { ContainerListHandlers } from '../components/annotations/ContainerList';
@@ -89,6 +92,9 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
   const autoSaveStatus = useSegmentationStore((s) => s.autoSaveStatus);
   const lastAutoSaveTime = useSegmentationStore((s) => s.lastAutoSaveTime);
   const brushSize = useSegmentationStore((s) => s.brushSize);
+  // Container approval (D7.11): persisted in DICOM, seeded on load, edit-locks the
+  // whole container until explicitly revoked.
+  const approvals = useApprovalStore((s) => s.approvals);
 
   // The "Backed up · Ns ago" suffix has to age, so tick a clock once a second while
   // the row is showing a completed backup (and only then — no idle timers).
@@ -126,6 +132,8 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
   const [conflictDialogId, setConflictDialogId] = useState<string | null>(null);
   // Review & save unsaved annotations dialog (opened from the in-panel indicator).
   const [reviewOpen, setReviewOpen] = useState(false);
+  // Approve / revoke confirmation (D7.11): holds the container awaiting confirmation.
+  const [approvalDialogId, setApprovalDialogId] = useState<string | null>(null);
   // Delete-from-XNAT confirmation (opened from the container kebab). Holds the pending
   // container id; busy while the server call is in flight; error surfaces inline.
   const [deleteServerId, setDeleteServerId] = useState<string | null>(null);
@@ -144,6 +152,7 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
         srContainers,
         srAffiliation,
         activeSessionId: activeSessionId ?? undefined,
+        approvalOf: (id) => (approvals[id]?.approved ? 'APPROVED' : 'UNAPPROVED'),
         kindOf: (id) => {
           try {
             return segmentationService.getPreferredDicomType(id) as ContainerKind;
@@ -152,7 +161,7 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
           }
         },
       }),
-    [segmentations, annotations, presentation, dirtySegIds, xnatOriginMap, srContainers, srAffiliation, activeSessionId],
+    [segmentations, annotations, presentation, dirtySegIds, xnatOriginMap, srContainers, srAffiliation, activeSessionId, approvals],
   );
 
   // Inline per-segment metrics for the visible SEG rows (mockup §3). Expensive
@@ -275,6 +284,18 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
     annotationService.selectAnnotation(stillSelected ? memberId : null);
   };
 
+  /**
+   * D7.11: an approved container is fully edit-locked — no member adds/deletes,
+   * geometry edits, renames, colour changes or reorderings until the user revokes.
+   * The rows already disable these affordances; this is the handler-level backstop
+   * (a stale render, a hotkey, or a future caller must not slip an edit through).
+   */
+  const blockedByApproval = (containerId: string, action: string): boolean => {
+    if (!useApprovalStore.getState().isApproved(containerId)) return false;
+    console.warn(`[annotationsPanel] ${action} blocked — ${containerId} is approved (revoke to edit).`);
+    return true;
+  };
+
   const handlers: ContainerListHandlers = {
     onToggleExpand: (id) =>
       setCollapsed((prev) => {
@@ -283,8 +304,10 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
         else next.add(id);
         return next;
       }),
-    onApproveToggle: () => console.warn('[annotationsPanel] approve/revoke — D7.11 approval persistence is transport-workstream (TODO).'),
+    // Approve / revoke both go through an explicit confirmation (D7.11).
+    onApproveToggle: (id) => setApprovalDialogId(id),
     onAddMember: (id) => {
+      if (blockedByApproval(id, 'add member')) return;
       const container = containers.find((c) => c.id === id);
       // Measurement (SR) containers have no "+" affordance (the button isn't rendered):
       // a measurement is authored by drawing with a measurement tool, not by adding an
@@ -319,7 +342,10 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
             const { exportMeasurementsToDicomSr } = await import('../lib/cornerstone/srExport');
             const base64 = await exportMeasurementsToDicomSr(
               (container?.members ?? []).map((m) => m.id),
-              { seriesDescription: container?.label },
+              {
+                seriesDescription: container?.label,
+                approval: buildApprovalModule(useApprovalStore.getState().approvalOf(id)),
+              },
             );
             if (!base64) {
               console.warn('[annotationsPanel] export to DICOM SR skipped — no serializable measurements.');
@@ -361,7 +387,10 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
         }
       })();
     },
-    onDeleteContainer: (id) => removeContainerLocally(id),
+    onDeleteContainer: (id) => {
+      if (blockedByApproval(id, 'delete container')) return;
+      removeContainerLocally(id);
+    },
     // Kebab "Delete from XNAT…" — open the confirm dialog (only reachable for
     // containers with a server scan; ContainerRow gates the menu item).
     onDeleteFromServer: (id) => {
@@ -369,7 +398,9 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
       setDeleteServerId(id);
     },
     onRenameContainer: (id, name) =>
-      id.startsWith('sr:')
+      blockedByApproval(id, 'rename container')
+        ? undefined
+        : id.startsWith('sr:')
         ? useAnnotationStore.getState().renameSrContainer(id, name)
         : segmentationManager.renameSegmentation(id, name),
     onContainerEditCommit: (id) => {
@@ -430,16 +461,19 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
       if (Number.isInteger(idx) && idx > 0) segmentationService.toggleSegmentLocked(cid, idx);
     },
     onDeleteMember: (cid, mid) => {
+      if (blockedByApproval(cid, 'delete member')) return;
       if (cid.startsWith('sr:')) { annotationService.removeAnnotation(mid); return; }
       const idx = Number(mid);
       if (Number.isInteger(idx) && idx > 0) segmentationService.removeSegment(cid, idx);
     },
     onRenameMember: (cid, mid, name) => {
+      if (blockedByApproval(cid, 'rename member')) return;
       if (cid.startsWith('sr:')) { annotationService.setAnnotationLabel(mid, name); return; }
       const idx = Number(mid);
       if (Number.isInteger(idx) && idx > 0) segmentationManager.renameSegment(cid, idx, name);
     },
     onColorChange: (cid, mid, color) => {
+      if (blockedByApproval(cid, 'change member color')) return;
       // SR measurement members are keyed by annotationUID — set the Cornerstone
       // annotation's display color directly (the numeric-index SEG path NaNs on a UID).
       if (cid.startsWith('sr:')) { annotationService.setAnnotationColor(mid, color); return; }
@@ -510,6 +544,38 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
             console.warn('[annotationsPanel] Inspect differences — deferred (conflict-UX diff is an open spec question, D3).'),
           onCancel: () => setConflictDialogId(null),
         }
+      : null;
+
+  // ── Approve / revoke (D7.11) ──
+  // Both directions require explicit confirmation. Approving records who + when (the
+  // XNAT identity when connected — local sessions still record the time) and marks the
+  // container dirty, because the approval lives IN the DICOM object: it only becomes
+  // real once saved. Revoking keeps the audit trail.
+  const approvalContainer = approvalDialogId ? containers.find((c) => c.id === approvalDialogId) : undefined;
+  const approvalDialog =
+    approvalDialogId && approvalContainer
+      ? (() => {
+          const approving = approvalContainer.approval !== 'APPROVED';
+          return {
+            containerId: approvalDialogId,
+            title: approving ? `Approve "${approvalContainer.label}"?` : `Revoke approval for "${approvalContainer.label}"?`,
+            body: approving
+              ? `Approving edit-locks all ${approvalContainer.members.length} member(s). Editing later requires an explicit revoke. Recorded with your name and timestamp (DICOM ApprovalStatus) when saved.`
+              : 'Revoking re-enables editing. The approval record is kept in this session\'s history; re-approving creates a new record.',
+            confirmLabel: approving ? 'Approve' : 'Revoke approval',
+            // dialogs.tsx has purpose-built approve/revoke button styling.
+            variant: (approving ? 'approve' : 'revoke') as 'approve' | 'revoke',
+            onConfirm: () => {
+              const reviewer = formatReviewerName(useConnectionStore.getState().connection ?? undefined);
+              useApprovalStore.getState().setApproval(approvalDialogId, approving, reviewer, Date.now());
+              // The approval attribute is part of the saved object → the container is dirty.
+              segmentationManager.markDirty(approvalDialogId);
+              useSegmentationStore.getState()._markDirty();
+              setApprovalDialogId(null);
+            },
+            onCancel: () => setApprovalDialogId(null),
+          };
+        })()
       : null;
 
   // ── Delete from XNAT (kebab → confirm → deleteScan) ──
@@ -637,6 +703,8 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
     // transport (in-place row state) + H7 conflict dialog
     transportOf,
     conflictDialog,
+    // Approve / revoke confirmation (D7.11).
+    approvalDialog,
     // Delete-from-XNAT confirmation (kebab → confirm → deleteScan).
     deleteFromServerDialog,
     // toolbox

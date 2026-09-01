@@ -54,6 +54,8 @@ import { useSegmentationStore } from '../../stores/segmentationStore';
 import type { SegmentationSummary, SegmentSummary } from '../../stores/segmentationStore';
 import { useViewerStore } from '../../stores/viewerStore';
 import { useConnectionStore } from '../../stores/connectionStore';
+import { useApprovalStore } from '../../stores/approvalStore';
+import { readApprovalFromArrayBuffer } from '../dicom/readApproval';
 import { useSegmentationManagerStore } from '../../stores/segmentationManagerStore';
 import { useTransportStore } from '../../stores/transportStore';
 import { useAnnotationSelectionStore } from '../../stores/annotationSelectionStore';
@@ -3885,6 +3887,10 @@ export const segmentationService = {
         `[segmentationService] Loaded DICOM SEG as multi-layer group: ${segmentationId}`,
         `(${sortedSegIndices.length} segments as sub-segmentations, ${effectiveBaseSourceImageIds.length} slices)`,
       );
+
+      // D7.11: a file saved as approved arrives edit-locked (seed, don't audit —
+      // this is not a user action).
+      useApprovalStore.getState().seedApproval(segmentationId, readApprovalFromArrayBuffer(arrayBuffer));
 
       syncSegmentations();
       return {

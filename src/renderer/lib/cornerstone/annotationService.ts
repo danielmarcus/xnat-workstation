@@ -18,6 +18,8 @@ import { useAnnotationStore } from '../../stores/annotationStore';
 import type { AnnotationSummary } from '../../stores/annotationStore';
 import { useSegmentationManagerStore } from '../../stores/segmentationManagerStore';
 import { usePreferencesStore } from '../../stores/preferencesStore';
+import { useApprovalStore } from '../../stores/approvalStore';
+import { readApprovalFromArrayBuffer } from '../dicom/readApproval';
 import { TOOL_DISPLAY_NAMES, ToolName } from '@shared/types/viewer';
 
 type RGBA = [number, number, number, number];
@@ -417,6 +419,8 @@ export const annotationService = {
     });
     syncAnnotations();
     useSegmentationManagerStore.getState().clearDirty(containerId);
+    // D7.11: an SR saved as approved arrives edit-locked.
+    useApprovalStore.getState().seedApproval(containerId, readApprovalFromArrayBuffer(arrayBuffer));
     return { containerId, count: addedUIDs.length };
   },
 
