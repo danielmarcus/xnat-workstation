@@ -51,6 +51,12 @@ type ActiveContourSnapshot = ActiveSegmentationState & {
 
 let lockAwareUndoRedoCounter = 0;
 
+/** Perf harness render-frame counter (see startRenderCounter/readRenderCounter). */
+const renderCounter: {
+  read?: () => { frames: number; elapsedMs: number };
+  stop?: () => void;
+} = {};
+
 declare global {
   interface Window {
     __XNAT_E2E__?: {
@@ -751,6 +757,41 @@ export function installRendererE2eHooks(): void {
     getPanelImageIds: (panelId: string) => useViewerStore.getState().panelImageIdsMap[panelId] ?? [],
     primeScanImageIds: (sessionId: string, scanId: string, imageIds: string[]) =>
       dicomwebLoader.primeScanImageIds(sessionId, scanId, imageIds),
+    startRenderCounter: (panelIds: string[]) => {
+      renderCounter.stop?.();
+      let frames = 0;
+      const startedAt = performance.now();
+      const listener = () => { frames += 1; };
+      const elements: HTMLElement[] = [];
+      for (const panelId of panelIds) {
+        const ee = getEnabledElementByViewportId(panelId) as { viewport?: { element?: HTMLElement } } | undefined;
+        const el = ee?.viewport?.element;
+        if (!el) continue;
+        el.addEventListener('CORNERSTONE_IMAGE_RENDERED', listener);
+        elements.push(el);
+      }
+      renderCounter.read = () => ({ frames, elapsedMs: Math.round(performance.now() - startedAt) });
+      renderCounter.stop = () => {
+        for (const el of elements) el.removeEventListener('CORNERSTONE_IMAGE_RENDERED', listener);
+        renderCounter.stop = undefined;
+      };
+    },
+    readRenderCounter: () => renderCounter.read?.() ?? { frames: 0, elapsedMs: 0 },
+    getCacheStats: (panelId: string) => {
+      const cacheBytes = (cache as unknown as { getCacheSize?: () => number }).getCacheSize?.() ?? 0;
+      const imageCount = (useViewerStore.getState().panelImageIdsMap[panelId] ?? []).length;
+      let volumeSlices: number | null = null;
+      try {
+        const ee = getEnabledElementByViewportId(panelId) as
+          | { viewport?: { getImageData?: () => { dimensions?: number[] } | undefined } }
+          | undefined;
+        const dims = ee?.viewport?.getImageData?.()?.dimensions;
+        if (Array.isArray(dims) && dims.length === 3) volumeSlices = dims[2];
+      } catch {
+        volumeSlices = null;
+      }
+      return { cacheBytes, volumeSlices, imageCount };
+    },
     setAutoLoadAnnotations: (enabled: boolean) =>
       useSegmentationStore.getState().setAutoLoadSegOnScanClick(enabled),
     canDrawOnActiveViewport: () =>

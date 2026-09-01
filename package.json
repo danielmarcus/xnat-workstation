@@ -24,7 +24,8 @@
     "test:e2e": "npx playwright test --config playwright.config.ts",
     "test:e2e:headed": "npx playwright test --config playwright.config.ts --headed",
     "test:e2e:debug": "PWDEBUG=1 npx playwright test --config playwright.config.ts",
-    "test:e2e:report": "npx playwright show-report e2e/playwright-report"
+    "test:e2e:report": "npx playwright show-report e2e/playwright-report",
+    "test:perf": "node e2e/fixtures/dicom/generate.cjs ct-perf-300 && npx playwright test --config playwright.perf.config.ts"
   },
   "author": "",
   "license": "MIT",

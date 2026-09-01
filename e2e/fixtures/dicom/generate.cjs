@@ -186,6 +186,36 @@ function generateCtAxial300(outDir) {
   });
 }
 
+/**
+ * ct-perf-300 — a REALISTIC-SIZED series for the D8 performance budget: 300 slices
+ * at 512x512 (~157 MB of voxels), the scale the requirement is written against.
+ * Content is a smooth anatomy-like field so window/level and statistics have
+ * something to chew on. Not part of the acceptance fixtures: generated on demand by
+ * the perf harness (see e2e/perf/), which is why it is excluded from the default
+ * generate-all run.
+ */
+function generateCtPerf300(outDir) {
+  return writeCtSeries(outDir, {
+    rows: 512,
+    cols: 512,
+    numSlices: 300,
+    pixelSpacing: [0.7, 0.7],
+    sliceThickness: 1.0,
+    seriesDescription: 'CT PERF 300x512 (D8 budget)',
+    patientId: 'CT-PERF-300',
+    patientName: 'PHANTOM^PERF',
+    voxel: (x, y, z) => {
+      const r = Math.sqrt(x * x + y * y);
+      if (r > 170) return -1000; // air outside the "body"
+      // Soft-tissue gradient + a few embedded structures, so intensity varies.
+      const soft = 40 + 30 * Math.sin(x / 40) * Math.cos(y / 40) + z / 20;
+      const boneRing = Math.abs(r - 150) < 6 ? 900 : 0;
+      const lesion = Math.sqrt((x - 40) ** 2 + (y + 30) ** 2 + (z - 10) ** 2) < 18 ? 120 : 0;
+      return Math.round(soft + boneRing + lesion);
+    },
+  });
+}
+
 function generateCtOblique(outDir) {
   // Same sphere phantom, acquired on an OBLIQUE plane (~30° tilt about X). The
   // acquisition plane has no constant world axis, so a contour drawn on it is oblique in
@@ -625,6 +655,8 @@ function generateCineUs(outDir) {
 
 const GENERATORS = {
   'ct-axial-300': generateCtAxial300,
+  // Perf-only (large, slow to generate) — excluded from the generate-all default.
+  'ct-perf-300': generateCtPerf300,
   'ct-oblique': generateCtOblique,
   'ct-axial-anatomy': generateCtAxialAnatomy,
   'rtstruct-typed': generateRtstructTyped,
@@ -638,7 +670,11 @@ const GENERATORS = {
 
 function main() {
   const requested = process.argv.slice(2);
-  const names = requested.length > 0 ? requested : Object.keys(GENERATORS);
+  const names = requested.length > 0
+    ? requested
+    // Default (generate-all) skips the perf fixture: it is ~157 MB and only the
+    // perf harness needs it.
+    : Object.keys(GENERATORS).filter((n) => n !== 'ct-perf-300');
   const baseDir = __dirname;
 
   for (const name of names) {
