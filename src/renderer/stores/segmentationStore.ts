@@ -9,6 +9,7 @@
  * Follows the same pattern as annotationStore.ts.
  */
 import { create } from 'zustand';
+import { defaultThresholdRangeForModality } from '@shared/types/viewer';
 
 /** Represents a single segment within a segmentation */
 export interface SegmentSummary {
@@ -57,8 +58,16 @@ interface SegmentationStore {
   /** Brush tool radius in pixels */
   brushSize: number;
 
-  /** Threshold range for ThresholdBrush [min, max] in HU */
+  /** Threshold range for ThresholdBrush [min, max] in source intensity (HU on CT) */
   thresholdRange: [number, number];
+
+  /**
+   * The DICOM modality `thresholdRange` was seeded for, or null before any scan has
+   * been seen. A CT HU window is meaningless on MR/PT, so the panel reseeds the range
+   * whenever the active scan's modality differs from this. Edits made within one
+   * modality stick (no reseed while it is unchanged).
+   */
+  thresholdRangeModality: string | null;
 
   /** Active segmentation tool (any seg tool name, or null if none) */
   activeSegTool: string | null;
@@ -133,6 +142,9 @@ interface SegmentationStore {
   /** Set threshold range */
   setThresholdRange: (range: [number, number]) => void;
 
+  /** Reseed the threshold window for a newly-active modality (records the modality). */
+  seedThresholdRangeForModality: (modality: string, range: [number, number]) => void;
+
   /** Set the active segmentation tool */
   setActiveSegTool: (tool: string | null) => void;
 
@@ -198,7 +210,8 @@ export const useSegmentationStore = create<SegmentationStore>((set) => ({
   contourLineWidth: 2,
   contourOpacity: 1,
   brushSize: 5,
-  thresholdRange: [-200, 200],
+  thresholdRange: defaultThresholdRangeForModality('CT'),
+  thresholdRangeModality: null,
   activeSegTool: null,
   splineType: 'CATMULLROM',
   canUndo: false,
@@ -235,6 +248,9 @@ export const useSegmentationStore = create<SegmentationStore>((set) => ({
   setBrushSize: (size) => set({ brushSize: size }),
 
   setThresholdRange: (range) => set({ thresholdRange: range }),
+
+  seedThresholdRangeForModality: (modality, range) =>
+    set({ thresholdRange: range, thresholdRangeModality: modality }),
 
   setActiveSegTool: (tool) => set({ activeSegTool: tool }),
 

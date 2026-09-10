@@ -16,7 +16,7 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import type { ContainerKind } from '@shared/types/annotation';
-import { ToolName } from '@shared/types/viewer';
+import { ToolName, defaultThresholdRangeForModality, thresholdPresetsForModality } from '@shared/types/viewer';
 import { useSegmentationStore } from '../stores/segmentationStore';
 import { useSegmentationManagerStore } from '../stores/segmentationManagerStore';
 import { useAnnotationStore } from '../stores/annotationStore';
@@ -38,6 +38,7 @@ import { buildContainerCsv, type MemberStats } from '../lib/annotations/containe
 import { formatBackupStatus } from '../lib/annotations/backupStatus';
 import { buildApprovalModule, formatReviewerName } from '../lib/annotations/approval';
 import { useSegmentMetrics } from './useSegmentMetrics';
+import { useActiveModality } from './useActiveModality';
 import { CATALOG_TO_TOOLNAME, TOOLNAME_TO_CATALOG, toolsForKind } from '../components/annotations/toolCatalog';
 import type { ContainerListHandlers } from '../components/annotations/ContainerList';
 import type { RowTransport } from '../components/annotations/ContainerRow';
@@ -92,6 +93,12 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
   const autoSaveStatus = useSegmentationStore((s) => s.autoSaveStatus);
   const lastAutoSaveTime = useSegmentationStore((s) => s.lastAutoSaveTime);
   const brushSize = useSegmentationStore((s) => s.brushSize);
+  // Threshold-brush intensity window. Scoped to the active scan's modality: an HU
+  // window means nothing on MR/PT, so the range reseeds when the modality changes
+  // (edits within one modality stick — see the effect below).
+  const thresholdRange = useSegmentationStore((s) => s.thresholdRange);
+  const thresholdRangeModality = useSegmentationStore((s) => s.thresholdRangeModality);
+  const modality = useActiveModality();
   // Container approval (D7.11): persisted in DICOM, seeded on load, edit-locks the
   // whole container until explicitly revoked.
   const approvals = useApprovalStore((s) => s.approvals);
@@ -112,6 +119,16 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
     lastSavedAt: lastAutoSaveTime,
     now: backupClock,
   });
+
+  // Reseed the threshold window when the active scan's modality changes (a CT HU
+  // window is meaningless on MR/PT). Routed through setBrushThreshold so Cornerstone
+  // and the store stay in step even if the threshold brush is already active.
+  useEffect(() => {
+    if (!modality || modality === thresholdRangeModality) return;
+    const seeded = defaultThresholdRangeForModality(modality);
+    useSegmentationStore.getState().seedThresholdRangeForModality(modality, seeded);
+    unifiedToolService.setBrushThreshold(seeded);
+  }, [modality, thresholdRangeModality]);
 
   const activeMember = useAnnotationSelectionStore((s) => s.activeMember);
   const selection = useAnnotationSelectionStore((s) => s.selection);
@@ -729,6 +746,11 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
                 brushSize,
                 // Single entry point: clamps + writes the unified tool group + the store.
                 onBrushSizeChange: (v: number) => unifiedToolService.setBrushSize(v),
+                // Threshold window (shown by the toolbox only while the threshold brush
+                // is active). Same single-entry-point contract as brush size.
+                thresholdRange,
+                onThresholdRangeChange: (r: [number, number]) => unifiedToolService.setBrushThreshold(r),
+                thresholdPresets: thresholdPresetsForModality(modality),
               }
             : undefined,
         }

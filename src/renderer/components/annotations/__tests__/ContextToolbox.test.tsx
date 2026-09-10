@@ -86,4 +86,69 @@ describe('ContextToolbox', () => {
     expect(screen.getByLabelText('Brush')).toBeTruthy();
     expect(screen.queryByText('Brush')).toBeNull();
   });
+
+  // ── Threshold window (the intensity gate for the threshold brush) ──
+
+  const thresholdControls = (over: Record<string, unknown> = {}) => ({
+    activeSegmentLabel: 'Segment 2',
+    opacity: 0.5,
+    onOpacityChange: vi.fn(),
+    thresholdRange: [-100, 300] as [number, number],
+    onThresholdRangeChange: vi.fn(),
+    thresholdPresets: [
+      { name: 'Soft Tissue', range: [-100, 300] as [number, number] },
+      { name: 'Bone', range: [300, 3000] as [number, number] },
+    ],
+    ...over,
+  });
+
+  it('shows the threshold window only while the threshold brush is active', () => {
+    const { rerender } = render(
+      <ContextToolbox kind="SEG" activeMemberName="Seg 1" activeToolId="brush" onSelectTool={vi.fn()} controls={thresholdControls()} />,
+    );
+    // Plain brush active: the window has no effect on it, so it must not be shown.
+    expect(screen.queryByTestId('threshold-controls')).toBeNull();
+
+    rerender(
+      <ContextToolbox kind="SEG" activeMemberName="Seg 1" activeToolId="threshold" onSelectTool={vi.fn()} controls={thresholdControls()} />,
+    );
+    expect(screen.getByTestId('threshold-controls')).toBeTruthy();
+    expect((screen.getByLabelText('Threshold minimum') as HTMLInputElement).value).toBe('-100');
+    expect((screen.getByLabelText('Threshold maximum') as HTMLInputElement).value).toBe('300');
+  });
+
+  it('edits either bound of the threshold window', () => {
+    const onThresholdRangeChange = vi.fn();
+    setup({ activeToolId: 'threshold', controls: thresholdControls({ onThresholdRangeChange }) });
+
+    fireEvent.change(screen.getByLabelText('Threshold minimum'), { target: { value: '300' } });
+    expect(onThresholdRangeChange).toHaveBeenCalledWith([300, 300]);
+
+    fireEvent.change(screen.getByLabelText('Threshold maximum'), { target: { value: '3000' } });
+    expect(onThresholdRangeChange).toHaveBeenCalledWith([-100, 3000]);
+  });
+
+  it('applies a preset window and reflects the matching preset in the select', () => {
+    const onThresholdRangeChange = vi.fn();
+    setup({ activeToolId: 'threshold', controls: thresholdControls({ onThresholdRangeChange }) });
+
+    // The current range equals the Soft Tissue preset, so the select shows it.
+    expect((screen.getByLabelText('Threshold preset') as HTMLSelectElement).value).toBe('Soft Tissue');
+
+    fireEvent.change(screen.getByLabelText('Threshold preset'), { target: { value: 'Bone' } });
+    expect(onThresholdRangeChange).toHaveBeenCalledWith([300, 3000]);
+  });
+
+  it('shows "Custom" when the range matches no preset', () => {
+    setup({
+      activeToolId: 'threshold',
+      controls: thresholdControls({ thresholdRange: [7, 9] as [number, number] }),
+    });
+    expect((screen.getByLabelText('Threshold preset') as HTMLSelectElement).value).toBe('');
+  });
+
+  it('omits the threshold window when no range is supplied', () => {
+    setup({ activeToolId: 'threshold', controls: { activeSegmentLabel: 'Segment 2', opacity: 0.5, onOpacityChange: vi.fn() } });
+    expect(screen.queryByTestId('threshold-controls')).toBeNull();
+  });
 });

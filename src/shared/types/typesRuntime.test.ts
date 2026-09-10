@@ -4,6 +4,11 @@ import {
   CT_WL_PRESETS,
   MR_WL_PRESETS,
   PT_WL_PRESETS,
+  thresholdPresetsForModality,
+  defaultThresholdRangeForModality,
+  CT_THRESHOLD_PRESETS,
+  MR_THRESHOLD_PRESETS,
+  PT_THRESHOLD_PRESETS,
 } from './viewer';
 
 describe('presetsForModality — W/L presets scoped to modality', () => {
@@ -24,6 +29,39 @@ describe('presetsForModality — W/L presets scoped to modality', () => {
     expect(presetsForModality(undefined)).toBe(CT_WL_PRESETS);
     expect(presetsForModality('')).toBe(CT_WL_PRESETS);
     expect(presetsForModality('US')).toBe(CT_WL_PRESETS);
+  });
+});
+
+describe('thresholdPresetsForModality — threshold windows scoped to modality', () => {
+  it('returns the modality-specific set for CT / MR / PT (case + whitespace insensitive)', () => {
+    expect(thresholdPresetsForModality('CT')).toBe(CT_THRESHOLD_PRESETS);
+    expect(thresholdPresetsForModality('MR')).toBe(MR_THRESHOLD_PRESETS);
+    expect(thresholdPresetsForModality('PT')).toBe(PT_THRESHOLD_PRESETS);
+    expect(thresholdPresetsForModality(' mr ')).toBe(MR_THRESHOLD_PRESETS);
+  });
+
+  it('does not leak CT HU windows onto MR (HU is meaningless there)', () => {
+    const mr = thresholdPresetsForModality('MR');
+    expect(mr).not.toBe(CT_THRESHOLD_PRESETS);
+    expect(mr.some((p) => p.name === 'Bone')).toBe(false);
+  });
+
+  it('falls back to CT for unknown / missing modality', () => {
+    expect(thresholdPresetsForModality(undefined)).toBe(CT_THRESHOLD_PRESETS);
+    expect(thresholdPresetsForModality('US')).toBe(CT_THRESHOLD_PRESETS);
+  });
+
+  it('defaults to the first preset of the modality set, as a fresh array', () => {
+    expect(defaultThresholdRangeForModality('CT')).toEqual(CT_THRESHOLD_PRESETS[0].range);
+    expect(defaultThresholdRangeForModality('MR')).toEqual(MR_THRESHOLD_PRESETS[0].range);
+    // A copy, not the preset's own array — callers must not be able to mutate the preset.
+    expect(defaultThresholdRangeForModality('CT')).not.toBe(CT_THRESHOLD_PRESETS[0].range);
+  });
+
+  it('every preset window is a non-inverted [min, max]', () => {
+    for (const set of [CT_THRESHOLD_PRESETS, MR_THRESHOLD_PRESETS, PT_THRESHOLD_PRESETS]) {
+      for (const p of set) expect(p.range[0]).toBeLessThan(p.range[1]);
+    }
   });
 });
 

@@ -36,6 +36,14 @@ test('the context toolbox offers only the active kind’s tools; planned tools a
   await expect(toolbox.getByRole('button', { name: 'Brush', exact: true })).toBeEnabled();
   // A "planned" (registered-but-unimplemented) tool is present but DISABLED (not misapplied).
   await expect(toolbox.getByRole('button', { name: 'Dyn. Thresh', exact: true })).toBeDisabled();
+  // Circle Multi is registered and activates, but its ROI is never converted to
+  // labelmap voxels — a real drag writes NOTHING (proved in spec 78 before it was
+  // disabled). It must stay disabled until that conversion is built; re-enabling the
+  // flag alone puts a silent no-op back in front of users.
+  await expect(
+    toolbox.getByRole('button', { name: 'Circle Multi', exact: true }),
+    'Circle Multi writes no voxels — keep it disabled until ROI → labelmap is wired',
+  ).toBeDisabled();
   // A measurement-only tool is NOT meaningful for a SEG → not offered at all (D1/D3).
   await expect(toolbox.getByRole('button', { name: 'Angle', exact: true })).toHaveCount(0);
   await expect(toolbox.getByRole('button', { name: 'Probe', exact: true })).toHaveCount(0);

@@ -183,6 +183,55 @@ export function presetsForModality(modality?: string | null): WLPreset[] {
 /** Back-compat default export (the CT set). Prefer presetsForModality(). */
 export const WL_PRESETS: WLPreset[] = CT_WL_PRESETS;
 
+/** Threshold-brush intensity window: the brush writes only voxels whose source
+ *  intensity falls inside `range`. */
+export interface ThresholdPreset {
+  name: string;
+  range: [number, number];
+}
+
+/** CT threshold presets (HU-based, standard tissue windows). */
+export const CT_THRESHOLD_PRESETS: ThresholdPreset[] = [
+  { name: 'Soft Tissue', range: [-100, 300] },
+  { name: 'Bone', range: [300, 3000] },
+  { name: 'Lung / Air', range: [-1000, -400] },
+  { name: 'Fat', range: [-190, -30] },
+];
+
+/** MR threshold presets. MR intensity is acquisition-dependent (no universal scale),
+ *  so these are broad starting points to be narrowed per scan, not absolutes. */
+export const MR_THRESHOLD_PRESETS: ThresholdPreset[] = [
+  { name: 'Default', range: [0, 2000] },
+  { name: 'Bright', range: [600, 2000] },
+];
+
+/** PET threshold presets (raw stored values; SUV scaling is acquisition-dependent). */
+export const PT_THRESHOLD_PRESETS: ThresholdPreset[] = [
+  { name: 'Default', range: [0, 10000] },
+  { name: 'Hot', range: [3000, 10000] },
+];
+
+/** Threshold presets grouped by DICOM modality. */
+export const THRESHOLD_PRESET_GROUPS: Record<string, ThresholdPreset[]> = {
+  CT: CT_THRESHOLD_PRESETS,
+  MR: MR_THRESHOLD_PRESETS,
+  PT: PT_THRESHOLD_PRESETS,
+};
+
+/** The threshold presets appropriate to a DICOM modality. Unknown / other modalities
+ *  fall back to the CT set (same rule as presetsForModality). */
+export function thresholdPresetsForModality(modality?: string | null): ThresholdPreset[] {
+  const key = (modality ?? '').trim().toUpperCase();
+  return THRESHOLD_PRESET_GROUPS[key] ?? CT_THRESHOLD_PRESETS;
+}
+
+/** The default threshold window for a modality — the first preset of its set. A CT
+ *  HU window is meaningless on MR/PT, so the panel reseeds this when the active
+ *  scan's modality changes. */
+export function defaultThresholdRangeForModality(modality?: string | null): [number, number] {
+  return [...thresholdPresetsForModality(modality)[0].range] as [number, number];
+}
+
 /** Cine playback state */
 export interface CineState {
   isPlaying: boolean;

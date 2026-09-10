@@ -85,6 +85,48 @@ test('threshold brush writes only in-range voxels — fewer than a plain fill (s
     .toBeLessThan(fillCount);
 });
 
+/**
+ * The same gate, but WITHOUT the test supplying the range.
+ *
+ * The test above sets the window itself via setUnifiedBrushThreshold, which is a hook
+ * no production code path calls — so it passed for months while the shipped tool was
+ * indistinguishable from a plain fill brush (Cornerstone's threshold composition
+ * returns true for every voxel when no range is configured, i.e. it fails OPEN).
+ * This test selects the tool the way the app does and nothing else: selection alone
+ * must configure the window from the store default (CT soft tissue). Do NOT add a
+ * setThreshold call here — that is precisely the bypass this test exists to catch.
+ */
+test('selecting the threshold brush applies its window with no explicit range call', async ({ page }) => {
+  await enterLocalViewer(page);
+  const files = ensureFixture('ct-axial-anatomy');
+  await page.locator('[data-testid="local-import-input"]').setInputFiles(files);
+  await expect(page.locator('[data-testid="unified-viewport-element:panel_0"] canvas')).toBeVisible({ timeout: 30_000 });
+  await expect.poll(() => volumeReady(page), { timeout: 30_000 }).toBe(true);
+  await reset(page);
+
+  const box = (await page.locator('[data-testid="unified-viewport-element:panel_0"] canvas').boundingBox())!;
+
+  await createLabelmap(page, 'Fill SEG');
+  await setBrushSize(page, 40);
+  await setTool(page, 'Brush');
+  await centreStroke(page, box);
+  await expect.poll(() => paintedVoxels(page), { timeout: 15_000 }).toBeGreaterThan(0);
+  const fillCount = await paintedVoxels(page);
+
+  await reset(page);
+  await createLabelmap(page, 'Threshold SEG');
+  await setBrushSize(page, 40);
+  await setTool(page, 'ThresholdBrush'); // ← selection is the ONLY threshold setup
+  await centreStroke(page, box);
+
+  const thresholdCount = await expectPainted(page);
+  expect(thresholdCount, 'default window should still admit the soft-tissue voxels').toBeGreaterThan(0);
+  expect(
+    thresholdCount,
+    'selection alone must configure the window — equal counts mean the gate is open and the tool IS the fill brush',
+  ).toBeLessThan(fillCount);
+});
+
 async function expectPainted(page: Page): Promise<number> {
   await expect
     .poll(() => paintedVoxels(page), { timeout: 15_000, message: 'threshold brush should paint in-range voxels' })

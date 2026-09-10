@@ -9,7 +9,8 @@
  * (§3.4 — never a toast/banner). Behaviour injected via callbacks.
  */
 import type { ContainerKind } from '@shared/types/annotation';
-import { KIND_TOOLS_LABEL, toolsForKind } from './toolCatalog';
+import type { ThresholdPreset } from '@shared/types/viewer';
+import { KIND_TOOLS_LABEL, THRESHOLD_TOOL_ID, toolsForKind } from './toolCatalog';
 
 const KIND_COLOR: Record<ContainerKind, string> = {
   RTSTRUCT: '#ef4444', // member-name color follows the active member's swatch; default red
@@ -27,6 +28,15 @@ export interface ContextToolboxControls {
   /** Brush radius in voxels (the segmentation brush family). Omit to hide the control. */
   brushSize?: number;
   onBrushSizeChange?: (value: number) => void;
+  /**
+   * Threshold-brush intensity window [min, max] (HU on CT). Rendered only while the
+   * threshold brush is the active tool — it has no effect on any other tool. Omit to
+   * hide the control.
+   */
+  thresholdRange?: [number, number];
+  onThresholdRangeChange?: (range: [number, number]) => void;
+  /** Modality-scoped preset windows offered alongside the numeric inputs. */
+  thresholdPresets?: ThresholdPreset[];
 }
 
 const BACKUP_ROW_STYLE: Record<'saving' | 'saved' | 'error', string> = {
@@ -93,6 +103,14 @@ export default function ContextToolbox(props: ContextToolboxProps) {
   const tools = toolsForKind(kind);
   const disabled = new Set(disabledToolIds);
   const nameColor = activeMemberColor ?? KIND_COLOR[kind];
+  // The threshold window applies only to the threshold brush, so its control appears
+  // only while that tool is active (rather than sitting inert under every other tool).
+  const isThresholdActive = activeToolId === THRESHOLD_TOOL_ID;
+  const activeThresholdPreset =
+    controls?.thresholdRange &&
+    controls.thresholdPresets?.find(
+      (p) => p.range[0] === controls.thresholdRange![0] && p.range[1] === controls.thresholdRange![1],
+    )?.name;
 
   return (
     <div className="border-t border-zinc-800 bg-zinc-900/80" data-testid="context-toolbox">
@@ -164,6 +182,51 @@ export default function ContextToolbox(props: ContextToolboxProps) {
                   className="flex-1 accent-blue-500"
                 />
                 <span className="text-[10px] text-zinc-300">{controls.brushSize}px</span>
+              </div>
+            )}
+            {isThresholdActive && controls.thresholdRange && controls.onThresholdRangeChange && (
+              <div className="mt-1.5" data-testid="threshold-controls">
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-zinc-400 whitespace-nowrap">Threshold</span>
+                  <input
+                    type="number"
+                    value={controls.thresholdRange[0]}
+                    onChange={(e) =>
+                      controls.onThresholdRangeChange!([Number(e.target.value), controls.thresholdRange![1]])
+                    }
+                    aria-label="Threshold minimum"
+                    className="w-16 px-1 py-0.5 rounded bg-zinc-800 text-zinc-200 text-[10px] tabular-nums"
+                  />
+                  <span className="text-[10px] text-zinc-500">to</span>
+                  <input
+                    type="number"
+                    value={controls.thresholdRange[1]}
+                    onChange={(e) =>
+                      controls.onThresholdRangeChange!([controls.thresholdRange![0], Number(e.target.value)])
+                    }
+                    aria-label="Threshold maximum"
+                    className="w-16 px-1 py-0.5 rounded bg-zinc-800 text-zinc-200 text-[10px] tabular-nums"
+                  />
+                </div>
+                {!!controls.thresholdPresets?.length && (
+                  <div className="flex items-center gap-2 mt-1.5">
+                    <span className="text-[10px] text-zinc-400 whitespace-nowrap">Preset</span>
+                    <select
+                      value={activeThresholdPreset ?? ''}
+                      onChange={(e) => {
+                        const preset = controls.thresholdPresets!.find((p) => p.name === e.target.value);
+                        if (preset) controls.onThresholdRangeChange!([...preset.range] as [number, number]);
+                      }}
+                      aria-label="Threshold preset"
+                      className="flex-1 px-1 py-0.5 rounded bg-zinc-800 text-zinc-200 text-[10px]"
+                    >
+                      <option value="">Custom</option>
+                      {controls.thresholdPresets!.map((p) => (
+                        <option key={p.name} value={p.name}>{p.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
               </div>
             )}
           </div>

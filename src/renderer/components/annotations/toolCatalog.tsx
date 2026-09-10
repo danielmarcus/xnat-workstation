@@ -40,7 +40,12 @@ const SEG_TOOLS: ToolDef[] = [
   { id: 'region', label: 'Region', title: 'Region (smart brush)', icon: S(<><circle cx="8" cy="8" r="4" strokeDasharray="2 1.3" /><circle cx="8" cy="8" r="1.3" fill="currentColor" stroke="none" /></>) },
   { id: 'regionPlus', label: 'Region+', title: 'Region+ (adaptive smart brush)', icon: S(<><circle cx="8" cy="8" r="4" strokeDasharray="2 1.3" /><path d="M8 6v4M6 8h4" /></>) },
   { id: 'rectMulti', label: 'Rect Multi', title: 'Rectangle threshold (multi-slice) — planned', planned: true, icon: S(<><rect x="4.5" y="2.5" width="9" height="7" rx="1" /><path d="M2.5 5.5v8h9" /></>) },
-  { id: 'circleMulti', label: 'Circle Multi', title: 'Circle threshold (multi-slice)', icon: S(<><circle cx="9" cy="6" r="3.5" /><path d="M2.5 7.5v6h6" /></>) },
+  // Unwired, like its rectangle sibling above: CircleROIStartEndThresholdTool draws an
+  // ROI and computes points-inside-volume, but nothing converts that into labelmap
+  // voxels, so a completed drag writes NOTHING to the segment (verified 2026-09 —
+  // e2e spec 78). It shipped enabled while rectMulti was correctly marked planned;
+  // enabling it again requires the ROI → labelmap conversion, not just this flag.
+  { id: 'circleMulti', label: 'Circle Multi', title: 'Circle threshold (multi-slice) — planned', planned: true, icon: S(<><circle cx="9" cy="6" r="3.5" /><path d="M2.5 7.5v6h6" /></>) },
   { id: 'contourFill', label: 'Contour Fill', title: 'Contour fill (draw boundary → fill)', icon: S(<path d="M4 8c0-3 8-3 8 0s-8 3-8 0z" fill="currentColor" fillOpacity={0.25} />) },
   { id: 'select', label: 'Select', title: 'Select segment', icon: S(<path d="M4 3l8 5-3.5 1.2L7 13z" />) },
   { id: 'segBidirectional', label: 'Bidir.', title: 'Segment bidirectional measure — disabled (crashes on multi-layer-group segmentations; pending a group-aware fix)', planned: true, icon: S(<path d="M3 8h10M8 3v10" />) },
@@ -83,11 +88,15 @@ export const KIND_TOOLS_LABEL: Record<ContainerKind, string> = {
  * .isToolSupported gates that — currently Brush / FreehandContour / Length); the
  * rest activate once they're registered. `planned` tools have no mapping.
  */
+/** Catalog id of the threshold brush — the one tool whose intensity-window control
+ *  the toolbox shows conditionally. Exported so that check isn't a magic string. */
+export const THRESHOLD_TOOL_ID = 'threshold';
+
 export const CATALOG_TO_TOOLNAME: Record<string, ToolName> = {
   // Segmentation
   brush: ToolName.Brush,
   eraser: ToolName.Eraser,
-  threshold: ToolName.ThresholdBrush,
+  [THRESHOLD_TOOL_ID]: ToolName.ThresholdBrush,
   circleScissors: ToolName.CircleScissors,
   rectangleScissors: ToolName.RectangleScissors,
   sphereScissors: ToolName.SphereScissors,

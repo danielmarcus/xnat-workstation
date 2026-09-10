@@ -60,6 +60,7 @@ import {
 } from '@cornerstonejs/tools';
 import type { Types as ToolTypes } from '@cornerstonejs/tools';
 import SafePaintFillTool from './tools/SafePaintFillTool';
+import { arrowAnnotateTextCallback } from './arrowAnnotateTextPrompt';
 import { ToolName } from '@shared/types/viewer';
 import { viewportService } from './viewportService';
 import { ensureContourEditPrereq } from './contourEditPrereq';
@@ -247,9 +248,20 @@ function ensureToolGroup(): ToolTypes.IToolGroup | undefined {
     RegionSegmentTool, RegionSegmentPlusTool, SegmentBidirectionalTool,
     RectangleROIThresholdTool, CircleROIStartEndThresholdTool, LabelMapEditWithContourTool,
   ];
+  // Per-tool addTool configuration. Most of FULL_SET needs none, but a tool whose
+  // Cornerstone default is unusable in Electron must get its override HERE — the
+  // legacy group's config does not carry over, and a missing one fails silently.
+  const TOOL_CONFIG: Record<string, Record<string, unknown>> = {
+    // Without this, completing an arrow calls Cornerstone's default getTextCallback
+    // → window.prompt(), which Electron blocks, so no label prompt ever appears.
+    [ArrowAnnotateTool.toolName]: {
+      getTextCallback: arrowAnnotateTextCallback,
+      changeTextCallback: arrowAnnotateTextCallback,
+    },
+  };
   for (const Tool of FULL_SET) {
     try {
-      toolGroup.addTool(Tool.toolName);
+      toolGroup.addTool(Tool.toolName, TOOL_CONFIG[Tool.toolName]);
     } catch (err) {
       console.warn(`[unifiedToolService] addTool ${Tool.toolName} failed:`, err);
     }
@@ -332,6 +344,13 @@ export const unifiedToolService = {
         toolGroup.setActiveStrategy(BrushTool.toolName, BRUSH_STRATEGY[toolName] ?? 'FILL_INSIDE_CIRCLE');
       } catch {
         /* default strategy */
+      }
+      // The threshold strategy fails OPEN: Cornerstone's threshold composition returns
+      // `true` for every voxel when no range is configured, so THRESHOLD_INSIDE_CIRCLE
+      // without a range is byte-for-byte the plain fill brush. Push the range on every
+      // selection (same reason as the strategy above — re-selection must re-apply it).
+      if (toolName === ToolName.ThresholdBrush) {
+        unifiedToolService.setBrushThreshold(useSegmentationStore.getState().thresholdRange);
       }
     }
     if (csName === currentPrimary) {
@@ -419,17 +438,24 @@ export const unifiedToolService = {
   },
 
   /**
-   * Set the intensity range for the threshold-brush family (writes only voxels whose
-   * source intensity falls within `[min, max]`). Cornerstone applies this only to
-   * tools whose ACTIVE strategy is a threshold strategy, so select the ThresholdBrush
-   * (which sets THRESHOLD_INSIDE_CIRCLE) before calling.
+   * Set the intensity range for the threshold-brush family — the SINGLE entry point
+   * (same contract as setBrushSize): writes Cornerstone's unified tool group AND
+   * `segmentationStore.thresholdRange`, which the panel control reads and which
+   * setActiveTool replays on every ThresholdBrush selection. Callers must not write
+   * the store separately.
+   *
+   * Cornerstone applies the range only to tools whose ACTIVE strategy is a threshold
+   * strategy; setActiveTool sets THRESHOLD_INSIDE_CIRCLE before calling this.
+   * Reversed input is normalised — an inverted window would silently match nothing.
    */
   setBrushThreshold(range: [number, number]): void {
+    const ordered: [number, number] = range[0] <= range[1] ? [range[0], range[1]] : [range[1], range[0]];
     try {
-      csToolUtilities.segmentation.setBrushThresholdForToolGroup(UNIFIED_TOOL_GROUP_ID, { range } as never);
+      csToolUtilities.segmentation.setBrushThresholdForToolGroup(UNIFIED_TOOL_GROUP_ID, { range: ordered } as never);
     } catch (err) {
       console.warn('[unifiedToolService] setBrushThreshold failed:', err);
     }
+    useSegmentationStore.getState().setThresholdRange(ordered);
   },
 
   /** Enable/disable inter-slice contour interpolation live (signal 13). Idempotent. */
