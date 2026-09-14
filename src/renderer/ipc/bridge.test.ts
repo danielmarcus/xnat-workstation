@@ -23,7 +23,7 @@ describe('renderer ipc bridge', () => {
 
   it('browserLogin forwards payload to window.electronAPI.xnat.browserLogin', async () => {
     const expected = { success: true };
-    window.electronAPI.xnat.browserLogin.mockResolvedValue(expected);
+    vi.mocked(window.electronAPI.xnat.browserLogin).mockResolvedValue(expected);
 
     await expect(browserLogin({ serverUrl: 'https://xnat.example.org' })).resolves.toEqual(expected);
     expect(window.electronAPI.xnat.browserLogin).toHaveBeenCalledWith('https://xnat.example.org');
@@ -32,8 +32,8 @@ describe('renderer ipc bridge', () => {
   it('dicomwebFetch and downloadScanFile forward contract payloads', async () => {
     const fetchResponse = { ok: true, status: 200, data: [{ id: '1' }] };
     const downloadResponse = { ok: true, data: 'ZmFrZS1kaWNvbQ==' };
-    window.electronAPI.xnat.dicomwebFetch.mockResolvedValue(fetchResponse);
-    window.electronAPI.xnat.downloadScanFile.mockResolvedValue(downloadResponse);
+    vi.mocked(window.electronAPI.xnat.dicomwebFetch).mockResolvedValue(fetchResponse);
+    vi.mocked(window.electronAPI.xnat.downloadScanFile).mockResolvedValue(downloadResponse);
 
     await expect(
       dicomwebFetch({ path: '/studies', options: { accept: 'application/dicom+json' } }),
@@ -49,7 +49,7 @@ describe('renderer ipc bridge', () => {
   });
 
   it('saveViewportCapture forwards bounds/defaultName', async () => {
-    window.electronAPI.export.saveViewportCapture.mockResolvedValue({ ok: true, path: '/tmp/vp.png' });
+    vi.mocked(window.electronAPI.export.saveViewportCapture).mockResolvedValue({ ok: true, path: '/tmp/vp.png' });
 
     await expect(
       saveViewportCapture({
@@ -66,7 +66,7 @@ describe('renderer ipc bridge', () => {
 
   it('onSessionExpired subscribes to the expected channel and returns unsubscribe', () => {
     const unsubscribe = vi.fn();
-    window.electronAPI.on.mockReturnValue(unsubscribe);
+    vi.mocked(window.electronAPI.on).mockReturnValue(unsubscribe);
     const callback = vi.fn();
 
     const off = onSessionExpired(callback);

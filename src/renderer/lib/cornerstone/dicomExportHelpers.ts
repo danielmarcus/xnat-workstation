@@ -2,6 +2,7 @@ import { wadouri } from '@cornerstonejs/dicom-image-loader';
 import { data as dcmjsData } from 'dcmjs';
 import { writeDicomDict } from './writeDicomDict';
 import type { ApprovalModule } from '../annotations/approval';
+import { dcmjs as dcmjsUntyped } from '../dicom/dcmjsUntyped';
 
 declare const __APP_VERSION__: string;
 
@@ -448,7 +449,7 @@ function validateExpectedValues(
 }
 
 export function naturalizeDicomArrayBuffer(arrayBuffer: ArrayBuffer): { dataset: any; meta: any } {
-  const file = (dcmjsData as any).DicomMessage.readFile(arrayBuffer);
+  const file = dcmjsUntyped.DicomMessage.readFile(arrayBuffer);
   const dataset = (dcmjsData as any).DicomMetaDictionary.naturalizeDataset(file.dict);
   const meta = (dcmjsData as any).DicomMetaDictionary.naturalizeDataset(file.meta);
   return { dataset, meta };

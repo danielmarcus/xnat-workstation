@@ -180,6 +180,32 @@ declare global {
       createUnifiedContourSeg: (label?: string) => { segmentationId: string; segmentIndex: number };
       /** Rasterize the contour → labelmap (PolySeg) onto all unified viewports (MPR propagation). */
       syncUnifiedContourLabelmap: (segmentationId: string) => Promise<boolean>;
+      /** Swap the XNAT scan API for a scripted fake (scan-click autoload specs). */
+      installFakeXnatScanApi: (config: {
+        sessionId: string;
+        scans: unknown[];
+        filesByScanId: Record<string, string>;
+      }) => void;
+      /** Restore the real XNAT scan API after installFakeXnatScanApi. */
+      restoreXnatScanApi: () => void;
+      /** Image ids currently loaded into a panel. */
+      getPanelImageIds: (panelId: string) => string[];
+      /** Seed the DICOMweb loader's scan→imageIds map without a network round trip. */
+      primeScanImageIds: (sessionId: string, scanId: string, imageIds: string[]) => void;
+      /** Begin counting rendered frames across the given panels (perf specs). */
+      startRenderCounter: (panelIds: string[]) => void;
+      /** Read the frame counter started by startRenderCounter. */
+      readRenderCounter: () => { frames: number; elapsedMs: number };
+      /** Cornerstone cache size + image count for a panel (perf specs). */
+      getCacheStats: (panelId: string) => { cacheBytes: number; imageCount: number };
+      /** Whether the active member may be drawn on in the active viewport (D3 gate). */
+      canDrawOnActiveViewport: () => { allowed: boolean; reason?: string };
+      /** Annotation UIDs currently highlighted (hover-sync specs). */
+      getHighlightedAnnotationUIDs: () => string[];
+      /** Toggle auto-load-annotations-on-scan-click. */
+      setAutoLoadAnnotations: (enabled: boolean) => void;
+      /** Force the local-backup status row into a given state. */
+      setLocalBackupStatus: (status: 'idle' | 'saving' | 'saved' | 'error') => void;
     };
   }
 }
@@ -201,6 +227,11 @@ function getActiveSegmentationState(): ActiveSegmentationState {
     activeSegmentIndex: state.activeSegmentIndex,
   };
 }
+
+/** The slice of a contour annotation these hooks read (Cornerstone types it loosely). */
+type ContourAnnotationLike = {
+  data?: { segmentation?: { segmentationId?: string; segmentIndex?: number } };
+};
 
 function getActiveContourSnapshot(panelId = 'panel_0', targetSegmentationId?: string | null): ActiveContourSnapshot {
   const { activeSegmentationId, activeSegmentIndex } = getActiveSegmentationState();
@@ -228,9 +259,9 @@ function getActiveContourSnapshot(panelId = 'panel_0', targetSegmentationId?: st
   const allContourAnnotations = csAnnotation.state.getAllAnnotations().filter((annotation: any) => (
     typeof annotation?.metadata?.toolName === 'string'
     && annotation.metadata.toolName.includes('Contour')
-  ));
+  )) as unknown as ContourAnnotationLike[];
   const selectedAnnotationUIDs = csAnnotation.selection.getAnnotationsSelected?.() ?? [];
-  const selectedContourAnnotation = allContourAnnotations.find(
+  const selectedContourAnnotation: ContourAnnotationLike | undefined = allContourAnnotations.find(
     (annotation: any) => selectedAnnotationUIDs.includes(annotation?.annotationUID),
   );
   const resolvedActiveSegmentationId =
@@ -346,9 +377,12 @@ export function installRendererE2eHooks(): void {
       return segmentationId;
     },
     createTestContour: (panelId: string, segmentationId: string, segmentIndex = 1, provenance?: string) => {
-      const enabledElement = getEnabledElementByViewportId(panelId) as
+      // Structural view of IEnabledElement — only a few optional members are touched, and
+      // the concrete Cornerstone type does not overlap enough for a direct assertion.
+      const enabledElement = getEnabledElementByViewportId(panelId) as unknown as
         | {
             viewport?: {
+              element?: Element;
               getCurrentImageId?: () => string | null;
               getCurrentImageIdIndex?: () => number;
               getViewReference?: (options?: { sliceIndex?: number }) => Record<string, unknown> | undefined;
@@ -431,7 +465,7 @@ export function installRendererE2eHooks(): void {
               invalidated: false,
             };
 
-            const annotationGroupSelector = viewport?.element ?? panelId;
+            const annotationGroupSelector = (viewport?.element as HTMLDivElement | undefined) ?? panelId;
             csAnnotation.state.addAnnotation?.(annotation, annotationGroupSelector);
             contourRep.attachAnnotationUID(segmentationId, segmentIndex, annotationUID);
 
@@ -523,7 +557,7 @@ export function installRendererE2eHooks(): void {
         invalidated: false,
       };
 
-      const annotationGroupSelector = viewport?.element ?? panelId;
+      const annotationGroupSelector = (viewport?.element as HTMLDivElement | undefined) ?? panelId;
       csAnnotation.state.addAnnotation?.(annotation, annotationGroupSelector);
 
       contourRep.attachAnnotationUID(segmentationId, segmentIndex, annotationUID);

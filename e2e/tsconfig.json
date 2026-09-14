@@ -12,7 +12,9 @@
     "paths": {
       "@shared/*": ["src/shared/*"]
     },
-    "lib": ["ES2020"]
+    // Specs run Playwright in Node, but page.evaluate() callbacks are compiled here
+    // and execute in the RENDERER — they legitimately use window/document/getComputedStyle.
+    "lib": ["ES2020", "DOM", "DOM.Iterable"]
   },
   "include": [
     "./**/*.ts",

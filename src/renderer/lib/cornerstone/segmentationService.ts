@@ -36,6 +36,7 @@
  */
 import { eventTarget, metaData, imageLoader, cache, utilities as csUtilities, getEnabledElementByViewportId } from '@cornerstonejs/core';
 import type { Types as CoreTypes } from '@cornerstonejs/core';
+import type { Types as ToolTypes } from '@cornerstonejs/tools';
 import {
   annotation as csAnnotation,
   segmentation as csSegmentation,
@@ -954,7 +955,7 @@ function getSelectedContourAnnotation(): {
 function getCurrentImageIdForActiveViewport(): string | null {
   const viewerState = useViewerStore.getState();
   const viewportId = viewerState.activeViewportId;
-  const enabledElement = getEnabledElementByViewportId(viewportId) as
+  const enabledElement = getEnabledElementByViewportId(viewportId) as unknown as
     | { viewport?: { getCurrentImageId?: () => string | undefined } }
     | undefined;
   const currentImageId = enabledElement?.viewport?.getCurrentImageId?.();
@@ -968,14 +969,16 @@ function getCurrentImageIdForActiveViewport(): string | null {
   const viewportState = viewerState.viewports[viewportId];
   const requestedIndex = viewportState?.requestedImageIndex;
   const currentIndex = viewportState?.imageIndex ?? 0;
-  const index = Number.isInteger(requestedIndex) ? requestedIndex : currentIndex;
+  const index = typeof requestedIndex === 'number' && Number.isInteger(requestedIndex)
+    ? requestedIndex
+    : currentIndex;
   const clamped = Math.max(0, Math.min(imageIds.length - 1, index));
   return imageIds[clamped] ?? null;
 }
 
 function getActiveViewportContextForContourPaste(targetImageId: string): {
   viewportId: string;
-  annotationGroupSelector: unknown;
+  annotationGroupSelector: ToolTypes.AnnotationGroupSelector;
   viewport:
     | {
         element?: Element;
@@ -990,7 +993,9 @@ function getActiveViewportContextForContourPaste(targetImageId: string): {
   const viewportId = useViewerStore.getState().activeViewportId;
   if (!viewportId) return null;
 
-  const enabledElement = getEnabledElementByViewportId(viewportId) as
+  // Structural view of IEnabledElement: we only touch a few optional members, and the
+  // concrete Cornerstone type does not overlap enough for a direct assertion.
+  const enabledElement = getEnabledElementByViewportId(viewportId) as unknown as
     | {
       viewport?: {
         element?: Element;
@@ -1047,7 +1052,7 @@ function getActiveViewportContextForContourPaste(targetImageId: string): {
 
   return {
     viewportId,
-    annotationGroupSelector: viewport?.element ?? viewportId,
+    annotationGroupSelector: (viewport?.element as HTMLDivElement | undefined) ?? viewportId,
     viewport,
     metadata,
   };
@@ -1081,7 +1086,7 @@ function getImagePlaneInfo(imageId: string): {
   };
 }
 
-function pushContourPasteHistoryMemo(annotation: any, annotationGroupSelector: unknown, viewportId: string): void {
+function pushContourPasteHistoryMemo(annotation: any, annotationGroupSelector: ToolTypes.AnnotationGroupSelector, viewportId: string): void {
   const segmentationId = annotation?.data?.segmentation?.segmentationId;
   const segmentIndex = Number(annotation?.data?.segmentation?.segmentIndex);
   if (!segmentationId || !Number.isInteger(segmentIndex) || segmentIndex <= 0) {
@@ -1136,8 +1141,10 @@ function syncSelectedContourAnnotation(evt?: Event): void {
     : getSelectedContourAnnotation();
   if (!resolvedSelection || !isContourAnnotation(resolvedSelection.annotation)) return;
 
-  const segmentationId = resolvedSelection.annotation.data.segmentation.segmentationId!;
-  const segmentIndex = Number(resolvedSelection.annotation.data.segmentation.segmentIndex);
+  const pasted = resolvedSelection.annotation.data.segmentation;
+  if (!pasted?.segmentationId) return;
+  const segmentationId = pasted.segmentationId;
+  const segmentIndex = Number(pasted.segmentIndex);
   if (!Number.isInteger(segmentIndex) || segmentIndex <= 0) return;
   if (getSegmentationType(segmentationId) === 'labelmap') return;
 

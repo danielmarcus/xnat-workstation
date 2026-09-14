@@ -6,13 +6,14 @@ import SettingsModal from './SettingsModal';
 import { usePreferencesStore } from '../../stores/preferencesStore';
 import type { MainDiagnosticsSnapshot } from '@shared/types/diagnostics';
 import type { UpdateStatus } from '@shared/types';
+import type { HotkeyAction } from '@shared/types/hotkeys';
 
 function resetPreferencesStore(): void {
   usePreferencesStore.setState(usePreferencesStore.getInitialState(), true);
 }
 
 const clipboardWriteTextMock = vi.fn(async () => undefined);
-const updaterGetStateMock = vi.fn<[], Promise<UpdateStatus>>();
+const updaterGetStateMock = vi.fn<() => Promise<UpdateStatus>>();
 const updaterConfigureMock = vi.fn();
 const updaterCheckMock = vi.fn();
 const updaterQuitAndInstallMock = vi.fn();
@@ -159,7 +160,8 @@ describe('SettingsModal', () => {
     await user.click(screen.getByRole('checkbox', { name: 'CTRL' }));
     await user.click(screen.getByRole('button', { name: 'Set Override' }));
 
-    const selectedAction = actionSelect.value;
+    // the <select> yields a plain string; overrides is keyed by HotkeyAction
+    const selectedAction = actionSelect.value as HotkeyAction;
     const override = usePreferencesStore.getState().preferences.hotkeys.overrides[selectedAction];
     expect(override?.[0]?.key).toBe(' ');
     expect(override?.[0]?.modifiers?.ctrl).toBe(true);

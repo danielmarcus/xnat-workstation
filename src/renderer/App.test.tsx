@@ -19,21 +19,23 @@ import { clearRecoveredSessions } from './lib/app/appHelpers';
 import { cache, imageLoader, metaData } from '@cornerstonejs/core';
 import { BUILT_IN_PROTOCOLS } from '@shared/types/hangingProtocol';
 import type { UpdateStatus } from '@shared/types';
+import type { PinnedItem, RecentSession } from './lib/pinnedItems';
+import type { SegReferenceInfo } from './lib/dicom/segReferencedSeriesUid';
 
 const mocks = vi.hoisted(() => ({
   initCornerstone: vi.fn(),
   applyPreferences: vi.fn(),
-  loadPinnedItems: vi.fn(() => []),
+  loadPinnedItems: vi.fn((): PinnedItem[] => []),
   addPinnedItem: vi.fn(),
   removePinnedItem: vi.fn(),
   isPinned: vi.fn(() => false),
-  loadRecentSessions: vi.fn(() => []),
+  loadRecentSessions: vi.fn((): RecentSession[] => []),
   saveRecentSession: vi.fn(),
   removeRecentSession: vi.fn(),
   migrateOldStorage: vi.fn(),
   showConfirmDialog: vi.fn(async () => true),
   dicomwebLoader: {
-    getScanImageIds: vi.fn(async () => []),
+    getScanImageIds: vi.fn(async (): Promise<string[]> => []),
     clearScanImageIdsCache: vi.fn(),
     orderImageIdsByDicomMetadata: vi.fn(async (ids: string[]) => ids),
   },
@@ -75,7 +77,7 @@ const mocks = vi.hoisted(() => ({
     })),
     applyProtocol: vi.fn(() => ({ assignments: new Map<number, any>(), unmatched: [] })),
   },
-  getSegReferenceInfo: vi.fn(() => ({
+  getSegReferenceInfo: vi.fn((): SegReferenceInfo => ({
     referencedSeriesUID: null,
     referencedSOPInstanceUIDs: [],
   })),
@@ -645,7 +647,8 @@ describe('App', () => {
     const user = userEvent.setup();
     setConnectedConnectionState();
 
-    let resolveScanIds: ((ids: string[]) => void) | null = null;
+    // Assigned synchronously by the Promise executor below (see connectionStore.test.ts).
+    let resolveScanIds!: (ids: string[]) => void;
     mocks.dicomwebLoader.getScanImageIds.mockImplementationOnce(
       () =>
         new Promise((resolve) => {

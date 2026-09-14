@@ -9,6 +9,8 @@
 import { test, expect } from '../fixtures/electron-app';
 import { ensureFixture, enterLocalViewer, loadLocalDicom, loadCtAxialAnatomy } from '../helpers/local-fixture';
 
+type Win = { __XNAT_E2E__: { getSegmentationCount: () => number } };
+
 test.describe('Signal 24 — SEG round-trip + 3D continuity (C7, C8)', () => {
   test('a loaded multi-segment SEG lists all segments in the rebuilt panel', async ({ page }) => {
     const files = ensureFixture('seg-multilabel');
@@ -17,7 +19,7 @@ test.describe('Signal 24 — SEG round-trip + 3D continuity (C7, C8)', () => {
 
     // The hand-built SEG actually loads via the real adapter (fixture flows E2E).
     await expect
-      .poll(() => page.evaluate(() => window.__XNAT_E2E__!.getSegmentationCount()), { timeout: 20_000 })
+      .poll(() => page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.getSegmentationCount()), { timeout: 20_000 })
       .toBeGreaterThan(0);
 
     // Rebuilt panel should mount and list the loaded SEG container's 5 members.

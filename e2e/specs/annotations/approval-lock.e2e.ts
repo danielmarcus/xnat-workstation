@@ -26,7 +26,7 @@ type Win = { __XNAT_E2E__: E2EHooks };
 
 const hook = <T,>(page: Page, fn: keyof E2EHooks, ...args: unknown[]): Promise<T> =>
   page.evaluate(
-    ([name, a]) => (window as unknown as Win).__XNAT_E2E__[name as keyof E2EHooks](...(a as [])),
+    ([name, a]) => ((window as unknown as Win).__XNAT_E2E__[name as keyof E2EHooks] as unknown as (...fnArgs: unknown[]) => unknown)(...(a as unknown[])),
     [fn, args] as const,
   ) as Promise<T>;
 

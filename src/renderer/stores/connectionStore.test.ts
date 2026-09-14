@@ -28,7 +28,9 @@ function installElectronApiMocks(): MockElectronApi {
     },
     on: vi.fn(),
   };
-  (window as Window & { electronAPI?: MockElectronApi }).electronAPI = api;
+  // window.electronAPI is declared as the real ElectronAPI; the test double implements
+  // only the slice these tests touch.
+  (window as unknown as { electronAPI?: MockElectronApi }).electronAPI = api;
   return api;
 }
 
@@ -44,7 +46,9 @@ describe('useConnectionStore', () => {
 
   it('transitions through connecting to connected on successful login', async () => {
     const api = installElectronApiMocks();
-    let resolveLogin: ((value: unknown) => void) | null = null;
+    // Assigned synchronously by the Promise executor below; TS's control-flow analysis
+    // cannot see that, so assert definite assignment rather than re-checking for null.
+    let resolveLogin!: (value: unknown) => void;
     api.xnat.browserLogin.mockImplementation(
       () =>
         new Promise((resolve) => {

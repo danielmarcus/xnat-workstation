@@ -10,6 +10,8 @@
 import { test, expect } from '../../fixtures/electron-app';
 import { ensureFixture, enterLocalViewer, loadLocalDicom } from '../../helpers/local-fixture';
 
+type Win = { __XNAT_E2E__: { getSegmentationCount: () => number } };
+
 test('seg-multilabel loads as a segmentation container', async ({ page }) => {
   const files = ensureFixture('seg-multilabel'); // source slices + seg.dcm
   await enterLocalViewer(page);
@@ -17,7 +19,7 @@ test('seg-multilabel loads as a segmentation container', async ({ page }) => {
 
   await expect
     .poll(
-      () => page.evaluate(() => window.__XNAT_E2E__!.getSegmentationCount()),
+      () => page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.getSegmentationCount()),
       { timeout: 20_000, message: 'seg-multilabel should load as >=1 container' },
     )
     .toBeGreaterThan(0);

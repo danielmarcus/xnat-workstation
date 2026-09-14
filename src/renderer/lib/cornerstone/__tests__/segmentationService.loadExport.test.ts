@@ -706,7 +706,7 @@ describe('segmentationService load/export integration (mocked cornerstone)', () 
     await segmentationService.ensureContourRepresentation('panel_0', contourId);
     segIoMocks.viewportIdsBySeg.set(contourId, new Set(['panel_0']));
 
-    segIoMocks.selectionGetAnnotationsSelected.mockReturnValue(['ann-1', 'ann-2', 'ann-3'] as string[]);
+    segIoMocks.selectionGetAnnotationsSelected.mockReturnValue(['ann-1', 'ann-2', 'ann-3'] as unknown as never[]);
     segIoMocks.annotationGetAnnotation.mockImplementation((uid: string) => {
       if (uid === 'ann-1') {
         return {

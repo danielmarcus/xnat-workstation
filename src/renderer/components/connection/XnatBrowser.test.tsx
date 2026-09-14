@@ -232,14 +232,12 @@ describe('XnatBrowser', () => {
         onNavigateComplete={onNavigateComplete}
         navigateTo={{
           type: 'session',
-          serverUrl: 'https://xnat.example',
           projectId: 'P9',
           projectName: 'Pinned Project',
           subjectId: 'SUB9',
           subjectLabel: 'Pinned Subject',
           sessionId: 'SESS9',
           sessionLabel: 'Pinned Session',
-          timestamp: Date.now(),
         }}
       />,
     );
@@ -363,7 +361,7 @@ describe('XnatBrowser', () => {
 
     const user = userEvent.setup();
     const { rerender } = render(
-      <XnatBrowser onLoadSession={onLoadSession} onNavigateComplete={onNavigateComplete} />,
+      <XnatBrowser onLoadScan={vi.fn()} onLoadSession={onLoadSession} onNavigateComplete={onNavigateComplete} />,
     );
 
     // Drill down: Project A -> Subject A (sessions level)
@@ -384,18 +382,17 @@ describe('XnatBrowser', () => {
 
     rerender(
       <XnatBrowser
+        onLoadScan={vi.fn()}
         onLoadSession={onLoadSession}
         onNavigateComplete={onNavigateComplete}
         navigateTo={{
           type: 'session',
-          serverUrl: 'https://xnat.example',
           projectId: 'PB',
           projectName: 'Project B',
           subjectId: 'SUBB',
           subjectLabel: 'Subject-B',
           sessionId: 'SESSB',
           sessionLabel: 'Session-B',
-          timestamp: Date.now(),
         }}
       />,
     );

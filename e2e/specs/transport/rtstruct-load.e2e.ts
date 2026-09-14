@@ -9,6 +9,8 @@
 import { test, expect } from '../../fixtures/electron-app';
 import { ensureFixture, enterLocalViewer, loadLocalDicom } from '../../helpers/local-fixture';
 
+type Win = { __XNAT_E2E__: { getSegmentationCount: () => number } };
+
 test('rtstruct-typed loads as a structure container', async ({ page }) => {
   const files = ensureFixture('rtstruct-typed'); // source slices + rtstruct.dcm
   await enterLocalViewer(page);
@@ -17,7 +19,7 @@ test('rtstruct-typed loads as a structure container', async ({ page }) => {
   // The RTSTRUCT should parse + attach as a (contour) segmentation container.
   await expect
     .poll(
-      () => page.evaluate(() => window.__XNAT_E2E__!.getSegmentationCount()),
+      () => page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.getSegmentationCount()),
       { timeout: 20_000, message: 'rtstruct-typed should load as >=1 container' },
     )
     .toBeGreaterThan(0);

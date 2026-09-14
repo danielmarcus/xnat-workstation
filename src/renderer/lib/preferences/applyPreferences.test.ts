@@ -65,9 +65,11 @@ describe('applyPreferences', () => {
     const prefs = {
       ...DEFAULT_PREFERENCES,
       hotkeys: {
+        // HotkeyMap is Partial<Record<HotkeyAction, HotkeyBinding[]>> — action ids are
+        // namespaced and each maps to an ARRAY of bindings, not a shorthand string.
         overrides: {
-          pan: 'Ctrl+P',
-          zoom: 'Shift+Z',
+          'tool.pan': [{ key: 'p', modifiers: { ctrl: true } }],
+          'tool.zoom': [{ key: 'z', modifiers: { shift: true } }],
         },
       },
       overlay: {
@@ -89,8 +91,8 @@ describe('applyPreferences', () => {
 
     expect(mocked.setHotkeyMap).toHaveBeenCalledTimes(1);
     expect(mocked.mergeOverrides).toHaveBeenCalledWith({
-      pan: 'Ctrl+P',
-      zoom: 'Shift+Z',
+      'tool.pan': [{ key: 'p', modifiers: { ctrl: true } }],
+      'tool.zoom': [{ key: 'z', modifiers: { shift: true } }],
     });
     expect(mocked.setHotkeyMap.mock.invocationCallOrder[0]).toBeLessThan(
       mocked.mergeOverrides.mock.invocationCallOrder[0],

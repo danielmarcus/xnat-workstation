@@ -11,6 +11,16 @@ type DataSetCacheManagerLike = {
   get: (uri: string) => DataSetLike | undefined;
 };
 
+/**
+ * The shipped dicom-image-loader .d.ts declares `load(uri, loadRequest, imageId)` with a
+ * REQUIRED second argument, but its implementation is `load(uri, loadRequest = xhrRequest,
+ * imageId)` — passing `undefined` is the supported way to take the default. One cast at the
+ * seam records that, instead of casting at every call site.
+ */
+function asCacheManager(m: typeof wadouri.dataSetCacheManager): DataSetCacheManagerLike {
+  return m as unknown as DataSetCacheManagerLike;
+}
+
 type ScanIdsLoader = (sessionId: string, scanId: string) => Promise<string[]>;
 
 const recoveredSessions = new Set<string>();
@@ -169,7 +179,8 @@ export async function getSeriesUidForImageId(
   },
 ): Promise<string | null> {
   const metadataGet = opts?.metadataGet ?? metaData.get.bind(metaData);
-  const dataSetCacheManager = opts?.dataSetCacheManager ?? wadouri.dataSetCacheManager;
+  const dataSetCacheManager: DataSetCacheManagerLike =
+    opts?.dataSetCacheManager ?? asCacheManager(wadouri.dataSetCacheManager);
   const seriesMeta = metadataGet('generalSeriesModule', imageId) as
     | { seriesInstanceUID?: string }
     | undefined;
@@ -178,6 +189,8 @@ export async function getSeriesUidForImageId(
   try {
     const uri = toWadouriUri(imageId);
     if (!dataSetCacheManager.isLoaded(uri)) {
+      // `undefined` selects the loader's own default request fn (its implementation is
+      // `load(uri, loadRequest = xhrRequest, imageId)`).
       await dataSetCacheManager.load(uri, undefined, imageId);
     }
     const ds = dataSetCacheManager.get(uri);
@@ -195,7 +208,8 @@ export async function getSopInstanceUidForImageId(
   },
 ): Promise<string | null> {
   const metadataGet = opts?.metadataGet ?? metaData.get.bind(metaData);
-  const dataSetCacheManager = opts?.dataSetCacheManager ?? wadouri.dataSetCacheManager;
+  const dataSetCacheManager: DataSetCacheManagerLike =
+    opts?.dataSetCacheManager ?? asCacheManager(wadouri.dataSetCacheManager);
   const fromImageId = extractObjectUidFromImageId(imageId);
   if (fromImageId) return fromImageId;
 
@@ -207,6 +221,8 @@ export async function getSopInstanceUidForImageId(
   try {
     const uri = toWadouriUri(imageId);
     if (!dataSetCacheManager.isLoaded(uri)) {
+      // `undefined` selects the loader's own default request fn (its implementation is
+      // `load(uri, loadRequest = xhrRequest, imageId)`).
       await dataSetCacheManager.load(uri, undefined, imageId);
     }
     const ds = dataSetCacheManager.get(uri);

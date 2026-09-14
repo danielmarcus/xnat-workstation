@@ -166,7 +166,7 @@ describe('SafePaintFillTool', () => {
     };
     toolMocks.getEnabledElement.mockReturnValue({ viewport });
     toolMocks.getSegmentation.mockReturnValue({
-      representationData: { Labelmap: {} },
+      representationData: { Labelmap: {} as { volumeId: string } },
     });
 
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});

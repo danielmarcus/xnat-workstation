@@ -100,7 +100,6 @@ describe('buildIssueReport', () => {
     useViewerStore.setState({
       activeViewportId: 'panel_0',
       layout: '2x1',
-      mprActive: true,
       panelImageIdsMap: { panel_0: ['img:1', 'img:2'], panel_1: [] },
     });
     useSegmentationStore.setState({
