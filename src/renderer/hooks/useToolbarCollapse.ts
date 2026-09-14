@@ -1,6 +1,5 @@
 /**
- * useToolbarCollapse — ResizeObserver-based hook that determines how much the
- * toolbar should collapse based on available width.
+ * useToolbarCollapse — how far the toolbar should collapse for the available width.
  *
  * Collapse levels (frozen toolbar §10 group order — viewer controls collapse from
  * least-essential to most-essential; the leftSlot, Layout/Hanging, Undo/Redo, Annotate
@@ -11,19 +10,62 @@
  *   3 = transform group collapsed
  *   4 = navigation group collapsed
  *
- * Collapse order is least-essential → most-essential. The leftSlot, Layout/Hanging,
- * Undo/Redo, and the right group (Annotate · Tags · Settings) stay inline; only the
- * measured center groups (cine, transform, navigation) fold into icon-trigger popovers.
+ * ── Why this is a lookup and not a measure-and-react loop ──────────────────────────
  *
- * Strategy: collapse one level at a time, re-render, then re-measure. Each
- * level records the scrollWidth that triggered the collapse. When the
- * container later grows wider than a stored threshold, we expand back. Below the
- * fully-collapsed width the window itself stops shrinking (BrowserWindow minWidth).
+ * It used to measure the centre content's `scrollWidth` against its `clientWidth`,
+ * collapse a level on overflow, and store the overflowing width as the threshold to
+ * expand back at. That flickered while dragging the window wider: labels appeared, then
+ * vanished, then appeared again (~1480–1550px).
+ *
+ * Two measured reasons, both fatal to that design:
+ *
+ *  1. `scrollWidth` could never report overflow. The centre content is a flex row whose
+ *     children shrink, so `scrollWidth === clientWidth` at every window size (900/900,
+ *     1480/1480, 1600/1600 — while the true requirement at 900px was 988). The overflow
+ *     test was structurally blind, so collapse ran on transient mid-layout numbers and
+ *     the stored thresholds were those bogus values.
+ *
+ *  2. The measurement was an OUTPUT of the decision. The right group (Annotate · Tags ·
+ *     Settings) is 203px wide with labels and 119px without, so collapsing to level 1
+ *     hands 84px BACK to the centre region being measured. Expanding therefore shrinks
+ *     the space that justified expanding — a feedback loop that oscillates by
+ *     construction, no matter how accurate the measurement is.
+ *
+ * So the level is now a pure function of the toolbar's OUTER width, which nothing about
+ * collapsing can change. A monotonic function of width cannot be non-monotonic, so
+ * flicker is impossible rather than merely unlikely.
+ *
+ * ── The numbers ───────────────────────────────────────────────────────────────────
+ *
+ * Measured, not invented (2026-09-14). Each level's intrinsic content width came from
+ * rendering the real toolbar at that level and reading it at `max-content`; the right
+ * group's width was added to convert to whole-toolbar width:
+ *
+ *   level 0: 1342 content + 203 right group = 1545
+ *   level 1: 1227 + 119 = 1346
+ *   level 2: 1133 + 119 = 1252
+ *   level 3: 1043 + 119 = 1162
+ *   level 4: 869 + 119 = 988   (floor; BrowserWindow minWidth stops us here)
+ *
+ * plus a 10px rounding margin. These do NOT self-adjust: adding or widening a toolbar
+ * item means re-measuring. Two E2E specs guard that — the monotonic sweep in
+ * `viewport/toolbar-collapse-monotonic` and the clipped-text invariant, which fails if a
+ * threshold is set too generously for the content.
  */
 import { useState, useLayoutEffect, useRef, useCallback, type RefObject } from 'react';
 
 const MAX_LEVEL = 4;
-const HYSTERESIS_PX = 20;
+
+/**
+ * Minimum whole-toolbar width for each level, widest first. The first entry whose width
+ * fits wins; below every entry we are at MAX_LEVEL.
+ */
+export const LEVEL_MIN_WIDTHS: ReadonlyArray<{ level: number; minWidth: number }> = [
+  { level: 0, minWidth: 1555 },
+  { level: 1, minWidth: 1356 },
+  { level: 2, minWidth: 1262 },
+  { level: 3, minWidth: 1172 },
+];
 
 const GROUP_COLLAPSE_LEVELS: Record<string, number> = {
   cine: 2,
@@ -37,44 +79,34 @@ export interface CollapseState {
   isGroupCollapsed: (groupId: string) => boolean;
 }
 
+/**
+ * The collapse level for a whole-toolbar width. Pure, and monotonic in `width`.
+ *
+ * A non-positive width means "not laid out yet" (first paint, a detached node, jsdom)
+ * rather than "extremely narrow" — collapsing on that would flash a fully-collapsed
+ * toolbar before the first real measurement. Assume full until we know otherwise.
+ */
+export function levelForWidth(width: number): number {
+  if (!Number.isFinite(width) || width <= 0) return 0;
+  for (const { level, minWidth } of LEVEL_MIN_WIDTHS) {
+    if (width >= minWidth) return level;
+  }
+  return MAX_LEVEL;
+}
+
+/**
+ * @param containerRef the OUTER toolbar element. It must be an element whose width is
+ * independent of the collapse level — passing the centre content re-introduces the
+ * feedback loop described above.
+ */
 export function useToolbarCollapse(containerRef: RefObject<HTMLDivElement | null>): CollapseState {
   const [collapseLevel, setCollapseLevel] = useState(0);
-  const levelRef = useRef(0);
   const rafRef = useRef<number | null>(null);
-
-  // expandThresholds[n] = the scrollWidth observed at level n when it
-  // overflowed. When clientWidth later exceeds this, we can expand back.
-  const expandThresholds = useRef<number[]>([]);
 
   const update = useCallback(() => {
     const el = containerRef.current;
     if (!el) return;
-
-    const available = el.clientWidth;
-    const needed = el.scrollWidth;
-    let next = levelRef.current;
-
-    if (needed > available && next < MAX_LEVEL) {
-      // Content overflows — record threshold and collapse ONE level.
-      // After re-render, the cascade effect will check again.
-      expandThresholds.current[next] = needed;
-      next++;
-    } else {
-      // Try to expand: check thresholds from current level downward.
-      while (next > 0) {
-        const threshold = expandThresholds.current[next - 1];
-        if (threshold != null && available >= threshold + HYSTERESIS_PX) {
-          next--;
-        } else {
-          break;
-        }
-      }
-    }
-
-    if (next !== levelRef.current) {
-      levelRef.current = next;
-      setCollapseLevel(next);
-    }
+    setCollapseLevel(levelForWidth(el.clientWidth));
   }, [containerRef]);
 
   useLayoutEffect(() => {
@@ -86,8 +118,6 @@ export function useToolbarCollapse(containerRef: RefObject<HTMLDivElement | null
       rafRef.current = requestAnimationFrame(update);
     });
     observer.observe(el);
-
-    // Initial measurement.
     update();
 
     return () => {
@@ -95,18 +125,6 @@ export function useToolbarCollapse(containerRef: RefObject<HTMLDivElement | null
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
     };
   }, [containerRef, update]);
-
-  // After collapsing one level, re-measure on the next frame to see if
-  // another level is needed. Only cascade upward (increasing level).
-  const prevLevelRef = useRef(0);
-  if (collapseLevel !== prevLevelRef.current) {
-    const increased = collapseLevel > prevLevelRef.current;
-    prevLevelRef.current = collapseLevel;
-    if (increased) {
-      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
-      rafRef.current = requestAnimationFrame(update);
-    }
-  }
 
   const isGroupCollapsed = useCallback(
     (groupId: string): boolean => {

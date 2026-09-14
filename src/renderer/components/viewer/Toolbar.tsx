@@ -518,8 +518,10 @@ export default function Toolbar({
   // Organized collapse: as the window narrows, hide labels (level 1) then fold the
   // center groups into icon-trigger popovers (cine → transform → navigation). The
   // BrowserWindow minWidth stops the window shrinking past the fully-collapsed width.
-  const toolbarContentRef = useRef<HTMLDivElement>(null);
-  const { textCollapsed, isGroupCollapsed } = useToolbarCollapse(toolbarContentRef);
+  // Observe the OUTER toolbar: its width is an input, unaffected by collapsing. Measuring
+  // the centre content instead created a feedback loop (see useToolbarCollapse).
+  const toolbarRef = useRef<HTMLDivElement>(null);
+  const { collapseLevel, textCollapsed, isGroupCollapsed } = useToolbarCollapse(toolbarRef);
 
   // Open Settings to a specific tab when requested by parent (e.g. banner link)
   useEffect(() => {
@@ -553,9 +555,9 @@ export default function Toolbar({
       {/* Frozen toolbar §10 styling, with organized collapse: the measured center
           content (overflow-hidden) folds groups into icon-trigger popovers as it
           narrows; the right group (Annotate · Tags · Settings) stays inline. */}
-      <div data-testid="toolbar" className="h-10 bg-zinc-900 border-b border-zinc-800 flex items-center shrink-0">
+      <div ref={toolbarRef} data-testid="toolbar" className="h-10 bg-zinc-900 border-b border-zinc-800 flex items-center shrink-0">
         <div className="flex-1 min-w-0">
-          <div ref={toolbarContentRef} className="flex items-center gap-1 px-2 overflow-hidden text-zinc-300">
+          <div data-collapse-level={collapseLevel} className="flex items-center gap-1 px-2 overflow-hidden text-zinc-300">
 
             {/* Logo · connection chip · Import · Export · Favorites (supplied by App). */}
             {leftSlot}
