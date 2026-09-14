@@ -120,3 +120,40 @@ test('the chosen level always renders intact', async ({ page }) => {
     expect(r.cutOff, `content cut off by ${r.cutOff}px at ${w}px (level ${r.level})`).toBeLessThanOrEqual(0);
   }
 });
+
+/**
+ * Narrowing must FOLD items into their group dropdown, never drop them.
+ *
+ * Regression: a broken overflow check in calibration (`button:last-of-type` matches the
+ * first element that is the last button among ITS siblings, not the rightmost button in
+ * the toolbar) meant cut-off items went undetected. Calibration therefore thought the
+ * full layout still fitted, the groups never collapsed, and toolbar items were simply
+ * clipped away by the content box's hidden overflow — visibly gone, and unreachable.
+ */
+test('narrow toolbar folds groups into reachable dropdowns', async ({ page }) => {
+  await loadFixture(page, 'ct-axial-300', 'panel_0');
+  await page.setViewportSize({ width: MIN_WINDOW_WIDTH + 50, height: 900 });
+  await page.waitForTimeout(400);
+
+  const toolbar = page.locator('[data-testid="toolbar"]');
+  const trigger = toolbar.locator('[data-group-trigger="navigation"]');
+  await expect(trigger, 'the navigation group should fold into a trigger when narrow').toBeVisible();
+
+  // Nothing may be clipped out of the content box — items fold, they do not vanish.
+  const cutOff = await page.evaluate(() => {
+    const content = document.querySelector<HTMLElement>('[data-toolbar-content]')!;
+    const right = content.getBoundingClientRect().right;
+    return Array.from(content.querySelectorAll('button'))
+      .filter((b) => { const r = b.getBoundingClientRect(); return r.width > 0 && r.height > 0; })
+      .filter((b) => b.getBoundingClientRect().right > right + 0.5)
+      .map((b) => b.getAttribute('title') ?? b.textContent?.trim() ?? '?');
+  });
+  expect(cutOff, `buttons clipped out of the toolbar instead of folding: ${cutOff.join(', ')}`).toEqual([]);
+
+  // The folded items are still reachable through the dropdown.
+  await trigger.click();
+  await expect(
+    page.getByRole('button', { name: /Pan/ }).first(),
+    'navigation tools should be reachable inside the dropdown',
+  ).toBeVisible({ timeout: 5000 });
+});

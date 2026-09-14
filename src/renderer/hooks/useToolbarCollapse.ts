@@ -71,9 +71,17 @@ export interface CollapseState {
   isGroupCollapsed: (groupId: string) => boolean;
 }
 
-/** Smallest width probed, and the step the search resolves to. */
+/** Search bounds and the step the binary search resolves to. */
 const SEARCH_FLOOR = 600;
 const SEARCH_PRECISION = 16;
+/**
+ * Upper bound of the search. Deliberately a constant well beyond any real window rather
+ * than the CURRENT width: using the current width as the ceiling meant a toolbar
+ * calibrated in a narrow window could never discover that a level needs MORE than that
+ * window, so it concluded everything fitted and never collapsed — items were then clipped
+ * away by the content box's hidden overflow instead of folding into their dropdowns.
+ */
+const SEARCH_CEILING = 3000;
 
 /**
  * Does the toolbar render intact at its current width — nothing clipped, nothing pushed
@@ -94,9 +102,18 @@ function rendersIntact(root: HTMLElement, content: HTMLElement): boolean {
     if (needed > box + 0.5) return false;
   }
   // Anything pushed past the right edge of the (overflow-hidden) content box is cut off
-  // without ever ellipsizing, so the text check alone would miss it.
-  const last = content.querySelector('button:last-of-type');
-  if (last && last.getBoundingClientRect().right > content.getBoundingClientRect().right + 0.5) return false;
+  // without ever ellipsizing, so the text check alone would miss it. Take the RIGHTMOST
+  // item: `button:last-of-type` looks like it would do this but does not — it matches the
+  // first element that is the last button among ITS siblings, which for a nested toolbar
+  // is an early button, so cut-off items went undetected and the toolbar under-collapsed.
+  const contentRight = content.getBoundingClientRect().right;
+  let rightmost = -Infinity;
+  for (const el of Array.from(content.querySelectorAll<HTMLElement>('button'))) {
+    const r = el.getBoundingClientRect();
+    if (r.width === 0 && r.height === 0) continue; // display:none (a collapsed group)
+    if (r.right > rightmost) rightmost = r.right;
+  }
+  if (rightmost > contentRight + 0.5) return false;
   void root;
   return true;
 }
@@ -123,7 +140,7 @@ export function measureLevelWidths(root: HTMLElement): number[] {
   const prevGroups = root.getAttribute('data-collapsed-groups');
   const prevWidth = root.style.width;
 
-  const ceiling = Math.ceil(root.getBoundingClientRect().width) || 1920;
+  const ceiling = SEARCH_CEILING;
   const widths: number[] = [];
 
   for (let level = 0; level <= MAX_LEVEL; level++) {
