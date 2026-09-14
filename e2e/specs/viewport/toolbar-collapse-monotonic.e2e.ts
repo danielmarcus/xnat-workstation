@@ -77,50 +77,46 @@ test('no toolbar label is clipped at any collapse level', async ({ page }) => {
 });
 
 /**
- * Guards the threshold table against toolbar drift.
+ * Whatever level the toolbar picks, at any width, it must render INTACT — no clipped
+ * label, nothing pushed out of the hidden overflow.
  *
- * LEVEL_MIN_WIDTHS does not self-adjust: add or widen a toolbar item and the thresholds
- * silently become too generous, so the bar renders at a level it no longer fits. The
- * clipped-text check above catches that only incidentally — measured, adding two labelled
- * buttons overflowed by 155px but reported just ONE clipped label, because the rest were
- * pushed out of the hidden overflow entirely rather than ellipsized.
- *
- * This asserts the thing that matters: at the narrowest width where a level is chosen,
- * the content that level renders must FIT. The boundaries are DISCOVERED by sweeping, not
- * copied from the hook — a duplicated table would go stale the moment the hook's changed,
- * and the test would then be checking widths the app no longer uses.
- *
- * On failure: re-measure and update LEVEL_MIN_WIDTHS (derivation in useToolbarCollapse).
+ * This replaces an earlier guard that asserted several collapse levels appear across a
+ * sweep. That assumption stopped holding once calibration switched from `max-content` to
+ * a real fit test: level 0 now fits across the whole supported width range, so the levels
+ * below it are rarely reached. Asserting "several levels appear" would have been testing
+ * the calibration's incidental output rather than the property that matters.
  */
-test('every collapse threshold is wide enough for the content it renders', async ({ page }) => {
+test('the chosen level always renders intact', async ({ page }) => {
   await loadFixture(page, 'ct-axial-300', 'panel_0');
 
-  const readLevel = () =>
-    page.evaluate(() => Number(document.querySelector('[data-collapse-level]')!.getAttribute('data-collapse-level')));
-
-  // Discover the narrowest width at which each level is still chosen.
-  const boundary = new Map<number, number>();
-  for (let w = 1800; w >= MIN_WINDOW_WIDTH; w -= 2) {
+  for (let w = 1800; w >= MIN_WINDOW_WIDTH; w -= 50) {
     await page.setViewportSize({ width: w, height: 900 });
-    const level = await readLevel();
-    boundary.set(level, w); // keep overwriting → ends up the narrowest for that level
-  }
-  expect(boundary.size, 'expected several collapse levels across the sweep').toBeGreaterThan(1);
+    await page.waitForTimeout(120);
 
-  for (const [level, minWidth] of [...boundary.entries()].sort((a, b) => a[0] - b[0])) {
-    await page.setViewportSize({ width: minWidth, height: 900 });
-    await page.waitForTimeout(150);
-    const m = await page.evaluate(() => {
-      const inner = document.querySelector<HTMLElement>('[data-collapse-level]')!;
-      const pw = inner.style.width, po = inner.style.overflow;
-      inner.style.width = 'max-content'; inner.style.overflow = 'visible';
-      const intrinsic = Math.ceil(inner.getBoundingClientRect().width);
-      inner.style.width = pw; inner.style.overflow = po;
-      return { intrinsic, available: inner.clientWidth };
+    const r = await page.evaluate(() => {
+      const root = document.querySelector<HTMLElement>('[data-testid="toolbar"]')!;
+      const content = document.querySelector<HTMLElement>('[data-toolbar-content]')!;
+      const clipped: string[] = [];
+      for (const el of Array.from(content.querySelectorAll<HTMLElement>('*'))) {
+        if (el.children.length) continue;
+        const t = (el.textContent ?? '').trim();
+        if (!t) continue;
+        const box = el.getBoundingClientRect().width;
+        const prev = el.getAttribute('style') ?? '';
+        el.style.width = 'auto'; el.style.maxWidth = 'none';
+        el.style.overflow = 'visible'; el.style.whiteSpace = 'nowrap';
+        const needed = el.getBoundingClientRect().width;
+        el.setAttribute('style', prev);
+        if (needed > box + 0.5) clipped.push(t);
+      }
+      const last = content.querySelector('button:last-of-type');
+      const cutOff = last
+        ? Math.ceil(last.getBoundingClientRect().right - content.getBoundingClientRect().right)
+        : 0;
+      return { level: root.getAttribute('data-collapse-level'), clipped, cutOff };
     });
-    expect(
-      m.intrinsic,
-      `level ${level} is chosen down to ${minWidth}px, but its content needs ${m.intrinsic}px and only ${m.available}px is available — re-measure LEVEL_MIN_WIDTHS`,
-    ).toBeLessThanOrEqual(m.available);
+
+    expect(r.clipped, `clipped at ${w}px (level ${r.level}): ${r.clipped.join(', ')}`).toEqual([]);
+    expect(r.cutOff, `content cut off by ${r.cutOff}px at ${w}px (level ${r.level})`).toBeLessThanOrEqual(0);
   }
 });

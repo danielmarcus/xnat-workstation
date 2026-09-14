@@ -24,20 +24,23 @@
  *     it is why dragging the window wider made labels flicker (~1480–1550px).
  *
  *  2. **Self-derived thresholds.** Calibration toggles the collapse attributes through
- *     every level and reads the intrinsic width at each, in ONE synchronous pass with no
- *     paint in between. Add or remove a toolbar item and the numbers re-derive. A
- *     previous fix hardcoded them, which worked but went stale the moment the toolbar
- *     changed.
+ *     every level and binary-searches the narrowest width that still renders intact, all
+ *     synchronously with no paint in between. Add or remove a toolbar item and the
+ *     numbers re-derive. A previous fix hardcoded them, which worked but went stale the
+ *     moment the toolbar changed.
+ *
+ * The requirement per level is the narrowest width that still renders INTACT (binary
+ * search on a clipping test), not the `max-content` width — max-content reports where
+ * nothing is compressed at all, which for this toolbar overstated level 0 by ~500px.
  *
  * Calibration is only possible because collapse is CSS-driven (`data-text-collapsed` /
  * `data-collapsed-groups`, see globals.css): every level's content is always in the DOM.
  * While it was conditional rendering, a collapsed level's content did not exist and only
  * the level currently on screen could be measured.
  *
- * `scrollWidth` is never used: the centre content is a flex row whose children shrink,
- * so scrollWidth === clientWidth at every window size (900/900, 1480/1480, 1600/1600
- * measured, while the true requirement at 900px was 988). Intrinsic width is read at
- * `max-content` instead.
+ * `scrollWidth` is never used: the centre content is a flex row whose children shrink, so
+ * scrollWidth === clientWidth at every window size (900/900, 1480/1480, 1600/1600
+ * measured). For the same reason `max-content` is not used either — see measureLevelWidths.
  */
 import { useState, useLayoutEffect, useRef, useCallback, type RefObject } from 'react';
 
@@ -68,29 +71,84 @@ export interface CollapseState {
   isGroupCollapsed: (groupId: string) => boolean;
 }
 
+/** Smallest width probed, and the step the search resolves to. */
+const SEARCH_FLOOR = 600;
+const SEARCH_PRECISION = 16;
+
 /**
- * Width each level needs, widest (least collapsed) first. Measured by rendering the real
- * toolbar at every level and reading it at `max-content`; the style is restored before
- * the function returns, so nothing is painted mid-measurement.
+ * Does the toolbar render intact at its current width — nothing clipped, nothing pushed
+ * out of the overflow? This is the real fit test.
+ */
+function rendersIntact(root: HTMLElement, content: HTMLElement): boolean {
+  for (const el of Array.from(content.querySelectorAll<HTMLElement>('*'))) {
+    if (el.children.length) continue;
+    if (!(el.textContent ?? '').trim()) continue;
+    const box = el.getBoundingClientRect().width;
+    const prev = el.getAttribute('style') ?? '';
+    el.style.width = 'auto';
+    el.style.maxWidth = 'none';
+    el.style.overflow = 'visible';
+    el.style.whiteSpace = 'nowrap';
+    const needed = el.getBoundingClientRect().width;
+    el.setAttribute('style', prev);
+    if (needed > box + 0.5) return false;
+  }
+  // Anything pushed past the right edge of the (overflow-hidden) content box is cut off
+  // without ever ellipsizing, so the text check alone would miss it.
+  const last = content.querySelector('button:last-of-type');
+  if (last && last.getBoundingClientRect().right > content.getBoundingClientRect().right + 0.5) return false;
+  void root;
+  return true;
+}
+
+/**
+ * Width each level needs, widest (least collapsed) first.
+ *
+ * The requirement is the narrowest width at which the level still renders INTACT, found
+ * by binary search. It is emphatically NOT the `max-content` width: this toolbar is a
+ * flex row that compresses gracefully, so max-content reports the width at which nothing
+ * is squeezed at all — measured, that was 1545px for level 0 while level 0 in fact
+ * renders perfectly down to ~1050px. Calibrating on max-content therefore hid the labels
+ * while ~500px of usable space sat visibly empty, and kept them hidden when the window
+ * was widened again.
+ *
+ * ~6 probes per level, on mount and on content change only — never per frame. The style
+ * is restored before returning, so nothing is painted mid-search.
  */
 export function measureLevelWidths(root: HTMLElement): number[] {
+  const content = root.querySelector<HTMLElement>('[data-toolbar-content]');
+  if (!content) return [];
+
   const prevText = root.getAttribute('data-text-collapsed');
   const prevGroups = root.getAttribute('data-collapsed-groups');
   const prevWidth = root.style.width;
-  const prevOverflow = root.style.overflow;
 
+  const ceiling = Math.ceil(root.getBoundingClientRect().width) || 1920;
   const widths: number[] = [];
+
   for (let level = 0; level <= MAX_LEVEL; level++) {
     const { textCollapsed, collapsedGroups } = attributesForLevel(level);
     root.setAttribute('data-text-collapsed', String(textCollapsed));
     root.setAttribute('data-collapsed-groups', collapsedGroups);
-    root.style.width = 'max-content';
-    root.style.overflow = 'visible';
-    widths[level] = Math.ceil(root.getBoundingClientRect().width);
+
+    let low = SEARCH_FLOOR;
+    let high = Math.max(ceiling, SEARCH_FLOOR + SEARCH_PRECISION);
+    root.style.width = `${high}px`;
+    if (!rendersIntact(root, content)) {
+      // Even at the ceiling it does not fit; nothing narrower will.
+      widths[level] = high;
+      continue;
+    }
+    while (high - low > SEARCH_PRECISION) {
+      const mid = Math.floor((low + high) / 2);
+      root.style.width = `${mid}px`;
+      if (rendersIntact(root, content)) high = mid;
+      else low = mid;
+    }
+    widths[level] = high;
   }
 
   root.style.width = prevWidth;
-  root.style.overflow = prevOverflow;
   if (prevText === null) root.removeAttribute('data-text-collapsed');
   else root.setAttribute('data-text-collapsed', prevText);
   if (prevGroups === null) root.removeAttribute('data-collapsed-groups');
