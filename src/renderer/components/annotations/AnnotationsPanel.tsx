@@ -4,11 +4,19 @@
  * is what ViewerPage mounts (replacing the legacy SegmentationPanel on the Segment
  * toggle). The frozen-mockup visual contract is verified against this live render.
  */
+import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import AnnotationsSidePanel from './AnnotationsSidePanel';
 import ContainerList from './ContainerList';
 import ContextToolbox from './ContextToolbox';
 import { ConfirmDialog, ConflictDialog, ReviewUnsavedDialog } from './dialogs';
 import { useAnnotationsPanel } from '../../hooks/useAnnotationsPanel';
+import { usePreferencesStore } from '../../stores/preferencesStore';
+import {
+  ANNOTATION_PANEL_MIN_WIDTH,
+  ANNOTATION_PANEL_MAX_WIDTH,
+  ANNOTATION_PANEL_COMPACT_TOOLS_WIDTH,
+  clampAnnotationPanelWidth,
+} from '@shared/types/preferences';
 
 export interface AnnotationsPanelProps {
   activeViewportId: string;
@@ -17,6 +25,46 @@ export interface AnnotationsPanelProps {
 
 export default function AnnotationsPanel({ activeViewportId, sourceImageIds }: AnnotationsPanelProps) {
   const panel = useAnnotationsPanel(activeViewportId, sourceImageIds);
+
+  // Resizable width (spec §4.1). The persisted value survives reloads; `dragWidth`
+  // holds the in-flight value so the store isn't written on every pointermove.
+  const persistedWidth = usePreferencesStore((s) => s.preferences.annotationPanel.width);
+  const setAnnotationPanelWidth = usePreferencesStore((s) => s.setAnnotationPanelWidth);
+  const [dragWidth, setDragWidth] = useState<number | null>(null);
+  const panelWidth = clampAnnotationPanelWidth(dragWidth ?? persistedWidth);
+  const panelRootRef = useRef<HTMLDivElement | null>(null);
+
+  // Below this width the toolbox drops labels and shows icons only; between here and
+  // the default width the labels simply ellipsize.
+  const compactTools = panelWidth < ANNOTATION_PANEL_COMPACT_TOOLS_WIDTH;
+
+  // Drag handle on the LEFT edge: the panel's right edge is anchored to the window, so
+  // width = rightEdge - cursorX.
+  const onResizeHandlePointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const target = e.currentTarget;
+    // setPointerCapture is absent in jsdom; guard for tests and for safety.
+    if (typeof target.setPointerCapture === 'function') {
+      try { target.setPointerCapture(e.pointerId); } catch { /* noop */ }
+    }
+    const panelEl = panelRootRef.current;
+    if (!panelEl) return;
+    const rightEdge = panelEl.getBoundingClientRect().right;
+    const handleMove = (ev: PointerEvent) => setDragWidth(clampAnnotationPanelWidth(rightEdge - ev.clientX));
+    const handleUp = (ev: PointerEvent) => {
+      if (typeof target.releasePointerCapture === 'function') {
+        try { target.releasePointerCapture(e.pointerId); } catch { /* noop */ }
+      }
+      target.removeEventListener('pointermove', handleMove);
+      target.removeEventListener('pointerup', handleUp);
+      target.removeEventListener('pointercancel', handleUp);
+      setDragWidth(null);
+      setAnnotationPanelWidth(clampAnnotationPanelWidth(rightEdge - ev.clientX));
+    };
+    target.addEventListener('pointermove', handleMove);
+    target.addEventListener('pointerup', handleUp);
+    target.addEventListener('pointercancel', handleUp);
+  };
 
   const toolbox = panel.toolbox ? (
     <ContextToolbox
@@ -28,11 +76,30 @@ export default function AnnotationsPanel({ activeViewportId, sourceImageIds }: A
       controls={panel.toolbox.controls}
       backupStatus={panel.backupStatus?.text}
       backupStatusKind={panel.backupStatus?.kind}
+      compact={compactTools}
     />
   ) : undefined;
 
   return (
-    <div className="w-72 shrink-0 h-full">
+    <div
+      ref={panelRootRef}
+      data-testid="annotations-panel-root"
+      data-panel-width={panelWidth}
+      style={{ width: `${panelWidth}px` }}
+      className="shrink-0 h-full relative"
+    >
+      {/* Left-edge drag handle (spec §4.1): 4px hit area, 1px accent on hover. */}
+      <div
+        data-testid="annotations-panel-resize-handle"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize annotations panel"
+        aria-valuemin={ANNOTATION_PANEL_MIN_WIDTH}
+        aria-valuemax={ANNOTATION_PANEL_MAX_WIDTH}
+        aria-valuenow={panelWidth}
+        onPointerDown={onResizeHandlePointerDown}
+        className="absolute left-0 top-0 h-full w-1 -ml-0.5 z-10 cursor-col-resize hover:bg-blue-500/40 active:bg-blue-500/60 transition-colors"
+      />
       <AnnotationsSidePanel
         containerCount={panel.containerCount}
         canCreate={panel.canCreate}

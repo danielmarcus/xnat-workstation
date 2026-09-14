@@ -10,6 +10,8 @@ import {
   DEFAULT_INTERPOLATION_PREFERENCES,
   DEFAULT_BACKUP_PREFERENCES,
   DEFAULT_DELETION_PREFERENCES,
+  DEFAULT_ANNOTATION_PANEL_PREFERENCES,
+  clampAnnotationPanelWidth,
   type BackupPreferences,
   type DeletionPreferences,
   type InterpolationAlgorithm,
@@ -40,6 +42,8 @@ interface PreferencesStore {
   setAnnotationAutoDisplay: (enabled: boolean) => void;
   setAnnotationSegmentOpacity: (opacity: number) => void;
   setAnnotationColorSequence: (colors: string[]) => void;
+  /** Annotations side-panel width in px; clamped to [MIN, MAX] (spec §4.1). */
+  setAnnotationPanelWidth: (width: number) => void;
   setScissorDefaultStrategy: (strategy: ScissorStrategyMode) => void;
   setScissorPreviewEnabled: (enabled: boolean) => void;
   setScissorPreviewColor: (color: string) => void;
@@ -110,6 +114,7 @@ function makeDefaultPreferences(): PreferencesV1 {
     hotkeys: {
       overrides: {},
     },
+    annotationPanel: { ...DEFAULT_ANNOTATION_PANEL_PREFERENCES },
     overlay: {
       showViewportContextOverlay: DEFAULT_PREFERENCES.overlay.showViewportContextOverlay,
       showHorizontalRuler: DEFAULT_PREFERENCES.overlay.showHorizontalRuler,
@@ -451,6 +456,17 @@ export const usePreferencesStore = create<PreferencesStore>()(
           },
         })),
 
+      setAnnotationPanelWidth: (width) =>
+        set((state) => ({
+          preferences: {
+            ...state.preferences,
+            annotationPanel: {
+              ...state.preferences.annotationPanel,
+              width: clampAnnotationPanelWidth(width),
+            },
+          },
+        })),
+
       setScissorDefaultStrategy: (strategy) =>
         set((state) => ({
           preferences: {
@@ -689,6 +705,15 @@ export const usePreferencesStore = create<PreferencesStore>()(
             interpolation: mergedInterpolation,
             backup: mergedBackup,
             deletion: mergedDeletion,
+            // Panel width: clamp whatever was persisted; fall back to the default when
+            // absent (upgrades from before the width was stored) or malformed.
+            annotationPanel: {
+              width: clampAnnotationPanelWidth(
+                typeof (incoming as Partial<PreferencesV1>).annotationPanel?.width === 'number'
+                  ? ((incoming as Partial<PreferencesV1>).annotationPanel as { width: number }).width
+                  : DEFAULT_ANNOTATION_PANEL_PREFERENCES.width,
+              ),
+            },
             // CNDA safety: server autosave is opt-in. Any persisted value that
             // isn't an explicit `true` (including missing / malformed) defaults
             // to OFF so an upgrade never silently enables server writes.

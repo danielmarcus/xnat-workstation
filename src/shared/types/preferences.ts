@@ -129,12 +129,51 @@ export const DEFAULT_DELETION_PREFERENCES: DeletionPreferences = {
 
 // ─── Top-level Preferences ──────────────────────────────────────
 
+
+// ─── Annotations side panel ─────────────────────────────────────
+
+/**
+ * Width of the Annotations side panel (spec §4.1). Drag-resizable from a handle on the
+ * panel's left edge, persisted so the user's working width survives a reload.
+ *
+ * Ported from MV-Phase 7.3c (`9dc2fba` / `b0233d6`), which was built on the abandoned
+ * `multiviewport-annotation` branch and never reached main — the annotation rebuild
+ * restarted on a new panel and the behaviour was not re-implemented. The default was
+ * 400; the rebuilt panel hardcoded `w-72` (288px), which is why tool labels clip.
+ */
+export interface AnnotationPanelPreferences {
+  /** Current panel width in CSS pixels. Clamped to [MIN, MAX]. */
+  width: number;
+}
+
+export const ANNOTATION_PANEL_MIN_WIDTH = 140;
+export const ANNOTATION_PANEL_MAX_WIDTH = 600;
+export const ANNOTATION_PANEL_DEFAULT_WIDTH = 400;
+
+/**
+ * Narrow-mode thresholds. Below COMPACT_ADD the three create-button labels collapse to
+ * icon-only; below COMPACT_TOOLS the toolbox collapses to icon-only as well (spec §4.1).
+ * Between DEFAULT and COMPACT_TOOLS labels simply ellipsize.
+ */
+export const ANNOTATION_PANEL_COMPACT_ADD_WIDTH = 270;
+export const ANNOTATION_PANEL_COMPACT_TOOLS_WIDTH = 210;
+
+export const DEFAULT_ANNOTATION_PANEL_PREFERENCES: AnnotationPanelPreferences = {
+  width: ANNOTATION_PANEL_DEFAULT_WIDTH,
+};
+
+export function clampAnnotationPanelWidth(width: number): number {
+  if (!Number.isFinite(width)) return ANNOTATION_PANEL_DEFAULT_WIDTH;
+  return Math.max(ANNOTATION_PANEL_MIN_WIDTH, Math.min(ANNOTATION_PANEL_MAX_WIDTH, Math.round(width)));
+}
+
 export interface PreferencesV1 {
   hotkeys: {
     overrides: HotkeyMap;
   };
   overlay: OverlayPreferences;
   annotation: AnnotationToolPreferences;
+  annotationPanel: AnnotationPanelPreferences;
   updates: UpdatePreferences;
   interpolation: InterpolationPreferences;
   backup: BackupPreferences;
@@ -201,6 +240,7 @@ export const DEFAULT_PREFERENCES: PreferencesV1 = {
   hotkeys: {
     overrides: {},
   },
+  annotationPanel: { ...DEFAULT_ANNOTATION_PANEL_PREFERENCES },
   overlay: {
     showViewportContextOverlay: true,
     showHorizontalRuler: true,
