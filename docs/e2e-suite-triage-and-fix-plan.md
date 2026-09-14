@@ -6,6 +6,13 @@
 
 This is a living doc — execute top to bottom; status is tracked inline.
 
+> **Note (2026-09-14):** spec filenames below use the old `NN-` numbering, which has since
+> been replaced by topic directories and descriptive names — see
+> [`e2e/specs/README.md`](../e2e/specs/README.md) and
+> [`e2e-spec-organization-proposal.md`](e2e-spec-organization-proposal.md). The numbers are
+> left as written here because this is a record of work already done; `git log --follow` on
+> the renamed file will show the history referenced.
+
 ---
 
 ## 1. How the suite actually runs (the key to the failures)
