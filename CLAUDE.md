@@ -6,8 +6,8 @@ XNAT Workstation is a desktop DICOM medical image viewer built on Electron. It c
 
 ## Repository
 
-- **GitHub**: https://github.com/danielmarcus/xnat-workstation (private)
-- **Branch**: `main`
+- **GitHub**: https://github.com/danielmarcus/xnat-workstation (**public**)
+- **Branch**: `main` — work is committed directly to `main`; CI runs on every push to it.
 
 ## Tech Stack
 
@@ -77,8 +77,7 @@ npm install            # Install deps (also runs postinstall to patch Electron a
 npm run dev            # Start dev mode: Vite dev server + Electron main process
 npm run build          # Production build (main + renderer)
 npm run package        # Package with electron-builder (outputs to release/)
-npx tsc --noEmit       # Type-check renderer + shared code
-npx tsc -p tsconfig.main.json --noEmit   # Type-check main process code
+npm run typecheck      # Type-check renderer + main + e2e (what CI gates on)
 npx vite build         # Build renderer only
 ```
 
@@ -108,9 +107,14 @@ Cornerstone3D services in `src/renderer/lib/cornerstone/` are singleton modules 
 
 ## TypeScript Configuration
 
-Two separate tsconfig files:
+Three tsconfig files:
 - `tsconfig.json`: Renderer + shared code (ESNext modules, bundler resolution, noEmit)
 - `tsconfig.main.json`: Main + preload + shared code (CommonJS, node resolution, emits to `dist/main/`)
+- `e2e/tsconfig.json`: Playwright specs + helpers (needs the DOM lib — `page.evaluate()` callbacks compile here but run in the renderer)
+
+**`npm run build` does not typecheck the renderer** (`build:renderer` is `vite build`, and
+esbuild strips types without checking them). Only `npm run typecheck` does, across all three
+configs, and CI runs it — without that gate, renderer and e2e type errors accumulate unseen.
 
 Path aliases:
 - `@/*` → `src/*`
@@ -129,9 +133,11 @@ Path aliases:
 ## Conventions
 
 - Console logging uses `[serviceName]` prefix (e.g., `[segmentationService]`, `[App]`)
-- Colors use Tailwind utility classes; the app has a dark theme (`bg-gray-900`)
+- Colors use Tailwind utility classes; the app has a dark theme built on the `zinc` palette (`bg-zinc-950` shell, `zinc-800/900` surfaces)
 - Zustand stores use the `create` pattern without providers
 - Tests use **Vitest** for unit + service-integration (`npm test`, configs in `vitest.config.ts`) and **Playwright** for Electron E2E (`npm run test:e2e`, `playwright.config.ts`). DICOM-compliance suites: `npm run test:dicom:compliance`. Cornerstone service tests live in `src/renderer/lib/cornerstone/__tests__/`.
+- E2E specs are grouped by **topic directory** under `e2e/specs/` (`smoke/ auth/ viewport/ tools/ annotations/ transport/`) with descriptive, **un-numbered** filenames. Run order is declared via Playwright projects (`smoke` → `app`/`auth`), not a filename sort. `npm run test:e2e:offline` runs everything that needs no XNAT credentials; `test:e2e:live` runs only the live ones. See [`e2e/specs/README.md`](e2e/specs/README.md).
+- E2E needs a **built** app — the fixture launches `dist/`, not the dev server, so run `npm run build` before `test:e2e` or you are testing stale code.
 - PNG assets in the renderer use Vite asset imports (`import url from './assets/file.png'`)
 - macOS tray icons must be template images (monochrome, filename ends with `Template`)
 
@@ -183,7 +189,9 @@ All data handling must follow DICOM standards wherever applicable. This includes
 
 ## UI Architecture (annotation rebuild)
 
-> **Status:** the multi-viewport annotation rebuild is BUILT on this branch (`annotation-cleanup`). Rebuild Phases 0–6 are complete: the unified viewport path is the only viewport path (P1.8d), the rebuilt Annotations side panel is the only annotation surface (the legacy `SegmentationPanel` / `AnnotationListPanel` and the `REBUILT_ANNOTATIONS_PANEL` + `multiviewportEnabled` flags were deleted in the Phase-6 cutover), and the XNAT transport is live-verified. The architecture below therefore describes the code as well as the specs in `docs/` — but individual net-new spec features are still open (approval persistence D7.11, inline per-segment stats, SR reload from an XNAT scan-click); verify before relying on one.
+> **Status:** the multi-viewport annotation rebuild is DONE and merged to `main` (the `annotation-cleanup` branch was merged and deleted). Rebuild Phases 0–6 are complete: the unified viewport path is the only viewport path (P1.8d), the rebuilt Annotations side panel is the only annotation surface (the legacy `SegmentationPanel` / `AnnotationListPanel` and the `REBUILT_ANNOTATIONS_PANEL` + `multiviewportEnabled` flags were deleted in the Phase-6 cutover), and the XNAT transport is live-verified. The three features that were previously listed here as open — approval persistence (D7.11), inline per-segment metrics, and SR reload from an XNAT scan-click — have all since landed. The architecture below therefore describes the shipped code as well as the specs in `docs/`.
+>
+> **Known gaps** (verified 2026-09-14): `Circle Multi` (CircleROIStartEndThreshold) is registered but its ROI is never converted to labelmap voxels, so it is marked `planned` and disabled — re-enabling the flag alone puts a silent no-op in front of users. `Segment Select` calls Cornerstone's `setActiveSegmentIndex` directly and nothing syncs that back to the store, so the panel disagrees with Cornerstone after use; a correct fix must be multi-layer-group aware. Both are documented in `e2e/specs/tools/voxel-tools-effect.e2e.ts`.
 
 The viewer UI is composed of four surfaces plus a shared modal/toast overlay layer:
 
@@ -204,9 +212,9 @@ Overlay layer (on top): dialogs · toast stack · modals · recovery screens
 
 **Multi-viewport coupling**: containers are session-scoped (not viewport-scoped). Frame-of-Reference matching determines which viewports a container renders on. The container list shows every container; rows not on the active viewport are dimmed with a cross-panel pill (e.g., `↗ 2 panels`). (There is no "Active only" filter — removed per review; the dimming + pill already convey active-viewport state.)
 
-**Design specs on this branch**:
+**Design specs**:
 - [`docs/multiviewport-annotation-design.md`](docs/multiviewport-annotation-design.md) — architecture + signals + test discipline (§8.0)
-- [`docs/multiviewport-annotation-requirements.md`](docs/multiviewport-annotation-requirements.md) — requirements + 24 acceptance scenarios
+- [`docs/multiviewport-annotation-requirements.md`](docs/multiviewport-annotation-requirements.md) — requirements + the §G acceptance signals (37, of which 18 is retired)
 - [`docs/multiviewport-annotation-architecture.md`](docs/multiviewport-annotation-architecture.md) — layering contract, enforced boundaries, current→target migration (authoritative for structure)
 - [`docs/multiviewport-annotation-current.md`](docs/multiviewport-annotation-current.md) — current-state snapshot
 - [`docs/annotation-xnat-integration-requirements.md`](docs/annotation-xnat-integration-requirements.md) — save-to-XNAT integration
