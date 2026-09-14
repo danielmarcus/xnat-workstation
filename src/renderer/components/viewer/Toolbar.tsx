@@ -135,7 +135,7 @@ const LAYOUT_PRESETS: { id: LayoutType; label: string; rows: number; cols: numbe
   { id: '2x2', label: '2 x 2', rows: 2, cols: 2 },
 ];
 
-function LayoutDropdown({ disabled, hideLabel = false }: { disabled: boolean; hideLabel?: boolean }) {
+function LayoutDropdown({ disabled }: { disabled: boolean }) {
   const [open, setOpen] = useState(false);
   const [dropdownPos, setDropdownPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
   const [customRows, setCustomRows] = useState(2);
@@ -200,7 +200,7 @@ function LayoutDropdown({ disabled, hideLabel = false }: { disabled: boolean; hi
         }`}
       >
         <LayoutGridIcon rows={2} cols={2} />
-        {!hideLabel && <span className="tabular-nums">{currentLabel}</span>}
+        <span className="tb-label tabular-nums">{currentLabel}</span>
         <IconChevronDown className="w-3 h-3" />
       </button>
 
@@ -274,7 +274,7 @@ function LayoutDropdown({ disabled, hideLabel = false }: { disabled: boolean; hi
 const DEFAULT_CINE = { isPlaying: false, fps: 15 } as const;
 
 /** Toggle button for the segmentation panel */
-function SegmentationPanelToggle({ label = 'Annotate', showCount = false, hideLabel = false }: { label?: string; showCount?: boolean; hideLabel?: boolean }) {
+function SegmentationPanelToggle({ label = 'Annotate', showCount = false }: { label?: string; showCount?: boolean }) {
   const showPanel = useSegmentationStore((s) => s.showPanel);
   const togglePanel = useSegmentationStore((s) => s.togglePanel);
   const count = useSegmentationStore((s) => s.segmentations.length);
@@ -293,7 +293,7 @@ function SegmentationPanelToggle({ label = 'Annotate', showCount = false, hideLa
       }`}
     >
       <IconSegment className="w-3.5 h-3.5" />
-      {label && !hideLabel && <span>{label}</span>}
+      {label && <span className="tb-label">{label}</span>}
       {showCount && count > 0 && <span>{count}</span>}
     </button>
   );
@@ -303,11 +303,9 @@ function SegmentationPanelToggle({ label = 'Annotate', showCount = false, hideLa
 function DicomTagsToggle({
   active,
   onToggle,
-  hideLabel,
 }: {
   active: boolean;
   onToggle: () => void;
-  hideLabel?: boolean;
 }) {
   return (
     <button
@@ -318,13 +316,13 @@ function DicomTagsToggle({
       }`}
     >
       <IconDocument className="w-3.5 h-3.5" />
-      {!hideLabel && <span>Tags</span>}
+      <span className="tb-label">Tags</span>
     </button>
   );
 }
 
 /** Custom W/L presets dropdown — matches the styling of other toolbar dropdowns */
-function WLPresetsDropdown({ hideLabel = false }: { hideLabel?: boolean }) {
+function WLPresetsDropdown() {
   const [open, setOpen] = useState(false);
   const [dropdownPos, setDropdownPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -370,7 +368,7 @@ function WLPresetsDropdown({ hideLabel = false }: { hideLabel?: boolean }) {
         title="Window/Level presets"
       >
         <IconWindowLevel className="w-3.5 h-3.5" />
-        {!hideLabel && <span>Presets</span>}
+        <span className="tb-label">Presets</span>
         <IconChevronDown className="w-3 h-3" />
       </button>
       {open && (
@@ -406,12 +404,10 @@ function ProtocolPickerDropdown({
   onApplyProtocol,
   currentProtocolId,
   disabled = false,
-  hideLabel = false,
 }: {
   onApplyProtocol: (protocolId: string) => void;
   currentProtocolId: string | null;
   disabled?: boolean;
-  hideLabel?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [dropdownPos, setDropdownPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
@@ -458,7 +454,7 @@ function ProtocolPickerDropdown({
         title={disabled ? 'No applicable hanging protocols' : 'Hanging protocol'}
       >
         <IconProtocol className="w-3.5 h-3.5" />
-        {!hideLabel && <span>Hanging</span>}
+        <span className="tb-label">Hanging</span>
         <IconChevronDown className="w-3 h-3" />
       </button>
       {open && (
@@ -521,7 +517,7 @@ export default function Toolbar({
   // Observe the OUTER toolbar: its width is an input, unaffected by collapsing. Measuring
   // the centre content instead created a feedback loop (see useToolbarCollapse).
   const toolbarRef = useRef<HTMLDivElement>(null);
-  const { collapseLevel, textCollapsed, isGroupCollapsed } = useToolbarCollapse(toolbarRef);
+  const { collapseLevel, textCollapsed, collapsedGroups, isGroupCollapsed } = useToolbarCollapse(toolbarRef);
 
   // Open Settings to a specific tab when requested by parent (e.g. banner link)
   useEffect(() => {
@@ -555,28 +551,35 @@ export default function Toolbar({
       {/* Frozen toolbar §10 styling, with organized collapse: the measured center
           content (overflow-hidden) folds groups into icon-trigger popovers as it
           narrows; the right group (Annotate · Tags · Settings) stays inline. */}
-      <div ref={toolbarRef} data-testid="toolbar" className="h-10 bg-zinc-900 border-b border-zinc-800 flex items-center shrink-0">
+      <div
+        ref={toolbarRef}
+        data-testid="toolbar"
+        data-collapse-level={collapseLevel}
+        data-text-collapsed={String(textCollapsed)}
+        data-collapsed-groups={collapsedGroups}
+        className="h-10 bg-zinc-900 border-b border-zinc-800 flex items-center shrink-0"
+      >
         <div className="flex-1 min-w-0">
-          <div data-collapse-level={collapseLevel} className="flex items-center gap-1 px-2 overflow-hidden text-zinc-300">
+          <div data-toolbar-content className="flex items-center gap-1 px-2 overflow-hidden text-zinc-300">
 
             {/* Logo · connection chip · Import · Export · Favorites (supplied by App). */}
             {leftSlot}
             <Separator />
 
             {/* Layout · Hanging */}
-            <LayoutDropdown disabled={false} hideLabel={textCollapsed} />
+            <LayoutDropdown disabled={false} />
             {onApplyProtocol && (
               <ProtocolPickerDropdown
                 onApplyProtocol={onApplyProtocol}
                 currentProtocolId={currentProtocol?.id ?? null}
                 disabled={!hasSessionData || !sessionScans || sessionScans.length === 0}
-                hideLabel={textCollapsed}
               />
             )}
             <Separator />
 
             {/* Windowing: Crosshairs · Pan · Zoom · W/L · Soft-tissue preset · Invert */}
             <CollapsibleGroup
+              groupId="navigation"
               collapsed={isGroupCollapsed('navigation')}
               triggerIcon={<IconCrosshairs className="w-3.5 h-3.5" />}
               triggerTitle="Navigation tools"
@@ -605,7 +608,7 @@ export default function Toolbar({
                 onClick={() => setActiveTool(ToolName.WindowLevel)}
                 title="Window/Level (left-click drag)"
               />
-              <WLPresetsDropdown hideLabel={textCollapsed} />
+              <WLPresetsDropdown />
               <IconButton
                 icon={<IconInvert className="w-3.5 h-3.5" />}
                 onClick={toggleInvert}
@@ -616,6 +619,7 @@ export default function Toolbar({
 
             {/* Transform: Rotate · Flip H · Flip V · Reset */}
             <CollapsibleGroup
+              groupId="transform"
               collapsed={isGroupCollapsed('transform')}
               triggerIcon={<IconRotate90 className="w-3.5 h-3.5" />}
               triggerTitle="Transform"
@@ -644,6 +648,7 @@ export default function Toolbar({
 
             {/* Cine */}
             <CollapsibleGroup
+              groupId="cine"
               collapsed={isGroupCollapsed('cine')}
               triggerIcon={<IconPlay className="w-3.5 h-3.5" />}
               triggerTitle="Cine playback"
@@ -672,8 +677,8 @@ export default function Toolbar({
 
         {/* Right group — always inline: Annotate (blue when open) · Tags · Settings. */}
         <div className="shrink-0 flex items-center gap-1 px-2 border-l border-zinc-800">
-          <SegmentationPanelToggle label="Annotate" hideLabel={textCollapsed} />
-          {onToggleDicomPanel && <DicomTagsToggle active={showDicomPanel} onToggle={onToggleDicomPanel} hideLabel={textCollapsed} />}
+          <SegmentationPanelToggle label="Annotate" />
+          {onToggleDicomPanel && <DicomTagsToggle active={showDicomPanel} onToggle={onToggleDicomPanel} />}
           <IconButton
             icon={<IconSettings className="w-3.5 h-3.5" />}
             active={showSettings}

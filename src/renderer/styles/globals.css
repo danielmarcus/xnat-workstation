@@ -24,3 +24,35 @@ html, body, #root {
   outline: none !important;
   box-shadow: none !important;
 }
+
+/* ── Toolbar organized collapse (frozen toolbar §10) ────────────────────────────
+ *
+ * Collapse is driven by ATTRIBUTES on the toolbar root, not by conditional rendering,
+ * so every level's content is always in the DOM. That is what lets useToolbarCollapse
+ * measure each level's width by toggling these attributes and reading layout in one
+ * synchronous pass — with conditional rendering it could only ever measure the level
+ * currently on screen, which is why the thresholds used to be hardcoded.
+ *
+ * `display: none` (not visibility/opacity) so collapsed content leaves the
+ * accessibility tree and the tab order, and Playwright role queries ignore it.
+ */
+[data-text-collapsed='true'] .tb-label {
+  display: none;
+}
+
+/* A group's inline items are shown by default; its dropdown trigger is not. */
+[data-group-trigger] {
+  display: none;
+}
+
+[data-collapsed-groups~='cine'] [data-group-inline='cine'],
+[data-collapsed-groups~='transform'] [data-group-inline='transform'],
+[data-collapsed-groups~='navigation'] [data-group-inline='navigation'] {
+  display: none;
+}
+
+[data-collapsed-groups~='cine'] [data-group-trigger='cine'],
+[data-collapsed-groups~='transform'] [data-group-trigger='transform'],
+[data-collapsed-groups~='navigation'] [data-group-trigger='navigation'] {
+  display: flex;
+}
