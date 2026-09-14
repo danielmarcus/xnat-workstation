@@ -160,7 +160,11 @@ function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1600,
     height: 900,
-    minWidth: 800,
+    // The fully-collapsed toolbar needs 988px (869px of content + the 119px right group),
+    // so anything narrower clips items out of the toolbar's hidden overflow with nothing
+    // left to collapse. 800 predated several toolbar additions; useToolbarCollapse assumed
+    // this floor held and it did not. Re-measure alongside LEVEL_MIN_WIDTHS.
+    minWidth: 1000,
     minHeight: 600,
     // E2E: create hidden, then show it OFF-SCREEN without stealing focus.
     // Cornerstone3D needs a *shown* window with real dimensions for WebGL, so we
