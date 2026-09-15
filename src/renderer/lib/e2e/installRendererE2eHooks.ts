@@ -135,6 +135,8 @@ declare global {
       setUnifiedBrushThreshold: (range: [number, number]) => void;
       /** Total non-zero labelmap voxels across all segmentations (0 = nothing painted). */
       getPaintedVoxelCount: () => number;
+      /** Painted voxels per Z slice of the labelmap volume — proves slice confinement. */
+      getPaintedVoxelsPerSlice: () => { dims: [number, number, number]; perSlice: number[] } | null;
       /** Copy the active segment's voxel region to the clipboard (D6 / signal 23). */
       copyActiveSegmentVoxels: () => boolean;
       /** Paste the voxel clipboard into the active segment at the current slice (signal 23). */
@@ -902,6 +904,36 @@ export function installRendererE2eHooks(): void {
       unifiedSegService.createContourSegmentation(unifiedToolService.getViewportIds(), label ?? 'Structure'),
     syncUnifiedContourLabelmap: (segmentationId: string) =>
       unifiedSegService.syncContourToLabelmap(segmentationId, unifiedToolService.getViewportIds()),
+    getPaintedVoxelsPerSlice: () => {
+      const segs = (csSegmentation.state.getSegmentations?.() ?? []) as Array<{
+        representationData?: { Labelmap?: { volumeId?: string } };
+      }>;
+      for (const seg of segs) {
+        const volumeId = seg?.representationData?.Labelmap?.volumeId;
+        if (typeof volumeId !== 'string') continue;
+        const vol = cache.getVolume(volumeId) as
+          | {
+              dimensions?: [number, number, number];
+              voxelManager?: { getCompleteScalarDataArray?: () => ArrayLike<number> };
+              scalarData?: ArrayLike<number>;
+            }
+          | undefined;
+        const dims = vol?.dimensions;
+        const data = vol?.voxelManager?.getCompleteScalarDataArray?.() ?? vol?.scalarData;
+        if (!dims || !data) continue;
+        const [x, y, z] = dims;
+        const sliceSize = x * y;
+        const perSlice: number[] = [];
+        for (let k = 0; k < z; k++) {
+          let n = 0;
+          const base = k * sliceSize;
+          for (let i = 0; i < sliceSize; i++) if (data[base + i] !== 0) n++;
+          perSlice.push(n);
+        }
+        return { dims: [x, y, z] as [number, number, number], perSlice };
+      }
+      return null;
+    },
     getPaintedVoxelCount: () => {
       let total = 0;
       const segs = (csSegmentation.state.getSegmentations?.() ?? []) as Array<{

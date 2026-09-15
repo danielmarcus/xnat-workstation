@@ -59,6 +59,7 @@ import {
   utilities as csToolUtilities,
 } from '@cornerstonejs/tools';
 import type { Types as ToolTypes } from '@cornerstonejs/tools';
+import { Enums as CoreEnums } from '@cornerstonejs/core';
 import SafePaintFillTool from './tools/SafePaintFillTool';
 import { arrowAnnotateTextCallback } from './arrowAnnotateTextPrompt';
 import { ToolName } from '@shared/types/viewer';
@@ -297,6 +298,57 @@ function ensureToolGroup(): ToolTypes.IToolGroup | undefined {
   return toolGroup;
 }
 
+
+/**
+ * Clear the brush hover cursor on the whole brush family.
+ *
+ * Cornerstone's BrushTool keeps its cursor in `_hoverData` and only clears it when the
+ * tool stops being active (onSetToolPassive / Enabled / Disabled). Its `renderAnnotation`
+ * checks only that hover data exists and that the viewport is in the render list — never
+ * that the CURRENT SLICE is the one the cursor was hovered on. So a single hover left a
+ * circle drawn on every slice the user scrolled to, and with the pointer outside the
+ * viewport entirely, for as long as a brush was selected. Users read that persistent
+ * outline as the segmentation mask appearing on slices they never painted.
+ *
+ * Cornerstone gives us no hook for "pointer left" or "slice changed", so the lifecycle is
+ * wired here: the cursor is dropped on both, and Cornerstone recreates it on the next
+ * mousemove over the viewport.
+ */
+function clearBrushHoverCursor(): void {
+  const toolGroup = getToolGroup();
+  if (!toolGroup) return;
+  try {
+    const brush = toolGroup.getToolInstance(BrushTool.toolName) as
+      | { disableCursor?: () => void }
+      | undefined;
+    brush?.disableCursor?.();
+  } catch {
+    /* tool not registered yet */
+  }
+}
+
+/** Attach the brush-cursor lifecycle Cornerstone does not provide. Idempotent per element. */
+const BRUSH_CURSOR_WIRED = new WeakSet<HTMLElement>();
+function wireBrushCursorLifecycle(viewportId: string): void {
+  const element = viewportService.getElement(viewportId) as HTMLElement | null;
+  if (!element || BRUSH_CURSOR_WIRED.has(element)) return;
+  BRUSH_CURSOR_WIRED.add(element);
+
+  const clear = () => {
+    clearBrushHoverCursor();
+    try {
+      csToolUtilities.triggerAnnotationRenderForViewportIds([viewportId]);
+    } catch {
+      /* best effort repaint */
+    }
+  };
+
+  element.addEventListener('mouseleave', clear);
+  // Scrolling to another slice must drop a cursor drawn for the previous one.
+  element.addEventListener(CoreEnums.Events.STACK_NEW_IMAGE, clear as EventListener);
+  element.addEventListener(CoreEnums.Events.VOLUME_NEW_IMAGE, clear as EventListener);
+}
+
 export const unifiedToolService = {
   UNIFIED_TOOL_GROUP_ID,
 
@@ -486,6 +538,7 @@ export const unifiedToolService = {
         /* ignore */
       }
     }
+    wireBrushCursorLifecycle(viewportId);
     console.log('[unifiedToolService] Viewport added:', viewportId);
   },
 
