@@ -26,7 +26,7 @@ type Hooks = {
   isUnifiedVolumeReady: () => boolean;
   resetUnifiedSegmentations: () => void;
   scrollActiveViewport: (d: number) => void;
-  getPaintedVoxelsPerSlice: () => { dims: [number, number, number]; perSlice: number[] } | null;
+  getPaintedVoxelsPerSlice: () => Array<{ segmentationId: string; dims: [number, number, number]; perSlice: number[] }>;
 };
 type Win = { __XNAT_E2E__: Hooks };
 
@@ -62,7 +62,7 @@ test('the brush cursor does not follow you to other slices', async ({ page }) =>
 
   // The data half: a 2D stroke writes to exactly one slice.
   const before = await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.getPaintedVoxelsPerSlice());
-  const painted = before!.perSlice.map((n, i) => ({ i, n })).filter((s) => s.n > 0);
+  const painted = before[0].perSlice.map((n, i) => ({ i, n })).filter((s) => s.n > 0);
   expect(painted.length, `a 2D stroke painted ${painted.length} slices: ${JSON.stringify(painted)}`).toBe(1);
 
   // The rendering half: scroll away, with the brush STILL selected — nothing may be drawn.
@@ -70,7 +70,7 @@ test('the brush cursor does not follow you to other slices', async ({ page }) =>
   await page.waitForTimeout(800);
 
   const after = await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.getPaintedVoxelsPerSlice());
-  expect(after!.perSlice.map((n, i) => ({ i, n })).filter((s) => s.n > 0)).toEqual(painted);
+  expect(after[0].perSlice.map((n, i) => ({ i, n })).filter((s) => s.n > 0)).toEqual(painted);
 
   const shapes = await drawnShapes(page);
   expect(shapes, `brush cursor still drawn after scrolling to another slice: ${shapes.join(', ')}`).toEqual([]);

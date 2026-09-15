@@ -59,45 +59,27 @@ export interface ScissorPreferences {
 
 // ─── Interpolation Preferences ───────────────────────────────────
 
-export type InterpolationAlgorithm = 'sdf' | 'morphological' | 'nearestSlice' | 'linear';
 
+/**
+ * Between-slice interpolation — CONTOURS ONLY.
+ *
+ * Labelmap (voxel) interpolation was removed: Cornerstone provides none, so it was a
+ * bespoke implementation that ran automatically on every brush stroke and, through a
+ * sign error in its distance field, unioned the two drawn slices onto every slice
+ * between them rather than interpolating. Cornerstone's own InterpolationManager is
+ * contour-only, and it exposes no algorithm choice — `interpolate(viewportData)` takes
+ * no options — so `algorithm` and `linearThreshold` went with it.
+ */
 export interface InterpolationPreferences {
-  /** Whether between-slice interpolation is enabled */
+  /** Whether between-slice interpolation is enabled for contour tools. */
   enabled: boolean;
-  /** Which interpolation algorithm to use */
-  algorithm: InterpolationAlgorithm;
-  /** Blend threshold for the 'linear' algorithm (0–1, default 0.5). Lower = more aggressive fill. */
-  linearThreshold: number;
-  /**
-   * For contour (RTSTRUCT) interpolation: when true, auto-generated
-   * interpolated contours are promoted to "accepted" (solid, saveable)
-   * immediately on generation. When false (default), they render as
-   * dashed/provisional and the user must click each one to accept, or
-   * accept in bulk via the dialog shown at manual save time.
-   */
-  autoAcceptInterpolated: boolean;
 }
 
 export const DEFAULT_INTERPOLATION_PREFERENCES: InterpolationPreferences = {
   enabled: true,
-  algorithm: 'morphological',
-  linearThreshold: 0.5,
-  autoAcceptInterpolated: false,
 };
 
-export const INTERPOLATION_ALGORITHM_LABELS: Record<InterpolationAlgorithm, string> = {
-  sdf: 'Signed Distance Field (SDF)',
-  morphological: 'Morphological (Raya-Udupa)',
-  nearestSlice: 'Nearest Slice',
-  linear: 'Linear Blend',
-};
 
-export const INTERPOLATION_ALGORITHM_DESCRIPTIONS: Record<InterpolationAlgorithm, string> = {
-  sdf: 'Blends signed Euclidean distance fields between anchor slices. Tends to produce conservative (smaller) regions.',
-  morphological: 'Classic medical image interpolation. Interpolates inside-distance fields for better volume preservation and shape handling.',
-  nearestSlice: 'Copies the nearest painted slice. Fast, no blending artifacts, but produces staircase boundaries.',
-  linear: 'Blends pixel values linearly between anchors. Adjustable threshold controls fill aggressiveness.',
-};
 
 // ─── Backup Preferences ─────────────────────────────────────────
 

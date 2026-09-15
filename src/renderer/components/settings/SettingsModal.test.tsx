@@ -256,14 +256,11 @@ describe('SettingsModal', () => {
     const enabledToggle = screen.getByRole('checkbox', { name: 'Enable between-slice interpolation' });
     await user.click(enabledToggle);
     await user.click(enabledToggle);
-    await user.selectOptions(screen.getByRole('combobox'), 'linear');
-    const interpolationSlider = screen.getByRole('slider');
-    fireEvent.change(interpolationSlider, { target: { value: '0.85' } });
 
+    // Contour interpolation is a single boolean: Cornerstone's interpolate() takes no
+    // options, and the algorithm/threshold belonged to the removed labelmap path.
     prefs = usePreferencesStore.getState().preferences;
     expect(prefs.interpolation.enabled).toBe(true);
-    expect(prefs.interpolation.algorithm).toBe('linear');
-    expect(prefs.interpolation.linearThreshold).toBeCloseTo(0.85);
 
     await user.click(screen.getByRole('button', { name: 'Updates' }));
     await user.click(screen.getByRole('checkbox', { name: 'Enable automatic update checks' }));

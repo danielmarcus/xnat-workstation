@@ -67,13 +67,6 @@ import * as mlg from './multiLayerGroup';
 import * as interpolationAcceptance from './interpolationAcceptance';
 import { backupService } from '../backup/backupService';
 import {
-  hasSegmentPixelsOnSlice,
-  interpolateMorphological,
-  interpolateNearestSlice,
-  interpolateLinearBlend,
-  interpolateSDF,
-} from './segmentationService/interpolation';
-import {
   findFirstNonZeroRef,
   getValidSegmentIndices,
   segmentsToPlainObject,
@@ -1223,9 +1216,6 @@ let loadInProgressCount = 0;
  */
 let manualSaveInProgress = false;
 let backupInProgress = false;
-let labelmapInterpolationTimer: ReturnType<typeof setTimeout> | null = null;
-let labelmapInterpolationInProgress = false;
-let pendingLabelmapInterpolation: { segmentationId: string; segmentIndex: number | null } | null = null;
 
 /** Called when segmentation pixel data changes — debounces auto-save and marks dirty. */
 function onSegmentationDataModified(evt?: Event): void {
@@ -1243,16 +1233,6 @@ function onSegmentationDataModified(evt?: Event): void {
       }
     }
 
-    if (detail?.segmentationId) {
-      // For interpolation, use the resolved group ID so it can look up the right sub-seg
-      const groupInfo = mlg.getGroupInfoForSubSeg(detail.segmentationId);
-      pendingLabelmapInterpolation = {
-        segmentationId: groupInfo ? groupInfo.groupId : detail.segmentationId,
-        segmentIndex: groupInfo
-          ? groupInfo.segmentIndex
-          : (Number.isInteger(detail.segmentIndex) ? Number(detail.segmentIndex) : null),
-      };
-    }
     useSegmentationStore.getState()._markDirty();
     // Derived per-segment statistics (the panel's inline row metrics) recompute off
     // this epoch once edits settle — the stats run a Cornerstone worker, so the UI
@@ -1269,9 +1249,6 @@ function onSegmentationDataModified(evt?: Event): void {
       if (xnatAutosaveEnabled) saveQueue.notifyDirty(dirtySegId);
     }
     scheduleAutoSave();
-    if (!labelmapInterpolationInProgress) {
-      scheduleLabelmapInterpolation();
-    }
   }
   // Refresh toolbar undo/redo availability after the edit's memo settles (see
   // scheduleUndoStateRefresh) — runs regardless of dirty-tracking suppression.
@@ -1310,138 +1287,6 @@ function scheduleAutoSave(): void {
   }, delayMs);
 }
 
-function scheduleLabelmapInterpolation(): void {
-  if (labelmapInterpolationTimer) clearTimeout(labelmapInterpolationTimer);
-  labelmapInterpolationTimer = setTimeout(() => {
-    void performLabelmapInterpolation();
-  }, LABELMAP_INTERPOLATION_DELAY);
-}
-
-async function performLabelmapInterpolation(): Promise<void> {
-  labelmapInterpolationTimer = null;
-  if (labelmapInterpolationInProgress) return;
-  if (isDirtyTrackingSuppressed()) return;
-  if (loadInProgressCount > 0) return;
-
-  // Read interpolation settings from preferences store (canonical source)
-  const prefState = usePreferencesStore.getState();
-  const interpPrefs = prefState.preferences.interpolation;
-  if (!interpPrefs.enabled) return;
-
-  const segStore = useSegmentationStore.getState();
-  const pending = pendingLabelmapInterpolation;
-  pendingLabelmapInterpolation = null;
-  let activeSegId = pending?.segmentationId ?? segStore.activeSegmentationId;
-  if (!activeSegId) return;
-
-  let segmentIndex = Number(pending?.segmentIndex ?? segStore.activeSegmentIndex);
-  if (!Number.isInteger(segmentIndex) || segmentIndex <= 0) return;
-
-  // Don't interpolate on a locked segment
-  if (segmentationService.getSegmentLocked(activeSegId, segmentIndex)) return;
-
-  // For multi-layer groups, resolve to the sub-seg and use segment index 1
-  let effectiveSegId = activeSegId;
-  let effectiveSegIndex = segmentIndex;
-  if (isMultiLayerGroup(activeSegId)) {
-    const subSegId = resolveSubSegId(activeSegId, segmentIndex);
-    if (!subSegId) return;
-    effectiveSegId = subSegId;
-    effectiveSegIndex = 1; // sub-segs are binary (0/1)
-  }
-
-  const segType = getSegmentationType(effectiveSegId);
-  if (segType === 'contour') return;
-
-  const labelmapData = await getCachedLabelmapSliceArrays(effectiveSegId);
-  if (!labelmapData) return;
-  const { sliceArrays, width, height } = labelmapData;
-  if (sliceArrays.length < 3) return;
-
-  const anchors: number[] = [];
-  for (let i = 0; i < sliceArrays.length; i++) {
-    if (hasSegmentPixelsOnSlice(sliceArrays[i], effectiveSegIndex)) {
-      anchors.push(i);
-    }
-  }
-  if (anchors.length < 2) return;
-
-  labelmapInterpolationInProgress = true;
-  const algorithm = interpPrefs.algorithm;
-  const linearThreshold = interpPrefs.linearThreshold;
-
-  try {
-    const modifiedSlices = new Set<number>();
-    const pixelsPerSlice = width * height;
-
-    for (let i = 0; i < anchors.length - 1; i++) {
-      const a = anchors[i];
-      const b = anchors[i + 1];
-      const gap = b - a - 1;
-      if (gap <= 0) continue;
-
-      for (let s = a + 1; s < b; s++) {
-        const alpha = (s - a) / (b - a);
-        const slice = sliceArrays[s] as any;
-
-        // Dispatch to the selected algorithm
-        let interpolated: Uint8Array;
-        switch (algorithm) {
-          case 'morphological':
-            interpolated = interpolateMorphological(sliceArrays[a], sliceArrays[b], alpha, width, height, effectiveSegIndex);
-            break;
-          case 'nearestSlice':
-            interpolated = interpolateNearestSlice(sliceArrays[a], sliceArrays[b], alpha, width, height, effectiveSegIndex);
-            break;
-          case 'linear':
-            interpolated = interpolateLinearBlend(sliceArrays[a], sliceArrays[b], alpha, width, height, effectiveSegIndex, linearThreshold);
-            break;
-          case 'sdf':
-          default:
-            interpolated = interpolateSDF(sliceArrays[a], sliceArrays[b], alpha, width, height, effectiveSegIndex);
-            break;
-        }
-
-        // Apply interpolated result to the gap slice
-        let changed = false;
-        for (let p = 0; p < pixelsPerSlice; p++) {
-          const currentValue = Number(slice[p]);
-          // Skip pixels that belong to a different segment
-          if (currentValue !== 0 && currentValue !== effectiveSegIndex) continue;
-          // Fill empty pixels where the algorithm says there should be data
-          if (interpolated[p] === effectiveSegIndex && currentValue === 0) {
-            slice[p] = effectiveSegIndex;
-            changed = true;
-          }
-        }
-
-        if (changed) {
-          modifiedSlices.add(s);
-        }
-      }
-    }
-
-    if (modifiedSlices.size === 0) return;
-
-    csSegmentation.triggerSegmentationEvents.triggerSegmentationDataModified(
-      effectiveSegId,
-      Array.from(modifiedSlices).sort((x, y) => x - y),
-      effectiveSegIndex,
-    );
-    const viewportIds = csSegmentation.state.getViewportIdsWithSegmentation(effectiveSegId);
-    for (const viewportId of viewportIds) {
-      csToolUtilities.segmentation.triggerSegmentationRender(viewportId);
-      const enabledElement = getEnabledElementByViewportId(viewportId) as any;
-      enabledElement?.viewport?.render?.();
-    }
-  } catch (err) {
-    console.error('[segmentationService] Labelmap interpolation failed:', err);
-  } finally {
-    labelmapInterpolationInProgress = false;
-  }
-}
-
-/** Cancel any pending auto-save (e.g. when a manual save starts). */
 function cancelAutoSave(): void {
   if (autoSaveTimer) {
     clearTimeout(autoSaveTimer);
@@ -4482,11 +4327,6 @@ export const segmentationService = {
       clearTimeout(autoSaveTimer);
       autoSaveTimer = null;
     }
-    if (labelmapInterpolationTimer) {
-      clearTimeout(labelmapInterpolationTimer);
-      labelmapInterpolationTimer = null;
-    }
-    labelmapInterpolationInProgress = false;
     uninstallHistoryMemoTracking();
     perContainerHistory.clearAll();
     saveQueue.reset();

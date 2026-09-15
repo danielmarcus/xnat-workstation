@@ -3,13 +3,10 @@ import type { HotkeyAction, HotkeyBinding, HotkeyModifiers } from '@shared/types
 import type {
   OverlayCornerId,
   OverlayFieldKey,
-  InterpolationAlgorithm,
   ScissorStrategyMode,
 } from '@shared/types/preferences';
 import type { UpdateStatus } from '@shared/types';
 import {
-  INTERPOLATION_ALGORITHM_LABELS,
-  INTERPOLATION_ALGORITHM_DESCRIPTIONS,
 } from '@shared/types/preferences';
 import { DEFAULT_HOTKEY_MAP } from '../../lib/hotkeys/defaultHotkeyMap';
 import { usePreferencesStore } from '../../stores/preferencesStore';
@@ -233,8 +230,6 @@ export default function SettingsModal({ open, onClose, onRecover, initialTab }: 
   const setUpdateChecksEnabled = usePreferencesStore((s) => s.setUpdateChecksEnabled);
   const setUpdateAutoDownloadEnabled = usePreferencesStore((s) => s.setUpdateAutoDownloadEnabled);
   const setInterpolationEnabled = usePreferencesStore((s) => s.setInterpolationEnabled);
-  const setInterpolationAlgorithm = usePreferencesStore((s) => s.setInterpolationAlgorithm);
-  const setLinearThreshold = usePreferencesStore((s) => s.setLinearThreshold);
   const backupPrefs = usePreferencesStore((s) => s.preferences.backup);
   const setBackupEnabled = usePreferencesStore((s) => s.setBackupEnabled);
   const setBackupIntervalSeconds = usePreferencesStore((s) => s.setBackupIntervalSeconds);
@@ -1005,13 +1000,12 @@ export default function SettingsModal({ open, onClose, onRecover, initialTab }: 
             {activeTab === 'interpolation' && (
               <>
                 <div className="text-xs text-zinc-400">
-                  Configure between-slice interpolation for labelmap segmentations. When enabled,
-                  painting on two or more separated slices will automatically fill the gap slices
-                  using the selected algorithm.
+                  Configure between-slice interpolation for <span className="text-zinc-300">contour</span>{' '}
+                  annotations (Structure / RTSTRUCT). When enabled, drawing contours on
+                  non-adjacent slices of the same structure generates the contours in between.
                 </div>
 
-                <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-4 space-y-4">
-                  {/* Enable toggle */}
+                <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-4">
                   <label className="flex items-center gap-2 cursor-pointer">
                     <input
                       type="checkbox"
@@ -1021,66 +1015,9 @@ export default function SettingsModal({ open, onClose, onRecover, initialTab }: 
                     />
                     <span className="text-xs text-zinc-300">Enable between-slice interpolation</span>
                   </label>
-
-                  {/* Algorithm selector */}
-                  <label className="space-y-1">
-                    <span className="text-[11px] text-zinc-500">Algorithm</span>
-                    <select
-                      value={interpPrefs.algorithm}
-                      onChange={(e) =>
-                        setInterpolationAlgorithm(e.target.value as InterpolationAlgorithm)
-                      }
-                      disabled={!interpPrefs.enabled}
-                      className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-xs text-zinc-200 disabled:opacity-50"
-                    >
-                      {(Object.keys(INTERPOLATION_ALGORITHM_LABELS) as InterpolationAlgorithm[]).map(
-                        (algo) => (
-                          <option key={algo} value={algo}>
-                            {INTERPOLATION_ALGORITHM_LABELS[algo]}
-                          </option>
-                        ),
-                      )}
-                    </select>
-                  </label>
-
-                  {/* Algorithm description */}
-                  <p className="text-[11px] text-zinc-500 leading-relaxed">
-                    {INTERPOLATION_ALGORITHM_DESCRIPTIONS[interpPrefs.algorithm]}
-                  </p>
-
-                  {/* Linear threshold — only shown for 'linear' algorithm */}
-                  {interpPrefs.algorithm === 'linear' && (
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] text-zinc-500 block">
-                        Blend Threshold: {interpPrefs.linearThreshold.toFixed(2)}
-                      </label>
-                      <input
-                        type="range"
-                        min="0"
-                        max="1"
-                        step="0.05"
-                        value={interpPrefs.linearThreshold}
-                        onChange={(e) => setLinearThreshold(parseFloat(e.target.value))}
-                        disabled={!interpPrefs.enabled}
-                        className="w-full h-1.5 bg-zinc-700 rounded-lg appearance-none cursor-pointer accent-blue-500 disabled:opacity-50"
-                      />
-                      <div className="flex justify-between text-[10px] text-zinc-600">
-                        <span>0.0 (aggressive fill)</span>
-                        <span>1.0 (conservative)</span>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Contour (RTSTRUCT) interpolation — write-through (B5) */}
-                <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-4 space-y-2">
-                  <div className="text-[11px] text-zinc-500 uppercase tracking-wide">
-                    Contour (RTSTRUCT) Interpolation
-                  </div>
-                  <p className="text-[11px] text-zinc-500 leading-relaxed">
-                    Interpolated contours are written through automatically — the generated
-                    geometry is saved with the RTSTRUCT immediately, with no separate accept
-                    step. There is no promote-before-save gate.
+                  <p className="text-[11px] text-zinc-500 leading-relaxed mt-2">
+                    Labelmap (Segmentation) editing is not interpolated — a brush stroke affects
+                    only the slice it is drawn on.
                   </p>
                 </div>
               </>

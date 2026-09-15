@@ -135,8 +135,13 @@ declare global {
       setUnifiedBrushThreshold: (range: [number, number]) => void;
       /** Total non-zero labelmap voxels across all segmentations (0 = nothing painted). */
       getPaintedVoxelCount: () => number;
-      /** Painted voxels per Z slice of the labelmap volume — proves slice confinement. */
-      getPaintedVoxelsPerSlice: () => { dims: [number, number, number]; perSlice: number[] } | null;
+      /** Painted voxels per Z slice, for EVERY labelmap volume (multi-layer groups have
+       *  one per segment), so slice confinement can be asserted across all of them. */
+      getPaintedVoxelsPerSlice: () => Array<{
+        segmentationId: string;
+        dims: [number, number, number];
+        perSlice: number[];
+      }>;
       /** Copy the active segment's voxel region to the clipboard (D6 / signal 23). */
       copyActiveSegmentVoxels: () => boolean;
       /** Paste the voxel clipboard into the active segment at the current slice (signal 23). */
@@ -905,7 +910,9 @@ export function installRendererE2eHooks(): void {
     syncUnifiedContourLabelmap: (segmentationId: string) =>
       unifiedSegService.syncContourToLabelmap(segmentationId, unifiedToolService.getViewportIds()),
     getPaintedVoxelsPerSlice: () => {
+      const out: Array<{ segmentationId: string; dims: [number, number, number]; perSlice: number[] }> = [];
       const segs = (csSegmentation.state.getSegmentations?.() ?? []) as Array<{
+        segmentationId?: string;
         representationData?: { Labelmap?: { volumeId?: string } };
       }>;
       for (const seg of segs) {
@@ -930,9 +937,9 @@ export function installRendererE2eHooks(): void {
           for (let i = 0; i < sliceSize; i++) if (data[base + i] !== 0) n++;
           perSlice.push(n);
         }
-        return { dims: [x, y, z] as [number, number, number], perSlice };
+        out.push({ segmentationId: seg.segmentationId ?? volumeId, dims: [x, y, z], perSlice });
       }
-      return null;
+      return out;
     },
     getPaintedVoxelCount: () => {
       let total = 0;

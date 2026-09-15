@@ -124,16 +124,12 @@ describe('usePreferencesStore', () => {
     usePreferencesStore.getState().setUpdateChecksEnabled(false);
     usePreferencesStore.getState().setUpdateAutoDownloadEnabled(false);
     usePreferencesStore.getState().setInterpolationEnabled(false);
-    usePreferencesStore.getState().setInterpolationAlgorithm('linear');
-    usePreferencesStore.getState().setLinearThreshold(-5);
 
     let interpolation = usePreferencesStore.getState().preferences.interpolation;
     let updates = usePreferencesStore.getState().preferences.updates;
     expect(updates.enabled).toBe(false);
     expect(updates.autoDownload).toBe(false);
     expect(interpolation.enabled).toBe(false);
-    expect(interpolation.algorithm).toBe('linear');
-    expect(interpolation.linearThreshold).toBe(0);
 
     usePreferencesStore.getState().resetAll();
 
@@ -205,10 +201,6 @@ describe('usePreferencesStore', () => {
     expect(merged.preferences.updates.autoDownload).toBe(false);
 
     expect(merged.preferences.interpolation.enabled).toBe(false);
-    expect(merged.preferences.interpolation.algorithm).toBe(
-      DEFAULT_INTERPOLATION_PREFERENCES.algorithm,
-    );
-    expect(merged.preferences.interpolation.linearThreshold).toBe(1);
   });
 
   it('falls back to default updater preferences when persisted values are malformed', () => {

@@ -14,7 +14,6 @@ import {
   clampAnnotationPanelWidth,
   type BackupPreferences,
   type DeletionPreferences,
-  type InterpolationAlgorithm,
   type InterpolationPreferences,
   type OverlayCornerId,
   type OverlayFieldKey,
@@ -51,9 +50,6 @@ interface PreferencesStore {
   setUpdateAutoDownloadEnabled: (enabled: boolean) => void;
   // ─── Interpolation ─────────────────────────────────────
   setInterpolationEnabled: (enabled: boolean) => void;
-  setInterpolationAlgorithm: (algorithm: InterpolationAlgorithm) => void;
-  setLinearThreshold: (threshold: number) => void;
-  setAutoAcceptInterpolated: (enabled: boolean) => void;
   // ─── Backup ─────────────────────────────────────────────
   setBackupEnabled: (enabled: boolean) => void;
   setBackupIntervalSeconds: (seconds: number) => void;
@@ -543,35 +539,8 @@ export const usePreferencesStore = create<PreferencesStore>()(
           },
         })),
 
-      setInterpolationAlgorithm: (algorithm) =>
-        set((state) => ({
-          preferences: {
-            ...state.preferences,
-            interpolation: { ...state.preferences.interpolation, algorithm },
-          },
-        })),
 
-      setLinearThreshold: (threshold) =>
-        set((state) => ({
-          preferences: {
-            ...state.preferences,
-            interpolation: {
-              ...state.preferences.interpolation,
-              linearThreshold: Math.max(0, Math.min(1, threshold)),
-            },
-          },
-        })),
 
-      setAutoAcceptInterpolated: (enabled) =>
-        set((state) => ({
-          preferences: {
-            ...state.preferences,
-            interpolation: {
-              ...state.preferences.interpolation,
-              autoAcceptInterpolated: enabled,
-            },
-          },
-        })),
 
       // ─── Backup ──────────────────────────────────────────
 
@@ -646,25 +615,14 @@ export const usePreferencesStore = create<PreferencesStore>()(
         if (!incoming) return base;
 
         // Merge interpolation preferences with defaults as fallback
+        // Contour interpolation is a single boolean now; the labelmap algorithm and
+        // threshold were removed with the labelmap interpolation path.
         const incomingInterp = (incoming as Partial<PreferencesV1>).interpolation;
         const mergedInterpolation: InterpolationPreferences = {
           enabled:
             typeof incomingInterp?.enabled === 'boolean'
               ? incomingInterp.enabled
               : base.preferences.interpolation.enabled,
-          algorithm:
-            incomingInterp?.algorithm &&
-            ['sdf', 'morphological', 'nearestSlice', 'linear'].includes(incomingInterp.algorithm)
-              ? incomingInterp.algorithm
-              : base.preferences.interpolation.algorithm,
-          linearThreshold:
-            typeof incomingInterp?.linearThreshold === 'number'
-              ? Math.max(0, Math.min(1, incomingInterp.linearThreshold))
-              : base.preferences.interpolation.linearThreshold,
-          autoAcceptInterpolated:
-            typeof incomingInterp?.autoAcceptInterpolated === 'boolean'
-              ? incomingInterp.autoAcceptInterpolated
-              : base.preferences.interpolation.autoAcceptInterpolated,
         };
 
         // Merge backup preferences with defaults as fallback
