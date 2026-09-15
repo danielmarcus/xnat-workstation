@@ -1015,10 +1015,6 @@ export default function SettingsModal({ open, onClose, onRecover, initialTab }: 
                     />
                     <span className="text-xs text-zinc-300">Enable between-slice interpolation</span>
                   </label>
-                  <p className="text-[11px] text-zinc-500 leading-relaxed mt-2">
-                    Labelmap (Segmentation) editing is not interpolated — a brush stroke affects
-                    only the slice it is drawn on.
-                  </p>
                 </div>
               </>
             )}
