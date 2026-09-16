@@ -513,12 +513,12 @@ Six phases. Each lands as a series of small PRs. Each ships behind a feature fla
 - Per-row metadata: provenance indicator, visibility mode (3-state), lock, active, selection, cross-series, different-FoR, interpolated, empty markers. (No ROI-type badge — removed per review; `RTROIInterpretedType` is preserved on round-trip but not surfaced/edited, per D7.2.)
 - Container-level: dirty marker, approval indicator, add-member button (disabled when approved), save/revert/export actions.
 - Selection model: single-click selects, double-click activates, multi-select via shift/ctrl. Multi-select bulk operations.
-- Load-order list + drag-reorder (no filter / search / sort / "Active only" — all removed per review, D7.7).
+- Load-order list + drag-reorder, scoped to the focused viewport (no filter / search / sort — removed per review, D7.7; the "Active only" toggle stays removed, but because focus is now the filter — see `viewport-scoped-annotations-proposal.md`).
 - Hover sync with viewports (D7.8).
 - Empty / loading / parse-error states (D7.9).
 - Approval workflow: approve, revoke (with confirmation), persist via DICOM `ApprovalStatus`. Audit history in session.
 - Session-level actions (D7.6): create new structure-set / SEG / SR (measurement); save all. (Loading is **automatic** on XNAT-Browser scan selection — transport B5 — not a panel action; there is no manual "load from XNAT" affordance.)
-- Tests: signals 4, 5, 8, 12 (full E2E — active-container selection now exists), 17, 19, 20, 22, **25 (auto-load + navigate lifecycle, A13)**, **26 (session-switch + unsaved retention, A13)**, **27 (conflict + save-failure workflow, E3/H5–H7)**, **31 (list-panel actions)**, **32 (measurement-SR container)**, **33 (selection model)**, **35 (tool affordance + keyboard scoping)**. (Signal 18 retired — ROI type not tracked.) Signals 25–26 depend on the transport auto-load (B5) and the session-scoped panel; signal 27 depends on the §H result/conflict semantics (the transport-workstream blockers C7/D3).
+- Tests: signals 4, 5, 8, 12 (full E2E — active-container selection now exists), 17, 19, 20, 22, **25 (auto-load + navigate lifecycle, A13)**, **26 (session-switch + unsaved work — prompt-then-unload, A13; was "retention" before 2026-09-16)**, **27 (conflict + save-failure workflow, E3/H5–H7)**, **31 (list-panel actions)**, **32 (measurement-SR container)**, **33 (selection model)**, **35 (tool affordance + keyboard scoping)**. (Signal 18 retired — ROI type not tracked.) Signals 25–26 depend on the transport auto-load (B5) and the session-scoped panel; signal 27 depends on the §H result/conflict semantics (the transport-workstream blockers C7/D3).
 
 **Acceptance**: signals 19 (approval persistence), 20 (visibility mode), 22 (provenance round-trip) pass. (Signal 18 retired per review.)
 

@@ -210,7 +210,11 @@ Overlay layer (on top): dialogs · toast stack · modals · recovery screens
 
 **Three peer annotation types**: every container is one of `Segmentation` (DICOM SEG) · `Structure` (DICOM RTSTRUCT) · `Measurement` (DICOM SR). The Annotations side panel header has three corresponding create buttons, and a context-sensitive toolbox at the bottom adapts its tool grid to the active container's type.
 
-**Multi-viewport coupling**: containers are session-scoped (not viewport-scoped). Frame-of-Reference matching determines which viewports a container renders on. The container list shows every container; rows not on the active viewport are dimmed with a cross-panel pill (e.g., `↗ 2 panels`). (There is no "Active only" filter — removed per review; the dimming + pill already convey active-viewport state.)
+**Multi-viewport coupling**: containers are **viewport-scoped**. Frame-of-Reference matching determines which viewports a container renders on, and the annotations side panel lists the containers that render on the **focused** viewport — focus is the filter, there is no toggle. A container that legitimately renders on several viewports (same Frame of Reference, e.g. an MPR triple) appears in each of their lists and carries a cross-panel pill (`↗ 2 panels`); members that cannot be edited on the focused viewport are dimmed (D9). The **unsaved indicator deliberately does not scope** — unsaved work in an unfocused viewport must stay visible, since its review dialog is the only way to save it.
+
+Leaving a scan or session prompts first: if a load would leave a container with unsaved edits showing in **no** viewport, a Save · Discard · Cancel dialog gates it (`lib/app/leaveGuard.ts`). The trigger is "this container will no longer be shown anywhere", not "the session changed" — so loading into a *second* viewport takes nothing away and never prompts (GH #75). Orphans are unloaded once the user has decided; re-opening the scan reloads them.
+
+> Supersedes the session-scoped model and A13 / Change 1c's retain-dirty-forever rule. See [`docs/viewport-scoped-annotations-proposal.md`](docs/viewport-scoped-annotations-proposal.md) for the decisions and why.
 
 **Design specs**:
 - [`docs/multiviewport-annotation-design.md`](docs/multiviewport-annotation-design.md) — architecture + signals + test discipline (§8.0)

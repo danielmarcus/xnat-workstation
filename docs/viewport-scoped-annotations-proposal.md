@@ -1,6 +1,6 @@
 # Viewport-scoped annotations + save-on-switch — proposal (for review)
 
-**Status:** proposed, not implemented. Nothing changes until this is approved.
+**Status:** approved and IMPLEMENTED (2026-09-16). §9 records the decisions taken, §11 the execution sequence.
 **Date:** 2026-09-16
 **Scope:** the annotation panel's container model, scan/session switching, and the
 multi-viewport display rules.
@@ -252,4 +252,4 @@ Worked top to bottom; each step verified and committed before the next.
 | 6 | `applySessionSwitch` → unload after the user has decided | done — deleted; `leaveGuard` replaces it |
 | 7 | Scope the container list to `activeViewportId` (indicator stays app-wide, §9.5) | done |
 | 8 | Specs: invert `session-switch-retention`; new re-scope / prompt / no-prompt-on-add | done |
-| 9 | Docs: `CLAUDE.md` multi-viewport paragraph, mockup §2 re-approval, A13 / D9 supersession | — |
+| 9 | Docs: `CLAUDE.md` multi-viewport paragraph, mockup §2 re-approval, A13 / D9 supersession | done |
