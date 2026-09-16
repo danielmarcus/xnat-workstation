@@ -32,6 +32,10 @@ import { rtStructService } from '../lib/cornerstone/rtStructService';
 import { segmentProvenance } from '../lib/cornerstone/interpolationAcceptance';
 import { getAnnotationUIDs } from '../lib/cornerstone/contourRepresentation';
 import { unifiedToolService } from '../lib/cornerstone/unifiedToolService';
+import {
+  viewportIdsForContainer,
+  containerEligibilityForViewport,
+} from '../lib/cornerstone/unifiedSegService';
 import { segmentationManager } from '../lib/segmentation/segmentationManagerSingleton';
 import { projectContainers } from '../lib/annotations/containerProjection';
 import { buildContainerCsv, type MemberStats } from '../lib/annotations/containerCsv';
@@ -520,6 +524,44 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
 
   const activeToolId = TOOLNAME_TO_CATALOG[activeTool] ?? null;
 
+  // ── Multi-viewport display state (D9 / cross-panel pill) ──────────────────
+  //
+  // Both of these were declared all the way down to the row components and never
+  // supplied: ContainerRow.crossPanelCount and MemberRow.eligibility have existed since
+  // R3.4/R3.5 but nothing passed them, so the "↗ N" pill and the frame-of-reference
+  // dimming have never rendered in any build. ContainerList already forwards them; only
+  // these two resolvers were missing.
+  //
+  // Read at render time from Cornerstone state rather than a store: attachment and frame
+  // of reference live in Cornerstone, and the panel re-renders on its events already.
+
+  /** Viewports OTHER than the focused one that this container renders on. */
+  const crossPanelCount = (containerId: string): number | undefined => {
+    try {
+      const others = viewportIdsForContainer(containerId).filter((id) => id !== activeViewportId);
+      return others.length > 0 ? others.length : undefined;
+    } catch {
+      return undefined;
+    }
+  };
+
+  /**
+   * How the container relates to the focused viewport's frame of reference. Members
+   * inherit their container's relationship — eligibility is a spatial property of the
+   * container, not of the individual segment/ROI.
+   *
+   * `null` from the service means "spatial identity unresolved"; that maps to `native`
+   * so a valid single-series session is never dimmed, matching canDrawOnViewport's
+   * fail-open stance.
+   */
+  const eligibilityOf = (containerId: string): 'native' | 'cross-series' | 'different-for' => {
+    try {
+      return containerEligibilityForViewport(containerId, activeViewportId) ?? 'native';
+    } catch {
+      return 'native';
+    }
+  };
+
   // ── Transport state surfaced in-place on the row + the H7 conflict dialog ──
   const transportOf = (containerId: string): RowTransport | undefined => {
     const e = transportEntries[containerId];
@@ -724,6 +766,9 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
     approvalDialog,
     // Delete-from-XNAT confirmation (kebab → confirm → deleteScan).
     deleteFromServerDialog,
+    // Multi-viewport display state (pill + FoR dimming).
+    crossPanelCount,
+    eligibilityOf,
     // toolbox
     toolbox: activeContainer
       ? {

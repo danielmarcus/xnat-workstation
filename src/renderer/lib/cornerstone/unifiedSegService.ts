@@ -23,6 +23,7 @@ import {
 import { canComputeRequestedRepresentation, computeLabelmapData } from '@cornerstonejs/polymorphic-segmentation';
 import { viewportService } from './viewportService';
 import { classifyEligibility, type ContainerSpatialId, type ViewportSpatialId } from './forEligibility';
+import * as mlg from './multiLayerGroup';
 import { actionForEligibility, nonNativeStyleFor } from './eligibilityStyle';
 import {
   copyVoxelRegion,
@@ -248,6 +249,44 @@ export interface DrawDecision {
  * unresolved, so a valid single-series draw is never blocked. The Phase-3 gesture
  * path enforces this at mouse-down; Phase 2 verifies the decision at the service layer.
  */
+/**
+ * Viewport ids a container currently renders on. Multi-layer-group aware: our SEG ids are
+ * virtual groups Cornerstone does not know, so the group's sub-segs are resolved first.
+ *
+ * Feeds the panel's cross-panel pill, which had no data source until now —
+ * `ContainerRow.crossPanelCount` was declared and rendered but never passed by anything,
+ * so the pill has never appeared.
+ */
+export function viewportIdsForContainer(containerId: string): string[] {
+  const direct = (id: string) => csSegmentation.state.getViewportIdsWithSegmentation(id) ?? [];
+  if (mlg.isMultiLayerGroup(containerId)) {
+    return mlg.findViewportsWithGroup(containerId, direct);
+  }
+  return direct(containerId);
+}
+
+/**
+ * How a container relates to a viewport's frame of reference, in the panel's vocabulary:
+ * `native` (editable here), `cross-series` (same FoR, sibling series — read-only here) or
+ * `different-for` (cannot render here at all).
+ *
+ * Returns null when either side's spatial identity is unresolved, which the caller should
+ * treat as "no opinion" rather than as a restriction — the same fail-open stance
+ * canDrawOnViewport takes, so a valid single-series session is never dimmed.
+ */
+export function containerEligibilityForViewport(
+  containerId: string,
+  viewportId: string,
+): 'native' | 'cross-series' | 'different-for' | null {
+  const cspatial = containerSpatial.get(containerId);
+  const vspatial = resolveViewportSpatial(viewportId);
+  if (!cspatial?.frameOfReferenceUID || !vspatial?.frameOfReferenceUID) return null;
+  const eligibility = classifyEligibility({ container: cspatial, viewport: vspatial });
+  if (eligibility === 'native') return 'native';
+  if (eligibility === 'different-for') return 'different-for';
+  return 'cross-series';
+}
+
 export function canDrawOnViewport(activeContainerId: string | null, viewportId: string): DrawDecision {
   if (!activeContainerId) {
     return { allowed: false, reason: 'No active container — create or select one to draw into.' };

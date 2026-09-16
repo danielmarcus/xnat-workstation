@@ -119,6 +119,8 @@ export default function AnnotationsPanel({ activeViewportId, sourceImageIds }: A
           emptyOf={panel.emptyOf}
           palette={panel.palette}
           transportOf={panel.transportOf}
+          crossPanelCount={panel.crossPanelCount}
+          eligibilityOf={(containerId) => panel.eligibilityOf(containerId)}
           autoEditContainerId={panel.autoEditContainerId}
           autoEditMemberKey={panel.autoEditMemberKey}
           onEditConsumed={panel.onEditConsumed}
