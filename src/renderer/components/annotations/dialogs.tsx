@@ -291,13 +291,14 @@ export function LeaveUnsavedDialog(props: {
         {n === 1 ? 'This annotation has' : `These ${n} annotations have`} unsaved changes and
         will not be shown anywhere after this.
       </p>
-      <ul className="mt-2 max-h-40 overflow-y-auto rounded border border-zinc-800 divide-y divide-zinc-800">
+      <ul className="mt-2 max-h-40 overflow-y-auto space-y-0.5">
         {entries.map((e) => (
           <li
             key={e.containerId}
             data-testid={`leave-unsaved-entry-${e.containerId}`}
-            className="px-2 py-1 text-[11px] text-zinc-300 truncate"
+            className="flex items-center gap-1.5 text-[11px] text-zinc-300 truncate"
           >
+            <span aria-hidden className="text-amber-500/80 text-[13px] leading-none">•</span>
             {e.label}
           </li>
         ))}

@@ -253,3 +253,35 @@ Worked top to bottom; each step verified and committed before the next.
 | 7 | Scope the container list to `activeViewportId` (indicator stays app-wide, §9.5) | done |
 | 8 | Specs: invert `session-switch-retention`; new re-scope / prompt / no-prompt-on-add | done |
 | 9 | Docs: `CLAUDE.md` multi-viewport paragraph, mockup §2 re-approval, A13 / D9 supersession | done |
+
+---
+
+## 12. The cross-viewport drawing report — what the diagnosis actually found
+
+§6's last row said the draw gate "needs separate diagnosis for the reported cross-viewport
+drawing". Doing that turned up two things, one of which corrects an assumption in §6.
+
+**The spatial-identity gap was real** (§10) and is fixed: an imported container had no
+Frame of Reference recorded, so `canDrawOnViewport` failed open for it on every viewport.
+That alone would allow exactly what was reported.
+
+**But the draw gate is not the mechanism that prevents cross-viewport editing**, and it is
+worth recording that the obvious-looking layer is the second one. For a same-FoR sibling
+series, `attachLabelmapWithEligibility` attaches the container *without* calling
+`setActiveSegmentation`, so the brush has no active segmentation to write into on that
+viewport. Deleting the pointerdown guard entirely leaves a real brush gesture on the
+sibling viewport painting nothing — measured, not assumed. For a *different* FoR the
+labelmap volume is not shared at all, so there is nothing to write into either way.
+
+Consequence: a spec that drives a gesture on a non-native viewport and asserts nothing is
+painted passes with the guard deleted. `annotations/sibling-series-readonly` asserts the
+user-visible property and says so in its header; it is deliberately not labelled a test of
+the guard. The guard's own decision is covered at unit level, including for imported
+containers.
+
+**What this leaves unexplained.** Drawing into *one* container from two viewports could
+not be reproduced. The likelier reading of the report is two *separate* containers, one
+per viewport, both editable — which is correct behaviour — with nothing on screen saying
+which container belonged to which viewport, because the pill and the dimming had never
+rendered. That is what §4.1 and the wiring in `5beb794` address. If the behaviour persists
+after this work, it needs a fresh repro rather than a guess.
