@@ -193,10 +193,20 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
   // never actually wired, so a multi-viewport grid showed one undifferentiated list
   // spanning every scan on screen. Focus is the filter; there is no toggle.
   //
-  // Fail-open on an unknown attachment. A container Cornerstone reports no viewports for
-  // is still listed: SR containers are not Cornerstone segmentations at all, and a
-  // container mid-load has not attached yet — hiding those would empty the panel. Only a
-  // container KNOWN to render somewhere, and not here, is scoped out.
+  // Scoping is by what the viewport SHOWS, not by what happens to be attached to it.
+  // Attachment lags: a container created on one viewport attaches to another showing the
+  // same scan asynchronously, a multi-layer group has no representation at all until
+  // something is painted, and an MPR triple attaches per plane. Filtering on attachment
+  // alone therefore hid a container from a viewport displaying its own series — which
+  // invites the user to create a duplicate for the scan they are already annotating, and
+  // makes annotations look viewport-dependent. So a container native to the focused
+  // viewport is listed whether or not it has attached yet.
+  //
+  // Fail-open on an unknown identity. A container Cornerstone reports nothing for is
+  // still listed: SR containers are not Cornerstone segmentations at all, and a container
+  // mid-load has neither attachment nor resolvable geometry — hiding those would empty
+  // the panel. Only a container KNOWN to render somewhere, and known not to belong here,
+  // is scoped out.
   //
   // NB: `containers` stays the full list for every by-id lookup below, and for the
   // unsaved indicator in particular. If the unsaved count scoped with the list, unsaved
@@ -206,8 +216,12 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
     () =>
       containers.filter((c) => {
         try {
-          const on = viewportIdsForContainer(c.id);
-          return on.length === 0 || on.includes(activeViewportId);
+          if (viewportIdsForContainer(c.id).includes(activeViewportId)) return true;
+          // Not attached here (yet). Is it nonetheless this viewport's own annotation?
+          // null = spatial identity unresolved ⇒ no opinion ⇒ list it.
+          const eligibility = containerEligibilityForViewport(c.id, activeViewportId);
+          if (eligibility == null || eligibility === 'native') return true;
+          return false;
         } catch {
           return true;
         }

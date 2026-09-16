@@ -350,6 +350,40 @@ export function containerEligibilityForViewport(
   return 'cross-series';
 }
 
+/**
+ * Viewports showing the SAME series as `viewportId` (itself included).
+ *
+ * "Same scan in two viewports" was being decided by `viewerStore.panelScanMap` — an XNAT
+ * scan id — which is empty for a local import and not reliably populated for every panel
+ * of an MPR layout. When it could not answer, a container created on one viewport simply
+ * never attached to the other, so the same scan showed different annotations depending on
+ * which viewport you looked through, and the panel invited you to create a duplicate.
+ *
+ * Frame of Reference + series is the identity Cornerstone always has, and unlike a
+ * container's own spatial identity it is resolvable at CREATE time, before any labelmap
+ * exists. Two viewports that agree on both are showing the same thing, so a container
+ * native to one is native to the other.
+ *
+ * Returns just `[viewportId]` when its own identity cannot be resolved — never a guess.
+ */
+export function viewportsShowingSameSeries(viewportId: string, candidateViewportIds: string[]): string[] {
+  const self = resolveViewportSpatial(viewportId);
+  if (!self?.frameOfReferenceUID || !self.seriesInstanceUID) return [viewportId];
+  const out = new Set<string>([viewportId]);
+  for (const candidate of candidateViewportIds) {
+    if (candidate === viewportId) continue;
+    const other = resolveViewportSpatial(candidate);
+    if (!other?.frameOfReferenceUID || !other.seriesInstanceUID) continue;
+    if (
+      other.frameOfReferenceUID === self.frameOfReferenceUID &&
+      other.seriesInstanceUID === self.seriesInstanceUID
+    ) {
+      out.add(candidate);
+    }
+  }
+  return Array.from(out);
+}
+
 export function canDrawOnViewport(activeContainerId: string | null, viewportId: string): DrawDecision {
   if (!activeContainerId) {
     return { allowed: false, reason: 'No active container — create or select one to draw into.' };

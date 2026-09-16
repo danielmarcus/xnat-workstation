@@ -17,6 +17,7 @@ import { rtStructService } from '../cornerstone/rtStructService';
 import { useSegmentationManagerStore, type RGBA } from '../../stores/segmentationManagerStore';
 import { useSegmentationStore } from '../../stores/segmentationStore';
 import { useViewerStore } from '../../stores/viewerStore';
+import { viewportsShowingSameSeries } from '../cornerstone/unifiedSegService';
 import {
   ToolName,
   SEGMENTATION_TOOLS,
@@ -104,27 +105,57 @@ export class SegmentationManager {
    * the same source scan. Called after loading or creating a segmentation
    * so it appears in every viewport where that scan is displayed.
    */
+  /**
+   * Panels OTHER than `originPanelId` that are showing the same content — the panels an
+   * annotation made on the origin must also live on.
+   *
+   * Two independent answers, unioned, because each is blind where the other sees:
+   *
+   *  - The XNAT scan id (`panelScanMap`) is definitive when present, but it is EMPTY for a
+   *    locally imported series and is not reliably set on every panel of an MPR layout.
+   *    When it could not answer, the caller used to return immediately — so a container
+   *    created on one viewport never attached to the other, and the same scan showed
+   *    different annotations depending on which viewport you looked through.
+   *  - Frame of Reference + series is what Cornerstone always knows, and unlike the
+   *    container's own spatial identity it resolves at CREATE time, before any labelmap or
+   *    contour exists. It cannot answer when a viewport's metadata is unresolved.
+   */
+  private panelsShowingSameContentAs(originPanelId: string): string[] {
+    const viewerState = useViewerStore.getState();
+    const panelCount = viewerState.layoutConfig.panelCount;
+    const allPanelIds = Array.from({ length: panelCount }, (_, i) => `panel_${i}`);
+
+    const sourceScanId = viewerState.panelScanMap[originPanelId];
+    const originCtx = viewerState.panelXnatContextMap[originPanelId] ?? viewerState.xnatContext;
+    const sessionId = originCtx?.sessionId;
+    const sameSeriesPanels = new Set(viewportsShowingSameSeries(originPanelId, allPanelIds));
+
+    return allPanelIds.filter((pid) => {
+      if (pid === originPanelId) return false;
+      if (sameSeriesPanels.has(pid)) return true;
+      if (!sourceScanId) return false;
+      const otherCtx = viewerState.panelXnatContextMap[pid] ?? viewerState.xnatContext;
+      return (
+        viewerState.panelScanMap[pid] === sourceScanId &&
+        (!sessionId || otherCtx?.sessionId === sessionId)
+      );
+    });
+  }
+
   async attachSegmentationToPanelsForSource(
     segmentationId: string,
     originPanelId: string,
   ): Promise<void> {
     const viewerState = useViewerStore.getState();
     const sourceScanId = viewerState.panelScanMap[originPanelId];
-    if (!sourceScanId) return;
 
     const panelCtx = viewerState.panelXnatContextMap[originPanelId] ?? viewerState.xnatContext;
     const sessionId = panelCtx?.sessionId;
 
-    const panelCount = viewerState.layoutConfig.panelCount;
-    for (let i = 0; i < panelCount; i++) {
-      const pid = `panel_${i}`;
-      if (pid === originPanelId) continue;
+    void sourceScanId;
+    void sessionId;
 
-      // Only attach to panels showing the same scan in the same session
-      const otherScanId = viewerState.panelScanMap[pid];
-      const otherCtx = viewerState.panelXnatContextMap[pid] ?? viewerState.xnatContext;
-      if (otherScanId !== sourceScanId) continue;
-      if (sessionId && otherCtx?.sessionId !== sessionId) continue;
+    for (const pid of this.panelsShowingSameContentAs(originPanelId)) {
 
       if (!this.isSegOnViewport(pid, segmentationId)) {
         try {
@@ -874,6 +905,17 @@ export class SegmentationManager {
   ): Promise<string> {
     const segId = await segmentationService.createContourSegmentation(sourceImageIds, label, false);
     await segmentationService.ensureContourRepresentation(viewportId, segId);
+    // ...and on every other panel showing the same scan. Without this a contour drawn from
+    // a second viewport onto the same series went nowhere: the Structure had no contour
+    // representation there, so the stroke was silently discarded and the user was left
+    // creating a second Structure for a scan they were already annotating.
+    for (const pid of this.panelsShowingSameContentAs(viewportId)) {
+      try {
+        await segmentationService.ensureContourRepresentation(pid, segId);
+      } catch (err) {
+        console.debug(`[SegmentationManager] contour representation on ${pid} failed:`, err);
+      }
+    }
     segmentationService.ensureEmptySegmentation(segId);
     useSegmentationStore.getState().setDicomType(segId, 'RTSTRUCT');
 

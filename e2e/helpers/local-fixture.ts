@@ -83,6 +83,9 @@ export async function enterLocalViewer(page: Page): Promise<void> {
  * for the viewport to finish rendering.
  */
 export async function loadLocalDicom(page: Page, filePaths: string[], panelId = 'panel_0'): Promise<ViewerPage> {
+  // Clear first: setting a file input to the SAME list it already holds fires no change
+  // event, so importing one series into two panels silently did nothing the second time.
+  await page.locator('[data-testid="local-import-input"]').setInputFiles([]);
   await page.locator('[data-testid="local-import-input"]').setInputFiles(filePaths);
   const viewer = new ViewerPage(page, panelId);
   // Path-agnostic: the old path mounts `cornerstone-viewport-canvas:<panel>`,
@@ -149,4 +152,15 @@ export async function loadTwoSeries(
   // Activate panel_1 (import targets the active panel), then load series B into it.
   await page.locator('[data-testid="unified-viewport:panel_1"]').click({ position: { x: 20, y: 20 } });
   await loadLocalDicom(page, filesB, 'panel_1');
+}
+
+/**
+ * The SAME series in both panels of a 1×2 layout. Distinct from loadTwoSeries only in
+ * intent, but the intent is the point: a container is one object shown twice here, so
+ * every viewport must list it, render it and edit it identically. Specs that only ever
+ * put DIFFERENT series in the two panels cannot see a viewport-dependence bug, which is
+ * how one shipped.
+ */
+export function loadSameSeriesTwice(page: Page, datasetName: string, prefix: string): Promise<void> {
+  return loadTwoSeries(page, datasetName, prefix, prefix);
 }
