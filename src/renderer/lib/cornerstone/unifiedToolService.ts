@@ -65,6 +65,7 @@ import { arrowAnnotateTextCallback } from './arrowAnnotateTextPrompt';
 import { ToolName } from '@shared/types/viewer';
 import { viewportService } from './viewportService';
 import { ensureContourEditPrereq } from './contourEditPrereq';
+import { applyMultiViewportContourPreview } from './contourPreviewMultiViewport';
 import { usePreferencesStore } from '../../stores/preferencesStore';
 import { useSegmentationStore } from '../../stores/segmentationStore';
 
@@ -287,6 +288,21 @@ function ensureToolGroup(): ToolTypes.IToolGroup | undefined {
   setIdleToolMode(toolGroup, PlanarFreehandContourSegmentationTool.toolName);
   for (const Tool of FULL_SET) {
     setIdleToolMode(toolGroup, Tool.toolName);
+  }
+
+  // In-progress contour preview across viewports. Cornerstone draws a contour that is
+  // still being drawn from the SOURCE viewport's canvas coordinates and reuses them
+  // verbatim everywhere else, so with one scan open twice at different zooms the stroke
+  // appears in the wrong anatomy, at the wrong size, until mouse-up snaps it into place.
+  for (const toolName of [
+    PlanarFreehandContourSegmentationTool.toolName,
+    PlanarFreehandROITool.toolName,
+  ]) {
+    try {
+      applyMultiViewportContourPreview(toolGroup.getToolInstance(toolName));
+    } catch (err) {
+      console.warn(`[unifiedToolService] contour preview patch for ${toolName} failed:`, err);
+    }
   }
 
   // Inter-slice contour interpolation (signal 13): enable per the user's preference so
