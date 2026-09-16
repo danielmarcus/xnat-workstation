@@ -103,6 +103,14 @@ interface ViewerStore {
 
   // ─── Hanging Protocol Actions ─────────────────────────────────
   setCurrentProtocol: (protocol: HangingProtocol | null) => void;
+  /** Bumped every time setSessionData replaces the scan list. The XNAT browser keeps its
+   *  own per-session cache and would otherwise never see a scan added after it loaded —
+   *  such as the derived scan a save has just created. */
+  sessionScansEpoch: number;
+  /** Bumped when a save has changed what the SERVER holds for this session, so the app
+   *  re-reads the scan list and re-resolves the derived-scan index. */
+  serverAnnotationsEpoch: number;
+  notifyServerAnnotationsChanged: () => void;
   setSessionData: (sessionId: string | null, scans: XnatScan[] | null) => void;
   setXnatContext: (ctx: XnatUploadContext | null) => void;
   /** Record full XNAT upload context for a given panel. */
@@ -162,6 +170,8 @@ export const useViewerStore = create<ViewerStore>((set, get) => ({
   layout: '1x1',
   layoutConfig: { ...LAYOUT_CONFIGS['1x1'] },
   activeViewportId: panelId(0),
+  sessionScansEpoch: 0,
+  serverAnnotationsEpoch: 0,
   viewports: {},
   cineStates: {},
   activeTool: ToolName.WindowLevel,
@@ -185,7 +195,11 @@ export const useViewerStore = create<ViewerStore>((set, get) => ({
 
   setCurrentProtocol: (protocol) => set({ currentProtocol: protocol }),
 
-  setSessionData: (sessionId, scans) => set({ sessionId, sessionScans: scans }),
+  notifyServerAnnotationsChanged: () =>
+    set((st) => ({ serverAnnotationsEpoch: st.serverAnnotationsEpoch + 1 })),
+
+  setSessionData: (sessionId, scans) =>
+    set((st) => ({ sessionId, sessionScans: scans, sessionScansEpoch: st.sessionScansEpoch + 1 })),
 
   setXnatContext: (ctx) => set({ xnatContext: ctx }),
 

@@ -23,6 +23,8 @@ export interface XnatTransportServiceDeps {
   kindOf: (containerId: string) => ContainerKind;
   /** Clock for lastSavedAt (injectable for deterministic tests). */
   now?: () => number;
+  /** Called after a save SUCCEEDS, so the caller can re-read what the server now holds. */
+  onSaved?: (containerId: string) => void;
 }
 
 export function createXnatTransportService(deps: XnatTransportServiceDeps): TransportSaver {
@@ -36,6 +38,10 @@ export function createXnatTransportService(deps: XnatTransportServiceDeps): Tran
       if (result.ok) {
         store.setPhase(containerId, kind, 'saving'); // ensure the entry exists
         store.markSaved(containerId, now(), result.versionToken);
+        // A save can CREATE a derived scan on the server. Nothing else observes that, so
+        // the session's scan list stays stale: the annotation count in the browser does
+        // not move, and re-opening the source scan finds nothing to auto-load.
+        deps.onSaved?.(containerId);
       } else {
         store.setError(containerId, kind, result.kind, result.error, result.serverVersionToken);
       }

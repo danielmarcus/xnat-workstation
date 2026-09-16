@@ -16,6 +16,7 @@ import type {
   XnatScan,
 } from '@shared/types/xnat';
 import { useConnectionStore } from '../../stores/connectionStore';
+import { useViewerStore } from '../../stores/viewerStore';
 import {
   IconStar,
   IconGrid4,
@@ -555,6 +556,23 @@ export default function XnatBrowser({
       setSessionScansLoadingById((prev) => ({ ...prev, [session.id]: false }));
     }
   }, [sessionScansById, sessionScansLoadingById, maybeResolveSessionAssociations]);
+
+  // Republish the session's scans whenever they are re-read elsewhere. This component
+  // caches each session's scan list on expand and never refetches, so a scan created
+  // AFTER that — the derived scan a save produces — would never appear, leaving the
+  // annotation count frozen at what it was when the session was opened.
+  const sessionScansEpoch = useViewerStore((s) => s.sessionScansEpoch);
+  useEffect(() => {
+    if (sessionScansEpoch === 0) return;
+    const { sessionId, sessionScans } = useViewerStore.getState();
+    if (!sessionId || !sessionScans) return;
+    setSessionScansById((prev) => ({ ...prev, [sessionId]: sessionScans }));
+    // Deliberately NOT re-running maybeResolveSessionAssociations here. That resolves
+    // series UIDs and rebuilds the derived-scan index from them; re-running it on every
+    // refresh replaced a convention-based index (the 30xx scan-id rule) with a UID match
+    // that the freshly created scan has no UIDs for yet, and the source scan then
+    // auto-loaded nothing. The badge only needs the list.
+  }, [sessionScansEpoch]);
 
   const toggleSessionExpanded = useCallback((session: XnatSession) => {
     setExpandedSessionIds((prev) => {

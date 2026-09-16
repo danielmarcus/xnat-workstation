@@ -269,3 +269,29 @@ describe('useViewerStore', () => {
     expect(useViewerStore.getState().cineStates.panel_0).toBeUndefined();
   });
 });
+
+/**
+ * The XNAT browser caches each session's scan list when the session is expanded and never
+ * refetches it, so a scan created afterwards — the derived scan a save produces — would
+ * never appear and the annotation count stayed frozen. The epoch is how it learns.
+ */
+describe('serverAnnotationsEpoch', () => {
+  it('advances when a save reports the server changed, so the app re-reads the session', () => {
+    const before = useViewerStore.getState().serverAnnotationsEpoch;
+    useViewerStore.getState().notifyServerAnnotationsChanged();
+    expect(useViewerStore.getState().serverAnnotationsEpoch).toBe(before + 1);
+  });
+});
+
+describe('sessionScansEpoch', () => {
+  it('advances every time the scan list is replaced, including with the same session id', () => {
+    const before = useViewerStore.getState().sessionScansEpoch;
+    useViewerStore.getState().setSessionData('SESS1', [{ id: '1' } as never]);
+    const afterFirst = useViewerStore.getState().sessionScansEpoch;
+    expect(afterFirst).toBeGreaterThan(before);
+
+    useViewerStore.getState().setSessionData('SESS1', [{ id: '1' } as never, { id: '3001' } as never]);
+    expect(useViewerStore.getState().sessionScansEpoch).toBeGreaterThan(afterFirst);
+    expect(useViewerStore.getState().sessionScans).toHaveLength(2);
+  });
+});

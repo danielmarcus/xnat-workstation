@@ -957,6 +957,45 @@ export default function App() {
     if (unsavedSig) setBackupBannerDismissed(false);
   }, [unsavedSig]);
 
+  // ─── Re-read the session after a save changes what the server holds ──────
+  // The first save of a new annotation CREATES a derived scan. Until this, nothing
+  // observed that: the derived-scan index (built once at session load) is what auto-loads
+  // a scan's annotations when it is re-opened, and the XNAT browser caches its own scan
+  // list for the count. Saving on the way out of a scan and coming back showed an empty
+  // panel and an unchanged count, with the annotation on the server all along.
+  //
+  // It re-runs resolveAssociationsForSession — the same call the session-load path makes.
+  // buildDerivedIndex is NOT a substitute: it produces a baseline in which every derived
+  // scan is unmapped, so using it here would erase the associations rather than refresh
+  // them.
+  const serverAnnotationsEpoch = useViewerStore((s) => s.serverAnnotationsEpoch);
+  useEffect(() => {
+    if (serverAnnotationsEpoch === 0) return;
+    let cancelled = false;
+    const id = setTimeout(() => {
+      void (async () => {
+        const viewer = useViewerStore.getState();
+        const sessionId = viewer.xnatContext?.sessionId ?? viewer.sessionId;
+        if (!sessionId) return;
+        try {
+          const scans = await xnatScanApi.getScans(sessionId);
+          if (cancelled) return;
+          useViewerStore.getState().setSessionData(sessionId, scans);
+          await useSessionDerivedIndexStore.getState().resolveAssociationsForSession(
+            sessionId,
+            scans,
+            (sid, scanIdArg) => dicomwebLoader.getScanImageIds(sid, scanIdArg),
+            downloadSegArrayBuffer,
+          );
+        } catch (err) {
+          // Non-fatal — the save succeeded; the next session load rebuilds this anyway.
+          console.warn('[App] post-save session refresh failed:', err);
+        }
+      })();
+    }, 500); // trailing debounce: the leave prompt's Save flushes several containers
+    return () => { cancelled = true; clearTimeout(id); };
+  }, [serverAnnotationsEpoch]);
+
   // ─── Initialize SegmentationManager once Cornerstone is ready ──
   useEffect(() => {
     if (!cornerstoneReady) return;

@@ -29,6 +29,20 @@ import { createXnatTransportService } from './transportService';
 import type { SerializedContainer } from './annotationTransport';
 import type { ContainerKind, SourceIdentity } from '@shared/types/annotation';
 
+/**
+ * A save can CREATE a derived scan on the server — the first save of a new annotation
+ * always does. Nothing observed that, so the session's scan list stayed stale in two
+ * places at once: the derived-scan index, which is what auto-loads a scan's annotations
+ * when it is re-opened, and the XNAT browser's own per-session cache, which feeds the
+ * annotation count. Saving on the way out of a scan and returning to it showed an empty
+ * panel and an unchanged count, with the annotation on the server the whole time.
+ *
+ * Only a signal is raised here. Re-reading the session needs the scan-image and
+ * file-download plumbing that lives in App, and re-resolving the index has to run the same
+ * `resolveAssociationsForSession` the session-load path runs — rebuilding it any other way
+ * leaves every derived scan unmapped.
+ */
+
 /** The XNAT origin a container was loaded from / will be saved back to. */
 export interface XnatOrigin {
   projectId: string;
@@ -228,6 +242,7 @@ export function composeXnatTransport(): void {
     api,
     serialize: (id) => buildSerializedContainer(id, buildDeps),
     kindOf,
+    onSaved: () => useViewerStore.getState().notifyServerAnnotationsChanged(),
   });
 
   segmentationService.setSaveTransport(svc.saveContainer);
