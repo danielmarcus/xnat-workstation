@@ -36,6 +36,7 @@ import { useSegmentationStore } from '../../stores/segmentationStore';
 import { useViewerStore } from '../../stores/viewerStore';
 import { useApprovalStore } from '../../stores/approvalStore';
 import { bulkDisplacementMm, type VolumeGeometry as SourceVolumeGeometry } from './bulkDisplacement';
+import * as sourceImageTracking from './sourceImageTracking';
 
 let counter = 0;
 /** Segmentations created on the unified path, so they can be re-attached to
@@ -166,6 +167,68 @@ function resolveViewportSpatial(viewportId: string): ViewportSpatialId | null {
   return { viewportId, frameOfReferenceUID, seriesInstanceUID, acquisitionNumber: null };
 }
 
+/**
+ * Derive a container's spatial identity from the images it was built over.
+ *
+ * `recordContainerSpatial` only ever runs on the two CREATE paths, so a container
+ * IMPORTED from XNAT had no entry in `containerSpatial` — and since every spatial
+ * decision here fails open on a missing entry, a loaded container was treated as native
+ * to every viewport: the draw gate never blocked it, its rows never dimmed, and it
+ * attached to viewports it had no business rendering on. A SEG you drew was gated
+ * correctly while the same SEG reloaded from XNAT was not, which no spec caught because
+ * every spec creates its containers.
+ *
+ * The fix is to derive identity rather than to remember it at each of the (three, and
+ * growing) import call sites: the source images already carry both halves — the Frame of
+ * Reference on `imagePlaneModule` and the series on `generalSeriesModule` — and are
+ * tracked for export attribution regardless of how the container arrived.
+ */
+function spatialFromSourceImages(containerId: string): ContainerSpatialId | null {
+  let imageId = sourceImageTracking.getSourceImageIds(containerId)?.[0] ?? null;
+  // A multi-layer group is a virtual id Cornerstone knows nothing about; its source
+  // images are tracked on the per-segment sub-segs.
+  if (!imageId && mlg.isMultiLayerGroup(containerId)) {
+    for (const subSegId of mlg.getActiveSubSegIds(containerId)) {
+      imageId = sourceImageTracking.getSourceImageIds(subSegId)?.[0] ?? null;
+      if (imageId) break;
+    }
+  }
+  if (!imageId) return null;
+  const plane = metaData.get('imagePlaneModule', imageId) as { frameOfReferenceUID?: string } | undefined;
+  const frameOfReferenceUID = plane?.frameOfReferenceUID ?? null;
+  // Without a Frame of Reference there is nothing to decide on; stay unresolved so the
+  // callers keep failing open rather than inventing a half-identity.
+  if (!frameOfReferenceUID) return null;
+  const series = metaData.get('generalSeriesModule', imageId) as { seriesInstanceUID?: string } | undefined;
+  const nativeSeriesInstanceUID = series?.seriesInstanceUID ?? null;
+  return {
+    frameOfReferenceUID,
+    nativeSeriesInstanceUID,
+    referencedSeriesInstanceUIDs: nativeSeriesInstanceUID ? [nativeSeriesInstanceUID] : [],
+  };
+}
+
+/**
+ * A container's spatial identity: the recorded one if a create path set it, otherwise
+ * derived from its source images. The derived result is memoized into the same map, so
+ * later calls (the draw gate runs on every pointerdown) cost one lookup.
+ *
+ * Still returns null when neither is available — that remains "no opinion", and every
+ * caller fails open on it.
+ */
+function resolveContainerSpatial(containerId: string): ContainerSpatialId | null {
+  const recorded = containerSpatial.get(containerId);
+  if (recorded?.frameOfReferenceUID) return recorded;
+  let derived: ContainerSpatialId | null = null;
+  try {
+    derived = spatialFromSourceImages(containerId);
+  } catch {
+    derived = null; // a metadata read must never throw out of a gate or an attach loop
+  }
+  if (derived) containerSpatial.set(containerId, derived);
+  return derived ?? recorded ?? null;
+}
+
 /** Record a container's native spatial identity from the viewport it was created on. */
 function recordContainerSpatial(segmentationId: string, nativeViewportId: string | undefined): void {
   if (!nativeViewportId) return;
@@ -193,7 +256,7 @@ export function attachLabelmapWithEligibility(segmentationId: string, viewportId
   // we attach as native, exactly as the pre-eligibility code did.
   let action = actionForEligibility('native');
   try {
-    const cspatial = containerSpatial.get(segmentationId);
+    const cspatial = resolveContainerSpatial(segmentationId);
     const vspatial = resolveViewportSpatial(viewportId);
     if (cspatial?.frameOfReferenceUID && vspatial?.frameOfReferenceUID) {
       // Classify once cheaply; only a same-FoR sibling series (cross-series-*) needs
@@ -278,7 +341,7 @@ export function containerEligibilityForViewport(
   containerId: string,
   viewportId: string,
 ): 'native' | 'cross-series' | 'different-for' | null {
-  const cspatial = containerSpatial.get(containerId);
+  const cspatial = resolveContainerSpatial(containerId);
   const vspatial = resolveViewportSpatial(viewportId);
   if (!cspatial?.frameOfReferenceUID || !vspatial?.frameOfReferenceUID) return null;
   const eligibility = classifyEligibility({ container: cspatial, viewport: vspatial });
@@ -299,7 +362,7 @@ export function canDrawOnViewport(activeContainerId: string | null, viewportId: 
       reason: 'This container is approved and edit-locked. Revoke its approval in the Annotations panel to edit.',
     };
   }
-  const cspatial = containerSpatial.get(activeContainerId);
+  const cspatial = resolveContainerSpatial(activeContainerId);
   const vspatial = resolveViewportSpatial(viewportId);
   if (!cspatial?.frameOfReferenceUID || !vspatial?.frameOfReferenceUID) {
     return { allowed: true }; // fail open — don't block a valid single-series draw

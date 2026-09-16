@@ -43,7 +43,13 @@ vi.mock('../../../stores/viewerStore', () => ({
   useViewerStore: { getState: () => ({ activeViewportId: 'panel_0' }) },
 }));
 
-import { unifiedSegService, attachLabelmapWithEligibility, canDrawOnViewport } from '../unifiedSegService';
+import {
+  unifiedSegService,
+  attachLabelmapWithEligibility,
+  canDrawOnViewport,
+  containerEligibilityForViewport,
+} from '../unifiedSegService';
+import * as sourceImageTracking from '../sourceImageTracking';
 
 /** Make getViewport return a viewport with the given FoR + series. */
 function viewportWith(frameOfReferenceUID: string | null, series: string | null): void {
@@ -52,13 +58,39 @@ function viewportWith(frameOfReferenceUID: string | null, series: string | null)
     getImageIds: () => (series ? ['img-0'] : []),
     getCurrentImageId: () => (series ? 'img-0' : null),
   });
-  m.metaGet.mockImplementation((mod?: string) =>
-    mod === 'generalSeriesModule' ? { seriesInstanceUID: series } : undefined,
-  );
+  m.metaGet.mockImplementation((mod?: string, id?: string) => {
+    // Source-image metadata for the IMPORT path (see importedContainer below); the
+    // viewport's own image keeps answering for the viewport's series.
+    const imported = importedImageMeta.get(id ?? '');
+    if (imported) {
+      if (mod === 'generalSeriesModule') return { seriesInstanceUID: imported.series };
+      if (mod === 'imagePlaneModule') return { frameOfReferenceUID: imported.forUID };
+      return undefined;
+    }
+    if (mod === 'generalSeriesModule') return { seriesInstanceUID: series };
+    if (mod === 'imagePlaneModule') return { frameOfReferenceUID };
+    return undefined;
+  });
+}
+
+/** Metadata for images belonging to an imported container's source series. */
+const importedImageMeta = new Map<string, { forUID: string; series: string }>();
+
+/**
+ * Stand in for a container LOADED from XNAT: registered with Cornerstone and tracked
+ * against its source images, but never passed through a create path — so nothing ever
+ * called recordContainerSpatial for it.
+ */
+function importedContainer(containerId: string, forUID: string, series: string): void {
+  const imageId = `${containerId}-src-0`;
+  importedImageMeta.set(imageId, { forUID, series });
+  sourceImageTracking.setSourceImageIds(containerId, [imageId]);
 }
 
 beforeEach(() => {
   unifiedSegService.reset();
+  importedImageMeta.clear();
+  sourceImageTracking.clearAll();
   Object.values(m).forEach((fn) => (fn as { mockClear?: () => void }).mockClear?.());
   // Container is native to FoR-1 / series-A.
   unifiedSegService._setContainerSpatialForTest('seg1', {
@@ -133,5 +165,55 @@ describe('canDrawOnViewport (Slice 3: gesture-start blocking, B3 / signal 12)', 
   it('fails OPEN (allows) when spatial ids are unresolved — never blocks a valid single-series draw', () => {
     viewportWith(null, null);
     expect(canDrawOnViewport('seg1', 'panel_3')).toEqual({ allowed: true });
+  });
+});
+
+/**
+ * Regression: a container IMPORTED from XNAT never passes through a create path, so
+ * `recordContainerSpatial` never ran for it and `containerSpatial` had no entry. Every
+ * spatial decision fails open on a missing entry, which meant the draw gate never
+ * blocked a loaded container on any viewport and its rows never dimmed — the two
+ * symptoms reported against the multi-viewport grid. Spatial identity must therefore be
+ * derivable from the container's own source images, not only from its create origin.
+ */
+describe('spatial identity of an IMPORTED container (no create-path record)', () => {
+  it('blocks drawing on a different-FoR viewport', () => {
+    importedContainer('loadedSeg', 'FoR-1', 'series-A');
+    viewportWith('FoR-2', 'series-X');
+    const d = canDrawOnViewport('loadedSeg', 'panel_2');
+    expect(d.allowed).toBe(false);
+    expect(d.reason).toMatch(/frame of reference|different/i);
+  });
+
+  it('blocks drawing on a same-FoR sibling series (read-only there)', () => {
+    importedContainer('loadedSeg', 'FoR-1', 'series-A');
+    viewportWith('FoR-1', 'series-B');
+    expect(canDrawOnViewport('loadedSeg', 'panel_1').allowed).toBe(false);
+  });
+
+  it('still allows drawing on its own series', () => {
+    importedContainer('loadedSeg', 'FoR-1', 'series-A');
+    viewportWith('FoR-1', 'series-A');
+    expect(canDrawOnViewport('loadedSeg', 'panel_0')).toEqual({ allowed: true });
+  });
+
+  it('reports eligibility to the panel, so its rows can dim', () => {
+    importedContainer('loadedSeg', 'FoR-1', 'series-A');
+    viewportWith('FoR-1', 'series-B');
+    expect(containerEligibilityForViewport('loadedSeg', 'panel_1')).toBe('cross-series');
+    viewportWith('FoR-2', 'series-X');
+    expect(containerEligibilityForViewport('loadedSeg', 'panel_2')).toBe('different-for');
+  });
+
+  it('does not attach to a different-FoR viewport', () => {
+    importedContainer('loadedSeg', 'FoR-1', 'series-A');
+    viewportWith('FoR-2', 'series-X');
+    attachLabelmapWithEligibility('loadedSeg', 'panel_2');
+    expect(m.addLabelmapRep).not.toHaveBeenCalled();
+  });
+
+  it('still fails OPEN when the container has no source images to derive from', () => {
+    viewportWith('FoR-2', 'series-X');
+    expect(canDrawOnViewport('untracked', 'panel_2')).toEqual({ allowed: true });
   });
 });

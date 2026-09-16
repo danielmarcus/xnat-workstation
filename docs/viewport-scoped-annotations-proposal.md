@@ -177,3 +177,79 @@ on every focus change even in MPR, where the content will not visibly differ.
 3. Should **Discard** be available at all, or only **Save · Cancel**? Discard is the only
    path that can lose work.
 4. Does the cross-panel pill survive (§4.4), or is a single-viewport list enough?
+
+---
+
+## 9. Decisions taken (2026-09-16) — approved, in progress
+
+The four §8 questions, answered so execution can proceed. Each is recorded here rather
+than in a chat message so the reasoning survives.
+
+**1. Orphaning rule (§4.2) — confirmed as proposed.** The trigger is "this container will
+no longer be shown anywhere", not "the session changed". A container still rendering in
+another viewport is not orphaned and must not prompt. This is what keeps GH #75 intact by
+construction rather than by a special case.
+
+**2. Viewport scoping applies in MPR — confirmed.** The list re-scopes on every focus
+change. In MPR all three viewports show the same volume, so the content does not differ
+and the re-scope is invisible; adding an MPR exception would mean two code paths for no
+observable gain.
+
+**3. Discard stays, as the non-default action.** Removing it traps a user who drew
+something by accident behind a save they do not want. Cancel is the safe out and is the
+dialog's default focus; Discard is styled as the destructive action and names what is
+being dropped. The risk §7 flags is real, so the dialog states the container count and
+labels rather than saying "unsaved changes".
+
+**4. The cross-panel pill survives** (§4.4) — already wired in `5beb794`. Under scoping it
+reads "also on N other viewports", which is the useful reading in an MPR layout.
+
+**5. Added decision — the unsaved indicator does NOT scope.** §4.1 scopes the container
+*list*. If the unsaved count scoped with it, unsaved work in an unfocused viewport of a 2x2
+grid would be invisible, and the review dialog is the only way to save it. So: the list is
+viewport-scoped, the unsaved indicator and its review dialog stay app-wide. This is the one
+place the two must disagree.
+
+---
+
+## 10. Root cause found: container spatial identity is never recorded on import
+
+Diagnosing §6's last row ("the guard is wired, so the failure is in `canDrawOnViewport`'s
+decision") turned up a concrete cause that explains **both** reported symptoms at once.
+
+`containerSpatial` — the map holding a container's Frame of Reference and native series —
+is written by exactly two callers, `unifiedSegService.ts:370` and `:434`. Both are *create*
+paths. Nothing records it for a container **imported** from XNAT.
+
+Every spatial decision fails open when the identity is unresolved, by design:
+
+- `canDrawOnViewport` → `{ allowed: true }` → **the draw gate never blocks a loaded
+  container, on any viewport.** This is the reported cross-viewport drawing.
+- `containerEligibilityForViewport` → `null` → `native` → **no dimming.**
+- `attachLabelmapWithEligibility` → attach as native → a loaded SEG attaches to viewports
+  it has no business rendering on.
+
+So a SEG you *draw* is spatially identified and correctly gated; the same SEG *reloaded
+from XNAT* is not. That asymmetry is invisible in any test that creates its containers,
+which is every current spec.
+
+Fixing this is a precondition for the rest of the work: the eligibility dimming wired in
+`5beb794` is inert for loaded containers until it lands.
+
+---
+
+## 11. Execution sequence
+
+Worked top to bottom; each step verified and committed before the next.
+
+| # | Step | State |
+|---|---|---|
+| 1 | Decisions recorded (§9) | done |
+| 2 | Record container spatial identity on the **import** path (§10) | — |
+| 3 | `decideOrphans` — pure orphaning decision, unit-tested | — |
+| 4 | Leave-with-unsaved dialog (Save · Discard · Cancel), presentational | — |
+| 5 | Wire the dialog into `loadFromXnatScan` — both the session-switch and the scan-replace branch, before any mutation | — |
+| 6 | `applySessionSwitch` → unload after the user has decided | — |
+| 7 | Scope the container list to `activeViewportId` (indicator stays app-wide, §9.5) | — |
+| 8 | Specs: invert `session-switch-retention`; new re-scope / prompt / no-prompt-on-add | — |
+| 9 | Docs: `CLAUDE.md` multi-viewport paragraph, mockup §2 re-approval, A13 / D9 supersession | — |
