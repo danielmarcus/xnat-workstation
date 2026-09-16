@@ -245,11 +245,11 @@ Worked top to bottom; each step verified and committed before the next.
 | # | Step | State |
 |---|---|---|
 | 1 | Decisions recorded (§9) | done |
-| 2 | Record container spatial identity on the **import** path (§10) | — |
-| 3 | `decideOrphans` — pure orphaning decision, unit-tested | — |
-| 4 | Leave-with-unsaved dialog (Save · Discard · Cancel), presentational | — |
-| 5 | Wire the dialog into `loadFromXnatScan` — both the session-switch and the scan-replace branch, before any mutation | — |
-| 6 | `applySessionSwitch` → unload after the user has decided | — |
+| 2 | Record container spatial identity on the **import** path (§10) | done — `d257377` |
+| 3 | `decideOrphans` — pure orphaning decision, unit-tested | done |
+| 4 | Leave-with-unsaved dialog (Save · Discard · Cancel), presentational | done |
+| 5 | Wire the dialog into `loadFromXnatScan` — both the session-switch and the scan-replace branch, before any mutation | done |
+| 6 | `applySessionSwitch` → unload after the user has decided | done — deleted; `leaveGuard` replaces it |
 | 7 | Scope the container list to `activeViewportId` (indicator stays app-wide, §9.5) | — |
 | 8 | Specs: invert `session-switch-retention`; new re-scope / prompt / no-prompt-on-add | — |
 | 9 | Docs: `CLAUDE.md` multi-viewport paragraph, mockup §2 re-approval, A13 / D9 supersession | — |

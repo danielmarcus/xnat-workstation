@@ -239,3 +239,99 @@ export function ConflictDialog(props: {
     </ModalShell>
   );
 }
+
+export interface LeavingEntry {
+  containerId: string;
+  label: string;
+}
+
+/**
+ * Leave-with-unsaved-work (proposal §4.2) — shown when a load would leave a container
+ * with unsaved edits showing in no viewport at all. Save · Discard · Cancel; Cancel
+ * aborts the load.
+ *
+ * This is the only place in the app where unsaved annotation work can deliberately be
+ * dropped, so three things are deliberate:
+ *  - It NAMES the containers rather than saying "you have unsaved changes". The user has
+ *    to be able to tell what they are about to lose, and the scan-id badge on the row is
+ *    blank for exactly this work (it is only populated once saved).
+ *  - Cancel takes focus, so Enter is the safe action and Discard is never one keystroke.
+ *  - Discard is styled as destructive and sits away from Save.
+ */
+export function LeaveUnsavedDialog(props: {
+  entries: LeavingEntry[];
+  /** What is being left ("scan 4", a session label) — omitted when it cannot be named. */
+  leavingLabel?: string;
+  /** A save is in flight: every action is disabled so nothing double-fires. */
+  busy?: boolean;
+  /** A failed save. The dialog stays open and actionable so the user can retry or discard. */
+  error?: string;
+  onSave: () => void;
+  onDiscard: () => void;
+  onCancel: () => void;
+}) {
+  const { entries, leavingLabel, busy = false, error, onSave, onDiscard, onCancel } = props;
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => { cancelRef.current?.focus(); }, []);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { e.preventDefault(); onCancel(); }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onCancel]);
+
+  const n = entries.length;
+  return (
+    <ModalShell width="w-80">
+      <div className="text-xs text-zinc-200 font-medium mb-1" data-testid="leave-unsaved-dialog">
+        Save before leaving{leavingLabel ? ` ${leavingLabel}` : ''}?
+      </div>
+      <p className="text-[10px] text-zinc-500">
+        {n === 1 ? 'This annotation has' : `These ${n} annotations have`} unsaved changes and
+        will not be shown anywhere after this.
+      </p>
+      <ul className="mt-2 max-h-40 overflow-y-auto rounded border border-zinc-800 divide-y divide-zinc-800">
+        {entries.map((e) => (
+          <li
+            key={e.containerId}
+            data-testid={`leave-unsaved-entry-${e.containerId}`}
+            className="px-2 py-1 text-[11px] text-zinc-300 truncate"
+          >
+            {e.label}
+          </li>
+        ))}
+      </ul>
+      {error && <p className="mt-2 text-[10px] text-red-400" role="alert">{error}</p>}
+      <div className="mt-3 flex items-center justify-between gap-2">
+        <button
+          type="button"
+          disabled={busy}
+          className="text-[11px] px-2.5 py-1 rounded text-red-400 hover:text-red-300 hover:bg-red-950/40 disabled:opacity-50 disabled:cursor-not-allowed"
+          onClick={onDiscard}
+        >
+          Discard
+        </button>
+        <div className="flex gap-2">
+          <button
+            ref={cancelRef}
+            type="button"
+            disabled={busy}
+            className="text-[11px] px-2.5 py-1 rounded text-zinc-400 hover:text-zinc-200 disabled:opacity-50 disabled:cursor-not-allowed"
+            onClick={onCancel}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            className="text-[11px] px-2.5 py-1 rounded text-white bg-blue-600 hover:bg-blue-500 disabled:opacity-60 disabled:cursor-not-allowed"
+            onClick={onSave}
+          >
+            {busy ? 'Saving…' : error ? 'Retry save' : 'Save'}
+          </button>
+        </div>
+      </div>
+    </ModalShell>
+  );
+}

@@ -16,6 +16,7 @@ import { volumeService } from '../cornerstone/volumeService';
 import { viewportService } from '../cornerstone/viewportService';
 import { unifiedToolService } from '../cornerstone/unifiedToolService';
 import { unifiedSegService, canDrawOnViewport } from '../cornerstone/unifiedSegService';
+import { guardLoad } from '../app/leaveGuard';
 import { undoService } from '../cornerstone/undoService';
 import { segmentationManager } from '../segmentation/segmentationManagerSingleton';
 import { segmentationService } from '../cornerstone/segmentationService';
@@ -127,8 +128,13 @@ declare global {
       seedSessionContainer: (sessionId: string, dirty: boolean) => Promise<string>;
       /** Set the active viewer session (the one being left on a switch). */
       setViewerSession: (sessionId: string) => void;
-      /** Drive the real A13 session-switch retention (Change 1c). */
-      applySessionSwitch: (toSessionId: string) => void;
+      /** Drive the real leave guard — the exact call App.loadFromXnatScan makes before a
+       *  load, so the prompt, the unload and the abort are the production ones. */
+      guardLoad: (load: {
+        viewportId: string | null;
+        toSessionId: string;
+        fromSessionId: string | null;
+      }, leavingLabel?: string) => Promise<'proceed' | 'cancel'>;
       /** Set the brush radius for the unified tool group. */
       setUnifiedBrushSize: (size: number) => void;
       /** Set the threshold-brush intensity range (select ThresholdBrush first). */
@@ -733,8 +739,10 @@ export function installRendererE2eHooks(): void {
       const v = useViewerStore.getState();
       useViewerStore.setState({ sessionId, xnatContext: { ...(v.xnatContext ?? {}), sessionId } as never });
     },
-    /** Drive the real A13 session-switch retention (Change 1c). */
-    applySessionSwitch: (toSessionId: string) => segmentationManager.applySessionSwitch(toSessionId),
+    guardLoad: (
+      load: { viewportId: string | null; toSessionId: string; fromSessionId: string | null },
+      leavingLabel?: string,
+    ) => guardLoad(load, leavingLabel),
     setUnifiedBrushSize: (size: number) => unifiedToolService.setBrushSize(size),
     setUnifiedBrushThreshold: (range: [number, number]) => unifiedToolService.setBrushThreshold(range),
     copyActiveSegmentVoxels: () => unifiedSegService.copyActiveSegmentVoxels(),

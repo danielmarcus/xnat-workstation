@@ -33,12 +33,14 @@ import { xnatScanApi } from './lib/xnat/scanApi';
 import { useSegmentationManagerStore } from './stores/segmentationManagerStore';
 import { segmentationManager } from './lib/segmentation/segmentationManagerSingleton';
 import { sessionsWithUnsaved, type LoadedContainerRef } from './lib/annotations/sessionLifecycle';
+import { guardLoad } from './lib/app/leaveGuard';
 import { getSegReferenceInfo } from './lib/dicom/segReferencedSeriesUid';
 import { applyPreferences } from './lib/preferences/applyPreferences';
 import { backupService } from './lib/backup/backupService';
 import { segmentationService } from './lib/cornerstone/segmentationService';
 import { annotationService } from './lib/cornerstone/annotationService';
 import AppDialogHost from './components/dialog/AppDialogHost';
+import LeavePromptHost from './components/dialog/LeavePromptHost';
 import { showConfirmDialog } from './stores/dialogStore';
 import {
   isPrimaryImageScan,
@@ -1405,16 +1407,38 @@ export default function App() {
     if (!isConnected) return;
 
     const currentSessionId = useViewerStore.getState().xnatContext?.sessionId ?? null;
+
+    // ── Leave guard (proposal §4.2) — BEFORE anything below mutates state ──────
+    // If this load would leave a container with unsaved edits showing in NO viewport,
+    // ask first: Save · Discard · Cancel. Cancel aborts the load entirely.
+    //
+    // This replaces A13/Change 1c's retain-dirty-forever rule. Retention never lost
+    // work, but it left containers listed in the panel while rendering nowhere,
+    // identified by a scan-id badge that is blank for precisely that work (it is
+    // populated only once saved).
+    //
+    // A DERIVED scan (SEG / RTSTRUCT / SR) loads as an overlay onto the images already
+    // shown, so it takes no viewport away and passes `null` — only a session switch can
+    // orphan anything in that case. (Limit: a derived scan whose source series is not
+    // the one on screen does replace the panel; that path is not modelled here and will
+    // not prompt.)
+    const guardViewportId = isDerivedScan(scan) ? null : useViewerStore.getState().activeViewportId;
+    const leavingLabel =
+      currentSessionId && currentSessionId !== sessionId
+        ? useViewerStore.getState().xnatContext?.sessionLabel || undefined
+        : (() => {
+            const leavingScan = guardViewportId
+              ? useViewerStore.getState().panelScanMap[guardViewportId]
+              : null;
+            return leavingScan ? `scan #${leavingScan}` : undefined;
+          })();
+    const guard = await guardLoad(
+      { viewportId: guardViewportId, toSessionId: sessionId, fromSessionId: currentSessionId },
+      leavingLabel,
+    );
+    if (guard === 'cancel') return;
+
     if (currentSessionId && currentSessionId !== sessionId) {
-      // Session switch (A13 / Change 1c): retain dirty other-session containers in
-      // memory and unload only the clean ones — unsaved work is never silently
-      // dropped (it stops rendering because it isn't attached to the new session's
-      // viewports, but stays in the panel list with the unsaved indicator). This
-      // replaces the old prompt-and-wipe. NB: we deliberately do NOT blanket-reset
-      // segmentationManagerStore here — that would clear the per-container dirty
-      // flags retention depends on; removeSegmentation cleans up only the unloaded
-      // containers' state, leaving retained ones intact.
-      segmentationManager.applySessionSwitch(sessionId);
       clearSegLoadingLocks();
       useSessionDerivedIndexStore.getState().clear();
       dicomwebLoader.clearScanImageIdsCache(currentSessionId);
@@ -2294,11 +2318,14 @@ export default function App() {
 
       const previousSessionId = useViewerStore.getState().sessionId;
       if (previousSessionId && previousSessionId !== sessionId) {
-        // Session switch (A13 / Change 1c): retain dirty other-session containers,
-        // unload only the clean ones (see loadFromXnatScan for the rationale).
-        // Replaces prompt-and-wipe; NOT a blanket manager-store reset (that would
-        // clear the dirty flags retention depends on).
-        segmentationManager.applySessionSwitch(sessionId);
+        // Leave guard (proposal §4.2) — see loadFromXnatScan. A session switch detaches
+        // every container of the session being left, from every viewport at once, so
+        // there is no single viewport being replaced to name.
+        const guard = await guardLoad(
+          { viewportId: null, toSessionId: sessionId, fromSessionId: previousSessionId },
+          useViewerStore.getState().xnatContext?.sessionLabel || undefined,
+        );
+        if (guard === 'cancel') return;
         dicomwebLoader.clearScanImageIdsCache(previousSessionId);
       }
 
@@ -3236,6 +3263,7 @@ export default function App() {
         </div>
       )}
       <AppDialogHost />
+      <LeavePromptHost />
     </div>
   );
 }

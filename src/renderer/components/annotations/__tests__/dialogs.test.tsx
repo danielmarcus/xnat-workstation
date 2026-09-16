@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { ConfirmDialog, ConflictDialog, NameEntryDialog, ReviewUnsavedDialog } from '../dialogs';
+import { ConfirmDialog, ConflictDialog, LeaveUnsavedDialog, NameEntryDialog, ReviewUnsavedDialog } from '../dialogs';
 
 /** Rebuild Phase 3, R3.7 — dialogs (frozen mockup §5). */
 describe('ConfirmDialog', () => {
@@ -95,5 +95,69 @@ describe('ReviewUnsavedDialog', () => {
     render(<ReviewUnsavedDialog entries={[]} onSaveOne={vi.fn()} onSaveAll={vi.fn()} onClose={vi.fn()} />);
     expect(screen.getByText(/All annotations saved/)).toBeTruthy();
     expect(screen.queryByText('Save all')).toBeNull();
+  });
+});
+
+/**
+ * LeaveUnsavedDialog (proposal §4.2) — the one place in the app where unsaved work can
+ * deliberately be dropped, so the wording and the default matter (proposal §7). It must
+ * name what is leaving rather than say "unsaved changes", Cancel must be the default, and
+ * Discard must not be reachable by pressing Enter.
+ */
+describe('LeaveUnsavedDialog', () => {
+  const entries = [
+    { containerId: 'c1', label: 'Tumor' },
+    { containerId: 'c2', label: 'CTV_54' },
+  ];
+
+  it('names the containers being left rather than saying "unsaved changes"', () => {
+    render(
+      <LeaveUnsavedDialog entries={entries} leavingLabel="scan 4" onSave={vi.fn()} onDiscard={vi.fn()} onCancel={vi.fn()} />,
+    );
+    expect(screen.getByText('Tumor')).toBeTruthy();
+    expect(screen.getByText('CTV_54')).toBeTruthy();
+    expect(screen.getByText(/scan 4/)).toBeTruthy();
+  });
+
+  it('fires save / discard / cancel', async () => {
+    const onSave = vi.fn(), onDiscard = vi.fn(), onCancel = vi.fn();
+    render(<LeaveUnsavedDialog entries={entries} onSave={onSave} onDiscard={onDiscard} onCancel={onCancel} />);
+    await userEvent.click(screen.getByRole('button', { name: /^save/i }));
+    expect(onSave).toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('button', { name: /discard/i }));
+    expect(onDiscard).toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('button', { name: /cancel/i }));
+    expect(onCancel).toHaveBeenCalled();
+  });
+
+  it('focuses Cancel, so the safe action is the one Enter takes', async () => {
+    const onDiscard = vi.fn();
+    render(<LeaveUnsavedDialog entries={entries} onSave={vi.fn()} onDiscard={onDiscard} onCancel={vi.fn()} />);
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: /cancel/i }));
+    await userEvent.keyboard('{Enter}');
+    expect(onDiscard).not.toHaveBeenCalled();
+  });
+
+  it('Escape cancels — the switch is aborted, nothing is dropped', async () => {
+    const onCancel = vi.fn(), onDiscard = vi.fn();
+    render(<LeaveUnsavedDialog entries={entries} onSave={vi.fn()} onDiscard={onDiscard} onCancel={onCancel} />);
+    await userEvent.keyboard('{Escape}');
+    expect(onCancel).toHaveBeenCalled();
+    expect(onDiscard).not.toHaveBeenCalled();
+  });
+
+  it('disables every action while a save is in flight, so nothing double-fires', () => {
+    render(<LeaveUnsavedDialog entries={entries} busy onSave={vi.fn()} onDiscard={vi.fn()} onCancel={vi.fn()} />);
+    for (const name of [/^saving|^save/i, /discard/i, /cancel/i]) {
+      expect((screen.getByRole('button', { name }) as HTMLButtonElement).disabled).toBe(true);
+    }
+  });
+
+  it('surfaces a failed save and keeps the dialog actionable', () => {
+    render(
+      <LeaveUnsavedDialog entries={entries} error="Upload failed" onSave={vi.fn()} onDiscard={vi.fn()} onCancel={vi.fn()} />,
+    );
+    expect(screen.getByRole('alert').textContent).toMatch(/Upload failed/);
+    expect((screen.getByRole('button', { name: /discard/i }) as HTMLButtonElement).disabled).toBe(false);
   });
 });
