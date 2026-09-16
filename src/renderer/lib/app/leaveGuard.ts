@@ -21,39 +21,79 @@ import {
   type AttachedContainerRef,
   type PendingViewportLoad,
 } from '../annotations/sessionLifecycle';
-import { viewportIdsForContainer } from '../cornerstone/unifiedSegService';
+import { viewportIdsForContainer, containerEligibilityForViewport } from '../cornerstone/unifiedSegService';
 import { segmentationService } from '../cornerstone/segmentationService';
 import { segmentationManager } from '../segmentation/segmentationManagerSingleton';
 import { useSegmentationStore } from '../../stores/segmentationStore';
+import { useAnnotationStore } from '../../stores/annotationStore';
 import { useSegmentationManagerStore } from '../../stores/segmentationManagerStore';
 import { useViewerStore } from '../../stores/viewerStore';
 import { requestLeaveDecision } from '../../stores/leavePromptStore';
 
-/** Every loaded container, with the viewports it currently renders on. */
-export function attachedContainers(): (AttachedContainerRef & { label: string })[] {
+/**
+ * Every loaded container, with the viewports it currently renders on.
+ *
+ * `replacingViewportId` is the viewport whose images are about to change. It matters for
+ * one case: a container Cornerstone reports NO attachment for. That is common — a contour
+ * container between representations, a multi-layer group with no painted sub-seg yet — and
+ * treating it as "shown nowhere, so not leaving" means a scan switch silently walks over
+ * unsaved work. When the attachment is unreadable, the container's own spatial identity
+ * decides instead: if it is native to the viewport being replaced, it belongs to the scan
+ * on the way out and is leaving with it.
+ */
+export function attachedContainers(
+  replacingViewportId?: string | null,
+): (AttachedContainerRef & { label: string })[] {
   const { segmentations, xnatOriginMap } = useSegmentationStore.getState();
+  const { srContainers } = useAnnotationStore.getState();
   const { dirtySegIds } = useSegmentationManagerStore.getState();
   const fallbackSessionId =
     useViewerStore.getState().xnatContext?.sessionId ?? useViewerStore.getState().sessionId ?? '';
-  return segmentations.map((seg) => {
-    let viewportIds: string[] = [];
+
+  const viewportsFor = (containerId: string): string[] => {
+    let ids: string[] = [];
     try {
-      viewportIds = viewportIdsForContainer(seg.segmentationId);
+      ids = viewportIdsForContainer(containerId);
     } catch {
       // A Cornerstone read failure must not turn into a spurious prompt; an unknown
-      // attachment is treated as "still shown somewhere", which is the safe direction.
-      viewportIds = ['unknown'];
+      // attachment is treated as "still shown somewhere", the safe direction.
+      return ['unknown'];
     }
-    return {
-      containerId: seg.segmentationId,
-      // A container with no XNAT origin was never saved, so it belongs to whatever
-      // session is on screen — the same rule decideSessionLifecycle used.
-      sessionId: xnatOriginMap[seg.segmentationId]?.sessionId ?? fallbackSessionId,
-      dirty: !!dirtySegIds[seg.segmentationId],
-      viewportIds,
-      label: seg.label,
-    };
-  });
+    if (ids.length > 0 || !replacingViewportId) return ids;
+    try {
+      // Unreadable attachment: fall back to identity. Native to the viewport being
+      // replaced ⇒ it is this scan's annotation and is leaving with it.
+      return containerEligibilityForViewport(containerId, replacingViewportId) === 'native'
+        ? [replacingViewportId]
+        : [];
+    } catch {
+      return [];
+    }
+  };
+
+  const fromSegmentations = segmentations.map((seg) => ({
+    containerId: seg.segmentationId,
+    // A container with no XNAT origin was never saved, so it belongs to whatever session
+    // is on screen — the same rule decideSessionLifecycle used.
+    sessionId: xnatOriginMap[seg.segmentationId]?.sessionId ?? fallbackSessionId,
+    dirty: !!dirtySegIds[seg.segmentationId],
+    viewportIds: viewportsFor(seg.segmentationId),
+    label: seg.label,
+  }));
+
+  // Measurement (SR) containers are not Cornerstone segmentations and live in their own
+  // store, so reading `segmentations` alone made them invisible to this guard entirely —
+  // a session or scan could be left with unsaved measurements and no prompt at all. They
+  // never report a Cornerstone attachment, so identity is the only signal available.
+  const fromSr = srContainers.map((c) => ({
+    containerId: c.id,
+    sessionId: c.sessionId ?? fallbackSessionId,
+    dirty: !!dirtySegIds[c.id],
+    viewportIds: replacingViewportId ? [replacingViewportId] : [],
+    label: c.label,
+  }));
+
+  return [...fromSegmentations, ...fromSr];
 }
 
 /**
@@ -87,7 +127,7 @@ export async function guardLoad(
   load: PendingViewportLoad,
   leavingLabel?: string,
 ): Promise<LeaveGuardOutcome> {
-  const containers = attachedContainers();
+  const containers = attachedContainers(load.viewportId);
   const decisions = decideOrphans({ load, containers });
   const needDecision = new Set(containersNeedingDecision(decisions));
 

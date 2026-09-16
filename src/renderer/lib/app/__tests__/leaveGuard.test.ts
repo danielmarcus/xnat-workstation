@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const m = vi.hoisted(() => ({
   viewportIdsForContainer: vi.fn((_id: string): string[] => []),
+  containerEligibilityForViewport: vi.fn((_id: string, _vp: string): string | null => null),
   flushContainerSave: vi.fn(async (_id: string) => {}),
   getContainerSaveState: vi.fn((_id: string) => ({ dirty: false, inFlight: false })),
   removeSegmentation: vi.fn(),
@@ -9,6 +10,7 @@ const m = vi.hoisted(() => ({
 
 vi.mock('../../cornerstone/unifiedSegService', () => ({
   viewportIdsForContainer: (id: string) => m.viewportIdsForContainer(id),
+  containerEligibilityForViewport: (id: string, vp: string) => m.containerEligibilityForViewport(id, vp),
 }));
 vi.mock('../../cornerstone/segmentationService', () => ({
   segmentationService: {
@@ -27,6 +29,7 @@ import { guardLoad, attachedContainers } from '../leaveGuard';
 import { useSegmentationStore } from '../../../stores/segmentationStore';
 import { useSegmentationManagerStore } from '../../../stores/segmentationManagerStore';
 import { useLeavePromptStore } from '../../../stores/leavePromptStore';
+import { useAnnotationStore } from '../../../stores/annotationStore';
 
 function seed(segs: Array<{ id: string; label?: string; sessionId?: string; dirty?: boolean; on?: string[] }>) {
   useSegmentationStore.setState({
@@ -44,7 +47,9 @@ function seed(segs: Array<{ id: string; label?: string; sessionId?: string; dirt
 beforeEach(() => {
   Object.values(m).forEach((fn) => fn.mockClear());
   m.getContainerSaveState.mockImplementation(() => ({ dirty: false, inFlight: false }));
+  m.containerEligibilityForViewport.mockImplementation(() => null);
   useLeavePromptStore.setState({ request: null, busy: false, error: null });
+  useAnnotationStore.setState({ srContainers: [] } as never);
 });
 
 /**
@@ -151,5 +156,51 @@ describe('guardLoad', () => {
     expect(useLeavePromptStore.getState().request?.entries[0].label).toBe('Held');
     useLeavePromptStore.getState().choose('discard');
     await p;
+  });
+});
+
+/**
+ * The two blind spots that let a scan switch walk over unsaved work in the app while
+ * every guard test passed: a container Cornerstone reports no attachment for, and a
+ * Measurement, which is not a Cornerstone segmentation at all.
+ */
+describe('guardLoad — containers the attachment check cannot see', () => {
+  const load = { viewportId: 'panel_0', toSessionId: 'S1', fromSessionId: 'S1' };
+
+  it('prompts for a dirty container with NO readable attachment that is native to the viewport being replaced', async () => {
+    seed([{ id: 'c1', label: 'Contour', dirty: true, on: [] }]);
+    m.containerEligibilityForViewport.mockImplementation((_id, vp) => (vp === 'panel_0' ? 'native' : null));
+    const p = guardLoad(load);
+    await vi.waitFor(() => expect(useLeavePromptStore.getState().request).not.toBeNull());
+    expect(useLeavePromptStore.getState().request?.entries[0].label).toBe('Contour');
+    useLeavePromptStore.getState().choose('discard');
+    await p;
+  });
+
+  it('does NOT prompt for an unattached container belonging to another series', async () => {
+    seed([{ id: 'c1', dirty: true, on: [] }]);
+    m.containerEligibilityForViewport.mockImplementation(() => 'different-for');
+    expect(await guardLoad(load)).toBe('proceed');
+    expect(useLeavePromptStore.getState().request).toBeNull();
+  });
+
+  it('prompts for an unsaved Measurement, which is not a Cornerstone segmentation', async () => {
+    seed([]);
+    useAnnotationStore.setState({ srContainers: [{ id: 'sr:1', label: 'Length 1', sessionId: 'S1' }] } as never);
+    useSegmentationManagerStore.setState({ dirtySegIds: { 'sr:1': true } });
+    const p = guardLoad(load);
+    await vi.waitFor(() => expect(useLeavePromptStore.getState().request).not.toBeNull());
+    expect(useLeavePromptStore.getState().request?.entries[0].label).toBe('Length 1');
+    useLeavePromptStore.getState().choose('discard');
+    await p;
+  });
+
+  it('leaves a SAVED measurement alone — nothing to lose, so it is unloaded silently', async () => {
+    seed([]);
+    useAnnotationStore.setState({ srContainers: [{ id: 'sr:1', label: 'Length 1', sessionId: 'S1' }] } as never);
+    useSegmentationManagerStore.setState({ dirtySegIds: {} });
+    expect(await guardLoad(load)).toBe('proceed');
+    expect(useLeavePromptStore.getState().request).toBeNull();
+    expect(m.removeSegmentation).toHaveBeenCalledWith('sr:1');
   });
 });

@@ -1080,6 +1080,26 @@ export default function App() {
     let newImageIds: string[] = [];
     let targetPanel = useViewerStore.getState().activeViewportId;
 
+    // Leave guard (proposal §4.2) — BEFORE anything is mutated, same as the XNAT path.
+    // A local import replaces the panel's images exactly as a scan load does; without
+    // this, switching series locally dropped annotations out of view with no prompt.
+    // Files that are only overlays (SEG / RTSTRUCT / SR) take no viewport away.
+    {
+      const viewer = useViewerStore.getState();
+      const guard = await guardLoad(
+        {
+          viewportId: regularFiles.length > 0 ? targetPanel : null,
+          toSessionId: viewer.xnatContext?.sessionId ?? viewer.sessionId ?? '',
+          fromSessionId: viewer.xnatContext?.sessionId ?? viewer.sessionId ?? null,
+        },
+        'this series',
+      );
+      if (guard === 'cancel') {
+        setBrowserStatusMessage('Import cancelled', 'info', 'Your unsaved annotations were kept.');
+        return;
+      }
+    }
+
     if (regularFiles.length > 0) {
       for (const file of regularFiles) {
         const imageId = wadouri.fileManager.add(file);
