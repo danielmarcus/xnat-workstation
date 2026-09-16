@@ -250,6 +250,6 @@ Worked top to bottom; each step verified and committed before the next.
 | 4 | Leave-with-unsaved dialog (Save · Discard · Cancel), presentational | done |
 | 5 | Wire the dialog into `loadFromXnatScan` — both the session-switch and the scan-replace branch, before any mutation | done |
 | 6 | `applySessionSwitch` → unload after the user has decided | done — deleted; `leaveGuard` replaces it |
-| 7 | Scope the container list to `activeViewportId` (indicator stays app-wide, §9.5) | — |
-| 8 | Specs: invert `session-switch-retention`; new re-scope / prompt / no-prompt-on-add | — |
+| 7 | Scope the container list to `activeViewportId` (indicator stays app-wide, §9.5) | done |
+| 8 | Specs: invert `session-switch-retention`; new re-scope / prompt / no-prompt-on-add | done |
 | 9 | Docs: `CLAUDE.md` multi-viewport paragraph, mockup §2 re-approval, A13 / D9 supersession | — |

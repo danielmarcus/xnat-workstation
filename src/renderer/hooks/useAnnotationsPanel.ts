@@ -185,10 +185,40 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
     [segmentations, annotations, presentation, dirtySegIds, xnatOriginMap, srContainers, srAffiliation, activeSessionId, approvals],
   );
 
+  // ── Viewport scoping (proposal §4.1) ──────────────────────────────────────
+  //
+  // The panel lists the FOCUSED viewport's annotations. This replaces the session-scoped
+  // model (CLAUDE.md:213 — "the container list shows every container; rows not on the
+  // active viewport are dimmed with a cross-panel pill"), whose dimming and pill were
+  // never actually wired, so a multi-viewport grid showed one undifferentiated list
+  // spanning every scan on screen. Focus is the filter; there is no toggle.
+  //
+  // Fail-open on an unknown attachment. A container Cornerstone reports no viewports for
+  // is still listed: SR containers are not Cornerstone segmentations at all, and a
+  // container mid-load has not attached yet — hiding those would empty the panel. Only a
+  // container KNOWN to render somewhere, and not here, is scoped out.
+  //
+  // NB: `containers` stays the full list for every by-id lookup below, and for the
+  // unsaved indicator in particular. If the unsaved count scoped with the list, unsaved
+  // work in an unfocused viewport of a 2x2 grid would be invisible — and the review
+  // dialog it opens is the only way to save it (proposal §9.5).
+  const visibleContainers = useMemo(
+    () =>
+      containers.filter((c) => {
+        try {
+          const on = viewportIdsForContainer(c.id);
+          return on.length === 0 || on.includes(activeViewportId);
+        } catch {
+          return true;
+        }
+      }),
+    [containers, activeViewportId],
+  );
+
   // Inline per-segment metrics for the visible SEG rows (mockup §3). Expensive
   // (Cornerstone statistics worker), so the hook debounces on the edit epoch and only
   // computes for expanded containers.
-  const segmentMetricOf = useSegmentMetrics(containers, (id) => !collapsed.has(id));
+  const segmentMetricOf = useSegmentMetrics(visibleContainers, (id) => !collapsed.has(id));
 
   const canCreate = sourceImageIds.length > 0;
   const anyDirty = hasUnsavedChanges || Object.values(dirtySegIds).some(Boolean);
@@ -731,8 +761,10 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
   };
 
   return {
-    containers,
-    containerCount: containers.length,
+    // Scoped to the focused viewport (see visibleContainers above); everything else in
+    // this hook reasons over the full list.
+    containers: visibleContainers,
+    containerCount: visibleContainers.length,
     canCreate,
     anyDirty,
     onCreate,
