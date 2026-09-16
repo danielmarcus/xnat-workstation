@@ -31,6 +31,35 @@ Nothing lives at the top level. A new spec goes in exactly one of these.
 4. **Drop `unified-`.** The unified viewport path has been the only path since P1.8d, so the
    word distinguishes nothing.
 
+## Multi-viewport specs: cover the SAME scan, not only different ones
+
+A multi-viewport spec that only ever loads **different** series into the two panels cannot
+see a whole class of bug, and three shipped that way: a container hidden from a viewport
+showing its own scan, a contour drawn from the second viewport silently discarded, and
+"same scan" being decided by an XNAT scan id that is empty for local imports and unset on
+MPR panels. Every one of them is invisible when the panels hold different series, because
+then the container genuinely does belong to only one of them.
+
+So when a change touches viewport scoping, attachment, or annotation identity, cover both:
+
+| Case | Helper | What it can catch |
+|---|---|---|
+| Different series per panel | `loadTwoSeries(page, 'cross-for-ct-mr', …)` (different FoR) or `'mr-t1-t2-sameexam'` (same FoR, sibling series) | Eligibility, dimming, the cross-panel pill, read-only siblings |
+| **Same series in both panels** | `loadSameSeriesTwice(page, 'ct-axial-300', 'slice')` | Viewport-dependent annotations, duplicate containers, strokes that go nowhere |
+| **Same volume, several orientations** | `setLayoutPreset('mpr-2x2')` | Anything that scopes per plane rather than per volume |
+
+`annotations/same-scan-viewport-parity` is the worked example, including the two container
+kinds (Structure, Measurement) that take different attach paths from SEG.
+
+Two traps that made earlier versions of those specs pass while the app was broken:
+
+- **Asserting only "exactly one container" passes when the stroke does nothing.** Assert
+  that the edit *landed* as well — voxel count, contour count — or a no-op reads as success.
+- **Different frames of reference can make a spec vacuous.** The labelmap volume is not
+  shared, so a stroke on the second viewport has nothing to write into whatever the code
+  does. Check by deleting the mechanism you think you are testing and confirming the spec
+  goes red.
+
 ## Run order
 
 Declared as Playwright **projects** in `playwright.config.ts`:
