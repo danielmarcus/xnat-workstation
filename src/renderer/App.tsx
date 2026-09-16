@@ -1097,6 +1097,17 @@ export default function App() {
       }
       console.log(`Loaded ${newImageIds.length} DICOM image files into ${targetPanel}`);
       setPanelImageIds((prev) => ({ ...prev, [targetPanel]: newImageIds }));
+      // Reconcile overlays for the panel, exactly as the XNAT path does via
+      // ensureSourceScanOnPanel. Without this, loading a series into a SECOND viewport
+      // attached nothing: annotations already made on that series were listed in the
+      // panel (which scopes on spatial identity) but drawn in neither the new viewport
+      // nor, after the layout change, reliably in the old one. There is no XNAT scan id
+      // here, so the reconcile's own spatial-identity pass is what does the work.
+      segmentationManager.onPanelImagesChanged(
+        targetPanel,
+        `local:${targetPanel}`,
+        panelEpochRef.current[targetPanel] ?? 0,
+      );
       useViewerStore.getState().setPanelSessionLabel(targetPanel, '');
       useViewerStore.getState().setPanelSubjectLabel(targetPanel, '');
       setBrowserStatusMessage(

@@ -135,6 +135,8 @@ declare global {
         toSessionId: string;
         fromSessionId: string | null;
       }, leavingLabel?: string) => Promise<'proceed' | 'cancel'>;
+      /** Zoom a viewport by a relative factor (the real viewportService.zoomBy). */
+      zoomViewportBy: (viewportId: string, factor: number) => void;
       /** Set the brush radius for the unified tool group. */
       setUnifiedBrushSize: (size: number) => void;
       /** Set the threshold-brush intensity range (select ThresholdBrush first). */
@@ -743,6 +745,7 @@ export function installRendererE2eHooks(): void {
       load: { viewportId: string | null; toSessionId: string; fromSessionId: string | null },
       leavingLabel?: string,
     ) => guardLoad(load, leavingLabel),
+    zoomViewportBy: (viewportId: string, factor: number) => viewportService.zoomBy(viewportId, factor),
     setUnifiedBrushSize: (size: number) => unifiedToolService.setBrushSize(size),
     setUnifiedBrushThreshold: (range: [number, number]) => unifiedToolService.setBrushThreshold(range),
     copyActiveSegmentVoxels: () => unifiedSegService.copyActiveSegmentVoxels(),

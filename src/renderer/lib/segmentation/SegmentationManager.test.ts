@@ -555,4 +555,66 @@ describe('SegmentationManager', () => {
     expect(segmentationServiceMock.setLabel).toHaveBeenCalledWith('rt-loaded', 'Loaded RT');
   });
 
+
+  /**
+   * Re-attach on panel (re)load — the XNAT path that no offline E2E can reach.
+   *
+   * `ensureSourceScanOnPanel` detaches everything from the panel and then relies on
+   * onPanelImagesChanged → reconcilePanelAfterReady to put back what belongs there. That
+   * reconcile read only `loadedBySourceScan`, which holds containers DOWNLOADED from XNAT.
+   * A container the user drew themselves is recorded in `localOriginBySegId` instead, so it
+   * was never restored: open the same scan in a second viewport and your own annotation
+   * did not render there — while the panel listed it, because the panel scopes on spatial
+   * identity, which is a different question.
+   */
+  describe('reconcile on panel load restores LOCALLY-CREATED containers too', () => {
+    const SOURCE_KEY = 'P1/SESS1/10';
+
+    beforeEach(() => {
+      seedViewerPanelContext();
+      segmentationServiceMock.getViewportIdsForSegmentation.mockReturnValue([]); // attached nowhere yet
+    });
+
+    it('attaches a container the user drew, not only ones downloaded from XNAT', async () => {
+      useSegmentationManagerStore.setState({
+        localOriginBySegId: { myDrawing: SOURCE_KEY },
+        loadedBySourceScan: {},
+      });
+      const manager = new SegmentationManager();
+      manager.initialize(makeDeps());
+      manager.onPanelImagesChanged('panel_1', '10', 1);
+      await flushPromises();
+      await flushPromises();
+
+      expect(segmentationServiceMock.addToViewport).toHaveBeenCalledWith('panel_1', 'myDrawing');
+    });
+
+    it('still attaches XNAT-downloaded overlays — the original behaviour is intact', async () => {
+      useSegmentationManagerStore.setState({
+        localOriginBySegId: {},
+        loadedBySourceScan: { [SOURCE_KEY]: { '3001': { segmentationId: 'fromXnat' } as never } },
+      });
+      const manager = new SegmentationManager();
+      manager.initialize(makeDeps());
+      manager.onPanelImagesChanged('panel_1', '10', 1);
+      await flushPromises();
+      await flushPromises();
+
+      expect(segmentationServiceMock.addToViewport).toHaveBeenCalledWith('panel_1', 'fromXnat');
+    });
+
+    it('does not attach a container belonging to a DIFFERENT source scan', async () => {
+      useSegmentationManagerStore.setState({
+        localOriginBySegId: { otherScan: 'P1/SESS1/99' },
+        loadedBySourceScan: {},
+      });
+      const manager = new SegmentationManager();
+      manager.initialize(makeDeps());
+      manager.onPanelImagesChanged('panel_1', '10', 1);
+      await flushPromises();
+      await flushPromises();
+
+      expect(segmentationServiceMock.addToViewport).not.toHaveBeenCalledWith('panel_1', 'otherScan');
+    });
+  });
 });

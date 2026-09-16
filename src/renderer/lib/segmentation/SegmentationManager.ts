@@ -17,7 +17,7 @@ import { rtStructService } from '../cornerstone/rtStructService';
 import { useSegmentationManagerStore, type RGBA } from '../../stores/segmentationManagerStore';
 import { useSegmentationStore } from '../../stores/segmentationStore';
 import { useViewerStore } from '../../stores/viewerStore';
-import { viewportsShowingSameSeries } from '../cornerstone/unifiedSegService';
+import { viewportsShowingSameSeries, containerEligibilityForViewport } from '../cornerstone/unifiedSegService';
 import {
   ToolName,
   SEGMENTATION_TOOLS,
@@ -239,6 +239,19 @@ export class SegmentationManager {
         }
       }
 
+      // ...and the containers the USER drew on this scan. `loadedBySourceScan` holds only
+      // what was downloaded from XNAT; a locally created container is recorded in
+      // `localOriginBySegId` against the same composite key. Reading only the former meant
+      // a panel load detached your own annotation (ensureSourceScanOnPanel clears the
+      // viewport first) and never put it back — so opening the same scan in a second
+      // viewport showed no annotation there, while the panel still LISTED it, because the
+      // list scopes on spatial identity rather than on attachment.
+      for (const [segId, originKey] of Object.entries(mgr.localOriginBySegId)) {
+        if (originKey === compositeSourceKey && !segIdsToAttach.includes(segId)) {
+          segIdsToAttach.push(segId);
+        }
+      }
+
       for (const segId of segIdsToAttach) {
         if (this.disposed) return;
         if (this.isEpochStale(panelId, epoch)) return;
@@ -249,9 +262,48 @@ export class SegmentationManager {
         this.restorePresentationState(segId);
         this.captureInitialPresentationState(segId);
       }
+
+      await this.attachContainersNativeTo(panelId, epoch);
       } catch (err) {
       // Non-fatal. Typical causes: stale epoch, timeout, or panel removed mid-flight.
       console.debug('[SegmentationManager] reconcilePanelAfterReady failed:', err);
+    }
+  }
+
+  /**
+   * Attach every loaded container that is NATIVE to what this panel now shows.
+   *
+   * The panel list and the viewport must agree: a container listed on a viewport has to
+   * render there. The list decides on spatial identity — Frame of Reference and series —
+   * so the attach has to use the same rule, or the two disagree and the user sees an
+   * annotation named in the panel and absent from the image.
+   *
+   * The scan-id routes above cannot close that gap on their own. `loadedBySourceScan`
+   * holds only what was downloaded from XNAT, `localOriginBySegId` is only written when a
+   * project/session/scan triple exists (so never for a local import), and both are keyed
+   * on an id that an MPR panel may not carry. Spatial identity is what Cornerstone always
+   * knows.
+   */
+  private async attachContainersNativeTo(panelId: string, epoch: number): Promise<void> {
+    const { segmentations } = useSegmentationStore.getState();
+    for (const seg of segmentations) {
+      if (this.disposed) return;
+      if (this.isEpochStale(panelId, epoch)) return;
+      const segId = seg.segmentationId;
+      if (this.isSegOnViewport(panelId, segId)) continue;
+      let native = false;
+      try {
+        native = containerEligibilityForViewport(segId, panelId) === 'native';
+      } catch {
+        native = false; // unresolved identity ⇒ leave it alone; never attach on a guess
+      }
+      if (!native) continue;
+      try {
+        await this.attachSegmentationToViewport(panelId, segId);
+        this.restorePresentationState(segId);
+      } catch (err) {
+        console.debug(`[SegmentationManager] native attach of ${segId} to ${panelId} failed:`, err);
+      }
     }
   }
 
