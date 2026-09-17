@@ -153,6 +153,12 @@ Path aliases:
 | **Member** | One segment (in SEG), one ROI structure (in RTSTRUCT), or one measurement (in SR). |
 | **Annotation type** | One of the three peers: **Segmentation** · **Structure** · **Measurement** (singular). |
 
+### Viewport outlines
+
+A viewport carries exactly **one** outline: `ring-2 ring-inset ring-sky-500` on the viewport whose `data-active="true"` — the one that tool actions, the annotations panel and a scan load target. Inactive viewports are deliberately unmarked; **absence is the signal**, not a gap.
+
+Anything else outlining a viewport is a bug. The browser's own `:focus-visible` ring is the one that recurs: the viewport container is `tabIndex={-1}` and `ViewportOverlay` focuses it after the orientation dropdown, so Chrome grants `:focus-visible` whenever the last interaction was a keyboard one, and paints a ring in the **macOS system accent colour** — a colour the app never chose, which differs per machine. It is suppressed in `globals.css` ("Viewport outlines"); `e2e/specs/viewport/viewport-outline` holds the contract.
+
 ### Notifications / surface taxonomy
 
 Every error-handler and every user-facing event picks one of four surfaces:

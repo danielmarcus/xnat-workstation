@@ -71,6 +71,11 @@ export default function Viewport({
       // so the Cornerstone tool on the canvas still receives the same pointerdown.
       // Restores the click-to-select wiring the deleted CornerstoneViewport had.
       onPointerDown={() => setActiveViewport(panelId)}
+      // The ONLY outline a viewport carries: sky-500, inset, on the active viewport —
+      // the one that tool actions, the annotations panel and a scan load target. Inactive
+      // viewports are unmarked on purpose; absence is the signal. Anything else outlining
+      // a viewport is a bug, and was one: the browser's own :focus-visible ring (macOS
+      // accent colour) used to land here too. See globals.css, "Viewport outlines".
       className={`relative w-full h-full bg-black overflow-hidden ${
         isActive ? 'ring-2 ring-inset ring-sky-500' : ''
       }`}

@@ -15,6 +15,31 @@ html, body, #root {
   cursor: crosshair !important;
 }
 
+/* ── Viewport outlines: exactly one, and the app owns it ────────────────────────
+ *
+ * A viewport is outlined by ONE thing: the active-viewport ring in Viewport.tsx
+ * (`ring-2 ring-inset ring-sky-500`), drawn only on the viewport with
+ * data-active="true". Inactive viewports are deliberately unmarked.
+ *
+ * The browser draws a second one if allowed to. The viewport container is
+ * tabIndex={-1} and ViewportOverlay focuses it after the orientation dropdown (so the
+ * wheel and arrow keys drive the image rather than the dropdown), and Chrome then
+ * grants :focus-visible whenever the last interaction was a keyboard one. Its UA
+ * outline takes the macOS system ACCENT colour — measured here as rgb(229,151,0), a
+ * gold that the app never chose and that differs per machine. Two rings in two
+ * unrelated colours, one of them appearing only sometimes.
+ *
+ * The reset below used to name only the three legacy testids and so stopped applying
+ * when the unified path replaced them; `unified-viewport` is the one that renders today.
+ * box-shadow is NOT suppressed on the container — that is how the active ring is drawn.
+ */
+[data-testid^="unified-viewport"]:focus,
+[data-testid^="unified-viewport"]:focus-visible,
+[data-testid^="unified-viewport"] canvas:focus,
+[data-testid^="unified-viewport"] canvas:focus-visible {
+  outline: none !important;
+}
+
 [data-testid^="cornerstone-viewport-canvas"],
 [data-testid^="mpr-viewport-canvas"],
 [data-testid^="oriented-viewport-canvas"],
