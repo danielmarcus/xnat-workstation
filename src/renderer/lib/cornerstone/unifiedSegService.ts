@@ -351,6 +351,43 @@ export function containerEligibilityForViewport(
 }
 
 /**
+ * Does this viewport actually display anything?
+ *
+ * Not the same question as "does the panel have image ids". An MPR plane shows a
+ * reformatted view of a volume shared with its sibling planes and carries no image-id list
+ * of its own, so `panelImageIds` is empty for it while it is plainly showing an image.
+ * Using that as the emptiness test hid annotations from every MPR orientation but the
+ * first.
+ *
+ * `getImageData()` is the signal Cornerstone itself gates contour rendering on
+ * (`renderMethods.js`: `if (!enabledElement?.viewport?.getImageData()) return`), so it
+ * answers for stack and volume viewports alike. The image-id and volume-id checks are
+ * fallbacks for viewport types that do not implement it.
+ */
+export function viewportHasContent(viewportId: string): boolean {
+  const vp = viewportService.getViewport(viewportId) as
+    | { getImageData?: () => unknown; getImageIds?: () => string[]; getAllVolumeIds?: () => string[] }
+    | undefined;
+  if (!vp) return false;
+  try {
+    if (vp.getImageData?.()) return true;
+  } catch {
+    /* fall through to the id checks */
+  }
+  try {
+    if ((vp.getImageIds?.()?.length ?? 0) > 0) return true;
+  } catch {
+    /* fall through */
+  }
+  try {
+    if ((vp.getAllVolumeIds?.()?.length ?? 0) > 0) return true;
+  } catch {
+    /* nothing more to try */
+  }
+  return false;
+}
+
+/**
  * Viewports showing the SAME series as `viewportId` (itself included).
  *
  * "Same scan in two viewports" was being decided by `viewerStore.panelScanMap` — an XNAT

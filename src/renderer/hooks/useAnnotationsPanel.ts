@@ -35,6 +35,7 @@ import { unifiedToolService } from '../lib/cornerstone/unifiedToolService';
 import {
   viewportIdsForContainer,
   containerEligibilityForViewport,
+  viewportHasContent,
 } from '../lib/cornerstone/unifiedSegService';
 import { segmentationManager } from '../lib/segmentation/segmentationManagerSingleton';
 import { projectContainers } from '../lib/annotations/containerProjection';
@@ -213,20 +214,36 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
   // work in an unfocused viewport of a 2x2 grid would be invisible — and the review
   // dialog it opens is the only way to save it (proposal §9.5).
   const visibleContainers = useMemo(
-    () =>
-      containers.filter((c) => {
+    () => {
+      // An empty viewport has no annotations. Nothing renders in a cell holding no
+      // images, so listing anything there is simply wrong — and the fail-open below
+      // cannot tell this case apart on its own: an empty viewport has no resolvable
+      // spatial identity, so EVERY container came back "no opinion" and was listed, with
+      // a cross-panel pill claiming it was rendering on another panel. The two unknowns
+      // look identical from inside the predicate and have opposite correct answers, so
+      // the viewport-side one is settled first.
+      //
+      // Asked of Cornerstone, not of `sourceImageIds`: an MPR plane shows a volume shared
+      // with its sibling planes and has no image-id list of its own, so the panel-level
+      // check called every orientation but the first empty and hid their annotations.
+      if (!viewportHasContent(activeViewportId)) return [];
+
+      return containers.filter((c) => {
         try {
           if (viewportIdsForContainer(c.id).includes(activeViewportId)) return true;
           // Not attached here (yet). Is it nonetheless this viewport's own annotation?
-          // null = spatial identity unresolved ⇒ no opinion ⇒ list it.
+          // null = the CONTAINER's identity is unresolved ⇒ no opinion ⇒ list it, since
+          // an SR container is not a Cornerstone segmentation and a container mid-load has
+          // not attached yet.
           const eligibility = containerEligibilityForViewport(c.id, activeViewportId);
           if (eligibility == null || eligibility === 'native') return true;
           return false;
         } catch {
           return true;
         }
-      }),
-    [containers, activeViewportId],
+      });
+    },
+    [containers, activeViewportId, sourceImageIds.length],
   );
 
   // Inline per-segment metrics for the visible SEG rows (mockup §3). Expensive
