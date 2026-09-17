@@ -56,3 +56,73 @@ test('a keyboard-focused browser control is ringed in the app’s colour, not th
     'but a keyboard-focused control must still be ringed — it is the only cue a keyboard user gets',
   ).not.toBe('none');
 });
+
+/**
+ * The XNAT browser's outline does not appear on a row after you have moved on from it.
+ *
+ * Reported: "I've just clicked on a row and the scan loaded. No outline. If I tab to
+ * another viewport the outline suddenly appears."
+ *
+ * Both halves are Chrome behaving correctly, which is exactly why it looked arbitrary:
+ *
+ *  - A mouse click focuses the button but does NOT grant :focus-visible, so clicking a row
+ *    draws no ring. Correct.
+ *  - Tab is bound to panel.nextViewport and is intercepted, so the default focus move is
+ *    prevented and DOM focus STAYS on that scan row. The interaction was keyboard, so
+ *    Chrome flips to keyboard modality, and the row it is still focused on starts matching
+ *    :focus-visible — a ring appears in the BROWSER on a row clicked several actions ago,
+ *    while the user has moved to a viewport.
+ *
+ * So the ring is not the defect; focus being stranded in the browser is. The fix is in the
+ * viewport-cycling action, but the symptom and the assertion are both about the browser:
+ * after tabbing away, nothing in the browser is outlined.
+ */
+test('a browser row is not outlined after you tab away from it to a viewport', async ({ page }) => {
+  await loadFixture(page, 'ct-axial-300', 'panel_0');
+  await page.locator('[title^="Viewport layout"]').click();
+  await page.getByRole('button', { name: '1 x 2' }).click();
+  await page.locator('[data-testid="unified-viewport:panel_1"]').waitFor({ state: 'attached', timeout: 20_000 });
+
+  // Strand focus on a browser control, exactly as clicking a scan row does.
+  await page.evaluate(() => {
+    const root = document.querySelector('[data-testid="xnat-browser"]');
+    (root?.querySelector('button') as HTMLElement | null)?.focus();
+  });
+  expect(
+    await page.evaluate(() =>
+      !!document.querySelector('[data-testid="xnat-browser"]')?.contains(document.activeElement),
+    ),
+    'setup: focus must start inside the browser',
+  ).toBe(true);
+
+  await page.keyboard.press('Tab');
+
+  const after = await page.evaluate(() => {
+    const el = document.activeElement as HTMLElement | null;
+    const browser = document.querySelector('[data-testid="xnat-browser"]');
+    // Anything in the browser still drawing a focus outline?
+    const ringed = Array.from(browser?.querySelectorAll('*') ?? []).filter((n) => {
+      const cs = getComputedStyle(n);
+      return n.matches(':focus-visible') && cs.outlineStyle !== 'none' && cs.outlineWidth !== '0px';
+    }).length;
+    return {
+      ringedInBrowser: ringed,
+      stillInBrowser: !!browser?.contains(el),
+      onAViewport: !!el?.closest('[data-testid^="unified-viewport:"]'),
+      activeViewport: document.querySelector('[data-testid^="unified-viewport:"][data-active="true"]')
+        ?.getAttribute('data-panel-id') ?? null,
+      focusedViewport: el?.closest('[data-testid^="unified-viewport:"]')?.getAttribute('data-panel-id') ?? null,
+    };
+  });
+
+  // The reported symptom, asserted directly.
+  expect(after.ringedInBrowser, 'nothing in the XNAT browser may be outlined once you have tabbed away').toBe(0);
+
+  // ...and the reason, so a regression says which half broke.
+  expect(after.stillInBrowser, 'focus must not be left behind in the browser').toBe(false);
+  expect(after.onAViewport, 'it must land on the viewport the action moved to').toBe(true);
+  expect(
+    after.focusedViewport,
+    'the focused viewport and the active viewport must be the same one',
+  ).toBe(after.activeViewport);
+});

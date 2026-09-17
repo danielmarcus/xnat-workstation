@@ -187,6 +187,7 @@ function dispatchAction(action: HotkeyAction): boolean {
       const currentIdx = order.indexOf(viewerState.activeViewportId);
       const nextIdx = (currentIdx + 1) % order.length;
       viewerState.setActiveViewport(order[nextIdx]);
+      focusViewportElement(order[nextIdx]);
       return true;
     }
 
@@ -301,6 +302,26 @@ let lookup = buildLookup(currentMap);
 let listenerInstalled = false;
 
 // ─── Keydown Handler ──────────────────────────────────────────────
+
+/**
+ * Move DOM focus onto a viewport, so a keyboard action that takes the user there takes
+ * their focus with it.
+ *
+ * Tab is bound to viewport cycling and the default focus move is prevented, so without
+ * this, focus stays wherever it last landed — typically the XNAT browser row the user
+ * clicked to load the scan. That row keeps DOM focus silently (a mouse click does not
+ * grant :focus-visible, so nothing is drawn), and the moment Tab flips Chrome into
+ * keyboard modality it starts matching :focus-visible and sprouts a focus ring, on an
+ * element the user stopped thinking about several actions ago. Reported as an outline
+ * appearing in the browser "very sporadically, typically when I tab viewports".
+ *
+ * Keeping focus with the active viewport is also the invariant the outline scheme rests
+ * on: the focused element and the active viewport should be the same place.
+ */
+function focusViewportElement(panelId: string): void {
+  const el = document.querySelector(`[data-testid="unified-viewport:${panelId}"]`);
+  (el as HTMLElement | null)?.focus?.();
+}
 
 function handleKeyDown(e: KeyboardEvent): void {
   // Input guard: don't intercept when focus is in a form element,
