@@ -33,25 +33,38 @@ html, body, #root {
  * when the unified path replaced them; `unified-viewport` is the one that renders today.
  * box-shadow is NOT suppressed on the container — that is how the active ring is drawn.
  */
-/* ── Keyboard focus in the XNAT browser ─────────────────────────────────────────
+/* ── No focus outlines in the side panels ───────────────────────────────────────
  *
- * Restyled, NOT removed — the opposite of the viewport rule below, and deliberately so.
- * A scan row is keyboard-reachable and this ring is the only thing telling a keyboard
- * user where they are; a viewport is not in the tab order and already carries an
- * app-drawn active ring, so the same browser ring there was pure duplication.
+ * The XNAT browser and the annotations panel are mouse-driven. Keyboard shortcuts are
+ * viewport-only, and neither panel has keyboard navigation, so a focus ring there marks
+ * something the user cannot navigate to and cannot act on — reported as an outline
+ * appearing "very sporadically" on a row clicked several actions ago.
  *
- * Left to itself, Chrome paints it in the macOS system ACCENT colour (measured
- * rgb(229,151,0), a gold), which the app never chose and which differs per machine —
- * reported as "a yellowish outline that shows up very sporadically". Sporadic because
- * :focus-visible requires the last interaction to have been keyboard, so it follows a Tab
- * and not a click.
+ * It appears because Chrome grants :focus-visible retroactively: a mouse click focuses a
+ * <button> without drawing anything, and the next keyboard interaction flips the browser
+ * into keyboard modality and rings whatever still holds focus. Left to itself the ring is
+ * also painted in the macOS system ACCENT colour (measured rgb(229,151,0)) — a colour the
+ * app never chose and that differs per machine.
  *
- * zinc-500 matches the focus treatment the browser's own search input already uses.
- * The negative offset keeps it inside the row so it cannot overlap its neighbours.
+ * This is the display half. The behaviour half is keepFocusInViewports.ts, which releases
+ * the stranded focus so Space and Enter cannot re-activate a panel row either. Both are
+ * needed: suppressing the ring alone would hide the problem rather than fix it.
+ *
+ * Text entry is NOT covered — the scan filter and rename fields style their own focus and
+ * legitimately hold the keyboard while typing.
  */
-[data-testid="xnat-browser"] :focus-visible {
-  outline: 2px solid #71717a; /* zinc-500 */
-  outline-offset: -2px;
+[data-testid="xnat-browser"] :focus,
+[data-testid="xnat-browser"] :focus-visible,
+[data-testid="annotations-side-panel"] :focus,
+[data-testid="annotations-side-panel"] :focus-visible {
+  outline: none !important;
+}
+
+[data-testid="xnat-browser"] input:focus,
+[data-testid="xnat-browser"] textarea:focus,
+[data-testid="annotations-side-panel"] input:focus,
+[data-testid="annotations-side-panel"] textarea:focus {
+  outline: revert !important;
 }
 
 [data-testid^="unified-viewport"]:focus,

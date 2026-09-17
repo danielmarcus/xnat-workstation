@@ -6,6 +6,7 @@
  */
 import { useEffect } from 'react';
 import { hotkeyService } from '../lib/hotkeys/hotkeyService';
+import { installKeepFocusInViewports } from '../lib/hotkeys/keepFocusInViewports';
 
 /**
  * Install the global hotkey listener on mount, remove on unmount.
@@ -13,6 +14,12 @@ import { hotkeyService } from '../lib/hotkeys/hotkeyService';
 export function useHotkeys(): void {
   useEffect(() => {
     hotkeyService.install();
-    return () => hotkeyService.uninstall();
+    // Shortcuts are viewport-only, so the keyboard has to stay in the viewports: release
+    // focus that a click leaves stranded on a side-panel control.
+    const releaseFocus = installKeepFocusInViewports();
+    return () => {
+      hotkeyService.uninstall();
+      releaseFocus();
+    };
   }, []);
 }
