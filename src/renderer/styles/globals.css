@@ -33,6 +33,27 @@ html, body, #root {
  * when the unified path replaced them; `unified-viewport` is the one that renders today.
  * box-shadow is NOT suppressed on the container — that is how the active ring is drawn.
  */
+/* ── Keyboard focus in the XNAT browser ─────────────────────────────────────────
+ *
+ * Restyled, NOT removed — the opposite of the viewport rule below, and deliberately so.
+ * A scan row is keyboard-reachable and this ring is the only thing telling a keyboard
+ * user where they are; a viewport is not in the tab order and already carries an
+ * app-drawn active ring, so the same browser ring there was pure duplication.
+ *
+ * Left to itself, Chrome paints it in the macOS system ACCENT colour (measured
+ * rgb(229,151,0), a gold), which the app never chose and which differs per machine —
+ * reported as "a yellowish outline that shows up very sporadically". Sporadic because
+ * :focus-visible requires the last interaction to have been keyboard, so it follows a Tab
+ * and not a click.
+ *
+ * zinc-500 matches the focus treatment the browser's own search input already uses.
+ * The negative offset keeps it inside the row so it cannot overlap its neighbours.
+ */
+[data-testid="xnat-browser"] :focus-visible {
+  outline: 2px solid #71717a; /* zinc-500 */
+  outline-offset: -2px;
+}
+
 [data-testid^="unified-viewport"]:focus,
 [data-testid^="unified-viewport"]:focus-visible,
 [data-testid^="unified-viewport"] canvas:focus,
