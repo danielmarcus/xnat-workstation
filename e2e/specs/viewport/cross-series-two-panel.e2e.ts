@@ -158,7 +158,17 @@ test('signal 10 (A2c): a SEG on one breath-hold series is HIDDEN on the displace
   await expect(canvas(page, 'panel_0')).toBeVisible({ timeout: 30_000 });
   await expect(p1).toBeVisible({ timeout: 30_000 });
 
-  const p1Before = await p1.screenshot();
+  // Compare the canvas INTERIOR, inset past the chrome. The active-viewport ring is
+  // drawn over the canvas's outer edge (it has to be, or an image covers it), so painting
+  // on panel_0 moves that ring off panel_1 and a whole-element byte-compare sees the
+  // chrome change rather than the rendering it is asking about.
+  const interior = async () => {
+    const b = (await p1.boundingBox())!;
+    return page.screenshot({
+      clip: { x: b.x + 4, y: b.y + 4, width: Math.max(b.width - 8, 1), height: Math.max(b.height - 8, 1) },
+    });
+  };
+  const p1Before = await interior();
   const segId = await paintSegOnPanel0(page, 'BH SEG');
 
   // Structural: the displaced sibling is NOT attached (A2c hide), while the native
@@ -167,5 +177,5 @@ test('signal 10 (A2c): a SEG on one breath-hold series is HIDDEN on the displace
   expect(vps).toContain('panel_0');
   expect(vps).not.toContain('panel_1');
   // Visual: panel_1 is unchanged by the paint on panel_0 (nothing rendered there).
-  expect((await p1.screenshot()).equals(p1Before)).toBe(true);
+  expect((await interior()).equals(p1Before)).toBe(true);
 });

@@ -71,14 +71,7 @@ export default function Viewport({
       // so the Cornerstone tool on the canvas still receives the same pointerdown.
       // Restores the click-to-select wiring the deleted CornerstoneViewport had.
       onPointerDown={() => setActiveViewport(panelId)}
-      // The ONLY outline a viewport carries: sky-500, inset, on the active viewport —
-      // the one that tool actions, the annotations panel and a scan load target. Inactive
-      // viewports are unmarked on purpose; absence is the signal. Anything else outlining
-      // a viewport is a bug, and was one: the browser's own :focus-visible ring (macOS
-      // accent colour) used to land here too. See globals.css, "Viewport outlines".
-      className={`relative w-full h-full bg-black overflow-hidden ${
-        isActive ? 'ring-2 ring-inset ring-sky-500' : ''
-      }`}
+      className="relative w-full h-full bg-black overflow-hidden"
     >
       <div
         ref={containerRef}
@@ -97,6 +90,28 @@ export default function Viewport({
         </>
       )}
       {imageIds.length > 0 && <ViewportStatusOverlay panelId={panelId} state={loadState} />}
+      {/* The ONLY outline a viewport carries: a light gray (zinc-400) on the active
+          viewport — the one
+          that tool actions, the annotations panel and a scan load all target. Inactive
+          viewports are unmarked on purpose; absence is the signal.
+
+          It has to be a SIBLING RENDERED AFTER the canvas, not a ring on the container.
+          `ring-inset` is an inset box-shadow, which paints beneath the element's content,
+          so the Cornerstone canvas filling the container covered it completely — the ring
+          was visible only while a viewport was EMPTY, which is precisely backwards. An
+          element later in DOM order paints on top. pointer-events-none so it never
+          intercepts a tool gesture.
+
+          Anything ELSE outlining a viewport is a bug, and was one: the browser's own
+          :focus-visible ring, in the macOS accent colour, used to land here too. See
+          globals.css, "Viewport outlines". */}
+      {isActive && (
+        <div
+          aria-hidden
+          data-testid={`viewport-active-ring:${panelId}`}
+          className="pointer-events-none absolute inset-0 ring-2 ring-inset ring-zinc-400"
+        />
+      )}
     </div>
   );
 }

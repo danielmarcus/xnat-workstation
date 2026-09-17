@@ -155,7 +155,9 @@ Path aliases:
 
 ### Viewport outlines
 
-A viewport carries exactly **one** outline: `ring-2 ring-inset ring-sky-500` on the viewport whose `data-active="true"` — the one that tool actions, the annotations panel and a scan load target. Inactive viewports are deliberately unmarked; **absence is the signal**, not a gap.
+A viewport carries exactly **one** outline: a subtle light-gray ring (`ring-2 ring-inset ring-zinc-400`) on the viewport whose `data-active="true"` — the one that tool actions, the annotations panel and a scan load target. Inactive viewports are deliberately unmarked; **absence is the signal**, not a gap.
+
+It is drawn as a `pointer-events-none` overlay **rendered after the canvas**, never as a ring on the container: `ring-inset` is an inset box-shadow, which paints beneath the element's content, so a container ring is covered by the Cornerstone canvas and visible only while the viewport is *empty* — exactly backwards. Assert it in **pixels**; the computed `box-shadow` is present either way.
 
 Anything else outlining a viewport is a bug. The browser's own `:focus-visible` ring is the one that recurs: the viewport container is `tabIndex={-1}` and `ViewportOverlay` focuses it after the orientation dropdown, so Chrome grants `:focus-visible` whenever the last interaction was a keyboard one, and paints a ring in the **macOS system accent colour** — a colour the app never chose, which differs per machine. It is suppressed in `globals.css` ("Viewport outlines"); `e2e/specs/viewport/viewport-outline` holds the contract.
 
