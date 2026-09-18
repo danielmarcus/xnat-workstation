@@ -45,9 +45,9 @@ vi.mock('../../../stores/viewerStore', () => ({
 
 import {
   unifiedSegService,
-  attachLabelmapWithEligibility,
+  attachLabelmapToOwnSeries,
   canDrawOnViewport,
-  containerEligibilityForViewport,
+  isContainerNativeToViewport,
 } from '../unifiedSegService';
 import * as sourceImageTracking from '../sourceImageTracking';
 
@@ -101,37 +101,41 @@ beforeEach(() => {
 });
 afterEach(() => vi.clearAllMocks());
 
-describe('attachLabelmapWithEligibility (Slice 2: FoR-gated attach + non-native style)', () => {
-  it('native viewport (same FoR + series) ⇒ attach, solid (no setStyle), editable', () => {
+/**
+ * A mask belongs to the scan it was drawn on: shown on every viewport displaying that
+ * scan, and on no others.
+ *
+ * This replaced requirements A2a–A2d, under which a mask also rendered — dimmed and
+ * read-only — on a SIBLING series of the same exam unless a measured anatomical shift
+ * suggested the patient had moved. That rule was removed as incorrect, and with it the
+ * non-native style, so `setStyle` should now never be called from an attach.
+ */
+describe('attachLabelmapToOwnSeries', () => {
+  it('attaches to a viewport showing its own scan, active and undimmed', () => {
     viewportWith('FoR-1', 'series-A');
-    attachLabelmapWithEligibility('seg1', 'panel_0');
+    attachLabelmapToOwnSeries('seg1', 'panel_0');
     expect(m.addLabelmapRep).toHaveBeenCalledWith('panel_0', [{ segmentationId: 'seg1' }]);
     expect(m.setStyle).not.toHaveBeenCalled();
     expect(m.setActive).toHaveBeenCalledWith('panel_0', 'seg1');
   });
 
-  it('same-FoR sibling series (A2b) ⇒ attach, non-native style, read-only (not active)', () => {
+  it('does NOT attach to a sibling series of the same exam', () => {
     viewportWith('FoR-1', 'series-B');
-    attachLabelmapWithEligibility('seg1', 'panel_1');
-    expect(m.addLabelmapRep).toHaveBeenCalledWith('panel_1', [{ segmentationId: 'seg1' }]);
-    expect(m.setStyle).toHaveBeenCalledTimes(1);
-    const [spec, style] = m.setStyle.mock.calls[0];
-    expect(spec).toMatchObject({ type: 'Labelmap', viewportId: 'panel_1', segmentationId: 'seg1' });
-    expect((style as { fillAlpha: number }).fillAlpha).toBeLessThanOrEqual(0.3);
-    expect(m.setActive).not.toHaveBeenCalled(); // read-only
+    attachLabelmapToOwnSeries('seg1', 'panel_1');
+    expect(m.addLabelmapRep).not.toHaveBeenCalled();
+    expect(m.setStyle).not.toHaveBeenCalled();
   });
 
-  it('different Frame of Reference (A2d) ⇒ does NOT attach here', () => {
+  it('does NOT attach to a different frame of reference', () => {
     viewportWith('FoR-2', 'series-X');
-    attachLabelmapWithEligibility('seg1', 'panel_2');
+    attachLabelmapToOwnSeries('seg1', 'panel_2');
     expect(m.addLabelmapRep).not.toHaveBeenCalled();
   });
 
-  it('fails OPEN to native when the viewport FoR is unresolved (no regression of single-series render)', () => {
+  it('fails OPEN when the viewport identity is unresolved — a working render is never suppressed', () => {
     viewportWith(null, null);
-    attachLabelmapWithEligibility('seg1', 'panel_3');
+    attachLabelmapToOwnSeries('seg1', 'panel_3');
     expect(m.addLabelmapRep).toHaveBeenCalledWith('panel_3', [{ segmentationId: 'seg1' }]);
-    expect(m.setStyle).not.toHaveBeenCalled();
   });
 });
 
@@ -141,18 +145,18 @@ describe('canDrawOnViewport (Slice 3: gesture-start blocking, B3 / signal 12)', 
     expect(canDrawOnViewport('seg1', 'panel_0')).toEqual({ allowed: true });
   });
 
-  it('blocks drawing on a same-FoR sibling series (read-only) with a hint', () => {
+  it('blocks drawing on a sibling series of the same exam, with a hint', () => {
     viewportWith('FoR-1', 'series-B');
     const d = canDrawOnViewport('seg1', 'panel_1');
     expect(d.allowed).toBe(false);
-    expect(d.reason).toMatch(/sibling series|switch|create/i);
+    expect(d.reason).toMatch(/different scan|create/i);
   });
 
-  it('blocks drawing on a different Frame of Reference with a hint', () => {
+  it('blocks drawing on a different frame of reference, with a hint', () => {
     viewportWith('FoR-2', 'series-X');
     const d = canDrawOnViewport('seg1', 'panel_2');
     expect(d.allowed).toBe(false);
-    expect(d.reason).toMatch(/frame of reference|different/i);
+    expect(d.reason).toMatch(/different scan|create/i);
   });
 
   it('blocks with a hint when there is no active container', () => {
@@ -197,18 +201,20 @@ describe('spatial identity of an IMPORTED container (no create-path record)', ()
     expect(canDrawOnViewport('loadedSeg', 'panel_0')).toEqual({ allowed: true });
   });
 
-  it('reports eligibility to the panel, so its rows can dim', () => {
+  it('reports to the panel which viewport shows its scan, so the list can scope', () => {
     importedContainer('loadedSeg', 'FoR-1', 'series-A');
+    viewportWith('FoR-1', 'series-A');
+    expect(isContainerNativeToViewport('loadedSeg', 'panel_0')).toBe(true);
     viewportWith('FoR-1', 'series-B');
-    expect(containerEligibilityForViewport('loadedSeg', 'panel_1')).toBe('cross-series');
+    expect(isContainerNativeToViewport('loadedSeg', 'panel_1')).toBe(false);
     viewportWith('FoR-2', 'series-X');
-    expect(containerEligibilityForViewport('loadedSeg', 'panel_2')).toBe('different-for');
+    expect(isContainerNativeToViewport('loadedSeg', 'panel_2')).toBe(false);
   });
 
   it('does not attach to a different-FoR viewport', () => {
     importedContainer('loadedSeg', 'FoR-1', 'series-A');
     viewportWith('FoR-2', 'series-X');
-    attachLabelmapWithEligibility('loadedSeg', 'panel_2');
+    attachLabelmapToOwnSeries('loadedSeg', 'panel_2');
     expect(m.addLabelmapRep).not.toHaveBeenCalled();
   });
 

@@ -21,7 +21,7 @@ import {
   type AttachedContainerRef,
   type PendingViewportLoad,
 } from '../annotations/sessionLifecycle';
-import { viewportIdsForContainer, containerEligibilityForViewport } from '../cornerstone/unifiedSegService';
+import { viewportIdsForContainer, isContainerNativeToViewport } from '../cornerstone/unifiedSegService';
 import { segmentationService } from '../cornerstone/segmentationService';
 import { segmentationManager } from '../segmentation/segmentationManagerSingleton';
 import { useSegmentationStore } from '../../stores/segmentationStore';
@@ -63,9 +63,7 @@ export function attachedContainers(
     try {
       // Unreadable attachment: fall back to identity. Native to the viewport being
       // replaced ⇒ it is this scan's annotation and is leaving with it.
-      return containerEligibilityForViewport(containerId, replacingViewportId) === 'native'
-        ? [replacingViewportId]
-        : [];
+      return isContainerNativeToViewport(containerId, replacingViewportId) ? [replacingViewportId] : [];
     } catch {
       return [];
     }

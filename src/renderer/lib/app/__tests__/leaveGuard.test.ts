@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const m = vi.hoisted(() => ({
   viewportIdsForContainer: vi.fn((_id: string): string[] => []),
-  containerEligibilityForViewport: vi.fn((_id: string, _vp: string): string | null => null),
+  isContainerNativeToViewport: vi.fn((_id: string, _vp: string): boolean | null => null),
   flushContainerSave: vi.fn(async (_id: string) => {}),
   getContainerSaveState: vi.fn((_id: string) => ({ dirty: false, inFlight: false })),
   removeSegmentation: vi.fn(),
@@ -10,7 +10,7 @@ const m = vi.hoisted(() => ({
 
 vi.mock('../../cornerstone/unifiedSegService', () => ({
   viewportIdsForContainer: (id: string) => m.viewportIdsForContainer(id),
-  containerEligibilityForViewport: (id: string, vp: string) => m.containerEligibilityForViewport(id, vp),
+  isContainerNativeToViewport: (id: string, vp: string) => m.isContainerNativeToViewport(id, vp),
 }));
 vi.mock('../../cornerstone/segmentationService', () => ({
   segmentationService: {
@@ -47,7 +47,7 @@ function seed(segs: Array<{ id: string; label?: string; sessionId?: string; dirt
 beforeEach(() => {
   Object.values(m).forEach((fn) => fn.mockClear());
   m.getContainerSaveState.mockImplementation(() => ({ dirty: false, inFlight: false }));
-  m.containerEligibilityForViewport.mockImplementation(() => null);
+  m.isContainerNativeToViewport.mockImplementation(() => null);
   useLeavePromptStore.setState({ request: null, busy: false, error: null });
   useAnnotationStore.setState({ srContainers: [] } as never);
 });
@@ -169,7 +169,7 @@ describe('guardLoad — containers the attachment check cannot see', () => {
 
   it('prompts for a dirty container with NO readable attachment that is native to the viewport being replaced', async () => {
     seed([{ id: 'c1', label: 'Contour', dirty: true, on: [] }]);
-    m.containerEligibilityForViewport.mockImplementation((_id, vp) => (vp === 'panel_0' ? 'native' : null));
+    m.isContainerNativeToViewport.mockImplementation((_id, vp) => (vp === 'panel_0' ? true : null));
     const p = guardLoad(load);
     await vi.waitFor(() => expect(useLeavePromptStore.getState().request).not.toBeNull());
     expect(useLeavePromptStore.getState().request?.entries[0].label).toBe('Contour');
@@ -179,7 +179,7 @@ describe('guardLoad — containers the attachment check cannot see', () => {
 
   it('does NOT prompt for an unattached container belonging to another series', async () => {
     seed([{ id: 'c1', dirty: true, on: [] }]);
-    m.containerEligibilityForViewport.mockImplementation(() => 'different-for');
+    m.isContainerNativeToViewport.mockImplementation(() => false);
     expect(await guardLoad(load)).toBe('proceed');
     expect(useLeavePromptStore.getState().request).toBeNull();
   });

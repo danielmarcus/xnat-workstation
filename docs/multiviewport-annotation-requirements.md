@@ -36,19 +36,48 @@ A "registered transform" for v1 means an in-session, explicit registration the u
 ### A2a. Native series — render unconditionally
 When the active series in the viewport is the structure's native series (the series the contour was drawn on, identified by `referencedImageId` lineage / `ReferencedSeriesInstanceUID` for RTSTRUCT, or matching seg-grid-to-image geometry for SEG), structures render normally with full styling, full edit affordances on the source slice, and no special indicator.
 
-### A2b. Cross-series, same FoR — render with visual flag, by default
+### A2b. ~~Cross-series, same FoR — render with visual flag, by default~~ — **WITHDRAWN 2026-09-18**
+
+> **This requirement was wrong and the code built to it has been removed.** An annotation
+> belongs to the scan it was drawn on. It is shown on every viewport displaying that scan —
+> a second viewport on the same series, or the planes of an MPR — and on no others.
+>
+> The rationale below asserted what a user "reasonably expects" without asking one. When
+> asked, the answer was the opposite: a drawing should be tied to the scan it was made on,
+> not to whether two scans happen to share a coordinate label.
+>
+> It also never reached users. The panel's create path builds a per-slice mask that only
+> ever attached to its own series; only a test-only shortcut produced the volume masks the
+> cross-series path acted on. So the behaviour lived in the requirements and in a test, and
+> nowhere a user could see. Removed with `forEligibility`, `eligibilityStyle`,
+> `bulkDisplacement`, the dimmed non-native style and `cross-series-two-panel`.
+>
+> Original text follows, for the record.
 When two series share an FoR but are different series (typical: T1 + T2 in one MR exam, multi-phase contrast CT), structures from one series **render by default** on the other series' viewport, subject to the geometric projection rules in A3 (plane intersection for contours; voxel resample for labelmaps). Rendering uses the **non-native visual style** (see UX section D9) and is **read-only on that viewport** — handles and brush edits are not allowed against a non-native series.
 
 A viewport's **active series** is the series whose images it is currently displaying (one series per viewport in v1; multi-volume layered display is out of scope). A structure is "native" to a viewport when the structure's source series matches the viewport's active series. Drawing routing for non-native viewports is governed by B3 and D10 (blocked, with a hint to switch container or viewport).
 
 This default reflects expected behavior for in-exam multi-sequence work where the patient was stationary and the user reasonably expects contours from one sequence to be a valid spatial reference on a sibling sequence.
 
-### A2c. Same FoR but anatomically inconsistent (breath-hold / 4D-CT phases) — off by default
+### A2c. ~~Same FoR but anatomically inconsistent (breath-hold / 4D-CT phases) — off by default~~ — **WITHDRAWN 2026-09-18**
+
+> Existed only to carve an exception out of A2b. With A2b withdrawn there is nothing to
+> except: an annotation is never shown on another scan, so no displacement needs measuring.
+> The bulk-displacement estimate and its threshold are deleted.
+>
+> Original text follows, for the record.
 When two series share an FoR but the equipment or protocol indicates the patient pose differs (separate breath-holds, distinct 4D-CT phase bins, or any acquisition where the FoR is preserved but anatomy has demonstrably moved), cross-series rendering is **off by default**. The user may opt-in per structure-set / per session via an explicit "show structures from related series" toggle.
 
 Detection heuristic for "off by default": separate `AcquisitionNumber` with same FoR plus large bulk-anatomy displacement is suggestive but not conclusive; when uncertain, prefer A2b (render with flag) over A2c (hide). The user always has explicit control.
 
-### A2d. Different FoR — do not render unless registered
+### A2d. Different FoR — do not render unless registered — **SUBSUMED 2026-09-18**
+
+> Still true, but no longer a separate rule: an annotation is only shown on its own scan,
+> which can never be one in a different frame of reference. The list behaviour it describes
+> is also moot — the panel is viewport-scoped, so a container that cannot render on the
+> focused viewport is not listed there at all.
+>
+> Original text follows, for the record.
 When the structure's FoR does not match the viewport's FoR and no Spatial Registration object bridges them, the structure is not displayed. The annotation list panel must still expose the structure with a clear "different frame of reference — not viewable here" indicator so the user is not confused about why it isn't drawing.
 
 ### A3. Geometric projection across orientations

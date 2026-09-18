@@ -22,9 +22,8 @@ import {
 } from '@cornerstonejs/tools';
 import { canComputeRequestedRepresentation, computeLabelmapData } from '@cornerstonejs/polymorphic-segmentation';
 import { viewportService } from './viewportService';
-import { classifyEligibility, type ContainerSpatialId, type ViewportSpatialId } from './forEligibility';
+import type { ContainerSpatialId, ViewportSpatialId } from './spatialIdentity';
 import * as mlg from './multiLayerGroup';
-import { actionForEligibility, nonNativeStyleFor } from './eligibilityStyle';
 import {
   copyVoxelRegion,
   pasteVoxelRegion,
@@ -35,7 +34,6 @@ import {
 import { useSegmentationStore } from '../../stores/segmentationStore';
 import { useViewerStore } from '../../stores/viewerStore';
 import { useApprovalStore } from '../../stores/approvalStore';
-import { bulkDisplacementMm, type VolumeGeometry as SourceVolumeGeometry } from './bulkDisplacement';
 import * as sourceImageTracking from './sourceImageTracking';
 
 let counter = 0;
@@ -49,59 +47,10 @@ const created = new Set<string>();
 const containerSpatial = new Map<string, ContainerSpatialId>();
 
 // ─── A2c displacement-hide (signal 10) ───────────────────────────────────────
-/** Source ImageVolume id each container was derived from (its NATIVE volume). */
-const containerNativeVolume = new Map<string, string>();
-/** Memoized bulk displacement (mm) per `nativeVolumeId|viewportVolumeId` pair. */
-const displacementCache = new Map<string, number | null>();
 
-/** Read a SOURCE volume's geometry + scalar data for the displacement estimate
- *  (distinct from readLabelmapVoxels, which reads the labelmap). Streaming volumes
- *  expose data via getCompleteScalarDataArray(). null ⇒ unknown ⇒ caller defaults to show. */
-function readSourceVolumeGeometry(volumeId: string | null | undefined): SourceVolumeGeometry | null {
-  if (!volumeId) return null;
-  try {
-    const vol = cache.getVolume(volumeId) as any;
-    if (!vol) return null;
-    const img = vol.imageData;
-    const dimensions = vol.dimensions ?? img?.getDimensions?.();
-    const spacing = vol.spacing ?? img?.getSpacing?.();
-    const origin = vol.origin ?? img?.getOrigin?.();
-    const scalarData =
-      vol.voxelManager?.getCompleteScalarDataArray?.() ?? vol.voxelManager?.getScalarData?.() ?? vol.scalarData;
-    if (!dimensions || !spacing || !origin || !scalarData?.length) return null;
-    return { scalarData, dimensions, spacing, origin };
-  } catch {
-    return null;
-  }
-}
 
-/** The source ImageVolume id a viewport is currently displaying (first volume). */
-function getViewportSourceVolumeId(viewportId: string): string | null {
-  try {
-    const vp = viewportService.getViewport(viewportId) as { getAllVolumeIds?: () => string[] } | undefined;
-    return vp?.getAllVolumeIds?.()?.[0] ?? null;
-  } catch {
-    return null;
-  }
-}
-
-/** Bulk-anatomy displacement (mm) between a container's native volume and a viewport's
- *  volume (memoized). null = unknown ⇒ classifier defaults to show. */
-function bulkDisplacementForPair(segmentationId: string, viewportId: string): number | null {
-  const nativeVolumeId = containerNativeVolume.get(segmentationId);
-  const vpVolumeId = getViewportSourceVolumeId(viewportId);
-  if (!nativeVolumeId || !vpVolumeId || nativeVolumeId === vpVolumeId) return null;
-  const key = `${nativeVolumeId}|${vpVolumeId}`;
-  const cached = displacementCache.get(key);
-  if (cached !== undefined) return cached;
-  const a = readSourceVolumeGeometry(nativeVolumeId);
-  const b = readSourceVolumeGeometry(vpVolumeId);
-  const mm = a && b ? bulkDisplacementMm(a, b) : null;
-  displacementCache.set(key, mm);
-  return mm;
-}
-
-// ─── Voxel copy/paste (D6 / signal 23) ───────────────────────────────────────
+/** Voxel clipboard (D6 / signal 23): the copied region, and the focal point it was
+ *  copied at, so a paste can be translated to the current slice. */
 let voxelClip: VoxelRegionClip | null = null;
 let voxelClipSourceFocal: Vec3 | null = null;
 
@@ -242,59 +191,34 @@ function recordContainerSpatial(segmentationId: string, nativeViewportId: string
 }
 
 /**
- * Eligibility-gated attach of one labelmap container to one viewport, for the
- * re-attach path. Fails OPEN to native (attach, default style) whenever a spatial
- * id is unresolved, so the working single-series render is never regressed. Only a
- * confidently-different Frame of Reference (A2d) suppresses the attach; a same-FoR
- * sibling series (A2b) attaches with the non-native style + read-only.
- * Exported for service-integration testing.
+ * Attach a labelmap to a viewport, if that viewport is showing the scan it was drawn on.
+ *
+ * A mask belongs to its own scan. It renders on every viewport displaying that scan —
+ * including each plane of an MPR, which are views of one volume — and on no others.
+ *
+ * This replaced a four-outcome model (requirements A2a–A2d) under which a mask from one
+ * series ALSO rendered, dimmed and read-only, on a sibling series of the same exam, unless
+ * a measured anatomical shift suggested the patient had moved between them. That was
+ * written into the requirements but never reached users: the panel's create path builds a
+ * per-slice mask that only ever attached to its own series, and only a test-only shortcut
+ * produced the volume masks the cross-series path acted on. Removed as incorrect.
+ *
+ * Fails OPEN when spatial identity is unresolved — a container mid-load, or images without
+ * usable metadata — so a working single-series render is never suppressed by an unknown.
  */
-export function attachLabelmapWithEligibility(segmentationId: string, viewportId: string): void {
-  // Default native (fail-open) — only override when both ids are confidently known.
-  // The whole decision is wrapped so a metadata/viewport read failure can never
-  // throw out of here (which would abort the create-time attach loop); on any error
-  // we attach as native, exactly as the pre-eligibility code did.
-  let action = actionForEligibility('native');
+export function attachLabelmapToOwnSeries(segmentationId: string, viewportId: string): void {
+  let attach = true;
   try {
-    const cspatial = resolveContainerSpatial(segmentationId);
-    const vspatial = resolveViewportSpatial(viewportId);
-    if (cspatial?.frameOfReferenceUID && vspatial?.frameOfReferenceUID) {
-      // Classify once cheaply; only a same-FoR sibling series (cross-series-*) needs
-      // the expensive two-volume displacement read (A2c) — native / different-FoR don't.
-      const prelim = classifyEligibility({ container: cspatial, viewport: vspatial });
-      const bulkDisplacementMm =
-        prelim === 'cross-series-show' || prelim === 'cross-series-hide'
-          ? bulkDisplacementForPair(segmentationId, viewportId)
-          : undefined;
-      action = actionForEligibility(
-        classifyEligibility({ container: cspatial, viewport: vspatial, bulkDisplacementMm }),
-      );
-    }
+    attach = isContainerNativeToViewport(segmentationId, viewportId) !== false;
   } catch {
-    action = actionForEligibility('native');
+    attach = true; // a metadata read must never abort the create-time attach loop
   }
-  // A2d different-FoR OR A2c displaced sibling (cross-series-hide): do not render here.
-  // For a shared derived volume labelmap, NOT attaching is the only reliable per-viewport
-  // hide — CS3D actor visibility is viewport-wide (visibility-off can't suppress it). The
-  // container stays LISTED (the panel reads the segmentation store, not viewport attach).
-  if (!action.attach) return;
+  if (!attach) return;
   csSegmentation.addLabelmapRepresentationToViewport(viewportId, [{ segmentationId }]);
-  if (action.nonNative) {
-    try {
-      csSegmentation.segmentationStyle.setStyle(
-        { type: ToolEnums.SegmentationRepresentations.Labelmap, viewportId, segmentationId },
-        nonNativeStyleFor('Labelmap') as never,
-      );
-    } catch {
-      /* style is best-effort, never blocks attach */
-    }
-  }
-  if (!action.readOnly) {
-    try {
-      csSegmentation.activeSegmentation.setActiveSegmentation(viewportId, segmentationId);
-    } catch {
-      /* viewport not ready */
-    }
+  try {
+    csSegmentation.activeSegmentation.setActiveSegmentation(viewportId, segmentationId);
+  } catch {
+    /* viewport not ready */
   }
 }
 
@@ -329,25 +253,24 @@ export function viewportIdsForContainer(containerId: string): string[] {
 }
 
 /**
- * How a container relates to a viewport's frame of reference, in the panel's vocabulary:
- * `native` (editable here), `cross-series` (same FoR, sibling series — read-only here) or
- * `different-for` (cannot render here at all).
+ * Is this viewport showing the scan the container was drawn on?
  *
- * Returns null when either side's spatial identity is unresolved, which the caller should
- * treat as "no opinion" rather than as a restriction — the same fail-open stance
- * canDrawOnViewport takes, so a valid single-series session is never dimmed.
+ * `true` when the viewport's series is the container's own (or one it references — the
+ * planes of an MPR all show the same series). `false` when it is confidently a different
+ * scan. `null` when either side's spatial identity cannot be resolved, which callers treat
+ * as "no opinion" rather than as a restriction, so an unknown never suppresses a working
+ * single-series render.
  */
-export function containerEligibilityForViewport(
-  containerId: string,
-  viewportId: string,
-): 'native' | 'cross-series' | 'different-for' | null {
+export function isContainerNativeToViewport(containerId: string, viewportId: string): boolean | null {
   const cspatial = resolveContainerSpatial(containerId);
   const vspatial = resolveViewportSpatial(viewportId);
   if (!cspatial?.frameOfReferenceUID || !vspatial?.frameOfReferenceUID) return null;
-  const eligibility = classifyEligibility({ container: cspatial, viewport: vspatial });
-  if (eligibility === 'native') return 'native';
-  if (eligibility === 'different-for') return 'different-for';
-  return 'cross-series';
+  if (!cspatial.nativeSeriesInstanceUID || !vspatial.seriesInstanceUID) return null;
+  if (cspatial.frameOfReferenceUID !== vspatial.frameOfReferenceUID) return false;
+  return (
+    vspatial.seriesInstanceUID === cspatial.nativeSeriesInstanceUID ||
+    cspatial.referencedSeriesInstanceUIDs.includes(vspatial.seriesInstanceUID)
+  );
 }
 
 /**
@@ -433,27 +356,18 @@ export function canDrawOnViewport(activeContainerId: string | null, viewportId: 
       reason: 'This container is approved and edit-locked. Revoke its approval in the Annotations panel to edit.',
     };
   }
-  const cspatial = resolveContainerSpatial(activeContainerId);
-  const vspatial = resolveViewportSpatial(viewportId);
-  if (!cspatial?.frameOfReferenceUID || !vspatial?.frameOfReferenceUID) {
-    return { allowed: true }; // fail open — don't block a valid single-series draw
-  }
-  const eligibility = classifyEligibility({ container: cspatial, viewport: vspatial });
-  if (eligibility === 'native') return { allowed: true };
-  if (eligibility === 'different-for') {
+  // An annotation is edited on the scan it belongs to. Unresolved identity fails open, so
+  // a valid single-series draw is never blocked by an unknown.
+  if (isContainerNativeToViewport(activeContainerId, viewportId) === false) {
     return {
       allowed: false,
       reason:
-        'The active container belongs to a different frame of reference. Focus a viewport showing its series, or create a new container for this series.',
+        'The active annotation belongs to a different scan. Focus a viewport showing that scan, or create a new annotation for this one.',
     };
   }
-  // cross-series-show / cross-series-hide — same FoR, sibling series ⇒ read-only here.
-  return {
-    allowed: false,
-    reason:
-      'The active container is from a sibling series and is read-only here. Focus a viewport native to it, switch the active container, or create a new container tagged to this series.',
-  };
+  return { allowed: true };
 }
+
 
 export interface UnifiedLabelmapResult {
   segmentationId: string;
@@ -502,13 +416,12 @@ export const unifiedSegService = {
     // series. Record that BEFORE attaching so the eligibility gate can classify the
     // other viewports against it.
     recordContainerSpatial(segmentationId, viewportIds[0]);
-    containerNativeVolume.set(segmentationId, referencedVolumeId); // native volume for A2c displacement (signal 10)
     for (const viewportId of viewportIds) {
       // FoR-eligibility gate (A2a–d): the native viewport(s) attach solid + active;
       // a same-FoR sibling series attaches non-native (dimmed) + read-only; a
       // different FoR is skipped. MPR-safe: every MPR panel shows the same series,
       // so each classifies `native` and attaches exactly as before.
-      attachLabelmapWithEligibility(segmentationId, viewportId);
+      attachLabelmapToOwnSeries(segmentationId, viewportId);
     }
     csSegmentation.segmentIndex.setActiveSegmentIndex(segmentationId, 1);
 
@@ -526,14 +439,13 @@ export const unifiedSegService = {
       if (!csSegmentation.state.getSegmentation(segmentationId)) {
         created.delete(segmentationId);
         containerSpatial.delete(segmentationId);
-        containerNativeVolume.delete(segmentationId);
         continue;
       }
       try {
         // FoR-eligibility gate (A2a–d): native attaches solid + editable; a same-FoR
         // sibling series attaches non-native + read-only; a different FoR does not
         // attach here. Fails open to native when ids are unresolved.
-        attachLabelmapWithEligibility(segmentationId, viewportId);
+        attachLabelmapToOwnSeries(segmentationId, viewportId);
       } catch {
         /* viewport not ready yet */
       }
@@ -703,21 +615,6 @@ export const unifiedSegService = {
   },
 
   /**
-   * Apply the D9 non-native (dimmed) labelmap style to a segmentation on one viewport
-   * and re-render (signal 9b). Same style attachLabelmapWithEligibility uses for a
-   * cross-series sibling — exposed so the visible dimming can be exercised directly.
-   */
-  applyNonNativeLabelmapStyle(segmentationId: string, viewportId: string): void {
-    try {
-      csSegmentation.segmentationStyle.setStyle(
-        { type: ToolEnums.SegmentationRepresentations.Labelmap, viewportId, segmentationId },
-        nonNativeStyleFor('Labelmap') as never,
-      );
-      csToolUtilities.segmentation.triggerSegmentationRender(viewportId);
-    } catch { /* best-effort */ }
-  },
-
-  /**
    * Is the active segment (the one an edit would write into) locked? (signal 21/29.)
    * Cornerstone's voxel strategies only prevent OVERWRITING locked voxels — they do
    * NOT prevent ADDING to a locked active segment on empty space — so the "locking a
@@ -746,8 +643,6 @@ export const unifiedSegService = {
   reset(): void {
     created.clear();
     containerSpatial.clear();
-    containerNativeVolume.clear();
-    displacementCache.clear();
     voxelClip = null;
     voxelClipSourceFocal = null;
   },

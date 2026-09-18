@@ -34,7 +34,7 @@ import { getAnnotationUIDs } from '../lib/cornerstone/contourRepresentation';
 import { unifiedToolService } from '../lib/cornerstone/unifiedToolService';
 import {
   viewportIdsForContainer,
-  containerEligibilityForViewport,
+  isContainerNativeToViewport,
   viewportHasContent,
 } from '../lib/cornerstone/unifiedSegService';
 import { segmentationManager } from '../lib/segmentation/segmentationManagerSingleton';
@@ -235,9 +235,7 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
           // null = the CONTAINER's identity is unresolved ⇒ no opinion ⇒ list it, since
           // an SR container is not a Cornerstone segmentation and a container mid-load has
           // not attached yet.
-          const eligibility = containerEligibilityForViewport(c.id, activeViewportId);
-          if (eligibility == null || eligibility === 'native') return true;
-          return false;
+          return isContainerNativeToViewport(c.id, activeViewportId) !== false;
         } catch {
           return true;
         }
@@ -606,23 +604,6 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
     }
   };
 
-  /**
-   * How the container relates to the focused viewport's frame of reference. Members
-   * inherit their container's relationship — eligibility is a spatial property of the
-   * container, not of the individual segment/ROI.
-   *
-   * `null` from the service means "spatial identity unresolved"; that maps to `native`
-   * so a valid single-series session is never dimmed, matching canDrawOnViewport's
-   * fail-open stance.
-   */
-  const eligibilityOf = (containerId: string): 'native' | 'cross-series' | 'different-for' => {
-    try {
-      return containerEligibilityForViewport(containerId, activeViewportId) ?? 'native';
-    } catch {
-      return 'native';
-    }
-  };
-
   // ── Transport state surfaced in-place on the row + the H7 conflict dialog ──
   const transportOf = (containerId: string): RowTransport | undefined => {
     const e = transportEntries[containerId];
@@ -831,7 +812,6 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
     deleteFromServerDialog,
     // Multi-viewport display state (pill + FoR dimming).
     crossPanelCount,
-    eligibilityOf,
     // toolbox
     toolbox: activeContainer
       ? {

@@ -7,13 +7,17 @@
  * so neither had ever rendered in any build. That is why a multi-viewport grid showed no
  * dimming and gave no clue which scan a container belonged to.
  *
- * Uses two series that share a frame of reference, so a container created on panel_0
- * also attaches to panel_1 — the case the cross-panel pill exists for. (With different
- * frames of reference the container correctly attaches to one viewport only, so there is
- * no second panel to report.)
+ * Uses the SAME scan in both viewports, which is what "on more than one panel" means now:
+ * an annotation belongs to the scan it was drawn on, and every viewport showing that scan
+ * displays it — a second viewport on the same series, or the planes of an MPR.
+ *
+ * It previously used two different series of one exam, back when a mask also rendered on a
+ * sibling series (requirements A2b). That rule was removed as incorrect, so the container
+ * attached to one viewport only and this spec silently SKIPPED rather than failing — which
+ * is how a deleted behaviour can take a test with it without anyone noticing.
  */
 import { test, expect } from '../../fixtures/electron-app';
-import { loadTwoSeries } from '../../helpers/local-fixture';
+import { loadSameSeriesTwice } from '../../helpers/local-fixture';
 
 type Win = { __XNAT_E2E__: {
   createUnifiedLabelmapSegmentation: (label?: string) => Promise<{ segmentationId: string }>;
@@ -21,7 +25,7 @@ type Win = { __XNAT_E2E__: {
 }; };
 
 test('a container attached to more than one viewport shows the cross-panel pill', async ({ page }) => {
-  await loadTwoSeries(page, 'mr-t1-t2-sameexam', 't1-slice', 't2-slice');
+  await loadSameSeriesTwice(page, 'ct-axial-300', 'slice');
 
   const panel = page.locator('[data-testid="annotations-side-panel"]');
   if (!(await panel.isVisible())) {
@@ -40,11 +44,14 @@ test('a container attached to more than one viewport shows the cross-panel pill'
     (id) => (window as unknown as Win).__XNAT_E2E__.getSegmentationViewportIds(id),
     segmentationId,
   );
-  test.skip(viewports.length < 2, `container is on ${viewports.length} viewport(s); the pill only applies to >1`);
+  expect(
+    viewports.length,
+    'the same scan is open in two viewports, so the container must render on both',
+  ).toBeGreaterThan(1);
 
   // The pill must be rendered — before the resolvers were wired it never was, at any width.
   await expect(
-    panel.locator('[data-testid="container-list"]').getByTitle(/Rendering on \d+ other panel/),
+    panel.locator('[data-testid="container-list"]').getByTitle(/Rendering on \d+ other panel/).first(),
     'the cross-panel pill should render when a container is on more than one viewport',
   ).toBeVisible({ timeout: 10_000 });
 });

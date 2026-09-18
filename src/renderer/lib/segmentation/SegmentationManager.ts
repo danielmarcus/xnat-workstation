@@ -17,7 +17,7 @@ import { rtStructService } from '../cornerstone/rtStructService';
 import { useSegmentationManagerStore, type RGBA } from '../../stores/segmentationManagerStore';
 import { useSegmentationStore } from '../../stores/segmentationStore';
 import { useViewerStore } from '../../stores/viewerStore';
-import { viewportsShowingSameSeries, containerEligibilityForViewport } from '../cornerstone/unifiedSegService';
+import { viewportsShowingSameSeries, isContainerNativeToViewport } from '../cornerstone/unifiedSegService';
 import {
   ToolName,
   SEGMENTATION_TOOLS,
@@ -293,7 +293,7 @@ export class SegmentationManager {
       if (this.isSegOnViewport(panelId, segId)) continue;
       let native = false;
       try {
-        native = containerEligibilityForViewport(segId, panelId) === 'native';
+        native = isContainerNativeToViewport(segId, panelId) === true;
       } catch {
         native = false; // unresolved identity ⇒ leave it alone; never attach on a guess
       }
