@@ -309,6 +309,15 @@ export class SegmentationManager {
    * on an id that an MPR panel may not carry. Spatial identity is what Cornerstone always
    * knows.
    */
+  /**
+   * Public entry for the mount path: a viewport that has just appeared should receive
+   * every container belonging to the scan it shows. Called with the viewport's current
+   * epoch, so a panel that is swapped again mid-flight abandons the attach.
+   */
+  async attachNativeContainersToViewport(panelId: string): Promise<void> {
+    await this.attachContainersNativeTo(panelId, viewportReadyService.getEpoch(panelId));
+  }
+
   private async attachContainersNativeTo(panelId: string, epoch: number): Promise<void> {
     const { segmentations } = useSegmentationStore.getState();
     for (const seg of segmentations) {

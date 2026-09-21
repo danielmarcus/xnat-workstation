@@ -10,6 +10,7 @@ import { useEffect, useRef, useState } from 'react';
 import { viewportService } from '../lib/cornerstone/viewportService';
 import { unifiedToolService } from '../lib/cornerstone/unifiedToolService';
 import { unifiedSegService, canDrawOnViewport } from '../lib/cornerstone/unifiedSegService';
+import { segmentationManager } from '../lib/segmentation/segmentationManagerSingleton';
 import { viewportReadyService } from '../lib/cornerstone/viewportReadyService';
 import { metadataService } from '../lib/cornerstone/metadataService';
 import { wireCrosshairPointerHandlers, syncCrosshairToPanels } from '../lib/cornerstone/unifiedCrosshair';
@@ -112,7 +113,12 @@ export function useViewport({
         } else {
           unifiedToolService.addViewport(panelId);
           // Re-attach any existing segmentations so structures survive layout swaps.
+          // Two passes, because they know about different containers: the service knows
+          // the ones IT created, the manager knows the ones the panel created — which is
+          // every container a user has. Without the second, switching to MPR after
+          // annotating left the annotation on the plane it was drawn on and nowhere else.
           unifiedSegService.attachExistingToViewport(panelId);
+          void segmentationManager.attachNativeContainersToViewport(panelId);
         }
         // Wire display-state sync (events → stores) + read the initial state, so
         // slice index / W/L / zoom / metadata are live. Handles stack AND volume.
