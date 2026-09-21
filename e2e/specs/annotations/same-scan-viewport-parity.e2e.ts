@@ -22,6 +22,7 @@ type Win = { __XNAT_E2E__: {
 }; };
 
 type LayoutWin = { __XNAT_E2E__: { setLayoutPreset: (p: string) => void } };
+type MprWin = { __XNAT_E2E__: { getViewportSegRepCount: (p: string) => number } };
 type ContourWin = { __XNAT_E2E__: { getActiveContourSnapshot: (p?: string, s?: string) => { total: number } } };
 
 const focus = (page: import('@playwright/test').Page, vp: string) =>
@@ -311,4 +312,79 @@ test('a contour drawn from the second viewport joins the same Structure', async 
     panel.locator('[data-testid^="container-row-"]'),
     'drawing from the second viewport must not create a second Structure for the same scan',
   ).toHaveCount(1);
+});
+
+/**
+ * MPR: the annotation must also RENDER on, and be editable from, every plane — not merely
+ * be listed there.
+ *
+ * The listing assertion above passes on identity (all planes show one volume, so all name
+ * the same series) and is therefore blind to attachment. Measured, a panel-created mask
+ * reached only the plane it was made on: 1 representation on panel_0, 0 on panel_1, no
+ * active segmentation there, and a brush stroke on the coronal plane painting nothing.
+ * You could see the annotation listed in every orientation and draw in exactly one.
+ *
+ * It looked like the brush refusing reformatted planes. It was not: the mask never
+ * arrived. The attach loop sized itself from `viewerStore.layoutConfig.panelCount`, which
+ * the MPR preset never updates — MPR lives in `unifiedLayoutStore` — so the loop saw one
+ * panel and never considered the other three.
+ *
+ * The existing `tools/brush-mpr` spec covers brushing on a reformat but creates its mask
+ * with a test-only shortcut that builds a single volume mask, which attaches everywhere on
+ * its own. It passed throughout.
+ */
+test('an annotation is editable from every MPR orientation, not just the one it was made on', async ({ page }) => {
+  await enterLocalViewer(page);
+  await page.locator('[data-testid="local-import-input"]').setInputFiles([]);
+  await page.locator('[data-testid="local-import-input"]').setInputFiles(ensureFixture('ct-axial-300'));
+  await expect(page.locator('[data-testid="unified-viewport-element:panel_0"] canvas')).toBeVisible({ timeout: 30_000 });
+  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.resetUnifiedSegmentations());
+
+  await page.evaluate(() => (window as unknown as LayoutWin).__XNAT_E2E__.setLayoutPreset('mpr-2x2'));
+  for (const pid of ['panel_0', 'panel_1', 'panel_2']) {
+    await expect(page.locator(`[data-testid="unified-viewport-element:${pid}"] canvas`)).toBeVisible({ timeout: 30_000 });
+  }
+  await page.waitForTimeout(1500);
+
+  const panel = await (async () => {
+    const p = page.locator('[data-testid="annotations-side-panel"]');
+    if (!(await p.isVisible())) await page.getByRole('button', { name: 'Show segmentation panel' }).click();
+    await expect(p).toBeVisible({ timeout: 15_000 });
+    return p;
+  })();
+
+  await focus(page, 'panel_0');
+  await panel.getByRole('button', { name: 'New Segmentation (SEG)' }).click();
+  await panel.getByLabel('Rename container').press('Enter');
+  const memberRename = panel.getByLabel('Rename member');
+  if (await memberRename.count()) await memberRename.press('Enter');
+  await page.waitForTimeout(1200);
+
+  // It must have REACHED the other planes, not just be listed against them.
+  const reps = await page.evaluate(() => {
+    const h = (window as unknown as MprWin).__XNAT_E2E__;
+    return { p0: h.getViewportSegRepCount('panel_0'), p1: h.getViewportSegRepCount('panel_1') };
+  });
+  expect(reps.p0, 'the plane it was made on holds the mask').toBeGreaterThan(0);
+  expect(reps.p1, 'every plane of the same volume must hold it too').toBeGreaterThan(0);
+
+  // ...and a stroke on a reformatted plane must actually paint.
+  await page.evaluate(() => {
+    const h = (window as unknown as Win).__XNAT_E2E__;
+    h.setUnifiedBrushSize(20);
+    h.setActiveUnifiedTool('Brush');
+  });
+  await focus(page, 'panel_1');
+  const box = (await page.locator('[data-testid="unified-viewport-element:panel_1"] canvas').boundingBox())!;
+  const y = box.y + box.height * 0.5;
+  await page.mouse.move(box.x + box.width * 0.44, y);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width * 0.56, y, { steps: 8 });
+  await page.mouse.up();
+  await page.waitForTimeout(1200);
+
+  expect(
+    await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.getPaintedVoxelCount()),
+    'brushing a reformatted plane must paint — the annotation belongs to the volume, not to one plane',
+  ).toBeGreaterThan(0);
 });

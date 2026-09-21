@@ -18,6 +18,7 @@ import { useSegmentationManagerStore, type RGBA } from '../../stores/segmentatio
 import { useSegmentationStore } from '../../stores/segmentationStore';
 import { useViewerStore } from '../../stores/viewerStore';
 import { viewportsShowingSameSeries, isContainerNativeToViewport } from '../cornerstone/unifiedSegService';
+import { unifiedToolService } from '../cornerstone/unifiedToolService';
 import {
   ToolName,
   SEGMENTATION_TOOLS,
@@ -106,6 +107,31 @@ export class SegmentationManager {
    * so it appears in every viewport where that scan is displayed.
    */
   /**
+   * The viewports that actually exist right now.
+   *
+   * Taken from the tool group — the viewports Cornerstone has actually been given — not
+   * from `viewerStore.layoutConfig.panelCount`. Those two disagree in MPR: the MPR preset
+   * is held in `unifiedLayoutStore` and never updates `layoutConfig`, which stays at 1x1.
+   * Anything sizing a loop from the panel count therefore saw ONE panel in a four-plane
+   * MPR.
+   *
+   * That is what stopped an annotation reaching the other planes: created on the axial
+   * view it attached there and nowhere else, so the coronal and sagittal views showed
+   * nothing and a brush stroke on them painted nothing — while the panel still LISTED it
+   * in all three, because listing decides on spatial identity and never asks about
+   * attachment.
+   *
+   * Falls back to the panel count when the tool group has no viewports yet (before the
+   * first render), so a normal grid still works during startup.
+   */
+  private mountedPanelIds(): string[] {
+    const fromToolGroup = unifiedToolService.getViewportIds();
+    if (fromToolGroup.length > 0) return [...fromToolGroup];
+    const panelCount = useViewerStore.getState().layoutConfig.panelCount;
+    return Array.from({ length: panelCount }, (_, i) => `panel_${i}`);
+  }
+
+  /**
    * Panels OTHER than `originPanelId` that are showing the same content — the panels an
    * annotation made on the origin must also live on.
    *
@@ -122,8 +148,7 @@ export class SegmentationManager {
    */
   private panelsShowingSameContentAs(originPanelId: string): string[] {
     const viewerState = useViewerStore.getState();
-    const panelCount = viewerState.layoutConfig.panelCount;
-    const allPanelIds = Array.from({ length: panelCount }, (_, i) => `panel_${i}`);
+    const allPanelIds = this.mountedPanelIds();
 
     const sourceScanId = viewerState.panelScanMap[originPanelId];
     const originCtx = viewerState.panelXnatContextMap[originPanelId] ?? viewerState.xnatContext;
