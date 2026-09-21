@@ -21,6 +21,7 @@ import {
   utilities as csToolUtilities,
 } from '@cornerstonejs/tools';
 import { canComputeRequestedRepresentation, computeLabelmapData } from '@cornerstonejs/polymorphic-segmentation';
+import { SegmentBidirectionalTool } from '@cornerstonejs/tools';
 import { viewportService } from './viewportService';
 import type { ContainerSpatialId, ViewportSpatialId } from './spatialIdentity';
 import * as mlg from './multiLayerGroup';
@@ -535,6 +536,58 @@ export const unifiedSegService = {
       }
     }
     return true;
+  },
+
+  /**
+   * Measure the active segment's largest bidirectional (long axis + perpendicular).
+   *
+   * This is an ACTION on a segment, not a drawing tool, and that is why it used to crash.
+   * SegmentBidirectionalTool's free-draw path builds an annotation whose metadata carries
+   * no segmentationId or segmentIndex at all; its render then calls
+   * getSegmentIndexColor(viewportId, undefined, undefined), gets null back, and dies on
+   * `colorArray.slice(0, 3)`. The tool is only ever meant to be entered through its
+   * static `hydrate`, with the segment named — which is what this does.
+   *
+   * (It was recorded as "crashes on multi-layer-group segmentations". Group ids are the
+   * usual cause of a null colour lookup, but not here: the free-draw path passes
+   * undefined, so it would crash on a plain segmentation too.)
+   *
+   * Cornerstone computes the axes off-thread; the caller gets a promise so the UI can
+   * report failure rather than silently do nothing.
+   */
+  async measureActiveSegmentBidirectional(viewportId: string): Promise<boolean> {
+    const s = useSegmentationStore.getState();
+    const groupId = s.activeSegmentationId;
+    const segmentIndex = s.activeSegmentIndex;
+    if (!groupId || !Number.isInteger(segmentIndex) || segmentIndex <= 0) return false;
+
+    // Cornerstone must be given an id IT knows. For a multi-layer group the group id is
+    // virtual, and the real labelmap is the per-segment sub-seg.
+    const segmentationId = mlg.isMultiLayerGroup(groupId)
+      ? mlg.resolveSubSegId(groupId, segmentIndex) ?? groupId
+      : groupId;
+    // A resolved sub-seg holds its own single segment at index 1.
+    const csSegmentIndex = segmentationId === groupId ? segmentIndex : 1;
+
+    try {
+      const result = await csToolUtilities.segmentation.getSegmentLargestBidirectional({
+        segmentationId,
+        segmentIndices: [csSegmentIndex],
+      } as never);
+      const first = (result as Array<Record<string, unknown>> | undefined)?.[0];
+      if (!first) return false;
+      const majorAxis = first.majorAxis as [number[], number[]] | undefined;
+      const minorAxis = first.minorAxis as [number[], number[]] | undefined;
+      if (!majorAxis || !minorAxis) return false;
+
+      (SegmentBidirectionalTool as unknown as {
+        hydrate: (vp: string, axis: unknown, opts: Record<string, unknown>) => void;
+      }).hydrate(viewportId, [majorAxis, minorAxis], { segmentationId, segmentIndex: csSegmentIndex });
+      return true;
+    } catch (err) {
+      console.warn('[unifiedSegService] bidirectional measurement failed:', err);
+      return false;
+    }
   },
 
   /** Copy the active container's active segment voxel region to the clipboard (D6 / signal 23). */

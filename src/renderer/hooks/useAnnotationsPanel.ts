@@ -36,6 +36,7 @@ import {
   viewportIdsForContainer,
   isContainerNativeToViewport,
   viewportHasContent,
+  unifiedSegService,
 } from '../lib/cornerstone/unifiedSegService';
 import { segmentationManager } from '../lib/segmentation/segmentationManagerSingleton';
 import { projectContainers } from '../lib/annotations/containerProjection';
@@ -570,6 +571,21 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
     .filter((c): c is [number, number, number, number] => c !== null);
 
   const onSelectTool = (toolId: string) => {
+    // Segment Bidirectional is an ACTION on the active segment, not a drawing mode:
+    // Cornerstone's tool only works when entered through its static hydrate with the
+    // segment named. Binding it as a primary draw tool is what used to crash it — its
+    // free-draw path builds an annotation with no segmentationId, and the render then
+    // dereferences a null colour. So run the measurement and leave the active tool alone.
+    if (toolId === 'segBidirectional') {
+      void unifiedSegService
+        .measureActiveSegmentBidirectional(activeViewportId)
+        .then((ok) => {
+          if (!ok) {
+            console.warn('[annotationsPanel] no bidirectional could be measured for the active segment.');
+          }
+        });
+      return;
+    }
     const toolName = CATALOG_TO_TOOLNAME[toolId];
     if (toolName && unifiedToolService.isToolSupported(toolName)) {
       useViewerStore.getState().setActiveTool(toolName); // routes to unifiedToolService + updates activeTool

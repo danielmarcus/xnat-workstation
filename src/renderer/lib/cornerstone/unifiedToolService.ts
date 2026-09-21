@@ -134,6 +134,7 @@ const UNIFIED_TOOL_MAP: Partial<Record<ToolName, string>> = {
   [ToolName.ArrowAnnotate]: ArrowAnnotateTool.toolName,
   [ToolName.PlanarFreehandROI]: PlanarFreehandROITool.toolName,
   [ToolName.RectangleROIThreshold]: RectangleROIThresholdTool.toolName,
+  [ToolName.SegmentBidirectional]: SegmentBidirectionalTool.toolName,
 };
 
 /**
