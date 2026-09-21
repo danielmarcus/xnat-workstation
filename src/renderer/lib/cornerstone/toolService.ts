@@ -102,6 +102,11 @@ const TOOL_NAME_MAP: Record<ToolName, string> = {
   [ToolName.Brush]: BrushTool.toolName,
   [ToolName.Eraser]: BrushTool.toolName,
   [ToolName.ThresholdBrush]: BrushTool.toolName,
+  // Sphere brush family — all BrushTool; the strategy differs, not the tool.
+  [ToolName.SphereBrush]: BrushTool.toolName,
+  [ToolName.SphereEraser]: BrushTool.toolName,
+  [ToolName.SphereThreshold]: BrushTool.toolName,
+  [ToolName.DynamicThreshold]: BrushTool.toolName,
   [ToolName.CircleScissors]: CircleScissorsTool.toolName,
   [ToolName.RectangleScissors]: RectangleScissorsTool.toolName,
   [ToolName.SphereScissors]: SphereScissorsTool.toolName,

@@ -34,7 +34,7 @@ describe('ContextToolbox', () => {
 
   it('renders planned tools flat-greyed and disabled', () => {
     setup();
-    const planned = screen.getByLabelText('Dyn. Thresh') as HTMLButtonElement;
+    const planned = screen.getByLabelText('Circle Multi') as HTMLButtonElement;
     expect(planned.disabled).toBe(true);
   });
 

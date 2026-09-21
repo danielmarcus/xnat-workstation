@@ -35,7 +35,7 @@ test('the context toolbox offers only the active kind’s tools; planned tools a
   // of "Sph. Brush".)
   await expect(toolbox.getByRole('button', { name: 'Brush', exact: true })).toBeEnabled();
   // A "planned" (registered-but-unimplemented) tool is present but DISABLED (not misapplied).
-  await expect(toolbox.getByRole('button', { name: 'Dyn. Thresh', exact: true })).toBeDisabled();
+  await expect(toolbox.getByRole('button', { name: 'Circle Multi', exact: true })).toBeDisabled();
   // Circle Multi is registered and activates, but its ROI is never converted to
   // labelmap voxels — a real drag writes NOTHING (proved in `tools/voxel-tools-effect` before it was
   // disabled). It must stay disabled until that conversion is built; re-enabling the

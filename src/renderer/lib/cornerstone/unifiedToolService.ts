@@ -99,6 +99,11 @@ const UNIFIED_TOOL_MAP: Partial<Record<ToolName, string>> = {
   // in setActiveTool via BRUSH_STRATEGY below.
   [ToolName.Eraser]: BrushTool.toolName,
   [ToolName.ThresholdBrush]: BrushTool.toolName,
+  // Sphere variants — same BrushTool, 3D strategy (see BRUSH_STRATEGY).
+  [ToolName.SphereBrush]: BrushTool.toolName,
+  [ToolName.SphereEraser]: BrushTool.toolName,
+  [ToolName.SphereThreshold]: BrushTool.toolName,
+  [ToolName.DynamicThreshold]: BrushTool.toolName,
   // Structure (contour) tools
   [ToolName.SplineContour]: SplineContourSegmentationTool.toolName,
   [ToolName.LivewireContour]: LivewireContourSegmentationTool.toolName,
@@ -131,11 +136,55 @@ const UNIFIED_TOOL_MAP: Partial<Record<ToolName, string>> = {
   [ToolName.RectangleROIThreshold]: RectangleROIThresholdTool.toolName,
 };
 
+/**
+ * Turn Cornerstone's dynamic-threshold composition on or off for the brush.
+ *
+ * With it on, the first click samples the voxels around it and sets the threshold range
+ * from them, so the user picks the tissue rather than typing a window. With it off the
+ * configured range applies.
+ *
+ * NB the island-removal strategy (THRESHOLD_INSIDE_SPHERE_WITH_ISLAND_REMOVAL) is NOT
+ * what this tool is: island removal runs on interaction-end against a previewSegmentIndex
+ * and belongs to Cornerstone's preview workflow, which this app does not implement —
+ * mapped to it, the tool painted and then erased everything it had just painted.
+ */
+function setDynamicThreshold(toolGroup: ToolTypes.IToolGroup, isDynamic: boolean): void {
+  try {
+    const config = toolGroup.getToolConfiguration(BrushTool.toolName) as
+      | { threshold?: Record<string, unknown> }
+      | undefined;
+    toolGroup.setToolConfiguration(BrushTool.toolName, {
+      threshold: {
+        ...(config?.threshold ?? {}),
+        isDynamic,
+        // Sampling radius around the click, in voxels. Null range lets the composition
+        // compute one; leaving a stale range would suppress the sampling entirely.
+        ...(isDynamic ? { dynamicRadius: 3, range: null } : {}),
+      },
+    });
+  } catch (err) {
+    console.warn('[unifiedToolService] setDynamicThreshold failed:', err);
+  }
+}
+
+/** Brush variants gated on the intensity window. */
+const THRESHOLD_BRUSH_TOOLS = new Set<ToolName>([
+  ToolName.ThresholdBrush,
+  ToolName.SphereThreshold,
+  ToolName.DynamicThreshold,
+]);
+
 /** Brush-family strategy per ToolName (all share BrushTool). */
 const BRUSH_STRATEGY: Partial<Record<ToolName, string>> = {
   [ToolName.Brush]: 'FILL_INSIDE_CIRCLE',
   [ToolName.Eraser]: 'ERASE_INSIDE_CIRCLE',
   [ToolName.ThresholdBrush]: 'THRESHOLD_INSIDE_CIRCLE',
+  // Sphere variants: a 3D kernel, so one stroke writes into neighbouring slices too.
+  // Cornerstone ships all of these on BrushTool already; only the mapping was missing.
+  [ToolName.SphereBrush]: 'FILL_INSIDE_SPHERE',
+  [ToolName.SphereEraser]: 'ERASE_INSIDE_SPHERE',
+  [ToolName.SphereThreshold]: 'THRESHOLD_INSIDE_SPHERE',
+  [ToolName.DynamicThreshold]: 'THRESHOLD_INSIDE_CIRCLE',
 };
 
 /**
@@ -417,9 +466,18 @@ export const unifiedToolService = {
       // `true` for every voxel when no range is configured, so THRESHOLD_INSIDE_CIRCLE
       // without a range is byte-for-byte the plain fill brush. Push the range on every
       // selection (same reason as the strategy above — re-selection must re-apply it).
-      if (toolName === ToolName.ThresholdBrush) {
+      // Every threshold variant needs the intensity window pushed on selection, not just
+      // the circle one — the strategy reads it from tool configuration, and a sphere
+      // threshold with no window set paints as an ordinary brush.
+      if (THRESHOLD_BRUSH_TOOLS.has(toolName)) {
         unifiedToolService.setBrushThreshold(useSegmentationStore.getState().thresholdRange);
       }
+      // Dynamic threshold derives its window from the voxel under the initial click
+      // instead of using the configured one. Cornerstone's dynamicThreshold composition
+      // is present in every threshold strategy but does nothing unless isDynamic is set,
+      // so this flag is the whole difference between this tool and Threshold Brush. It is
+      // cleared for the other variants, or a previous selection would leave them dynamic.
+      setDynamicThreshold(toolGroup, toolName === ToolName.DynamicThreshold);
     }
     if (csName === currentPrimary) {
       activeToolName = toolName;
