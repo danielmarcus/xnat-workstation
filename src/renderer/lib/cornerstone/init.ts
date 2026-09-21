@@ -31,7 +31,6 @@ import {
   RegionSegmentPlusTool,
   SegmentBidirectionalTool,
   RectangleROIThresholdTool,
-  CircleROIStartEndThresholdTool,
   LabelMapEditWithContourTool,
 } from '@cornerstonejs/tools';
 import SafePaintFillTool from './tools/SafePaintFillTool';
@@ -102,7 +101,6 @@ export async function initCornerstone(): Promise<void> {
   addTool(SphereScissorsTool);
   addTool(SafePaintFillTool);
   addTool(RectangleROIThresholdTool);
-  addTool(CircleROIStartEndThresholdTool);
 
   // Segmentation tools — contour
   addTool(PlanarFreehandContourSegmentationTool);

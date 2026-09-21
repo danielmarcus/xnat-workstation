@@ -16,10 +16,9 @@ describe('tool catalog mapping', () => {
     expect(TOOLNAME_TO_CATALOG[ToolName.Length]).toBe('length');
   });
 
-  it('every non-planned catalog tool across all kinds has a ToolName mapping', () => {
+  it('every catalog tool across all kinds has a ToolName mapping', () => {
     for (const kind of ['SEG', 'RTSTRUCT', 'SR'] as const) {
       for (const t of toolsForKind(kind)) {
-        if (t.planned) continue;
         expect(CATALOG_TO_TOOLNAME[t.id], `missing mapping for ${kind} tool "${t.id}"`).toBeDefined();
       }
     }

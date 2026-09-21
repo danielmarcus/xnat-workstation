@@ -1,7 +1,7 @@
 /**
  * Tool catalog (Rebuild Phase 3, R3.6) — the per-kind tool lists the ContextToolbox
  * renders (frozen mockup §4). "In scope = every registered Cornerstone3D tool for
- * the active kind"; AI/auto-seg deferred. `planned: true` = registered-but-not-yet
+ * the active kind"; AI/auto-seg deferred.
  * wired (renders flat-greyed); the live FoR-disable (D3, dashed+slash) is applied
  * by the toolbox from runtime state, not encoded here. Icons are lifted from the
  * mockup so the grid pixel-matches.
@@ -15,7 +15,6 @@ export interface ToolDef {
   label: string;
   title: string;
   /** Registered but not yet implemented — renders flat-greyed (temporary). */
-  planned?: boolean;
   icon: ReactNode;
 }
 
@@ -40,19 +39,6 @@ const SEG_TOOLS: ToolDef[] = [
   { id: 'region', label: 'Region', title: 'Region (smart brush)', icon: S(<><circle cx="8" cy="8" r="4" strokeDasharray="2 1.3" /><circle cx="8" cy="8" r="1.3" fill="currentColor" stroke="none" /></>) },
   { id: 'regionPlus', label: 'Region+', title: 'Region+ (adaptive smart brush)', icon: S(<><circle cx="8" cy="8" r="4" strokeDasharray="2 1.3" /><path d="M8 6v4M6 8h4" /></>) },
   { id: 'rectMulti', label: 'Rect Multi', title: 'Drag a rectangle; everything inside it within the intensity window joins the segment', icon: S(<><rect x="4.5" y="2.5" width="9" height="7" rx="1" /><path d="M2.5 5.5v8h9" /></>) },
-  // Unwired, like its rectangle sibling above: CircleROIStartEndThresholdTool draws an
-  // ROI and computes points-inside-volume, but nothing converts that into labelmap
-  // voxels, so a completed drag writes NOTHING to the segment.
-  //
-  // Re-examined 2026-09-21 while enabling Rect Multi, which now works: Cornerstone's fill
-  // utility REJECTS this annotation outright — "rectangleROIThresholdVolumeByRange only
-  // supports RectangleROIThreshold and RectangleROIStartEndThreshold annotations". There
-  // is no library path for threshold-filling a CIRCLE ROI at all, so this is not a wiring
-  // gap like the others were; it needs either a bespoke circular voxel mask or switching
-  // the tool to RectangleROIStartEndThreshold (the supported multi-slice variant, but a
-  // rectangle, which makes the label wrong). Left disabled deliberately rather than
-  // shipped as a silent no-op.
-  { id: 'circleMulti', label: 'Circle Multi', title: 'Circle threshold — no Cornerstone fill path for a circle ROI; see toolCatalog', planned: true, icon: S(<><circle cx="9" cy="6" r="3.5" /><path d="M2.5 7.5v6h6" /></>) },
   { id: 'contourFill', label: 'Contour Fill', title: 'Contour fill (draw boundary → fill)', icon: S(<path d="M4 8c0-3 8-3 8 0s-8 3-8 0z" fill="currentColor" fillOpacity={0.25} />) },
   { id: 'select', label: 'Select', title: 'Select segment', icon: S(<path d="M4 3l8 5-3.5 1.2L7 13z" />) },
   { id: 'segBidirectional', label: 'Bidir.', title: 'Measure the active segment\u2019s largest bidirectional (long axis + perpendicular)', icon: S(<path d="M3 8h10M8 3v10" />) },
@@ -93,7 +79,7 @@ export const KIND_TOOLS_LABEL: Record<ContainerKind, string> = {
  * Catalog tool id → Cornerstone ToolName. Drives toolbox → tool activation. Not
  * every mapping is registered on the unified path yet (unifiedToolService
  * .isToolSupported gates that — currently Brush / FreehandContour / Length); the
- * rest activate once they're registered. `planned` tools have no mapping.
+ * rest activate once they're registered.
  */
 /** Catalog id of the threshold brush — the one tool whose intensity-window control
  *  the toolbox shows conditionally. Exported so that check isn't a magic string. */
@@ -114,7 +100,6 @@ export const CATALOG_TO_TOOLNAME: Record<string, ToolName> = {
   paintFill: ToolName.PaintFill,
   region: ToolName.RegionSegment,
   regionPlus: ToolName.RegionSegmentPlus,
-  circleMulti: ToolName.CircleROIThreshold,
   rectMulti: ToolName.RectangleROIThreshold,
   contourFill: ToolName.LabelmapEditWithContour,
   select: ToolName.SegmentSelect,

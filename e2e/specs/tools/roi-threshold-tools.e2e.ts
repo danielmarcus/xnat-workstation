@@ -1,13 +1,12 @@
 /**
- * Rect Multi / Circle Multi: drag a region, and everything inside it within the intensity
- * window joins the segment.
+ * Rect Multi: drag a rectangle, and everything inside it within the intensity window
+ * joins the segment.
  *
- * Both shipped greyed out, and the reason is worth keeping: Cornerstone's
- * RectangleROIThreshold and CircleROIStartEndThreshold tools only DRAW a region. Nothing
- * in the library applies a fill — `rectangleROIThresholdVolumeByRange` exists but has no
- * caller, because the application decides when to run it. So both tools were registered,
- * drawable, and completely without effect: exactly the "silent no-op" the catalog warned
- * about.
+ * It shipped greyed out, and the reason is worth keeping: Cornerstone's
+ * RectangleROIThreshold tool only DRAWS a region. Nothing in the library applies a fill —
+ * `rectangleROIThresholdVolumeByRange` exists but has no caller, because the application
+ * decides when to run it. So the tool was registered, drawable, and completely without
+ * effect: exactly the "silent no-op" the catalog warned about.
  *
  * The fill runs against a segmentation VOLUME. The panel builds per-slice masks, and
  * `getOrCreateSegmentationVolume` wraps those same images rather than copying them, so
@@ -50,10 +49,10 @@ async function dragRegion(page: Page) {
   await page.waitForTimeout(2000);
 }
 
-// Circle Multi is NOT here, and deliberately: Cornerstone's fill utility rejects a circle
-// annotation outright ("rectangleROIThresholdVolumeByRange only supports
-// RectangleROIThreshold and RectangleROIStartEndThreshold"). It stays disabled rather than
-// shipping as a silent no-op — see toolCatalog for what enabling it would take.
+// A circle variant was removed from the app entirely rather than shipped disabled:
+// Cornerstone's fill utility rejects a circle annotation outright
+// ("rectangleROIThresholdVolumeByRange only supports RectangleROIThreshold and
+// RectangleROIStartEndThreshold"), so there was no path to implementing it.
 for (const tool of [
   { label: 'Rect Multi', name: 'rectangle' },
 ]) {

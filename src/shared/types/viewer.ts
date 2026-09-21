@@ -42,7 +42,6 @@ export enum ToolName {
   RegionSegmentPlus = 'RegionSegmentPlus',
   SegmentBidirectional = 'SegmentBidirectional',
   RectangleROIThreshold = 'RectangleROIThreshold',
-  CircleROIThreshold = 'CircleROIThreshold',
   LabelmapEditWithContour = 'LabelmapEditWithContour',
 }
 
@@ -81,7 +80,6 @@ export const SEGMENTATION_TOOLS = new Set<ToolName>([
   ToolName.RegionSegmentPlus,
   ToolName.SegmentBidirectional,
   ToolName.RectangleROIThreshold,
-  ToolName.CircleROIThreshold,
   ToolName.LabelmapEditWithContour,
 ]);
 
@@ -109,7 +107,6 @@ export const LABELMAP_SEG_TOOLS = new Set<ToolName>([
   ToolName.RegionSegment,
   ToolName.RegionSegmentPlus,
   ToolName.RectangleROIThreshold,
-  ToolName.CircleROIThreshold,
   ToolName.LabelmapEditWithContour,
 ]);
 
@@ -149,7 +146,6 @@ export const TOOL_DISPLAY_NAMES: Record<ToolName, string> = {
   [ToolName.RegionSegmentPlus]: 'Region Segment+',
   [ToolName.SegmentBidirectional]: 'Segment Bidir.',
   [ToolName.RectangleROIThreshold]: 'Rect Threshold',
-  [ToolName.CircleROIThreshold]: 'Circle Threshold',
   [ToolName.LabelmapEditWithContour]: 'Contour Fill',
 };
 

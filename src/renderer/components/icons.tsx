@@ -558,18 +558,6 @@ export function IconRectangleROIThreshold(props: IconProps) {
 }
 
 /** Circle ROI Threshold — circle with threshold gradient */
-export function IconCircleROIThreshold(props: IconProps) {
-  return (
-    <svg {...defaults(props)}>
-      <circle cx="8" cy="8" r="5.5" />
-      <line x1="5" y1="6.5" x2="11" y2="6.5" strokeWidth={1} strokeDasharray="1.5 1" />
-      <line x1="4" y1="8.5" x2="12" y2="8.5" strokeWidth={1} />
-      <line x1="5" y1="10.5" x2="11" y2="10.5" strokeWidth={1} strokeDasharray="1.5 1" />
-    </svg>
-  );
-}
-
-/** Labelmap Edit with Contour — contour drawing on a labelmap */
 export function IconLabelmapEditContour(props: IconProps) {
   return (
     <svg {...defaults(props)}>

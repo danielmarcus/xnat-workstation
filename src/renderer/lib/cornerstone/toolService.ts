@@ -45,7 +45,6 @@ import {
   RegionSegmentPlusTool,
   SegmentBidirectionalTool,
   RectangleROIThresholdTool,
-  CircleROIStartEndThresholdTool,
   LabelMapEditWithContourTool,
   Enums as ToolEnums,
   segmentation as csSegmentation,
@@ -112,7 +111,6 @@ const TOOL_NAME_MAP: Record<ToolName, string> = {
   [ToolName.SphereScissors]: SphereScissorsTool.toolName,
   [ToolName.PaintFill]: SafePaintFillTool.toolName,
   [ToolName.RectangleROIThreshold]: RectangleROIThresholdTool.toolName,
-  [ToolName.CircleROIThreshold]: CircleROIStartEndThresholdTool.toolName,
   // Contour segmentation tools
   [ToolName.FreehandContour]: PlanarFreehandContourSegmentationTool.toolName,
   [ToolName.SplineContour]: SplineContourSegmentationTool.toolName,
@@ -597,7 +595,6 @@ function addAllTools(toolGroup: ToolTypes.IToolGroup): void {
   toolGroup.addTool(SphereScissorsTool.toolName);
   toolGroup.addTool(SafePaintFillTool.toolName);
   toolGroup.addTool(RectangleROIThresholdTool.toolName);
-  toolGroup.addTool(CircleROIStartEndThresholdTool.toolName);
   toolGroup.addTool(PlanarFreehandContourSegmentationTool.toolName);
   toolGroup.addTool(SplineContourSegmentationTool.toolName);
   toolGroup.addTool(LivewireContourSegmentationTool.toolName);

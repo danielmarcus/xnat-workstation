@@ -32,12 +32,10 @@ describe('ContextToolbox', () => {
     expect(onSelectTool).toHaveBeenCalledWith('eraser');
   });
 
-  it('renders planned tools flat-greyed and disabled', () => {
-    setup();
-    const planned = screen.getByLabelText('Circle Multi') as HTMLButtonElement;
-    expect(planned.disabled).toBe(true);
-  });
-
+  // The "planned" rule (a registered-but-unimplemented tool rendered disabled) was
+  // removed with Circle Multi, its only instance. Every tool the toolbox offers is now
+  // implemented; a tool unavailable in the current context is still disabled, which the
+  // next case covers.
   it('disables tools with no FoR-matched viewport (D3)', () => {
     setup({ disabledToolIds: ['sphereScissors'] });
     expect((screen.getByLabelText('Sphere') as HTMLButtonElement).disabled).toBe(true);

@@ -2,7 +2,7 @@
  * ContextToolbox (Rebuild Phase 3, R3.6) — the kind-adaptive tool grid (frozen
  * mockup §4). Presentational. Header = "<KIND> tools" + the active member's name
  * in its kind color. 3-column icon+label grid (responsive → icon-only when
- * `compact`). Tool states: active = blue; planned = flat-greyed + disabled
+ * `compact`). Tool states: active = blue; unavailable here = disabled
  * (temporary); FoR-disabled = dashed + slash + disabled (D3, supplied at runtime
  * via `disabledToolIds`); otherwise normal. Segmentation adds a Controls strip
  * (active segment + labelmap-opacity slider) + the silent in-place backup status
@@ -122,10 +122,9 @@ export default function ContextToolbox(props: ContextToolboxProps) {
       <div className={`p-2 grid grid-cols-3 gap-1 text-[11px]`}>
         {tools.map((t) => {
           const isActive = t.id === activeToolId;
-          const isDisabled = t.planned || disabled.has(t.id);
+          const isDisabled = disabled.has(t.id);
           let cls: string;
           if (isActive) cls = 'bg-blue-600 text-white';
-          else if (t.planned) cls = 'bg-zinc-800/40 text-zinc-600 cursor-not-allowed';
           else if (disabled.has(t.id)) cls = 'bg-zinc-900 border border-dashed border-zinc-800 text-zinc-700 cursor-not-allowed';
           else cls = 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300';
           return (

@@ -53,7 +53,6 @@ import {
   SegmentBidirectionalTool,
   TrackballRotateTool,
   RectangleROIThresholdTool,
-  CircleROIStartEndThresholdTool,
   LabelMapEditWithContourTool,
   Enums as ToolEnums,
   utilities as csToolUtilities,
@@ -122,7 +121,6 @@ const UNIFIED_TOOL_MAP: Partial<Record<ToolName, string>> = {
   // `.slice` of it). That throw aborts the whole annotation render pass, which also
   // drops the brush cursor. It stays in FULL_SET (registered) but can't be selected
   // until it's made group-aware. (Toolbox shows it disabled — see toolCatalog.)
-  [ToolName.CircleROIThreshold]: CircleROIStartEndThresholdTool.toolName,
   [ToolName.LabelmapEditWithContour]: LabelMapEditWithContourTool.toolName,
   // Measurement (annotation) tools
   [ToolName.Angle]: AngleTool.toolName,
@@ -268,10 +266,7 @@ function wireRoiThresholdFill(): void {
       | { annotation?: { metadata?: { toolName?: string } } }
       | undefined;
     const toolName = detail?.annotation?.metadata?.toolName;
-    if (
-      toolName !== RectangleROIThresholdTool.toolName &&
-      toolName !== CircleROIStartEndThresholdTool.toolName
-    ) {
+    if (toolName !== RectangleROIThresholdTool.toolName) {
       return;
     }
     // The viewport comes from the event, not from a store: importing viewerStore or
@@ -347,7 +342,7 @@ function ensureToolGroup(): ToolTypes.IToolGroup | undefined {
     LivewireContourSegmentationTool, CircleScissorsTool, RectangleScissorsTool,
     SphereScissorsTool, SafePaintFillTool, SculptorTool, SegmentSelectTool,
     RegionSegmentTool, RegionSegmentPlusTool, SegmentBidirectionalTool,
-    RectangleROIThresholdTool, CircleROIStartEndThresholdTool, LabelMapEditWithContourTool,
+    RectangleROIThresholdTool, LabelMapEditWithContourTool,
   ];
   // Per-tool addTool configuration. Most of FULL_SET needs none, but a tool whose
   // Cornerstone default is unusable in Electron must get its override HERE — the

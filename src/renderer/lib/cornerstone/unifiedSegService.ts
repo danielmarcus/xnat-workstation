@@ -24,7 +24,6 @@ import { canComputeRequestedRepresentation, computeLabelmapData } from '@corners
 import {
   SegmentBidirectionalTool,
   RectangleROIThresholdTool,
-  CircleROIStartEndThresholdTool,
   annotation as csAnnotation,
 } from '@cornerstonejs/tools';
 import { viewportService } from './viewportService';
@@ -190,7 +189,7 @@ function roiThresholdAnnotationUIDs(): string[] {
     annotationUID?: string;
     metadata?: { toolName?: string };
   }>;
-  const names = new Set([RectangleROIThresholdTool.toolName, CircleROIStartEndThresholdTool.toolName]);
+  const names = new Set([RectangleROIThresholdTool.toolName]);
   return all
     .filter((a) => a.metadata?.toolName && names.has(a.metadata.toolName))
     .map((a) => a.annotationUID)

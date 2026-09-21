@@ -97,7 +97,8 @@ test('paint fill floods the active segment from the clicked region (signal 24 / 
 });
 
 /**
- * Circle Multi (CircleROIStartEndThresholdTool) — NOT covered here, deliberately.
+ * Circle Multi (CircleROIStartEndThresholdTool) — REMOVED from the app entirely
+ * (2026-09-21). Kept in this note because the reasoning still applies to any ROI tool:
  *
  * The audit predicted it and this spec proved it before the tool was disabled: with
  * Circle Multi enabled, a completed real drag wrote 0 voxels. It draws an ROI and

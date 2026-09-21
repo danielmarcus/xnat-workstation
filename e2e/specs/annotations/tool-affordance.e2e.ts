@@ -16,7 +16,7 @@ import { loadFixture } from '../../helpers/local-fixture';
 
 const panelOf = (page: Page) => page.locator('[data-testid="annotations-side-panel"]');
 
-test('the context toolbox offers only the active kind’s tools; planned tools are disabled', async ({ page }) => {
+test('the context toolbox offers only the active kind’s tools, and only implemented ones', async ({ page }) => {
   await loadFixture(page, 'ct-axial-300', 'panel_0');
   await page.getByRole('button', { name: 'Show segmentation panel' }).click();
   const panel = panelOf(page);
@@ -34,16 +34,13 @@ test('the context toolbox offers only the active kind’s tools; planned tools a
   // A segmentation tool is offered + enabled. (Exact — "Brush" is also a substring
   // of "Sph. Brush".)
   await expect(toolbox.getByRole('button', { name: 'Brush', exact: true })).toBeEnabled();
-  // A "planned" (registered-but-unimplemented) tool is present but DISABLED (not misapplied).
-  await expect(toolbox.getByRole('button', { name: 'Circle Multi', exact: true })).toBeDisabled();
-  // Circle Multi is registered and activates, but its ROI is never converted to
-  // labelmap voxels — a real drag writes NOTHING (proved in `tools/voxel-tools-effect` before it was
-  // disabled). It must stay disabled until that conversion is built; re-enabling the
-  // flag alone puts a silent no-op back in front of users.
+  // Every tool the toolbox offers is now implemented — the "planned" (registered but
+  // unimplemented) state was removed with Circle Multi, its last instance. A tool that is
+  // unavailable in the current CONTEXT is still disabled, asserted below.
   await expect(
     toolbox.getByRole('button', { name: 'Circle Multi', exact: true }),
-    'Circle Multi writes no voxels — keep it disabled until ROI → labelmap is wired',
-  ).toBeDisabled();
+    'Circle Multi was removed from the app — Cornerstone has no fill path for a circle ROI',
+  ).toHaveCount(0);
   // A measurement-only tool is NOT meaningful for a SEG → not offered at all (D1/D3).
   await expect(toolbox.getByRole('button', { name: 'Angle', exact: true })).toHaveCount(0);
   await expect(toolbox.getByRole('button', { name: 'Probe', exact: true })).toHaveCount(0);
