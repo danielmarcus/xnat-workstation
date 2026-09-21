@@ -10,7 +10,7 @@
  */
 import type { ContainerKind } from '@shared/types/annotation';
 import type { ThresholdPreset } from '@shared/types/viewer';
-import { KIND_TOOLS_LABEL, THRESHOLD_TOOL_ID, toolsForKind } from './toolCatalog';
+import { KIND_TOOLS_LABEL, toolsForKind, type ToolControl } from './toolCatalog';
 
 const KIND_COLOR: Record<ContainerKind, string> = {
   RTSTRUCT: '#ef4444', // member-name color follows the active member's swatch; default red
@@ -28,6 +28,9 @@ export interface ContextToolboxControls {
   /** Brush radius in voxels (the segmentation brush family). Omit to hide the control. */
   brushSize?: number;
   onBrushSizeChange?: (value: number) => void;
+  /** Voxel radius the dynamic-threshold brush samples around the first click. */
+  samplingRadius?: number;
+  onSamplingRadiusChange?: (radius: number) => void;
   /**
    * Threshold-brush intensity window [min, max] (HU on CT). Rendered only while the
    * threshold brush is the active tool — it has no effect on any other tool. Omit to
@@ -105,7 +108,13 @@ export default function ContextToolbox(props: ContextToolboxProps) {
   const nameColor = activeMemberColor ?? KIND_COLOR[kind];
   // The threshold window applies only to the threshold brush, so its control appears
   // only while that tool is active (rather than sitting inert under every other tool).
-  const isThresholdActive = activeToolId === THRESHOLD_TOOL_ID;
+  // Which controls the ACTIVE tool declares it cannot be used without. Driven by the
+  // catalog rather than by a hardcoded tool id: the intensity window used to be gated on
+  // `activeToolId === 'threshold'` alone, so the sphere-threshold and rectangle-threshold
+  // tools had no way to set the window they depend on. A brush radius was shown for every
+  // SEG tool, including scissors and Select, which ignore it.
+  const activeTool = tools.find((t) => t.id === activeToolId);
+  const needs = (c: ToolControl) => !!activeTool?.needs?.includes(c);
   const activeThresholdPreset =
     controls?.thresholdRange &&
     controls.thresholdPresets?.find(
@@ -168,7 +177,7 @@ export default function ContextToolbox(props: ContextToolboxProps) {
               />
               <span className="text-[10px] text-zinc-300">{Math.round(controls.opacity * 100)}%</span>
             </div>
-            {controls.brushSize != null && controls.onBrushSizeChange && (
+            {needs('brushSize') && controls.brushSize != null && controls.onBrushSizeChange && (
               <div className="flex items-center gap-2 mt-1.5">
                 <span className="text-[10px] text-zinc-400 whitespace-nowrap">Brush size</span>
                 <input
@@ -183,7 +192,22 @@ export default function ContextToolbox(props: ContextToolboxProps) {
                 <span className="text-[10px] text-zinc-300">{controls.brushSize}px</span>
               </div>
             )}
-            {isThresholdActive && controls.thresholdRange && controls.onThresholdRangeChange && (
+            {needs('samplingRadius') && controls.samplingRadius != null && controls.onSamplingRadiusChange && (
+              <div className="flex items-center gap-2 mt-1.5" data-testid="sampling-radius-controls">
+                <span className="text-[10px] text-zinc-400 whitespace-nowrap">Sample radius</span>
+                <input
+                  type="range"
+                  min={1}
+                  max={10}
+                  value={controls.samplingRadius}
+                  onChange={(e) => controls.onSamplingRadiusChange!(Number(e.target.value))}
+                  aria-label="Sample radius"
+                  className="flex-1 accent-blue-500"
+                />
+                <span className="text-[10px] text-zinc-300">{controls.samplingRadius} vox</span>
+              </div>
+            )}
+            {needs('intensityWindow') && controls.thresholdRange && controls.onThresholdRangeChange && (
               <div className="mt-1.5" data-testid="threshold-controls">
                 <div className="flex items-center gap-2">
                   <span className="text-[10px] text-zinc-400 whitespace-nowrap">Threshold</span>

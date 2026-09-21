@@ -58,7 +58,7 @@ test('using Segment Bidirectional leaves the brush cursor working', async ({ pag
   await page.waitForTimeout(300);
 
   // Run the measurement for real, through the toolbox button.
-  await toolbox.getByRole('button', { name: 'Bidir.', exact: true }).click();
+  await toolbox.getByRole('button', { name: 'Seg Bidir.', exact: true }).click();
   await page.waitForTimeout(2500);
   // It is an action, so the brush remains the active tool throughout.
   expect(await activeTool(page)).toBe('Brush');

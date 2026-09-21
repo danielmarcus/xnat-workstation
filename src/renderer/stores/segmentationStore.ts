@@ -60,6 +60,9 @@ interface SegmentationStore {
 
   /** Threshold range for ThresholdBrush [min, max] in source intensity (HU on CT) */
   thresholdRange: [number, number];
+  /** Radius in VOXELS sampled around the first click by the dynamic-threshold brush to
+   *  derive its window. Its only control; without one the tool ran on a hidden default. */
+  samplingRadius: number;
 
   /**
    * The DICOM modality `thresholdRange` was seeded for, or null before any scan has
@@ -141,6 +144,7 @@ interface SegmentationStore {
 
   /** Set threshold range */
   setThresholdRange: (range: [number, number]) => void;
+  setSamplingRadius: (radius: number) => void;
 
   /** Reseed the threshold window for a newly-active modality (records the modality). */
   seedThresholdRangeForModality: (modality: string, range: [number, number]) => void;
@@ -211,6 +215,7 @@ export const useSegmentationStore = create<SegmentationStore>((set) => ({
   contourOpacity: 1,
   brushSize: 5,
   thresholdRange: defaultThresholdRangeForModality('CT'),
+  samplingRadius: 3,
   thresholdRangeModality: null,
   activeSegTool: null,
   splineType: 'CATMULLROM',
@@ -248,6 +253,7 @@ export const useSegmentationStore = create<SegmentationStore>((set) => ({
   setBrushSize: (size) => set({ brushSize: size }),
 
   setThresholdRange: (range) => set({ thresholdRange: range }),
+  setSamplingRadius: (radius) => set({ samplingRadius: Math.max(1, Math.round(radius)) }),
 
   seedThresholdRangeForModality: (modality, range) =>
     set({ thresholdRange: range, thresholdRangeModality: modality }),

@@ -99,6 +99,7 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
   const autoSaveStatus = useSegmentationStore((s) => s.autoSaveStatus);
   const lastAutoSaveTime = useSegmentationStore((s) => s.lastAutoSaveTime);
   const brushSize = useSegmentationStore((s) => s.brushSize);
+  const samplingRadius = useSegmentationStore((s) => s.samplingRadius);
   // Threshold-brush intensity window. Scoped to the active scan's modality: an HU
   // window means nothing on MR/PT, so the range reseeds when the modality changes
   // (edits within one modality stick — see the effect below).
@@ -848,6 +849,8 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
                   segmentationService.updateStyle(v, renderOutline);
                 },
                 brushSize,
+                samplingRadius,
+                onSamplingRadiusChange: (v: number) => unifiedToolService.setSamplingRadius(v),
                 // Single entry point: clamps + writes the unified tool group + the store.
                 onBrushSizeChange: (v: number) => unifiedToolService.setBrushSize(v),
                 // Threshold window (shown by the toolbox only while the threshold brush

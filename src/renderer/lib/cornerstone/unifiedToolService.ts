@@ -115,12 +115,10 @@ const UNIFIED_TOOL_MAP: Partial<Record<ToolName, string>> = {
   [ToolName.RegionSegment]: RegionSegmentTool.toolName,
   [ToolName.RegionSegmentPlus]: RegionSegmentPlusTool.toolName,
   [ToolName.SegmentSelect]: SegmentSelectTool.toolName,
-  // SegmentBidirectional is intentionally NOT activatable on the unified path: its
-  // renderAnnotation crashes for our multi-layer-group SEGs (the group id has no
-  // colour LUT, so Cornerstone's getSegmentIndexColor returns null and the tool reads
-  // `.slice` of it). That throw aborts the whole annotation render pass, which also
-  // drops the brush cursor. It stays in FULL_SET (registered) but can't be selected
-  // until it's made group-aware. (Toolbox shows it disabled — see toolCatalog.)
+  // SegmentBidirectional is an ACTION, not a drawing mode — the panel runs it against the
+  // active segment rather than binding it to the mouse (see useAnnotationsPanel). It is
+  // mapped below so the tool resolves; entering it by free-draw is what used to crash,
+  // because that path sets no segmentationId and the colour lookup returns null.
   [ToolName.LabelmapEditWithContour]: LabelMapEditWithContourTool.toolName,
   // Measurement (annotation) tools
   [ToolName.Angle]: AngleTool.toolName,
@@ -158,7 +156,13 @@ function setDynamicThreshold(toolGroup: ToolTypes.IToolGroup, isDynamic: boolean
         isDynamic,
         // Sampling radius around the click, in voxels. Null range lets the composition
         // compute one; leaving a stale range would suppress the sampling entirely.
-        ...(isDynamic ? { dynamicRadius: 3, range: null } : {}),
+        ...(isDynamic
+          ? { dynamicRadius: useSegmentationStore.getState().samplingRadius, range: null }
+          // Clearing dynamicRadiusInCanvas matters: the circularCursor composition draws
+          // its second sampling ring whenever that value is truthy, REGARDLESS of
+          // isDynamic. Left set, every brush selected after Dyn. Thresh kept showing two
+          // rings.
+          : { dynamicRadius: 0, dynamicRadiusInCanvas: 0 }),
       },
     });
   } catch (err) {
@@ -290,9 +294,24 @@ function wireRoiThresholdFill(): void {
   });
 }
 
+/**
+ * Tools that must be DISABLED when idle, not merely passive.
+ *
+ * A passive tool still receives mouse-move events. RegionSegmentPlusTool writes
+ * `element.style.cursor = 'not-allowed'` from its move handler whenever its seed
+ * heuristic is unsatisfied, so once it had been used every later tool showed a forbidden
+ * cursor over a viewport it could edit perfectly well — re-applied on every mouse move,
+ * which is why clearing the cursor on tool change was not enough.
+ *
+ * It has nothing to display when idle (its output is labelmap voxels, and its seeds are
+ * transient), so disabling costs nothing.
+ */
+const DISABLE_WHEN_IDLE = new Set<string>([RegionSegmentPlusTool.toolName]);
+
 function setIdleToolMode(toolGroup: ToolTypes.IToolGroup, toolName: string): void {
   try {
-    if (HANDLE_EDITABLE_TOOL_NAMES.has(toolName)) toolGroup.setToolEnabled(toolName);
+    if (DISABLE_WHEN_IDLE.has(toolName)) toolGroup.setToolDisabled(toolName);
+    else if (HANDLE_EDITABLE_TOOL_NAMES.has(toolName)) toolGroup.setToolEnabled(toolName);
     else toolGroup.setToolPassive(toolName);
   } catch {
     /* not all tools support every mode; safe to ignore */
@@ -426,9 +445,15 @@ function ensureToolGroup(): ToolTypes.IToolGroup | undefined {
  * viewport entirely, for as long as a brush was selected. Users read that persistent
  * outline as the segmentation mask appearing on slices they never painted.
  *
- * Cornerstone gives us no hook for "pointer left" or "slice changed", so the lifecycle is
- * wired here: the cursor is dropped on both, and Cornerstone recreates it on the next
- * mousemove over the viewport.
+ * Cornerstone gives us no hook for "pointer left", "slice changed" or "tool changed", so
+ * the lifecycle is wired here: the cursor is dropped on all three, and Cornerstone
+ * recreates it on the next mousemove over the viewport.
+ *
+ * The tool-change case is why switching tools looked erratic. Cornerstone clears the
+ * cursor when the BrushTool itself stops being active, but every brush variant IS
+ * BrushTool — only the strategy differs — so a Brush→Sph. Brush switch never triggers
+ * that, and the old circle stayed on screen beside the new one. Measured: two cursor
+ * circles after a sphere switch, one otherwise, depending on what was selected before.
  */
 function clearBrushHoverCursor(): void {
   const toolGroup = getToolGroup();
@@ -443,6 +468,86 @@ function clearBrushHoverCursor(): void {
   }
 }
 
+/**
+ * Cancel Region+'s pending seed evaluation when the user leaves the tool.
+ *
+ * RegionSegmentPlusTool debounces its seed heuristic behind `this.mouseTimer`. The
+ * callback has no mode guard, so it routinely fires AFTER the user has switched tools and
+ * writes `element.style.cursor = 'not-allowed'` — then re-asserts it from a
+ * requestAnimationFrame. Re-applying the correct cursor could not reliably beat it: the
+ * timer fires on its own schedule, which is often later than any frame we can wait for.
+ *
+ * Reaching into the instance is deliberate and narrow. The alternative is a cursor that
+ * silently turns "forbidden" some hundreds of milliseconds after the user has moved on to
+ * a tool that works.
+ */
+function cancelRegionPlusPendingCursor(): void {
+  const toolGroup = getToolGroup();
+  if (!toolGroup) return;
+  try {
+    const tool = toolGroup.getToolInstance(RegionSegmentPlusTool.toolName) as
+      | { mouseTimer?: ReturnType<typeof setTimeout> | null }
+      | undefined;
+    if (tool?.mouseTimer != null) {
+      clearTimeout(tool.mouseTimer);
+      tool.mouseTimer = null;
+    }
+  } catch {
+    /* tool not registered */
+  }
+}
+
+/**
+ * The cursor each tool should show. Absent = the browser default.
+ *
+ * The app OWNS the viewport cursor rather than inheriting whatever the last tool left.
+ * That is not tidiness: RegionSegmentPlusTool schedules a DEBOUNCED timer on mouse-move
+ * which, when it fires, writes `element.style.cursor = 'not-allowed'` and re-asserts it
+ * from a requestAnimationFrame. The timer has no mode guard, so it routinely fires after
+ * the user has already switched tools — leaving a "forbidden" cursor over a viewport the
+ * new tool can edit perfectly well. Clearing at tool-change time always lost that race.
+ *
+ * Region+ is deliberately excluded below: while it is ACTIVE its cursor is real feedback
+ * (copy / not-allowed / wait) and must not be overwritten.
+ */
+const CURSOR_FOR_TOOL: Partial<Record<ToolName, string>> = {
+  [ToolName.CircleScissors]: 'crosshair',
+  [ToolName.RectangleScissors]: 'crosshair',
+  [ToolName.SphereScissors]: 'crosshair',
+  [ToolName.RectangleROIThreshold]: 'crosshair',
+  [ToolName.PaintFill]: 'cell',
+  [ToolName.RegionSegment]: 'crosshair',
+  [ToolName.SegmentSelect]: 'pointer',
+  [ToolName.LabelmapEditWithContour]: 'crosshair',
+};
+
+/** Tools that manage their own cursor as live feedback while active. */
+const OWNS_ITS_CURSOR = new Set<ToolName>([ToolName.RegionSegmentPlus]);
+
+/**
+ * Put the active tool's cursor on every viewport, replacing anything stale.
+ *
+ * Re-asserted on mouse-move as well as on tool change, because the stale write can arrive
+ * from a timer scheduled before the switch.
+ */
+function applyToolCursor(): void {
+  const toolName = activeToolName;
+  if (!toolName || OWNS_ITS_CURSOR.has(toolName)) return;
+  const wanted = CURSOR_FOR_TOOL[toolName] ?? '';
+  const write = () => {
+    if (activeToolName !== toolName) return; // the tool changed again mid-flight
+    for (const viewportId of unifiedToolService.getViewportIds()) {
+      const el = viewportService.getElement(viewportId) as HTMLElement | null;
+      if (el && el.style.cursor !== wanted) el.style.cursor = wanted;
+    }
+  };
+  write();
+  // Region+ re-asserts its own cursor from a single requestAnimationFrame after its
+  // debounced timer fires, which beats a synchronous write. A deferred second pass lands
+  // after that rAF, so the last word is the active tool's.
+  requestAnimationFrame(() => requestAnimationFrame(write));
+}
+
 /** Attach the brush-cursor lifecycle Cornerstone does not provide. Idempotent per element. */
 const BRUSH_CURSOR_WIRED = new WeakSet<HTMLElement>();
 function wireBrushCursorLifecycle(viewportId: string): void {
@@ -452,6 +557,7 @@ function wireBrushCursorLifecycle(viewportId: string): void {
 
   const clear = () => {
     clearBrushHoverCursor();
+    cancelRegionPlusPendingCursor();
     try {
       csToolUtilities.triggerAnnotationRenderForViewportIds([viewportId]);
     } catch {
@@ -460,6 +566,9 @@ function wireBrushCursorLifecycle(viewportId: string): void {
   };
 
   element.addEventListener('mouseleave', clear);
+  // A tool the user has LEFT can still write a cursor from a pending timer, so the active
+  // tool's cursor is re-asserted as the pointer moves, not only when the tool changes.
+  element.addEventListener('mousemove', applyToolCursor);
   // Scrolling to another slice must drop a cursor drawn for the previous one.
   element.addEventListener(CoreEnums.Events.STACK_NEW_IMAGE, clear as EventListener);
   element.addEventListener(CoreEnums.Events.VOLUME_NEW_IMAGE, clear as EventListener);
@@ -492,6 +601,12 @@ export const unifiedToolService = {
       console.warn('[unifiedToolService] Unsupported tool for unified path:', toolName);
       return;
     }
+    // Drop any brush cursor the previous tool left behind. Cornerstone clears it when
+    // BrushTool stops being active, but every brush variant IS BrushTool — only the
+    // strategy differs — so a Brush→Sph. Brush switch never triggers that and the old
+    // circle stayed on screen beside the new one. Unconditional because it is free:
+    // Cornerstone recreates the cursor on the next mousemove over the viewport.
+    clearBrushHoverCursor();
     // Contour Fill (signal 30): the LabelmapEditWithContour tool draws a contour
     // segmentation that it rasterizes into the active labelmap — but it THROWS on
     // draw-start unless the active labelmap already carries a Contour representation.
@@ -532,6 +647,7 @@ export const unifiedToolService = {
     }
     if (csName === currentPrimary) {
       activeToolName = toolName;
+      applyToolCursor();
       return;
     }
 
@@ -552,6 +668,7 @@ export const unifiedToolService = {
     toolGroup.setToolActive(csName, { bindings: [{ mouseButton: Primary }] });
     currentPrimary = csName;
     activeToolName = toolName;
+    applyToolCursor();
     console.log('[unifiedToolService] Active tool:', toolName, '->', csName);
   },
 
@@ -633,6 +750,20 @@ export const unifiedToolService = {
       console.warn('[unifiedToolService] setBrushThreshold failed:', err);
     }
     useSegmentationStore.getState().setThresholdRange(ordered);
+  },
+
+  /**
+   * Sampling radius (voxels) the dynamic-threshold brush reads around the first click.
+   * Single entry point, like setBrushSize: writes the tool group AND the store the
+   * toolbox slider reads, and re-applies immediately so a change mid-session takes hold
+   * without re-selecting the tool.
+   */
+  setSamplingRadius(radius: number): void {
+    useSegmentationStore.getState().setSamplingRadius(radius);
+    const toolGroup = getToolGroup();
+    if (toolGroup && activeToolName === ToolName.DynamicThreshold) {
+      setDynamicThreshold(toolGroup, true);
+    }
   },
 
   /** Enable/disable inter-slice contour interpolation live (signal 13). Idempotent. */

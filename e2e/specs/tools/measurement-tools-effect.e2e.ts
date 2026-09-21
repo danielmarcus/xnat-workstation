@@ -3,7 +3,7 @@
  *
  * Before this spec only Length was proven to produce a measurement (specs 34 / 56).
  * Angle, Ellipse and Arrow rested on `tools/active-tool-registration`, which asserts only that the active
- * tool NAME changed; Bidirectional, Rect ROI, Circle, Probe and Freehand had no test
+ * tool NAME changed; Bidirectional, Rect ROI, Circle ROI, Probe and Freehand had no test
  * at all. Activation is not the claim that matters — the threshold brush activated
  * perfectly while doing nothing.
  *
@@ -68,9 +68,9 @@ const CASES: Array<{ label: string; gesture: (p: Page, b: Box) => Promise<void> 
   { label: 'Bidir.', gesture: drag },
   { label: 'Ellipse', gesture: drag },
   { label: 'Rect ROI', gesture: drag },
-  { label: 'Circle', gesture: drag },
+  { label: 'Circle ROI', gesture: drag },
   { label: 'Probe', gesture: click },
-  { label: 'Freehand', gesture: loop },
+  { label: 'Freehand ROI', gesture: loop },
 ];
 
 for (const { label, gesture } of CASES) {

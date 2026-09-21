@@ -67,7 +67,7 @@ test('measuring a painted segment draws its bidirectional, without crashing', as
   pageErrors.length = 0;
 
   // The real toolbox button.
-  await panel.getByRole('button', { name: 'Bidir.', exact: true }).click();
+  await panel.getByRole('button', { name: 'Seg Bidir.', exact: true }).click();
   await page.waitForTimeout(2500);
 
   expect(pageErrors, `selecting it must not throw — it used to: ${pageErrors[0] ?? ''}`).toEqual([]);
@@ -97,7 +97,7 @@ test('measuring with nothing painted is a no-op, not a crash', async ({ page }) 
   const mr = panel.getByLabel('Rename member');
   if (await mr.count()) await mr.press('Enter');
 
-  await panel.getByRole('button', { name: 'Bidir.', exact: true }).click();
+  await panel.getByRole('button', { name: 'Seg Bidir.', exact: true }).click();
   await page.waitForTimeout(2000);
   expect(pageErrors, 'an empty segment must be handled, not thrown on').toEqual([]);
 });
