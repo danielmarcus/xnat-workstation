@@ -21,7 +21,12 @@ import {
   utilities as csToolUtilities,
 } from '@cornerstonejs/tools';
 import { canComputeRequestedRepresentation, computeLabelmapData } from '@cornerstonejs/polymorphic-segmentation';
-import { SegmentBidirectionalTool } from '@cornerstonejs/tools';
+import {
+  SegmentBidirectionalTool,
+  RectangleROIThresholdTool,
+  CircleROIStartEndThresholdTool,
+  annotation as csAnnotation,
+} from '@cornerstonejs/tools';
 import { viewportService } from './viewportService';
 import type { ContainerSpatialId, ViewportSpatialId } from './spatialIdentity';
 import * as mlg from './multiLayerGroup';
@@ -177,6 +182,26 @@ function resolveContainerSpatial(containerId: string): ContainerSpatialId | null
   }
   if (derived) containerSpatial.set(containerId, derived);
   return derived ?? recorded ?? null;
+}
+
+/** UIDs of the threshold-ROI annotations currently in Cornerstone state. */
+function roiThresholdAnnotationUIDs(): string[] {
+  const all = (csAnnotation.state.getAllAnnotations?.() ?? []) as Array<{
+    annotationUID?: string;
+    metadata?: { toolName?: string };
+  }>;
+  const names = new Set([RectangleROIThresholdTool.toolName, CircleROIStartEndThresholdTool.toolName]);
+  return all
+    .filter((a) => a.metadata?.toolName && names.has(a.metadata.toolName))
+    .map((a) => a.annotationUID)
+    .filter((u): u is string => !!u);
+}
+
+/** The source ImageVolume a viewport is displaying (the intensities to threshold on). */
+function viewportSourceVolume(viewportId: string): unknown | null {
+  const vp = viewportService.getViewport(viewportId) as { getAllVolumeIds?: () => string[] } | undefined;
+  const volumeId = vp?.getAllVolumeIds?.()?.[0];
+  return volumeId ? cache.getVolume(volumeId) ?? null : null;
 }
 
 /** Record a container's native spatial identity from the viewport it was created on. */
@@ -586,6 +611,64 @@ export const unifiedSegService = {
       return true;
     } catch (err) {
       console.warn('[unifiedSegService] bidirectional measurement failed:', err);
+      return false;
+    }
+  },
+
+  /**
+   * Fill the active segment inside a threshold ROI, then clear the ROI.
+   *
+   * Rectangle/Circle threshold tools only DRAW a region — Cornerstone applies nothing on
+   * its own, and nothing in the library calls the fill utility. The application decides
+   * when, which is why both tools shipped greyed out: registered, drawable, and with no
+   * effect whatsoever.
+   *
+   * The fill runs against a segmentation VOLUME. For the per-slice masks the panel
+   * creates, `getOrCreateSegmentationVolume` builds one over the very same images
+   * (createAndCacheVolumeFromImagesSync), so writes reach the slices without a copy back
+   * — the same mechanism the sphere brush relies on.
+   *
+   * The ROI is removed afterwards: it is an instruction, not an annotation the user keeps,
+   * and leaving it behind would put a measurement-looking box in the panel.
+   */
+  applyRoiThresholdFill(viewportId: string): boolean {
+    const s = useSegmentationStore.getState();
+    const groupId = s.activeSegmentationId;
+    const segmentIndex = s.activeSegmentIndex;
+    if (!groupId || !Number.isInteger(segmentIndex) || segmentIndex <= 0) return false;
+
+    const segmentationId = mlg.isMultiLayerGroup(groupId)
+      ? mlg.resolveSubSegId(groupId, segmentIndex) ?? groupId
+      : groupId;
+    const csSegmentIndex = segmentationId === groupId ? segmentIndex : 1;
+
+    try {
+      const uids = roiThresholdAnnotationUIDs();
+      if (uids.length === 0) return false;
+
+      const segVolume = csToolUtilities.segmentation.getOrCreateSegmentationVolume(segmentationId);
+      const sourceVolume = viewportSourceVolume(viewportId);
+      if (!segVolume || !sourceVolume) return false;
+
+      const [lower, upper] = s.thresholdRange;
+      csToolUtilities.segmentation.rectangleROIThresholdVolumeByRange(
+        uids,
+        segVolume as never,
+        [{ volume: sourceVolume, lower: Math.min(lower, upper), upper: Math.max(lower, upper) }] as never,
+        { overwrite: false, segmentationId, segmentIndex: csSegmentIndex } as never,
+      );
+
+      for (const uid of uids) {
+        try {
+          csAnnotation.state.removeAnnotation(uid);
+        } catch {
+          /* already gone */
+        }
+      }
+      csToolUtilities.segmentation.triggerSegmentationRender(viewportId);
+      return true;
+    } catch (err) {
+      console.warn('[unifiedSegService] ROI threshold fill failed:', err);
       return false;
     }
   },

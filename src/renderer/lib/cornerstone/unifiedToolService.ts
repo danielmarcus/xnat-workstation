@@ -59,7 +59,7 @@ import {
   utilities as csToolUtilities,
 } from '@cornerstonejs/tools';
 import type { Types as ToolTypes } from '@cornerstonejs/tools';
-import { Enums as CoreEnums } from '@cornerstonejs/core';
+import { Enums as CoreEnums, eventTarget } from '@cornerstonejs/core';
 import SafePaintFillTool from './tools/SafePaintFillTool';
 import { arrowAnnotateTextCallback } from './arrowAnnotateTextPrompt';
 import { ToolName } from '@shared/types/viewer';
@@ -246,6 +246,55 @@ const HANDLE_EDITABLE_TOOL_NAMES: ReadonlySet<string> = new Set([
 
 /** Idle (not-the-active-tool) mode: handle-based annotation tools go view-only
  *  (Enabled) so their annotations can't be grabbed; everything else stays Passive. */
+/**
+ * Apply a threshold ROI when it is completed, once per app.
+ *
+ * Listens for ANNOTATION_COMPLETED rather than hooking the tools, so it survives the tool
+ * instances being re-created on a tool-group rebuild.
+ */
+/** The viewport an annotation event came from, via its element. */
+function resolveViewportIdFromEvent(evt: Event): string | null {
+  const el = ((evt as CustomEvent).detail as { element?: HTMLElement } | undefined)?.element;
+  if (!el) return null;
+  return el.closest('[data-panel-id]')?.getAttribute('data-panel-id') ?? null;
+}
+
+let roiThresholdWired = false;
+function wireRoiThresholdFill(): void {
+  if (roiThresholdWired) return;
+  roiThresholdWired = true;
+  eventTarget.addEventListener(ToolEnums.Events.ANNOTATION_COMPLETED, (evt: Event) => {
+    const detail = (evt as CustomEvent).detail as
+      | { annotation?: { metadata?: { toolName?: string } } }
+      | undefined;
+    const toolName = detail?.annotation?.metadata?.toolName;
+    if (
+      toolName !== RectangleROIThresholdTool.toolName &&
+      toolName !== CircleROIStartEndThresholdTool.toolName
+    ) {
+      return;
+    }
+    // The viewport comes from the event, not from a store: importing viewerStore or
+    // unifiedSegService at module scope here drags @cornerstonejs/polymorphic-segmentation
+    // into this module's graph, and its top-level code reads Enums.Events at import time —
+    // which breaks every test file that partially mocks @cornerstonejs/core. toolService's
+    // suite stopped collecting entirely (15 tests silently SKIPPED, not failed) when those
+    // imports were added. unifiedSegService is therefore resolved lazily, inside the
+    // handler, where the module graph is already live.
+    setTimeout(() => {
+      void Promise.all([import('./unifiedSegService'), import('../../stores/viewerStore')]).then(
+        ([seg, viewer]) => {
+          const viewportId =
+            (detail as { viewportId?: string } | undefined)?.viewportId ??
+            resolveViewportIdFromEvent(evt) ??
+            viewer.useViewerStore.getState().activeViewportId;
+          if (viewportId) seg.unifiedSegService.applyRoiThresholdFill(viewportId);
+        },
+      );
+    }, 0);
+  });
+}
+
 function setIdleToolMode(toolGroup: ToolTypes.IToolGroup, toolName: string): void {
   try {
     if (HANDLE_EDITABLE_TOOL_NAMES.has(toolName)) toolGroup.setToolEnabled(toolName);
@@ -339,6 +388,12 @@ function ensureToolGroup(): ToolTypes.IToolGroup | undefined {
   for (const Tool of FULL_SET) {
     setIdleToolMode(toolGroup, Tool.toolName);
   }
+
+  // Threshold ROIs are an instruction, not an annotation: when one is finished, fill the
+  // active segment inside it and clear the box. Cornerstone applies nothing itself — the
+  // tools draw a region and stop, which is why both shipped registered, drawable and
+  // completely without effect.
+  wireRoiThresholdFill();
 
   // In-progress contour preview across viewports. Cornerstone draws a contour that is
   // still being drawn from the SOURCE viewport's canvas coordinates and reuses them

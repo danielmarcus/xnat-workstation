@@ -39,13 +39,20 @@ const SEG_TOOLS: ToolDef[] = [
   { id: 'paintFill', label: 'Paint Fill', title: 'Paint fill / hole fill (F)', icon: S(<><path d="M3 8l5-5 5 5-5 5z" /><path d="M11 11c1 1 1 2 0 2" /></>) },
   { id: 'region', label: 'Region', title: 'Region (smart brush)', icon: S(<><circle cx="8" cy="8" r="4" strokeDasharray="2 1.3" /><circle cx="8" cy="8" r="1.3" fill="currentColor" stroke="none" /></>) },
   { id: 'regionPlus', label: 'Region+', title: 'Region+ (adaptive smart brush)', icon: S(<><circle cx="8" cy="8" r="4" strokeDasharray="2 1.3" /><path d="M8 6v4M6 8h4" /></>) },
-  { id: 'rectMulti', label: 'Rect Multi', title: 'Rectangle threshold (multi-slice) — planned', planned: true, icon: S(<><rect x="4.5" y="2.5" width="9" height="7" rx="1" /><path d="M2.5 5.5v8h9" /></>) },
+  { id: 'rectMulti', label: 'Rect Multi', title: 'Drag a rectangle; everything inside it within the intensity window joins the segment', icon: S(<><rect x="4.5" y="2.5" width="9" height="7" rx="1" /><path d="M2.5 5.5v8h9" /></>) },
   // Unwired, like its rectangle sibling above: CircleROIStartEndThresholdTool draws an
   // ROI and computes points-inside-volume, but nothing converts that into labelmap
-  // voxels, so a completed drag writes NOTHING to the segment (verified 2026-09 —
-  // e2e spec 78). It shipped enabled while rectMulti was correctly marked planned;
-  // enabling it again requires the ROI → labelmap conversion, not just this flag.
-  { id: 'circleMulti', label: 'Circle Multi', title: 'Circle threshold (multi-slice) — planned', planned: true, icon: S(<><circle cx="9" cy="6" r="3.5" /><path d="M2.5 7.5v6h6" /></>) },
+  // voxels, so a completed drag writes NOTHING to the segment.
+  //
+  // Re-examined 2026-09-21 while enabling Rect Multi, which now works: Cornerstone's fill
+  // utility REJECTS this annotation outright — "rectangleROIThresholdVolumeByRange only
+  // supports RectangleROIThreshold and RectangleROIStartEndThreshold annotations". There
+  // is no library path for threshold-filling a CIRCLE ROI at all, so this is not a wiring
+  // gap like the others were; it needs either a bespoke circular voxel mask or switching
+  // the tool to RectangleROIStartEndThreshold (the supported multi-slice variant, but a
+  // rectangle, which makes the label wrong). Left disabled deliberately rather than
+  // shipped as a silent no-op.
+  { id: 'circleMulti', label: 'Circle Multi', title: 'Circle threshold — no Cornerstone fill path for a circle ROI; see toolCatalog', planned: true, icon: S(<><circle cx="9" cy="6" r="3.5" /><path d="M2.5 7.5v6h6" /></>) },
   { id: 'contourFill', label: 'Contour Fill', title: 'Contour fill (draw boundary → fill)', icon: S(<path d="M4 8c0-3 8-3 8 0s-8 3-8 0z" fill="currentColor" fillOpacity={0.25} />) },
   { id: 'select', label: 'Select', title: 'Select segment', icon: S(<path d="M4 3l8 5-3.5 1.2L7 13z" />) },
   { id: 'segBidirectional', label: 'Bidir.', title: 'Measure the active segment\u2019s largest bidirectional (long axis + perpendicular)', icon: S(<path d="M3 8h10M8 3v10" />) },
@@ -108,6 +115,7 @@ export const CATALOG_TO_TOOLNAME: Record<string, ToolName> = {
   region: ToolName.RegionSegment,
   regionPlus: ToolName.RegionSegmentPlus,
   circleMulti: ToolName.CircleROIThreshold,
+  rectMulti: ToolName.RectangleROIThreshold,
   contourFill: ToolName.LabelmapEditWithContour,
   select: ToolName.SegmentSelect,
   segBidirectional: ToolName.SegmentBidirectional,
