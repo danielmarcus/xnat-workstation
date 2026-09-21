@@ -315,6 +315,13 @@ export class SegmentationManager {
    * epoch, so a panel that is swapped again mid-flight abandons the attach.
    */
   async attachNativeContainersToViewport(panelId: string): Promise<void> {
+    // Early-out before scheduling anything. This runs on EVERY viewport mount, including
+    // every layout change and every app reload, and with no containers loaded there is
+    // nothing to reconcile. Without the guard it queued async work during startup for no
+    // reason — enough, across a full E2E run, to make the renderer busy while the next
+    // reload was in flight.
+    if (this.disposed) return;
+    if (useSegmentationStore.getState().segmentations.length === 0) return;
     await this.attachContainersNativeTo(panelId, viewportReadyService.getEpoch(panelId));
   }
 

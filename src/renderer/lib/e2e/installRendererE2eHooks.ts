@@ -662,7 +662,10 @@ export function installRendererE2eHooks(): void {
     getViewportToolGroupId: (panelId: string) => unifiedToolService.getViewportToolGroupId(panelId),
     unifiedToolGroupHasCrosshairs: () => unifiedToolService.hasCrosshairs(),
     getUnifiedToolGroupViewportIds: () => unifiedToolService.getViewportIds(),
-    setActiveUnifiedTool: (toolName: ToolName) => unifiedToolService.setActiveTool(toolName),
+    // Routes through viewerStore exactly as the panel's toolbox button does, so specs
+    // exercise the store→service path and the store's activeTool stays in step. Calling
+    // unifiedToolService directly (as this used to) skipped both.
+    setActiveUnifiedTool: (toolName: ToolName) => useViewerStore.getState().setActiveTool(toolName),
     getActiveUnifiedTool: () => unifiedToolService.getActiveToolName(),
     getUnifiedToolMode: (csToolName: string) => unifiedToolService.getToolMode(csToolName),
     /** Cornerstone annotation lock state for a UID (drives the locked-structure test). */
