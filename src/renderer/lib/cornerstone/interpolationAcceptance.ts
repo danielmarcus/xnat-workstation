@@ -201,6 +201,94 @@ function onAnnotationSelectionChange(evt: Event): void {
   }
 }
 
+// ─── Oblique orientation canonicalization (interpolation pairing fix) ──────────
+//
+// Cornerstone's InterpolationManager pairs the contours of a segment by grouping
+// annotations with an EXACT (`===`, component-wise) match of `metadata.viewPlaneNormal`
+// and `metadata.viewUp` (see getInterpolationData). On an axially-acquired series the
+// plane normal is exactly [0,0,±1], so every contour matches and interpolation runs.
+//
+// On an OBLIQUELY-acquired series the normal is irrational (e.g. [0, 0.5, -0.866…]), and
+// the per-slice camera normal drifts by ~1e-8 between one drawn slice and the next. That
+// drift defeats the `===` pairing: each contour lands in its own group with a fresh
+// `interpolationUID`, no gap is ever detected, and NOTHING is generated on the skipped
+// slices — even though the two contours are plainly on parallel planes of one structure.
+//
+// Fix at the source of the mismatch: as each contour-segmentation annotation completes,
+// snap its `viewPlaneNormal`/`viewUp` to those of an already-drawn sibling of the SAME
+// segment whose orientation is equal within a tight tolerance. Parallel planes of one
+// acquisition share a single true normal, so this only ever collapses ~1e-8 noise; a
+// genuinely different plane (a reformat at another angle) differs by whole degrees and is
+// never grouped. Must be installed BEFORE cs-tools' own ANNOTATION_COMPLETED handler so
+// the metadata is canonical by the time InterpolationManager reads it (see init.ts).
+
+/** Two direction cosines are the "same" plane if every component agrees to this. The
+ *  observed drift is ~1e-8; a different acquired/reformatted plane differs by ≫1e-4. */
+const ORIENTATION_EPSILON = 1e-4;
+
+interface ContourOrientationAnnotation {
+  annotationUID?: string;
+  metadata?: { viewPlaneNormal?: number[]; viewUp?: number[] };
+  data?: { segmentation?: { segmentationId?: string; segmentIndex?: number } };
+}
+
+function vecsAlmostEqual(a: readonly number[] | undefined, b: readonly number[] | undefined): boolean {
+  if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (Math.abs(a[i] - b[i]) > ORIENTATION_EPSILON) return false;
+  }
+  return true;
+}
+
+/**
+ * Snap a just-completed contour-segmentation annotation's orientation to an existing
+ * sibling's, so Cornerstone's exact-match interpolation pairing sees them as coplanar.
+ * No-op unless the annotation is a contour segment with an orientation and a near-equal
+ * (but not byte-equal) sibling already exists. Exported for direct unit testing.
+ */
+export function canonicalizeContourOrientation(annotation: unknown): boolean {
+  const ann = annotation as ContourOrientationAnnotation | undefined;
+  const seg = ann?.data?.segmentation;
+  const vpn = ann?.metadata?.viewPlaneNormal;
+  if (!seg?.segmentationId || !ann?.metadata || !Array.isArray(vpn)) return false;
+
+  const all = csAnnotation.state.getAllAnnotations?.() ?? [];
+  for (const other of all) {
+    const o = other as ContourOrientationAnnotation;
+    if (!o || o === ann || o.annotationUID === ann.annotationUID) continue;
+    const oSeg = o.data?.segmentation;
+    if (oSeg?.segmentationId !== seg.segmentationId) continue;
+    if (Number(oSeg?.segmentIndex) !== Number(seg.segmentIndex)) continue;
+    const oVpn = o.metadata?.viewPlaneNormal;
+    const oViewUp = o.metadata?.viewUp;
+    if (!vecsAlmostEqual(vpn, oVpn) || !vecsAlmostEqual(ann.metadata.viewUp, oViewUp)) continue;
+    // Coplanar sibling found. Copy its EXACT orientation so `===` pairing matches.
+    ann.metadata.viewPlaneNormal = oVpn;
+    ann.metadata.viewUp = oViewUp;
+    return true;
+  }
+  return false;
+}
+
+function onAnnotationCompletedCanonicalize(evt: Event): void {
+  const annotation = (evt as CustomEvent<{ annotation?: unknown }>).detail?.annotation;
+  if (annotation) canonicalizeContourOrientation(annotation);
+}
+
+let orientationFixInstalled = false;
+
+/**
+ * Register the orientation-canonicalization handler on ANNOTATION_COMPLETED. MUST be
+ * called before cs-tools `init()` runs (it registers InterpolationManager's own
+ * ANNOTATION_COMPLETED handler there), so ours fires first and the metadata is canonical
+ * before interpolation pairs the contours. Idempotent.
+ */
+export function installInterpolationOrientationFix(): void {
+  if (orientationFixInstalled) return;
+  eventTarget.addEventListener(Events.ANNOTATION_COMPLETED, onAnnotationCompletedCanonicalize as EventListener);
+  orientationFixInstalled = true;
+}
+
 // ─── Listener lifecycle ───────────────────────────────────────────
 
 let initialized = false;

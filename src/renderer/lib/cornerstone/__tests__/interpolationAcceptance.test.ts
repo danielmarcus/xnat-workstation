@@ -39,6 +39,7 @@ import {
   acceptAnnotation,
   segmentProvenance,
   clearContourProvenance,
+  canonicalizeContourOrientation,
   initialize,
   dispose,
 } from '../interpolationAcceptance';
@@ -119,6 +120,69 @@ describe('contour provenance (signal 22)', () => {
     expect(clearContourProvenance({})).toBe(false);
   });
 
+});
+
+describe('oblique orientation canonicalization (interpolation pairing fix)', () => {
+  const sibling = (vpn: number[], viewUp: number[], segIdx = 1, segId = 'seg-A') => ({
+    annotationUID: 'sib',
+    metadata: { viewPlaneNormal: vpn, viewUp },
+    data: { segmentation: { segmentationId: segId, segmentIndex: segIdx } },
+  });
+
+  it('snaps a drifted contour to a coplanar sibling of the same segment (→ === pairing works)', () => {
+    const sibVpn = [0, 0.5000000067305869, -0.8660253998985326];
+    const sibViewUp = [0, -0.8660253882408142, -0.5];
+    m.getAllAnnotations.mockReturnValue([sibling(sibVpn, sibViewUp)]);
+
+    // New contour: same plane, drifted by ~1e-8 (the real per-slice camera noise).
+    const fresh = {
+      annotationUID: 'new',
+      metadata: { viewPlaneNormal: [0, 0.499999990554337, -0.8660254092378947], viewUp: [0, -0.8660253882408142, -0.5] },
+      data: { segmentation: { segmentationId: 'seg-A', segmentIndex: 1 } },
+    };
+    expect(canonicalizeContourOrientation(fresh)).toBe(true);
+    // Copied the sibling's EXACT arrays (identity), so Cornerstone's `===` match succeeds.
+    expect(fresh.metadata.viewPlaneNormal).toBe(sibVpn);
+    expect(fresh.metadata.viewUp).toBe(sibViewUp);
+  });
+
+  it('does NOT group a genuinely different plane (angles differ by ≫ epsilon)', () => {
+    m.getAllAnnotations.mockReturnValue([sibling([0, 0, 1], [0, 1, 0])]);
+    const axialElsewhere = {
+      annotationUID: 'new',
+      metadata: { viewPlaneNormal: [1, 0, 0], viewUp: [0, 0, 1] }, // sagittal — different plane
+      data: { segmentation: { segmentationId: 'seg-A', segmentIndex: 1 } },
+    };
+    expect(canonicalizeContourOrientation(axialElsewhere)).toBe(false);
+    expect(axialElsewhere.metadata.viewPlaneNormal).toEqual([1, 0, 0]); // untouched
+  });
+
+  it('does NOT cross segment boundaries (different segmentationId or segmentIndex)', () => {
+    const sibVpn = [0, 0.5, -0.866];
+    m.getAllAnnotations.mockReturnValue([
+      sibling(sibVpn, [0, -0.866, -0.5], 1, 'seg-OTHER'),
+      sibling(sibVpn, [0, -0.866, -0.5], 2, 'seg-A'),
+    ]);
+    const fresh = {
+      annotationUID: 'new',
+      metadata: { viewPlaneNormal: [0, 0.5000000067, -0.8660254], viewUp: [0, -0.866, -0.5] },
+      data: { segmentation: { segmentationId: 'seg-A', segmentIndex: 1 } },
+    };
+    expect(canonicalizeContourOrientation(fresh)).toBe(false); // no same-segment coplanar sibling
+  });
+
+  it('is a no-op when there is no sibling yet (first contour of the segment)', () => {
+    m.getAllAnnotations.mockReturnValue([]);
+    const fresh = {
+      annotationUID: 'new',
+      metadata: { viewPlaneNormal: [0, 0.5, -0.866], viewUp: [0, -0.866, -0.5] },
+      data: { segmentation: { segmentationId: 'seg-A', segmentIndex: 1 } },
+    };
+    expect(canonicalizeContourOrientation(fresh)).toBe(false);
+  });
+});
+
+describe('contour provenance (signal 22) — edit flip', () => {
   it('a user edit (ANNOTATION_MODIFIED) flips an interpolated contour to manual; leaves others alone', () => {
     initialize();
     const handler = m.listeners.get(EV_MODIFIED);

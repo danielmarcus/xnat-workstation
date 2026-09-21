@@ -37,6 +37,7 @@ import {
 import SafePaintFillTool from './tools/SafePaintFillTool';
 import { utilities as csToolsUtilities } from '@cornerstonejs/tools';
 import { init as initDicomImageLoader } from '@cornerstonejs/dicom-image-loader';
+import { installInterpolationOrientationFix } from './interpolationAcceptance';
 
 let initialized = false;
 
@@ -62,6 +63,12 @@ export async function initCornerstone(): Promise<void> {
   volumeLoader.registerVolumeLoader(GEOMETRY_DYNAMIC_VOLUME_SCHEME, geometryDynamicVolumeLoader as never);
 
   // ---------- 2. Initialize Cornerstone Tools ----------
+  // Canonicalize contour orientation on ANNOTATION_COMPLETED BEFORE cs-tools registers
+  // its own interpolation handler in initTools(), so ours runs first and fixes the
+  // ~1e-8 per-slice viewPlaneNormal drift that otherwise breaks interpolation pairing on
+  // obliquely-acquired series (see interpolationAcceptance.ts).
+  installInterpolationOrientationFix();
+
   // Register PolySeg addon for automatic conversion between segmentation
   // representations (labelmap ↔ contour ↔ surface)
   initTools({

@@ -61,12 +61,17 @@ async function loadInitModule(options?: { splineRegistered?: boolean }): Promise
     StreamingDynamicImageVolume: class {},
     metaData: { get: () => undefined },
     utilities: {},
+    // Imported transitively by interpolationAcceptance (installInterpolationOrientationFix).
+    eventTarget: { addEventListener: vi.fn(), removeEventListener: vi.fn() },
   }));
 
   vi.doMock('@cornerstonejs/tools', () => ({
     init: initTools,
     addTool,
     ...toolNames,
+    // Imported transitively by interpolationAcceptance; read at module load + on install.
+    Enums: { Events: { ANNOTATION_COMPLETED: 'ANNOTATION_COMPLETED' } },
+    annotation: { state: { getAllAnnotations: () => [] } },
     utilities: {
       contours: {
         AnnotationToPointData: {
