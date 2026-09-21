@@ -38,7 +38,7 @@ describe('ContextToolbox', () => {
   // next case covers.
   it('disables tools with no FoR-matched viewport (D3)', () => {
     setup({ disabledToolIds: ['sphereScissors'] });
-    expect((screen.getByLabelText('Sphere Fill') as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByLabelText('Sphere') as HTMLButtonElement).disabled).toBe(true);
   });
 
   it('shows the SEG controls strip (opacity) + silent backup status when provided', async () => {

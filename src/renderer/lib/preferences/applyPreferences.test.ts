@@ -39,11 +39,9 @@ vi.mock('../cornerstone/segmentationService', () => ({
 vi.mock('../cornerstone/unifiedToolService', () => ({
   unifiedToolService: {
     setBrushSize: (...args: unknown[]) => mocked.setUnifiedBrushSize(...args),
-  },
-}));
-
-vi.mock('../cornerstone/toolService', () => ({
-  toolService: {
+    // Scissor preferences used to be pushed at the legacy toolService, whose tool group
+    // the app never creates — so this call did nothing outside tests. It now goes to the
+    // unified service, and the mock moves with it.
     applyScissorPreferences: mocked.applyScissorPreferences,
   },
 }));

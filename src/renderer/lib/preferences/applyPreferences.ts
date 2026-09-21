@@ -1,6 +1,5 @@
 import { DEFAULT_PREFERENCES, type PreferencesV1 } from '@shared/types/preferences';
 import { segmentationService } from '../cornerstone/segmentationService';
-import { toolService } from '../cornerstone/toolService';
 import { unifiedToolService } from '../cornerstone/unifiedToolService';
 import { useSegmentationStore } from '../../stores/segmentationStore';
 import { DEFAULT_HOTKEY_MAP } from '../hotkeys/defaultHotkeyMap';
@@ -54,7 +53,7 @@ export function applyPreferences(preferences: PreferencesV1): void {
   unifiedToolService.setBrushSize(brushSize);
   segmentationService.updateStyle(segmentOpacity, annotationPrefs.defaultMaskOutlines);
   segmentationService.updateContourStyle(contourThickness);
-  toolService.applyScissorPreferences();
+  unifiedToolService.applyScissorPreferences();
 
   const updaterSync = window.electronAPI?.updater?.configure?.({
     enabled: updatePrefs.enabled,

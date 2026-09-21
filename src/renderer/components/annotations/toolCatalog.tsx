@@ -10,14 +10,14 @@
  *    called "Circle" or "Bidir." are indistinguishable in a screenshot, a bug report or a
  *    test locator, even when they never appear side by side.
  *  - **icon** — likewise unique. Sphere Brush and Sphere Threshold once shared a glyph,
- *    as did Circle Fill and Circle ROI.
+ *    as did Circle and Circle ROI.
  *  - **title** — what the tool DOES, in a sentence, plus its hotkey when it has one.
  *    A tooltip that repeats the label ("Spline" → "Spline") earns nothing. Hotkeys come
  *    from `defaultHotkeyMap`; `toolCatalog.test` fails if a tooltip claims one the map
  *    does not define, or omits one it does.
  *  - **needs** — the controls the tool cannot be used without. The toolbox renders
  *    exactly these, so selecting Threshold reveals the intensity window and selecting
- *    Circle Fill does not offer a brush radius it ignores.
+ *    Circle does not offer a brush radius it ignores.
  */
 import type { ReactNode } from 'react';
 import type { ContainerKind } from '@shared/types/annotation';
@@ -30,7 +30,9 @@ export type ToolControl =
   /** Intensity window the edit is confined to. */
   | 'intensityWindow'
   /** Radius, in voxels, sampled around the first click to derive a window. */
-  | 'samplingRadius';
+  | 'samplingRadius'
+  /** Whether the shape tool adds to or removes from the segment (Shift inverts). */
+  | 'scissorMode';
 
 export interface ToolDef {
   id: string;
@@ -55,9 +57,9 @@ const SEG_TOOLS: ToolDef[] = [
   { id: 'sphereBrush', label: 'Sph. Brush', title: 'Paint with a 3D kernel — one stroke also reaches neighbouring slices', needs: ['brushSize'], icon: S(<><circle cx="8" cy="8" r="4" /><ellipse cx="8" cy="8" rx="4" ry="1.7" /></>) },
   { id: 'sphereEraser', label: 'Sph. Eraser', title: 'Erase with a 3D kernel — also clears neighbouring slices', needs: ['brushSize'], icon: S(<><circle cx="8" cy="8" r="4" /><ellipse cx="8" cy="8" rx="4" ry="1.7" /><path d="M4.5 11.5l7-7" /></>) },
   { id: 'sphereThreshold', label: 'Sph. Thresh', title: 'Paint with a 3D kernel, limited to the intensity window', needs: ['brushSize', 'intensityWindow'], icon: S(<><circle cx="8" cy="8" r="4" /><ellipse cx="8" cy="8" rx="4" ry="1.7" /><path d="M5.5 8h5" /></>) },
-  { id: 'circleScissors', label: 'Circle Fill', title: 'Drag a circle; everything inside it joins the segment', icon: S(<circle cx="8" cy="8" r="5" fill="currentColor" fillOpacity={0.25} />) },
-  { id: 'rectangleScissors', label: 'Rect Fill', title: 'Drag a rectangle; everything inside it joins the segment', icon: S(<rect x="3" y="4" width="10" height="8" rx="1" fill="currentColor" fillOpacity={0.25} />) },
-  { id: 'sphereScissors', label: 'Sphere Fill', title: 'Drag a sphere; everything inside it joins the segment, across slices', icon: S(<><circle cx="8" cy="8" r="5" fill="currentColor" fillOpacity={0.25} /><ellipse cx="8" cy="8" rx="5" ry="2" /></>) },
+  { id: 'circleScissors', label: 'Circle', title: 'Drag a circle; everything inside it is added to or removed from the segment (hold Shift to invert)', needs: ['scissorMode'], icon: S(<circle cx="8" cy="8" r="5" fill="currentColor" fillOpacity={0.25} />) },
+  { id: 'rectangleScissors', label: 'Rect', title: 'Drag a rectangle; everything inside it is added to or removed from the segment (hold Shift to invert)', needs: ['scissorMode'], icon: S(<rect x="3" y="4" width="10" height="8" rx="1" fill="currentColor" fillOpacity={0.25} />) },
+  { id: 'sphereScissors', label: 'Sphere', title: 'Drag a sphere; everything inside it is added to or removed from the segment, across slices (hold Shift to invert)', needs: ['scissorMode'], icon: S(<><circle cx="8" cy="8" r="5" fill="currentColor" fillOpacity={0.25} /><ellipse cx="8" cy="8" rx="5" ry="2" /></>) },
   { id: 'paintFill', label: 'Paint Fill', title: 'Flood-fill the enclosed region under the cursor (F)', icon: S(<><path d="M3 8l5-5 5 5-5 5z" /><path d="M11 11c1 1 1 2 0 2" /></>) },
   { id: 'region', label: 'Region', title: 'Grow a region outward from the voxel you click', needs: ['brushSize'], icon: S(<><circle cx="8" cy="8" r="4" strokeDasharray="2 1.3" /><circle cx="8" cy="8" r="1.3" fill="currentColor" stroke="none" /></>) },
   { id: 'regionPlus', label: 'Region+', title: 'Grow a region outward, adapting the boundary as it goes', needs: ['brushSize'], icon: S(<><circle cx="8" cy="8" r="4" strokeDasharray="2 1.3" /><path d="M8 6v4M6 8h4" /></>) },

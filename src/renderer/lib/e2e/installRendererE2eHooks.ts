@@ -26,7 +26,6 @@ import { createXnatTransportService } from '../cornerstone/transportService';
 import type { TransportSaver } from '../cornerstone/transportSaver';
 import { useTransportStore } from '../../stores/transportStore';
 import * as contourRep from '../cornerstone/contourRepresentation';
-import { toolService } from '../cornerstone/toolService';
 import { setXnatScanApi } from '../xnat/scanApi';
 import { dicomwebLoader } from '../cornerstone/dicomwebLoader';
 import type { XnatScan } from '@shared/types/xnat';
@@ -65,7 +64,6 @@ declare global {
       getSegmentationIdByLabel: (label: string) => string | null;
       getActiveSegmentationState: () => ActiveSegmentationState;
       getActiveContourSnapshot: (panelId?: string, segmentationId?: string | null) => ActiveContourSnapshot;
-      setSelectionTool: () => void;
       activateSegmentation: (panelId: string, segmentationId: string, segmentIndex?: number) => void;
       setSegmentLocked: (segmentationId: string, segmentIndex: number, locked: boolean) => void;
       createLockAwareUndoRedoTestMemo: (segmentationId: string, segmentIndex: number) => boolean;
@@ -337,9 +335,6 @@ export function installRendererE2eHooks(): void {
     ),
     getActiveSegmentationState,
     getActiveContourSnapshot,
-    setSelectionTool: () => {
-      toolService.setActiveTool(ToolName.SegmentSelect);
-    },
     activateSegmentation: (panelId: string, segmentationId: string, segmentIndex = 1) => {
       useSegmentationStore.getState().setActiveSegmentation(segmentationId);
       segmentationManager.userSelectedSegmentation(panelId, segmentationId, segmentIndex);

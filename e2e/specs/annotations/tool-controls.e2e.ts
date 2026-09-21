@@ -7,7 +7,7 @@
  *    Sph. Thresh and Rect Multi are governed by that window and had no way to set it.
  *  - Dyn. Thresh samples a radius around the first click and had NO control at all; it
  *    ran on a hidden constant.
- *  - The brush radius was shown for every SEG tool, including Circle Fill and Select,
+ *  - The brush radius was shown for every SEG tool, including Circle and Select,
  *    which ignore it.
  *
  * The requirement is now declared per tool in the catalog (`needs`) and the toolbox
@@ -30,21 +30,26 @@ async function segToolbox(page: Page) {
   return panel;
 }
 
-/** Which of the three tool-specific controls are on screen. */
+/** Which of the tool-specific controls are on screen. */
 const visibleControls = async (panel: ReturnType<Page['locator']>) => ({
   brushSize: (await panel.getByLabel('Brush size').count()) > 0,
   intensityWindow: (await panel.locator('[data-testid="threshold-controls"]').count()) > 0,
   samplingRadius: (await panel.locator('[data-testid="sampling-radius-controls"]').count()) > 0,
+  scissorMode: (await panel.locator('[data-testid="scissor-mode-controls"]').count()) > 0,
 });
 
 const CASES = [
-  { tool: 'Brush', brushSize: true, intensityWindow: false, samplingRadius: false },
-  { tool: 'Threshold', brushSize: true, intensityWindow: true, samplingRadius: false },
-  { tool: 'Sph. Thresh', brushSize: true, intensityWindow: true, samplingRadius: false },
-  { tool: 'Dyn. Thresh', brushSize: true, intensityWindow: false, samplingRadius: true },
-  { tool: 'Rect Multi', brushSize: false, intensityWindow: true, samplingRadius: false },
-  { tool: 'Circle Fill', brushSize: false, intensityWindow: false, samplingRadius: false },
-  { tool: 'Select', brushSize: false, intensityWindow: false, samplingRadius: false },
+  { tool: 'Brush', brushSize: true, intensityWindow: false, samplingRadius: false, scissorMode: false },
+  { tool: 'Threshold', brushSize: true, intensityWindow: true, samplingRadius: false, scissorMode: false },
+  { tool: 'Sph. Thresh', brushSize: true, intensityWindow: true, samplingRadius: false, scissorMode: false },
+  { tool: 'Dyn. Thresh', brushSize: true, intensityWindow: false, samplingRadius: true, scissorMode: false },
+  { tool: 'Rect Multi', brushSize: false, intensityWindow: true, samplingRadius: false, scissorMode: false },
+  // The shape tools carry the add/remove mode toggle and nothing else — notably no
+  // brush radius, which they ignore.
+  { tool: 'Circle', brushSize: false, intensityWindow: false, samplingRadius: false, scissorMode: true },
+  { tool: 'Rect', brushSize: false, intensityWindow: false, samplingRadius: false, scissorMode: true },
+  { tool: 'Sphere', brushSize: false, intensityWindow: false, samplingRadius: false, scissorMode: true },
+  { tool: 'Select', brushSize: false, intensityWindow: false, samplingRadius: false, scissorMode: false },
 ];
 
 test('each tool shows exactly the controls it declares it needs', async ({ page }) => {
@@ -59,6 +64,7 @@ test('each tool shows exactly the controls it declares it needs', async ({ page 
       brushSize: c.brushSize,
       intensityWindow: c.intensityWindow,
       samplingRadius: c.samplingRadius,
+      scissorMode: c.scissorMode,
     });
   }
 });

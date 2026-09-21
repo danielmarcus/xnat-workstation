@@ -238,7 +238,12 @@ export const DEFAULT_PREFERENCES: PreferencesV1 = {
     defaultSegmentOpacity: 0.5,
     defaultColorSequence: DEFAULT_SEGMENT_COLOR_SEQUENCE,
     scissors: {
-      defaultStrategy: 'erase',
+      // Fill, matching Cornerstone's own default strategy for the scissors tools and
+      // what every tooltip promises. This read 'erase' until 2026-09-21 — harmlessly,
+      // because the preference was pushed at the legacy toolService, whose tool group
+      // the app never creates, so scissors always ran FILL_INSIDE regardless. Now that
+      // the preference reaches the live tool group it has to say what it means.
+      defaultStrategy: 'fill',
       previewEnabled: false,
       previewColor: '#FFFFFF',
     },

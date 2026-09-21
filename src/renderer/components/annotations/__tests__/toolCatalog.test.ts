@@ -40,7 +40,7 @@ describe('tool catalog mapping', () => {
  * before 2026-09-21, which is why they are pinned rather than assumed:
  *  - "Circle" was both a scissors and an ROI; "Bidir." was both a segment measurement and
  *    a plain one; "Freehand" was both a structure tool and an ROI.
- *  - Sphere Brush and Sphere Threshold shared a glyph, as did Circle Fill and Circle ROI,
+ *  - Sphere Brush and Sphere Threshold shared a glyph, as did Circle and Circle ROI,
  *    and the two Bidir. tools.
  *  - Six tooltips simply repeated the label.
  *  - Three tools advertised a hotkey; four others had one and never said so.
@@ -80,7 +80,7 @@ describe('catalog presentation contract', () => {
   });
 
   it('every control a tool declares is one the toolbox knows how to render', () => {
-    const known = new Set(['brushSize', 'intensityWindow', 'samplingRadius']);
+    const known = new Set(['brushSize', 'intensityWindow', 'samplingRadius', 'scissorMode']);
     for (const t of ALL) for (const c of t.needs ?? []) expect(known.has(c), `${t.id} needs "${c}"`).toBe(true);
   });
 });

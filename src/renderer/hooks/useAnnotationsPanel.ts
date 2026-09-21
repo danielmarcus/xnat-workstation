@@ -100,6 +100,7 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
   const lastAutoSaveTime = useSegmentationStore((s) => s.lastAutoSaveTime);
   const brushSize = useSegmentationStore((s) => s.brushSize);
   const samplingRadius = useSegmentationStore((s) => s.samplingRadius);
+  const scissorMode = usePreferencesStore((s) => s.preferences.annotation.scissors.defaultStrategy);
   // Threshold-brush intensity window. Scoped to the active scan's modality: an HU
   // window means nothing on MR/PT, so the range reseeds when the modality changes
   // (edits within one modality stick — see the effect below).
@@ -851,6 +852,10 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
                 brushSize,
                 samplingRadius,
                 onSamplingRadiusChange: (v: number) => unifiedToolService.setSamplingRadius(v),
+                // Shape-tool add/remove mode. Same single-entry-point contract: the
+                // service persists the preference and pushes the Cornerstone strategy.
+                scissorMode,
+                onScissorModeChange: (m: 'fill' | 'erase') => unifiedToolService.setScissorMode(m),
                 // Single entry point: clamps + writes the unified tool group + the store.
                 onBrushSizeChange: (v: number) => unifiedToolService.setBrushSize(v),
                 // Threshold window (shown by the toolbox only while the threshold brush

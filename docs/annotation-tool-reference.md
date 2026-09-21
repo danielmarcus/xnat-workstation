@@ -20,9 +20,9 @@ listing no control needs none.
 | **Sph. Brush** | Paint with a 3D kernel — one stroke also reaches neighbouring slices | brushSize |
 | **Sph. Eraser** | Erase with a 3D kernel — also clears neighbouring slices | brushSize |
 | **Sph. Thresh** | Paint with a 3D kernel, limited to the intensity window | brushSize, intensityWindow |
-| **Circle Fill** | Drag a circle; everything inside it joins the segment | — |
-| **Rect Fill** | Drag a rectangle; everything inside it joins the segment | — |
-| **Sphere Fill** | Drag a sphere; everything inside it joins the segment, across slices | — |
+| **Circle** | Drag a circle; everything inside it is added to or removed from the segment (hold Shift to invert) | scissorMode |
+| **Rect** | Drag a rectangle; everything inside it is added to or removed from the segment (hold Shift to invert) | scissorMode |
+| **Sphere** | Drag a sphere; everything inside it is added to or removed from the segment, across slices (hold Shift to invert) | scissorMode |
 | **Paint Fill** | Flood-fill the enclosed region under the cursor (F) | — |
 | **Region** | Grow a region outward from the voxel you click | brushSize |
 | **Region+** | Grow a region outward, adapting the boundary as it goes | brushSize |
@@ -79,3 +79,25 @@ Two other cursor defects fixed at the same time:
   draws its second ring whenever that value is set, so every later brush kept showing it.
 
 `annotations/tool-cursor` and `annotations/tool-controls` pin all of the above.
+
+## Shape tools: add/remove mode
+
+The three shape tools (Circle, Rect, Sphere) are Cornerstone's *scissors* tools. Each
+registers exactly two strategies:
+
+| Strategy | Available | Notes |
+|---|---|---|
+| `FILL_INSIDE` | yes (default) | voxels inside the shape join the active segment |
+| `ERASE_INSIDE` | yes | voxels inside the shape are removed from it |
+| `FILL_OUTSIDE` | **no** | `fillOutsideCircle` / `fillOutsideSphere` throw `'Not yet implemented'`; no rectangle version exists |
+| `ERASE_OUTSIDE` | **no** | `eraseOutsideRectangle` exists but ignores its own `inside` flag and erases *inside*; circle and sphere have no version |
+
+So add/remove is the whole of the choice, and it is one setting shared by the three
+tools — a `Mode` toggle in the context toolbox, persisted in Settings
+(`annotation.scissors.defaultStrategy`). Holding **Shift** inverts it for the duration
+of the press, and the cursor follows.
+
+Two Cornerstone quirks the cursor mapping has to absorb: there is a
+`CircleScissor.ERASE_OUTSIDE` cursor SVG but no `ERASE_INSIDE` one, and `SphereScissor`
+ships no cursor family at all (it borrows the circle's). See `scissorCursorFor` in
+`unifiedToolService.ts`.

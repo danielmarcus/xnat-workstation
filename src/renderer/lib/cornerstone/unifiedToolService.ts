@@ -178,6 +178,123 @@ const THRESHOLD_BRUSH_TOOLS = new Set<ToolName>([
 ]);
 
 /** Brush-family strategy per ToolName (all share BrushTool). */
+/**
+ * Scissors strategy. Cornerstone 4.16.1 registers exactly two strategies on each of the
+ * three scissors tools — FILL_INSIDE (default) and ERASE_INSIDE. The "outside" variants
+ * are not usable: fillOutsideCircle/fillOutsideSphere throw 'Not yet implemented', and
+ * eraseOutsideRectangle ignores its own `inside` flag and erases inside. So erase-inside
+ * is the whole of the additional behaviour on offer.
+ *
+ * Which of the two is active comes from the user's preference, inverted while Shift is
+ * held. This machinery existed only on the legacy `toolService`, whose `initialize()`
+ * the app never calls — so the Settings preference and the Shift modifier were both dead
+ * on the path that actually runs. Ported here.
+ */
+type ScissorStrategyName = 'FILL_INSIDE' | 'ERASE_INSIDE';
+
+const SCISSORS_TOOLS = new Set<ToolName>([
+  ToolName.CircleScissors,
+  ToolName.RectangleScissors,
+  ToolName.SphereScissors,
+]);
+
+/** True while Shift is held, which swaps fill↔erase for the duration. */
+let scissorShiftPressed = false;
+let scissorModifierListenersInstalled = false;
+
+function primaryScissorStrategy(): ScissorStrategyName {
+  return usePreferencesStore.getState().preferences.annotation.scissors.defaultStrategy === 'fill'
+    ? 'FILL_INSIDE'
+    : 'ERASE_INSIDE';
+}
+
+function effectiveScissorStrategy(): ScissorStrategyName {
+  const primary = primaryScissorStrategy();
+  if (!scissorShiftPressed) return primary;
+  return primary === 'FILL_INSIDE' ? 'ERASE_INSIDE' : 'FILL_INSIDE';
+}
+
+/**
+ * Cornerstone's cursor SVGs are named per tool+strategy and do NOT line up with the
+ * strategy names: there is a CircleScissor.ERASE_OUTSIDE cursor but no ERASE_INSIDE one,
+ * and SphereScissor has no cursor family at all. Map onto what actually ships, or the
+ * cursor silently falls back to the previous tool's.
+ */
+function scissorCursorFor(
+  csToolName: string,
+  strategy: ScissorStrategyName,
+): { cursorToolName: string; cursorStrategy: string } {
+  const normalized = csToolName.replace(/Scissors$/, 'Scissor');
+  if (normalized === 'SphereScissor') {
+    return {
+      cursorToolName: 'CircleScissor',
+      cursorStrategy: strategy === 'ERASE_INSIDE' ? 'ERASE_OUTSIDE' : 'FILL_INSIDE',
+    };
+  }
+  if (normalized === 'CircleScissor' && strategy === 'ERASE_INSIDE') {
+    return { cursorToolName: 'CircleScissor', cursorStrategy: 'ERASE_OUTSIDE' };
+  }
+  return { cursorToolName: normalized, cursorStrategy: strategy };
+}
+
+/** Push the effective strategy (and its cursor) onto the active scissors tool. */
+function syncActiveScissorStrategy(): void {
+  const toolGroup = getToolGroup();
+  if (!toolGroup) return;
+  if (activeToolName === null || !SCISSORS_TOOLS.has(activeToolName)) return;
+  const csName = UNIFIED_TOOL_MAP[activeToolName];
+  if (!csName) return;
+  const strategy = effectiveScissorStrategy();
+  try {
+    toolGroup.setActiveStrategy(csName, strategy);
+  } catch {
+    /* default strategy */
+  }
+  const { cursorToolName, cursorStrategy } = scissorCursorFor(csName, strategy);
+  (
+    toolGroup as unknown as {
+      setViewportsCursorByToolName?: (toolName: string, strategy?: string) => void;
+    }
+  ).setViewportsCursorByToolName?.(cursorToolName, cursorStrategy);
+}
+
+function isShiftKeyEvent(evt: Event): boolean {
+  const key = (evt as KeyboardEvent).key;
+  return key === 'Shift' || key === 'ShiftLeft' || key === 'ShiftRight';
+}
+
+function onScissorShiftDown(evt: Event): void {
+  if (!isShiftKeyEvent(evt) || scissorShiftPressed) return;
+  scissorShiftPressed = true;
+  syncActiveScissorStrategy();
+}
+
+function onScissorShiftUp(evt: Event): void {
+  if (!isShiftKeyEvent(evt) || !scissorShiftPressed) return;
+  scissorShiftPressed = false;
+  syncActiveScissorStrategy();
+}
+
+function installScissorModifierListeners(): void {
+  if (scissorModifierListenersInstalled) return;
+  if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') return;
+  // Capture phase, matching the hotkey listener's convention: the modifier must be
+  // observed regardless of what holds focus, and ViewerPage's lifecycle test asserts
+  // every keydown listener it installs is a capturing one.
+  window.addEventListener('keydown', onScissorShiftDown, { capture: true });
+  window.addEventListener('keyup', onScissorShiftUp, { capture: true });
+  scissorModifierListenersInstalled = true;
+}
+
+function removeScissorModifierListeners(): void {
+  if (!scissorModifierListenersInstalled) return;
+  scissorModifierListenersInstalled = false;
+  scissorShiftPressed = false;
+  if (typeof window === 'undefined' || typeof window.removeEventListener !== 'function') return;
+  window.removeEventListener('keydown', onScissorShiftDown, { capture: true });
+  window.removeEventListener('keyup', onScissorShiftUp, { capture: true });
+}
+
 const BRUSH_STRATEGY: Partial<Record<ToolName, string>> = {
   [ToolName.Brush]: 'FILL_INSIDE_CIRCLE',
   [ToolName.Eraser]: 'ERASE_INSIDE_CIRCLE',
@@ -585,6 +702,26 @@ export const unifiedToolService = {
   /** Ensure the group exists (configured). Safe to call repeatedly. */
   initialize(): void {
     ensureToolGroup();
+    installScissorModifierListeners();
+  },
+
+  /**
+   * Re-apply the persisted scissor preference to the live tool group. Called by
+   * applyPreferences whenever settings change; a no-op unless a scissors tool is the
+   * active one, since the strategy is pushed on selection anyway.
+   */
+  applyScissorPreferences(): void {
+    syncActiveScissorStrategy();
+  },
+
+  /**
+   * Single entry point for the shape tools' add/remove mode: persists the preference
+   * AND pushes it at the live tool group. The toolbox toggle and the Settings modal
+   * both land here, so neither can set one without the other.
+   */
+  setScissorMode(mode: 'fill' | 'erase'): void {
+    usePreferencesStore.getState().setScissorDefaultStrategy(mode);
+    syncActiveScissorStrategy();
   },
 
   /**
@@ -644,6 +781,15 @@ export const unifiedToolService = {
       // so this flag is the whole difference between this tool and Threshold Brush. It is
       // cleared for the other variants, or a previous selection would leave them dynamic.
       setDynamicThreshold(toolGroup, toolName === ToolName.DynamicThreshold);
+    }
+    // Scissors: same shape of problem as the brush family. The strategy is sticky on the
+    // Cornerstone tool instance, and re-selecting a scissors tool (or changing the mode
+    // while it is already active) hits the `csName === currentPrimary` early return
+    // below — so it has to be applied here, ahead of it, or the mode change never lands.
+    // activeToolName is set before syncing so the sync knows which tool to act on.
+    if (SCISSORS_TOOLS.has(toolName)) {
+      activeToolName = toolName;
+      syncActiveScissorStrategy();
     }
     if (csName === currentPrimary) {
       activeToolName = toolName;
@@ -880,6 +1026,7 @@ export const unifiedToolService = {
 
   /** Destroy the unified tool group. */
   destroy(): void {
+    removeScissorModifierListeners();
     try {
       ToolGroupManager.destroyToolGroup(UNIFIED_TOOL_GROUP_ID);
     } catch {

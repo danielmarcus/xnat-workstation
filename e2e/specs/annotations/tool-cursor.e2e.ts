@@ -73,7 +73,7 @@ test('a usable tool never shows a forbidden cursor', async ({ page }) => {
   // occupies emits no mousemove, so the cursor is never re-asserted and the spec reads a
   // stale value — which cost an hour of chasing a fix that was already working.
   const tools = ['Region', 'Region+', 'Rect Multi', 'Paint Fill', 'Contour Fill', 'Select',
-                 'Circle Fill', 'Rect Fill', 'Sphere Fill'];
+                 'Circle', 'Rect', 'Sphere'];
   for (const [i, tool] of tools.entries()) {
     await panel.getByRole('button', { name: tool, exact: true }).click();
     await page.mouse.move(box.x + box.width / 2 + i * 3, box.y + box.height / 2 + i * 2, { steps: 2 });

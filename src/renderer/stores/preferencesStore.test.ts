@@ -98,7 +98,7 @@ describe('usePreferencesStore', () => {
     expect(annotation.autoDisplayAnnotations).toBe(false);
     expect(annotation.defaultSegmentOpacity).toBe(1);
     expect(annotation.defaultColorSequence).toEqual(['#AA00CC', '#00FF00']);
-    expect(annotation.scissors.defaultStrategy).toBe('erase');
+    expect(annotation.scissors.defaultStrategy).toBe('fill');
     expect(annotation.scissors.previewEnabled).toBe(false);
     expect(annotation.scissors.previewColor).toBe('#FFFFFF');
 

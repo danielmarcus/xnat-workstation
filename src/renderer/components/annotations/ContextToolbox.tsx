@@ -32,6 +32,14 @@ export interface ContextToolboxControls {
   samplingRadius?: number;
   onSamplingRadiusChange?: (radius: number) => void;
   /**
+   * Whether the shape tools add to or remove from the segment. Cornerstone registers
+   * exactly these two strategies on the scissors tools (FILL_INSIDE / ERASE_INSIDE);
+   * the "outside" variants either throw or ignore their own flag, so there is no third
+   * option to offer. Holding Shift inverts it for the duration of the press.
+   */
+  scissorMode?: 'fill' | 'erase';
+  onScissorModeChange?: (mode: 'fill' | 'erase') => void;
+  /**
    * Threshold-brush intensity window [min, max] (HU on CT). Rendered only while the
    * threshold brush is the active tool — it has no effect on any other tool. Omit to
    * hide the control.
@@ -205,6 +213,29 @@ export default function ContextToolbox(props: ContextToolboxProps) {
                   className="flex-1 accent-blue-500"
                 />
                 <span className="text-[10px] text-zinc-300">{controls.samplingRadius} vox</span>
+              </div>
+            )}
+            {needs('scissorMode') && controls.scissorMode && controls.onScissorModeChange && (
+              <div className="flex items-center gap-2 mt-1.5" data-testid="scissor-mode-controls">
+                <span className="text-[10px] text-zinc-400 whitespace-nowrap">Mode</span>
+                <div className="flex flex-1 rounded overflow-hidden border border-zinc-700" role="group" aria-label="Shape mode">
+                  {(['fill', 'erase'] as const).map((mode) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      aria-pressed={controls.scissorMode === mode}
+                      onClick={() => controls.onScissorModeChange!(mode)}
+                      className={`flex-1 text-[10px] py-0.5 capitalize ${
+                        controls.scissorMode === mode
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
+                      }`}
+                    >
+                      {mode}
+                    </button>
+                  ))}
+                </div>
+                <span className="text-[10px] text-zinc-500 whitespace-nowrap">⇧ inverts</span>
               </div>
             )}
             {needs('intensityWindow') && controls.thresholdRange && controls.onThresholdRangeChange && (

@@ -115,8 +115,11 @@ describe('ViewerPage hotkeys integration', () => {
     const keydownAdds = addSpy.mock.calls.filter((call) => call[0] === 'keydown');
     const keydownRemoves = removeSpy.mock.calls.filter((call) => call[0] === 'keydown');
 
-    expect(keydownAdds).toHaveLength(2);
-    expect(keydownRemoves).toHaveLength(2);
+    // Two capturing keydown listeners per mount: the hotkey dispatcher, and
+    // unifiedToolService's Shift tracker (which inverts the shape tools' add/remove
+    // mode while held). Two mounts → four of each. What matters is that they balance.
+    expect(keydownAdds).toHaveLength(4);
+    expect(keydownRemoves).toHaveLength(4);
     expect(keydownAdds.every((call) => (call[2] as AddEventListenerOptions).capture === true)).toBe(true);
     expect(keydownRemoves.every((call) => (call[2] as EventListenerOptions).capture === true)).toBe(true);
   });

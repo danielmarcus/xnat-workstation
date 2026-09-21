@@ -263,6 +263,9 @@ describe('toolService', () => {
   });
 
   it('uses a valid scissor cursor family for sphere scissors', () => {
+    // Explicit: this test is about the ERASE cursor mapping, and the default strategy
+    // is now 'fill' (it read 'erase' while the preference was inert).
+    usePreferencesStore.getState().setScissorDefaultStrategy('erase');
     toolService.initialize();
 
     useSegmentationStore.setState({
@@ -327,6 +330,7 @@ describe('toolService', () => {
   });
 
   it('updates to a scissor cursor immediately even before async segmentation creation completes', () => {
+    usePreferencesStore.getState().setScissorDefaultStrategy('erase');
     toolService.initialize();
 
     useSegmentationStore.setState({
