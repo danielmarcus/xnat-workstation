@@ -7,7 +7,7 @@
  *    Sph. Thresh and Rect Multi are governed by that window and had no way to set it.
  *  - Dyn. Thresh samples a radius around the first click and had NO control at all; it
  *    ran on a hidden constant.
- *  - The brush radius was shown for every SEG tool, including Circle Cut and Select,
+ *  - The brush radius was shown for every SEG tool, including Circle Fill and Select,
  *    which ignore it.
  *
  * The requirement is now declared per tool in the catalog (`needs`) and the toolbox
@@ -43,7 +43,7 @@ const CASES = [
   { tool: 'Sph. Thresh', brushSize: true, intensityWindow: true, samplingRadius: false },
   { tool: 'Dyn. Thresh', brushSize: true, intensityWindow: false, samplingRadius: true },
   { tool: 'Rect Multi', brushSize: false, intensityWindow: true, samplingRadius: false },
-  { tool: 'Circle Cut', brushSize: false, intensityWindow: false, samplingRadius: false },
+  { tool: 'Circle Fill', brushSize: false, intensityWindow: false, samplingRadius: false },
   { tool: 'Select', brushSize: false, intensityWindow: false, samplingRadius: false },
 ];
 

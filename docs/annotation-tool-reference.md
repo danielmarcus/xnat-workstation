@@ -20,9 +20,9 @@ listing no control needs none.
 | **Sph. Brush** | Paint with a 3D kernel — one stroke also reaches neighbouring slices | brushSize |
 | **Sph. Eraser** | Erase with a 3D kernel — also clears neighbouring slices | brushSize |
 | **Sph. Thresh** | Paint with a 3D kernel, limited to the intensity window | brushSize, intensityWindow |
-| **Circle Cut** | Drag a circle; everything inside it joins the segment | — |
-| **Rect Cut** | Drag a rectangle; everything inside it joins the segment | — |
-| **Sphere Cut** | Drag a sphere; everything inside it joins the segment, across slices | — |
+| **Circle Fill** | Drag a circle; everything inside it joins the segment | — |
+| **Rect Fill** | Drag a rectangle; everything inside it joins the segment | — |
+| **Sphere Fill** | Drag a sphere; everything inside it joins the segment, across slices | — |
 | **Paint Fill** | Flood-fill the enclosed region under the cursor (F) | — |
 | **Region** | Grow a region outward from the voxel you click | brushSize |
 | **Region+** | Grow a region outward, adapting the boundary as it goes | brushSize |
