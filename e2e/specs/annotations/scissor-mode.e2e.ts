@@ -37,15 +37,31 @@ async function segToolbox(page: Page) {
 }
 
 /** Drag the active shape tool across the middle of the viewport. */
-async function dragShape(page: Page, from: [number, number], to: [number, number]) {
+async function dragShape(
+  page: Page,
+  from: [number, number],
+  to: [number, number],
+  opts: { shift?: boolean } = {},
+) {
   const vp = page.locator('[data-testid="unified-viewport-element:panel_0"] canvas');
   const box = (await vp.boundingBox())!;
+  if (opts.shift) await page.keyboard.down('Shift');
   await page.mouse.move(box.x + from[0], box.y + from[1]);
   await page.mouse.down();
   await page.mouse.move(box.x + to[0], box.y + to[1], { steps: 12 });
   await page.mouse.up();
+  if (opts.shift) await page.keyboard.up('Shift');
   await page.waitForTimeout(400);
 }
+
+/** The CSS cursor currently on the viewport element. */
+const viewportCursor = (page: Page) =>
+  page.evaluate(() => {
+    const el = document.querySelector(
+      '[data-testid="unified-viewport-element:panel_0"]',
+    ) as HTMLElement;
+    return getComputedStyle(el).cursor;
+  });
 
 /**
  * The mode is a PERSISTED preference, so it outlives the autouse page.reload() that
@@ -94,4 +110,50 @@ test('the mode toggle reflects the active mode and survives a tool switch', asyn
   // not per-tool state, and the toggle must not silently reset to fill.
   await panel.getByRole('button', { name: 'Sphere', exact: true }).click();
   await expect(panel.getByRole('button', { name: 'erase', exact: true })).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('holding Shift inverts the mode AND still draws', async ({ page }) => {
+  // Reported as "when I use shift to invert the mode, the circle does not draw".
+  // Cornerstone needs an exact modifier match on the binding, so Shift+drag was
+  // reaching no tool at all. A test that only checked the strategy string would have
+  // passed throughout — the drag has to actually happen.
+  await loadFixture(page, 'ct-axial-300', 'panel_0');
+  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.resetUnifiedSegmentations());
+  const panel = await segToolbox(page);
+
+  await panel.getByRole('button', { name: 'Rect', exact: true }).click();
+  await panel.getByRole('button', { name: 'fill', exact: true }).click();
+
+  // Plain drag fills.
+  await dragShape(page, [120, 120], [240, 240]);
+  const afterFill = await paintedVoxels(page);
+  expect(afterFill, 'plain drag should fill').toBeGreaterThan(0);
+
+  // Shift+drag over the same box inverts fill→erase and must still draw.
+  await dragShape(page, [120, 120], [240, 240], { shift: true });
+  const afterShift = await paintedVoxels(page);
+  expect(afterShift, 'Shift+drag should invert to erase and remove voxels').toBeLessThan(afterFill);
+});
+
+test('the shape tools show one cursor, and it tracks the mode', async ({ page }) => {
+  // Reported as "the cursor is confusing — it starts as a cross and then after drawing
+  // turns into a green icon with a little plus". Two writers: a CSS 'crosshair' from
+  // CURSOR_FOR_TOOL and Cornerstone's SVG cursor, which is the one that encodes the
+  // mode. Selecting the tool must land on the Cornerstone cursor immediately.
+  await loadFixture(page, 'ct-axial-300', 'panel_0');
+  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.resetUnifiedSegmentations());
+  const panel = await segToolbox(page);
+
+  await panel.getByRole('button', { name: 'Circle', exact: true }).click();
+  await panel.getByRole('button', { name: 'fill', exact: true }).click();
+  await page.waitForTimeout(300);
+
+  const fillCursor = await viewportCursor(page);
+  expect(fillCursor, 'no bare crosshair before the first drag').not.toBe('crosshair');
+
+  await panel.getByRole('button', { name: 'erase', exact: true }).click();
+  await page.waitForTimeout(300);
+
+  const eraseCursor = await viewportCursor(page);
+  expect(eraseCursor, 'the cursor must change with the mode').not.toBe(fillCursor);
 });

@@ -73,6 +73,7 @@ const UNIFIED_TOOL_GROUP_ID = 'xnatToolGroup_unified';
 const VOLUME_3D_TOOL_GROUP_ID = 'xnatToolGroup_volume3d';
 
 const { Primary, Auxiliary, Secondary, Wheel } = ToolEnums.MouseBindings;
+const { Shift: ShiftModifier } = ToolEnums.KeyboardBindings;
 
 /**
  * ToolName → Cornerstone tool class name, for the subset of tools the unified
@@ -628,9 +629,6 @@ function cancelRegionPlusPendingCursor(): void {
  * (copy / not-allowed / wait) and must not be overwritten.
  */
 const CURSOR_FOR_TOOL: Partial<Record<ToolName, string>> = {
-  [ToolName.CircleScissors]: 'crosshair',
-  [ToolName.RectangleScissors]: 'crosshair',
-  [ToolName.SphereScissors]: 'crosshair',
   [ToolName.RectangleROIThreshold]: 'crosshair',
   [ToolName.PaintFill]: 'cell',
   [ToolName.RegionSegment]: 'crosshair',
@@ -639,7 +637,16 @@ const CURSOR_FOR_TOOL: Partial<Record<ToolName, string>> = {
 };
 
 /** Tools that manage their own cursor as live feedback while active. */
-const OWNS_ITS_CURSOR = new Set<ToolName>([ToolName.RegionSegmentPlus]);
+const OWNS_ITS_CURSOR = new Set<ToolName>([
+  ToolName.RegionSegmentPlus,
+  // The shape tools' cursor is set by syncActiveScissorStrategy through Cornerstone,
+  // and it encodes the active mode (a green + for fill, a red one for erase). Writing a
+  // CSS 'crosshair' over it as well meant the crosshair showed on selection and the real
+  // cursor only appeared after the first drag re-asserted it.
+  ToolName.CircleScissors,
+  ToolName.RectangleScissors,
+  ToolName.SphereScissors,
+]);
 
 /**
  * Put the active tool's cursor on every viewport, replacing anything stale.
@@ -703,6 +710,11 @@ export const unifiedToolService = {
   initialize(): void {
     ensureToolGroup();
     installScissorModifierListeners();
+  },
+
+  /** Whether this tool sets its own cursor (the service must not write a CSS one). */
+  ownsItsCursor(toolName: ToolName): boolean {
+    return OWNS_ITS_CURSOR.has(toolName);
   },
 
   /**
@@ -811,7 +823,17 @@ export const unifiedToolService = {
 
     // Promote the new tool to Primary (merges with its own fixed nav binding,
     // which was set in ensureToolGroup and left intact above).
-    toolGroup.setToolActive(csName, { bindings: [{ mouseButton: Primary }] });
+    // Cornerstone's active-tool dispatch requires an EXACT modifier match. The shape
+    // tools invert their mode while Shift is held, so without a Shift+Primary binding
+    // holding Shift stops preMouseDownCallback ever reaching the tool and nothing is
+    // drawn — the mode flips and the drag does nothing.
+    const bindings: Array<{ mouseButton: number; modifierKey?: number }> = [
+      { mouseButton: Primary },
+    ];
+    if (SCISSORS_TOOLS.has(toolName)) {
+      bindings.push({ mouseButton: Primary, modifierKey: ShiftModifier });
+    }
+    toolGroup.setToolActive(csName, { bindings });
     currentPrimary = csName;
     activeToolName = toolName;
     applyToolCursor();

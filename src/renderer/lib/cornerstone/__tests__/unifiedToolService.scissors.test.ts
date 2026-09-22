@@ -36,6 +36,11 @@ function dispatchWindowKey(type: 'keydown' | 'keyup', key: string): void {
   (globalThis as any).window.dispatchEvent(evt);
 }
 
+/** Whether the service leaves this tool's cursor alone (Cornerstone owns it). */
+function ownsItsCursor(tool: ToolName): boolean {
+  return unifiedToolService.ownsItsCursor(tool);
+}
+
 /** Most recent strategy pushed for a tool, or undefined if none was. */
 function lastStrategyFor(match: RegExp): string | undefined {
   const all = strategiesFor(match);
@@ -151,5 +156,36 @@ describe('unified scissors strategy', () => {
     unifiedToolService.setActiveTool(ToolName.Brush);
 
     expect(strategiesFor(/Scissor/)).toEqual([]);
+  });
+
+  it('binds the shape tools to Shift+Primary as well as Primary', () => {
+    // Reported as "when I use shift to invert the mode, the circle does not draw".
+    // Cornerstone's active-tool dispatch requires an EXACT modifier match: with only a
+    // plain Primary binding, holding Shift stops preMouseDownCallback ever reaching the
+    // tool, so the strategy flips but no geometry is drawn. The legacy toolService got
+    // this right and says so in a comment; porting the strategy without the binding
+    // reintroduced it.
+    unifiedToolService.setActiveTool(ToolName.CircleScissors);
+
+    const activations = (cs.getLastToolGroup()?.setToolActive.mock.calls ?? []).filter(
+      (c: unknown[]) => /CircleScissor/.test(String(c[0])),
+    );
+    const activation = activations[activations.length - 1];
+    const bindings = (activation?.[1] as { bindings?: Array<Record<string, unknown>> })?.bindings ?? [];
+
+    expect(bindings, 'plain primary drag').toContainEqual(expect.objectContaining({ mouseButton: 1 }));
+    expect(bindings, 'shift+primary drag').toContainEqual(
+      expect.objectContaining({ mouseButton: 1, modifierKey: 16 }),
+    );
+  });
+
+  it('leaves the shape tools\u2019 cursor to Cornerstone rather than writing a CSS one', () => {
+    // Two writers were fighting: CURSOR_FOR_TOOL wrote a CSS 'crosshair' via
+    // applyToolCursor, while syncActiveScissorStrategy set Cornerstone's SVG cursor
+    // (green + for fill). The user saw the crosshair first and the green icon only
+    // after drawing. The SVG cursor encodes the mode, so it is the one to keep.
+    expect(ownsItsCursor(ToolName.CircleScissors)).toBe(true);
+    expect(ownsItsCursor(ToolName.RectangleScissors)).toBe(true);
+    expect(ownsItsCursor(ToolName.SphereScissors)).toBe(true);
   });
 });
