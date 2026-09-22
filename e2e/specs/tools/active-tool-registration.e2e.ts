@@ -85,7 +85,7 @@ test('the full toolbox tool set is registered + activatable on the unified group
 
   // A sampling across all three kinds — each must ACTIVATE (before R3.8b these were
   // unregistered, so setActiveTool warned + left the active tool unchanged).
-  for (const t of ['Eraser', 'ThresholdBrush', 'Angle', 'EllipticalROI', 'CircleScissors', 'Sculptor', 'SplineContour', 'ArrowAnnotate']) {
+  for (const t of ['SphereBrush', 'ThresholdBrush', 'Angle', 'EllipticalROI', 'CircleScissors', 'Sculptor', 'SplineContour', 'ArrowAnnotate']) {
     await setTool(page, t);
     await expect.poll(() => activeTool(page), { timeout: 10_000, message: `${t} should activate` }).toBe(t);
   }

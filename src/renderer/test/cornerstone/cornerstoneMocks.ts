@@ -106,6 +106,8 @@ export interface CornerstoneMockState {
     };
   };
   tools: {
+    /** Cornerstone's SVG cursor API — spied on to assert the edit-mode cursor. */
+    cursors: { setCursorForElement: ReturnType<typeof vi.fn> };
     Enums: {
       MouseBindings: {
         Primary: number;
@@ -490,6 +492,7 @@ export function createCornerstoneMockState(): CornerstoneMockState {
   };
 
   const tools = {
+    cursors: { setCursorForElement: vi.fn() },
     Enums: {
       MouseBindings: {
         Primary: 1,
@@ -788,6 +791,10 @@ export function createToolsModuleMock(state: CornerstoneMockState): Record<strin
     segmentation: state.tools.segmentation,
     utilities: state.tools.utilities,
     Enums: state.tools.Enums,
+    // The edit-mode cursor uses Cornerstone's shipped 'Eraser' SVG cursor, so the
+    // service imports the cursors namespace; without it here the import is undefined
+    // and the call is swallowed by its own try/catch, hiding a real regression.
+    cursors: state.tools.cursors,
     Types: {},
     StackScrollTool: makeToolExport('StackScroll'),
     ZoomTool: makeToolExport('Zoom'),

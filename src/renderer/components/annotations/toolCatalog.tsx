@@ -31,8 +31,8 @@ export type ToolControl =
   | 'intensityWindow'
   /** Radius, in voxels, sampled around the first click to derive a window. */
   | 'samplingRadius'
-  /** Whether the shape tool adds to or removes from the segment (Shift inverts). */
-  | 'scissorMode';
+  /** Whether the tool adds to or removes from the segment (Shift inverts). */
+  | 'editMode';
 
 export interface ToolDef {
   id: string;
@@ -50,16 +50,14 @@ const S = (children: ReactNode, extra?: Record<string, unknown>) => (
 );
 
 const SEG_TOOLS: ToolDef[] = [
-  { id: 'brush', label: 'Brush', title: 'Paint the active segment on this slice (B)', needs: ['brushSize'], icon: <svg viewBox="0 0 16 16" width={14} height={14} fill="currentColor" stroke="none"><circle cx="8" cy="8" r="3.2" /></svg> },
-  { id: 'eraser', label: 'Eraser', title: 'Erase the active segment on this slice (E)', needs: ['brushSize'], icon: S(<rect x="3" y="6" width="8" height="6" rx="1" transform="rotate(-25 8 8)" />) },
+  { id: 'brush', label: 'Brush', title: 'Add to or remove from the active segment on this slice; hold Shift to invert (B)', needs: ['brushSize', 'editMode'], icon: <svg viewBox="0 0 16 16" width={14} height={14} fill="currentColor" stroke="none"><circle cx="8" cy="8" r="3.2" /></svg> },
   { id: 'threshold', label: 'Threshold', title: 'Paint only where intensity falls inside the window', needs: ['brushSize', 'intensityWindow'], icon: S(<><circle cx="8" cy="8" r="3.8" /><path d="M5 8h6" /></>) },
   { id: 'dynamicThreshold', label: 'Dyn. Thresh', title: 'Paint within a window sampled from the voxel you click, not a preset one', needs: ['brushSize', 'samplingRadius'], icon: S(<><circle cx="8" cy="8" r="3.8" /><path d="M5 8h6" strokeDasharray="1.5 1" /><circle cx="8" cy="8" r="1" fill="currentColor" stroke="none" /></>) },
-  { id: 'sphereBrush', label: 'Sph. Brush', title: 'Paint with a 3D kernel — one stroke also reaches neighbouring slices', needs: ['brushSize'], icon: S(<><circle cx="8" cy="8" r="4" /><ellipse cx="8" cy="8" rx="4" ry="1.7" /></>) },
-  { id: 'sphereEraser', label: 'Sph. Eraser', title: 'Erase with a 3D kernel — also clears neighbouring slices', needs: ['brushSize'], icon: S(<><circle cx="8" cy="8" r="4" /><ellipse cx="8" cy="8" rx="4" ry="1.7" /><path d="M4.5 11.5l7-7" /></>) },
+  { id: 'sphereBrush', label: 'Sph. Brush', title: 'Add or remove with a 3D kernel — one stroke also reaches neighbouring slices; hold Shift to invert', needs: ['brushSize', 'editMode'], icon: S(<><circle cx="8" cy="8" r="4" /><ellipse cx="8" cy="8" rx="4" ry="1.7" /></>) },
   { id: 'sphereThreshold', label: 'Sph. Thresh', title: 'Paint with a 3D kernel, limited to the intensity window', needs: ['brushSize', 'intensityWindow'], icon: S(<><circle cx="8" cy="8" r="4" /><ellipse cx="8" cy="8" rx="4" ry="1.7" /><path d="M5.5 8h5" /></>) },
-  { id: 'circleScissors', label: 'Circle', title: 'Drag a circle; everything inside it is added to or removed from the segment (hold Shift to invert)', needs: ['scissorMode'], icon: S(<circle cx="8" cy="8" r="5" fill="currentColor" fillOpacity={0.25} />) },
-  { id: 'rectangleScissors', label: 'Rect', title: 'Drag a rectangle; everything inside it is added to or removed from the segment (hold Shift to invert)', needs: ['scissorMode'], icon: S(<rect x="3" y="4" width="10" height="8" rx="1" fill="currentColor" fillOpacity={0.25} />) },
-  { id: 'sphereScissors', label: 'Sphere', title: 'Drag a sphere; everything inside it is added to or removed from the segment, across slices (hold Shift to invert)', needs: ['scissorMode'], icon: S(<><circle cx="8" cy="8" r="5" fill="currentColor" fillOpacity={0.25} /><ellipse cx="8" cy="8" rx="5" ry="2" /></>) },
+  { id: 'circleScissors', label: 'Circle', title: 'Drag a circle; everything inside it is added to or removed from the segment (hold Shift to invert)', needs: ['editMode'], icon: S(<circle cx="8" cy="8" r="5" fill="currentColor" fillOpacity={0.25} />) },
+  { id: 'rectangleScissors', label: 'Rect', title: 'Drag a rectangle; everything inside it is added to or removed from the segment (hold Shift to invert)', needs: ['editMode'], icon: S(<rect x="3" y="4" width="10" height="8" rx="1" fill="currentColor" fillOpacity={0.25} />) },
+  { id: 'sphereScissors', label: 'Sphere', title: 'Drag a sphere; everything inside it is added to or removed from the segment, across slices (hold Shift to invert)', needs: ['editMode'], icon: S(<><circle cx="8" cy="8" r="5" fill="currentColor" fillOpacity={0.25} /><ellipse cx="8" cy="8" rx="5" ry="2" /></>) },
   { id: 'paintFill', label: 'Paint Fill', title: 'Flood-fill the enclosed region under the cursor (F)', icon: S(<><path d="M3 8l5-5 5 5-5 5z" /><path d="M11 11c1 1 1 2 0 2" /></>) },
   { id: 'region', label: 'Region', title: 'Grow a region outward from the voxel you click', needs: ['brushSize'], icon: S(<><circle cx="8" cy="8" r="4" strokeDasharray="2 1.3" /><circle cx="8" cy="8" r="1.3" fill="currentColor" stroke="none" /></>) },
   { id: 'regionPlus', label: 'Region+', title: 'Grow a region outward, adapting the boundary as it goes', needs: ['brushSize'], icon: S(<><circle cx="8" cy="8" r="4" strokeDasharray="2 1.3" /><path d="M8 6v4M6 8h4" /></>) },
@@ -114,10 +112,8 @@ export const CATALOG_TO_TOOLNAME: Record<string, ToolName> = {
   // Segmentation
   brush: ToolName.Brush,
   sphereBrush: ToolName.SphereBrush,
-  sphereEraser: ToolName.SphereEraser,
   sphereThreshold: ToolName.SphereThreshold,
   dynamicThreshold: ToolName.DynamicThreshold,
-  eraser: ToolName.Eraser,
   [THRESHOLD_TOOL_ID]: ToolName.ThresholdBrush,
   circleScissors: ToolName.CircleScissors,
   rectangleScissors: ToolName.RectangleScissors,

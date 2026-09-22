@@ -46,7 +46,8 @@ test('switching between brush variants never leaves a second cursor behind', asy
   // Dyn. Thresh legitimately draws TWO: Cornerstone's circularCursor composition adds a
   // second ring at `dynamicRadiusInCanvas` to show the region it will sample. That is the
   // visual feedback for the sampling-radius control, so it is asserted, not tolerated.
-  for (const tool of ['Brush', 'Sph. Brush', 'Eraser', 'Sph. Eraser', 'Threshold', 'Sph. Thresh', 'Dyn. Thresh', 'Brush']) {
+  // Eraser / Sph. Eraser retired into the shared edit mode (edit-mode.e2e.ts covers it).
+  for (const tool of ['Brush', 'Sph. Brush', 'Threshold', 'Sph. Thresh', 'Dyn. Thresh', 'Brush']) {
     await panel.getByRole('button', { name: tool, exact: true }).click();
     await hover();
     const expected = tool === 'Dyn. Thresh' ? 2 : 1;

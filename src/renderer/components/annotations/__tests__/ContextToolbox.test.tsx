@@ -28,8 +28,10 @@ describe('ContextToolbox', () => {
     const { onSelectTool } = setup();
     const brush = screen.getByLabelText('Brush');
     expect(brush.getAttribute('aria-pressed')).toBe('true');
-    await userEvent.click(screen.getByLabelText('Eraser'));
-    expect(onSelectTool).toHaveBeenCalledWith('eraser');
+    // Eraser is no longer a tool — erasing is a mode shared by every fill/erase-capable
+    // tool. Any other tool serves to prove selection still fires.
+    await userEvent.click(screen.getByLabelText('Threshold'));
+    expect(onSelectTool).toHaveBeenCalledWith('threshold');
   });
 
   // The "planned" rule (a registered-but-unimplemented tool rendered disabled) was

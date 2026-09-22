@@ -19,13 +19,15 @@ export enum ToolName {
   PlanarFreehandROI = 'PlanarFreehandROI',
   Crosshairs = 'Crosshairs',
   Brush = 'Brush',
-  Eraser = 'Eraser',
+  // No Eraser / SphereEraser: erasing is a MODE on the brush (and the shape tools), not
+  // a separate tool. They were the same Cornerstone BrushTool with an ERASE_* strategy,
+  // so enumerating them doubled the toolbox for a property of the edit. See
+  // EDIT_MODE_STRATEGY in unifiedToolService.
   ThresholdBrush = 'ThresholdBrush',
   // Sphere-shaped brush family. Same BrushTool as the circle variants above — only the
   // active STRATEGY differs — but the 3D shape means one stroke reaches neighbouring
   // slices, which the circle variants never do.
   SphereBrush = 'SphereBrush',
-  SphereEraser = 'SphereEraser',
   SphereThreshold = 'SphereThreshold',
   /** Threshold sphere that also drops disconnected specks (island removal). */
   DynamicThreshold = 'DynamicThreshold',
@@ -61,10 +63,8 @@ export const ANNOTATION_TOOLS = new Set<ToolName>([
 /** Set of all segmentation/painting tool names */
 export const SEGMENTATION_TOOLS = new Set<ToolName>([
   ToolName.Brush,
-  ToolName.Eraser,
   ToolName.ThresholdBrush,
   ToolName.SphereBrush,
-  ToolName.SphereEraser,
   ToolName.SphereThreshold,
   ToolName.DynamicThreshold,
   ToolName.FreehandContour,
@@ -94,10 +94,8 @@ export const CONTOUR_SEG_TOOLS = new Set<ToolName>([
 /** Labelmap-based segmentation tools (directly modify labelmap pixel data) */
 export const LABELMAP_SEG_TOOLS = new Set<ToolName>([
   ToolName.Brush,
-  ToolName.Eraser,
   ToolName.ThresholdBrush,
   ToolName.SphereBrush,
-  ToolName.SphereEraser,
   ToolName.SphereThreshold,
   ToolName.DynamicThreshold,
   ToolName.CircleScissors,
@@ -127,10 +125,8 @@ export const TOOL_DISPLAY_NAMES: Record<ToolName, string> = {
   [ToolName.PlanarFreehandROI]: 'Freehand ROI',
   [ToolName.Crosshairs]: 'Crosshairs',
   [ToolName.Brush]: 'Brush',
-  [ToolName.Eraser]: 'Eraser',
   [ToolName.ThresholdBrush]: 'Threshold Brush',
   [ToolName.SphereBrush]: 'Spherical Brush',
-  [ToolName.SphereEraser]: 'Spherical Eraser',
   [ToolName.SphereThreshold]: 'Spherical Threshold',
   [ToolName.DynamicThreshold]: 'Dynamic Threshold',
   [ToolName.FreehandContour]: 'Freehand Contour',

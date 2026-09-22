@@ -60,7 +60,7 @@ async function setup(page: Page) {
   await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.resetUnifiedSegmentations());
 }
 
-test('brush paints the active segment, eraser clears it (signal 29)', async ({ page }) => {
+test('brush paints the active segment, erase mode clears it (signal 29)', async ({ page }) => {
   await setup(page);
   await createLabelmap(page, 'Brush/Eraser SEG');
   await setBrushSize(page, 40);
@@ -72,9 +72,11 @@ test('brush paints the active segment, eraser clears it (signal 29)', async ({ p
   await stroke(page, box);
   const painted = await expectPaintedAtLeast(page, 1);
 
-  // Eraser over the same region (a touch larger) clears what was painted.
+  // Erasing over the same region (a touch larger) clears what was painted. There is no
+  // Eraser tool any more — erase is a MODE on the brush — and `e` toggles it, which is a
+  // real user action rather than a hook that bypasses the toolbox.
   await setBrushSize(page, 55);
-  await setTool(page, 'Eraser');
+  await page.keyboard.press('e');
   await stroke(page, box);
   await expect
     .poll(() => paintedVoxels(page), { timeout: 15_000, message: 'eraser should clear the painted voxels' })

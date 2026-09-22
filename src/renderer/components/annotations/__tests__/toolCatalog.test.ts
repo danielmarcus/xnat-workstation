@@ -80,7 +80,7 @@ describe('catalog presentation contract', () => {
   });
 
   it('every control a tool declares is one the toolbox knows how to render', () => {
-    const known = new Set(['brushSize', 'intensityWindow', 'samplingRadius', 'scissorMode']);
+    const known = new Set(['brushSize', 'intensityWindow', 'samplingRadius', 'editMode']);
     for (const t of ALL) for (const c of t.needs ?? []) expect(known.has(c), `${t.id} needs "${c}"`).toBe(true);
   });
 });

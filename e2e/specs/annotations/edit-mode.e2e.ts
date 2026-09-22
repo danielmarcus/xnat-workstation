@@ -63,19 +63,6 @@ const viewportCursor = (page: Page) =>
     return getComputedStyle(el).cursor;
   });
 
-/**
- * The mode is a PERSISTED preference, so it outlives the autouse page.reload() that
- * gives the other specs their isolation — leaving it on 'erase' made the scissors-fill
- * specs in voxel-tools-effect/-lock fail when they ran after this file, while passing
- * in isolation. Restore it through the same toggle the user would use.
- */
-test.afterEach(async ({ page }) => {
-  const fill = page
-    .locator('[data-testid="scissor-mode-controls"]')
-    .getByRole('button', { name: 'fill', exact: true });
-  if ((await fill.count()) > 0) await fill.click();
-});
-
 test('the shape tools add in fill mode and remove in erase mode', async ({ page }) => {
   await loadFixture(page, 'ct-axial-300', 'panel_0');
   await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.resetUnifiedSegmentations());
@@ -190,3 +177,73 @@ test('a stale stored "erase" is reset to fill on load', async ({ page }) => {
   ).toHaveAttribute('aria-pressed', 'true');
 });
 
+test('the brush follows the same mode as the shape tools', async ({ page }) => {
+  // Erase used to be a separate Eraser button; it is now the same shared mode. This is
+  // the assertion that the two families really do behave alike.
+  await loadFixture(page, 'ct-axial-300', 'panel_0');
+  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.resetUnifiedSegmentations());
+  const panel = await segToolbox(page);
+
+  await panel.getByRole('button', { name: 'Brush', exact: true }).click();
+  await expect(panel.locator('[data-testid="edit-mode-controls"]')).toBeVisible();
+  await panel.getByRole('button', { name: 'fill', exact: true }).click();
+  await dragShape(page, [140, 140], [200, 200]);
+  const afterFill = await paintedVoxels(page);
+  expect(afterFill, 'the brush should paint in fill mode').toBeGreaterThan(0);
+
+  await panel.getByRole('button', { name: 'erase', exact: true }).click();
+  await dragShape(page, [140, 140], [200, 200]);
+  expect(await paintedVoxels(page), 'the brush should erase in erase mode').toBeLessThan(afterFill);
+});
+
+test('there is no separate Eraser tool any more', async ({ page }) => {
+  await loadFixture(page, 'ct-axial-300', 'panel_0');
+  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.resetUnifiedSegmentations());
+  const panel = await segToolbox(page);
+
+  await expect(panel.getByRole('button', { name: 'Eraser', exact: true })).toHaveCount(0);
+  await expect(panel.getByRole('button', { name: 'Sph. Eraser', exact: true })).toHaveCount(0);
+});
+
+test('Shift shows the erase cursor while held, for the brush and the shape tools', async ({ page }) => {
+  // The requirement is that the pointer SAYS what the next drag will do. The brush ring
+  // shows radius only — Cornerstone dashes it off what lies under the pointer, not off
+  // the active strategy — so erase needs a cursor of its own, and it has to appear on
+  // Shift-down and go away on Shift-up, without waiting for a drag.
+  await loadFixture(page, 'ct-axial-300', 'panel_0');
+  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.resetUnifiedSegmentations());
+  const panel = await segToolbox(page);
+
+  for (const tool of ['Brush', 'Circle']) {
+    await panel.getByRole('button', { name: tool, exact: true }).click();
+    await panel.getByRole('button', { name: 'fill', exact: true }).click();
+    await page.waitForTimeout(250);
+    const fillCursor = await viewportCursor(page);
+
+    await page.keyboard.down('Shift');
+    await page.waitForTimeout(250);
+    const shiftCursor = await viewportCursor(page);
+    await page.keyboard.up('Shift');
+    await page.waitForTimeout(250);
+    const releasedCursor = await viewportCursor(page);
+
+    expect(shiftCursor, `"${tool}": holding Shift must change the cursor`).not.toBe(fillCursor);
+    expect(releasedCursor, `"${tool}": releasing Shift must restore the cursor`).toBe(fillCursor);
+  }
+});
+
+test('the e hotkey toggles the mode for whichever tool is active', async ({ page }) => {
+  await loadFixture(page, 'ct-axial-300', 'panel_0');
+  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.resetUnifiedSegmentations());
+  const panel = await segToolbox(page);
+
+  await panel.getByRole('button', { name: 'Brush', exact: true }).click();
+  await panel.getByRole('button', { name: 'fill', exact: true }).click();
+
+  await page.locator('[data-testid="unified-viewport-element:panel_0"] canvas').click({ position: { x: 5, y: 5 } });
+  await page.keyboard.press('e');
+  await expect(
+    panel.getByRole('button', { name: 'erase', exact: true }),
+    '`e` used to pick the Eraser tool; it now toggles the mode, so it works for every tool',
+  ).toHaveAttribute('aria-pressed', 'true');
+});

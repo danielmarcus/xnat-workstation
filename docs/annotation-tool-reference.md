@@ -13,16 +13,14 @@ listing no control needs none.
 
 | Tool | Tooltip | Controls |
 |---|---|---|
-| **Brush** | Paint the active segment on this slice (B) | brushSize |
-| **Eraser** | Erase the active segment on this slice (E) | brushSize |
+| **Brush** | Add to or remove from the active segment on this slice; hold Shift to invert (B) | brushSize, editMode |
 | **Threshold** | Paint only where intensity falls inside the window | brushSize, intensityWindow |
 | **Dyn. Thresh** | Paint within a window sampled from the voxel you click, not a preset one | brushSize, samplingRadius |
-| **Sph. Brush** | Paint with a 3D kernel — one stroke also reaches neighbouring slices | brushSize |
-| **Sph. Eraser** | Erase with a 3D kernel — also clears neighbouring slices | brushSize |
+| **Sph. Brush** | Add or remove with a 3D kernel — one stroke also reaches neighbouring slices; hold Shift to invert | brushSize, editMode |
 | **Sph. Thresh** | Paint with a 3D kernel, limited to the intensity window | brushSize, intensityWindow |
-| **Circle** | Drag a circle; everything inside it is added to or removed from the segment (hold Shift to invert) | scissorMode |
-| **Rect** | Drag a rectangle; everything inside it is added to or removed from the segment (hold Shift to invert) | scissorMode |
-| **Sphere** | Drag a sphere; everything inside it is added to or removed from the segment, across slices (hold Shift to invert) | scissorMode |
+| **Circle** | Drag a circle; everything inside it is added to or removed from the segment (hold Shift to invert) | editMode |
+| **Rect** | Drag a rectangle; everything inside it is added to or removed from the segment (hold Shift to invert) | editMode |
+| **Sphere** | Drag a sphere; everything inside it is added to or removed from the segment, across slices (hold Shift to invert) | editMode |
 | **Paint Fill** | Flood-fill the enclosed region under the cursor (F) | — |
 | **Region** | Grow a region outward from the voxel you click | brushSize |
 | **Region+** | Grow a region outward, adapting the boundary as it goes | brushSize |
@@ -80,7 +78,7 @@ Two other cursor defects fixed at the same time:
 
 `annotations/tool-cursor` and `annotations/tool-controls` pin all of the above.
 
-## Shape tools: add/remove mode
+## Add/remove mode
 
 The three shape tools (Circle, Rect, Sphere) are Cornerstone's *scissors* tools. Each
 registers exactly two strategies:
@@ -92,10 +90,25 @@ registers exactly two strategies:
 | `FILL_OUTSIDE` | **no** | `fillOutsideCircle` / `fillOutsideSphere` throw `'Not yet implemented'`; no rectangle version exists |
 | `ERASE_OUTSIDE` | **no** | `eraseOutsideRectangle` exists but ignores its own `inside` flag and erases *inside*; circle and sphere have no version |
 
-So add/remove is the whole of the choice, and it is one setting shared by the three
-tools — a `Mode` toggle in the context toolbox, persisted in Settings
-(`annotation.scissors.defaultStrategy`). Holding **Shift** inverts it for the duration
-of the press, and the cursor follows.
+So add/remove is the whole of the choice. The same is true of the brush: `Brush` and the
+former `Eraser` were one Cornerstone `BrushTool` with `FILL_INSIDE_CIRCLE` or
+`ERASE_INSIDE_CIRCLE`, exactly as the shape tools are one scissors tool apiece.
+
+Because it is a property of the edit rather than a kind of tool, it is **one shared
+`Mode` toggle** in the context toolbox — not a doubled set of buttons — persisted in
+Settings (`annotation.scissors.defaultStrategy`, whose key keeps its historical name).
+Holding **Shift** inverts it for the duration of the press, the `e` hotkey toggles it for
+whichever tool is active, and the cursor follows in both cases.
+
+The separate **Eraser** and **Sph. Eraser** tools were retired into this mode.
+
+The threshold family (`Threshold`, `Sph. Thresh`, `Dyn. Thresh`) is **fill-only** and does
+not show the toggle: Cornerstone ships `THRESHOLD_INSIDE_*` with no erase counterpart.
+
+The brush's own ring shows RADIUS, not mode — Cornerstone dashes it off what lies under
+the pointer, not off the active strategy — so erase additionally sets Cornerstone's
+shipped `Eraser` cursor glyph. Without it, holding Shift changed what the next drag would
+do with nothing on screen saying so.
 
 Two Cornerstone quirks the cursor mapping has to absorb: there is a
 `CircleScissor.ERASE_OUTSIDE` cursor SVG but no `ERASE_INSIDE` one, and `SphereScissor`

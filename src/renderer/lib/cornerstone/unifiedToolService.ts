@@ -59,6 +59,7 @@ import {
 } from '@cornerstonejs/tools';
 import type { Types as ToolTypes } from '@cornerstonejs/tools';
 import { Enums as CoreEnums, eventTarget } from '@cornerstonejs/core';
+import { cursors as csCursors } from '@cornerstonejs/tools';
 import SafePaintFillTool from './tools/SafePaintFillTool';
 import { arrowAnnotateTextCallback } from './arrowAnnotateTextPrompt';
 import { ToolName } from '@shared/types/viewer';
@@ -97,11 +98,9 @@ const UNIFIED_TOOL_MAP: Partial<Record<ToolName, string>> = {
   // ── R3.8b: full toolbox set ──
   // Brush family share BrushTool; the strategy (fill/erase/threshold) is selected
   // in setActiveTool via BRUSH_STRATEGY below.
-  [ToolName.Eraser]: BrushTool.toolName,
   [ToolName.ThresholdBrush]: BrushTool.toolName,
   // Sphere variants — same BrushTool, 3D strategy (see BRUSH_STRATEGY).
   [ToolName.SphereBrush]: BrushTool.toolName,
-  [ToolName.SphereEraser]: BrushTool.toolName,
   [ToolName.SphereThreshold]: BrushTool.toolName,
   [ToolName.DynamicThreshold]: BrushTool.toolName,
   // Structure (contour) tools
@@ -180,39 +179,59 @@ const THRESHOLD_BRUSH_TOOLS = new Set<ToolName>([
 
 /** Brush-family strategy per ToolName (all share BrushTool). */
 /**
- * Scissors strategy. Cornerstone 4.16.1 registers exactly two strategies on each of the
- * three scissors tools — FILL_INSIDE (default) and ERASE_INSIDE. The "outside" variants
- * are not usable: fillOutsideCircle/fillOutsideSphere throw 'Not yet implemented', and
- * eraseOutsideRectangle ignores its own `inside` flag and erases inside. So erase-inside
- * is the whole of the additional behaviour on offer.
+ * Edit mode — whether a voxel tool ADDS to or REMOVES from the active segment.
  *
- * Which of the two is active comes from the user's preference, inverted while Shift is
- * held. This machinery existed only on the legacy `toolService`, whose `initialize()`
- * the app never calls — so the Settings preference and the Shift modifier were both dead
- * on the path that actually runs. Ported here.
+ * This is a property of the edit, not a kind of tool: every tool that can paint can also
+ * unpaint, and Cornerstone models it that way — Brush, Eraser, Sph. Brush and Sph. Eraser
+ * are one BrushTool with a different strategy, exactly as the three shape tools are one
+ * scissors tool with a different strategy. Enumerating it as separate buttons multiplied
+ * the toolbox by the number of shapes; it is one shared control instead, inverted while
+ * Shift is held.
+ *
+ * Only tools that HAVE both strategies take part. The threshold family is fill-only:
+ * Cornerstone ships THRESHOLD_INSIDE_* with no erase counterpart, so offering the control
+ * there would be a button that does nothing.
  */
-type ScissorStrategyName = 'FILL_INSIDE' | 'ERASE_INSIDE';
+export type EditMode = 'fill' | 'erase';
 
-const SCISSORS_TOOLS = new Set<ToolName>([
+/** Tools with both a fill and an erase strategy. */
+const EDIT_MODE_TOOLS = new Set<ToolName>([
+  ToolName.Brush,
+  ToolName.SphereBrush,
   ToolName.CircleScissors,
   ToolName.RectangleScissors,
   ToolName.SphereScissors,
 ]);
 
-/** True while Shift is held, which swaps fill↔erase for the duration. */
-let scissorShiftPressed = false;
-let scissorModifierListenersInstalled = false;
+/** Fill/erase strategy pairs, per tool. */
+const EDIT_MODE_STRATEGY: Partial<Record<ToolName, Record<EditMode, string>>> = {
+  [ToolName.Brush]: { fill: 'FILL_INSIDE_CIRCLE', erase: 'ERASE_INSIDE_CIRCLE' },
+  [ToolName.SphereBrush]: { fill: 'FILL_INSIDE_SPHERE', erase: 'ERASE_INSIDE_SPHERE' },
+  [ToolName.CircleScissors]: { fill: 'FILL_INSIDE', erase: 'ERASE_INSIDE' },
+  [ToolName.RectangleScissors]: { fill: 'FILL_INSIDE', erase: 'ERASE_INSIDE' },
+  [ToolName.SphereScissors]: { fill: 'FILL_INSIDE', erase: 'ERASE_INSIDE' },
+};
 
-function primaryScissorStrategy(): ScissorStrategyName {
-  return usePreferencesStore.getState().preferences.annotation.scissors.defaultStrategy === 'fill'
-    ? 'FILL_INSIDE'
-    : 'ERASE_INSIDE';
+/** True while Shift is held, which swaps fill↔erase for the duration. */
+let editModeShiftPressed = false;
+let editModeModifierListenersInstalled = false;
+
+/**
+ * The persisted mode. The storage path keeps its historical `scissors` name: renaming it
+ * would orphan every stored payload for no user-visible gain (see the schemaVersion reset
+ * in preferencesStore).
+ */
+function primaryEditMode(): EditMode {
+  return usePreferencesStore.getState().preferences.annotation.scissors.defaultStrategy === 'erase'
+    ? 'erase'
+    : 'fill';
 }
 
-function effectiveScissorStrategy(): ScissorStrategyName {
-  const primary = primaryScissorStrategy();
-  if (!scissorShiftPressed) return primary;
-  return primary === 'FILL_INSIDE' ? 'ERASE_INSIDE' : 'FILL_INSIDE';
+/** The mode in force right now — the preference, inverted while Shift is held. */
+function effectiveEditMode(): EditMode {
+  const primary = primaryEditMode();
+  if (!editModeShiftPressed) return primary;
+  return primary === 'fill' ? 'erase' : 'fill';
 }
 
 /**
@@ -223,87 +242,125 @@ function effectiveScissorStrategy(): ScissorStrategyName {
  */
 function scissorCursorFor(
   csToolName: string,
-  strategy: ScissorStrategyName,
+  mode: EditMode,
 ): { cursorToolName: string; cursorStrategy: string } {
   const normalized = csToolName.replace(/Scissors$/, 'Scissor');
   if (normalized === 'SphereScissor') {
     return {
       cursorToolName: 'CircleScissor',
-      cursorStrategy: strategy === 'ERASE_INSIDE' ? 'ERASE_OUTSIDE' : 'FILL_INSIDE',
+      cursorStrategy: mode === 'erase' ? 'ERASE_OUTSIDE' : 'FILL_INSIDE',
     };
   }
-  if (normalized === 'CircleScissor' && strategy === 'ERASE_INSIDE') {
+  if (normalized === 'CircleScissor' && mode === 'erase') {
     return { cursorToolName: 'CircleScissor', cursorStrategy: 'ERASE_OUTSIDE' };
   }
-  return { cursorToolName: normalized, cursorStrategy: strategy };
+  return { cursorToolName: normalized, cursorStrategy: mode === 'erase' ? 'ERASE_INSIDE' : 'FILL_INSIDE' };
 }
 
-/** Push the effective strategy (and its cursor) onto the active scissors tool. */
-function syncActiveScissorStrategy(): void {
+/**
+ * Show the mode on the pointer.
+ *
+ * The brush draws its own SVG ring for radius, but that ring does not say whether the
+ * stroke adds or removes: Cornerstone dashes it off `centerSegmentIndexInfo`, which
+ * tracks what lies UNDER the pointer, not the active strategy. So erase gets the
+ * shipped `Eraser` cursor glyph and fill clears back to the default. Without this,
+ * holding Shift changed what the next drag would do with nothing on screen saying so.
+ */
+function applyEditModeCursor(toolName: ToolName, mode: EditMode): void {
   const toolGroup = getToolGroup();
   if (!toolGroup) return;
-  if (activeToolName === null || !SCISSORS_TOOLS.has(activeToolName)) return;
+
+  if (SCISSORS_TOOLS.has(toolName)) {
+    const csName = UNIFIED_TOOL_MAP[toolName];
+    if (!csName) return;
+    const { cursorToolName, cursorStrategy } = scissorCursorFor(csName, mode);
+    (
+      toolGroup as unknown as {
+        setViewportsCursorByToolName?: (n: string, s?: string) => void;
+      }
+    ).setViewportsCursorByToolName?.(cursorToolName, cursorStrategy);
+    return;
+  }
+
+  for (const viewportId of unifiedToolService.getViewportIds()) {
+    const el = viewportService.getElement(viewportId) as HTMLDivElement | null;
+    if (!el) continue;
+    try {
+      if (mode === 'erase') csCursors.setCursorForElement(el, 'Eraser');
+      else el.style.cursor = '';
+    } catch {
+      /* cursor asset missing — leave the pointer alone rather than wedging it */
+    }
+  }
+}
+
+/** Push the effective mode's strategy (and its cursor) onto the active tool. */
+function syncActiveEditMode(): void {
+  const toolGroup = getToolGroup();
+  if (!toolGroup) return;
+  if (activeToolName === null || !EDIT_MODE_TOOLS.has(activeToolName)) return;
   const csName = UNIFIED_TOOL_MAP[activeToolName];
-  if (!csName) return;
-  const strategy = effectiveScissorStrategy();
+  const strategy = EDIT_MODE_STRATEGY[activeToolName]?.[effectiveEditMode()];
+  if (!csName || !strategy) return;
   try {
     toolGroup.setActiveStrategy(csName, strategy);
   } catch {
     /* default strategy */
   }
-  const { cursorToolName, cursorStrategy } = scissorCursorFor(csName, strategy);
-  (
-    toolGroup as unknown as {
-      setViewportsCursorByToolName?: (toolName: string, strategy?: string) => void;
-    }
-  ).setViewportsCursorByToolName?.(cursorToolName, cursorStrategy);
+  applyEditModeCursor(activeToolName, effectiveEditMode());
 }
+
+/** Scissors subset — they take a Cornerstone cursor family rather than a CSS one. */
+const SCISSORS_TOOLS = new Set<ToolName>([
+  ToolName.CircleScissors,
+  ToolName.RectangleScissors,
+  ToolName.SphereScissors,
+]);
 
 function isShiftKeyEvent(evt: Event): boolean {
   const key = (evt as KeyboardEvent).key;
   return key === 'Shift' || key === 'ShiftLeft' || key === 'ShiftRight';
 }
 
-function onScissorShiftDown(evt: Event): void {
-  if (!isShiftKeyEvent(evt) || scissorShiftPressed) return;
-  scissorShiftPressed = true;
-  syncActiveScissorStrategy();
+function onEditModeShiftDown(evt: Event): void {
+  if (!isShiftKeyEvent(evt) || editModeShiftPressed) return;
+  editModeShiftPressed = true;
+  syncActiveEditMode();
 }
 
-function onScissorShiftUp(evt: Event): void {
-  if (!isShiftKeyEvent(evt) || !scissorShiftPressed) return;
-  scissorShiftPressed = false;
-  syncActiveScissorStrategy();
+function onEditModeShiftUp(evt: Event): void {
+  if (!isShiftKeyEvent(evt) || !editModeShiftPressed) return;
+  editModeShiftPressed = false;
+  syncActiveEditMode();
 }
 
-function installScissorModifierListeners(): void {
-  if (scissorModifierListenersInstalled) return;
+function installEditModeModifierListeners(): void {
+  if (editModeModifierListenersInstalled) return;
   if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') return;
   // Capture phase, matching the hotkey listener's convention: the modifier must be
   // observed regardless of what holds focus, and ViewerPage's lifecycle test asserts
   // every keydown listener it installs is a capturing one.
-  window.addEventListener('keydown', onScissorShiftDown, { capture: true });
-  window.addEventListener('keyup', onScissorShiftUp, { capture: true });
-  scissorModifierListenersInstalled = true;
+  window.addEventListener('keydown', onEditModeShiftDown, { capture: true });
+  window.addEventListener('keyup', onEditModeShiftUp, { capture: true });
+  editModeModifierListenersInstalled = true;
 }
 
-function removeScissorModifierListeners(): void {
-  if (!scissorModifierListenersInstalled) return;
-  scissorModifierListenersInstalled = false;
-  scissorShiftPressed = false;
+function removeEditModeModifierListeners(): void {
+  if (!editModeModifierListenersInstalled) return;
+  editModeModifierListenersInstalled = false;
+  editModeShiftPressed = false;
   if (typeof window === 'undefined' || typeof window.removeEventListener !== 'function') return;
-  window.removeEventListener('keydown', onScissorShiftDown, { capture: true });
-  window.removeEventListener('keyup', onScissorShiftUp, { capture: true });
+  window.removeEventListener('keydown', onEditModeShiftDown, { capture: true });
+  window.removeEventListener('keyup', onEditModeShiftUp, { capture: true });
 }
 
+/**
+ * Fill-only BrushTool strategies. The fill/erase pairs live in EDIT_MODE_STRATEGY; what
+ * remains here is the threshold family, which Cornerstone ships without an erase
+ * counterpart. A 3D kernel means one stroke writes into neighbouring slices too.
+ */
 const BRUSH_STRATEGY: Partial<Record<ToolName, string>> = {
-  [ToolName.Brush]: 'FILL_INSIDE_CIRCLE',
-  [ToolName.Eraser]: 'ERASE_INSIDE_CIRCLE',
   [ToolName.ThresholdBrush]: 'THRESHOLD_INSIDE_CIRCLE',
-  // Sphere variants: a 3D kernel, so one stroke writes into neighbouring slices too.
-  // Cornerstone ships all of these on BrushTool already; only the mapping was missing.
-  [ToolName.SphereBrush]: 'FILL_INSIDE_SPHERE',
-  [ToolName.SphereEraser]: 'ERASE_INSIDE_SPHERE',
   [ToolName.SphereThreshold]: 'THRESHOLD_INSIDE_SPHERE',
   [ToolName.DynamicThreshold]: 'THRESHOLD_INSIDE_CIRCLE',
 };
@@ -639,7 +696,7 @@ const CURSOR_FOR_TOOL: Partial<Record<ToolName, string>> = {
 /** Tools that manage their own cursor as live feedback while active. */
 const OWNS_ITS_CURSOR = new Set<ToolName>([
   ToolName.RegionSegmentPlus,
-  // The shape tools' cursor is set by syncActiveScissorStrategy through Cornerstone,
+  // The shape tools' cursor is set by applyEditModeCursor through Cornerstone,
   // and it encodes the active mode (a green + for fill, a red one for erase). Writing a
   // CSS 'crosshair' over it as well meant the crosshair showed on selection and the real
   // cursor only appeared after the first drag re-asserted it.
@@ -709,7 +766,7 @@ export const unifiedToolService = {
   /** Ensure the group exists (configured). Safe to call repeatedly. */
   initialize(): void {
     ensureToolGroup();
-    installScissorModifierListeners();
+    installEditModeModifierListeners();
   },
 
   /** Whether this tool sets its own cursor (the service must not write a CSS one). */
@@ -718,22 +775,37 @@ export const unifiedToolService = {
   },
 
   /**
-   * Re-apply the persisted scissor preference to the live tool group. Called by
-   * applyPreferences whenever settings change; a no-op unless a scissors tool is the
-   * active one, since the strategy is pushed on selection anyway.
+   * Re-apply the persisted edit mode to the live tool group. Called by applyPreferences
+   * whenever settings change; a no-op unless a fill/erase-capable tool is the active
+   * one, since the strategy is pushed on selection anyway.
    */
   applyScissorPreferences(): void {
-    syncActiveScissorStrategy();
+    syncActiveEditMode();
   },
 
   /**
-   * Single entry point for the shape tools' add/remove mode: persists the preference
-   * AND pushes it at the live tool group. The toolbox toggle and the Settings modal
-   * both land here, so neither can set one without the other.
+   * Single entry point for the add/remove mode: persists the preference AND pushes it at
+   * the live tool group. The toolbox toggle, the `e` hotkey and the Settings modal all
+   * land here, so none of them can set one without the other.
    */
-  setScissorMode(mode: 'fill' | 'erase'): void {
+  setEditMode(mode: EditMode): void {
     usePreferencesStore.getState().setScissorDefaultStrategy(mode);
-    syncActiveScissorStrategy();
+    syncActiveEditMode();
+  },
+
+  /** Flip the persisted mode — what the `e` hotkey does. */
+  toggleEditMode(): void {
+    unifiedToolService.setEditMode(primaryEditMode() === 'fill' ? 'erase' : 'fill');
+  },
+
+  /** The mode in force right now, Shift inversion included (for the toolbox). */
+  currentEditMode(): EditMode {
+    return effectiveEditMode();
+  },
+
+  /** Whether this tool offers the fill/erase choice at all. */
+  hasEditMode(toolName: ToolName): boolean {
+    return EDIT_MODE_TOOLS.has(toolName);
   },
 
   /**
@@ -773,7 +845,13 @@ export const unifiedToolService = {
     // before the early return, so the eraser actually erases.
     if (csName === BrushTool.toolName) {
       try {
-        toolGroup.setActiveStrategy(BrushTool.toolName, BRUSH_STRATEGY[toolName] ?? 'FILL_INSIDE_CIRCLE');
+        // Brush and Sph. Brush carry the fill/erase mode; the threshold variants are
+        // fill-only (Cornerstone ships no erase-threshold strategy), so they keep their
+        // fixed mapping.
+        const strategy = EDIT_MODE_TOOLS.has(toolName)
+          ? EDIT_MODE_STRATEGY[toolName]?.[effectiveEditMode()]
+          : BRUSH_STRATEGY[toolName];
+        toolGroup.setActiveStrategy(BrushTool.toolName, strategy ?? 'FILL_INSIDE_CIRCLE');
       } catch {
         /* default strategy */
       }
@@ -799,9 +877,9 @@ export const unifiedToolService = {
     // while it is already active) hits the `csName === currentPrimary` early return
     // below — so it has to be applied here, ahead of it, or the mode change never lands.
     // activeToolName is set before syncing so the sync knows which tool to act on.
-    if (SCISSORS_TOOLS.has(toolName)) {
+    if (EDIT_MODE_TOOLS.has(toolName)) {
       activeToolName = toolName;
-      syncActiveScissorStrategy();
+      syncActiveEditMode();
     }
     if (csName === currentPrimary) {
       activeToolName = toolName;
@@ -830,7 +908,7 @@ export const unifiedToolService = {
     const bindings: Array<{ mouseButton: number; modifierKey?: number }> = [
       { mouseButton: Primary },
     ];
-    if (SCISSORS_TOOLS.has(toolName)) {
+    if (EDIT_MODE_TOOLS.has(toolName)) {
       bindings.push({ mouseButton: Primary, modifierKey: ShiftModifier });
     }
     toolGroup.setToolActive(csName, { bindings });
@@ -1048,7 +1126,7 @@ export const unifiedToolService = {
 
   /** Destroy the unified tool group. */
   destroy(): void {
-    removeScissorModifierListeners();
+    removeEditModeModifierListeners();
     try {
       ToolGroupManager.destroyToolGroup(UNIFIED_TOOL_GROUP_ID);
     } catch {

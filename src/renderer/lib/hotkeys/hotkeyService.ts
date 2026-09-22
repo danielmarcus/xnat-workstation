@@ -70,7 +70,6 @@ const TOOL_ACTION_MAP: Partial<Record<HotkeyAction, ToolName>> = {
   'tool.freehandROI':      ToolName.PlanarFreehandROI,
   'tool.crosshairs':       ToolName.Crosshairs,
   'tool.brush':            ToolName.Brush,
-  'tool.eraser':           ToolName.Eraser,
   'tool.thresholdBrush':   ToolName.ThresholdBrush,
   'tool.freehandContour':  ToolName.FreehandContour,
   'tool.splineContour':    ToolName.SplineContour,
@@ -150,6 +149,9 @@ function dispatchAction(action: HotkeyAction): boolean {
   // ─── Everything else ────────────────────────────────────────
   switch (action) {
     // Viewport actions
+    case 'annotation.toggleEditMode':
+      unifiedToolService.toggleEditMode();
+      return true;
     case 'viewport.reset':
       viewerState.resetViewport();
       return true;

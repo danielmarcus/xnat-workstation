@@ -20,7 +20,10 @@ export const DEFAULT_HOTKEY_MAP: HotkeyMap = {
   'tool.length':      [{ key: 'l' }],
   'tool.angle':       [{ key: 'a' }],
   'tool.brush':       [{ key: 'b' }],
-  'tool.eraser':      [{ key: 'e' }],
+  // `e` used to select a separate Eraser tool. Erase is now a MODE shared by every
+  // fill/erase-capable tool, so the same key toggles it — one key that works for the
+  // brush and the shape tools alike, instead of one that worked for a single tool.
+  'annotation.toggleEditMode': [{ key: 'e' }],
   'tool.crosshairs':  [{ key: 'c' }],
   'tool.probe':       [{ key: 'd' }],   // D for density probe
   'tool.arrowAnnotate': [{ key: 't' }], // T for text annotation

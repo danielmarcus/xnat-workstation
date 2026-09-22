@@ -97,13 +97,11 @@ const TOOL_NAME_MAP: Record<ToolName, string> = {
   // NOT Cornerstone's CrosshairsTool (which has rendering issues on stack viewports).
   // Map it to WindowLevel so the tool group has valid bindings when Crosshairs is active.
   [ToolName.Crosshairs]: WindowLevelTool.toolName,
-  // Labelmap segmentation tools — Brush/Eraser/ThresholdBrush all map to BrushTool
+  // Labelmap segmentation tools — Brush/ThresholdBrush all map to BrushTool
   [ToolName.Brush]: BrushTool.toolName,
-  [ToolName.Eraser]: BrushTool.toolName,
   [ToolName.ThresholdBrush]: BrushTool.toolName,
   // Sphere brush family — all BrushTool; the strategy differs, not the tool.
   [ToolName.SphereBrush]: BrushTool.toolName,
-  [ToolName.SphereEraser]: BrushTool.toolName,
   [ToolName.SphereThreshold]: BrushTool.toolName,
   [ToolName.DynamicThreshold]: BrushTool.toolName,
   [ToolName.CircleScissors]: CircleScissorsTool.toolName,
@@ -429,8 +427,6 @@ function getSafePaintSegmentIndex(segmentIndex: number): number {
 
 function getBrushStrategyForTool(toolName: ToolName): string | null {
   switch (toolName) {
-    case ToolName.Eraser:
-      return 'ERASE_INSIDE_CIRCLE';
     case ToolName.ThresholdBrush:
       return 'THRESHOLD_INSIDE_CIRCLE';
     case ToolName.Brush:

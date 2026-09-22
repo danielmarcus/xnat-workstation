@@ -89,12 +89,12 @@ afterEach(() => {
   else (globalThis as any).window = originalWindow;
 });
 
-describe('unified scissors strategy', () => {
+describe('unified edit mode (fill / erase)', () => {
   it.each([
     [ToolName.CircleScissors, /CircleScissor/],
     [ToolName.RectangleScissors, /RectangleScissor/],
     [ToolName.SphereScissors, /SphereScissor/],
-  ])('%s applies the erase strategy when the scissor mode is erase', (tool, match) => {
+  ])('%s applies the erase strategy when the edit mode is erase', (tool, match) => {
     usePreferencesStore.getState().setScissorDefaultStrategy('erase');
 
     unifiedToolService.setActiveTool(tool as ToolName);
@@ -106,7 +106,7 @@ describe('unified scissors strategy', () => {
     [ToolName.CircleScissors, /CircleScissor/],
     [ToolName.RectangleScissors, /RectangleScissor/],
     [ToolName.SphereScissors, /SphereScissor/],
-  ])('%s applies the fill strategy when the scissor mode is fill', (tool, match) => {
+  ])('%s applies the fill strategy when the edit mode is fill', (tool, match) => {
     usePreferencesStore.getState().setScissorDefaultStrategy('fill');
 
     unifiedToolService.setActiveTool(tool as ToolName);
@@ -187,5 +187,54 @@ describe('unified scissors strategy', () => {
     expect(ownsItsCursor(ToolName.CircleScissors)).toBe(true);
     expect(ownsItsCursor(ToolName.RectangleScissors)).toBe(true);
     expect(ownsItsCursor(ToolName.SphereScissors)).toBe(true);
+  });
+
+  // ── the brush family now shares the same mode ─────────────────────────────────
+  it.each([
+    [ToolName.Brush, 'ERASE_INSIDE_CIRCLE', 'FILL_INSIDE_CIRCLE'],
+    [ToolName.SphereBrush, 'ERASE_INSIDE_SPHERE', 'FILL_INSIDE_SPHERE'],
+  ])('%s follows the edit mode', (tool, eraseStrategy, fillStrategy) => {
+    usePreferencesStore.getState().setScissorDefaultStrategy('erase');
+    unifiedToolService.setActiveTool(tool as ToolName);
+    expect(strategiesFor(/Brush/)).toContain(eraseStrategy);
+
+    usePreferencesStore.getState().setScissorDefaultStrategy('fill');
+    unifiedToolService.setActiveTool(tool as ToolName);
+    expect(lastStrategyFor(/Brush/)).toBe(fillStrategy);
+  });
+
+  it.each([ToolName.ThresholdBrush, ToolName.SphereThreshold, ToolName.DynamicThreshold])(
+    '%s is fill-only and ignores the edit mode',
+    (tool) => {
+      // Cornerstone ships THRESHOLD_INSIDE_* with no erase counterpart. Letting the mode
+      // through would select a strategy that does not exist and silently fall back.
+      usePreferencesStore.getState().setScissorDefaultStrategy('erase');
+      unifiedToolService.setActiveTool(tool);
+      expect(lastStrategyFor(/Brush/)).toMatch(/^THRESHOLD_/);
+      expect(unifiedToolService.hasEditMode(tool)).toBe(false);
+    },
+  );
+
+  it('inverts the brush with Shift and restores it on release', () => {
+    usePreferencesStore.getState().setScissorDefaultStrategy('fill');
+    unifiedToolService.setActiveTool(ToolName.Brush);
+
+    dispatchWindowKey('keydown', 'Shift');
+    expect(lastStrategyFor(/Brush/)).toBe('ERASE_INSIDE_CIRCLE');
+
+    dispatchWindowKey('keyup', 'Shift');
+    expect(lastStrategyFor(/Brush/)).toBe('FILL_INSIDE_CIRCLE');
+  });
+
+  // The erase CURSOR is asserted end-to-end (edit-mode.e2e.ts), not here: it is written
+  // onto real viewport elements, and this harness registers none — the loop would find
+  // nothing and the assertion would pass or fail for the wrong reason.
+
+  it('toggleEditMode flips the persisted preference', () => {
+    usePreferencesStore.getState().setScissorDefaultStrategy('fill');
+    unifiedToolService.toggleEditMode();
+    expect(unifiedToolService.currentEditMode()).toBe('erase');
+    unifiedToolService.toggleEditMode();
+    expect(unifiedToolService.currentEditMode()).toBe('fill');
   });
 });

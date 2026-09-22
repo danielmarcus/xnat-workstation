@@ -852,10 +852,11 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
                 brushSize,
                 samplingRadius,
                 onSamplingRadiusChange: (v: number) => unifiedToolService.setSamplingRadius(v),
-                // Shape-tool add/remove mode. Same single-entry-point contract: the
-                // service persists the preference and pushes the Cornerstone strategy.
-                scissorMode,
-                onScissorModeChange: (m: 'fill' | 'erase') => unifiedToolService.setScissorMode(m),
+                // Add/remove mode, shared by the brush and shape tools. Same
+                // single-entry-point contract: the service persists the preference and
+                // pushes the Cornerstone strategy.
+                editMode: scissorMode,
+                onEditModeChange: (m: 'fill' | 'erase') => unifiedToolService.setEditMode(m),
                 // Single entry point: clamps + writes the unified tool group + the store.
                 onBrushSizeChange: (v: number) => unifiedToolService.setBrushSize(v),
                 // Threshold window (shown by the toolbox only while the threshold brush

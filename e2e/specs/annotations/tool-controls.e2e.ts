@@ -35,21 +35,23 @@ const visibleControls = async (panel: ReturnType<Page['locator']>) => ({
   brushSize: (await panel.getByLabel('Brush size').count()) > 0,
   intensityWindow: (await panel.locator('[data-testid="threshold-controls"]').count()) > 0,
   samplingRadius: (await panel.locator('[data-testid="sampling-radius-controls"]').count()) > 0,
-  scissorMode: (await panel.locator('[data-testid="scissor-mode-controls"]').count()) > 0,
+  editMode: (await panel.locator('[data-testid="edit-mode-controls"]').count()) > 0,
 });
 
 const CASES = [
-  { tool: 'Brush', brushSize: true, intensityWindow: false, samplingRadius: false, scissorMode: false },
-  { tool: 'Threshold', brushSize: true, intensityWindow: true, samplingRadius: false, scissorMode: false },
-  { tool: 'Sph. Thresh', brushSize: true, intensityWindow: true, samplingRadius: false, scissorMode: false },
-  { tool: 'Dyn. Thresh', brushSize: true, intensityWindow: false, samplingRadius: true, scissorMode: false },
-  { tool: 'Rect Multi', brushSize: false, intensityWindow: true, samplingRadius: false, scissorMode: false },
+  { tool: 'Brush', brushSize: true, intensityWindow: false, samplingRadius: false, editMode: true },
+  { tool: 'Threshold', brushSize: true, intensityWindow: true, samplingRadius: false, editMode: false },
+  { tool: 'Sph. Brush', brushSize: true, intensityWindow: false, samplingRadius: false, editMode: true },
+  // Threshold variants are fill-only — Cornerstone ships no erase-threshold strategy.
+  { tool: 'Sph. Thresh', brushSize: true, intensityWindow: true, samplingRadius: false, editMode: false },
+  { tool: 'Dyn. Thresh', brushSize: true, intensityWindow: false, samplingRadius: true, editMode: false },
+  { tool: 'Rect Multi', brushSize: false, intensityWindow: true, samplingRadius: false, editMode: false },
   // The shape tools carry the add/remove mode toggle and nothing else — notably no
   // brush radius, which they ignore.
-  { tool: 'Circle', brushSize: false, intensityWindow: false, samplingRadius: false, scissorMode: true },
-  { tool: 'Rect', brushSize: false, intensityWindow: false, samplingRadius: false, scissorMode: true },
-  { tool: 'Sphere', brushSize: false, intensityWindow: false, samplingRadius: false, scissorMode: true },
-  { tool: 'Select', brushSize: false, intensityWindow: false, samplingRadius: false, scissorMode: false },
+  { tool: 'Circle', brushSize: false, intensityWindow: false, samplingRadius: false, editMode: true },
+  { tool: 'Rect', brushSize: false, intensityWindow: false, samplingRadius: false, editMode: true },
+  { tool: 'Sphere', brushSize: false, intensityWindow: false, samplingRadius: false, editMode: true },
+  { tool: 'Select', brushSize: false, intensityWindow: false, samplingRadius: false, editMode: false },
 ];
 
 test('each tool shows exactly the controls it declares it needs', async ({ page }) => {
@@ -64,7 +66,7 @@ test('each tool shows exactly the controls it declares it needs', async ({ page 
       brushSize: c.brushSize,
       intensityWindow: c.intensityWindow,
       samplingRadius: c.samplingRadius,
-      scissorMode: c.scissorMode,
+      editMode: c.editMode,
     });
   }
 });

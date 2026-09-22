@@ -82,7 +82,7 @@ test('the spherical brush paints across slices; the circle brush does not', asyn
   ).toBeGreaterThan(1);
 });
 
-test('the spherical eraser removes across slices', async ({ page }) => {
+test('the spherical brush in erase mode removes across slices', async ({ page }) => {
   await loadFixture(page, 'ct-axial-300', 'panel_0');
   await expect.poll(() => page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.isUnifiedVolumeReady()), { timeout: 30_000 }).toBe(true);
   await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.resetUnifiedSegmentations());
@@ -96,7 +96,8 @@ test('the spherical eraser removes across slices', async ({ page }) => {
   expect(painted).toBeGreaterThan(0);
   expect(spread).toBeGreaterThan(1);
 
-  await pickTool(panel, 'Sph. Eraser');
+  // Sph. Eraser retired into the shared edit mode: same tool, erase mode.
+  await panel.getByRole('button', { name: 'erase', exact: true }).click();
   await stroke(page);
   expect(
     await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.getPaintedVoxelCount()),

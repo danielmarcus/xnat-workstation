@@ -22,7 +22,7 @@ export type HotkeyAction =
   | 'tool.freehandROI'
   | 'tool.crosshairs'
   | 'tool.brush'
-  | 'tool.eraser'
+  | 'annotation.toggleEditMode'
   | 'tool.thresholdBrush'
   | 'tool.freehandContour'
   | 'tool.splineContour'
