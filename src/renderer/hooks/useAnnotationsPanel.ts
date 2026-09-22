@@ -939,9 +939,13 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
     handlers,
     // create-in-edit-mode (D7.6) — the label being typed into, as TEXT. The rows render
     // it in place of the stored label; nothing in the panel takes focus.
-    capturedContainerId: naming?.stage === 'container' && naming.touched ? naming.containerId : null,
+    // `capturing*` marks the label that is taking keystrokes — set as soon as create
+    // runs, before anything is typed, so the user can SEE the label is editable. The
+    // `*Draft` is null until they actually type, and the row then shows the existing
+    // (default) name inside the same box.
+    capturingContainerId: naming?.stage === 'container' ? naming.containerId : null,
     capturedContainerDraft: naming?.stage === 'container' && naming.touched ? naming.draft : null,
-    capturedMemberKey: naming?.stage === 'member' && naming.touched ? naming.memberKey : null,
+    capturingMemberKey: naming?.stage === 'member' ? naming.memberKey : null,
     capturedMemberDraft: naming?.stage === 'member' && naming.touched ? naming.draft : null,
     autoEditContainerId,
     autoEditMemberKey,

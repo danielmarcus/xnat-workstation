@@ -47,6 +47,12 @@ export interface ContainerRowProps {
    * keyboard stays on the viewport, so there is no focus ring here and scrolling keeps
    * working while the name is typed.
    */
+  /**
+   * True while this label is the one taking captured keystrokes. Set the moment the
+   * annotation is created — before anything is typed — so the highlight tells the user
+   * the name is editable rather than only appearing once they guess that it is.
+   */
+  capturing?: boolean;
   capturedDraft?: string | null;
   autoEdit?: boolean;
   /** Called once after a freshly-created row enters edit mode (clears the pending flag). */
@@ -79,7 +85,7 @@ export interface ContainerRowProps {
 }
 
 export default function ContainerRow(props: ContainerRowProps) {
-  const { container, expanded, transport, onResolveConflict, crossPanelCount, capturedDraft, autoEdit, onEditConsumed, onCommitName, onToggleExpand, onActivate, onApproveToggle, onAddMember, onSave, onKebab, onDelete, onRename, onSetAllVisible, onSetAllLocked, onRevert, onExportDicom, onExportCsv, onDeleteFromServer } = props;
+  const { container, expanded, transport, onResolveConflict, crossPanelCount, capturing, capturedDraft, autoEdit, onEditConsumed, onCommitName, onToggleExpand, onActivate, onApproveToggle, onAddMember, onSave, onKebab, onDelete, onRename, onSetAllVisible, onSetAllLocked, onRevert, onExportDicom, onExportCsv, onDeleteFromServer } = props;
   // The container has a server copy iff its source carries an XNAT scan id.
   const onServer = !!container.source?.scanId;
   const saving = transport?.phase === 'saving' || transport?.phase === 'loading';
@@ -158,16 +164,16 @@ export default function ContainerRow(props: ContainerRowProps) {
         >
           <span
             className={`text-[11px] font-medium truncate min-w-0 ${
-              capturedDraft != null
+              capturing
                 ? 'text-zinc-100 bg-zinc-800 px-1 rounded ring-1 ring-blue-500'
                 : 'text-zinc-200'
             }`}
             onDoubleClick={beginEdit}
             title={container.label}
-            data-capturing={capturedDraft != null ? 'true' : undefined}
+            data-capturing={capturing ? 'true' : undefined}
           >
             {capturedDraft ?? container.label}
-            {capturedDraft != null && <span className="ml-px animate-pulse">|</span>}
+            {capturing && <span className="ml-px animate-pulse">|</span>}
           </span>
           {/* XNAT scan number of this annotation (e.g. a 30xx SEG scan), shown next
               to the label so panel rows map to scans in XNAT. Absent until the

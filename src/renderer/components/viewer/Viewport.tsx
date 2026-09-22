@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 /**
  * Viewport — the unified, presentational viewport (Phase 1). Collapses the old
  * CornerstoneViewport (stack) + OrientedViewport (volume) into one shell: it
@@ -11,6 +12,7 @@ import ViewportOverlay from './ViewportOverlay';
 import ViewportReticle from './ViewportReticle';
 import ViewportRuler from './ViewportRuler';
 import ViewportScrollbar from './ViewportScrollbar';
+import { useViewportGestureStore } from '../../stores/viewportGestureStore';
 import ViewportStatusOverlay from './ViewportStatusOverlay';
 import ViewportTimeScrubber from './ViewportTimeScrubber';
 import type { MPRPlane, DisplayPlane } from '@shared/types/viewer';
@@ -58,6 +60,19 @@ export default function Viewport({
   });
   const isActive = useViewerStore((s) => s.activeViewportId === panelId);
   const setActiveViewport = useViewerStore((s) => s.setActiveViewport);
+  const beginDrag = useViewportGestureStore((st) => st.beginDrag);
+  const endDrag = useViewportGestureStore((st) => st.endDrag);
+  // Release on the WINDOW, not the element: the button often comes up outside the
+  // viewport, which is the very case this exists for.
+  useEffect(() => {
+    const end = () => endDrag();
+    window.addEventListener('pointerup', end);
+    window.addEventListener('pointercancel', end);
+    return () => {
+      window.removeEventListener('pointerup', end);
+      window.removeEventListener('pointercancel', end);
+    };
+  }, [endDrag]);
 
   return (
     <div
@@ -70,7 +85,16 @@ export default function Viewport({
       // Select this panel as active on interaction-start. Doesn't preventDefault,
       // so the Cornerstone tool on the canvas still receives the same pointerdown.
       // Restores the click-to-select wiring the deleted CornerstoneViewport had.
-      onPointerDown={() => setActiveViewport(panelId)}
+      onPointerDown={(e) => {
+        setActiveViewport(panelId);
+        // A drag that starts on the IMAGE keeps the pointer until release: the slice
+        // scrollbar and the time scrubber sit inside this viewport, so a stroke drifting
+        // a few pixels toward the right edge would otherwise be taken over by them
+        // mid-draw. A drag that starts ON that chrome is left alone.
+        if (!(e.target as HTMLElement)?.closest?.('[data-viewport-chrome="true"]')) {
+          beginDrag(panelId);
+        }
+      }}
       className="relative w-full h-full bg-black overflow-hidden"
     >
       <div

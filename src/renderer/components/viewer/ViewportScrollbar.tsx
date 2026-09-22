@@ -9,6 +9,7 @@
  */
 import { useRef } from 'react';
 import { useSliceScrollbar } from '../../hooks/useSliceScrollbar';
+import { useIsViewportDragging } from '../../stores/viewportGestureStore';
 
 interface ViewportScrollbarProps {
   panelId: string;
@@ -16,6 +17,9 @@ interface ViewportScrollbarProps {
 
 export default function ViewportScrollbar({ panelId }: ViewportScrollbarProps): React.ReactElement | null {
   const { index, total, setIndex } = useSliceScrollbar(panelId);
+  // Inert while a stroke is in progress: this strip is INSIDE the viewport, so drawing
+  // near the right edge would otherwise hand the drag to the slice scrubber mid-stroke.
+  const dragging = useIsViewportDragging();
   const trackRef = useRef<HTMLDivElement>(null);
 
   if (total <= 1) return null;
@@ -60,7 +64,10 @@ export default function ViewportScrollbar({ panelId }: ViewportScrollbarProps): 
       aria-label="Slice"
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
-      className="absolute right-0 top-0 bottom-0 z-10 w-2.5 cursor-pointer bg-white/5 hover:bg-white/10"
+      data-viewport-chrome="true"
+      className={`absolute right-0 top-0 bottom-0 z-10 w-2.5 cursor-pointer bg-white/5 ${
+        dragging ? 'pointer-events-none' : 'hover:bg-white/10'
+      }`}
     >
       <div
         data-testid={`scrollbar-thumb:${panelId}`}

@@ -120,9 +120,9 @@ export default function AnnotationsPanel({ activeViewportId, sourceImageIds }: A
           palette={panel.palette}
           transportOf={panel.transportOf}
           crossPanelCount={panel.crossPanelCount}
-          capturedContainerId={panel.capturedContainerId}
+          capturingContainerId={panel.capturingContainerId}
           capturedContainerDraft={panel.capturedContainerDraft}
-          capturedMemberKey={panel.capturedMemberKey}
+          capturingMemberKey={panel.capturingMemberKey}
           capturedMemberDraft={panel.capturedMemberDraft}
           autoEditContainerId={panel.autoEditContainerId}
           autoEditMemberKey={panel.autoEditMemberKey}

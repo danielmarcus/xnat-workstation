@@ -37,6 +37,12 @@ export interface MemberRowProps {
    * keystrokes, or null when it is not. Rendered as TEXT, never as a focused input — the
    * keyboard stays on the viewport (see ContainerRow).
    */
+  /**
+   * True while this label is the one taking captured keystrokes. Set the moment the
+   * annotation is created — before anything is typed — so the highlight tells the user
+   * the name is editable rather than only appearing once they guess that it is.
+   */
+  capturing?: boolean;
   capturedDraft?: string | null;
   autoEdit?: boolean;
   /** Called once after a freshly-created row enters edit mode (clears the pending flag). */
@@ -78,7 +84,7 @@ function hexToRgba(hex: string): [number, number, number, number] | null {
 export default function MemberRow(props: MemberRowProps) {
   const {
     member, visibility, lockState, active, selected, provenance, eligibility = 'native',
-    sourceSeriesLabel, metric, empty, capturedDraft, autoEdit, onEditConsumed, palette, onSelect, onActivate, onCycleVisibility, onToggleLock, onDelete, onRename, onCommitName, onColorChange,
+    sourceSeriesLabel, metric, empty, capturing, capturedDraft, autoEdit, onEditConsumed, palette, onSelect, onActivate, onCycleVisibility, onToggleLock, onDelete, onRename, onCommitName, onColorChange,
   } = props;
 
   const differentFor = eligibility === 'different-for';
@@ -202,16 +208,16 @@ export default function MemberRow(props: MemberRowProps) {
       ) : (
         <span
           className={`text-[11px] truncate ${
-            capturedDraft != null
+            capturing
               ? 'text-zinc-100 bg-zinc-800 px-1 rounded ring-1 ring-blue-500'
               : differentFor ? 'text-zinc-400 line-through decoration-zinc-600' : active || selected ? 'text-zinc-100' : 'text-zinc-300'
           }`}
-          data-capturing={capturedDraft != null ? 'true' : undefined}
+          data-capturing={capturing ? 'true' : undefined}
           onDoubleClick={(e) => { e.stopPropagation(); if (!readOnly) setEditing(true); }}
           title={member.label}
         >
           {capturedDraft ?? member.label}
-          {capturedDraft != null && <span className="ml-px animate-pulse">|</span>}
+          {capturing && <span className="ml-px animate-pulse">|</span>}
         </span>
       )}
 

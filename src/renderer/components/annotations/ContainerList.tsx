@@ -73,10 +73,10 @@ export interface ContainerListProps extends ContainerListResolvers {
   handlers: ContainerListHandlers;
   /** Freshly-created container id whose name should start in edit mode (D7.6). */
   /** Container whose label is currently receiving captured keystrokes, and the draft. */
-  capturedContainerId?: string | null;
+  capturingContainerId?: string | null;
   capturedContainerDraft?: string | null;
   /** Member (`"<containerId> <index>"`) receiving captured keystrokes, and the draft. */
-  capturedMemberKey?: string | null;
+  capturingMemberKey?: string | null;
   capturedMemberDraft?: string | null;
   autoEditContainerId?: string | null;
   /** Freshly-created member key (`containerIdmemberId`) to start in edit mode. */
@@ -104,7 +104,8 @@ export default function ContainerList(props: ContainerListProps) {
               transport={props.transportOf?.(c.id)}
               onResolveConflict={() => h.onResolveConflict(c.id)}
               crossPanelCount={props.crossPanelCount?.(c.id)}
-              capturedDraft={props.capturedContainerId === c.id ? props.capturedContainerDraft ?? null : null}
+              capturing={props.capturingContainerId === c.id}
+              capturedDraft={props.capturingContainerId === c.id ? props.capturedContainerDraft ?? null : null}
               autoEdit={props.autoEditContainerId === c.id}
               onEditConsumed={props.onEditConsumed}
               onCommitName={() => h.onContainerEditCommit?.(c.id)}
@@ -144,7 +145,8 @@ export default function ContainerList(props: ContainerListProps) {
                     sourceSeriesLabel={props.sourceSeriesLabelOf?.(c.id, m)}
                     metric={props.metricOf?.(c.id, m)}
                     empty={props.emptyOf?.(c.id, m) ?? false}
-                    capturedDraft={props.capturedMemberKey === `${c.id} ${m.id}` ? props.capturedMemberDraft ?? null : null}
+                    capturing={props.capturingMemberKey === `${c.id} ${m.id}`}
+                  capturedDraft={props.capturingMemberKey === `${c.id} ${m.id}` ? props.capturedMemberDraft ?? null : null}
                   autoEdit={props.autoEditMemberKey === `${c.id} ${m.id}`}
                     onEditConsumed={props.onEditConsumed}
                     palette={props.palette}

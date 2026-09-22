@@ -8,12 +8,16 @@
  * Presentational (§2): all Cornerstone access is via useTimeScrubber.
  */
 import { useTimeScrubber } from '../../hooks/useTimeScrubber';
+import { useIsViewportDragging } from '../../stores/viewportGestureStore';
 
 interface ViewportTimeScrubberProps {
   panelId: string;
 }
 
 export default function ViewportTimeScrubber({ panelId }: ViewportTimeScrubberProps): React.ReactElement | null {
+  // Inert while a stroke is in progress: it sits over the image, so a drag that
+  // drifts onto it would otherwise be taken over mid-draw.
+  const dragging = useIsViewportDragging();
   const { current, total, setTimepoint } = useTimeScrubber(panelId);
   if (total <= 1) return null;
 
@@ -23,7 +27,10 @@ export default function ViewportTimeScrubber({ panelId }: ViewportTimeScrubberPr
     <div
       data-testid={`time-scrubber:${panelId}`}
       onPointerDown={(e) => e.stopPropagation()}
-      className="pointer-events-auto absolute bottom-2 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 rounded bg-zinc-900/80 px-2 py-1 text-[10px] text-zinc-200"
+      data-viewport-chrome="true"
+      className={`absolute bottom-2 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 rounded bg-zinc-900/80 px-2 py-1 text-[10px] text-zinc-200 ${
+        dragging ? 'pointer-events-none' : 'pointer-events-auto'
+      }`}
     >
       <button
         data-testid={`time-prev:${panelId}`}
