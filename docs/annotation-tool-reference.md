@@ -105,10 +105,40 @@ The separate **Eraser** and **Sph. Eraser** tools were retired into this mode.
 The threshold family (`Threshold`, `Sph. Thresh`, `Dyn. Thresh`) is **fill-only** and does
 not show the toggle: Cornerstone ships `THRESHOLD_INSIDE_*` with no erase counterpart.
 
-The brush's own ring shows RADIUS, not mode — Cornerstone dashes it off what lies under
-the pointer, not off the active strategy — so erase additionally sets Cornerstone's
-shipped `Eraser` cursor glyph. Without it, holding Shift changed what the next drag would
-do with nothing on screen saying so.
+### Cursors
+
+One function (`cursorSpecFor`) decides the pointer per (tool, mode), and it names every
+cursor **exactly**:
+
+| Tool | Fill | Erase |
+|---|---|---|
+| Brush, Sph. Brush | `crosshair` | `Eraser` |
+| Threshold, Sph. Thresh, Dyn. Thresh | `crosshair` | — (fill-only) |
+| Circle, Sphere | `CircleScissor` | `Eraser` |
+| Rect | `RectangleScissor` | `Eraser` |
+| Paint Fill / Region / Rect Multi / Contour Fill / Select | `cell` / `crosshair` / `crosshair` / `crosshair` / `pointer` | — |
+
+Erase is the same glyph everywhere on purpose: one symbol means "this stroke removes",
+whatever shape is drawing.
+
+Two rules this exists to enforce, both learned from real bugs:
+
+- **Never resolve a cursor as `${tool}.${strategy}`.** Cornerstone's `_getCursor` tries
+  that, then falls back to `${tool}`, then to `default`, and it registers the
+  per-strategy variants lazily — so the same state resolves differently depending on what
+  ran before. Measured: the first Circle selection gave `CircleScissor`, a later
+  identical one gave `CircleScissor.FILL_INSIDE`, and Sphere gave the OS arrow.
+- **One writer.** A CSS map and an edit-mode writer once fought; the CSS one re-asserted
+  on every mousemove and wiped the other, so erase showed the arrow except while Shift
+  was held (which emits no mousemove).
+
+The brush's own SVG ring shows RADIUS, not mode — Cornerstone dashes it off what lies
+under the pointer, not off the active strategy — so it cannot serve as the indicator.
+
+`Region+` is the only tool exempt from the authority: its cursor IS its state
+(copy / not-allowed / wait). It therefore shows the OS arrow when idle.
+
+Every combination is pinned in `e2e/specs/annotations/cursor-matrix.e2e.ts`.
 
 Two Cornerstone quirks the cursor mapping has to absorb: there is a
 `CircleScissor.ERASE_OUTSIDE` cursor SVG but no `ERASE_INSIDE` one, and `SphereScissor`

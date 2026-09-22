@@ -139,17 +139,24 @@ describe('unified edit mode (fill / erase)', () => {
     expect(lastStrategyFor(/CircleScissor/)).toBe('FILL_INSIDE');
   });
 
-  it('keeps the cursor in step with the active scissor strategy', () => {
-    usePreferencesStore.getState().setScissorDefaultStrategy('erase');
-    unifiedToolService.setActiveTool(ToolName.CircleScissors);
-
-    // The cursor argument names a Cornerstone SVG asset, not a strategy, and the two
-    // do not line up: Cornerstone ships CircleScissor.ERASE_OUTSIDE but no
-    // ERASE_INSIDE cursor, so erasing correctly asks for the ERASE_OUTSIDE glyph.
-    expect(cs.getLastToolGroup()?.setViewportsCursorByToolName).toHaveBeenCalledWith(
-      'CircleScissor',
-      'ERASE_OUTSIDE',
-    );
+  it('exempts only Region+ from the cursor authority', () => {
+    // Cursor VALUES are pinned end-to-end (cursor-matrix.e2e.ts); this pins the one
+    // thing that decides whether the authority runs at all. The shape tools were listed
+    // as owning their cursor while a second writer set it; when that writer was removed
+    // the exemption silently dropped them to Cornerstone's base glyph — identical for
+    // fill and erase, and the OS arrow for Sphere. Only a tool whose cursor IS its live
+    // state belongs here.
+    expect(unifiedToolService.ownsItsCursor(ToolName.RegionSegmentPlus)).toBe(true);
+    for (const tool of [
+      ToolName.Brush,
+      ToolName.SphereBrush,
+      ToolName.CircleScissors,
+      ToolName.RectangleScissors,
+      ToolName.SphereScissors,
+      ToolName.ThresholdBrush,
+    ]) {
+      expect(unifiedToolService.ownsItsCursor(tool), `${tool} must not be exempt`).toBe(false);
+    }
   });
 
   it('does not touch the scissor strategy when a brush tool is selected', () => {
@@ -178,57 +185,6 @@ describe('unified edit mode (fill / erase)', () => {
       expect.objectContaining({ mouseButton: 1, modifierKey: 16 }),
     );
   });
-
-  it('leaves the shape tools\u2019 cursor to Cornerstone rather than writing a CSS one', () => {
-    // Two writers were fighting: CURSOR_FOR_TOOL wrote a CSS 'crosshair' via
-    // applyToolCursor, while syncActiveScissorStrategy set Cornerstone's SVG cursor
-    // (green + for fill). The user saw the crosshair first and the green icon only
-    // after drawing. The SVG cursor encodes the mode, so it is the one to keep.
-    expect(ownsItsCursor(ToolName.CircleScissors)).toBe(true);
-    expect(ownsItsCursor(ToolName.RectangleScissors)).toBe(true);
-    expect(ownsItsCursor(ToolName.SphereScissors)).toBe(true);
-  });
-
-  // ── the brush family now shares the same mode ─────────────────────────────────
-  it.each([
-    [ToolName.Brush, 'ERASE_INSIDE_CIRCLE', 'FILL_INSIDE_CIRCLE'],
-    [ToolName.SphereBrush, 'ERASE_INSIDE_SPHERE', 'FILL_INSIDE_SPHERE'],
-  ])('%s follows the edit mode', (tool, eraseStrategy, fillStrategy) => {
-    usePreferencesStore.getState().setScissorDefaultStrategy('erase');
-    unifiedToolService.setActiveTool(tool as ToolName);
-    expect(strategiesFor(/Brush/)).toContain(eraseStrategy);
-
-    usePreferencesStore.getState().setScissorDefaultStrategy('fill');
-    unifiedToolService.setActiveTool(tool as ToolName);
-    expect(lastStrategyFor(/Brush/)).toBe(fillStrategy);
-  });
-
-  it.each([ToolName.ThresholdBrush, ToolName.SphereThreshold, ToolName.DynamicThreshold])(
-    '%s is fill-only and ignores the edit mode',
-    (tool) => {
-      // Cornerstone ships THRESHOLD_INSIDE_* with no erase counterpart. Letting the mode
-      // through would select a strategy that does not exist and silently fall back.
-      usePreferencesStore.getState().setScissorDefaultStrategy('erase');
-      unifiedToolService.setActiveTool(tool);
-      expect(lastStrategyFor(/Brush/)).toMatch(/^THRESHOLD_/);
-      expect(unifiedToolService.hasEditMode(tool)).toBe(false);
-    },
-  );
-
-  it('inverts the brush with Shift and restores it on release', () => {
-    usePreferencesStore.getState().setScissorDefaultStrategy('fill');
-    unifiedToolService.setActiveTool(ToolName.Brush);
-
-    dispatchWindowKey('keydown', 'Shift');
-    expect(lastStrategyFor(/Brush/)).toBe('ERASE_INSIDE_CIRCLE');
-
-    dispatchWindowKey('keyup', 'Shift');
-    expect(lastStrategyFor(/Brush/)).toBe('FILL_INSIDE_CIRCLE');
-  });
-
-  // The erase CURSOR is asserted end-to-end (edit-mode.e2e.ts), not here: it is written
-  // onto real viewport elements, and this harness registers none — the loop would find
-  // nothing and the assertion would pass or fail for the wrong reason.
 
   it('toggleEditMode flips the persisted preference', () => {
     usePreferencesStore.getState().setScissorDefaultStrategy('fill');

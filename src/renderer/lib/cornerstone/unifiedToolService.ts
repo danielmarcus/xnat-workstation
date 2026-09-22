@@ -257,43 +257,6 @@ function scissorCursorFor(
   return { cursorToolName: normalized, cursorStrategy: mode === 'erase' ? 'ERASE_INSIDE' : 'FILL_INSIDE' };
 }
 
-/**
- * Show the mode on the pointer.
- *
- * The brush draws its own SVG ring for radius, but that ring does not say whether the
- * stroke adds or removes: Cornerstone dashes it off `centerSegmentIndexInfo`, which
- * tracks what lies UNDER the pointer, not the active strategy. So erase gets the
- * shipped `Eraser` cursor glyph and fill clears back to the default. Without this,
- * holding Shift changed what the next drag would do with nothing on screen saying so.
- */
-function applyEditModeCursor(toolName: ToolName, mode: EditMode): void {
-  const toolGroup = getToolGroup();
-  if (!toolGroup) return;
-
-  if (SCISSORS_TOOLS.has(toolName)) {
-    const csName = UNIFIED_TOOL_MAP[toolName];
-    if (!csName) return;
-    const { cursorToolName, cursorStrategy } = scissorCursorFor(csName, mode);
-    (
-      toolGroup as unknown as {
-        setViewportsCursorByToolName?: (n: string, s?: string) => void;
-      }
-    ).setViewportsCursorByToolName?.(cursorToolName, cursorStrategy);
-    return;
-  }
-
-  for (const viewportId of unifiedToolService.getViewportIds()) {
-    const el = viewportService.getElement(viewportId) as HTMLDivElement | null;
-    if (!el) continue;
-    try {
-      if (mode === 'erase') csCursors.setCursorForElement(el, 'Eraser');
-      else el.style.cursor = '';
-    } catch {
-      /* cursor asset missing — leave the pointer alone rather than wedging it */
-    }
-  }
-}
-
 /** Push the effective mode's strategy (and its cursor) onto the active tool. */
 function syncActiveEditMode(): void {
   const toolGroup = getToolGroup();
@@ -307,7 +270,9 @@ function syncActiveEditMode(): void {
   } catch {
     /* default strategy */
   }
-  applyEditModeCursor(activeToolName, effectiveEditMode());
+  // Cursor goes through the single authority, so the mode and the tool can never
+  // disagree and a later mousemove cannot undo it.
+  applyToolCursor();
 }
 
 /** Scissors subset — they take a Cornerstone cursor family rather than a CSS one. */
@@ -693,18 +658,105 @@ const CURSOR_FOR_TOOL: Partial<Record<ToolName, string>> = {
   [ToolName.LabelmapEditWithContour]: 'crosshair',
 };
 
-/** Tools that manage their own cursor as live feedback while active. */
-const OWNS_ITS_CURSOR = new Set<ToolName>([
-  ToolName.RegionSegmentPlus,
-  // The shape tools' cursor is set by applyEditModeCursor through Cornerstone,
-  // and it encodes the active mode (a green + for fill, a red one for erase). Writing a
-  // CSS 'crosshair' over it as well meant the crosshair showed on selection and the real
-  // cursor only appeared after the first drag re-asserted it.
-  ToolName.CircleScissors,
-  ToolName.RectangleScissors,
-  ToolName.SphereScissors,
-]);
+/**
+ * Tools that manage their own cursor as live feedback while active, and which the single
+ * authority must therefore not touch.
+ *
+ * Only Region+ qualifies: its cursor IS its state (copy / not-allowed / wait). The shape
+ * tools were listed here while a second writer owned them; leaving them exempt after
+ * that writer was removed silently dropped them to Cornerstone's base glyph — identical
+ * for fill and erase, and `default` for Sphere, which ships no glyph of its own.
+ */
+const OWNS_ITS_CURSOR = new Set<ToolName>([ToolName.RegionSegmentPlus]);
 
+/**
+ * Put the active tool's cursor on every viewport, replacing anything stale.
+ *
+ * Re-asserted on mouse-move as well as on tool change, because the stale write can arrive
+ * from a timer scheduled before the switch.
+ */
+/**
+ * A cursor to show, resolved from the tool AND the current edit mode.
+ *
+ * `css` is a plain CSS keyword; `named` is one of Cornerstone's shipped SVG cursors,
+ * requested BY EXACT NAME.
+ *
+ * Deliberately no `${tool}.${strategy}` resolution. Cornerstone's `_getCursor` tries
+ * that name, then silently falls back to `${tool}`, then to `default` — and it registers
+ * the per-strategy variants lazily, so the SAME state resolves differently depending on
+ * what ran before it. Observed directly: the first selection of Circle produced
+ * `CircleScissor`, a later identical one produced `CircleScissor.FILL_INSIDE`, and
+ * Sphere produced the OS arrow. That non-determinism was the "sometimes the wrong
+ * fill/erase cursor" report. Exact names only.
+ */
+type CursorSpec = { kind: 'css'; value: string } | { kind: 'named'; name: string };
+
+/** Fill-mode cursor for the tools that have an edit mode. */
+const FILL_CURSOR: Partial<Record<ToolName, CursorSpec>> = {
+  [ToolName.Brush]: { kind: 'css', value: 'crosshair' },
+  [ToolName.SphereBrush]: { kind: 'css', value: 'crosshair' },
+  [ToolName.CircleScissors]: { kind: 'named', name: 'CircleScissor' },
+  // Cornerstone ships no SphereScissor glyph; the circle one reads correctly for it.
+  [ToolName.SphereScissors]: { kind: 'named', name: 'CircleScissor' },
+  [ToolName.RectangleScissors]: { kind: 'named', name: 'RectangleScissor' },
+};
+
+/**
+ * Erase looks the same for every tool. That is the point: one glyph means "this stroke
+ * removes", whatever shape is drawing, so the mode is legible without reading the shape.
+ */
+const ERASE_CURSOR: CursorSpec = { kind: 'named', name: 'Eraser' };
+
+/**
+ * THE cursor for a tool, or null when the tool draws its own as live feedback.
+ *
+ * One function decides, so there is exactly one answer per (tool, mode). This replaced
+ * two independent writers — a CSS map and an edit-mode writer — which fought: the CSS
+ * one re-asserted on every mousemove and wiped the edit-mode cursor, so erase mode
+ * showed the plain arrow unless you happened to be holding Shift (which sets no
+ * mousemove in motion). Every combination is pinned in cursor-matrix.e2e.ts.
+ */
+function cursorSpecFor(toolName: ToolName): CursorSpec | null {
+  if (OWNS_ITS_CURSOR.has(toolName)) return null;
+
+  if (EDIT_MODE_TOOLS.has(toolName)) {
+    if (effectiveEditMode() === 'erase') return ERASE_CURSOR;
+    return FILL_CURSOR[toolName] ?? { kind: 'css', value: 'crosshair' };
+  }
+  // Fill-only painting tools still get a deliberate cursor rather than the OS arrow.
+  if (BRUSH_STRATEGY[toolName] !== undefined) return { kind: 'css', value: 'crosshair' };
+
+  return { kind: 'css', value: CURSOR_FOR_TOOL[toolName] ?? '' };
+}
+
+/**
+ * Write a cursor.
+ *
+ * There is deliberately no memo of what was applied last. Cornerstone writes the cursor
+ * behind our back — `setToolActive` calls `setViewportsCursorByToolName` itself — so
+ * "we already applied X" is never evidence that X is still on the element. A memo here
+ * produced two real bugs: Sphere inherited Circle's suppressed write and fell back to
+ * the OS arrow, and releasing Shift left a cursor that did not match fill mode. A CSS
+ * write is compared against the element because that comparison IS sound.
+ */
+function writeCursor(el: HTMLElement, spec: CursorSpec): void {
+  try {
+    if (spec.kind === 'css') {
+      if (el.style.cursor !== spec.value) el.style.cursor = spec.value;
+      return;
+    }
+    csCursors.setCursorForElement(el as HTMLDivElement, spec.name);
+  } catch {
+    /* cursor asset missing — leave the pointer alone rather than wedging it */
+  }
+}
+
+/**
+ * Put the active tool's cursor on every viewport, replacing anything stale.
+ *
+ * Re-asserted on mouse-move as well as on tool change, because the stale write can arrive
+ * from a timer scheduled before the switch.
+ */
 /**
  * Put the active tool's cursor on every viewport, replacing anything stale.
  *
@@ -713,13 +765,14 @@ const OWNS_ITS_CURSOR = new Set<ToolName>([
  */
 function applyToolCursor(): void {
   const toolName = activeToolName;
-  if (!toolName || OWNS_ITS_CURSOR.has(toolName)) return;
-  const wanted = CURSOR_FOR_TOOL[toolName] ?? '';
+  if (!toolName) return;
+  const spec = cursorSpecFor(toolName);
+  if (!spec) return;
   const write = () => {
     if (activeToolName !== toolName) return; // the tool changed again mid-flight
     for (const viewportId of unifiedToolService.getViewportIds()) {
       const el = viewportService.getElement(viewportId) as HTMLElement | null;
-      if (el && el.style.cursor !== wanted) el.style.cursor = wanted;
+      if (el) writeCursor(el, spec);
     }
   };
   write();
