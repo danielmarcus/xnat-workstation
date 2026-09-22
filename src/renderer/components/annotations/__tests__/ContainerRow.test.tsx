@@ -165,16 +165,22 @@ describe('ContainerRow', () => {
     expect(cbs.onRename).toHaveBeenCalledWith('Pelvis_v4');
   });
 
-  it('opens the name editor on create AND focuses it so the user can type the name', () => {
-    // Create is the first step of the naming sequence (container label → member label):
-    // the editor opens (frozen mockup D7.6, create-in-edit-mode) AND takes the keyboard
-    // so the user types the container name immediately, then Enter advances to the member.
-    const onEditConsumed = vi.fn();
-    setup({ autoEdit: true, onEditConsumed });
+  it('shows the captured draft as TEXT on create, taking no focus', () => {
+    // The create naming sequence types into this label without it ever becoming a
+    // focused field: DOM focus stays on the viewport, so scrolling keeps working and no
+    // browser focus ring is drawn in the panel. The draft is rendered, not bound to an
+    // input.
+    setup({ capturedDraft: 'Liv' });
+    expect(screen.queryByLabelText('Rename container'), 'no input is rendered').toBeNull();
+    expect(screen.getByText(/Liv/), 'the typed draft is shown').toBeTruthy();
+    expect(document.activeElement?.tagName, 'nothing in the row takes focus').not.toBe('INPUT');
+  });
+
+  it('still opens a real, focused editor on a deliberate double-click', async () => {
+    setup();
+    await userEvent.dblClick(screen.getByText('Pelvis_v3'));
     const input = screen.getByLabelText('Rename container');
-    expect(input, 'the editor should be open').toBeTruthy();
-    expect(document.activeElement, 'and it must take focus so the name is typable').toBe(input);
-    expect(onEditConsumed).toHaveBeenCalled();
+    expect(document.activeElement, 'a rename the user asked for must be typable').toBe(input);
   });
 
   it('DOES focus the editor when the user opens it deliberately', async () => {

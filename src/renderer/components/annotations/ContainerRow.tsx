@@ -41,6 +41,13 @@ export interface ContainerRowProps {
   /** Number of OTHER viewports this container renders on (cross-panel pill). */
   crossPanelCount?: number;
   /** Start in inline-edit mode (freshly created — D7.6 create-in-edit-mode). */
+  /**
+   * The draft being typed into this label while the create naming sequence is capturing
+   * keystrokes, or null when it is not. Rendered as TEXT, never as a focused input: the
+   * keyboard stays on the viewport, so there is no focus ring here and scrolling keeps
+   * working while the name is typed.
+   */
+  capturedDraft?: string | null;
   autoEdit?: boolean;
   /** Called once after a freshly-created row enters edit mode (clears the pending flag). */
   onEditConsumed?: () => void;
@@ -72,7 +79,7 @@ export interface ContainerRowProps {
 }
 
 export default function ContainerRow(props: ContainerRowProps) {
-  const { container, expanded, transport, onResolveConflict, crossPanelCount, autoEdit, onEditConsumed, onCommitName, onToggleExpand, onActivate, onApproveToggle, onAddMember, onSave, onKebab, onDelete, onRename, onSetAllVisible, onSetAllLocked, onRevert, onExportDicom, onExportCsv, onDeleteFromServer } = props;
+  const { container, expanded, transport, onResolveConflict, crossPanelCount, capturedDraft, autoEdit, onEditConsumed, onCommitName, onToggleExpand, onActivate, onApproveToggle, onAddMember, onSave, onKebab, onDelete, onRename, onSetAllVisible, onSetAllLocked, onRevert, onExportDicom, onExportCsv, onDeleteFromServer } = props;
   // The container has a server copy iff its source carries an XNAT scan id.
   const onServer = !!container.source?.scanId;
   const saving = transport?.phase === 'saving' || transport?.phase === 'loading';
@@ -100,15 +107,12 @@ export default function ContainerRow(props: ContainerRowProps) {
       inputRef.current.select();
     }
   }, [editing]);
-  // Create opens the name editor in edit mode (frozen mockup D7.6, create-in-edit-mode).
+  // Create does NOT open an input here. Doing so moved DOM focus into the panel, which
+  // drew a focus ring on the label and stopped the viewport receiving scroll/shortcut
+  // keys. The name is typed through the capture layer (`capturedDraft`); only a
+  // deliberate double-click opens a real editor.
   useEffect(() => {
-    if (autoEdit && !approved) {
-      setDraft(container.label);
-      setEditing(true);
-      onEditConsumed?.();
-    } else if (autoEdit) {
-      onEditConsumed?.();
-    }
+    if (autoEdit) onEditConsumed?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoEdit]);
 
@@ -153,11 +157,17 @@ export default function ContainerRow(props: ContainerRowProps) {
           data-testid={`container-activate-${container.id}`}
         >
           <span
-            className="text-[11px] text-zinc-200 font-medium truncate min-w-0"
+            className={`text-[11px] font-medium truncate min-w-0 ${
+              capturedDraft != null
+                ? 'text-zinc-100 bg-zinc-800 px-1 rounded ring-1 ring-blue-500'
+                : 'text-zinc-200'
+            }`}
             onDoubleClick={beginEdit}
             title={container.label}
+            data-capturing={capturedDraft != null ? 'true' : undefined}
           >
-            {container.label}
+            {capturedDraft ?? container.label}
+            {capturedDraft != null && <span className="ml-px animate-pulse">|</span>}
           </span>
           {/* XNAT scan number of this annotation (e.g. a 30xx SEG scan), shown next
               to the label so panel rows map to scans in XNAT. Absent until the

@@ -33,8 +33,10 @@ test('the "New Measurement (SR)" button creates an empty, named, listed containe
   // Name it → it persists as a listed SR container with zero members.
   // Create opens the name editor (unfocused, so the panel does not steal the keyboard).
   // Filling it via the locator focuses it deliberately, as a user clicking in would.
-  await panel.getByLabel('Rename container').fill('Lesions');
-  await panel.getByLabel('Rename container').press('Enter');
+  // Typed through the capture layer — no input is focused, so the keyboard never
+  // leaves the viewport.
+  await page.keyboard.type('Lesions');
+  await page.keyboard.press('Enter');
   const srRow = panel.locator('[data-testid^="container-row-sr:"]');
   await expect(srRow).toBeVisible({ timeout: 10_000 });
   await expect(srRow.getByText('Lesions')).toBeVisible();

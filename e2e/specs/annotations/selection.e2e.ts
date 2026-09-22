@@ -19,19 +19,15 @@ async function setupTwoMemberSeg(page: Page) {
   const panel = panelOf(page);
   await expect(panel).toBeVisible({ timeout: 15_000 });
 
-  // Create a Segmentation (member "Segment 1"). Create opens the name editors but does
-  // not focus them; commit both so the labels render as text for the clicks below.
+  // Create a Segmentation (member "Segment 1"). Create captures keystrokes into the
+  // labels with focus left on the viewport; Escape ends that sequence, keeping the
+  // default names, which is what this test wants.
   await panel.getByRole('button', { name: 'New Segmentation (SEG)' }).click();
-  await panel.getByLabel('Rename container').press('Enter');
+  await page.keyboard.press('Escape');
 
-  // Add a second member via the container "+", commit its name.
+  // A second member via the container "+", so there are two rows to select between.
   await panel.getByRole('button', { name: 'Add member' }).click();
-  // Commit every open member editor: the first member's may still be open, so target
-  // them individually rather than assuming exactly one.
-  const openEditors = panel.getByLabel('Rename member');
-  for (let i = (await openEditors.count()) - 1; i >= 0; i -= 1) {
-    await openEditors.nth(i).press('Enter');
-  }
+  await page.keyboard.press('Escape');
 
   await expect(row(page, '1')).toBeVisible({ timeout: 10_000 });
   await expect(row(page, '2')).toBeVisible({ timeout: 10_000 });

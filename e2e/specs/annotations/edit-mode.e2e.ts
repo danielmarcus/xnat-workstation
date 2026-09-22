@@ -291,11 +291,72 @@ test('a Shift keyup lost to a window blur does not leave the mode inverted', asy
   await page.keyboard.up('Shift');
 });
 
-test('creating an annotation runs the two-step naming sequence, then returns focus to the viewport', async ({ page }) => {
-  // Requested flow: on create the keyboard lands in the CONTAINER label so the user can
-  // name it, Enter advances to the MEMBER label, and a second Enter (accepting the
-  // default) hands the keyboard back to the image — so scrolling and shortcuts work
-  // again. Enter at each step accepts the shown default.
+test('naming a new annotation never moves focus off the viewport', async ({ page }) => {
+  // The specified behaviour: keystrokes are captured into the container label and then
+  // the member label, while DOM focus stays on the VIEWPORT — so the user can keep
+  // scrolling — and no browser focus ring is ever drawn on a panel label. Typing nothing
+  // leaves both labels at their defaults and every key is a shortcut again.
+  await loadFixture(page, 'ct-axial-300', 'panel_0');
+  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.resetUnifiedSegmentations());
+  const panel = page.locator('[data-testid="annotations-side-panel"]');
+  if (!(await panel.isVisible())) await page.getByRole('button', { name: 'Show segmentation panel' }).click();
+  await expect(panel).toBeVisible({ timeout: 15_000 });
+
+  const focusState = () =>
+    page.evaluate(() => {
+      const el = document.activeElement as HTMLElement | null;
+      return {
+        tag: el?.tagName ?? 'NONE',
+        inPanel: !!el?.closest('[data-testid="annotations-side-panel"]'),
+        inViewport: !!el?.closest('[data-testid^="unified-viewport"]'),
+      };
+    });
+
+  await panel.getByRole('button', { name: 'New Segmentation (SEG)' }).click();
+  await expect(panel.locator('[data-testid^="member-row-"]').first()).toBeVisible({ timeout: 15_000 });
+  await page.waitForTimeout(250);
+
+  const afterCreate = await focusState();
+  expect(afterCreate.inPanel, 'creating must not move the keyboard into the panel').toBe(false);
+  expect(afterCreate.tag, 'no field is focused — the label is not an input').not.toBe('INPUT');
+  expect(afterCreate.inViewport, 'the viewport keeps the keyboard so scrolling still works').toBe(true);
+
+  // Type the container name — the characters land in the label, not in the viewport.
+  await page.keyboard.type('Liver');
+  await expect(
+    panel.locator('[data-testid^="container-row-"]').getByText('Liver'),
+    'typing must go into the container label',
+  ).toBeVisible({ timeout: 5_000 });
+  expect((await focusState()).inPanel, 'and STILL without focus entering the panel').toBe(false);
+  await expect(
+    panel.locator('input[aria-label^="Rename"]'),
+    'the label is never an input, so no focus ring can appear on it',
+  ).toHaveCount(0);
+
+  // Enter accepts it and moves capture to the member label.
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('Tumour');
+  await expect(
+    panel.locator('[data-testid^="member-row-"]').getByText('Tumour'),
+    'the next keystrokes must go into the member label',
+  ).toBeVisible({ timeout: 5_000 });
+  expect((await focusState()).inPanel).toBe(false);
+
+  // Accepting the member name ends the sequence: keys are shortcuts again.
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(250);
+  await panel.getByRole('button', { name: 'Brush', exact: true }).click();
+  await panel.getByRole('button', { name: 'fill', exact: true }).click();
+  await page.keyboard.press('e');
+  await expect(
+    panel.getByRole('button', { name: 'erase', exact: true }),
+    'once naming is done, `e` is a shortcut again rather than a character',
+  ).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('creating without typing keeps the default names and leaves hotkeys working', async ({ page }) => {
+  // "If the user begins creating without changing the labels, both keep their defaults
+  // and keyboard input returns to the hotkeys."
   await loadFixture(page, 'ct-axial-300', 'panel_0');
   await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.resetUnifiedSegmentations());
   const panel = page.locator('[data-testid="annotations-side-panel"]');
@@ -303,39 +364,24 @@ test('creating an annotation runs the two-step naming sequence, then returns foc
   await expect(panel).toBeVisible({ timeout: 15_000 });
 
   await panel.getByRole('button', { name: 'New Segmentation (SEG)' }).click();
+  await expect(panel.locator('[data-testid^="member-row-"]').first()).toBeVisible({ timeout: 15_000 });
 
-  // Step 1: the container label editor is open AND focused — typing names the container.
-  const containerInput = panel.getByLabel('Rename container');
-  await expect(containerInput).toBeFocused({ timeout: 15_000 });
-  await containerInput.fill('Liver');
+  // Skip both naming steps without typing anything.
   await page.keyboard.press('Enter');
-
-  // Step 2: focus advances to the member label editor — typing names the member.
-  const memberInput = panel.getByLabel('Rename member');
-  await expect(memberInput).toBeFocused({ timeout: 15_000 });
-  await memberInput.fill('Segment A');
   await page.keyboard.press('Enter');
+  await page.waitForTimeout(250);
 
-  // Both names stuck (scope to the rows — the active member name also echoes in the toolbox).
-  await expect(panel.locator('[data-testid^="container-row-"]').getByText('Liver')).toBeVisible();
-  await expect(panel.locator('[data-testid^="member-row-"]').getByText('Segment A')).toBeVisible();
+  await expect(
+    panel.locator('[data-testid^="container-row-"]').getByText(/Segmentation/),
+    'the container keeps its default name',
+  ).toBeVisible();
+  await expect(
+    panel.locator('[data-testid^="member-row-"]').getByText(/Segment/),
+    'the member keeps its default name',
+  ).toBeVisible();
 
-  // The sequence over, the keyboard is back on the viewport — not stranded in the panel.
-  const focused = await page.evaluate(() => {
-    const el = document.activeElement as HTMLElement | null;
-    return {
-      tag: el?.tagName ?? 'NONE',
-      inPanel: !!el?.closest('[data-testid="annotations-side-panel"]'),
-    };
-  });
-  expect(focused.tag, 'no text editor should be focused after the naming sequence').not.toBe('INPUT');
-  expect(focused.inPanel, 'focus must return to the viewport, not stay in the panel').toBe(false);
-
-  // And the keyboard reaches the viewport: `e` toggles the mode rather than typing an
-  // "e" into a label.
   await panel.getByRole('button', { name: 'Brush', exact: true }).click();
   await panel.getByRole('button', { name: 'fill', exact: true }).click();
   await page.keyboard.press('e');
   await expect(panel.getByRole('button', { name: 'erase', exact: true })).toHaveAttribute('aria-pressed', 'true');
 });
-

@@ -32,6 +32,12 @@ export interface MemberRowProps {
   /** Empty (freshly created, no geometry). */
   empty?: boolean;
   /** Start in inline-edit mode (freshly created — D7.6 create-in-edit-mode). */
+  /**
+   * The draft being typed into this label while the create naming sequence is capturing
+   * keystrokes, or null when it is not. Rendered as TEXT, never as a focused input — the
+   * keyboard stays on the viewport (see ContainerRow).
+   */
+  capturedDraft?: string | null;
   autoEdit?: boolean;
   /** Called once after a freshly-created row enters edit mode (clears the pending flag). */
   onEditConsumed?: () => void;
@@ -72,7 +78,7 @@ function hexToRgba(hex: string): [number, number, number, number] | null {
 export default function MemberRow(props: MemberRowProps) {
   const {
     member, visibility, lockState, active, selected, provenance, eligibility = 'native',
-    sourceSeriesLabel, metric, empty, autoEdit, onEditConsumed, palette, onSelect, onActivate, onCycleVisibility, onToggleLock, onDelete, onRename, onCommitName, onColorChange,
+    sourceSeriesLabel, metric, empty, capturedDraft, autoEdit, onEditConsumed, palette, onSelect, onActivate, onCycleVisibility, onToggleLock, onDelete, onRename, onCommitName, onColorChange,
   } = props;
 
   const differentFor = eligibility === 'different-for';
@@ -98,13 +104,10 @@ export default function MemberRow(props: MemberRowProps) {
       inputRef.current.select();
     }
   }, [editing]);
-  // Create opens the name editor in edit mode (frozen mockup D7.6, create-in-edit-mode).
+  // Create does NOT open an input here any more — see ContainerRow. The name is typed
+  // through the capture layer (`capturedDraft`) with focus left on the viewport.
   useEffect(() => {
-    if (autoEdit) {
-      setDraft(member.label);
-      setEditing(true);
-      onEditConsumed?.();
-    }
+    if (autoEdit) onEditConsumed?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoEdit]);
   const commit = () => {
@@ -198,11 +201,17 @@ export default function MemberRow(props: MemberRowProps) {
         />
       ) : (
         <span
-          className={`text-[11px] truncate ${differentFor ? 'text-zinc-400 line-through decoration-zinc-600' : active || selected ? 'text-zinc-100' : 'text-zinc-300'}`}
+          className={`text-[11px] truncate ${
+            capturedDraft != null
+              ? 'text-zinc-100 bg-zinc-800 px-1 rounded ring-1 ring-blue-500'
+              : differentFor ? 'text-zinc-400 line-through decoration-zinc-600' : active || selected ? 'text-zinc-100' : 'text-zinc-300'
+          }`}
+          data-capturing={capturedDraft != null ? 'true' : undefined}
           onDoubleClick={(e) => { e.stopPropagation(); if (!readOnly) setEditing(true); }}
           title={member.label}
         >
-          {member.label}
+          {capturedDraft ?? member.label}
+          {capturedDraft != null && <span className="ml-px animate-pulse">|</span>}
         </span>
       )}
 

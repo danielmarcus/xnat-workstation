@@ -80,8 +80,14 @@ test('a text field in a side panel still keeps the keyboard while typing', async
   await expect(panel).toBeVisible({ timeout: 15_000 });
   await panel.getByRole('button', { name: 'New Structure (RTSTRUCT)' }).click();
 
-  // Create opens this editor but deliberately does NOT focus it. The point of this test
-  // is the other half: a field the USER clicks into keeps focus and stays typable.
+  // Create does not open an input at all — the name is captured with focus left on the
+  // viewport. This test covers the OTHER half: an editor the user opens deliberately
+  // (double-click) keeps focus and stays typable, which is why focus release must not be
+  // applied indiscriminately.
+  await page.keyboard.press('Escape'); // end the create naming sequence first
+  const row = panel.locator('[data-testid^="container-row-"]').last();
+  await expect(row).toBeVisible({ timeout: 15_000 });
+  await row.locator('span[title]').first().dblclick();
   const rename = panel.getByLabel('Rename container');
   await expect(rename).toBeVisible({ timeout: 10_000 });
   await rename.click();

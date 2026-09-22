@@ -159,6 +159,19 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
   // On create, after the container name is accepted, advance to editing its default
   // member's name (two-step create: container → member). Holds the pending member.
   const [createFlow, setCreateFlow] = useState<{ containerId: string; memberKey: string } | null>(null);
+  /**
+   * The create naming sequence: type the container name, Enter, type the member name,
+   * Enter — with DOM focus left on the VIEWPORT the whole time.
+   *
+   * Keystrokes are captured (hotkeyService.setNameCaptureHandler) rather than delivered
+   * to a focused input, because focusing a label moved the keyboard into the panel: it
+   * drew a focus ring there and stopped scroll/shortcut keys reaching the image. Only
+   * text keys are consumed, so arrows and the rest still scroll while a name is typed.
+   * Leaving without typing keeps the default labels.
+   */
+  const [naming, setNaming] = useState<
+    { stage: 'container' | 'member'; containerId: string; memberKey: string | null; draft: string; touched: boolean } | null
+  >(null);
   // H7 conflict resolver: which container's conflict dialog is open (opened from the
   // in-place conflict badge; closes when resolved or cancelled).
   const [conflictDialogId, setConflictDialogId] = useState<string | null>(null);
@@ -320,7 +333,9 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
         .createSrContainer('Measurement', useViewerStore.getState().sessionId ?? undefined);
       useAnnotationSelectionStore.getState().activate(srId, srId);
       ensureToolForKind('SR'); // ready a measurement tool so drawing targets the new set
-      setAutoEditContainerId(srId);
+      // Name the container by capture, with focus parked on the viewport.
+      hotkeyService.focusActiveViewport();
+      setNaming({ stage: 'container', containerId: srId, memberKey: null, draft: '', touched: false });
       return;
     }
     void (async () => {
@@ -334,8 +349,17 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
           segId = await segmentationManager.createNewSegmentation(activeViewportId, sourceImageIds, undefined, true);
         }
         activateAndBridge(segId, '1', kind); // pass the kind — the new container isn't in `containers` yet
-        setAutoEditContainerId(segId); // create-in-edit-mode (D7.6): edit the container name first…
-        setCreateFlow({ containerId: segId, memberKey: `${segId} 1` }); // …then its default member.
+        // Park the keyboard on the viewport, then capture keystrokes into the container
+        // label and (on Enter) the member label. The rows keep their default names
+        // unless the user actually types, so doing nothing is a valid outcome.
+        hotkeyService.focusActiveViewport();
+        setNaming({
+          stage: 'container',
+          containerId: segId,
+          memberKey: `${segId} 1`,
+          draft: '',
+          touched: false,
+        });
       } catch (err) {
         console.error('[annotationsPanel] create failed:', err);
       }
@@ -385,6 +409,99 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
     console.warn(`[annotationsPanel] ${action} blocked — ${containerId} is approved (revoke to edit).`);
     return true;
   };
+
+  /**
+   * Route keystrokes into the label being named, while the viewport keeps DOM focus.
+   *
+   * Only text-editing keys are consumed — printable characters, Backspace, Enter and
+   * Escape. Everything else (arrows, page keys, anything with Ctrl/Cmd/Alt) is declined
+   * and falls through to the normal shortcuts, which is what lets the user keep
+   * scrolling through slices while typing a name.
+   *
+   * Enter accepts the current stage: the container name first, then the member's. Escape
+   * abandons the sequence. Either way, anything the user did not type keeps its default,
+   * and once the sequence ends every key is a shortcut again.
+   */
+  useEffect(() => {
+    if (!naming) {
+      hotkeyService.setNameCaptureHandler(null);
+      return;
+    }
+    const applyName = (
+      stage: 'container' | 'member',
+      containerId: string,
+      memberKey: string | null,
+      name: string,
+    ) => {
+      const trimmed = name.trim();
+      if (!trimmed) return;
+      if (stage === 'container') {
+        if (containerId.startsWith('sr:')) useAnnotationStore.getState().renameSrContainer(containerId, trimmed);
+        else segmentationManager.renameSegmentation(containerId, trimmed);
+        return;
+      }
+      const segmentIndex = Number(memberKey?.split(' ')[1] ?? '1');
+      if (Number.isInteger(segmentIndex) && segmentIndex > 0) {
+        segmentationManager.renameSegment(containerId, segmentIndex, trimmed);
+      }
+    };
+
+    const handler = (e: KeyboardEvent): boolean => {
+      if (e.ctrlKey || e.metaKey || e.altKey) return false;
+
+      if (e.key === 'Escape') {
+        setNaming(null);
+        return true;
+      }
+      if (e.key === 'Enter') {
+        setNaming((current) => {
+          if (!current) return null;
+          if (current.touched) applyName(current.stage, current.containerId, current.memberKey, current.draft);
+          if (current.stage === 'container' && current.memberKey) {
+            setCollapsed((prev) => {
+              const next = new Set(prev);
+              next.delete(current.containerId); // the member row must be visible to be named
+              return next;
+            });
+            return { ...current, stage: 'member', draft: '', touched: false };
+          }
+          return null; // sequence over — every key is a shortcut again
+        });
+        return true;
+      }
+      if (e.key === 'Backspace') {
+        setNaming((c) => (c ? { ...c, draft: c.draft.slice(0, -1), touched: true } : c));
+        return true;
+      }
+      if (e.key.length === 1) {
+        setNaming((c) => (c ? { ...c, draft: c.draft + e.key, touched: true } : c));
+        return true;
+      }
+      return false; // arrows, page keys, F-keys … stay as shortcuts
+    };
+
+    hotkeyService.setNameCaptureHandler(handler);
+
+    /**
+     * Any click elsewhere ends the sequence, keeping whatever the labels already say.
+     *
+     * Without this, a user who creates an annotation and simply starts working — picks a
+     * tool, draws, clicks a row — would have their next keystrokes swallowed as name
+     * text. "Begin creating without changing the labels" has to be a complete, valid
+     * outcome: the defaults stand and every key is a shortcut again.
+     */
+    const endOnOutsideClick = (evt: Event) => {
+      const el = evt.target as HTMLElement | null;
+      if (el?.closest?.('[data-capturing="true"]')) return; // clicking the label itself
+      setNaming(null);
+    };
+    document.addEventListener('pointerdown', endOnOutsideClick, { capture: true });
+
+    return () => {
+      hotkeyService.setNameCaptureHandler(null);
+      document.removeEventListener('pointerdown', endOnOutsideClick, { capture: true });
+    };
+  }, [naming]);
 
   const handlers: ContainerListHandlers = {
     onToggleExpand: (id) =>
@@ -820,7 +937,12 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
     onReviewUnsaved: () => setReviewOpen(true),
     reviewDialog,
     handlers,
-    // create-in-edit-mode (D7.6)
+    // create-in-edit-mode (D7.6) — the label being typed into, as TEXT. The rows render
+    // it in place of the stored label; nothing in the panel takes focus.
+    capturedContainerId: naming?.stage === 'container' && naming.touched ? naming.containerId : null,
+    capturedContainerDraft: naming?.stage === 'container' && naming.touched ? naming.draft : null,
+    capturedMemberKey: naming?.stage === 'member' && naming.touched ? naming.memberKey : null,
+    capturedMemberDraft: naming?.stage === 'member' && naming.touched ? naming.draft : null,
     autoEditContainerId,
     autoEditMemberKey,
     onEditConsumed: () => {

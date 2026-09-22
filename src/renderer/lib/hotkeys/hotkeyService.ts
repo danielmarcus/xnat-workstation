@@ -339,7 +339,26 @@ function focusActiveViewport(): void {
   (el as HTMLElement | null)?.focus?.();
 }
 
+/**
+ * While an annotation is being named, keystrokes are CAPTURED into the label instead of
+ * acting as shortcuts — without the label ever taking DOM focus.
+ *
+ * Focus stays on the viewport throughout, so the wheel and the navigation shortcuts keep
+ * working while the user types a name, and no browser focus ring is ever drawn on a
+ * panel label. The handler returns true for the keys it consumed; everything it declines
+ * (arrows, page keys, anything with a modifier) falls through to the normal shortcuts,
+ * which is what lets the user scroll mid-name.
+ */
+let nameCaptureHandler: ((e: KeyboardEvent) => boolean) | null = null;
+
 function handleKeyDown(e: KeyboardEvent): void {
+  // Naming capture runs BEFORE the form-control guard and before any shortcut: it is
+  // active precisely when focus is NOT in a field, which is the whole point.
+  if (nameCaptureHandler && nameCaptureHandler(e)) {
+    e.preventDefault();
+    e.stopPropagation();
+    return;
+  }
   // Input guard: don't intercept when focus is in a form element,
   // UNLESS it's Tab which we want for viewport cycling even from controls.
   const tag = (e.target as HTMLElement)?.tagName;
@@ -416,6 +435,15 @@ export const hotkeyService = {
   /**
    * Get the current hotkey map (for display in a settings UI).
    */
+  /**
+   * Register (or clear, with null) the handler that receives keystrokes while an
+   * annotation name is being typed. Exactly one may be active; the panel sets it when a
+   * naming sequence starts and clears it when the sequence ends.
+   */
+  setNameCaptureHandler(handler: ((e: KeyboardEvent) => boolean) | null): void {
+    nameCaptureHandler = handler;
+  },
+
   getHotkeyMap(): HotkeyMap {
     return { ...currentMap };
   },

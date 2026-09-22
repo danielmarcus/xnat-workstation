@@ -43,16 +43,14 @@ test('activating a container switches the toolbox + drawing tool to its kind; cl
   // is replaced by the input while the editor is open.
   await panel.getByRole('button', { name: 'New Segmentation (SEG)' }).click();
   await expect(panel.locator('[data-testid^="member-row-"]').first()).toBeVisible({ timeout: 15_000 });
-  await panel.getByLabel('Rename container').press('Enter');
-  const segMemberEditors = panel.getByLabel('Rename member');
-  for (let i = (await segMemberEditors.count()) - 1; i >= 0; i -= 1) {
-    await segMemberEditors.nth(i).press('Enter');
-  }
+  // Create no longer opens an input: the name is typed through the capture layer with
+  // focus left on the viewport. Escape ends the naming sequence, keeping the defaults.
+  await page.keyboard.press('Escape');
 
   // Create a Measurement (SR) container → it becomes active and readies a measurement tool.
   await panel.getByRole('button', { name: 'New Measurement (SR)' }).click();
   await expect(panel.locator('[data-testid^="container-row-sr:"]')).toBeVisible({ timeout: 10_000 });
-  await panel.getByLabel('Rename container').press('Enter');
+  await page.keyboard.press('Escape');
   await expect.poll(() => activeTool(page), { timeout: 10_000 }).toBe('Length');
   await expect(panel.getByText('Measurement tools')).toBeVisible();
 

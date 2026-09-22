@@ -22,9 +22,12 @@ const csActive = (page: Page) =>
 
 async function createSeg(panel: Locator, name: string) {
   await panel.getByRole('button', { name: 'New Segmentation (SEG)' }).click();
-  const rc = panel.getByLabel('Rename container');
-  await rc.fill(name);
-  await rc.press('Enter');
+  // Name it the way the app now works: create captures keystrokes into the container
+  // label (focus stays on the viewport), and Enter accepts the name.
+  await panel.locator('[data-testid^="container-row-"]').last().waitFor({ timeout: 15_000 });
+  await panel.page().keyboard.type(name);
+  await panel.page().keyboard.press('Enter');
+  await panel.page().keyboard.press('Escape'); // end the member step, keeping its default
 }
 
 test('selecting a segmentation routes the brush to it (not the last-created)', async ({ page }) => {
