@@ -157,3 +157,36 @@ test('the shape tools show one cursor, and it tracks the mode', async ({ page })
   const eraseCursor = await viewportCursor(page);
   expect(eraseCursor, 'the cursor must change with the mode').not.toBe(fillCursor);
 });
+
+test('a stale stored "erase" is reset to fill on load', async ({ page }) => {
+  // The unit test calls the migrate hook directly; this checks it actually fires on
+  // rehydration and reaches the toolbox. Seed the shape of payload every existing
+  // install has — no version field, defaultStrategy 'erase' — then reload.
+  await page.evaluate(() => {
+    const KEY = 'xnat-viewer:preferences';
+    const raw = window.localStorage.getItem(KEY);
+    const parsed = raw ? JSON.parse(raw) : { state: { preferences: {} } };
+    parsed.state.preferences.annotation = {
+      ...(parsed.state.preferences.annotation ?? {}),
+      scissors: { defaultStrategy: 'erase', previewEnabled: false, previewColor: '#FFFFFF' },
+    };
+    // A genuine pre-upgrade payload carries neither marker: zustand's numeric `version`
+    // (added 2026-09-21) nor `preferences.schemaVersion`. Without deleting the latter the
+    // seed looks like a deliberate post-upgrade choice, which is correctly preserved.
+    delete parsed.version;
+    delete parsed.state.preferences.schemaVersion;
+    window.localStorage.setItem(KEY, JSON.stringify(parsed));
+  });
+  await page.reload();
+
+  await loadFixture(page, 'ct-axial-300', 'panel_0');
+  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.resetUnifiedSegmentations());
+  const panel = await segToolbox(page);
+  await panel.getByRole('button', { name: 'Circle', exact: true }).click();
+
+  await expect(
+    panel.getByRole('button', { name: 'fill', exact: true }),
+    'a stored "erase" nobody chose must not survive into the toolbox',
+  ).toHaveAttribute('aria-pressed', 'true');
+});
+

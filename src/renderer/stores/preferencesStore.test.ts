@@ -1,6 +1,7 @@
 import type { HotkeyBinding } from '@shared/types/hotkeys';
 import {
   DEFAULT_INTERPOLATION_PREFERENCES,
+  CURRENT_PREFERENCES_SCHEMA,
   DEFAULT_PREFERENCES,
   DEFAULT_SEGMENT_COLOR_SEQUENCE,
 } from '@shared/types/preferences';
@@ -277,5 +278,56 @@ describe('usePreferencesStore', () => {
       currentState,
     ) as ReturnType<typeof usePreferencesStore.getState>;
     expect(enabled.preferences.xnatAutosaveEnabled).toBe(true);
+  });
+});
+
+describe('stored-preference schema reset', () => {
+  /**
+   * Exercised through `merge`, not zustand's `migrate`. zustand only runs migrate when
+   * the stored payload carries a NUMERIC `version`, and no payload written before
+   * 2026-09-21 has one — a migrate hook could never fire for the payloads that need
+   * fixing. An E2E seeds a real stale payload and reloads to prove this path runs.
+   */
+  const rehydrate = (stored: unknown) => {
+    const merge = usePreferencesStore.persist.getOptions().merge;
+    if (!merge) throw new Error('no merge configured on the preferences store');
+    return merge(stored, usePreferencesStore.getInitialState()) as ReturnType<
+      typeof usePreferencesStore.getState
+    >;
+  };
+
+  const stored = (strategy: 'fill' | 'erase', schemaVersion?: number) => {
+    const base = usePreferencesStore.getInitialState().preferences;
+    const preferences: Record<string, unknown> = {
+      ...base,
+      annotation: {
+        ...base.annotation,
+        scissors: { defaultStrategy: strategy, previewEnabled: false, previewColor: '#FFFFFF' },
+      },
+    };
+    if (schemaVersion === undefined) delete preferences.schemaVersion;
+    else preferences.schemaVersion = schemaVersion;
+    return { preferences };
+  };
+
+  it('resets a stale stored "erase" from a pre-schema payload to fill', () => {
+    // Every install predating the fix has 'erase' written without anyone choosing it:
+    // the preference was pushed at a tool group the app never creates, and its default
+    // also read 'erase'. Now that it reaches the live tool group it has to be cleared.
+    const merged = rehydrate(stored('erase'));
+    expect(merged.preferences.annotation.scissors.defaultStrategy).toBe('fill');
+  });
+
+  it('leaves a choice made after the reset alone', () => {
+    const merged = rehydrate(stored('erase', 1));
+    expect(merged.preferences.annotation.scissors.defaultStrategy).toBe('erase');
+  });
+
+  it('stamps the current schema onto whatever it rehydrates', () => {
+    expect(rehydrate(stored('fill')).preferences.schemaVersion).toBe(CURRENT_PREFERENCES_SCHEMA);
+  });
+
+  it('defaults the shape tools to fill', () => {
+    expect(DEFAULT_PREFERENCES.annotation.scissors.defaultStrategy).toBe('fill');
   });
 });

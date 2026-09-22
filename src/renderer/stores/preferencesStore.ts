@@ -2,6 +2,7 @@ import type { HotkeyAction, HotkeyBinding } from '@shared/types/hotkeys';
 import {
   ALL_OVERLAY_FIELD_KEYS,
   DEFAULT_OVERLAY_CORNERS,
+  CURRENT_PREFERENCES_SCHEMA,
   DEFAULT_PREFERENCES,
   DEFAULT_SEGMENT_COLOR_SEQUENCE,
   type AnnotationToolPreferences,
@@ -107,6 +108,7 @@ function sanitizeColorSequence(value: unknown): HexColor[] {
 
 function makeDefaultPreferences(): PreferencesV1 {
   return {
+    schemaVersion: CURRENT_PREFERENCES_SCHEMA,
     hotkeys: {
       overrides: {},
     },
@@ -606,6 +608,14 @@ export const usePreferencesStore = create<PreferencesStore>()(
     }),
     {
       name: 'xnat-viewer:preferences',
+      /**
+       * Deliberately no `migrate`. zustand only migrates when the stored payload carries
+       * a NUMERIC `version` (middleware.mjs: `typeof deserializedStorageValue.version
+       * === "number"`), and nothing written before 2026-09-21 has one — so a migrate
+       * hook could never fire for the very payloads that need fixing. One-shot resets
+       * are keyed on `preferences.schemaVersion` inside `merge` below, which always runs.
+       */
+      version: 1,
       partialize: (state) => ({
         preferences: state.preferences,
       }),
@@ -613,6 +623,21 @@ export const usePreferencesStore = create<PreferencesStore>()(
         const base = current as PreferencesStore;
         const incoming = (persisted as Partial<PreferencesStore>)?.preferences;
         if (!incoming) return base;
+
+        /**
+         * Schema 1 — reset the shape tools' add/remove mode to fill.
+         *
+         * `annotation.scissors.defaultStrategy` did nothing until 2026-09-21: it was
+         * pushed at the legacy toolService, whose tool group the app never creates, so
+         * the scissors always ran Cornerstone's FILL_INSIDE whatever it said. Its
+         * default also read 'erase', so every existing install has 'erase' written to
+         * storage without anyone having chosen it. Now that the preference reaches the
+         * live tool group that stale value would silently make the shape tools erase by
+         * default. Clear it once; a choice made afterwards is at schema 1 and is kept.
+         */
+        if ((incoming.schemaVersion ?? 0) < 1 && incoming.annotation?.scissors) {
+          incoming.annotation.scissors.defaultStrategy = 'fill';
+        }
 
         // Merge interpolation preferences with defaults as fallback
         // Contour interpolation is a single boolean now; the labelmap algorithm and
@@ -654,6 +679,7 @@ export const usePreferencesStore = create<PreferencesStore>()(
         return {
           ...base,
           preferences: {
+            schemaVersion: CURRENT_PREFERENCES_SCHEMA,
             hotkeys: {
               overrides: incoming.hotkeys?.overrides ?? base.preferences.hotkeys.overrides,
             },

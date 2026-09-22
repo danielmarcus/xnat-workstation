@@ -150,6 +150,15 @@ export function clampAnnotationPanelWidth(width: number): number {
 }
 
 export interface PreferencesV1 {
+  /**
+   * Schema revision of the STORED payload, used for one-shot resets on upgrade.
+   *
+   * Separate from zustand-persist's own `version`, which cannot help here: it only
+   * migrates when the stored value carries a numeric `version`, and every payload
+   * written before 2026-09-21 has none. Absent or < 1 means "written before the
+   * shape-tool mode preference did anything".
+   */
+  schemaVersion: number;
   hotkeys: {
     overrides: HotkeyMap;
   };
@@ -218,7 +227,10 @@ export const DEFAULT_SEGMENT_COLOR_SEQUENCE: HexColor[] = [
   '#FF8282',
 ];
 
+export const CURRENT_PREFERENCES_SCHEMA = 1;
+
 export const DEFAULT_PREFERENCES: PreferencesV1 = {
+  schemaVersion: CURRENT_PREFERENCES_SCHEMA,
   hotkeys: {
     overrides: {},
   },
