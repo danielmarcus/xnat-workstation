@@ -325,20 +325,6 @@ function focusViewportElement(panelId: string): void {
   (el as HTMLElement | null)?.focus?.();
 }
 
-/**
- * Move DOM focus onto the currently-active viewport, whichever it is.
- *
- * Used to return the keyboard to the image after a side-panel text edit ends — e.g.
- * once the create-in-edit-mode naming sequence (container label → member label) is
- * accepted, focus belongs back on the viewport so shortcuts reach the image again and
- * the outline invariant (focused element === active viewport) holds. No-op if no
- * viewport is active (nothing loaded yet).
- */
-function focusActiveViewport(): void {
-  const el = document.querySelector('[data-testid^="unified-viewport:"][data-active="true"]');
-  (el as HTMLElement | null)?.focus?.();
-}
-
 function handleKeyDown(e: KeyboardEvent): void {
   // Input guard: don't intercept when focus is in a form element,
   // UNLESS it's Tab which we want for viewport cycling even from controls.
@@ -418,14 +404,5 @@ export const hotkeyService = {
    */
   getHotkeyMap(): HotkeyMap {
     return { ...currentMap };
-  },
-
-  /**
-   * Return DOM focus to the active viewport (see focusActiveViewport). Called by the
-   * annotations panel when an inline label edit ends and the keyboard should go back
-   * to the image.
-   */
-  focusActiveViewport(): void {
-    focusActiveViewport();
   },
 };
