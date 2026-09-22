@@ -82,8 +82,6 @@ export default function ContainerRow(props: ContainerRowProps) {
   const dirty = !!container.dirty && !approved;
 
   const [editing, setEditing] = useState(false);
-  /** True when the editor was opened deliberately, so it may take focus. */
-  const autoFocusedRef = useRef(true);
   const [draft, setDraft] = useState(container.label);
   const [menuOpen, setMenuOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -92,24 +90,20 @@ export default function ContainerRow(props: ContainerRowProps) {
   const anyVisible = container.members.some((m) => m.visible);
   const anyUnlocked = container.members.some((m) => !m.locked);
 
-  /**
-   * Focus the editor only when the USER opened it (double-click / kebab), never when
-   * create opened it. `autoFocusedRef` is set false by the create path below and true by
-   * every deliberate one, so the same effect serves both without a second code path.
-   */
+  // Whenever the name editor opens — deliberately (double-click / kebab) OR on create —
+  // it takes the keyboard so the user can type immediately. On create this is the first
+  // step of the naming sequence: focus lands here, Enter advances to the member label,
+  // and the member's commit returns focus to the viewport (hook: onMemberEditCommit).
   useEffect(() => {
-    if (editing && autoFocusedRef.current && inputRef.current) {
+    if (editing && inputRef.current) {
       inputRef.current.focus();
       inputRef.current.select();
     }
   }, [editing]);
-  // Create opens the name editor (frozen mockup D7.6) but must NOT take focus.
-  // Focusing it pulled the keyboard into the side panel, so viewport shortcuts typed
-  // into the label instead of reaching the image.
+  // Create opens the name editor in edit mode (frozen mockup D7.6, create-in-edit-mode).
   useEffect(() => {
     if (autoEdit && !approved) {
       setDraft(container.label);
-      autoFocusedRef.current = false;
       setEditing(true);
       onEditConsumed?.();
     } else if (autoEdit) {
@@ -121,7 +115,6 @@ export default function ContainerRow(props: ContainerRowProps) {
   const beginEdit = () => {
     if (approved) return; // rename blocked on approved (D7.11)
     setDraft(container.label);
-    autoFocusedRef.current = true;
     setEditing(true);
   };
   const commit = () => {

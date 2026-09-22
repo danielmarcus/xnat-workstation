@@ -32,6 +32,7 @@ import { rtStructService } from '../lib/cornerstone/rtStructService';
 import { segmentProvenance } from '../lib/cornerstone/interpolationAcceptance';
 import { getAnnotationUIDs } from '../lib/cornerstone/contourRepresentation';
 import { unifiedToolService } from '../lib/cornerstone/unifiedToolService';
+import { hotkeyService } from '../lib/hotkeys/hotkeyService';
 import {
   viewportIdsForContainer,
   isContainerNativeToViewport,
@@ -493,16 +494,22 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
         ? useAnnotationStore.getState().renameSrContainer(id, name)
         : segmentationManager.renameSegmentation(id, name),
     onContainerEditCommit: (id) => {
-      // Two-step create: once the freshly-created container's name is accepted,
-      // advance to editing its default member's name (D7.6).
-      if (createFlow?.containerId !== id) return;
-      setCollapsed((prev) => {
-        const next = new Set(prev);
-        next.delete(id); // ensure the member row is visible to receive the edit
-        return next;
-      });
-      setAutoEditMemberKey(createFlow.memberKey);
-      setCreateFlow(null);
+      // Two-step create: once the freshly-created container's name is accepted, advance
+      // to editing its default member's name (D7.6) — focus moves label → label.
+      if (createFlow?.containerId === id) {
+        setCollapsed((prev) => {
+          const next = new Set(prev);
+          next.delete(id); // ensure the member row is visible to receive the edit
+          return next;
+        });
+        setAutoEditMemberKey(createFlow.memberKey);
+        setCreateFlow(null);
+        return;
+      }
+      // No member step follows (an SR create, which has no default member, or a plain
+      // double-click rename): the naming edit is done, so return the keyboard to the
+      // viewport rather than leaving it stranded in the panel.
+      hotkeyService.focusActiveViewport();
     },
     onSelectMember: (cid, mid, additive) => {
       const sel = useAnnotationSelectionStore.getState();
@@ -561,6 +568,10 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
       const idx = Number(mid);
       if (Number.isInteger(idx) && idx > 0) segmentationManager.renameSegment(cid, idx, name);
     },
+    // The member label edit was accepted — the last step of the create naming sequence
+    // (container label → member label). Hand the keyboard back to the viewport so the
+    // next keystroke is a shortcut on the image, not a character in the label.
+    onMemberEditCommit: () => hotkeyService.focusActiveViewport(),
     onColorChange: (cid, mid, color) => {
       if (blockedByApproval(cid, 'change member color')) return;
       // SR measurement members are keyed by annotationUID — set the Cornerstone
