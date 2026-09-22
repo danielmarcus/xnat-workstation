@@ -217,14 +217,12 @@ let editModeShiftPressed = false;
 let editModeModifierListenersInstalled = false;
 
 /**
- * The persisted mode. The storage path keeps its historical `scissors` name: renaming it
- * would orphan every stored payload for no user-visible gain (see the schemaVersion reset
- * in preferencesStore).
+ * The mode before Shift is taken into account. Session state: it is NOT persisted, so
+ * every launch starts at fill. It used to be a saved preference, which meant an app
+ * opened after any session that ended in erase came up erasing.
  */
 function primaryEditMode(): EditMode {
-  return usePreferencesStore.getState().preferences.annotation.scissors.defaultStrategy === 'erase'
-    ? 'erase'
-    : 'fill';
+  return useSegmentationStore.getState().editMode;
 }
 
 /** The mode in force right now — the preference, inverted while Shift is held. */
@@ -474,7 +472,16 @@ function setIdleToolMode(toolGroup: ToolTypes.IToolGroup, toolName: string): voi
   try {
     if (DISABLE_WHEN_IDLE.has(toolName)) toolGroup.setToolDisabled(toolName);
     else if (HANDLE_EDITABLE_TOOL_NAMES.has(toolName)) toolGroup.setToolEnabled(toolName);
-    else toolGroup.setToolPassive(toolName);
+    // `removeAllBindings` is essential, not tidiness. Cornerstone's setToolPassive
+    // otherwise strips only the bindings matching getDefaultPrimaryBindings() — plain
+    // Primary — so the `{Primary + Shift}` binding the edit-mode tools need SURVIVES
+    // demotion, and then:
+    //     if (toolOptions.bindings.length !== 0) { mode = Active; }
+    // leaves the demoted tool ACTIVE. Two tools then answered the primary button:
+    // creating a segmentation auto-selects Brush, so picking Circle left Brush live, and
+    // a later Shift-drag was taken by whichever Cornerstone reached first — filling a
+    // disc where an erase was asked for.
+    else toolGroup.setToolPassive(toolName, { removeAllBindings: true });
   } catch {
     /* not all tools support every mode; safe to ignore */
   }
@@ -897,7 +904,7 @@ export const unifiedToolService = {
    * land here, so none of them can set one without the other.
    */
   setEditMode(mode: EditMode): void {
-    usePreferencesStore.getState().setScissorDefaultStrategy(mode);
+    useSegmentationStore.getState().setEditMode(mode);
     syncActiveEditMode();
   },
 
@@ -1066,6 +1073,30 @@ export const unifiedToolService = {
         | undefined;
       return (opts?.bindings ?? []).some((b) => b.mouseButton === Primary);
     });
+  },
+
+  /**
+   * Every Cornerstone tool in the unified group currently bound to the primary mouse
+   * button, with or without a modifier.
+   *
+   * `getToolsWithPrimaryBinding` above checks a hand-picked list that omits the scissors,
+   * so it could not see a stale binding on them — which is how a demoted shape tool kept
+   * answering Shift-drag after the brush was selected. This one iterates the whole map,
+   * so a leak anywhere is visible.
+   */
+  toolsBoundToPrimary(): string[] {
+    const toolGroup = getToolGroup();
+    if (!toolGroup) return [];
+    const csNames = new Set(Object.values(UNIFIED_TOOL_MAP));
+    const bound: string[] = [];
+    for (const name of csNames) {
+      const opts = toolGroup.getToolOptions(name) as
+        | { bindings?: Array<{ mouseButton?: number }>; mode?: string }
+        | undefined;
+      const hasPrimary = (opts?.bindings ?? []).some((b) => b.mouseButton === Primary);
+      if (hasPrimary && opts?.mode === 'Active') bound.push(name);
+    }
+    return bound;
   },
 
   /**

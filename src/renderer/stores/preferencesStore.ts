@@ -7,7 +7,6 @@ import {
   DEFAULT_SEGMENT_COLOR_SEQUENCE,
   type AnnotationToolPreferences,
   type HexColor,
-  type ScissorStrategyMode,
   DEFAULT_INTERPOLATION_PREFERENCES,
   DEFAULT_BACKUP_PREFERENCES,
   DEFAULT_DELETION_PREFERENCES,
@@ -44,7 +43,6 @@ interface PreferencesStore {
   setAnnotationColorSequence: (colors: string[]) => void;
   /** Annotations side-panel width in px; clamped to [MIN, MAX] (spec §4.1). */
   setAnnotationPanelWidth: (width: number) => void;
-  setScissorDefaultStrategy: (strategy: ScissorStrategyMode) => void;
   setScissorPreviewEnabled: (enabled: boolean) => void;
   setScissorPreviewColor: (color: string) => void;
   setUpdateChecksEnabled: (enabled: boolean) => void;
@@ -128,7 +126,6 @@ function makeDefaultPreferences(): PreferencesV1 {
       defaultSegmentOpacity: DEFAULT_PREFERENCES.annotation.defaultSegmentOpacity,
       defaultColorSequence: cloneDefaultColorSequence(),
       scissors: {
-        defaultStrategy: DEFAULT_PREFERENCES.annotation.scissors.defaultStrategy,
         previewEnabled: DEFAULT_PREFERENCES.annotation.scissors.previewEnabled,
         previewColor: DEFAULT_PREFERENCES.annotation.scissors.previewColor,
       },
@@ -262,12 +259,6 @@ function mergeAnnotationPreferences(current: AnnotationToolPreferences, incoming
         ? sanitizeColorSequence(candidate.defaultColorSequence)
         : [...current.defaultColorSequence],
     scissors: {
-      defaultStrategy:
-        candidate.scissors?.defaultStrategy === 'fill'
-          ? 'fill'
-          : candidate.scissors?.defaultStrategy === 'erase'
-            ? 'erase'
-            : current.scissors.defaultStrategy,
       previewEnabled:
         typeof candidate.scissors?.previewEnabled === 'boolean'
           ? candidate.scissors.previewEnabled
@@ -465,20 +456,6 @@ export const usePreferencesStore = create<PreferencesStore>()(
           },
         })),
 
-      setScissorDefaultStrategy: (strategy) =>
-        set((state) => ({
-          preferences: {
-            ...state.preferences,
-            annotation: {
-              ...state.preferences.annotation,
-              scissors: {
-                ...state.preferences.annotation.scissors,
-                defaultStrategy: strategy === 'fill' ? 'fill' : 'erase',
-              },
-            },
-          },
-        })),
-
       setScissorPreviewEnabled: (enabled) =>
         set((state) => ({
           preferences: {
@@ -624,20 +601,9 @@ export const usePreferencesStore = create<PreferencesStore>()(
         const incoming = (persisted as Partial<PreferencesStore>)?.preferences;
         if (!incoming) return base;
 
-        /**
-         * Schema 1 — reset the shape tools' add/remove mode to fill.
-         *
-         * `annotation.scissors.defaultStrategy` did nothing until 2026-09-21: it was
-         * pushed at the legacy toolService, whose tool group the app never creates, so
-         * the scissors always ran Cornerstone's FILL_INSIDE whatever it said. Its
-         * default also read 'erase', so every existing install has 'erase' written to
-         * storage without anyone having chosen it. Now that the preference reaches the
-         * live tool group that stale value would silently make the shape tools erase by
-         * default. Clear it once; a choice made afterwards is at schema 1 and is kept.
-         */
-        if ((incoming.schemaVersion ?? 0) < 1 && incoming.annotation?.scissors) {
-          incoming.annotation.scissors.defaultStrategy = 'fill';
-        }
+        // (Schema 1 reset removed: the add/remove mode is no longer a preference at
+        // all. It is session state that starts at fill every launch, so there is no
+        // stored value left to go stale.)
 
         // Merge interpolation preferences with defaults as fallback
         // Contour interpolation is a single boolean now; the labelmap algorithm and

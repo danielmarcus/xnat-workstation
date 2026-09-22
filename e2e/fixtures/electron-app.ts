@@ -89,25 +89,11 @@ export const test = base.extend<
   resetState: [async ({ electronApp }, use) => {
     try {
       const win = await electronApp.firstWindow();
-      // The fill/erase edit mode is a PERSISTED preference, so unlike in-memory state it
-      // survives the reload below and leaks from one spec file to the next: a spec that
-      // switches to erase and does not switch back leaves the following file's brush
-      // silently unpainting. Reset it here so no spec has to remember.
-      await win
-        .evaluate(() => {
-          const KEY = 'xnat-viewer:preferences';
-          try {
-            const raw = window.localStorage.getItem(KEY);
-            if (!raw) return;
-            const parsed = JSON.parse(raw);
-            const scissors = parsed?.state?.preferences?.annotation?.scissors;
-            if (scissors) scissors.defaultStrategy = 'fill';
-            window.localStorage.setItem(KEY, JSON.stringify(parsed));
-          } catch {
-            /* storage unavailable — the default is fill anyway */
-          }
-        })
-        .catch(() => {});
+      // NOTE: no edit-mode reset here. There used to be one, which was a mistake: it
+      // forced the mode to fill before every test, so the whole suite was structurally
+      // incapable of observing the app's real startup mode — and it shipped defaulting
+      // to erase while every spec passed. The mode is session state now (not persisted),
+      // so the reload below resets it on its own and nothing needs faking.
       await win.reload({ waitUntil: 'load' });
       // Wait until the renderer has actually BOOTED — not just hit DOMContentLoaded.
       // The E2E hooks install synchronously at module load (main.tsx, BEFORE React

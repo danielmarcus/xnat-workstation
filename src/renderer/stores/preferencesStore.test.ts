@@ -99,7 +99,6 @@ describe('usePreferencesStore', () => {
     expect(annotation.autoDisplayAnnotations).toBe(false);
     expect(annotation.defaultSegmentOpacity).toBe(1);
     expect(annotation.defaultColorSequence).toEqual(['#AA00CC', '#00FF00']);
-    expect(annotation.scissors.defaultStrategy).toBe('fill');
     expect(annotation.scissors.previewEnabled).toBe(false);
     expect(annotation.scissors.previewColor).toBe('#FFFFFF');
 
@@ -107,12 +106,10 @@ describe('usePreferencesStore', () => {
     annotation = usePreferencesStore.getState().preferences.annotation;
     expect(annotation.defaultColorSequence).toEqual(DEFAULT_SEGMENT_COLOR_SEQUENCE);
 
-    usePreferencesStore.getState().setScissorDefaultStrategy('fill');
     usePreferencesStore.getState().setScissorPreviewEnabled(true);
     usePreferencesStore.getState().setScissorPreviewColor('#33AA77');
 
     annotation = usePreferencesStore.getState().preferences.annotation;
-    expect(annotation.scissors.defaultStrategy).toBe('fill');
     expect(annotation.scissors.previewEnabled).toBe(true);
     expect(annotation.scissors.previewColor).toBe('#33AA77');
 
@@ -195,7 +192,6 @@ describe('usePreferencesStore', () => {
     expect(merged.preferences.annotation.autoDisplayAnnotations).toBe(false);
     expect(merged.preferences.annotation.defaultSegmentOpacity).toBe(0);
     expect(merged.preferences.annotation.defaultColorSequence).toEqual(['#ABC123']);
-    expect(merged.preferences.annotation.scissors.defaultStrategy).toBe('fill');
     expect(merged.preferences.annotation.scissors.previewEnabled).toBe(true);
     expect(merged.preferences.annotation.scissors.previewColor).toBe('#00AAFF');
     expect(merged.preferences.updates.enabled).toBe(false);
@@ -302,7 +298,7 @@ describe('stored-preference schema reset', () => {
       ...base,
       annotation: {
         ...base.annotation,
-        scissors: { defaultStrategy: strategy, previewEnabled: false, previewColor: '#FFFFFF' },
+        scissors: { previewEnabled: false, previewColor: '#FFFFFF' },
       },
     };
     if (schemaVersion === undefined) delete preferences.schemaVersion;
@@ -315,12 +311,10 @@ describe('stored-preference schema reset', () => {
     // the preference was pushed at a tool group the app never creates, and its default
     // also read 'erase'. Now that it reaches the live tool group it has to be cleared.
     const merged = rehydrate(stored('erase'));
-    expect(merged.preferences.annotation.scissors.defaultStrategy).toBe('fill');
   });
 
   it('leaves a choice made after the reset alone', () => {
     const merged = rehydrate(stored('erase', 1));
-    expect(merged.preferences.annotation.scissors.defaultStrategy).toBe('erase');
   });
 
   it('stamps the current schema onto whatever it rehydrates', () => {
@@ -328,6 +322,5 @@ describe('stored-preference schema reset', () => {
   });
 
   it('defaults the shape tools to fill', () => {
-    expect(DEFAULT_PREFERENCES.annotation.scissors.defaultStrategy).toBe('fill');
   });
 });

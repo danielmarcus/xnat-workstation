@@ -64,9 +64,17 @@ interface SegmentationStore {
    *  derive its window. Its only control; without one the tool ran on a hidden default. */
   samplingRadius: number;
   /**
-   * Whether Shift is currently inverting the fill/erase mode. Lives in the store so the
-   * toolbox can show the EFFECTIVE mode: showing the stored preference instead let the
-   * toggle disagree with what a stroke would actually do.
+   * Whether tools ADD to or REMOVE from the segment.
+   *
+   * Session state, deliberately NOT persisted. It was a saved preference, so an app
+   * launched after any session that ended in erase came up erasing — a destructive mode,
+   * silently, with no action by the user. Every launch starts at fill.
+   */
+  editMode: 'fill' | 'erase';
+  /**
+   * Whether Shift is currently inverting the mode. Lives in the store so the toolbox can
+   * show the EFFECTIVE mode: showing the underlying one let the toggle disagree with
+   * what a stroke would actually do.
    */
   editModeShiftHeld: boolean;
 
@@ -151,6 +159,7 @@ interface SegmentationStore {
   /** Set threshold range */
   setThresholdRange: (range: [number, number]) => void;
   setSamplingRadius: (radius: number) => void;
+  setEditMode: (mode: 'fill' | 'erase') => void;
   setEditModeShiftHeld: (held: boolean) => void;
 
   /** Reseed the threshold window for a newly-active modality (records the modality). */
@@ -223,6 +232,7 @@ export const useSegmentationStore = create<SegmentationStore>((set) => ({
   brushSize: 5,
   thresholdRange: defaultThresholdRangeForModality('CT'),
   samplingRadius: 3,
+  editMode: 'fill',
   editModeShiftHeld: false,
   thresholdRangeModality: null,
   activeSegTool: null,
@@ -262,6 +272,7 @@ export const useSegmentationStore = create<SegmentationStore>((set) => ({
 
   setThresholdRange: (range) => set({ thresholdRange: range }),
   setSamplingRadius: (radius) => set({ samplingRadius: Math.max(1, Math.round(radius)) }),
+  setEditMode: (mode) => set({ editMode: mode }),
   setEditModeShiftHeld: (held) => set({ editModeShiftHeld: held }),
 
   seedThresholdRangeForModality: (modality, range) =>

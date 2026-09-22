@@ -79,21 +79,35 @@ export default function MemberRow(props: MemberRowProps) {
   const readOnly = lockState !== 'unlocked' || differentFor;
 
   const [editing, setEditing] = useState(false);
+  /** True when the editor was opened deliberately, so it may take focus. */
+  const autoFocusedRef = useRef(true);
   const [draft, setDraft] = useState(member.label);
   const [pickerOpen, setPickerOpen] = useState(false);
   // Color is a display property → editable whenever the member is viewable here
   // (even when locked); only different-FoR (not viewable) members can't be recolored.
   const colorEditable = !!onColorChange && !differentFor;
   const inputRef = useRef<HTMLInputElement>(null);
+  /**
+   * Focus the editor only when the USER opened it (double-click / kebab), never when
+   * create opened it. `autoFocusedRef` is set false by the create path above and true by
+   * every deliberate one, so the same effect serves both without a second code path.
+   */
   useEffect(() => {
-    if (editing && inputRef.current) { inputRef.current.focus(); inputRef.current.select(); }
+    if (editing && autoFocusedRef.current && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
   }, [editing]);
-  // Deliberately NOT entering edit mode on create. Doing so called .focus()+.select()
-  // on this input, pulling the keyboard into the side panel: viewport shortcuts then
-  // typed into the label instead of reaching the image, and the panel held a focus ring.
-  // Renaming stays available on double-click and from the kebab.
+  // Create opens the name editor (frozen mockup D7.6) but must NOT take focus — see
+  // `autoFocusedRef` below. Focusing it pulled the keyboard into the side panel, so
+  // viewport shortcuts typed into the label instead of reaching the image.
   useEffect(() => {
-    if (autoEdit) onEditConsumed?.();
+    if (autoEdit) {
+      setDraft(member.label);
+      autoFocusedRef.current = false;
+      setEditing(true);
+      onEditConsumed?.();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoEdit]);
   const commit = () => {
@@ -187,7 +201,7 @@ export default function MemberRow(props: MemberRowProps) {
       ) : (
         <span
           className={`text-[11px] truncate ${differentFor ? 'text-zinc-400 line-through decoration-zinc-600' : active || selected ? 'text-zinc-100' : 'text-zinc-300'}`}
-          onDoubleClick={(e) => { e.stopPropagation(); if (!readOnly) setEditing(true); }}
+          onDoubleClick={(e) => { e.stopPropagation(); if (!readOnly) { autoFocusedRef.current = true; setEditing(true); } }}
           title={member.label}
         >
           {member.label}

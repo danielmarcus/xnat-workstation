@@ -19,11 +19,19 @@ async function setupTwoMemberSeg(page: Page) {
   const panel = panelOf(page);
   await expect(panel).toBeVisible({ timeout: 15_000 });
 
-  // Create a Segmentation (member "Segment 1"), commit the two-step rename.
+  // Create a Segmentation (member "Segment 1"). Create opens the name editors but does
+  // not focus them; commit both so the labels render as text for the clicks below.
   await panel.getByRole('button', { name: 'New Segmentation (SEG)' }).click();
+  await panel.getByLabel('Rename container').press('Enter');
 
   // Add a second member via the container "+", commit its name.
   await panel.getByRole('button', { name: 'Add member' }).click();
+  // Commit every open member editor: the first member's may still be open, so target
+  // them individually rather than assuming exactly one.
+  const openEditors = panel.getByLabel('Rename member');
+  for (let i = (await openEditors.count()) - 1; i >= 0; i -= 1) {
+    await openEditors.nth(i).press('Enter');
+  }
 
   await expect(row(page, '1')).toBeVisible({ timeout: 10_000 });
   await expect(row(page, '2')).toBeVisible({ timeout: 10_000 });

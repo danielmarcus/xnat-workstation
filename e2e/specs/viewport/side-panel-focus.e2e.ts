@@ -80,12 +80,8 @@ test('a text field in a side panel still keeps the keyboard while typing', async
   await expect(panel).toBeVisible({ timeout: 15_000 });
   await panel.getByRole('button', { name: 'New Structure (RTSTRUCT)' }).click();
 
-  // Create deliberately does NOT open the editor any more (it grabbed focus). Open it
-  // the way a user would — the point of this test is that a field the user CHOSE to
-  // focus keeps focus.
-  const row = panel.locator('[data-testid^="container-row-"]').last();
-  await expect(row).toBeVisible({ timeout: 15_000 });
-  await row.locator('span[title]').first().dblclick();
+  // Create opens this editor but deliberately does NOT focus it. The point of this test
+  // is the other half: a field the USER clicks into keeps focus and stays typable.
   const rename = panel.getByLabel('Rename container');
   await expect(rename).toBeVisible({ timeout: 10_000 });
   await rename.click();

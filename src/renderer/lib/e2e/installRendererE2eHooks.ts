@@ -156,6 +156,8 @@ declare global {
       scrollActiveViewport: (delta: number) => void;
       /** Whether a unified viewport has a cached source volume (ready for a derived labelmap). */
       isUnifiedVolumeReady: () => boolean;
+      /** Cornerstone tools still bound to the primary button (should always be exactly 1). */
+      toolsBoundToPrimary: () => string[];
       /** Remove all segmentations (test isolation in the worker-scoped app). */
       resetUnifiedSegmentations: () => void;
       /** Remove all measurement annotations (test isolation for SR/measurement specs). */
@@ -748,6 +750,7 @@ export function installRendererE2eHooks(): void {
     pasteActiveSegmentVoxels: () => unifiedSegService.pasteActiveSegmentVoxels(),
     scrollActiveViewport: (delta: number) =>
       viewportService.scroll(useViewerStore.getState().activeViewportId, delta),
+    toolsBoundToPrimary: () => unifiedToolService.toolsBoundToPrimary(),
     isUnifiedVolumeReady: () => {
       for (const vp of unifiedToolService.getViewportIds()) {
         const ee = getEnabledElementByViewportId(vp) as

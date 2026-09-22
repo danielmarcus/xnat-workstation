@@ -177,7 +177,6 @@ describe('toolService', () => {
   });
 
   it('applies scissor strategy and cursor mapping without mutating brush preview behavior', () => {
-    usePreferencesStore.getState().setScissorDefaultStrategy('fill');
     usePreferencesStore.getState().setScissorPreviewEnabled(true);
     usePreferencesStore.getState().setScissorPreviewColor('#44AA66');
 
@@ -259,92 +258,6 @@ describe('toolService', () => {
     expect(group?.setActiveStrategy).toHaveBeenCalledWith(
       expect.stringMatching(/CircleScissor/),
       'FILL_INSIDE',
-    );
-  });
-
-  it('uses a valid scissor cursor family for sphere scissors', () => {
-    // Explicit: this test is about the ERASE cursor mapping, and the default strategy
-    // is now 'fill' (it read 'erase' while the preference was inert).
-    usePreferencesStore.getState().setScissorDefaultStrategy('erase');
-    toolService.initialize();
-
-    useSegmentationStore.setState({
-      activeSegmentationId: 'seg-1',
-      activeSegmentIndex: 1,
-      segmentations: [{ segmentationId: 'seg-1', label: 'Seg 1', segments: [], isActive: true }],
-    });
-
-    toolService.setActiveTool(ToolName.SphereScissors);
-
-    const group = cs.getLastToolGroup();
-    expect(group?.setActiveStrategy).toHaveBeenCalledWith(
-      expect.stringMatching(/SphereScissor/),
-      'ERASE_INSIDE',
-    );
-    expect(group?.setViewportsCursorByToolName).toHaveBeenCalledWith(
-      'CircleScissor',
-      'ERASE_OUTSIDE',
-    );
-  });
-
-  it('updates scissor cursor strategy on Shift keydown and restores it on keyup', () => {
-    usePreferencesStore.getState().setScissorDefaultStrategy('erase');
-
-    toolService.initialize();
-    toolService.addViewport('panel_0');
-
-    useSegmentationStore.setState({
-      activeSegmentationId: 'seg-1',
-      activeSegmentIndex: 1,
-      segmentations: [{ segmentationId: 'seg-1', label: 'Seg 1', segments: [], isActive: true }],
-    });
-
-    toolService.setActiveTool(ToolName.CircleScissors);
-
-    let group = cs.getLastToolGroup();
-    group?.setActiveStrategy.mockClear();
-    group?.setViewportsCursorByToolName.mockClear();
-
-    dispatchWindowKey('keydown', 'Shift');
-
-    group = cs.getLastToolGroup();
-    expect(group?.setActiveStrategy).toHaveBeenCalledWith(
-      expect.stringMatching(/CircleScissor/),
-      'FILL_INSIDE',
-    );
-    expect(group?.setViewportsCursorByToolName).toHaveBeenCalledWith(
-      'CircleScissor',
-      'FILL_INSIDE',
-    );
-
-    dispatchWindowKey('keyup', 'Shift');
-
-    expect(group?.setActiveStrategy).toHaveBeenCalledWith(
-      expect.stringMatching(/CircleScissor/),
-      'ERASE_INSIDE',
-    );
-    expect(group?.setViewportsCursorByToolName).toHaveBeenCalledWith(
-      'CircleScissor',
-      'ERASE_OUTSIDE',
-    );
-  });
-
-  it('updates to a scissor cursor immediately even before async segmentation creation completes', () => {
-    usePreferencesStore.getState().setScissorDefaultStrategy('erase');
-    toolService.initialize();
-
-    useSegmentationStore.setState({
-      activeSegmentationId: null,
-      activeSegmentIndex: 1,
-      segmentations: [],
-    });
-
-    toolService.setActiveTool(ToolName.CircleScissors);
-
-    const group = cs.getLastToolGroup();
-    expect(group?.setViewportsCursorByToolName).toHaveBeenCalledWith(
-      'CircleScissor',
-      'ERASE_OUTSIDE',
     );
   });
 

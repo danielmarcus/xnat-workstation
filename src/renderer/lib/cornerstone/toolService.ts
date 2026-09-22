@@ -195,8 +195,10 @@ function hexToRgba(hex: string): [number, number, number, number] | null {
 }
 
 function getPrimaryScissorStrategy(): ScissorStrategyName {
-  const pref = usePreferencesStore.getState().preferences.annotation.scissors.defaultStrategy;
-  return pref === 'fill' ? 'FILL_INSIDE' : 'ERASE_INSIDE';
+  // The add/remove mode moved to session state on the unified path (segmentationStore
+  // .editMode). This legacy service's tool group is never created by the app, so this
+  // only keeps the file compiling; fill matches Cornerstone's own default.
+  return 'FILL_INSIDE';
 }
 
 function getAlternateScissorStrategy(strategy: ScissorStrategyName): ScissorStrategyName {

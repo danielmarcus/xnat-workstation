@@ -105,7 +105,7 @@ describe('unified edit mode (fill / erase)', () => {
     [ToolName.RectangleScissors, /RectangleScissor/],
     [ToolName.SphereScissors, /SphereScissor/],
   ])('%s applies the erase strategy when the edit mode is erase', (tool, match) => {
-    usePreferencesStore.getState().setScissorDefaultStrategy('erase');
+    useSegmentationStore.getState().setEditMode('erase');
 
     unifiedToolService.setActiveTool(tool as ToolName);
 
@@ -117,7 +117,7 @@ describe('unified edit mode (fill / erase)', () => {
     [ToolName.RectangleScissors, /RectangleScissor/],
     [ToolName.SphereScissors, /SphereScissor/],
   ])('%s applies the fill strategy when the edit mode is fill', (tool, match) => {
-    usePreferencesStore.getState().setScissorDefaultStrategy('fill');
+    useSegmentationStore.getState().setEditMode('fill');
 
     unifiedToolService.setActiveTool(tool as ToolName);
 
@@ -129,17 +129,17 @@ describe('unified edit mode (fill / erase)', () => {
     // tool hits the `csName === currentPrimary` early return, so a mode change made
     // while the tool is already active must still reach setActiveStrategy — the exact
     // bug the brush family needed its pre-early-return block for.
-    usePreferencesStore.getState().setScissorDefaultStrategy('fill');
+    useSegmentationStore.getState().setEditMode('fill');
     unifiedToolService.setActiveTool(ToolName.CircleScissors);
 
-    usePreferencesStore.getState().setScissorDefaultStrategy('erase');
+    useSegmentationStore.getState().setEditMode('erase');
     unifiedToolService.setActiveTool(ToolName.CircleScissors);
 
     expect(lastStrategyFor(/CircleScissor/)).toBe('ERASE_INSIDE');
   });
 
   it('inverts the strategy while Shift is held and restores it on release', () => {
-    usePreferencesStore.getState().setScissorDefaultStrategy('fill');
+    useSegmentationStore.getState().setEditMode('fill');
     unifiedToolService.setActiveTool(ToolName.CircleScissors);
 
     dispatchWindowKey('keydown', 'Shift');
@@ -197,7 +197,7 @@ describe('unified edit mode (fill / erase)', () => {
   });
 
   it('toggleEditMode flips the persisted preference', () => {
-    usePreferencesStore.getState().setScissorDefaultStrategy('fill');
+    useSegmentationStore.getState().setEditMode('fill');
     unifiedToolService.toggleEditMode();
     expect(unifiedToolService.currentEditMode()).toBe('erase');
     unifiedToolService.toggleEditMode();
@@ -209,7 +209,7 @@ describe('unified edit mode (fill / erase)', () => {
     // arrives. The latch used to stay true forever, inverting every later stroke while
     // the toolbox still showed the stored preference — "shows Erase even though it is
     // filling". Blur must drop it.
-    usePreferencesStore.getState().setScissorDefaultStrategy('fill');
+    useSegmentationStore.getState().setEditMode('fill');
     unifiedToolService.setActiveTool(ToolName.Brush);
 
     dispatchWindowKey('keydown', 'Shift');
@@ -225,7 +225,7 @@ describe('unified edit mode (fill / erase)', () => {
   it('resyncs from the real modifier state on any later keystroke', () => {
     // Belt and braces: even without a blur, the next keyboard event carries shiftKey and
     // corrects the latch, because the service reads that rather than counting presses.
-    usePreferencesStore.getState().setScissorDefaultStrategy('fill');
+    useSegmentationStore.getState().setEditMode('fill');
     unifiedToolService.setActiveTool(ToolName.Brush);
 
     dispatchWindowKey('keydown', 'Shift');

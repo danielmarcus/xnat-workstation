@@ -38,13 +38,21 @@ test('activating a container switches the toolbox + drawing tool to its kind; cl
   }
   await expect(panel).toBeVisible({ timeout: 15_000 });
 
-  // Create a Segmentation container (two-step create: name container → name member).
+  // Create a Segmentation container. Create opens the name editors (without focusing
+  // them); commit both, because the container's name element IS its activate button and
+  // is replaced by the input while the editor is open.
   await panel.getByRole('button', { name: 'New Segmentation (SEG)' }).click();
   await expect(panel.locator('[data-testid^="member-row-"]').first()).toBeVisible({ timeout: 15_000 });
+  await panel.getByLabel('Rename container').press('Enter');
+  const segMemberEditors = panel.getByLabel('Rename member');
+  for (let i = (await segMemberEditors.count()) - 1; i >= 0; i -= 1) {
+    await segMemberEditors.nth(i).press('Enter');
+  }
 
   // Create a Measurement (SR) container → it becomes active and readies a measurement tool.
   await panel.getByRole('button', { name: 'New Measurement (SR)' }).click();
   await expect(panel.locator('[data-testid^="container-row-sr:"]')).toBeVisible({ timeout: 10_000 });
+  await panel.getByLabel('Rename container').press('Enter');
   await expect.poll(() => activeTool(page), { timeout: 10_000 }).toBe('Length');
   await expect(panel.getByText('Measurement tools')).toBeVisible();
 

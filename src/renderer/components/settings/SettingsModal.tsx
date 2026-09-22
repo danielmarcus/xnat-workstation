@@ -3,7 +3,6 @@ import type { HotkeyAction, HotkeyBinding, HotkeyModifiers } from '@shared/types
 import type {
   OverlayCornerId,
   OverlayFieldKey,
-  ScissorStrategyMode,
 } from '@shared/types/preferences';
 import type { UpdateStatus } from '@shared/types';
 import {
@@ -224,7 +223,6 @@ export default function SettingsModal({ open, onClose, onRecover, initialTab }: 
   const setAnnotationAutoDisplay = usePreferencesStore((s) => s.setAnnotationAutoDisplay);
   const setAnnotationSegmentOpacity = usePreferencesStore((s) => s.setAnnotationSegmentOpacity);
   const setAnnotationColorSequence = usePreferencesStore((s) => s.setAnnotationColorSequence);
-  const setScissorDefaultStrategy = usePreferencesStore((s) => s.setScissorDefaultStrategy);
   const setScissorPreviewEnabled = usePreferencesStore((s) => s.setScissorPreviewEnabled);
   const setScissorPreviewColor = usePreferencesStore((s) => s.setScissorPreviewColor);
   const setUpdateChecksEnabled = usePreferencesStore((s) => s.setUpdateChecksEnabled);
@@ -866,21 +864,10 @@ export default function SettingsModal({ open, onClose, onRecover, initialTab }: 
 
                 <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-4 space-y-3">
                   <div className="text-xs text-zinc-300">Scissors</div>
-                  <label className="space-y-1 block">
-                    <span className="text-[11px] text-zinc-500">Default scissors mode</span>
-                    <select
-                      aria-label="Default scissors mode"
-                      value={annotationPrefs.scissors.defaultStrategy}
-                      onChange={(e) =>
-                        setScissorDefaultStrategy(e.target.value as ScissorStrategyMode)
-                      }
-                      className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-xs text-zinc-200"
-                    >
-                      <option value="erase">Erase inside</option>
-                      <option value="fill">Fill inside</option>
-                    </select>
-                  </label>
-
+                  {/* No "default mode" setting: add/remove is per-session state that
+                      starts at fill every launch, toggled in the toolbox or with `e`.
+                      Persisting it meant an app opened after a session that ended in
+                      erase came up erasing. */}
                   <label className="flex items-center gap-2 cursor-pointer">
                     <input
                       type="checkbox"

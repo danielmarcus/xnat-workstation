@@ -116,13 +116,22 @@ describe('MemberRow', () => {
     expect(screen.queryByTestId('color-swatch-1')).toBeNull();
   });
 
-  it('does NOT open the name editor on create, so the panel never takes focus', () => {
-    // Creating a member used to open this input and call .focus()+.select(), pulling the
-    // keyboard into the side panel: viewport shortcuts typed into the label instead of
-    // reaching the image. The create flag is still consumed so the parent can clear it.
+  it('opens the name editor on create WITHOUT taking focus', () => {
+    // Both halves matter. The editor opens (frozen mockup D7.6, create-in-edit-mode),
+    // but focusing it pulled the keyboard into the side panel: viewport shortcuts typed
+    // into the label instead of reaching the image.
     const onEditConsumed = vi.fn();
     setup({ autoEdit: true, onEditConsumed });
-    expect(screen.queryByLabelText('Rename member')).toBeNull();
+    const input = screen.getByLabelText('Rename member');
+    expect(input, 'the editor should be open').toBeTruthy();
+    expect(document.activeElement, 'but it must not have taken focus').not.toBe(input);
     expect(onEditConsumed).toHaveBeenCalled();
+  });
+
+  it('DOES focus the editor when the user opens it deliberately', async () => {
+    setup();
+    await userEvent.dblClick(screen.getByText('GTV_primary'));
+    const input = screen.getByLabelText('Rename member');
+    expect(document.activeElement, 'a rename the user asked for must be typable').toBe(input);
   });
 });

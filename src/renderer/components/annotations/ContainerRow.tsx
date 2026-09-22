@@ -82,6 +82,8 @@ export default function ContainerRow(props: ContainerRowProps) {
   const dirty = !!container.dirty && !approved;
 
   const [editing, setEditing] = useState(false);
+  /** True when the editor was opened deliberately, so it may take focus. */
+  const autoFocusedRef = useRef(true);
   const [draft, setDraft] = useState(container.label);
   const [menuOpen, setMenuOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -90,24 +92,36 @@ export default function ContainerRow(props: ContainerRowProps) {
   const anyVisible = container.members.some((m) => m.visible);
   const anyUnlocked = container.members.some((m) => !m.locked);
 
+  /**
+   * Focus the editor only when the USER opened it (double-click / kebab), never when
+   * create opened it. `autoFocusedRef` is set false by the create path below and true by
+   * every deliberate one, so the same effect serves both without a second code path.
+   */
   useEffect(() => {
-    if (editing && inputRef.current) {
+    if (editing && autoFocusedRef.current && inputRef.current) {
       inputRef.current.focus();
       inputRef.current.select();
     }
   }, [editing]);
-  // Deliberately NOT entering edit mode on create. Doing so called .focus()+.select()
-  // on this input, pulling the keyboard into the side panel: viewport shortcuts then
-  // typed into the label instead of reaching the image, and the panel held a focus ring.
-  // Renaming stays available on double-click and from the kebab.
+  // Create opens the name editor (frozen mockup D7.6) but must NOT take focus.
+  // Focusing it pulled the keyboard into the side panel, so viewport shortcuts typed
+  // into the label instead of reaching the image.
   useEffect(() => {
-    if (autoEdit) onEditConsumed?.();
+    if (autoEdit && !approved) {
+      setDraft(container.label);
+      autoFocusedRef.current = false;
+      setEditing(true);
+      onEditConsumed?.();
+    } else if (autoEdit) {
+      onEditConsumed?.();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoEdit]);
 
   const beginEdit = () => {
     if (approved) return; // rename blocked on approved (D7.11)
     setDraft(container.label);
+    autoFocusedRef.current = true;
     setEditing(true);
   };
   const commit = () => {
