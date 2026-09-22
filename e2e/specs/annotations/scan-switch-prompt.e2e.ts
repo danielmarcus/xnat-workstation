@@ -62,9 +62,6 @@ test('switching scans in one viewport prompts, and the annotation leaves with it
 
   const panel = await openPanel(page);
   await panel.getByRole('button', { name: 'New Structure (RTSTRUCT)' }).click();
-  await panel.getByLabel('Rename container').press('Enter');
-  const memberRename = panel.getByLabel('Rename member');
-  if (await memberRename.count()) await memberRename.press('Enter');
   await drawStroke(page);
   expect(await drawnShapeCount(page), 'the contour must be drawn on its own scan').toBeGreaterThan(0);
 
@@ -103,9 +100,6 @@ test('cancelling the prompt keeps the scan and the annotation', async ({ page })
 
   const panel = await openPanel(page);
   await panel.getByRole('button', { name: 'New Structure (RTSTRUCT)' }).click();
-  await panel.getByLabel('Rename container').press('Enter');
-  const memberRename = panel.getByLabel('Rename member');
-  if (await memberRename.count()) await memberRename.press('Enter');
   await drawStroke(page);
 
   await page.locator('[data-testid="local-import-input"]').setInputFiles([]);

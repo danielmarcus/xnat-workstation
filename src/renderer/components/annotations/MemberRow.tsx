@@ -88,14 +88,12 @@ export default function MemberRow(props: MemberRowProps) {
   useEffect(() => {
     if (editing && inputRef.current) { inputRef.current.focus(); inputRef.current.select(); }
   }, [editing]);
-  // Enter edit mode when autoEdit BECOMES true (row may mount before the create
-  // handler sets the flag, so an initial-state capture would miss it).
+  // Deliberately NOT entering edit mode on create. Doing so called .focus()+.select()
+  // on this input, pulling the keyboard into the side panel: viewport shortcuts then
+  // typed into the label instead of reaching the image, and the panel held a focus ring.
+  // Renaming stays available on double-click and from the kebab.
   useEffect(() => {
-    if (autoEdit && !readOnly) {
-      setDraft(member.label);
-      setEditing(true);
-      onEditConsumed?.();
-    }
+    if (autoEdit) onEditConsumed?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoEdit]);
   const commit = () => {

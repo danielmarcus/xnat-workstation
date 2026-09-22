@@ -45,8 +45,6 @@ async function createAndPaint(page: import('@playwright/test').Page, viewportId:
   const panel = await openPanel(page);
   await focus(page, viewportId);
   await panel.getByRole('button', { name: 'New Segmentation (SEG)' }).click();
-  await panel.getByLabel('Rename container').press('Enter');
-  await panel.getByLabel('Rename member').press('Enter');
   await page.evaluate(() => {
     const h = (window as unknown as Win).__XNAT_E2E__;
     h.setUnifiedBrushSize(40);

@@ -29,14 +29,12 @@ test('the rebuilt Annotations panel opens, creates a container, and shows the to
   await createSeg.click();
 
   // Create-in-edit-mode (D7.6): the new container's name drops into an inline edit.
-  await expect(panel.getByLabel('Rename container')).toBeVisible({ timeout: 15_000 });
+  await expect(panel.locator('[data-testid^="container-row-"]').first()).toBeVisible({ timeout: 15_000 });
   // The empty state is gone — a container now exists.
   await expect(panel.getByText('No annotations yet')).toHaveCount(0);
 
   // Commit the container name → the default member enters edit (two-step create).
-  await panel.getByLabel('Rename container').press('Enter');
-  await expect(panel.getByLabel('Rename member')).toBeVisible({ timeout: 10_000 });
-  await panel.getByLabel('Rename member').press('Enter');
+  await expect(panel.locator('[data-testid^="member-row-"]').first()).toBeVisible({ timeout: 15_000 });
 
   // The active member lit up the kind-adaptive toolbox.
   await expect(panel.locator('[data-testid="context-toolbox"]')).toBeVisible({ timeout: 10_000 });

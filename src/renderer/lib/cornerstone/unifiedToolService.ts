@@ -282,21 +282,41 @@ const SCISSORS_TOOLS = new Set<ToolName>([
   ToolName.SphereScissors,
 ]);
 
-function isShiftKeyEvent(evt: Event): boolean {
-  const key = (evt as KeyboardEvent).key;
-  return key === 'Shift' || key === 'ShiftLeft' || key === 'ShiftRight';
-}
-
-function onEditModeShiftDown(evt: Event): void {
-  if (!isShiftKeyEvent(evt) || editModeShiftPressed) return;
-  editModeShiftPressed = true;
+/**
+ * Set the latch, and tell the store so the toolbox can show the EFFECTIVE mode.
+ *
+ * The latch used to be cleared only by a Shift keyup reaching this listener. Lose the
+ * window while Shift is held — cmd-tab, a dialog, clicking outside — and that keyup
+ * never arrives, so the latch stayed true FOREVER: every later stroke was inverted while
+ * the toggle still read the stored preference. That is the "shows Erase even though it
+ * is filling" report. It is now resynced from the real modifier state on every keyboard
+ * event and cleared whenever the window loses focus.
+ */
+function setShiftHeld(next: boolean): void {
+  if (editModeShiftPressed === next) return;
+  editModeShiftPressed = next;
+  try {
+    useSegmentationStore.getState().setEditModeShiftHeld(next);
+  } catch {
+    /* store unavailable in isolated tests */
+  }
   syncActiveEditMode();
 }
 
-function onEditModeShiftUp(evt: Event): void {
-  if (!isShiftKeyEvent(evt) || !editModeShiftPressed) return;
-  editModeShiftPressed = false;
-  syncActiveEditMode();
+/**
+ * Any keyboard event carries the authoritative modifier state in `shiftKey`, so read
+ * that rather than tracking Shift press/release. A missed keyup then self-heals on the
+ * next keystroke instead of latching.
+ */
+function onEditModeKeyEvent(evt: Event): void {
+  const shiftKey = (evt as KeyboardEvent).shiftKey;
+  if (typeof shiftKey !== 'boolean') return;
+  setShiftHeld(shiftKey);
+}
+
+/** Leaving the window drops every modifier; the keyup will never be delivered. */
+function onEditModeWindowBlur(): void {
+  setShiftHeld(false);
 }
 
 function installEditModeModifierListeners(): void {
@@ -305,18 +325,20 @@ function installEditModeModifierListeners(): void {
   // Capture phase, matching the hotkey listener's convention: the modifier must be
   // observed regardless of what holds focus, and ViewerPage's lifecycle test asserts
   // every keydown listener it installs is a capturing one.
-  window.addEventListener('keydown', onEditModeShiftDown, { capture: true });
-  window.addEventListener('keyup', onEditModeShiftUp, { capture: true });
+  window.addEventListener('keydown', onEditModeKeyEvent, { capture: true });
+  window.addEventListener('keyup', onEditModeKeyEvent, { capture: true });
+  window.addEventListener('blur', onEditModeWindowBlur);
   editModeModifierListenersInstalled = true;
 }
 
 function removeEditModeModifierListeners(): void {
   if (!editModeModifierListenersInstalled) return;
   editModeModifierListenersInstalled = false;
-  editModeShiftPressed = false;
+  setShiftHeld(false);
   if (typeof window === 'undefined' || typeof window.removeEventListener !== 'function') return;
-  window.removeEventListener('keydown', onEditModeShiftDown, { capture: true });
-  window.removeEventListener('keyup', onEditModeShiftUp, { capture: true });
+  window.removeEventListener('keydown', onEditModeKeyEvent, { capture: true });
+  window.removeEventListener('keyup', onEditModeKeyEvent, { capture: true });
+  window.removeEventListener('blur', onEditModeWindowBlur);
 }
 
 /**
@@ -691,21 +713,54 @@ const OWNS_ITS_CURSOR = new Set<ToolName>([ToolName.RegionSegmentPlus]);
  */
 type CursorSpec = { kind: 'css'; value: string } | { kind: 'named'; name: string };
 
-/** Fill-mode cursor for the tools that have an edit mode. */
-const FILL_CURSOR: Partial<Record<ToolName, CursorSpec>> = {
-  [ToolName.Brush]: { kind: 'css', value: 'crosshair' },
-  [ToolName.SphereBrush]: { kind: 'css', value: 'crosshair' },
-  [ToolName.CircleScissors]: { kind: 'named', name: 'CircleScissor' },
-  // Cornerstone ships no SphereScissor glyph; the circle one reads correctly for it.
-  [ToolName.SphereScissors]: { kind: 'named', name: 'CircleScissor' },
-  [ToolName.RectangleScissors]: { kind: 'named', name: 'RectangleScissor' },
-};
-
 /**
- * Erase looks the same for every tool. That is the point: one glyph means "this stroke
- * removes", whatever shape is drawing, so the mode is legible without reading the shape.
+ * A matched pair of cursors for the two edit modes, registered by us.
+ *
+ * Mixing a CSS keyword for one mode with a shipped SVG cursor for the other made the
+ * pointer change SIZE, STYLE and HOTSPOT as the mode flipped — reported as "the style
+ * and location of the mouse cursor is different for fill/erase". Cornerstone's
+ * `registerCursor` extends a BASE that fixes iconSize 16, a 16×16 viewBox, a mousePoint
+ * of (8,8) and a shared crosshair pointer group, so two cursors registered this way are
+ * pixel-identical apart from the mark: a plus for fill, a minus for erase. Same shape,
+ * same hotspot, same position — only the meaning differs.
+ *
+ * They are used for EVERY edit-mode tool rather than per-shape glyphs: the toolbox
+ * already shows which tool is active, so the pointer's job is position and mode.
  */
-const ERASE_CURSOR: CursorSpec = { kind: 'named', name: 'Eraser' };
+const FILL_CURSOR_NAME = 'XnatEditFill';
+const ERASE_CURSOR_NAME = 'XnatEditErase';
+let editCursorsRegistered = false;
+
+function registerEditCursors(): void {
+  if (editCursorsRegistered) return;
+  try {
+    const define = (name: string, iconContent: string) => {
+      csCursors.registerCursor(name, iconContent, { x: 16, y: 16 });
+      // Cornerstone's registerCursor does not record the name on the descriptor, and
+      // createSVGIconUrl then stamps the blob fragment as `#unknown-pointer` for every
+      // cursor registered this way — so two registered cursors are indistinguishable
+      // from the DOM, and a regression swapping them would be invisible. Supply it.
+      const descriptor = (csCursors.CursorSVG as Record<string, { name?: string }>)[name];
+      if (descriptor) descriptor.name = name;
+    };
+    define(
+      FILL_CURSOR_NAME,
+      `<circle cx="11.5" cy="11.5" r="4" fill="none" stroke="{{color}}" stroke-width="1"></circle>
+       <path stroke="{{color}}" stroke-width="1" d="M11.5 9.5v4M9.5 11.5h4"></path>`,
+    );
+    define(
+      ERASE_CURSOR_NAME,
+      `<circle cx="11.5" cy="11.5" r="4" fill="none" stroke="{{color}}" stroke-width="1"></circle>
+       <path stroke="{{color}}" stroke-width="1" d="M9.5 11.5h4"></path>`,
+    );
+    editCursorsRegistered = true;
+  } catch {
+    /* registration unavailable — writeCursor falls back harmlessly */
+  }
+}
+
+const FILL_CURSOR: CursorSpec = { kind: 'named', name: FILL_CURSOR_NAME };
+const ERASE_CURSOR: CursorSpec = { kind: 'named', name: ERASE_CURSOR_NAME };
 
 /**
  * THE cursor for a tool, or null when the tool draws its own as live feedback.
@@ -720,8 +775,8 @@ function cursorSpecFor(toolName: ToolName): CursorSpec | null {
   if (OWNS_ITS_CURSOR.has(toolName)) return null;
 
   if (EDIT_MODE_TOOLS.has(toolName)) {
-    if (effectiveEditMode() === 'erase') return ERASE_CURSOR;
-    return FILL_CURSOR[toolName] ?? { kind: 'css', value: 'crosshair' };
+    registerEditCursors();
+    return effectiveEditMode() === 'erase' ? ERASE_CURSOR : FILL_CURSOR;
   }
   // Fill-only painting tools still get a deliberate cursor rather than the OS arrow.
   if (BRUSH_STRATEGY[toolName] !== undefined) return { kind: 'css', value: 'crosshair' };

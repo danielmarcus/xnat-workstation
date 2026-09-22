@@ -30,9 +30,6 @@ test('switching between brush variants never leaves a second cursor behind', asy
   if (!(await panel.isVisible())) await page.getByRole('button', { name: 'Show segmentation panel' }).click();
   await expect(panel).toBeVisible({ timeout: 15_000 });
   await panel.getByRole('button', { name: 'New Segmentation (SEG)' }).click();
-  await panel.getByLabel('Rename container').press('Enter');
-  const mr = panel.getByLabel('Rename member');
-  if (await mr.count()) await mr.press('Enter');
 
   const box = (await page.locator('[data-testid="unified-viewport-element:panel_0"] canvas').boundingBox())!;
   const hover = async () => {
@@ -63,9 +60,6 @@ test('a usable tool never shows a forbidden cursor', async ({ page }) => {
   if (!(await panel.isVisible())) await page.getByRole('button', { name: 'Show segmentation panel' }).click();
   await expect(panel).toBeVisible({ timeout: 15_000 });
   await panel.getByRole('button', { name: 'New Segmentation (SEG)' }).click();
-  await panel.getByLabel('Rename container').press('Enter');
-  const mr = panel.getByLabel('Rename member');
-  if (await mr.count()) await mr.press('Enter');
 
   const box = (await page.locator('[data-testid="unified-viewport-element:panel_0"] canvas').boundingBox())!;
   // Every enabled SEG tool, in one pass — the ordering that produced "not-allowed" before.

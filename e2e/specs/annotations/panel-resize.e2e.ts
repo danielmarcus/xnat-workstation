@@ -48,8 +48,6 @@ async function openPanelWithSeg(page: Page) {
   }
   await expect(panel).toBeVisible({ timeout: 15_000 });
   await panel.getByRole('button', { name: 'New Segmentation (SEG)' }).click();
-  await panel.getByLabel('Rename container').press('Enter');
-  await panel.getByLabel('Rename member').press('Enter');
   await expect(panel.locator('[data-testid="context-toolbox"]')).toBeVisible({ timeout: 10_000 });
   return panel;
 }

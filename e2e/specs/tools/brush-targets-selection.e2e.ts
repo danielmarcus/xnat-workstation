@@ -22,11 +22,14 @@ const csActive = (page: Page) =>
 
 async function createSeg(panel: Locator, name: string) {
   await panel.getByRole('button', { name: 'New Segmentation (SEG)' }).click();
+  // Create no longer opens the name editor (it stole keyboard focus into the panel), so
+  // rename the way a user does: double-click the label.
+  const row = panel.locator('[data-testid^="container-row-"]').last();
+  await expect(row).toBeVisible({ timeout: 15_000 });
+  await row.locator('span[title]').first().dblclick();
   const rc = panel.getByLabel('Rename container');
   await rc.fill(name);
   await rc.press('Enter');
-  const rm = panel.getByLabel('Rename member');
-  if (await rm.isVisible({ timeout: 5_000 }).catch(() => false)) await rm.press('Enter');
 }
 
 test('selecting a segmentation routes the brush to it (not the last-created)', async ({ page }) => {

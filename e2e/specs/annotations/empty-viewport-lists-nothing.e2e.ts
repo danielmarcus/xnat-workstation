@@ -37,9 +37,6 @@ test('focusing an empty viewport shows no annotations from the viewports that ha
 
   await focus(page, 'panel_0');
   await panel.getByRole('button', { name: 'New Structure (RTSTRUCT)' }).click();
-  await panel.getByLabel('Rename container').press('Enter');
-  const memberRename = panel.getByLabel('Rename member');
-  if (await memberRename.count()) await memberRename.press('Enter');
   await expect(panel.locator('[data-testid^="container-row-"]')).toHaveCount(1);
 
   // Focus an empty cell. It holds no images, so it has no annotations.

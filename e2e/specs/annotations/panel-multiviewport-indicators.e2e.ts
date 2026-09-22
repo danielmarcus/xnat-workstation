@@ -34,8 +34,6 @@ test('a container attached to more than one viewport shows the cross-panel pill'
   await expect(panel).toBeVisible({ timeout: 15_000 });
 
   await panel.getByRole('button', { name: 'New Segmentation (SEG)' }).click();
-  await panel.getByLabel('Rename container').press('Enter');
-  await panel.getByLabel('Rename member').press('Enter');
 
   const { segmentationId } = await page.evaluate(
     () => (window as unknown as Win).__XNAT_E2E__.createUnifiedLabelmapSegmentation('Cross SEG'),

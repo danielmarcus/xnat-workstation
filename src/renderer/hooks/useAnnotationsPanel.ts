@@ -100,7 +100,13 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
   const lastAutoSaveTime = useSegmentationStore((s) => s.lastAutoSaveTime);
   const brushSize = useSegmentationStore((s) => s.brushSize);
   const samplingRadius = useSegmentationStore((s) => s.samplingRadius);
-  const scissorMode = usePreferencesStore((s) => s.preferences.annotation.scissors.defaultStrategy);
+  const storedEditMode = usePreferencesStore((s) => s.preferences.annotation.scissors.defaultStrategy);
+  const editModeShiftHeld = useSegmentationStore((s) => s.editModeShiftHeld);
+  // The EFFECTIVE mode, not the stored one: Shift inverts what a stroke does, so a
+  // toggle showing the preference could disagree with what the tool would actually do —
+  // and did, permanently, whenever a Shift keyup was lost to a window blur.
+  const scissorMode: 'fill' | 'erase' =
+    editModeShiftHeld ? (storedEditMode === 'fill' ? 'erase' : 'fill') : storedEditMode;
   // Threshold-brush intensity window. Scoped to the active scan's modality: an HU
   // window means nothing on MR/PT, so the range reseeds when the modality changes
   // (edits within one modality stick — see the effect below).

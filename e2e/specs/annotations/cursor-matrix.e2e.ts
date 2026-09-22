@@ -43,16 +43,19 @@ const cursor = (page: Page) =>
 
 /** tool → [cursor in fill mode, cursor in erase mode | null when the tool has no mode] */
 const EXPECTED: Array<[string, string, string | null]> = [
-  ['Brush', 'crosshair', 'Eraser'],
-  ['Sph. Brush', 'crosshair', 'Eraser'],
+  ['Brush', 'XnatEditFill', 'XnatEditErase'],
+  ['Sph. Brush', 'XnatEditFill', 'XnatEditErase'],
   // Fill-only: Cornerstone ships THRESHOLD_INSIDE_* with no erase counterpart.
   ['Threshold', 'crosshair', null],
   ['Sph. Thresh', 'crosshair', null],
   ['Dyn. Thresh', 'crosshair', null],
-  ['Circle', 'CircleScissor', 'Eraser'],
-  ['Rect', 'RectangleScissor', 'Eraser'],
-  // No SphereScissor glyph ships; the circle one reads correctly for it.
-  ['Sphere', 'CircleScissor', 'Eraser'],
+  // One matched pair for every edit-mode tool: Cornerstone's registerCursor BASE fixes
+  // the size, viewBox and (8,8) hotspot, so fill and erase are pixel-identical apart
+  // from the mark. Mixing a CSS keyword with a shipped SVG made the pointer change
+  // style, size AND position as the mode flipped.
+  ['Circle', 'XnatEditFill', 'XnatEditErase'],
+  ['Rect', 'XnatEditFill', 'XnatEditErase'],
+  ['Sphere', 'XnatEditFill', 'XnatEditErase'],
   ['Paint Fill', 'cell', null],
   ['Region', 'crosshair', null],
   ['Rect Multi', 'crosshair', null],
@@ -65,9 +68,6 @@ async function segPanel(page: Page) {
   if (!(await panel.isVisible())) await page.getByRole('button', { name: 'Show segmentation panel' }).click();
   await expect(panel).toBeVisible({ timeout: 15_000 });
   await panel.getByRole('button', { name: 'New Segmentation (SEG)' }).click();
-  await panel.getByLabel('Rename container').press('Enter');
-  const mr = panel.getByLabel('Rename member');
-  if (await mr.count()) await mr.press('Enter');
   return panel;
 }
 

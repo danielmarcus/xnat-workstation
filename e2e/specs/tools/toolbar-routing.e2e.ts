@@ -35,7 +35,6 @@ test('toolbar Length selection routes to the unified tool group (flag on)', asyn
   }
   await expect(panel).toBeVisible({ timeout: 15_000 });
   await panel.getByRole('button', { name: 'New Measurement (SR)' }).click();
-  await panel.getByLabel('Rename container').press('Enter');
   const toolbox = panel.locator('[data-testid="context-toolbox"]');
   await expect(toolbox).toBeVisible({ timeout: 10_000 });
   await toolbox.getByLabel('Length').click();

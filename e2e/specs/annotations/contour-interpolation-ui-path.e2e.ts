@@ -38,8 +38,6 @@ test('Structure + Freehand created from the panel interpolates between slices', 
   await expect(panel).toBeVisible({ timeout: 15_000 });
 
   await panel.getByRole('button', { name: 'New Structure (RTSTRUCT)' }).click();
-  await panel.getByLabel('Rename container').press('Enter');
-  await panel.getByLabel('Rename member').press('Enter');
   const toolbox = panel.locator('[data-testid="context-toolbox"]');
   await expect(toolbox).toBeVisible({ timeout: 10_000 });
   await toolbox.getByRole('button', { name: 'Freehand', exact: true }).click();

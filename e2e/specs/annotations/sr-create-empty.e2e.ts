@@ -27,10 +27,13 @@ test('the "New Measurement (SR)" button creates an empty, named, listed containe
 
   // Create-in-edit-mode: the new SR container's name drops into an inline edit, and the
   // empty state is gone (a container now exists even though it has no measurements).
-  await expect(panel.getByLabel('Rename container')).toBeVisible({ timeout: 15_000 });
+  await expect(panel.locator('[data-testid^="container-row-"]').first()).toBeVisible({ timeout: 15_000 });
   await expect(panel.getByText('No annotations yet')).toHaveCount(0);
 
   // Name it → it persists as a listed SR container with zero members.
+  const srContainer = panel.locator('[data-testid^="container-row-sr:"]');
+  await expect(srContainer).toBeVisible({ timeout: 15_000 });
+  await srContainer.locator('span[title]').first().dblclick();
   await panel.getByLabel('Rename container').fill('Lesions');
   await panel.getByLabel('Rename container').press('Enter');
   const srRow = panel.locator('[data-testid^="container-row-sr:"]');

@@ -63,6 +63,12 @@ interface SegmentationStore {
   /** Radius in VOXELS sampled around the first click by the dynamic-threshold brush to
    *  derive its window. Its only control; without one the tool ran on a hidden default. */
   samplingRadius: number;
+  /**
+   * Whether Shift is currently inverting the fill/erase mode. Lives in the store so the
+   * toolbox can show the EFFECTIVE mode: showing the stored preference instead let the
+   * toggle disagree with what a stroke would actually do.
+   */
+  editModeShiftHeld: boolean;
 
   /**
    * The DICOM modality `thresholdRange` was seeded for, or null before any scan has
@@ -145,6 +151,7 @@ interface SegmentationStore {
   /** Set threshold range */
   setThresholdRange: (range: [number, number]) => void;
   setSamplingRadius: (radius: number) => void;
+  setEditModeShiftHeld: (held: boolean) => void;
 
   /** Reseed the threshold window for a newly-active modality (records the modality). */
   seedThresholdRangeForModality: (modality: string, range: [number, number]) => void;
@@ -216,6 +223,7 @@ export const useSegmentationStore = create<SegmentationStore>((set) => ({
   brushSize: 5,
   thresholdRange: defaultThresholdRangeForModality('CT'),
   samplingRadius: 3,
+  editModeShiftHeld: false,
   thresholdRangeModality: null,
   activeSegTool: null,
   splineType: 'CATMULLROM',
@@ -254,6 +262,7 @@ export const useSegmentationStore = create<SegmentationStore>((set) => ({
 
   setThresholdRange: (range) => set({ thresholdRange: range }),
   setSamplingRadius: (radius) => set({ samplingRadius: Math.max(1, Math.round(radius)) }),
+  setEditModeShiftHeld: (held) => set({ editModeShiftHeld: held }),
 
   seedThresholdRangeForModality: (modality, range) =>
     set({ thresholdRange: range, thresholdRangeModality: modality }),

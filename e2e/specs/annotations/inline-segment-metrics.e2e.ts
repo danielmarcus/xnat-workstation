@@ -39,10 +39,8 @@ test('a painted segment shows its volume inline in the member row', async ({ pag
 
   // Real create → container + default member, both named through the two-step flow.
   await panel.getByRole('button', { name: 'New Segmentation (SEG)' }).click();
-  await expect(panel.getByLabel('Rename container')).toBeVisible({ timeout: 15_000 });
-  await panel.getByLabel('Rename container').press('Enter');
-  await expect(panel.getByLabel('Rename member')).toBeVisible({ timeout: 10_000 });
-  await panel.getByLabel('Rename member').press('Enter');
+  await expect(panel.locator('[data-testid^="container-row-"]').first()).toBeVisible({ timeout: 15_000 });
+  await expect(panel.locator('[data-testid^="member-row-"]').first()).toBeVisible({ timeout: 15_000 });
 
   const memberRow = panel.locator('[data-testid^="member-row-"]').first();
   await expect(memberRow).toBeVisible({ timeout: 10_000 });

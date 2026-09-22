@@ -43,9 +43,7 @@ test('using Segment Bidirectional leaves the brush cursor working', async ({ pag
   const panel = page.locator('[data-testid="annotations-side-panel"]');
   await expect(panel).toBeVisible({ timeout: 15_000 });
   await panel.getByRole('button', { name: 'New Segmentation (SEG)' }).click();
-  await panel.getByLabel('Rename container').press('Enter');
-  if (await panel.getByLabel('Rename member').isVisible({ timeout: 5_000 }).catch(() => false)) await panel.getByLabel('Rename member').press('Enter');
-
+  await expect(panel.locator('[data-testid^="member-row-"]').first()).toBeVisible({ timeout: 15_000 });
   const toolbox = panel.locator('[data-testid="context-toolbox"]');
 
   // Paint a real segment blob.

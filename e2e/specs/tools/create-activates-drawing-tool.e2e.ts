@@ -39,11 +39,7 @@ for (const c of CASES) {
 
     await panel.getByRole('button', { name: c.button }).click();
     // Commit the create-in-edit names so the flow settles (don't leave inline edits open).
-    const renameContainer = panel.getByLabel('Rename container');
-    if (await renameContainer.isVisible({ timeout: 5_000 }).catch(() => false)) await renameContainer.press('Enter');
     if (c.hasMember) {
-      const renameMember = panel.getByLabel('Rename member');
-      if (await renameMember.isVisible({ timeout: 5_000 }).catch(() => false)) await renameMember.press('Enter');
     }
 
     // CONTRACT: a drawing tool of the created kind is now active — so the user can draw

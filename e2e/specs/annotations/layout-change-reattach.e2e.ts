@@ -45,9 +45,6 @@ for (const kind of [
 
     // Create FIRST, while there is a single viewport.
     await panel.getByRole('button', { name: kind.button }).click();
-    await panel.getByLabel('Rename container').press('Enter');
-    const memberRename = panel.getByLabel('Rename member');
-    if (await memberRename.count()) await memberRename.press('Enter');
     await page.waitForTimeout(800);
     expect(await reps(page, 'panel_0'), 'it must be on the viewport it was made in').toBeGreaterThan(0);
 

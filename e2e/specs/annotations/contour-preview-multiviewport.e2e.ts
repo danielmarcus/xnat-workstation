@@ -99,9 +99,6 @@ for (const tool of [
 
     await page.locator('[data-testid="unified-viewport:panel_0"]').click({ position: { x: 20, y: 20 } });
     await panel.getByRole('button', { name: tool.button }).click();
-    await panel.getByLabel('Rename container').press('Enter');
-    const memberRename = panel.getByLabel('Rename member');
-    if (await memberRename.count()) await memberRename.press('Enter');
 
     await beginOpenStroke(page, 'panel_0');
     const during = await shapesPerViewport(page);

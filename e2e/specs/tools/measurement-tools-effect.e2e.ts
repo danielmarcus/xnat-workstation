@@ -84,8 +84,7 @@ for (const { label, gesture } of CASES) {
 
     // Create + name a Measurement container so the toolbox adapts to the SR kind.
     await panel.getByRole('button', { name: 'New Measurement (SR)' }).click();
-    await expect(panel.getByLabel('Rename container')).toBeVisible({ timeout: 15_000 });
-    await panel.getByLabel('Rename container').press('Enter');
+    await expect(panel.locator('[data-testid^="container-row-"]').first()).toBeVisible({ timeout: 15_000 });
 
     const toolbox = panel.locator('[data-testid="context-toolbox"]');
     await expect(toolbox).toBeVisible({ timeout: 10_000 });
@@ -123,8 +122,7 @@ test('Arrow opens the label prompt and the labelled arrow becomes an SR member (
   await expect(panel).toBeVisible({ timeout: 15_000 });
 
   await panel.getByRole('button', { name: 'New Measurement (SR)' }).click();
-  await expect(panel.getByLabel('Rename container')).toBeVisible({ timeout: 15_000 });
-  await panel.getByLabel('Rename container').press('Enter');
+  await expect(panel.locator('[data-testid^="container-row-"]').first()).toBeVisible({ timeout: 15_000 });
 
   const toolbox = panel.locator('[data-testid="context-toolbox"]');
   await expect(toolbox).toBeVisible({ timeout: 10_000 });

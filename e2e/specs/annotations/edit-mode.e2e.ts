@@ -30,9 +30,6 @@ async function segToolbox(page: Page) {
   if (!(await panel.isVisible())) await page.getByRole('button', { name: 'Show segmentation panel' }).click();
   await expect(panel).toBeVisible({ timeout: 15_000 });
   await panel.getByRole('button', { name: 'New Segmentation (SEG)' }).click();
-  await panel.getByLabel('Rename container').press('Enter');
-  const mr = panel.getByLabel('Rename member');
-  if (await mr.count()) await mr.press('Enter');
   return panel;
 }
 
@@ -247,3 +244,89 @@ test('the e hotkey toggles the mode for whichever tool is active', async ({ page
     '`e` used to pick the Eraser tool; it now toggles the mode, so it works for every tool',
   ).toHaveAttribute('aria-pressed', 'true');
 });
+
+test('the toggle shows the EFFECTIVE mode, so it can never disagree with the stroke', async ({ page }) => {
+  // Reported as "defaulted to showing the mode as erase even though it's filling". The
+  // toggle read the STORED preference while strokes used the effective mode, so the two
+  // could disagree — permanently, once a Shift keyup was lost (see the blur test below).
+  await loadFixture(page, 'ct-axial-300', 'panel_0');
+  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.resetUnifiedSegmentations());
+  const panel = await segToolbox(page);
+
+  await panel.getByRole('button', { name: 'Brush', exact: true }).click();
+  await panel.getByRole('button', { name: 'fill', exact: true }).click();
+  await expect(panel.getByRole('button', { name: 'fill', exact: true })).toHaveAttribute('aria-pressed', 'true');
+
+  await page.keyboard.down('Shift');
+  await page.waitForTimeout(250);
+  await expect(
+    panel.getByRole('button', { name: 'erase', exact: true }),
+    'while Shift inverts the stroke, the toggle must say erase',
+  ).toHaveAttribute('aria-pressed', 'true');
+
+  await page.keyboard.up('Shift');
+  await page.waitForTimeout(250);
+  await expect(panel.getByRole('button', { name: 'fill', exact: true })).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('a Shift keyup lost to a window blur does not leave the mode inverted', async ({ page }) => {
+  // Hold Shift, lose the window (cmd-tab, a dialog) and the keyup never arrives. The
+  // latch used to stay set forever: every later stroke erased while the toggle still
+  // read fill. Paint afterwards and require it to ADD.
+  await loadFixture(page, 'ct-axial-300', 'panel_0');
+  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.resetUnifiedSegmentations());
+  const panel = await segToolbox(page);
+
+  await panel.getByRole('button', { name: 'Rect', exact: true }).click();
+  await panel.getByRole('button', { name: 'fill', exact: true }).click();
+
+  await page.keyboard.down('Shift');
+  await page.waitForTimeout(150);
+  await page.evaluate(() => window.dispatchEvent(new Event('blur')));
+  await page.waitForTimeout(250);
+
+  // Crucially NO keyup here: a real keyup carries shiftKey=false and would clear the
+  // latch on its own, which is what made the first version of this test vacuous — it
+  // passed with the blur handler removed. Blur has to do the work unaided.
+  await expect(panel.getByRole('button', { name: 'fill', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await dragShape(page, [140, 140], [210, 210]);
+  expect(
+    await paintedVoxels(page),
+    'after the lost keyup the tool must still FILL, as the toggle says',
+  ).toBeGreaterThan(0);
+
+  // Release only now, so the harness does not carry Shift into the next test.
+  await page.keyboard.up('Shift');
+});
+
+test('creating an annotation never moves focus into the side panel', async ({ page }) => {
+  // Reported as "the annotation label is grabbing focus". Create opened the rename
+  // editor and called .focus()+.select(), so viewport shortcuts typed into the label.
+  await loadFixture(page, 'ct-axial-300', 'panel_0');
+  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.resetUnifiedSegmentations());
+  const panel = page.locator('[data-testid="annotations-side-panel"]');
+  if (!(await panel.isVisible())) await page.getByRole('button', { name: 'Show segmentation panel' }).click();
+  await expect(panel).toBeVisible({ timeout: 15_000 });
+
+  await panel.getByRole('button', { name: 'New Segmentation (SEG)' }).click();
+  await expect(panel.locator('[data-testid^="member-row-"]').first()).toBeVisible({ timeout: 15_000 });
+  await page.waitForTimeout(300);
+
+  const focused = await page.evaluate(() => {
+    const el = document.activeElement as HTMLElement | null;
+    return {
+      tag: el?.tagName ?? 'NONE',
+      inPanel: !!el?.closest('[data-testid="annotations-side-panel"]'),
+    };
+  });
+  expect(focused.tag, 'no text editor should be focused after create').not.toBe('INPUT');
+  expect(focused.inPanel, 'focus must not be pulled into the annotations panel').toBe(false);
+
+  // And the keyboard must still reach the viewport: `e` toggles the mode rather than
+  // typing an "e" into a label.
+  await panel.getByRole('button', { name: 'Brush', exact: true }).click();
+  await panel.getByRole('button', { name: 'fill', exact: true }).click();
+  await page.keyboard.press('e');
+  await expect(panel.getByRole('button', { name: 'erase', exact: true })).toHaveAttribute('aria-pressed', 'true');
+});
+

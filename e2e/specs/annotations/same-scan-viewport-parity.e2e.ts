@@ -50,8 +50,6 @@ test('a container on a scan shown in two viewports is listed from either one', a
 
   await focus(page, 'panel_0');
   await panel.getByRole('button', { name: 'New Segmentation (SEG)' }).click();
-  await panel.getByLabel('Rename container').press('Enter');
-  await panel.getByLabel('Rename member').press('Enter');
 
   const rowId = (await panel.locator('[data-testid^="container-row-"]').first().getAttribute('data-testid'))!;
   const row = panel.locator(`[data-testid="${rowId}"]`);
@@ -91,8 +89,6 @@ test('the same scan in two viewports is one editable container, not one per view
 
   await focus(page, 'panel_0');
   await panel.getByRole('button', { name: 'New Segmentation (SEG)' }).click();
-  await panel.getByLabel('Rename container').press('Enter');
-  await panel.getByLabel('Rename member').press('Enter');
   await page.evaluate(() => {
     const h = (window as unknown as Win).__XNAT_E2E__;
     h.setUnifiedBrushSize(40);
@@ -143,8 +139,6 @@ test('an annotation appears in every MPR orientation of the same volume', async 
 
   await focus(page, 'panel_0');
   await panel.getByRole('button', { name: 'New Segmentation (SEG)' }).click();
-  await panel.getByLabel('Rename container').press('Enter');
-  await panel.getByLabel('Rename member').press('Enter');
   const rowId = (await panel.locator('[data-testid^="container-row-"]').first().getAttribute('data-testid'))!;
   const row = panel.locator(`[data-testid="${rowId}"]`);
 
@@ -188,8 +182,6 @@ test('opening the same scan in a second viewport shows the annotation already ma
   await expect(panel).toBeVisible({ timeout: 15_000 });
 
   await panel.getByRole('button', { name: 'New Segmentation (SEG)' }).click();
-  await panel.getByLabel('Rename container').press('Enter');
-  await panel.getByLabel('Rename member').press('Enter');
   const rowId = (await panel.locator('[data-testid^="container-row-"]').first().getAttribute('data-testid'))!;
   const row = panel.locator(`[data-testid="${rowId}"]`);
   await page.evaluate(() => {
@@ -236,9 +228,6 @@ for (const kind of [
 
     await focus(page, 'panel_0');
     await panel.getByRole('button', { name: kind.button }).click();
-    await panel.getByLabel('Rename container').press('Enter');
-    const memberRename = panel.getByLabel('Rename member');
-    if (await memberRename.count()) await memberRename.press('Enter');
 
     const rowId = (await panel.locator('[data-testid^="container-row-"]').first().getAttribute('data-testid'))!;
     const row = panel.locator(`[data-testid="${rowId}"]`);
@@ -272,9 +261,6 @@ test('a contour drawn from the second viewport joins the same Structure', async 
 
   await focus(page, 'panel_0');
   await panel.getByRole('button', { name: 'New Structure (RTSTRUCT)' }).click();
-  await panel.getByLabel('Rename container').press('Enter');
-  const memberRename = panel.getByLabel('Rename member');
-  if (await memberRename.count()) await memberRename.press('Enter');
 
   const drawLoopOn = async (viewportId: string, scale: number) => {
     const box = (await page.locator(`[data-testid="unified-viewport-element:${viewportId}"] canvas`).boundingBox())!;
@@ -355,9 +341,6 @@ test('an annotation is editable from every MPR orientation, not just the one it 
 
   await focus(page, 'panel_0');
   await panel.getByRole('button', { name: 'New Segmentation (SEG)' }).click();
-  await panel.getByLabel('Rename container').press('Enter');
-  const memberRename = panel.getByLabel('Rename member');
-  if (await memberRename.count()) await memberRename.press('Enter');
   await page.waitForTimeout(1200);
 
   // It must have REACHED the other planes, not just be listed against them.

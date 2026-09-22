@@ -76,9 +76,6 @@ test('the configured default is what the brush actually paints, and what the sli
   }
 
   await panel.getByRole('button', { name: 'New Segmentation (SEG)' }).click();
-  await panel.getByLabel('Rename container').press('Enter');
-  const memberRename = panel.getByLabel('Rename member');
-  if (await memberRename.count()) await memberRename.press('Enter');
   await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.setActiveUnifiedTool('Brush'));
 
   const atDefault = await dabExtent(page);
@@ -88,9 +85,6 @@ test('the configured default is what the brush actually paints, and what the sli
   // number above mean something: without it, "painted > 0" holds at any radius.
   await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.resetUnifiedSegmentations());
   await panel.getByRole('button', { name: 'New Segmentation (SEG)' }).click();
-  await panel.getByLabel('Rename container').press('Enter');
-  const rename2 = panel.getByLabel('Rename member');
-  if (await rename2.count()) await rename2.press('Enter');
   await page.evaluate(() => {
     const w = window as unknown as { __XNAT_E2E__: { setUnifiedBrushSize: (n: number) => void } };
     w.__XNAT_E2E__.setUnifiedBrushSize(20);

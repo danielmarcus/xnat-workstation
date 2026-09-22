@@ -30,10 +30,20 @@ const cs = createCornerstoneMockState();
 let unifiedToolService: (typeof import('../unifiedToolService'))['unifiedToolService'];
 const originalWindow = (globalThis as any).window;
 
+/**
+ * The service reads `shiftKey` — the authoritative modifier state carried by every
+ * keyboard event — rather than tracking Shift press/release, so a missed keyup cannot
+ * latch. The fake event has to carry it.
+ */
 function dispatchWindowKey(type: 'keydown' | 'keyup', key: string): void {
   const evt = new Event(type);
   Object.defineProperty(evt, 'key', { value: key });
+  Object.defineProperty(evt, 'shiftKey', { value: type === 'keydown' && key === 'Shift' });
   (globalThis as any).window.dispatchEvent(evt);
+}
+
+function dispatchWindowBlur(): void {
+  (globalThis as any).window.dispatchEvent(new Event('blur'));
 }
 
 /** Whether the service leaves this tool's cursor alone (Cornerstone owns it). */
@@ -191,6 +201,37 @@ describe('unified edit mode (fill / erase)', () => {
     unifiedToolService.toggleEditMode();
     expect(unifiedToolService.currentEditMode()).toBe('erase');
     unifiedToolService.toggleEditMode();
+    expect(unifiedToolService.currentEditMode()).toBe('fill');
+  });
+
+  it('does not latch Shift when the keyup is never delivered', () => {
+    // Losing the window while Shift is held (cmd-tab, a dialog) means the keyup never
+    // arrives. The latch used to stay true forever, inverting every later stroke while
+    // the toolbox still showed the stored preference — "shows Erase even though it is
+    // filling". Blur must drop it.
+    usePreferencesStore.getState().setScissorDefaultStrategy('fill');
+    unifiedToolService.setActiveTool(ToolName.Brush);
+
+    dispatchWindowKey('keydown', 'Shift');
+    expect(unifiedToolService.currentEditMode()).toBe('erase');
+
+    dispatchWindowBlur();
+    expect(
+      unifiedToolService.currentEditMode(),
+      'a lost keyup must not leave the mode inverted',
+    ).toBe('fill');
+  });
+
+  it('resyncs from the real modifier state on any later keystroke', () => {
+    // Belt and braces: even without a blur, the next keyboard event carries shiftKey and
+    // corrects the latch, because the service reads that rather than counting presses.
+    usePreferencesStore.getState().setScissorDefaultStrategy('fill');
+    unifiedToolService.setActiveTool(ToolName.Brush);
+
+    dispatchWindowKey('keydown', 'Shift');
+    expect(unifiedToolService.currentEditMode()).toBe('erase');
+
+    dispatchWindowKey('keydown', 'a'); // shiftKey false
     expect(unifiedToolService.currentEditMode()).toBe('fill');
   });
 });

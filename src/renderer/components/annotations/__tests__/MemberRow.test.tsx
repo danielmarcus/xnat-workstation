@@ -116,10 +116,13 @@ describe('MemberRow', () => {
     expect(screen.queryByTestId('color-swatch-1')).toBeNull();
   });
 
-  it('starts in inline-edit mode when autoEdit is set (create-in-edit-mode, D7.6)', () => {
+  it('does NOT open the name editor on create, so the panel never takes focus', () => {
+    // Creating a member used to open this input and call .focus()+.select(), pulling the
+    // keyboard into the side panel: viewport shortcuts typed into the label instead of
+    // reaching the image. The create flag is still consumed so the parent can clear it.
     const onEditConsumed = vi.fn();
     setup({ autoEdit: true, onEditConsumed });
-    expect(screen.getByLabelText('Rename member')).toBeTruthy(); // input shown immediately
+    expect(screen.queryByLabelText('Rename member')).toBeNull();
     expect(onEditConsumed).toHaveBeenCalled();
   });
 });

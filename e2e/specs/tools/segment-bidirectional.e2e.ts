@@ -45,9 +45,6 @@ test('measuring a painted segment draws its bidirectional, without crashing', as
   if (!(await panel.isVisible())) await page.getByRole('button', { name: 'Show segmentation panel' }).click();
   await expect(panel).toBeVisible({ timeout: 15_000 });
   await panel.getByRole('button', { name: 'New Segmentation (SEG)' }).click();
-  await panel.getByLabel('Rename container').press('Enter');
-  const mr = panel.getByLabel('Rename member');
-  if (await mr.count()) await mr.press('Enter');
 
   // Paint a blob for it to measure.
   await page.evaluate(() => {
@@ -93,9 +90,6 @@ test('measuring with nothing painted is a no-op, not a crash', async ({ page }) 
   if (!(await panel.isVisible())) await page.getByRole('button', { name: 'Show segmentation panel' }).click();
   await expect(panel).toBeVisible({ timeout: 15_000 });
   await panel.getByRole('button', { name: 'New Segmentation (SEG)' }).click();
-  await panel.getByLabel('Rename container').press('Enter');
-  const mr = panel.getByLabel('Rename member');
-  if (await mr.count()) await mr.press('Enter');
 
   await panel.getByRole('button', { name: 'Seg Bidir.', exact: true }).click();
   await page.waitForTimeout(2000);

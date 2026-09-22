@@ -45,8 +45,6 @@ test('signal 27: a save conflict shows a row badge → ConflictDialog → Keep l
 
   // Create a Segmentation from the header (real create flow) → read its id from the row.
   await panel.getByRole('button', { name: 'New Segmentation (SEG)' }).click();
-  await panel.getByLabel('Rename container').press('Enter');
-  await panel.getByLabel('Rename member').press('Enter');
   const row = panel.locator('[data-testid^="container-row-"]').first();
   await expect(row).toBeVisible({ timeout: 10_000 });
   const segId = (await row.getAttribute('data-testid'))!.replace('container-row-', '');

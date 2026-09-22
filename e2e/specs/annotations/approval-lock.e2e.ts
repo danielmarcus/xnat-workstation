@@ -43,10 +43,8 @@ test('approving a container edit-locks it until it is revoked', async ({ page })
   await expect(panel).toBeVisible({ timeout: 15_000 });
 
   await panel.getByRole('button', { name: 'New Segmentation (SEG)' }).click();
-  await expect(panel.getByLabel('Rename container')).toBeVisible({ timeout: 15_000 });
-  await panel.getByLabel('Rename container').press('Enter');
-  await expect(panel.getByLabel('Rename member')).toBeVisible({ timeout: 10_000 });
-  await panel.getByLabel('Rename member').press('Enter');
+  await expect(panel.locator('[data-testid^="container-row-"]').first()).toBeVisible({ timeout: 15_000 });
+  await expect(panel.locator('[data-testid^="member-row-"]').first()).toBeVisible({ timeout: 15_000 });
 
   // Baseline: unapproved → the toggle offers "Approve", the member is unlocked, and
   // the draw gate allows drawing into the active container.

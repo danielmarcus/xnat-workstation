@@ -21,12 +21,9 @@ async function setupTwoMemberSeg(page: Page) {
 
   // Create a Segmentation (member "Segment 1"), commit the two-step rename.
   await panel.getByRole('button', { name: 'New Segmentation (SEG)' }).click();
-  await panel.getByLabel('Rename container').press('Enter');
-  await panel.getByLabel('Rename member').press('Enter');
 
   // Add a second member via the container "+", commit its name.
   await panel.getByRole('button', { name: 'Add member' }).click();
-  await panel.getByLabel('Rename member').press('Enter');
 
   await expect(row(page, '1')).toBeVisible({ timeout: 10_000 });
   await expect(row(page, '2')).toBeVisible({ timeout: 10_000 });

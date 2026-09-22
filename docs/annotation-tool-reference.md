@@ -100,6 +100,16 @@ Settings (`annotation.scissors.defaultStrategy`, whose key keeps its historical 
 Holding **Shift** inverts it for the duration of the press, the `e` hotkey toggles it for
 whichever tool is active, and the cursor follows in both cases.
 
+The toolbox toggle shows the **effective** mode, not the stored preference, so it can
+never disagree with what a stroke will do. Shift state is read from `shiftKey` on every
+keyboard event and cleared on window blur, rather than latched on Shift press/release:
+losing the window while Shift is held means the keyup is never delivered, and a latch
+stayed inverted forever — the app then filled while the toggle read "Erase".
+
+Creating an annotation does **not** open the name editor. It used to, and the editor
+called `.focus()` + `.select()`, pulling the keyboard into the side panel so viewport
+shortcuts typed into the label. Rename is double-click (or the kebab).
+
 The separate **Eraser** and **Sph. Eraser** tools were retired into this mode.
 
 The threshold family (`Threshold`, `Sph. Thresh`, `Dyn. Thresh`) is **fill-only** and does
@@ -112,14 +122,22 @@ cursor **exactly**:
 
 | Tool | Fill | Erase |
 |---|---|---|
-| Brush, Sph. Brush | `crosshair` | `Eraser` |
+| Brush, Sph. Brush, Circle, Rect, Sphere | `XnatEditFill` | `XnatEditErase` |
 | Threshold, Sph. Thresh, Dyn. Thresh | `crosshair` | — (fill-only) |
-| Circle, Sphere | `CircleScissor` | `Eraser` |
-| Rect | `RectangleScissor` | `Eraser` |
 | Paint Fill / Region / Rect Multi / Contour Fill / Select | `cell` / `crosshair` / `crosshair` / `crosshair` / `pointer` | — |
 
-Erase is the same glyph everywhere on purpose: one symbol means "this stroke removes",
-whatever shape is drawing.
+`XnatEditFill` and `XnatEditErase` are a **matched pair we register ourselves**. Mixing a
+CSS keyword for one mode with a shipped SVG cursor for the other made the pointer change
+size, style AND hotspot as the mode flipped. `registerCursor` extends a BASE that fixes
+iconSize 16, a 16×16 viewBox, a (8,8) mousePoint and a shared crosshair pointer group, so
+the two are pixel-identical apart from the mark — a plus for fill, a minus for erase.
+One pair serves every edit-mode tool: the toolbox already says which tool is active, so
+the pointer's job is position and mode.
+
+**`registerCursor` does not record the name on the descriptor**, and `createSVGIconUrl`
+then stamps every such cursor's blob fragment as `#unknown-pointer` — which would make two
+registered cursors indistinguishable from the DOM and hide a regression that swapped them.
+We set `CursorSVG[name].name` after registering.
 
 Two rules this exists to enforce, both learned from real bugs:
 

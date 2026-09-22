@@ -77,9 +77,6 @@ test('a structure contour cannot be dragged while a measurement tool is active',
   }
   await expect(panel).toBeVisible({ timeout: 15_000 });
   await panel.getByRole('button', { name: 'New Structure (RTSTRUCT)' }).click();
-  await panel.getByLabel('Rename container').press('Enter');
-  const memberRename = panel.getByLabel('Rename member');
-  if (await memberRename.count()) await memberRename.press('Enter');
 
   await drawLoop(page);
   const drawn = await contourBox(page);

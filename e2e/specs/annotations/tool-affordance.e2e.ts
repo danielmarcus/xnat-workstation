@@ -24,8 +24,6 @@ test('the context toolbox offers only the active kind’s tools, and only implem
 
   // Create a Segmentation + commit the two-step rename → its toolbox appears.
   await panel.getByRole('button', { name: 'New Segmentation (SEG)' }).click();
-  await panel.getByLabel('Rename container').press('Enter');
-  await panel.getByLabel('Rename member').press('Enter');
 
   const toolbox = panel.locator('[data-testid="context-toolbox"]');
   await expect(toolbox).toBeVisible({ timeout: 10_000 });

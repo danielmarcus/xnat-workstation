@@ -49,9 +49,7 @@ test('toolbar Undo enables + reverts after painting a panel-created (active) SEG
   const panel = page.locator('[data-testid="annotations-side-panel"]');
   await expect(panel).toBeVisible({ timeout: 15_000 });
   await panel.getByRole('button', { name: 'New Segmentation (SEG)' }).click();
-  await panel.getByLabel('Rename container').press('Enter');
-  await expect(panel.getByLabel('Rename member')).toBeVisible({ timeout: 10_000 });
-  await panel.getByLabel('Rename member').press('Enter');
+  await expect(panel.locator('[data-testid^="member-row-"]').first()).toBeVisible({ timeout: 15_000 });
 
   // Paint the active container.
   await hook(page, 'setUnifiedBrushSize', 40);
