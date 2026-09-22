@@ -326,6 +326,10 @@ function installEditModeModifierListeners(): void {
   window.addEventListener('keydown', onEditModeKeyEvent, { capture: true });
   window.addEventListener('keyup', onEditModeKeyEvent, { capture: true });
   window.addEventListener('blur', onEditModeWindowBlur);
+  // `document` is absent in the isolated service tests, which stub only `window`.
+  if (typeof document !== 'undefined') {
+    document.addEventListener('mousemove', onGlobalPointerMove, { capture: true });
+  }
   editModeModifierListenersInstalled = true;
 }
 
@@ -337,6 +341,9 @@ function removeEditModeModifierListeners(): void {
   window.removeEventListener('keydown', onEditModeKeyEvent, { capture: true });
   window.removeEventListener('keyup', onEditModeKeyEvent, { capture: true });
   window.removeEventListener('blur', onEditModeWindowBlur);
+  if (typeof document !== 'undefined') {
+    document.removeEventListener('mousemove', onGlobalPointerMove, { capture: true });
+  }
 }
 
 /**
@@ -842,6 +849,39 @@ function applyToolCursor(): void {
   // debounced timer fires, which beats a synchronous write. A deferred second pass lands
   // after that rAF, so the last word is the active tool's.
   requestAnimationFrame(() => requestAnimationFrame(write));
+}
+
+/**
+ * Clear the brush ring whenever the pointer is not inside a viewport.
+ *
+ * The per-element `mouseleave` handler below covers the ordinary case, but it only
+ * exists for elements that were wired, and viewport elements are recreated by layout and
+ * hanging-protocol changes. A ring stranded in a viewport the pointer had left was
+ * reported from a 4-panel protocol. This guard is document-level and does not depend on
+ * any element having been wired, so it holds whatever the layout does.
+ */
+let pointerWasOutsideViewports = false;
+
+function isInsideAnyViewport(target: EventTarget | null): boolean {
+  const el = target as HTMLElement | null;
+  if (!el || typeof el.closest !== 'function') return false;
+  return !!el.closest('[data-testid^="unified-viewport-element:"]');
+}
+
+function onGlobalPointerMove(evt: Event): void {
+  if (isInsideAnyViewport(evt.target)) {
+    pointerWasOutsideViewports = false;
+    return;
+  }
+  // Act only on the transition, so an idle pointer over the panel costs nothing.
+  if (pointerWasOutsideViewports) return;
+  pointerWasOutsideViewports = true;
+  clearBrushHoverCursor();
+  try {
+    csToolUtilities.triggerAnnotationRenderForViewportIds(unifiedToolService.getViewportIds());
+  } catch {
+    /* best effort repaint */
+  }
 }
 
 /** Attach the brush-cursor lifecycle Cornerstone does not provide. Idempotent per element. */

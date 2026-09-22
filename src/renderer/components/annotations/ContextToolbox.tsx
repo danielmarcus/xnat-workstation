@@ -25,7 +25,7 @@ export interface ContextToolboxControls {
   /** Labelmap opacity 0–1. */
   opacity: number;
   onOpacityChange: (value: number) => void;
-  /** Brush radius in voxels (the segmentation brush family). Omit to hide the control. */
+  /** Brush radius in world millimetres (the segmentation brush family). Omit to hide. */
   brushSize?: number;
   onBrushSizeChange?: (value: number) => void;
   /** Voxel radius the dynamic-threshold brush samples around the first click. */
@@ -197,7 +197,7 @@ export default function ContextToolbox(props: ContextToolboxProps) {
                   aria-label="Brush size"
                   className="flex-1 accent-blue-500"
                 />
-                <span className="text-[10px] text-zinc-300">{controls.brushSize}px</span>
+                <span className="text-[10px] text-zinc-300">{controls.brushSize}&nbsp;mm</span>
               </div>
             )}
             {needs('samplingRadius') && controls.samplingRadius != null && controls.onSamplingRadiusChange && (

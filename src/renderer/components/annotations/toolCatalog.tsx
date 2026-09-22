@@ -25,7 +25,13 @@ import { ToolName } from '@shared/types/viewer';
 
 /** A control a tool cannot be operated without. */
 export type ToolControl =
-  /** Brush radius, in screen pixels. */
+  /**
+   * Brush radius, in WORLD MILLIMETRES — not screen pixels and not voxels, both of which
+   * this had been documented as. Cornerstone's circularCursor composition offsets the
+   * cursor points by `brushSize` along the camera's world axes, so the same value draws
+   * a different pixel radius at a different zoom (measured: 5 → 32.8px, then 17.4px
+   * after a zoom change). Labelling it "px" made a correctly-sized ring look like a bug.
+   */
   | 'brushSize'
   /** Intensity window the edit is confined to. */
   | 'intensityWindow'
