@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { initCornerstone } from './lib/cornerstone/init';
 import ViewerPage from './pages/ViewerPage';
+import ExportDropdown from './components/viewer/ExportDropdown';
 import LoginForm from './components/connection/LoginForm';
 import ConnectionStatus from './components/connection/ConnectionStatus';
 import XnatBrowser from './components/connection/XnatBrowser';
@@ -3184,19 +3185,8 @@ export default function App() {
                 data-testid="local-import-input"
               />
             </label>
-            {/* Export — greyed out for now (held); the ExportDropdown wiring stays in
-                the codebase for when it's re-enabled. */}
-            <button
-              type="button"
-              disabled
-              className="flex items-center gap-1.5 px-2 py-1.5 rounded text-[11px] text-zinc-600 cursor-not-allowed shrink-0"
-              title="Export — coming soon"
-            >
-              <svg viewBox="0 0 16 16" width={14} height={14} fill="none" stroke="currentColor" strokeWidth={1.4}>
-                <path d="M8 9.5v-7M5 5.5l3-3 3 3M3 13h10" />
-              </svg>
-              <span>Export</span>
-            </button>
+            {/* Export — viewport/DICOM/annotation export actions (§10 ghost style). */}
+            <ExportDropdown />
             <div className="relative shrink-0">
               <BookmarksDropdown
                 pinnedItems={pinnedItems}

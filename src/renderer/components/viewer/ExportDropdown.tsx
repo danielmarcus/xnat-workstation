@@ -16,7 +16,7 @@ import { useViewerStore } from '../../stores/viewerStore';
 import { useAnnotationStore } from '../../stores/annotationStore';
 // eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
 import { viewportService } from '../../lib/cornerstone/viewportService';
-import { IconExportFile } from '../icons';
+import { IconChevronDown } from '../icons';
 
 // ─── Toast Feedback ─────────────────────────────────────────────
 
@@ -446,19 +446,23 @@ export default function ExportDropdown() {
 
   return (
     <>
-      {/* Trigger button — icon-only */}
+      {/* Trigger button — §10 ghost icon+label, matching Import/Favorites */}
       <button
         ref={buttonRef}
         onClick={handleToggle}
         disabled={busy}
-        className={`flex items-center justify-center p-1.5 rounded transition-colors ${
+        className={`flex items-center gap-1.5 text-[11px] px-2 py-1.5 rounded whitespace-nowrap transition-colors shrink-0 ${
           open
-            ? 'bg-blue-600 text-white'
-            : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700 hover:text-white'
+            ? 'bg-blue-600/20 text-blue-300'
+            : 'text-zinc-300 hover:bg-zinc-800'
         } ${busy ? 'opacity-50 cursor-wait' : ''}`}
         title={progress ?? 'Export'}
       >
-        <IconExportFile className="w-3.5 h-3.5" />
+        <svg viewBox="0 0 16 16" width={14} height={14} fill="none" stroke="currentColor" strokeWidth={1.4}>
+          <path d="M8 9.5v-7M5 5.5l3-3 3 3M3 13h10" />
+        </svg>
+        <span>Export</span>
+        <IconChevronDown className="w-3 h-3" />
       </button>
 
       {/* Dropdown panel — fixed position to escape toolbar overflow clipping */}
