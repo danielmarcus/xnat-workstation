@@ -20,6 +20,13 @@ import { viewportService } from './viewportService';
 export type Point3 = [number, number, number];
 type Point2 = [number, number];
 
+type ViewportImageData = {
+  imageData?: { worldToIndex?: (world: Point3) => number[] };
+  voxelManager?: { getAtIJKPoint?: (ijk: Point3) => number | number[] };
+  dimensions?: number[];
+  metadata?: { Modality?: string };
+};
+
 type AnyViewport = {
   type?: string;
   canvasToWorld?: (canvasPos: Point2) => number[] | Point3;
@@ -27,8 +34,16 @@ type AnyViewport = {
   jumpToWorld?: (world: Point3) => boolean;
   scroll?: (delta: number) => void;
   getSliceIndex?: () => number;
+  getImageData?: () => ViewportImageData | undefined;
   render?: () => void;
 };
+
+/** A voxel intensity sample at a world point: the value plus its DICOM modality
+ *  (so a caller can label CT as HU, etc.). */
+export interface IntensitySample {
+  value: number;
+  modality?: string;
+}
 
 type PanelCanvasContext = {
   panelRect: DOMRect;
@@ -148,6 +163,55 @@ export function getPanelDisplayPointForWorld(
   const { panelWidth: width, panelHeight: height } = ctx;
   if (x < -1 || x > width + 1 || y < -1 || y > height + 1) return null;
   return { x: Math.max(0, Math.min(width, x)), y: Math.max(0, Math.min(height, y)), width, height };
+}
+
+/**
+ * Sample the voxel intensity at a world point for a panel, or null when there is
+ * nothing to read (no viewport image data, the point projects outside the volume,
+ * or a colour/non-scalar image). Reads the panel's own image data fresh so the
+ * value tracks the displayed slice.
+ *
+ * The value comes from Cornerstone's voxelManager, which returns modality-scaled
+ * scalars (rescale slope/intercept already applied) — so a CT reads out in HU.
+ * For a stack viewport the image data is the CURRENT slice; a world point on a
+ * different slice projects off it and returns null, so the readout only appears
+ * where the crosshair lies on the visible pixel.
+ */
+export function getIntensityAtWorld(panelId: string, world: Point3): IntensitySample | null {
+  const vp = getViewportForPanel(panelId);
+  if (!vp || typeof vp.getImageData !== 'function') return null;
+  try {
+    const img = vp.getImageData();
+    const vtk = img?.imageData;
+    const voxelManager = img?.voxelManager;
+    const dimensions = img?.dimensions;
+    if (
+      !vtk ||
+      typeof vtk.worldToIndex !== 'function' ||
+      !voxelManager ||
+      typeof voxelManager.getAtIJKPoint !== 'function' ||
+      !Array.isArray(dimensions) ||
+      dimensions.length < 3
+    ) {
+      return null;
+    }
+    const continuous = vtk.worldToIndex(world);
+    if (!isFinitePoint3(continuous as number[])) return null;
+    const idx: Point3 = [Math.round(continuous[0]), Math.round(continuous[1]), Math.round(continuous[2])];
+    if (
+      idx[0] < 0 || idx[0] >= dimensions[0] ||
+      idx[1] < 0 || idx[1] >= dimensions[1] ||
+      idx[2] < 0 || idx[2] >= dimensions[2]
+    ) {
+      return null;
+    }
+    const raw = voxelManager.getAtIJKPoint(idx);
+    if (typeof raw !== 'number' || !Number.isFinite(raw)) return null; // RGB / non-scalar ⇒ no readout
+    const modality = img?.metadata?.Modality;
+    return { value: raw, modality: typeof modality === 'string' && modality ? modality : undefined };
+  } catch {
+    return null;
+  }
 }
 
 function getImagePlane(imageId: string): { ipp: Point3; normal: Point3 } | null {

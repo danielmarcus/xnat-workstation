@@ -29,6 +29,7 @@ export type OverlayFieldKey =
   | 'rotation'
   | 'flip'
   | 'invert'
+  | 'crosshairIntensity'
   | 'crosshair';
 
 export interface OverlayPreferences {
@@ -186,7 +187,7 @@ export const DEFAULT_OVERLAY_CORNERS: Record<OverlayCornerId, OverlayFieldKey[]>
   topLeft: ['orientationSelector', 'subjectLabel', 'sessionLabel', 'studyDate'],
   topRight: ['institutionName', 'seriesDescription', 'scanId'],
   bottomLeft: ['imageIndex', 'sliceLocation', 'sliceThickness', 'windowLevel'],
-  bottomRight: ['zoom', 'dimensions', 'rotation', 'flip', 'invert', 'crosshair'],
+  bottomRight: ['zoom', 'dimensions', 'rotation', 'flip', 'invert', 'crosshairIntensity', 'crosshair'],
 };
 
 export const ALL_OVERLAY_FIELD_KEYS: OverlayFieldKey[] = [
@@ -208,6 +209,7 @@ export const ALL_OVERLAY_FIELD_KEYS: OverlayFieldKey[] = [
   'rotation',
   'flip',
   'invert',
+  'crosshairIntensity',
   'crosshair',
 ];
 

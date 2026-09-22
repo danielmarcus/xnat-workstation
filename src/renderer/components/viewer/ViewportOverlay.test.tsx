@@ -1,12 +1,20 @@
 import '@testing-library/jest-dom/vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { EMPTY_OVERLAY } from '@shared/types/dicom';
 import type { OverlayCornerId, OverlayFieldKey } from '@shared/types/preferences';
 import ViewportOverlay from './ViewportOverlay';
 import { useViewerStore } from '../../stores/viewerStore';
 import { useMetadataStore } from '../../stores/metadataStore';
 import { usePreferencesStore } from '../../stores/preferencesStore';
+
+// The crosshair intensity readout is sampled from Cornerstone via the lib seam
+// (getIntensityAtWorld); mock it so the overlay's gating + formatting can be driven
+// without a real viewport (canvasToWorld/voxelManager are DPR-sensitive and headless-unsafe).
+const getIntensityAtWorld = vi.fn();
+vi.mock('../../lib/cornerstone/unifiedCrosshair', () => ({
+  getIntensityAtWorld: (...a: unknown[]) => getIntensityAtWorld(...a),
+}));
 
 function setCorners(corners: Partial<Record<OverlayCornerId, OverlayFieldKey[]>>, show = true): void {
   usePreferencesStore.setState((s) => ({
@@ -27,6 +35,7 @@ function setCorners(corners: Partial<Record<OverlayCornerId, OverlayFieldKey[]>>
 
 describe('ViewportOverlay (preference-driven)', () => {
   beforeEach(() => {
+    getIntensityAtWorld.mockReset();
     useViewerStore.setState(useViewerStore.getInitialState(), true);
     useMetadataStore.getState()._reset();
     const store = useViewerStore.getState();
@@ -128,5 +137,46 @@ describe('ViewportOverlay (preference-driven)', () => {
     expect(document.activeElement).not.toBe(select);
     expect(document.activeElement).toBe(document.querySelector('[data-panel-id="panel_0"]'));
     expect(useViewerStore.getState().activeViewportId).toBe('panel_0');
+  });
+
+  it('renders the crosshair intensity readout above the coordinates, labelled HU for CT', () => {
+    getIntensityAtWorld.mockReturnValue({ value: 137, modality: 'CT' });
+    useViewerStore.getState().setCrosshairWorldPoint([12.3, -4.5, 6.7], 'panel_0');
+    setCorners({ bottomRight: ['crosshairIntensity', 'crosshair'] });
+    render(<ViewportOverlay panelId="panel_0" />);
+
+    const corner = within(screen.getByTestId('overlay-corner-bottomRight:panel_0'));
+    expect(corner.getByTestId('overlay-field-crosshairIntensity:panel_0')).toHaveTextContent('Intensity: 137 HU');
+    expect(corner.getByTestId('overlay-field-crosshair:panel_0')).toHaveTextContent('12.3, -4.5, 6.7');
+
+    // "Above the cross coordinates": intensity comes first in the corner's DOM order.
+    const fields = corner.getAllByTestId(/^overlay-field-/);
+    const keys = fields.map((el) => el.getAttribute('data-testid'));
+    expect(keys).toEqual(['overlay-field-crosshairIntensity:panel_0', 'overlay-field-crosshair:panel_0']);
+  });
+
+  it('omits the HU unit for a non-CT modality and formats a fractional value', () => {
+    getIntensityAtWorld.mockReturnValue({ value: 512.5, modality: 'MR' });
+    useViewerStore.getState().setCrosshairWorldPoint([0, 0, 0], 'panel_0');
+    setCorners({ bottomRight: ['crosshairIntensity'] });
+    render(<ViewportOverlay panelId="panel_0" />);
+    expect(screen.getByTestId('overlay-field-crosshairIntensity:panel_0')).toHaveTextContent('Intensity: 512.5');
+    expect(screen.getByTestId('overlay-field-crosshairIntensity:panel_0')).not.toHaveTextContent('HU');
+  });
+
+  it('does not render intensity when the crosshair belongs to another panel', () => {
+    getIntensityAtWorld.mockReturnValue({ value: 100, modality: 'CT' });
+    useViewerStore.getState().setCrosshairWorldPoint([1, 2, 3], 'panel_9');
+    setCorners({ bottomRight: ['crosshairIntensity'] });
+    render(<ViewportOverlay panelId="panel_0" />);
+    expect(screen.queryByTestId('overlay-field-crosshairIntensity:panel_0')).toBeNull();
+  });
+
+  it('does not render intensity when the sample is unavailable (off-image / empty panel)', () => {
+    getIntensityAtWorld.mockReturnValue(null);
+    useViewerStore.getState().setCrosshairWorldPoint([1, 2, 3], 'panel_0');
+    setCorners({ bottomRight: ['crosshairIntensity'] });
+    render(<ViewportOverlay panelId="panel_0" />);
+    expect(screen.queryByTestId('overlay-field-crosshairIntensity:panel_0')).toBeNull();
   });
 });

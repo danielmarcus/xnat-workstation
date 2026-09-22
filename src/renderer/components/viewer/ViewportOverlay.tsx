@@ -10,13 +10,15 @@
  *
  * Not yet here (separate overlay features): rulers, orientation edge-markers, and
  * the crosshair reticle (the reticle + coords ride with the world-point crosshair,
- * B3 — the `crosshair` field renders only once a crosshair world point exists).
+ * B3 — the `crosshair` coords and `crosshairIntensity` readout render only once a
+ * crosshair world point exists; the intensity is sampled via useCrosshairIntensity).
  *
  * pointer-events-none so it never intercepts viewport interaction.
  */
 import { useViewerStore } from '../../stores/viewerStore';
 import { useMetadataStore } from '../../stores/metadataStore';
 import { usePreferencesStore } from '../../stores/preferencesStore';
+import { useCrosshairIntensity } from '../../hooks/useCrosshairIntensity';
 import { EMPTY_OVERLAY } from '@shared/types/dicom';
 import { DEFAULT_OVERLAY_CORNERS } from '@shared/types/preferences';
 import type { OverlayCornerId, OverlayFieldKey } from '@shared/types/preferences';
@@ -49,6 +51,17 @@ function titleCase(s: string): string {
   return s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : s;
 }
 
+/** Modalities whose scalar values are Hounsfield units, so the readout is labelled "HU". */
+const HU_MODALITIES = new Set(['CT', 'CTPROTOCOL']);
+
+/** Format a crosshair intensity sample for the overlay, or null when there is none. */
+function formatIntensity(sample: { value: number; modality?: string } | null): string | null {
+  if (!sample || !Number.isFinite(sample.value)) return null;
+  const num = Number.isInteger(sample.value) ? String(sample.value) : sample.value.toFixed(1);
+  const unit = sample.modality && HU_MODALITIES.has(sample.modality.toUpperCase()) ? ' HU' : '';
+  return `Intensity: ${num}${unit}`;
+}
+
 export default function ViewportOverlay({ panelId, render3d = false }: ViewportOverlayProps): React.ReactElement | null {
   const vp = useViewerStore((s) => s.viewports[panelId]);
   const overlay = useMetadataStore((s) => s.overlays[panelId]) ?? EMPTY_OVERLAY;
@@ -67,6 +80,7 @@ export default function ViewportOverlay({ panelId, render3d = false }: ViewportO
   const panelOrientation = useViewerStore((s) => s.panelOrientationMap[panelId] ?? 'STACK');
   const crosshairPoint = useViewerStore((s) => s.crosshairWorldPoint);
   const crosshairSourcePanelId = useViewerStore((s) => s.crosshairSourcePanelId);
+  const crosshairIntensity = useCrosshairIntensity(panelId);
   const setPanelOrientation = useViewerStore((s) => s.setPanelOrientation);
   const setActiveViewport = useViewerStore((s) => s.setActiveViewport);
 
@@ -88,6 +102,10 @@ export default function ViewportOverlay({ panelId, render3d = false }: ViewportO
   const crosshairText =
     crosshairPoint && (!crosshairSourcePanelId || crosshairSourcePanelId === panelId)
       ? `${crosshairPoint[0].toFixed(1)}, ${crosshairPoint[1].toFixed(1)}, ${crosshairPoint[2].toFixed(1)}`
+      : null;
+  const crosshairIntensityText =
+    crosshairPoint && (!crosshairSourcePanelId || crosshairSourcePanelId === panelId)
+      ? formatIntensity(crosshairIntensity)
       : null;
 
   /**
@@ -149,6 +167,8 @@ export default function ViewportOverlay({ panelId, render3d = false }: ViewportO
       }
       case 'invert':
         return vp?.invert ? 'Inverted' : null;
+      case 'crosshairIntensity':
+        return crosshairIntensityText;
       case 'crosshair':
         return crosshairText;
       default:

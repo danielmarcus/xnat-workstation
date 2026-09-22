@@ -17,6 +17,7 @@ vi.mock('./viewportService', () => ({
 import {
   getWorldPointFromClientPoint,
   getPanelDisplayPointForWorld,
+  getIntensityAtWorld,
   findNearestStackIndex,
   wireCrosshairPointerHandlers,
   syncCrosshairToPanels,
@@ -165,5 +166,39 @@ describe('syncCrosshairToPanels', () => {
     // Source panel is skipped; volume jumps; stack scrolls to nearest (z=10 ⇒ index 1).
     expect(jumpToWorld).toHaveBeenCalledWith([0, 0, 9]);
     expect(scrollToIndex).toHaveBeenCalledWith('panel_stack', 1);
+  });
+});
+
+describe('getIntensityAtWorld', () => {
+  /** A viewport whose image data maps world→index 1:1 and reads a fixed scalar. */
+  function makeViewport(scalar: number | number[], dimensions = [4, 4, 4], modality = 'CT') {
+    return {
+      getImageData: () => ({
+        imageData: { worldToIndex: (w: Point3) => [w[0], w[1], w[2]] },
+        voxelManager: { getAtIJKPoint: () => scalar },
+        dimensions,
+        metadata: { Modality: modality },
+      }),
+    };
+  }
+
+  it('samples the voxel value at the rounded index under a world point', () => {
+    getViewport.mockReturnValue(makeViewport(137));
+    expect(getIntensityAtWorld('panel_0', [1.4, 2, 3])).toEqual({ value: 137, modality: 'CT' });
+  });
+
+  it('returns null when the world point projects outside the volume dimensions', () => {
+    getViewport.mockReturnValue(makeViewport(50, [4, 4, 4]));
+    expect(getIntensityAtWorld('panel_0', [9, 0, 0])).toBeNull();
+  });
+
+  it('returns null for a non-scalar (RGB) sample', () => {
+    getViewport.mockReturnValue(makeViewport([255, 0, 0]));
+    expect(getIntensityAtWorld('panel_0', [0, 0, 0])).toBeNull();
+  });
+
+  it('returns null when the viewport has no getImageData (e.g. an empty panel)', () => {
+    getViewport.mockReturnValue({});
+    expect(getIntensityAtWorld('panel_0', [0, 0, 0])).toBeNull();
   });
 });
