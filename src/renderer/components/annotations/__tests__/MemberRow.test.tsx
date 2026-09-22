@@ -116,16 +116,27 @@ describe('MemberRow', () => {
     expect(screen.queryByTestId('color-swatch-1')).toBeNull();
   });
 
-  it('opens the name editor on create WITHOUT taking focus', () => {
-    // Both halves matter. The editor opens (frozen mockup D7.6, create-in-edit-mode),
-    // but focusing it pulled the keyboard into the side panel: viewport shortcuts typed
-    // into the label instead of reaching the image.
+  it('opens the name editor on create AND focuses it so the user can type the name', () => {
+    // Create is the second step of the naming sequence (container label → member label):
+    // the editor opens (frozen mockup D7.6, create-in-edit-mode) AND takes the keyboard
+    // so the user types the member name immediately, then Enter returns focus to the image.
     const onEditConsumed = vi.fn();
     setup({ autoEdit: true, onEditConsumed });
     const input = screen.getByLabelText('Rename member');
     expect(input, 'the editor should be open').toBeTruthy();
-    expect(document.activeElement, 'but it must not have taken focus').not.toBe(input);
+    expect(document.activeElement, 'and it must take focus so the name is typable').toBe(input);
     expect(onEditConsumed).toHaveBeenCalled();
+  });
+
+  it('fires onCommitName when the name edit is accepted (Enter), not on Esc-cancel', async () => {
+    const onCommitName = vi.fn();
+    setup({ onCommitName });
+    await userEvent.dblClick(screen.getByText('GTV_primary'));
+    await userEvent.keyboard('{Escape}');
+    expect(onCommitName).not.toHaveBeenCalled(); // Esc cancels — focus is not handed back
+    await userEvent.dblClick(screen.getByText('GTV_primary'));
+    await userEvent.keyboard('{Enter}');
+    expect(onCommitName).toHaveBeenCalled(); // Enter commits — ends the naming sequence
   });
 
   it('DOES focus the editor when the user opens it deliberately', async () => {

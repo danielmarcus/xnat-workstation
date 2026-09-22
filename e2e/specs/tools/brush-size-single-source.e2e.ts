@@ -40,6 +40,14 @@ test('the [ and ] hotkeys and the panel slider share one brush size', async ({ p
   await expect(panel.locator('[data-testid^="container-row-"]').first()).toBeVisible({ timeout: 15_000 });
   await expect(panel.locator('[data-testid^="member-row-"]').first()).toBeVisible({ timeout: 15_000 });
 
+  // Finish the naming sequence create starts (container label → member label), so the
+  // keyboard is back on the viewport before any hotkey is pressed. Without this a
+  // keystroke can still land in a focused label instead of reaching the image.
+  const containerNameEditor = panel.getByLabel('Rename container');
+  if (await containerNameEditor.count()) await containerNameEditor.first().press('Enter');
+  const memberNameEditor = panel.getByLabel('Rename member');
+  if (await memberNameEditor.count()) await memberNameEditor.first().press('Enter');
+
   const slider = panel.getByLabel('Brush size');
   await expect(slider).toBeVisible({ timeout: 10_000 });
 

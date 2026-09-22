@@ -43,6 +43,9 @@ export interface MemberRowProps {
   onToggleLock: () => void;
   onDelete: () => void;
   onRename: (name: string) => void;
+  /** Called when the inline name edit is accepted (Enter/blur), NOT on Esc-cancel.
+   *  Ends the create naming sequence — the hook uses it to return focus to the viewport. */
+  onCommitName?: () => void;
   /** Change the member's display color (RGBA). Absent ⇒ the swatch is read-only. */
   onColorChange?: (color: [number, number, number, number]) => void;
 }
@@ -69,7 +72,7 @@ function hexToRgba(hex: string): [number, number, number, number] | null {
 export default function MemberRow(props: MemberRowProps) {
   const {
     member, visibility, lockState, active, selected, provenance, eligibility = 'native',
-    sourceSeriesLabel, metric, empty, autoEdit, onEditConsumed, palette, onSelect, onActivate, onCycleVisibility, onToggleLock, onDelete, onRename, onColorChange,
+    sourceSeriesLabel, metric, empty, autoEdit, onEditConsumed, palette, onSelect, onActivate, onCycleVisibility, onToggleLock, onDelete, onRename, onCommitName, onColorChange,
   } = props;
 
   const differentFor = eligibility === 'different-for';
@@ -79,32 +82,26 @@ export default function MemberRow(props: MemberRowProps) {
   const readOnly = lockState !== 'unlocked' || differentFor;
 
   const [editing, setEditing] = useState(false);
-  /** True when the editor was opened deliberately, so it may take focus. */
-  const autoFocusedRef = useRef(true);
   const [draft, setDraft] = useState(member.label);
   const [pickerOpen, setPickerOpen] = useState(false);
   // Color is a display property → editable whenever the member is viewable here
   // (even when locked); only different-FoR (not viewable) members can't be recolored.
   const colorEditable = !!onColorChange && !differentFor;
   const inputRef = useRef<HTMLInputElement>(null);
-  /**
-   * Focus the editor only when the USER opened it (double-click / kebab), never when
-   * create opened it. `autoFocusedRef` is set false by the create path above and true by
-   * every deliberate one, so the same effect serves both without a second code path.
-   */
+  // Whenever the name editor opens — deliberately (double-click) OR on create — it takes
+  // the keyboard so the user can type immediately. On create this is the second step of
+  // the naming sequence (container label → member label); its commit (onCommitName)
+  // returns focus to the viewport so shortcuts reach the image again.
   useEffect(() => {
-    if (editing && autoFocusedRef.current && inputRef.current) {
+    if (editing && inputRef.current) {
       inputRef.current.focus();
       inputRef.current.select();
     }
   }, [editing]);
-  // Create opens the name editor (frozen mockup D7.6) but must NOT take focus — see
-  // `autoFocusedRef` below. Focusing it pulled the keyboard into the side panel, so
-  // viewport shortcuts typed into the label instead of reaching the image.
+  // Create opens the name editor in edit mode (frozen mockup D7.6, create-in-edit-mode).
   useEffect(() => {
     if (autoEdit) {
       setDraft(member.label);
-      autoFocusedRef.current = false;
       setEditing(true);
       onEditConsumed?.();
     }
@@ -114,6 +111,7 @@ export default function MemberRow(props: MemberRowProps) {
     setEditing(false);
     const next = draft.trim();
     if (next && next !== member.label) onRename(next);
+    onCommitName?.(); // edit accepted (Enter/blur) — lets the create flow return focus to the viewport
   };
 
   const rowClasses = [
@@ -201,7 +199,7 @@ export default function MemberRow(props: MemberRowProps) {
       ) : (
         <span
           className={`text-[11px] truncate ${differentFor ? 'text-zinc-400 line-through decoration-zinc-600' : active || selected ? 'text-zinc-100' : 'text-zinc-300'}`}
-          onDoubleClick={(e) => { e.stopPropagation(); if (!readOnly) { autoFocusedRef.current = true; setEditing(true); } }}
+          onDoubleClick={(e) => { e.stopPropagation(); if (!readOnly) setEditing(true); }}
           title={member.label}
         >
           {member.label}

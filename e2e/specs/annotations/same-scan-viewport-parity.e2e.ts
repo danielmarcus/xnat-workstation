@@ -23,10 +23,21 @@ type Win = { __XNAT_E2E__: {
 
 type LayoutWin = { __XNAT_E2E__: { setLayoutPreset: (p: string) => void } };
 type MprWin = { __XNAT_E2E__: { getViewportSegRepCount: (p: string) => number } };
-type ContourWin = { __XNAT_E2E__: { getActiveContourSnapshot: (p?: string, s?: string) => { total: number } } };
+type ContourWin = { __XNAT_E2E__: { getActiveContourSnapshot: (p?: string, s?: string | null) => { total: number; activeSegmentationId: string | null } } };
 
-const focus = (page: import('@playwright/test').Page, vp: string) =>
-  page.locator(`[data-testid="unified-viewport:${vp}"]`).click({ position: { x: 20, y: 20 } });
+/**
+ * Activate a viewport and WAIT until it is actually the active one.
+ *
+ * Clicking returns as soon as the event is dispatched; activation settles a tick later.
+ * Drawing in that gap sent the stroke before the viewport was active, so it landed
+ * nowhere — which read as "the second viewport does not add to the Structure" when the
+ * application was doing the right thing all along.
+ */
+const focus = async (page: import('@playwright/test').Page, vp: string) => {
+  const viewport = page.locator(`[data-testid="unified-viewport:${vp}"]`);
+  await viewport.click({ position: { x: 20, y: 20 } });
+  await expect(viewport).toHaveAttribute('data-active', 'true', { timeout: 10_000 });
+};
 
 async function strokeAcross(page: import('@playwright/test').Page, viewportId: string, yFrac = 0.5) {
   const box = (await page.locator(`[data-testid="unified-viewport-element:${viewportId}"] canvas`).boundingBox())!;
@@ -50,9 +61,13 @@ test('a container on a scan shown in two viewports is listed from either one', a
 
   await focus(page, 'panel_0');
   await panel.getByRole('button', { name: 'New Segmentation (SEG)' }).click();
-  // Commit the name editor create opens (it is not focused), so the row renders
-  // its label and activate button rather than an input.
+  // Finish the naming sequence create starts: Enter accepts the container name, which
+  // advances focus to the member name, and a second Enter accepts that and hands the
+  // keyboard back to the viewport. Stopping halfway leaves a focused editor open, which
+  // is not a state a user draws from.
   await panel.getByLabel('Rename container').press('Enter');
+  const memberNameEditor = panel.getByLabel('Rename member');
+  if (await memberNameEditor.count()) await memberNameEditor.first().press('Enter');
 
   const rowId = (await panel.locator('[data-testid^="container-row-"]').first().getAttribute('data-testid'))!;
   const row = panel.locator(`[data-testid="${rowId}"]`);
@@ -92,9 +107,13 @@ test('the same scan in two viewports is one editable container, not one per view
 
   await focus(page, 'panel_0');
   await panel.getByRole('button', { name: 'New Segmentation (SEG)' }).click();
-  // Commit the name editor create opens (it is not focused), so the row renders
-  // its label and activate button rather than an input.
+  // Finish the naming sequence create starts: Enter accepts the container name, which
+  // advances focus to the member name, and a second Enter accepts that and hands the
+  // keyboard back to the viewport. Stopping halfway leaves a focused editor open, which
+  // is not a state a user draws from.
   await panel.getByLabel('Rename container').press('Enter');
+  const memberNameEditor = panel.getByLabel('Rename member');
+  if (await memberNameEditor.count()) await memberNameEditor.first().press('Enter');
   await page.evaluate(() => {
     const h = (window as unknown as Win).__XNAT_E2E__;
     h.setUnifiedBrushSize(40);
@@ -145,9 +164,13 @@ test('an annotation appears in every MPR orientation of the same volume', async 
 
   await focus(page, 'panel_0');
   await panel.getByRole('button', { name: 'New Segmentation (SEG)' }).click();
-  // Commit the name editor create opens (it is not focused), so the row renders
-  // its label and activate button rather than an input.
+  // Finish the naming sequence create starts: Enter accepts the container name, which
+  // advances focus to the member name, and a second Enter accepts that and hands the
+  // keyboard back to the viewport. Stopping halfway leaves a focused editor open, which
+  // is not a state a user draws from.
   await panel.getByLabel('Rename container').press('Enter');
+  const memberNameEditor = panel.getByLabel('Rename member');
+  if (await memberNameEditor.count()) await memberNameEditor.first().press('Enter');
   const rowId = (await panel.locator('[data-testid^="container-row-"]').first().getAttribute('data-testid'))!;
   const row = panel.locator(`[data-testid="${rowId}"]`);
 
@@ -191,9 +214,13 @@ test('opening the same scan in a second viewport shows the annotation already ma
   await expect(panel).toBeVisible({ timeout: 15_000 });
 
   await panel.getByRole('button', { name: 'New Segmentation (SEG)' }).click();
-  // Commit the name editor create opens (it is not focused), so the row renders
-  // its label and activate button rather than an input.
+  // Finish the naming sequence create starts: Enter accepts the container name, which
+  // advances focus to the member name, and a second Enter accepts that and hands the
+  // keyboard back to the viewport. Stopping halfway leaves a focused editor open, which
+  // is not a state a user draws from.
   await panel.getByLabel('Rename container').press('Enter');
+  const memberNameEditor = panel.getByLabel('Rename member');
+  if (await memberNameEditor.count()) await memberNameEditor.first().press('Enter');
   const rowId = (await panel.locator('[data-testid^="container-row-"]').first().getAttribute('data-testid'))!;
   const row = panel.locator(`[data-testid="${rowId}"]`);
   await page.evaluate(() => {
@@ -273,9 +300,13 @@ test('a contour drawn from the second viewport joins the same Structure', async 
 
   await focus(page, 'panel_0');
   await panel.getByRole('button', { name: 'New Structure (RTSTRUCT)' }).click();
-  // Commit the name editor create opens (it is not focused), so the row renders
-  // its label and activate button rather than an input.
+  // Finish the naming sequence create starts: Enter accepts the container name, which
+  // advances focus to the member name, and a second Enter accepts that and hands the
+  // keyboard back to the viewport. Stopping halfway leaves a focused editor open, which
+  // is not a state a user draws from.
   await panel.getByLabel('Rename container').press('Enter');
+  const memberNameEditor = panel.getByLabel('Rename member');
+  if (await memberNameEditor.count()) await memberNameEditor.first().press('Enter');
 
   const drawLoopOn = async (viewportId: string, scale: number) => {
     const box = (await page.locator(`[data-testid="unified-viewport-element:${viewportId}"] canvas`).boundingBox())!;
@@ -293,8 +324,20 @@ test('a contour drawn from the second viewport joins the same Structure', async 
     await page.waitForTimeout(700);
   };
 
+  // Count against THE STRUCTURE THIS TEST CREATED, not whatever happens to be active.
+  // The unqualified snapshot falls back to the first contour it finds when the active id
+  // is unset, so a container left behind by an earlier test in this file silently
+  // redirected the count — the app was adding the contour correctly the whole time.
+  const thisStructureId = await page.evaluate(
+    () => (window as unknown as ContourWin).__XNAT_E2E__.getActiveContourSnapshot().activeSegmentationId,
+  );
+  expect(thisStructureId, 'the Structure just created must be the active one').toBeTruthy();
   const contourTotal = () =>
-    page.evaluate(() => (window as unknown as ContourWin).__XNAT_E2E__.getActiveContourSnapshot().total);
+    page.evaluate(
+      (id) => (window as unknown as ContourWin).__XNAT_E2E__.getActiveContourSnapshot('panel_0', id).total,
+      thisStructureId,
+    );
+  expect(await contourTotal(), 'a freshly created Structure starts empty').toBe(0);
 
   await drawLoopOn('panel_0', 0.3);
   const afterFirst = await contourTotal();
@@ -356,9 +399,13 @@ test('an annotation is editable from every MPR orientation, not just the one it 
 
   await focus(page, 'panel_0');
   await panel.getByRole('button', { name: 'New Segmentation (SEG)' }).click();
-  // Commit the name editor create opens (it is not focused), so the row renders
-  // its label and activate button rather than an input.
+  // Finish the naming sequence create starts: Enter accepts the container name, which
+  // advances focus to the member name, and a second Enter accepts that and hands the
+  // keyboard back to the viewport. Stopping halfway leaves a focused editor open, which
+  // is not a state a user draws from.
   await panel.getByLabel('Rename container').press('Enter');
+  const memberNameEditor = panel.getByLabel('Rename member');
+  if (await memberNameEditor.count()) await memberNameEditor.first().press('Enter');
   await page.waitForTimeout(1200);
 
   // It must have REACHED the other planes, not just be listed against them.
