@@ -187,6 +187,8 @@ declare global {
       triggerToolbarRedo: () => void;
       /** A panel's camera focal point (world coords) — the volume centre for a centred view. */
       getPanelFocalPoint: (panelId: string) => [number, number, number] | null;
+      /** Camera parallelScale — changes on zoom, not on pan. */
+      getPanelParallelScale: (panelId: string) => number | null;
       /** Convert a world point to PAGE coordinates on a panel's canvas (DPR-corrected). */
       worldToPanelPagePoint: (panelId: string, world: [number, number, number]) => { x: number; y: number } | null;
       /** Create a contour segmentation + attach its contour rep to all unified viewports. */
@@ -898,6 +900,13 @@ export function installRendererE2eHooks(): void {
         | undefined;
       const fp = ee?.viewport?.getCamera?.()?.focalPoint;
       return Array.isArray(fp) && fp.length >= 3 ? [fp[0], fp[1], fp[2]] : null;
+    },
+    getPanelParallelScale: (panelId: string) => {
+      const ee = getEnabledElementByViewportId(panelId) as
+        | { viewport?: { getCamera?: () => { parallelScale?: number } } }
+        | undefined;
+      const scale = ee?.viewport?.getCamera?.()?.parallelScale;
+      return typeof scale === 'number' ? scale : null;
     },
     worldToPanelPagePoint: (panelId: string, world: [number, number, number]) => {
       const ee = getEnabledElementByViewportId(panelId) as

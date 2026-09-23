@@ -397,6 +397,31 @@ const NAV_BASE_BINDING: Record<string, number> = {
 };
 
 /**
+ * Shift+left-drag swaps the two navigation tools: with Pan on the left button,
+ * Shift-drag zooms; with Zoom on it, Shift-drag pans. Cornerstone dispatches on an
+ * EXACT modifier match, so without this a Shift-drag under either tool did nothing.
+ */
+const NAV_SHIFT_PARTNER: Record<string, string> = {
+  [PanTool.toolName]: ZoomTool.toolName,
+  [ZoomTool.toolName]: PanTool.toolName,
+};
+
+/**
+ * Put a nav tool back on its fixed binding alone. setToolActive MERGES bindings in
+ * CS3D v4, so a partner's Shift+Primary can only be dropped by clearing them all first.
+ */
+function resetNavBinding(toolGroup: ToolTypes.IToolGroup, toolName: string): void {
+  const base = NAV_BASE_BINDING[toolName];
+  if (base === undefined) return;
+  try {
+    toolGroup.setToolPassive(toolName, { removeAllBindings: true });
+  } catch {
+    /* safe to ignore */
+  }
+  toolGroup.setToolActive(toolName, { bindings: [{ mouseButton: base }] });
+}
+
+/**
  * Handle-based annotation tools (measurement + contour-segmentation) whose existing
  * annotations can be GRABBED and dragged whenever the tool is merely Passive. We keep
  * them ENABLED (rendered, view-only) when they're not the active tool, so an existing
@@ -1053,6 +1078,10 @@ export const unifiedToolService = {
     if (oldBase !== undefined) {
       toolGroup.setToolActive(currentPrimary, { bindings: [{ mouseButton: oldBase }] });
     }
+    // The outgoing tool's Shift-swap partner must lose its Shift+Primary too, or it
+    // would keep answering Shift-drag under the new tool.
+    const oldPartner = NAV_SHIFT_PARTNER[currentPrimary];
+    if (oldPartner) resetNavBinding(toolGroup, oldPartner);
 
     // Promote the new tool to Primary (merges with its own fixed nav binding,
     // which was set in ensureToolGroup and left intact above).
@@ -1067,6 +1096,12 @@ export const unifiedToolService = {
       bindings.push({ mouseButton: Primary, modifierKey: ShiftModifier });
     }
     toolGroup.setToolActive(csName, { bindings });
+    const partner = NAV_SHIFT_PARTNER[csName];
+    if (partner) {
+      toolGroup.setToolActive(partner, {
+        bindings: [{ mouseButton: Primary, modifierKey: ShiftModifier }],
+      });
+    }
     currentPrimary = csName;
     activeToolName = toolName;
     applyToolCursor();
@@ -1109,9 +1144,13 @@ export const unifiedToolService = {
     ];
     return names.filter((name) => {
       const opts = toolGroup.getToolOptions(name) as
-        | { bindings?: Array<{ mouseButton?: number }> }
+        | { bindings?: Array<{ mouseButton?: number; modifierKey?: number }> }
         | undefined;
-      return (opts?.bindings ?? []).some((b) => b.mouseButton === Primary);
+      // Plain left-click only: the Pan/Zoom Shift-swap partner holds Shift+Primary by
+      // design and does not compete for an unmodified click.
+      return (opts?.bindings ?? []).some(
+        (b) => b.mouseButton === Primary && b.modifierKey === undefined,
+      );
     });
   },
 
@@ -1122,7 +1161,8 @@ export const unifiedToolService = {
    * `getToolsWithPrimaryBinding` above checks a hand-picked list that omits the scissors,
    * so it could not see a stale binding on them — which is how a demoted shape tool kept
    * answering Shift-drag after the brush was selected. This one iterates the whole map,
-   * so a leak anywhere is visible.
+   * so a leak anywhere is visible. With Pan or Zoom active, the other nav tool appears
+   * here too — it holds Shift+Primary deliberately (NAV_SHIFT_PARTNER).
    */
   toolsBoundToPrimary(): string[] {
     const toolGroup = getToolGroup();
