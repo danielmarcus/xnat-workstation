@@ -141,6 +141,16 @@ declare global {
       setUnifiedBrushThreshold: (range: [number, number]) => void;
       /** Total non-zero labelmap voxels across all segmentations (0 = nothing painted). */
       getPaintedVoxelCount: () => number;
+      /** Painted voxels per SOURCE IMAGE for stack labelmaps (index i = source image i),
+       *  summed over every segmentation. Volume labelmaps are not included. */
+      getPaintedVoxelsPerImage: () => number[];
+      /** What the panel reports (store index/total) next to what the viewport shows. */
+      getPanelSliceState: (panelId: string) => {
+        imageIndex: number;
+        totalImages: number;
+        displayedImageId: string | null;
+        displayedImageIndex: number;
+      };
       /** Painted voxels per Z slice, for EVERY labelmap volume (multi-layer groups have
        *  one per segment), so slice confinement can be asserted across all of them. */
       getPaintedVoxelsPerSlice: () => Array<{
@@ -984,6 +994,39 @@ export function installRendererE2eHooks(): void {
         }
       }
       return total;
+    },
+    getPaintedVoxelsPerImage: () => {
+      const perImage: number[] = [];
+      const segs = (csSegmentation.state.getSegmentations?.() ?? []) as Array<{
+        representationData?: { Labelmap?: { imageIds?: string[] } };
+      }>;
+      for (const seg of segs) {
+        const ids = seg?.representationData?.Labelmap?.imageIds;
+        if (!Array.isArray(ids)) continue;
+        ids.forEach((id, i) => {
+          const data = (cache.getImage(id) as { getPixelData?: () => ArrayLike<number> } | undefined)?.getPixelData?.();
+          let n = 0;
+          if (data) for (let k = 0; k < data.length; k++) if (data[k] !== 0) n++;
+          perImage[i] = (perImage[i] ?? 0) + n;
+        });
+      }
+      return Array.from(perImage, (n) => n ?? 0);
+    },
+    getPanelSliceState: (panelId: string) => {
+      const vs = useViewerStore.getState().viewports[panelId] as
+        | { imageIndex?: number; totalImages?: number }
+        | undefined;
+      const ee = getEnabledElementByViewportId(panelId) as
+        | { viewport?: { getCurrentImageId?: () => string | undefined } }
+        | undefined;
+      const displayedImageId = ee?.viewport?.getCurrentImageId?.() ?? null;
+      const ids = useViewerStore.getState().panelImageIdsMap[panelId] ?? [];
+      return {
+        imageIndex: vs?.imageIndex ?? -1,
+        totalImages: vs?.totalImages ?? -1,
+        displayedImageId,
+        displayedImageIndex: displayedImageId ? ids.indexOf(displayedImageId) : -1,
+      };
     },
   };
 }

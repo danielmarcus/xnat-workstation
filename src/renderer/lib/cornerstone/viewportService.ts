@@ -12,12 +12,14 @@ import {
   getRenderingEngine,
   imageLoader,
   cache,
+  metaData,
   Enums,
   type Types,
 } from '@cornerstonejs/core';
 import type { MPRPlane, DisplayPlane } from '@shared/types/viewer';
 import { volumeService } from './volumeService';
 import { chooseViewportType, type ViewportType, type ViewportTypeInput } from './viewportType';
+import { hasMixedOrientation } from './seriesGeometry';
 
 const ENGINE_ID = 'xnatRenderingEngine';
 
@@ -167,7 +169,28 @@ export const viewportService = {
     }
     elements.set(viewportId, element);
 
-    const meta = opts.meta ?? { imageCount: opts.imageIds.length };
+    // Load every image BEFORE choosing the type. The volume path needs per-image
+    // metadata up front anyway (createAndCacheVolume reads pixelRepresentation, rows,
+    // cols, spacing, and for local in-memory files nothing else pre-fetches it), and the
+    // choice itself depends on geometry: a series whose images span several
+    // orientations (a 3-plane localizer) cannot be a volume. Soft-fail per image.
+    // (For large XNAT series this should become a metadata-only prefetch.)
+    if (opts.imageIds.length > 1) {
+      await Promise.all(
+        opts.imageIds.map((id) => imageLoader.loadAndCacheImage(id).catch(() => undefined)),
+      );
+    }
+    const meta: ViewportTypeInput = {
+      ...(opts.meta ?? { imageCount: opts.imageIds.length }),
+      mixedOrientation: hasMixedOrientation(
+        opts.imageIds.map((id) => {
+          const plane = metaData.get('imagePlaneModule', id) as
+            | { imageOrientationPatient?: number[] }
+            | undefined;
+          return plane?.imageOrientationPatient;
+        }),
+      ),
+    };
     const type = chooseViewportType(meta);
 
     const layoutPlane = opts.layoutOrientation ?? 'AXIAL';
@@ -191,9 +214,6 @@ export const viewportService = {
 
     // ── 3D volume rendering (C5c) ──
     if (opts.render3d) {
-      await Promise.all(
-        opts.imageIds.map((id) => imageLoader.loadAndCacheImage(id).catch(() => undefined)),
-      );
       engine.enableElement({
         viewportId,
         type: Enums.ViewportType.VOLUME_3D,
@@ -227,16 +247,9 @@ export const viewportService = {
       return { type: 'volume', volumeId: acquired.volumeId, orientation: layoutPlane };
     }
 
-    // Volume path — shared + ref-counted by (scanId, FoR).
-    // createAndCacheVolume needs per-image metadata (pixelRepresentation, rows,
-    // cols, spacing) up front. For local (in-memory) files nothing pre-fetches
-    // it, so register it by loading each image first; soft-fail per image.
-    // (For large XNAT series this should become a metadata-only prefetch.)
-    // Done BEFORE enableElement so the native plane is known and the viewport is
+    // Volume path — shared + ref-counted by (scanId, FoR). The images were loaded
+    // above, BEFORE enableElement, so the native plane is known and the viewport is
     // created already oriented — no axial→native flip on load.
-    await Promise.all(
-      opts.imageIds.map((id) => imageLoader.loadAndCacheImage(id).catch(() => undefined)),
-    );
     const resolvedPlane = resolveInitialPlane({
       explicit: opts.orientation,
       preferNative,

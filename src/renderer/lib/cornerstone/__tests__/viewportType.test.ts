@@ -37,4 +37,10 @@ describe('chooseViewportType (stack-eligibility predicate, design §1.1)', () =>
     expect(chooseViewportType({ modality: 'CT', imageCount: 1 })).toBe('stack');
     expect(chooseViewportType({})).toBe('stack');
   });
+
+  it('a series spanning several orientations (3-plane localizer) is a stack, whatever its size', () => {
+    expect(chooseViewportType({ modality: 'MR', imageCount: 15, mixedOrientation: true })).toBe('stack');
+    expect(chooseViewportType({ modality: 'CT', imageCount: 300, mixedOrientation: true })).toBe('stack');
+    expect(chooseViewportType({ modality: 'MR', imageCount: 15, mixedOrientation: false })).toBe('volume');
+  });
 });

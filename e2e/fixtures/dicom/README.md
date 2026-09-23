@@ -25,6 +25,7 @@ node e2e/fixtures/dicom/generate.cjs ct-axial-300 # one dataset
 | `cross-for-ct-mr`  | CT + MR, same study, DIFFERENT Frame of Reference (unregistered, no SRO). | ✅ built |
 | `4dct-phases`      | 4 CT temporal phases (sphere translated in z), shared study + Frame of Reference. | ✅ built |
 | `cine-us`          | Multi-frame ultrasound (16 frames, 8-bit, moving bar, cine-rate tags). | ✅ built |
+| `mr-localizer-3plane` | ONE MR series with three orientations (axial, sagittal with a 96×128 matrix, coronal), 5 images each — a tri-plane localizer. Not reconstructable as a volume; loads as a stack (`e2e/specs/viewport/mixed-orientation-series`). | ✅ built |
 
 **All 9 design fixtures built.** `4dct-phases` / `cine-us` carry no §G acceptance
 signal yet — they back Phase-5 cine work; structurally validated, in-app

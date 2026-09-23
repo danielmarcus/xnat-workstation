@@ -20,6 +20,11 @@ export interface ViewportTypeInput {
    * for non-multi-frame data.
    */
   multiFrameIsSpatial?: boolean;
+  /**
+   * The images span more than one plane orientation (a 3-plane localizer). Such a
+   * series has no single slice normal, so it cannot be a volume.
+   */
+  mixedOrientation?: boolean;
 }
 
 /** Inherently non-volumetric / projection-or-cine modalities → always stack. */
@@ -33,12 +38,18 @@ const PROJECTION_MODALITIES = new Set(['DX', 'CR', 'MG']);
  *  - modality US/XA/RF (cine/projection), or planar NM;
  *  - a multi-frame instance with no spatial dimension (cine);
  *  - single-frame DX/CR/MG;
+ *  - images in more than one orientation (a 3-plane localizer);
  *  - or simply too few spatial positions to form a volume.
  */
 export function chooseViewportType(input: ViewportTypeInput): ViewportType {
   const modality = (input.modality ?? '').toUpperCase();
   const frames = input.numberOfFrames ?? 1;
   const images = input.imageCount ?? 1;
+
+  // 0. Several orientations in one series: there is no volume to reconstruct. Stacking
+  //    the planes into one block interpolated between them, so slice count, scrollbar
+  //    and arrow keys disagreed and most "slices" had no image to paint on.
+  if (input.mixedOrientation === true) return 'stack';
 
   // 1. Inherently non-volumetric / cine modalities.
   if (NON_VOLUMETRIC_MODALITIES.has(modality)) return 'stack';

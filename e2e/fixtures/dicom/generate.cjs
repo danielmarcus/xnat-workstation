@@ -60,6 +60,8 @@ function writeCtSeries(outDir, opts) {
     // assumes world-axis-aligned slices (e.g. contour-fill rasterization, which projects
     // the polyline onto a world axis and throws on oblique planes).
     imageOrientationPatient = [1, 0, 0, 0, 1, 0],
+    // First InstanceNumber — lets several calls share one series without colliding.
+    instanceNumberStart = 1,
   } = opts;
   const rowCos = imageOrientationPatient.slice(0, 3);
   const colCos = imageOrientationPatient.slice(3, 6);
@@ -71,7 +73,9 @@ function writeCtSeries(outDir, opts) {
   ];
 
   const studyUID = opts.studyUID || DicomMetaDictionary.uid();
-  const seriesUID = DicomMetaDictionary.uid();
+  // Passing a seriesUID writes into an EXISTING series (e.g. the planes of a 3-plane
+  // localizer, which are one series with several orientations).
+  const seriesUID = opts.seriesUID || DicomMetaDictionary.uid();
   const frameOfReferenceUID = opts.frameOfReferenceUID || DicomMetaDictionary.uid();
   const implementationClassUID = DicomMetaDictionary.uid();
 
@@ -116,7 +120,7 @@ function writeCtSeries(outDir, opts) {
       StudyTime: '000000',
       AccessionNumber: '',
       SeriesNumber: seriesNumber,
-      InstanceNumber: s + 1,
+      InstanceNumber: instanceNumberStart + s,
       SeriesDescription: seriesDescription,
       ImageType: ['DERIVED', 'SECONDARY', 'AXIAL'],
       Rows: rows,
@@ -230,6 +234,47 @@ function generateCtOblique(outDir) {
     imageOrientationPatient: [1, 0, 0, 0, cos30, sin30],
     voxel: (x, y, z) => (Math.sqrt(x * x + y * y + z * z) <= radiusMm ? 300 : -1000),
   });
+}
+
+/**
+ * mr-localizer-3plane — ONE series holding three orientations (axial, sagittal,
+ * coronal), the way scanners write a tri-plane localizer/scout. It is not a volume:
+ * stacking it as one made Cornerstone interpolate between planes, so the slice count,
+ * scrollbar and arrow keys disagreed and painting landed on only some slices. The
+ * sagittal plane has a different matrix, as real localizers often do, so per-image
+ * labelmap sizing is exercised too. 5 slices per plane, 15 images total.
+ */
+function generateMrLocalizer3Plane(outDir) {
+  const radiusMm = 24;
+  const sphere = (x, y, z) => (Math.sqrt(x * x + y * y + z * z) <= radiusMm ? 300 : -1000);
+  const studyUID = DicomMetaDictionary.uid();
+  const seriesUID = DicomMetaDictionary.uid();
+  const frameOfReferenceUID = DicomMetaDictionary.uid();
+  const common = {
+    studyUID,
+    seriesUID,
+    frameOfReferenceUID,
+    modality: 'MR',
+    sopClassUID: MR_IMAGE_STORAGE,
+    seriesNumber: 1,
+    numSlices: 5,
+    sliceThickness: 8,
+    seriesDescription: 'MR LOCALIZER (3-plane)',
+    patientId: 'MR-LOCALIZER',
+    patientName: 'PHANTOM^LOCALIZER',
+    voxel: sphere,
+  };
+  const planes = [
+    { filePrefix: 'a-axial-', imageOrientationPatient: [1, 0, 0, 0, 1, 0] },
+    { filePrefix: 'b-sagittal-', imageOrientationPatient: [0, 1, 0, 0, 0, -1], rows: 96, cols: 128 },
+    { filePrefix: 'c-coronal-', imageOrientationPatient: [1, 0, 0, 0, 0, -1] },
+  ];
+  let count = 0;
+  for (const plane of planes) {
+    const r = writeCtSeries(outDir, { ...common, ...plane, instanceNumberStart: count + 1 });
+    count += r.count;
+  }
+  return { count, studyUID, seriesUID };
 }
 
 function generateCtAxialAnatomy(outDir) {
@@ -658,6 +703,7 @@ const GENERATORS = {
   // Perf-only (large, slow to generate) — excluded from the generate-all default.
   'ct-perf-300': generateCtPerf300,
   'ct-oblique': generateCtOblique,
+  'mr-localizer-3plane': generateMrLocalizer3Plane,
   'ct-axial-anatomy': generateCtAxialAnatomy,
   'rtstruct-typed': generateRtstructTyped,
   'seg-multilabel': generateSegMultilabel,
