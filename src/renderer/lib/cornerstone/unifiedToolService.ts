@@ -357,6 +357,11 @@ function onEditModeKeyEvent(evt: Event): void {
   const shiftKey = (evt as KeyboardEvent).shiftKey;
   if (typeof shiftKey !== 'boolean') return;
   setShiftHeld(shiftKey);
+  // Cornerstone's own keyDown/keyUp dispatchers (on the viewport element, so AFTER this
+  // capture listener) call setViewportsCursorByToolName with the active Cornerstone
+  // tool — WindowLevel under Crosshairs — which left the W/L glyph up after a Shift
+  // release until the next mouse move. applyToolCursor's deferred pass lands after them.
+  applyToolCursor();
 }
 
 /** Leaving the window drops every modifier; the keyup will never be delivered. */
@@ -969,6 +974,9 @@ function applyToolCursor(): void {
     }
   };
   write();
+  // One frame later, before the next paint: beats a synchronous Cornerstone write later
+  // in the same event (its keyUp cursor reset) without a visible frame of the wrong glyph.
+  requestAnimationFrame(write);
   // Region+ re-asserts its own cursor from a single requestAnimationFrame after its
   // debounced timer fires, which beats a synchronous write. A deferred second pass lands
   // after that rAF, so the last word is the active tool's.

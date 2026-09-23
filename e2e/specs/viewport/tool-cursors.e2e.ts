@@ -176,3 +176,27 @@ test('Pan/Zoom cursor follows Shift, and stays with the drag that is in progress
     await expect.poll(() => cursor(page), { message: `${self}: Shift released` }).toBe(self);
   }
 });
+
+/**
+ * Cornerstone's keyUp dispatcher resets the viewport cursor to the ACTIVE CORNERSTONE
+ * tool's glyph. Crosshairs runs on WindowLevel, so releasing Shift put the W/L glyph up
+ * until the next mouse move. No mouse movement here on purpose — a move re-asserts the
+ * cursor and would hide the bug.
+ */
+test('releasing Shift under Crosshairs keeps the crosshair, with no mouse move', async ({ page }) => {
+  await loadFixture(page, 'ct-axial-300', 'panel_0');
+  await page.locator('button[title="Crosshairs (left-click to sync; left-drag W/L)"]').click();
+  await hover(page, 0);
+  const box = (await page.locator('[data-testid="unified-viewport-element:panel_0"] canvas').boundingBox())!;
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  expect(await cursor(page), 'after the click').toBe('XnatCrosshair');
+
+  for (let i = 0; i < 2; i++) {
+    await page.keyboard.down('Shift');
+    await page.waitForTimeout(150);
+    expect(await cursor(page), 'while Shift is held').toBe('XnatCrosshair');
+    await page.keyboard.up('Shift');
+    await page.waitForTimeout(150);
+    expect(await cursor(page), 'after Shift is released').toBe('XnatCrosshair');
+  }
+});
