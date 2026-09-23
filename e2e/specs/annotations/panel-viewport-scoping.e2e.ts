@@ -38,15 +38,14 @@ test('focusing another viewport re-scopes the list to that viewport', async ({ p
     (id) => (window as unknown as Win).__XNAT_E2E__.getSegmentationViewportIds(id),
     segmentationId,
   );
-  test.skip(on.length !== 1, `container is on ${on.length} viewports; scoping needs a single-viewport one`);
-  const homeViewport = on[0];
-  const otherViewport = homeViewport === 'panel_0' ? 'panel_1' : 'panel_0';
+  // Asserted, not skipped on: a conditional skip here is how this spec once stopped
+  // running without failing (the hook's viewport lookup answered [] for every group).
+  expect(on, 'a container created on the MR viewport renders there only').toEqual(['panel_1']);
+  const homeViewport = 'panel_1';
+  const otherViewport = 'panel_0';
 
   const row = panel.locator(`[data-testid="container-row-${segmentationId}"]`);
 
-  // Focus the viewport it actually renders in. (Which one that is depends on where the
-  // shared source volume lives, not on which viewport was focused at create time — so
-  // the spec reads it back rather than assuming.)
   await page.locator(`[data-testid="unified-viewport:${homeViewport}"]`).click({ position: { x: 20, y: 20 } });
   await expect(row, 'the container is listed on the viewport it renders in').toBeVisible({ timeout: 10_000 });
 

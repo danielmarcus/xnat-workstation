@@ -639,8 +639,11 @@ export function installRendererE2eHooks(): void {
       const ee = getEnabledElementByViewportId(panelId) as { viewport?: { type?: string } } | undefined;
       return ee?.viewport?.type ?? null;
     },
+    // Through the app's resolver: a multi-layer group is not a Cornerstone segmentation
+    // (its sub-segs are), so asking Cornerstone about the group id answers [] for every
+    // container "New Segmentation" makes.
     getSegmentationViewportIds: (segmentationId: string) =>
-      csSegmentation.state.getViewportIdsWithSegmentation(segmentationId) ?? [],
+      segmentationService.getViewportIdsForSegmentation(segmentationId) ?? [],
 
     installMockXnatTransport: () => {
       _mockXnat = createMockXnatApi();
@@ -696,36 +699,34 @@ export function installRendererE2eHooks(): void {
     getAnnotationLockState: (uid: string) => csAnnotation.locking.isAnnotationLocked(uid) === true,
     getUnifiedToolsWithPrimary: () => unifiedToolService.getToolsWithPrimaryBinding(),
     createUnifiedLabelmapSegmentation: async (label?: string) => {
+      // Create EXACTLY as the side panel's "New Segmentation (SEG)" does
+      // (useAnnotationsPanel.onCreate): a stack multi-layer group on the active panel,
+      // attached only to panels showing the same scan, with Segment 1 active. Specs
+      // must paint into the storage shape users paint into — a shared-volume labelmap
+      // attached everywhere hid real bugs on the stack path.
       const viewportIds = unifiedToolService.getViewportIds();
-      // The shared source ImageVolume the MPR panels render — derive the labelmap
-      // from it so it's geometrically aligned + resamples natively on every plane.
-      // The volume actor + cache entry can lag the canvas, so wait for a viewport
-      // whose volume is actually cached before deriving.
-      const findReadyVolume = (): string | undefined => {
-        for (const vp of viewportIds) {
-          const ee = getEnabledElementByViewportId(vp) as
-            | { viewport?: { getAllVolumeIds?: () => string[] } }
-            | undefined;
-          const id = ee?.viewport?.getAllVolumeIds?.()[0];
-          if (id && cache.getVolume(id)) return id;
-        }
-        return undefined;
+      const activeViewportId = useViewerStore.getState().activeViewportId;
+      const panelId = viewportIds.includes(activeViewportId) ? activeViewportId : viewportIds[0];
+      if (!panelId) throw new Error('No unified viewport to create a segmentation on');
+      // The panel's create is only reachable once the panel's images have loaded.
+      const firstImageCached = () => {
+        const first = useViewerStore.getState().panelImageIdsMap[panelId]?.[0];
+        return !!first && !!cache.getImage(first);
       };
-      let referencedVolumeId = findReadyVolume();
-      for (let i = 0; i < 60 && !referencedVolumeId; i++) {
+      for (let i = 0; i < 60 && !firstImageCached(); i++) {
         await new Promise((r) => setTimeout(r, 200));
-        referencedVolumeId = findReadyVolume();
       }
-      if (!referencedVolumeId) {
-        throw new Error('Shared volume not ready (no cached volume on any unified viewport)');
-      }
-      const { segmentationId, segmentIndex } = await unifiedSegService.createVolumeLabelmap(
-        referencedVolumeId,
-        viewportIds,
+      if (!firstImageCached()) throw new Error(`Source images not loaded on ${panelId}`);
+      const sourceImageIds = useViewerStore.getState().panelImageIdsMap[panelId] ?? [];
+      const segmentationId = await segmentationManager.createNewSegmentation(
+        panelId,
+        sourceImageIds,
         label ?? 'Test SEG',
+        true,
       );
+      segmentationManager.userSelectedSegmentation(panelId, segmentationId, 1);
       useSegmentationStore.getState().setActiveSegmentation(segmentationId);
-      return { segmentationId, segmentIndex };
+      return { segmentationId, segmentIndex: 1 };
     },
     // L3 banner harness: create a labelmap, tag it to `containerSessionId`, mark it
     // dirty, and set the active viewer session to `activeSessionId` — simulating a
