@@ -1,0 +1,136 @@
+# Cornerstone3D 4.16.1 → 5.10.11 upgrade plan
+
+Status: **proposed** (2026-09-23). Living document — execute top to bottom, tick phases off here.
+
+## Summary
+
+| | |
+|---|---|
+| Installed | `@cornerstonejs/{core,tools,dicom-image-loader,adapters,polymorphic-segmentation}` **4.16.1** (declared `^4.16.1`) |
+| Latest | **5.10.11** (5.0.0 shipped 2026-06-09; 5.x has had ~11 minors since) |
+| Last 4.x | **4.22.13** (2026-05-26). No 4.x release since 5.0.0 → treat 4.x as unmaintained (inferred; no stated policy) |
+| Public API break for us | **Small.** None of the removed public exports are used here (`getStackViewport(s)`, `getVolumeViewports`, `setDataIds`, `convertPALETTECOLOR`, `createPointInEllipse` radius option, `filterViewportsWith*`, `ROICachedStats` — grep is empty). |
+| Real risk | **Behaviour changes under our internals**: the default DICOM loader/metadata path, the labelmap segmentation data model, and ~60 places where we reach into private Cornerstone state or work around a documented 4.x quirk. |
+
+**Recommendation:** upgrade, in two hops — 4.16.1 → 4.22.13 first (same major, isolates 4.x drift), then → 5.10.11 with the legacy metadata provider switched ON, then migrate internals phase by phase. Do not attempt a single jump with v5 defaults: the loader change alone silently empties every `dataSetCacheManager` read (DICOM header panel, export, crosshair, ordering).
+
+Evidence: v5 migration guides (cornerstonejs.org `/docs/migration-guides/5x`), GitHub releases, and a `.d.ts`/`package.json` diff of the published tarballs (both versions `npm pack`ed; diffs kept in the session scratchpad `cs-diff/`, regenerate with `npm pack @cornerstonejs/<pkg>@<ver>`).
+
+## What v5 changes that touches this app
+
+### 1. DICOM loading & metadata (highest risk)
+- `wadouri` / `dicomfile` / `dicomweb` now load through `loadImageFromNaturalizedMetadata` by default. The legacy wadouri metadata provider is not registered, **`dataSetCacheManager` is no longer populated by image loads**, and `image.data` is a naturalized object, not a dicom-parser `DataSet`. (From reading `wadouri/register.js` / `loadImage.js` in 5.10.11 — not spelled out in the docs.)
+- Escape hatch: `dicomImageLoader.init({ useLegacyMetadataProvider: true })` restores 4.x behaviour (logs a deprecation warning).
+- Metadata moved to a new package **`@cornerstonejs/metadata`** (re-exported from core). NATURALIZED metadata is the new base state; the cache is read-through. Existing `metaData.addProvider` chains keep working. `metaData.get` is now typed `(type, ...queries: string[])`.
+- `dicomImageLoader.init()` → `registerLoaders()` now calls **`cache.purgeCache()`** — init must stay before any image is cached.
+- Progressive loading: new `initialChunkSize` (32 KB) and `msBetweenDecode` (500 ms) defaults.
+
+**Our exposure:** 10 `wadouri.dataSetCacheManager.get(...)` reads and 4 explicit `.load(...)` calls — `dicomwebLoader.ts:126,256`, `appHelpers.ts:196,228`, `dicomExportHelpers.ts:268,276`, `unifiedCrosshair.ts:227`, `sessionDerivedIndexStore.ts:450`, `DicomHeaderPanel.tsx:214`, `ExportDropdown.tsx:361`. Reads that rely on the image load having filled the cache (the header panel, export) return nothing under v5 defaults. Explicit `.load()` sites keep working. Also `rtStructService.ts:92-95` registers a global `frameModule` provider at priority 100 that must still win over the new default providers.
+
+### 2. Labelmap segmentation data model
+- `representationData.Labelmap` is normalized into `{ labelmaps: {[id]: LabelmapLayer}, segmentBindings, primaryLabelmapId }`; primary layer id `${segId}-storage-0`. Old `{volumeId}` / `{imageIds}` inputs are still accepted, but the **stored shape is mutated**.
+- **Removed private internals**: `SegmentationStateManager._stackLabelmapImageIdReferenceMap`, `_labelmapImageIdReferenceMap`, `_updateLabelmapImageIdReferenceMap`, `_generateMapKey` (replaced by `LabelmapImageReferenceResolver`).
+- New native overlapping segments: `init({ segmentation: { overwriteMode } })` — default `'all'` = 4.x behaviour. Optional RLE labelmaps (`getScalarData()` then returns a copy).
+- Brush strategies paint via `voxelSlab.iterateVoxelsInShape`; custom strategies opt in with `operationData.brushVoxelSlabFill`.
+
+**Our exposure (breaks at runtime, not compile time — all behind `as any`):**
+- `segmentationService.ts:378-418, 2570-2587` **write** `_stackLabelmapImageIdReferenceMap` / `_labelmapImageIdReferenceMap` directly.
+- `dicomSegExport.ts:256-257` **reads** `_stackLabelmapImageIdReferenceMap` to find live labelmap images for export.
+- `dicomSegExport.ts:182-185` documents working around `_updateAllLabelmapSegmentationImageReferences` being "broken in v4.16" — replaced upstream; the workaround must be re-derived.
+- 37 reads of `representationData.Labelmap.{imageIds,volumeId}` / `.Contour` (segmentationService, contourRepresentation, contourEditPrereq, E2E hooks). Contour shape unchanged; Labelmap shape changed.
+- The multi-layer-group design (`_layer_N` sub-segs, `resolveContainerSubjectId`, group SEG export via an unattached temp seg) must be re-verified against the new layer ids (`-storage-N`).
+- `cornerstoneMocks.ts` fakes `_stackLabelmapImageIdReferenceMap` — unit tests would keep passing against a map v5 no longer has. Mocks must move with the code.
+
+### 3. Tools, cursors, bindings
+- `ToolGroup`, `cursors`/`registerCursor`, `IStackViewport`/`IVolumeViewport` (`getSliceIndex`, `getCurrentImageIdIndex`, `scroll`, `jumpToWorld`, `setOrientation`), `getClosestImageId`, `convertStackToVolumeLabelmap`, `addSegmentations`: **no `.d.ts` change**. Behaviour still needs re-verification because we depend on undocumented semantics (binding merge, exact modifier match, `_getCursor` fallback order, `registerCursor` BASE geometry, keyUp cursor reset).
+- Spline/Livewire: private `_activateModify`/`_deactivateModify` moved to protected on `AnnotationTool`; `_dragCallback` protected.
+- `addNewAnnotation` on ROI tools can return `null`; `CircleROI.handles.points` is `Point3[]`; cached stats retyped.
+
+**Our exposure:**
+- `tools/SafePaintFillTool.ts` **subclasses `PaintFillTool`**, replaces `preMouseDownCallback`, calls protected helpers (`getFixedDimension`, `generateHelpers`, `getFramesModified`, `doneEditMemo`).
+- Instance patches: `contourPreviewMultiViewport.ts:55-109` (wraps `activateDraw` / `renderContourBeingDrawn`), `toolService.ts:279-320` (scissors `preMouseDownCallback`, legacy — `toolService` is dead code on the live path), `toolService.ts:520-570` (sculptor), `unifiedToolService.ts:719-753` (`disableCursor`, RegionSegmentPlus `mouseTimer`).
+- Cursor internals: `unifiedToolService.ts:836-946` (`CursorSVG[name].name` mutation, named-cursor catalogue incl. the absent `CircleScissor.ERASE_INSIDE`).
+- Undo: `undoHistory.ts:210-224` **monkey-patches `DefaultHistoryMemo.push`** and reads ring internals (`.ring/.position/.size`). v5 reworked contour + labelmap undo (#2785, #2817) — highest-risk single patch.
+- Interpolation: `init.ts:69` / `interpolationAcceptance.ts` rely on our `ANNOTATION_COMPLETED` listener running before Cornerstone's, and on `InterpolationManager` internals.
+- `init.ts:116-119` registers `SplineContourSegmentationTool` with `AnnotationToPointData` (may now be done upstream).
+
+### 4. Adapters & dcmjs
+- dcmjs **0.49.4 → 0.52.0** (arrives via `@cornerstonejs/metadata` / adapters). SR parsing adapted to dcmjs structural changes (#2643); SR now encodes spline control points.
+- `createFromDICOMSegBuffer` deprecated (still works) → `createFromDicomSegImageId` / `createLabelmapsFromDICOMBuffer`. SEG segments indexed by SegmentNumber; compressed SEG supported.
+- **Our exposure:** SEG import (`segmentationService.ts:3484`, with a Rows/Columns buffer repair at 3185-3240 and custom metadata provider), SEG export (`dicomSegExport.ts:699`), RTSS export through `(adaptersRT as any).Cornerstone3D.RTSS.generateRTSSFromContour` (`rtStructService.ts:954`), SR import/export (`srImport.ts`, `srExport.ts` — lazy import dodges an adaptersSR init crash; re-test), dcmjs used **directly** in 5 files but **not declared** in `package.json`, and `writeDicomDict.ts:36-60` patches the dcmjs `WriteBufferStream` prototype.
+
+### 5. Dependencies & build
+- All `@cornerstonejs/*` are **exact-pinned to each other** in 5.x: bump every package together. New peers: `@cornerstonejs/metadata`, `@cornerstonejs/utils` (5.10.11).
+- vtk.js **34.15.1 → 36.4.1** (core dep, tools/polySeg peer). Tools adds `clipper2-ts`.
+- Codecs move to charls 1.2.5, libjpeg-turbo-8bit 1.2.4, openjpeg 1.3.2, openjph 2.4.9 (docs say progressive HTJ2K wants openjph ≥ 2.4.10 — we don't pin codecs, and don't use progressive HTJ2K, so accept 2.4.9). Codecs are now CSP-safe (no `eval`) — good for Electron.
+- ESM-only with explicit `.js` extensions; `require()` unsupported. Renderer + e2e tsconfig already use `moduleResolution: bundler` ✅. `tsconfig.main.json` uses `node`, but the main process imports no Cornerstone ✅.
+- Vite guidance unchanged (`optimizeDeps.exclude` dicom-image-loader, `worker.format: 'es'`) — our config already matches; `optimizeDeps.include` lists `@kitware/vtk.js` and the four codec subpaths, which need re-checking after the version bumps.
+- Some published `.d.ts` contain broken `import("packages/core/dist/esm/types")` paths; with `skipLibCheck: true` those types become `any` silently — don't trust a clean typecheck as proof.
+
+### 6. Upstream fixes that may retire our workarounds
+Check each; delete the workaround only with an E2E proving the upstream fix:
+- Oblique: brush fill, Freehand ROI on oblique volumes (#2744), **`LabelMapEditWithContour` on oblique data (#2842)** — our index-space contour-fill rasterizer (`contourEditPrereq.ts:149-158`) exists because of this.
+- Contour segmentation undo/redo (#2817) vs our hand-built memo in `contourEditPrereq.ts:20-29`.
+- BrushTool mousedown crash (#2785); brush shape on rotated images (#2743).
+- Removed spline being re-converted (#2824) vs `segmentationService.ts:2096-2233`.
+- Interpolation on oblique series (`interpolationAcceptance.ts:239-256` normal-drift fix) — still a CS3D limitation per project notes; re-test with `ct-oblique`.
+
+## Plan
+
+Each phase ends green on: `npm run typecheck`, `npx vitest run`, `npm run build && npm run test:e2e:offline` (list reporter, `--max-failures=0`), `npm run test:dicom:compliance`; live-XNAT specs at phase 2 and 7. Commit per phase on a `cornerstone-v5` branch.
+
+### Phase 0 — Baseline
+- [ ] Branch `cornerstone-v5`. Record current results: 904 unit / 168 offline E2E, compliance suite, `docs/perf-baseline.md` numbers (`playwright.perf.config.ts`).
+- [ ] Declare `dcmjs` as a direct dependency at the version adapters currently resolves (0.49.4), so the later bump is an explicit, reviewable change.
+
+### Phase 1 — 4.16.1 → 4.22.13 (last 4.x)
+- [ ] Bump all five packages to exact `4.22.13`. Full gate.
+- [ ] Triage any failures as 4.x drift, fix, commit. This separates "4.x minor behaviour change" from "v5 break" for every later failure.
+
+### Phase 2 — 5.10.11 in compatibility mode
+- [ ] Bump all `@cornerstonejs/*` to exact `5.10.11`; add `@cornerstonejs/metadata` and `@cornerstonejs/utils`; bump dcmjs to 0.52.0.
+- [ ] `init.ts`: `initDicomImageLoader({ maxWebWorkers, useLegacyMetadataProvider: true })`. Confirm the loader init still runs before any image is cached (it now purges the cache).
+- [ ] Run the codemod (`npx codemod @cornerstonejs/cornerstone3d-5`) and review — expected to be a near no-op here.
+- [ ] Fix type errors (optional `FrameOfReferenceUID` / camera-event fields; `metaData.get` query typing).
+- [ ] Vite: re-verify `optimizeDeps.include` entries resolve (vtk 36, codec subpaths); dev server and `npm run build` both load images, including HTJ2K/JPEG-LS/JPEG2000 fixtures if we have them.
+- [ ] Expect segmentation failures here (phase 3). Everything **else** must be green before moving on — including the live XNAT specs and the packaged app (Phase 8 smoke run early).
+
+### Phase 3 — Labelmap internals
+- [ ] Replace the writes to `_stackLabelmapImageIdReferenceMap` / `_labelmapImageIdReferenceMap` (`segmentationService.ts:378-418, 2570-2587`) with the public v5 path (`LabelmapImageReferenceResolver` / `getDefaultSegmentationStateManager` / `addSegmentations` inputs). Understand first *why* we hand-populated them (stack labelmap references across viewports) — the v5 resolver may make it unnecessary.
+- [ ] Replace the export-side read (`dicomSegExport.ts:256-257`) and re-derive the "broken in v4.16" workaround at 182-185.
+- [ ] Audit all 37 `representationData.Labelmap` reads for the normalized `labelmaps/segmentBindings/primaryLabelmapId` shape; route them through one helper instead of 37 casts.
+- [ ] Update `cornerstoneMocks.ts` to model the v5 shape — delete the fake private map, or the unit tests prove nothing.
+- [ ] Keep `overwriteMode` at its default `'all'` (4.x behaviour). Re-verify: multi-layer groups (`_layer_N` event ids), per-viewport hide (attach:false), group SEG export via temp seg with `colorOverrides`, stack labelmaps on stack viewports (3-plane localizer).
+
+### Phase 4 — Tool internals, cursors, undo
+- [ ] `SafePaintFillTool`: rebase on the 5.10.11 `PaintFillTool` source; confirm the protected helpers still exist with the same contract (brush voxel-slab change).
+- [ ] Undo: re-validate the `DefaultHistoryMemo.push` monkey-patch and ring-internals reads against v5's contour/labelmap undo rework. If v5 exposes the needed hooks, replace the patch.
+- [ ] Re-verify instance patches (`contourPreviewMultiViewport`, sculptor, BrushTool `disableCursor`, RegionSegmentPlus `mouseTimer`), interpolation listener order, spline `AnnotationToPointData` registration.
+- [ ] Cursor & binding semantics: `cursor-matrix`, `tool-cursors`, `shift-nav-swap`, `tool-binding-leak`, `switch-bindings` specs are the contract — all must pass unchanged.
+- [ ] Delete `toolService.ts` (dead legacy path, never initialized) rather than porting its patches — flag separately if not done already.
+
+### Phase 5 — Adapters & DICOM output
+- [ ] SEG import/export, RTSTRUCT export, SR import/export round-trips; `test:dicom:compliance`; `rtStructService.roundtrip.test.ts`, `dicomExternalCompliance.test.ts` (these use the real adapters).
+- [ ] Re-check the SEG Rows/Columns buffer repair, PatientAge fix-up, and `writeDicomDict` dcmjs prototype patch against dcmjs 0.52.0 — each may be fixed or may break.
+- [ ] Re-test the adaptersSR init crash that the lazy `srImport` import dodges.
+- [ ] Optionally move SEG import to `createFromDicomSegImageId` (removes the preload-before-parse workaround in `App.tsx:529-532`).
+
+### Phase 6 — Leave the legacy metadata provider
+- [ ] Introduce one app-level accessor for "DICOM attributes of an imageId" backed by `metaData` / NATURALIZED, and migrate the 10 `dataSetCacheManager.get` sites to it (header panel, export, crosshair, ordering, session index).
+- [ ] Verify the `frameModule` provider (`rtStructService.ts:92`) and our generic-metadata registrations for generated labelmap images still resolve.
+- [ ] Remove `useLegacyMetadataProvider: true`. Full gate, including the header panel and export, driven through the UI.
+
+### Phase 7 — Retire workarounds / adopt fixes (optional, per item)
+- [ ] For each item in §6, write or reuse the E2E that the workaround exists for, remove the workaround, keep it removed only if the E2E stays green (use `ct-oblique`, not just axial).
+- [ ] Native overlapping segments (`overwriteMode`) could replace the multi-layer-group machinery — that is a **design change**, not part of this upgrade; write it up separately if wanted.
+
+### Phase 8 — Packaging & release
+- [ ] `electron-builder` build; smoke-test the packaged app on macOS: image load (all codecs), workers, polySeg worker, SEG/RTSTRUCT/SR save to XNAT, COOP/COEP in the packaged app (only the dev server sets them in `vite.config.ts`).
+- [ ] Perf run vs Phase 0 baseline (`docs/perf-baseline.md`).
+- [ ] Merge.
+
+## Risks & open questions
+- **Silent failures, not compile errors.** Almost every risky site is behind `as any`; typecheck will be clean while features break. The E2E suite is the real gate — keep it pixel/behaviour-level.
+- **Undo patch** is the likeliest to need a redesign rather than a port.
+- **4.x end of life** is inferred from the release history only.
+- Effort estimate (rough): Phases 1–2 ~1 day; 3–4 several days (labelmap + undo are the unknowns); 5–6 ~2 days; 7 open-ended; 8 ~0.5 day.
