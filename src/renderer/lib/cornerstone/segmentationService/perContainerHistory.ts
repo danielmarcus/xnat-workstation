@@ -60,6 +60,14 @@ export interface PerContainerHistory {
    * `canUndo(activeContainerId)` finds it). Falls back to `memo.segmentationId`.
    */
   record(memo: ContainerHistoryMemo, containerId?: string): void;
+  /**
+   * Replace the newest undo entry of whichever container's newest entry satisfies
+   * `condition` — the per-container mirror of Cornerstone 5's
+   * `DefaultHistoryMemo.replaceCurrentMemo`, which rewrites the ring in place (no push)
+   * when a contour stroke is unioned into existing contours. Returns false if no
+   * container's newest entry matches.
+   */
+  replaceTop(condition: (memo: ContainerHistoryMemo) => boolean, memo: ContainerHistoryMemo): boolean;
   /** Undo the last edit of one container. Returns false if nothing to undo. */
   undo(containerId: string): boolean;
   /** Redo the last undone edit of one container. Returns false if nothing to redo. */
@@ -110,6 +118,22 @@ export function createPerContainerHistory(deps: PerContainerHistoryDeps): PerCon
     deps.onContainerDirtied(key);
   }
 
+  function replaceTop(condition: (memo: ContainerHistoryMemo) => boolean, memo: ContainerHistoryMemo): boolean {
+    for (const s of byContainer.values()) {
+      const top = s.undo[s.undo.length - 1];
+      if (!top || !condition(top)) continue;
+      // The replacement is the same user operation, so it keeps the identity the
+      // original was filed and labelled under (Cornerstone's union memo carries none).
+      const carried = memo as ContainerHistoryMemo & Record<string, unknown>;
+      for (const [k, v] of Object.entries(top as Record<string, unknown>)) {
+        if (k !== 'restoreMemo' && carried[k] === undefined) carried[k] = v;
+      }
+      s.undo[s.undo.length - 1] = carried;
+      return true;
+    }
+    return false;
+  }
+
   function undo(containerId: string): boolean {
     const s = byContainer.get(containerId);
     if (!s || s.undo.length === 0) return false;
@@ -140,6 +164,7 @@ export function createPerContainerHistory(deps: PerContainerHistoryDeps): PerCon
 
   return {
     record,
+    replaceTop,
     undo,
     redo,
     canUndo: (id) => (byContainer.get(id)?.undo.length ?? 0) > 0,

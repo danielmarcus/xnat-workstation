@@ -22,8 +22,11 @@ const toolMocks = vi.hoisted(() => {
     }
   }
 
+  // Cornerstone 5's stored shape on a volume viewport: a STACK layer, no top-level
+  // volumeId. The fill must resolve the layer, not read `Labelmap.volumeId`.
+  const stackLayer = { labelmapId: 'seg-1-storage-0', storageKind: 'stack', imageIds: ['generated:lm_0'] };
   const segState = {
-    representationData: { Labelmap: { volumeId: 'vol-1' } },
+    representationData: { Labelmap: { labelmaps: { 'seg-1-storage-0': stackLayer } } },
   };
 
   return {
@@ -53,6 +56,7 @@ const toolMocks = vi.hoisted(() => {
     getSegmentation: vi.fn(() => segState),
     getCurrentLabelmapImageIdForViewport: vi.fn(() => 'labelmap-image-1'),
     triggerSegmentationDataModified: vi.fn(),
+    resolveLabelmapForSegment: vi.fn(() => stackLayer as unknown),
     segState,
   };
 });
@@ -91,6 +95,12 @@ vi.mock('@cornerstonejs/tools', () => ({
       triggerSegmentationDataModified: toolMocks.triggerSegmentationDataModified,
     },
   },
+}));
+
+vi.mock('@cornerstonejs/tools/segmentation/labelmapModel/index', () => ({
+  resolveLabelmapForSegment: toolMocks.resolveLabelmapForSegment,
+  // v5 gives a stack layer a geometry volume over the same labelmap images.
+  getOrCreateLabelmapVolume: () => toolMocks.cacheGetVolume(),
 }));
 
 import { SafePaintFillTool } from './SafePaintFillTool';
@@ -151,6 +161,7 @@ describe('SafePaintFillTool', () => {
       operationType: 'labelmap',
     });
     expect(toolMocks.triggerSegmentationDataModified).toHaveBeenCalledWith('seg-1', [0], 3);
+    expect(toolMocks.resolveLabelmapForSegment).toHaveBeenCalledWith(toolMocks.segState, 3);
   });
 
   it('suppresses edge-connected oversized background fills to avoid accidental full-slice paint', () => {
@@ -166,8 +177,8 @@ describe('SafePaintFillTool', () => {
     };
     toolMocks.getEnabledElement.mockReturnValue({ viewport });
     toolMocks.getSegmentation.mockReturnValue({
-      representationData: { Labelmap: {} as { volumeId: string } },
-    });
+      representationData: { Labelmap: {} },
+    } as unknown as typeof toolMocks.segState);
 
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const tool = new SafePaintFillTool() as any;

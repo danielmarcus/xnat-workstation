@@ -73,27 +73,47 @@ test('circle scissors fill the active segment inside the drawn region (signal 29
     .toBeGreaterThan(0);
 });
 
-test('paint fill floods the active segment from the clicked region (signal 24 / 29)', async ({ page }) => {
+/**
+ * Paint fill must ADD voxels: seed a closed brush ring, fill its empty centre.
+ *
+ * The previous version seeded a solid stroke, clicked inside it, and asserted the count
+ * did not DROP — flooding a region already carrying the active label changes nothing, so a
+ * paint fill that silently did nothing passed. That is exactly what shipped on
+ * Cornerstone 5: SafePaintFillTool read `representationData.Labelmap.volumeId`, which v5
+ * no longer sets (a stack layer on a volume viewport), and returned before filling. It
+ * also created the segmentation through an E2E-only volume-labelmap hook the app never
+ * uses; this drives the side panel's own create button, like a user.
+ */
+test('paint fill floods the enclosed region with the active segment (signal 24 / 29)', async ({ page }) => {
   const box = await setup(page);
-  await createLabelmap(page, 'Paint Fill SEG');
+  const panel = page.locator('[data-testid="annotations-side-panel"]');
+  if (!(await panel.isVisible())) await page.getByRole('button', { name: 'Show segmentation panel' }).click();
+  await expect(panel).toBeVisible({ timeout: 15_000 });
+  await panel.getByRole('button', { name: 'New Segmentation (SEG)' }).click();
+  await expect(panel.locator('[data-testid^="member-row-"]').first()).toBeVisible({ timeout: 15_000 });
 
-  // Paint fill floods a region bounded by existing labels, so seed a brush stroke and
-  // flood from inside it — flooding an empty labelmap has nothing to bound the fill.
-  await setBrushSize(page, 30);
+  // A closed ring: thin brush around a circle, returning to the start.
+  await setBrushSize(page, 3);
   await setTool(page, 'Brush');
-  await page.mouse.move(box.x + box.width * 0.45, box.y + box.height * 0.5);
+  const cx = box.x + box.width * 0.5;
+  const cy = box.y + box.height * 0.5;
+  const r = Math.min(box.width, box.height) * 0.18;
+  await page.mouse.move(cx + r, cy);
   await page.mouse.down();
-  await page.mouse.move(box.x + box.width * 0.55, box.y + box.height * 0.5, { steps: 6 });
+  for (let i = 1; i <= 48; i++) {
+    const a = (i / 48) * 2 * Math.PI;
+    await page.mouse.move(cx + r * Math.cos(a), cy + r * Math.sin(a), { steps: 3 });
+  }
   await page.mouse.up();
-  const seeded = await expectAtLeastOne(page, 'brush seed should paint');
+  const ring = await expectAtLeastOne(page, 'the brush ring should paint');
 
   await setTool(page, 'PaintFill');
-  await page.mouse.click(box.x + box.width * 0.5, box.y + box.height * 0.5);
+  await page.mouse.click(cx, cy);
 
-  // The flood must leave the labelmap at least as painted as the seed and must not
-  // throw (SafePaintFillTool exists because stock PaintFill crashed on our labelmaps).
-  await page.waitForTimeout(1500);
-  expect(await paintedVoxels(page), 'paint fill must not wipe the seeded region').toBeGreaterThanOrEqual(seeded);
+  // The hollow centre is far larger than the ring itself.
+  await expect
+    .poll(() => paintedVoxels(page), { timeout: 10_000, message: 'paint fill must fill the ring\'s empty centre' })
+    .toBeGreaterThan(ring * 2);
 });
 
 /**

@@ -310,6 +310,9 @@ const undoHistory = createUndoHistory({
     const containerId = subId ? (mlg.getGroupInfoForSubSeg(subId)?.groupId ?? subId) : undefined;
     perContainerHistory.record(memo ?? {}, containerId);
   },
+  replaceContainerMemo: (condition, memo) => {
+    perContainerHistory.replaceTop(condition as (m: unknown) => boolean, memo as never);
+  },
 });
 const {
   getTopUndoHistoryEntry,
