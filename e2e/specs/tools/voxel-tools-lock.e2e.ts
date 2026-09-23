@@ -27,7 +27,6 @@ interface E2EHooks {
   getPaintedVoxelCount: () => number;
   isUnifiedVolumeReady: () => boolean;
   resetUnifiedSegmentations: () => void;
-  setSegmentLocked: (segmentationId: string, segmentIndex: number, locked: boolean) => void;
 }
 type Win = { __XNAT_E2E__: E2EHooks };
 
@@ -85,16 +84,18 @@ test('brush paints the active segment, erase mode clears it (signal 29)', async 
 
 test('locking the active segment blocks the brush at gesture-start (signal 29 / 21)', async ({ page }) => {
   await setup(page);
-  const { segmentationId, segmentIndex } = await createLabelmap(page, 'Locked SEG');
+  await createLabelmap(page, 'Locked SEG');
   await setBrushSize(page, 40);
   await setTool(page, 'Brush');
   expect(await paintedVoxels(page)).toBe(0);
 
-  // Lock the active segment, then attempt to paint it.
-  await page.evaluate(
-    ([id, idx]) => (window as unknown as Win).__XNAT_E2E__.setSegmentLocked(id as string, idx as number, true),
-    [segmentationId, segmentIndex] as const,
-  );
+  // Lock the active segment with its row's real lock button, then attempt to paint it.
+  await page.getByRole('button', { name: 'Show segmentation panel' }).click();
+  const panel = page.locator('[data-testid="annotations-side-panel"]');
+  const lock = panel.getByRole('button', { name: 'Toggle lock' });
+  await expect(lock).toHaveCount(1, { timeout: 15_000 });
+  await lock.click();
+  await expect(lock).toHaveAttribute('title', /^Locked/);
   const box = (await page.locator('[data-testid="unified-viewport-element:panel_0"] canvas').boundingBox())!;
   await stroke(page, box);
 

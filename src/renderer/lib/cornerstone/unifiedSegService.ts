@@ -756,10 +756,24 @@ export const unifiedSegService = {
    * segment blocks editing at gesture-start" policy is enforced app-side (the
    * drawGestureGuard consults this). Reads the active segmentation + its active segment
    * index and the Cornerstone lock state.
+   *
+   * A multi-layer group (what "New Segmentation" creates) is NOT a Cornerstone
+   * segmentation: each segment is its own sub-seg whose lock lives on ITS index 1, and
+   * the group's active segment is the store's index. Asking Cornerstone about the
+   * group id answered "unlocked" for every group, so a locked segment still painted.
    */
   isActiveSegmentLocked(): boolean {
-    const segmentationId = useSegmentationStore.getState().activeSegmentationId;
+    const { activeSegmentationId: segmentationId, activeSegmentIndex } = useSegmentationStore.getState();
     if (!segmentationId) return false;
+    if (mlg.isMultiLayerGroup(segmentationId)) {
+      const subSegId = activeSegmentIndex ? mlg.resolveSubSegId(segmentationId, activeSegmentIndex) : null;
+      if (!subSegId) return false;
+      try {
+        return csSegmentation.segmentLocking.isSegmentIndexLocked(subSegId, 1);
+      } catch {
+        return false;
+      }
+    }
     let idx: number | undefined;
     try {
       idx = csSegmentation.segmentIndex.getActiveSegmentIndex(segmentationId);
