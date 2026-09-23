@@ -5,7 +5,7 @@
  * that the renderer process mounts React. This is the Phase-0 "can we run E2E
  * here at all?" gate — it must NOT depend on a live XNAT server.
  *
- * It also probes WebGL2 availability in the renderer, because Cornerstone3D v4
+ * It also probes WebGL2 availability in the renderer, because Cornerstone3D
  * requires a WebGL2 context to render image viewports. If WebGL2 is unavailable
  * in headless Electron, the walking-skeleton (real viewport render) will need
  * GPU/software-GL launch flags — better to learn that here than later.

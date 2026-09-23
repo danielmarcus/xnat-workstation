@@ -35,8 +35,13 @@ export const test = base.extend<
     // per worker guarantees a clean profile and never touches the user's real data.
     const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'xnat-e2e-profile-'));
 
+    // E2E_EXECUTABLE_PATH runs the same specs against a PACKAGED app (e.g.
+    // `release/mac-arm64/XNAT Workstation.app/Contents/MacOS/XNAT Workstation`), whose
+    // entry point is baked into its asar — so no main-entry argument. Default: dist/.
+    const executablePath = process.env.E2E_EXECUTABLE_PATH;
     const app = await _electron.launch({
-      args: [mainEntry, `--user-data-dir=${userDataDir}`],
+      ...(executablePath ? { executablePath } : {}),
+      args: executablePath ? [`--user-data-dir=${userDataDir}`] : [mainEntry, `--user-data-dir=${userDataDir}`],
       cwd: projectRoot,
       env: {
         ...process.env,

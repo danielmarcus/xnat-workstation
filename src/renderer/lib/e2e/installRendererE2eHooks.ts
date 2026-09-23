@@ -54,7 +54,7 @@ let lockAwareUndoRedoCounter = 0;
 
 /** Perf harness render-frame counter (see startRenderCounter/readRenderCounter). */
 const renderCounter: {
-  read?: () => { frames: number; elapsedMs: number };
+  read?: () => { frames: number; elapsedMs: number; perPanel: Record<string, number> };
   stop?: () => void;
 } = {};
 
@@ -223,7 +223,7 @@ declare global {
       /** Begin counting rendered frames across the given panels (perf specs). */
       startRenderCounter: (panelIds: string[]) => void;
       /** Read the frame counter started by startRenderCounter. */
-      readRenderCounter: () => { frames: number; elapsedMs: number };
+      readRenderCounter: () => { frames: number; elapsedMs: number; perPanel: Record<string, number> };
       /** Cornerstone cache size + image count for a panel (perf specs). */
       getCacheStats: (panelId: string) => { cacheBytes: number; imageCount: number };
       /** Whether the active member may be drawn on in the active viewport (D3 gate). */
@@ -824,23 +824,27 @@ export function installRendererE2eHooks(): void {
     startRenderCounter: (panelIds: string[]) => {
       renderCounter.stop?.();
       let frames = 0;
+      // Per panel too: an aggregate cannot tell "every plane updates" from "only the one
+      // being painted does" — and the second is a visible regression in MPR.
+      const perPanel: Record<string, number> = {};
       const startedAt = performance.now();
-      const listener = () => { frames += 1; };
-      const elements: HTMLElement[] = [];
+      const bound: Array<[HTMLElement, () => void]> = [];
       for (const panelId of panelIds) {
         const ee = getEnabledElementByViewportId(panelId) as { viewport?: { element?: HTMLElement } } | undefined;
         const el = ee?.viewport?.element;
         if (!el) continue;
+        perPanel[panelId] = 0;
+        const listener = () => { frames += 1; perPanel[panelId] += 1; };
         el.addEventListener('CORNERSTONE_IMAGE_RENDERED', listener);
-        elements.push(el);
+        bound.push([el, listener]);
       }
-      renderCounter.read = () => ({ frames, elapsedMs: Math.round(performance.now() - startedAt) });
+      renderCounter.read = () => ({ frames, elapsedMs: Math.round(performance.now() - startedAt), perPanel: { ...perPanel } });
       renderCounter.stop = () => {
-        for (const el of elements) el.removeEventListener('CORNERSTONE_IMAGE_RENDERED', listener);
+        for (const [el, listener] of bound) el.removeEventListener('CORNERSTONE_IMAGE_RENDERED', listener);
         renderCounter.stop = undefined;
       };
     },
-    readRenderCounter: () => renderCounter.read?.() ?? { frames: 0, elapsedMs: 0 },
+    readRenderCounter: () => renderCounter.read?.() ?? { frames: 0, elapsedMs: 0, perPanel: {} },
     getCacheStats: (panelId: string) => {
       const cacheBytes = (cache as unknown as { getCacheSize?: () => number }).getCacheSize?.() ?? 0;
       const imageCount = (useViewerStore.getState().panelImageIdsMap[panelId] ?? []).length;

@@ -1,6 +1,6 @@
 # Cornerstone3D 4.16.1 → 5.10.11 upgrade plan
 
-Status: **in progress** on branch `cornerstone-v5` (started 2026-09-23). Living document — execute top to bottom, tick phases off here.
+Status: **ready for review** on branch `cornerstone-v5` (2026-09-23) — phases 0–5 and 8 done, 6 deferred, 7 optional; see Phase 8 for the one open performance question. Living document — execute top to bottom, tick phases off here.
 
 ## Summary
 
@@ -136,18 +136,33 @@ Each phase ends green on: `npm run typecheck`, `npx vitest run`, `npm run build 
 - [ ] Optional: move SEG import to `createFromDicomSegImageId` — deferred (deprecated API still works; not needed for the upgrade).
 - Live XNAT (`--project=auth`) could not gate anything: the credentials in `.env.e2e` return 401 on `main` as well — refresh them to run the live specs.
 
-### Phase 6 — Leave the legacy metadata provider
-- [ ] Introduce one app-level accessor for "DICOM attributes of an imageId" backed by `metaData` / NATURALIZED, and migrate the 10 `dataSetCacheManager.get` sites to it (header panel, export, crosshair, ordering, session index).
-- [ ] Verify the `frameModule` provider (`rtStructService.ts:92`) and our generic-metadata registrations for generated labelmap images still resolve.
-- [ ] Remove `useLegacyMetadataProvider: true`. Full gate, including the header panel and export, driven through the UI.
+### Phase 6 — Leave the legacy metadata provider — **deferred (decision 2026-09-23)**
+Not required: `useLegacyMetadataProvider: true` is fully supported in 5.10 (deprecation warning only). Leaving it is a design change, not an upgrade step:
+- The DICOM header panel renders the full dicom-parser `DataSet` (every element, VR, private tags); Export DICOM needs the raw file bytes (`byteArray`). v5's NATURALIZED path parses part-10 with dcmjs and keeps neither the dataset nor the bytes, so both would need a new source — for XNAT images that means a second download of the file, or a header panel rebuilt on dcmjs's naturalized form.
+- Under the new default, every `metaData.get` module comes from `@cornerstonejs/metadata`'s providers; the app's reads would need the same field-location audit Phase 5 did for export, across all consumers.
+- Prerequisite already done: `dicomDatasetSource.ts` is the one place the dataset cache key is resolved.
 
-### Phase 7 — Retire workarounds / adopt fixes (optional, per item)
-- [ ] For each item in §6, write or reuse the E2E that the workaround exists for, remove the workaround, keep it removed only if the E2E stays green (use `ct-oblique`, not just axial).
-- [ ] Native overlapping segments (`overwriteMode`) could replace the multi-layer-group machinery — that is a **design change**, not part of this upgrade; write it up separately if wanted.
+### Phase 7 — Retire workarounds / adopt fixes — **not done (optional)**
+None removed on this branch; each needs its own red→green E2E on `ct-oblique`. Candidates stay as listed in §6. Native `overwriteMode` layering remains a separate design question.
 
-### Phase 8 — Packaging & release
-- [ ] `electron-builder` build; smoke-test the packaged app on macOS: image load (all codecs), workers, polySeg worker, SEG/RTSTRUCT/SR save to XNAT, COOP/COEP in the packaged app (only the dev server sets them in `vite.config.ts`).
-- [ ] Perf run vs Phase 0 baseline (`docs/perf-baseline.md`).
+### Phase 8 — Packaging & performance
+- [x] Unsigned `.app` build (`electron-builder --mac --dir -c.mac.identity=null -c.mac.notarize=false --publish never` — no signing, no notarization upload). The E2E fixture now honours `E2E_EXECUTABLE_PATH`, so the same specs run against a packaged binary: **172 / 172 offline E2E pass against the packaged app** (workers, codecs, polySeg worker, SEG export all inside the asar).
+- [x] Perf, `ct-perf-300` (300 × 512²), 3 runs each, same host, same day — 4.16.1 = `main` @ 5802033, 5.10.11 = this branch:
+
+  | Metric | 4.16.1 | 5.10.11 |
+  |---|---|---|
+  | timeToFirstRenderMs | 1840 / 868 / 879 | 1579 / 939 / 936 |
+  | layoutTo4PanelsMs | 342 / 159 / 178 | 471 / 179 / 180 |
+  | scrollStepMeanMs | 1.4 / 1.4 / 1.4 | 2.0 / 3.3 / 1.5 |
+  | editRenderFps (all panels) | 111.1 / 111.5 / 111.6 | 58.5 / 58.7 / 59.9 |
+  | brushStrokeMeanWallClockMs | 167 / 170 / 170 | 198 / 177 / 180 |
+  | cacheMb load → edits | 150 → 225 | 150 → 225 |
+
+  - Load, layout, scroll, memory: equivalent (first run of each is cold).
+  - **Brushing: v5 emits ~45 % fewer render events** (≈ 20 renders/s per MPR plane vs ≈ 31 on 4.x) and strokes take 5–15 % longer. Per-panel counts (new, `editRenderFrames_panel_N`) show all three MPR planes updating evenly (18 / 18 / 16; the 3D panel carries no labelmap by design) — nothing stops updating, it updates less often. D8's aggregate ≥ 30 fps still holds (≈ 59); **per viewport it would not**. Needs a hands-on feel test before merge; not investigated further.
+  - `paintedVoxels` 13 706 → 6 892 for the same strokes is a counting artefact, not less paint: the 4.x counter read both the E2E volume labelmap and its per-slice images; v5's layer-aware counter reads each voxel once.
+- [ ] Signed/notarized release build — by the maintainer (uses the Apple identity).
+- [ ] Live XNAT specs — blocked on refreshed `.env.e2e` credentials (401 on `main` too).
 - [ ] Merge.
 
 ## Risks & open questions

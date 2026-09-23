@@ -14,8 +14,8 @@ XNAT Workstation is a desktop DICOM medical image viewer built on Electron. It c
 - **Runtime**: Electron (main + renderer processes, context-isolated preload)
 - **Renderer**: React 19, TypeScript, Vite, Tailwind CSS
 - **State Management**: Zustand (stores in `src/renderer/stores/`)
-- **Medical Imaging**: Cornerstone3D v4 (`@cornerstonejs/core`, `tools`, `adapters`, `dicom-image-loader`)
-- **DICOM Parsing**: `dcmjs` (via adapters), `dicom-parser` (for low-level binary parsing)
+- **Medical Imaging**: Cornerstone3D v5 (`@cornerstonejs/core`, `tools`, `adapters`, `dicom-image-loader`, `polymorphic-segmentation`, plus the `metadata` / `utils` peers — all exact-pinned to one version). dicom-image-loader runs with `useLegacyMetadataProvider: true`; see `docs/cornerstone-v5-upgrade-plan.md` for why, and for v5 behaviours the code depends on (stack labelmaps on volume viewports, the `generated:` image loader, `replaceCurrentMemo` mirroring)
+- **DICOM Parsing**: `dcmjs` (direct dependency, same version the adapters use), `dicom-parser` (for low-level binary parsing)
 - **Backend Integration**: XNAT REST API (authenticated via session cookies, proxied through main process)
 
 ## Project Structure
