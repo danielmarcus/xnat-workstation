@@ -1461,3 +1461,17 @@ export const unifiedToolService = {
     console.log('[unifiedToolService] Tool group destroyed');
   },
 };
+
+/**
+ * Dev only: a hot update of this module must reload the page, never swap in place.
+ *
+ * The bookkeeping above (`currentPrimary`, `activeToolName`, the listener latches) lives
+ * in module scope, but the Cornerstone tool group it describes lives in Cornerstone's
+ * global store and survives the swap. A re-executed copy starts out believing W/L holds
+ * the primary button while the group still has the last-used tool bound there, so the
+ * next selection adds a SECOND primary tool instead of replacing it — and the stale one
+ * takes the drag. Seen as "brush and circle stopped drawing" after edits to this file.
+ */
+if (import.meta.hot) {
+  import.meta.hot.accept(() => window.location.reload());
+}
