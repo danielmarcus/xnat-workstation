@@ -293,10 +293,14 @@ test('a contour drawn from the second viewport joins the same Structure', async 
   // editor's Enter) is what finishes it.
   await page.keyboard.press('Escape');
 
-  const drawLoopOn = async (viewportId: string, scale: number) => {
+  // `at` is the loop centre as a fraction of the canvas. The two loops must not overlap:
+  // Cornerstone 5 unions overlapping contours of the same segment on one plane into a
+  // single region, so a second loop drawn inside the first (as this test used to) leaves
+  // the count unchanged even though the stroke landed.
+  const drawLoopOn = async (viewportId: string, scale: number, at: [number, number] = [0.5, 0.5]) => {
     const box = (await page.locator(`[data-testid="unified-viewport-element:${viewportId}"] canvas`).boundingBox())!;
-    const cx = box.x + box.width / 2;
-    const cy = box.y + box.height / 2;
+    const cx = box.x + box.width * at[0];
+    const cy = box.y + box.height * at[1];
     const r = Math.min(box.width, box.height) * scale;
     await page.mouse.move(cx + r, cy);
     await page.mouse.down();
@@ -332,7 +336,7 @@ test('a contour drawn from the second viewport joins the same Structure', async 
   // halves matter: a second container must not appear, and the stroke must not be a no-op
   // (asserting only the container count would pass if drawing there did nothing at all).
   await focus(page, 'panel_1');
-  await drawLoopOn('panel_1', 0.22);
+  await drawLoopOn('panel_1', 0.05, [0.5, 0.12]);
   expect(
     await contourTotal(),
     'a contour drawn from the second viewport must be added to the existing Structure',

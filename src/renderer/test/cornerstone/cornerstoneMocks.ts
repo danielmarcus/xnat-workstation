@@ -181,12 +181,6 @@ export interface CornerstoneMockState {
       addLabelmapRepresentationToViewport: ReturnType<typeof vi.fn>;
       removeSegmentationRepresentations: ReturnType<typeof vi.fn>;
       removeSegmentationRepresentationsFromToolGroup: ReturnType<typeof vi.fn>;
-      defaultSegmentationStateManager: {
-        _stackLabelmapImageIdReferenceMap: Map<string, Map<string, string>>;
-      };
-      helpers: {
-        convertStackToVolumeLabelmap: ReturnType<typeof vi.fn>;
-      };
     };
     utilities: {
       triggerAnnotationRenderForViewportIds: ReturnType<typeof vi.fn>;
@@ -639,12 +633,6 @@ export function createCornerstoneMockState(): CornerstoneMockState {
       addLabelmapRepresentationToViewport: vi.fn(),
       removeSegmentationRepresentations: vi.fn(),
       removeSegmentationRepresentationsFromToolGroup: vi.fn(),
-      defaultSegmentationStateManager: {
-        _stackLabelmapImageIdReferenceMap: new Map<string, Map<string, string>>(),
-      },
-      helpers: {
-        convertStackToVolumeLabelmap: vi.fn(async () => undefined),
-      },
     },
     utilities: {
       triggerAnnotationRenderForViewportIds: vi.fn(),
@@ -740,7 +728,6 @@ export function createCornerstoneMockState(): CornerstoneMockState {
       engines.clear();
       toolGroups.clear();
       tools.__lastCreatedToolGroup = null;
-      tools.segmentation.defaultSegmentationStateManager._stackLabelmapImageIdReferenceMap.clear();
       historyMemo.canUndo = false;
       historyMemo.canRedo = false;
       historyMemo.size = 50;

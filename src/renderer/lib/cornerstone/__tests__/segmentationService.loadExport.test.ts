@@ -344,15 +344,8 @@ vi.mock('@cornerstonejs/tools', () => ({
     segmentationStyle: {
       setStyle: segIoMocks.setStyle,
     },
-    helpers: {
-      convertStackToVolumeLabelmap: vi.fn(async () => undefined),
-    },
     triggerSegmentationEvents: {
       triggerSegmentationDataModified: segIoMocks.triggerSegmentationDataModified,
-    },
-    defaultSegmentationStateManager: {
-      _stackLabelmapImageIdReferenceMap: new Map(),
-      _labelmapImageIdReferenceMap: new Map(),
     },
   },
   utilities: {

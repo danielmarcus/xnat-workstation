@@ -1,4 +1,5 @@
-import { init as initCore, volumeLoader } from '@cornerstonejs/core';
+import { init as initCore, imageLoader, volumeLoader } from '@cornerstonejs/core';
+import { GENERATED_IMAGE_SCHEME, generatedImageLoader } from './generatedImageLoader';
 import { geometryDynamicVolumeLoader, GEOMETRY_DYNAMIC_VOLUME_SCHEME } from './dynamicVolumeLoader';
 import { init as initTools, addTool } from '@cornerstonejs/tools';
 import * as polySeg from '@cornerstonejs/polymorphic-segmentation';
@@ -63,6 +64,8 @@ export async function initCornerstone(): Promise<void> {
   // routes such series here so every time point keeps correct geometry AND time
   // points are navigable via volume.dimensionGroupNumber (the scrubber).
   volumeLoader.registerVolumeLoader(GEOMETRY_DYNAMIC_VOLUME_SCHEME, geometryDynamicVolumeLoader as never);
+  // The app's in-memory labelmap images (see generatedImageLoader.ts).
+  imageLoader.registerImageLoader(GENERATED_IMAGE_SCHEME, generatedImageLoader);
 
   // ---------- 2. Initialize Cornerstone Tools ----------
   // Canonicalize contour orientation on ANNOTATION_COMPLETED BEFORE cs-tools registers

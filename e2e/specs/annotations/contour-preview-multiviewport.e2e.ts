@@ -30,6 +30,12 @@
  *    it BEFORE mouse-up — the committed render maps through world correctly, so the
  *    preview under test is never on screen. The give-away was an SVG `path` (committed)
  *    where a `polyline` (in progress) was expected.
+ *
+ * And one Cornerstone 5 constraint: the stroke must ENCLOSE an area once closed. v5
+ * closes the stroke on mouse-up and drops a degenerate result, so the straight diagonal
+ * this used to draw committed nothing and the "after" reference was gone. A 270° arc is
+ * open (its end is far from its start), off-centre, and closes to a real region whose
+ * bounding box is the arc's own.
  */
 import { test, expect } from '../../fixtures/electron-app';
 import type { Page } from '@playwright/test';
@@ -64,18 +70,19 @@ const shapesPerViewport = (page: Page): Promise<Record<string, Shape[]>> =>
   );
 
 /**
- * An OPEN, OFF-CENTRE stroke, left mid-gesture with the button still down — see the header
- * for why each of those three properties is load-bearing.
+ * An OPEN, OFF-CENTRE stroke that encloses an area once closed, left mid-gesture with the
+ * button still down — see the header for why each of those properties is load-bearing.
  */
 async function beginOpenStroke(page: Page, viewportId: string) {
   const box = (await page.locator(`[data-testid="unified-viewport-element:${viewportId}"] canvas`).boundingBox())!;
   const cx = box.x + box.width * 0.3;
   const cy = box.y + box.height * 0.35;
   const r = Math.min(box.width, box.height) * 0.15;
-  await page.mouse.move(cx - r, cy - r);
+  await page.mouse.move(cx + r, cy);
   await page.mouse.down();
-  for (let i = 1; i <= 20; i++) {
-    await page.mouse.move(cx - r + (2 * r * i) / 20, cy - r + (2 * r * i) / 20, { steps: 2 });
+  for (let i = 1; i <= 24; i++) {
+    const a = (i / 24) * 1.5 * Math.PI; // 270°: ends r·√2 from the start, far outside close proximity
+    await page.mouse.move(cx + r * Math.cos(a), cy + r * Math.sin(a), { steps: 2 });
   }
 }
 
