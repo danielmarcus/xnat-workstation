@@ -126,7 +126,8 @@ describe('initCornerstone', () => {
     expect(mocks.addTool).toHaveBeenCalled();
     expect(mocks.addTool).toHaveBeenCalledWith(expect.objectContaining({ toolName: 'SafePaintFill' }));
     expect(mocks.register).toHaveBeenCalledTimes(1);
-    expect(mocks.initDicomLoader).toHaveBeenCalledWith({ maxWebWorkers: 4 });
+    // Legacy metadata provider stays on until the dataSetCacheManager readers move (v5 plan, Phase 6).
+    expect(mocks.initDicomLoader).toHaveBeenCalledWith({ maxWebWorkers: 4, useLegacyMetadataProvider: true });
   });
 
   it('skips redundant spline registration when already present', async () => {

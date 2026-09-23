@@ -455,11 +455,59 @@ export function naturalizeDicomArrayBuffer(arrayBuffer: ArrayBuffer): { dataset:
   return { dataset, meta };
 }
 
+const SOURCE_IMAGE_PURPOSE = {
+  CodeValue: '121322',
+  CodingSchemeDesignator: 'DCM',
+  CodeMeaning: 'Source image for image processing operation',
+};
+const SEGMENTATION_DERIVATION = {
+  CodeValue: '113076',
+  CodingSchemeDesignator: 'DCM',
+  CodeMeaning: 'Segmentation',
+};
+
+const asList = (value: unknown): any[] => (Array.isArray(value) ? value : value ? [value] : []);
+
+/**
+ * Complete each SEG frame's DerivationImageSequence item.
+ *
+ * Cornerstone 5's SEG adapter (`applyPerFrameFunctionalGroups`) REPLACES the item
+ * dcmjs's Segmentation derivation builds with a bare
+ * `{ SourceImageSequence: [{ ReferencedSOPInstanceUID, ReferencedFrameNumber? }] }`,
+ * dropping three attributes the Derivation Image / SOP Instance Reference macros
+ * require — ReferencedSOPClassUID (Type 1), PurposeOfReferenceCodeSequence and
+ * DerivationCodeSequence (Type 1C) — so every exported SEG failed dciodvfy. Restore
+ * them exactly as dcmjs writes them. The class UID comes from the SEG's own
+ * ReferencedSeriesSequence, which lists every referenced instance with its class.
+ * Existing values are never overwritten.
+ */
+export function completeSegDerivationReferences(dataset: any): void {
+  const sopClassByInstance = new Map<string, string>();
+  for (const series of asList(dataset?.ReferencedSeriesSequence)) {
+    for (const inst of asList(series?.ReferencedInstanceSequence)) {
+      if (inst?.ReferencedSOPInstanceUID && inst?.ReferencedSOPClassUID) {
+        sopClassByInstance.set(inst.ReferencedSOPInstanceUID, inst.ReferencedSOPClassUID);
+      }
+    }
+  }
+  for (const frame of asList(dataset?.PerFrameFunctionalGroupsSequence)) {
+    for (const derivation of asList(frame?.DerivationImageSequence)) {
+      derivation.DerivationCodeSequence ??= { ...SEGMENTATION_DERIVATION };
+      for (const source of asList(derivation.SourceImageSequence)) {
+        const sopClass = sopClassByInstance.get(source?.ReferencedSOPInstanceUID);
+        if (!source.ReferencedSOPClassUID && sopClass) source.ReferencedSOPClassUID = sopClass;
+        source.PurposeOfReferenceCodeSequence ??= { ...SOURCE_IMAGE_PURPOSE };
+      }
+    }
+  }
+}
+
 export function serializeDerivedDicomDataset(
   dataset: any,
   options: SerializeDerivedDicomOptions,
 ): { arrayBuffer: ArrayBuffer; parsedDataset: any; parsedMeta: any } {
   applyWorkstationDicomMetadata(dataset);
+  if (options.kind === 'SEG') completeSegDerivationReferences(dataset);
   if (options.approval) {
     // Approval (D7.11) round-trips through the file, so a reload arrives locked.
     // ReviewerName/Date/Time are deleted rather than blanked when unapproved — an

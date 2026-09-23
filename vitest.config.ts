@@ -17,6 +17,16 @@ export default defineConfig({
       ['src/renderer/**/*.test.{ts,tsx}', 'jsdom'],
     ],
     setupFiles: ['src/test/setupTests.ts'],
+    server: {
+      deps: {
+        // Cornerstone 5 imports named ESM exports from dcmjs, whose package.json maps
+        // `import` to build/dcmjs.es.js but declares no "type": "module" — so Node, which
+        // loads externalized deps natively, treats that file as CommonJS and the named
+        // imports fail. The app is fine (Vite bundles it); run these through Vite's
+        // transform in tests too.
+        inline: [/@cornerstonejs\//, /[\\/]dcmjs[\\/]/],
+      },
+    },
     coverage: {
       provider: 'v8',
       all: true,
