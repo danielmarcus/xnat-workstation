@@ -699,7 +699,7 @@ function cancelRegionPlusPendingCursor(): void {
 }
 
 /**
- * The cursor each tool should show. Absent = the browser default.
+ * CSS cursors for tools that have no Cornerstone glyph. Absent = a crosshair.
  *
  * The app OWNS the viewport cursor rather than inheriting whatever the last tool left.
  * That is not tidiness: RegionSegmentPlusTool schedules a DEBOUNCED timer on mouse-move
@@ -717,6 +717,38 @@ const CURSOR_FOR_TOOL: Partial<Record<ToolName, string>> = {
   [ToolName.RegionSegment]: 'crosshair',
   [ToolName.SegmentSelect]: 'pointer',
   [ToolName.LabelmapEditWithContour]: 'crosshair',
+};
+
+/**
+ * Cornerstone's shipped SVG cursor for each navigation / measurement / contour tool, by
+ * EXACT descriptor name (see `CursorSpec` for why names are never derived). Without this
+ * entry a tool fell through to an empty CSS cursor, and the authority's write wiped the
+ * glyph Cornerstone's own setToolActive had just put on the element — leaving the OS
+ * arrow for every tool outside the segmentation set.
+ *
+ * Tools Cornerstone ships no glyph for take a CSS crosshair in `cursorSpecFor`, never the
+ * arrow.
+ */
+const NAMED_CURSOR_FOR_TOOL: Partial<Record<ToolName, string>> = {
+  [ToolName.WindowLevel]: 'WindowLevel',
+  [ToolName.Crosshairs]: 'Crosshairs',
+  [ToolName.Pan]: 'Pan',
+  [ToolName.Zoom]: 'Zoom',
+  [ToolName.StackScroll]: 'StackScroll',
+  [ToolName.Length]: 'Length',
+  [ToolName.Angle]: 'Angle',
+  [ToolName.Bidirectional]: 'Bidirectional',
+  [ToolName.SegmentBidirectional]: 'Bidirectional',
+  [ToolName.EllipticalROI]: 'EllipticalROI',
+  [ToolName.RectangleROI]: 'RectangleROI',
+  [ToolName.CircleROI]: 'CircleROI',
+  [ToolName.Probe]: 'Probe',
+  [ToolName.ArrowAnnotate]: 'ArrowAnnotate',
+  [ToolName.PlanarFreehandROI]: 'FreehandROI',
+  [ToolName.FreehandContour]: 'FreehandROI',
+  [ToolName.SplineContour]: 'FreehandROI',
+  [ToolName.LivewireContour]: 'FreehandROI',
+  [ToolName.Sculptor]: 'FreehandROISculptor',
 };
 
 /**
@@ -820,7 +852,9 @@ function cursorSpecFor(toolName: ToolName): CursorSpec | null {
   // Fill-only painting tools still get a deliberate cursor rather than the OS arrow.
   if (BRUSH_STRATEGY[toolName] !== undefined) return { kind: 'css', value: 'crosshair' };
 
-  return { kind: 'css', value: CURSOR_FOR_TOOL[toolName] ?? '' };
+  const named = NAMED_CURSOR_FOR_TOOL[toolName];
+  if (named) return { kind: 'named', name: named };
+  return { kind: 'css', value: CURSOR_FOR_TOOL[toolName] ?? 'crosshair' };
 }
 
 /**
