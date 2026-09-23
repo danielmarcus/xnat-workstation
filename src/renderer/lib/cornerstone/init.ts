@@ -75,10 +75,10 @@ export async function initCornerstone(): Promise<void> {
   // representations (labelmap ↔ contour ↔ surface)
   initTools({
     addons: {
-      // Cornerstone 4.22's two packages disagree on one callback's viewport type
+      // Cornerstone's two packages (4.22 and 5.10) disagree on one callback's viewport type
       // (polySeg's createAndAddContourSegmentationsFromClippedSurfaces takes `Viewport`,
       // tools' PolySegAddOn passes `StackViewport | VolumeViewport`). Runtime shape is
-      // the same object; the cast is at this one boundary only. Re-check on v5.
+      // the same object; the cast is at this one boundary only.
       polySeg: polySeg as unknown as PolySegAddOn,
     },
   });
@@ -137,11 +137,19 @@ export async function initCornerstone(): Promise<void> {
   addTool(TrackballRotateTool);
 
   // ---------- 3. Initialize DICOM Image Loader ----------
-  // V4 uses CentralizedWebWorkerManager and import.meta.url for worker loading.
+  // Uses CentralizedWebWorkerManager and import.meta.url for worker loading.
   // Registers wadouri: and wadors: image loader schemes automatically.
+  // v5: init() now purges the image cache (registerLoaders → cache.purgeCache), so it
+  // must stay ahead of any image load — it does, init runs before any viewport exists.
   const maxWebWorkers = Math.min(navigator.hardwareConcurrency || 4, 4);
   initDicomImageLoader({
     maxWebWorkers,
+    // v5 loads wadouri/dicomfile through NATURALIZED metadata by default, which no
+    // longer fills wadouri.dataSetCacheManager nor registers the legacy wadouri
+    // metadata provider. Ten call sites read that cache (header panel, export,
+    // crosshair, ordering…). Keep the 4.x path until they move to the metadata API
+    // (docs/cornerstone-v5-upgrade-plan.md, Phase 6).
+    useLegacyMetadataProvider: true,
   });
 
   initialized = true;

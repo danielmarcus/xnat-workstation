@@ -88,12 +88,23 @@ Each phase ends green on: `npm run typecheck`, `npx vitest run`, `npm run build 
 - [x] Only 4.x drift found: a TYPE mismatch between Cornerstone's own packages — polySeg's `createAndAddContourSegmentationsFromClippedSurfaces` takes `Viewport`, tools' `PolySegAddOn` passes `StackViewport | VolumeViewport`. Narrow documented cast at the `initTools` boundary (`init.ts`); re-check on v5.
 
 ### Phase 2 — 5.10.11 in compatibility mode
-- [ ] Bump all `@cornerstonejs/*` to exact `5.10.11`; add `@cornerstonejs/metadata` and `@cornerstonejs/utils`; bump dcmjs to 0.52.0.
-- [ ] `init.ts`: `initDicomImageLoader({ maxWebWorkers, useLegacyMetadataProvider: true })`. Confirm the loader init still runs before any image is cached (it now purges the cache).
-- [ ] Run the codemod (`npx codemod @cornerstonejs/cornerstone3d-5`) and review — expected to be a near no-op here.
-- [ ] Fix type errors (optional `FrameOfReferenceUID` / camera-event fields; `metaData.get` query typing).
+- [x] Bump all `@cornerstonejs/*` to exact `5.10.11`; add `@cornerstonejs/metadata` and `@cornerstonejs/utils`; bump dcmjs to 0.52.0 (one deduped copy; vtk.js 36.4.1).
+- [x] `init.ts`: `initDicomImageLoader({ maxWebWorkers, useLegacyMetadataProvider: true })`. Loader init runs before any viewport exists, so the new cache purge is harmless.
+- [x] Codemod — skipped, see findings (nothing it rewrites is used).
+- [x] Type errors: none beyond the persisting polySeg cast.
+- [x] Gate result: typecheck clean · 906 unit · 38 compliance · **163 / 170 offline E2E**. The 7 failures are all segmentation/contour and carry into Phase 3–4:
+  - `tools/sphere-brush-family` ×2 — slices-touched reads 0 (E2E hook reads `Labelmap.volumeId`; v5 stores `labelmaps{}` — hook or painting, TBD)
+  - `annotations/contour-preview-multiviewport` — in-progress contour offset 0.063 vs < 0.03 in the second viewport (instance patch on `renderContourBeingDrawn`)
+  - `annotations/same-scan-viewport-parity` (contour from second viewport not added), `annotations/scan-switch-prompt` ×2 (contour not drawn), `annotations/second-viewport-renders` (annotation not rendered on a later-opened viewport)
 - [ ] Vite: re-verify `optimizeDeps.include` entries resolve (vtk 36, codec subpaths); dev server and `npm run build` both load images, including HTJ2K/JPEG-LS/JPEG2000 fixtures if we have them.
 - [ ] Expect segmentation failures here (phase 3). Everything **else** must be green before moving on — including the live XNAT specs and the packaged app (Phase 8 smoke run early).
+
+**Phase 2 findings (2026-09-23)** — none of these were in the release notes; all surfaced from the gates:
+- **Renderer failed to mount** (`Class extends value undefined`): vtk.js 36 depends on `xmlbuilder2` 4, which dropped the browser bundle 3.x shipped (`browser: lib/xmlbuilder2.min.js`) and `require`s Node's `events` at class-definition time; Vite stubs Node built-ins in the renderer. Reached through Cornerstone core's mesh cache (`Mesh.js` → `XMLPolyDataReader`). Fix: declare the browser port **`events`** as a dependency (Vite resolves the bare `events` import to it). Its `url` require is only used inside functions never called on this path.
+- **25 unit-test files failed to load**: dcmjs 0.52's `exports` maps `import` to `build/dcmjs.es.js` without `"type": "module"`, so Node (Vitest externalizes deps) loads it as CommonJS and Cornerstone's named dcmjs imports fail. Fix: `vitest.config.ts` `server.deps.inline` for `@cornerstonejs/*` and `dcmjs`. The app build is unaffected.
+- **Every exported SEG failed dciodvfy**: the v5 adapter's `applyPerFrameFunctionalGroups` replaces dcmjs's per-frame `DerivationImageSequence` with a bare `SourceImageSequence` item, dropping `ReferencedSOPClassUID` (Type 1), `PurposeOfReferenceCodeSequence` and `DerivationCodeSequence` (1C). Fix: `completeSegDerivationReferences` in `dicomExportHelpers.ts`, run by `serializeDerivedDicomDataset` for every SEG (restores dcmjs's exact codes; class UID from the SEG's own `ReferencedSeriesSequence`). Worth reporting upstream.
+- polySeg ↔ tools `PolySegAddOn` type mismatch persists in 5.10.11 — cast kept.
+- Codemod not run: it only rewrites `getStackViewport(s)` / `getVolumeViewports` / `setDataIds`, none of which are used.
 
 ### Phase 3 — Labelmap internals
 - [ ] Replace the writes to `_stackLabelmapImageIdReferenceMap` / `_labelmapImageIdReferenceMap` (`segmentationService.ts:378-418, 2570-2587`) with the public v5 path (`LabelmapImageReferenceResolver` / `getDefaultSegmentationStateManager` / `addSegmentations` inputs). Understand first *why* we hand-populated them (stack labelmap references across viewports) — the v5 resolver may make it unnecessary.
