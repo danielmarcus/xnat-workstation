@@ -299,6 +299,53 @@ function setShiftHeld(next: boolean): void {
     /* store unavailable in isolated tests */
   }
   syncActiveEditMode();
+  // Pan/Zoom: Shift swaps which of them a left-drag drives, so the pointer follows.
+  if (activeToolName !== null && NAV_TOOL_PARTNER[activeToolName]) applyToolCursor();
+}
+
+/**
+ * The Pan/Zoom partner by UI tool name — the NAV_SHIFT_PARTNER pairing, for the cursor.
+ */
+const NAV_TOOL_PARTNER: Partial<Record<ToolName, ToolName>> = {
+  [ToolName.Pan]: ToolName.Zoom,
+  [ToolName.Zoom]: ToolName.Pan,
+};
+
+/**
+ * The nav tool driving the current left-drag, or null when no drag is in progress.
+ *
+ * Cornerstone picks the tool at MOUSEDOWN from the modifier state at that instant and
+ * keeps it for the whole drag, so pressing or releasing Shift mid-drag changes nothing.
+ * The cursor is pinned to the same decision, or it would claim a zoom the drag is not doing.
+ */
+let navDragTool: ToolName | null = null;
+
+/** The tool whose glyph the pointer shows: the one a left-drag would (or does) drive. */
+function cursorToolFor(toolName: ToolName): ToolName {
+  const partner = NAV_TOOL_PARTNER[toolName];
+  if (!partner) return toolName;
+  if (navDragTool !== null) return navDragTool;
+  return editModeShiftPressed ? partner : toolName;
+}
+
+function onGlobalMouseDown(evt: Event): void {
+  const mouse = evt as MouseEvent;
+  if (mouse.button !== 0 || !isInsideAnyViewport(mouse.target)) return;
+  if (activeToolName === null) return;
+  const partner = NAV_TOOL_PARTNER[activeToolName];
+  if (!partner) return;
+  // Resync first: the mouse event's own modifier state is the one Cornerstone reads.
+  setShiftHeld(mouse.shiftKey);
+  navDragTool = mouse.shiftKey ? partner : activeToolName;
+  applyToolCursor();
+}
+
+function onGlobalMouseUp(evt: Event): void {
+  if (navDragTool === null) return;
+  navDragTool = null;
+  const shiftKey = (evt as MouseEvent).shiftKey;
+  if (typeof shiftKey === 'boolean') setShiftHeld(shiftKey);
+  applyToolCursor();
 }
 
 /**
@@ -314,6 +361,7 @@ function onEditModeKeyEvent(evt: Event): void {
 
 /** Leaving the window drops every modifier; the keyup will never be delivered. */
 function onEditModeWindowBlur(): void {
+  navDragTool = null;
   setShiftHeld(false);
 }
 
@@ -329,7 +377,9 @@ function installEditModeModifierListeners(): void {
   // `document` is absent in the isolated service tests, which stub only `window`.
   if (typeof document !== 'undefined') {
     document.addEventListener('mousemove', onGlobalPointerMove, { capture: true });
+    document.addEventListener('mousedown', onGlobalMouseDown, { capture: true });
   }
+  window.addEventListener('mouseup', onGlobalMouseUp, { capture: true });
   editModeModifierListenersInstalled = true;
 }
 
@@ -341,8 +391,11 @@ function removeEditModeModifierListeners(): void {
   window.removeEventListener('keydown', onEditModeKeyEvent, { capture: true });
   window.removeEventListener('keyup', onEditModeKeyEvent, { capture: true });
   window.removeEventListener('blur', onEditModeWindowBlur);
+  window.removeEventListener('mouseup', onGlobalMouseUp, { capture: true });
+  navDragTool = null;
   if (typeof document !== 'undefined') {
     document.removeEventListener('mousemove', onGlobalPointerMove, { capture: true });
+    document.removeEventListener('mousedown', onGlobalMouseDown, { capture: true });
   }
 }
 
@@ -731,7 +784,8 @@ const CURSOR_FOR_TOOL: Partial<Record<ToolName, string>> = {
  */
 const NAMED_CURSOR_FOR_TOOL: Partial<Record<ToolName, string>> = {
   [ToolName.WindowLevel]: 'WindowLevel',
-  [ToolName.Crosshairs]: 'Crosshairs',
+  // Registered by registerAppCursors: the crosshair without Cornerstone's tool icon.
+  [ToolName.Crosshairs]: 'XnatCrosshair',
   [ToolName.Pan]: 'Pan',
   [ToolName.Zoom]: 'Zoom',
   [ToolName.StackScroll]: 'StackScroll',
@@ -799,11 +853,18 @@ type CursorSpec = { kind: 'css'; value: string } | { kind: 'named'; name: string
  * already shows which tool is active, so the pointer's job is position and mode.
  */
 const FILL_CURSOR_NAME = 'XnatEditFill';
+/**
+ * The crosshair alone. Cornerstone's `Crosshairs` glyph draws its tool icon beside the
+ * pointer; registering through the same BASE with no icon leaves just the crosshair
+ * pointer group — same size, colour and (8,8) hotspot as every other cursor here.
+ * (Spelled out in NAMED_CURSOR_FOR_TOOL, which is evaluated before this line.)
+ */
+const CROSSHAIR_CURSOR_NAME = 'XnatCrosshair';
 const ERASE_CURSOR_NAME = 'XnatEditErase';
-let editCursorsRegistered = false;
+let appCursorsRegistered = false;
 
-function registerEditCursors(): void {
-  if (editCursorsRegistered) return;
+function registerAppCursors(): void {
+  if (appCursorsRegistered) return;
   try {
     const define = (name: string, iconContent: string) => {
       csCursors.registerCursor(name, iconContent, { x: 16, y: 16 });
@@ -819,12 +880,13 @@ function registerEditCursors(): void {
       `<circle cx="11.5" cy="11.5" r="4" fill="none" stroke="{{color}}" stroke-width="1"></circle>
        <path stroke="{{color}}" stroke-width="1" d="M11.5 9.5v4M9.5 11.5h4"></path>`,
     );
+    define(CROSSHAIR_CURSOR_NAME, '');
     define(
       ERASE_CURSOR_NAME,
       `<circle cx="11.5" cy="11.5" r="4" fill="none" stroke="{{color}}" stroke-width="1"></circle>
        <path stroke="{{color}}" stroke-width="1" d="M9.5 11.5h4"></path>`,
     );
-    editCursorsRegistered = true;
+    appCursorsRegistered = true;
   } catch {
     /* registration unavailable — writeCursor falls back harmlessly */
   }
@@ -846,14 +908,17 @@ function cursorSpecFor(toolName: ToolName): CursorSpec | null {
   if (OWNS_ITS_CURSOR.has(toolName)) return null;
 
   if (EDIT_MODE_TOOLS.has(toolName)) {
-    registerEditCursors();
+    registerAppCursors();
     return effectiveEditMode() === 'erase' ? ERASE_CURSOR : FILL_CURSOR;
   }
   // Fill-only painting tools still get a deliberate cursor rather than the OS arrow.
   if (BRUSH_STRATEGY[toolName] !== undefined) return { kind: 'css', value: 'crosshair' };
 
-  const named = NAMED_CURSOR_FOR_TOOL[toolName];
-  if (named) return { kind: 'named', name: named };
+  const named = NAMED_CURSOR_FOR_TOOL[cursorToolFor(toolName)];
+  if (named) {
+    registerAppCursors();
+    return { kind: 'named', name: named };
+  }
   return { kind: 'css', value: CURSOR_FOR_TOOL[toolName] ?? 'crosshair' };
 }
 
