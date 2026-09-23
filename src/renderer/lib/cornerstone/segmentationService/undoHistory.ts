@@ -54,6 +54,8 @@ export interface UndoHistoryDeps {
    * memo still lands on the global ring. Omitted by callers that don't partition.
    */
   recordContainerMemo?(memo: HistoryMemoRecord | undefined): void;
+  /** Mirror a `replaceCurrentMemo` into per-container history (see installHistoryMemoTracking). */
+  replaceContainerMemo?(condition: (memo: unknown) => boolean, memo: HistoryMemoRecord): void;
 }
 
 export interface UndoHistory {
@@ -77,6 +79,7 @@ export function createUndoHistory(deps: UndoHistoryDeps): UndoHistory {
   const { DefaultHistoryMemo } = (csUtilities as any).HistoryMemo;
 
   let originalHistoryPush: ((item: unknown) => HistoryMemoRecord | undefined) | null = null;
+  let originalReplaceCurrentMemo: ((item: unknown, condition: (memo: unknown) => boolean) => boolean) | null = null;
   let historyTrackingInstalled = false;
 
   function toHistoryMemoRecords(entry: HistoryMemoEntry): HistoryMemoRecord[] {
@@ -213,6 +216,30 @@ export function createUndoHistory(deps: UndoHistoryDeps): UndoHistory {
       deps.recordContainerMemo?.(memo); // A8: additively partition into per-container history
       return memo;
     }) as typeof DefaultHistoryMemo.push;
+
+    // Cornerstone 5 also rewrites the CURRENT ring entry in place, without a push: when a
+    // contour stroke is unioned into existing contours, applyContourStroke swaps that
+    // stroke's memo for one that restores the pre-union contours. Per-container history
+    // is fed from push, so without mirroring this, undo there removed a contour that no
+    // longer existed and the union could never be undone (first contour lost).
+    if (typeof DefaultHistoryMemo.replaceCurrentMemo === 'function') {
+      originalReplaceCurrentMemo = DefaultHistoryMemo.replaceCurrentMemo.bind(DefaultHistoryMemo);
+      DefaultHistoryMemo.replaceCurrentMemo = (item: unknown, condition: (memo: unknown) => boolean) => {
+        const replaced = originalReplaceCurrentMemo?.(item, condition) ?? false;
+        if (replaced) {
+          // The memo actually stored: `item` itself, or what its createMemo() produced.
+          const current = getTopUndoHistoryEntry() as unknown;
+          const stored = (Array.isArray(current) ? current.find((m) => condition(m)) : current) as
+            | HistoryMemoRecord
+            | undefined;
+          if (stored) {
+            enrichHistoryMemoRecord(stored);
+            deps.replaceContainerMemo?.(condition, stored);
+          }
+        }
+        return replaced;
+      };
+    }
     historyTrackingInstalled = true;
   }
 
@@ -223,6 +250,10 @@ export function createUndoHistory(deps: UndoHistoryDeps): UndoHistory {
 
     DefaultHistoryMemo.push = originalHistoryPush as typeof DefaultHistoryMemo.push;
     originalHistoryPush = null;
+    if (originalReplaceCurrentMemo) {
+      DefaultHistoryMemo.replaceCurrentMemo = originalReplaceCurrentMemo;
+      originalReplaceCurrentMemo = null;
+    }
     historyTrackingInstalled = false;
   }
 

@@ -123,4 +123,31 @@ describe('perContainerHistory (Slice 4: per-container undo, A8 / signals 7,15,28
     expect(history.canUndo('undefined')).toBe(false);
     expect(dirtied).toEqual([]); // nothing dirtied — not attributable to a container
   });
+
+  it('replaceTop swaps only the matching container\'s newest entry, keeping its identity', () => {
+    // Mirrors Cornerstone 5's DefaultHistoryMemo.replaceCurrentMemo (contour union).
+    const a1 = memo('segA', 'a1');
+    const b1 = memo('segB', 'b1');
+    history.record(a1);
+    history.record(b1);
+
+    const union = { tag: 'union', restored: [] as boolean[], restoreMemo(undo = false) { union.restored.push(undo); } };
+    const replaced = history.replaceTop((m) => (m as FakeMemo).tag === 'b1', union as never);
+    expect(replaced).toBe(true);
+    // Filed under segB still (the union memo carried no segmentationId of its own).
+    expect((union as unknown as FakeMemo).segmentationId).toBe('segB');
+
+    history.undo('segB');
+    expect(union.restored).toEqual([true]); // the REPLACEMENT is undone…
+    expect(b1.restored).toEqual([]); // …not the stale original
+    expect(a1.restored).toEqual([]); // other containers untouched
+  });
+
+  it('replaceTop only looks at the newest entry, and reports a miss', () => {
+    const old = memo('segA', 'old');
+    history.record(old);
+    history.record(memo('segA', 'newer'));
+    expect(history.replaceTop((m) => (m as FakeMemo).tag === 'old', memo('segA', 'x') as never)).toBe(false);
+  });
 });
+

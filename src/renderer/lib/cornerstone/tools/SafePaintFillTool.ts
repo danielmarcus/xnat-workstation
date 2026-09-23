@@ -1,5 +1,7 @@
 import { BaseVolumeViewport, cache, getEnabledElement, utilities as csUtilities } from '@cornerstonejs/core';
 import { PaintFillTool, segmentation as csSegmentation } from '@cornerstonejs/tools';
+// Published subpath export (package.json "./segmentation/*"), not a private path.
+import { getOrCreateLabelmapVolume, resolveLabelmapForSegment } from '@cornerstonejs/tools/segmentation/labelmapModel/index';
 
 const { transformWorldToIndex } = csUtilities;
 const coreUtils = csUtilities as any;
@@ -124,9 +126,14 @@ export class SafePaintFillTool extends PaintFillTool {
       let voxelManager: any;
 
       if (viewport instanceof BaseVolumeViewport) {
-        const { volumeId } = segmentation.representationData.Labelmap ?? {};
-        if (!volumeId) return true;
-        const segmentationVolume = cache.getVolume(volumeId) as any;
+        // Cornerstone 5 stores labelmaps as layers, and a segmentation on a volume
+        // viewport is usually a STACK layer with no top-level `volumeId` (the 4.x field
+        // this used to read — so every fill here silently returned). Resolve the layer
+        // for the active segment and get its volume the way v5's own PaintFillTool does;
+        // for a stack layer that is a geometry volume over the same labelmap images, so
+        // writes land in the images the viewport renders.
+        const layer = resolveLabelmapForSegment(segmentation, activeSegmentIndex);
+        const segmentationVolume = (layer ? getOrCreateLabelmapVolume(layer) : undefined) as any;
         if (!segmentationVolume) return true;
         ({ dimensions, direction } = segmentationVolume);
         voxelManager = segmentationVolume.voxelManager;
