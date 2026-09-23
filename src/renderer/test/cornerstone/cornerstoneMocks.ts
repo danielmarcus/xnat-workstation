@@ -40,14 +40,11 @@ interface MockToolGroup {
   removeViewports: ReturnType<typeof vi.fn>;
   getToolInstance: ReturnType<typeof vi.fn>;
   setActiveStrategy: ReturnType<typeof vi.fn>;
-  setViewportsCursorByToolName: ReturnType<typeof vi.fn>;
   setToolActive: ReturnType<typeof vi.fn>;
   setToolDisabled: ReturnType<typeof vi.fn>;
   setToolEnabled: ReturnType<typeof vi.fn>;
   getViewportIds: ReturnType<typeof vi.fn>;
   __viewportIds: Set<string>;
-  /** Tracks the last state set for each Cornerstone tool name. */
-  __toolStates: Map<string, 'Active' | 'Enabled' | 'Disabled'>;
 }
 
 export interface CornerstoneMockState {
@@ -285,12 +282,9 @@ export function createFakeStackViewport(overrides: Partial<MockStackViewport> = 
 
 function createToolGroup(id: string): MockToolGroup {
   const viewports = new Set<string>();
-  /** Tracks the state of each Cornerstone tool name (Active/Enabled/Disabled). */
-  const toolStates = new Map<string, 'Active' | 'Enabled' | 'Disabled'>();
   return {
     id,
     __viewportIds: viewports,
-    __toolStates: toolStates,
     addTool: vi.fn(),
     setToolConfiguration: vi.fn(),
     addViewport: vi.fn((viewportId: string) => {
@@ -301,16 +295,9 @@ function createToolGroup(id: string): MockToolGroup {
     }),
     getToolInstance: vi.fn(() => undefined),
     setActiveStrategy: vi.fn(),
-    setViewportsCursorByToolName: vi.fn(),
-    setToolActive: vi.fn((toolName: string) => {
-      toolStates.set(toolName, 'Active');
-    }),
-    setToolDisabled: vi.fn((toolName: string) => {
-      toolStates.set(toolName, 'Disabled');
-    }),
-    setToolEnabled: vi.fn((toolName: string) => {
-      toolStates.set(toolName, 'Enabled');
-    }),
+    setToolActive: vi.fn(),
+    setToolDisabled: vi.fn(),
+    setToolEnabled: vi.fn(),
     getViewportIds: vi.fn(() => Array.from(viewports)),
   };
 }

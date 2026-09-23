@@ -64,6 +64,8 @@ declare global {
       getSegmentationIdByLabel: (label: string) => string | null;
       getActiveSegmentationState: () => ActiveSegmentationState;
       getActiveContourSnapshot: (panelId?: string, segmentationId?: string | null) => ActiveContourSnapshot;
+      /** Every contour annotation's tool name and a polyline fingerprint (to see it change). */
+      getContourShapes: () => Array<{ toolName: string; polyline: string }>;
       activateSegmentation: (panelId: string, segmentationId: string, segmentIndex?: number) => void;
       setSegmentLocked: (segmentationId: string, segmentIndex: number, locked: boolean) => void;
       createLockAwareUndoRedoTestMemo: (segmentationId: string, segmentIndex: number) => boolean;
@@ -349,6 +351,16 @@ export function installRendererE2eHooks(): void {
     ),
     getActiveSegmentationState,
     getActiveContourSnapshot,
+    getContourShapes: () =>
+      csAnnotation.state.getAllAnnotations()
+        .filter((annotation) => annotation?.metadata?.toolName?.includes('Contour'))
+        .map((annotation) => ({
+          toolName: annotation.metadata?.toolName ?? '',
+          polyline: JSON.stringify(
+            ((annotation.data as { contour?: { polyline?: number[][] } }).contour?.polyline ?? [])
+              .map((p) => p.map((v) => Math.round(v * 100) / 100)),
+          ),
+        })),
     activateSegmentation: (panelId: string, segmentationId: string, segmentIndex = 1) => {
       useSegmentationStore.getState().setActiveSegmentation(segmentationId);
       segmentationManager.userSelectedSegmentation(panelId, segmentationId, segmentIndex);

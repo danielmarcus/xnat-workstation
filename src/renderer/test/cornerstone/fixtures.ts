@@ -2,7 +2,6 @@ export const TEST_IDS = {
   renderingEngineId: 'xnatRenderingEngine',
   viewportId: 'panel_0',
   secondaryViewportId: 'panel_1',
-  toolGroupId: 'xnatToolGroup_primary',
   annotationUid: 'annotation-1',
   segmentationId: 'segmentation-1',
   sourceImageId: 'wadouri:https://example.org/wado?objectUID=1.2.3.4',

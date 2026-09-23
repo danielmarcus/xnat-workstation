@@ -14,9 +14,6 @@ const mocked = vi.hoisted(() => ({
     getFlipState: vi.fn(() => ({ flipH: true, flipV: false })),
     scroll: vi.fn(),
   },
-  toolService: {
-    setActiveTool: vi.fn(),
-  },
   unifiedToolService: {
     setActiveTool: vi.fn(),
     setBrushSize: vi.fn(),
@@ -28,10 +25,6 @@ const mocked = vi.hoisted(() => ({
 
 vi.mock('../lib/cornerstone/viewportService', () => ({
   viewportService: mocked.viewportService,
-}));
-
-vi.mock('../lib/cornerstone/toolService', () => ({
-  toolService: mocked.toolService,
 }));
 
 vi.mock('../lib/cornerstone/unifiedToolService', () => ({
@@ -153,13 +146,10 @@ describe('useViewerStore', () => {
 
   it('routes active-tool changes to the unified tool group (even with the flag off)', () => {
     // The legacy viewport path is deleted; setActiveTool must ALWAYS hit the
-    // unified tool group. beforeEach pins the flag OFF, so this also guards the
-    // P1.8a leftover that routed flag-off tool changes to the dead toolService
-    // (which left the viewer stuck on Window/Level).
+    // unified tool group, even with the flag pinned OFF by beforeEach.
     useViewerStore.getState().setActiveTool(ToolName.Pan);
     expect(useViewerStore.getState().activeTool).toBe(ToolName.Pan);
     expect(mocked.unifiedToolService.setActiveTool).toHaveBeenCalledWith(ToolName.Pan);
-    expect(mocked.toolService.setActiveTool).not.toHaveBeenCalled();
   });
 
   it('setLayout prunes removed panel maps and keeps active context in sync', () => {

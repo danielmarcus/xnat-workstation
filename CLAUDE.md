@@ -39,7 +39,6 @@ src/
     lib/cornerstone/        # Cornerstone3D service layer (singleton modules)
       init.ts               # Cornerstone3D initialization, tool registration
       viewportService.ts    # Viewport creation and management
-      toolService.ts        # Tool activation, brush modes
       segmentationService.ts  # Segmentation CRUD, DICOM SEG import/export
       annotationService.ts  # Annotation event sync to Zustand store
       dicomwebLoader.ts     # DICOMweb image loading via XNAT proxy

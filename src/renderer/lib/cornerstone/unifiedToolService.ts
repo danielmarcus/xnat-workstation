@@ -66,6 +66,8 @@ import { ToolName } from '@shared/types/viewer';
 import { viewportService } from './viewportService';
 import { ensureContourEditPrereq } from './contourEditPrereq';
 import { applyMultiViewportContourPreview } from './contourPreviewMultiViewport';
+import { applyScissorOutlineColor } from './scissorOutlineColor';
+import { applySculptorContourConversion } from './sculptorContourConversion';
 import { usePreferencesStore } from '../../stores/preferencesStore';
 import { useSegmentationStore } from '../../stores/segmentationStore';
 
@@ -681,6 +683,21 @@ function ensureToolGroup(): ToolTypes.IToolGroup | undefined {
     } catch (err) {
       console.warn(`[unifiedToolService] contour preview patch for ${toolName} failed:`, err);
     }
+  }
+
+  // Scissors outline colour (Settings → Scissors preview) and Sculptor reach onto
+  // spline/livewire contours — both instance patches, see their modules.
+  for (const Tool of [CircleScissorsTool, RectangleScissorsTool, SphereScissorsTool]) {
+    try {
+      applyScissorOutlineColor(toolGroup.getToolInstance(Tool.toolName));
+    } catch (err) {
+      console.warn(`[unifiedToolService] scissor outline patch for ${Tool.toolName} failed:`, err);
+    }
+  }
+  try {
+    applySculptorContourConversion(toolGroup.getToolInstance(SculptorTool.toolName));
+  } catch (err) {
+    console.warn('[unifiedToolService] sculptor contour patch failed:', err);
   }
 
   // Inter-slice contour interpolation (signal 13): enable per the user's preference so

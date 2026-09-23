@@ -9,7 +9,6 @@ import ViewerPage from './ViewerPage';
 const {
   viewportServiceMock,
   segmentationServiceMock,
-  toolServiceMock,
   annotationServiceMock,
 } = vi.hoisted(() => ({
   viewportServiceMock: {
@@ -19,15 +18,10 @@ const {
   segmentationServiceMock: {
     initialize: vi.fn(),
     dispose: vi.fn(),
-    setBrushSize: vi.fn(),
     setXnatAutosaveEnabled: vi.fn(),
     undo: vi.fn(),
     redo: vi.fn(),
     deleteSelectedContourComponents: vi.fn(),
-  },
-  toolServiceMock: {
-    initialize: vi.fn(),
-    destroy: vi.fn(),
   },
   annotationServiceMock: {
     initialize: vi.fn(),
@@ -57,10 +51,6 @@ vi.mock('../lib/cornerstone/viewportService', () => ({
 
 vi.mock('../lib/cornerstone/segmentationService', () => ({
   segmentationService: segmentationServiceMock,
-}));
-
-vi.mock('../lib/cornerstone/toolService', () => ({
-  toolService: toolServiceMock,
 }));
 
 vi.mock('../lib/cornerstone/annotationService', () => ({

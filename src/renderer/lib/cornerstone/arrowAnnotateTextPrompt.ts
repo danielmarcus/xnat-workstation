@@ -6,10 +6,9 @@
  * annotation when the callback yields no label, so the stock path is unusable here.
  * This is the DOM-overlay replacement.
  *
- * It lives in its own module (rather than inside toolService) because both the legacy
- * tool group and the unified one need it: the unified group added ArrowAnnotateTool
- * with no configuration, so completing an arrow there showed no prompt at all and the
- * label could never be entered (found 2026-09 — e2e spec 79).
+ * The unified tool group once added ArrowAnnotateTool with no configuration, so
+ * completing an arrow showed no prompt at all and the label could never be entered
+ * (found 2026-09 — e2e spec 79).
  */
 export function arrowAnnotateTextCallback(
   doneChangingTextCallback: (label: string) => void,

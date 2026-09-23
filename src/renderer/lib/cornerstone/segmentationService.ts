@@ -11,7 +11,7 @@
  *   and pushes them to the Zustand store for reactive UI updates.
  *
  * Public API:
- *   initialize()              — Subscribe to events (call once after toolService init)
+ *   initialize()              — Subscribe to events (call once, from ViewerPage)
  *   createStackSegmentation() — Create empty labelmap for painting
  *   addSegment()              — Add a new segment to an existing segmentation
  *   removeSegment()           — Remove a segment
@@ -104,9 +104,6 @@ import { createSaveQueue, type SaveOutcome } from './segmentationService/saveQue
 import { createVisibilityControls } from './segmentationService/visibility';
 import { createDicomSegExport } from './segmentationService/dicomSegExport';
 import { showAlertDialog } from '../../stores/dialogStore';
-// NOTE: We use the tool group ID directly here instead of importing from
-// toolService to avoid a circular dependency (toolService → segmentationService).
-const TOOL_GROUP_ID = 'xnatToolGroup_primary';
 
 // ─── Constants ──────────────────────────────────────────────────
 
@@ -1512,7 +1509,7 @@ export const segmentationService = {
 
   /**
    * Subscribe to Cornerstone segmentation events.
-   * Call once after toolService.initialize().
+   * Call once, from ViewerPage.
    */
   initialize(): void {
     if (initialized) return;
@@ -3040,20 +3037,6 @@ export const segmentationService = {
       renderAllSegmentationViewports();
     } catch (err) {
       console.error('[segmentationService] Failed to update style:', err);
-    }
-  },
-
-  /**
-   * Set the brush tool radius.
-   */
-  setBrushSize(size: number): void {
-    try {
-      csToolUtilities.segmentation.setBrushSizeForToolGroup(
-        TOOL_GROUP_ID,
-        size,
-      );
-    } catch (err) {
-      console.error('[segmentationService] Failed to set brush size:', err);
     }
   },
 

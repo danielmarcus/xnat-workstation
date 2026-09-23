@@ -638,7 +638,6 @@ describe('segmentationService load/export integration (mocked cornerstone)', () 
     segmentationService.renameSegmentation(stackSegId, 'Renamed SEG');
     segmentationService.renameSegment(stackSegId, 1, 'Segment A');
     segmentationService.updateStyle(0.4, true);
-    segmentationService.setBrushSize(11);
     segmentationService.setDefaultColorSequence([[9, 8, 7, 255]]);
     segmentationService.trackSourceImageIds(stackSegId, ['src-1', 'src-2']);
     expect(segmentationService.getTrackedSourceImageIds(stackSegId)).toEqual(['src-1', 'src-2']);

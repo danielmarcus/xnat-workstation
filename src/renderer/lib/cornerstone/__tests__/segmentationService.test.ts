@@ -222,7 +222,7 @@ describe('segmentationService', () => {
     expectNoListenersLeft(cs.eventTarget);
   });
 
-  it('updateStyle and setBrushSize delegate to Cornerstone segmentation APIs', () => {
+  it('updateStyle delegates to Cornerstone segmentation APIs', () => {
     cs.setSegmentations([{ segmentationId: 'seg-1', label: 'Seg 1', segments: {} }]);
     cs.setViewportIdsForSegmentation('seg-1', ['panel_0', 'panel_1']);
 
@@ -246,12 +246,6 @@ describe('segmentationService', () => {
     expect(cs.tools.utilities.segmentation.triggerSegmentationRender).toHaveBeenCalledWith('panel_1');
     expect(render0).toHaveBeenCalled();
     expect(render1).toHaveBeenCalled();
-
-    segmentationService.setBrushSize(13);
-    expect(cs.tools.utilities.segmentation.setBrushSizeForToolGroup).toHaveBeenCalledWith(
-      'xnatToolGroup_primary',
-      13,
-    );
   });
 
   it('syncs segmentation summaries into Zustand store from mocked state', () => {

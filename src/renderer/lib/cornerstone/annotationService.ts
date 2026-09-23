@@ -262,7 +262,7 @@ let initialized = false;
 export const annotationService = {
   /**
    * Subscribe to Cornerstone annotation events.
-   * Call once after toolService.initialize().
+   * Call once, from ViewerPage.
    */
   initialize(): void {
     if (initialized) return;

@@ -48,7 +48,7 @@ Evidence: v5 migration guides (cornerstonejs.org `/docs/migration-guides/5x`), G
 
 **Our exposure:**
 - `tools/SafePaintFillTool.ts` **subclasses `PaintFillTool`**, replaces `preMouseDownCallback`, calls protected helpers (`getFixedDimension`, `generateHelpers`, `getFramesModified`, `doneEditMemo`).
-- Instance patches: `contourPreviewMultiViewport.ts:55-109` (wraps `activateDraw` / `renderContourBeingDrawn`), `toolService.ts:279-320` (scissors `preMouseDownCallback`, legacy — `toolService` is dead code on the live path), `toolService.ts:520-570` (sculptor), `unifiedToolService.ts:719-753` (`disableCursor`, RegionSegmentPlus `mouseTimer`).
+- Instance patches: `contourPreviewMultiViewport.ts:55-109` (wraps `activateDraw` / `renderContourBeingDrawn`), `scissorOutlineColor.ts` (wraps scissors `preMouseDownCallback`, overwrites `editData.annotation.metadata.segmentColor`), `sculptorContourConversion.ts` (extends Sculptor `referencedToolNames`, wraps `preMouseDownCallback`, reads `commonData.activeAnnotationUID` / `isActive`, calls `convertContourSegmentationAnnotation`), `unifiedToolService.ts:719-753` (`disableCursor`, RegionSegmentPlus `mouseTimer`).
 - Cursor internals: `unifiedToolService.ts:836-946` (`CursorSVG[name].name` mutation, named-cursor catalogue incl. the absent `CircleScissor.ERASE_INSIDE`).
 - Undo: `undoHistory.ts:210-224` **monkey-patches `DefaultHistoryMemo.push`** and reads ring internals (`.ring/.position/.size`). v5 reworked contour + labelmap undo (#2785, #2817) — highest-risk single patch.
 - Interpolation: `init.ts:69` / `interpolationAcceptance.ts` rely on our `ANNOTATION_COMPLETED` listener running before Cornerstone's, and on `InterpolationManager` internals.
@@ -105,9 +105,9 @@ Each phase ends green on: `npm run typecheck`, `npx vitest run`, `npm run build 
 ### Phase 4 — Tool internals, cursors, undo
 - [ ] `SafePaintFillTool`: rebase on the 5.10.11 `PaintFillTool` source; confirm the protected helpers still exist with the same contract (brush voxel-slab change).
 - [ ] Undo: re-validate the `DefaultHistoryMemo.push` monkey-patch and ring-internals reads against v5's contour/labelmap undo rework. If v5 exposes the needed hooks, replace the patch.
-- [ ] Re-verify instance patches (`contourPreviewMultiViewport`, sculptor, BrushTool `disableCursor`, RegionSegmentPlus `mouseTimer`), interpolation listener order, spline `AnnotationToPointData` registration.
+- [ ] Re-verify instance patches (`contourPreviewMultiViewport`, `scissorOutlineColor`, `sculptorContourConversion`, BrushTool `disableCursor`, RegionSegmentPlus `mouseTimer`), interpolation listener order, spline `AnnotationToPointData` registration.
 - [ ] Cursor & binding semantics: `cursor-matrix`, `tool-cursors`, `shift-nav-swap`, `tool-binding-leak`, `switch-bindings` specs are the contract — all must pass unchanged.
-- [ ] Delete `toolService.ts` (dead legacy path, never initialized) rather than porting its patches — flag separately if not done already.
+- [x] Delete `toolService.ts` (dead legacy path, never initialized). Done 2026-09-23; its two behaviours the live app lacked (scissors outline colour preference, Sculptor on spline/livewire) moved onto `unifiedToolService` with E2E specs `scissor-outline-color` and `sculptor-spline-conversion`.
 
 ### Phase 5 — Adapters & DICOM output
 - [ ] SEG import/export, RTSTRUCT export, SR import/export round-trips; `test:dicom:compliance`; `rtStructService.roundtrip.test.ts`, `dicomExternalCompliance.test.ts` (these use the real adapters).
