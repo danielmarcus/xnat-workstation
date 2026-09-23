@@ -120,6 +120,10 @@ export default function ViewportOverlay({ panelId, render3d = false }: ViewportO
     'sliceThickness',
     'windowLevel',
     'dimensions',
+    // In-plane display transforms — meaningless on a 3D volume render.
+    'rotation',
+    'flip',
+    'invert',
   ];
 
   /** The display string for a field key, or null when there's nothing to show. */
@@ -159,14 +163,17 @@ export default function ViewportOverlay({ panelId, render3d = false }: ViewportO
         const h = overlay.columns || vp?.imageHeight || 0;
         return w > 0 && h > 0 ? `${w} × ${h}` : null;
       }
+      // Rotation / flip / invert always show their CURRENT state once the field is
+      // enabled (like Zoom / W-L / dimensions) — they are display state, not events.
+      // Rendering null at the default state made an enabled field look unwired.
       case 'rotation':
-        return vp?.rotation ? `Rot: ${vp.rotation}°` : null;
+        return `Rot: ${vp?.rotation ?? 0}°`;
       case 'flip': {
-        const parts = [vp?.flipH ? 'FlipH' : '', vp?.flipV ? 'FlipV' : ''].filter(Boolean);
-        return parts.length ? parts.join(' / ') : null;
+        const parts = [vp?.flipH ? 'H' : '', vp?.flipV ? 'V' : ''].filter(Boolean);
+        return `Flip: ${parts.length ? parts.join('+') : 'None'}`;
       }
       case 'invert':
-        return vp?.invert ? 'Inverted' : null;
+        return `Invert: ${vp?.invert ? 'On' : 'Off'}`;
       case 'crosshairIntensity':
         return crosshairIntensityText;
       case 'crosshair':

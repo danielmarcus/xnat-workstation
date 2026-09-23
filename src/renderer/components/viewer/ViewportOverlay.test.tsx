@@ -139,6 +139,45 @@ describe('ViewportOverlay (preference-driven)', () => {
     expect(useViewerStore.getState().activeViewportId).toBe('panel_0');
   });
 
+  /** Merge partial display state onto panel_0's viewport (rotation/flip/invert). */
+  function setViewport(patch: Record<string, unknown>): void {
+    useViewerStore.setState((s) => ({
+      viewports: { ...s.viewports, panel_0: { ...s.viewports.panel_0, ...patch } },
+    }));
+  }
+
+  it('renders rotation / flip / invert at their DEFAULT state when enabled (not blank)', () => {
+    // Regression: these were the only fields that rendered null at the default state,
+    // so an enabled field looked unwired on an untransformed image.
+    setCorners({ bottomRight: ['rotation', 'flip', 'invert'] });
+    render(<ViewportOverlay panelId="panel_0" />);
+    const corner = within(screen.getByTestId('overlay-corner-bottomRight:panel_0'));
+    expect(corner.getByTestId('overlay-field-rotation:panel_0')).toHaveTextContent('Rot: 0°');
+    expect(corner.getByTestId('overlay-field-flip:panel_0')).toHaveTextContent('Flip: None');
+    expect(corner.getByTestId('overlay-field-invert:panel_0')).toHaveTextContent('Invert: Off');
+  });
+
+  it('reflects the current rotation / flip / invert state', () => {
+    setViewport({ rotation: 90, flipH: true, flipV: true, invert: true });
+    setCorners({ bottomRight: ['rotation', 'flip', 'invert'] });
+    render(<ViewportOverlay panelId="panel_0" />);
+    const corner = within(screen.getByTestId('overlay-corner-bottomRight:panel_0'));
+    expect(corner.getByTestId('overlay-field-rotation:panel_0')).toHaveTextContent('Rot: 90°');
+    expect(corner.getByTestId('overlay-field-flip:panel_0')).toHaveTextContent('Flip: H+V');
+    expect(corner.getByTestId('overlay-field-invert:panel_0')).toHaveTextContent('Invert: On');
+  });
+
+  it('suppresses the in-plane transforms on a 3D volume render', () => {
+    setViewport({ rotation: 90, flipH: true, invert: true });
+    setCorners({ bottomRight: ['rotation', 'flip', 'invert', 'zoom'] });
+    render(<ViewportOverlay panelId="panel_0" render3d />);
+    // Slice-transform fields drop out on a 3D render; a non-slice field (zoom) stays.
+    expect(screen.queryByTestId('overlay-field-rotation:panel_0')).toBeNull();
+    expect(screen.queryByTestId('overlay-field-flip:panel_0')).toBeNull();
+    expect(screen.queryByTestId('overlay-field-invert:panel_0')).toBeNull();
+    expect(screen.getByTestId('overlay-field-zoom:panel_0')).toBeInTheDocument();
+  });
+
   it('renders the crosshair intensity readout above the coordinates, labelled HU for CT', () => {
     getIntensityAtWorld.mockReturnValue({ value: 137, modality: 'CT' });
     useViewerStore.getState().setCrosshairWorldPoint([12.3, -4.5, 6.7], 'panel_0');
