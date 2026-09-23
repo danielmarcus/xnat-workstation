@@ -11,11 +11,13 @@
 import { metaData } from '@cornerstonejs/core';
 import { wadouri } from '@cornerstonejs/dicom-image-loader';
 import { pLimit } from '../util/pLimit';
+import { orientationGroups, sliceNormal } from './seriesGeometry';
 
 /** DICOM tags used in QIDO-RS responses */
 const TAG_SOP_INSTANCE_UID = '00080018';
 const TAG_INSTANCE_NUMBER = '00200013';
 type Vec3 = [number, number, number];
+type LoadRequest = Parameters<typeof wadouri.dataSetCacheManager.load>[1];
 
 interface ScanImageIdsCacheEntry {
   imageIds: string[];
@@ -29,6 +31,8 @@ interface ImageOrderingMeta {
   imagePositionPatient: Vec3 | null;
   rowCosines: Vec3 | null;
   columnCosines: Vec3 | null;
+  /** Plane-orientation group (see `orientationGroups`); null when the image has no usable IOP. */
+  orientationGroup: number | null;
   positionScalar: number | null;
 }
 
@@ -46,6 +50,35 @@ function getTagNumber(item: Record<string, any>, tag: string): number {
 
 function toWadouriUri(imageId: string): string {
   return imageId.startsWith('wadouri:') ? imageId.slice(8) : imageId;
+}
+
+/**
+ * The dataSetCacheManager key and request fn for an imageId — the same pair the wadouri
+ * image loader and metadata provider use. A local `dicomfile:N` id is cached under its
+ * fileManager index `N` and read with FileReader; passed through as-is it was XHR'd as the
+ * URL "dicomfile:N", failed, and left no metadata for local imports.
+ */
+function datasetSource(imageId: string): {
+  uri: string;
+  /** `undefined` selects the cache manager's default request fn (xhrRequest). */
+  loadRequest: LoadRequest | undefined;
+} {
+  if (imageId.startsWith('dicomfile:')) {
+    return {
+      uri: wadouri.parseImageId(imageId).url,
+      loadRequest: wadouri.getLoaderForScheme('dicomfile') as LoadRequest,
+    };
+  }
+  return { uri: toWadouriUri(imageId), loadRequest: undefined };
+}
+
+async function ensureDatasetLoaded(imageId: string): Promise<string> {
+  const { uri, loadRequest } = datasetSource(imageId);
+  if (!wadouri.dataSetCacheManager.isLoaded(uri)) {
+    // The typings mark loadRequest required; the implementation defaults it.
+    await wadouri.dataSetCacheManager.load(uri, loadRequest as LoadRequest, imageId);
+  }
+  return uri;
 }
 
 function toFrameImageId(imageId: string, frameNumber: number): string {
@@ -70,20 +103,12 @@ function parseVec3(value: unknown): Vec3 | null {
   return [x, y, z];
 }
 
-function cross(a: Vec3, b: Vec3): Vec3 {
-  return [
-    a[1] * b[2] - a[2] * b[1],
-    a[2] * b[0] - a[0] * b[2],
-    a[0] * b[1] - a[1] * b[0],
-  ];
-}
-
 function dot(a: Vec3, b: Vec3): number {
   return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 }
 
 function readImageOrderingMeta(imageId: string, originalIndex: number): ImageOrderingMeta {
-  const uri = toWadouriUri(imageId);
+  const { uri } = datasetSource(imageId);
 
   const plane = metaData.get('imagePlaneModule', imageId) as
     | { imagePositionPatient?: unknown; rowCosines?: unknown; columnCosines?: unknown }
@@ -122,23 +147,40 @@ function readImageOrderingMeta(imageId: string, originalIndex: number): ImageOrd
     imagePositionPatient,
     rowCosines,
     columnCosines,
+    orientationGroup: null,
     positionScalar: null,
   };
 }
 
+/**
+ * Group entries by plane orientation and give each a position along its group's normal.
+ * A series can hold several orientations (a 3-plane localizer); positions along different
+ * normals are not comparable, so each plane is ordered on its own and the planes are
+ * kept together. Every image in a group is projected on the group's FIRST normal, so an
+ * image whose IOP is flipped (antiparallel normal, same plane) still sorts in line.
+ */
 function assignPositionScalars(entries: ImageOrderingMeta[]): void {
+  const groups = orientationGroups(
+    entries.map((entry) => (
+      entry.rowCosines && entry.columnCosines ? [...entry.rowCosines, ...entry.columnCosines] : null
+    )),
+  );
+  const groupNormals = new Map<number, Vec3>();
   let geometryScalars = 0;
-  for (const entry of entries) {
+  entries.forEach((entry, i) => {
+    const group = groups[i];
+    if (group === null) return;
+    entry.orientationGroup = group;
     const ipp = entry.imagePositionPatient;
-    const row = entry.rowCosines;
-    const col = entry.columnCosines;
-    if (!ipp || !row || !col) continue;
-    const normal = cross(row, col);
-    const magnitude = Math.hypot(normal[0], normal[1], normal[2]);
-    if (!Number.isFinite(magnitude) || magnitude <= 1e-6) continue;
+    if (!ipp) return;
+    let normal = groupNormals.get(group);
+    if (!normal) {
+      normal = sliceNormal([...entry.rowCosines!, ...entry.columnCosines!])!;
+      groupNormals.set(group, normal);
+    }
     entry.positionScalar = dot(ipp, normal);
     geometryScalars++;
-  }
+  });
 
   if (geometryScalars >= 2) return;
 
@@ -168,6 +210,32 @@ function assignPositionScalars(entries: ImageOrderingMeta[]): void {
   }
 }
 
+/**
+ * Rank orientation groups for output: by their lowest InstanceNumber (scanners number a
+ * localizer plane by plane), then their lowest file key, so the plane order does not
+ * depend on the order the files arrived in. Images with no orientation go last.
+ */
+function rankOrientationGroups(entries: ImageOrderingMeta[]): Map<number | null, number> {
+  const firstOf = new Map<number | null, ImageOrderingMeta>();
+  const earlier = (a: ImageOrderingMeta, b: ImageOrderingMeta) => (
+    compareNullableNumbers(a.instanceNumber, b.instanceNumber)
+    || a.uri.localeCompare(b.uri, undefined, { numeric: true })
+    || a.originalIndex - b.originalIndex
+  );
+  for (const entry of entries) {
+    const current = firstOf.get(entry.orientationGroup);
+    if (!current || earlier(entry, current) < 0) firstOf.set(entry.orientationGroup, entry);
+  }
+  const ordered = [...firstOf.entries()]
+    .sort(([ga, a], [gb, b]) => {
+      if (ga === null) return 1;
+      if (gb === null) return -1;
+      return earlier(a, b);
+    })
+    .map(([group]) => group);
+  return new Map(ordered.map((group, rank) => [group, rank]));
+}
+
 function compareNullableNumbers(a: number | null, b: number | null): number {
   if (a === null && b === null) return 0;
   if (a === null) return 1;
@@ -183,11 +251,8 @@ const scanImageIdsCache = new Map<string, ScanImageIdsCacheEntry>();
 const scanImageIdsInFlight = new Map<string, Promise<string[]>>();
 
 async function getNumberOfFramesForImageId(imageId: string): Promise<number> {
-  const uri = toWadouriUri(imageId);
   try {
-    if (!wadouri.dataSetCacheManager.isLoaded(uri)) {
-      await wadouri.dataSetCacheManager.load(uri, undefined as any, imageId);
-    }
+    const uri = await ensureDatasetLoaded(imageId);
     const dataSet = wadouri.dataSetCacheManager.get(uri);
     const parsed = parseInt(String(dataSet?.string?.('x00280008') ?? ''), 10);
     return Number.isFinite(parsed) && parsed > 1 ? parsed : 1;
@@ -205,10 +270,7 @@ async function sortImageIdsByDicomMetadata(
     imageIds.map((imageId) =>
       limit(async () => {
         try {
-          const uri = toWadouriUri(imageId);
-          if (!wadouri.dataSetCacheManager.isLoaded(uri)) {
-            await wadouri.dataSetCacheManager.load(uri, undefined as any, imageId);
-          }
+          await ensureDatasetLoaded(imageId);
         } catch (err) {
           // Keep partial metadata available; missing slices fall back to instance/file ordering.
           console.debug('[dicomwebLoader] Metadata pre-load failed for imageId:', imageId, err);
@@ -219,8 +281,12 @@ async function sortImageIdsByDicomMetadata(
 
   const entries = imageIds.map((imageId, index) => readImageOrderingMeta(imageId, index));
   assignPositionScalars(entries);
+  const groupRank = rankOrientationGroups(entries);
 
   entries.sort((a, b) => {
+    const groupCmp = groupRank.get(a.orientationGroup)! - groupRank.get(b.orientationGroup)!;
+    if (groupCmp !== 0) return groupCmp;
+
     const scalarCmp = compareNullableNumbers(a.positionScalar, b.positionScalar);
     if (scalarCmp !== 0) return scalarCmp;
 

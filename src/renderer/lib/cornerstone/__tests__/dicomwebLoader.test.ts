@@ -15,6 +15,7 @@ const dicomwebMocks = vi.hoisted(() => {
     isLoaded: vi.fn((uri: string) => uriDataSetMap.has(uri)),
     load: vi.fn(async (_uri: string) => undefined),
     get: vi.fn((uri: string) => uriDataSetMap.get(uri)),
+    fileLoader: vi.fn(async () => new ArrayBuffer(0)),
   };
 });
 
@@ -31,6 +32,8 @@ vi.mock('@cornerstonejs/dicom-image-loader', () => ({
       load: dicomwebMocks.load,
       get: dicomwebMocks.get,
     },
+    parseImageId: (imageId: string) => ({ url: imageId.slice(imageId.indexOf(':') + 1) }),
+    getLoaderForScheme: (scheme: string) => (scheme === 'dicomfile' ? dicomwebMocks.fileLoader : undefined),
   },
 }));
 
@@ -230,6 +233,41 @@ describe('dicomwebLoader', () => {
 
     const ordered = await dicomwebLoader.orderImageIdsByDicomMetadata(ids, 'manual');
     expect(ordered).toEqual([ids[1], ids[0]]);
+  });
+
+  it('pre-loads local dicomfile ids with the file loader under their fileManager key', async () => {
+    setElectronApi();
+    const ids = ['dicomfile:7', 'dicomfile:8'];
+    await dicomwebLoader.orderImageIdsByDicomMetadata(ids, 'local');
+    // The wadouri loader and metadata provider key a dicomfile dataset by its index, not
+    // the full id; loading "dicomfile:7" by XHR is what left local imports unsorted.
+    expect(dicomwebMocks.load).toHaveBeenCalledWith('7', dicomwebMocks.fileLoader, 'dicomfile:7');
+    expect(dicomwebMocks.load).toHaveBeenCalledWith('8', dicomwebMocks.fileLoader, 'dicomfile:8');
+  });
+
+  it('keeps each plane of a multi-orientation series together, ordered along its own normal', async () => {
+    setElectronApi();
+    const planes = [
+      { name: 'ax', row: [1, 0, 0], col: [0, 1, 0], normal: [0, 0, 1], firstInstance: 1 },
+      { name: 'sag', row: [0, 1, 0], col: [0, 0, -1], normal: [-1, 0, 0], firstInstance: 4 },
+      { name: 'cor', row: [1, 0, 0], col: [0, 0, -1], normal: [0, 1, 0], firstInstance: 7 },
+    ];
+    const expected: string[] = [];
+    for (const plane of planes) {
+      for (let s = 0; s < 3; s++) {
+        const id = `wadouri:https://xnat.example/${plane.name}-${s}.dcm`;
+        expected.push(id);
+        const offset = (s - 1) * 10;
+        dicomwebMocks.metadataMap.set(`imagePlaneModule|${id}`, {
+          imagePositionPatient: plane.normal.map((n) => n * offset + 3),
+          rowCosines: plane.row,
+          columnCosines: plane.col,
+        });
+        dicomwebMocks.metadataMap.set(`instance|${id}`, { InstanceNumber: plane.firstInstance + s });
+      }
+    }
+    const shuffled = [4, 0, 8, 2, 6, 1, 7, 3, 5].map((i) => expected[i]);
+    await expect(dicomwebLoader.orderImageIdsByDicomMetadata(shuffled, 'localizer')).resolves.toEqual(expected);
   });
 
   it('throws clear scan-file errors for failed lookups and empty scans', async () => {
