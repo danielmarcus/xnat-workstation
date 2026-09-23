@@ -1,4 +1,5 @@
 import { wadouri } from '@cornerstonejs/dicom-image-loader';
+import { datasetSource, toWadouriUri } from './dicomDatasetSource';
 import { data as dcmjsData } from 'dcmjs';
 import { writeDicomDict } from './writeDicomDict';
 import type { ApprovalModule } from '../annotations/approval';
@@ -240,10 +241,6 @@ export function parseReferencedFrameNumber(imageId: string): number | null {
   return null;
 }
 
-function toWadouriUri(imageId: string): string {
-  return imageId.startsWith('wadouri:') ? imageId.slice(8) : imageId;
-}
-
 function toBaseInstanceUri(imageId: string): string {
   return toWadouriUri(imageId)
     .replace(/\/frames\/\d+(?=([/?#]|$))/gi, '')
@@ -258,6 +255,9 @@ function toBaseInstanceUri(imageId: string): string {
 
 function getCachedSourceDataSet(imageId: string): any | null {
   const candidates = Array.from(new Set([
+    // The loader's own key first — for a local `dicomfile:N` it is the fileManager
+    // index, which neither form below produces.
+    safeDatasetKey(imageId),
     toWadouriUri(imageId),
     toBaseInstanceUri(imageId),
   ])).filter(Boolean);
@@ -281,6 +281,14 @@ function getCachedSourceDataSet(imageId: string): any | null {
   }
 
   return null;
+}
+
+function safeDatasetKey(imageId: string): string {
+  try {
+    return datasetSource(imageId).uri;
+  } catch {
+    return ''; // loader not initialized (isolated tests)
+  }
 }
 
 function readCachedDicomString(dataSet: any, tag: string): string | undefined {
@@ -321,20 +329,34 @@ export function collectSourceDicomReferences(
       ?? parsePositiveInt(sopCommon?.numberOfFrames)
       ?? readCachedDicomNumber(cachedDataSet, 'x00280008');
 
+    // Cornerstone 5's metadata providers split and rename these: StudyInstanceUID moved
+    // to generalSeriesModule, patientModule says `patientID`, PatientSex moved to
+    // patientStudyModule, and StudyID is in no module at all. So each field tries the
+    // 4.x module key, its v5 home, the naturalized `instance` module (DICOM keywords),
+    // then the raw dataset. Missing StudyInstanceUID made every SEG export refuse to run.
     refs.push({
       imageId,
-      studyInstanceUID: study?.studyInstanceUID ?? readCachedDicomString(cachedDataSet, 'x0020000d'),
-      seriesInstanceUID: series?.seriesInstanceUID ?? readCachedDicomString(cachedDataSet, 'x0020000e'),
-      frameOfReferenceUID: imagePlane?.frameOfReferenceUID ?? readCachedDicomString(cachedDataSet, 'x00200052'),
-      sopClassUID: sopCommon?.sopClassUID ?? readCachedDicomString(cachedDataSet, 'x00080016'),
-      sopInstanceUID: sopCommon?.sopInstanceUID ?? readCachedDicomString(cachedDataSet, 'x00080018'),
-      patientName: patient?.patientName ?? readCachedDicomString(cachedDataSet, 'x00100010'),
-      patientId: patient?.patientId ?? readCachedDicomString(cachedDataSet, 'x00100020'),
-      patientBirthDate: patient?.patientBirthDate ?? readCachedDicomString(cachedDataSet, 'x00100030'),
-      patientSex: patient?.patientSex ?? readCachedDicomString(cachedDataSet, 'x00100040'),
+      studyInstanceUID:
+        study?.studyInstanceUID ?? series?.studyInstanceUID ?? instance?.StudyInstanceUID
+        ?? readCachedDicomString(cachedDataSet, 'x0020000d'),
+      seriesInstanceUID:
+        series?.seriesInstanceUID ?? instance?.SeriesInstanceUID ?? readCachedDicomString(cachedDataSet, 'x0020000e'),
+      frameOfReferenceUID:
+        imagePlane?.frameOfReferenceUID ?? instance?.FrameOfReferenceUID ?? readCachedDicomString(cachedDataSet, 'x00200052'),
+      sopClassUID: sopCommon?.sopClassUID ?? instance?.SOPClassUID ?? readCachedDicomString(cachedDataSet, 'x00080016'),
+      sopInstanceUID:
+        sopCommon?.sopInstanceUID ?? instance?.SOPInstanceUID ?? readCachedDicomString(cachedDataSet, 'x00080018'),
+      patientName: patient?.patientName ?? instance?.PatientName ?? readCachedDicomString(cachedDataSet, 'x00100010'),
+      patientId:
+        patient?.patientId ?? patient?.patientID ?? instance?.PatientID ?? readCachedDicomString(cachedDataSet, 'x00100020'),
+      patientBirthDate:
+        patient?.patientBirthDate ?? instance?.PatientBirthDate ?? readCachedDicomString(cachedDataSet, 'x00100030'),
+      patientSex:
+        patient?.patientSex ?? patientStudy?.patientSex ?? instance?.PatientSex
+        ?? readCachedDicomString(cachedDataSet, 'x00100040'),
       studyDate: study?.studyDate ?? readCachedDicomString(cachedDataSet, 'x00080020'),
       studyTime: study?.studyTime ?? readCachedDicomString(cachedDataSet, 'x00080030'),
-      studyID: study?.studyID ?? readCachedDicomString(cachedDataSet, 'x00200010'),
+      studyID: study?.studyID ?? study?.studyId ?? instance?.StudyID ?? readCachedDicomString(cachedDataSet, 'x00200010'),
       accessionNumber: study?.accessionNumber ?? readCachedDicomString(cachedDataSet, 'x00080050'),
       studyDescription: study?.studyDescription ?? readCachedDicomString(cachedDataSet, 'x00081030'),
       referringPhysicianName: study?.referringPhysicianName ?? readCachedDicomString(cachedDataSet, 'x00080090'),

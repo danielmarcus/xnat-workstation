@@ -12,12 +12,12 @@ import { metaData } from '@cornerstonejs/core';
 import { wadouri } from '@cornerstonejs/dicom-image-loader';
 import { pLimit } from '../util/pLimit';
 import { orientationGroups, sliceNormal } from './seriesGeometry';
+import { datasetSource, type DatasetLoadRequest } from './dicomDatasetSource';
 
 /** DICOM tags used in QIDO-RS responses */
 const TAG_SOP_INSTANCE_UID = '00080018';
 const TAG_INSTANCE_NUMBER = '00200013';
 type Vec3 = [number, number, number];
-type LoadRequest = Parameters<typeof wadouri.dataSetCacheManager.load>[1];
 
 interface ScanImageIdsCacheEntry {
   imageIds: string[];
@@ -48,35 +48,11 @@ function getTagNumber(item: Record<string, any>, tag: string): number {
   return typeof val === 'number' ? val : parseInt(val, 10) || 0;
 }
 
-function toWadouriUri(imageId: string): string {
-  return imageId.startsWith('wadouri:') ? imageId.slice(8) : imageId;
-}
-
-/**
- * The dataSetCacheManager key and request fn for an imageId — the same pair the wadouri
- * image loader and metadata provider use. A local `dicomfile:N` id is cached under its
- * fileManager index `N` and read with FileReader; passed through as-is it was XHR'd as the
- * URL "dicomfile:N", failed, and left no metadata for local imports.
- */
-function datasetSource(imageId: string): {
-  uri: string;
-  /** `undefined` selects the cache manager's default request fn (xhrRequest). */
-  loadRequest: LoadRequest | undefined;
-} {
-  if (imageId.startsWith('dicomfile:')) {
-    return {
-      uri: wadouri.parseImageId(imageId).url,
-      loadRequest: wadouri.getLoaderForScheme('dicomfile') as LoadRequest,
-    };
-  }
-  return { uri: toWadouriUri(imageId), loadRequest: undefined };
-}
-
 async function ensureDatasetLoaded(imageId: string): Promise<string> {
   const { uri, loadRequest } = datasetSource(imageId);
   if (!wadouri.dataSetCacheManager.isLoaded(uri)) {
     // The typings mark loadRequest required; the implementation defaults it.
-    await wadouri.dataSetCacheManager.load(uri, loadRequest as LoadRequest, imageId);
+    await wadouri.dataSetCacheManager.load(uri, loadRequest as DatasetLoadRequest, imageId);
   }
   return uri;
 }
