@@ -112,12 +112,9 @@ export function useViewport({
           unifiedToolService.add3dViewport(panelId);
         } else {
           unifiedToolService.addViewport(panelId);
-          // Re-attach any existing segmentations so structures survive layout swaps.
-          // Two passes, because they know about different containers: the service knows
-          // the ones IT created, the manager knows the ones the panel created — which is
-          // every container a user has. Without the second, switching to MPR after
-          // annotating left the annotation on the plane it was drawn on and nowhere else.
-          unifiedSegService.attachExistingToViewport(panelId);
+          // Re-attach existing containers so annotations survive layout swaps. Without
+          // this, switching to MPR after annotating left the annotation on the plane it
+          // was drawn on and nowhere else.
           void segmentationManager.attachNativeContainersToViewport(panelId);
         }
         // Wire display-state sync (events → stores) + read the initial state, so

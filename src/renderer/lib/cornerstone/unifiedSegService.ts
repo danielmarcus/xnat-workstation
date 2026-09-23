@@ -41,14 +41,9 @@ import { useViewerStore } from '../../stores/viewerStore';
 import { useApprovalStore } from '../../stores/approvalStore';
 import * as sourceImageTracking from './sourceImageTracking';
 
-let counter = 0;
-/** Segmentations created on the unified path, so they can be re-attached to
- *  viewports that (re)mount after a layout change. */
-const created = new Set<string>();
-/** Spatial identity (FoR + native series) per unified container — recorded at
- *  creation from its native viewport. Drives FoR-eligibility on (re)attach
- *  (A2a–d): a container must not render on a different-FoR viewport, and renders
- *  with the non-native style on a same-FoR sibling series. */
+/** Spatial identity (FoR + native series) per container — derived from its source
+ *  images and memoized (resolveContainerSpatial). Drives FoR-eligibility on attach:
+ *  a container must not render on a viewport showing a different scan. */
 const containerSpatial = new Map<string, ContainerSpatialId>();
 
 // ─── A2c displacement-hide (signal 10) ───────────────────────────────────────
@@ -100,7 +95,7 @@ function resolveViewportSpatial(viewportId: string): ViewportSpatialId | null {
 /**
  * Derive a container's spatial identity from the images it was built over.
  *
- * `recordContainerSpatial` only ever runs on the two CREATE paths, so a container
+ * Identity was once recorded only on the service's own CREATE paths, so a container
  * IMPORTED from XNAT had no entry in `containerSpatial` — and since every spatial
  * decision here fails open on a missing entry, a loaded container was treated as native
  * to every viewport: the draw gate never blocked it, its rows never dimmed, and it
@@ -139,8 +134,8 @@ function spatialFromSourceImages(containerId: string): ContainerSpatialId | null
 }
 
 /**
- * A container's spatial identity: the recorded one if a create path set it, otherwise
- * derived from its source images. The derived result is memoized into the same map, so
+ * A container's spatial identity: the memoized one if already resolved (or set by the
+ * test seam), otherwise derived from its source images. The derived result is memoized into the same map, so
  * later calls (the draw gate runs on every pointerdown) cost one lookup.
  *
  * Still returns null when neither is available — that remains "no opinion", and every
@@ -177,18 +172,6 @@ function viewportSourceVolume(viewportId: string): unknown | null {
   const vp = viewportService.getViewport(viewportId) as { getAllVolumeIds?: () => string[] } | undefined;
   const volumeId = vp?.getAllVolumeIds?.()?.[0];
   return volumeId ? cache.getVolume(volumeId) ?? null : null;
-}
-
-/** Record a container's native spatial identity from the viewport it was created on. */
-function recordContainerSpatial(segmentationId: string, nativeViewportId: string | undefined): void {
-  if (!nativeViewportId) return;
-  const v = resolveViewportSpatial(nativeViewportId);
-  if (!v) return;
-  containerSpatial.set(segmentationId, {
-    frameOfReferenceUID: v.frameOfReferenceUID,
-    nativeSeriesInstanceUID: v.seriesInstanceUID,
-    referencedSeriesInstanceUIDs: v.seriesInstanceUID ? [v.seriesInstanceUID] : [],
-  });
 }
 
 /**
@@ -371,68 +354,6 @@ export function canDrawOnViewport(activeContainerId: string | null, viewportId: 
 
 
 export const unifiedSegService = {
-  /**
-   * Re-attach every unified segmentation to a viewport that has just (re)mounted
-   * — e.g. an MPR panel recreated after a layout change — so structures are not
-   * lost on layout swaps. Idempotent: only attaches segmentations that still
-   * exist in Cornerstone state.
-   */
-  attachExistingToViewport(viewportId: string): void {
-    for (const segmentationId of created) {
-      if (!csSegmentation.state.getSegmentation(segmentationId)) {
-        created.delete(segmentationId);
-        containerSpatial.delete(segmentationId);
-        continue;
-      }
-      try {
-        // FoR-eligibility gate (A2a–d): native attaches solid + editable; a same-FoR
-        // sibling series attaches non-native + read-only; a different FoR does not
-        // attach here. Fails open to native when ids are unresolved.
-        attachLabelmapToOwnSeries(segmentationId, viewportId);
-      } catch {
-        /* viewport not ready yet */
-      }
-    }
-  },
-
-  /**
-   * Create a CONTOUR segmentation (one default segment) and attach its contour
-   * representation to each viewport, so the freehand contour tool can draw into
-   * it. The contour renders on its own plane; cross-plane MPR display is handled
-   * by syncContourToLabelmap (PolySeg).
-   */
-  createContourSegmentation(viewportIds: string[], label = 'Structure'): { segmentationId: string; segmentIndex: number } {
-    counter++;
-    const segmentationId = `unified_contour_${counter}`;
-    csSegmentation.addSegmentations([
-      {
-        segmentationId,
-        representation: {
-          type: ToolEnums.SegmentationRepresentations.Contour,
-          data: { annotationUIDsMap: new Map([[1, new Set<string>()]]) } as never,
-        },
-        config: {
-          label,
-          segments: {
-            1: { label: 'Structure 1', segmentIndex: 1, locked: false, active: true } as never,
-          },
-        },
-      },
-    ]);
-    created.add(segmentationId);
-    recordContainerSpatial(segmentationId, viewportIds[0]);
-    for (const viewportId of viewportIds) {
-      csSegmentation.addContourRepresentationToViewport(viewportId, [{ segmentationId }]);
-      try {
-        csSegmentation.activeSegmentation.setActiveSegmentation(viewportId, segmentationId);
-      } catch {
-        /* viewport not ready */
-      }
-    }
-    csSegmentation.segmentIndex.setActiveSegmentIndex(segmentationId, 1);
-    return { segmentationId, segmentIndex: 1 };
-  },
-
   /**
    * Rasterize a contour segmentation into a labelmap (PolySeg) targeted at the
    * shared volume, and add/refresh the labelmap representation on every viewport
@@ -693,7 +614,6 @@ export const unifiedSegService = {
 
   /** Forget all tracked unified segmentations (test isolation). */
   reset(): void {
-    created.clear();
     containerSpatial.clear();
     voxelClip = null;
     voxelClipSourceFocal = null;
@@ -701,7 +621,6 @@ export const unifiedSegService = {
 
   /** Test seam: record a container's native spatial identity directly. */
   _setContainerSpatialForTest(segmentationId: string, spatial: ContainerSpatialId): void {
-    created.add(segmentationId);
     containerSpatial.set(segmentationId, spatial);
   },
 };

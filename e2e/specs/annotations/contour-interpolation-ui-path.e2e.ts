@@ -2,10 +2,10 @@
  * Signal 13 through the REAL UI path: panel → New Structure (RTSTRUCT) → Freehand from
  * the toolbox → two contours on non-adjacent slices → the gap fills.
  *
- * The existing interpolation spec creates the contour segmentation with an E2E hook
- * (`createUnifiedContourSeg`) and activates the tool with `setActiveUnifiedTool`. That
- * leaves the panel's own creation path — the one users take — untested, which is exactly
- * the seam several bugs have hidden in. This drives the buttons.
+ * The existing interpolation spec creates the Structure with an E2E hook
+ * (`createUnifiedContourSeg`, which mirrors the panel's create) and activates the tool
+ * with `setActiveUnifiedTool`. That leaves the buttons themselves — the ones users click —
+ * untested, which is exactly the seam several bugs have hidden in. This drives them.
  */
 import { test } from '../../fixtures/electron-app';
 import { expect } from '@playwright/test';

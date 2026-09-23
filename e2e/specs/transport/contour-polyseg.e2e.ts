@@ -26,7 +26,7 @@ interface E2EHooks {
   setActiveUnifiedTool: (toolName: string) => void;
   isUnifiedVolumeReady: () => boolean;
   resetUnifiedSegmentations: () => void;
-  createUnifiedContourSeg: (label?: string) => { segmentationId: string; segmentIndex: number };
+  createUnifiedContourSeg: (label?: string) => Promise<{ segmentationId: string; segmentIndex: number }>;
   syncUnifiedContourLabelmap: (segmentationId: string) => Promise<boolean>;
   getActiveContourSnapshot: (panelId?: string, segmentationId?: string) => { total: number; onCurrentSlice: number };
   getPaintedVoxelCount: () => number;

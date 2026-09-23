@@ -25,7 +25,7 @@ interface E2EHooks {
   setActiveUnifiedTool: (toolName: string) => void;
   isUnifiedVolumeReady: () => boolean;
   resetUnifiedSegmentations: () => void;
-  createUnifiedContourSeg: (label?: string) => { segmentationId: string; segmentIndex: number };
+  createUnifiedContourSeg: (label?: string) => Promise<{ segmentationId: string; segmentIndex: number }>;
   scrollActiveViewport: (delta: number) => void;
   getActiveContourSnapshot: (panelId?: string, segmentationId?: string) => { total: number; sliceIndices: number[] };
 }

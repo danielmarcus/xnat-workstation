@@ -11,9 +11,9 @@
  * This is the other order — the viewport arrives second — and is handled where a viewport
  * mounts, not where a container is created.
  *
- * `unifiedSegService.attachExistingToViewport` already ran at exactly the right moment on
- * mount, but iterated only the containers that service created. Everything made through
- * the panel — every container a user has — was invisible to it.
+ * A re-attach pass already ran at exactly the right moment on mount, but iterated only the
+ * containers a test-only create path had made. Everything made through the panel — every
+ * container a user has — was invisible to it.
  */
 import { test, expect } from '../../fixtures/electron-app';
 import type { Page } from '@playwright/test';

@@ -206,8 +206,8 @@ declare global {
       getPanelParallelScale: (panelId: string) => number | null;
       /** Convert a world point to PAGE coordinates on a panel's canvas (DPR-corrected). */
       worldToPanelPagePoint: (panelId: string, world: [number, number, number]) => { x: number; y: number } | null;
-      /** Create a contour segmentation + attach its contour rep to all unified viewports. */
-      createUnifiedContourSeg: (label?: string) => { segmentationId: string; segmentIndex: number };
+      /** Create a Structure (RTSTRUCT) exactly as the side panel does, with ROI 1 active. */
+      createUnifiedContourSeg: (label?: string) => Promise<{ segmentationId: string; segmentIndex: number }>;
       /** Rasterize the contour → labelmap (PolySeg) onto all unified viewports (MPR propagation). */
       syncUnifiedContourLabelmap: (segmentationId: string) => Promise<boolean>;
       /** Swap the XNAT scan API for a scripted fake (scan-click autoload specs). */
@@ -342,13 +342,17 @@ let _mockXnat: MockXnatApi | null = null;
 let _transportSvc: TransportSaver | null = null;
 
 /**
- * Create a segmentation EXACTLY as the side panel's "New Segmentation (SEG)" does
- * (useAnnotationsPanel.onCreate): a stack multi-layer group on the active viewport,
- * attached only to viewports showing the same scan, with Segment 1 active. Specs must
- * paint into the storage shape users paint into — a shared-volume labelmap attached
- * everywhere once hid real bugs on the stack path.
+ * Create a container EXACTLY as the side panel's "New Segmentation (SEG)" / "New
+ * Structure (RTSTRUCT)" does (useAnnotationsPanel.onCreate) on the active viewport,
+ * attached only to viewports showing the same scan, with member 1 active. SEG is a stack
+ * multi-layer group with Segment 1; RTSTRUCT is a contour Structure with 'ROI 1'. Specs
+ * must draw into the storage shape users draw into — a shared-volume labelmap, or a flat
+ * contour segmentation, attached to every viewport once hid real bugs on the real path.
  */
-async function createSegmentationAsPanel(label: string): Promise<{ segmentationId: string; segmentIndex: number }> {
+async function createContainerAsPanel(
+  kind: 'SEG' | 'RTSTRUCT',
+  label: string,
+): Promise<{ segmentationId: string; segmentIndex: number }> {
   const viewportIds = unifiedToolService.getViewportIds();
   const activeViewportId = useViewerStore.getState().activeViewportId;
   const panelId = viewportIds.includes(activeViewportId) ? activeViewportId : viewportIds[0];
@@ -363,7 +367,13 @@ async function createSegmentationAsPanel(label: string): Promise<{ segmentationI
   }
   if (!firstImageCached()) throw new Error(`Source images not loaded on ${panelId}`);
   const sourceImageIds = useViewerStore.getState().panelImageIdsMap[panelId] ?? [];
-  const segmentationId = await segmentationManager.createNewSegmentation(panelId, sourceImageIds, label, true);
+  let segmentationId: string;
+  if (kind === 'RTSTRUCT') {
+    segmentationId = await segmentationManager.createNewStructure(panelId, sourceImageIds, label);
+    await segmentationManager.addSegment(segmentationId, 'ROI 1');
+  } else {
+    segmentationId = await segmentationManager.createNewSegmentation(panelId, sourceImageIds, label, true);
+  }
   segmentationManager.userSelectedSegmentation(panelId, segmentationId, 1);
   useSegmentationStore.getState().setActiveSegmentation(segmentationId);
   return { segmentationId, segmentIndex: 1 };
@@ -726,7 +736,7 @@ export function installRendererE2eHooks(): void {
     /** Cornerstone annotation lock state for a UID (drives the locked-structure test). */
     getAnnotationLockState: (uid: string) => csAnnotation.locking.isAnnotationLocked(uid) === true,
     getUnifiedToolsWithPrimary: () => unifiedToolService.getToolsWithPrimaryBinding(),
-    createUnifiedLabelmapSegmentation: (label?: string) => createSegmentationAsPanel(label ?? 'Test SEG'),
+    createUnifiedLabelmapSegmentation: (label?: string) => createContainerAsPanel('SEG', label ?? 'Test SEG'),
     // L3 banner harness: create a labelmap, tag it to `containerSessionId`, mark it
     // dirty, and set the active viewer session to `activeSessionId` — simulating a
     // container left unsaved in a session you've navigated away from. Drives the
@@ -735,7 +745,7 @@ export function installRendererE2eHooks(): void {
     // Session-switch retention harness (Change 1c): create a labelmap tagged to a
     // given XNAT session, optionally dirty. Does NOT change the active session.
     seedSessionContainer: async (sessionId: string, dirty: boolean) => {
-      const { segmentationId } = await createSegmentationAsPanel(`SEG ${sessionId}`);
+      const { segmentationId } = await createContainerAsPanel('SEG', `SEG ${sessionId}`);
       useSegmentationStore.getState().setXnatOrigin(segmentationId, {
         scanId: '3001', sourceScanId: '4', projectId: 'P', sessionId,
       });
@@ -936,8 +946,7 @@ export function installRendererE2eHooks(): void {
       const dpr = canvas.width && rect.width ? canvas.width / rect.width : 1;
       return { x: rect.left + canvasPt[0] / dpr, y: rect.top + canvasPt[1] / dpr };
     },
-    createUnifiedContourSeg: (label?: string) =>
-      unifiedSegService.createContourSegmentation(unifiedToolService.getViewportIds(), label ?? 'Structure'),
+    createUnifiedContourSeg: (label?: string) => createContainerAsPanel('RTSTRUCT', label ?? 'Structure'),
     syncUnifiedContourLabelmap: (segmentationId: string) =>
       unifiedSegService.syncContourToLabelmap(segmentationId, unifiedToolService.getViewportIds()),
     getPaintedVoxelsPerSlice: () => {
