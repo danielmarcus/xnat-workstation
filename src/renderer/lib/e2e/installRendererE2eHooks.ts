@@ -341,6 +341,34 @@ function getActiveContourSnapshot(panelId = 'panel_0', targetSegmentationId?: st
 let _mockXnat: MockXnatApi | null = null;
 let _transportSvc: TransportSaver | null = null;
 
+/**
+ * Create a segmentation EXACTLY as the side panel's "New Segmentation (SEG)" does
+ * (useAnnotationsPanel.onCreate): a stack multi-layer group on the active viewport,
+ * attached only to viewports showing the same scan, with Segment 1 active. Specs must
+ * paint into the storage shape users paint into — a shared-volume labelmap attached
+ * everywhere once hid real bugs on the stack path.
+ */
+async function createSegmentationAsPanel(label: string): Promise<{ segmentationId: string; segmentIndex: number }> {
+  const viewportIds = unifiedToolService.getViewportIds();
+  const activeViewportId = useViewerStore.getState().activeViewportId;
+  const panelId = viewportIds.includes(activeViewportId) ? activeViewportId : viewportIds[0];
+  if (!panelId) throw new Error('No unified viewport to create a segmentation on');
+  // The panel's create is only reachable once the viewport's images have loaded.
+  const firstImageCached = () => {
+    const first = useViewerStore.getState().panelImageIdsMap[panelId]?.[0];
+    return !!first && !!cache.getImage(first);
+  };
+  for (let i = 0; i < 60 && !firstImageCached(); i++) {
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  if (!firstImageCached()) throw new Error(`Source images not loaded on ${panelId}`);
+  const sourceImageIds = useViewerStore.getState().panelImageIdsMap[panelId] ?? [];
+  const segmentationId = await segmentationManager.createNewSegmentation(panelId, sourceImageIds, label, true);
+  segmentationManager.userSelectedSegmentation(panelId, segmentationId, 1);
+  useSegmentationStore.getState().setActiveSegmentation(segmentationId);
+  return { segmentationId, segmentIndex: 1 };
+}
+
 export function installRendererE2eHooks(): void {
   if (typeof window === 'undefined') {
     return;
@@ -698,36 +726,7 @@ export function installRendererE2eHooks(): void {
     /** Cornerstone annotation lock state for a UID (drives the locked-structure test). */
     getAnnotationLockState: (uid: string) => csAnnotation.locking.isAnnotationLocked(uid) === true,
     getUnifiedToolsWithPrimary: () => unifiedToolService.getToolsWithPrimaryBinding(),
-    createUnifiedLabelmapSegmentation: async (label?: string) => {
-      // Create EXACTLY as the side panel's "New Segmentation (SEG)" does
-      // (useAnnotationsPanel.onCreate): a stack multi-layer group on the active panel,
-      // attached only to panels showing the same scan, with Segment 1 active. Specs
-      // must paint into the storage shape users paint into — a shared-volume labelmap
-      // attached everywhere hid real bugs on the stack path.
-      const viewportIds = unifiedToolService.getViewportIds();
-      const activeViewportId = useViewerStore.getState().activeViewportId;
-      const panelId = viewportIds.includes(activeViewportId) ? activeViewportId : viewportIds[0];
-      if (!panelId) throw new Error('No unified viewport to create a segmentation on');
-      // The panel's create is only reachable once the panel's images have loaded.
-      const firstImageCached = () => {
-        const first = useViewerStore.getState().panelImageIdsMap[panelId]?.[0];
-        return !!first && !!cache.getImage(first);
-      };
-      for (let i = 0; i < 60 && !firstImageCached(); i++) {
-        await new Promise((r) => setTimeout(r, 200));
-      }
-      if (!firstImageCached()) throw new Error(`Source images not loaded on ${panelId}`);
-      const sourceImageIds = useViewerStore.getState().panelImageIdsMap[panelId] ?? [];
-      const segmentationId = await segmentationManager.createNewSegmentation(
-        panelId,
-        sourceImageIds,
-        label ?? 'Test SEG',
-        true,
-      );
-      segmentationManager.userSelectedSegmentation(panelId, segmentationId, 1);
-      useSegmentationStore.getState().setActiveSegmentation(segmentationId);
-      return { segmentationId, segmentIndex: 1 };
-    },
+    createUnifiedLabelmapSegmentation: (label?: string) => createSegmentationAsPanel(label ?? 'Test SEG'),
     // L3 banner harness: create a labelmap, tag it to `containerSessionId`, mark it
     // dirty, and set the active viewer session to `activeSessionId` — simulating a
     // container left unsaved in a session you've navigated away from. Drives the
@@ -736,22 +735,7 @@ export function installRendererE2eHooks(): void {
     // Session-switch retention harness (Change 1c): create a labelmap tagged to a
     // given XNAT session, optionally dirty. Does NOT change the active session.
     seedSessionContainer: async (sessionId: string, dirty: boolean) => {
-      const viewportIds = unifiedToolService.getViewportIds();
-      const findReadyVolume = (): string | undefined => {
-        for (const vp of viewportIds) {
-          const ee = getEnabledElementByViewportId(vp) as { viewport?: { getAllVolumeIds?: () => string[] } } | undefined;
-          const id = ee?.viewport?.getAllVolumeIds?.()[0];
-          if (id && cache.getVolume(id)) return id;
-        }
-        return undefined;
-      };
-      let referencedVolumeId = findReadyVolume();
-      for (let i = 0; i < 60 && !referencedVolumeId; i++) {
-        await new Promise((r) => setTimeout(r, 200));
-        referencedVolumeId = findReadyVolume();
-      }
-      if (!referencedVolumeId) throw new Error('Shared volume not ready');
-      const { segmentationId } = await unifiedSegService.createVolumeLabelmap(referencedVolumeId, viewportIds, `SEG ${sessionId}`);
+      const { segmentationId } = await createSegmentationAsPanel(`SEG ${sessionId}`);
       useSegmentationStore.getState().setXnatOrigin(segmentationId, {
         scanId: '3001', sourceScanId: '4', projectId: 'P', sessionId,
       });

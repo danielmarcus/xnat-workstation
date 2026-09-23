@@ -11,9 +11,8 @@ const m = vi.hoisted(() => ({
 
 vi.mock('@cornerstonejs/core', () => ({
   metaData: { get: (mod: string, id: string) => m.metaGet(mod, id) },
-  volumeLoader: { createAndCacheDerivedLabelmapVolume: vi.fn() },
   getRenderingEngine: vi.fn(),
-  cache: { getVolume: vi.fn() }, // readSourceVolumeGeometry/readLabelmapVoxels (signal 10/23)
+  cache: { getVolume: vi.fn() },
 }));
 vi.mock('@cornerstonejs/tools', () => ({
   segmentation: {

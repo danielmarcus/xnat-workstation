@@ -14,7 +14,7 @@
  *
  * §2: lib/cornerstone may import Cornerstone directly.
  */
-import { volumeLoader, getRenderingEngine, metaData, cache } from '@cornerstonejs/core';
+import { getRenderingEngine, metaData, cache } from '@cornerstonejs/core';
 import {
   segmentation as csSegmentation,
   Enums as ToolEnums,
@@ -370,65 +370,7 @@ export function canDrawOnViewport(activeContainerId: string | null, viewportId: 
 }
 
 
-export interface UnifiedLabelmapResult {
-  segmentationId: string;
-  segmentIndex: number;
-  labelmapVolumeId: string;
-}
-
 export const unifiedSegService = {
-  /**
-   * Create a volume labelmap segmentation (one default segment) derived from
-   * `referencedVolumeId`, register it, and add its representation to each of
-   * `viewportIds`, setting it active there. Returns the ids for follow-up edits.
-   */
-  async createVolumeLabelmap(
-    referencedVolumeId: string,
-    viewportIds: string[],
-    label = 'Segmentation',
-  ): Promise<UnifiedLabelmapResult> {
-    counter++;
-    const segmentationId = `unified_seg_${counter}`;
-    const labelmapVolumeId = `${segmentationId}_lm`;
-
-    // Derived labelmap volume: same geometry as the shared source volume.
-    const lm = volumeLoader.createAndCacheDerivedLabelmapVolume(referencedVolumeId, {
-      volumeId: labelmapVolumeId,
-    });
-
-    csSegmentation.addSegmentations([
-      {
-        segmentationId,
-        representation: {
-          type: ToolEnums.SegmentationRepresentations.Labelmap,
-          data: { volumeId: lm.volumeId, referencedVolumeId },
-        },
-        config: {
-          label,
-          segments: {
-            1: { label: 'Segment 1', segmentIndex: 1, locked: false, active: true } as never,
-          },
-        },
-      },
-    ]);
-
-    created.add(segmentationId);
-    // viewportIds[0] is the create origin → its series is the container's native
-    // series. Record that BEFORE attaching so the eligibility gate can classify the
-    // other viewports against it.
-    recordContainerSpatial(segmentationId, viewportIds[0]);
-    for (const viewportId of viewportIds) {
-      // FoR-eligibility gate (A2a–d): the native viewport(s) attach solid + active;
-      // a same-FoR sibling series attaches non-native (dimmed) + read-only; a
-      // different FoR is skipped. MPR-safe: every MPR panel shows the same series,
-      // so each classifies `native` and attaches exactly as before.
-      attachLabelmapToOwnSeries(segmentationId, viewportId);
-    }
-    csSegmentation.segmentIndex.setActiveSegmentIndex(segmentationId, 1);
-
-    return { segmentationId, segmentIndex: 1, labelmapVolumeId: lm.volumeId };
-  },
-
   /**
    * Re-attach every unified segmentation to a viewport that has just (re)mounted
    * — e.g. an MPR panel recreated after a layout change — so structures are not
