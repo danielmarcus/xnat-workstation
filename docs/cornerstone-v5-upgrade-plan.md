@@ -107,11 +107,16 @@ Each phase ends green on: `npm run typecheck`, `npx vitest run`, `npm run build 
 - Codemod not run: it only rewrites `getStackViewport(s)` / `getVolumeViewports` / `setDataIds`, none of which are used.
 
 ### Phase 3 — Labelmap internals
-- [ ] Replace the writes to `_stackLabelmapImageIdReferenceMap` / `_labelmapImageIdReferenceMap` (`segmentationService.ts:378-418, 2570-2587`) with the public v5 path (`LabelmapImageReferenceResolver` / `getDefaultSegmentationStateManager` / `addSegmentations` inputs). Understand first *why* we hand-populated them (stack labelmap references across viewports) — the v5 resolver may make it unnecessary.
-- [ ] Replace the export-side read (`dicomSegExport.ts:256-257`) and re-derive the "broken in v4.16" workaround at 182-185.
-- [ ] Audit all 37 `representationData.Labelmap` reads for the normalized `labelmaps/segmentBindings/primaryLabelmapId` shape; route them through one helper instead of 37 casts.
-- [ ] Update `cornerstoneMocks.ts` to model the v5 shape — delete the fake private map, or the unit tests prove nothing.
-- [ ] Keep `overwriteMode` at its default `'all'` (4.x behaviour). Re-verify: multi-layer groups (`_layer_N` event ids), per-viewport hide (attach:false), group SEG export via temp seg with `colorOverrides`, stack labelmaps on stack viewports (3-plane localizer).
+- [x] **Stop converting stack → volume labelmaps and stop hand-populating the private reference maps** (`segmentationService.ts` `addSubSegToViewport` and the legacy single path). v5 renders STACK labelmaps on volume viewports natively (its `LabelmapImageReferenceResolver` matches each labelmap image to viewport slices with `isReferenceViewable(..., { asOverlay: true })`). Observed stored shape on an ORTHOGRAPHIC viewport: one `storageKind: 'stack'` layer, no `volumeId`. v5's `convertStackToVolumeLabelmap` writes a top-level `volumeId` the normalized model ignores, and rebuilds the volume by re-*loading* each labelmap image.
+- [x] **Register a cache-backed image loader for the app's `generated:` labelmap scheme** (`generatedImageLoader.ts`, `init.ts`). When a labelmap can't be matched image-for-image (same series loaded into a second viewport under new imageIds), v5 renders it through a geometry volume with no `referencedImageIds`; adding it computes a default VOI by re-loading the middle image with `ignoreCache`, which threw "No image loader found for scheme 'generated'" — a viewport opened after painting showed no mask (`annotations/second-viewport-renders`).
+- [x] Export: `dicomSegExport` no longer reads `_stackLabelmapImageIdReferenceMap` (always empty on v5); the canonical labelmap imageIds + `referencedImageId` matching was already the primary path.
+- [x] `labelmapLayers.ts` `labelmapStorage()` reads v5 layers (with a 4.x top-level fallback); every `representationData.Labelmap.{imageIds,volumeId}` read in app code and the E2E voxel hooks goes through it. The E2E per-slice hook read only `volumeId`, so `tools/sphere-brush-family` saw zero painted slices on v5 — painting itself was fine.
+- [x] Mocks: the fake private map and `convertStackToVolumeLabelmap` stub removed from `cornerstoneMocks.ts` and `segmentationService.loadExport.test.ts`.
+- [x] **Contour behaviour changes in v5** (tests updated to keep their intent, no app change):
+  - a freehand Structure stroke that encloses no area (a straight line) is closed and then **dropped** on mouse-up (4.x kept a zero-area sliver) — `annotations/scan-switch-prompt`, `annotations/contour-preview-multiviewport` now draw strokes that enclose an area (the latter still open until mouse-up, verified red with the multi-viewport preview patch disabled);
+  - overlapping contours of one segment on one plane are **unioned** into a single contour (4.x kept both) — `annotations/same-scan-viewport-parity` draws its second loop clear of the first.
+- [x] Gate: typecheck · 910 unit · 38 compliance · **170 / 170 offline E2E**.
+- [ ] Still to verify in Phase 4/5: multi-layer groups under `overwriteMode: 'all'` (default kept), per-viewport hide, group SEG export via temp seg.
 
 ### Phase 4 — Tool internals, cursors, undo
 - [ ] `SafePaintFillTool`: rebase on the 5.10.11 `PaintFillTool` source; confirm the protected helpers still exist with the same contract (brush voxel-slab change).

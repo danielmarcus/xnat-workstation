@@ -24,6 +24,7 @@ import * as sourceImageTracking from '../sourceImageTracking';
 import * as mlg from '../multiLayerGroup';
 import { sanitizeSegmentIndices } from './segmentationHelpers';
 import { applySourceDicomContextToSegDataset } from './dicomContext';
+import { labelmapStorage } from '../labelmapLayers';
 import {
   serializeDerivedDicomDataset,
   requireSingleStudyReference,
@@ -117,7 +118,7 @@ export function createDicomSegExport(deps: DicomSegExportDeps): DicomSegExport {
     if (!labelmapData) {
       throw new Error('[segmentationService] Segmentation has no Labelmap representation data.');
     }
-    const labelmapImageIds: string[] = (labelmapData as any).imageIds ?? [];
+    const labelmapImageIds: string[] = labelmapStorage(labelmapData).imageIdLists[0] ?? [];
     if (labelmapImageIds.length === 0) {
       throw new Error('[segmentationService] Segmentation has no labelmap imageIds.');
     }
@@ -165,24 +166,16 @@ export function createDicomSegExport(deps: DicomSegExportDeps): DicomSegExport {
     // CRITICAL: labelmaps2D[i] must correspond to sourceImages[i] (and
     // srcImageIds[i]).  generateSegmentation pairs them by index.
     //
-    // For stack-based segmentations, the brush tool writes pixel data into
-    // the labelmap images managed by the SegmentationStateManager's
-    // _stackLabelmapImageIdReferenceMap. We need to read the LIVE data
-    // from those mapped images, not just the original registered imageIds
-    // (which may point to stale/empty cache entries).
-    //
-    // Strategy: use csSegmentation.segmentation.getLabelmapImageIds() to get
-    // the canonical imageIds, then try cache.getImage() for each. Also try
-    // the viewport-mapped imageIds via getStackSegmentationImageIdsForViewport.
+    // The brush writes into the labelmap images themselves, so the canonical
+    // labelmap imageIds are the live data. Each is paired with its source image by
+    // `referencedImageId` (exact, then normalized, then SOP Instance UID, then index).
     const labelmaps2D: any[] = [];
     const rows = sourceImages[0].rows ?? sourceImages[0].height ?? 512;
     const columns = sourceImages[0].columns ?? sourceImages[0].width ?? 512;
 
-    // Use the labelmap imageIds from the representation data directly.
-    // DO NOT call getStackSegmentationImageIdsForViewport() — it triggers
-    // _updateAllLabelmapSegmentationImageReferences() which is broken in v4.16
-    // and corrupts the _stackLabelmapImageIdReferenceMap (maps all source images
-    // to the same labelmap, causing bleed to all slices + extreme lag).
+    // Use the labelmap imageIds from the representation data directly, never the
+    // viewport-dependent getStackSegmentationImageIdsForViewport(): export must not
+    // depend on which viewport happens to show the segmentation.
     const effectiveLmIds = labelmapImageIds;
 
     const toImageIdMatchKey = (imageId: string | undefined): string => {
@@ -236,64 +229,18 @@ export function createDicomSegExport(deps: DicomSegExportDeps): DicomSegExport {
         }
       }
     }
-    const resolveMappedLabelmapImage = (value: any): any | undefined => {
-      if (typeof value === 'string' && value.length > 0) {
-        return cache.getImage(value);
-      }
-      if (Array.isArray(value)) {
-        for (const candidate of value) {
-          if (typeof candidate !== 'string' || candidate.length === 0) continue;
-          const img = cache.getImage(candidate);
-          if (img) return img;
-        }
-      }
-      return undefined;
-    };
-    const stackRefIdToLabelmap = new Map<string, any>();
-    const stackRefKeyToLabelmap = new Map<string, any>();
-    const stackRefSopToLabelmap = new Map<string, any>();
-    try {
-      const mgr = csSegmentation.defaultSegmentationStateManager as any;
-      const stackRefMap = mgr?._stackLabelmapImageIdReferenceMap?.get?.(segmentationId);
-      if (stackRefMap && typeof stackRefMap.forEach === 'function') {
-        stackRefMap.forEach((lmValue: any, refIdRaw: any) => {
-          const refId = typeof refIdRaw === 'string' ? refIdRaw : String(refIdRaw ?? '');
-          if (!refId) return;
-          const lmImage = resolveMappedLabelmapImage(lmValue);
-          if (!lmImage) return;
-          stackRefIdToLabelmap.set(refId, lmImage);
-          const refKey = toImageIdMatchKey(refId);
-          if (refKey && !stackRefKeyToLabelmap.has(refKey)) {
-            stackRefKeyToLabelmap.set(refKey, lmImage);
-          }
-          const refSopUid = getSopUidForImageId(refId);
-          if (refSopUid && !stackRefSopToLabelmap.has(refSopUid)) {
-            stackRefSopToLabelmap.set(refSopUid, lmImage);
-          }
-        });
-      }
-    } catch (err) {
-      console.debug('[segmentationService] Could not read stack labelmap reference map:', err);
-    }
-
     const resolveLabelmapImage = (srcId: string, sourceIndex: number): { image: any | undefined; match: 'ref' | 'normalized' | 'sop' | 'index' | 'none' } => {
-      const stackExact = stackRefIdToLabelmap.get(srcId);
-      if (stackExact) return { image: stackExact, match: 'ref' };
       const exact = refIdToLabelmap.get(srcId);
       if (exact) return { image: exact, match: 'ref' };
 
       const srcKey = toImageIdMatchKey(srcId);
       if (srcKey) {
-        const stackNormalized = stackRefKeyToLabelmap.get(srcKey);
-        if (stackNormalized) return { image: stackNormalized, match: 'normalized' };
         const normalized = refKeyToLabelmap.get(srcKey);
         if (normalized) return { image: normalized, match: 'normalized' };
       }
 
       const srcSopUid = getSopUidForImageId(srcId);
       if (srcSopUid) {
-        const stackSopMatch = stackRefSopToLabelmap.get(srcSopUid);
-        if (stackSopMatch) return { image: stackSopMatch, match: 'sop' };
         const sopMatch = refSopToLabelmap.get(srcSopUid);
         if (sopMatch) return { image: sopMatch, match: 'sop' };
       }
@@ -1049,7 +996,7 @@ export function createDicomSegExport(deps: DicomSegExportDeps): DicomSegExport {
         if (!subSegId) continue;
         const segmentIndex = i + 1;
         const subSeg = csSegmentation.state.getSegmentation(subSegId);
-        const lmImageIds: string[] = (subSeg?.representationData as any)?.Labelmap?.imageIds ?? [];
+        const lmImageIds: string[] = labelmapStorage((subSeg?.representationData as any)?.Labelmap).imageIdLists[0] ?? [];
         if (s >= lmImageIds.length) continue;
         const lmImage = cache.getImage(lmImageIds[s]);
         if (!lmImage) continue;

@@ -30,6 +30,7 @@
  */
 import { eventTarget, cache, utilities as csUtilities } from '@cornerstonejs/core';
 import { segmentation as csSegmentation, annotation as csAnnotation, Enums as ToolEnums } from '@cornerstonejs/tools';
+import { labelmapStorage } from './labelmapLayers';
 
 const CONTOUR_FILL_TOOL_NAME = 'LabelMapEditWithContour';
 
@@ -71,9 +72,9 @@ interface VolumeVoxelAccess {
 /** The active labelmap's volume voxel manager for a segmentation (null if not a volume labelmap). */
 function labelmapVoxelManager(segmentationId: string): VolumeVoxelAccess | null {
   const seg = csSegmentation.state.getSegmentation(segmentationId) as
-    | { representationData?: { Labelmap?: { volumeId?: string } } }
+    | { representationData?: { Labelmap?: unknown } }
     | undefined;
-  const volumeId = seg?.representationData?.Labelmap?.volumeId;
+  const volumeId = labelmapStorage(seg?.representationData?.Labelmap).volumeIds[0];
   if (!volumeId) return null;
   const vol = cache.getVolume(volumeId) as { voxelManager?: VolumeVoxelAccess } | undefined;
   return vol?.voxelManager ?? null;
@@ -176,9 +177,9 @@ function pointInPolygon2D(x: number, y: number, poly: number[][]): boolean {
 function rasterizeContourFill(segmentationId: string, polyline: number[][]): number {
   if (!Array.isArray(polyline) || polyline.length < 3) return 0;
   const seg = csSegmentation.state.getSegmentation(segmentationId) as
-    | { representationData?: { Labelmap?: { volumeId?: string } } }
+    | { representationData?: { Labelmap?: unknown } }
     | undefined;
-  const volumeId = seg?.representationData?.Labelmap?.volumeId;
+  const volumeId = labelmapStorage(seg?.representationData?.Labelmap).volumeIds[0];
   if (!volumeId) return 0;
   const vol = cache.getVolume(volumeId) as
     | { imageData?: unknown; voxelManager?: { setAtIJK?: (i: number, j: number, k: number, v: number) => void }; dimensions?: number[] }

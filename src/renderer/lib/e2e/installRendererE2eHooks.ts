@@ -28,6 +28,7 @@ import { useTransportStore } from '../../stores/transportStore';
 import * as contourRep from '../cornerstone/contourRepresentation';
 import { setXnatScanApi } from '../xnat/scanApi';
 import { dicomwebLoader } from '../cornerstone/dicomwebLoader';
+import { labelmapStorage } from '../cornerstone/labelmapLayers';
 import type { XnatScan } from '@shared/types/xnat';
 import { exportMeasurementsToDicomSr } from '../cornerstone/srExport';
 import { ToolName } from '@shared/types/viewer';
@@ -940,54 +941,67 @@ export function installRendererE2eHooks(): void {
       const out: Array<{ segmentationId: string; dims: [number, number, number]; perSlice: number[] }> = [];
       const segs = (csSegmentation.state.getSegmentations?.() ?? []) as Array<{
         segmentationId?: string;
-        representationData?: { Labelmap?: { volumeId?: string } };
+        representationData?: { Labelmap?: unknown };
       }>;
+      const nonZero = (data: ArrayLike<number>, start: number, end: number) => {
+        let n = 0;
+        for (let i = start; i < end; i++) if (data[i] !== 0) n++;
+        return n;
+      };
       for (const seg of segs) {
-        const volumeId = seg?.representationData?.Labelmap?.volumeId;
-        if (typeof volumeId !== 'string') continue;
-        const vol = cache.getVolume(volumeId) as
-          | {
-              dimensions?: [number, number, number];
-              voxelManager?: { getCompleteScalarDataArray?: () => ArrayLike<number> };
-              scalarData?: ArrayLike<number>;
-            }
-          | undefined;
-        const dims = vol?.dimensions;
-        const data = vol?.voxelManager?.getCompleteScalarDataArray?.() ?? vol?.scalarData;
-        if (!dims || !data) continue;
-        const [x, y, z] = dims;
-        const sliceSize = x * y;
-        const perSlice: number[] = [];
-        for (let k = 0; k < z; k++) {
-          let n = 0;
-          const base = k * sliceSize;
-          for (let i = 0; i < sliceSize; i++) if (data[base + i] !== 0) n++;
-          perSlice.push(n);
+        const storage = labelmapStorage(seg?.representationData?.Labelmap);
+        for (const volumeId of storage.volumeIds) {
+          const vol = cache.getVolume(volumeId) as
+            | {
+                dimensions?: [number, number, number];
+                voxelManager?: { getCompleteScalarDataArray?: () => ArrayLike<number> };
+                scalarData?: ArrayLike<number>;
+              }
+            | undefined;
+          const dims = vol?.dimensions;
+          const data = vol?.voxelManager?.getCompleteScalarDataArray?.() ?? vol?.scalarData;
+          if (!dims || !data) continue;
+          const [x, y, z] = dims;
+          const sliceSize = x * y;
+          const perSlice: number[] = [];
+          for (let k = 0; k < z; k++) perSlice.push(nonZero(data, k * sliceSize, (k + 1) * sliceSize));
+          out.push({ segmentationId: seg.segmentationId ?? volumeId, dims: [x, y, z], perSlice });
         }
-        out.push({ segmentationId: seg.segmentationId ?? volumeId, dims: [x, y, z], perSlice });
+        // Stack layers: one labelmap image per source slice, in source order.
+        for (const imageIds of storage.imageIdLists) {
+          let dims: [number, number, number] = [0, 0, imageIds.length];
+          const perSlice = imageIds.map((id) => {
+            const img = cache.getImage(id) as
+              | { columns?: number; rows?: number; getPixelData?: () => ArrayLike<number> }
+              | undefined;
+            const data = img?.getPixelData?.();
+            if (img?.columns && img?.rows) dims = [img.columns, img.rows, imageIds.length];
+            return data ? nonZero(data, 0, data.length) : 0;
+          });
+          out.push({ segmentationId: seg.segmentationId ?? 'stack', dims, perSlice });
+        }
       }
       return out;
     },
     getPaintedVoxelCount: () => {
       let total = 0;
       const segs = (csSegmentation.state.getSegmentations?.() ?? []) as Array<{
-        representationData?: { Labelmap?: { volumeId?: string; imageIds?: string[] } };
+        representationData?: { Labelmap?: unknown };
       }>;
       const countNonZero = (data: ArrayLike<number> | null | undefined) => {
         if (!data) return;
         for (let i = 0; i < data.length; i++) if (data[i] !== 0) total++;
       };
       for (const seg of segs) {
-        const lm = seg?.representationData?.Labelmap;
-        if (!lm) continue;
-        if (typeof lm.volumeId === 'string') {
-          const vol = cache.getVolume(lm.volumeId) as
+        const storage = labelmapStorage(seg?.representationData?.Labelmap);
+        for (const volumeId of storage.volumeIds) {
+          const vol = cache.getVolume(volumeId) as
             | { voxelManager?: { getCompleteScalarDataArray?: () => ArrayLike<number> }; scalarData?: ArrayLike<number> }
             | undefined;
           countNonZero(vol?.voxelManager?.getCompleteScalarDataArray?.() ?? vol?.scalarData);
         }
-        if (Array.isArray(lm.imageIds)) {
-          for (const id of lm.imageIds) {
+        for (const imageIds of storage.imageIdLists) {
+          for (const id of imageIds) {
             const img = cache.getImage(id) as { getPixelData?: () => ArrayLike<number> } | undefined;
             countNonZero(img?.getPixelData?.());
           }
@@ -998,12 +1012,10 @@ export function installRendererE2eHooks(): void {
     getPaintedVoxelsPerImage: () => {
       const perImage: number[] = [];
       const segs = (csSegmentation.state.getSegmentations?.() ?? []) as Array<{
-        representationData?: { Labelmap?: { imageIds?: string[] } };
+        representationData?: { Labelmap?: unknown };
       }>;
       for (const seg of segs) {
-        const ids = seg?.representationData?.Labelmap?.imageIds;
-        if (!Array.isArray(ids)) continue;
-        ids.forEach((id, i) => {
+        for (const ids of labelmapStorage(seg?.representationData?.Labelmap).imageIdLists) ids.forEach((id, i) => {
           const data = (cache.getImage(id) as { getPixelData?: () => ArrayLike<number> } | undefined)?.getPixelData?.();
           let n = 0;
           if (data) for (let k = 0; k < data.length; k++) if (data[k] !== 0) n++;

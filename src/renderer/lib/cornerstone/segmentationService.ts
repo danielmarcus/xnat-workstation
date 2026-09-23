@@ -104,6 +104,8 @@ import { createSaveQueue, type SaveOutcome } from './segmentationService/saveQue
 import { createVisibilityControls } from './segmentationService/visibility';
 import { createDicomSegExport } from './segmentationService/dicomSegExport';
 import { showAlertDialog } from '../../stores/dialogStore';
+import { GENERATED_IMAGE_SCHEME } from './generatedImageLoader';
+import { labelmapStorage } from './labelmapLayers';
 // NOTE: We use the tool group ID directly here instead of importing from
 // toolService to avoid a circular dependency (toolService → segmentationService).
 const TOOL_GROUP_ID = 'xnatToolGroup_primary';
@@ -335,93 +337,25 @@ const dicomSegExport = createDicomSegExport({
 });
 
 /**
- * Attach a single sub-segmentation to a viewport: add labelmap representation,
- * populate Cornerstone reference maps, and set the segment color.
+ * Attach a single sub-segmentation to a viewport: add the labelmap representation
+ * and set the segment color.
  */
 async function addSubSegToViewport(
   viewportId: string,
   subSegId: string,
   segColor: [number, number, number, number],
 ): Promise<void> {
-  // Volume viewports (ORTHOGRAPHIC/MPR) need volume-backed labelmaps.
-  // If the sub-seg only has stack imageIds, convert it first.
-  try {
-    const volEl = getEnabledElementByViewportId(viewportId) as any;
-    const volVp: any = volEl?.viewport;
-    if (volVp && typeof volVp.getAllVolumeIds === 'function') {
-      const segObj = csSegmentation.state.getSegmentation(subSegId) as any;
-      const labelmap = segObj?.representationData?.Labelmap as any;
-      const hasImageIds = Array.isArray(labelmap?.imageIds) && labelmap.imageIds.length > 0;
-      const hasVolumeId = typeof labelmap?.volumeId === 'string' && labelmap.volumeId.length > 0;
-      if (hasImageIds && !hasVolumeId) {
-        try {
-          await (csSegmentation.helpers as any).convertStackToVolumeLabelmap({
-            segmentationId: subSegId,
-          });
-          console.log(`[segmentationService] Converted sub-seg ${subSegId} stack→volume labelmap for ${viewportId}`);
-        } catch (convErr) {
-          console.warn(`[segmentationService] Failed converting ${subSegId} to volume labelmap; continuing with stack path`, convErr);
-        }
-      }
-    }
-  } catch {
-    // Viewport may not be ready yet — proceed with stack path
-  }
-
+  // Cornerstone 5 renders a STACK labelmap on volume viewports too (its
+  // LabelmapImageReferenceResolver matches each labelmap image to the viewport's
+  // slices geometrically), so a sub-seg is attached as-is. The 4.x path converted it to
+  // a volume labelmap first and hand-populated the state manager's private
+  // `_stackLabelmapImageIdReferenceMap` / `_labelmapImageIdReferenceMap`. v5 removed
+  // those maps, and its conversion re-loads every labelmap image through the image
+  // loader — which had no loader for our `generated:` cache-only images (see
+  // generatedImageLoader.ts) — so a viewport opened after painting showed nothing.
   csSegmentation.addLabelmapRepresentationToViewport(viewportId, [
     { segmentationId: subSegId },
   ]);
-
-  // Populate internal reference maps for stack viewports.
-  try {
-    const seg = csSegmentation.state.getSegmentation(subSegId);
-    const lmImageIds: string[] = (seg?.representationData?.Labelmap as any)?.imageIds ?? [];
-    const mgr = csSegmentation.defaultSegmentationStateManager as any;
-    if (!mgr._stackLabelmapImageIdReferenceMap.has(subSegId)) {
-      mgr._stackLabelmapImageIdReferenceMap.set(subSegId, new Map());
-    }
-    const perSegMap = mgr._stackLabelmapImageIdReferenceMap.get(subSegId);
-    for (const lmId of lmImageIds) {
-      const lmImg = cache.getImage(lmId);
-      const refId = (lmImg as any)?.referencedImageId;
-      if (!refId) continue;
-      perSegMap.set(refId, lmId);
-      const mapKey = `${subSegId}-${refId}`;
-      const existing = mgr._labelmapImageIdReferenceMap.get(mapKey);
-      if (!existing) {
-        mgr._labelmapImageIdReferenceMap.set(mapKey, [lmId]);
-      } else if (!existing.includes(lmId)) {
-        mgr._labelmapImageIdReferenceMap.set(mapKey, [...existing, lmId]);
-      }
-    }
-
-    // Also map viewport-specific imageIds (wadouri/wadors format differences).
-    const enabledEl = getEnabledElementByViewportId(viewportId) as any;
-    const viewport = enabledEl?.viewport as any;
-    if (viewport && typeof viewport.getAllVolumeIds !== 'function') {
-      const viewportImageIds = viewport.getImageIds?.() as string[] | undefined;
-      if (Array.isArray(viewportImageIds)) {
-        const srcIds = sourceImageTracking.getSourceImageIds(subSegId) ?? [];
-        const count = Math.min(srcIds.length, viewportImageIds.length);
-        for (let i = 0; i < count; i++) {
-          const vpImgId = viewportImageIds[i];
-          if (typeof vpImgId !== 'string' || vpImgId.length === 0) continue;
-          const lmId = lmImageIds[i];
-          if (!lmId) continue;
-          perSegMap.set(vpImgId, lmId);
-          const vpMapKey = `${subSegId}-${vpImgId}`;
-          const vpExisting = mgr._labelmapImageIdReferenceMap.get(vpMapKey);
-          if (!vpExisting) {
-            mgr._labelmapImageIdReferenceMap.set(vpMapKey, [lmId]);
-          } else if (!vpExisting.includes(lmId)) {
-            mgr._labelmapImageIdReferenceMap.set(vpMapKey, [...vpExisting, lmId]);
-          }
-        }
-      }
-    }
-  } catch (err) {
-    console.warn(`[segmentationService] Failed to populate reference maps for ${subSegId}:`, err);
-  }
 
   // Set color for segment index 1 on this sub-seg.
   try {
@@ -1162,7 +1096,8 @@ function getSegmentationType(segmentationId: string): 'labelmap' | 'contour' | '
   if (!seg) return 'labelmap';
 
   const repData = seg.representationData as any;
-  const hasLabelmap = !!(repData?.Labelmap?.imageIds?.length > 0 || repData?.Labelmap?.imageIdReferenceMap?.size > 0);
+  const storage = labelmapStorage(repData?.Labelmap);
+  const hasLabelmap = storage.volumeIds.length > 0 || storage.imageIdLists.some((ids) => ids.length > 0);
   // Treat an explicit contour representation as contour-capable even if it's
   // currently empty (new RTSTRUCT rows intentionally start with zero structures).
   const hasContour = contourRep.hasContourRepresentationKey(segmentationId);
@@ -1895,7 +1830,7 @@ export const segmentationService = {
     }
 
     for (let i = 0; i < dims.sourceImageIds.length; i++) {
-      const labelmapImageId = `generated:labelmap_${subSegId}_${i}`;
+      const labelmapImageId = `${GENERATED_IMAGE_SCHEME}:labelmap_${subSegId}_${i}`;
       const srcImageId = dims.sourceImageIds[i];
       const imagePlane = metaData.get('imagePlaneModule', srcImageId);
 
@@ -2563,31 +2498,9 @@ export const segmentationService = {
         return;
       }
 
-      // Populate reference maps.
-      try {
-        const seg = csSegmentation.state.getSegmentation(segmentationId);
-        const lmImageIds: string[] = (seg?.representationData?.Labelmap as any)?.imageIds ?? [];
-        const mgr = csSegmentation.defaultSegmentationStateManager as any;
-        if (!mgr._stackLabelmapImageIdReferenceMap.has(segmentationId)) {
-          mgr._stackLabelmapImageIdReferenceMap.set(segmentationId, new Map());
-        }
-        const perSegMap = mgr._stackLabelmapImageIdReferenceMap.get(segmentationId);
-        for (const lmId of lmImageIds) {
-          const lmImg = cache.getImage(lmId);
-          const refId = (lmImg as any)?.referencedImageId;
-          if (!refId) continue;
-          perSegMap.set(refId, lmId);
-          const mapKey = `${segmentationId}-${refId}`;
-          const existing = mgr._labelmapImageIdReferenceMap.get(mapKey);
-          if (!existing) {
-            mgr._labelmapImageIdReferenceMap.set(mapKey, [lmId]);
-          } else if (!existing.includes(lmId)) {
-            mgr._labelmapImageIdReferenceMap.set(mapKey, [...existing, lmId]);
-          }
-        }
-      } catch (err) {
-        console.warn('[segmentationService] Failed to populate labelmap reference maps:', err);
-      }
+      // Labelmap image references are resolved by Cornerstone 5 itself (see
+      // addSubSegToViewport); the private maps this used to fill no longer exist.
+
 
       try {
         csSegmentation.activeSegmentation.setActiveSegmentation(viewportId, segmentationId);
@@ -3625,7 +3538,7 @@ export const segmentationService = {
         // Create binary labelmap images (0/1) for this segment
         for (let i = 0; i < effectiveBaseSourceImageIds.length; i++) {
           const srcImageId = effectiveBaseSourceImageIds[i];
-          const lmImageId = `generated:labelmap_${subSegId}_${i}`;
+          const lmImageId = `${GENERATED_IMAGE_SCHEME}:labelmap_${subSegId}_${i}`;
 
           // Extract binary data from the adapter's combined image
           const binaryData = new Uint8Array(pixelCount);
@@ -4033,7 +3946,7 @@ export const segmentationService = {
       const subSegIds = getActiveSubSegIds(segmentationId);
       for (const subSegId of subSegIds) {
         const subSeg = csSegmentation.state.getSegmentation(subSegId);
-        const imageIds: string[] = (subSeg?.representationData as any)?.Labelmap?.imageIds ?? [];
+        const imageIds: string[] = labelmapStorage((subSeg?.representationData as any)?.Labelmap).imageIdLists.flat();
         for (const imageId of imageIds) {
           if (hasNonZeroPixels(cache.getImage(imageId))) return true;
         }

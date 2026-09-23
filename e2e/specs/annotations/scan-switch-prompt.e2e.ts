@@ -29,15 +29,21 @@ async function openPanel(page: Page) {
   return panel;
 }
 
+/**
+ * A closed loop. A Structure's freehand contour must enclose an area: Cornerstone 5
+ * closes the stroke and then drops it if the result is degenerate, so the straight
+ * diagonal this used to draw (a zero-area sliver 4.x kept) now draws nothing.
+ */
 async function drawStroke(page: Page) {
   const box = (await page.locator('[data-testid="unified-viewport-element:panel_0"] canvas').boundingBox())!;
   const cx = box.x + box.width * 0.35;
   const cy = box.y + box.height * 0.4;
   const r = Math.min(box.width, box.height) * 0.12;
-  await page.mouse.move(cx - r, cy - r);
+  await page.mouse.move(cx + r, cy);
   await page.mouse.down();
-  for (let i = 1; i <= 16; i++) {
-    await page.mouse.move(cx - r + (2 * r * i) / 16, cy - r + (2 * r * i) / 16, { steps: 2 });
+  for (let i = 1; i <= 24; i++) {
+    const a = (i / 24) * 2 * Math.PI;
+    await page.mouse.move(cx + r * Math.cos(a), cy + r * Math.sin(a), { steps: 2 });
   }
   await page.mouse.up();
   await page.waitForTimeout(800);

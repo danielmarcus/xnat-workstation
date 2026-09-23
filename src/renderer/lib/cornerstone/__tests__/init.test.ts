@@ -6,6 +6,7 @@ type InitMocks = {
   addTool: ReturnType<typeof vi.fn>;
   register: ReturnType<typeof vi.fn>;
   initDicomLoader: ReturnType<typeof vi.fn>;
+  registerImageLoader: ReturnType<typeof vi.fn>;
 };
 
 async function loadInitModule(options?: { splineRegistered?: boolean }): Promise<{
@@ -19,6 +20,7 @@ async function loadInitModule(options?: { splineRegistered?: boolean }): Promise
   const addTool = vi.fn();
   const register = vi.fn();
   const initDicomLoader = vi.fn();
+  const registerImageLoader = vi.fn();
   const splineTool = { toolName: 'SplineContourSegmentation' };
 
   const toolNames: Record<string, unknown> = {
@@ -57,6 +59,8 @@ async function loadInitModule(options?: { splineRegistered?: boolean }): Promise
   vi.doMock('@cornerstonejs/core', () => ({
     init: initCore,
     volumeLoader: { registerVolumeLoader: vi.fn() },
+    imageLoader: { registerImageLoader },
+    cache: { getImage: () => undefined },
     // Imported transitively by dynamicVolumeLoader (module-level); not exercised here.
     StreamingDynamicImageVolume: class {},
     metaData: { get: () => undefined },
@@ -99,7 +103,7 @@ async function loadInitModule(options?: { splineRegistered?: boolean }): Promise
   const mod = await import('../init');
   return {
     initCornerstone: mod.initCornerstone,
-    mocks: { initCore, initTools, addTool, register, initDicomLoader },
+    mocks: { initCore, initTools, addTool, register, initDicomLoader, registerImageLoader },
   };
 }
 
@@ -128,6 +132,8 @@ describe('initCornerstone', () => {
     expect(mocks.register).toHaveBeenCalledTimes(1);
     // Legacy metadata provider stays on until the dataSetCacheManager readers move (v5 plan, Phase 6).
     expect(mocks.initDicomLoader).toHaveBeenCalledWith({ maxWebWorkers: 4, useLegacyMetadataProvider: true });
+    // The in-memory labelmap images' scheme must have a (cache-backed) loader.
+    expect(mocks.registerImageLoader).toHaveBeenCalledWith('generated', expect.any(Function));
   });
 
   it('skips redundant spline registration when already present', async () => {
