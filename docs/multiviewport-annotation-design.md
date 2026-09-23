@@ -401,6 +401,8 @@ cornerstoneTools.init({ addons: { polySeg } });
 
 No further integration code required — Cornerstone's `contourDisplay` ([contourDisplay.js:54-95](../node_modules/@cornerstonejs/tools/dist/esm/tools/displayTools/Contour/contourDisplay.js)) consumes PolySeg automatically when contour segmentations are rendered on viewports whose orientation differs from the contour's authoring plane.
 
+> **Correction (2026-09-23):** measured false for hand-drawn contours. `contourDisplay.render` returns when `contourData.geometryIds` is empty — which it is for every annotation-backed Structure the user draws — before it reaches the PolySeg clip branch. That branch also runs once per viewport (not live) and adds annotations to the orthogonal viewport. Signal 1 / requirement A3 is therefore unimplemented; see PHASES P1.7e.
+
 **Phase 0 validation**: render an axial-authored contour on sagittal MPR; render a sagittal-authored contour on axial MPR; render contours on a cross-FoR-but-same-orientation viewport. If any fail, file an upstream issue, pin to a working version, or work around in `segmentationService/visibility.ts`.
 
 ### 5.3 Tool group: one primary group, no secondary

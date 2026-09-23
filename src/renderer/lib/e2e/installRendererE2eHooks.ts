@@ -208,8 +208,6 @@ declare global {
       worldToPanelPagePoint: (panelId: string, world: [number, number, number]) => { x: number; y: number } | null;
       /** Create a Structure (RTSTRUCT) exactly as the side panel does, with ROI 1 active. */
       createUnifiedContourSeg: (label?: string) => Promise<{ segmentationId: string; segmentIndex: number }>;
-      /** Rasterize the contour → labelmap (PolySeg) onto all unified viewports (MPR propagation). */
-      syncUnifiedContourLabelmap: (segmentationId: string) => Promise<boolean>;
       /** Swap the XNAT scan API for a scripted fake (scan-click autoload specs). */
       installFakeXnatScanApi: (config: {
         sessionId: string;
@@ -947,8 +945,6 @@ export function installRendererE2eHooks(): void {
       return { x: rect.left + canvasPt[0] / dpr, y: rect.top + canvasPt[1] / dpr };
     },
     createUnifiedContourSeg: (label?: string) => createContainerAsPanel('RTSTRUCT', label ?? 'Structure'),
-    syncUnifiedContourLabelmap: (segmentationId: string) =>
-      unifiedSegService.syncContourToLabelmap(segmentationId, unifiedToolService.getViewportIds()),
     getPaintedVoxelsPerSlice: () => {
       const out: Array<{ segmentationId: string; dims: [number, number, number]; perSlice: number[] }> = [];
       const segs = (csSegmentation.state.getSegmentations?.() ?? []) as Array<{

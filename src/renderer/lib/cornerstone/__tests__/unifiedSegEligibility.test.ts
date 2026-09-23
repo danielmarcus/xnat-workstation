@@ -28,10 +28,6 @@ vi.mock('@cornerstonejs/tools', () => ({
   Enums: { SegmentationRepresentations: { Labelmap: 'Labelmap', Contour: 'Contour' } },
   utilities: { segmentation: { triggerSegmentationRender: vi.fn() } },
 }));
-vi.mock('@cornerstonejs/polymorphic-segmentation', () => ({
-  canComputeRequestedRepresentation: vi.fn(() => false),
-  computeLabelmapData: vi.fn(),
-}));
 vi.mock('../viewportService', () => ({
   viewportService: { getViewport: (id: string) => m.getViewport(id), ENGINE_ID: 'xnatRenderingEngine' },
 }));

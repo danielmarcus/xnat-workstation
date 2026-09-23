@@ -4,11 +4,10 @@
  *
  * Why this is its own module: it must be importable from `unifiedToolService` (tool
  * activation), and `unifiedToolService` is in turn imported by widely-used modules.
- * Folding this into `unifiedSegService` would drag that service's
- * `@cornerstonejs/polymorphic-segmentation` dependency — whose top-level worker init
- * throws under the unit-test (vitest) environment — into every consumer of
- * `unifiedToolService`. This module imports ONLY `@cornerstonejs/core` +
- * `@cornerstonejs/tools`, so the tool service stays polyseg-free.
+ * This module imports ONLY `@cornerstonejs/core` + `@cornerstonejs/tools`, so the tool
+ * service's graph stays free of the stores and of
+ * `@cornerstonejs/polymorphic-segmentation` (whose top-level worker init throws under
+ * the unit-test (vitest) environment).
  *
  * (1) ensureContourEditPrereq — `ContourSegmentationBaseTool.createAnnotation` THROWS
  *     ("A contour segmentation must be active") unless the active labelmap already

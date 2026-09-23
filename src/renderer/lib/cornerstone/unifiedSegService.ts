@@ -14,13 +14,11 @@
  *
  * §2: lib/cornerstone may import Cornerstone directly.
  */
-import { getRenderingEngine, metaData, cache } from '@cornerstonejs/core';
+import { metaData, cache } from '@cornerstonejs/core';
 import {
   segmentation as csSegmentation,
-  Enums as ToolEnums,
   utilities as csToolUtilities,
 } from '@cornerstonejs/tools';
-import { canComputeRequestedRepresentation, computeLabelmapData } from '@cornerstonejs/polymorphic-segmentation';
 import {
   SegmentBidirectionalTool,
   RectangleROIThresholdTool,
@@ -354,53 +352,6 @@ export function canDrawOnViewport(activeContainerId: string | null, viewportId: 
 
 
 export const unifiedSegService = {
-  /**
-   * Rasterize a contour segmentation into a labelmap (PolySeg) targeted at the
-   * shared volume, and add/refresh the labelmap representation on every viewport
-   * — so a contour drawn on the axial plane appears (resampled) on the sagittal
-   * + coronal MPR panels. Re-run after each contour edit for live updates.
-   * Returns false if conversion isn't possible/available.
-   */
-  async syncContourToLabelmap(segmentationId: string, viewportIds: string[]): Promise<boolean> {
-    const engine = getRenderingEngine(viewportService.ENGINE_ID);
-    if (!engine) return false;
-    // Target geometry: a volume viewport's volume.
-    let volumeViewport: unknown;
-    for (const vpId of viewportIds) {
-      const vp = engine.getViewport(vpId) as { getAllVolumeIds?: () => string[] } | undefined;
-      if (vp && typeof vp.getAllVolumeIds === 'function' && vp.getAllVolumeIds()[0]) {
-        volumeViewport = vp;
-        break;
-      }
-    }
-    if (!volumeViewport) return false;
-    if (!canComputeRequestedRepresentation(segmentationId, ToolEnums.SegmentationRepresentations.Labelmap)) {
-      return false;
-    }
-    const labelmapData = await computeLabelmapData(segmentationId, {
-      viewport: volumeViewport as never,
-      segmentIndices: [1],
-    });
-    if (!labelmapData) return false;
-    const seg = csSegmentation.state.getSegmentation(segmentationId) as
-      | { representationData?: Record<string, unknown> }
-      | undefined;
-    if (seg?.representationData) {
-      seg.representationData[ToolEnums.SegmentationRepresentations.Labelmap] = labelmapData as never;
-    }
-    for (const vpId of viewportIds) {
-      csSegmentation.addLabelmapRepresentationToViewport(vpId, [{ segmentationId }]);
-    }
-    for (const vpId of viewportIds) {
-      try {
-        csToolUtilities.segmentation.triggerSegmentationRender(vpId);
-      } catch {
-        /* ignore */
-      }
-    }
-    return true;
-  },
-
   /**
    * Measure the active segment's largest bidirectional (long axis + perpendicular).
    *

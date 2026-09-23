@@ -525,13 +525,12 @@ function wireRoiThresholdFill(): void {
     if (toolName !== RectangleROIThresholdTool.toolName) {
       return;
     }
-    // The viewport comes from the event, not from a store: importing viewerStore or
-    // unifiedSegService at module scope here drags @cornerstonejs/polymorphic-segmentation
-    // into this module's graph, and its top-level code reads Enums.Events at import time —
-    // which breaks every test file that partially mocks @cornerstonejs/core. toolService's
-    // suite stopped collecting entirely (15 tests silently SKIPPED, not failed) when those
-    // imports were added. unifiedSegService is therefore resolved lazily, inside the
-    // handler, where the module graph is already live.
+    // The viewport comes from the event, not from a store, and unifiedSegService is
+    // resolved lazily inside the handler: both viewerStore and unifiedSegService import
+    // (viewerStore) this module, so a module-scope import here is a cycle. (When
+    // unifiedSegService still imported @cornerstonejs/polymorphic-segmentation, a static
+    // import also broke every test file that partially mocks @cornerstonejs/core —
+    // toolService's suite silently skipped 15 tests.)
     setTimeout(() => {
       void Promise.all([import('./unifiedSegService'), import('../../stores/viewerStore')]).then(
         ([seg, viewer]) => {
