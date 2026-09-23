@@ -128,10 +128,13 @@ Each phase ends green on: `npm run typecheck`, `npx vitest run`, `npm run build 
 - **Found, not fixed here (pre-existing, same on 4.16.1):** 16 specs create segmentations through the E2E-only `createUnifiedLabelmapSegmentation` (a volume labelmap the app never creates). Switched to the panel's real path, 6 of them fail identically on 4.16.1 and 5.10.11 (multi-viewport pill, voxel copy/paste, segment lock vs brush, autosave queue, unsaved indicator, layout-swap dirty flag). Flagged as a separate task.
 
 ### Phase 5 — Adapters & DICOM output
-- [ ] SEG import/export, RTSTRUCT export, SR import/export round-trips; `test:dicom:compliance`; `rtStructService.roundtrip.test.ts`, `dicomExternalCompliance.test.ts` (these use the real adapters).
-- [ ] Re-check the SEG Rows/Columns buffer repair, PatientAge fix-up, and `writeDicomDict` dcmjs prototype patch against dcmjs 0.52.0 — each may be fixed or may break.
-- [ ] Re-test the adaptersSR init crash that the lazy `srImport` import dodges.
-- [ ] Optionally move SEG import to `createFromDicomSegImageId` (removes the preload-before-parse workaround in `App.tsx:529-532`).
+- [x] SEG / RTSTRUCT / SR: `test:dicom:compliance` (dciodvfy on generated SEG + RTSTRUCT), `rtStructService.roundtrip`, `dicomExternalCompliance`, and the SR transport specs (`sr-export`, `sr-import-roundtrip`, `sr-local-file-load`, `sr-scan-click-reload`) all green on 5.10.11 / dcmjs 0.52.0. The adaptersSR lazy-import path loads fine (SR specs exercise it).
+- [x] SEG per-frame DerivationImageSequence repair (Phase 2) — the only v5 adapter regression found.
+- [x] **New end-to-end guard `transport/seg-export-roundtrip`**: paint via the panel → `segmentationService.exportToDicomSeg` → dciodvfy → re-import source + SEG through the local-file loader → identical voxel count. Nothing previously exported a SEG from real painted state.
+  - It found a **pre-existing (4.x too) bug**: SEG export from a *locally imported* series refused to run ("requires source DICOM metadata with StudyInstanceUID"). The wadouri metadata provider has never put StudyInstanceUID in `generalStudyModule` (nor `patientId` — it is `patientID`), so export relied on the raw-dataset fallback, whose cache key (`toWadouriUri`) never matched `dicomfile:N` images. Fixed by sharing the loader's own cache-key resolution (`dicomDatasetSource.ts`, extracted from the local-import sort fix) and making `collectSourceDicomReferences` read each field from every module that carries it, then the naturalized `instance` module, then the dataset.
+- [x] SEG Rows/Columns repair, PatientAge fix-up, `writeDicomDict` dcmjs prototype patch — all still exercised and green under dcmjs 0.52.0; not removed (no evidence they are unnecessary).
+- [ ] Optional: move SEG import to `createFromDicomSegImageId` — deferred (deprecated API still works; not needed for the upgrade).
+- Live XNAT (`--project=auth`) could not gate anything: the credentials in `.env.e2e` return 401 on `main` as well — refresh them to run the live specs.
 
 ### Phase 6 — Leave the legacy metadata provider
 - [ ] Introduce one app-level accessor for "DICOM attributes of an imageId" backed by `metaData` / NATURALIZED, and migrate the 10 `dataSetCacheManager.get` sites to it (header panel, export, crosshair, ordering, session index).

@@ -81,6 +81,8 @@ declare global {
       getMeasurementCount: () => number;
       /** Serialize all current measurements to a DICOM-SR (base64), or null if none. */
       exportSrBase64: () => Promise<string | null>;
+      /** Serialize a segmentation to a DICOM SEG through the app's real export (base64). */
+      exportSegBase64: (segmentationId: string) => Promise<string>;
       /** Reconstruct measurements from an SR base64 onto the active viewport (SR-D). Returns count added. */
       importSrBase64: (base64: string) => Promise<number>;
       /** Cornerstone viewport type for a panel ('stack' | 'orthographic' | …) or null. */
@@ -1009,6 +1011,7 @@ export function installRendererE2eHooks(): void {
       }
       return total;
     },
+    exportSegBase64: (segmentationId: string) => segmentationService.exportToDicomSeg(segmentationId),
     getPaintedVoxelsPerImage: () => {
       const perImage: number[] = [];
       const segs = (csSegmentation.state.getSegmentations?.() ?? []) as Array<{
