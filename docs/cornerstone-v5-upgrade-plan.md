@@ -1,6 +1,6 @@
 # Cornerstone3D 4.16.1 → 5.10.11 upgrade plan
 
-Status: **proposed** (2026-09-23). Living document — execute top to bottom, tick phases off here.
+Status: **in progress** on branch `cornerstone-v5` (started 2026-09-23). Living document — execute top to bottom, tick phases off here.
 
 ## Summary
 
@@ -80,8 +80,8 @@ Check each; delete the workaround only with an E2E proving the upstream fix:
 Each phase ends green on: `npm run typecheck`, `npx vitest run`, `npm run build && npm run test:e2e:offline` (list reporter, `--max-failures=0`), `npm run test:dicom:compliance`; live-XNAT specs at phase 2 and 7. Commit per phase on a `cornerstone-v5` branch.
 
 ### Phase 0 — Baseline
-- [ ] Branch `cornerstone-v5`. Record current results: 904 unit / 168 offline E2E, compliance suite, `docs/perf-baseline.md` numbers (`playwright.perf.config.ts`).
-- [ ] Declare `dcmjs` as a direct dependency at the version adapters currently resolves (0.49.4), so the later bump is an explicit, reviewable change.
+- [x] Branch `cornerstone-v5`. Baseline on 4.16.1 (2026-09-23): typecheck clean · **906** unit · **38** DICOM-compliance · **170** offline E2E, all green. Perf reference stays `docs/perf-baseline.md` (re-measured in Phase 8). Live-XNAT specs: not run here (they talk to a real server; run at Phase 2 with the user's go-ahead).
+- [x] Declare `dcmjs` as a direct dependency at the version adapters currently resolves (`^0.49.4`), so the later bump is an explicit, reviewable change.
 
 ### Phase 1 — 4.16.1 → 4.22.13 (last 4.x)
 - [ ] Bump all five packages to exact `4.22.13`. Full gate.
