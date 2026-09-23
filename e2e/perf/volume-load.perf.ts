@@ -29,7 +29,7 @@ interface E2EHooks {
   clearAllContainers: () => void;
   getCacheStats: (panelId: string) => { cacheBytes: number; volumeSlices: number | null; imageCount: number };
   startRenderCounter: (panelIds: string[]) => void;
-  readRenderCounter: () => { frames: number; elapsedMs: number };
+  readRenderCounter: () => { frames: number; elapsedMs: number; perPanel: Record<string, number> };
 }
 type Win = { __XNAT_E2E__: E2EHooks };
 
@@ -140,12 +140,16 @@ test('300-slice volume: load, layout, scroll and edit timings', async ({ page })
     await page.mouse.up();
   }
   const editMs = Date.now() - editStart;
-  const counter = await hook<{ frames: number; elapsedMs: number }>(page, 'readRenderCounter');
+  const counter = await hook<{ frames: number; elapsedMs: number; perPanel: Record<string, number> }>(page, 'readRenderCounter');
   results.brushStrokeMeanWallClockMs = Math.round((editMs / strokes) * 10) / 10;
   results.editRenderFrames = counter.frames;
   results.editRenderFps = counter.elapsedMs > 0
     ? Math.round((counter.frames / counter.elapsedMs) * 1000 * 10) / 10
     : 0;
+  // Per-panel frame counts during the strokes (panel_0 is the one painted in).
+  for (const [panelId, n] of Object.entries(counter.perPanel ?? {})) {
+    results[`editRenderFrames_${panelId}`] = n;
+  }
   results.paintedVoxels = await hook<number>(page, 'getPaintedVoxelCount');
   results.cacheMbAfterEdits = await cacheMb(page);
   expect(results.paintedVoxels as number).toBeGreaterThan(0);
