@@ -80,12 +80,12 @@ Check each; delete the workaround only with an E2E proving the upstream fix:
 Each phase ends green on: `npm run typecheck`, `npx vitest run`, `npm run build && npm run test:e2e:offline` (list reporter, `--max-failures=0`), `npm run test:dicom:compliance`; live-XNAT specs at phase 2 and 7. Commit per phase on a `cornerstone-v5` branch.
 
 ### Phase 0 — Baseline
-- [x] Branch `cornerstone-v5`. Baseline on 4.16.1 (2026-09-23): typecheck clean · **906** unit · **38** DICOM-compliance · **170** offline E2E, all green. Perf reference stays `docs/perf-baseline.md` (re-measured in Phase 8). Live-XNAT specs: not run here (they talk to a real server; run at Phase 2 with the user's go-ahead).
+- [x] Branch `cornerstone-v5`. Baseline on 4.16.1 (2026-09-23): typecheck clean · **906** unit · **38** DICOM-compliance · **170** offline E2E, all green. Perf reference stays `docs/perf-baseline.md` (re-measured in Phase 8). Live-XNAT specs (`--project=auth`: login + browser navigation, read-only): run at the Phase 2 gate.
 - [x] Declare `dcmjs` as a direct dependency at the version adapters currently resolves (`^0.49.4`), so the later bump is an explicit, reviewable change.
 
 ### Phase 1 — 4.16.1 → 4.22.13 (last 4.x)
-- [ ] Bump all five packages to exact `4.22.13`. Full gate.
-- [ ] Triage any failures as 4.x drift, fix, commit. This separates "4.x minor behaviour change" from "v5 break" for every later failure.
+- [x] Bump all five packages to exact `4.22.13` (vtk.js, codecs, dcmjs unchanged at this hop). Full gate green: typecheck · 906 unit · 38 compliance · 170 offline E2E.
+- [x] Only 4.x drift found: a TYPE mismatch between Cornerstone's own packages — polySeg's `createAndAddContourSegmentationsFromClippedSurfaces` takes `Viewport`, tools' `PolySegAddOn` passes `StackViewport | VolumeViewport`. Narrow documented cast at the `initTools` boundary (`init.ts`); re-check on v5.
 
 ### Phase 2 — 5.10.11 in compatibility mode
 - [ ] Bump all `@cornerstonejs/*` to exact `5.10.11`; add `@cornerstonejs/metadata` and `@cornerstonejs/utils`; bump dcmjs to 0.52.0.

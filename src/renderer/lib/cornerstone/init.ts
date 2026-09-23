@@ -2,6 +2,9 @@ import { init as initCore, volumeLoader } from '@cornerstonejs/core';
 import { geometryDynamicVolumeLoader, GEOMETRY_DYNAMIC_VOLUME_SCHEME } from './dynamicVolumeLoader';
 import { init as initTools, addTool } from '@cornerstonejs/tools';
 import * as polySeg from '@cornerstonejs/polymorphic-segmentation';
+
+/** tools' addon contract, derived from initTools (the type itself is not exported). */
+type PolySegAddOn = NonNullable<NonNullable<Parameters<typeof initTools>[0]>['addons']>['polySeg'];
 import {
   StackScrollTool,
   ZoomTool,
@@ -72,7 +75,11 @@ export async function initCornerstone(): Promise<void> {
   // representations (labelmap ↔ contour ↔ surface)
   initTools({
     addons: {
-      polySeg,
+      // Cornerstone 4.22's two packages disagree on one callback's viewport type
+      // (polySeg's createAndAddContourSegmentationsFromClippedSurfaces takes `Viewport`,
+      // tools' PolySegAddOn passes `StackViewport | VolumeViewport`). Runtime shape is
+      // the same object; the cast is at this one boundary only. Re-check on v5.
+      polySeg: polySeg as unknown as PolySegAddOn,
     },
   });
 
