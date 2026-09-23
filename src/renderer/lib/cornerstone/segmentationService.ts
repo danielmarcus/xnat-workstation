@@ -215,13 +215,21 @@ function isSegmentLockedInternal(segmentationId: string, segmentIndex: number): 
 // Per-container undo history (A8). Fed additively by the push hook below; the
 // global ring still works (toolbar undo / signal 7). Undo/redo here re-mark the
 // container dirty so undo past a save point sets the dirty flag again (signal 15).
+//
+// A memo reaches this history only from a user gesture (a tool's doneEditMemo) or a
+// user undo/redo — the app never pushes memos for its own attach/restore work. So,
+// unlike onSegmentationDataModified, this is NOT gated on the dirty-tracking
+// suppression: that suppression includes wall-clock windows (addToViewport, layout
+// churn, presentation restore) meant to swallow Cornerstone's async internal events,
+// and gating a real edit on them dropped a stroke made within the window — the
+// container stayed clean, so the leave guard and autosave both skipped it.
 const perContainerHistory = createPerContainerHistory({
   onContainerDirtied: (containerId) => {
-    if (isDirtyTrackingSuppressed()) return;
     useSegmentationManagerStore.getState().markDirty(containerId);
     useSegmentationStore.getState()._markDirty();
     // Derived per-segment statistics (panel row metrics) recompute off this epoch.
     useSegmentationStore.getState()._bumpEditEpoch();
+    if (xnatAutosaveEnabled) saveQueue.notifyDirty(containerId);
   },
 });
 
