@@ -69,14 +69,18 @@ test('a painted SEG exports as valid DICOM and loads back with the same voxels',
   expect(errors, 'the exported SEG must pass dciodvfy').toEqual([]);
 
   // Round trip: load the source series plus the exported SEG, as a user importing both.
-  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.resetUnifiedSegmentations());
-  expect(await painted(page), 'cleared before re-import').toBe(0);
+  // Re-importing the series leaves the painted (unsaved) segmentation's scan, so the leave
+  // guard asks first; Discard drops it, and whatever mask is on screen afterwards came
+  // from the file. (Clearing only Cornerstone state left the container listed and dirty,
+  // so the guard blocked the import and the old "loads as a container" check passed on
+  // the stale row.)
   await loadLocalDicom(page, [...sources, segPath]);
+  await page.getByRole('button', { name: 'Discard', exact: true }).click();
   await expect
     .poll(() => page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.getSegmentationCount()), {
       timeout: 20_000,
-      message: 'the exported SEG loads as a container',
+      message: 'the painted SEG is discarded and the exported SEG loads as the one container',
     })
-    .toBeGreaterThan(0);
+    .toBe(1);
   await expect.poll(() => painted(page), { timeout: 20_000, message: 'the mask comes back voxel for voxel' }).toBe(before);
 });
