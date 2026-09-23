@@ -29,10 +29,10 @@ import {
 import { viewportService } from './viewportService';
 import type { ContainerSpatialId, ViewportSpatialId } from './spatialIdentity';
 import * as mlg from './multiLayerGroup';
+import { readSegmentVoxelGrid } from './segmentVoxelGrid';
 import {
   copyVoxelRegion,
   pasteVoxelRegion,
-  type VoxelGridGeometry,
   type VoxelRegionClip,
   type Vec3,
 } from './segmentationService/voxelClipboard';
@@ -58,30 +58,6 @@ const containerSpatial = new Map<string, ContainerSpatialId>();
  *  copied at, so a paste can be translated to the current slice. */
 let voxelClip: VoxelRegionClip | null = null;
 let voxelClipSourceFocal: Vec3 | null = null;
-
-/** Read a unified container's labelmap volume (`${segmentationId}_lm`) as geometry +
- *  live voxelManager + a scalar-data view. Derived volume labelmaps expose data via
- *  getCompleteScalarDataArray() (getScalarData() can be empty); WRITES must go through
- *  voxelManager.setAtIndex (the brush's path) — the read array is a copy. */
-function readLabelmapVoxels(
-  segmentationId: string,
-): { geometry: VoxelGridGeometry; voxelManager: any; data: ArrayLike<number> } | null {
-  try {
-    const vol = cache.getVolume(`${segmentationId}_lm`) as any;
-    if (!vol) return null;
-    const img = vol.imageData;
-    const dimensions = (vol.dimensions ?? img?.getDimensions?.()) as Vec3 | undefined;
-    const spacing = (vol.spacing ?? img?.getSpacing?.()) as Vec3 | undefined;
-    const origin = (vol.origin ?? img?.getOrigin?.()) as Vec3 | undefined;
-    const direction = Array.from((vol.direction ?? img?.getDirection?.()) ?? []) as number[];
-    const voxelManager = vol.voxelManager;
-    const data = (voxelManager?.getCompleteScalarDataArray?.() ?? voxelManager?.getScalarData?.() ?? vol.scalarData) as ArrayLike<number> | undefined;
-    if (!dimensions || !spacing || !origin || direction.length < 9 || !data?.length) return null;
-    return { geometry: { dimensions, spacing, origin, direction }, voxelManager, data };
-  } catch {
-    return null;
-  }
-}
 
 /** Current world focal point of the active viewport (paste-at-slice translation). */
 function activeViewportFocalPoint(): Vec3 | null {
@@ -678,9 +654,9 @@ export const unifiedSegService = {
     const segmentationId = s.activeSegmentationId;
     const segmentIndex = s.activeSegmentIndex;
     if (!segmentationId || !Number.isInteger(segmentIndex) || segmentIndex <= 0) return false;
-    const lm = readLabelmapVoxels(segmentationId);
-    if (!lm) return false;
-    const clip = copyVoxelRegion({ geometry: lm.geometry, data: lm.data }, segmentIndex);
+    const grid = readSegmentVoxelGrid(segmentationId, segmentIndex);
+    if (!grid) return false;
+    const clip = copyVoxelRegion({ geometry: grid.geometry, data: grid.data }, grid.value);
     if (!clip) return false;
     voxelClip = clip;
     voxelClipSourceFocal = activeViewportFocalPoint();
@@ -695,9 +671,9 @@ export const unifiedSegService = {
   /**
    * Paste the clipboard voxel region into the active container's active segment,
    * NN-resampled and translated by the focal-point delta so it lands at the current
-   * slice (D6 / signal 23). Writes go through the live voxelManager.setAtIndex (the
-   * brush's write path — a derived volume labelmap's scalar read is a copy). Fires
-   * SEGMENTATION_DATA_MODIFIED → re-render + dirty (same as a brush edit).
+   * slice (D6 / signal 23). Writes go through the live storage (readSegmentVoxelGrid —
+   * the brush's write path). Fires SEGMENTATION_DATA_MODIFIED → re-render + dirty (same
+   * as a brush edit).
    */
   pasteActiveSegmentVoxels(): boolean {
     if (!voxelClip) return false;
@@ -705,8 +681,8 @@ export const unifiedSegService = {
     const segmentationId = s.activeSegmentationId;
     const segmentIndex = s.activeSegmentIndex;
     if (!segmentationId || !Number.isInteger(segmentIndex) || segmentIndex <= 0) return false;
-    const lm = readLabelmapVoxels(segmentationId);
-    if (!lm || typeof lm.voxelManager?.setAtIndex !== 'function') return false;
+    const grid = readSegmentVoxelGrid(segmentationId, segmentIndex);
+    if (!grid) return false;
 
     let translationWorld: Vec3 | undefined;
     const nowFocal = activeViewportFocalPoint();
@@ -718,32 +694,17 @@ export const unifiedSegService = {
       ];
     }
 
-    const [nx, ny] = lm.geometry.dimensions;
     const result = pasteVoxelRegion(
       voxelClip,
-      { geometry: lm.geometry, data: lm.data as unknown as Uint8Array },
-      {
-        targetSegmentIndex: segmentIndex,
-        overlap: 'overwrite',
-        translationWorld,
-        // Live write through the labelmap voxelManager (the brush's write path) — a
-        // derived volume labelmap's scalar read is a copy, so in-place edits don't
-        // reach the rendered volume. Prefer the IJK setter; fall back to flat-index.
-        writeTarget: (flatIndex, value) => {
-          if (typeof lm.voxelManager.setAtIJK === 'function') {
-            lm.voxelManager.setAtIJK(flatIndex % nx, Math.floor(flatIndex / nx) % ny, Math.floor(flatIndex / (nx * ny)), value);
-          } else {
-            lm.voxelManager.setAtIndex(flatIndex, value);
-          }
-        },
-      },
+      { geometry: grid.geometry, data: grid.data as unknown as Uint8Array },
+      { targetSegmentIndex: grid.value, overlap: 'overwrite', translationWorld, writeTarget: grid.write },
     );
     if (result.written <= 0) return false;
 
     try {
-      csSegmentation.triggerSegmentationEvents.triggerSegmentationDataModified(segmentationId);
+      csSegmentation.triggerSegmentationEvents.triggerSegmentationDataModified(grid.csSegmentationId);
     } catch { /* best-effort */ }
-    for (const vpId of csSegmentation.state.getViewportIdsWithSegmentation(segmentationId)) {
+    for (const vpId of csSegmentation.state.getViewportIdsWithSegmentation(grid.csSegmentationId)) {
       try { csToolUtilities.segmentation.triggerSegmentationRender(vpId); } catch { /* ignore */ }
     }
     return true;

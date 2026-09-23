@@ -1,37 +1,43 @@
 /**
- * Signal 23 (D6) — live voxel copy/paste. Paint a labelmap region on the axial volume,
- * COPY it, SCROLL to a different slice, then PASTE — the region is NN-resampled and
- * re-stamped, writing through the live voxelManager (the brush's write path).
+ * Signal 23 (D6) — live voxel copy/paste. Paint a region into the segmentation "New
+ * Segmentation" creates (a multi-layer group, stack storage), COPY it (Ctrl+C), scroll
+ * to a different slice, PASTE it (Ctrl+V): the region is NN-resampled, translated to the
+ * current slice and written through the labelmap's live storage.
  *
- * This verifies the live copy→scroll→paste WIRING (the new service methods + clipboard
- * round-trip + real voxel writes). The NN-resample + world-translation MATH is covered
- * exhaustively by the voxelClipboard unit tests (Slice 6). A count-delta assertion isn't
- * used here: getPaintedVoxelCount doesn't track this derived volume reliably, and the
- * fixture's slice range clamps the scroll so the paste overlaps the source — neither a
- * harness limitation of the feature. So we assert the round-trip executes and writes.
+ * The clipboard used to read only a `${id}_lm` labelmap VOLUME — a shape only the old
+ * E2E create hook produced — so on every segmentation a user can make, Ctrl+C silently
+ * copied nothing. Asserted per source image: the pasted slice carries exactly the
+ * painted voxel count (same grid, pure translation) and the original slice is untouched.
+ * The resample/translation math itself is covered by the voxelClipboard unit tests.
  */
 import { test, expect } from '../../fixtures/electron-app';
 import type { Page } from '@playwright/test';
-import { ensureFixture, enterLocalViewer } from '../../helpers/local-fixture';
+import { loadFixture } from '../../helpers/local-fixture';
 
 interface E2EHooks {
-  setActiveUnifiedTool: (toolName: string) => void;
   createUnifiedLabelmapSegmentation: (label?: string) => Promise<{ segmentationId: string; segmentIndex: number }>;
+  setActiveUnifiedTool: (toolName: string) => void;
   setUnifiedBrushSize: (size: number) => void;
-  getPaintedVoxelCount: () => number;
-  isUnifiedVolumeReady: () => boolean;
-  resetUnifiedSegmentations: () => void;
-  copyActiveSegmentVoxels: () => boolean;
-  pasteActiveSegmentVoxels: () => boolean;
-  scrollActiveViewport: (delta: number) => void;
+  getPaintedVoxelsPerImage: () => number[];
+  getPanelSliceState: (panelId: string) => { imageIndex: number; displayedImageIndex: number };
 }
 type Win = { __XNAT_E2E__: E2EHooks };
 
-const ev = <T,>(page: Page, fn: (h: E2EHooks) => T) =>
-  page.evaluate(`(${fn.toString()})(window.__XNAT_E2E__)` as string) as Promise<T>;
-const paintedVoxels = (page: Page) => ev(page, (h) => h.getPaintedVoxelCount());
+const perImage = (page: Page) =>
+  page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.getPaintedVoxelsPerImage());
+const displayedIndex = (page: Page) =>
+  page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.getPanelSliceState('panel_0').displayedImageIndex);
+const paintedSlices = (counts: number[]) => counts.flatMap((n, i) => (n > 0 ? [i] : []));
 
-async function brushStroke(page: Page, box: { x: number; y: number; width: number; height: number }) {
+test('a copied voxel region pastes (NN-resampled) at a scrolled-to slice — signal 23', async ({ page }) => {
+  await loadFixture(page, 'ct-axial-300', 'panel_0');
+  const p0 = page.locator('[data-testid="unified-viewport-element:panel_0"] canvas');
+  await p0.click();
+  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.createUnifiedLabelmapSegmentation('Signal-23 SEG'));
+  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.setUnifiedBrushSize(6));
+  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.setActiveUnifiedTool('Brush'));
+
+  const box = (await p0.boundingBox())!;
   const cx = box.x + box.width / 2;
   const cy = box.y + box.height / 2;
   const d = Math.min(box.width, box.height) * 0.1;
@@ -40,35 +46,27 @@ async function brushStroke(page: Page, box: { x: number; y: number; width: numbe
   await page.mouse.move(cx, cy, { steps: 4 });
   await page.mouse.move(cx + d, cy + d, { steps: 4 });
   await page.mouse.up();
-}
 
-test('a copied voxel region pastes (NN-resampled) at a scrolled-to slice — signal 23', async ({ page }) => {
-  await enterLocalViewer(page);
-  await page.locator('[data-testid="local-import-input"]').setInputFiles(ensureFixture('ct-axial-300'));
-  const p0 = page.locator('[data-testid="unified-viewport-element:panel_0"] canvas');
-  await expect(p0).toBeVisible({ timeout: 30_000 });
-  await expect.poll(() => ev(page, (h) => h.isUnifiedVolumeReady()), { timeout: 30_000 }).toBe(true);
-  await ev(page, (h) => h.resetUnifiedSegmentations());
+  await expect.poll(async () => paintedSlices(await perImage(page)).length, { timeout: 15_000 }).toBe(1);
+  const before = await perImage(page);
+  const [source] = paintedSlices(before);
+  expect(source).toBe(await displayedIndex(page));
 
-  await p0.click();
-  await ev(page, (h) => h.createUnifiedLabelmapSegmentation('Signal-23 SEG'));
-  // Small brush + a large scroll so the pasted region lands on FRESH slices (no overlap
-  // with the original) → the total voxel count strictly increases.
-  await ev(page, (h) => h.setUnifiedBrushSize(6));
-  await ev(page, (h) => h.setActiveUnifiedTool('Brush'));
+  // Copy, scroll 20 slices with the real navigation keys, paste.
+  await page.keyboard.press('Control+c');
+  const step = source + 20 < before.length ? 'ArrowDown' : 'ArrowUp';
+  for (let i = 0; i < 20; i++) await page.keyboard.press(step);
+  await expect.poll(() => displayedIndex(page)).not.toBe(source);
+  const target = await displayedIndex(page);
+  await page.waitForTimeout(300);
+  const unpasted = await p0.screenshot();
+  await page.keyboard.press('Control+v');
 
-  const box = await p0.boundingBox();
-  expect(box).not.toBeNull();
-  await brushStroke(page, box!);
-  await expect.poll(() => paintedVoxels(page), { timeout: 15_000 }).toBeGreaterThan(0);
-
-  // Copy the painted region → clipboard populated.
-  expect(await ev(page, (h) => h.copyActiveSegmentVoxels())).toBe(true);
-  // Scroll to a different slice, then paste — NN-resampled + translated, writing voxels
-  // back through the live voxelManager (returns true only when voxels were written).
-  await ev(page, (h) => h.scrollActiveViewport(120));
-  await page.waitForTimeout(400);
-  expect(await ev(page, (h) => h.pasteActiveSegmentVoxels())).toBe(true);
-  // The segmentation still has voxels after the round-trip (sanity).
-  expect(await paintedVoxels(page)).toBeGreaterThan(0);
+  await expect.poll(async () => paintedSlices(await perImage(page)), { timeout: 10_000 })
+    .toEqual([source, target].sort((a, b) => a - b));
+  const after = await perImage(page);
+  expect(after[target], 'the pasted slice carries the copied region, voxel for voxel').toBe(before[source]);
+  expect(after[source], 'the source slice is untouched').toBe(before[source]);
+  // ...and it is DRAWN there, not only written: the viewport's pixels change.
+  await expect.poll(async () => (await p0.screenshot()).equals(unpasted), { timeout: 5_000 }).toBe(false);
 });
