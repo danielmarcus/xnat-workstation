@@ -41,6 +41,7 @@ import SafePaintFillTool from './tools/SafePaintFillTool';
 import { utilities as csToolsUtilities } from '@cornerstonejs/tools';
 import { init as initDicomImageLoader } from '@cornerstonejs/dicom-image-loader';
 import { installInterpolationOrientationFix } from './interpolationAcceptance';
+import { installContourStrokeSelection } from './contourStrokeSelection';
 
 let initialized = false;
 
@@ -73,6 +74,9 @@ export async function initCornerstone(): Promise<void> {
   // ~1e-8 per-slice viewPlaneNormal drift that otherwise breaks interpolation pairing on
   // obliquely-acquired series (see interpolationAcceptance.ts).
   installInterpolationOrientationFix();
+  // v5 replaces every finished contour stroke with new annotations (the contour union);
+  // keep the selection on the result so Ctrl+C / delete still find it.
+  installContourStrokeSelection();
 
   // Register PolySeg addon for automatic conversion between segmentation
   // representations (labelmap ↔ contour ↔ surface)
