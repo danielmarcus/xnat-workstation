@@ -29,6 +29,7 @@ import { useApprovalStore } from '../../stores/approvalStore';
 import { buildApprovalModule, parseApprovalModule } from '../annotations/approval';
 import type { ApprovalRecord } from '@shared/types/annotation';
 import * as contourRep from './contourRepresentation';
+import { contourPlaneMetadata, type PlaneViewport } from './contourPlaneMetadata';
 import {
   formatOperatorsNameForConnection,
   upsertOperatorsName,
@@ -476,10 +477,24 @@ async function loadRtStructAsContours(
     csSegmentation.segmentLocking.setSegmentIndexLocked(segmentationId, roiIdx + 1, true);
   }
 
+  // Loaded contours take the plane metadata a tool stroke on this viewport records
+  // (viewPlaneNormal / viewUp from its view, slice index) — see contourPlaneMetadata.
+  const planeViewport = (getEnabledElementByViewportId(viewportId)?.viewport ?? null) as unknown as
+    | (PlaneViewport & { getImageIds?: () => string[] })
+    | null;
+  const viewportImageIds = planeViewport?.getImageIds?.() ?? sourceImageIds;
+
   // Create contour annotations for each ROI
   for (let roiIdx = 0; roiIdx < parsed.rois.length; roiIdx++) {
     const roi = parsed.rois[roiIdx];
     const segmentIndex = roiIdx + 1;
+    // One interpolation chain per structure, as Cornerstone builds for strokes: the
+    // first contour on each slice joins it; a further island on the same slice starts
+    // its own (Cornerstone never puts two contours of one slice in a chain). Without a
+    // chain UID, a contour later drawn or pasted next to these lands in a fresh chain
+    // of its own and nothing is interpolated between them.
+    const chainUID = csUtilities.uuidv4();
+    const chainedImageIds = new Set<string>();
 
     for (const contour of roi.contours) {
       // Convert flat points to Point3 array
@@ -510,6 +525,10 @@ async function loadRtStructAsContours(
       }
 
       const annotationUID = csUtilities.uuidv4();
+      const sliceIndex = viewportImageIds.indexOf(referencedImageId);
+      const plane = contourPlaneMetadata(planeViewport, sliceIndex >= 0 ? sliceIndex : null);
+      const interpolationUID = chainedImageIds.has(referencedImageId) ? csUtilities.uuidv4() : chainUID;
+      chainedImageIds.add(referencedImageId);
 
       // Create the annotation object matching Cornerstone's
       // PlanarFreehandContourSegmentationTool format
@@ -519,7 +538,11 @@ async function loadRtStructAsContours(
           toolName: 'PlanarFreehandContourSegmentationTool',
           referencedImageId,
           FrameOfReferenceUID: frameOfReferenceUID,
+          ...(plane.viewPlaneNormal ? { viewPlaneNormal: plane.viewPlaneNormal } : {}),
+          ...(plane.viewUp ? { viewUp: plane.viewUp } : {}),
+          ...(plane.sliceIndex != null ? { sliceIndex: plane.sliceIndex } : {}),
         },
+        interpolationUID,
         data: {
           contour: {
             polyline,
@@ -550,8 +573,12 @@ async function loadRtStructAsContours(
         invalidated: false,
       };
 
-      // Register annotation with Cornerstone's annotation state
-      csAnnotation.state.addAnnotation(ann, viewportId);
+      // Register annotation with Cornerstone's annotation state, in the group Cornerstone
+      // looks it up by: a string selector IS the group key (the FrameOfReferenceUID) —
+      // passing the viewport id filed every loaded contour under a group named
+      // "panel_0", where pointer hit-testing never finds it, so a loaded contour could
+      // not be clicked, selected or copied.
+      csAnnotation.state.addAnnotation(ann, frameOfReferenceUID || viewportId);
       // Bulk-load attribution: preserves pre-facade behavior of map-only
       // attribution (no csToolUtilities.contourSegmentation helper call).
       // See contourRepresentation.attachAnnotationUID for rationale.

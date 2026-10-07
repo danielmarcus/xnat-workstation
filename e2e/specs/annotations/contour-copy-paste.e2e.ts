@@ -85,3 +85,69 @@ test('a contour just drawn can be copied and pasted onto another slice', async (
   for (let i = 0; i < 3; i++) await page.keyboard.press('ArrowUp');
   await expect.poll(() => outlineCount(page), { message: 'and leaves the source contour' }).toBe(1);
 });
+
+/** Outlines on the current slice, by stroke colour (rtstruct-typed's GTV is pure red). */
+const outlines = (page: Page) =>
+  page.evaluate(
+    (vp) =>
+      Array.from(document.querySelectorAll(`${vp} svg path`))
+        .map((n) => ({ el: n as SVGGraphicsElement, stroke: getComputedStyle(n).stroke }))
+        .filter(({ el }) => el.getBoundingClientRect().width > 5)
+        .map(({ el, stroke }) => {
+          const r = el.getBoundingClientRect();
+          return { stroke, x: r.x, y: r.y, w: r.width, h: r.height };
+        }),
+    VIEWPORT,
+  );
+const GTV = 'rgb(255, 0, 0)';
+
+test('a loaded Structure contour can be copied, and the paste interpolates with it', async ({ page }) => {
+  // rtstruct-typed: four ROIs, each one square on the same slice. Their contours come in
+  // through the RTSTRUCT loader, not a tool stroke.
+  await loadFixture(page, 'rtstruct-typed', 'panel_0');
+  const panel = page.locator('[data-testid="annotations-side-panel"]');
+  if (!(await panel.isVisible())) await page.getByRole('button', { name: 'Show segmentation panel' }).click();
+  await expect(panel).toBeVisible({ timeout: 15_000 });
+  const activate = panel.locator('[data-testid^="container-activate-"]').first();
+  await expect(activate).toBeVisible({ timeout: 20_000 });
+  await activate.click();
+  const toolbox = panel.locator('[data-testid="context-toolbox"]');
+  await expect(toolbox, 'activating the Structure shows its tools').toBeVisible();
+  await toolbox.getByRole('button', { name: 'Freehand', exact: true }).click();
+
+  // Find the slice the structures are on.
+  for (let i = 0; i < 20 && !(await outlines(page)).some((o) => o.stroke === GTV); i++) {
+    await page.keyboard.press(i < 10 ? 'ArrowUp' : 'ArrowDown');
+    await page.waitForTimeout(200);
+  }
+  const gtv = (await outlines(page)).find((o) => o.stroke === GTV)!;
+  expect(gtv, 'the GTV outline is drawn').toBeTruthy();
+  // Loaded structures arrive locked; unlock GTV the way a user does, from its row. The
+  // Structure's active member (BODY) stays locked: clicking GTV's outline must still
+  // select it — a press on an existing contour is not a draw into BODY.
+  await panel.locator('[data-testid^="member-row-"]').filter({ hasText: 'GTV' }).getByRole('button', { name: 'Toggle lock' }).click();
+  const source = await snapshot(page);
+
+  // Click ON the GTV outline (its top edge) to select it, then copy.
+  await page.mouse.click(gtv.x + gtv.w / 2, gtv.y + 1);
+  await page.keyboard.press('Control+c');
+  for (let i = 0; i < 3; i++) await page.keyboard.press('ArrowDown');
+  await expect.poll(async () => (await snapshot(page)).currentSliceIndex).toBe((source.currentSliceIndex ?? 0) + 3);
+  await expect.poll(() => outlines(page), { message: 'nothing on the target slice before the paste' }).toEqual([]);
+
+  await page.keyboard.press('Control+v');
+  await expect
+    .poll(async () => (await outlines(page)).map((o) => o.stroke), { timeout: 5_000, message: 'the GTV paste is drawn here' })
+    .toEqual([GTV]);
+
+  // Interpolation joins the paste to the loaded contour: both slices in between get one.
+  for (const step of [1, 2]) {
+    await page.keyboard.press('ArrowUp');
+    await expect
+      .poll(async () => (await outlines(page)).map((o) => o.stroke), {
+        timeout: 5_000,
+        message: `slice ${step} between the paste and the loaded contour is interpolated`,
+      })
+      .toEqual([GTV]);
+  }
+});

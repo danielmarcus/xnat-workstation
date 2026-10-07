@@ -32,6 +32,24 @@ describe('evaluateDrawBlock', () => {
     expect(r.reason).toMatch(/sibling series/);
   });
 
+  it('blocks a press when the active segment is locked', () => {
+    const r = evaluateDrawBlock({ activeTool: ToolName.FreehandContour, activeContainerId: 'c1', decide: allow, viewportId: 'p0', isActiveSegmentLocked: () => true });
+    expect(r.block).toBe(true);
+  });
+
+  it('does not block a press on an existing editable annotation, even with the active segment locked', () => {
+    // A loaded Structure arrives with every segment locked and its first member active;
+    // clicking another, unlocked member's contour selects it — it is not a draw.
+    expect(evaluateDrawBlock({
+      activeTool: ToolName.FreehandContour,
+      activeContainerId: 'c1',
+      decide: allow,
+      viewportId: 'p0',
+      isActiveSegmentLocked: () => true,
+      isPressOnEditableAnnotation: () => true,
+    })).toEqual({ block: false });
+  });
+
   it('treats Brush and FreehandContour as drawing tools', () => {
     expect(DRAWING_TOOL_NAMES.has(ToolName.Brush)).toBe(true);
     expect(DRAWING_TOOL_NAMES.has(ToolName.FreehandContour)).toBe(true);

@@ -102,9 +102,14 @@ function onCutMergeCompleted(evt: Event): void {
   if (result?.annotationUID) {
     // Replaces the whole selection, dropping the stale UID with it.
     csAnnotation.selection.setAnnotationSelected?.(result.annotationUID, true, false);
-  } else {
-    csAnnotation.selection.deselectAnnotation?.(sourceUID);
+    return;
   }
+  // Drop only the stale UID. Cornerstone's single-UID deselect writes `isSelected` on the
+  // annotation and throws once it is gone, so clear the set (which tolerates missing
+  // annotations) and re-select whatever else was selected.
+  const keep = selected.filter((uid) => uid !== sourceUID && !!csAnnotation.state.getAnnotation?.(uid));
+  csAnnotation.selection.deselectAnnotation?.();
+  for (const uid of keep) csAnnotation.selection.setAnnotationSelected?.(uid, true, true);
 }
 
 /** Install once, at init. */

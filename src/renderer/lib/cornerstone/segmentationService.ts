@@ -104,6 +104,7 @@ import { createSaveQueue, type SaveOutcome } from './segmentationService/saveQue
 import { createVisibilityControls } from './segmentationService/visibility';
 import { createDicomSegExport } from './segmentationService/dicomSegExport';
 import { showAlertDialog } from '../../stores/dialogStore';
+import { contourPlaneMetadata } from './contourPlaneMetadata';
 import { GENERATED_IMAGE_SCHEME } from './generatedImageLoader';
 import { labelmapStorage } from './labelmapLayers';
 
@@ -947,43 +948,20 @@ function getActiveViewportContextForContourPaste(targetImageId: string): {
   const normalizedSliceIndex = Number.isInteger(sliceIndex)
     ? Number(sliceIndex)
     : (Number.isInteger(storeSliceIndex) ? Number(storeSliceIndex) : null);
-  const viewReference = normalizedSliceIndex != null
-    ? viewport?.getViewReference?.({ sliceIndex: normalizedSliceIndex })
-    : viewport?.getViewReference?.();
-  const camera = viewport?.getCamera?.();
+  const plane = contourPlaneMetadata(viewport, normalizedSliceIndex);
   const imagePlane = getImagePlaneInfo(targetImageId);
 
   const metadata: Record<string, unknown> = {
     referencedImageId: targetImageId,
   };
 
-  const frameOfReferenceUID =
-    imagePlane?.frameOfReferenceUID
-    ?? (typeof viewReference?.FrameOfReferenceUID === 'string' ? viewReference.FrameOfReferenceUID : null);
+  const frameOfReferenceUID = imagePlane?.frameOfReferenceUID ?? plane.FrameOfReferenceUID ?? null;
   if (frameOfReferenceUID) {
     metadata.FrameOfReferenceUID = frameOfReferenceUID;
   }
-
-  const viewPlaneNormal =
-    toPoint3((viewReference as { viewPlaneNormal?: unknown } | undefined)?.viewPlaneNormal)
-    ?? toPoint3(camera?.viewPlaneNormal);
-  if (viewPlaneNormal) {
-    metadata.viewPlaneNormal = viewPlaneNormal;
-  }
-
-  const viewUp =
-    toPoint3((viewReference as { viewUp?: unknown } | undefined)?.viewUp)
-    ?? toPoint3(camera?.viewUp);
-  if (viewUp) {
-    metadata.viewUp = viewUp;
-  }
-
-  const referencedSliceIndex = Number.isInteger((viewReference as { sliceIndex?: unknown } | undefined)?.sliceIndex)
-    ? Number((viewReference as { sliceIndex?: number }).sliceIndex)
-    : normalizedSliceIndex;
-  if (referencedSliceIndex != null) {
-    metadata.sliceIndex = referencedSliceIndex;
-  }
+  if (plane.viewPlaneNormal) metadata.viewPlaneNormal = plane.viewPlaneNormal;
+  if (plane.viewUp) metadata.viewUp = plane.viewUp;
+  if (plane.sliceIndex != null) metadata.sliceIndex = plane.sliceIndex;
 
   return {
     viewportId,

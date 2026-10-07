@@ -31,9 +31,17 @@ export function evaluateDrawBlock(params: {
   viewportId: string;
   /** Whether the active segment (what an edit would write) is locked (signal 21/29). */
   isActiveSegmentLocked?: () => boolean;
+  /**
+   * Whether the press lands on an existing annotation the active tool can edit, in an
+   * unlocked segment. That press is a selection or an edit of THAT annotation, not new
+   * geometry for the active segment, so neither block applies — Cornerstone selects it
+   * (which makes its segment the active one) instead of drawing.
+   */
+  isPressOnEditableAnnotation?: () => boolean;
 }): DrawBlockResult {
-  const { activeTool, activeContainerId, decide, viewportId, isActiveSegmentLocked } = params;
+  const { activeTool, activeContainerId, decide, viewportId, isActiveSegmentLocked, isPressOnEditableAnnotation } = params;
   if (!activeTool || !DRAWING_TOOL_NAMES.has(activeTool)) return { block: false };
+  if (isPressOnEditableAnnotation?.()) return { block: false };
   // Locked active segment: block at gesture-start regardless of the active-container
   // model. The brush writes into the active SEGMENTATION; Cornerstone won't stop a
   // locked segment from accepting NEW voxels, so we gate it here. Checked before the

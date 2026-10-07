@@ -206,6 +206,10 @@ export function useViewport({
         decide: (acid, vp) => canDrawOnViewport(acid, vp),
         viewportId: panelId,
         isActiveSegmentLocked: () => unifiedSegService.isActiveSegmentLocked(),
+        isPressOnEditableAnnotation: () => {
+          const { clientX, clientY } = e as MouseEvent;
+          return unifiedToolService.isPressOnEditableAnnotation(panelId, clientX, clientY);
+        },
       });
       if (block) {
         e.stopImmediatePropagation();
