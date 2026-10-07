@@ -15,7 +15,7 @@ import { test, expect } from '../../fixtures/electron-app';
 import type { Page } from '@playwright/test';
 import { loadFixture } from '../../helpers/local-fixture';
 
-type Snapshot = { total: number; onCurrentSlice: number; currentSliceIndex: number | null };
+type Snapshot = { total: number; onCurrentSlice: number; currentSliceIndex: number | null; selected: string[] };
 type Win = {
   __XNAT_E2E__: {
     resetUnifiedSegmentations: () => void;
@@ -70,7 +70,7 @@ test('a contour just drawn can be copied and pasted onto another slice', async (
   await page.keyboard.press('Control+c');
   for (let i = 0; i < 3; i++) await page.keyboard.press('ArrowDown');
   await expect.poll(async () => (await snapshot(page)).currentSliceIndex).toBe((source.currentSliceIndex ?? 0) + 3);
-  expect(await outlineCount(page), 'nothing on the target slice before the paste').toBe(0);
+  await expect.poll(() => outlineCount(page), { message: 'nothing on the target slice before the paste' }).toBe(0);
 
   await page.keyboard.press('Control+v');
 
@@ -130,6 +130,7 @@ test('a loaded Structure contour can be copied, and the paste interpolates with 
 
   // Click ON the GTV outline (its top edge) to select it, then copy.
   await page.mouse.click(gtv.x + gtv.w / 2, gtv.y + 1);
+  await expect.poll(async () => (await snapshot(page)).selected.length, { message: 'the click selects GTV' }).toBe(1);
   await page.keyboard.press('Control+c');
   for (let i = 0; i < 3; i++) await page.keyboard.press('ArrowDown');
   await expect.poll(async () => (await snapshot(page)).currentSliceIndex).toBe((source.currentSliceIndex ?? 0) + 3);
@@ -147,6 +148,63 @@ test('a loaded Structure contour can be copied, and the paste interpolates with 
       .poll(async () => (await outlines(page)).map((o) => o.stroke), {
         timeout: 5_000,
         message: `slice ${step} between the paste and the loaded contour is interpolated`,
+      })
+      .toEqual([GTV]);
+  }
+});
+
+test('a stroke drawn a few slices from an untouched loaded contour interpolates with it', async ({ page }) => {
+  // The loaded GTV is never clicked or edited here, so the chain it joins is the one
+  // it was loaded with — not one an edit would have given it.
+  await loadFixture(page, 'rtstruct-typed', 'panel_0');
+  const panel = page.locator('[data-testid="annotations-side-panel"]');
+  if (!(await panel.isVisible())) await page.getByRole('button', { name: 'Show segmentation panel' }).click();
+  await expect(panel).toBeVisible({ timeout: 15_000 });
+  const activate = panel.locator('[data-testid^="container-activate-"]').first();
+  await expect(activate).toBeVisible({ timeout: 20_000 });
+  await activate.click();
+  const toolbox = panel.locator('[data-testid="context-toolbox"]');
+  await expect(toolbox).toBeVisible();
+
+  const gtvRow = panel.locator('[data-testid^="member-row-"]').filter({ hasText: 'GTV' });
+  await gtvRow.getByRole('button', { name: 'Toggle lock' }).click();
+  // Double-click the row (not its name, which renames) to make GTV the active member.
+  const rowBox = (await gtvRow.boundingBox())!;
+  await gtvRow.dblclick({ position: { x: rowBox.width * 0.55, y: rowBox.height / 2 } });
+  await expect(toolbox.getByText('GTV', { exact: true }), 'GTV is the active member').toBeVisible();
+  await toolbox.getByRole('button', { name: 'Freehand', exact: true }).click();
+
+  for (let i = 0; i < 20 && !(await outlines(page)).some((o) => o.stroke === GTV); i++) {
+    await page.keyboard.press(i < 10 ? 'ArrowUp' : 'ArrowDown');
+    await page.waitForTimeout(200);
+  }
+  const gtv = (await outlines(page)).find((o) => o.stroke === GTV)!;
+  expect(gtv, 'the loaded GTV outline is drawn').toBeTruthy();
+  const source = await snapshot(page);
+
+  for (let i = 0; i < 3; i++) await page.keyboard.press('ArrowDown');
+  await expect.poll(async () => (await snapshot(page)).currentSliceIndex).toBe((source.currentSliceIndex ?? 0) + 3);
+  await expect.poll(() => outlines(page)).toEqual([]);
+
+  // Draw a loop the size of the loaded GTV square, centred on it.
+  const cx = gtv.x + gtv.w / 2;
+  const cy = gtv.y + gtv.h / 2;
+  const r = gtv.w / 2;
+  await page.mouse.move(cx + r, cy);
+  await page.mouse.down();
+  for (let i = 1; i <= 32; i++) {
+    const a = (i / 32) * 2 * Math.PI;
+    await page.mouse.move(cx + r * Math.cos(a), cy + r * Math.sin(a), { steps: 2 });
+  }
+  await page.mouse.up();
+  await expect.poll(async () => (await outlines(page)).map((o) => o.stroke), { message: 'the stroke lands in GTV' }).toEqual([GTV]);
+
+  for (const step of [1, 2]) {
+    await page.keyboard.press('ArrowUp');
+    await expect
+      .poll(async () => (await outlines(page)).map((o) => o.stroke), {
+        timeout: 5_000,
+        message: `slice ${step} between the stroke and the loaded contour is interpolated`,
       })
       .toEqual([GTV]);
   }
