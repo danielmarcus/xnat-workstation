@@ -573,12 +573,8 @@ async function loadRtStructAsContours(
         invalidated: false,
       };
 
-      // Register annotation with Cornerstone's annotation state, in the group Cornerstone
-      // looks it up by: a string selector IS the group key (the FrameOfReferenceUID) —
-      // passing the viewport id filed every loaded contour under a group named
-      // "panel_0", where pointer hit-testing never finds it, so a loaded contour could
-      // not be clicked, selected or copied.
-      csAnnotation.state.addAnnotation(ann, frameOfReferenceUID || viewportId);
+      // Register annotation with Cornerstone's annotation state
+      csAnnotation.state.addAnnotation(ann, viewportId);
       // Bulk-load attribution: preserves pre-facade behavior of map-only
       // attribution (no csToolUtilities.contourSegmentation helper call).
       // See contourRepresentation.attachAnnotationUID for rationale.
