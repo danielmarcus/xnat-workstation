@@ -63,6 +63,7 @@ import { useAnnotationSelectionStore } from '../../stores/annotationSelectionSto
 import { rtStructService } from './rtStructService';
 import * as contourRep from './contourRepresentation';
 import { installComponentSelection } from './componentSelection';
+import { setMaskMemberActivator } from './maskSelection';
 import * as sourceImageTracking from './sourceImageTracking';
 import * as mlg from './multiLayerGroup';
 import * as interpolationAcceptance from './interpolationAcceptance';
@@ -1105,19 +1106,7 @@ function syncSelectedContourAnnotation(evt?: Event): void {
   if (!Number.isInteger(segmentIndex) || segmentIndex <= 0) return;
   if (getSegmentationType(segmentationId) === 'labelmap') return;
 
-  const viewerState = useViewerStore.getState();
-  useSegmentationStore.getState().setActiveSegmentation(segmentationId);
-  segmentationService.setActiveSegmentIndex(segmentationId, segmentIndex);
-  segmentationService.activateOnViewport(viewerState.activeViewportId, segmentationId);
-  // The panel follows: a selected contour's ROI is the active member (the selection
-  // lives inside the active member — docs/unified-selection.md). Without this, selecting
-  // another ROI's contour switched Cornerstone but left the panel, undo and the draw
-  // guard on the old member.
-  const active = useAnnotationSelectionStore.getState().activeMember;
-  const memberId = String(segmentIndex);
-  if (active?.containerId !== segmentationId || active.memberId !== memberId) {
-    useAnnotationSelectionStore.getState().activate(segmentationId, memberId);
-  }
+  segmentationService.activateMemberFromImage(segmentationId, segmentIndex);
 }
 
 // ─── Segmentation Type Detection ─────────────────────────────────
@@ -1799,6 +1788,8 @@ export const segmentationService = {
     installHistoryMemoTracking();
     // The image selection stays inside the active member, on the current slice.
     installComponentSelection();
+    setMaskMemberActivator((containerId, segmentIndex) =>
+      segmentationService.activateMemberFromImage(containerId, segmentIndex));
 
     // Wire source-image-ID auto-cleanup. Subscribes to SEGMENTATION_REMOVED
     // so tracked entries for real Cornerstone segmentations are reaped even
@@ -2304,6 +2295,25 @@ export const segmentationService = {
    * Copy the currently selected contour annotation component.
    * Returns true when a contour annotation is available for paste.
    */
+  /**
+   * Make a member active because something of it was selected ON THE IMAGE (a contour, a
+   * mask island): Cornerstone's active segmentation/segment, the viewport, and the
+   * panel's active member — the panel follows the image (the selection lives inside the
+   * active member — docs/unified-selection.md). Before, selecting another ROI's contour
+   * switched Cornerstone but left the panel, undo and the draw guard on the old member.
+   */
+  activateMemberFromImage(containerId: string, segmentIndex: number): void {
+    const viewerState = useViewerStore.getState();
+    useSegmentationStore.getState().setActiveSegmentation(containerId);
+    segmentationService.setActiveSegmentIndex(containerId, segmentIndex);
+    segmentationService.activateOnViewport(viewerState.activeViewportId, containerId);
+    const active = useAnnotationSelectionStore.getState().activeMember;
+    const memberId = String(segmentIndex);
+    if (active?.containerId !== containerId || active.memberId !== memberId) {
+      useAnnotationSelectionStore.getState().activate(containerId, memberId);
+    }
+  },
+
   /**
    * Select all of a Structure member's contours on the active viewport's current slice —
    * the panel row's click, so its components are what Ctrl+C / delete act on and are

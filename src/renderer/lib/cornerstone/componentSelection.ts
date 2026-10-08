@@ -2,8 +2,9 @@
  * The rules that keep the image selection inside the active member, on the current slice
  * (unified selection — docs/unified-selection.md).
  *
- * The selection is Cornerstone's annotation selection (what Ctrl+C / delete act on, and
- * what is drawn in the selected style). Two things invalidate it:
+ * The selection is Cornerstone's annotation selection for contours and measurements, and
+ * maskSelection for mask islands (what Ctrl+C / delete act on, drawn in the selected
+ * style). Two things invalidate it:
  *  - Changing slice: the selection is the current slice's, so leaving the slice clears
  *    it — nothing you cannot see is ever copied or deleted.
  *  - Changing the active member: a selection lives inside the active member, so anything
@@ -12,6 +13,7 @@
 import { annotation as csAnnotation } from '@cornerstonejs/tools';
 import { useViewerStore } from '../../stores/viewerStore';
 import { useAnnotationSelectionStore, type MemberRef } from '../../stores/annotationSelectionStore';
+import { clearMaskSelection, getMaskSelection } from './maskSelection';
 
 interface SelectableAnnotation {
   data?: { segmentation?: { segmentationId?: string; segmentIndex?: number } };
@@ -46,12 +48,19 @@ export function installComponentSelection(): void {
   useViewerStore.subscribe((state, prev) => {
     const vp = state.activeViewportId;
     if (vp !== prev.activeViewportId) return;
-    if (state.viewports[vp]?.imageIndex !== prev.viewports[vp]?.imageIndex) retainSelected(() => false);
+    if (state.viewports[vp]?.imageIndex !== prev.viewports[vp]?.imageIndex) {
+      retainSelected(() => false);
+      clearMaskSelection();
+    }
   });
 
   useAnnotationSelectionStore.subscribe((state, prev) => {
     const member = state.activeMember;
     if (member === prev.activeMember) return;
     retainSelected((uid) => !!member && belongsTo(uid, member));
+    const mask = getMaskSelection();
+    if (mask && (!member || mask.containerId !== member.containerId || String(mask.segmentIndex) !== member.memberId)) {
+      clearMaskSelection();
+    }
   });
 }

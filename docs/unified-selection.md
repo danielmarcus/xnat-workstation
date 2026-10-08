@@ -37,7 +37,7 @@ top-to-bottom; each step lands with a real-UI E2E seen red first, and its own co
       components on this slice.
 - [x] **S3 Multi-contour copy/paste/delete.** Ctrl+C copies every selected contour; Ctrl+V
       pastes them all; Delete removes them all (one undo step).
-- [ ] **S4 Mask islands.** Select tool inside an island of the active segment selects it
+- [x] **S4 Mask islands.** Select tool inside an island of the active segment selects it
       (outline drawn); Shift adds; another segment's island activates that segment; empty
       clears; slice change clears.
 - [ ] **S5 Mask copy/paste.** Ctrl+C copies the selected islands of this slice (2D, not the

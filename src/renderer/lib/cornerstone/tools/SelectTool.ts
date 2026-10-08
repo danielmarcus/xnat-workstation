@@ -22,6 +22,7 @@ import {
   LivewireContourSegmentationTool,
 } from '@cornerstonejs/tools';
 import type { Types as ToolTypes } from '@cornerstonejs/tools';
+import { clearMaskSelection, selectMaskIslandAt } from '../maskSelection';
 
 const CONTOUR_TOOL_NAMES = [
   PlanarFreehandContourSegmentationTool.toolName,
@@ -50,9 +51,18 @@ export default class SelectTool extends BaseTool {
     const hit = contourAt(element as HTMLDivElement, currentPoints.canvas, viewportId, renderingEngineId);
     const shift = !!(event?.shiftKey || event?.ctrlKey || event?.metaKey);
     if (!hit) {
-      if (!shift) csAnnotation.selection.deselectAnnotation();
+      // Not on a contour: a mask island of a segment shown here?
+      if (selectMaskIslandAt(viewportId, currentPoints.world as number[], shift)) {
+        if (!shift) csAnnotation.selection.deselectAnnotation();
+        return true;
+      }
+      if (!shift) {
+        csAnnotation.selection.deselectAnnotation();
+        clearMaskSelection();
+      }
       return true;
     }
+    clearMaskSelection(); // a contour selection replaces any island selection
     const selected = csAnnotation.selection.getAnnotationsSelected() ?? [];
     // A selection lives inside one member: Shift only adds a contour of the member the
     // selection already belongs to. Another member's contour starts a new selection
