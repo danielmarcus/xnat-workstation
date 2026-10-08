@@ -149,5 +149,55 @@ describe('perContainerHistory (Slice 4: per-container undo, A8 / signals 7,15,28
     history.record(memo('segA', 'newer'));
     expect(history.replaceTop((m) => (m as FakeMemo).tag === 'old', memo('segA', 'x') as never)).toBe(false);
   });
-});
 
+  describe('groups (one undo step for a multi-item paste / delete)', () => {
+    it('everything recorded for a container inside a group is ONE entry: undone in reverse, redone in order', () => {
+      const order: string[] = [];
+      const tracked = (tag: string) => {
+        const m = memo('A', tag);
+        const inner = m.restoreMemo;
+        m.restoreMemo = (undo = false) => { order.push(`${undo ? 'undo' : 'redo'}:${tag}`); inner(undo); };
+        return m;
+      };
+      history.beginGroup();
+      history.record(tracked('p1'));
+      history.record(tracked('p2'));
+      history.endGroup();
+
+      expect(history.depth('A')).toEqual({ undo: 1, redo: 0 });
+      expect(history.undo('A')).toBe(true);
+      expect(order).toEqual(['undo:p2', 'undo:p1']);
+      expect(history.redo('A')).toBe(true);
+      expect(order).toEqual(['undo:p2', 'undo:p1', 'redo:p1', 'redo:p2']);
+    });
+
+    it('peekUndo returns a group\'s members (so the lock guard sees every one)', () => {
+      history.beginGroup();
+      history.record(memo('A', 'p1'));
+      history.record(memo('A', 'p2'));
+      history.endGroup();
+      const peeked = history.peekUndo('A');
+      expect(Array.isArray(peeked)).toBe(true);
+      expect((peeked as FakeMemo[]).map((m) => m.tag)).toEqual(['p1', 'p2']);
+    });
+
+    it('replaceTop finds and replaces a member inside the top group', () => {
+      history.beginGroup();
+      history.record(memo('A', 'p1'));
+      history.record(memo('A', 'p2'));
+      history.endGroup();
+      const union = memo(undefined, 'p2-union');
+      expect(history.replaceTop((m) => (m as FakeMemo).tag === 'p2', union as never)).toBe(true);
+      expect((history.peekUndo('A') as FakeMemo[]).map((m) => m.tag)).toEqual(['p1', 'p2-union']);
+      expect(union.segmentationId, 'the replacement keeps the identity it was filed under').toBe('A');
+    });
+
+    it('after endGroup, records are separate entries again', () => {
+      history.beginGroup();
+      history.record(memo('A', 'p1'));
+      history.endGroup();
+      history.record(memo('A', 'later'));
+      expect(history.depth('A')).toEqual({ undo: 2, redo: 0 });
+    });
+  });
+});

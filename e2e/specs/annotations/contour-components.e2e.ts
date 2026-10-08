@@ -144,3 +144,44 @@ test('a member-row click selects all of that ROI\'s contours on this slice', asy
   await panel.locator('[data-testid^="member-row-"]').first().click();
   await expect.poll(async () => (await selected(page)).length, { message: 'both contours of the ROI' }).toBe(2);
 });
+
+// ── S3: act on the whole selection ───────────────────────────────────────────────
+
+test('copying several selected contours pastes them all, as one undo step', async ({ page }) => {
+  const { panel, toolbox, box } = await structure(page);
+  await loop(page, 0.3, 0.5);
+  await loop(page, 0.7, 0.5);
+  await pickSelect(page, toolbox, box);
+  await panel.locator('[data-testid^="member-row-"]').first().click(); // both contours
+  await expect.poll(async () => (await selected(page)).length).toBe(2);
+
+  await page.keyboard.press('Control+c');
+  const from = (await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.getActiveContourSnapshot('panel_0'))).currentSliceIndex ?? 0;
+  for (let i = 0; i < 3; i++) await page.keyboard.press('ArrowDown');
+  await expect.poll(async () => (await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.getActiveContourSnapshot('panel_0'))).currentSliceIndex).toBe(from + 3);
+  await expect.poll(async () => (await outlines(page)).length).toBe(0);
+
+  await page.keyboard.press('Control+v');
+  await expect.poll(async () => (await outlines(page)).length, { message: 'both contours are pasted' }).toBe(2);
+  await expect.poll(async () => (await selected(page)).length, { message: 'and both stay selected' }).toBe(2);
+
+  await page.keyboard.press('Control+z');
+  await expect.poll(async () => (await outlines(page)).length, { message: 'one undo takes the whole paste back' }).toBe(0);
+});
+
+test('Delete removes every selected contour, and one undo brings them all back', async ({ page }) => {
+  const { panel, toolbox, box } = await structure(page);
+  await loop(page, 0.3, 0.5);
+  await loop(page, 0.7, 0.5);
+  await pickSelect(page, toolbox, box);
+  await panel.locator('[data-testid^="member-row-"]').first().click();
+  await expect.poll(async () => (await selected(page)).length).toBe(2);
+
+  await page.keyboard.press('Delete');
+  await expect.poll(async () => (await outlines(page)).length, { message: 'both deleted' }).toBe(0);
+
+  await page.locator('button[title^="Undo"]').click();
+  await expect.poll(async () => (await outlines(page)).length, { message: 'one undo restores both' }).toBe(2);
+  await page.locator('button[title^="Redo"]').click();
+  await expect.poll(async () => (await outlines(page)).length, { message: 'redo deletes them again' }).toBe(0);
+});

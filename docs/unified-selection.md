@@ -35,7 +35,7 @@ top-to-bottom; each step lands with a real-UI E2E seen red first, and its own co
       Shift-click adds; a contour of another ROI makes that ROI active (panel row) and selects
       it; click empty clears; changing slice clears. Row click selects the member's
       components on this slice.
-- [ ] **S3 Multi-contour copy/paste/delete.** Ctrl+C copies every selected contour; Ctrl+V
+- [x] **S3 Multi-contour copy/paste/delete.** Ctrl+C copies every selected contour; Ctrl+V
       pastes them all; Delete removes them all (one undo step).
 - [ ] **S4 Mask islands.** Select tool inside an island of the active segment selects it
       (outline drawn); Shift adds; another segment's island activates that segment; empty

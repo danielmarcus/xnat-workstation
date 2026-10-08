@@ -69,10 +69,18 @@ export interface PerContainerHistory {
    */
   replaceTop(condition: (memo: ContainerHistoryMemo) => boolean, memo: ContainerHistoryMemo): boolean;
   /** Undo the last edit of one container. Returns false if nothing to undo. */
-  /** The entry `undo(containerId)` would apply next, without applying it. */
-  peekUndo(containerId: string): ContainerHistoryMemo | undefined;
-  /** The entry `redo(containerId)` would apply next, without applying it. */
-  peekRedo(containerId: string): ContainerHistoryMemo | undefined;
+  /** The memo(s) `undo(containerId)` would apply next, without applying them (a group's
+   *  memos as an array). */
+  peekUndo(containerId: string): ContainerHistoryMemo | ContainerHistoryMemo[] | undefined;
+  /** The memo(s) `redo(containerId)` would apply next, without applying them. */
+  peekRedo(containerId: string): ContainerHistoryMemo | ContainerHistoryMemo[] | undefined;
+  /**
+   * Between beginGroup() and endGroup(), everything recorded for a container becomes ONE
+   * entry on its stack — undone and redone together (the per-container mirror of
+   * Cornerstone's grouped history recording, e.g. a multi-contour paste or delete).
+   */
+  beginGroup(): void;
+  endGroup(): void;
   undo(containerId: string): boolean;
   /** Redo the last undone edit of one container. Returns false if nothing to redo. */
   redo(containerId: string): boolean;
@@ -93,9 +101,54 @@ interface Stacks {
   redo: ContainerHistoryMemo[];
 }
 
+/** Several memos recorded as one undo step. */
+interface GroupMemo extends ContainerHistoryMemo {
+  members: ContainerHistoryMemo[];
+}
+
+function isGroup(memo: ContainerHistoryMemo): memo is GroupMemo {
+  return Array.isArray((memo as Partial<GroupMemo>).members);
+}
+
+function unwrap(memo: ContainerHistoryMemo | undefined): ContainerHistoryMemo | ContainerHistoryMemo[] | undefined {
+  return memo && isGroup(memo) ? memo.members : memo;
+}
+
+/** A group carries its first memo's identity (segment, label) and replays its members:
+ *  undo in reverse order, redo in order. */
+function makeGroup(first: ContainerHistoryMemo): GroupMemo {
+  const group: GroupMemo = {
+    ...(first as Record<string, unknown>),
+    members: [first],
+    restoreMemo: (undo?: boolean) => {
+      const order = undo === false ? group.members : [...group.members].reverse();
+      for (const m of order) {
+        try {
+          m.restoreMemo?.(undo);
+        } catch {
+          /* one bad member must not stop the rest */
+        }
+      }
+    },
+  };
+  return group;
+}
+
+/** The replacement is the same user operation, so it keeps the identity the original was
+ *  filed and labelled under (Cornerstone's union memo carries none). */
+function carryIdentity(original: ContainerHistoryMemo, memo: ContainerHistoryMemo): ContainerHistoryMemo {
+  const carried = memo as ContainerHistoryMemo & Record<string, unknown>;
+  for (const [k, v] of Object.entries(original as Record<string, unknown>)) {
+    if (k !== 'restoreMemo' && carried[k] === undefined) carried[k] = v;
+  }
+  return carried;
+}
+
 export function createPerContainerHistory(deps: PerContainerHistoryDeps): PerContainerHistory {
   const capacity = Math.max(100, Math.floor(deps.capacity ?? DEFAULT_CAPACITY));
   const byContainer = new Map<string, Stacks>();
+  let grouping = false;
+  const openGroups = new Map<string, GroupMemo>();
 
   function stacksFor(containerId: string): Stacks {
     let s = byContainer.get(containerId);
@@ -114,6 +167,16 @@ export function createPerContainerHistory(deps: PerContainerHistoryDeps): PerCon
       return; // untagged — cannot be partitioned; remains on the global ring only
     }
     const s = stacksFor(key);
+    if (grouping) {
+      const open = openGroups.get(key);
+      if (open) {
+        open.members.push(memo);
+        deps.onContainerDirtied(key);
+        return;
+      }
+      memo = makeGroup(memo);
+      openGroups.set(key, memo as GroupMemo);
+    }
     s.undo.push(memo);
     if (s.undo.length > capacity) {
       s.undo.splice(0, s.undo.length - capacity); // evict oldest cleanly
@@ -125,6 +188,12 @@ export function createPerContainerHistory(deps: PerContainerHistoryDeps): PerCon
   function replaceTop(condition: (memo: ContainerHistoryMemo) => boolean, memo: ContainerHistoryMemo): boolean {
     for (const s of byContainer.values()) {
       const top = s.undo[s.undo.length - 1];
+      if (top && isGroup(top)) {
+        const i = top.members.findIndex(condition);
+        if (i === -1) continue;
+        top.members[i] = carryIdentity(top.members[i], memo);
+        return true;
+      }
       if (!top || !condition(top)) continue;
       // The replacement is the same user operation, so it keeps the identity the
       // original was filed and labelled under (Cornerstone's union memo carries none).
@@ -169,8 +238,10 @@ export function createPerContainerHistory(deps: PerContainerHistoryDeps): PerCon
   return {
     record,
     replaceTop,
-    peekUndo: (id) => { const s = byContainer.get(id); return s?.undo[s.undo.length - 1]; },
-    peekRedo: (id) => { const s = byContainer.get(id); return s?.redo[s.redo.length - 1]; },
+    peekUndo: (id) => { const s = byContainer.get(id); return unwrap(s?.undo[s.undo.length - 1]); },
+    peekRedo: (id) => { const s = byContainer.get(id); return unwrap(s?.redo[s.redo.length - 1]); },
+    beginGroup: () => { grouping = true; openGroups.clear(); },
+    endGroup: () => { grouping = false; openGroups.clear(); },
     undo,
     redo,
     canUndo: (id) => (byContainer.get(id)?.undo.length ?? 0) > 0,
