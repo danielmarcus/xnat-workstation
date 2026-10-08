@@ -60,13 +60,21 @@ function nextDefaultMeasurementColor(): RGBA {
   return palette[measurementColorCounter++ % palette.length];
 }
 
+/** How much thicker a selected annotation's outline is drawn — selection shows as
+ *  weight, never as a colour change (measurements: applyMeasurementColor; contours:
+ *  selectedContourStyle). */
+export const SELECTED_EXTRA_WIDTH = 2;
+const MEASUREMENT_LINE_WIDTH = 1; // Cornerstone's default; the app does not change it
+
 /** Set a measurement annotation's display color in Cornerstone (all states → one
- *  color, so it's stable while active/selected/locked, not green-then-yellow). */
+ *  color, so it's stable while active/selected/locked, not green-then-yellow).
+ *  Selection still shows: the selected state draws the line thicker. */
 function applyMeasurementColor(uid: string, rgba: RGBA): void {
   const rgb = rgbaToRgbString(rgba);
   try {
     csAnnotation.config.style.setAnnotationStyles(uid, {
       color: rgb, colorHighlighted: rgb, colorSelected: rgb, colorLocked: rgb,
+      lineWidthSelected: String(MEASUREMENT_LINE_WIDTH + SELECTED_EXTRA_WIDTH),
     } as never);
   } catch (err) {
     console.warn('[annotationService] setAnnotationStyles failed:', err);
@@ -250,11 +258,13 @@ function onAnnotationEvent(evt: Event): void {
   markSrContainerDirty(evt); // …then the affiliation resolves to the right container
 }
 
+/** Cornerstone's selection changed (a viewport click, a row click, a paste…): mirror it
+ *  into the store. One direction only — this must not write the selection back. */
 function onAnnotationSelectionChange(evt: Event): void {
   const detail = (evt as CustomEvent<{ selection?: string[] }>).detail;
   const selection = Array.isArray(detail?.selection) ? detail.selection : [];
   const selectedUid = selection.length > 0 ? selection[selection.length - 1] ?? null : null;
-  annotationService.selectAnnotation(selectedUid);
+  useAnnotationStore.getState().select(selectedUid);
 }
 
 let initialized = false;
@@ -366,15 +376,20 @@ export const annotationService = {
   },
 
   /**
-   * Select/highlight an annotation on the viewport.
-   * Sets `highlighted` on the target annotation and clears others.
+   * Select an annotation on the viewport (or clear the selection with null), through
+   * Cornerstone's selection — the same selection a viewport click makes and Ctrl+C /
+   * delete act on, drawn in the selected style. (It used to set `highlighted`, which is
+   * Cornerstone's HOVER state: it outranks Selected when styling, and copy never saw it.)
    */
   selectAnnotation(uid: string | null): void {
     try {
-      const allAnnotations = csAnnotation.state.getAllAnnotations();
-      for (const ann of allAnnotations) {
-        ann.highlighted = ann.annotationUID === uid;
-      }
+      // Drop any stale hover highlight first: the pointer is in the panel, not over the
+      // image, but Cornerstone leaves the last-drawn annotation `highlighted` until the
+      // pointer next moves over the viewport — and Highlighted outranks Selected when
+      // styling, so it would hide the selection. Hovering re-applies it.
+      for (const ann of csAnnotation.state.getAllAnnotations()) ann.highlighted = false;
+      if (uid) csAnnotation.selection.setAnnotationSelected(uid, true, false);
+      else csAnnotation.selection.deselectAnnotation();
       useAnnotationStore.getState().select(uid);
     } catch (err) {
       console.error('[annotationService] Failed to select annotation:', err);

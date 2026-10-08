@@ -156,7 +156,7 @@ describe('annotationService', () => {
     expect(useAnnotationStore.getState().annotations).toEqual([]);
   });
 
-  it('formats ROI/probe variants and updates selection highlighting safely', () => {
+  it('formats ROI/probe variants and selects through Cornerstone selection', () => {
     const annotations = [
       {
         annotationUID: 'ann-elliptical',
@@ -204,13 +204,14 @@ describe('annotationService', () => {
     expect(summaries[2]?.displayText).toBe('42.5 HU');
     expect(summaries[3]?.displayText).toBe('7.1');
 
+    annotations[0]!.highlighted = true; // a stale hover highlight from the last draw
     annotationService.selectAnnotation('ann-circle');
-    expect(annotations[1]?.highlighted).toBe(true);
-    expect(annotations[0]?.highlighted).toBe(false);
+    expect(cs.tools.annotation.selection.getAnnotationsSelected()).toEqual(['ann-circle']);
+    expect(annotations[0]?.highlighted, 'stale hover highlight is cleared').toBe(false);
     expect(useAnnotationStore.getState().selectedUID).toBe('ann-circle');
 
     annotationService.selectAnnotation(null);
-    expect(annotations[1]?.highlighted).toBe(false);
+    expect(cs.tools.annotation.selection.getAnnotationsSelected()).toEqual([]);
     expect(useAnnotationStore.getState().selectedUID).toBeNull();
   });
 
@@ -235,11 +236,11 @@ describe('annotationService', () => {
     cs.eventTarget.dispatch(Events.ANNOTATION_SELECTION_CHANGE, { selection: ['ann-angle'] });
 
     expect(useAnnotationStore.getState().selectedUID).toBe('ann-angle');
-    expect(annotations[1]?.highlighted).toBe(true);
-    expect(annotations[0]?.highlighted).toBe(false);
+    // One direction only: mirroring a selection change must not write Cornerstone state.
+    expect(cs.tools.annotation.selection.setAnnotationSelected).not.toHaveBeenCalled();
+    expect(annotations[1]?.highlighted).toBe(false);
 
     cs.eventTarget.dispatch(Events.ANNOTATION_SELECTION_CHANGE, { selection: [] });
     expect(useAnnotationStore.getState().selectedUID).toBeNull();
-    expect(annotations[1]?.highlighted).toBe(false);
   });
 });

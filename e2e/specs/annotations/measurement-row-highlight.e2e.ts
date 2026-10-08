@@ -2,13 +2,16 @@
  * Phase-6 cutover parity — clicking a measurement row highlights it on the viewport.
  *
  * The legacy AnnotationListPanel's row click called
- * `annotationService.selectAnnotation(uid)`, which sets `highlighted` on the
- * Cornerstone annotation so the drawn measurement lights up in the image. The
- * rebuilt panel's selection was panel-local only (annotationSelectionStore), so
- * deleting the legacy panel would have silently dropped that behaviour.
+ * `annotationService.selectAnnotation(uid)` so the drawn measurement lights up in the
+ * image. The rebuilt panel's selection was panel-local only (annotationSelectionStore),
+ * so deleting the legacy panel would have silently dropped that behaviour.
+ *
+ * The row click now SELECTS the annotation through Cornerstone's selection (it used to
+ * set `highlighted`, Cornerstone's hover state); the selected look itself is covered
+ * by annotations/selected-indicator.
  *
  * Drives the real path: draw a Length, click its member row, read Cornerstone's
- * own annotation state.
+ * own selection.
  */
 import { test, expect } from '../../fixtures/electron-app';
 import { loadFixture } from '../../helpers/local-fixture';
@@ -16,7 +19,7 @@ import { loadFixture } from '../../helpers/local-fixture';
 interface E2EHooks {
   setActiveUnifiedTool: (toolName: string) => void;
   getMeasurementCount: () => number;
-  getHighlightedAnnotationUIDs: () => string[];
+  getActiveContourSnapshot: (panelId?: string) => { selected: string[] };
   clearAllContainers: () => void;
 }
 type Win = { __XNAT_E2E__: E2EHooks };
@@ -35,9 +38,8 @@ test('clicking a measurement row highlights that annotation on the viewport', as
   }
   await expect(panel).toBeVisible({ timeout: 15_000 });
 
-  // Draw TWO Lengths (real tool + real gestures). Cornerstone leaves the
-  // just-drawn annotation highlighted, so two measurements let us prove the row
-  // click MOVES the highlight rather than reading the draw's leftover state.
+  // Draw TWO Lengths (real tool + real gestures), so the row click is proven to MOVE
+  // the selection rather than read whatever the last draw left behind.
   await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.setActiveUnifiedTool('Length'));
   const canvas = page.locator('[data-testid="unified-viewport-element:panel_0"] canvas');
   const box = await canvas.boundingBox();
@@ -61,17 +63,13 @@ test('clicking a measurement row highlights that annotation on the viewport', as
 
   // The FIRST row's annotation UID (member id === annotationUID for measurements).
   const firstUid = (await rows.first().getAttribute('data-testid'))!.replace('member-row-', '');
-  // The second (last-drawn) measurement is the one Cornerstone left highlighted.
-  expect(await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.getHighlightedAnnotationUIDs())).not.toEqual([
-    firstUid,
-  ]);
+  const selected = () =>
+    page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.getActiveContourSnapshot('panel_0').selected);
+  expect(await selected()).not.toEqual([firstUid]);
 
-  // Click the first row → the viewport highlight moves to it (legacy parity).
+  // Click the first row → the viewport selection moves to it (legacy parity).
   await rows.first().click();
   await expect
-    .poll(() => page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.getHighlightedAnnotationUIDs()), {
-      timeout: 10_000,
-      message: 'the clicked measurement should become the highlighted annotation',
-    })
+    .poll(selected, { timeout: 10_000, message: 'the clicked measurement should become the selected annotation' })
     .toEqual([firstUid]);
 });
