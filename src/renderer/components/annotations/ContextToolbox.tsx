@@ -4,8 +4,9 @@
  * in its kind color. 3-column icon+label grid (responsive → icon-only when
  * `compact`). Tool states: active = blue; unavailable here = disabled
  * (temporary); FoR-disabled = dashed + slash + disabled (D3, supplied at runtime
- * via `disabledToolIds`); otherwise normal. Segmentation adds a Controls strip
- * (active segment + labelmap-opacity slider) + the silent in-place backup status
+ * via `disabledToolIds`); otherwise normal. A Controls strip follows (Segmentation:
+ * active segment + labelmap opacity + the active tool's settings; Structure: contour
+ * thickness + contour opacity) + the silent in-place backup status
  * (§3.4 — never a toast/banner). Behaviour injected via callbacks.
  */
 import type { ContainerKind } from '@shared/types/annotation';
@@ -19,12 +20,17 @@ const KIND_COLOR: Record<ContainerKind, string> = {
 };
 
 export interface ContextToolboxControls {
-  /** Active segment label (SEG controls strip). */
+  /** Active member label (segment / ROI). */
   activeSegmentLabel: string;
   activeSegmentColor?: string;
-  /** Labelmap opacity 0–1. */
+  /** Opacity 0–1 — the labelmap's (Segmentation) or the outline's (Structure). */
   opacity: number;
   onOpacityChange: (value: number) => void;
+  /** Label of the opacity control. Default "Labelmap opacity". */
+  opacityLabel?: string;
+  /** Contour outline thickness, px (Structure). Omit to hide. */
+  lineWidth?: number;
+  onLineWidthChange?: (value: number) => void;
   /** Brush radius in world millimetres (the segmentation brush family). Omit to hide. */
   brushSize?: number;
   onBrushSizeChange?: (value: number) => void;
@@ -172,15 +178,30 @@ export default function ContextToolbox(props: ContextToolboxProps) {
                 {controls.activeSegmentLabel}
               </span>
             </div>
+            {controls.lineWidth != null && controls.onLineWidthChange && (
+              <div className="flex items-center gap-2 mt-1.5">
+                <span className="text-[10px] text-zinc-400 whitespace-nowrap">Contour thickness</span>
+                <input
+                  type="range"
+                  min={1}
+                  max={8}
+                  value={controls.lineWidth}
+                  onChange={(e) => controls.onLineWidthChange?.(Number(e.target.value))}
+                  aria-label="Contour thickness"
+                  className="flex-1 accent-blue-500"
+                />
+                <span className="text-[10px] text-zinc-300">{controls.lineWidth}px</span>
+              </div>
+            )}
             <div className="flex items-center gap-2 mt-1.5">
-              <span className="text-[10px] text-zinc-400 whitespace-nowrap">Labelmap opacity</span>
+              <span className="text-[10px] text-zinc-400 whitespace-nowrap">{controls.opacityLabel ?? 'Labelmap opacity'}</span>
               <input
                 type="range"
                 min={0}
                 max={100}
                 value={Math.round(controls.opacity * 100)}
                 onChange={(e) => controls.onOpacityChange(Number(e.target.value) / 100)}
-                aria-label="Labelmap opacity"
+                aria-label={controls.opacityLabel ?? 'Labelmap opacity'}
                 className="flex-1 accent-blue-500"
               />
               <span className="text-[10px] text-zinc-300">{Math.round(controls.opacity * 100)}%</span>

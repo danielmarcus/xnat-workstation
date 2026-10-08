@@ -92,6 +92,8 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
   // the store — brush size is shared with the `[` / `]` hotkeys, so the slider must
   // read the same state (a private copy would drift).
   const fillAlpha = useSegmentationStore((s) => s.fillAlpha);
+  const contourLineWidth = useSegmentationStore((s) => s.contourLineWidth);
+  const contourOpacity = useSegmentationStore((s) => s.contourOpacity);
   const renderOutline = useSegmentationStore((s) => s.renderOutline);
   const setFillAlpha = useSegmentationStore((s) => s.setFillAlpha);
   // Silent in-place local-backup status (§3.4) — the toolbox row the legacy panel
@@ -1013,7 +1015,26 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
                 onThresholdRangeChange: (r: [number, number]) => unifiedToolService.setBrushThreshold(r),
                 thresholdPresets: thresholdPresetsForModality(modality),
               }
-            : undefined,
+            : activeContainer.kind === 'RTSTRUCT'
+              ? {
+                  // Structure controls: the outline's thickness and opacity (restored
+                  // from the legacy panel). Session values; the Settings preference
+                  // is the default applied at start-up, as for the labelmap opacity.
+                  activeSegmentLabel: activeMemberObj?.label ?? '',
+                  activeSegmentColor: rgbaToCss(activeMemberObj?.color),
+                  lineWidth: contourLineWidth,
+                  onLineWidthChange: (v: number) => {
+                    useSegmentationStore.getState().setContourLineWidth(v);
+                    segmentationService.updateContourStyle(v);
+                  },
+                  opacity: contourOpacity,
+                  opacityLabel: 'Contour opacity',
+                  onOpacityChange: (v: number) => {
+                    useSegmentationStore.getState().setContourOpacity(Math.max(0.05, v));
+                    segmentationService.updateContourStyle();
+                  },
+                }
+              : undefined,
         }
       : null,
   };
