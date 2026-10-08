@@ -60,7 +60,8 @@ const EXPECTED: Array<[string, string, string | null]> = [
   ['Region', 'crosshair', null],
   ['Rect Multi', 'crosshair', null],
   ['Contour Fill', 'crosshair', null],
-  ['Select', 'pointer', null],
+  // An arrow, matching the toolbox icon — the app's named one, never the bare OS arrow.
+  ['Select', 'XnatSelect', null],
 ];
 
 async function segPanel(page: Page) {

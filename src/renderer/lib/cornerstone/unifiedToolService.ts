@@ -794,13 +794,25 @@ function cancelRegionPlusPendingCursor(): void {
  * Region+ is deliberately excluded below: while it is ACTIVE its cursor is real feedback
  * (copy / not-allowed / wait) and must not be overwritten.
  */
+/**
+ * The Select tools' arrow. Not the CSS `default` keyword: that is indistinguishable from
+ * "no cursor was set" — the signature of the cursor bugs cursor-matrix guards against —
+ * so the arrow is drawn here and named (`#XnatSelect-pointer`, the fragment convention
+ * Cornerstone's own cursors carry) like every other deliberate cursor. Tip = hotspot.
+ */
+const SELECT_ARROW_SVG =
+  '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">'
+  + '<path d="M5 3 L5 19 L9 15 L12 21.5 L14.5 20.4 L11.6 14.2 L17 14.2 Z" fill="#fff" stroke="#000" stroke-width="1.2" stroke-linejoin="round"/>'
+  + '</svg>';
+const SELECT_CURSOR = `url("data:image/svg+xml;utf8,${encodeURIComponent(SELECT_ARROW_SVG)}#XnatSelect-pointer") 5 3, default`;
+
 const CURSOR_FOR_TOOL: Partial<Record<ToolName, string>> = {
   [ToolName.RectangleROIThreshold]: 'crosshair',
   [ToolName.PaintFill]: 'cell',
   [ToolName.RegionSegment]: 'crosshair',
-  // The Select tools point at things rather than draw: the arrow, as their icon shows.
-  [ToolName.SegmentSelect]: 'default',
-  [ToolName.StructureSelect]: 'default',
+  // The Select tools point at things rather than draw: an arrow, as their icon shows.
+  [ToolName.SegmentSelect]: SELECT_CURSOR,
+  [ToolName.StructureSelect]: SELECT_CURSOR,
   [ToolName.LabelmapEditWithContour]: 'crosshair',
 };
 
