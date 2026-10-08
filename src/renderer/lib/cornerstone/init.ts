@@ -38,6 +38,7 @@ import {
   LabelMapEditWithContourTool,
 } from '@cornerstonejs/tools';
 import SafePaintFillTool from './tools/SafePaintFillTool';
+import ContourSelectTool from './tools/ContourSelectTool';
 import { utilities as csToolsUtilities } from '@cornerstonejs/tools';
 import { init as initDicomImageLoader } from '@cornerstonejs/dicom-image-loader';
 import { installInterpolationOrientationFix } from './interpolationAcceptance';
@@ -138,6 +139,7 @@ export async function initCornerstone(): Promise<void> {
 
   // Segmentation tools — utility
   addTool(SegmentSelectTool);
+  addTool(ContourSelectTool);
   addTool(SegmentBidirectionalTool);
 
   // 3D volume-rendering interaction (C5c — the MPR layout's fourth slot).

@@ -633,6 +633,11 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
       if (additive) sel.toggleSelected(cid, mid);
       else sel.selectOnly(cid, mid);
       syncMeasurementHighlight(cid, mid);
+      // A Structure member: select its contour on this slice on the viewport too, as a
+      // measurement row does — what Ctrl+C / delete act on, drawn as selected.
+      if (containers.find((c) => c.id === cid)?.kind === 'RTSTRUCT' && Number.isInteger(Number(mid))) {
+        segmentationService.selectMemberContourOnCurrentSlice(cid, Number(mid), additive);
+      }
     },
     onActivateMember: (cid, mid) => {
       activateAndBridge(cid, mid);

@@ -1961,6 +1961,26 @@ export const segmentationService = {
    * Copy the currently selected contour annotation component.
    * Returns true when a contour annotation is available for paste.
    */
+  /**
+   * Select a Structure member's contour on the active viewport's current slice — the
+   * panel row's click, so the member it names is what Ctrl+C / delete act on and is
+   * drawn as selected. `additive` keeps the existing selection. Returns false (and
+   * leaves the selection alone) when the member has no contour on this slice.
+   */
+  selectMemberContourOnCurrentSlice(segmentationId: string, segmentIndex: number, additive = false): boolean {
+    const imageId = getCurrentImageIdForActiveViewport();
+    if (!imageId) return false;
+    const uid = Array.from(contourRep.getAnnotationUIDs(segmentationId, segmentIndex) ?? []).find((candidate) => {
+      const annotation = csAnnotation.state.getAnnotation?.(candidate) as
+        | { parentAnnotationUID?: string; metadata?: { referencedImageId?: string } }
+        | undefined;
+      return !!annotation && !annotation.parentAnnotationUID && annotation.metadata?.referencedImageId === imageId;
+    });
+    if (!uid) return false;
+    csAnnotation.selection.setAnnotationSelected?.(uid, true, additive);
+    return true;
+  },
+
   copySelectedContourAnnotation(): boolean {
     const selected = getSelectedContourAnnotation();
     if (!selected) {

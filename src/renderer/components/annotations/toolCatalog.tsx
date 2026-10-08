@@ -78,6 +78,7 @@ const STRUCTURE_TOOLS: ToolDef[] = [
   { id: 'spline', label: 'Spline', title: 'Place points; a smooth curve is fitted through them', icon: S(<path d="M2 11c3 0 3-6 6-6s3 6 6 6" />) },
   { id: 'livewire', label: 'Livewire', title: 'Trace a boundary that snaps to the nearest image edge', icon: S(<path d="M3 12c2-6 8-6 10 0" />, { strokeDasharray: '2 1.3' }) },
   { id: 'sculptor', label: 'Sculptor', title: 'Push or pull an existing boundary into shape', needs: ['brushSize'], icon: S(<><circle cx="8" cy="8" r="5" /><path d="M8 3v10" /></>) },
+  { id: 'structureSelect', label: 'Select ROI', title: 'Click a contour to select it (for copy or delete); click empty image to clear. Never draws', icon: S(<><path d="M3 2.5l6 3.8-2.6.9-1.2 2.6z" /><circle cx="11" cy="11" r="3" strokeDasharray="2 1.3" /></>) },
 ];
 
 const MEASUREMENT_TOOLS: ToolDef[] = [
@@ -130,6 +131,7 @@ export const CATALOG_TO_TOOLNAME: Record<string, ToolName> = {
   rectMulti: ToolName.RectangleROIThreshold,
   contourFill: ToolName.LabelmapEditWithContour,
   select: ToolName.SegmentSelect,
+  structureSelect: ToolName.StructureSelect,
   segBidirectional: ToolName.SegmentBidirectional,
   // Structure
   freehand: ToolName.FreehandContour,

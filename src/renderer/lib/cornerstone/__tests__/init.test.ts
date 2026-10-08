@@ -47,6 +47,7 @@ async function loadInitModule(options?: { splineRegistered?: boolean }): Promise
     SphereScissorsTool: { toolName: 'SphereScissors' },
     SculptorTool: { toolName: 'Sculptor' },
     SegmentSelectTool: { toolName: 'SegmentSelect' },
+    BaseTool: class {},
     RegionSegmentTool: { toolName: 'RegionSegment' },
     RegionSegmentPlusTool: { toolName: 'RegionSegmentPlus' },
     SegmentBidirectionalTool: { toolName: 'SegmentBidirectional' },

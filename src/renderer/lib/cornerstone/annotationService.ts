@@ -13,6 +13,7 @@ import {
   annotation as csAnnotation,
   Enums as ToolEnums,
 } from '@cornerstonejs/tools';
+import { SELECTED_EXTRA_WIDTH } from './selectedStyle';
 import { getRenderingEngines } from '@cornerstonejs/core';
 import { useAnnotationStore } from '../../stores/annotationStore';
 import type { AnnotationSummary } from '../../stores/annotationStore';
@@ -60,10 +61,6 @@ function nextDefaultMeasurementColor(): RGBA {
   return palette[measurementColorCounter++ % palette.length];
 }
 
-/** How much thicker a selected annotation's outline is drawn — selection shows as
- *  weight, never as a colour change (measurements: applyMeasurementColor; contours:
- *  selectedContourStyle). */
-export const SELECTED_EXTRA_WIDTH = 2;
 const MEASUREMENT_LINE_WIDTH = 1; // Cornerstone's default; the app does not change it
 
 /** Set a measurement annotation's display color in Cornerstone (all states → one

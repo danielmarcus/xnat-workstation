@@ -63,6 +63,8 @@ import type { Types as ToolTypes } from '@cornerstonejs/tools';
 import { Enums as CoreEnums, eventTarget } from '@cornerstonejs/core';
 import { cursors as csCursors } from '@cornerstonejs/tools';
 import SafePaintFillTool from './tools/SafePaintFillTool';
+import ContourSelectTool from './tools/ContourSelectTool';
+import { applySelectedContourStyle } from './selectedStyle';
 import { arrowAnnotateTextCallback } from './arrowAnnotateTextPrompt';
 import { ToolName } from '@shared/types/viewer';
 import { viewportService } from './viewportService';
@@ -118,6 +120,7 @@ const UNIFIED_TOOL_MAP: Partial<Record<ToolName, string>> = {
   [ToolName.RegionSegment]: RegionSegmentTool.toolName,
   [ToolName.RegionSegmentPlus]: RegionSegmentPlusTool.toolName,
   [ToolName.SegmentSelect]: SegmentSelectTool.toolName,
+  [ToolName.StructureSelect]: ContourSelectTool.toolName,
   // SegmentBidirectional is an ACTION, not a drawing mode — the panel runs it against the
   // active segment rather than binding it to the mouse (see useAnnotationsPanel). It is
   // mapped below so the tool resolves; entering it by free-draw is what used to crash,
@@ -622,7 +625,7 @@ function ensureToolGroup(): ToolTypes.IToolGroup | undefined {
     AngleTool, BidirectionalTool, EllipticalROITool, RectangleROITool, CircleROITool,
     ProbeTool, ArrowAnnotateTool, PlanarFreehandROITool, SplineContourSegmentationTool,
     LivewireContourSegmentationTool, CircleScissorsTool, RectangleScissorsTool,
-    SphereScissorsTool, SafePaintFillTool, SculptorTool, SegmentSelectTool,
+    SphereScissorsTool, SafePaintFillTool, SculptorTool, SegmentSelectTool, ContourSelectTool,
     RegionSegmentTool, RegionSegmentPlusTool, SegmentBidirectionalTool,
     RectangleROIThresholdTool, LabelMapEditWithContourTool,
   ];
@@ -684,6 +687,15 @@ function ensureToolGroup(): ToolTypes.IToolGroup | undefined {
       applyMultiViewportContourPreview(toolGroup.getToolInstance(toolName));
     } catch (err) {
       console.warn(`[unifiedToolService] contour preview patch for ${toolName} failed:`, err);
+    }
+  }
+
+  // A selected contour is drawn thicker — an instance patch, see selectedStyle.
+  for (const Tool of [PlanarFreehandContourSegmentationTool, SplineContourSegmentationTool, LivewireContourSegmentationTool]) {
+    try {
+      applySelectedContourStyle(toolGroup.getToolInstance(Tool.toolName));
+    } catch (err) {
+      console.warn(`[unifiedToolService] selected-contour style patch for ${Tool.toolName} failed:`, err);
     }
   }
 
@@ -787,6 +799,7 @@ const CURSOR_FOR_TOOL: Partial<Record<ToolName, string>> = {
   [ToolName.PaintFill]: 'cell',
   [ToolName.RegionSegment]: 'crosshair',
   [ToolName.SegmentSelect]: 'pointer',
+  [ToolName.StructureSelect]: 'pointer',
   [ToolName.LabelmapEditWithContour]: 'crosshair',
 };
 

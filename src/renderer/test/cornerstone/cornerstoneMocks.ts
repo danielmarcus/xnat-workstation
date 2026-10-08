@@ -793,6 +793,7 @@ export function createToolsModuleMock(state: CornerstoneMockState): Record<strin
     SphereScissorsTool: makeToolExport('SphereScissors'),
     SculptorTool: makeToolExport('Sculptor'),
     SegmentSelectTool: makeToolExport('SegmentSelect'),
+    BaseTool: class {},
     RegionSegmentTool: makeToolExport('RegionSegment'),
     RegionSegmentPlusTool: makeToolExport('RegionSegmentPlus'),
     SegmentBidirectionalTool: makeToolExport('SegmentBidirectional'),

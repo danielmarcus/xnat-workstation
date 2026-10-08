@@ -40,6 +40,8 @@ export enum ToolName {
   Sculptor = 'Sculptor',
   SphereScissors = 'SphereScissors',
   SegmentSelect = 'SegmentSelect',
+  /** Structure toolbox: click a contour to select it; never draws. */
+  StructureSelect = 'StructureSelect',
   RegionSegment = 'RegionSegment',
   RegionSegmentPlus = 'RegionSegmentPlus',
   SegmentBidirectional = 'SegmentBidirectional',
@@ -138,6 +140,7 @@ export const TOOL_DISPLAY_NAMES: Record<ToolName, string> = {
   [ToolName.Sculptor]: 'Sculptor',
   [ToolName.SphereScissors]: 'Sphere Scissors',
   [ToolName.SegmentSelect]: 'Segment Select',
+  [ToolName.StructureSelect]: 'Select ROI',
   [ToolName.RegionSegment]: 'Region Segment',
   [ToolName.RegionSegmentPlus]: 'Region Segment+',
   [ToolName.SegmentBidirectional]: 'Segment Bidir.',
