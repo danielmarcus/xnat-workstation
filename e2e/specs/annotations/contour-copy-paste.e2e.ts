@@ -171,7 +171,8 @@ test('a stroke drawn a few slices from an untouched loaded contour interpolates 
   // Double-click the row (not its name, which renames) to make GTV the active member.
   const rowBox = (await gtvRow.boundingBox())!;
   await gtvRow.dblclick({ position: { x: rowBox.width * 0.55, y: rowBox.height / 2 } });
-  await expect(toolbox.getByText('GTV', { exact: true }), 'GTV is the active member').toBeVisible();
+  // The toolbox header names the active member (the Controls strip repeats it).
+  await expect(toolbox.getByText('GTV', { exact: true }).first(), 'GTV is the active member').toBeVisible();
   await toolbox.getByRole('button', { name: 'Freehand', exact: true }).click();
 
   for (let i = 0; i < 20 && !(await outlines(page)).some((o) => o.stroke === GTV); i++) {
