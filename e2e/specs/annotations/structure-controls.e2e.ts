@@ -44,7 +44,7 @@ test('the Structure Controls strip sets contour thickness and opacity on the dra
   await page.mouse.up();
   await expect.poll(() => outline(page)).not.toBeNull();
   // Clear the just-drawn contour's selection so its width is the style's, not +selected.
-  await toolbox.getByRole('button', { name: 'Select ROI', exact: true }).click();
+  await toolbox.getByRole('button', { name: 'Select', exact: true }).click();
   await page.mouse.click(box.x + 5, box.y + 5);
 
   const thickness = toolbox.getByLabel('Contour thickness');

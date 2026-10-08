@@ -46,7 +46,8 @@ describe('tool catalog mapping', () => {
  *  - Three tools advertised a hotkey; four others had one and never said so.
  */
 describe('catalog presentation contract', () => {
-  const ALL = (['SEG', 'RTSTRUCT', 'SR'] as const).flatMap((k) => toolsForKind(k));
+  // One entry per TOOL: a tool offered in more than one toolbox (Select) is one entry.
+  const ALL = [...new Map((['SEG', 'RTSTRUCT', 'SR'] as const).flatMap((k) => toolsForKind(k)).map((t) => [t.id, t])).values()];
 
   it('every label is unique across the whole catalog', () => {
     const seen = new Map<string, string[]>();

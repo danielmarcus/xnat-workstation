@@ -20,6 +20,7 @@
  *    Circle does not offer a brush radius it ignores.
  */
 import type { ReactNode } from 'react';
+import { SELECT_ARROW_PATH } from '../../lib/selectArrow';
 import type { ContainerKind } from '@shared/types/annotation';
 import { ToolName } from '@shared/types/viewer';
 
@@ -55,6 +56,17 @@ const S = (children: ReactNode, extra?: Record<string, unknown>) => (
   </svg>
 );
 
+/**
+ * The one Select tool, shared by the Segmentation and Structure toolboxes. Its icon is the
+ * cursor's arrow (SELECT_ARROW_PATH), drawn filled at the 24-unit size the cursor uses.
+ */
+const SELECT_TOOL: ToolDef = {
+  id: 'select',
+  label: 'Select',
+  title: 'Click a contour or painted region of the active member to select it (Shift adds); click empty image to clear. For copy and delete; never draws',
+  icon: <svg viewBox="0 0 24 24" width={14} height={14} fill="currentColor" stroke="none"><path d={SELECT_ARROW_PATH} /></svg>,
+};
+
 const SEG_TOOLS: ToolDef[] = [
   { id: 'brush', label: 'Brush', title: 'Add to or remove from the active segment on this slice; hold Shift to invert (B)', needs: ['brushSize', 'editMode'], icon: <svg viewBox="0 0 16 16" width={14} height={14} fill="currentColor" stroke="none"><circle cx="8" cy="8" r="3.2" /></svg> },
   { id: 'threshold', label: 'Threshold', title: 'Paint only where intensity falls inside the window', needs: ['brushSize', 'intensityWindow'], icon: S(<><circle cx="8" cy="8" r="3.8" /><path d="M5 8h6" /></>) },
@@ -69,7 +81,7 @@ const SEG_TOOLS: ToolDef[] = [
   { id: 'regionPlus', label: 'Region+', title: 'Grow a region outward, adapting the boundary as it goes', needs: ['brushSize'], icon: S(<><circle cx="8" cy="8" r="4" strokeDasharray="2 1.3" /><path d="M8 6v4M6 8h4" /></>) },
   { id: 'rectMulti', label: 'Rect Multi', title: 'Drag a rectangle; everything inside it within the intensity window joins the segment', needs: ['intensityWindow'], icon: S(<><rect x="4.5" y="2.5" width="9" height="7" rx="1" /><path d="M2.5 5.5v8h9" /></>) },
   { id: 'contourFill', label: 'Contour Fill', title: 'Draw a boundary; the area it encloses joins the segment', icon: S(<path d="M4 8c0-3 8-3 8 0s-8 3-8 0z" fill="currentColor" fillOpacity={0.25} />) },
-  { id: 'select', label: 'Select', title: 'Click a painted region to make its segment the active one', icon: S(<path d="M4 3l8 5-3.5 1.2L7 13z" />) },
+  SELECT_TOOL,
   { id: 'segBidirectional', label: 'Seg Bidir.', title: 'Measure the active segment\u2019s longest axis and its perpendicular', icon: S(<><ellipse cx="8" cy="8" rx="6" ry="4" strokeDasharray="2 1.3" /><path d="M3.5 8h9M8 4.5v7" /></>) },
 ];
 
@@ -78,7 +90,7 @@ const STRUCTURE_TOOLS: ToolDef[] = [
   { id: 'spline', label: 'Spline', title: 'Place points; a smooth curve is fitted through them', icon: S(<path d="M2 11c3 0 3-6 6-6s3 6 6 6" />) },
   { id: 'livewire', label: 'Livewire', title: 'Trace a boundary that snaps to the nearest image edge', icon: S(<path d="M3 12c2-6 8-6 10 0" />, { strokeDasharray: '2 1.3' }) },
   { id: 'sculptor', label: 'Sculptor', title: 'Push or pull an existing boundary into shape', needs: ['brushSize'], icon: S(<><circle cx="8" cy="8" r="5" /><path d="M8 3v10" /></>) },
-  { id: 'structureSelect', label: 'Select ROI', title: 'Click a contour to select it (for copy or delete); click empty image to clear. Never draws', icon: S(<><path d="M3 2.5l6 3.8-2.6.9-1.2 2.6z" /><circle cx="11" cy="11" r="3" strokeDasharray="2 1.3" /></>) },
+  SELECT_TOOL,
 ];
 
 const MEASUREMENT_TOOLS: ToolDef[] = [
@@ -130,8 +142,7 @@ export const CATALOG_TO_TOOLNAME: Record<string, ToolName> = {
   regionPlus: ToolName.RegionSegmentPlus,
   rectMulti: ToolName.RectangleROIThreshold,
   contourFill: ToolName.LabelmapEditWithContour,
-  select: ToolName.SegmentSelect,
-  structureSelect: ToolName.StructureSelect,
+  select: ToolName.Select,
   segBidirectional: ToolName.SegmentBidirectional,
   // Structure
   freehand: ToolName.FreehandContour,

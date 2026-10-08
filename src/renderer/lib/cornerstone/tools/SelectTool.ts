@@ -1,6 +1,7 @@
 /**
- * Structure "Select": click a contour to select it; click empty image to clear the
- * selection. It never draws and never edits.
+ * "Select" — the one selection tool of both the Structure and the Segmentation toolbox
+ * (unified selection, docs/unified-selection.md). Click a contour to select it; click
+ * empty image to clear the selection. It never draws and never edits.
  *
  * Selecting a contour otherwise meant clicking within a few pixels of its outline with a
  * DRAWING tool — miss, and the same click started a new contour; hold, and it reshaped
@@ -34,8 +35,8 @@ interface HitTool {
   isPointNearTool?: (el: HTMLDivElement, a: unknown, canvas: number[], proximity: number, type: string) => boolean;
 }
 
-export default class ContourSelectTool extends BaseTool {
-  static toolName = 'ContourSelect';
+export default class SelectTool extends BaseTool {
+  static toolName = 'XnatSelect';
 
   constructor(toolProps = {}, defaultToolProps = { supportedInteractionTypes: ['Mouse'], configuration: {} }) {
     super(toolProps, defaultToolProps);

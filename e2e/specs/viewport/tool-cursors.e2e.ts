@@ -97,7 +97,7 @@ test('structure tools show their Cornerstone cursor', async ({ page }) => {
 });
 
 /**
- * The two Select tools (Structure "Select ROI", Segmentation "Select") point at things
+ * The Select tool (one tool, in the Structure and the Segmentation toolbox) points at things
  * rather than draw: their toolbox icon is an arrow, so the cursor is an arrow too (the
  * app's named one — the bare OS arrow means "no cursor set"; see cursor-matrix). They
  * showed the hand (`pointer`), which disagreed with the icon.
@@ -105,14 +105,14 @@ test('structure tools show their Cornerstone cursor', async ({ page }) => {
 test('the Select tools show the arrow cursor, matching their icon', async ({ page }) => {
   await loadFixture(page, 'ct-axial-300', 'panel_0');
   let box = await toolbox(page, 'New Structure (RTSTRUCT)');
-  await box.getByLabel('Select ROI', { exact: true }).click();
+  await box.getByLabel('Select', { exact: true }).click();
   await hover(page, 0);
-  expect(await cursor(page), 'Select ROI').toBe('XnatSelect');
+  expect(await cursor(page), 'Select (Structure)').toBe('XnatSelect');
 
   box = await toolbox(page, 'New Segmentation (SEG)');
   await box.getByLabel('Select', { exact: true }).click();
   await hover(page, 1);
-  expect(await cursor(page), 'Segmentation Select').toBe('XnatSelect');
+  expect(await cursor(page), 'Select (Segmentation)').toBe('XnatSelect');
 });
 
 test('the crosshair cursor is the bare crosshair, with no tool icon beside it', async ({ page }) => {

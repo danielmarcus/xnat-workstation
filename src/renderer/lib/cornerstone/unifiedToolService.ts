@@ -47,7 +47,6 @@ import {
   RectangleScissorsTool,
   SphereScissorsTool,
   SculptorTool,
-  SegmentSelectTool,
   RegionSegmentTool,
   RegionSegmentPlusTool,
   SegmentBidirectionalTool,
@@ -63,7 +62,8 @@ import type { Types as ToolTypes } from '@cornerstonejs/tools';
 import { Enums as CoreEnums, eventTarget } from '@cornerstonejs/core';
 import { cursors as csCursors } from '@cornerstonejs/tools';
 import SafePaintFillTool from './tools/SafePaintFillTool';
-import ContourSelectTool from './tools/ContourSelectTool';
+import SelectTool from './tools/SelectTool';
+import { SELECT_ARROW_PATH, SELECT_ARROW_HOTSPOT } from '../selectArrow';
 import { applySelectedContourStyle } from './selectedStyle';
 import { arrowAnnotateTextCallback } from './arrowAnnotateTextPrompt';
 import { ToolName } from '@shared/types/viewer';
@@ -119,8 +119,7 @@ const UNIFIED_TOOL_MAP: Partial<Record<ToolName, string>> = {
   [ToolName.PaintFill]: SafePaintFillTool.toolName,
   [ToolName.RegionSegment]: RegionSegmentTool.toolName,
   [ToolName.RegionSegmentPlus]: RegionSegmentPlusTool.toolName,
-  [ToolName.SegmentSelect]: SegmentSelectTool.toolName,
-  [ToolName.StructureSelect]: ContourSelectTool.toolName,
+  [ToolName.Select]: SelectTool.toolName,
   // SegmentBidirectional is an ACTION, not a drawing mode — the panel runs it against the
   // active segment rather than binding it to the mouse (see useAnnotationsPanel). It is
   // mapped below so the tool resolves; entering it by free-draw is what used to crash,
@@ -625,7 +624,7 @@ function ensureToolGroup(): ToolTypes.IToolGroup | undefined {
     AngleTool, BidirectionalTool, EllipticalROITool, RectangleROITool, CircleROITool,
     ProbeTool, ArrowAnnotateTool, PlanarFreehandROITool, SplineContourSegmentationTool,
     LivewireContourSegmentationTool, CircleScissorsTool, RectangleScissorsTool,
-    SphereScissorsTool, SafePaintFillTool, SculptorTool, SegmentSelectTool, ContourSelectTool,
+    SphereScissorsTool, SafePaintFillTool, SculptorTool, SelectTool,
     RegionSegmentTool, RegionSegmentPlusTool, SegmentBidirectionalTool,
     RectangleROIThresholdTool, LabelMapEditWithContourTool,
   ];
@@ -802,17 +801,16 @@ function cancelRegionPlusPendingCursor(): void {
  */
 const SELECT_ARROW_SVG =
   '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">'
-  + '<path d="M5 3 L5 19 L9 15 L12 21.5 L14.5 20.4 L11.6 14.2 L17 14.2 Z" fill="#fff" stroke="#000" stroke-width="1.2" stroke-linejoin="round"/>'
+  + `<path d="${SELECT_ARROW_PATH}" fill="#fff" stroke="#000" stroke-width="1.2" stroke-linejoin="round"/>`
   + '</svg>';
-const SELECT_CURSOR = `url("data:image/svg+xml;utf8,${encodeURIComponent(SELECT_ARROW_SVG)}#XnatSelect-pointer") 5 3, default`;
+const SELECT_CURSOR = `url("data:image/svg+xml;utf8,${encodeURIComponent(SELECT_ARROW_SVG)}#XnatSelect-pointer") ${SELECT_ARROW_HOTSPOT[0]} ${SELECT_ARROW_HOTSPOT[1]}, default`;
 
 const CURSOR_FOR_TOOL: Partial<Record<ToolName, string>> = {
   [ToolName.RectangleROIThreshold]: 'crosshair',
   [ToolName.PaintFill]: 'cell',
   [ToolName.RegionSegment]: 'crosshair',
   // The Select tools point at things rather than draw: an arrow, as their icon shows.
-  [ToolName.SegmentSelect]: SELECT_CURSOR,
-  [ToolName.StructureSelect]: SELECT_CURSOR,
+  [ToolName.Select]: SELECT_CURSOR,
   [ToolName.LabelmapEditWithContour]: 'crosshair',
 };
 

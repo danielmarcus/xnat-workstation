@@ -122,7 +122,7 @@ async function twoContours(page: Page) {
 
 test('the Select tool selects a contour, which is drawn thicker; a click on empty image clears it and draws nothing', async ({ page }) => {
   const { toolbox, box } = await twoContours(page);
-  await toolbox.getByRole('button', { name: 'Select ROI', exact: true }).click();
+  await toolbox.getByRole('button', { name: 'Select', exact: true }).click();
   await page.mouse.move(box.x + 5, box.y + 5); // off both contours: no hover highlight
   const [left] = await contourOutlines(page);
 
@@ -158,7 +158,7 @@ test('clicking a Structure member row selects its contour on this slice', async 
   }
   await page.mouse.up();
   await expect.poll(async () => (await contourOutlines(page)).length).toBe(1);
-  await toolbox.getByRole('button', { name: 'Select ROI', exact: true }).click();
+  await toolbox.getByRole('button', { name: 'Select', exact: true }).click();
   await page.mouse.click(box.x + 5, box.y + 5); // empty image: clear the draw's selection
   await expect.poll(async () => (await contourSnapshot(page)).selected).toEqual([]);
   const [before] = await contourOutlines(page);

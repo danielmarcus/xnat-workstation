@@ -498,16 +498,6 @@ export function IconSphereScissors(props: IconProps) {
   );
 }
 
-/** Segment Select — cursor pointer with segment circle */
-export function IconSegmentSelect(props: IconProps) {
-  return (
-    <svg {...defaults(props)}>
-      <path d="M3 2 L3 11 L5.5 8.5 L8 13 L10 12 L7.5 7.5 L11 7.5 Z" fill="currentColor" stroke="none" />
-      <circle cx="12" cy="12" r="3" strokeDasharray="2 1" />
-    </svg>
-  );
-}
-
 /** Region Segment — growing region with center seed */
 export function IconRegionSegment(props: IconProps) {
   return (

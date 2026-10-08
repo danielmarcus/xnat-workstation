@@ -29,7 +29,6 @@ import {
   RectangleScissorsTool,
   SphereScissorsTool,
   SculptorTool,
-  SegmentSelectTool,
   TrackballRotateTool,
   RegionSegmentTool,
   RegionSegmentPlusTool,
@@ -38,7 +37,7 @@ import {
   LabelMapEditWithContourTool,
 } from '@cornerstonejs/tools';
 import SafePaintFillTool from './tools/SafePaintFillTool';
-import ContourSelectTool from './tools/ContourSelectTool';
+import SelectTool from './tools/SelectTool';
 import { utilities as csToolsUtilities } from '@cornerstonejs/tools';
 import { init as initDicomImageLoader } from '@cornerstonejs/dicom-image-loader';
 import { installInterpolationOrientationFix } from './interpolationAcceptance';
@@ -138,8 +137,7 @@ export async function initCornerstone(): Promise<void> {
   addTool(RegionSegmentPlusTool);
 
   // Segmentation tools — utility
-  addTool(SegmentSelectTool);
-  addTool(ContourSelectTool);
+  addTool(SelectTool);
   addTool(SegmentBidirectionalTool);
 
   // 3D volume-rendering interaction (C5c — the MPR layout's fourth slot).
