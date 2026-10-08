@@ -798,8 +798,9 @@ const CURSOR_FOR_TOOL: Partial<Record<ToolName, string>> = {
   [ToolName.RectangleROIThreshold]: 'crosshair',
   [ToolName.PaintFill]: 'cell',
   [ToolName.RegionSegment]: 'crosshair',
-  [ToolName.SegmentSelect]: 'pointer',
-  [ToolName.StructureSelect]: 'pointer',
+  // The Select tools point at things rather than draw: the arrow, as their icon shows.
+  [ToolName.SegmentSelect]: 'default',
+  [ToolName.StructureSelect]: 'default',
   [ToolName.LabelmapEditWithContour]: 'crosshair',
 };
 

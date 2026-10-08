@@ -96,6 +96,24 @@ test('structure tools show their Cornerstone cursor', async ({ page }) => {
   }
 });
 
+/**
+ * The two Select tools (Structure "Select ROI", Segmentation "Select") point at things
+ * rather than draw: their toolbox icon is an arrow, so the cursor is the arrow too. They
+ * showed the hand (`pointer`), which disagreed with the icon.
+ */
+test('the Select tools show the arrow cursor, matching their icon', async ({ page }) => {
+  await loadFixture(page, 'ct-axial-300', 'panel_0');
+  let box = await toolbox(page, 'New Structure (RTSTRUCT)');
+  await box.getByLabel('Select ROI', { exact: true }).click();
+  await hover(page, 0);
+  expect(await cursor(page), 'Select ROI').toBe('default');
+
+  box = await toolbox(page, 'New Segmentation (SEG)');
+  await box.getByLabel('Select', { exact: true }).click();
+  await hover(page, 1);
+  expect(await cursor(page), 'Segmentation Select').toBe('default');
+});
+
 test('the crosshair cursor is the bare crosshair, with no tool icon beside it', async ({ page }) => {
   await loadFixture(page, 'ct-axial-300', 'panel_0');
   await page.locator('button[title="Crosshairs (left-click to sync; left-drag W/L)"]').click();
