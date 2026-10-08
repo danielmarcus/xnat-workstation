@@ -34,7 +34,7 @@ These are A13-class: real behaviors with no signal pinning them. Each needs eith
 | **Gesture-binding edge cases** — cursor/stylus crossing a viewport mid-gesture; deferred focus-switch hotkey | A7, D4 | 4 (lock only) | 🟡 |
 | **A2c auto-classification** (A2b-vs-A2c decision; heuristic is explicitly inconclusive) | A2c | 10 (starts pre-classified) | 🟡 |
 | **Performance budget** ≥30 fps / ≤250 ms — a hard number never measured | D8 | none | 🟡 |
-| Multi-select set behavior; double-click-to-activate; active-without-changing-selection | A11, D7.5 | 8/17 (single only) | 🟡 |
+| ~~Multi-select set behavior; double-click-to-activate; active-without-changing-selection~~ — superseded: one row state, single click activates (D7.5, 2026-10-08) | A11, D7.5 | 8/17 | ✅ |
 | Per-container tri-state visibility; dirty/locked/empty/**conflict** row markers | D7.3/D7.4 | 20/22 (partial) | 🟡 |
 | Container-level membership invariants (rename/recolor/delete propagate to all viewports); Z-order; open-contour render | B6, B7, B8, C4 | none (QA-matrix) | 🟡 |
 | Active-viewport indicator; tool disabled-on-ineligible-viewport; keyboard-scope routing | D1, D3, D5 | none | 🟡 |

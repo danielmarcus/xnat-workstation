@@ -38,7 +38,8 @@ export interface ContainerListHandlers {
   /** Activate a container by clicking its name (no specific member) — switches the
    *  active annotation type + routes new drawing into it. */
   onActivateContainer: (containerId: string) => void;
-  onSelectMember: (containerId: string, memberId: string, additive: boolean) => void;
+  /** Clicking a member row: it becomes the active member (the draw target) — the one
+   *  row state. */
   onActivateMember: (containerId: string, memberId: string) => void;
   onCycleVisibility: (containerId: string, memberId: string) => void;
   onToggleLock: (containerId: string, memberId: string) => void;
@@ -53,7 +54,6 @@ export interface ContainerListHandlers {
 export interface ContainerListResolvers {
   isExpanded: (containerId: string) => boolean;
   isActive: (containerId: string, memberId: string) => boolean;
-  isSelected: (containerId: string, memberId: string) => boolean;
   crossPanelCount?: (containerId: string) => number | undefined;
   /** Live transport state per container (saving / conflict / error indicators). */
   transportOf?: (containerId: string) => RowTransport | undefined;
@@ -139,7 +139,6 @@ export default function ContainerList(props: ContainerListProps) {
                     visibility={(props.visibilityOf ?? defaultVisibility)(m)}
                     lockState={lockState}
                     active={props.isActive(c.id, m.id)}
-                    selected={props.isSelected(c.id, m.id)}
                     provenance={props.provenanceOf?.(c.id, m)}
                     eligibility={eligibility}
                     sourceSeriesLabel={props.sourceSeriesLabelOf?.(c.id, m)}
@@ -150,7 +149,6 @@ export default function ContainerList(props: ContainerListProps) {
                   autoEdit={props.autoEditMemberKey === `${c.id} ${m.id}`}
                     onEditConsumed={props.onEditConsumed}
                     palette={props.palette}
-                    onSelect={(additive) => h.onSelectMember(c.id, m.id, additive)}
                     onActivate={() => h.onActivateMember(c.id, m.id)}
                     onCycleVisibility={() => h.onCycleVisibility(c.id, m.id)}
                     onToggleLock={() => h.onToggleLock(c.id, m.id)}

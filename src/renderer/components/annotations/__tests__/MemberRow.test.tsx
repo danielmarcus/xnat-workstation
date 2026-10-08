@@ -11,13 +11,13 @@ function makeMember(over: Partial<Member> = {}): Member {
 
 function setup(over: Partial<React.ComponentProps<typeof MemberRow>> = {}) {
   const cbs = {
-    onSelect: vi.fn(), onActivate: vi.fn(), onCycleVisibility: vi.fn(),
+    onActivate: vi.fn(), onCycleVisibility: vi.fn(),
     onToggleLock: vi.fn(), onDelete: vi.fn(), onRename: vi.fn(),
   };
   render(
     <MemberRow
-      member={makeMember()} visibility="filled" lockState="unlocked" active={false} selected={false}
-      metric="12 sl" onSelect={cbs.onSelect} onActivate={cbs.onActivate} onCycleVisibility={cbs.onCycleVisibility}
+      member={makeMember()} visibility="filled" lockState="unlocked" active={false}
+      metric="12 sl" onActivate={cbs.onActivate} onCycleVisibility={cbs.onCycleVisibility}
       onToggleLock={cbs.onToggleLock} onDelete={cbs.onDelete} onRename={cbs.onRename} {...over}
     />,
   );
@@ -36,19 +36,16 @@ describe('MemberRow', () => {
     expect(screen.getByTestId('active-indicator')).toBeTruthy();
   });
 
-  it('single-click selects (non-additive); ctrl-click selects additively; double-click activates', async () => {
+  it('a single click activates — the one row state (modifiers do not build a set)', async () => {
     const cbs = setup();
     const row = screen.getByTestId('member-row-1');
 
     fireEvent.click(row);
-    expect(cbs.onSelect).toHaveBeenLastCalledWith(false);
+    expect(cbs.onActivate).toHaveBeenCalledTimes(1);
 
-    cbs.onSelect.mockClear();
-    fireEvent.click(row, { ctrlKey: true });
-    expect(cbs.onSelect).toHaveBeenLastCalledWith(true);
-
-    fireEvent.dblClick(row);
-    expect(cbs.onActivate).toHaveBeenCalled();
+    fireEvent.click(row, { shiftKey: true });
+    expect(cbs.onActivate).toHaveBeenCalledTimes(2);
+    expect(row.hasAttribute('data-selected'), 'no separate selected state').toBe(false);
   });
 
   it('cycles visibility and toggles lock via their controls', async () => {
@@ -80,13 +77,13 @@ describe('MemberRow', () => {
 
   it('disables delete when locked (session or approved) — locked rows are not deletable', () => {
     const { rerender } = render(
-      <MemberRow member={makeMember()} visibility="filled" lockState="locked" active={false} selected={false} onSelect={vi.fn()} onActivate={vi.fn()} onCycleVisibility={vi.fn()} onToggleLock={vi.fn()} onDelete={vi.fn()} onRename={vi.fn()} />,
+      <MemberRow member={makeMember()} visibility="filled" lockState="locked" active={false} onActivate={vi.fn()} onCycleVisibility={vi.fn()} onToggleLock={vi.fn()} onDelete={vi.fn()} onRename={vi.fn()} />,
     );
     expect((screen.getByLabelText('Delete member') as HTMLButtonElement).disabled).toBe(true);
     // ...but the lock button stays clickable so the user can unlock
     expect((screen.getByLabelText('Toggle lock') as HTMLButtonElement).disabled).toBe(false);
 
-    rerender(<MemberRow member={makeMember()} visibility="filled" lockState="approved" active={false} selected={false} onSelect={vi.fn()} onActivate={vi.fn()} onCycleVisibility={vi.fn()} onToggleLock={vi.fn()} onDelete={vi.fn()} onRename={vi.fn()} />);
+    rerender(<MemberRow member={makeMember()} visibility="filled" lockState="approved" active={false} onActivate={vi.fn()} onCycleVisibility={vi.fn()} onToggleLock={vi.fn()} onDelete={vi.fn()} onRename={vi.fn()} />);
     expect((screen.getByLabelText('Delete member') as HTMLButtonElement).disabled).toBe(true);
   });
 

@@ -19,7 +19,7 @@ const noopHandlers: ContainerListHandlers = {
   onResolveConflict: vi.fn(),
   onKebab: vi.fn(), onSetAllVisible: vi.fn(), onSetAllLocked: vi.fn(),
   onExportContainerDicom: vi.fn(), onExportContainerCsv: vi.fn(),
-  onDeleteContainer: vi.fn(), onRenameContainer: vi.fn(), onSelectMember: vi.fn(),
+  onDeleteContainer: vi.fn(), onRenameContainer: vi.fn(),
   onActivateContainer: vi.fn(),
   onActivateMember: vi.fn(), onCycleVisibility: vi.fn(), onToggleLock: vi.fn(), onDeleteMember: vi.fn(),
   onRenameMember: vi.fn(), onColorChange: vi.fn(),
@@ -32,7 +32,6 @@ function renderList(expanded: boolean, over: Partial<React.ComponentProps<typeof
       handlers={noopHandlers}
       isExpanded={() => expanded}
       isActive={(cid, mid) => cid === 'rt-1' && mid === '1'}
-      isSelected={() => false}
       {...over}
     />,
   );

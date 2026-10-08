@@ -145,7 +145,7 @@ Adding, removing, splitting, or rearranging viewports must not create, destroy, 
 ### A11. Selection consistency
 Selecting a structure (click, list-panel pick) selects it globally. All eligible viewports show the selection highlight on the same object simultaneously.
 
-Selection is a **set**, not a single value: multi-select via shift/ctrl-click in the list panel adds to the set (per D7.5); each selected member is highlighted on all eligible viewports. Single-click in the list or single-click on canvas replaces the selection. Selection is independent of the active member (D7.5).
+~~Selection is a **set**, not a single value: multi-select via shift/ctrl-click in the list panel adds to the set (per D7.5); each selected member is highlighted on all eligible viewports. Single-click in the list or single-click on canvas replaces the selection. Selection is independent of the active member (D7.5).~~ **Superseded 2026-10-08 (one row state, see D7.5):** a row click makes the member active and selects it; there is no selection set and no shift/ctrl multi-select. Selecting on the canvas (a click with the Structure "Select ROI" tool, or a just-finished stroke) is Cornerstone's annotation selection, which is what copy/delete act on.
 
 ### A12. Concurrency safety on rapid layout churn
 Mounting/unmounting viewports rapidly (orientation toggles, MPR ↔ stack, layout grid changes) must not lose attachments, leak representations, or produce stale "ghost" structures. The end state is determined solely by the current set of mounted viewports and the FoR-eligibility rule.
@@ -397,13 +397,23 @@ Hovering a row reveals a tooltip with extended metadata: SOPInstanceUID of the s
 - **Empty marker** for members with no geometry (e.g., a freshly created ROI before the first stroke).
 - **Conflict marker** when an external change (E3) is detected for the container.
 
-#### D7.5 Selection vs active
-The panel distinguishes two states a member can be in:
+#### D7.5 Selection vs active — one row state (revised 2026-10-08)
+A member row has **one** state: **active**. A single click on the row makes that member active — the structure/segment the drawing tools write into, named in the toolbox header, marked by the blue left bar and the "pen" dot. Exactly one member is active globally (A6). The same click also selects the member on the image where it has an annotation there (a measurement, or a Structure's contour on the current slice), which is what copy/delete act on and what is drawn in the selected style.
 
-- **Active**: the structure/segment that drawing tools will write to. Setting active is an explicit click on a "make active" affordance (e.g., color swatch, or a dedicated radio control). Exactly one member is active globally at all times (per A6).
-- **Selected**: the member is highlighted for inspection — its row is visually emphasized in the list, and its rendering on all eligible viewports gets the selection treatment (per A11). Multiple members can be selected simultaneously (multi-select via shift/ctrl click) for bulk operations. The selection set is independent of which member is active.
+There is no separate "selected" row state and no shift/ctrl multi-select. Double-clicking a member's **name** renames it (D7.6).
 
-Single-clicking a row selects it (replacing any prior selection). Double-clicking activates it (and selects it). Clicking the active indicator on a different row activates it without changing the selection set.
+> **Why it changed.** The original model had two blue row states — single-click "selected" (a ring) for multi-member bulk operations, and double-click "active" (the left bar). The bulk operations were never built, so a single click changed neither the toolbox nor the brush and read as a state that did nothing; two blue treatments confused which row was the draw target. If bulk operations are built later, multi-select should be reintroduced with them, as an explicitly different affordance.
+>
+> Original text, for reference:
+>
+> The panel distinguishes two states a member can be in:
+>
+> - **Active**: the structure/segment that drawing tools will write to. Setting active is an explicit click on a "make active" affordance (e.g., color swatch, or a dedicated radio control). Exactly one member is active globally at all times (per A6).
+> - **Selected**: the member is highlighted for inspection — its row is visually emphasized in the list, and its rendering on all eligible viewports gets the selection treatment (per A11). Multiple members can be selected simultaneously (multi-select via shift/ctrl click) for bulk operations. The selection set is independent of which member is active.
+>
+> Single-clicking a row selects it (replacing any prior selection). Double-clicking activates it (and selects it). Clicking the active indicator on a different row activates it without changing the selection set.
+>
+>
 
 #### D7.6 Actions available from the list
 
@@ -441,7 +451,7 @@ Session-level (the three create actions + save-all; create actions are **present
 - Save all dirty containers.
 - **Loading is automatic, not a panel action.** Existing annotation containers for the selected session/scan load into the panel via the transport layer when the user selects that scan in the XNAT Browser (auto-load — formalized in transport B5). There is **no** separate manual "load from XNAT" affordance in the panel.
 
-Bulk (on multi-selected members):
+Bulk (on multi-selected members) — **not built; multi-select was removed with the one-state row model (D7.5, 2026-10-08)**:
 - Toggle visibility / lock together.
 - Delete together.
 - Recolor together.
@@ -590,7 +600,7 @@ A successful implementation passes these expert-user smoke tests:
 30. **Contour Fill — must-fix (C3).** With `LabelMapEditWithContourTool`, draw a freehand/polygon boundary on a slice; the enclosed region **rasterizes into the active segment** (boundary-then-fill, not voxel-by-voxel). Respects active-segment lock + overlap policy; undo reverts the fill as **one** entry. (This tool is currently broken; the signal is its Phase-5 fix gate.)
 31. **List-panel actions (D7.6).** From the panel: **double-click** a container/member name → inline edit (Enter commits, Esc cancels); **create** lands in edit mode with the default name pre-selected; the per-container **save-now** icon is enabled only when dirty and clears dirty on success; **revert** (dirty) discards to last-saved after confirm; **hide-all/show-all** drives the container's tri-state visibility (all/some/none); **jump-to-first-slice** navigates the target viewport to the member's first geometry; **show-only-this** hides siblings; **move-to-container** relocates a member (SEG→SEG / RTSTRUCT→RTSTRUCT only); **Export to DICOM** writes a standalone file and **Export to CSV** writes per-member metrics. An **approved** container disables add/delete/rename/move/save.
 32. **Measurement (SR) container — first-class peer (D7.1).** Create a Measurement container; draw measurements (length/angle/bidirectional/ROI/probe/arrow). Each appears as a **member row** with value + unit, color swatch, and the standard visibility/lock/select/active/delete controls; the active measurement is the draw target. Save as DICOM-SR (TID 1500) and reload — measurements round-trip (value + geometry). *(Scope: panel/container behavior + basic SR round-trip; detailed SR-template / per-measurement fidelity is the D7.1 skeleton, filled before measurement implementation.)*
-33. **Selection model (A11, D7.5).** Single-click a member (list or canvas) selects it globally — highlighted on **all** eligible viewports; clicking another **replaces** the selection; shift/ctrl-click builds a selection **set** (all highlighted). **Double-click activates** a member (the draw target) **without** disturbing the selection; selection and active are independent. Clicking empty canvas clears selection on all panels. (Complements 8, 17.)
+33. **Selection model (A11, D7.5 — revised 2026-10-08).** A single click on a member row makes it **active** (the draw target the toolbox names) and selects it on the image where it has an annotation there; there is one row state and no multi-select. A click on the canvas with the Structure "Select ROI" tool selects a contour; a click on empty canvas clears it. (Complements 8, 17.) ~~**Selection model (A11, D7.5).** Single-click a member (list or canvas) selects it globally — highlighted on **all** eligible viewports; clicking another **replaces** the selection; shift/ctrl-click builds a selection **set** (all highlighted). **Double-click activates** a member (the draw target) **without** disturbing the selection; selection and active are independent. Clicking empty canvas clears selection on all panels. (Complements 8, 17.)~~
 34. **Drag & gesture continuity (D4, A7).** Start a handle drag (or brush/scissor gesture) in panel A and move the cursor across panel B before release — the gesture **completes in A**; B never hijacks it. A hotkey that would switch the active viewport mid-gesture is **deferred** until gesture end. No partial geometry, no stale edit target.
 35. **Tool affordance + keyboard scoping (D1, D3, D5).** The active (focused) viewport shows its indicator. A tool not meaningful on the active viewport (e.g., a contour tool with no FoR-matched volume) renders **disabled / no-op**, not silently misapplied. **Global** shortcuts (undo/redo, save, active-segment, active-tool) fire the same action regardless of which panel/the list is focused; **view** shortcuts (slice, zoom, W/L, rotate) act on the active panel only.
 36. **A2c auto-classification (A2c).** Two same-FoR series differing only in `AcquisitionNumber`, no anatomical displacement → structures from one **render by default** on the other (A2b); `AcquisitionNumber` alone never hides. Two same-FoR series where a bulk-anatomy displacement is detected (breath-hold / 4D phases) → structures are **off by default** (A2c), toggleable on. When the displacement check is inconclusive, the decision **defaults to show**.

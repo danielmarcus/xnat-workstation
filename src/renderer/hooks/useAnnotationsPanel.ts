@@ -148,7 +148,6 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
   }, [modality, thresholdRangeModality]);
 
   const activeMember = useAnnotationSelectionStore((s) => s.activeMember);
-  const selection = useAnnotationSelectionStore((s) => s.selection);
   // The actually-active Cornerstone tool — the toolbox highlights its catalog id
   // (honest: only tools that really activated show as active).
   const activeTool = useViewerStore((s) => s.activeTool);
@@ -394,10 +393,7 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
     const isMeasurement =
       containerId.startsWith('sr:') || containers.find((c) => c.id === containerId)?.kind === 'SR';
     if (!isMeasurement) return;
-    const stillSelected = useAnnotationSelectionStore
-      .getState()
-      .selection.some((r) => r.containerId === containerId && r.memberId === memberId);
-    annotationService.selectAnnotation(stillSelected ? memberId : null);
+    annotationService.selectAnnotation(memberId);
   };
 
   /**
@@ -630,20 +626,15 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
       // viewport rather than leaving it stranded in the panel.
       hotkeyService.focusActiveViewport();
     },
-    onSelectMember: (cid, mid, additive) => {
-      const sel = useAnnotationSelectionStore.getState();
-      if (additive) sel.toggleSelected(cid, mid);
-      else sel.selectOnly(cid, mid);
-      syncMeasurementHighlight(cid, mid);
-      // A Structure member: select its contour on this slice on the viewport too, as a
-      // measurement row does — what Ctrl+C / delete act on, drawn as selected.
-      if (containers.find((c) => c.id === cid)?.kind === 'RTSTRUCT' && Number.isInteger(Number(mid))) {
-        segmentationService.selectMemberContourOnCurrentSlice(cid, Number(mid), additive);
-      }
-    },
     onActivateMember: (cid, mid) => {
-      activateAndBridge(cid, mid);
+      // One row state: a click makes the member active (the draw target the toolbox
+      // names) and selects it — on the image too, where it has an annotation there:
+      // a measurement, or a Structure's contour on this slice (what Ctrl+C / delete act on).
+      activateAndBridge(cid, mid); // activate() also makes it the selection
       syncMeasurementHighlight(cid, mid);
+      if (containers.find((c) => c.id === cid)?.kind === 'RTSTRUCT' && Number.isInteger(Number(mid))) {
+        segmentationService.selectMemberContourOnCurrentSlice(cid, Number(mid));
+      }
     },
     onActivateContainer: (cid) => {
       // Clicking a container's name activates it (no specific member): switches the
@@ -963,7 +954,6 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
     // selection / expand resolvers
     isExpanded: (id: string) => !collapsed.has(id),
     isActive: (cid: string, mid: string) => activeMember?.containerId === cid && activeMember?.memberId === mid,
-    isSelected: (cid: string, mid: string) => selection.some((r) => r.containerId === cid && r.memberId === mid),
     metricOf,
     provenanceOf,
     emptyOf,

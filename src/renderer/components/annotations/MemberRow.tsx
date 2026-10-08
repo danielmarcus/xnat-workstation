@@ -3,7 +3,7 @@
  * Presentational. Color swatch · name (double-click → inline rename) · provenance
  * marker (auto/imported) · geometry summary · active dot (the "pen") · 3-state
  * visibility eye · lock (open/amber-closed/green-closed) · delete "✕". Active rows
- * get a blue left accent + tint; selected rows a ring; cross-series rows dim with a
+ * get a blue left accent + tint (the one row state — a click activates); cross-series rows dim with a
  * source-series link (read-only here, D9); different-FoR rows show "not viewable
  * here" (A2d). Behaviour injected via callbacks.
  */
@@ -22,7 +22,6 @@ export interface MemberRowProps {
   /** open shackle (gray) / closed (amber) / approved (green). */
   lockState: 'unlocked' | 'locked' | 'approved';
   active: boolean;
-  selected: boolean;
   provenance?: MemberProvenance;
   eligibility?: MemberEligibility;
   /** Source series label for a cross-series (non-native) member, e.g. "T1 SAG". */
@@ -49,7 +48,7 @@ export interface MemberRowProps {
   onEditConsumed?: () => void;
   /** Settings color sequence (palette swatches offered in the color picker). */
   palette?: [number, number, number, number][];
-  onSelect: (additive: boolean) => void;
+  /** Click on the row: make this member active (the draw target). */
   onActivate: () => void;
   onCycleVisibility: () => void;
   onToggleLock: () => void;
@@ -83,8 +82,8 @@ function hexToRgba(hex: string): [number, number, number, number] | null {
 
 export default function MemberRow(props: MemberRowProps) {
   const {
-    member, visibility, lockState, active, selected, provenance, eligibility = 'native',
-    sourceSeriesLabel, metric, empty, capturing, capturedDraft, autoEdit, onEditConsumed, palette, onSelect, onActivate, onCycleVisibility, onToggleLock, onDelete, onRename, onCommitName, onColorChange,
+    member, visibility, lockState, active, provenance, eligibility = 'native',
+    sourceSeriesLabel, metric, empty, capturing, capturedDraft, autoEdit, onEditConsumed, palette, onActivate, onCycleVisibility, onToggleLock, onDelete, onRename, onCommitName, onColorChange,
   } = props;
 
   const differentFor = eligibility === 'different-for';
@@ -126,10 +125,9 @@ export default function MemberRow(props: MemberRowProps) {
   const rowClasses = [
     'flex items-center gap-2 pl-6 pr-2 py-1.5',
     active ? 'border-l-2 border-blue-500 bg-blue-900/10' : '',
-    selected && !active ? 'ring-1 ring-inset ring-blue-500/60 bg-blue-900/10' : '',
     crossSeries ? 'opacity-80' : '',
     differentFor ? 'opacity-50' : '',
-    !active && !selected ? 'hover:bg-zinc-800/50' : '',
+    !active ? 'hover:bg-zinc-800/50' : '',
   ].filter(Boolean).join(' ');
 
   return (
@@ -137,9 +135,7 @@ export default function MemberRow(props: MemberRowProps) {
       className={rowClasses}
       data-testid={`member-row-${member.id}`}
       data-active={active}
-      data-selected={selected}
-      onClick={(e) => onSelect(e.ctrlKey || e.metaKey || e.shiftKey)}
-      onDoubleClick={onActivate}
+      onClick={onActivate}
     >
       {colorEditable ? (
         <span className="relative shrink-0 flex items-center">
@@ -210,7 +206,7 @@ export default function MemberRow(props: MemberRowProps) {
           className={`text-[11px] truncate ${
             capturing
               ? 'text-zinc-100 bg-zinc-800 px-1 rounded ring-1 ring-blue-500'
-              : differentFor ? 'text-zinc-400 line-through decoration-zinc-600' : active || selected ? 'text-zinc-100' : 'text-zinc-300'
+              : differentFor ? 'text-zinc-400 line-through decoration-zinc-600' : active ? 'text-zinc-100' : 'text-zinc-300'
           }`}
           data-capturing={capturing ? 'true' : undefined}
           onDoubleClick={(e) => { e.stopPropagation(); if (!readOnly) setEditing(true); }}
