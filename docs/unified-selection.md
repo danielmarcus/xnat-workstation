@@ -31,7 +31,7 @@ top-to-bottom; each step lands with a real-UI E2E seen red first, and its own co
 - [x] **S1 One Select tool.** Shared catalog entry in both toolboxes; icon and cursor drawn
       from one arrow glyph; Segment Select removed. E2E: both toolboxes offer "Select" with
       the same icon path as the cursor; the cursor is the named arrow.
-- [ ] **S2 Contour components.** Select tool on a contour of the active ROI selects it;
+- [x] **S2 Contour components.** Select tool on a contour of the active ROI selects it;
       Shift-click adds; a contour of another ROI makes that ROI active (panel row) and selects
       it; click empty clears; changing slice clears. Row click selects the member's
       components on this slice.

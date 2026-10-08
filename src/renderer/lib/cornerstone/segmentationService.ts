@@ -62,6 +62,7 @@ import { useTransportStore } from '../../stores/transportStore';
 import { useAnnotationSelectionStore } from '../../stores/annotationSelectionStore';
 import { rtStructService } from './rtStructService';
 import * as contourRep from './contourRepresentation';
+import { installComponentSelection } from './componentSelection';
 import * as sourceImageTracking from './sourceImageTracking';
 import * as mlg from './multiLayerGroup';
 import * as interpolationAcceptance from './interpolationAcceptance';
@@ -98,7 +99,7 @@ import {
   clonePolyline,
   cloneHandlesWithOffset,
 } from './segmentationService/contourGeometry';
-import { createUndoHistory } from './segmentationService/undoHistory';
+import { createUndoHistory, type HistoryMemoEntry } from './segmentationService/undoHistory';
 import { createPerContainerHistory } from './segmentationService/perContainerHistory';
 import { createSaveQueue, type SaveOutcome } from './segmentationService/saveQueue';
 import { createVisibilityControls } from './segmentationService/visibility';
@@ -1065,6 +1066,15 @@ function syncSelectedContourAnnotation(evt?: Event): void {
   useSegmentationStore.getState().setActiveSegmentation(segmentationId);
   segmentationService.setActiveSegmentIndex(segmentationId, segmentIndex);
   segmentationService.activateOnViewport(viewerState.activeViewportId, segmentationId);
+  // The panel follows: a selected contour's ROI is the active member (the selection
+  // lives inside the active member — docs/unified-selection.md). Without this, selecting
+  // another ROI's contour switched Cornerstone but left the panel, undo and the draw
+  // guard on the old member.
+  const active = useAnnotationSelectionStore.getState().activeMember;
+  const memberId = String(segmentIndex);
+  if (active?.containerId !== segmentationId || active.memberId !== memberId) {
+    useAnnotationSelectionStore.getState().activate(segmentationId, memberId);
+  }
 }
 
 // ─── Segmentation Type Detection ─────────────────────────────────
@@ -1456,6 +1466,8 @@ export const segmentationService = {
       DefaultHistoryMemo.size = 200;
     }
     installHistoryMemoTracking();
+    // The image selection stays inside the active member, on the current slice.
+    installComponentSelection();
 
     // Wire source-image-ID auto-cleanup. Subscribes to SEGMENTATION_REMOVED
     // so tracked entries for real Cornerstone segmentations are reaped even
@@ -1962,22 +1974,22 @@ export const segmentationService = {
    * Returns true when a contour annotation is available for paste.
    */
   /**
-   * Select a Structure member's contour on the active viewport's current slice — the
-   * panel row's click, so the member it names is what Ctrl+C / delete act on and is
-   * drawn as selected. `additive` keeps the existing selection. Returns false (and
-   * leaves the selection alone) when the member has no contour on this slice.
+   * Select all of a Structure member's contours on the active viewport's current slice —
+   * the panel row's click, so its components are what Ctrl+C / delete act on and are
+   * drawn as selected. Returns false (and leaves the selection alone) when the member
+   * has no contour on this slice.
    */
-  selectMemberContourOnCurrentSlice(segmentationId: string, segmentIndex: number, additive = false): boolean {
+  selectMemberContourOnCurrentSlice(segmentationId: string, segmentIndex: number): boolean {
     const imageId = getCurrentImageIdForActiveViewport();
     if (!imageId) return false;
-    const uid = Array.from(contourRep.getAnnotationUIDs(segmentationId, segmentIndex) ?? []).find((candidate) => {
+    const uids = Array.from(contourRep.getAnnotationUIDs(segmentationId, segmentIndex) ?? []).filter((candidate) => {
       const annotation = csAnnotation.state.getAnnotation?.(candidate) as
         | { parentAnnotationUID?: string; metadata?: { referencedImageId?: string } }
         | undefined;
       return !!annotation && !annotation.parentAnnotationUID && annotation.metadata?.referencedImageId === imageId;
     });
-    if (!uid) return false;
-    csAnnotation.selection.setAnnotationSelected?.(uid, true, additive);
+    if (uids.length === 0) return false;
+    uids.forEach((uid, i) => csAnnotation.selection.setAnnotationSelected?.(uid, true, i > 0));
     return true;
   },
 
@@ -3985,6 +3997,15 @@ export const segmentationService = {
     // active container (legacy brush flow / E2E) it falls back to the global ring.
     const acid = activeUndoContainerId();
     if (acid) {
+      // The same lock guard as the global ring: undoing into a locked segment is blocked.
+      // (It used to apply only on the global path, so with a member active — the normal
+      // case — undo edited locked segments.)
+      const locked = getLockedHistoryTargets(perContainerHistory.peekUndo(acid) as HistoryMemoEntry);
+      if (locked.length > 0) {
+        showHistoryBlockedDialog('undo', locked);
+        refreshUndoState();
+        return;
+      }
       if (perContainerHistory.undo(acid)) {
         syncSegmentations();
         renderAllSegmentationViewports();
@@ -4016,6 +4037,12 @@ export const segmentationService = {
   redo(): void {
     const acid = activeUndoContainerId();
     if (acid) {
+      const locked = getLockedHistoryTargets(perContainerHistory.peekRedo(acid) as HistoryMemoEntry);
+      if (locked.length > 0) {
+        showHistoryBlockedDialog('redo', locked);
+        refreshUndoState();
+        return;
+      }
       if (perContainerHistory.redo(acid)) {
         syncSegmentations();
         renderAllSegmentationViewports();

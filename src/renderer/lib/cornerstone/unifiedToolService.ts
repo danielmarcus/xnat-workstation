@@ -1236,7 +1236,8 @@ export const unifiedToolService = {
     const bindings: Array<{ mouseButton: number; modifierKey?: number }> = [
       { mouseButton: Primary },
     ];
-    if (EDIT_MODE_TOOLS.has(toolName)) {
+    // Select needs it too: Shift-click adds to (or removes from) the selection.
+    if (EDIT_MODE_TOOLS.has(toolName) || toolName === ToolName.Select) {
       bindings.push({ mouseButton: Primary, modifierKey: ShiftModifier });
     }
     toolGroup.setToolActive(csName, { bindings });

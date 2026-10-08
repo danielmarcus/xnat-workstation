@@ -69,6 +69,10 @@ export interface PerContainerHistory {
    */
   replaceTop(condition: (memo: ContainerHistoryMemo) => boolean, memo: ContainerHistoryMemo): boolean;
   /** Undo the last edit of one container. Returns false if nothing to undo. */
+  /** The entry `undo(containerId)` would apply next, without applying it. */
+  peekUndo(containerId: string): ContainerHistoryMemo | undefined;
+  /** The entry `redo(containerId)` would apply next, without applying it. */
+  peekRedo(containerId: string): ContainerHistoryMemo | undefined;
   undo(containerId: string): boolean;
   /** Redo the last undone edit of one container. Returns false if nothing to redo. */
   redo(containerId: string): boolean;
@@ -165,6 +169,8 @@ export function createPerContainerHistory(deps: PerContainerHistoryDeps): PerCon
   return {
     record,
     replaceTop,
+    peekUndo: (id) => { const s = byContainer.get(id); return s?.undo[s.undo.length - 1]; },
+    peekRedo: (id) => { const s = byContainer.get(id); return s?.redo[s.redo.length - 1]; },
     undo,
     redo,
     canUndo: (id) => (byContainer.get(id)?.undo.length ?? 0) > 0,
