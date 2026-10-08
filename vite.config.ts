@@ -23,6 +23,14 @@ export default defineConfig({
     outDir: '../../dist/renderer',
     emptyOutDir: true,
     sourcemap: true,
+    commonjsOptions: {
+      // @oozcitak/dom (Cornerstone 5 → vtk.js → xmlbuilder2) is CommonJS with circular
+      // requires. Hoisted, their initialisation order varied between builds of the SAME
+      // source, and some bundles crashed at start-up ("Object.defineProperty called on
+      // non-object" in AttrAlgorithm) before any app code ran. Strict requires keep each
+      // require lazy and in source order.
+      strictRequires: ['**/node_modules/@oozcitak/**'],
+    },
   },
   server: {
     port: 5173,
