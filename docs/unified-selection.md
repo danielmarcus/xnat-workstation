@@ -1,7 +1,18 @@
 # Unified selection — Structures and Segmentations (branch `unified-selection`)
 
-**Status:** in progress (started 2026-10-08). Living doc: the ordered plan below is executed
-top-to-bottom; each step lands with a real-UI E2E seen red first, and its own commit.
+**Status:** done (2026-10-08), on branch `unified-selection`. Each step landed with a real-UI
+E2E seen red first, its own commit, and mutation checks that the spec fails without the change.
+
+**Implementation notes.** Copy with nothing selected falls back to the active member's components
+on the slice (so paint → Ctrl+C keeps working); Delete has no fallback. A locked segment can be
+selected (and copied) but not pasted into or deleted from. Found and fixed on the way: the panel
+did not follow a contour selected on the image (now `segmentationService.activateMemberFromImage`);
+Shift-click never reached the Select tool (Cornerstone binds by exact modifier); per-container
+undo/redo — the normal path — skipped the locked-segment guard; contour delete and mask paste
+recorded no undo at all; v5's union dropped selected neighbours of a stroke from the selection.
+Specs: `annotations/select-tool`, `contour-components`, `mask-islands`; units `maskIslands`,
+`perContainerHistory` (groups). Island outlines assume an acquisition-plane view (the slice is a
+constant grid index); on an oblique MPR reformat the island is taken along the closest grid axis.
 
 ## Decisions (user, 2026-10-08)
 
@@ -43,4 +54,4 @@ top-to-bottom; each step lands with a real-UI E2E seen red first, and its own co
 - [x] **S5 Mask copy/paste.** Ctrl+C copies the selected islands of this slice (2D, not the
       whole 3D segment as before); Ctrl+V pastes them onto the current slice; undoable.
 - [x] **S6 Mask delete.** Delete erases the selected islands; undoable.
-- [ ] **S7 Docs.** Requirements/design/CLAUDE.md updated; this doc marked done.
+- [x] **S7 Docs.** Requirements/design/CLAUDE.md updated; this doc marked done.

@@ -514,7 +514,7 @@ Six phases. Each lands as a series of small PRs. Each ships behind a feature fla
 - Hierarchy with container + member rows; expand/collapse.
 - Per-row metadata: provenance indicator, visibility mode (3-state), lock, active, selection, cross-series, different-FoR, interpolated, empty markers. (No ROI-type badge — removed per review; `RTROIInterpretedType` is preserved on round-trip but not surfaced/edited, per D7.2.)
 - Container-level: dirty marker, approval indicator, add-member button (disabled when approved), save/revert/export actions.
-- Selection model: **one row state** (revised 2026-10-08, requirements D7.5) — a single click activates the member and selects it on the image; no multi-select (bulk operations not built).
+- Selection model: **one row state** (revised 2026-10-08, requirements D7.5) — a single click activates the member and selects it on the image; no panel multi-select. On the image, Shift-click with the Select tool selects several components (contours / mask islands) of the active member on the current slice, for copy/paste/delete — see `unified-selection.md`.
 - Load-order list + drag-reorder, scoped to the focused viewport (no filter / search / sort — removed per review, D7.7; the "Active only" toggle stays removed, but because focus is now the filter — see `viewport-scoped-annotations-proposal.md`).
 - Hover sync with viewports (D7.8).
 - Empty / loading / parse-error states (D7.9).

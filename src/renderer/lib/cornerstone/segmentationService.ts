@@ -1411,6 +1411,21 @@ let initialized = false;
 
 // ─── Public API ─────────────────────────────────────────────────
 
+/** The active member's contours on the active viewport's current slice — when it is a
+ *  Structure ROI; empty otherwise. */
+function activeMemberContoursOnSlice(): string[] {
+  const active = useAnnotationSelectionStore.getState().activeMember;
+  const segmentIndex = Number(active?.memberId);
+  const imageId = getCurrentImageIdForActiveViewport();
+  if (!active || !imageId || !Number.isInteger(segmentIndex) || segmentIndex <= 0) return [];
+  return Array.from(contourRep.getAnnotationUIDs(active.containerId, segmentIndex) ?? []).filter((uid) => {
+    const ann = csAnnotation.state.getAnnotation?.(uid) as
+      | { parentAnnotationUID?: string; metadata?: { referencedImageId?: string } }
+      | undefined;
+    return !!ann && !ann.parentAnnotationUID && ann.metadata?.referencedImageId === imageId;
+  });
+}
+
 /** One clipboard entry for a contour annotation, or null when it cannot be copied. */
 function buildContourClipboardEntry(annotation: any): ContourClipboardEntry | null {
   const segmentationId = annotation.data.segmentation.segmentationId!;
@@ -2336,10 +2351,14 @@ export const segmentationService = {
 
   /**
    * Copy every selected contour (the selection is the active member's components on this
-   * slice — docs/unified-selection.md) to the contour clipboard.
+   * slice — docs/unified-selection.md) to the contour clipboard. With none selected, the
+   * active ROI's contours on this slice (as mask copy falls back to the active segment's
+   * islands).
    */
   copySelectedContourAnnotation(): boolean {
-    const entries = (csAnnotation.selection.getAnnotationsSelected?.() ?? [])
+    let uids = csAnnotation.selection.getAnnotationsSelected?.() ?? [];
+    if (uids.length === 0) uids = activeMemberContoursOnSlice();
+    const entries = uids
       .map((uid) => csAnnotation.state.getAnnotation?.(uid) as any)
       .filter((annotation) => isContourAnnotation(annotation) && !(annotation as { parentAnnotationUID?: string }).parentAnnotationUID)
       .map((annotation) => buildContourClipboardEntry(annotation))

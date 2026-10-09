@@ -185,3 +185,17 @@ test('Delete removes every selected contour, and one undo brings them all back',
   await page.locator('button[title^="Redo"]').click();
   await expect.poll(async () => (await outlines(page)).length, { message: 'redo deletes them again' }).toBe(0);
 });
+
+test('with nothing selected, Ctrl+C copies the active ROI\'s contours on this slice', async ({ page }) => {
+  const { toolbox, box } = await structure(page);
+  await loop(page, 0.3, 0.5);
+  await loop(page, 0.7, 0.5);
+  await pickSelect(page, toolbox, box); // ends with an empty selection
+
+  await page.keyboard.press('Control+c');
+  const from = (await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.getActiveContourSnapshot('panel_0'))).currentSliceIndex ?? 0;
+  for (let i = 0; i < 3; i++) await page.keyboard.press('ArrowDown');
+  await expect.poll(async () => (await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.getActiveContourSnapshot('panel_0'))).currentSliceIndex).toBe(from + 3);
+  await page.keyboard.press('Control+v');
+  await expect.poll(async () => (await outlines(page)).length, { message: 'both of the ROI\'s contours are pasted' }).toBe(2);
+});

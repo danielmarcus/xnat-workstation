@@ -400,7 +400,9 @@ Hovering a row reveals a tooltip with extended metadata: SOPInstanceUID of the s
 #### D7.5 Selection vs active — one row state (revised 2026-10-08)
 A member row has **one** state: **active**. A single click on the row makes that member active — the structure/segment the drawing tools write into, named in the toolbox header, marked by the blue left bar and the "pen" dot. Exactly one member is active globally (A6). The same click also selects the member on the image where it has an annotation there (a measurement, or a Structure's contour on the current slice), which is what copy/delete act on and what is drawn in the selected style.
 
-There is no separate "selected" row state and no shift/ctrl multi-select. Double-clicking a member's **name** renames it (D7.6).
+There is no separate "selected" row state and no shift/ctrl multi-select **in the panel**. Double-clicking a member's **name** renames it (D7.6).
+
+**On the image** (revised 2026-10-08 — [`unified-selection.md`](unified-selection.md)): the selection is *components of the active member on the current slice* — contours of the active ROI, or islands (connected painted regions) of the active segment. The **Select** tool, in both the Structure and the Segmentation toolbox, clicks a component to select it, Shift-clicks to add/remove one, and clicks empty image to clear; clicking a component of another member makes that member active. Changing slice or active member clears it. Ctrl+C, Ctrl+V and Delete act on it, each as one undo step.
 
 > **Why it changed.** The original model had two blue row states — single-click "selected" (a ring) for multi-member bulk operations, and double-click "active" (the left bar). The bulk operations were never built, so a single click changed neither the toolbox nor the brush and read as a state that did nothing; two blue treatments confused which row was the draw target. If bulk operations are built later, multi-select should be reintroduced with them, as an explicitly different affordance.
 >
