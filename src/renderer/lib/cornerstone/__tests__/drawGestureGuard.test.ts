@@ -35,9 +35,10 @@ describe('evaluateDrawBlock', () => {
   it('blocks a press when the active segment is locked', () => {
     const r = evaluateDrawBlock({ activeTool: ToolName.FreehandContour, activeContainerId: 'c1', decide: allow, viewportId: 'p0', isActiveSegmentLocked: () => true });
     expect(r.block).toBe(true);
+    expect(r.locked).toBe('active');
   });
 
-  it('does not block a press on an existing editable annotation, even with the active segment locked', () => {
+  it('does not block a press on an existing unlocked annotation, even with the active segment locked', () => {
     // A loaded Structure arrives with every segment locked and its first member active;
     // clicking another, unlocked member's contour selects it — it is not a draw.
     expect(evaluateDrawBlock({
@@ -46,8 +47,19 @@ describe('evaluateDrawBlock', () => {
       decide: allow,
       viewportId: 'p0',
       isActiveSegmentLocked: () => true,
-      isPressOnEditableAnnotation: () => true,
+      annotationUnderPress: () => ({ locked: false }),
     })).toEqual({ block: false });
+  });
+
+  it('blocks a press on a LOCKED annotation even when the active segment is unlocked (an edit of it)', () => {
+    expect(evaluateDrawBlock({
+      activeTool: ToolName.FreehandContour,
+      activeContainerId: 'c1',
+      decide: allow,
+      viewportId: 'p0',
+      isActiveSegmentLocked: () => false,
+      annotationUnderPress: () => ({ locked: true }),
+    })).toMatchObject({ block: true, locked: 'pressed' });
   });
 
   it('treats Brush and FreehandContour as drawing tools', () => {

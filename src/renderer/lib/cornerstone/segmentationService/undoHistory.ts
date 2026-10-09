@@ -54,6 +54,8 @@ export interface UndoHistoryDeps {
    * memo still lands on the global ring. Omitted by callers that don't partition.
    */
   recordContainerMemo?(memo: HistoryMemoRecord | undefined): void;
+  /** Raise the lock warning ("… is locked — unlock it to undo"). */
+  warnLocked(label: string | null, action: string): void;
   /** Mirror a `replaceCurrentMemo` into per-container history (see installHistoryMemoTracking). */
   replaceContainerMemo?(condition: (memo: unknown) => boolean, memo: HistoryMemoRecord): void;
 }
@@ -185,23 +187,9 @@ export function createUndoHistory(deps: UndoHistoryDeps): UndoHistory {
 
   function showHistoryBlockedDialog(action: 'undo' | 'redo', targets: LockableHistoryTarget[]): void {
     if (targets.length === 0) return;
-
-    const title = action === 'undo' ? 'Undo blocked' : 'Redo blocked';
-    const names = targets.map((target) => target.label);
-    const uniqueNames = Array.from(new Set(names));
-    const message = action === 'undo'
-      ? (
-        uniqueNames.length === 1
-          ? `Unlock ${uniqueNames[0]} before applying undo.`
-          : `Unlock these annotations before applying undo:\n${uniqueNames.map((name) => `- ${name}`).join('\n')}`
-      )
-      : `Unlock the locked annotations before applying redo:\n${uniqueNames.map((name) => `- ${name}`).join('\n')}`;
-
-    void deps.showAlertDialog({
-      title,
-      message,
-      confirmLabel: 'OK',
-    });
+    // A refused edit of a locked member — the viewport warning, not a modal.
+    const names = Array.from(new Set(targets.map((target) => target.label)));
+    deps.warnLocked(names.length === 1 ? names[0] : null, action);
   }
 
   function installHistoryMemoTracking(): void {

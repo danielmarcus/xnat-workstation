@@ -1,4 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react';
+import { useToastStore } from '../../stores/toastStore';
+/** Messages raised on the shared viewport toast (the dropdown no longer renders its own). */
+const toastMessages = () => useToastStore.getState().toasts.map((t) => t.message);
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import ExportDropdown from './ExportDropdown';
@@ -93,7 +96,7 @@ describe('ExportDropdown', () => {
         expect.stringMatching(/^viewport-.*\.png$/),
       );
     });
-    expect(screen.getByText('Image saved successfully')).toBeInTheDocument();
+    expect(toastMessages()).toContain('Image saved successfully');
   });
 
   it('falls back to canvas copy when no panel bounds are available', async () => {
@@ -109,7 +112,7 @@ describe('ExportDropdown', () => {
       expect(window.electronAPI.export.copyToClipboard).toHaveBeenCalledWith('data:image/png;base64,AAA');
     });
     expect(toDataURL).toHaveBeenCalled();
-    expect(screen.getByText('Copied to clipboard')).toBeInTheDocument();
+    expect(toastMessages()).toContain('Copied to clipboard');
   });
 
   it('exports DICOM bytes from wadouri dataset cache', async () => {
@@ -127,7 +130,7 @@ describe('ExportDropdown', () => {
     await waitFor(() => {
       expect(window.electronAPI.export.saveDicom).toHaveBeenCalledWith('AQIDBA==');
     });
-    expect(screen.getByText('DICOM file saved')).toBeInTheDocument();
+    expect(toastMessages()).toContain('DICOM file saved');
   });
 
   it('exports annotation CSV report and handles empty-list validation', async () => {
@@ -138,7 +141,7 @@ describe('ExportDropdown', () => {
     render(<ExportDropdown />);
     await user.click(screen.getByTitle('Export'));
     await user.click(screen.getByRole('button', { name: /Export Annotations/i }));
-    expect(screen.getByText('No annotations to export')).toBeInTheDocument();
+    expect(toastMessages()).toContain('No annotations to export');
 
     useAnnotationStore.setState({
       ...useAnnotationStore.getState(),
@@ -162,6 +165,6 @@ describe('ExportDropdown', () => {
         expect.stringMatching(/^annotations-.*\.csv$/),
       );
     });
-    expect(screen.getByText('Exported 1 annotations')).toBeInTheDocument();
+    expect(toastMessages()).toContain('Exported 1 annotations');
   });
 });

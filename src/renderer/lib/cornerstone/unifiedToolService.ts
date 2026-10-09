@@ -65,6 +65,7 @@ import SafePaintFillTool from './tools/SafePaintFillTool';
 import SelectTool from './tools/SelectTool';
 import { SELECT_ARROW_PATH, SELECT_ARROW_HOTSPOT } from '../selectArrow';
 import { applySelectedContourStyle } from './selectedStyle';
+import { applyLockedSculptGuard } from './lockedSculptGuard';
 import { arrowAnnotateTextCallback } from './arrowAnnotateTextPrompt';
 import { ToolName } from '@shared/types/viewer';
 import { viewportService } from './viewportService';
@@ -585,6 +586,14 @@ function setIdleToolMode(toolGroup: ToolTypes.IToolGroup, toolName: string): voi
 // re-`setToolActive` everything, which MERGES bindings in CS3D v4) on a switch.
 // Default = Window/Level (the native CrosshairsTool is disabled — see header).
 let currentPrimary: string = WindowLevelTool.toolName;
+/** What annotationUnderPress reports. */
+export interface PressedAnnotation {
+  annotationUID: string;
+  segmentationId?: string;
+  segmentIndex?: number;
+  locked: boolean;
+}
+
 /** Cornerstone's mouse hit-test proximity (canvas px), as its own mouse-down uses. */
 const MOUSE_PROXIMITY = 6;
 // The active ToolName (UI-level), null until an explicit selection.
@@ -687,6 +696,13 @@ function ensureToolGroup(): ToolTypes.IToolGroup | undefined {
     } catch (err) {
       console.warn(`[unifiedToolService] contour preview patch for ${toolName} failed:`, err);
     }
+  }
+
+  // The Sculptor never reshapes a locked member's contour — an instance patch.
+  try {
+    applyLockedSculptGuard(toolGroup.getToolInstance(SculptorTool.toolName));
+  } catch (err) {
+    console.warn('[unifiedToolService] locked-sculpt guard failed:', err);
   }
 
   // A selected contour is drawn thicker — an instance patch, see selectedStyle.
@@ -1254,37 +1270,42 @@ export const unifiedToolService = {
   },
 
   /**
-   * Whether a pointer press at (clientX, clientY) on this viewport lands on an existing
-   * annotation that the active tool would select / edit, in an unlocked segment —
-   * using Cornerstone's own hit-testing (the active tool's interactable filter and
-   * `isPointNearTool`, at its mouse proximity), so it agrees with what the press does.
+   * The existing annotation a pointer press at (clientX, clientY) on this viewport lands
+   * on — one the active tool would select / edit — and whether it is LOCKED (the
+   * annotation itself, or its segment). Uses Cornerstone's own hit-testing (the active
+   * tool's interactable filter and `isPointNearTool`, at its mouse proximity), so it
+   * agrees with what the press would do. Null when the press is on no annotation.
    */
-  isPressOnEditableAnnotation(viewportId: string, clientX: number, clientY: number): boolean {
+  annotationUnderPress(viewportId: string, clientX: number, clientY: number): PressedAnnotation | null {
     const toolGroup = getToolGroup();
     const tool = toolGroup?.getToolInstance(currentPrimary) as unknown as {
       filterInteractableAnnotationsForElement?: (el: HTMLDivElement, a: unknown[]) => unknown[] | undefined;
       isPointNearTool?: (el: HTMLDivElement, a: unknown, canvas: [number, number], proximity: number, type: string) => boolean;
     } | undefined;
     const element = viewportService.getViewport(viewportId)?.element as HTMLDivElement | undefined;
-    if (!tool?.isPointNearTool || !tool.filterInteractableAnnotationsForElement || !element) return false;
+    if (!tool?.isPointNearTool || !tool.filterInteractableAnnotationsForElement || !element) return null;
     const annotations = csAnnotation.state.getAnnotations(currentPrimary, element) ?? [];
     const interactable = tool.filterInteractableAnnotationsForElement(element, annotations) ?? [];
     const rect = element.getBoundingClientRect();
     const canvas: [number, number] = [clientX - rect.left, clientY - rect.top];
-    return interactable.some((raw) => {
+    for (const raw of interactable) {
       const a = raw as {
+        annotationUID?: string;
         isLocked?: boolean;
         isVisible?: boolean;
         data?: { segmentation?: { segmentationId?: string; segmentIndex?: number } };
       };
-      if (a.isLocked || a.isVisible === false) return false;
+      if (a.isVisible === false) continue;
+      if (!tool.isPointNearTool(element, a, canvas, MOUSE_PROXIMITY, 'mouse')) continue;
       const seg = a.data?.segmentation;
-      if (seg?.segmentationId && csSegmentation.segmentLocking.isSegmentIndexLocked(seg.segmentationId, Number(seg.segmentIndex))) {
-        return false;
-      }
-      return !!tool.isPointNearTool!(element, a, canvas, MOUSE_PROXIMITY, 'mouse');
-    });
+      const segmentIndex = seg ? Number(seg.segmentIndex) : undefined;
+      const segmentLocked = !!seg?.segmentationId && segmentIndex !== undefined
+        && csSegmentation.segmentLocking.isSegmentIndexLocked(seg.segmentationId, segmentIndex);
+      return { annotationUID: a.annotationUID ?? '', segmentationId: seg?.segmentationId, segmentIndex, locked: !!a.isLocked || segmentLocked };
+    }
+    return null;
   },
+
 
   /** The active (Primary) ToolName, or null before any explicit selection. */
   getActiveToolName(): ToolName | null {

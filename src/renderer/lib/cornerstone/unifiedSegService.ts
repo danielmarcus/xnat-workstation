@@ -37,6 +37,7 @@ import {
 } from './segmentationService/voxelClipboard';
 import { sliceAxisFor } from './maskIslands';
 import { clearMaskSelection, getMaskSelection, selectIslandsContaining } from './maskSelection';
+import { warnMemberLocked } from '../annotations/lockWarning';
 import { useSegmentationStore } from '../../stores/segmentationStore';
 import { useViewerStore } from '../../stores/viewerStore';
 import { useApprovalStore } from '../../stores/approvalStore';
@@ -567,7 +568,10 @@ export const unifiedSegService = {
   deleteSelectedIslands(): boolean {
     const sel = getMaskSelection();
     if (!sel) return false;
-    if (isSegmentLockedHere(sel.containerId, sel.segmentIndex)) return false;
+    if (isSegmentLockedHere(sel.containerId, sel.segmentIndex)) {
+      warnMemberLocked(sel.containerId, sel.segmentIndex, 'delete');
+      return true; // handled (refused)
+    }
     const grid = readSegmentVoxelGrid(sel.containerId, sel.segmentIndex);
     if (!grid) return false;
     const changes: number[] = [];
@@ -612,7 +616,10 @@ export const unifiedSegService = {
     const containerId = voxelClipMember?.containerId ?? st.activeSegmentationId;
     const segmentIndex = voxelClipMember?.segmentIndex ?? st.activeSegmentIndex;
     if (!containerId || !Number.isInteger(segmentIndex) || segmentIndex <= 0) return false;
-    if (isSegmentLockedHere(containerId, segmentIndex)) return false;
+    if (isSegmentLockedHere(containerId, segmentIndex)) {
+      warnMemberLocked(containerId, segmentIndex, 'paste into it');
+      return false;
+    }
     const grid = readSegmentVoxelGrid(containerId, segmentIndex);
     if (!grid) return false;
 

@@ -63,6 +63,7 @@ import { useAnnotationSelectionStore } from '../../stores/annotationSelectionSto
 import { rtStructService } from './rtStructService';
 import * as contourRep from './contourRepresentation';
 import { installComponentSelection } from './componentSelection';
+import { warnLocked } from '../annotations/lockWarning';
 import { setMaskMemberActivator } from './maskSelection';
 import * as sourceImageTracking from './sourceImageTracking';
 import * as mlg from './multiLayerGroup';
@@ -308,6 +309,7 @@ const undoHistory = createUndoHistory({
   // at call time — matching the original in-function access — rather than at
   // module-init, which would fail against partial dialogStore test mocks.
   showAlertDialog: (opts) => showAlertDialog(opts),
+  warnLocked: (label, action) => warnLocked(label, action),
   recordContainerMemo: (memo) => {
     // A memo's raw `segmentationId` is the Cornerstone seg it edited. For a
     // multi-layer group that is the sub-seg (`…_layer_N`), but the panel/toolbar
@@ -1529,10 +1531,7 @@ function pasteContourClipboardEntry(entry: ContourClipboardEntry, additive: bool
     return null;
   }
   if (segmentationService.getSegmentLocked(entry.segmentationId, entry.segmentIndex)) {
-    console.debug('[segmentationService] paste: segment locked', {
-      segmentationId: entry.segmentationId,
-      segmentIndex: entry.segmentIndex,
-    });
+    warnLocked(getSegmentDisplayLabel(entry.segmentationId, entry.segmentIndex), 'paste into it');
     return null;
   }
 
@@ -2402,6 +2401,16 @@ export const segmentationService = {
     try {
       const selected = csAnnotation.selection.getAnnotationsSelected?.() ?? [];
       if (!selected.length) return false;
+
+      // A locked member is never edited: refuse the whole delete, and say so.
+      for (const uid of selected) {
+        const seg = (csAnnotation.state.getAnnotation(uid) as any)?.data?.segmentation;
+        const idx = Number(seg?.segmentIndex);
+        if (seg?.segmentationId && Number.isInteger(idx) && idx > 0 && isSegmentLockedInternal(seg.segmentationId, idx)) {
+          warnLocked(getSegmentDisplayLabel(seg.segmentationId, idx), 'delete');
+          return true; // handled (refused) — nothing else should act on this Delete
+        }
+      }
 
       const targetSegmentIndex =
         Number.isInteger(segmentIndex) && Number(segmentIndex) > 0 ? Number(segmentIndex) : null;

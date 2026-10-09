@@ -6,6 +6,7 @@
  * rebuilt Annotations side panel is the only annotation surface.
  */
 import { useEffect, useState, useCallback } from 'react';
+import ViewportToastHost from '../components/viewer/ViewportToastHost';
 import Toolbar from '../components/viewer/Toolbar';
 import UnifiedViewportGrid from '../components/viewer/UnifiedViewportGrid';
 import AnnotationsPanel from '../components/annotations/AnnotationsPanel';
@@ -103,6 +104,7 @@ export default function ViewerPage({
         <div className="flex-1 min-w-0 relative flex">
           <div className="flex-1 min-w-0 relative">
             <UnifiedViewportGrid panelImageIds={panelImageIds} />
+            <ViewportToastHost />
           </div>
           {showSegPanel && (
             <AnnotationsPanel activeViewportId={activeViewportId} sourceImageIds={panelImageIds[activeViewportId] ?? []} />

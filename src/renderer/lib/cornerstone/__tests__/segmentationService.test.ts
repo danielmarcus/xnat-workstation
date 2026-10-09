@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import * as toastModule from '../../../stores/toastStore';
+const { useToastStore } = toastModule;
 
 vi.mock('@cornerstonejs/dicom-image-loader', () => ({
   wadouri: {
@@ -39,6 +41,8 @@ async function importSegmentationService(): Promise<void> {
   vi.doMock('../../../stores/viewerStore', () => ({
     useViewerStore,
   }));
+  // The same toast store the assertions read (resetModules would give the service its own).
+  vi.doMock('../../../stores/toastStore', () => toastModule);
   vi.doMock('../../../stores/preferencesStore', () => ({
     usePreferencesStore,
   }));
@@ -449,10 +453,8 @@ describe('segmentationService', () => {
     expect(
       contourSegmentation.representationData.Contour.annotationUIDsMap.get(1)?.has('mock-uuid'),
     ).toBe(true);
-    expect(showAlertDialogMock).toHaveBeenCalledWith(expect.objectContaining({
-      title: 'Undo blocked',
-      message: 'Unlock Tumor before applying undo.',
-    }));
+    expect(useToastStore.getState().toasts.map((t) => t.message)).toContain('“Tumor” is locked — unlock it to undo.');
+    expect(showAlertDialogMock, 'a warning, not a modal').not.toHaveBeenCalled();
     cs.eventTarget.removeEventListener(Events.ANNOTATION_COMPLETED, completedSpy);
   });
 
@@ -472,13 +474,8 @@ describe('segmentationService', () => {
     expect(
       contourSegmentation.representationData.Contour.annotationUIDsMap.get(1)?.has('mock-uuid'),
     ).toBe(false);
-    expect(showAlertDialogMock).toHaveBeenCalledWith(expect.objectContaining({
-      title: 'Redo blocked',
-      message: expect.stringContaining('Unlock the locked annotations before applying redo:'),
-    }));
-    expect(showAlertDialogMock).toHaveBeenCalledWith(expect.objectContaining({
-      message: expect.stringContaining('- Tumor'),
-    }));
+    expect(useToastStore.getState().toasts.map((t) => t.message)).toContain('“Tumor” is locked — unlock it to redo.');
+    expect(showAlertDialogMock, 'a warning, not a modal').not.toHaveBeenCalled();
     cs.eventTarget.removeEventListener(Events.ANNOTATION_COMPLETED, completedSpy);
   });
 

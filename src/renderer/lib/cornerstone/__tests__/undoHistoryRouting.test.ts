@@ -25,6 +25,7 @@ function makeHistory(recordContainerMemo: (memo: unknown) => void) {
     isSegmentLocked: () => false,
     getAnnotation: () => undefined,
     showAlertDialog: () => undefined,
+    warnLocked: () => undefined,
     recordContainerMemo,
   });
 }
@@ -53,6 +54,7 @@ describe('undoHistory push-hook routing (Slice 4 seam)', () => {
       isSegmentLocked: () => false,
       getAnnotation: () => undefined,
       showAlertDialog: () => undefined,
+    warnLocked: () => undefined,
     });
     hist.installHistoryMemoTracking();
     const memo = { segmentationId: 'seg-A', segmentIndex: 1, restoreMemo: () => undefined };

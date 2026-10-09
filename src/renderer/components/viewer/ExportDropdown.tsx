@@ -10,6 +10,7 @@
  * same pattern as AnnotationToolDropdown.
  */
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { showToast } from '../../stores/toastStore';
 // eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
 import { wadouri } from '@cornerstonejs/dicom-image-loader';
 import { useViewerStore } from '../../stores/viewerStore';
@@ -17,24 +18,6 @@ import { useAnnotationStore } from '../../stores/annotationStore';
 // eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
 import { viewportService } from '../../lib/cornerstone/viewportService';
 import { IconChevronDown } from '../icons';
-
-// ─── Toast Feedback ─────────────────────────────────────────────
-
-type ToastState = { message: string; type: 'success' | 'error' } | null;
-
-function Toast({ toast }: { toast: NonNullable<ToastState> }) {
-  return (
-    <div
-      className={`fixed top-4 right-4 z-[100] px-4 py-2 rounded-lg shadow-lg text-sm font-medium transition-opacity ${
-        toast.type === 'success'
-          ? 'bg-green-800 text-green-100'
-          : 'bg-red-800 text-red-100'
-      }`}
-    >
-      {toast.message}
-    </div>
-  );
-}
 
 // ─── Helpers ────────────────────────────────────────────────────
 
@@ -128,19 +111,12 @@ const EXPORT_ACTIONS: ExportAction[] = [
 export default function ExportDropdown() {
   const [open, setOpen] = useState(false);
   const [dropdownPos, setDropdownPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
-  const [toast, setToast] = useState<ToastState>(null);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<string | null>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const activeViewportId = useViewerStore((s) => s.activeViewportId);
 
-  // Auto-dismiss toast
-  useEffect(() => {
-    if (!toast) return;
-    const timer = setTimeout(() => setToast(null), 2500);
-    return () => clearTimeout(timer);
-  }, [toast]);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -238,13 +214,13 @@ export default function ExportDropdown() {
             );
           })();
       if (result.ok) {
-        setToast({ message: 'Image saved successfully', type: 'success' });
+        showToast('Image saved successfully', 'success');
       } else if (result.error) {
-        setToast({ message: `Save failed: ${result.error}`, type: 'error' });
+        showToast(`Save failed: ${result.error}`, 'error');
       }
       // If !ok and no error, user cancelled — no toast
     } catch (err) {
-      setToast({ message: 'Save failed', type: 'error' });
+      showToast('Save failed', 'error');
       console.error('[ExportDropdown] saveImage error:', err);
     } finally {
       setBusy(false);
@@ -267,12 +243,12 @@ export default function ExportDropdown() {
           })();
 
       if (result.ok) {
-        setToast({ message: 'Copied to clipboard', type: 'success' });
+        showToast('Copied to clipboard', 'success');
       } else {
-        setToast({ message: result.error ?? 'Copy failed', type: 'error' });
+        showToast(result.error ?? 'Copy failed', 'error');
       }
     } catch (err) {
-      setToast({ message: 'Copy failed', type: 'error' });
+      showToast('Copy failed', 'error');
       console.error('[ExportDropdown] copyClipboard error:', err);
     } finally {
       setBusy(false);
@@ -285,13 +261,13 @@ export default function ExportDropdown() {
     try {
       const viewport = viewportService.getViewport(activeViewportId);
       if (!viewport) {
-        setToast({ message: 'No active viewport', type: 'error' });
+        showToast('No active viewport', 'error');
         return;
       }
 
       const imageIds = viewport.getImageIds();
       if (!imageIds || imageIds.length === 0) {
-        setToast({ message: 'No images to export', type: 'error' });
+        showToast('No images to export', 'error');
         return;
       }
 
@@ -327,12 +303,12 @@ export default function ExportDropdown() {
 
       const result = await window.electronAPI.export.saveAllSlices(slices);
       if (result.ok) {
-        setToast({ message: `Saved ${result.count} slices`, type: 'success' });
+        showToast(`Saved ${result.count} slices`, 'success');
       } else if (result.error) {
-        setToast({ message: `Save failed: ${result.error}`, type: 'error' });
+        showToast(`Save failed: ${result.error}`, 'error');
       }
     } catch (err) {
-      setToast({ message: 'Export failed', type: 'error' });
+      showToast('Export failed', 'error');
       console.error('[ExportDropdown] saveAllSlices error:', err);
     } finally {
       setBusy(false);
@@ -346,13 +322,13 @@ export default function ExportDropdown() {
     try {
       const viewport = viewportService.getViewport(activeViewportId);
       if (!viewport) {
-        setToast({ message: 'No active viewport', type: 'error' });
+        showToast('No active viewport', 'error');
         return;
       }
 
       const imageId = viewport.getCurrentImageId();
       if (!imageId) {
-        setToast({ message: 'No image loaded', type: 'error' });
+        showToast('No image loaded', 'error');
         return;
       }
 
@@ -361,7 +337,7 @@ export default function ExportDropdown() {
       const dataSet = wadouri.dataSetCacheManager.get(uri);
 
       if (!dataSet?.byteArray) {
-        setToast({ message: 'DICOM data not available', type: 'error' });
+        showToast('DICOM data not available', 'error');
         return;
       }
 
@@ -369,12 +345,12 @@ export default function ExportDropdown() {
       const result = await window.electronAPI.export.saveDicom(base64);
 
       if (result.ok) {
-        setToast({ message: 'DICOM file saved', type: 'success' });
+        showToast('DICOM file saved', 'success');
       } else if (result.error) {
-        setToast({ message: `Save failed: ${result.error}`, type: 'error' });
+        showToast(`Save failed: ${result.error}`, 'error');
       }
     } catch (err) {
-      setToast({ message: 'Save failed', type: 'error' });
+      showToast('Save failed', 'error');
       console.error('[ExportDropdown] saveDicom error:', err);
     } finally {
       setBusy(false);
@@ -387,7 +363,7 @@ export default function ExportDropdown() {
     try {
       const annotations = useAnnotationStore.getState().annotations;
       if (annotations.length === 0) {
-        setToast({ message: 'No annotations to export', type: 'error' });
+        showToast('No annotations to export', 'error');
         return;
       }
 
@@ -409,12 +385,12 @@ export default function ExportDropdown() {
       );
 
       if (result.ok) {
-        setToast({ message: `Exported ${annotations.length} annotations`, type: 'success' });
+        showToast(`Exported ${annotations.length} annotations`, 'success');
       } else if (result.error) {
-        setToast({ message: `Export failed: ${result.error}`, type: 'error' });
+        showToast(`Export failed: ${result.error}`, 'error');
       }
     } catch (err) {
-      setToast({ message: 'Export failed', type: 'error' });
+      showToast('Export failed', 'error');
       console.error('[ExportDropdown] exportAnnotations error:', err);
     } finally {
       setBusy(false);
@@ -493,7 +469,6 @@ export default function ExportDropdown() {
       )}
 
       {/* Toast notification */}
-      {toast && <Toast toast={toast} />}
     </>
   );
 }

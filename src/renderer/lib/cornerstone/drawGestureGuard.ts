@@ -21,6 +21,9 @@ export const DRAWING_TOOL_NAMES: ReadonlySet<ToolName> = SEGMENTATION_TOOLS;
 export interface DrawBlockResult {
   block: boolean;
   reason?: string;
+  /** Blocked because something locked would be edited: the pressed annotation's member,
+   *  or the active member (what a new stroke would write). Drives the lock warning. */
+  locked?: 'pressed' | 'active';
 }
 
 export function evaluateDrawBlock(params: {
@@ -32,22 +35,24 @@ export function evaluateDrawBlock(params: {
   /** Whether the active segment (what an edit would write) is locked (signal 21/29). */
   isActiveSegmentLocked?: () => boolean;
   /**
-   * Whether the press lands on an existing annotation the active tool can edit, in an
-   * unlocked segment. That press is a selection or an edit of THAT annotation, not new
-   * geometry for the active segment, so neither block applies — Cornerstone selects it
-   * (which makes its segment the active one) instead of drawing.
+   * The existing annotation the press lands on (one the active tool would select or
+   * edit), and whether it is locked — null when on none. An unlocked one is a selection
+   * or an edit of THAT annotation, not new geometry for the active member, so the active
+   * member's lock does not apply; a locked one is refused whatever is active.
    */
-  isPressOnEditableAnnotation?: () => boolean;
+  annotationUnderPress?: () => { locked: boolean } | null;
 }): DrawBlockResult {
-  const { activeTool, activeContainerId, decide, viewportId, isActiveSegmentLocked, isPressOnEditableAnnotation } = params;
+  const { activeTool, activeContainerId, decide, viewportId, isActiveSegmentLocked, annotationUnderPress } = params;
   if (!activeTool || !DRAWING_TOOL_NAMES.has(activeTool)) return { block: false };
-  if (isPressOnEditableAnnotation?.()) return { block: false };
+  const pressed = annotationUnderPress?.() ?? null;
+  if (pressed?.locked) return { block: true, reason: 'Segment is locked — unlock it to edit.', locked: 'pressed' };
+  if (pressed) return { block: false };
   // Locked active segment: block at gesture-start regardless of the active-container
   // model. The brush writes into the active SEGMENTATION; Cornerstone won't stop a
   // locked segment from accepting NEW voxels, so we gate it here. Checked before the
   // fail-open path so it applies even in the bare (no active-container) brush flow.
   if (isActiveSegmentLocked?.()) {
-    return { block: true, reason: 'Segment is locked — unlock it to edit.' };
+    return { block: true, reason: 'Segment is locked — unlock it to edit.', locked: 'active' };
   }
   if (!activeContainerId) return { block: false }; // fail open — legacy flow must draw
   const d = decide(activeContainerId, viewportId);

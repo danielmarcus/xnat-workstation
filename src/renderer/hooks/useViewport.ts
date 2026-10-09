@@ -7,6 +7,8 @@
  * Cornerstone directly.
  */
 import { useEffect, useRef, useState } from 'react';
+import { warnMemberLocked } from '../lib/annotations/lockWarning';
+import type { PressedAnnotation } from '../lib/cornerstone/unifiedToolService';
 import { viewportService } from '../lib/cornerstone/viewportService';
 import { unifiedToolService } from '../lib/cornerstone/unifiedToolService';
 import { unifiedSegService, canDrawOnViewport } from '../lib/cornerstone/unifiedSegService';
@@ -200,21 +202,24 @@ export function useViewport({
     const el = containerRef.current;
     if (!el) return;
     const onPointerCapture = (e: Event) => {
-      const { block, reason } = evaluateDrawBlock({
+      const { clientX, clientY } = e as MouseEvent;
+      let pressed: PressedAnnotation | null | undefined;
+      const active = useAnnotationSelectionStore.getState().activeMember;
+      const { block, reason, locked } = evaluateDrawBlock({
         activeTool: unifiedToolService.getActiveToolName(),
-        activeContainerId: useAnnotationSelectionStore.getState().activeMember?.containerId ?? null,
+        activeContainerId: active?.containerId ?? null,
         decide: (acid, vp) => canDrawOnViewport(acid, vp),
         viewportId: panelId,
         isActiveSegmentLocked: () => unifiedSegService.isActiveSegmentLocked(),
-        isPressOnEditableAnnotation: () => {
-          const { clientX, clientY } = e as MouseEvent;
-          return unifiedToolService.isPressOnEditableAnnotation(panelId, clientX, clientY);
-        },
+        annotationUnderPress: () => (pressed = unifiedToolService.annotationUnderPress(panelId, clientX, clientY)),
       });
       if (block) {
         e.stopImmediatePropagation();
         e.preventDefault();
-        console.warn(`[useViewport] draw blocked on ${panelId}: ${reason ?? 'active container is not native here'}`);
+        // pointerdown and mousedown both arrive here; the toast store shows one warning.
+        if (locked === 'pressed') warnMemberLocked(pressed?.segmentationId, pressed?.segmentIndex);
+        else if (locked === 'active') warnMemberLocked(active?.containerId, Number(active?.memberId));
+        else console.warn(`[useViewport] draw blocked on ${panelId}: ${reason ?? 'active container is not native here'}`);
       }
     };
     // Both event types — Cornerstone3D normalizes from native pointer/mouse events.
