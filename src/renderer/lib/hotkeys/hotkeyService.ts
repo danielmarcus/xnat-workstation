@@ -211,11 +211,17 @@ function dispatchAction(action: HotkeyAction): boolean {
       segmentationService.redo();
       return true;
     case 'edit.copy':
-      // Contour selection wins; otherwise copy the active labelmap segment voxels (D6 / signal 23).
-      return (
-        segmentationService.copySelectedContourAnnotation() ||
-        unifiedSegService.copyActiveSegmentVoxels()
-      );
+      // Copy the selection — contours, else mask islands (else the active segment's islands
+      // on this slice). The last copy wins: each clears the other clipboard.
+      if (segmentationService.copySelectedContourAnnotation()) {
+        unifiedSegService.clearVoxelClipboard();
+        return true;
+      }
+      if (unifiedSegService.copySegmentVoxels()) {
+        segmentationService.clearContourClipboard();
+        return true;
+      }
+      return false;
     case 'edit.paste':
       // Prefer a voxel clipboard (NN-resampled, translated to the current slice);
       // otherwise paste a copied contour.

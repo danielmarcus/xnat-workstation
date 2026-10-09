@@ -766,7 +766,7 @@ export function installRendererE2eHooks(): void {
     zoomViewportBy: (viewportId: string, factor: number) => viewportService.zoomBy(viewportId, factor),
     setUnifiedBrushSize: (size: number) => unifiedToolService.setBrushSize(size),
     setUnifiedBrushThreshold: (range: [number, number]) => unifiedToolService.setBrushThreshold(range),
-    copyActiveSegmentVoxels: () => unifiedSegService.copyActiveSegmentVoxels(),
+    copyActiveSegmentVoxels: () => unifiedSegService.copySegmentVoxels(),
     pasteActiveSegmentVoxels: () => unifiedSegService.pasteActiveSegmentVoxels(),
     scrollActiveViewport: (delta: number) =>
       viewportService.scroll(useViewerStore.getState().activeViewportId, delta),

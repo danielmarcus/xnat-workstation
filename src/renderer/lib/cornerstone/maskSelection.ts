@@ -143,6 +143,36 @@ export function selectMaskIslandAt(viewportId: string, world: number[], shift: b
   return true;
 }
 
+/**
+ * Select the islands containing these voxels (a paste's result), on a viewport: the
+ * pasted region ends up selected, as a pasted contour does.
+ */
+export function selectIslandsContaining(viewportId: string, containerId: string, segmentIndex: number, voxels: number[]): void {
+  const viewport = viewportOf(viewportId);
+  const normal = viewport?.getCamera().viewPlaneNormal;
+  const grid = readSegmentVoxelGrid(containerId, segmentIndex);
+  if (!viewport || !normal || !grid || voxels.length === 0) return;
+  const axis = sliceAxisFor(grid.geometry.direction, normal);
+  const dims = grid.geometry.dimensions;
+  const sliceOf = (flat: number) => {
+    const k = Math.floor(flat / (dims[0] * dims[1]));
+    const rem = flat - k * dims[0] * dims[1];
+    const j = Math.floor(rem / dims[0]);
+    return [rem - j * dims[0], j, k][axis];
+  };
+  const covered = new Set<number>();
+  const islands: SelectedIsland[] = [];
+  for (const flat of voxels) {
+    if (covered.has(flat) || grid.data[flat] !== grid.value) continue;
+    const island = islandAt(grid, flat, axis);
+    island.forEach((v) => covered.add(v));
+    islands.push({ voxels: island, outline: islandOutline(grid, island, axis) });
+  }
+  if (islands.length === 0) return;
+  current = { viewportId, containerId, segmentIndex, axis, slice: sliceOf(islands[0].voxels[0]), islands };
+  render();
+}
+
 /** The grid of the selected segment (fresh read — the labelmap may have changed). */
 export function selectedGrid(): SegmentVoxelGrid | null {
   return current ? readSegmentVoxelGrid(current.containerId, current.segmentIndex) : null;

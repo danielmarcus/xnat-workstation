@@ -14,7 +14,7 @@
  *
  * §2: lib/cornerstone may import Cornerstone directly.
  */
-import { metaData, cache } from '@cornerstonejs/core';
+import { metaData, cache, utilities as csCoreUtilities } from '@cornerstonejs/core';
 import {
   segmentation as csSegmentation,
   utilities as csToolUtilities,
@@ -31,9 +31,12 @@ import { readSegmentVoxelGrid } from './segmentVoxelGrid';
 import {
   copyVoxelRegion,
   pasteVoxelRegion,
+  worldToIndex,
   type VoxelRegionClip,
   type Vec3,
 } from './segmentationService/voxelClipboard';
+import { sliceAxisFor } from './maskIslands';
+import { clearMaskSelection, getMaskSelection, selectIslandsContaining } from './maskSelection';
 import { useSegmentationStore } from '../../stores/segmentationStore';
 import { useViewerStore } from '../../stores/viewerStore';
 import { useApprovalStore } from '../../stores/approvalStore';
@@ -51,6 +54,63 @@ const containerSpatial = new Map<string, ContainerSpatialId>();
  *  copied at, so a paste can be translated to the current slice. */
 let voxelClip: VoxelRegionClip | null = null;
 let voxelClipSourceFocal: Vec3 | null = null;
+/** The member the voxel clipboard was copied from — where Ctrl+V pastes. */
+let voxelClipMember: { containerId: string; segmentIndex: number } | null = null;
+
+/** Every voxel of the segment on the active viewport's current slice. */
+function voxelsOnActiveSlice(grid: NonNullable<ReturnType<typeof readSegmentVoxelGrid>>): number[] {
+  const vpId = useViewerStore.getState().activeViewportId;
+  const camera = (viewportService.getViewport(vpId) as { getCamera?: () => { focalPoint?: number[]; viewPlaneNormal?: number[] } } | undefined)
+    ?.getCamera?.();
+  if (!camera?.focalPoint || !camera.viewPlaneNormal) return [];
+  const axis = sliceAxisFor(grid.geometry.direction, camera.viewPlaneNormal);
+  const slice = worldToIndex(grid.geometry, camera.focalPoint as Vec3)[axis];
+  const [nx, ny, nz] = grid.geometry.dimensions;
+  const out: number[] = [];
+  const at = (i: number, j: number, k: number) => i + j * nx + k * nx * ny;
+  const [ai, bi] = axis === 0 ? [ny, nz] : axis === 1 ? [nx, nz] : [nx, ny];
+  for (let a = 0; a < ai; a++) {
+    for (let b = 0; b < bi; b++) {
+      const flat = axis === 0 ? at(slice, a, b) : axis === 1 ? at(a, slice, b) : at(a, b, slice);
+      if (grid.data[flat] === grid.value) out.push(flat);
+    }
+  }
+  return out;
+}
+
+/** Re-render after a programmatic labelmap write (same events as a brush edit). */
+function notifyLabelmapChanged(csSegmentationId: string): void {
+  try {
+    csSegmentation.triggerSegmentationEvents.triggerSegmentationDataModified(csSegmentationId);
+  } catch { /* best-effort */ }
+  for (const vpId of csSegmentation.state.getViewportIdsWithSegmentation(csSegmentationId)) {
+    try { csToolUtilities.segmentation.triggerSegmentationRender(vpId); } catch { /* ignore */ }
+  }
+}
+
+/**
+ * Make a programmatic voxel write undoable: ONE history entry whose undo puts back every
+ * changed voxel's old value and whose redo re-applies the new one. Filed per container by
+ * its segmentationId (the Cornerstone seg written — a multi-layer sub-seg maps to its
+ * group), like a brush stroke.
+ */
+function pushVoxelHistoryMemo(containerId: string, segmentIndex: number, csSegmentationId: string, changes: number[]): void {
+  const ring = (csCoreUtilities as unknown as { HistoryMemo?: { DefaultHistoryMemo?: { push?: (m: unknown) => void } } })
+    .HistoryMemo?.DefaultHistoryMemo;
+  ring?.push?.({
+    id: `voxels-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    operationType: 'labelmap',
+    segmentationId: csSegmentationId,
+    segmentIndex,
+    restoreMemo: (isUndo = true) => {
+      const g = readSegmentVoxelGrid(containerId, segmentIndex);
+      if (!g) return;
+      for (let c = 0; c < changes.length; c += 3) g.write(changes[c], isUndo ? changes[c + 1] : changes[c + 2]);
+      clearMaskSelection();
+      notifyLabelmapChanged(g.csSegmentationId);
+    },
+  });
+}
 
 /** Current world focal point of the active viewport (paste-at-slice translation). */
 function activeViewportFocalPoint(): Vec3 | null {
@@ -462,19 +522,36 @@ export const unifiedSegService = {
     }
   },
 
-  /** Copy the active container's active segment voxel region to the clipboard (D6 / signal 23). */
-  copyActiveSegmentVoxels(): boolean {
+  /**
+   * Ctrl+C on a mask (unified selection S5 — docs/unified-selection.md): copy the selected
+   * islands of this slice; with none selected, every island of the active segment on this
+   * slice. A slice's region, not the whole 3D segment (which is what this copied before).
+   */
+  copySegmentVoxels(): boolean {
+    const sel = getMaskSelection();
     const s = useSegmentationStore.getState();
-    const segmentationId = s.activeSegmentationId;
-    const segmentIndex = s.activeSegmentIndex;
-    if (!segmentationId || !Number.isInteger(segmentIndex) || segmentIndex <= 0) return false;
-    const grid = readSegmentVoxelGrid(segmentationId, segmentIndex);
+    const containerId = sel?.containerId ?? s.activeSegmentationId;
+    const segmentIndex = sel?.segmentIndex ?? s.activeSegmentIndex;
+    if (!containerId || !Number.isInteger(segmentIndex) || segmentIndex <= 0) return false;
+    const grid = readSegmentVoxelGrid(containerId, segmentIndex);
     if (!grid) return false;
-    const clip = copyVoxelRegion({ geometry: grid.geometry, data: grid.data }, grid.value);
+    const voxels = sel ? sel.islands.flatMap((i) => i.voxels) : voxelsOnActiveSlice(grid);
+    if (voxels.length === 0) return false;
+    const mask = new Uint8Array(grid.data.length);
+    for (const v of voxels) mask[v] = 1;
+    const clip = copyVoxelRegion({ geometry: grid.geometry, data: mask }, 1);
     if (!clip) return false;
     voxelClip = clip;
     voxelClipSourceFocal = activeViewportFocalPoint();
+    voxelClipMember = { containerId, segmentIndex };
     return true;
+  },
+
+  /** Drop the voxel clipboard (a contour copy replaced it — the last copy wins). */
+  clearVoxelClipboard(): void {
+    voxelClip = null;
+    voxelClipSourceFocal = null;
+    voxelClipMember = null;
   },
 
   /** Whether a voxel region is on the clipboard (hotkey routing). */
@@ -491,11 +568,12 @@ export const unifiedSegService = {
    */
   pasteActiveSegmentVoxels(): boolean {
     if (!voxelClip) return false;
-    const s = useSegmentationStore.getState();
-    const segmentationId = s.activeSegmentationId;
-    const segmentIndex = s.activeSegmentIndex;
-    if (!segmentationId || !Number.isInteger(segmentIndex) || segmentIndex <= 0) return false;
-    const grid = readSegmentVoxelGrid(segmentationId, segmentIndex);
+    // Into the segment it was copied from (the selection lives inside one member).
+    const st = useSegmentationStore.getState();
+    const containerId = voxelClipMember?.containerId ?? st.activeSegmentationId;
+    const segmentIndex = voxelClipMember?.segmentIndex ?? st.activeSegmentIndex;
+    if (!containerId || !Number.isInteger(segmentIndex) || segmentIndex <= 0) return false;
+    const grid = readSegmentVoxelGrid(containerId, segmentIndex);
     if (!grid) return false;
 
     let translationWorld: Vec3 | undefined;
@@ -508,19 +586,30 @@ export const unifiedSegService = {
       ];
     }
 
+    // Every voxel the paste changes, as [flat, old, new] — what one undo puts back.
+    const changes: number[] = [];
     const result = pasteVoxelRegion(
       voxelClip,
       { geometry: grid.geometry, data: grid.data as unknown as Uint8Array },
-      { targetSegmentIndex: grid.value, overlap: 'overwrite', translationWorld, writeTarget: grid.write },
+      {
+        targetSegmentIndex: grid.value,
+        overlap: 'overwrite',
+        translationWorld,
+        writeTarget: (flat: number, value: number) => {
+          const old = grid.data[flat];
+          if (old === value) return;
+          changes.push(flat, old, value);
+          grid.write(flat, value);
+        },
+      },
     );
-    if (result.written <= 0) return false;
+    if (result.written <= 0 || changes.length === 0) return false;
 
-    try {
-      csSegmentation.triggerSegmentationEvents.triggerSegmentationDataModified(grid.csSegmentationId);
-    } catch { /* best-effort */ }
-    for (const vpId of csSegmentation.state.getViewportIdsWithSegmentation(grid.csSegmentationId)) {
-      try { csToolUtilities.segmentation.triggerSegmentationRender(vpId); } catch { /* ignore */ }
-    }
+    pushVoxelHistoryMemo(containerId, segmentIndex, grid.csSegmentationId, changes);
+    notifyLabelmapChanged(grid.csSegmentationId);
+    const written: number[] = [];
+    for (let c = 0; c < changes.length; c += 3) if (changes[c + 2] === grid.value) written.push(changes[c]);
+    selectIslandsContaining(useViewerStore.getState().activeViewportId, containerId, segmentIndex, written);
     return true;
   },
 

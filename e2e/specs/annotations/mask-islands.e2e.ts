@@ -102,3 +102,39 @@ test('changing slice clears the island selection', async ({ page }) => {
   await page.keyboard.press('ArrowDown');
   await expect.poll(() => outlined(page), { message: 'scrolling away clears it' }).toBe(0);
 });
+
+// ── S5: copy / paste the selected islands ────────────────────────────────────────
+
+type Hooks = { __XNAT_E2E__: { getPaintedVoxelsPerImage: () => number[]; getPanelSliceState: (p: string) => { displayedImageIndex: number } } };
+const perImage = (page: Page) => page.evaluate(() => (window as unknown as Hooks).__XNAT_E2E__.getPaintedVoxelsPerImage());
+const sliceIndex = (page: Page) => page.evaluate(() => (window as unknown as Hooks).__XNAT_E2E__.getPanelSliceState('panel_0').displayedImageIndex);
+
+test('Ctrl+C copies only the selected island; Ctrl+V pastes it onto this slice, selected, as one undo step', async ({ page }) => {
+  const { toolbox } = await segmentation(page);
+  const source = await sliceIndex(page);
+  const left = await blob(page, 0.3, 0.5);
+  await expect.poll(async () => (await perImage(page))[source] ?? 0).toBeGreaterThan(0);
+  const leftCount = (await perImage(page))[source];
+  await blob(page, 0.65, 0.5);
+  await expect.poll(async () => (await perImage(page))[source]).toBeGreaterThan(leftCount);
+  const bothCount = (await perImage(page))[source];
+
+  await toolbox.getByRole('button', { name: 'Select', exact: true }).click();
+  await clickAt(page, left);
+  await expect.poll(() => outlined(page)).toBe(1);
+  await page.keyboard.press('Control+c');
+  for (let i = 0; i < 3; i++) await page.keyboard.press('ArrowDown');
+  await expect.poll(async () => Math.abs((await sliceIndex(page)) - source)).toBe(3);
+  const target = await sliceIndex(page);
+
+  await page.keyboard.press('Control+v');
+  await expect
+    .poll(async () => (await perImage(page))[target] ?? 0, { message: 'the pasted slice carries the selected island only' })
+    .toBe(leftCount);
+  expect((await perImage(page))[source], 'the source slice is untouched').toBe(bothCount);
+  await expect.poll(() => outlined(page), { message: 'the pasted island is selected' }).toBe(1);
+
+  await page.keyboard.press('Control+z');
+  await expect.poll(async () => (await perImage(page))[target] ?? 0, { message: 'one undo takes the paste back' }).toBe(0);
+  expect((await perImage(page))[source]).toBe(bothCount);
+});

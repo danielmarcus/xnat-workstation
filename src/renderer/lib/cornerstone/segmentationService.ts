@@ -2349,6 +2349,11 @@ export const segmentationService = {
     return true;
   },
 
+  /** Drop the contour clipboard (a mask copy replaced it — the last copy wins). */
+  clearContourClipboard(): void {
+    contourClipboard = [];
+  },
+
   /**
    * Paste every copied contour onto the currently displayed slice, into its own member —
    * as ONE undo step (a history group). Returns true when at least one was created.

@@ -40,7 +40,7 @@ top-to-bottom; each step lands with a real-UI E2E seen red first, and its own co
 - [x] **S4 Mask islands.** Select tool inside an island of the active segment selects it
       (outline drawn); Shift adds; another segment's island activates that segment; empty
       clears; slice change clears.
-- [ ] **S5 Mask copy/paste.** Ctrl+C copies the selected islands of this slice (2D, not the
+- [x] **S5 Mask copy/paste.** Ctrl+C copies the selected islands of this slice (2D, not the
       whole 3D segment as before); Ctrl+V pastes them onto the current slice; undoable.
 - [ ] **S6 Mask delete.** Delete erases the selected islands; undoable.
 - [ ] **S7 Docs.** Requirements/design/CLAUDE.md updated; this doc marked done.
