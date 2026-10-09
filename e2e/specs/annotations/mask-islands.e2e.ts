@@ -138,3 +138,37 @@ test('Ctrl+C copies only the selected island; Ctrl+V pastes it onto this slice, 
   await expect.poll(async () => (await perImage(page))[target] ?? 0, { message: 'one undo takes the paste back' }).toBe(0);
   expect((await perImage(page))[source]).toBe(bothCount);
 });
+
+// ── S6: delete the selected islands ──────────────────────────────────────────────
+
+test('Delete erases the selected island only; one undo brings it back, redo erases it again', async ({ page }) => {
+  const { panel, toolbox } = await segmentation(page);
+  const source = await sliceIndex(page);
+  const left = await blob(page, 0.3, 0.5);
+  await expect.poll(async () => (await perImage(page))[source] ?? 0).toBeGreaterThan(0);
+  const leftCount = (await perImage(page))[source];
+  await blob(page, 0.65, 0.5);
+  await expect.poll(async () => (await perImage(page))[source]).toBeGreaterThan(leftCount);
+  const bothCount = (await perImage(page))[source];
+
+  await toolbox.getByRole('button', { name: 'Select', exact: true }).click();
+  await clickAt(page, left);
+  await expect.poll(() => outlined(page)).toBe(1);
+  await page.keyboard.press('Delete');
+  await expect.poll(async () => (await perImage(page))[source], { message: 'only the selected island is erased' }).toBe(bothCount - leftCount);
+  await expect.poll(() => outlined(page), { message: 'nothing selected after the delete' }).toBe(0);
+
+  await page.locator('button[title^="Undo"]').click();
+  await expect.poll(async () => (await perImage(page))[source], { message: 'one undo brings it back' }).toBe(bothCount);
+  await page.locator('button[title^="Redo"]').click();
+  await expect.poll(async () => (await perImage(page))[source], { message: 'redo erases it again' }).toBe(bothCount - leftCount);
+
+  // A locked segment is not erased.
+  await page.locator('button[title^="Undo"]').click();
+  await expect.poll(async () => (await perImage(page))[source]).toBe(bothCount);
+  await panel.locator('[data-testid^="member-row-"]').first().getByRole('button', { name: 'Toggle lock' }).click();
+  await clickAt(page, left);
+  await page.keyboard.press('Delete');
+  await page.waitForTimeout(400);
+  expect((await perImage(page))[source], 'a locked segment is left alone').toBe(bothCount);
+});

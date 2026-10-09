@@ -42,5 +42,5 @@ top-to-bottom; each step lands with a real-UI E2E seen red first, and its own co
       clears; slice change clears.
 - [x] **S5 Mask copy/paste.** Ctrl+C copies the selected islands of this slice (2D, not the
       whole 3D segment as before); Ctrl+V pastes them onto the current slice; undoable.
-- [ ] **S6 Mask delete.** Delete erases the selected islands; undoable.
+- [x] **S6 Mask delete.** Delete erases the selected islands; undoable.
 - [ ] **S7 Docs.** Requirements/design/CLAUDE.md updated; this doc marked done.

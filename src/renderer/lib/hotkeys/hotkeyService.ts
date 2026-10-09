@@ -229,7 +229,8 @@ function dispatchAction(action: HotkeyAction): boolean {
         ? unifiedSegService.pasteActiveSegmentVoxels()
         : segmentationService.pasteCopiedContourAnnotationToActiveSlice();
     case 'edit.delete':
-      segmentationService.deleteSelectedContourComponents();
+      // Delete the selection — contours, else mask islands (never a fallback).
+      if (!segmentationService.deleteSelectedContourComponents()) unifiedSegService.deleteSelectedIslands();
       return true;
 
     // Slice navigation

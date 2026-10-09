@@ -78,6 +78,18 @@ function voxelsOnActiveSlice(grid: NonNullable<ReturnType<typeof readSegmentVoxe
   return out;
 }
 
+/** Whether a (container, segment) is locked — a multi-layer segment's lock lives on its
+ *  sub-seg (stored as segment 1). */
+function isSegmentLockedHere(containerId: string, segmentIndex: number): boolean {
+  try {
+    const sub = mlg.isMultiLayerGroup(containerId) ? mlg.resolveSubSegId(containerId, segmentIndex) : containerId;
+    const value = mlg.isMultiLayerGroup(containerId) ? 1 : segmentIndex;
+    return !!sub && csSegmentation.segmentLocking.isSegmentIndexLocked(sub, value);
+  } catch {
+    return false;
+  }
+}
+
 /** Re-render after a programmatic labelmap write (same events as a brush edit). */
 function notifyLabelmapChanged(csSegmentationId: string): void {
   try {
@@ -547,6 +559,33 @@ export const unifiedSegService = {
     return true;
   },
 
+  /**
+   * Delete on a mask (unified selection S6): erase the selected islands, as ONE undo step.
+   * Nothing selected → nothing erased (no fallback: delete is destructive). A locked
+   * segment is left alone.
+   */
+  deleteSelectedIslands(): boolean {
+    const sel = getMaskSelection();
+    if (!sel) return false;
+    if (isSegmentLockedHere(sel.containerId, sel.segmentIndex)) return false;
+    const grid = readSegmentVoxelGrid(sel.containerId, sel.segmentIndex);
+    if (!grid) return false;
+    const changes: number[] = [];
+    for (const island of sel.islands) {
+      for (const flat of island.voxels) {
+        const old = grid.data[flat];
+        if (old !== grid.value) continue;
+        changes.push(flat, old, 0);
+        grid.write(flat, 0);
+      }
+    }
+    if (changes.length === 0) return false;
+    pushVoxelHistoryMemo(sel.containerId, sel.segmentIndex, grid.csSegmentationId, changes);
+    clearMaskSelection();
+    notifyLabelmapChanged(grid.csSegmentationId);
+    return true;
+  },
+
   /** Drop the voxel clipboard (a contour copy replaced it — the last copy wins). */
   clearVoxelClipboard(): void {
     voxelClip = null;
@@ -573,6 +612,7 @@ export const unifiedSegService = {
     const containerId = voxelClipMember?.containerId ?? st.activeSegmentationId;
     const segmentIndex = voxelClipMember?.segmentIndex ?? st.activeSegmentIndex;
     if (!containerId || !Number.isInteger(segmentIndex) || segmentIndex <= 0) return false;
+    if (isSegmentLockedHere(containerId, segmentIndex)) return false;
     const grid = readSegmentVoxelGrid(containerId, segmentIndex);
     if (!grid) return false;
 
