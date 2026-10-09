@@ -168,6 +168,9 @@ test('Delete erases the selected island only; one undo brings it back, redo eras
   await expect.poll(async () => (await perImage(page))[source]).toBe(bothCount);
   await panel.locator('[data-testid^="member-row-"]').first().getByRole('button', { name: 'Toggle lock' }).click();
   await clickAt(page, left);
+  // Cornerstone applies a click after its double-click window: wait for the selection,
+  // so Delete really has a locked island selected to refuse.
+  await expect.poll(() => outlined(page), { message: 'a locked segment\'s island can still be selected' }).toBe(1);
   await page.keyboard.press('Delete');
   await page.waitForTimeout(400);
   expect((await perImage(page))[source], 'a locked segment is left alone').toBe(bothCount);
