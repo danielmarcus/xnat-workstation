@@ -41,7 +41,7 @@ export default function ViewportToastHost() {
           role="status"
           data-testid="viewport-toast"
           data-tone={t.tone}
-          className={`pointer-events-auto flex items-center gap-2 max-w-sm pl-2.5 pr-1.5 py-1.5 rounded-md border bg-zinc-900/95 shadow-lg text-[11px] ${TONE[t.tone].box}`}
+          className={`pointer-events-auto flex items-center gap-2 max-w-sm pl-2.5 pr-1.5 py-1.5 rounded-md border bg-zinc-900 shadow-lg text-[11px] ${TONE[t.tone].box}`}
         >
           <ToneIcon tone={t.tone} />
           <span className="flex-1">{t.message}</span>
