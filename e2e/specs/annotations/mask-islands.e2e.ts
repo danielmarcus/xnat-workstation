@@ -213,6 +213,16 @@ test('dragging a selected island moves it in the slice (voxel-snapped); one undo
   expect(after.x - before.x).toBeLessThan(80);
   expect((await perImage(page))[source], 'moved, not copied: same voxel count on the slice').toBe(count);
 
+  // The LABELMAP moved, not just the outline: the old place is empty, the new one painted.
+  const b = await box(page);
+  await page.mouse.click(b.x + 5, b.y + 5);
+  await expect.poll(() => outlined(page)).toBe(0);
+  await clickAt(page, { x: before.x + 2, y: p.y });
+  await page.waitForTimeout(600);
+  expect(await outlined(page), 'nothing left where the island was').toBe(0);
+  await clickAt(page, { x: after.x + after.w / 2, y: p.y });
+  await expect.poll(() => outlined(page), { message: 'the island is where it was dropped' }).toBe(1);
+
   await page.keyboard.press('Control+z');
   await page.waitForTimeout(300);
   await clickAt(page, p);
