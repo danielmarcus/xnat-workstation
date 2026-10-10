@@ -233,3 +233,20 @@ the real affordance (tab → sheet → Preview → ⏎) and asserts **labelmap v
 - **S9** — `docs/annotation-tool-reference.md` gains the toolbox tabs and the Process-tab
   operations; full offline E2E 242/242 green on the built app. **Branch 1 complete; awaiting
   the user's go-ahead to merge to `main`.**
+
+---
+
+## 6. Branch 2 — `review-ergonomics` (ordered plan)
+
+Cut from `mask-ops` (it reuses the labelmap transaction, slice numbering/occupancy and key
+layers) in a separate worktree, so `mask-ops` can be evaluated in parallel. Fixes found in
+that evaluation land on `mask-ops` and are merged forward here.
+
+| Slice | Content | Acceptance |
+|---|---|---|
+| **R1** | **Hide PHI (D7)** — toolbar toggle beside Tags + ⇧H; persisted preference (a restart must not silently re-expose PHI). Hides PHI fields in the viewport overlay corners, masks PHI tag values in the DICOM header panel (per-tag reveal), strips PHI from the window title. Orientation markers, active ring, XNAT labels and exports unchanged | E2E: overlay text and header values absent in pixels/DOM when on; present when off; survives reload |
+| **R2** | **M** toggles the active container's mask visibility; **mask-mode HUD** — a ~1.2 s bottom-centre readout (above the ruler) when a hotkey changes tool, mode or brush size | E2E: M hides/shows labelmap pixels; HUD appears on `[`/`]`/E/B and fades |
+| **R3** | **Hold-Q intensity probe** — cursor-adjacent readout (modality value + voxel ijk) while Q is held, without changing tools; "hold" bindings in the hotkey system (keyup ends) | E2E: value shown matches the Probe tool's at the same point; gone on keyup |
+| **R4** | **Auto Review flythrough (D6)** — viewport mini-player from the container kebab or ⇧Space: segments to review, direction, start at bounds/current, anatomy and mask dwell (overlay flicker), pause/stop, collapsed by default; bounds from slice occupancy in the viewport's numbering | E2E: visits exactly the occupied range in order; mask hidden during anatomy dwell (pixels); stop restores visibility |
+| **R5** | **Checkpoints (D8)** — kebab: Save checkpoint… · Restore checkpoint ▸ (named, timestamped; "baseline" reserved); restore = one undo step through the labelmap transaction; persisted on disk beside autosave (retention 4 per container + baseline); Settings › File Backup: export/import a checkpoint file, guarded by study/series identity | E2E: save → edit → restore returns exact voxels; undo of restore; survives reload; import refuses a different series |
+| **R6** | Docs, full offline E2E, visual sweep vs wireframes §8–§11 | CLAUDE.md self-check |
