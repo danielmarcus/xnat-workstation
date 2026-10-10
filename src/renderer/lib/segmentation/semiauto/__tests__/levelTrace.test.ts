@@ -4,7 +4,7 @@
  * they claim on synthetic images with a known answer.
  */
 import { describe, expect, it } from 'vitest';
-import { chaikin, DEFAULT_LEVEL_TRACE, levelTrace, rasterize, simplify, traceBoundary } from '../levelTrace';
+import { chaikin, DEFAULT_LEVEL_TRACE, guardFromSamples, levelTrace, rasterize, simplify, traceBoundary } from '../levelTrace';
 
 const W = 50;
 const H = 50;
@@ -69,9 +69,28 @@ describe('levelTrace', () => {
     expect(fuzzy.data[40 + 25 * W]).toBe(0);
   });
 
+  it('the intensity guard keeps only pixels inside its range, even where the band reaches further', () => {
+    // A +70 core (r 6) inside +40 tissue (r 15): the band (±100 HU) takes both; a 60–80
+    // guard takes only the core.
+    const img = Float32Array.from({ length: W * H }, (_, i) => (discMask(25, 25, 6)[i] ? 70 : discMask(25, 25, 15)[i] ? 40 : -1000));
+    expect(area(levelTrace(img, W, H, 25, 25, { ...DEFAULT_LEVEL_TRACE, fillHoles: false }).data)).toBe(area(discMask(25, 25, 15)));
+    const r = levelTrace(img, W, H, 25, 25, { ...DEFAULT_LEVEL_TRACE, fillHoles: false, guard: { lo: 60, hi: 80 } });
+    expect(area(r.data)).toBe(area(discMask(25, 25, 6)));
+  });
+
   it('a click outside the image gives nothing', () => {
     const img = new Float32Array(W * H);
     expect(area(levelTrace(img, W, H, -1, 3, DEFAULT_LEVEL_TRACE).data)).toBe(0);
+  });
+});
+
+describe('guardFromSamples', () => {
+  it('reads the 2nd–98th percentile of the ROI, so a few stray pixels do not widen it', () => {
+    const vals = [...Array(98).fill(70), -1000, 1000];
+    expect(guardFromSamples(vals)).toEqual({ lo: 70, hi: 70 });
+    const ramp = Array.from({ length: 101 }, (_, i) => i);
+    expect(guardFromSamples(ramp)).toEqual({ lo: 2, hi: 98 });
+    expect(guardFromSamples([])).toBeNull();
   });
 });
 

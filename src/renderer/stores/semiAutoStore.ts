@@ -19,6 +19,8 @@ export interface LevelTraceSettings {
   smoothing: 'none' | 'gentle' | 'standard' | 'strong';
   simplifyPx: number;
   roundCorners: number;
+  /** Intensity guard: only [lo, hi] is taken (null = off). Typed in or read from the ROI limit. */
+  guard: { lo: number; hi: number } | null;
 }
 
 export interface SmartBrushSettings {
@@ -68,7 +70,7 @@ export const useSemiAutoStore = create<SemiAutoState>((set) => ({
   levelTrace: {
     modality: null, huTolerance: 100, sigmaK: 2.2, window: 7, growth: 'binary', fuzzyThreshold: 0.5,
     edgeGuard: 'off', edgeOperator: 'sobel', polarity: 'auto', airGuard: true, fillHoles: true,
-    smoothing: 'none', simplifyPx: 0, roundCorners: 0,
+    smoothing: 'none', simplifyPx: 0, roundCorners: 0, guard: null,
   },
   smartBrush: { radiusMm: 6, tolerance: 80, spacingPx: 2 },
   randomWalker: { beta: 90, seedRadiusPx: 2, paddingPx: 20 },

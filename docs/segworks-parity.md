@@ -372,3 +372,19 @@ compute infrastructure they need, and the ROI limit.
   cancelled. Unit 8 tests (4 client mutants killed); E2E 2 more (Escape / Cancel button
   mutants killed). Tools + annotations E2E 217/218 — the miss is the known
   `contour-copy-paste` flake (3/3 on rerun).
+- **C4** — region-grow guards (#52–58). Six of the seven were already delivered by Level
+  Trace's binary mode, the ROI limit and the edge/air guards; the explicit intensity guard
+  (#56) and reading it from an ROI (#57) were missing and were added (red-first unit tests;
+  E2E with two killed mutants).
+
+  | # | SegWorks feature | Workstation |
+  |---|---|---|
+  | 52 | Seeded region grow | Level Trace, binary growth: the connected region inside the band around the clicked pixel (and Cornerstone's Region / Region+) |
+  | 53 | Seed placement, reposition / clear before running | The click previews; clicking again replaces the preview, ⎋ clears it, ⏎ commits — nothing is written until then |
+  | 54 | HU tolerance | Level Trace › HU tolerance |
+  | 55 | Modality detection | Level Trace › Band: *From scan* reads the series modality (CT → HU band, otherwise MR σ band) |
+  | 56 | Intensity guard | Level Trace › Intensity guard: only [min, max] is taken, whatever the band allows |
+  | 57 | Read intensity guard from ROI | Intensity guard › *From ROI*: the 2nd–98th percentile of the image inside the ROI limit, on the slice shown |
+  | 58 | Body / edge protection | Edge guard (Sobel/Scharr, gentle/strong, polarity) and *Stop at air* (CT); the ROI limit as a hard boundary |
+
+  Full offline E2E (unloaded): 279/279. Unit 1040/1040. Branch 4 complete.

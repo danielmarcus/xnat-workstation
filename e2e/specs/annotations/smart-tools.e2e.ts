@@ -229,3 +229,38 @@ test('Random Walker: the progress bar’s Cancel button stops the solve', async 
   await expect(page.getByTestId('mask-preview-bar')).toHaveCount(0);
   expect(await voxels(page)).toBe(0);
 });
+
+test('Level Trace intensity guard: typed in, it keeps the trace inside its range', async ({ page }) => {
+  const toolbox = await smartTool(page, 'Level Trace');
+  await toolbox.getByRole('group', { name: 'Band' }).getByRole('button', { name: 'CT (HU)' }).click();
+  // ±100 HU from the lesion (+70) reaches the tissue (+40): unguarded, the body is taken.
+  const guard = toolbox.getByTestId('intensity-guard');
+  await guard.getByRole('checkbox').check();
+  await guard.getByLabel('Guard minimum').fill('60');
+  await guard.getByLabel('Guard maximum').fill('80');
+  await click(page, 25, 0);
+  await expect(page.getByTestId('mask-preview-bar')).toContainText('Level Trace');
+  await page.keyboard.press('Enter');
+  await expect.poll(() => voxels(page)).toBeGreaterThan(150);
+  expect(await voxels(page)).toBeLessThan(260);
+  expect(await range(page)).toEqual({ min: 70, max: 70 });
+});
+
+test('Level Trace intensity guard: read from the ROI limit', async ({ page }) => {
+  const toolbox = await smartTool(page, 'ROI limit');
+  await drag(page, [[22, -3], [28, 3]]); // inside the lesion
+  await clickTool(toolbox, 'Level Trace');
+  await toolbox.getByRole('group', { name: 'Band' }).getByRole('button', { name: 'CT (HU)' }).click();
+  const guard = toolbox.getByTestId('intensity-guard');
+  await guard.getByRole('button', { name: 'From ROI' }).click();
+  await expect(guard.getByLabel('Guard minimum')).toHaveValue('70');
+  await expect(guard.getByLabel('Guard maximum')).toHaveValue('70');
+  await toolbox.getByTestId('roi-limit-chip').getByRole('button', { name: 'Clear' }).click();
+  await expect(guard.getByRole('button', { name: 'From ROI' })).toBeDisabled();
+  await click(page, 25, 0);
+  await expect(page.getByTestId('mask-preview-bar')).toContainText('Level Trace');
+  await page.keyboard.press('Enter');
+  await expect.poll(() => voxels(page)).toBeGreaterThan(150);
+  expect(await voxels(page), 'the whole lesion, not just the ROI').toBeLessThan(260);
+  expect(await range(page)).toEqual({ min: 70, max: 70 });
+});

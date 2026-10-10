@@ -31,6 +31,10 @@ export function useSemiAutoControls() {
     roiDrawn: !!s.roi,
     roiHere: s.roi?.viewportId === activeViewportId,
     clearRoi: () => s.setRoi(null),
+    readGuardFromRoi: () => {
+      const g = semiAutoService.readGuardFromRoi(activeViewportId);
+      s.setMessage(g ? null : 'Draw an ROI limit on this viewport first');
+    },
     message: s.message,
   };
 }

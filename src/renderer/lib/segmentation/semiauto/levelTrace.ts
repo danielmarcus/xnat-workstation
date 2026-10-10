@@ -37,6 +37,11 @@ export interface LevelTraceOptions {
   simplifyPx: number;
   /** Chaikin iterations (0 = off). */
   roundCorners: number;
+  /**
+   * Intensity guard (SegWorks #56–57): only pixels in [lo, hi] are taken, whatever the band
+   * allows — typed in, or read from an ROI (`guardFromSamples`).
+   */
+  guard?: { lo: number; hi: number } | null;
 }
 
 export const DEFAULT_LEVEL_TRACE: LevelTraceOptions = {
@@ -266,13 +271,22 @@ export function rasterize(poly: Array<[number, number]>, w: number, h: number): 
  * The traced region for a click at (x, y), or an empty plane when the click fails the
  * guards. `roi` (optional) confines the trace.
  */
+/** An intensity guard read from ROI samples: their 2nd–98th percentile (null if none). */
+export function guardFromSamples(values: ArrayLike<number>): { lo: number; hi: number } | null {
+  if (!values.length) return null;
+  const v = Float64Array.from(values).sort();
+  const at = (p: number) => v[Math.round(p * (v.length - 1))];
+  return { lo: at(0.02), hi: at(0.98) };
+}
+
 export function levelTrace(image: ArrayLike<number>, w: number, h: number, x: number, y: number, o: LevelTraceOptions, roi?: ArrayLike<number>): MaskPlane {
   const empty: MaskPlane = { width: w, height: h, data: new Uint8Array(w * h) };
   if (x < 0 || y < 0 || x >= w || y >= h) return empty;
   const band = traceBand(image, w, h, x, y, o);
   const walls = edgeWalls(image, w, h, x, y, band, o);
   const blocked = (i: number) => (roi ? !roi[i] : false) || (walls ? walls[i] === 1 && i !== x + y * w : false)
-    || (o.modality === 'ct' && o.airGuard && image[i] < -500);
+    || (o.modality === 'ct' && o.airGuard && image[i] < -500)
+    || (!!o.guard && (image[i] < o.guard.lo || image[i] > o.guard.hi));
   let data = o.growth === 'fuzzy'
     ? fuzzyGrow(image, w, h, x, y, band, o.fuzzyThreshold, blocked)
     : binaryGrow(image, w, h, x, y, (i) => !blocked(i) && image[i] >= band.lo && image[i] <= band.hi);

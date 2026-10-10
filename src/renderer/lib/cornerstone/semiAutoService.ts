@@ -18,7 +18,7 @@ import { getWorldPointFromClientPoint } from './unifiedCrosshair';
 import { semiAutoBridge } from './tools/semiAutoBridge';
 import { startSemiAutoOverlay } from './semiAutoOverlay';
 import { type Axis, extractValues, planeAxes, planeSize, sliceIndices } from '../segmentation/maskOps/planeIO';
-import { levelTrace } from '../segmentation/semiauto/levelTrace';
+import { guardFromSamples, levelTrace } from '../segmentation/semiauto/levelTrace';
 import { smartBrushDab, strokeDabs } from '../segmentation/semiauto/smartBrush';
 import { computeClient, ComputeCancelled } from '../compute/computeClient';
 import { hotkeyService } from '../hotkeys/hotkeyService';
@@ -288,6 +288,32 @@ export const semiAutoService = {
   /** Cancel the running compute job (the preview bar's Cancel). */
   cancelCompute(): void {
     runningJob?.cancel();
+  },
+
+  /**
+   * Read Level Trace's intensity guard from the ROI limit (SegWorks #57): the 2nd–98th
+   * percentile of the image inside the rectangle, on the slice `viewportId` shows.
+   */
+  readGuardFromRoi(viewportId: string): { lo: number; hi: number } | null {
+    const s = useSemiAutoStore.getState();
+    if (s.roi?.viewportId !== viewportId) return null;
+    const t = openTarget();
+    if (!t) return null;
+    const grid = t.txn.grid(t.member);
+    t.txn.discard();
+    const source = grid?.sourceReader?.() ?? null;
+    const vp = viewportService.getViewport(viewportId) as { getCamera?: () => { focalPoint?: number[] } } | undefined;
+    const focal = vp?.getCamera?.()?.focalPoint;
+    const at = grid && focal ? planePoint(viewportId, grid.geometry, focal) : null;
+    if (!grid || !source || !at) return null;
+    const roi = roiPlaneMask(s.roi, viewportId, grid.geometry, at.axis);
+    if (!roi) return null;
+    const image = extractValues(grid.geometry.dimensions, at.axis, at.slice, source);
+    const samples: number[] = [];
+    for (let i = 0; i < roi.length; i++) if (roi[i]) samples.push(image[i]);
+    const guard = guardFromSamples(samples);
+    if (guard) s.setLevelTrace({ guard });
+    return guard;
   },
 
   /** Which grid slice a world point is on, for the active member — the seed overlay's filter. */

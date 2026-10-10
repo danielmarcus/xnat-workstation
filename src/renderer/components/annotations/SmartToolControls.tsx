@@ -60,6 +60,24 @@ function Check({ label, checked, onChange }: { label: string; checked: boolean; 
 
 const BUTTON = 'text-[10px] px-2 py-0.5 rounded border border-zinc-700 bg-zinc-800 text-zinc-200 hover:bg-zinc-700 disabled:opacity-40 disabled:hover:bg-zinc-800';
 
+function GuardRow({ m }: { m: SemiAutoControlsModel }) {
+  const g = m.levelTrace.guard;
+  const num = 'w-14 rounded border border-zinc-700 bg-zinc-800 px-1 py-0.5 text-[10px] text-zinc-200';
+  return (
+    <Row label="Intensity guard" testId="intensity-guard">
+      <Check label={g ? '' : 'Off'} checked={!!g} onChange={(on) => m.setLevelTrace({ guard: on ? { lo: -100, hi: 100 } : null })} />
+      {g && (
+        <>
+          <input type="number" aria-label="Guard minimum" className={num} value={g.lo} onChange={(e) => m.setLevelTrace({ guard: { ...g, lo: Number(e.target.value) } })} />
+          <span className="text-[10px] text-zinc-500">–</span>
+          <input type="number" aria-label="Guard maximum" className={num} value={g.hi} onChange={(e) => m.setLevelTrace({ guard: { ...g, hi: Number(e.target.value) } })} />
+        </>
+      )}
+      <button type="button" className={`${BUTTON} ml-auto`} disabled={!m.roiHere} onClick={m.readGuardFromRoi} title="Read the range from the image inside the ROI limit">From ROI</button>
+    </Row>
+  );
+}
+
 function RoiChip({ m }: { m: SemiAutoControlsModel }) {
   if (!m.roiHere) return null;
   return (
@@ -103,6 +121,7 @@ export default function SmartToolControls({ toolId, m }: { toolId: string; m: Se
             <Segmented label="Smoothing" value={lt.smoothing} options={[['none', 'None'], ['gentle', 'Gentle'], ['standard', 'Std'], ['strong', 'Strong']]} onChange={(v) => m.setLevelTrace({ smoothing: v })} />
             <Slider label="Simplify" value={lt.simplifyPx} min={0} max={5} step={0.5} unit=" px" onChange={(v) => m.setLevelTrace({ simplifyPx: v })} />
             <Slider label="Round corners" value={lt.roundCorners} min={0} max={4} unit="×" onChange={(v) => m.setLevelTrace({ roundCorners: v })} />
+            <GuardRow m={m} />
             <div className="flex items-center gap-3 mt-1.5 pl-[5.5rem]">
               <Check label="Fill holes" checked={lt.fillHoles} onChange={(v) => m.setLevelTrace({ fillHoles: v })} />
               {lt.modality !== 'mr' && <Check label="Stop at air" checked={lt.airGuard} onChange={(v) => m.setLevelTrace({ airGuard: v })} />}
