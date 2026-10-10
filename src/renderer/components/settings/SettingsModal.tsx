@@ -14,6 +14,7 @@ import { backupService } from '../../lib/backup/backupService';
 import type { BackupSessionSummary } from '@shared/types/backup';
 import { buildIssueReport } from '../../lib/diagnostics/issueReport';
 import { IconClose } from '../icons';
+import CheckpointFilesSection from './CheckpointFilesSection';
 
 declare const __APP_VERSION__: string;
 const APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev';
@@ -1144,6 +1145,8 @@ export default function SettingsModal({ open, onClose, onRecover, initialTab }: 
                     </div>
                   )}
                 </div>
+
+                <CheckpointFilesSection />
 
                 {/* Cached backups list — grouped by server */}
                 <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-4 space-y-3">

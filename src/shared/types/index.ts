@@ -215,6 +215,10 @@ export interface ElectronAPI {
     list(key: string): Promise<{ ok: boolean; checkpoints?: import('./checkpoint').CheckpointMeta[]; error?: string }>;
     read(key: string, id: string): Promise<{ ok: boolean; record?: import('./checkpoint').CheckpointRecord; error?: string }>;
     delete(key: string, id: string): Promise<{ ok: boolean; error?: string }>;
+    /** Save a checkpoint to a file the user picks. */
+    exportFile(key: string, id: string): Promise<{ ok: boolean; path?: string; canceled?: boolean; error?: string }>;
+    /** Read a checkpoint file the user picks (validated shape; not yet stored). */
+    importFile(): Promise<{ ok: boolean; record?: import('./checkpoint').CheckpointRecord; canceled?: boolean; error?: string }>;
   };
   diagnostics?: {
     getMainSnapshot(): Promise<MainDiagnosticsSnapshotResult>;

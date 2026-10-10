@@ -283,3 +283,6 @@ that evaluation land on `mask-ops` and are merged forward here.
   reloads and match a re-created segmentation of the same scan; restore = one undo step through
   the labelmap transaction, refused (toast) if a segment is locked; retention 4 named + 1
   baseline. Remaining: **R5b** checkpoint file export/import in Settings › File Backup.
+- **R5b** — Settings › File Backup › "Segmentation checkpoints · <active segmentation>": Export…
+  per checkpoint (save dialog, `.wscheckpoint` JSON) and Import checkpoint file… (validated shape;
+  refused unless same series and grid; stored as a new checkpoint). Status in place, not a toast.

@@ -198,6 +198,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     list: (key: string) => ipcRenderer.invoke(IPC.CHECKPOINT_LIST, key),
     read: (key: string, id: string) => ipcRenderer.invoke(IPC.CHECKPOINT_READ, key, id),
     delete: (key: string, id: string) => ipcRenderer.invoke(IPC.CHECKPOINT_DELETE, key, id),
+    exportFile: (key: string, id: string) => ipcRenderer.invoke(IPC.CHECKPOINT_EXPORT, key, id),
+    importFile: () => ipcRenderer.invoke(IPC.CHECKPOINT_IMPORT),
   },
 
   diagnostics: {

@@ -6,7 +6,7 @@
  * `key` identifies a Segmentation across loads (session + source series + label); the
  * renderer builds it. Both key and id are sanitised against path traversal.
  */
-import { ipcMain, app } from 'electron';
+import { ipcMain, app, dialog, BrowserWindow } from 'electron';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { IPC } from '../../shared/ipcChannels';
@@ -19,7 +19,46 @@ const fileOf = (key: string, id: string) => path.join(dirOf(key), `${safe(id)}.j
 
 const errMsg = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
+/** Whether a parsed file looks like a CheckpointRecord this version can apply. */
+export function isCheckpointRecord(v: unknown): v is CheckpointRecord {
+  const r = v as CheckpointRecord;
+  return !!r && r.version === 1 && typeof r.id === 'string' && typeof r.name === 'string'
+    && (r.kind === 'named' || r.kind === 'baseline') && typeof r.seriesInstanceUID === 'string'
+    && Array.isArray(r.dims) && r.dims.length === 3 && r.dims.every((d) => Number.isInteger(d) && d > 0)
+    && Array.isArray(r.members) && r.members.every((m) => Number.isInteger(m.segmentIndex) && typeof m.runs === 'string');
+}
+
+const FILTERS = [{ name: 'Workstation checkpoint', extensions: ['wscheckpoint'] }];
+
 export function registerCheckpointHandlers(): void {
+  ipcMain.handle(IPC.CHECKPOINT_EXPORT, async (e, key: string, id: string) => {
+    try {
+      const rec = JSON.parse(await fs.readFile(fileOf(key, id), 'utf8')) as CheckpointRecord;
+      const win = BrowserWindow.fromWebContents(e.sender) ?? undefined;
+      const opts = { defaultPath: `${safe(`${rec.containerLabel}-${rec.name}`)}.wscheckpoint`, filters: FILTERS };
+      const result = win ? await dialog.showSaveDialog(win, opts) : await dialog.showSaveDialog(opts);
+      if (result.canceled || !result.filePath) return { ok: false, canceled: true };
+      await fs.writeFile(result.filePath, JSON.stringify(rec));
+      return { ok: true, path: result.filePath };
+    } catch (err) {
+      return { ok: false, error: errMsg(err) };
+    }
+  });
+
+  ipcMain.handle(IPC.CHECKPOINT_IMPORT, async (e) => {
+    try {
+      const win = BrowserWindow.fromWebContents(e.sender) ?? undefined;
+      const opts = { properties: ['openFile' as const], filters: FILTERS };
+      const result = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts);
+      if (result.canceled || !result.filePaths[0]) return { ok: false, canceled: true };
+      const parsed = JSON.parse(await fs.readFile(result.filePaths[0], 'utf8'));
+      if (!isCheckpointRecord(parsed)) return { ok: false, error: 'not a Workstation checkpoint file' };
+      return { ok: true, record: parsed };
+    } catch (err) {
+      return { ok: false, error: errMsg(err) };
+    }
+  });
+
   ipcMain.handle(IPC.CHECKPOINT_WRITE, async (_e, key: string, record: CheckpointRecord) => {
     try {
       await fs.mkdir(dirOf(key), { recursive: true });

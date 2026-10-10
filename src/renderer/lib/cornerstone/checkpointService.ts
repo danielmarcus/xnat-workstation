@@ -149,3 +149,40 @@ export async function restoreCheckpoint(containerId: string, checkpointId: strin
   const untouched = (summary?.segments.length ?? 0) - members.length;
   return { ok: true, restoredMembers: members.length, untouchedMembers: Math.max(0, untouched) };
 }
+
+/** Save a checkpoint of this Segmentation to a file the user picks. */
+export async function exportCheckpointFile(containerId: string, checkpointId: string): Promise<{ ok: boolean; path?: string; canceled?: boolean; error?: string }> {
+  const id = checkpointIdentity(containerId);
+  const store = api();
+  if (!id || !store) return { ok: false, error: 'no-identity' };
+  return store.exportFile(id.key, checkpointId);
+}
+
+export type ImportResult =
+  | { ok: true; name: string }
+  | { ok: false; canceled?: boolean; reason: 'no-identity' | 'no-storage' | 'invalid' | 'other-series' | 'other-grid' | 'write-failed'; detail?: string };
+
+/**
+ * Bring a checkpoint file in for this Segmentation. Refused unless it was made from the
+ * same series with the same grid — a checkpoint is only meaningful on the scan it came
+ * from. Stored as a new checkpoint (a baseline replaces the current baseline).
+ */
+export async function importCheckpointFile(containerId: string): Promise<ImportResult> {
+  const id = checkpointIdentity(containerId);
+  const store = api();
+  if (!id) return { ok: false, reason: 'no-identity' };
+  if (!store) return { ok: false, reason: 'no-storage' };
+  const r = await store.importFile();
+  if (!r.ok || !r.record) return r.canceled ? { ok: false, canceled: true, reason: 'invalid' } : { ok: false, reason: 'invalid', detail: r.error };
+  const rec = r.record;
+  if (rec.seriesInstanceUID !== id.seriesInstanceUID) return { ok: false, reason: 'other-series' };
+  const summary = useSegmentationStore.getState().segmentations.find((s) => s.segmentationId === containerId);
+  const grid = summary?.segments.map((m) => readSegmentVoxelGrid(containerId, m.segmentIndex)).find((g) => g);
+  const d = grid?.geometry.dimensions;
+  if (!d || d[0] !== rec.dims[0] || d[1] !== rec.dims[1] || d[2] !== rec.dims[2]) return { ok: false, reason: 'other-grid' };
+  const stored: CheckpointRecord = { ...rec, id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`, containerLabel: id.label };
+  const w = await store.write(id.key, stored);
+  if (!w.ok) return { ok: false, reason: 'write-failed', detail: w.error };
+  await applyRetention(id.key, stored);
+  return { ok: true, name: stored.name };
+}

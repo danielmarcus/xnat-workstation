@@ -89,6 +89,8 @@ export const IPC = {
   CHECKPOINT_LIST: 'checkpoint:list',
   CHECKPOINT_READ: 'checkpoint:read',
   CHECKPOINT_DELETE: 'checkpoint:delete',
+  CHECKPOINT_EXPORT: 'checkpoint:export',
+  CHECKPOINT_IMPORT: 'checkpoint:import',
 
   // Diagnostics (renderer → main)
   DIAGNOSTICS_GET_MAIN_SNAPSHOT: 'diagnostics:get-main-snapshot',
