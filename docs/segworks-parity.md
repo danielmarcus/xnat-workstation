@@ -230,3 +230,6 @@ the real affordance (tab → sheet → Preview → ⏎) and asserts **labelmap v
   ≥ 0.62 on 3 sampled slices) segments are withheld from eroding ops. Deviation: protected
   segments default to **Skip** (SegWorks: Median — which also erases 1-px structures); Median is
   selectable. The plan runs as one undo step.
+- **S9** — `docs/annotation-tool-reference.md` gains the toolbox tabs and the Process-tab
+  operations; full offline E2E 242/242 green on the built app. **Branch 1 complete; awaiting
+  the user's go-ahead to merge to `main`.**
