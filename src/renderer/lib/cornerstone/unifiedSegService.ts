@@ -28,6 +28,7 @@ import { viewportService } from './viewportService';
 import type { ContainerSpatialId, ViewportSpatialId } from './spatialIdentity';
 import * as mlg from './multiLayerGroup';
 import { readSegmentVoxelGrid } from './segmentVoxelGrid';
+import { beginTransaction, isSegmentLockedHere, onVoxelMemoRestored, type MemberRef } from './labelmapTransaction';
 import {
   copyVoxelRegion,
   pasteVoxelRegion,
@@ -80,54 +81,8 @@ function voxelsOnActiveSlice(grid: NonNullable<ReturnType<typeof readSegmentVoxe
   return out;
 }
 
-/** Whether a (container, segment) is locked — a multi-layer segment's lock lives on its
- *  sub-seg (stored as segment 1). */
-function isSegmentLockedHere(containerId: string, segmentIndex: number): boolean {
-  try {
-    const sub = mlg.isMultiLayerGroup(containerId) ? mlg.resolveSubSegId(containerId, segmentIndex) : containerId;
-    const value = mlg.isMultiLayerGroup(containerId) ? 1 : segmentIndex;
-    return !!sub && csSegmentation.segmentLocking.isSegmentIndexLocked(sub, value);
-  } catch {
-    return false;
-  }
-}
-
-/** Re-render after a programmatic labelmap write (same events as a brush edit). */
-function notifyLabelmapChanged(csSegmentationId: string): void {
-  try {
-    csSegmentation.triggerSegmentationEvents.triggerSegmentationDataModified(csSegmentationId);
-  } catch { /* best-effort */ }
-  for (const vpId of csSegmentation.state.getViewportIdsWithSegmentation(csSegmentationId)) {
-    try { csToolUtilities.segmentation.triggerSegmentationRender(vpId); } catch { /* ignore */ }
-  }
-}
-
-/**
- * Make a programmatic voxel write undoable: ONE history entry whose undo puts back every
- * changed voxel's old value and whose redo re-applies the new one. Filed per container by
- * its segmentationId (the Cornerstone seg written — a multi-layer sub-seg maps to its
- * group), like a brush stroke.
- */
-function pushVoxelHistoryMemo(containerId: string, segmentIndex: number, csSegmentationId: string, changes: number[]): void {
-  const ring = (csCoreUtilities as unknown as { HistoryMemo?: { DefaultHistoryMemo?: { push?: (m: unknown) => void } } })
-    .HistoryMemo?.DefaultHistoryMemo;
-  ring?.push?.({
-    id: `voxels-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-    operationType: 'labelmap',
-    segmentationId: csSegmentationId,
-    segmentIndex,
-    restoreMemo: (isUndo = true) => {
-      const g = readSegmentVoxelGrid(containerId, segmentIndex);
-      if (!g) return;
-      // Undo replays the writes in reverse (a voxel written twice — e.g. where a moved
-      // island's old and new places overlap — must end at its FIRST old value).
-      if (isUndo) for (let c = changes.length - 3; c >= 0; c -= 3) g.write(changes[c], changes[c + 1]);
-      else for (let c = 0; c < changes.length; c += 3) g.write(changes[c], changes[c + 2]);
-      clearMaskSelection();
-      notifyLabelmapChanged(g.csSegmentationId);
-    },
-  });
-}
+// Undoing or redoing a programmatic voxel edit invalidates any island selection.
+onVoxelMemoRestored(clearMaskSelection);
 
 /** Current world focal point of the active viewport (paste-at-slice translation). */
 function activeViewportFocalPoint(): Vec3 | null {
@@ -572,25 +527,19 @@ export const unifiedSegService = {
   deleteSelectedIslands(): boolean {
     const sel = getMaskSelection();
     if (!sel) return false;
-    if (isSegmentLockedHere(sel.containerId, sel.segmentIndex)) {
-      warnMemberLocked(sel.containerId, sel.segmentIndex, 'delete');
-      return true; // handled (refused)
-    }
-    const grid = readSegmentVoxelGrid(sel.containerId, sel.segmentIndex);
-    if (!grid) return false;
-    const changes: number[] = [];
-    for (const island of sel.islands) {
-      for (const flat of island.voxels) {
-        const old = grid.data[flat];
-        if (old !== grid.value) continue;
-        changes.push(flat, old, 0);
-        grid.write(flat, 0);
+    const member: MemberRef = { containerId: sel.containerId, segmentIndex: sel.segmentIndex };
+    const begun = beginTransaction([member]);
+    if (!begun.ok) {
+      if (begun.reason === 'locked') {
+        warnMemberLocked(sel.containerId, sel.segmentIndex, 'delete');
+        return true; // handled (refused)
       }
+      return false;
     }
-    if (changes.length === 0) return false;
-    pushVoxelHistoryMemo(sel.containerId, sel.segmentIndex, grid.csSegmentationId, changes);
+    const { txn } = begun;
+    for (const island of sel.islands) for (const flat of island.voxels) txn.set(member, flat, false);
+    if (!txn.commit()) return false;
     clearMaskSelection();
-    notifyLabelmapChanged(grid.csSegmentationId);
     return true;
   },
 
@@ -602,11 +551,14 @@ export const unifiedSegService = {
   moveSelectedIslands(deltaWorld: [number, number, number]): boolean {
     const sel = getMaskSelection();
     if (!sel) return false;
-    if (isSegmentLockedHere(sel.containerId, sel.segmentIndex)) {
-      warnMemberLocked(sel.containerId, sel.segmentIndex, 'move it');
+    const member: MemberRef = { containerId: sel.containerId, segmentIndex: sel.segmentIndex };
+    const begun = beginTransaction([member]);
+    if (!begun.ok) {
+      if (begun.reason === 'locked') warnMemberLocked(sel.containerId, sel.segmentIndex, 'move it');
       return false;
     }
-    const grid = readSegmentVoxelGrid(sel.containerId, sel.segmentIndex);
+    const { txn } = begun;
+    const grid = txn.grid(member);
     if (!grid) return false;
     const { dimensions: dims, spacing, direction } = grid.geometry;
     // World delta → index delta (direction columns are the grid axes; orthonormal).
@@ -617,33 +569,21 @@ export const unifiedSegService = {
     });
     if (step.every((v) => v === 0)) return false;
 
-    const current = new Map<number, number>();
-    const valueAt = (f: number) => current.get(f) ?? grid.data[f];
-    const changes: number[] = [];
-    const write = (f: number, v: number) => {
-      const old = valueAt(f);
-      if (old === v) return;
-      changes.push(f, old, v);
-      current.set(f, v);
-      grid.write(f, v);
-    };
-    const from = sel.islands.flatMap((i) => i.voxels).filter((f) => grid.data[f] === grid.value);
-    const to: number[] = [];
-    for (const f of from) write(f, 0);
+    const from = sel.islands.flatMap((i) => i.voxels).filter((f) => txn.has(member, f));
+    for (const f of from) txn.set(member, f, false);
     const nx = dims[0];
     const ny = dims[1];
+    const to: number[] = [];
     for (const f of from) {
       const k = Math.floor(f / (nx * ny));
       const j = Math.floor((f - k * nx * ny) / nx);
       const ijk = [f - k * nx * ny - j * nx + step[0], j + step[1], k + step[2]];
       if (ijk.some((v, a) => v < 0 || v >= dims[a])) continue; // off the grid: clipped
       const nf = ijk[0] + ijk[1] * nx + ijk[2] * nx * ny;
-      write(nf, grid.value);
+      txn.set(member, nf, true);
       to.push(nf);
     }
-    if (changes.length === 0) return false;
-    pushVoxelHistoryMemo(sel.containerId, sel.segmentIndex, grid.csSegmentationId, changes);
-    notifyLabelmapChanged(grid.csSegmentationId);
+    if (!txn.commit()) return false;
     selectIslandsContaining(sel.viewportId, sel.containerId, sel.segmentIndex, to);
     return true;
   },
@@ -674,11 +614,14 @@ export const unifiedSegService = {
     const containerId = voxelClipMember?.containerId ?? st.activeSegmentationId;
     const segmentIndex = voxelClipMember?.segmentIndex ?? st.activeSegmentIndex;
     if (!containerId || !Number.isInteger(segmentIndex) || segmentIndex <= 0) return false;
-    if (isSegmentLockedHere(containerId, segmentIndex)) {
-      warnMemberLocked(containerId, segmentIndex, 'paste into it');
+    const member: MemberRef = { containerId, segmentIndex };
+    const begun = beginTransaction([member]);
+    if (!begun.ok) {
+      if (begun.reason === 'locked') warnMemberLocked(containerId, segmentIndex, 'paste into it');
       return false;
     }
-    const grid = readSegmentVoxelGrid(containerId, segmentIndex);
+    const { txn } = begun;
+    const grid = txn.grid(member);
     if (!grid) return false;
 
     let translationWorld: Vec3 | undefined;
@@ -691,8 +634,7 @@ export const unifiedSegService = {
       ];
     }
 
-    // Every voxel the paste changes, as [flat, old, new] — what one undo puts back.
-    const changes: number[] = [];
+    const written: number[] = [];
     const result = pasteVoxelRegion(
       voxelClip,
       { geometry: grid.geometry, data: grid.data as unknown as Uint8Array },
@@ -701,19 +643,14 @@ export const unifiedSegService = {
         overlap: 'overwrite',
         translationWorld,
         writeTarget: (flat: number, value: number) => {
-          const old = grid.data[flat];
-          if (old === value) return;
-          changes.push(flat, old, value);
-          grid.write(flat, value);
+          const on = value === grid.value;
+          if (txn.has(member, flat) === on) return;
+          txn.set(member, flat, on);
+          if (on) written.push(flat);
         },
       },
     );
-    if (result.written <= 0 || changes.length === 0) return false;
-
-    pushVoxelHistoryMemo(containerId, segmentIndex, grid.csSegmentationId, changes);
-    notifyLabelmapChanged(grid.csSegmentationId);
-    const written: number[] = [];
-    for (let c = 0; c < changes.length; c += 3) if (changes[c + 2] === grid.value) written.push(changes[c]);
+    if (result.written <= 0 || !txn.commit()) return false;
     selectIslandsContaining(useViewerStore.getState().activeViewportId, containerId, segmentIndex, written);
     return true;
   },
