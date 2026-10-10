@@ -286,3 +286,5 @@ that evaluation land on `mask-ops` and are merged forward here.
 - **R5b** — Settings › File Backup › "Segmentation checkpoints · <active segmentation>": Export…
   per checkpoint (save dialog, `.wscheckpoint` JSON) and Import checkpoint file… (validated shape;
   refused unless same series and grid; stored as a new checkpoint). Status in place, not a toast.
+- **R6** — tool reference documents the review/display controls; full offline E2E run on the
+  built app: 260/260. **Branch 2 complete.**

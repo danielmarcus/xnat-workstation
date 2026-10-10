@@ -63,6 +63,20 @@ With **All segments**, a Clean operation first proposes a **per-segment plan** (
 Cleanup): small and thin segments are withheld from operations that would erode them; each
 row's action can be edited before running.
 
+## Review and display (Segmentation)
+
+| Control | Where | What it does |
+|---|---|---|
+| **Review flythrough** | container menu · **⇧Space** | Steps the viewport through the slices the segments occupy (gaps included), showing the anatomy then the mask on each. Space pauses, ⎋ stops; settings (segments, direction, start, flicker, dwell) behind ▾ on the player |
+| **Save checkpoint…** | container menu | Saves every segment's voxels under a name, or as the Baseline (one per segmentation, kept until replaced). The newest four named checkpoints are kept |
+| **Restore checkpoint ▸** | container menu | Writes a checkpoint back as one undo step; refused if a segment is locked |
+| **Checkpoint files** | Settings › File Backup | Export a checkpoint to a `.wscheckpoint` file; import one made from the same series |
+| **M** | viewport | Hide / show the active segmentation's masks |
+| **Hold Q** | viewport | Intensity under the cursor (HU on CT) and voxel index, whatever the tool |
+| **PHI** · **⇧H** | toolbar | Hide patient-identifying fields in the overlay and the Tags panel (persisted) |
+
+Hotkey changes (tool, Fill/Erase, brush size, masks, PHI) show a brief readout on the active viewport.
+
 ## Structure
 
 | Tool | Tooltip | Controls |
