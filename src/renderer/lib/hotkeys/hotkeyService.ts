@@ -16,6 +16,9 @@ import type { LayoutType } from '@shared/types/viewer';
 import { DEFAULT_HOTKEY_MAP } from './defaultHotkeyMap';
 import { useViewerStore } from '../../stores/viewerStore';
 import { usePreferencesStore } from '../../stores/preferencesStore';
+import { useHudStore } from '../../stores/hudStore';
+import { useSegmentationManagerStore } from '../../stores/segmentationManagerStore';
+import { segmentationManager } from '../segmentation/segmentationManagerSingleton';
 import { useOperationSheetStore } from '../../stores/operationSheetStore';
 import { useSegmentationStore } from '../../stores/segmentationStore';
 import { viewportService } from '../cornerstone/viewportService';
@@ -131,7 +134,47 @@ function buildClockwisePanelOrder(rows: number, cols: number): string[] {
  * Execute a hotkey action by calling the appropriate store methods.
  * Returns true if the action was handled (caller should preventDefault).
  */
+/** How a hotkey-chosen tool is named in the viewport readout. */
+const TOOL_HUD_LABEL: Partial<Record<string, string>> = {
+  [ToolName.WindowLevel]: 'Window/Level', [ToolName.Pan]: 'Pan', [ToolName.Zoom]: 'Zoom',
+  [ToolName.Length]: 'Length', [ToolName.Angle]: 'Angle', [ToolName.Bidirectional]: 'Bidirectional',
+  [ToolName.Probe]: 'Probe', [ToolName.ArrowAnnotate]: 'Arrow', [ToolName.Crosshairs]: 'Crosshairs',
+  [ToolName.Brush]: 'Brush', [ToolName.ThresholdBrush]: 'Threshold', [ToolName.CircleScissors]: 'Circle',
+  [ToolName.RectangleScissors]: 'Rect', [ToolName.StackScroll]: 'Scroll',
+};
+
+/** The readout a handled hotkey leaves on the active viewport (null = none). */
+function hudTextFor(action: HotkeyAction): string | null {
+  const tool = TOOL_ACTION_MAP[action];
+  if (tool) return TOOL_HUD_LABEL[tool] ?? null;
+  const seg = useSegmentationStore.getState();
+  switch (action) {
+    case 'annotation.toggleEditMode': return `Mode: ${seg.editMode === 'erase' ? 'Erase' : 'Fill'}`;
+    case 'brush.decrease':
+    case 'brush.increase': return `Brush ${seg.brushSize} mm`;
+    case 'view.toggleHidePhi': return usePreferencesStore.getState().preferences.hidePhi ? 'PHI hidden' : 'PHI shown';
+    default: return null;
+  }
+}
+
+/**
+ * A readout an action states itself, from its INTENT — for actions whose effect reaches
+ * the stores asynchronously (mask visibility syncs from Cornerstone events), so reading
+ * the store right after would report the old state.
+ */
+let actionHud: string | null = null;
+
 function dispatchAction(action: HotkeyAction): boolean {
+  actionHud = null;
+  const handled = dispatchActionInner(action);
+  if (handled) {
+    const text = actionHud ?? hudTextFor(action);
+    if (text) useHudStore.getState().show(text);
+  }
+  return handled;
+}
+
+function dispatchActionInner(action: HotkeyAction): boolean {
   const viewerState = useViewerStore.getState();
 
   // ─── Tool switching ─────────────────────────────────────────
@@ -154,6 +197,18 @@ function dispatchAction(action: HotkeyAction): boolean {
     case 'annotation.toggleEditMode':
       unifiedToolService.toggleEditMode();
       return true;
+    case 'segmentation.toggleMasks': {
+      const seg = useSegmentationStore.getState();
+      const c = seg.segmentations.find((s) => s.segmentationId === seg.activeSegmentationId);
+      if (!c) return false;
+      // Visibility as the panel shows it: the manager's presentation override wins over
+      // the summary's flag (which does not follow a hide), exactly as the member rows read it.
+      const pres = useSegmentationManagerStore.getState().presentation[c.segmentationId];
+      const show = !c.segments.some((m) => pres?.visibility?.[m.segmentIndex] ?? m.visible);
+      segmentationManager.setAllMembersVisible(c.segmentationId, show);
+      actionHud = show ? 'Masks shown' : 'Masks hidden';
+      return true;
+    }
     case 'view.toggleHidePhi': {
       const prefs = usePreferencesStore.getState();
       prefs.setHidePhi(prefs.preferences.hidePhi !== true);

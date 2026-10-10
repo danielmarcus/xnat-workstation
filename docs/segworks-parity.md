@@ -260,3 +260,9 @@ that evaluation land on `mask-ops` and are merged forward here.
   "XNAT Workstation" — nothing to strip. **Found:** for locally imported files the overlay's
   patient/study fields and the Tags panel are empty (metadata modules / wadouri cache not
   populated) — pre-existing, so overlay/header masking is verified by component tests, not E2E.
+- **R2** — M toggles the active segmentation's masks; a ~1.2 s readout on the active viewport
+  after hotkey changes (tool, Fill/Erase, brush size, masks, PHI). The spec caught two bugs on
+  the way: visibility syncs to the stores asynchronously (the readout said "Masks shown" after
+  hiding — the action now states its own result), and the summary's `visible` flag does not
+  follow a hide (the second M hid again — it now reads the manager's presentation override,
+  as the member rows do).

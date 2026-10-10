@@ -36,6 +36,7 @@ export type HotkeyAction =
   | 'operation.cleanup'
   // Display
   | 'view.toggleHidePhi'
+  | 'segmentation.toggleMasks'
   // Viewport actions
   | 'viewport.reset'
   | 'viewport.toggleInvert'
