@@ -16,6 +16,8 @@ export interface MaskPreviewState {
   viewportId: string | null;
   /** Holding the compare key: the preview overlay is hidden to show the current mask. */
   comparing: boolean;
+  /** The target is locked: shown for inspection, cannot be committed. */
+  readOnly: boolean;
 }
 
 export const useMaskPreviewStore = create<MaskPreviewState>(() => ({
@@ -24,4 +26,5 @@ export const useMaskPreviewStore = create<MaskPreviewState>(() => ({
   summary: '',
   viewportId: null,
   comparing: false,
+  readOnly: false,
 }));

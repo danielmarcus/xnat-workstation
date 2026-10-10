@@ -208,3 +208,9 @@ the real affordance (tab → sheet → Preview → ⏎) and asserts **labelmap v
   the two-line corner readouts (top-centre covered a long series description); slice numbers
   shown to the user use the **viewport's numbering** (`sliceNumbering.ts`) — grid order is
   often reversed relative to the stack ("slice 9" was printed while the overlay said 8).
+- **S4+S5** — toolbox tabs (D2) and the operation sheet (D1) + Cleanup sheet, landed together
+  (a Process tab with no sheet would be a dead end). X opens Cleanup. A locked target previews
+  read-only. Deviations: the sheet's **ROI scope is deferred to branch 4**, where the ROI-limit
+  tool that draws it arrives; the Controls strip stays visible under the Process tab (the active
+  tool is still in effect). E2E specs that click tools now go through `e2e/helpers/toolbox.ts`
+  (`clickTool` opens the tool's tab first, as a user would).

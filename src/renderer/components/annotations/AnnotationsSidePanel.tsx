@@ -25,6 +25,11 @@ export interface AnnotationsSidePanelProps {
   children?: ReactNode;
   /** The context toolbox — rendered below the list when present. */
   toolbox?: ReactNode;
+  /**
+   * An open operation sheet (SegWorks parity D1) — between the list and the toolbox, so
+   * the active container and member stay on screen while it is used.
+   */
+  sheet?: ReactNode;
 }
 
 const CTA: { kind: ContainerKind; color: string; label: string }[] = [
@@ -88,7 +93,7 @@ function EmptyBody({ canCreate }: { canCreate: boolean }) {
 }
 
 export default function AnnotationsSidePanel(props: AnnotationsSidePanelProps) {
-  const { containerCount, canCreate, unsavedCount, onCreate, onReviewUnsaved, children, toolbox } = props;
+  const { containerCount, canCreate, unsavedCount, onCreate, onReviewUnsaved, children, toolbox, sheet } = props;
   const isEmpty = containerCount === 0;
 
   return (
@@ -102,7 +107,8 @@ export default function AnnotationsSidePanel(props: AnnotationsSidePanelProps) {
         </>
       ) : (
         <>
-          <div className="flex-1 overflow-y-auto">{children}</div>
+          <div className="flex-1 overflow-y-auto min-h-[64px]">{children}</div>
+          {sheet}
           {toolbox}
         </>
       )}

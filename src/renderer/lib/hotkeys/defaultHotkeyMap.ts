@@ -29,6 +29,7 @@ export const DEFAULT_HOTKEY_MAP: HotkeyMap = {
   'tool.arrowAnnotate': [{ key: 't' }], // T for text annotation
   'tool.paintFill':   [{ key: 'f' }],
   'tool.stackScroll': [{ key: 's' }],
+  'operation.cleanup': [{ key: 'x' }], // X — open the Cleanup sheet (Segmentation)
 
   // ─── Viewport Actions ────────────────────────────────────────
   'viewport.reset':         [{ key: 'r' }],

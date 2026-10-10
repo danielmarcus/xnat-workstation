@@ -11,16 +11,26 @@ import { viewportService } from './viewportService';
 import { beginTransaction, type MemberRef } from './labelmapTransaction';
 import { sliceAxisFor } from './maskIslands';
 import { worldToIndex, type Vec3 } from './segmentationService/voxelClipboard';
-import { startPreview } from './maskPreview';
+import { commitPreview, startPreview } from './maskPreview';
 import { sliceNumbering } from './sliceNumbering';
 import { cleanupOp, type ParamValues } from '../segmentation/maskOps/catalog';
 import { type Axis, extractValues, sliceCount } from '../segmentation/maskOps/planeIO';
-import { type OperationScope, resolveLabels, resolveSlices, runPlaneOp } from '../segmentation/maskOps/scope';
+import { type LabelScope, resolveLabels, resolveSlices, runPlaneOp } from '../segmentation/maskOps/scope';
+
+/**
+ * Where an operation runs. A range is given in the viewport's DISPLAYED numbering (0-based
+ * index of the "8 / 16" the overlay shows) — what the user sees and types — and is
+ * converted to grid slices here.
+ */
+export interface ServiceScope {
+  slices: { kind: 'current' } | { kind: 'volume' } | { kind: 'range'; from: number; to: number };
+  labels: LabelScope;
+}
 import { useSegmentationStore } from '../../stores/segmentationStore';
 import { useViewerStore } from '../../stores/viewerStore';
 
 export type RunResult =
-  | { ok: true; added: number; removed: number; slices: number[] }
+  | { ok: true; added: number; removed: number; slices: number[]; readOnly: boolean; committed: boolean }
   | { ok: false; reason: 'no-target' | 'no-viewport' | 'locked' | 'no-labelmap' | 'unknown-op' | 'no-change'; member?: MemberRef };
 
 /** The viewing axis and on-screen slice of a viewport, in a grid's index space. */
@@ -56,8 +66,8 @@ export const maskOpsService = {
   previewCleanup(
     opId: string,
     params: ParamValues,
-    scope: OperationScope,
-    opts: { viewportId?: string; onDone?: (committed: boolean) => void } = {},
+    scope: ServiceScope,
+    opts: { viewportId?: string; onDone?: (committed: boolean) => void; commit?: boolean } = {},
   ): RunResult {
     const op = cleanupOp(opId);
     if (!op) return { ok: false, reason: 'unknown-op' };
@@ -74,7 +84,13 @@ export const maskOpsService = {
     const members: MemberRef[] = resolveLabels(scope.labels, active, allIndices).map((segmentIndex) => ({ containerId, segmentIndex }));
     if (members.length === 0) return { ok: false, reason: 'no-target' };
 
-    const begun = beginTransaction(members);
+    // A locked target can still be previewed (read-only); it can never be committed.
+    let lockedMember: MemberRef | null = null;
+    let begun = beginTransaction(members);
+    if (!begun.ok && begun.reason === 'locked') {
+      lockedMember = begun.member;
+      begun = beginTransaction(members, undefined, { allowLocked: true });
+    }
     if (!begun.ok) return { ok: false, reason: begun.reason, member: begun.member };
     const { txn } = begun;
     const grid = txn.grid(members[0]);
@@ -83,7 +99,11 @@ export const maskOpsService = {
       txn.discard();
       return { ok: false, reason: 'no-viewport' };
     }
-    const slices = resolveSlices(scope.slices, sliceCount(grid.geometry.dimensions, where.axis), where.slice);
+    const numbering = sliceNumbering(viewportId, grid.geometry, where.axis);
+    const gridScope = scope.slices.kind === 'range' && numbering
+      ? { kind: 'range' as const, from: numbering.toGrid(scope.slices.from), to: numbering.toGrid(scope.slices.to) }
+      : scope.slices;
+    const slices = resolveSlices(gridScope, sliceCount(grid.geometry.dimensions, where.axis), where.slice);
 
     const source = op.usesImage ? grid.sourceReader?.() ?? null : null;
     if (op.usesImage && !source) console.warn('[maskOpsService] source image unavailable; running', opId, 'without image guidance');
@@ -100,7 +120,6 @@ export const maskOpsService = {
       txn.discard();
       return { ok: false, reason: 'no-change' };
     }
-    const numbering = sliceNumbering(viewportId, grid.geometry, where.axis);
     const shown = result.changedSlices.map((k) => numbering?.toDisplay(k) ?? k);
     startPreview({
       txn,
@@ -108,7 +127,9 @@ export const maskOpsService = {
       summary: summarize(result.added, result.removed, shown),
       viewportId,
       onDone: opts.onDone,
+      lockedMember,
     });
-    return { ok: true, added: result.added, removed: result.removed, slices: result.changedSlices };
+    const committed = !!opts.commit && !lockedMember && commitPreview();
+    return { ok: true, added: result.added, removed: result.removed, slices: result.changedSlices, readOnly: !!lockedMember, committed };
   },
 };

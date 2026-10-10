@@ -11,7 +11,7 @@
  */
 import type { ContainerKind } from '@shared/types/annotation';
 import type { ThresholdPreset } from '@shared/types/viewer';
-import { KIND_TOOLS_LABEL, toolsForKind, type ToolControl } from './toolCatalog';
+import { KIND_TOOLS_LABEL, SEG_OPERATIONS, SEG_TOOL_TABS, toolsForKind, type ToolControl, type ToolDef } from './toolCatalog';
 
 const KIND_COLOR: Record<ContainerKind, string> = {
   RTSTRUCT: '#ef4444', // member-name color follows the active member's swatch; default red
@@ -113,10 +113,19 @@ export interface ContextToolboxProps {
    * icon/color rather than a toast (§3.4). Defaults to 'saved'.
    */
   backupStatusKind?: 'saving' | 'saved' | 'error';
+  /** Segmentation toolbox tab (SegWorks parity D2). Ignored for other kinds. */
+  segTab?: 'paint' | 'shape' | 'smart' | 'process';
+  onSelectSegTab?: (tab: 'paint' | 'shape' | 'smart' | 'process') => void;
+  /** The Process tab's operations open a sheet; the open one is marked. */
+  openOperationId?: string | null;
+  onOpenOperation?: (id: 'cleanup') => void;
 }
 
 export default function ContextToolbox(props: ContextToolboxProps) {
-  const { kind, activeMemberName, activeMemberColor, activeToolId, disabledToolIds = [], onSelectTool, compact, controls, backupStatus, backupStatusKind } = props;
+  const {
+    kind, activeMemberName, activeMemberColor, activeToolId, disabledToolIds = [], onSelectTool, compact, controls,
+    backupStatus, backupStatusKind, segTab = 'paint', onSelectSegTab, openOperationId, onOpenOperation,
+  } = props;
   const tools = toolsForKind(kind);
   const disabled = new Set(disabledToolIds);
   const nameColor = activeMemberColor ?? KIND_COLOR[kind];
@@ -135,6 +144,30 @@ export default function ContextToolbox(props: ContextToolboxProps) {
       (p) => p.range[0] === controls.thresholdRange![0] && p.range[1] === controls.thresholdRange![1],
     )?.name;
 
+  function renderTool(t: ToolDef) {
+    const isActive = t.id === activeToolId;
+    const isDisabled = disabled.has(t.id);
+    let cls: string;
+    if (isActive) cls = 'bg-blue-600 text-white';
+    else if (isDisabled) cls = 'bg-zinc-900 border border-dashed border-zinc-800 text-zinc-700 cursor-not-allowed';
+    else cls = 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300';
+    return (
+      <button
+        key={t.id}
+        type="button"
+        disabled={isDisabled}
+        title={t.title}
+        aria-label={t.label}
+        aria-pressed={isActive}
+        onClick={() => onSelectTool(t.id)}
+        className={`flex items-center gap-1.5 px-2 py-1.5 rounded ${cls} ${compact ? 'justify-center' : ''}`}
+      >
+        {t.icon}
+        {!compact && <span className="truncate">{t.label}</span>}
+      </button>
+    );
+  }
+
   return (
     <div className="border-t border-zinc-800 bg-zinc-900/80" data-testid="context-toolbox">
       <div className="px-3 py-2 flex items-center justify-between">
@@ -142,31 +175,56 @@ export default function ContextToolbox(props: ContextToolboxProps) {
         <span className="text-[10px]" style={{ color: nameColor }}>{activeMemberName}</span>
       </div>
 
-      <div className={`p-2 grid grid-cols-3 gap-1 text-[11px]`}>
-        {tools.map((t) => {
-          const isActive = t.id === activeToolId;
-          const isDisabled = disabled.has(t.id);
-          let cls: string;
-          if (isActive) cls = 'bg-blue-600 text-white';
-          else if (disabled.has(t.id)) cls = 'bg-zinc-900 border border-dashed border-zinc-800 text-zinc-700 cursor-not-allowed';
-          else cls = 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300';
-          return (
-            <button
-              key={t.id}
-              type="button"
-              disabled={isDisabled}
-              title={t.title}
-              aria-label={t.label}
-              aria-pressed={isActive}
-              onClick={() => onSelectTool(t.id)}
-              className={`flex items-center gap-1.5 px-2 py-1.5 rounded ${cls} ${compact ? 'justify-center' : ''}`}
-            >
-              {t.icon}
-              {!compact && <span className="truncate">{t.label}</span>}
-            </button>
-          );
-        })}
-      </div>
+      {kind === 'SEG' ? (
+        <>
+          <div className="px-2 pb-1 grid grid-cols-3 gap-1 text-[11px]" data-testid="toolbox-pinned">
+            {tools.filter((t) => t.group === 'pinned').map(renderTool)}
+          </div>
+          <div className="px-2 pb-1.5 flex gap-0.5" role="tablist" aria-label="Segmentation tool groups">
+            {SEG_TOOL_TABS.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                aria-selected={segTab === tab.id}
+                onClick={() => onSelectSegTab?.(tab.id)}
+                className={`flex-1 rounded py-0.5 text-[10px] ${segTab === tab.id ? 'bg-zinc-700 text-zinc-100' : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700/70'}`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+          {segTab === 'process' ? (
+            <div className="px-2 pb-2 grid grid-cols-3 gap-1 text-[11px]" role="tabpanel" aria-label="Process">
+              {SEG_OPERATIONS.map((op) => {
+                const open = openOperationId === op.id;
+                return (
+                  <button
+                    key={op.id}
+                    type="button"
+                    title={op.title}
+                    aria-label={op.label}
+                    aria-pressed={open}
+                    onClick={() => onOpenOperation?.(op.id)}
+                    className={`flex items-center gap-1.5 px-2 py-1.5 rounded ${open ? 'bg-zinc-600 text-white' : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300'} ${compact ? 'justify-center' : ''}`}
+                  >
+                    <svg viewBox="0 0 16 16" width={14} height={14} fill="none" stroke="currentColor" strokeWidth={1.4}>
+                      <path d="M3 13l4-4M9 3l4 4-6 6-4-4z" />
+                    </svg>
+                    {!compact && <span className="truncate">{op.label}</span>}
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="px-2 pb-2 grid grid-cols-3 gap-1 text-[11px]" role="tabpanel" aria-label={SEG_TOOL_TABS.find((t) => t.id === segTab)?.label}>
+              {tools.filter((t) => t.group === segTab).map(renderTool)}
+            </div>
+          )}
+        </>
+      ) : (
+        <div className={`p-2 grid grid-cols-3 gap-1 text-[11px]`}>{tools.map(renderTool)}</div>
+      )}
 
       {controls && (
         <>

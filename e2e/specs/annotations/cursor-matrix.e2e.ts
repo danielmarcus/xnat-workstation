@@ -23,6 +23,7 @@
 import { test, expect } from '../../fixtures/electron-app';
 import type { Page } from '@playwright/test';
 import { loadFixture } from '../../helpers/local-fixture';
+import { clickTool } from '../../helpers/toolbox';
 
 type Win = { __XNAT_E2E__: { resetUnifiedSegmentations: () => void } };
 
@@ -79,7 +80,7 @@ test('every tool shows the right cursor in both modes, and Shift restores it', a
   const box = (await page.locator('[data-testid="unified-viewport-element:panel_0"] canvas').boundingBox())!;
 
   for (const [i, [tool, fillCursor, eraseCursor]] of EXPECTED.entries()) {
-    await panel.getByRole('button', { name: tool, exact: true }).click();
+    await clickTool(panel, tool);
     const hasMode = (await panel.locator('[data-testid="edit-mode-controls"]').count()) > 0;
     expect(hasMode, `"${tool}" should ${eraseCursor ? '' : 'not '}offer the edit mode`).toBe(eraseCursor !== null);
     if (hasMode) await panel.getByRole('button', { name: 'fill', exact: true }).click();
@@ -118,7 +119,7 @@ test('no segmentation tool leaves the bare OS arrow over the image', async ({ pa
   const box = (await page.locator('[data-testid="unified-viewport-element:panel_0"] canvas').boundingBox())!;
 
   for (const [i, [tool]] of EXPECTED.entries()) {
-    await panel.getByRole('button', { name: tool, exact: true }).click();
+    await clickTool(panel, tool);
     await page.mouse.move(box.x + box.width / 2 + i * 5, box.y + box.height / 2 + i * 2, { steps: 2 });
     await page.waitForTimeout(200);
     const c = await cursor(page);

@@ -16,7 +16,8 @@
 import { Enums as CoreEnums, eventTarget, getEnabledElementByViewportId } from '@cornerstonejs/core';
 import { Enums as ToolEnums, segmentation as csSegmentation } from '@cornerstonejs/tools';
 import * as mlg from './multiLayerGroup';
-import type { LabelmapTransaction } from './labelmapTransaction';
+import type { LabelmapTransaction, MemberRef } from './labelmapTransaction';
+import { warnMemberLocked } from '../annotations/lockWarning';
 import type { SegmentVoxelGrid } from './segmentVoxelGrid';
 import { sliceAxisFor } from './maskIslands';
 import { indexToWorld, worldToIndex, type Vec3 } from './segmentationService/voxelClipboard';
@@ -28,6 +29,8 @@ const OVERLAY_TESTID = 'mask-preview-overlay';
 
 interface Pending {
   txn: LabelmapTransaction;
+  /** A locked member's preview: shown, never written. */
+  lockedMember: MemberRef | null;
   csSegmentationIds: Set<string>;
   removeKeyLayer: () => void;
   onDone?: (committed: boolean) => void;
@@ -45,6 +48,8 @@ export interface StartPreviewOptions {
   viewportId: string;
   /** Called once when the preview ends: true if committed, false if discarded. */
   onDone?: (committed: boolean) => void;
+  /** The target is locked: the preview is read-only and commit is refused with the lock warning. */
+  lockedMember?: MemberRef | null;
 }
 
 /** Show a staged transaction as a preview. Replaces (discards) any preview already open. */
@@ -71,12 +76,15 @@ export function startPreview(o: StartPreviewOptions): void {
   });
   pending = {
     txn: o.txn,
+    lockedMember: o.lockedMember ?? null,
     csSegmentationIds: new Set(o.txn.changes().map((c) => c.grid.csSegmentationId)),
     removeKeyLayer,
     onDone: o.onDone,
   };
   installDataWatch();
-  useMaskPreviewStore.setState({ active: true, label: o.label, summary: o.summary, viewportId: o.viewportId, comparing: false });
+  useMaskPreviewStore.setState({
+    active: true, label: o.label, summary: o.summary, viewportId: o.viewportId, comparing: false, readOnly: !!o.lockedMember,
+  });
   render();
 }
 
@@ -88,6 +96,10 @@ export function hasPreview(): boolean {
 export function commitPreview(): boolean {
   const p = pending;
   if (!p) return false;
+  if (p.lockedMember) {
+    warnMemberLocked(p.lockedMember.containerId, p.lockedMember.segmentIndex, 'change it');
+    return false;
+  }
   end();
   committing = true;
   try {
@@ -116,7 +128,7 @@ export function setComparing(comparing: boolean): void {
 function end(): void {
   pending?.removeKeyLayer();
   pending = null;
-  useMaskPreviewStore.setState({ active: false, label: '', summary: '', viewportId: null, comparing: false });
+  useMaskPreviewStore.setState({ active: false, label: '', summary: '', viewportId: null, comparing: false, readOnly: false });
   render();
 }
 

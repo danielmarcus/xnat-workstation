@@ -208,11 +208,19 @@ export class LabelmapTransaction {
   }
 }
 
-/** Open a transaction that may write `writeMembers`; refuses if any is locked or has no labelmap. */
-export function beginTransaction(writeMembers: MemberRef[], deps: TransactionDeps = defaultDeps): BeginResult {
+/**
+ * Open a transaction that may write `writeMembers`; refuses if any is locked or has no
+ * labelmap. `allowLocked` opens it anyway for a READ-ONLY preview — the caller must not
+ * commit it (maskPreview enforces that for previews it is told are read-only).
+ */
+export function beginTransaction(
+  writeMembers: MemberRef[],
+  deps: TransactionDeps = defaultDeps,
+  opts: { allowLocked?: boolean } = {},
+): BeginResult {
   const grids = new Map<string, SegmentVoxelGrid>();
   for (const m of writeMembers) {
-    if (deps.isLocked(m.containerId, m.segmentIndex)) return { ok: false, reason: 'locked', member: m };
+    if (!opts.allowLocked && deps.isLocked(m.containerId, m.segmentIndex)) return { ok: false, reason: 'locked', member: m };
     const g = deps.readGrid(m.containerId, m.segmentIndex);
     if (!g) return { ok: false, reason: 'no-labelmap', member: m };
     grids.set(keyOf(m), g);

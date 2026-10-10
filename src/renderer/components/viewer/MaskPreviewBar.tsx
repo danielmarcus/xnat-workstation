@@ -8,7 +8,7 @@
 import { useMaskPreview } from '../../hooks/useMaskPreview';
 
 export default function MaskPreviewBar({ panelId }: { panelId: string }) {
-  const { active, label, summary, viewportId, comparing, commit, discard } = useMaskPreview();
+  const { active, label, summary, viewportId, comparing, readOnly, commit, discard } = useMaskPreview();
   if (!active || viewportId !== panelId) return null;
   return (
     <div
@@ -18,15 +18,19 @@ export default function MaskPreviewBar({ panelId }: { panelId: string }) {
       <span>
         Preview · <span className="font-medium">{label}</span> · <span className="text-zinc-400">{summary}</span>
       </span>
-      <button
-        type="button"
-        tabIndex={-1}
-        onMouseDown={(e) => e.preventDefault()}
-        onClick={commit}
-        className="rounded bg-blue-600 px-2 py-0.5 text-white hover:bg-blue-500"
-      >
-        Commit <span className="opacity-70">⏎</span>
-      </button>
+      {readOnly ? (
+        <span className="rounded border border-amber-600/60 px-1.5 py-0.5 text-amber-300">Locked · preview only</span>
+      ) : (
+        <button
+          type="button"
+          tabIndex={-1}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={commit}
+          className="rounded bg-blue-600 px-2 py-0.5 text-white hover:bg-blue-500"
+        >
+          Commit <span className="opacity-70">⏎</span>
+        </button>
+      )}
       <button
         type="button"
         tabIndex={-1}
@@ -34,7 +38,7 @@ export default function MaskPreviewBar({ panelId }: { panelId: string }) {
         onClick={discard}
         className="rounded bg-zinc-700 px-2 py-0.5 hover:bg-zinc-600"
       >
-        Discard <span className="opacity-70">⎋</span>
+        {readOnly ? 'Close' : 'Discard'} <span className="opacity-70">⎋</span>
       </button>
       <span className="text-[10px] text-zinc-500">{comparing ? 'showing current mask' : 'hold \\ to compare'}</span>
     </div>

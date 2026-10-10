@@ -8,6 +8,9 @@ import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import AnnotationsSidePanel from './AnnotationsSidePanel';
 import ContainerList from './ContainerList';
 import ContextToolbox from './ContextToolbox';
+import CleanupSheet from './CleanupSheet';
+import { useSegToolboxTabs } from '../../hooks/useSegToolboxTabs';
+import { useCleanupSheet } from '../../hooks/useCleanupSheet';
 import { ConfirmDialog, ConflictDialog, ReviewUnsavedDialog } from './dialogs';
 import { useAnnotationsPanel } from '../../hooks/useAnnotationsPanel';
 import { usePreferencesStore } from '../../stores/preferencesStore';
@@ -66,6 +69,10 @@ export default function AnnotationsPanel({ activeViewportId, sourceImageIds }: A
     target.addEventListener('pointercancel', handleUp);
   };
 
+  const isSeg = panel.toolbox?.kind === 'SEG';
+  const tabs = useSegToolboxTabs(panel.toolbox?.activeToolId ?? null, isSeg);
+  const cleanup = useCleanupSheet();
+
   const toolbox = panel.toolbox ? (
     <ContextToolbox
       kind={panel.toolbox.kind}
@@ -77,8 +84,13 @@ export default function AnnotationsPanel({ activeViewportId, sourceImageIds }: A
       backupStatus={panel.backupStatus?.text}
       backupStatusKind={panel.backupStatus?.kind}
       compact={compactTools}
+      segTab={tabs.segTab}
+      onSelectSegTab={tabs.onSelectSegTab}
+      openOperationId={tabs.openOperationId}
+      onOpenOperation={tabs.onOpenOperation}
     />
   ) : undefined;
+  const sheet = isSeg ? <CleanupSheet m={cleanup} /> : undefined;
 
   return (
     <div
@@ -107,6 +119,7 @@ export default function AnnotationsPanel({ activeViewportId, sourceImageIds }: A
         onCreate={panel.onCreate}
         onReviewUnsaved={panel.onReviewUnsaved}
         toolbox={toolbox}
+        sheet={sheet}
       >
         <ContainerList
           containers={panel.containers}
