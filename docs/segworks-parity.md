@@ -321,3 +321,17 @@ lesson of `7a33519` — every interpolation/propagation is user-triggered and pr
   itself** (measured: main 3/45, review-ergonomics 5/45, this branch ~3/18 with `--repeat-each`);
   it alternated between its two interpolation tests across runs. Not caused by this work; flagged
   as a separate task. **Branch 3 complete.**
+
+---
+
+## 8. Branch 4 — `seg-compute-infra` (ordered plan)
+
+Cut from `labelmap-interpolation`. Interactive semi-automatic tools on the Smart tab, the
+compute infrastructure they need, and the ROI limit.
+
+| Slice | Content | Acceptance |
+|---|---|---|
+| **C1** | Pure algorithms (`lib/segmentation/semiauto/`): Random Walker (Grady 2006 — standardised 8-connected weights, Jacobi-PCG, label-flip stop), Level Trace (CT HU band / MR adaptive band with 7·11·15 windows; binary growth or Udupa fuzzy connectedness; Sobel/Scharr edge guard with strength and polarity; CT air guard; fill holes; Gaussian smoothing; RDP simplification + Chaikin rounding), Smart Brush (connected, in-tolerance dabs along the drag) | Unit tests with known answers, mutation-checked |
+| **C2** | Compute worker: a module Web Worker that runs a named algorithm on transferred buffers, reports progress, and can be cancelled; Random Walker runs there. Progress + Cancel in the preview bar's slot while running (no toast) | Unit: worker protocol; E2E: a long solve shows progress and Cancel leaves nothing behind |
+| **C3** | Smart tab tools (custom Cornerstone tools, like Select): **Level Trace** (click → preview; Controls: band, growth, edge guard, smoothing, outline), **Smart Brush** (drag paints directly, one undo per stroke; Controls: radius, tolerance, spacing), **Random Walker** (left-drag foreground seeds, right/⇧-drag background; Controls: seed size, β, Run, Clear seeds; seeds drawn as an overlay; Run → preview), **ROI limit** (drag a rectangle; confines Level Trace, Random Walker and Cleanup's scope; Clear) | E2E per tool on `ct-axial-anatomy` against the phantom's known regions; one undo; locked segment refused |
+| **C4** | Region-grow guards (#52–58) are delivered by Level Trace's binary mode plus the ROI limit (intensity guard read from the ROI, edge protection) — document the mapping; docs, full offline E2E (unloaded), visual sweep | CLAUDE.md self-check |
