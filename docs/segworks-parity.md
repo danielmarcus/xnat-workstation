@@ -214,3 +214,7 @@ the real affordance (tab → sheet → Preview → ⏎) and asserts **labelmap v
   tool that draws it arrives; the Controls strip stays visible under the Process tab (the active
   tool is still in effect). E2E specs that click tools now go through `e2e/helpers/toolbox.ts`
   (`clickTool` opens the tool's tab first, as a user would).
+- **S6** — slice track (D5): active-segment occupancy bands on the scrollbar in the viewport's
+  numbering, drawn over the thumb (inset) so the current slice's band is never hidden; the
+  Cleanup Range is a teal bracket whose ends drag to edit the range. Gaps and A/B anchors come
+  with branch 3.
