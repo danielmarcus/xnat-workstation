@@ -75,6 +75,8 @@ export interface ContainerRowProps {
   onSetAllLocked?: (locked: boolean) => void;
   /** Kebab: discard unsaved changes back to last-saved. Item shown only when provided. */
   onRevert?: () => void;
+  /** Kebab: start the segmentation review flythrough (Segmentations only). */
+  onReviewFlythrough?: () => void;
   /** Kebab: export this container as a standalone DICOM file to local disk. */
   onExportDicom?: () => void;
   /** Kebab: export this container's per-member metrics as a CSV file. */
@@ -85,7 +87,7 @@ export interface ContainerRowProps {
 }
 
 export default function ContainerRow(props: ContainerRowProps) {
-  const { container, expanded, transport, onResolveConflict, crossPanelCount, capturing, capturedDraft, autoEdit, onEditConsumed, onCommitName, onToggleExpand, onActivate, onApproveToggle, onAddMember, onSave, onKebab, onDelete, onRename, onSetAllVisible, onSetAllLocked, onRevert, onExportDicom, onExportCsv, onDeleteFromServer } = props;
+  const { container, expanded, transport, onResolveConflict, crossPanelCount, capturing, capturedDraft, autoEdit, onEditConsumed, onCommitName, onToggleExpand, onActivate, onApproveToggle, onAddMember, onSave, onKebab, onDelete, onRename, onSetAllVisible, onSetAllLocked, onRevert, onReviewFlythrough, onExportDicom, onExportCsv, onDeleteFromServer } = props;
   // The container has a server copy iff its source carries an XNAT scan id.
   const onServer = !!container.source?.scanId;
   const saving = transport?.phase === 'saving' || transport?.phase === 'loading';
@@ -296,6 +298,17 @@ export default function ContainerRow(props: ContainerRowProps) {
                 >
                   Revert
                 </MenuItem>
+              )}
+              {onReviewFlythrough && (
+                <>
+                  <div className="my-1 border-t border-zinc-800" role="separator" />
+                  <MenuItem
+                    testid={`menu-flythrough-${container.id}`}
+                    onClick={() => { onReviewFlythrough(); setMenuOpen(false); }}
+                  >
+                    Review flythrough
+                  </MenuItem>
+                </>
               )}
               <div className="my-1 border-t border-zinc-800" role="separator" />
               <MenuItem

@@ -18,6 +18,7 @@ import { useViewerStore } from '../../stores/viewerStore';
 import { usePreferencesStore } from '../../stores/preferencesStore';
 import { useHudStore } from '../../stores/hudStore';
 import { useProbeStore } from '../../stores/probeStore';
+import { isFlythroughRunning, startFlythrough, stopFlythrough } from '../cornerstone/flythroughService';
 import { useSegmentationManagerStore } from '../../stores/segmentationManagerStore';
 import { segmentationManager } from '../segmentation/segmentationManagerSingleton';
 import { useOperationSheetStore } from '../../stores/operationSheetStore';
@@ -198,6 +199,13 @@ function dispatchActionInner(action: HotkeyAction): boolean {
     case 'annotation.toggleEditMode':
       unifiedToolService.toggleEditMode();
       return true;
+    case 'review.flythrough': {
+      if (isFlythroughRunning()) {
+        stopFlythrough();
+        return true;
+      }
+      return startFlythrough().ok;
+    }
     case 'segmentation.toggleMasks': {
       const seg = useSegmentationStore.getState();
       const c = seg.segmentations.find((s) => s.segmentationId === seg.activeSegmentationId);

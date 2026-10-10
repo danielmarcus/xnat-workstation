@@ -40,6 +40,7 @@ import {
   unifiedSegService,
 } from '../lib/cornerstone/unifiedSegService';
 import { segmentationManager } from '../lib/segmentation/segmentationManagerSingleton';
+import { startFlythrough } from '../lib/cornerstone/flythroughService';
 import { projectContainers } from '../lib/annotations/containerProjection';
 import { buildContainerCsv, type MemberStats } from '../lib/annotations/containerCsv';
 import { formatBackupStatus } from '../lib/annotations/backupStatus';
@@ -534,6 +535,7 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
     onKebab: () => {}, // open/close handled in-row (ContainerRow owns the menu state)
     onSetAllVisible: (id, visible) => segmentationManager.setAllMembersVisible(id, visible),
     onSetAllLocked: (id, locked) => segmentationManager.setAllMembersLocked(id, locked),
+    onReviewFlythrough: (id) => { startFlythrough(id); },
     onExportContainerDicom: (id) => {
       void (async () => {
         try {

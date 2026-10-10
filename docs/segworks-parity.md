@@ -270,3 +270,10 @@ that evaluation land on `mask-ops` and are merged forward here.
   unit, and the voxel index), any tool, gone on key-up; nothing shown off the image. The hotkey
   system gains HOLD actions (key repeat ignored; released on key-up or window blur, so a key let
   go elsewhere never leaves one stuck). Verified against the anatomy phantom's known regions.
+- **R4** — Auto Review flythrough: kebab "Review flythrough" or ⇧Space; steps through the bounds
+  of the chosen segments in the viewport's numbering (gaps included), flickering the masks
+  (anatomy → mask) on that viewport only without touching the panel's visibility; Space pauses,
+  ⎋ stops and restores. Player sits top-centre (the preview bar's slot — bottom-left, as
+  wireframed, is where the slice/position/W-L readouts are); a review discards any preview.
+  An unstable zustand selector (`?? []`) in the first draft re-rendered forever (React #185)
+  and broke every viewport — caught by the E2E run.

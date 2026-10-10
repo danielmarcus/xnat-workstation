@@ -17,6 +17,7 @@ import ViewportStatusOverlay from './ViewportStatusOverlay';
 import MaskPreviewBar from './MaskPreviewBar';
 import ViewportHud from './ViewportHud';
 import ViewportHoverProbe from './ViewportHoverProbe';
+import FlythroughPlayer from './FlythroughPlayer';
 import ViewportTimeScrubber from './ViewportTimeScrubber';
 import type { MPRPlane, DisplayPlane } from '@shared/types/viewer';
 
@@ -117,6 +118,7 @@ export default function Viewport({
           <MaskPreviewBar panelId={panelId} />
           <ViewportHud panelId={panelId} />
           <ViewportHoverProbe panelId={panelId} />
+          <FlythroughPlayer panelId={panelId} />
         </>
       )}
       {imageIds.length > 0 && <ViewportStatusOverlay panelId={panelId} state={loadState} />}
