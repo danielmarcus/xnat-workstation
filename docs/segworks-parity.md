@@ -288,3 +288,17 @@ that evaluation land on `mask-ops` and are merged forward here.
   refused unless same series and grid; stored as a new checkpoint). Status in place, not a toast.
 - **R6** — tool reference documents the review/display controls; full offline E2E run on the
   built app: 260/260. **Branch 2 complete.**
+
+---
+
+## 7. Branch 3 — `labelmap-interpolation` (ordered plan)
+
+Cut from `review-ergonomics` (same worktree). Nothing ever runs on a labelmap edit — the
+lesson of `7a33519` — every interpolation/propagation is user-triggered and previewed.
+
+| Slice | Content | Acceptance |
+|---|---|---|
+| **I1** | Pure algorithms (`lib/segmentation/interpolation/`): exact EDT (Felzenszwalb) + chamfer DT, signed distance; SDF linear; area-preserving SDF; morphology (Schenk 2000) — **fixed** for non-overlapping anchors (SegWorks returns empty intermediates when A ∩ B = ∅); component matching (Lee & Wang 2000); volume-accurate morphology; image-guided boundary snap (Sobel). Gap finding | Unit tests on synthetic anchors, seen red; mutation-checked |
+| **I2** | Interpolate service + sheet (Process › Interpolate): method, gap table (Preview per gap · Fill all), A/B anchors (Set A/B; sheet-scoped keys A, B, ⇧A, ⇧B, ⇧C), Active/All segments, Advanced (DT quality); slice track shows gaps (amber) and anchors; preview → ⏎ | E2E: gap filled between two painted slices, intermediate areas monotone, one undo; nothing happens without the user (labelmap-no-interpolation stays green); oblique fixture |
+| **I3** | Propagation (pure + sheet): from the current slice forward/backward/both, CT HU tolerance or MR σ, max slices, auto-stop on area change, stable (median) mode, fill holes, boundary snap, z-smoothing | E2E on `ct-axial-anatomy`: propagates through the bone core and stops at its end |
+| **I4** | Docs, full offline E2E, visual sweep | CLAUDE.md self-check |
