@@ -335,3 +335,28 @@ compute infrastructure they need, and the ROI limit.
 | **C2** | Compute worker: a module Web Worker that runs a named algorithm on transferred buffers, reports progress, and can be cancelled; Random Walker runs there. Progress + Cancel in the preview bar's slot while running (no toast) | Unit: worker protocol; E2E: a long solve shows progress and Cancel leaves nothing behind |
 | **C3** | Smart tab tools (custom Cornerstone tools, like Select): **Level Trace** (click → preview; Controls: band, growth, edge guard, smoothing, outline), **Smart Brush** (drag paints directly, one undo per stroke; Controls: radius, tolerance, spacing), **Random Walker** (left-drag foreground seeds, right/⇧-drag background; Controls: seed size, β, Run, Clear seeds; seeds drawn as an overlay; Run → preview), **ROI limit** (drag a rectangle; confines Level Trace, Random Walker and Cleanup's scope; Clear) | E2E per tool on `ct-axial-anatomy` against the phantom's known regions; one undo; locked segment refused |
 | **C4** | Region-grow guards (#52–58) are delivered by Level Trace's binary mode plus the ROI limit (intensity guard read from the ROI, edge protection) — document the mapping; docs, full offline E2E (unloaded), visual sweep | CLAUDE.md self-check |
+
+### Branch 4 progress log
+
+- **C1** (c140893) — pure algorithms with known-answer unit tests, mutation-checked.
+- **C3** — the four Smart-tab tools, built before C2 so that the worker has a real caller to
+  move. Tools are BaseTool subclasses that take the press in `preMouseDownCallback` (like
+  Select) and reach `semiAutoService` through `tools/semiAutoBridge` — importing the service
+  from the tool classes pulled the stores and the tool service into `init`. Controls render
+  in the toolbox's Controls strip (`SmartToolControls`, via `useSemiAutoControls`); the ROI
+  rectangle and seed strokes are an SVG layer per viewport (`semiAutoOverlay`). Random Walker
+  binds ⇧+Primary (Cornerstone dispatches on an exact modifier match), crops to the seeds'
+  box + padding or to the ROI limit, and runs on the main thread for now (C2 moves it).
+  Cleanup's scope honours the ROI limit.
+  - Two Random Walker defects found by the E2E, fixed red-first in C1's code: the label-flip
+    stop fired after ~20 CG iterations (few labels flip early because CG starts every
+    probability at 0.5 — now gated on a small residual), and regions walled off from every
+    seed by strong edges (air in the crop's corners) came back as foreground (now only
+    foreground connected to a foreground seed is kept). β is standardised by the crop's σ,
+    so a 30 HU lesion beside bone needs β ≈ 2000; the slider runs 10–4000.
+  - The `worldToPanelPagePoint` E2E hook divided by devicePixelRatio, but Cornerstone's
+    `worldToCanvas` is already in CSS pixels; no spec used it before.
+  - E2E `annotations/smart-tools` (6 tests) on `ct-axial-anatomy`; five mutants (ROI ignored
+    by Level Trace / by Cleanup, Smart Brush tolerance ignored, no ⇧ binding for Random
+    Walker, Smart Brush ignoring the lock) each killed by its own test. Tools + annotations
+    E2E groups 216/216.

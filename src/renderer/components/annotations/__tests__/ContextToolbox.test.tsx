@@ -74,7 +74,7 @@ describe('ContextToolbox', () => {
     const all = [...seen, ...pinned].sort();
     expect(new Set(all).size).toBe(all.length);
     expect(all).toEqual(
-      ['Brush', 'Circle', 'Contour Fill', 'Dyn. Thresh', 'Paint Fill', 'Rect', 'Rect Multi', 'Region', 'Region+', 'Seg Bidir.', 'Select', 'Sph. Brush', 'Sph. Thresh', 'Sphere', 'Threshold'].sort(),
+      ['Brush', 'Circle', 'Contour Fill', 'Dyn. Thresh', 'Level Trace', 'Paint Fill', 'ROI limit', 'Rand. Walker', 'Rect', 'Rect Multi', 'Region', 'Region+', 'Seg Bidir.', 'Select', 'Smart Brush', 'Sph. Brush', 'Sph. Thresh', 'Sphere', 'Threshold'].sort(),
     );
   });
 

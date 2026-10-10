@@ -26,6 +26,10 @@ listing no control needs none.
 | **Region+** | Smart | Grow a region outward, adapting the boundary as it goes | brushSize |
 | **Rect Multi** | Shape | Drag a rectangle; everything inside it within the intensity window joins the segment | intensityWindow |
 | **Contour Fill** | Shape | Draw a boundary; the area it encloses joins the segment | — |
+| **Smart Brush** | Paint | Paint only the tissue under the brush — it does not spill across boundaries. One undo step per stroke; refuses a locked segment | radius (mm), tolerance, spacing |
+| **Level Trace** | Smart | Click a structure: the connected region of similar intensity is previewed; ⏎ adds it (a locked segment previews read-only) | band (from scan · CT HU tolerance · MR k·σ over a 7/11/15 window), growth (binary · fuzzy + affinity), edge guard (off · gentle · strong; Sobel/Scharr; polarity), smoothing, simplify, round corners, fill holes, stop at air |
+| **Rand. Walker** | Smart | Drag foreground seeds; ⇧-drag background seeds (green / red on the image); Run previews the segmentation between them | β (edge sensitivity), seed size, Run, Clear seeds |
+| **ROI limit** | Smart | Drag a rectangle (dashed amber on the image) that Level Trace, Random Walker and Cleanup stay inside | Clear |
 | **Select** | pinned | Click a painted region to make its segment the active one | — |
 | **Seg Bidir.** | pinned | Measure the active segment’s longest axis and its perpendicular | — |
 

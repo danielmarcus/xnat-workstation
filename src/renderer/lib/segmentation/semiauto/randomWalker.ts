@@ -102,6 +102,9 @@ export function randomWalker(inp: RandomWalkerInput): RandomWalkerResult {
   const maxIt = inp.maxIterations ?? Math.max(200, 4 * Math.ceil(Math.sqrt(m)) * 10);
   let it = 0;
   let lastLabels: Uint8Array | null = null;
+  let bb = 0;
+  for (let u = 0; u < m; u++) bb += rhs[u] * rhs[u];
+  const bNorm2 = bb || 1;
   for (; it < maxIt && m > 0; it++) {
     mul(d, q);
     let dq = 0;
@@ -110,15 +113,19 @@ export function randomWalker(inp: RandomWalkerInput): RandomWalkerResult {
     const a = rz / dq;
     let rr = 0;
     for (let u = 0; u < m; u++) { x[u] += a * d[u]; r[u] -= a * q[u]; rr += r[u] * r[u]; }
-    if (rr < 1e-12) break;
+    const rel2 = rr / bNorm2; // squared relative residual
+    if (rr < 1e-12 || rel2 < 1e-12) break;
     for (let u = 0; u < m; u++) z[u] = r[u] / (diag[u] || 1);
     let rzNew = 0;
     for (let u = 0; u < m; u++) rzNew += r[u] * z[u];
     const bta = rzNew / rz;
     rz = rzNew;
     for (let u = 0; u < m; u++) d[u] = z[u] + bta * d[u];
-    // Label-flip termination: every 10 iterations, stop once < 0.1% of labels change.
-    if (it % 10 === 9) {
+    // Label-flip termination: every 10 iterations, stop once < 0.1% of labels change —
+    // but only once the residual is small. Early on, CG barely moves the probabilities far
+    // from the seeds (x starts at 0.5 everywhere), so few labels flip for a while even
+    // though the answer is far from converged; stopping then under-segments.
+    if (it % 10 === 9 && rel2 < 1e-6) {
       const labels = Uint8Array.from(x, (v) => (v > 0.5 ? 1 : 0));
       if (lastLabels) {
         let flips = 0;
@@ -139,5 +146,28 @@ export function randomWalker(inp: RandomWalkerInput): RandomWalkerResult {
     probability[i] = v;
     if (v > 0.5) mask[i] = 1;
   }
-  return { probability, mask, iterations: it };
+  return { probability, mask: reachableFromSeeds(mask, seeded, w, h), iterations: it };
+}
+
+/**
+ * Keep the foreground that is connected (8-neighbour) to a foreground seed. A region walled
+ * off from every seed by strong edges has near-zero weights to the rest of the graph, so its
+ * probabilities barely move from CG's starting 0.5 and can land on either side of it; it
+ * belongs to no seed and is not foreground.
+ */
+function reachableFromSeeds(mask: Uint8Array, seeded: Int8Array, w: number, h: number): Uint8Array {
+  const out = new Uint8Array(mask.length);
+  const stack: number[] = [];
+  for (let i = 0; i < mask.length; i++) if (seeded[i] === 1 && mask[i]) { out[i] = 1; stack.push(i); }
+  while (stack.length) {
+    const p = stack.pop()!;
+    const x = p % w, y = (p - x) / w;
+    for (const [dx, dy] of NB) {
+      const nx = x + dx, ny = y + dy;
+      if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+      const q = nx + ny * w;
+      if (mask[q] && !out[q]) { out[q] = 1; stack.push(q); }
+    }
+  }
+  return out;
 }

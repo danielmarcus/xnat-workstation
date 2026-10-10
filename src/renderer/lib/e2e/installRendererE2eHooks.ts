@@ -186,6 +186,8 @@ declare global {
       memberVoxelCount: (segmentIndex: number) => number;
       /** Lowest source-image value under the active segment (ground truth for propagation). */
       activeSegmentMinSourceValue: () => number | null;
+      /** Highest source value under the active segment (null if none / no source). */
+      activeSegmentMaxSourceValue: () => number | null;
       /** Active segment's voxel count per slice of its grid (k axis), in grid order. */
       activeSegmentSliceCounts: () => number[];
       /** Delete every checkpoint of the active Segmentation (isolation: checkpoints persist per profile). */
@@ -825,6 +827,15 @@ export function installRendererE2eHooks(): void {
       for (let i = 0; i < g.data.length; i++) if (g.data[i] === g.value) min = Math.min(min, read(i));
       return Number.isFinite(min) ? min : null;
     },
+    activeSegmentMaxSourceValue: () => {
+      const { activeSegmentationId, activeSegmentIndex } = useSegmentationStore.getState();
+      const g = activeSegmentationId ? readSegmentVoxelGrid(activeSegmentationId, activeSegmentIndex) : null;
+      const read = g?.sourceReader?.();
+      if (!g || !read) return null;
+      let max = -Infinity;
+      for (let i = 0; i < g.data.length; i++) if (g.data[i] === g.value) max = Math.max(max, read(i));
+      return Number.isFinite(max) ? max : null;
+    },
     activeSegmentSliceCounts: () => {
       const { activeSegmentationId, activeSegmentIndex } = useSegmentationStore.getState();
       const g = activeSegmentationId ? readSegmentVoxelGrid(activeSegmentationId, activeSegmentIndex) : null;
@@ -1000,9 +1011,9 @@ export function installRendererE2eHooks(): void {
         `[data-testid="unified-viewport-element:${panelId}"] canvas`,
       ) as HTMLCanvasElement | null;
       if (!canvas) return null;
+      // worldToCanvas is in CSS pixels (not device pixels), so no devicePixelRatio scaling.
       const rect = canvas.getBoundingClientRect();
-      const dpr = canvas.width && rect.width ? canvas.width / rect.width : 1;
-      return { x: rect.left + canvasPt[0] / dpr, y: rect.top + canvasPt[1] / dpr };
+      return { x: rect.left + canvasPt[0], y: rect.top + canvasPt[1] };
     },
     createUnifiedContourSeg: (label?: string) => createContainerAsPanel('RTSTRUCT', label ?? 'Structure'),
     getPaintedVoxelsPerSlice: () => {

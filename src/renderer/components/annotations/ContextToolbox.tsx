@@ -9,6 +9,7 @@
  * thickness + contour opacity) + the silent in-place backup status
  * (§3.4 — never a toast/banner). Behaviour injected via callbacks.
  */
+import type { ReactNode } from 'react';
 import type { ContainerKind } from '@shared/types/annotation';
 import type { ThresholdPreset } from '@shared/types/viewer';
 import { KIND_TOOLS_LABEL, SEG_OPERATIONS, SEG_TOOL_TABS, toolsForKind, type ToolControl, type ToolDef } from './toolCatalog';
@@ -119,12 +120,14 @@ export interface ContextToolboxProps {
   /** The Process tab's operations open a sheet; the open one is marked. */
   openOperationId?: string | null;
   onOpenOperation?: (id: 'cleanup' | 'interpolate' | 'propagate') => void;
+  /** The Smart-tab tools' own controls, for the active tool (rendered when it declares 'semiAuto'). */
+  renderSemiAutoControls?: (toolId: string) => ReactNode;
 }
 
 export default function ContextToolbox(props: ContextToolboxProps) {
   const {
     kind, activeMemberName, activeMemberColor, activeToolId, disabledToolIds = [], onSelectTool, compact, controls,
-    backupStatus, backupStatusKind, segTab = 'paint', onSelectSegTab, openOperationId, onOpenOperation,
+    backupStatus, backupStatusKind, segTab = 'paint', onSelectSegTab, openOperationId, onOpenOperation, renderSemiAutoControls,
   } = props;
   const tools = toolsForKind(kind);
   const disabled = new Set(disabledToolIds);
@@ -362,6 +365,7 @@ export default function ContextToolbox(props: ContextToolboxProps) {
                 )}
               </div>
             )}
+            {needs('semiAuto') && activeToolId && renderSemiAutoControls?.(activeToolId)}
           </div>
         </>
       )}

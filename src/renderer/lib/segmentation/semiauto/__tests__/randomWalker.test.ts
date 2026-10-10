@@ -43,6 +43,46 @@ describe('randomWalker', () => {
     expect(iou(r.mask, truth)).toBeLessThan(0.8);
   });
 
+  it('does not stop before the walk has spread across a large region', () => {
+    // A seed of r 2 at the centre of a r 100 disc: CG starts every probability at 0.5 and
+    // spreads slowly, so few labels flip for a while long before the answer converges.
+    const N = 256, R = 100;
+    const img = new Float32Array(N * N), f = new Uint8Array(N * N), b = new Uint8Array(N * N);
+    const big = new Uint8Array(N * N);
+    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+      const r = Math.hypot(x - N / 2, y - N / 2), i = x + y * N;
+      img[i] = (r <= R ? 900 : 100) + ((i * 7919) % 13);
+      if (r <= R) big[i] = 1;
+      if (r <= 2) f[i] = 1;
+      if (x === 0 || y === 0 || x === N - 1 || y === N - 1) b[i] = 1;
+    }
+    const r = randomWalker({ width: N, height: N, image: img, fg: f, bg: b, beta: 90 });
+    let missed = 0;
+    for (let i = 0; i < big.length; i++) if (big[i] !== r.mask[i]) missed++;
+    expect(missed).toBeLessThan(10);
+  });
+
+  it('regions walled off from every seed are not foreground', () => {
+    // The anatomy phantom cropped as the tool crops it (seeds' box + 20 px): body (+40) in
+    // air (−1000), a +70 lesion beside a +1000 core, a foreground stroke in the lesion and a
+    // background diamond around it. The air in the crop's corners touches the body only
+    // across a huge edge — it must not come back as foreground.
+    const W = 73, H = 73;
+    const img = new Float32Array(W * H), f = new Uint8Array(W * H), b = new Uint8Array(W * H);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const X = x - 11, Y = y - 36, i = x + y * W;
+      const r = Math.hypot(X, Y), lr = Math.hypot(X - 25, Y);
+      img[i] = r <= 14 ? 1000 : lr <= 8 ? 70 : r <= 50 ? 40 : -1000;
+      if (Math.abs(Y) <= 2 && X >= 20 && X <= 30) f[i] = 1;
+      if (Math.abs(Math.abs(X - 25) + Math.abs(Y) - 14) <= 1.5) b[i] = 1;
+    }
+    const r = randomWalker({ width: W, height: H, image: img, fg: f, bg: b, beta: 2000 });
+    let air = 0, lesion = 0;
+    for (let i = 0; i < r.mask.length; i++) if (r.mask[i]) (img[i] === -1000 ? air++ : img[i] === 70 ? lesion++ : 0);
+    expect(air).toBe(0);
+    expect(lesion).toBeGreaterThan(150);
+  });
+
   it('stops early once labels stop changing', () => {
     const r = randomWalker({ width: W, height: H, image, fg, bg, beta: 90, maxIterations: 5000 });
     expect(r.iterations).toBeLessThan(5000);

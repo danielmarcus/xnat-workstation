@@ -50,6 +50,11 @@ export interface StartPreviewOptions {
   onDone?: (committed: boolean) => void;
   /** The target is locked: the preview is read-only and commit is refused with the lock warning. */
   lockedMember?: MemberRef | null;
+  /**
+   * A live stroke (Smart Brush): the change is drawn as it grows, but there is no preview
+   * bar and no ⏎ / ⎋ keys — the tool commits on release.
+   */
+  silent?: boolean;
 }
 
 /** Show a staged transaction as a preview. Replaces (discards) any preview already open. */
@@ -60,7 +65,7 @@ export function startPreview(o: StartPreviewOptions): void {
     o.onDone?.(false);
     return;
   }
-  const removeKeyLayer = hotkeyService.pushKeyLayer({
+  const removeKeyLayer = o.silent ? () => {} : hotkeyService.pushKeyLayer({
     onKeyDown: (e) => {
       if (e.ctrlKey || e.metaKey || e.altKey) return false;
       if (e.key === 'Enter') { commitPreview(); return true; }
@@ -82,9 +87,18 @@ export function startPreview(o: StartPreviewOptions): void {
     onDone: o.onDone,
   };
   installDataWatch();
-  useMaskPreviewStore.setState({
-    active: true, label: o.label, summary: o.summary, viewportId: o.viewportId, comparing: false, readOnly: !!o.lockedMember,
-  });
+  if (!o.silent) {
+    useMaskPreviewStore.setState({
+      active: true, label: o.label, summary: o.summary, viewportId: o.viewportId, comparing: false, readOnly: !!o.lockedMember,
+    });
+  }
+  render();
+}
+
+/** Redraw the pending preview after its transaction grew (a live stroke). */
+export function refreshPreview(): void {
+  if (!pending) return;
+  for (const c of pending.txn.changes()) pending.csSegmentationIds.add(c.grid.csSegmentationId);
   render();
 }
 

@@ -20,6 +20,8 @@ import type { DistanceMethod } from '../segmentation/interpolation/distance';
 import { intensityReference, propagateStep, zSmooth, type PropagateOptions } from '../segmentation/interpolation/propagate';
 import { metaData } from '@cornerstonejs/core';
 import { getSourceImageIds } from './sourceImageTracking';
+import { roiPlaneMask } from './semiAutoService';
+import { useSemiAutoStore } from '../../stores/semiAutoStore';
 import { planSmartCleanup, sampleSlices, smallThresholdFor, thinScore, DEFAULT_PLAN_OPTIONS, type PlanEntry } from '../segmentation/maskOps/smartPlan';
 import { type Axis, extractValues, sliceCount, sliceIndices } from '../segmentation/maskOps/planeIO';
 import { type LabelScope, resolveLabels, resolveSlices, runPairOp, runPlaneOp } from '../segmentation/maskOps/scope';
@@ -145,6 +147,7 @@ export const maskOpsService = {
         return a ? a.o.run!(plane, ctx, a.p) : plane;
       },
       readImage: source ? (s) => extractValues(grid.geometry.dimensions, where.axis, s, source) : undefined,
+      roi: roiPlaneMask(useSemiAutoStore.getState().roi, viewportId, grid.geometry, where.axis),
     });
     if (result.added + result.removed === 0) {
       txn.discard();

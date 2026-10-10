@@ -9,6 +9,8 @@ import AnnotationsSidePanel from './AnnotationsSidePanel';
 import ContainerList from './ContainerList';
 import ContextToolbox from './ContextToolbox';
 import CleanupSheet from './CleanupSheet';
+import SmartToolControls from './SmartToolControls';
+import { useSemiAutoControls } from '../../hooks/useSemiAutoControls';
 import InterpolateSheet from './InterpolateSheet';
 import PropagateSheet from './PropagateSheet';
 import { usePropagateSheet } from '../../hooks/usePropagateSheet';
@@ -80,6 +82,7 @@ export default function AnnotationsPanel({ activeViewportId, sourceImageIds }: A
   const interpolate = useInterpolateSheet();
   const propagate = usePropagateSheet();
   const checkpoints = useCheckpoints();
+  const semiAuto = useSemiAutoControls();
   const handlers = {
     ...panel.handlers,
     onKebab: (id: string) => { panel.handlers.onKebab(id); checkpoints.refresh(id); },
@@ -104,6 +107,7 @@ export default function AnnotationsPanel({ activeViewportId, sourceImageIds }: A
       onSelectSegTab={tabs.onSelectSegTab}
       openOperationId={tabs.openOperationId}
       onOpenOperation={tabs.onOpenOperation}
+      renderSemiAutoControls={(toolId) => <SmartToolControls toolId={toolId} m={semiAuto} />}
     />
   ) : undefined;
   const sheet = isSeg ? (<><CleanupSheet m={cleanup} /><InterpolateSheet m={interpolate} /><PropagateSheet m={propagate} /></>) : undefined;
