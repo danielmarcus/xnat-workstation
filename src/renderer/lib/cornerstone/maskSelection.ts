@@ -45,6 +45,20 @@ type Viewport = {
 
 const OUTLINE_TESTID = 'mask-selection-outline';
 let current: MaskSelection | null = null;
+/** World offset the outline is drawn at while a move is being dragged (a preview). */
+let previewDelta: [number, number, number] | null = null;
+/** Starts a drag-move of the selected islands (injected by unifiedSegService — S9). */
+let islandMoveStarter: ((element: HTMLDivElement, onClickWithoutMove?: () => void) => void) | null = null;
+
+export function setIslandMoveStarter(fn: (element: HTMLDivElement, onClickWithoutMove?: () => void) => void): void {
+  islandMoveStarter = fn;
+}
+
+/** Draw the selection outline offset by `delta` (null = where the islands are). */
+export function setMaskPreviewDelta(delta: [number, number, number] | null): void {
+  previewDelta = delta;
+  render();
+}
 let activateMember: ((containerId: string, segmentIndex: number) => void) | null = null;
 const listening = new WeakSet<HTMLElement>();
 
@@ -119,7 +133,7 @@ function islandUnder(viewportId: string, world: number[]) {
  * A plain click selects the island (and makes its segment the active member); Shift adds
  * or removes an island of the same segment on the same slice.
  */
-export function selectMaskIslandAt(viewportId: string, world: number[], shift: boolean): boolean {
+export function selectMaskIslandAt(viewportId: string, world: number[], shift: boolean, element?: HTMLDivElement): boolean {
   const hit = islandUnder(viewportId, world);
   if (!hit) return false;
   const island: SelectedIsland = { voxels: hit.voxels, outline: islandOutline(hit.grid, hit.voxels, hit.axis) };
@@ -129,17 +143,32 @@ export function selectMaskIslandAt(viewportId: string, world: number[], shift: b
     && current.segmentIndex === hit.segmentIndex
     && current.axis === hit.axis
     && current.slice === hit.slice;
+  const at = same ? current!.islands.findIndex((i) => i.voxels.includes(hit.seed)) : -1;
+  let narrow: (() => void) | undefined;
   if (shift && same) {
-    const at = current!.islands.findIndex((i) => i.voxels.includes(hit.seed));
     if (at >= 0) current!.islands.splice(at, 1);
     else current!.islands.push(island);
     if (current!.islands.length === 0) current = null;
+  } else if (at >= 0) {
+    // A press on one of the selected islands keeps the group so it can be dragged; a
+    // click without a drag narrows the selection to this island.
+    if (current!.islands.length > 1) {
+      const keep = current!.islands[at];
+      narrow = () => {
+        if (current) {
+          current.islands = [keep];
+          render();
+        }
+      };
+    }
   } else {
     current = { viewportId, containerId: hit.containerId, segmentIndex: hit.segmentIndex, axis: hit.axis, slice: hit.slice, islands: [island] };
   }
   // Set before activating: the active-member rule keeps a selection of the new member.
   activateMember?.(hit.containerId, hit.segmentIndex);
   render();
+  // The press can drag the selection (S9) when it is on a selected island.
+  if (element && current?.islands.some((i) => i.voxels.includes(hit.seed))) islandMoveStarter?.(element, narrow);
   return true;
 }
 
@@ -218,9 +247,10 @@ function render(): void {
   for (const island of current.islands) {
     const o = island.outline;
     let d = '';
+    const [dx, dy, dz] = previewDelta ?? [0, 0, 0];
     for (let s = 0; s < o.length; s += 6) {
-      const [x0, y0] = viewport.worldToCanvas([o[s], o[s + 1], o[s + 2]]);
-      const [x1, y1] = viewport.worldToCanvas([o[s + 3], o[s + 4], o[s + 5]]);
+      const [x0, y0] = viewport.worldToCanvas([o[s] + dx, o[s + 1] + dy, o[s + 2] + dz]);
+      const [x1, y1] = viewport.worldToCanvas([o[s + 3] + dx, o[s + 4] + dy, o[s + 5] + dz]);
       d += `M${x0.toFixed(1)} ${y0.toFixed(1)}L${x1.toFixed(1)} ${y1.toFixed(1)}`;
     }
     const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');

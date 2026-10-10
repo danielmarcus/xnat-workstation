@@ -61,4 +61,8 @@ constant grid index); on an oblique MPR reformat the island is taken along the c
       empty image does nothing; one undo step; a locked member does not move (warning).
       Cornerstone moves whole contours only on its spline/livewire tools, and v5 makes every
       finished contour freehand — so the Select tool moves them itself (`contourMove`).
-- [ ] **S9 Drag to move mask islands** — the same for selected islands (voxel-grid snapped).
+- [x] **S9 Drag to move mask islands.** The same for selected islands: the outline previews
+      the move while dragging; on release the islands are moved snapped to whole voxels in
+      the slice plane (erased where they were, painted where they land — one undo step, which
+      replays in reverse so overlapping old/new voxels restore correctly); the selection
+      follows them. A locked segment's islands do not move (warning).

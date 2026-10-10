@@ -207,3 +207,33 @@ test('dragging a locked ROI\'s contour with Select does not move it, and warns',
   await expectLockWarning(page);
   expect(await shapes(page), 'the locked contour did not move').toEqual(before);
 });
+
+test('dragging a locked segment\'s island with Select does not move it, and warns', async ({ page }) => {
+  await loadFixture(page, 'ct-axial-300', 'panel_0');
+  const panel = await openPanel(page);
+  await panel.getByRole('button', { name: 'New Segmentation (SEG)' }).click();
+  await page.keyboard.press('Escape');
+  const toolbox = panel.locator('[data-testid="context-toolbox"]');
+  await toolbox.getByRole('button', { name: 'Brush', exact: true }).click();
+  const box = (await page.locator(`${VIEWPORT} canvas`).boundingBox())!;
+  const x = box.x + box.width * 0.4, y = box.y + box.height * 0.5;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x + box.width * 0.05, y, { steps: 8 });
+  await page.mouse.up();
+  await toolbox.getByRole('button', { name: 'Select', exact: true }).click();
+  await lockRow(panel.locator('[data-testid^="member-row-"]').first());
+  const inside = { x: x + box.width * 0.025, y };
+  await page.mouse.click(inside.x, inside.y);
+  const outline = page.locator(`${VIEWPORT} [data-testid="mask-selection-outline"] path`);
+  await expect.poll(() => outline.count()).toBe(1);
+  const before = await outline.first().boundingBox();
+
+  await page.mouse.move(inside.x, inside.y);
+  await page.mouse.down();
+  await page.mouse.move(inside.x + 60, inside.y, { steps: 10 });
+  await page.mouse.up();
+  await expectLockWarning(page);
+  const after = await outline.first().boundingBox();
+  expect(Math.round((after?.x ?? 0) - (before?.x ?? 0)), 'the locked island did not move').toBe(0);
+});

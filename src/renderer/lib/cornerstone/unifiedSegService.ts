@@ -36,7 +36,8 @@ import {
   type Vec3,
 } from './segmentationService/voxelClipboard';
 import { sliceAxisFor } from './maskIslands';
-import { clearMaskSelection, getMaskSelection, selectIslandsContaining } from './maskSelection';
+import { clearMaskSelection, getMaskSelection, selectIslandsContaining, setIslandMoveStarter, setMaskPreviewDelta } from './maskSelection';
+import { Enums as ToolEnums } from '@cornerstonejs/tools';
 import { warnMemberLocked } from '../annotations/lockWarning';
 import { useSegmentationStore } from '../../stores/segmentationStore';
 import { useViewerStore } from '../../stores/viewerStore';
@@ -118,7 +119,10 @@ function pushVoxelHistoryMemo(containerId: string, segmentIndex: number, csSegme
     restoreMemo: (isUndo = true) => {
       const g = readSegmentVoxelGrid(containerId, segmentIndex);
       if (!g) return;
-      for (let c = 0; c < changes.length; c += 3) g.write(changes[c], isUndo ? changes[c + 1] : changes[c + 2]);
+      // Undo replays the writes in reverse (a voxel written twice — e.g. where a moved
+      // island's old and new places overlap — must end at its FIRST old value).
+      if (isUndo) for (let c = changes.length - 3; c >= 0; c -= 3) g.write(changes[c], changes[c + 1]);
+      else for (let c = 0; c < changes.length; c += 3) g.write(changes[c], changes[c + 2]);
       clearMaskSelection();
       notifyLabelmapChanged(g.csSegmentationId);
     },
@@ -590,6 +594,60 @@ export const unifiedSegService = {
     return true;
   },
 
+  /**
+   * Move the selected islands by a world delta (unified selection S9): snapped to whole
+   * voxels within the slice plane, the islands are erased where they were and painted where
+   * they land, as ONE undo step; the selection follows them. A locked segment is refused.
+   */
+  moveSelectedIslands(deltaWorld: [number, number, number]): boolean {
+    const sel = getMaskSelection();
+    if (!sel) return false;
+    if (isSegmentLockedHere(sel.containerId, sel.segmentIndex)) {
+      warnMemberLocked(sel.containerId, sel.segmentIndex, 'move it');
+      return false;
+    }
+    const grid = readSegmentVoxelGrid(sel.containerId, sel.segmentIndex);
+    if (!grid) return false;
+    const { dimensions: dims, spacing, direction } = grid.geometry;
+    // World delta → index delta (direction columns are the grid axes; orthonormal).
+    const step = [0, 1, 2].map((c) => {
+      let along = 0;
+      for (let r = 0; r < 3; r++) along += direction[r * 3 + c] * deltaWorld[r];
+      return c === sel.axis ? 0 : Math.round(along / spacing[c]);
+    });
+    if (step.every((v) => v === 0)) return false;
+
+    const current = new Map<number, number>();
+    const valueAt = (f: number) => current.get(f) ?? grid.data[f];
+    const changes: number[] = [];
+    const write = (f: number, v: number) => {
+      const old = valueAt(f);
+      if (old === v) return;
+      changes.push(f, old, v);
+      current.set(f, v);
+      grid.write(f, v);
+    };
+    const from = sel.islands.flatMap((i) => i.voxels).filter((f) => grid.data[f] === grid.value);
+    const to: number[] = [];
+    for (const f of from) write(f, 0);
+    const nx = dims[0];
+    const ny = dims[1];
+    for (const f of from) {
+      const k = Math.floor(f / (nx * ny));
+      const j = Math.floor((f - k * nx * ny) / nx);
+      const ijk = [f - k * nx * ny - j * nx + step[0], j + step[1], k + step[2]];
+      if (ijk.some((v, a) => v < 0 || v >= dims[a])) continue; // off the grid: clipped
+      const nf = ijk[0] + ijk[1] * nx + ijk[2] * nx * ny;
+      write(nf, grid.value);
+      to.push(nf);
+    }
+    if (changes.length === 0) return false;
+    pushVoxelHistoryMemo(sel.containerId, sel.segmentIndex, grid.csSegmentationId, changes);
+    notifyLabelmapChanged(grid.csSegmentationId);
+    selectIslandsContaining(sel.viewportId, sel.containerId, sel.segmentIndex, to);
+    return true;
+  },
+
   /** Drop the voxel clipboard (a contour copy replaced it — the last copy wins). */
   clearVoxelClipboard(): void {
     voxelClip = null;
@@ -711,3 +769,43 @@ export const unifiedSegService = {
     containerSpatial.set(segmentationId, spatial);
   },
 };
+
+/**
+ * A drag-move of the selected islands from a press (S9): the outline previews the move
+ * while dragging; the release moves the voxels (moveSelectedIslands). A locked segment's
+ * islands do not move — a real drag raises the lock warning.
+ */
+function beginIslandMove(element: HTMLDivElement, onClickWithoutMove?: () => void): void {
+  const sel = getMaskSelection();
+  if (!sel) return;
+  const locked = isSegmentLockedHere(sel.containerId, sel.segmentIndex);
+  const total: [number, number, number] = [0, 0, 0];
+  let moved = false;
+  let refused = false;
+  const onDrag = (evt: Event) => {
+    const d = (evt as CustomEvent<{ deltaPoints?: { world?: number[] } }>).detail?.deltaPoints?.world;
+    if (!d) return;
+    if (locked) {
+      if (!refused) warnMemberLocked(sel.containerId, sel.segmentIndex, 'move it');
+      refused = true;
+      return;
+    }
+    total[0] += d[0];
+    total[1] += d[1];
+    total[2] += d[2];
+    moved = true;
+    setMaskPreviewDelta([total[0], total[1], total[2]]);
+  };
+  const onUp = () => {
+    element.removeEventListener(ToolEnums.Events.MOUSE_DRAG, onDrag);
+    element.removeEventListener(ToolEnums.Events.MOUSE_UP, onUp);
+    element.removeEventListener(ToolEnums.Events.MOUSE_CLICK, onUp);
+    setMaskPreviewDelta(null);
+    if (moved) unifiedSegService.moveSelectedIslands(total);
+    else if (!refused) onClickWithoutMove?.();
+  };
+  element.addEventListener(ToolEnums.Events.MOUSE_DRAG, onDrag);
+  element.addEventListener(ToolEnums.Events.MOUSE_UP, onUp);
+  element.addEventListener(ToolEnums.Events.MOUSE_CLICK, onUp);
+}
+setIslandMoveStarter(beginIslandMove);

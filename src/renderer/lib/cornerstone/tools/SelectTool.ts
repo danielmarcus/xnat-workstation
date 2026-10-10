@@ -54,7 +54,7 @@ export default class SelectTool extends BaseTool {
     const shift = !!(event?.shiftKey || event?.ctrlKey || event?.metaKey);
     if (!hit) {
       // Not on a contour: a mask island of a segment shown here?
-      if (selectMaskIslandAt(viewportId, currentPoints.world as number[], shift)) {
+      if (selectMaskIslandAt(viewportId, currentPoints.world as number[], shift, element as HTMLDivElement)) {
         if (!shift) csAnnotation.selection.deselectAnnotation();
         return true;
       }

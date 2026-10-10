@@ -175,3 +175,63 @@ test('Delete erases the selected island only; one undo brings it back, redo eras
   await page.waitForTimeout(400);
   expect((await perImage(page))[source], 'a locked segment is left alone').toBe(bothCount);
 });
+
+// ── S9: drag to move islands ─────────────────────────────────────────────────────
+
+/** The selected islands' outline boxes on the viewport, left to right. */
+const outlineBoxes = (page: Page) =>
+  page.evaluate((vp) =>
+    Array.from(document.querySelectorAll(`${vp} [data-testid="mask-selection-outline"] path`))
+      .map((n) => (n as SVGGraphicsElement).getBoundingClientRect())
+      .map((r) => ({ x: r.x, y: r.y, w: r.width, h: r.height }))
+      .sort((a, b) => a.x - b.x),
+  VIEWPORT);
+
+async function dragFrom(page: Page, p: { x: number; y: number }, dx: number, dy: number) {
+  await page.mouse.move(p.x, p.y);
+  await page.mouse.down();
+  await page.mouse.move(p.x + dx, p.y + dy, { steps: 10 });
+  await page.mouse.up();
+}
+
+test('dragging a selected island moves it in the slice (voxel-snapped); one undo puts it back', async ({ page }) => {
+  const { toolbox } = await segmentation(page);
+  const source = await sliceIndex(page);
+  const p = await blob(page, 0.35, 0.5);
+  await expect.poll(async () => (await perImage(page))[source] ?? 0).toBeGreaterThan(0);
+  const count = (await perImage(page))[source];
+  await toolbox.getByRole('button', { name: 'Select', exact: true }).click();
+  await clickAt(page, p);
+  await expect.poll(() => outlined(page)).toBe(1);
+  const [before] = await outlineBoxes(page);
+
+  await dragFrom(page, p, 60, 0);
+  await expect
+    .poll(async () => { const [b] = await outlineBoxes(page); return b ? Math.round(b.x - before.x) : null; }, { message: 'the island moved with the pointer (to the nearest voxel)' })
+    .toBeGreaterThan(40);
+  const [after] = await outlineBoxes(page);
+  expect(after.x - before.x).toBeLessThan(80);
+  expect((await perImage(page))[source], 'moved, not copied: same voxel count on the slice').toBe(count);
+
+  await page.keyboard.press('Control+z');
+  await page.waitForTimeout(300);
+  await clickAt(page, p);
+  await expect.poll(async () => { const [b] = await outlineBoxes(page); return b ? Math.round(b.x - before.x) : null; }, { message: 'one undo puts it back' }).toBe(0);
+  expect((await perImage(page))[source]).toBe(count);
+});
+
+test('dragging one of several selected islands moves them all', async ({ page }) => {
+  const { toolbox } = await segmentation(page);
+  const left = await blob(page, 0.3, 0.5);
+  const right = await blob(page, 0.6, 0.5);
+  await toolbox.getByRole('button', { name: 'Select', exact: true }).click();
+  await clickAt(page, left);
+  await clickAt(page, right, true);
+  await expect.poll(() => outlined(page)).toBe(2);
+  const [l, r] = await outlineBoxes(page);
+
+  await dragFrom(page, left, 0, 60);
+  await expect
+    .poll(async () => { const [nl, nr] = await outlineBoxes(page); return nl && nr ? [Math.round(nl.y - l.y) > 40, Math.round(nr.y - r.y) > 40] : null; }, { message: 'both moved together' })
+    .toEqual([true, true]);
+});
