@@ -59,6 +59,14 @@ A locked segment previews read-only. **X** opens Cleanup.
 | **Copy into…** | Segments | Add to another segment, keeping both | Into |
 | **Magnet bridge…** | Segments | Grow another segment across a gap to meet this one | Into, max gap (px), fill / overwrite |
 
+**Interpolate** fills empty slices between painted ones — every gap (listed, each previewable),
+the slice on screen, or between anchors **A** and **B** (keys A / B while the sheet is open; ⇧A /
+⇧B / ⇧C clear) — with Linear SDF, Area-preserving SDF, Morphology, Component matching,
+Volume-accurate morphology or Image-guided snap. **Propagate** grows the segment from the
+slice on screen into its neighbours (backward / both / forward), keeping to voxels whose
+intensity matches (±HU on CT, kσ on MR) and stopping where the structure ends or leaks.
+Neither ever runs on its own.
+
 With **All segments**, a Clean operation first proposes a **per-segment plan** (Smart
 Cleanup): small and thin segments are withheld from operations that would erode them; each
 row's action can be edited before running.

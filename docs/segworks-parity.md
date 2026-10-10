@@ -316,3 +316,8 @@ lesson of `7a33519` — every interpolation/propagation is user-triggered and pr
   area-change stop, fill holes, edge guard, z-smoothing. Each slice takes the in-window region
   connected to the previous mask; the first step's runaway check compares with the structure on
   the seed slice (a partial seed is not a leak). Added to what is painted; other segments protected.
+- **I4** — tool reference documents Interpolate and Propagate. Full offline E2E: 268/269 — the one
+  failure is `contour-copy-paste` ("…the paste interpolates with it"), which is **flaky on `main`
+  itself** (measured: main 3/45, review-ergonomics 5/45, this branch ~3/18 with `--repeat-each`);
+  it alternated between its two interpolation tests across runs. Not caused by this work; flagged
+  as a separate task. **Branch 3 complete.**
