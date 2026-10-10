@@ -168,3 +168,33 @@ Shared rules from the wireframe doc (§5 “Sheet rules”) are binding for ever
 
 **Separately reviewed plans required** before implementation: branch 8 (worklist) **and**
 branch 9 (algorithm modules). Neither starts until its own plan is reviewed with the user.
+
+---
+
+## 5. Branch 1 — `mask-ops` (ordered plan)
+
+Cut from `segworks-parity`. Slices land as separate verified commits (`Mask ops S<n>: …`),
+executed top to bottom. Every slice follows the repo's red-before-green discipline; E2E drives
+the real affordance (tab → sheet → Preview → ⏎) and asserts **labelmap voxels**, not store state.
+
+**Ground truth this builds on** (verified in code 2026-10-10):
+- `readSegmentVoxelGrid(containerId, segmentIndex)` (`lib/cornerstone/segmentVoxelGrid.ts`) gives
+  one segment as a world-oriented grid with a live `write()`. In a multi-layer group (what
+  "New Segmentation" creates) **each segment is its own sub-seg stored as value 1**, so
+  multi-segment ops touch several Cornerstone segmentations and segments may overlap.
+- `pushVoxelHistoryMemo` / `isSegmentLockedHere` / `notifyLabelmapChanged`
+  (`unifiedSegService.ts`) are the existing undoable-write path used by island delete/move/paste.
+- Per-slice work happens in the **viewing plane** (`sliceAxisFor`), like island selection, so
+  oblique and MPR views stay index-space correct.
+
+| Slice | Content | Acceptance |
+|---|---|---|
+| **S1** | `lib/segmentation/maskOps/` — pure functions on binary planes (`Uint8Array` + dims + spacing): connected components (4/8), fill holes, keep largest, remove speckles (min area mm²), remove strays (centroid distance mm), median/majority, Gaussian smooth (σ mm, re-threshold), smooth edges (3×3 weighted vote), open/close (radius), anisotropic diffusion (Perona-Malik exp/quadratic, κ, iterations; image-guided), magnet bridge (source→target, max gap, fill-only/overwrite) | Vitest on synthetic planes, each seen red first |
+| **S2** | **Labelmap transaction**: one undo step spanning N members of a container; lock check up-front (refuse whole op, existing lock warning); stage → diff → write → `notifyLabelmapChanged`. **Scope resolver**: `{slices: current \| range \| volume, labels: active \| all \| pick, roi?}` → member grids × plane indices. Refactor island delete/move/paste onto the transaction (structure before features) | Existing island/paste/undo E2E still green; new unit tests for multi-member undo/redo |
+| **S3** | **Preview layer**: staged result rendered on every viewport showing the scan as hatched fill + dashed outline in the target segment colour (SVG layer, like island selection outlines); labelmap untouched until commit. **Viewport preview bar** (top-centre): ⏎ commit · ⎋ discard · hold `\` compare. Preview-scoped key capture | E2E: preview pixels present, labelmap unchanged; ⏎ writes; ⎋ leaves no trace; one Ctrl+Z reverts commit |
+| **S4** | **Toolbox tabs (D2)**: Select + Seg Bidir. pinned; Paint · Shape · Smart · Process; tool hotkeys switch tab; existing tool E2E updated to tab-aware helpers | Pixel/visual check of toolbox; tool-controls & tool-affordance specs green |
+| **S5** | **Operation sheet (D1)** shell + **Cleanup sheet**: op dropdown, params, scope bar, Advanced collapse, footer; back / discard-confirm; locked → Commit disabled with reason; sheet-scoped hotkey hook (D12); `X` opens last-used cleanup op | E2E per op: Process → Cleanup → op → Preview → ⏎ → voxels match the pure-function result on `ct-axial-anatomy` (+ `ct-oblique` for one op) |
+| **S6** | **Slice track (D5)**: scrollbar shows active-segment occupancy when a SEG member is active; draggable range bracket bound to Range scope; click band to jump | E2E: occupancy pixels at painted slices; dragging bracket updates the sheet range |
+| **S7** | **Segment ops**: clear segment (scope), clear active / all labels on slice, move to segment, merge into, duplicate, relabel-by-name (rename + optional merge into an existing same-named member, metadata from donor); magnet bridge two-member UI | E2E on multi-member containers; undo restores both members |
+| **S8** | **Smart Cleanup**: per-label stats → proposed plan table (op per label, thin/small-structure protection) → review/edit → one transaction | E2E: plan shown, edited, committed as one undo step |
+| **S9** | Docs (`annotation-tool-reference.md`, hotkeys), full offline E2E run, dev-app visual sweep against wireframes, merge to `main` | CLAUDE.md self-check answered |
