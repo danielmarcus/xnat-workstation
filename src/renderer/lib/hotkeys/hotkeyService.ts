@@ -17,6 +17,7 @@ import { DEFAULT_HOTKEY_MAP } from './defaultHotkeyMap';
 import { useViewerStore } from '../../stores/viewerStore';
 import { usePreferencesStore } from '../../stores/preferencesStore';
 import { useHudStore } from '../../stores/hudStore';
+import { useProbeStore } from '../../stores/probeStore';
 import { useSegmentationManagerStore } from '../../stores/segmentationManagerStore';
 import { segmentationManager } from '../segmentation/segmentationManagerSingleton';
 import { useOperationSheetStore } from '../../stores/operationSheetStore';
@@ -440,13 +441,39 @@ export interface KeyLayer {
 }
 const keyLayers: KeyLayer[] = [];
 
+/**
+ * HOLD actions: on while their key is held, off on key-up (or when the window loses
+ * focus, so a key released elsewhere never leaves one stuck on). Key repeat is ignored.
+ */
+const HOLD_ACTIONS: Partial<Record<HotkeyAction, (on: boolean) => void>> = {
+  'probe.hold': (on) => useProbeStore.getState().setHolding(on),
+};
+/** Keys (lower-case KeyboardEvent.key) currently holding a hold action, → that action. */
+const heldKeys = new Map<string, HotkeyAction>();
+
+function releaseHeld(key?: string): boolean {
+  let released = false;
+  for (const [k, action] of [...heldKeys]) {
+    if (key !== undefined && k !== key) continue;
+    heldKeys.delete(k);
+    HOLD_ACTIONS[action]?.(false);
+    released = true;
+  }
+  return released;
+}
+
 function inFormField(e: KeyboardEvent): boolean {
   const t = e.target as HTMLElement | null;
   const tag = t?.tagName;
   return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || !!t?.isContentEditable;
 }
 
+function onWindowBlur(): void {
+  releaseHeld();
+}
+
 function handleKeyUp(e: KeyboardEvent): void {
+  if (releaseHeld(e.key.toLowerCase())) return;
   if (inFormField(e)) return;
   for (let i = keyLayers.length - 1; i >= 0; i--) {
     if (keyLayers[i].onKeyUp?.(e)) {
@@ -500,6 +527,16 @@ function handleKeyDown(e: KeyboardEvent): void {
   const action = lookup.get(normalized);
   if (!action) return;
 
+  const hold = HOLD_ACTIONS[action];
+  if (hold) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.repeat || heldKeys.has(e.key.toLowerCase())) return;
+    heldKeys.set(e.key.toLowerCase(), action);
+    hold(true);
+    return;
+  }
+
   const handled = dispatchAction(action);
   if (handled) {
     e.preventDefault();
@@ -518,6 +555,7 @@ export const hotkeyService = {
     if (listenerInstalled) return;
     window.addEventListener('keydown', handleKeyDown, { capture: true });
     window.addEventListener('keyup', handleKeyUp, { capture: true });
+    window.addEventListener('blur', onWindowBlur);
     listenerInstalled = true;
     console.log('[hotkeyService] Global keyboard listener installed');
   },
@@ -529,6 +567,7 @@ export const hotkeyService = {
     if (!listenerInstalled) return;
     window.removeEventListener('keydown', handleKeyDown, { capture: true });
     window.removeEventListener('keyup', handleKeyUp, { capture: true });
+    window.removeEventListener('blur', onWindowBlur);
     listenerInstalled = false;
     console.log('[hotkeyService] Global keyboard listener removed');
   },

@@ -16,6 +16,7 @@ import { useViewportGestureStore } from '../../stores/viewportGestureStore';
 import ViewportStatusOverlay from './ViewportStatusOverlay';
 import MaskPreviewBar from './MaskPreviewBar';
 import ViewportHud from './ViewportHud';
+import ViewportHoverProbe from './ViewportHoverProbe';
 import ViewportTimeScrubber from './ViewportTimeScrubber';
 import type { MPRPlane, DisplayPlane } from '@shared/types/viewer';
 
@@ -115,6 +116,7 @@ export default function Viewport({
           <ViewportTimeScrubber panelId={panelId} />
           <MaskPreviewBar panelId={panelId} />
           <ViewportHud panelId={panelId} />
+          <ViewportHoverProbe panelId={panelId} />
         </>
       )}
       {imageIds.length > 0 && <ViewportStatusOverlay panelId={panelId} state={loadState} />}

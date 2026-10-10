@@ -266,3 +266,7 @@ that evaluation land on `mask-ops` and are merged forward here.
   hiding — the action now states its own result), and the summary's `visible` flag does not
   follow a hide (the second M hid again — it now reads the manager's presentation override,
   as the member rows do).
+- **R3** — hold Q: intensity beside the cursor ("HU 70 · (88, 64, 8)" — value with the modality
+  unit, and the voxel index), any tool, gone on key-up; nothing shown off the image. The hotkey
+  system gains HOLD actions (key repeat ignored; released on key-up or window blur, so a key let
+  go elsewhere never leaves one stuck). Verified against the anatomy phantom's known regions.

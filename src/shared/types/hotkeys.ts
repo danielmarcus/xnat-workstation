@@ -37,6 +37,8 @@ export type HotkeyAction =
   // Display
   | 'view.toggleHidePhi'
   | 'segmentation.toggleMasks'
+  // Hold actions: active while the key is held
+  | 'probe.hold'
   // Viewport actions
   | 'viewport.reset'
   | 'viewport.toggleInvert'

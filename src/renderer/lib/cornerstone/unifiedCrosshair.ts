@@ -43,6 +43,8 @@ type AnyViewport = {
 export interface IntensitySample {
   value: number;
   modality?: string;
+  /** The sampled voxel, in the panel's image-data index space. */
+  index?: Point3;
 }
 
 type PanelCanvasContext = {
@@ -208,7 +210,7 @@ export function getIntensityAtWorld(panelId: string, world: Point3): IntensitySa
     const raw = voxelManager.getAtIJKPoint(idx);
     if (typeof raw !== 'number' || !Number.isFinite(raw)) return null; // RGB / non-scalar ⇒ no readout
     const modality = img?.metadata?.Modality;
-    return { value: raw, modality: typeof modality === 'string' && modality ? modality : undefined };
+    return { value: raw, modality: typeof modality === 'string' && modality ? modality : undefined, index: idx };
   } catch {
     return null;
   }

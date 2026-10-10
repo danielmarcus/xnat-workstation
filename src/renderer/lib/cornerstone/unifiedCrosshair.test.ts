@@ -184,7 +184,7 @@ describe('getIntensityAtWorld', () => {
 
   it('samples the voxel value at the rounded index under a world point', () => {
     getViewport.mockReturnValue(makeViewport(137));
-    expect(getIntensityAtWorld('panel_0', [1.4, 2, 3])).toEqual({ value: 137, modality: 'CT' });
+    expect(getIntensityAtWorld('panel_0', [1.4, 2, 3])).toEqual({ value: 137, modality: 'CT', index: [1, 2, 3] });
   });
 
   it('returns null when the world point projects outside the volume dimensions', () => {
