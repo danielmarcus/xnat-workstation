@@ -250,3 +250,13 @@ that evaluation land on `mask-ops` and are merged forward here.
 | **R4** | **Auto Review flythrough (D6)** — viewport mini-player from the container kebab or ⇧Space: segments to review, direction, start at bounds/current, anatomy and mask dwell (overlay flicker), pause/stop, collapsed by default; bounds from slice occupancy in the viewport's numbering | E2E: visits exactly the occupied range in order; mask hidden during anatomy dwell (pixels); stop restores visibility |
 | **R5** | **Checkpoints (D8)** — kebab: Save checkpoint… · Restore checkpoint ▸ (named, timestamped; "baseline" reserved); restore = one undo step through the labelmap transaction; persisted on disk beside autosave (retention 4 per container + baseline); Settings › File Backup: export/import a checkpoint file, guarded by study/series identity | E2E: save → edit → restore returns exact voxels; undo of restore; survives reload; import refuses a different series |
 | **R6** | Docs, full offline E2E, visual sweep vs wireframes §8–§11 | CLAUDE.md self-check |
+
+### Branch 2 progress log
+
+- **R1** — Hide PHI: toolbar "PHI" toggle (struck eye + amber tint when on; label constant so the
+  toolbar does not reflow) + ⇧H; persisted. Overlay leaves out patient name/ID, study date,
+  institution; DICOM header masks PHI values (Patient group + PS3.15-style identifiers, `shared/phi.ts`)
+  with per-tag Reveal, and masked values are not searchable. The window title is a fixed
+  "XNAT Workstation" — nothing to strip. **Found:** for locally imported files the overlay's
+  patient/study fields and the Tags panel are empty (metadata modules / wadouri cache not
+  populated) — pre-existing, so overlay/header masking is verified by component tests, not E2E.

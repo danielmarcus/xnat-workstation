@@ -34,6 +34,8 @@ export type HotkeyAction =
   | 'tool.stackScroll'
   // Operations (SegWorks parity)
   | 'operation.cleanup'
+  // Display
+  | 'view.toggleHidePhi'
   // Viewport actions
   | 'viewport.reset'
   | 'viewport.toggleInvert'

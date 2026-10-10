@@ -50,6 +50,22 @@ describe('ViewportOverlay (preference-driven)', () => {
     });
   });
 
+  it('Hide PHI leaves out the identifying fields and keeps the rest (SegWorks parity D7)', () => {
+    setCorners({ topLeft: ['patientName', 'patientId', 'studyDate', 'subjectLabel'], topRight: ['institutionName', 'seriesDescription'], bottomLeft: ['imageIndex'] });
+    useMetadataStore.getState()._updateOverlay('panel_0', {
+      ...EMPTY_OVERLAY, patientName: 'DOE^JANE', patientId: 'MRN123', studyDate: '2026-01-01', institutionName: 'General', seriesDescription: 'AX T1',
+    });
+    usePreferencesStore.setState((s) => ({ preferences: { ...s.preferences, hidePhi: true } }));
+    render(<ViewportOverlay panelId="panel_0" />);
+    for (const f of ['patientName', 'patientId', 'studyDate', 'institutionName']) {
+      expect(screen.queryByTestId(`overlay-field-${f}:panel_0`), f).toBeNull();
+    }
+    expect(screen.queryByText(/DOE\^JANE|MRN123|General/)).toBeNull();
+    expect(screen.getByTestId('overlay-field-seriesDescription:panel_0')).toHaveTextContent('AX T1');
+    expect(screen.getByTestId('overlay-field-imageIndex:panel_0')).toBeInTheDocument();
+    usePreferencesStore.setState((s) => ({ preferences: { ...s.preferences, hidePhi: false } }));
+  });
+
   it('renders ONLY the fields configured for each corner, in that corner', () => {
     setCorners({ topLeft: ['patientName'], bottomLeft: ['imageIndex', 'windowLevel'], bottomRight: ['zoom'] });
     render(<ViewportOverlay panelId="panel_0" />);

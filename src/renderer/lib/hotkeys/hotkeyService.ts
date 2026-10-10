@@ -15,6 +15,7 @@ import { ToolName, WL_PRESETS, panelId as makePanelId } from '@shared/types/view
 import type { LayoutType } from '@shared/types/viewer';
 import { DEFAULT_HOTKEY_MAP } from './defaultHotkeyMap';
 import { useViewerStore } from '../../stores/viewerStore';
+import { usePreferencesStore } from '../../stores/preferencesStore';
 import { useOperationSheetStore } from '../../stores/operationSheetStore';
 import { useSegmentationStore } from '../../stores/segmentationStore';
 import { viewportService } from '../cornerstone/viewportService';
@@ -153,6 +154,11 @@ function dispatchAction(action: HotkeyAction): boolean {
     case 'annotation.toggleEditMode':
       unifiedToolService.toggleEditMode();
       return true;
+    case 'view.toggleHidePhi': {
+      const prefs = usePreferencesStore.getState();
+      prefs.setHidePhi(prefs.preferences.hidePhi !== true);
+      return true;
+    }
     case 'operation.cleanup': {
       // Only meaningful with a Segmentation active and the panel showing it.
       const seg = useSegmentationStore.getState();

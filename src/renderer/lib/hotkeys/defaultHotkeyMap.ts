@@ -36,6 +36,7 @@ export const DEFAULT_HOTKEY_MAP: HotkeyMap = {
   'viewport.rotate90':      [{ key: 'r', modifiers: { shift: true } }],
   'viewport.toggleInvert':  [{ key: 'i' }],
   'viewport.flipH':         [{ key: 'h' }],
+  'view.toggleHidePhi':     [{ key: 'h', modifiers: { shift: true } }], // ⇧H — Hide PHI
   'viewport.flipV':         [{ key: 'v' }],
 
   // ─── Zoom ─────────────────────────────────────────────────────

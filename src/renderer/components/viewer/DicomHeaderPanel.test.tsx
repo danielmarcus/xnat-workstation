@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import DicomHeaderPanel from './DicomHeaderPanel';
 import { useViewerStore } from '../../stores/viewerStore';
+import { usePreferencesStore } from '../../stores/preferencesStore';
 
 const dicomPanelMocks = vi.hoisted(() => ({
   getViewport: vi.fn(),
@@ -76,6 +77,31 @@ describe('DicomHeaderPanel', () => {
     dicomPanelMocks.getViewport.mockReturnValue(null);
     render(<DicomHeaderPanel onClose={vi.fn()} />);
     expect(screen.getByText('No image loaded in active viewport.')).toBeInTheDocument();
+  });
+
+  it('Hide PHI masks identifying values, keeps them out of search, and reveals one on request (D7)', () => {
+    dicomPanelMocks.getViewport.mockReturnValue({ getCurrentImageId: () => 'wadouri:https://xnat.example/image1.dcm' });
+    dicomPanelMocks.getDataSet.mockReturnValue(buildDataset());
+    usePreferencesStore.setState((s) => ({ preferences: { ...s.preferences, hidePhi: true } }));
+    try {
+      render(<DicomHeaderPanel onClose={vi.fn()} />);
+      expect(screen.queryByText('Doe^Jane')).not.toBeInTheDocument(); // patient name
+      expect(screen.queryByText('Dr^Who')).not.toBeInTheDocument(); // referring physician
+      expect(screen.queryByText('2024-01-31')).not.toBeInTheDocument(); // study date
+      expect(screen.getByText('Abdomen CT')).toBeInTheDocument(); // series description is not PHI
+      expect(screen.getByText('512')).toBeInTheDocument(); // rows
+
+      // Searching for the hidden value must not surface (and so reveal) its row.
+      fireEvent.change(screen.getByPlaceholderText('Search tags...'), { target: { value: 'doe' } });
+      expect(screen.queryByTestId('phi-masked:x00100010')).not.toBeInTheDocument();
+      fireEvent.change(screen.getByPlaceholderText('Search tags...'), { target: { value: '' } });
+
+      fireEvent.click(screen.getByTestId('phi-masked:x00100010').querySelector('button')!);
+      expect(screen.getByText('Doe^Jane')).toBeInTheDocument();
+      expect(screen.queryByText('Dr^Who')).not.toBeInTheDocument(); // one at a time
+    } finally {
+      usePreferencesStore.setState((s) => ({ preferences: { ...s.preferences, hidePhi: false } }));
+    }
   });
 
   it('renders parsed tags, supports private toggle/search, and close callback', () => {
