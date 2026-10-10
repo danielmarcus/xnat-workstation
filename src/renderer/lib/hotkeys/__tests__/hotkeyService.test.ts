@@ -142,21 +142,67 @@ describe('hotkeyService', () => {
     expect(viewerState.setActiveViewport).toHaveBeenCalled();
   });
 
-  it('installs/removes a single global listener and avoids double-registration', () => {
+  it('installs/removes one keydown and one keyup listener and avoids double-registration', () => {
     const addSpy = vi.spyOn(window, 'addEventListener');
     const removeSpy = vi.spyOn(window, 'removeEventListener');
 
     hotkeyService.install();
     hotkeyService.install();
 
-    expect(addSpy).toHaveBeenCalledTimes(1);
+    // keyup exists for key layers' hold-to-compare (SegWorks parity D12).
+    expect(addSpy).toHaveBeenCalledTimes(2);
     expect(addSpy).toHaveBeenCalledWith('keydown', expect.any(Function), { capture: true });
+    expect(addSpy).toHaveBeenCalledWith('keyup', expect.any(Function), { capture: true });
 
     hotkeyService.uninstall();
     hotkeyService.uninstall();
 
-    expect(removeSpy).toHaveBeenCalledTimes(1);
+    expect(removeSpy).toHaveBeenCalledTimes(2);
     expect(removeSpy).toHaveBeenCalledWith('keydown', expect.any(Function), { capture: true });
+    expect(removeSpy).toHaveBeenCalledWith('keyup', expect.any(Function), { capture: true });
+  });
+
+  it('a key layer takes keys ahead of the global map, newest first, until removed', () => {
+    hotkeyService.setHotkeyMap({ 'viewport.zoomOut': [{ key: '-' }] });
+    hotkeyService.install();
+    const seen: string[] = [];
+    const removeOuter = hotkeyService.pushKeyLayer({ onKeyDown: (e) => { seen.push(`outer:${e.key}`); return e.key === 'Enter'; } });
+    const removeInner = hotkeyService.pushKeyLayer({ onKeyDown: (e) => { seen.push(`inner:${e.key}`); return e.key === 'Escape'; } });
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(seen).toEqual(['inner:Escape']); // consumed by the newest layer
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    expect(seen).toEqual(['inner:Escape', 'inner:Enter', 'outer:Enter']); // declined, then taken
+
+    removeInner();
+    removeOuter();
+    seen.length = 0;
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(seen).toEqual([]);
+    hotkeyService.uninstall();
+  });
+
+  it('key layers receive keyup and never see keys typed into a field', () => {
+    hotkeyService.install();
+    const ups: string[] = [];
+    const downs: string[] = [];
+    const remove = hotkeyService.pushKeyLayer({
+      onKeyDown: (e) => { downs.push(e.key); return true; },
+      onKeyUp: (e) => { ups.push(e.key); return true; },
+    });
+    window.dispatchEvent(new KeyboardEvent('keyup', { key: '\\', bubbles: true }));
+    expect(ups).toEqual(['\\']);
+
+    const input = document.createElement('input');
+    document.body.appendChild(input);
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    input.dispatchEvent(new KeyboardEvent('keyup', { key: '\\', bubbles: true }));
+    expect(downs).toEqual([]);
+    expect(ups).toEqual(['\\']);
+    input.remove();
+    remove();
+    hotkeyService.uninstall();
   });
 
   it('dispatches mapped actions and prevents default when handled', () => {

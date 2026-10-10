@@ -6,6 +6,8 @@ import {
   PlanarFreehandContourSegmentationTool,
 } from '@cornerstonejs/tools';
 import { useSegmentationStore } from '../../stores/segmentationStore';
+import { maskOpsService } from '../cornerstone/maskOpsService';
+import { readSegmentVoxelGrid } from '../cornerstone/segmentVoxelGrid';
 import { useSegmentationManagerStore } from '../../stores/segmentationManagerStore';
 import { useViewerStore } from '../../stores/viewerStore';
 import { useConnectionStore } from '../../stores/connectionStore';
@@ -175,6 +177,10 @@ declare global {
       toolsBoundToPrimary: () => string[];
       /** Remove all segmentations (test isolation in the worker-scoped app). */
       resetUnifiedSegmentations: () => void;
+      /** Stage a cleanup op on the active member and open its preview (until the S5 sheet drives it). */
+      previewCleanup: (opId: string, params: Record<string, number | string>, slices: 'current' | 'volume') => { ok: boolean; reason?: string };
+      /** Active member's voxel count (labelmap ground truth for mask-op specs). */
+      activeSegmentVoxelCount: () => number;
       /** Remove all measurement annotations (test isolation for SR/measurement specs). */
       clearAllAnnotations: () => void;
       /** Full panel clean-slate (segmentations + measurements, cs + stores). */
@@ -780,6 +786,18 @@ export function installRendererE2eHooks(): void {
         if (id && cache.getVolume(id)) return true;
       }
       return false;
+    },
+    previewCleanup: (opId, params, slices) => {
+      const r = maskOpsService.previewCleanup(opId, params, { slices: { kind: slices }, labels: { kind: 'active' } });
+      return r.ok ? { ok: true } : { ok: false, reason: r.reason };
+    },
+    activeSegmentVoxelCount: () => {
+      const { activeSegmentationId, activeSegmentIndex } = useSegmentationStore.getState();
+      const g = activeSegmentationId ? readSegmentVoxelGrid(activeSegmentationId, activeSegmentIndex) : null;
+      if (!g) return -1;
+      let n = 0;
+      for (let i = 0; i < g.data.length; i++) if (g.data[i] === g.value) n++;
+      return n;
     },
     resetUnifiedSegmentations: () => {
       try {

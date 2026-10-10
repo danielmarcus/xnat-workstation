@@ -198,3 +198,13 @@ the real affordance (tab → sheet → Preview → ⏎) and asserts **labelmap v
 | **S7** | **Segment ops**: clear segment (scope), clear active / all labels on slice, move to segment, merge into, duplicate, relabel-by-name (rename + optional merge into an existing same-named member, metadata from donor); magnet bridge two-member UI | E2E on multi-member containers; undo restores both members |
 | **S8** | **Smart Cleanup**: per-label stats → proposed plan table (op per label, thin/small-structure protection) → review/edit → one transaction | E2E: plan shown, edited, committed as one undo step |
 | **S9** | Docs (`annotation-tool-reference.md`, hotkeys), full offline E2E run, dev-app visual sweep against wireframes, merge to `main` | CLAUDE.md self-check answered |
+
+### Branch 1 progress log
+
+- **S1** `f881920` — pure cleanup ops. Magnet bridge zone redefined (SegWorks' rule never joined the segments).
+- **S2** `f125dc5` — labelmap transaction + scope + runner; island delete/move/paste refactored onto it.
+- **S3** — preview layer, viewport preview bar, key layers (D12 mechanism), cleanup catalog + service.
+  Deviations from the wireframe found by looking at the running app: the bar sits **below**
+  the two-line corner readouts (top-centre covered a long series description); slice numbers
+  shown to the user use the **viewport's numbering** (`sliceNumbering.ts`) — grid order is
+  often reversed relative to the stack ("slice 9" was printed while the overlay said 8).

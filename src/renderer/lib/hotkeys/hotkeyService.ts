@@ -358,6 +358,36 @@ function focusActiveViewport(): void {
  */
 let nameCaptureHandler: ((e: KeyboardEvent) => boolean) | null = null;
 
+/**
+ * Key layers (SegWorks parity D12 — sheet-scoped keys): while a mode is open (an
+ * operation sheet, a pending preview) it may claim keys AHEAD of the global map, and
+ * gives them back when it closes. Newest layer first; a layer returns true for the keys
+ * it consumed and declines everything else, which falls through to the global shortcuts.
+ * Layers never see keystrokes typed into a form field.
+ */
+export interface KeyLayer {
+  onKeyDown(e: KeyboardEvent): boolean;
+  onKeyUp?(e: KeyboardEvent): boolean;
+}
+const keyLayers: KeyLayer[] = [];
+
+function inFormField(e: KeyboardEvent): boolean {
+  const t = e.target as HTMLElement | null;
+  const tag = t?.tagName;
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || !!t?.isContentEditable;
+}
+
+function handleKeyUp(e: KeyboardEvent): void {
+  if (inFormField(e)) return;
+  for (let i = keyLayers.length - 1; i >= 0; i--) {
+    if (keyLayers[i].onKeyUp?.(e)) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+  }
+}
+
 function handleKeyDown(e: KeyboardEvent): void {
   // Naming capture runs BEFORE the form-control guard and before any shortcut: it is
   // active precisely when focus is NOT in a field, which is the whole point.
@@ -378,6 +408,16 @@ function handleKeyDown(e: KeyboardEvent): void {
 
   // Also guard for contentEditable elements (except Tab)
   if ((e.target as HTMLElement)?.isContentEditable && e.key !== 'Tab') return;
+
+  if (!inFormField(e)) {
+    for (let i = keyLayers.length - 1; i >= 0; i--) {
+      if (keyLayers[i].onKeyDown(e)) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+    }
+  }
 
   // Build normalized key from the event
   const parts: string[] = [];
@@ -408,6 +448,7 @@ export const hotkeyService = {
   install(): void {
     if (listenerInstalled) return;
     window.addEventListener('keydown', handleKeyDown, { capture: true });
+    window.addEventListener('keyup', handleKeyUp, { capture: true });
     listenerInstalled = true;
     console.log('[hotkeyService] Global keyboard listener installed');
   },
@@ -418,6 +459,7 @@ export const hotkeyService = {
   uninstall(): void {
     if (!listenerInstalled) return;
     window.removeEventListener('keydown', handleKeyDown, { capture: true });
+    window.removeEventListener('keyup', handleKeyUp, { capture: true });
     listenerInstalled = false;
     console.log('[hotkeyService] Global keyboard listener removed');
   },
@@ -449,6 +491,15 @@ export const hotkeyService = {
    */
   setNameCaptureHandler(handler: ((e: KeyboardEvent) => boolean) | null): void {
     nameCaptureHandler = handler;
+  },
+
+  /** Push a key layer (see KeyLayer); returns the function that removes it. */
+  pushKeyLayer(layer: KeyLayer): () => void {
+    keyLayers.push(layer);
+    return () => {
+      const i = keyLayers.lastIndexOf(layer);
+      if (i >= 0) keyLayers.splice(i, 1);
+    };
   },
 
   getHotkeyMap(): HotkeyMap {
