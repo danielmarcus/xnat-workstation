@@ -181,6 +181,8 @@ declare global {
       previewCleanup: (opId: string, params: Record<string, number | string>, slices: 'current' | 'volume') => { ok: boolean; reason?: string };
       /** Active member's voxel count (labelmap ground truth for mask-op specs). */
       activeSegmentVoxelCount: () => number;
+      /** Voxel count of segment `segmentIndex` of the active container (-1 if none). */
+      memberVoxelCount: (segmentIndex: number) => number;
       /** Remove all measurement annotations (test isolation for SR/measurement specs). */
       clearAllAnnotations: () => void;
       /** Full panel clean-slate (segmentations + measurements, cs + stores). */
@@ -794,6 +796,14 @@ export function installRendererE2eHooks(): void {
     activeSegmentVoxelCount: () => {
       const { activeSegmentationId, activeSegmentIndex } = useSegmentationStore.getState();
       const g = activeSegmentationId ? readSegmentVoxelGrid(activeSegmentationId, activeSegmentIndex) : null;
+      if (!g) return -1;
+      let n = 0;
+      for (let i = 0; i < g.data.length; i++) if (g.data[i] === g.value) n++;
+      return n;
+    },
+    memberVoxelCount: (segmentIndex) => {
+      const { activeSegmentationId } = useSegmentationStore.getState();
+      const g = activeSegmentationId ? readSegmentVoxelGrid(activeSegmentationId, segmentIndex) : null;
       if (!g) return -1;
       let n = 0;
       for (let i = 0; i < g.data.length; i++) if (g.data[i] === g.value) n++;

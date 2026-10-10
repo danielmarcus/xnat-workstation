@@ -328,6 +328,15 @@ describe('magnetBridge', () => {
     expect(Array.from(r.claimed)).toEqual([0, 0, 0, 1, 0, 0, 0]);
   });
 
+  it('a protected (locked) member is never crossed or claimed, even in overwrite mode', () => {
+    const { width, height, src, dst } = pair(['SS...TT']);
+    const prot = new Uint8Array(width * height);
+    prot[3] = 1;
+    const r = magnetBridge({ width, height, source: src, target: dst, blocked: prot, protectedMask: prot, maxGapPx: 5, mode: 'overwrite' });
+    expect(r.target[3]).toBe(0);
+    expect(r.claimed[3]).toBe(0);
+  });
+
   it('never changes the source', () => {
     const { width, height, src, dst } = pair(['SS...TT']);
     const before = Array.from(src);

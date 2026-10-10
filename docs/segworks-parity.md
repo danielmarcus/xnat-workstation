@@ -218,3 +218,10 @@ the real affordance (tab → sheet → Preview → ⏎) and asserts **labelmap v
   numbering, drawn over the thumb (inset) so the current slice's band is never hidden; the
   Cleanup Range is a teal bracket whose ends drag to edit the range. Gaps and A/B anchors come
   with branch 3.
+- **S7** — segment operations in the Cleanup sheet's "Segments" group: Clear (with scope it
+  covers #206/#209/#210), Move into (= SegWorks Merge — they were the same relabel), Copy into,
+  Magnet bridge (fill / overwrite; locked members are never crossed or claimed). One "Into"
+  selector; one undo step across every segment touched (verified in-app: without the history
+  grouper one Ctrl+Z restored only one segment). Decisions: **Duplicate** = add a member with
+  "+" then Copy into it (a "new segment" target would leave an empty member behind on
+  Discard); **relabel-by-name** is covered by rename + Move into.

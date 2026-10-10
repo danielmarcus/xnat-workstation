@@ -15,7 +15,7 @@ import { commitPreview, startPreview } from './maskPreview';
 import { sliceNumbering } from './sliceNumbering';
 import { cleanupOp, type ParamValues } from '../segmentation/maskOps/catalog';
 import { type Axis, extractValues, sliceCount } from '../segmentation/maskOps/planeIO';
-import { type LabelScope, resolveLabels, resolveSlices, runPlaneOp } from '../segmentation/maskOps/scope';
+import { type LabelScope, resolveLabels, resolveSlices, runPairOp, runPlaneOp } from '../segmentation/maskOps/scope';
 
 /**
  * Where an operation runs. A range is given in the viewport's DISPLAYED numbering (0-based
@@ -67,10 +67,11 @@ export const maskOpsService = {
     opId: string,
     params: ParamValues,
     scope: ServiceScope,
-    opts: { viewportId?: string; onDone?: (committed: boolean) => void; commit?: boolean } = {},
+    opts: { viewportId?: string; onDone?: (committed: boolean) => void; commit?: boolean; targetSegmentIndex?: number } = {},
   ): RunResult {
     const op = cleanupOp(opId);
     if (!op) return { ok: false, reason: 'unknown-op' };
+    if (op.runPair) return maskOpsService.previewPair(opId, params, scope, opts);
     const seg = useSegmentationStore.getState();
     const containerId = seg.activeSegmentationId;
     const active = seg.activeSegmentIndex;
@@ -113,7 +114,7 @@ export const maskOpsService = {
       allMembers,
       axis: where.axis,
       slices,
-      op: (plane, ctx) => op.run(plane, ctx, params),
+      op: (plane, ctx) => op.run!(plane, ctx, params),
       readImage: source ? (s) => extractValues(grid.geometry.dimensions, where.axis, s, source) : undefined,
     });
     if (result.added + result.removed === 0) {
@@ -125,6 +126,80 @@ export const maskOpsService = {
       txn,
       label: op.label,
       summary: summarize(result.added, result.removed, shown),
+      viewportId,
+      onDone: opts.onDone,
+      lockedMember,
+    });
+    const committed = !!opts.commit && !lockedMember && commitPreview();
+    return { ok: true, added: result.added, removed: result.removed, slices: result.changedSlices, readOnly: !!lockedMember, committed };
+  },
+
+  /**
+   * A two-segment operation: the active member is the source, `opts.targetSegmentIndex`
+   * the target (sheet rule: the one extra "Into" selector). Members that change are the
+   * target, the source (when the op empties it) and — for operations that claim pixels —
+   * every unlocked other member. A locked target or source previews read-only; locked
+   * others are simply never touched.
+   */
+  previewPair(
+    opId: string,
+    params: ParamValues,
+    scope: ServiceScope,
+    opts: { viewportId?: string; onDone?: (committed: boolean) => void; commit?: boolean; targetSegmentIndex?: number } = {},
+  ): RunResult {
+    const op = cleanupOp(opId);
+    if (!op?.runPair) return { ok: false, reason: 'unknown-op' };
+    const seg = useSegmentationStore.getState();
+    const containerId = seg.activeSegmentationId;
+    const active = seg.activeSegmentIndex;
+    const summary = seg.segmentations.find((s) => s.segmentationId === containerId);
+    const targetIndex = opts.targetSegmentIndex;
+    if (!containerId || !summary || !(active > 0) || !targetIndex || targetIndex === active) return { ok: false, reason: 'no-target' };
+    if (!summary.segments.some((m) => m.segmentIndex === targetIndex)) return { ok: false, reason: 'no-target' };
+    const viewportId = opts.viewportId ?? useViewerStore.getState().activeViewportId;
+    if (!viewportId) return { ok: false, reason: 'no-viewport' };
+
+    const source: MemberRef = { containerId, segmentIndex: active };
+    const target: MemberRef = { containerId, segmentIndex: targetIndex };
+    const allMembers: MemberRef[] = summary.segments.map((m) => ({ containerId, segmentIndex: m.segmentIndex }));
+    const lockedOthers = summary.segments
+      .filter((m) => m.locked && m.segmentIndex !== active && m.segmentIndex !== targetIndex)
+      .map((m) => ({ containerId, segmentIndex: m.segmentIndex }));
+    const lockedSet = new Set(lockedOthers.map((m) => m.segmentIndex));
+    const writers = allMembers.filter((m) => !lockedSet.has(m.segmentIndex));
+
+    let lockedMember: MemberRef | null = null;
+    let begun = beginTransaction(writers);
+    if (!begun.ok && begun.reason === 'locked') {
+      lockedMember = begun.member;
+      begun = beginTransaction(writers, undefined, { allowLocked: true });
+    }
+    if (!begun.ok) return { ok: false, reason: begun.reason, member: begun.member };
+    const { txn } = begun;
+    const grid = txn.grid(target);
+    const where = grid ? viewportSlice(viewportId, grid.geometry) : null;
+    if (!grid || !where) {
+      txn.discard();
+      return { ok: false, reason: 'no-viewport' };
+    }
+    const numbering = sliceNumbering(viewportId, grid.geometry, where.axis);
+    const gridScope = scope.slices.kind === 'range' && numbering
+      ? { kind: 'range' as const, from: numbering.toGrid(scope.slices.from), to: numbering.toGrid(scope.slices.to) }
+      : scope.slices;
+    const slices = resolveSlices(gridScope, sliceCount(grid.geometry.dimensions, where.axis), where.slice);
+    const result = runPairOp({
+      txn, source, target, allMembers, lockedMembers: lockedOthers, axis: where.axis, slices,
+      op: (src, dst, ctx) => op.runPair!(src, dst, ctx, params),
+    });
+    if (result.added + result.removed === 0) {
+      txn.discard();
+      return { ok: false, reason: 'no-change' };
+    }
+    const into = summary.segments.find((m) => m.segmentIndex === targetIndex)?.label ?? `Segment ${targetIndex}`;
+    startPreview({
+      txn,
+      label: `${op.label.replace('…', '')} ${into}`,
+      summary: summarize(result.added, result.removed, result.changedSlices.map((k) => numbering?.toDisplay(k) ?? k)),
       viewportId,
       onDone: opts.onDone,
       lockedMember,

@@ -119,9 +119,29 @@ export default function CleanupSheet({ m }: { m: CleanupSheetModel }) {
           onChange={(e) => m.selectOp(e.target.value)}
           className="w-full px-1 py-0.5 rounded bg-zinc-800 text-zinc-200 text-[11px]"
         >
-          {m.ops.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+          <optgroup label="Clean">
+            {m.ops.filter((o) => o.group === 'clean').map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+          </optgroup>
+          <optgroup label="Segments">
+            {m.ops.filter((o) => o.group === 'segments').map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+          </optgroup>
         </select>
         <div className="mt-1 text-[10px] text-zinc-500">{m.op.description}</div>
+        {m.isPair && (
+          <label className="flex items-center gap-2 mt-1.5 text-[10px] text-zinc-400">
+            <span>Into</span>
+            <select
+              aria-label="Into segment"
+              value={m.into ?? ''}
+              disabled={m.intoOptions.length === 0}
+              onChange={(e) => m.setInto(Number(e.target.value))}
+              className="flex-1 px-1 py-0.5 rounded bg-zinc-800 text-zinc-200 text-[10px]"
+            >
+              {m.intoOptions.length === 0 && <option value="">No other segment</option>}
+              {m.intoOptions.map((o) => <option key={o.segmentIndex} value={o.segmentIndex}>{o.name}</option>)}
+            </select>
+          </label>
+        )}
       </SheetSection>
       {basic.length > 0 && (
         <SheetSection label="Parameters">
@@ -162,14 +182,14 @@ export default function CleanupSheet({ m }: { m: CleanupSheetModel }) {
             <span className="text-zinc-500">of {m.sliceTotal}</span>
           </div>
         )}
-        <div className="mt-1.5">
+        {!m.isPair && <div className="mt-1.5">
           <Segmented
             label="Labels"
             value={m.scope.labels}
             onChange={(v) => m.setScope({ labels: v })}
             options={[{ value: 'active', label: 'Active segment' }, { value: 'all', label: 'All segments' }]}
           />
-        </div>
+        </div>}
       </SheetSection>
     </OperationSheet>
   );

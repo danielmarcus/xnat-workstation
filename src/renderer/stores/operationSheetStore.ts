@@ -33,6 +33,8 @@ interface OperationSheetState {
   advancedOpen: Record<string, boolean>;
   /** One-line in-sheet status (never a toast): "Nothing to change", lock reasons, … */
   message: string | null;
+  /** The "Into" member of a two-segment operation (segment index). */
+  intoSegmentIndex: number | null;
   /** Leaving the sheet with a pending preview asks first, inline. */
   confirmingLeave: boolean;
 
@@ -44,6 +46,7 @@ interface OperationSheetState {
   setScope: (patch: Partial<SheetScope>) => void;
   toggleAdvanced: (opId: string) => void;
   setMessage: (message: string | null) => void;
+  setInto: (segmentIndex: number | null) => void;
   setConfirmingLeave: (v: boolean) => void;
 }
 
@@ -55,6 +58,7 @@ export const useOperationSheetStore = create<OperationSheetState>((set) => ({
   scope: { slices: 'current', from: 1, to: 1, labels: 'active' },
   advancedOpen: {},
   message: null,
+  intoSegmentIndex: null,
   confirmingLeave: false,
 
   setSegTab: (segTab) => set({ segTab }),
@@ -65,5 +69,6 @@ export const useOperationSheetStore = create<OperationSheetState>((set) => ({
   setScope: (patch) => set((s) => ({ scope: { ...s.scope, ...patch }, message: null })),
   toggleAdvanced: (opId) => set((s) => ({ advancedOpen: { ...s.advancedOpen, [opId]: !s.advancedOpen[opId] } })),
   setMessage: (message) => set({ message }),
+  setInto: (intoSegmentIndex) => set({ intoSegmentIndex, message: null }),
   setConfirmingLeave: (confirmingLeave) => set({ confirmingLeave }),
 }));

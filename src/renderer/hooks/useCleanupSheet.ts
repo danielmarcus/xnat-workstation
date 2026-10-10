@@ -30,6 +30,11 @@ export interface CleanupSheetModel {
   currentSlice: number;
   sliceTotal: number;
   target: { name: string; color: string; locked: boolean } | null;
+  /** Two-segment operation: the other members it can go "Into", and the chosen one. */
+  isPair: boolean;
+  intoOptions: Array<{ segmentIndex: number; name: string }>;
+  into: number | null;
+  setInto(segmentIndex: number): void;
   message: string | null;
   previewActive: boolean;
   previewReadOnly: boolean;
@@ -77,6 +82,15 @@ export function useCleanupSheet(): CleanupSheetModel {
   const target = seg
     ? { name: seg.label, color: `rgb(${seg.color[0]}, ${seg.color[1]}, ${seg.color[2]})`, locked: seg.locked }
     : null;
+  const container = segmentations.find((s) => s.segmentationId === activeSegmentationId);
+  const intoOptions = (container?.segments ?? [])
+    .filter((m) => m.segmentIndex !== activeSegmentIndex)
+    .map((m) => ({ segmentIndex: m.segmentIndex, name: m.label }));
+  const isPair = !!op.runPair;
+  // The chosen "Into" member, if it still exists; otherwise the first other member.
+  const into = intoOptions.some((o) => o.segmentIndex === sheet.intoSegmentIndex)
+    ? sheet.intoSegmentIndex
+    : intoOptions[0]?.segmentIndex ?? null;
   const currentSlice = (vpState?.imageIndex ?? 0) + 1;
   const sliceTotal = vpState?.totalImages ?? 0;
 
@@ -90,11 +104,15 @@ export function useCleanupSheet(): CleanupSheetModel {
     const slices: ServiceScope['slices'] = s.slices === 'range'
       ? { kind: 'range', from: s.from - 1, to: s.to - 1 }
       : { kind: s.slices };
-    return { slices, labels: { kind: s.labels } };
+    return { slices, labels: { kind: isPair ? 'active' : s.labels } };
   };
 
   const run = (commit: boolean) => {
-    const r = maskOpsService.previewCleanup(op.id, params, toServiceScope(), { commit });
+    if (isPair && into === null) {
+      sheet.setMessage('Add another segment to this segmentation first');
+      return;
+    }
+    const r = maskOpsService.previewCleanup(op.id, params, toServiceScope(), { commit, targetSegmentIndex: into ?? undefined });
     if (!r.ok) {
       sheet.setMessage(describeFailure(r));
       return;
@@ -115,6 +133,14 @@ export function useCleanupSheet(): CleanupSheetModel {
     currentSlice,
     sliceTotal,
     target,
+    isPair,
+    intoOptions,
+    into,
+    setInto: (i) => {
+      if (useMaskPreviewStore.getState().active) discardPreview();
+      sheet.setInto(i);
+      hotkeyService.focusActiveViewport();
+    },
     message: sheet.message ?? (target?.locked ? LOCK_MSG(target.name) : null),
     previewActive,
     previewReadOnly,

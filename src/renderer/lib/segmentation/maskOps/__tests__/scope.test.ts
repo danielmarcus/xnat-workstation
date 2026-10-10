@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import type { SegmentVoxelGrid } from '../../../cornerstone/segmentVoxelGrid';
 import { beginTransaction, type TransactionDeps } from '../../../cornerstone/labelmapTransaction';
-import { resolveLabels, resolveSlices, runPlaneOp } from '../scope';
+import { resolveLabels, resolveSlices, runPairOp, runPlaneOp } from '../scope';
 import { gridIndexOf } from '../planeIO';
 import { fillHoles } from '../cleanup';
 
@@ -106,5 +106,55 @@ describe('runPlaneOp', () => {
       op: (p, c) => { got = c.image; return p; },
     });
     expect(got?.[0]).toBe(10);
+  });
+});
+
+describe('runPairOp', () => {
+  const DIMS: [number, number, number] = [5, 1, 1];
+  const geometry = { dimensions: DIMS, spacing: [1, 1, 1] as [number, number, number], origin: [0, 0, 0] as [number, number, number], direction: [1, 0, 0, 0, 1, 0, 0, 0, 1] };
+  const M = (i: number) => ({ containerId: 'G', segmentIndex: i });
+  /** Multi-layer: one array per member, value 1. Row of 5 voxels. */
+  function layered(rows: Record<number, string>) {
+    const data: Record<number, Uint8Array> = {};
+    const grids: Record<string, SegmentVoxelGrid> = {};
+    for (const [i, r] of Object.entries(rows)) {
+      const d = Uint8Array.from([...r].map((c) => (c === '#' ? 1 : 0)));
+      data[Number(i)] = d;
+      grids[`G|${i}`] = { geometry, data: d, value: 1, csSegmentationId: `G_layer_${i}`, write: (f, v) => { d[f] = v; } };
+    }
+    const deps: TransactionDeps = { readGrid: (c, s) => grids[`${c}|${s}`] ?? null, isLocked: () => false, pushMemos: () => {}, notifyChanged: () => {} };
+    const show = (i: number) => [...data[i]].map((v) => (v ? '#' : '.')).join('');
+    return { deps, show };
+  }
+  const move = (src: { data: Uint8Array }, dst: { data: Uint8Array; width: number; height: number }) => {
+    const out = new Uint8Array(dst.data);
+    for (let i = 0; i < out.length; i++) if (src.data[i]) out[i] = 1;
+    return { source: { ...dst, data: new Uint8Array(out.length) }, target: { ...dst, data: out } };
+  };
+
+  it('move: the target gains the source and the source is emptied (multi-layer)', () => {
+    const { deps, show } = layered({ 1: '##...', 2: '...##' });
+    const r = beginTransaction([M(1), M(2)], deps);
+    if (!r.ok) throw new Error('begin');
+    runPairOp({ txn: r.txn, source: M(1), target: M(2), allMembers: [M(1), M(2)], lockedMembers: [], axis: 2, slices: [0], op: move });
+    r.txn.commit();
+    expect(show(1)).toBe('.....');
+    expect(show(2)).toBe('##.##');
+  });
+
+  it('claimed pixels leave their owner; a locked member is never touched', () => {
+    const { deps, show } = layered({ 1: '#....', 2: '....#', 3: '.#...', 4: '..#..' });
+    const r = beginTransaction([M(1), M(2), M(3)], deps);
+    if (!r.ok) throw new Error('begin');
+    // Claim everything between source and target.
+    const claimAll = (_s: unknown, dst: { data: Uint8Array; width: number; height: number }) => ({
+      target: { ...dst, data: Uint8Array.from([0, 1, 1, 1, 1]) },
+      claimed: Uint8Array.from([0, 1, 1, 0, 0]),
+    });
+    runPairOp({ txn: r.txn, source: M(1), target: M(2), allMembers: [M(1), M(2), M(3), M(4)], lockedMembers: [M(4)], axis: 2, slices: [0], op: claimAll });
+    r.txn.commit();
+    expect(show(3), 'unlocked owner loses the claimed pixel').toBe('.....');
+    expect(show(4), 'locked owner keeps its pixel').toBe('..#..');
+    expect(show(2), 'target never takes the locked pixel').toBe('.#.##');
   });
 });

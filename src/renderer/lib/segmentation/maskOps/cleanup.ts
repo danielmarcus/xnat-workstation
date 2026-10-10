@@ -337,6 +337,8 @@ export interface MagnetBridgeInput {
   target: Uint8Array;
   /** Pixels owned by other members. 'fill' never crosses or claims them; 'overwrite' may. */
   blocked?: Uint8Array;
+  /** Pixels never crossed or claimed in either mode (e.g. a locked member's). */
+  protectedMask?: Uint8Array;
   /** Longest gap (pixels, 4-connected steps) that may be bridged. */
   maxGapPx: number;
   mode: 'fill' | 'overwrite';
@@ -361,10 +363,10 @@ export interface MagnetBridgeResult {
  * actually joins them; this definition closes the gap. The source is never modified.
  */
 export function magnetBridge(input: MagnetBridgeInput): MagnetBridgeResult {
-  const { width: w, height: h, source, target, blocked, mode } = input;
+  const { width: w, height: h, source, target, blocked, protectedMask, mode } = input;
   const n = w * h;
   const gap = Math.max(1, Math.floor(input.maxGapPx));
-  const passable = (i: number) => mode === 'overwrite' || !blocked?.[i];
+  const passable = (i: number) => !protectedMask?.[i] && (mode === 'overwrite' || !blocked?.[i]);
 
   const distance = (seedMask: Uint8Array, otherMask: Uint8Array): Int32Array => {
     const dist = new Int32Array(n).fill(0x3fffffff);

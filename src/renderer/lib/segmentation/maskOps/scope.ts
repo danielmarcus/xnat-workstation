@@ -107,3 +107,68 @@ export function runPlaneOp(o: RunPlaneOpOptions): RunPlaneOpResult {
   }
   return { added, removed, changedSlices: [...changed].sort((a, b) => a - b) };
 }
+
+export interface RunPairOpOptions {
+  txn: LabelmapTransaction;
+  source: MemberRef;
+  target: MemberRef;
+  allMembers: MemberRef[];
+  /** Members that may not be changed (locked): never claimed. */
+  lockedMembers: MemberRef[];
+  axis: Axis;
+  slices: number[];
+  op: (source: MaskPlane, target: MaskPlane, ctx: { spacing: PlaneSpacing; others: Uint8Array; protectedMask: Uint8Array }) => {
+    source?: MaskPlane;
+    target: MaskPlane;
+    claimed?: Uint8Array;
+  };
+}
+
+/**
+ * Apply a two-segment operation (source → target) on each slice. The target never takes a
+ * locked member's pixels; pixels it CLAIMS from other members are removed from them (in a
+ * shared labelmap that happens by itself; in a multi-layer group each owner is cleared).
+ */
+export function runPairOp(o: RunPairOpOptions): RunPlaneOpResult {
+  const keyOf = (m: MemberRef) => `${m.containerId}|${m.segmentIndex}`;
+  const grid = o.txn.grid(o.target);
+  if (!grid) return { added: 0, removed: 0, changedSlices: [] };
+  const { width, height } = planeSize(grid.geometry.dimensions, o.axis);
+  const spacing = planeSpacing(grid.geometry.spacing, o.axis);
+  const others = o.allMembers.filter((m) => keyOf(m) !== keyOf(o.source) && keyOf(m) !== keyOf(o.target));
+  const locked = new Set(o.lockedMembers.map(keyOf));
+  let added = 0;
+  let removed = 0;
+  const changed = new Set<number>();
+  for (const slice of o.slices) {
+    const src = o.txn.readPlane(o.source, o.axis, slice);
+    const dst = o.txn.readPlane(o.target, o.axis, slice);
+    if (!src || !dst) continue;
+    const otherPx = o.txn.unionPlane(others, o.axis, slice, width, height);
+    const protectedMask = o.txn.unionPlane(others.filter((m) => locked.has(keyOf(m))), o.axis, slice, width, height);
+    const r = o.op(src, dst, { spacing, others: otherPx, protectedMask });
+    // Claimed pixels leave their (unlocked) owners first, so the target can take them.
+    if (r.claimed) {
+      for (const m of others) {
+        if (locked.has(keyOf(m))) continue;
+        const p = o.txn.readPlane(m, o.axis, slice);
+        if (!p) continue;
+        const next = new Uint8Array(p.data);
+        let any = false;
+        for (let i = 0; i < next.length; i++) if (r.claimed[i] && next[i]) { next[i] = 0; any = true; }
+        if (any) removed += o.txn.applyPlane(m, o.axis, slice, { ...p, data: next }).removed;
+      }
+    }
+    // The target may take the source's pixels and claimed pixels; never a locked member's.
+    const t = o.txn.applyPlane(o.target, o.axis, slice, r.target, { blocked: protectedMask });
+    added += t.added;
+    removed += t.removed;
+    if (r.source) {
+      const s = o.txn.applyPlane(o.source, o.axis, slice, r.source);
+      removed += s.removed;
+      added += s.added;
+    }
+    if (t.added || t.removed || (r.source && !r.source.data.every((v, i) => v === src.data[i]))) changed.add(slice);
+  }
+  return { added, removed, changedSlices: [...changed].sort((a, b) => a - b) };
+}
