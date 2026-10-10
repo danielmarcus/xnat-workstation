@@ -17,6 +17,9 @@ import { sliceNumbering } from './sliceNumbering';
 import { cleanupOp, defaultParams, type ParamValues } from '../segmentation/maskOps/catalog';
 import { INTERPOLATORS, findGaps, type InterpolationMethod } from '../segmentation/interpolation/interpolate';
 import type { DistanceMethod } from '../segmentation/interpolation/distance';
+import { intensityReference, propagateStep, zSmooth, type PropagateOptions } from '../segmentation/interpolation/propagate';
+import { metaData } from '@cornerstonejs/core';
+import { getSourceImageIds } from './sourceImageTracking';
 import { planSmartCleanup, sampleSlices, smallThresholdFor, thinScore, DEFAULT_PLAN_OPTIONS, type PlanEntry } from '../segmentation/maskOps/smartPlan';
 import { type Axis, extractValues, sliceCount, sliceIndices } from '../segmentation/maskOps/planeIO';
 import { type LabelScope, resolveLabels, resolveSlices, runPairOp, runPlaneOp } from '../segmentation/maskOps/scope';
@@ -35,7 +38,7 @@ import { useViewerStore } from '../../stores/viewerStore';
 
 export type RunResult =
   | { ok: true; added: number; removed: number; slices: number[]; readOnly: boolean; committed: boolean }
-  | { ok: false; reason: 'no-target' | 'no-viewport' | 'locked' | 'no-labelmap' | 'unknown-op' | 'no-change'; member?: MemberRef };
+  | { ok: false; reason: 'no-target' | 'no-viewport' | 'locked' | 'no-labelmap' | 'unknown-op' | 'no-change' | 'no-seed' | 'no-image'; member?: MemberRef };
 
 /** The viewing axis and on-screen slice of a viewport, in a grid's index space. */
 export function viewportSlice(viewportId: string, geometry: { direction: number[]; dimensions: ArrayLike<number> } & Parameters<typeof worldToIndex>[0]): { axis: Axis; slice: number } | null {
@@ -412,6 +415,103 @@ export const maskOpsService = {
       }
     }
     return out.sort((p, q) => p.from - q.from);
+  },
+
+  /** CT or MR for the active Segmentation's scan (CT when unknown and the image has air values). */
+  activeModality(): 'ct' | 'mr' {
+    const id = useSegmentationStore.getState().activeSegmentationId;
+    const img = id ? getSourceImageIds(id)?.[0] : undefined;
+    const m = img ? (metaData.get('generalSeriesModule', img) as { modality?: string } | undefined)?.modality : undefined;
+    return m && m.toUpperCase() !== 'CT' ? 'mr' : 'ct';
+  },
+
+  /**
+   * Propagate the active segment from the slice on screen through its neighbours and open
+   * the preview (SegWorks #169–181). Direction is in the viewport's numbering. Propagated
+   * voxels are ADDED to each slice (nothing painted is erased; other segments protected).
+   */
+  previewPropagation(
+    o: { direction: 'forward' | 'backward' | 'both'; maxSlices: number; zSmoothing: boolean; options: PropagateOptions },
+    opts: { viewportId?: string; commit?: boolean } = {},
+  ): RunResult {
+    const seg = useSegmentationStore.getState();
+    const containerId = seg.activeSegmentationId;
+    const active = seg.activeSegmentIndex;
+    const summary = seg.segmentations.find((s) => s.segmentationId === containerId);
+    if (!containerId || !summary || !(active > 0)) return { ok: false, reason: 'no-target' };
+    const viewportId = opts.viewportId ?? useViewerStore.getState().activeViewportId;
+    if (!viewportId) return { ok: false, reason: 'no-viewport' };
+    const member: MemberRef = { containerId, segmentIndex: active };
+    const others: MemberRef[] = summary.segments.filter((m) => m.segmentIndex !== active).map((m) => ({ containerId, segmentIndex: m.segmentIndex }));
+
+    let lockedMember: MemberRef | null = null;
+    let begun = beginTransaction([member]);
+    if (!begun.ok && begun.reason === 'locked') {
+      lockedMember = begun.member;
+      begun = beginTransaction([member], undefined, { allowLocked: true });
+    }
+    if (!begun.ok) return { ok: false, reason: begun.reason, member: begun.member };
+    const { txn } = begun;
+    const grid = txn.grid(member);
+    const where = grid ? viewportSlice(viewportId, grid.geometry) : null;
+    const numbering = grid && where ? sliceNumbering(viewportId, grid.geometry, where.axis) : null;
+    if (!grid || !where || !numbering) { txn.discard(); return { ok: false, reason: 'no-viewport' }; }
+    const source = grid.sourceReader?.() ?? null;
+    if (!source) { txn.discard(); return { ok: false, reason: 'no-image' }; }
+    const axis = where.axis;
+    const count = sliceCount(grid.geometry.dimensions, axis);
+    const k0 = where.slice;
+    const seed = txn.readPlane(member, axis, k0);
+    if (!seed || !seed.data.some((v) => v)) { txn.discard(); return { ok: false, reason: 'no-seed' }; }
+    const imageAt = (k: number) => extractValues(grid.geometry.dimensions, axis, k, source);
+    const displayStep = numbering.toGrid(numbering.toDisplay(k0) + 1) - k0; // grid step for "forward"
+    const dirs = o.direction === 'both' ? [displayStep, -displayStep] : [o.direction === 'forward' ? displayStep : -displayStep];
+
+    const seedRef = intensityReference(seed, imageAt(k0), true)!;
+    // The structure the seed sits in, on its own slice: what the first step's runaway check
+    // compares against — a partial seed must not look like a leak.
+    const seedStructure = propagateStep(seed, imageAt(k0), seedRef, { ...o.options, maxAreaChange: Infinity });
+    const seedArea = seedStructure ? seedStructure.data.reduce((a, v) => a + v, 0) : undefined;
+    const made = new Map<number, typeof seed>();
+    for (const d of dirs) {
+      let prev = seed;
+      let prevK = k0;
+      for (let i = 1; i <= o.maxSlices; i++) {
+        const k = k0 + d * i;
+        if (k < 0 || k >= count) break;
+        const ref = o.options.stable ? seedRef : intensityReference(prev, imageAt(prevK), false) ?? seedRef;
+        const next = propagateStep(prev, imageAt(k), ref, o.options, i === 1 ? seedArea : undefined);
+        if (!next) break;
+        made.set(k, next);
+        prev = next;
+        prevK = k;
+      }
+    }
+    if (o.zSmoothing && made.size > 1) {
+      const ks = [...made.keys(), k0].sort((a, b) => a - b);
+      const stack = ks.map((k) => (k === k0 ? seed : made.get(k)!));
+      zSmooth(stack, ks.indexOf(k0)).forEach((p, i) => { if (ks[i] !== k0) made.set(ks[i], p); });
+    }
+    let added = 0;
+    const changed: number[] = [];
+    for (const [k, p] of made) {
+      const current = txn.readPlane(member, axis, k)!;
+      const union = { ...p, data: Uint8Array.from(p.data, (v, i) => (v || current.data[i] ? 1 : 0)) };
+      const blocked = txn.unionPlane(others, axis, k, p.width, p.height);
+      const r = txn.applyPlane(member, axis, k, union, { blocked });
+      added += r.added;
+      if (r.added) changed.push(k);
+    }
+    if (added === 0) { txn.discard(); return { ok: false, reason: 'no-change' }; }
+    startPreview({
+      txn,
+      label: 'Propagate',
+      summary: summarize(added, 0, changed.map((k) => numbering.toDisplay(k))),
+      viewportId,
+      lockedMember,
+    });
+    const committed = !!opts.commit && !lockedMember && commitPreview();
+    return { ok: true, added, removed: 0, slices: changed, readOnly: !!lockedMember, committed };
   },
 };
 

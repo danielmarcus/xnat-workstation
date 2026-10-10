@@ -311,3 +311,8 @@ lesson of `7a33519` — every interpolation/propagation is user-triggered and pr
   gap table (Preview gap per row), sheet-scoped A/B/⇧A/⇧B/⇧C, Advanced distance transform; gaps
   (amber) and anchors on the slice track; preview → ⏎, one undo. Never automatic
   (labelmap-no-interpolation green).
+- **I3** — Process › Propagate: from the slice on screen backward / both / forward, up to N slices;
+  CT ±HU or MR σ (auto from the series' modality); stable median reference; optional growth limit,
+  area-change stop, fill holes, edge guard, z-smoothing. Each slice takes the in-window region
+  connected to the previous mask; the first step's runaway check compares with the structure on
+  the seed slice (a partial seed is not a leak). Added to what is painted; other segments protected.

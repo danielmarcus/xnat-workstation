@@ -128,8 +128,9 @@ export function segTabOf(toolId: string | null): 'paint' | 'shape' | 'smart' | n
 }
 
 /** Operations the Process tab lists (each opens its sheet). */
-export const SEG_OPERATIONS: Array<{ id: 'cleanup' | 'interpolate'; label: string; title: string }> = [
+export const SEG_OPERATIONS: Array<{ id: 'cleanup' | 'interpolate' | 'propagate'; label: string; title: string }> = [
   { id: 'cleanup', label: 'Cleanup', title: 'Fill holes, keep largest, remove specks and strays, smooth, open/close (X)' },
+  { id: 'propagate', label: 'Propagate', title: 'Grow the segment from the slice on screen into its neighbours, following the image' },
   { id: 'interpolate', label: 'Interpolate', title: 'Fill empty slices between painted ones: every gap, the slice on screen, or between anchors A and B' },
 ];
 

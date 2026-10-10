@@ -184,6 +184,8 @@ declare global {
       activeSegmentVoxelCount: () => number;
       /** Voxel count of segment `segmentIndex` of the active container (-1 if none). */
       memberVoxelCount: (segmentIndex: number) => number;
+      /** Lowest source-image value under the active segment (ground truth for propagation). */
+      activeSegmentMinSourceValue: () => number | null;
       /** Active segment's voxel count per slice of its grid (k axis), in grid order. */
       activeSegmentSliceCounts: () => number[];
       /** Delete every checkpoint of the active Segmentation (isolation: checkpoints persist per profile). */
@@ -813,6 +815,15 @@ export function installRendererE2eHooks(): void {
       let n = 0;
       for (let i = 0; i < g.data.length; i++) if (g.data[i] === g.value) n++;
       return n;
+    },
+    activeSegmentMinSourceValue: () => {
+      const { activeSegmentationId, activeSegmentIndex } = useSegmentationStore.getState();
+      const g = activeSegmentationId ? readSegmentVoxelGrid(activeSegmentationId, activeSegmentIndex) : null;
+      const read = g?.sourceReader?.();
+      if (!g || !read) return null;
+      let min = Infinity;
+      for (let i = 0; i < g.data.length; i++) if (g.data[i] === g.value) min = Math.min(min, read(i));
+      return Number.isFinite(min) ? min : null;
     },
     activeSegmentSliceCounts: () => {
       const { activeSegmentationId, activeSegmentIndex } = useSegmentationStore.getState();

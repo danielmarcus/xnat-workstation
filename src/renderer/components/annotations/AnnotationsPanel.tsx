@@ -10,6 +10,8 @@ import ContainerList from './ContainerList';
 import ContextToolbox from './ContextToolbox';
 import CleanupSheet from './CleanupSheet';
 import InterpolateSheet from './InterpolateSheet';
+import PropagateSheet from './PropagateSheet';
+import { usePropagateSheet } from '../../hooks/usePropagateSheet';
 import { useInterpolateSheet } from '../../hooks/useInterpolateSheet';
 import { useSegToolboxTabs } from '../../hooks/useSegToolboxTabs';
 import { useCleanupSheet } from '../../hooks/useCleanupSheet';
@@ -76,6 +78,7 @@ export default function AnnotationsPanel({ activeViewportId, sourceImageIds }: A
   const tabs = useSegToolboxTabs(panel.toolbox?.activeToolId ?? null, isSeg);
   const cleanup = useCleanupSheet();
   const interpolate = useInterpolateSheet();
+  const propagate = usePropagateSheet();
   const checkpoints = useCheckpoints();
   const handlers = {
     ...panel.handlers,
@@ -103,7 +106,7 @@ export default function AnnotationsPanel({ activeViewportId, sourceImageIds }: A
       onOpenOperation={tabs.onOpenOperation}
     />
   ) : undefined;
-  const sheet = isSeg ? (<><CleanupSheet m={cleanup} /><InterpolateSheet m={interpolate} /></>) : undefined;
+  const sheet = isSeg ? (<><CleanupSheet m={cleanup} /><InterpolateSheet m={interpolate} /><PropagateSheet m={propagate} /></>) : undefined;
 
   return (
     <div

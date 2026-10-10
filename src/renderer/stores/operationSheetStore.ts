@@ -12,7 +12,23 @@ import { create } from 'zustand';
 type ParamValues = Record<string, number | string>;
 
 export type SegToolboxTab = 'paint' | 'shape' | 'smart' | 'process';
-export type OperationSheetId = 'cleanup' | 'interpolate';
+export type OperationSheetId = 'cleanup' | 'interpolate' | 'propagate';
+
+export interface PropagateSettings {
+  direction: 'forward' | 'backward' | 'both';
+  /** null = from the scan's modality. */
+  modality: 'ct' | 'mr' | null;
+  huTolerance: number;
+  sigma: number;
+  maxSlices: number;
+  stable: boolean;
+  growPx: number;
+  /** Stop when the area changes by more than this percentage between slices. */
+  maxAreaChangePct: number;
+  fillHoles: boolean;
+  edgeGuard: boolean;
+  zSmoothing: boolean;
+}
 
 export interface InterpolateSettings {
   method: 'sdfLinear' | 'sdfArea' | 'morphology' | 'components' | 'volumeMorphology' | 'imageGuided';
@@ -54,6 +70,8 @@ interface OperationSheetState {
   confirmingLeave: boolean;
   interp: InterpolateSettings;
   setInterp: (patch: Partial<InterpolateSettings>) => void;
+  prop: PropagateSettings;
+  setProp: (patch: Partial<PropagateSettings>) => void;
 
   setSegTab: (tab: SegToolboxTab) => void;
   openOperation: (id: OperationSheetId) => void;
@@ -86,6 +104,11 @@ export const useOperationSheetStore = create<OperationSheetState>((set) => ({
   confirmingLeave: false,
   interp: { method: 'sdfArea', distance: 'exact', fill: 'gaps', anchorA: null, anchorB: null },
   setInterp: (patch) => set((s) => ({ interp: { ...s.interp, ...patch }, message: null })),
+  prop: {
+    direction: 'both', modality: null, huTolerance: 150, sigma: 2, maxSlices: 50, stable: true, growPx: 0,
+    maxAreaChangePct: 60, fillHoles: true, edgeGuard: false, zSmoothing: false,
+  },
+  setProp: (patch) => set((s) => ({ prop: { ...s.prop, ...patch }, message: null })),
 
   setSegTab: (segTab) => set({ segTab }),
   openOperation: (openSheet) => set({ openSheet, segTab: 'process', message: null, confirmingLeave: false }),
