@@ -8,20 +8,22 @@
  */
 import { metaData } from '@cornerstonejs/core';
 import type { OverlayMetadata } from '@shared/types/dicom';
+import { cachedDataset } from './dicomDatasetSource';
 import { EMPTY_OVERLAY } from '@shared/types/dicom';
 import type { ViewportOrientation } from '@shared/types/viewer';
 
 /**
- * Format a DICOM date string (YYYYMMDD) to a readable format.
+ * Format a DICOM date (DA) as YYYY-MM-DD. Accepts the raw string (or a number, which
+ * some providers coerce it to) and the `{ year, month, day }` object dicom-parser's
+ * `parseDA` returns — the shape the wadouri provider gives `generalStudyModule.studyDate`.
  */
 function formatDicomDate(dateVal: unknown): string {
   if (dateVal === undefined || dateVal === null) return '';
-  // DICOM values can arrive as objects — unwrap or skip
   if (typeof dateVal === 'object') {
-    if ((dateVal as any).Alphabetic) dateVal = (dateVal as any).Alphabetic;
-    else return '';
+    const { year, month, day } = dateVal as { year?: unknown; month?: unknown; day?: unknown };
+    if (typeof year !== 'number' || typeof month !== 'number' || typeof day !== 'number') return '';
+    return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
   }
-  // DICOM dates can arrive as numbers (e.g. 20121231) — coerce to string
   const dateStr = String(dateVal);
   if (dateStr.length < 8) return dateStr;
   const year = dateStr.substring(0, 4);
@@ -116,9 +118,11 @@ export const metadataService = {
 
       return {
         patientName: formatPatientName(patient.patientName),
-        patientId: toStr(patient.patientId),
+        patientId: toStr(patient.patientID),
         studyDate: formatDicomDate(study.studyDate),
-        institutionName: toStr(study.institutionName),
+        // InstitutionName (0008,0080) belongs to the General Equipment module, which no
+        // Cornerstone metadata module carries — read it from the image's own header.
+        institutionName: toStr(cachedDataset(imageId)?.string('x00080080')),
         seriesDescription: toStr(series.seriesDescription),
         seriesNumber: toStr(series.seriesNumber),
         sliceLocation: toStr(imagePlane.sliceLocation),

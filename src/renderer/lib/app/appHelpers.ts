@@ -1,6 +1,7 @@
 import { wadouri } from '@cornerstonejs/dicom-image-loader';
 import { metaData } from '@cornerstonejs/core';
 import type { XnatScan } from '@shared/types/xnat';
+import { datasetSource, toWadouriUri } from '../cornerstone/dicomDatasetSource';
 
 type MetaDataGet = typeof metaData.get;
 
@@ -109,9 +110,7 @@ export function clearSegLoadingLocks(): void {
   segLoadingLock.clear();
 }
 
-export function toWadouriUri(imageId: string): string {
-  return imageId.startsWith('wadouri:') ? imageId.slice('wadouri:'.length) : imageId;
-}
+export { toWadouriUri };
 
 export function extractObjectUidFromImageId(imageId: string): string | null {
   const uri = toWadouriUri(imageId);
@@ -187,11 +186,11 @@ export async function getSeriesUidForImageId(
   if (seriesMeta?.seriesInstanceUID) return seriesMeta.seriesInstanceUID;
 
   try {
-    const uri = toWadouriUri(imageId);
+    // `loadRequest` is undefined for wadouri, selecting the loader's own default request
+    // fn (its implementation is `load(uri, loadRequest = xhrRequest, imageId)`).
+    const { uri, loadRequest } = datasetSource(imageId);
     if (!dataSetCacheManager.isLoaded(uri)) {
-      // `undefined` selects the loader's own default request fn (its implementation is
-      // `load(uri, loadRequest = xhrRequest, imageId)`).
-      await dataSetCacheManager.load(uri, undefined, imageId);
+      await dataSetCacheManager.load(uri, loadRequest, imageId);
     }
     const ds = dataSetCacheManager.get(uri);
     return ds?.string?.('x0020000e') ?? null;
@@ -219,11 +218,11 @@ export async function getSopInstanceUidForImageId(
   if (sopCommon?.sopInstanceUID) return sopCommon.sopInstanceUID;
 
   try {
-    const uri = toWadouriUri(imageId);
+    // `loadRequest` is undefined for wadouri, selecting the loader's own default request
+    // fn (its implementation is `load(uri, loadRequest = xhrRequest, imageId)`).
+    const { uri, loadRequest } = datasetSource(imageId);
     if (!dataSetCacheManager.isLoaded(uri)) {
-      // `undefined` selects the loader's own default request fn (its implementation is
-      // `load(uri, loadRequest = xhrRequest, imageId)`).
-      await dataSetCacheManager.load(uri, undefined, imageId);
+      await dataSetCacheManager.load(uri, loadRequest, imageId);
     }
     const ds = dataSetCacheManager.get(uri);
     return ds?.string?.('x00080018') ?? null;

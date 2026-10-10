@@ -44,3 +44,8 @@ co-generated source UIDs directly and is validated against the app's loader.
   regeneration is internally consistent but not byte-identical across runs.
 - Loaded into the app via the local-DICOM import path (`App.loadLocalFiles`),
   driven in E2E by `e2e/helpers/local-fixture.ts`.
+- `ensureFixture` generates a dataset only when its directory is empty, so a
+  checkout with older generated files keeps them after `generate.cjs` changes.
+  Delete the dataset directory to pick a change up — e.g. the CT series gained
+  `InstitutionName` ("XNAT E2E PHANTOM") on 2026-10-10, which
+  `e2e/specs/viewport/local-dicom-metadata` asserts.

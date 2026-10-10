@@ -12,7 +12,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { showToast } from '../../stores/toastStore';
 // eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
-import { wadouri } from '@cornerstonejs/dicom-image-loader';
+import { cachedDataset } from '../../lib/cornerstone/dicomDatasetSource';
 import { useViewerStore } from '../../stores/viewerStore';
 import { useAnnotationStore } from '../../stores/annotationStore';
 // eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
@@ -333,8 +333,7 @@ export default function ExportDropdown() {
       }
 
       // Get raw DICOM bytes from the dataSet cache
-      const uri = imageId.replace('wadouri:', '');
-      const dataSet = wadouri.dataSetCacheManager.get(uri);
+      const dataSet = cachedDataset(imageId);
 
       if (!dataSet?.byteArray) {
         showToast('DICOM data not available', 'error');

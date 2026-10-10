@@ -13,7 +13,7 @@ import { create } from 'zustand';
 // eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
 import { metaData } from '@cornerstonejs/core';
 // eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
-import { wadouri } from '@cornerstonejs/dicom-image-loader';
+import { loadDataset, toWadouriUri } from '../lib/cornerstone/dicomDatasetSource';
 import type { XnatScan } from '@shared/types/xnat';
 // eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
 import { getSegReferenceInfo } from '../lib/dicom/segReferencedSeriesUid';
@@ -215,10 +215,6 @@ const EMPTY_INDEX: DerivedScanIndex = { segScans: [], rtStructScans: [] };
 
 /** Track in-progress resolution promises per session to handle concurrent calls */
 const resolutionInProgress = new Map<string, Promise<void>>();
-
-function toWadouriUri(imageId: string): string {
-  return imageId.startsWith('wadouri:') ? imageId.slice('wadouri:'.length) : imageId;
-}
 
 function extractObjectUidFromImageId(imageId: string): string | null {
   const uri = toWadouriUri(imageId);
@@ -443,11 +439,7 @@ export const useSessionDerivedIndexStore = create<SessionDerivedIndexState>((set
         }
 
         try {
-          const uri = toWadouriUri(imageId);
-          if (!wadouri.dataSetCacheManager.isLoaded(uri)) {
-            await wadouri.dataSetCacheManager.load(uri, undefined as any, imageId);
-          }
-          const dataSet = wadouri.dataSetCacheManager.get(uri);
+          const dataSet = await loadDataset(imageId);
           const uid =
             dataSet?.string?.('x0020000e') ??
             (metaData.get('generalSeriesModule', imageId) as { seriesInstanceUID?: string } | undefined)

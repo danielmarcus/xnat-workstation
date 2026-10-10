@@ -14,7 +14,7 @@
  * are unit-tested with mocked viewports.
  */
 import { metaData } from '@cornerstonejs/core';
-import { wadouri } from '@cornerstonejs/dicom-image-loader';
+import { cachedDataset } from './dicomDatasetSource';
 import { viewportService } from './viewportService';
 
 export type Point3 = [number, number, number];
@@ -222,9 +222,8 @@ function getImagePlane(imageId: string): { ipp: Point3; normal: Point3 } | null 
   let iop = imagePlane?.imageOrientationPatient;
   if (!Array.isArray(ipp) || ipp.length < 3 || !Array.isArray(iop) || iop.length < 6) {
     try {
-      const uri = imageId.startsWith('wadouri:') ? imageId.slice(8) : imageId;
-      if (wadouri.dataSetCacheManager.isLoaded(uri)) {
-        const ds = wadouri.dataSetCacheManager.get(uri);
+      const ds = cachedDataset(imageId);
+      if (ds) {
         const parse = (v: string | undefined, n: number) => {
           const parts = v?.split('\\').map(Number);
           return parts && parts.length >= n && parts.every(Number.isFinite) ? parts : null;

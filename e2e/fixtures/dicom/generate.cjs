@@ -119,6 +119,7 @@ function writeCtSeries(outDir, opts) {
       StudyDate: '20260101',
       StudyTime: '000000',
       AccessionNumber: '',
+      InstitutionName: 'XNAT E2E PHANTOM',
       SeriesNumber: seriesNumber,
       InstanceNumber: instanceNumberStart + s,
       SeriesDescription: seriesDescription,

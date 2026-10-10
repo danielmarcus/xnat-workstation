@@ -12,7 +12,7 @@
  */
 import { useState, useEffect, useMemo, useCallback } from 'react';
 // eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
-import { wadouri } from '@cornerstonejs/dicom-image-loader';
+import { cachedDataset } from '../../lib/cornerstone/dicomDatasetSource';
 import { useViewerStore } from '../../stores/viewerStore';
 // eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
 import { viewportService } from '../../lib/cornerstone/viewportService';
@@ -207,11 +207,8 @@ export default function DicomHeaderPanel({ onClose }: DicomHeaderPanelProps) {
 
     setCurrentImageId(imageId);
 
-    // Extract URI (strip wadouri: scheme)
-    const uri = imageId.replace('wadouri:', '');
-
     try {
-      const dataSet = wadouri.dataSetCacheManager.get(uri);
+      const dataSet = cachedDataset(imageId);
       if (dataSet) {
         setAllTags(parseDataSet(dataSet));
       } else {
@@ -281,7 +278,10 @@ export default function DicomHeaderPanel({ onClose }: DicomHeaderPanelProps) {
   const privateCount = allTags.filter((t) => t.isPrivate).length;
 
   return (
-    <div className="w-80 shrink-0 border-l border-zinc-800 bg-zinc-950 flex flex-col overflow-hidden">
+    <aside
+      aria-label="DICOM tags"
+      className="w-80 shrink-0 border-l border-zinc-800 bg-zinc-950 flex flex-col overflow-hidden"
+    >
       {/* Header */}
       <div className="px-3 py-2 border-b border-zinc-800 flex items-center justify-between">
         <h3 className="text-xs font-semibold text-zinc-300">
@@ -362,6 +362,7 @@ export default function DicomHeaderPanel({ onClose }: DicomHeaderPanelProps) {
                     {tags.map((t) => (
                       <div
                         key={t.tagKey}
+                        data-tag={t.tag}
                         className="px-3 py-1 hover:bg-zinc-800/30 transition-colors group"
                       >
                         <div className="flex items-baseline gap-1.5">
@@ -390,6 +391,6 @@ export default function DicomHeaderPanel({ onClose }: DicomHeaderPanelProps) {
           })
         )}
       </div>
-    </div>
+    </aside>
   );
 }

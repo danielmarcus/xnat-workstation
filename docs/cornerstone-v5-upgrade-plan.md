@@ -141,7 +141,8 @@ Each phase ends green on: `npm run typecheck`, `npx vitest run`, `npm run build 
 Not required: `useLegacyMetadataProvider: true` is fully supported in 5.10 (deprecation warning only). Leaving it is a design change, not an upgrade step:
 - The DICOM header panel renders the full dicom-parser `DataSet` (every element, VR, private tags); Export DICOM needs the raw file bytes (`byteArray`). v5's NATURALIZED path parses part-10 with dcmjs and keeps neither the dataset nor the bytes, so both would need a new source — for XNAT images that means a second download of the file, or a header panel rebuilt on dcmjs's naturalized form.
 - Under the new default, every `metaData.get` module comes from `@cornerstonejs/metadata`'s providers; the app's reads would need the same field-location audit Phase 5 did for export, across all consumers.
-- Prerequisite already done: `dicomDatasetSource.ts` is the one place the dataset cache key is resolved.
+- Prerequisite already done: `dicomDatasetSource.ts` is the one place the dataset cache key is resolved (`datasetSource` / `cachedDataset` / `loadDataset`). Until 2026-10-10 the header panel, Export DICOM, the crosshair fallback and two series-UID fallbacks still stripped `wadouri:` themselves, so for a local `dicomfile:N` image they looked up a key the loader never used — the Tags panel was empty for every local import.
+- The overlay's reads are shaped to the **legacy** provider: `generalStudyModule.studyDate` is dicom-parser's `{ year, month, day }`, `patientModule` has `patientID`, and InstitutionName is in no module (read from the header via `cachedDataset`). Leaving the legacy provider changes those shapes; `metadataService.test.ts` pins them.
 
 ### Phase 7 — Retire workarounds / adopt fixes — **not done (optional)**
 None removed on this branch; each needs its own red→green E2E on `ct-oblique`. Candidates stay as listed in §6. Native `overwriteMode` layering remains a separate design question.

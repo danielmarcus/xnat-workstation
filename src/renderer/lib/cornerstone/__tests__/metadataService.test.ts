@@ -10,11 +10,15 @@ vi.mock('@cornerstonejs/core', () => ({
   },
 }));
 
+const datasetMocks = vi.hoisted(() => ({ cachedDataset: vi.fn() }));
+vi.mock('../dicomDatasetSource', () => datasetMocks);
+
 import { metadataService } from '../metadataService';
 
 describe('metadataService', () => {
   beforeEach(() => {
     coreMocks.get.mockReset();
+    datasetMocks.cachedDataset.mockReset();
   });
 
   it('infers native orientation from image orientation patient vectors', () => {
@@ -47,18 +51,26 @@ describe('metadataService', () => {
     expect(metadataService.getNativeOrientation('error')).toBe('AXIAL');
   });
 
-  it('extracts overlay metadata and formats names/dates/numbers safely', () => {
+  // The module shapes below are what the wadouri metadata provider (the one the app
+  // registers, useLegacyMetadataProvider) actually returns — read off a loaded image,
+  // not assumed. An earlier version of this test mocked `patientId`, a string-ish
+  // `studyDate` and an `institutionName` in the study module; none of those exist, so
+  // the test passed while Study Date and Institution never rendered in the app.
+  it('extracts overlay metadata from the wadouri provider module shapes', () => {
+    datasetMocks.cachedDataset.mockReturnValue({
+      string: (tag: string) => (tag === 'x00080080' ? 'General Hospital' : undefined),
+    });
     coreMocks.get.mockImplementation((module: string) => {
       if (module === 'patientModule') {
         return {
-          patientName: { Alphabetic: 'Doe^Jane' },
-          patientId: 12345,
+          patientName: 'Doe^Jane',
+          patientID: '12345',
         };
       }
       if (module === 'generalStudyModule') {
         return {
-          studyDate: 20240131,
-          institutionName: { Alphabetic: 'General Hospital' },
+          studyDate: { year: 2024, month: 1, day: 31 },
+          studyTime: { hours: 0, minutes: 0, seconds: 0 },
         };
       }
       if (module === 'generalSeriesModule') {
@@ -94,6 +106,17 @@ describe('metadataService', () => {
       rows: 512,
       columns: 256,
     });
+  });
+
+  it('formats a raw DA string and tolerates an image with no cached header', () => {
+    datasetMocks.cachedDataset.mockReturnValue(undefined);
+    coreMocks.get.mockImplementation((module: string) =>
+      module === 'generalStudyModule' ? { studyDate: '20240131' } : {},
+    );
+
+    const overlay = metadataService.getOverlayData('img-2');
+    expect(overlay.studyDate).toBe('2024-01-31');
+    expect(overlay.institutionName).toBe('');
   });
 
   it('returns empty overlay defaults for blank image ids and metadata read errors', () => {

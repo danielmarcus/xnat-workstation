@@ -1,4 +1,5 @@
 import { wadouri } from '@cornerstonejs/dicom-image-loader';
+import type { DataSet } from 'dicom-parser';
 
 export type DatasetLoadRequest = Parameters<typeof wadouri.dataSetCacheManager.load>[1];
 
@@ -26,4 +27,19 @@ export function datasetSource(imageId: string): {
     };
   }
   return { uri: toWadouriUri(imageId), loadRequest: undefined };
+}
+
+/** The cached dicom-parser DataSet for an imageId, if the loader has read it. */
+export function cachedDataset(imageId: string): DataSet | undefined {
+  return wadouri.dataSetCacheManager.get(datasetSource(imageId).uri) ?? undefined;
+}
+
+/** The DataSet for an imageId, reading it (and caching it) first when needed. */
+export async function loadDataset(imageId: string): Promise<DataSet | undefined> {
+  const { uri, loadRequest } = datasetSource(imageId);
+  if (!wadouri.dataSetCacheManager.isLoaded(uri)) {
+    // The typings mark loadRequest required; the implementation defaults it.
+    await wadouri.dataSetCacheManager.load(uri, loadRequest as DatasetLoadRequest, imageId);
+  }
+  return cachedDataset(imageId);
 }
