@@ -55,3 +55,10 @@ constant grid index); on an oblique MPR reformat the island is taken along the c
       whole 3D segment as before); Ctrl+V pastes them onto the current slice; undoable.
 - [x] **S6 Mask delete.** Delete erases the selected islands; undoable.
 - [x] **S7 Docs.** Requirements/design/CLAUDE.md updated; this doc marked done.
+- [x] **S8 Drag to move contours** (added 2026-10-10). With Select, pressing on a selected
+      contour and dragging moves the whole selection in the slice plane; a press on one of
+      several selected keeps the group (a click without a drag narrows to it); a drag from
+      empty image does nothing; one undo step; a locked member does not move (warning).
+      Cornerstone moves whole contours only on its spline/livewire tools, and v5 makes every
+      finished contour freehand — so the Select tool moves them itself (`contourMove`).
+- [ ] **S9 Drag to move mask islands** — the same for selected islands (voxel-grid snapped).

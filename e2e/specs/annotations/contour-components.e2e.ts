@@ -15,7 +15,7 @@ import { test, expect } from '../../fixtures/electron-app';
 import type { Locator, Page } from '@playwright/test';
 import { loadFixture } from '../../helpers/local-fixture';
 
-type Snapshot = { selected: string[]; currentSliceIndex: number | null };
+type Snapshot = { selected: string[]; currentSliceIndex: number | null; total: number };
 type Win = {
   __XNAT_E2E__: {
     clearAllContainers: () => void;
@@ -198,4 +198,55 @@ test('with nothing selected, Ctrl+C copies the active ROI\'s contours on this sl
   await expect.poll(async () => (await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.getActiveContourSnapshot('panel_0'))).currentSliceIndex).toBe(from + 3);
   await page.keyboard.press('Control+v');
   await expect.poll(async () => (await outlines(page)).length, { message: 'both of the ROI\'s contours are pasted' }).toBe(2);
+});
+
+// ── S8: drag to move ─────────────────────────────────────────────────────────────
+
+/** Drag from a point by (dx, dy) screen px with the mouse. */
+async function drag(page: Page, from: { x: number; y: number }, dx: number, dy: number) {
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  await page.mouse.move(from.x + dx, from.y + dy, { steps: 10 });
+  await page.mouse.up();
+}
+
+test('dragging a contour with Select moves it in the slice; one undo puts it back', async ({ page }) => {
+  const { toolbox, box } = await structure(page);
+  await loop(page, 0.4, 0.5);
+  await pickSelect(page, toolbox, box);
+  const [o] = await outlines(page);
+
+  await drag(page, { x: o.x + o.width / 2, y: o.y + 1 }, 40, 25);
+  await expect.poll(async () => { const [n] = await outlines(page); return [Math.round(n.x - o.x), Math.round(n.y - o.y)]; }, { message: 'the contour moved with the pointer' })
+    .toEqual([40, 25]);
+  expect((await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.getActiveContourSnapshot('panel_0'))).total, 'moved, not copied').toBe(1);
+
+  await page.keyboard.press('Control+z');
+  await expect.poll(async () => { const [n] = await outlines(page); return [Math.round(n.x - o.x), Math.round(n.y - o.y)]; }, { message: 'one undo moves it back' })
+    .toEqual([0, 0]);
+});
+
+test('dragging one of several selected contours moves them all', async ({ page }) => {
+  const { panel, toolbox, box } = await structure(page);
+  await loop(page, 0.3, 0.5);
+  await loop(page, 0.7, 0.5);
+  await pickSelect(page, toolbox, box);
+  await panel.locator('[data-testid^="member-row-"]').first().click();
+  await expect.poll(async () => (await selected(page)).length).toBe(2);
+  const [l, r] = await outlines(page);
+
+  await drag(page, { x: l.x + l.width / 2, y: l.y + 1 }, 30, 0);
+  await expect.poll(async () => { const [nl, nr] = await outlines(page); return [Math.round(nl.x - l.x), Math.round(nr.x - r.x)]; }, { message: 'both moved together' })
+    .toEqual([30, 30]);
+});
+
+test('a drag that starts on empty image moves nothing', async ({ page }) => {
+  const { toolbox, box } = await structure(page);
+  await loop(page, 0.4, 0.5);
+  await pickSelect(page, toolbox, box);
+  const [o] = await outlines(page);
+  await drag(page, { x: box.x + box.width * 0.85, y: box.y + box.height * 0.15 }, 40, 25);
+  await page.waitForTimeout(300);
+  const [n] = await outlines(page);
+  expect([Math.round(n.x - o.x), Math.round(n.y - o.y)]).toEqual([0, 0]);
 });

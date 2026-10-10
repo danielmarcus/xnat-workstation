@@ -194,3 +194,16 @@ test('the Sculptor does not reshape a locked ROI\'s contour, even with another R
   expect(await shapes(page), 'the locked contour is unchanged').toEqual(before);
 });
 
+
+test('dragging a locked ROI\'s contour with Select does not move it, and warns', async ({ page }) => {
+  const { panel, toolbox, c } = await structureWithContour(page);
+  await toolbox.getByRole('button', { name: 'Select', exact: true }).click();
+  await lockRow(panel.locator('[data-testid^="member-row-"]').first());
+  const before = await shapes(page);
+  await page.mouse.move(c.cx + c.r, c.cy);
+  await page.mouse.down();
+  await page.mouse.move(c.cx + c.r + 40, c.cy + 25, { steps: 10 });
+  await page.mouse.up();
+  await expectLockWarning(page);
+  expect(await shapes(page), 'the locked contour did not move').toEqual(before);
+});
