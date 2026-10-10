@@ -302,3 +302,12 @@ lesson of `7a33519` — every interpolation/propagation is user-triggered and pr
 | **I2** | Interpolate service + sheet (Process › Interpolate): method, gap table (Preview per gap · Fill all), A/B anchors (Set A/B; sheet-scoped keys A, B, ⇧A, ⇧B, ⇧C), Active/All segments, Advanced (DT quality); slice track shows gaps (amber) and anchors; preview → ⏎ | E2E: gap filled between two painted slices, intermediate areas monotone, one undo; nothing happens without the user (labelmap-no-interpolation stays green); oblique fixture |
 | **I3** | Propagation (pure + sheet): from the current slice forward/backward/both, CT HU tolerance or MR σ, max slices, auto-stop on area change, stable (median) mode, fill holes, boundary snap, z-smoothing | E2E on `ct-axial-anatomy`: propagates through the bone core and stops at its end |
 | **I4** | Docs, full offline E2E, visual sweep | CLAUDE.md self-check |
+
+### Branch 3 progress log
+
+- **I1** `0203fdd` — interpolation algorithms; Schenk fixed for non-overlapping anchors (centroid
+  alignment — the shape moves across; SegWorks went empty, and no SDF blend can move a shape).
+- **I2** — Process › Interpolate: method (6), fill All gaps / This slice / A → B, Active/All segments,
+  gap table (Preview gap per row), sheet-scoped A/B/⇧A/⇧B/⇧C, Advanced distance transform; gaps
+  (amber) and anchors on the slice track; preview → ⏎, one undo. Never automatic
+  (labelmap-no-interpolation green).

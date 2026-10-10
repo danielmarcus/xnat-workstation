@@ -12,7 +12,16 @@ import { create } from 'zustand';
 type ParamValues = Record<string, number | string>;
 
 export type SegToolboxTab = 'paint' | 'shape' | 'smart' | 'process';
-export type OperationSheetId = 'cleanup';
+export type OperationSheetId = 'cleanup' | 'interpolate';
+
+export interface InterpolateSettings {
+  method: 'sdfLinear' | 'sdfArea' | 'morphology' | 'components' | 'volumeMorphology' | 'imageGuided';
+  distance: 'exact' | 'chamfer';
+  fill: 'gaps' | 'current' | 'anchors';
+  /** Anchors in the viewport's displayed numbering (1-based); null = unset. */
+  anchorA: number | null;
+  anchorB: number | null;
+}
 
 export interface SheetScope {
   slices: 'current' | 'range' | 'volume';
@@ -43,6 +52,8 @@ interface OperationSheetState {
   planOverrides: Record<number, string>;
   /** Leaving the sheet with a pending preview asks first, inline. */
   confirmingLeave: boolean;
+  interp: InterpolateSettings;
+  setInterp: (patch: Partial<InterpolateSettings>) => void;
 
   setSegTab: (tab: SegToolboxTab) => void;
   openOperation: (id: OperationSheetId) => void;
@@ -73,6 +84,8 @@ export const useOperationSheetStore = create<OperationSheetState>((set) => ({
   smartSafeAction: 'skip',
   planOverrides: {},
   confirmingLeave: false,
+  interp: { method: 'sdfArea', distance: 'exact', fill: 'gaps', anchorA: null, anchorB: null },
+  setInterp: (patch) => set((s) => ({ interp: { ...s.interp, ...patch }, message: null })),
 
   setSegTab: (segTab) => set({ segTab }),
   openOperation: (openSheet) => set({ openSheet, segTab: 'process', message: null, confirmingLeave: false }),

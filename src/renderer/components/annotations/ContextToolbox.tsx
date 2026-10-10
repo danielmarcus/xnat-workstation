@@ -118,7 +118,7 @@ export interface ContextToolboxProps {
   onSelectSegTab?: (tab: 'paint' | 'shape' | 'smart' | 'process') => void;
   /** The Process tab's operations open a sheet; the open one is marked. */
   openOperationId?: string | null;
-  onOpenOperation?: (id: 'cleanup') => void;
+  onOpenOperation?: (id: 'cleanup' | 'interpolate') => void;
 }
 
 export default function ContextToolbox(props: ContextToolboxProps) {

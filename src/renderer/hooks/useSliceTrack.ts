@@ -15,6 +15,10 @@ export interface SliceTrack {
   color: string | null;
   /** The operation range (0-based display indices), when one is being set. */
   range: { from: number; to: number } | null;
+  /** While interpolating: the empty runs between occupied runs (0-based, inclusive). */
+  gaps: Array<[number, number]>;
+  /** While interpolating: anchors A and B (0-based), if set. */
+  anchors: { a: number | null; b: number | null } | null;
   setRange: (from: number, to: number) => void;
 }
 
@@ -26,6 +30,8 @@ export function useSliceTrack(panelId: string): SliceTrack {
   );
   const total = useViewerStore((s) => s.viewports[panelId]?.totalImages ?? 0);
   const sheetOpen = useOperationSheetStore((s) => s.openSheet !== null);
+  const interpolating = useOperationSheetStore((s) => s.openSheet === 'interpolate');
+  const interp = useOperationSheetStore((s) => s.interp);
   const scope = useOperationSheetStore((s) => s.scope);
   const setScope = useOperationSheetStore((s) => s.setScope);
   const [runs, setRuns] = useState<Array<[number, number]>>([]);
@@ -49,8 +55,12 @@ export function useSliceTrack(panelId: string): SliceTrack {
   }, [panelId, containerId, segmentIndex, total]);
 
   const range = sheetOpen && scope.slices === 'range' ? { from: scope.from - 1, to: scope.to - 1 } : null;
+  const gaps: Array<[number, number]> = [];
+  if (interpolating) for (let i = 1; i < runs.length; i++) gaps.push([runs[i - 1][1] + 1, runs[i][0] - 1]);
   return {
     runs,
+    gaps,
+    anchors: interpolating ? { a: interp.anchorA !== null ? interp.anchorA - 1 : null, b: interp.anchorB !== null ? interp.anchorB - 1 : null } : null,
     color: seg ? `rgb(${seg.color[0]}, ${seg.color[1]}, ${seg.color[2]})` : null,
     range,
     setRange: (from, to) => setScope({ from: from + 1, to: to + 1 }),

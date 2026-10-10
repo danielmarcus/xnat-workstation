@@ -8,14 +8,17 @@
  * and handed to maskPreview, which commits it (one undo step) or discards it.
  */
 import { viewportService } from './viewportService';
+import { readSegmentVoxelGrid } from './segmentVoxelGrid';
 import { beginTransaction, type MemberRef } from './labelmapTransaction';
 import { sliceAxisFor } from './maskIslands';
 import { worldToIndex, type Vec3 } from './segmentationService/voxelClipboard';
 import { commitPreview, startPreview } from './maskPreview';
 import { sliceNumbering } from './sliceNumbering';
 import { cleanupOp, defaultParams, type ParamValues } from '../segmentation/maskOps/catalog';
+import { INTERPOLATORS, findGaps, type InterpolationMethod } from '../segmentation/interpolation/interpolate';
+import type { DistanceMethod } from '../segmentation/interpolation/distance';
 import { planSmartCleanup, sampleSlices, smallThresholdFor, thinScore, DEFAULT_PLAN_OPTIONS, type PlanEntry } from '../segmentation/maskOps/smartPlan';
-import { type Axis, extractValues, sliceCount } from '../segmentation/maskOps/planeIO';
+import { type Axis, extractValues, sliceCount, sliceIndices } from '../segmentation/maskOps/planeIO';
 import { type LabelScope, resolveLabels, resolveSlices, runPairOp, runPlaneOp } from '../segmentation/maskOps/scope';
 
 /**
@@ -270,4 +273,149 @@ export const maskOpsService = {
       safeAction,
     });
   },
+
+  /**
+   * Interpolate the active (or every) segment across empty slices and open the preview
+   * (SegWorks #152–168). `fill`: every interior gap; the slice on screen (between its
+   * nearest filled neighbours); or every slice strictly between anchors A and B (given in
+   * the viewport's displayed numbering, 0-based) — those slices are replaced.
+   */
+  previewInterpolation(
+    o: {
+      method: InterpolationMethod;
+      distance: DistanceMethod;
+      fill: { kind: 'gaps' } | { kind: 'current' } | { kind: 'gap'; from: number; to: number } | { kind: 'anchors'; a: number; b: number };
+      labels: LabelScope;
+    },
+    opts: { viewportId?: string; commit?: boolean } = {},
+  ): RunResult {
+    const seg = useSegmentationStore.getState();
+    const containerId = seg.activeSegmentationId;
+    const active = seg.activeSegmentIndex;
+    const summary = seg.segmentations.find((s) => s.segmentationId === containerId);
+    if (!containerId || !summary || !(active > 0)) return { ok: false, reason: 'no-target' };
+    const viewportId = opts.viewportId ?? useViewerStore.getState().activeViewportId;
+    if (!viewportId) return { ok: false, reason: 'no-viewport' };
+    const allIndices = summary.segments.map((m) => m.segmentIndex);
+    const allMembers: MemberRef[] = allIndices.map((segmentIndex) => ({ containerId, segmentIndex }));
+    const members: MemberRef[] = resolveLabels(o.labels, active, allIndices).map((segmentIndex) => ({ containerId, segmentIndex }));
+    if (!members.length) return { ok: false, reason: 'no-target' };
+
+    let lockedMember: MemberRef | null = null;
+    let begun = beginTransaction(members);
+    if (!begun.ok && begun.reason === 'locked') {
+      lockedMember = begun.member;
+      begun = beginTransaction(members, undefined, { allowLocked: true });
+    }
+    if (!begun.ok) return { ok: false, reason: begun.reason, member: begun.member };
+    const { txn } = begun;
+    const grid = txn.grid(members[0]);
+    const where = grid ? viewportSlice(viewportId, grid.geometry) : null;
+    const numbering = grid && where ? sliceNumbering(viewportId, grid.geometry, where.axis) : null;
+    if (!grid || !where || !numbering) {
+      txn.discard();
+      return { ok: false, reason: 'no-viewport' };
+    }
+    const axis = where.axis;
+    const count = sliceCount(grid.geometry.dimensions, axis);
+    const interp = INTERPOLATORS[o.method];
+    const source = o.method === 'imageGuided' ? grid.sourceReader?.() ?? null : null;
+    const keyOf = (m: MemberRef) => m.segmentIndex;
+
+    let added = 0;
+    let removed = 0;
+    const changed = new Set<number>();
+    for (const member of members) {
+      const planes = new Map<number, ReturnType<typeof txn.readPlane>>();
+      const planeAt = (k: number) => {
+        if (!planes.has(k)) planes.set(k, txn.readPlane(member, axis, k));
+        return planes.get(k)!;
+      };
+      const filled = Array.from({ length: count }, (_, k) => !!planeAt(k)?.data.some((v) => v));
+      // Spans to fill: [anchor a, anchor b], interpolating the slices strictly between.
+      const spans: Array<[number, number]> = [];
+      if (o.fill.kind === 'gaps') {
+        for (const g of findGaps(filled)) spans.push([g.from - 1, g.to + 1]);
+      } else if (o.fill.kind === 'gap') {
+        const lo = Math.min(numbering.toGrid(o.fill.from), numbering.toGrid(o.fill.to));
+        const hi = Math.max(numbering.toGrid(o.fill.from), numbering.toGrid(o.fill.to));
+        if (lo - 1 >= 0 && hi + 1 < count && filled[lo - 1] && filled[hi + 1]) spans.push([lo - 1, hi + 1]);
+      } else if (o.fill.kind === 'current') {
+        const k = where.slice;
+        if (!filled[k]) {
+          let a = k - 1; while (a >= 0 && !filled[a]) a--;
+          let b = k + 1; while (b < count && !filled[b]) b++;
+          if (a >= 0 && b < count) spans.push([a, b]);
+        }
+      } else {
+        const a = numbering.toGrid(o.fill.a);
+        const b = numbering.toGrid(o.fill.b);
+        if (Math.abs(a - b) > 1) spans.push([Math.min(a, b), Math.max(a, b)]);
+      }
+      const others = allMembers.filter((m) => keyOf(m) !== keyOf(member));
+      for (const [a, b] of spans) {
+        const A = planeAt(a);
+        const B = planeAt(b);
+        if (!A || !B) continue;
+        const targets = o.fill.kind === 'current' ? [where.slice] : Array.from({ length: b - a - 1 }, (_, i) => a + 1 + i);
+        for (const k of targets) {
+          const image = source ? extractValues(grid.geometry.dimensions, axis, k, source) : undefined;
+          const result = interp(A, B, (k - a) / (b - a), { distance: o.distance, image });
+          const blocked = txn.unionPlane(others, axis, k, result.width, result.height);
+          const r = txn.applyPlane(member, axis, k, result, { blocked });
+          added += r.added;
+          removed += r.removed;
+          if (r.added || r.removed) changed.add(k);
+        }
+      }
+    }
+    if (added + removed === 0) {
+      txn.discard();
+      return { ok: false, reason: 'no-change' };
+    }
+    const shown = [...changed].map((k) => numbering.toDisplay(k));
+    startPreview({
+      txn,
+      label: `Interpolate · ${INTERPOLATION_NAMES[o.method]}`,
+      summary: summarize(added, removed, shown),
+      viewportId,
+      lockedMember,
+    });
+    const committed = !!opts.commit && !lockedMember && commitPreview();
+    return { ok: true, added, removed, slices: [...changed], readOnly: !!lockedMember, committed };
+  },
+
+  /** Interior gaps of each segment of the active Segmentation, in displayed numbering (0-based). */
+  interpolationGaps(viewportId?: string): Array<{ segmentIndex: number; name: string; from: number; to: number }> {
+    const seg = useSegmentationStore.getState();
+    const containerId = seg.activeSegmentationId;
+    const summary = seg.segmentations.find((s) => s.segmentationId === containerId);
+    const vpId = viewportId ?? useViewerStore.getState().activeViewportId;
+    if (!containerId || !summary || !vpId) return [];
+    const out: Array<{ segmentIndex: number; name: string; from: number; to: number }> = [];
+    for (const m of summary.segments) {
+      const g = readSegmentVoxelGrid(containerId, m.segmentIndex);
+      if (!g) continue;
+      const where = viewportSlice(vpId, g.geometry);
+      const numbering = where ? sliceNumbering(vpId, g.geometry, where.axis) : null;
+      if (!where || !numbering) continue;
+      const dims = g.geometry.dimensions;
+      const filled = Array.from({ length: dims[where.axis] }, (_, k) => {
+        const idx = sliceIndices(dims, where.axis, k);
+        for (let p = 0; p < idx.length; p++) if (g.data[idx[p]] === g.value) return true;
+        return false;
+      });
+      for (const gap of findGaps(filled)) {
+        const a = numbering.toDisplay(gap.from);
+        const b = numbering.toDisplay(gap.to);
+        out.push({ segmentIndex: m.segmentIndex, name: m.label, from: Math.min(a, b), to: Math.max(a, b) });
+      }
+    }
+    return out.sort((p, q) => p.from - q.from);
+  },
+};
+
+const INTERPOLATION_NAMES: Record<InterpolationMethod, string> = {
+  sdfLinear: 'Linear SDF', sdfArea: 'Area-preserving SDF', morphology: 'Morphology',
+  components: 'Component matching', volumeMorphology: 'Volume-accurate', imageGuided: 'Image-guided',
 };

@@ -184,6 +184,8 @@ declare global {
       activeSegmentVoxelCount: () => number;
       /** Voxel count of segment `segmentIndex` of the active container (-1 if none). */
       memberVoxelCount: (segmentIndex: number) => number;
+      /** Active segment's voxel count per slice of its grid (k axis), in grid order. */
+      activeSegmentSliceCounts: () => number[];
       /** Delete every checkpoint of the active Segmentation (isolation: checkpoints persist per profile). */
       deleteActiveCheckpoints: () => Promise<number>;
       /** Remove all measurement annotations (test isolation for SR/measurement specs). */
@@ -811,6 +813,15 @@ export function installRendererE2eHooks(): void {
       let n = 0;
       for (let i = 0; i < g.data.length; i++) if (g.data[i] === g.value) n++;
       return n;
+    },
+    activeSegmentSliceCounts: () => {
+      const { activeSegmentationId, activeSegmentIndex } = useSegmentationStore.getState();
+      const g = activeSegmentationId ? readSegmentVoxelGrid(activeSegmentationId, activeSegmentIndex) : null;
+      if (!g) return [];
+      const [nx, ny, nz] = g.geometry.dimensions;
+      const out = new Array(nz).fill(0);
+      for (let i = 0; i < g.data.length; i++) if (g.data[i] === g.value) out[Math.floor(i / (nx * ny))]++;
+      return out;
     },
     deleteActiveCheckpoints: async () => {
       const id = useSegmentationStore.getState().activeSegmentationId;

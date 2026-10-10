@@ -95,6 +95,31 @@ export default function ViewportScrollbar({ panelId }: ViewportScrollbarProps): 
         dragging ? 'pointer-events-none' : 'hover:bg-white/10'
       }`}
     >
+      {track.gaps.map(([a, b]) => (
+        <div
+          key={`gap-${a}`}
+          data-testid="slice-track-gap"
+          data-from={a + 1}
+          data-to={b + 1}
+          className="absolute left-0 right-0 border border-dashed border-amber-400/90 pointer-events-none"
+          style={{ top: `${centerPct(a) - unitPct / 2}%`, height: `${centerPct(b) - centerPct(a) + unitPct}%` }}
+        />
+      ))}
+      {track.anchors && (['a', 'b'] as const).map((k) => {
+        const d = track.anchors![k];
+        if (d === null) return null;
+        return (
+          <div
+            key={k}
+            data-testid={`slice-track-anchor-${k}`}
+            data-slice={d + 1}
+            className="absolute -left-3 text-[9px] font-bold text-amber-300 pointer-events-none leading-none"
+            style={{ top: `calc(${centerPct(d)}% - 5px)` }}
+          >
+            {k.toUpperCase()}
+          </div>
+        );
+      })}
       {track.range && (() => {
         const lo = Math.min(track.range.from, track.range.to);
         const hi = Math.max(track.range.from, track.range.to);

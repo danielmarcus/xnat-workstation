@@ -9,6 +9,8 @@ import AnnotationsSidePanel from './AnnotationsSidePanel';
 import ContainerList from './ContainerList';
 import ContextToolbox from './ContextToolbox';
 import CleanupSheet from './CleanupSheet';
+import InterpolateSheet from './InterpolateSheet';
+import { useInterpolateSheet } from '../../hooks/useInterpolateSheet';
 import { useSegToolboxTabs } from '../../hooks/useSegToolboxTabs';
 import { useCleanupSheet } from '../../hooks/useCleanupSheet';
 import { CheckpointNameDialog, ConfirmDialog, ConflictDialog, ReviewUnsavedDialog } from './dialogs';
@@ -73,6 +75,7 @@ export default function AnnotationsPanel({ activeViewportId, sourceImageIds }: A
   const isSeg = panel.toolbox?.kind === 'SEG';
   const tabs = useSegToolboxTabs(panel.toolbox?.activeToolId ?? null, isSeg);
   const cleanup = useCleanupSheet();
+  const interpolate = useInterpolateSheet();
   const checkpoints = useCheckpoints();
   const handlers = {
     ...panel.handlers,
@@ -100,7 +103,7 @@ export default function AnnotationsPanel({ activeViewportId, sourceImageIds }: A
       onOpenOperation={tabs.onOpenOperation}
     />
   ) : undefined;
-  const sheet = isSeg ? <CleanupSheet m={cleanup} /> : undefined;
+  const sheet = isSeg ? (<><CleanupSheet m={cleanup} /><InterpolateSheet m={interpolate} /></>) : undefined;
 
   return (
     <div
