@@ -225,3 +225,8 @@ the real affordance (tab → sheet → Preview → ⏎) and asserts **labelmap v
   grouper one Ctrl+Z restored only one segment). Decisions: **Duplicate** = add a member with
   "+" then Copy into it (a "new segment" target would leave an empty member behind on
   Discard); **relabel-by-name** is covered by rename + Move into.
+- **S8** — Smart Cleanup: a cleanup op over All segments shows a per-segment plan (voxels,
+  small/thin flags, editable action); small (<1500 vox volume / 150 slice) and thin (boundary/area
+  ≥ 0.62 on 3 sampled slices) segments are withheld from eroding ops. Deviation: protected
+  segments default to **Skip** (SegWorks: Median — which also erases 1-px structures); Median is
+  selectable. The plan runs as one undo step.

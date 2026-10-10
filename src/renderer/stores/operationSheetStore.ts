@@ -35,6 +35,12 @@ interface OperationSheetState {
   message: string | null;
   /** The "Into" member of a two-segment operation (segment index). */
   intoSegmentIndex: number | null;
+  /** Smart Cleanup (All segments): protect small and thin segments from eroding ops. */
+  smartProtect: boolean;
+  /** What protected segments get instead: 'skip' or 'median'. */
+  smartSafeAction: string;
+  /** The user's edits to the proposed plan, by segment index. Reset when the proposal changes. */
+  planOverrides: Record<number, string>;
   /** Leaving the sheet with a pending preview asks first, inline. */
   confirmingLeave: boolean;
 
@@ -47,6 +53,10 @@ interface OperationSheetState {
   toggleAdvanced: (opId: string) => void;
   setMessage: (message: string | null) => void;
   setInto: (segmentIndex: number | null) => void;
+  setSmartProtect: (v: boolean) => void;
+  setSmartSafeAction: (v: string) => void;
+  setPlanOverride: (segmentIndex: number, action: string) => void;
+  clearPlanOverrides: () => void;
   setConfirmingLeave: (v: boolean) => void;
 }
 
@@ -59,16 +69,23 @@ export const useOperationSheetStore = create<OperationSheetState>((set) => ({
   advancedOpen: {},
   message: null,
   intoSegmentIndex: null,
+  smartProtect: true,
+  smartSafeAction: 'skip',
+  planOverrides: {},
   confirmingLeave: false,
 
   setSegTab: (segTab) => set({ segTab }),
   openOperation: (openSheet) => set({ openSheet, segTab: 'process', message: null, confirmingLeave: false }),
   closeSheet: () => set({ openSheet: null, message: null, confirmingLeave: false }),
-  setCleanupOp: (cleanupOpId) => set({ cleanupOpId, message: null }),
+  setCleanupOp: (cleanupOpId) => set({ cleanupOpId, message: null, planOverrides: {} }),
   setParam: (opId, key, value) => set((s) => ({ params: { ...s.params, [opId]: { ...s.params[opId], [key]: value } }, message: null })),
-  setScope: (patch) => set((s) => ({ scope: { ...s.scope, ...patch }, message: null })),
+  setScope: (patch) => set((s) => ({ scope: { ...s.scope, ...patch }, message: null, planOverrides: {} })),
   toggleAdvanced: (opId) => set((s) => ({ advancedOpen: { ...s.advancedOpen, [opId]: !s.advancedOpen[opId] } })),
   setMessage: (message) => set({ message }),
   setInto: (intoSegmentIndex) => set({ intoSegmentIndex, message: null }),
+  setSmartProtect: (smartProtect) => set({ smartProtect, planOverrides: {}, message: null }),
+  setSmartSafeAction: (smartSafeAction) => set({ smartSafeAction, planOverrides: {}, message: null }),
+  setPlanOverride: (segmentIndex, action) => set((s) => ({ planOverrides: { ...s.planOverrides, [segmentIndex]: action }, message: null })),
+  clearPlanOverrides: () => set({ planOverrides: {} }),
   setConfirmingLeave: (confirmingLeave) => set({ confirmingLeave }),
 }));

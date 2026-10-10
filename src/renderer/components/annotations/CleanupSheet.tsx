@@ -191,6 +191,55 @@ export default function CleanupSheet({ m }: { m: CleanupSheetModel }) {
           />
         </div>}
       </SheetSection>
+      {m.smart.visible && (
+        <SheetSection label="Per-segment plan">
+          <label className="flex items-center gap-2 text-[10px] text-zinc-300">
+            <input type="checkbox" checked={m.smart.protect} onChange={(e) => { m.smart.setProtect(e.target.checked); m.releaseFocus(); }} />
+            Protect small and thin segments
+          </label>
+          {m.smart.protect && (
+            <>
+              <label className="flex items-center gap-2 mt-1 text-[10px] text-zinc-400">
+                <span>Protected segments get</span>
+                <select
+                  aria-label="Protected segments get"
+                  value={m.smart.safeAction}
+                  onChange={(e) => m.smart.setSafeAction(e.target.value)}
+                  className="px-1 py-0.5 rounded bg-zinc-800 text-zinc-200 text-[10px]"
+                >
+                  <option value="skip">Skip</option>
+                  <option value="median">Median smooth</option>
+                </select>
+              </label>
+              <table className="w-full mt-1.5 text-[10px]" data-testid="smart-plan">
+                <tbody>
+                  {m.smart.entries.map((e) => (
+                    <tr key={e.segmentIndex} data-testid={`smart-plan-row-${e.segmentIndex}`} className="border-t border-zinc-800/70">
+                      <td className="py-0.5 text-zinc-200 truncate max-w-[90px]">{e.name}</td>
+                      <td className="py-0.5 text-zinc-500 tabular-nums text-right pr-1">{e.voxels.toLocaleString('en-US')}</td>
+                      <td className="py-0.5">
+                        {e.small && <span className="mr-1 rounded border border-amber-600/60 px-1 text-amber-300">small</span>}
+                        {e.thin && <span className="rounded border border-amber-600/60 px-1 text-amber-300">thin</span>}
+                      </td>
+                      <td className="py-0.5 text-right">
+                        <select
+                          aria-label={`Action for ${e.name}`}
+                          value={e.action}
+                          disabled={e.voxels === 0}
+                          onChange={(ev) => m.smart.setAction(e.segmentIndex, ev.target.value)}
+                          className="px-1 py-0.5 rounded bg-zinc-800 text-zinc-200 text-[10px]"
+                        >
+                          {m.smart.actionOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                        </select>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
+          )}
+        </SheetSection>
+      )}
     </OperationSheet>
   );
 }

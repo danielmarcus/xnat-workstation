@@ -7,9 +7,11 @@
  * read-only and cannot be committed; leaving the sheet with a preview pending asks first,
  * inline.
  */
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { maskOpsService, type RunResult, type ServiceScope } from '../lib/cornerstone/maskOpsService';
 import { commitPreview, discardPreview } from '../lib/cornerstone/maskPreview';
+import { onLabelmapModified } from '../lib/cornerstone/sliceTrack';
+import type { PlanEntry } from '../lib/segmentation/maskOps/smartPlan';
 import { hotkeyService } from '../lib/hotkeys/hotkeyService';
 import { CLEANUP_OPS, cleanupOp, defaultParams, type CleanupOp, type ParamValues } from '../lib/segmentation/maskOps/catalog';
 import { useMaskPreviewStore } from '../stores/maskPreviewStore';
@@ -51,6 +53,17 @@ export interface CleanupSheetModel {
   cancelLeave(): void;
   /** Give the keyboard back to the viewport after a control was used. */
   releaseFocus(): void;
+  /** Smart Cleanup — shown when a cleanup op runs over All segments. */
+  smart: {
+    visible: boolean;
+    protect: boolean;
+    setProtect(v: boolean): void;
+    safeAction: string;
+    setSafeAction(v: string): void;
+    entries: PlanEntry[];
+    actionOptions: Array<{ value: string; label: string }>;
+    setAction(segmentIndex: number, action: string): void;
+  };
 }
 
 const LOCK_MSG = (name: string) => `${name} is locked — preview only`;
@@ -99,6 +112,29 @@ export function useCleanupSheet(): CleanupSheetModel {
     if (!sheet.openSheet && useMaskPreviewStore.getState().active) discardPreview();
   }, [sheet.openSheet]);
 
+  // Smart Cleanup plan: proposed for every segment when a cleanup op runs over All
+  // segments with protection on; recomputed when the op, scope or labelmap changes.
+  const smartVisible = sheet.openSheet === 'cleanup' && !op.runPair && sheet.scope.labels === 'all' && op.group === 'clean';
+  const [proposal, setProposal] = useState<PlanEntry[]>([]);
+  const [labelmapVersion, setLabelmapVersion] = useState(0);
+  useEffect(() => {
+    if (!smartVisible) return;
+    return onLabelmapModified(() => setLabelmapVersion((v) => v + 1));
+  }, [smartVisible]);
+  const scopeKey = JSON.stringify(sheet.scope);
+  useEffect(() => {
+    if (!smartVisible || !sheet.smartProtect) {
+      setProposal([]);
+      return;
+    }
+    setProposal(maskOpsService.smartPlan(op.id, toServiceScope(), sheet.smartSafeAction) ?? []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [smartVisible, sheet.smartProtect, sheet.smartSafeAction, op.id, scopeKey, labelmapVersion, activeSegmentationId, segmentations]);
+  const entries = proposal.map((e) => ({ ...e, action: sheet.planOverrides[e.segmentIndex] ?? e.action }));
+  const plan = smartVisible && sheet.smartProtect && entries.length
+    ? Object.fromEntries(entries.map((e) => [e.segmentIndex, e.action]))
+    : undefined;
+
   const toServiceScope = (): ServiceScope => {
     const s = sheet.scope;
     const slices: ServiceScope['slices'] = s.slices === 'range'
@@ -112,7 +148,12 @@ export function useCleanupSheet(): CleanupSheetModel {
       sheet.setMessage('Add another segment to this segmentation first');
       return;
     }
-    const r = maskOpsService.previewCleanup(op.id, params, toServiceScope(), { commit, targetSegmentIndex: into ?? undefined });
+    const r = maskOpsService.previewCleanup(op.id, params, toServiceScope(), {
+      commit,
+      targetSegmentIndex: into ?? undefined,
+      plan,
+      planParams: sheet.params,
+    });
     if (!r.ok) {
       sheet.setMessage(describeFailure(r));
       return;
@@ -192,5 +233,30 @@ export function useCleanupSheet(): CleanupSheetModel {
     },
     cancelLeave: () => sheet.setConfirmingLeave(false),
     releaseFocus: () => hotkeyService.focusActiveViewport(),
+    smart: {
+      visible: smartVisible,
+      protect: sheet.smartProtect,
+      setProtect: (v) => {
+        if (useMaskPreviewStore.getState().active) discardPreview();
+        sheet.setSmartProtect(v);
+      },
+      safeAction: sheet.smartSafeAction,
+      setSafeAction: (v) => {
+        if (useMaskPreviewStore.getState().active) discardPreview();
+        sheet.setSmartSafeAction(v);
+        hotkeyService.focusActiveViewport();
+      },
+      entries,
+      actionOptions: [
+        { value: op.id, label: op.label },
+        ...(op.id === 'median' ? [] : [{ value: 'median', label: 'Median smooth' }]),
+        { value: 'skip', label: 'Skip' },
+      ],
+      setAction: (i, a) => {
+        if (useMaskPreviewStore.getState().active) discardPreview();
+        sheet.setPlanOverride(i, a);
+        hotkeyService.focusActiveViewport();
+      },
+    },
   };
 }
