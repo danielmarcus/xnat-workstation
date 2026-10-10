@@ -1,6 +1,6 @@
-# Unified selection — Structures and Segmentations (branch `unified-selection`)
+# Unified selection — Structures and Segmentations
 
-**Status:** done (2026-10-08), on branch `unified-selection`. Each step landed with a real-UI
+**Status:** done; merged to `main` 2026-10-10 (built on branch `unified-selection`). Each step landed with a real-UI
 E2E seen red first, its own commit, and mutation checks that the spec fails without the change.
 
 **Implementation notes.** Copy with nothing selected falls back to the active member's components
