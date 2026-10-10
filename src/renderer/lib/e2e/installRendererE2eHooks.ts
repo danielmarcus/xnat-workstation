@@ -8,6 +8,7 @@ import {
 import { useSegmentationStore } from '../../stores/segmentationStore';
 import { maskOpsService } from '../cornerstone/maskOpsService';
 import { readSegmentVoxelGrid } from '../cornerstone/segmentVoxelGrid';
+import { deleteCheckpoint, listCheckpoints } from '../cornerstone/checkpointService';
 import { useSegmentationManagerStore } from '../../stores/segmentationManagerStore';
 import { useViewerStore } from '../../stores/viewerStore';
 import { useConnectionStore } from '../../stores/connectionStore';
@@ -183,6 +184,8 @@ declare global {
       activeSegmentVoxelCount: () => number;
       /** Voxel count of segment `segmentIndex` of the active container (-1 if none). */
       memberVoxelCount: (segmentIndex: number) => number;
+      /** Delete every checkpoint of the active Segmentation (isolation: checkpoints persist per profile). */
+      deleteActiveCheckpoints: () => Promise<number>;
       /** Remove all measurement annotations (test isolation for SR/measurement specs). */
       clearAllAnnotations: () => void;
       /** Full panel clean-slate (segmentations + measurements, cs + stores). */
@@ -808,6 +811,13 @@ export function installRendererE2eHooks(): void {
       let n = 0;
       for (let i = 0; i < g.data.length; i++) if (g.data[i] === g.value) n++;
       return n;
+    },
+    deleteActiveCheckpoints: async () => {
+      const id = useSegmentationStore.getState().activeSegmentationId;
+      if (!id) return 0;
+      const list = await listCheckpoints(id);
+      for (const c of list) await deleteCheckpoint(id, c.id);
+      return list.length;
     },
     resetUnifiedSegmentations: () => {
       try {

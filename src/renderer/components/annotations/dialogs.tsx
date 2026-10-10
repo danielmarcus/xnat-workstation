@@ -336,3 +336,54 @@ export function LeaveUnsavedDialog(props: {
     </ModalShell>
   );
 }
+
+/**
+ * Name a checkpoint (SegWorks parity D8). "Use as baseline" files it as the Segmentation's
+ * one baseline — the reference kept until replaced — instead of a named checkpoint.
+ */
+export function CheckpointNameDialog(props: {
+  defaultName: string;
+  onSave: (name: string, baseline: boolean) => void;
+  onCancel: () => void;
+}) {
+  const { defaultName, onSave, onCancel } = props;
+  const [name, setName] = useState(defaultName);
+  const [baseline, setBaseline] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (inputRef.current) { inputRef.current.focus(); inputRef.current.select(); }
+  }, []);
+  const ok = baseline || !!name.trim();
+  return (
+    <ModalShell>
+      <div className="text-xs text-zinc-200 font-medium mb-2">Save checkpoint</div>
+      <input
+        ref={inputRef}
+        disabled={baseline}
+        className="w-full bg-zinc-800 rounded px-2 py-1.5 text-[11px] text-zinc-200 outline-none border border-zinc-700 focus:border-blue-500 disabled:opacity-50"
+        value={baseline ? 'Baseline' : name}
+        onChange={(e) => setName(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && ok) onSave(name.trim(), baseline);
+          else if (e.key === 'Escape') onCancel();
+        }}
+        aria-label="Checkpoint name"
+      />
+      <label className="mt-2 flex items-center gap-2 text-[10px] text-zinc-400">
+        <input type="checkbox" checked={baseline} onChange={(e) => setBaseline(e.target.checked)} aria-label="Use as baseline" />
+        Use as baseline (kept until replaced)
+      </label>
+      <div className="mt-3 flex justify-end gap-2">
+        <button type="button" className="text-[11px] px-2.5 py-1 rounded text-zinc-400 hover:text-zinc-200" onClick={onCancel}>Cancel</button>
+        <button
+          type="button"
+          disabled={!ok}
+          className={`text-[11px] px-2.5 py-1 rounded text-white ${ok ? 'bg-blue-600 hover:bg-blue-500' : 'bg-zinc-700 cursor-not-allowed'}`}
+          onClick={() => onSave(name.trim(), baseline)}
+        >
+          Save
+        </button>
+      </div>
+    </ModalShell>
+  );
+}

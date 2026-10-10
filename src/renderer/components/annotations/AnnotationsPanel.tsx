@@ -11,7 +11,8 @@ import ContextToolbox from './ContextToolbox';
 import CleanupSheet from './CleanupSheet';
 import { useSegToolboxTabs } from '../../hooks/useSegToolboxTabs';
 import { useCleanupSheet } from '../../hooks/useCleanupSheet';
-import { ConfirmDialog, ConflictDialog, ReviewUnsavedDialog } from './dialogs';
+import { CheckpointNameDialog, ConfirmDialog, ConflictDialog, ReviewUnsavedDialog } from './dialogs';
+import { useCheckpoints } from '../../hooks/useCheckpoints';
 import { useAnnotationsPanel } from '../../hooks/useAnnotationsPanel';
 import { usePreferencesStore } from '../../stores/preferencesStore';
 import {
@@ -72,6 +73,15 @@ export default function AnnotationsPanel({ activeViewportId, sourceImageIds }: A
   const isSeg = panel.toolbox?.kind === 'SEG';
   const tabs = useSegToolboxTabs(panel.toolbox?.activeToolId ?? null, isSeg);
   const cleanup = useCleanupSheet();
+  const checkpoints = useCheckpoints();
+  const handlers = {
+    ...panel.handlers,
+    onKebab: (id: string) => { panel.handlers.onKebab(id); checkpoints.refresh(id); },
+    checkpointsOf: checkpoints.listOf,
+    onSaveCheckpoint: checkpoints.openSave,
+    onRestoreCheckpoint: (id: string, cp: string) => { void checkpoints.restore(id, cp); },
+    onDeleteCheckpoint: (id: string, cp: string) => { void checkpoints.remove(id, cp); },
+  };
 
   const toolbox = panel.toolbox ? (
     <ContextToolbox
@@ -123,7 +133,7 @@ export default function AnnotationsPanel({ activeViewportId, sourceImageIds }: A
       >
         <ContainerList
           containers={panel.containers}
-          handlers={panel.handlers}
+          handlers={handlers}
           isExpanded={panel.isExpanded}
           isActive={panel.isActive}
           metricOf={panel.metricOf}
@@ -141,6 +151,13 @@ export default function AnnotationsPanel({ activeViewportId, sourceImageIds }: A
           onEditConsumed={panel.onEditConsumed}
         />
       </AnnotationsSidePanel>
+      {checkpoints.savingFor && (
+        <CheckpointNameDialog
+          defaultName={`Checkpoint ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}
+          onSave={(name, baseline) => { void checkpoints.save(checkpoints.savingFor!, name, baseline); }}
+          onCancel={checkpoints.cancelSave}
+        />
+      )}
       {panel.reviewDialog && (
         <ReviewUnsavedDialog
           entries={panel.reviewDialog.entries}

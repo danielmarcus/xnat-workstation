@@ -4,6 +4,7 @@ export * from './dicom';
 export * from './xnat';
 export * from './preferences';
 export * from './backup';
+export * from './checkpoint';
 export * from './diagnostics';
 export * from './updater';
 export * from './annotation';
@@ -208,6 +209,12 @@ export interface ElectronAPI {
     ): Promise<{ ok: boolean; error?: string }>;
     listAllSessions(): Promise<{ ok: boolean; sessions?: import('./backup').BackupSessionSummary[]; error?: string }>;
     getCachePath(): Promise<{ ok: boolean; path?: string; error?: string }>;
+  };
+  checkpoint?: {
+    write(key: string, record: import('./checkpoint').CheckpointRecord): Promise<{ ok: boolean; error?: string }>;
+    list(key: string): Promise<{ ok: boolean; checkpoints?: import('./checkpoint').CheckpointMeta[]; error?: string }>;
+    read(key: string, id: string): Promise<{ ok: boolean; record?: import('./checkpoint').CheckpointRecord; error?: string }>;
+    delete(key: string, id: string): Promise<{ ok: boolean; error?: string }>;
   };
   diagnostics?: {
     getMainSnapshot(): Promise<MainDiagnosticsSnapshotResult>;

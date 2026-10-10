@@ -277,3 +277,9 @@ that evaluation land on `mask-ops` and are merged forward here.
   wireframed, is where the slice/position/W-L readouts are); a review discards any preview.
   An unstable zustand selector (`?? []`) in the first draft re-rendered forever (React #185)
   and broke every viewport — caught by the E2E run.
+- **R5a** — checkpoints: container menu "Save checkpoint…" (name, or "Use as baseline") and
+  "Restore checkpoint ▸" (Baseline first, newest first, delete per row). Voxels stored as
+  gzip'd runs on disk (`<userData>/checkpoints/<session__series__label>/`), so they survive
+  reloads and match a re-created segmentation of the same scan; restore = one undo step through
+  the labelmap transaction, refused (toast) if a segment is locked; retention 4 named + 1
+  baseline. Remaining: **R5b** checkpoint file export/import in Settings › File Backup.
