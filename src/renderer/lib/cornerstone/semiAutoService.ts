@@ -20,13 +20,17 @@ import { startSemiAutoOverlay } from './semiAutoOverlay';
 import { type Axis, extractValues, planeAxes, planeSize, sliceIndices } from '../segmentation/maskOps/planeIO';
 import { levelTrace } from '../segmentation/semiauto/levelTrace';
 import { smartBrushDab, strokeDabs } from '../segmentation/semiauto/smartBrush';
-import { randomWalker } from '../segmentation/semiauto/randomWalker';
+import { computeClient, ComputeCancelled } from '../compute/computeClient';
+import { hotkeyService } from '../hotkeys/hotkeyService';
+import { useComputeStore } from '../../stores/computeStore';
 import { useSegmentationStore } from '../../stores/segmentationStore';
 import { useSemiAutoStore, type RoiLimit } from '../../stores/semiAutoStore';
 
 export type SemiAutoResult =
   | { ok: true; added: number; readOnly: boolean }
-  | { ok: false; reason: 'no-target' | 'no-viewport' | 'no-labelmap' | 'no-image' | 'outside' | 'no-change' | 'no-seeds' | 'cancelled' };
+  | { ok: false; reason: 'no-target' | 'no-viewport' | 'no-labelmap' | 'no-image' | 'outside' | 'no-change' | 'no-seeds' | 'cancelled' | 'failed' };
+
+let runningJob: { cancel: () => void } | null = null;
 
 interface Target {
   txn: LabelmapTransaction;
@@ -35,11 +39,11 @@ interface Target {
   lockedMember: MemberRef | null;
 }
 
-/** Open a transaction on the active member (a locked one opens read-only). */
-function openTarget(): Target | null {
+/** Open a transaction on the active member, or `on` (a locked one opens read-only). */
+function openTarget(on?: MemberRef): Target | null {
   const seg = useSegmentationStore.getState();
-  const containerId = seg.activeSegmentationId;
-  const active = seg.activeSegmentIndex;
+  const containerId = on?.containerId ?? seg.activeSegmentationId;
+  const active = on?.segmentIndex ?? seg.activeSegmentIndex;
   const summary = seg.segmentations.find((s) => s.segmentationId === containerId);
   if (!containerId || !summary || !(active > 0)) return null;
   const member = { containerId, segmentIndex: active };
@@ -179,7 +183,7 @@ export const semiAutoService = {
    * `viewportId`) become seed masks; the solve runs on the seeds' bounding box plus padding
    * (or the ROI limit, when one is drawn there) and its foreground is previewed (⏎ commits).
    */
-  randomWalkerRun(viewportId: string): SemiAutoResult {
+  async randomWalkerRun(viewportId: string): Promise<SemiAutoResult> {
     const s = useSemiAutoStore.getState();
     const seeds = s.seeds?.viewportId === viewportId ? s.seeds.strokes : [];
     if (!seeds.some((st) => st.kind === 'fg') || !seeds.some((st) => st.kind === 'bg')) return { ok: false, reason: 'no-seeds' };
@@ -232,19 +236,58 @@ export const semiAutoService = {
       for (let y = 0; y < ch; y++) out.set(a.subarray(x0 + (y0 + y) * width, x0 + (y0 + y) * width + cw), y * cw);
       return out;
     };
-    const rw = randomWalker({
+    const member = t.member;
+    t.txn.discard(); // nothing is held open while the solve runs
+    const input = {
       width: cw, height: ch, beta: s.randomWalker.beta,
       image: crop(full, (n) => new Float32Array(n)),
       fg: crop(fg, (n) => new Uint8Array(n)),
       bg: crop(bg, (n) => new Uint8Array(n)),
+    };
+    // The solve runs in the compute worker; the preview bar's slot shows its progress and
+    // Cancel (⎋) until it finishes.
+    discardPreview();
+    const job = computeClient.run('randomWalker', input, {
+      onProgress: (f) => useComputeStore.getState().progress(f),
+      transfer: [input.image.buffer, input.fg.buffer, input.bg.buffer],
     });
+    const compute = useComputeStore.getState();
+    compute.start('Random Walker', viewportId);
+    runningJob = job;
+    const removeKeyLayer = hotkeyService.pushKeyLayer({
+      onKeyDown: (e) => {
+        if (e.key !== 'Escape' || e.ctrlKey || e.metaKey || e.altKey) return false;
+        job.cancel();
+        return true;
+      },
+    });
+    let rw: Awaited<typeof job.result>;
+    try {
+      rw = await job.result;
+    } catch (e) {
+      if (e instanceof ComputeCancelled) return { ok: false, reason: 'cancelled' };
+      console.warn('[semiAutoService] Random Walker failed:', e);
+      return { ok: false, reason: 'failed' };
+    } finally {
+      removeKeyLayer();
+      if (runningJob === job) {
+        runningJob = null;
+        useComputeStore.getState().end();
+      }
+    }
+    const after = openTarget(member);
+    if (!after) return { ok: false, reason: 'no-target' };
     const region = new Uint8Array(width * height);
     for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) if (rw.mask[x + y * cw]) region[x0 + x + (y0 + y) * width] = 1;
-    const added = addRegion(t, axis, slice, region, width, height);
-    if (!added) { t.txn.discard(); return { ok: false, reason: 'no-change' }; }
-    discardPreview();
-    startPreview({ txn: t.txn, label: 'Random Walker', summary: `+${added.toLocaleString('en-US')} px`, viewportId, lockedMember: t.lockedMember });
-    return { ok: true, added, readOnly: !!t.lockedMember };
+    const added = addRegion(after, axis, slice, region, width, height);
+    if (!added) { after.txn.discard(); return { ok: false, reason: 'no-change' }; }
+    startPreview({ txn: after.txn, label: 'Random Walker', summary: `+${added.toLocaleString('en-US')} px`, viewportId, lockedMember: after.lockedMember });
+    return { ok: true, added, readOnly: !!after.lockedMember };
+  },
+
+  /** Cancel the running compute job (the preview bar's Cancel). */
+  cancelCompute(): void {
+    runningJob?.cancel();
   },
 
   /** Which grid slice a world point is on, for the active member — the seed overlay's filter. */
@@ -285,6 +328,7 @@ export function describeSemiAuto(r: SemiAutoResult, tool: string): string | null
     case 'outside': return 'Click inside the image';
     case 'no-change': return 'Nothing to add here';
     case 'no-seeds': return 'Draw foreground and ⇧ background seeds first';
+    case 'failed': return `${tool} failed — see the log`;
     default: return null;
   }
 }

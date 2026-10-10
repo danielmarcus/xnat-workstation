@@ -17,6 +17,7 @@ type Win = {
     activeSegmentMaxSourceValue: () => number | null;
     getPanelFocalPoint: (panelId: string) => [number, number, number] | null;
     worldToPanelPagePoint: (panelId: string, world: [number, number, number]) => { x: number; y: number } | null;
+    setComputeThrottle: (ms: number) => void;
   };
 };
 const voxels = (page: Page) => page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.memberVoxelCount(1));
@@ -50,7 +51,11 @@ async function click(page: Page, dx: number, dy: number) {
   await page.mouse.click(p.x, p.y);
 }
 
-test.beforeEach(({ page }) => page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.clearAllContainers()));
+test.beforeEach(({ page }) => page.evaluate(() => {
+  const h = (window as unknown as Win).__XNAT_E2E__;
+  h.clearAllContainers();
+  h.setComputeThrottle(0);
+}));
 
 async function smartTool(page: Page, label: string): Promise<Locator> {
   await loadFixture(page, 'ct-axial-anatomy', 'panel_0');
@@ -179,4 +184,48 @@ test('ROI limit confines Cleanup: Clear erases only inside the rectangle', async
   const left = await voxels(page);
   expect(left, 'the right half survives').toBeGreaterThan(lesion * 0.3);
   expect(left).toBeLessThan(lesion * 0.6);
+});
+
+async function seededWalker(page: Page) {
+  const toolbox = await smartTool(page, 'Rand. Walker');
+  const controls = toolbox.getByTestId('smart-tool-controls');
+  await controls.getByRole('slider', { name: 'Edge (β)' }).fill('2000');
+  await drag(page, [[22, 0], [28, 0]]);
+  await drag(page, [[25, -14], [39, 0], [25, 14], [11, 0], [25, -14]], true);
+  await expect(controls.getByTestId('random-walker-seeds')).toContainText('1 fg · 1 bg');
+  return controls;
+}
+
+test('Random Walker solves in the worker: progress shows while it runs, ⎋ cancels and leaves nothing', async ({ page }) => {
+  const controls = await seededWalker(page);
+  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.setComputeThrottle(40));
+  await controls.getByRole('button', { name: 'Run' }).click();
+  const running = page.getByTestId('compute-progress-bar');
+  await expect(running).toContainText('Random Walker');
+  await expect(controls.getByRole('button', { name: 'Running…' })).toBeDisabled();
+  const bar = running.getByRole('progressbar');
+  await expect.poll(async () => Number(await bar.getAttribute('aria-valuenow'))).toBeGreaterThan(0);
+  await page.keyboard.press('Escape');
+  await expect(running).toHaveCount(0);
+  await page.waitForTimeout(300);
+  await expect(page.getByTestId('mask-preview-bar')).toHaveCount(0);
+  expect(await voxels(page)).toBe(0);
+  await expect(controls.getByRole('button', { name: 'Run' })).toBeEnabled();
+
+  // Run again unthrottled: it completes, so the cancelled worker was replaced.
+  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.setComputeThrottle(0));
+  await controls.getByRole('button', { name: 'Run' }).click();
+  await expect(page.getByTestId('mask-preview-bar')).toContainText('Random Walker');
+});
+
+test('Random Walker: the progress bar’s Cancel button stops the solve', async ({ page }) => {
+  const controls = await seededWalker(page);
+  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.setComputeThrottle(40));
+  await controls.getByRole('button', { name: 'Run' }).click();
+  const running = page.getByTestId('compute-progress-bar');
+  await running.getByRole('button', { name: /Cancel/ }).click();
+  await expect(running).toHaveCount(0);
+  await page.waitForTimeout(300);
+  await expect(page.getByTestId('mask-preview-bar')).toHaveCount(0);
+  expect(await voxels(page)).toBe(0);
 });

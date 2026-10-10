@@ -1,3 +1,4 @@
+import { computeClient } from '../compute/computeClient';
 import { cache, getEnabledElementByViewportId, metaData, utilities as csUtilities } from '@cornerstonejs/core';
 import {
   annotation as csAnnotation,
@@ -186,6 +187,8 @@ declare global {
       memberVoxelCount: (segmentIndex: number) => number;
       /** Lowest source-image value under the active segment (ground truth for propagation). */
       activeSegmentMinSourceValue: () => number | null;
+      /** Slow each compute-worker progress step by this many ms (0 = off), so a solve can be cancelled. */
+      setComputeThrottle: (ms: number) => void;
       /** Highest source value under the active segment (null if none / no source). */
       activeSegmentMaxSourceValue: () => number | null;
       /** Active segment's voxel count per slice of its grid (k axis), in grid order. */
@@ -827,6 +830,7 @@ export function installRendererE2eHooks(): void {
       for (let i = 0; i < g.data.length; i++) if (g.data[i] === g.value) min = Math.min(min, read(i));
       return Number.isFinite(min) ? min : null;
     },
+    setComputeThrottle: (ms) => computeClient.setThrottle(ms),
     activeSegmentMaxSourceValue: () => {
       const { activeSegmentationId, activeSegmentIndex } = useSegmentationStore.getState();
       const g = activeSegmentationId ? readSegmentVoxelGrid(activeSegmentationId, activeSegmentIndex) : null;

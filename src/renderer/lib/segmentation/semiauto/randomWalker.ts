@@ -24,6 +24,8 @@ export interface RandomWalkerInput {
   /** Edge sensitivity (unitless; Grady's β). Higher = edges block more. */
   beta: number;
   maxIterations?: number;
+  /** Called every few iterations with the solve's progress, 0–1 (from the residual's fall). */
+  onProgress?: (fraction: number) => void;
 }
 
 export interface RandomWalkerResult {
@@ -105,6 +107,7 @@ export function randomWalker(inp: RandomWalkerInput): RandomWalkerResult {
   let bb = 0;
   for (let u = 0; u < m; u++) bb += rhs[u] * rhs[u];
   const bNorm2 = bb || 1;
+  let rel0 = 1;
   for (; it < maxIt && m > 0; it++) {
     mul(d, q);
     let dq = 0;
@@ -114,6 +117,12 @@ export function randomWalker(inp: RandomWalkerInput): RandomWalkerResult {
     let rr = 0;
     for (let u = 0; u < m; u++) { x[u] += a * d[u]; r[u] -= a * q[u]; rr += r[u] * r[u]; }
     const rel2 = rr / bNorm2; // squared relative residual
+    if (inp.onProgress && it % 10 === 0) {
+      // Progress as the residual's fall, on a log scale, toward the stopping tolerance.
+      if (it === 0) rel0 = Math.max(rel2, 1e-12);
+      const f = Math.log(rel0 / Math.max(rel2, 1e-12)) / Math.log(rel0 / 1e-12);
+      inp.onProgress(Math.min(0.99, Math.max(0, f)));
+    }
     if (rr < 1e-12 || rel2 < 1e-12) break;
     for (let u = 0; u < m; u++) z[u] = r[u] / (diag[u] || 1);
     let rzNew = 0;

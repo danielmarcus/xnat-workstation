@@ -360,3 +360,15 @@ compute infrastructure they need, and the ROI limit.
     by Level Trace / by Cleanup, Smart Brush tolerance ignored, no ⇧ binding for Random
     Walker, Smart Brush ignoring the lock) each killed by its own test. Tools + annotations
     E2E groups 216/216.
+- **C2** — `lib/compute/`: `protocol.ts` (request → progress… → result | error; the
+  worker's body, `handleComputeRequest`, is plain code so unit tests run it), `compute.worker.ts`
+  (a module worker), `computeClient.ts` (one job at a time; a new job or Cancel terminates the
+  worker — a solve in a tight loop cannot read a cancel message — and the next job starts a
+  fresh one). Random Walker runs there: the crop and seeds are prepared on the main thread with
+  no transaction held open across the solve; the result is applied through a new transaction
+  on the same member. While it runs, the preview bar's slot shows *Running · Random Walker*,
+  a progress bar (the residual's fall on a log scale) and Cancel; ⎋ cancels too. An E2E-only
+  throttle (`setComputeThrottle`) slows each progress step so the run can be watched and
+  cancelled. Unit 8 tests (4 client mutants killed); E2E 2 more (Escape / Cancel button
+  mutants killed). Tools + annotations E2E 217/218 — the miss is the known
+  `contour-copy-paste` flake (3/3 on rerun).

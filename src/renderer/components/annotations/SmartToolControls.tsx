@@ -130,7 +130,7 @@ export default function SmartToolControls({ toolId, m }: { toolId: string; m: Se
               </span>
             </Row>
             <div className="flex items-center gap-2 mt-1.5 pl-[5.5rem]">
-              <button type="button" className={BUTTON} disabled={!m.seedCounts.fg || !m.seedCounts.bg} onClick={m.runRandomWalker}>Run</button>
+              <button type="button" className={BUTTON} disabled={m.running || !m.seedCounts.fg || !m.seedCounts.bg} onClick={m.runRandomWalker}>{m.running ? 'Running…' : 'Run'}</button>
               <button type="button" className={BUTTON} disabled={!m.seedCounts.fg && !m.seedCounts.bg} onClick={m.clearSeeds}>Clear seeds</button>
             </div>
             <RoiChip m={m} />
