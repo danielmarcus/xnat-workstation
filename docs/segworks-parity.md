@@ -461,3 +461,7 @@ Nothing rebuilds automatically on edits (cross-cutting rule): the sheet marks th
     instead of previewed — each killed by an E2E; the slice axis ignored in the projection
     survived the unit tests until a side-view test that selects by k was added (the even–odd
     ray direction mutant is equivalent).
+- **Q5** — tool reference updated; full offline E2E (unloaded) 292/292; unit 1067/1067.
+  Branch 7 complete. Known, not fixed here: switching to the QC layout narrows the 2D
+  viewport and Cornerstone keeps its vertical fit, so the 2D image is cropped at the sides
+  until the user zooms out (the same happens for any layout that narrows a viewport).
