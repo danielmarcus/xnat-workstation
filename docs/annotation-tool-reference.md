@@ -71,6 +71,19 @@ slice on screen into its neighbours (backward / both / forward), keeping to voxe
 intensity matches (±HU on CT, kσ on MR) and stopping where the structure ends or leaks.
 Neither ever runs on its own.
 
+**3D QC** switches to the **2D + 3D QC** layout (the active viewport beside a 3D view of
+its scan; your layout comes back when the sheet closes) and builds a surface for every
+connected component of every segment. The **report** lists each component — Main, Fragment,
+Stray (≤ the stray threshold, voxels) or Speck (≤ the speck threshold) — with its volume,
+voxel count and slices. Click a row or a surface to select it: it turns white in 3D and the
+2D viewport moves to it; **Delete component** (or ⌫) removes it, one undo step. **✂ Scissor**:
+draw a lasso on the 3D view to remove the active segment's voxels inside it (or keep only
+those inside) through the whole volume along the view; ⏎ applies. Display: per-segment
+visibility, highlight strays, hide largest, brightness, ambient, auto-rotate, reset view,
+expand 3D. Surfaces: resolution (128 / 192 / 256), smooth or voxel renderer, smoothing,
+thicken thin structures (display only). In the 3D view: drag rotates, ⇧-drag pans, the wheel
+zooms. An edit marks the surfaces out of date — **Rebuild** updates them.
+
 With **All segments**, a Clean operation first proposes a **per-segment plan** (Smart
 Cleanup): small and thin segments are withheld from operations that would erode them; each
 row's action can be edited before running.
