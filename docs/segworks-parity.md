@@ -447,3 +447,17 @@ Nothing rebuilds automatically on edits (cross-cutting rule): the sheet marks th
   open) flood-fills from the component's seed voxel through a LabelmapTransaction — one undo
   step — and rebuilds; a locked segment refuses. Four mutants killed (no jump, ray reversed,
   delete only the seed, delete ignoring the lock).
+- **Q4** — 3D scissor: with ✂ Scissor on, a drag on the 3D view draws a lasso (the press is
+  taken as a capture-phase pointer event and cancelled, so the rotate tool never sees it).
+  Under parallel projection a voxel's canvas position is affine in its index, so four
+  projected points place every voxel (`qc3d/scissor.ts`); the active member's voxels inside
+  the lasso (or outside — *Keep inside*) are removed through the whole volume, as a preview
+  on the 2D viewport (⏎ applies, one undo step; a locked segment previews read-only). The 3D
+  surfaces rebuild when the cut is applied.
+  - Found while testing: with a locked segment, something on the viewport cancels
+    `pointerdown`, which suppresses the compatibility `mousedown` — a mouse-event lasso never
+    started. Pointer events fix it.
+  - Mutants: press not taken from the rotate tool, *Keep inside* ignored, locked refused
+    instead of previewed — each killed by an E2E; the slice axis ignored in the projection
+    survived the unit tests until a side-view test that selects by k was added (the even–odd
+    ray direction mutant is equivalent).

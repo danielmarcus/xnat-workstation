@@ -286,3 +286,79 @@ test('3D QC: the ⌫ key deletes the selection; a locked segment refuses', async
   await page.keyboard.press('Backspace');
   await expect.poll(() => voxels(page)).toBeLessThan(before);
 });
+
+/** Page point of a component's centroid in the 3D view. */
+async function centre3d(page: Page, index: number) {
+  const c = (await hooks(page))[index].centroid!;
+  return (await page.evaluate((w) => (window as unknown as Win).__XNAT_E2E__.worldToPanelPagePoint('panel_qc3d', w as [number, number, number]), c))!;
+}
+
+async function lasso(page: Page, pts: Array<{ x: number; y: number }>) {
+  await page.mouse.move(pts[0].x, pts[0].y);
+  await page.mouse.down();
+  for (const p of [...pts.slice(1), pts[0]]) await page.mouse.move(p.x, p.y, { steps: 4 });
+  await page.mouse.up();
+}
+
+const square = (c: { x: number; y: number }, r: number) => [
+  { x: c.x - r, y: c.y - r }, { x: c.x + r, y: c.y - r }, { x: c.x + r, y: c.y + r }, { x: c.x - r, y: c.y + r },
+];
+
+test('3D scissor: a lasso over half the lesion cuts that half through the volume; ⏎ applies, one undo', async ({ page }) => {
+  const { sheet } = await builtQc(page);
+  const before = await voxels(page);
+  const lesionVoxels = Number((await sheet.getByTestId('qc3d-row').first().locator('td').nth(3).textContent())!.replace(/,/g, ''));
+  const c = await centre3d(page, 0);
+  await sheet.getByRole('button', { name: '✂ Scissor' }).click();
+  // The lesion's left half on screen: a band round it (the stray is further left).
+  await lasso(page, [{ x: c.x - 120, y: c.y - 80 }, { x: c.x, y: c.y - 80 }, { x: c.x, y: c.y + 80 }, { x: c.x - 120, y: c.y + 80 }]);
+  await expect(page.getByTestId('mask-preview-bar')).toContainText('3D scissor');
+  expect(await voxels(page), 'a preview writes nothing').toBe(before);
+  await page.keyboard.press('Enter');
+  await expect.poll(() => voxels(page)).toBeLessThan(before);
+  const removed = before - (await voxels(page));
+  expect(removed).toBeGreaterThan(lesionVoxels * 0.25);
+  expect(removed).toBeLessThan(lesionVoxels * 0.75);
+  await page.keyboard.press('Control+z');
+  await expect.poll(() => voxels(page)).toBe(before);
+});
+
+test('3D scissor “Keep inside”: a lasso round the lesion removes the stray', async ({ page }) => {
+  const { sheet } = await builtQc(page);
+  const before = await voxels(page);
+  const rows = sheet.getByTestId('qc3d-row');
+  const strayVoxels = Number((await rows.nth(1).locator('td').nth(3).textContent())!.replace(/,/g, ''));
+  await sheet.getByRole('button', { name: '✂ Scissor' }).click();
+  await sheet.getByRole('group', { name: 'Scissor removes' }).getByRole('button', { name: 'Keep inside' }).click();
+  const camera = () => page.evaluate(() => JSON.stringify((window as unknown as Win).__XNAT_E2E__.getPanelParallelScale('panel_qc3d')) + JSON.stringify(document.querySelector('[data-testid="qc3d-sheet"]') ? 1 : 0));
+  const pixels0 = (await pixelStats(page)).sum;
+  const cam0 = await camera();
+  await lasso(page, square(await centre3d(page, 0), 120));
+  expect(await camera()).toBe(cam0);
+  expect((await pixelStats(page)).sum, 'the drag drew a lasso; it did not rotate the view').toBe(pixels0);
+  await expect(page.getByTestId('mask-preview-bar')).toContainText('3D scissor');
+  await page.keyboard.press('Enter');
+  await expect.poll(() => voxels(page)).toBe(before - strayVoxels);
+  await expect.poll(async () => (await hooks(page)).length, { timeout: 30_000 }).toBe(1);
+});
+
+test('3D scissor: a locked segment previews read-only and nothing is written', async ({ page }) => {
+  const { sheet } = await builtQc(page);
+  const camera = async () => JSON.stringify(await page.evaluate(() => {
+    const h = (window as unknown as Win).__XNAT_E2E__;
+    return [h.getPanelFocalPoint('panel_qc3d'), h.getPanelParallelScale('panel_qc3d')];
+  }));
+  const before = await voxels(page);
+  await page.locator('[data-testid="annotations-side-panel"]').getByRole('button', { name: 'Toggle lock' }).first().click();
+  await sheet.getByRole('button', { name: '✂ Scissor' }).click();
+  const cam0 = await camera();
+  const sq = square(await centre3d(page, 0), 120);
+  await lasso(page, sq);
+  await expect(page.getByTestId('mask-preview-bar')).toContainText('Locked');
+  expect(await camera(), 'no rotation').toBe(cam0);
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(300);
+  expect(await voxels(page)).toBe(before);
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('mask-preview-bar')).toHaveCount(0);
+});

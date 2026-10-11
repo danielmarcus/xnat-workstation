@@ -55,6 +55,8 @@ interface Qc3dState {
   /** The layout the sheet replaced; restored on close. */
   restoreLayout: UnifiedLayout | null;
   message: string | null;
+  /** 3D scissor mode: a drag on the 3D view draws a lasso instead of rotating. */
+  scissor: { on: boolean; remove: 'inside' | 'outside' };
   setSettings: (p: Partial<Qc3dSettings>) => void;
   set: (p: Partial<Omit<Qc3dState, 'settings' | 'setSettings' | 'set'>>) => void;
 }
@@ -75,6 +77,7 @@ export const useQc3dStore = create<Qc3dState>((set) => ({
   selected: null,
   restoreLayout: null,
   message: null,
+  scissor: { on: false, remove: 'inside' },
   setSettings: (p) => set((s) => ({ settings: { ...s.settings, ...p } })),
   set: (p) => set(p),
 }));

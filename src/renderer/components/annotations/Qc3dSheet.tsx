@@ -110,6 +110,25 @@ export default function Qc3dSheet({ m }: { m: Qc3dSheetModel }) {
           <span className="text-[10px] text-zinc-500">{m.selectedLocked ? 'Locked segment' : 'Click a row or a surface to select'}</span>
         </div>
       </SheetSection>
+      <SheetSection label="3D scissor">
+        <div className="flex items-center gap-2">
+          <button type="button" aria-pressed={m.scissor.on} onClick={() => m.setScissor({ on: !m.scissor.on })}
+            className={`rounded px-2 py-0.5 text-[10px] ${m.scissor.on ? 'bg-amber-500 text-zinc-950' : 'bg-zinc-700 text-zinc-100 hover:bg-zinc-600'}`}>
+            ✂ Scissor
+          </button>
+          <div className="flex flex-1 rounded overflow-hidden border border-zinc-700" role="group" aria-label="Scissor removes">
+            {([['inside', 'Erase inside'], ['outside', 'Keep inside']] as const).map(([v, text]) => (
+              <button key={v} type="button" aria-pressed={m.scissor.remove === v} onClick={() => m.setScissor({ remove: v })}
+                className={`flex-1 px-1.5 py-0.5 text-[10px] ${m.scissor.remove === v ? 'bg-blue-600 text-white' : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'}`}>
+                {text}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="mt-1 text-[10px] text-zinc-500">
+          {m.scissor.on ? 'Draw around material on the 3D view; it is cut through the whole volume along the view. ⏎ applies.' : 'Cuts the active segment along the 3D view direction.'}
+        </div>
+      </SheetSection>
       <SheetSection label="Labels">
         <div className="flex gap-2 mb-1">
           <button type="button" className={BUTTON} onClick={() => m.setAllHidden(false)}>Show all</button>

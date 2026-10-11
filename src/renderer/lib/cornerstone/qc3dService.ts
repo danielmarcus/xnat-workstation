@@ -24,6 +24,9 @@ import { beginTransaction } from './labelmapTransaction';
 import { sliceAxisFor } from './maskIslands';
 import { sliceNumbering } from './sliceNumbering';
 import { pickNearest } from '../segmentation/qc3d/pick';
+import { scissorCut } from '../segmentation/qc3d/scissor';
+import { indexToWorld, type Vec3 } from './segmentationService/voxelClipboard';
+import { startPreview, discardPreview } from './maskPreview';
 import type { Axis } from '../segmentation/maskOps/planeIO';
 
 export const QC3D_ACTOR_PREFIX = 'qc3d:';
@@ -58,6 +61,7 @@ type Vp3d = {
   getRenderer?: () => { resetCameraClippingRange: () => void } | undefined;
   getCamera: () => { position: number[]; focalPoint: number[]; viewUp: number[]; viewPlaneNormal: number[] };
   canvasToWorld: (p: number[]) => number[];
+  worldToCanvas: (w: number[]) => number[];
   element: HTMLElement;
   setCamera: (c: { focalPoint: number[]; position: number[]; viewUp: number[]; parallelScale: number }) => void;
 };
@@ -190,7 +194,9 @@ function installPicking(vp: Vp3d): void {
   if (picking.has(el)) return;
   picking.add(el);
   let down: { x: number; y: number } | null = null;
-  el.addEventListener('pointerdown', (e) => { down = e.button === 0 && !e.shiftKey ? { x: e.clientX, y: e.clientY } : null; });
+  el.addEventListener('pointerdown', (e) => {
+    down = e.button === 0 && !e.shiftKey && !useQc3dStore.getState().scissor.on ? { x: e.clientX, y: e.clientY } : null;
+  });
   el.addEventListener('pointerup', (e) => {
     const d = down;
     down = null;
@@ -204,8 +210,54 @@ function installPicking(vp: Vp3d): void {
   });
 }
 
+const scissorHosts = new WeakSet<HTMLElement>();
+const LASSO_TESTID = 'qc3d-lasso';
+
+/**
+ * Scissor mode: a drag on the 3D view draws a lasso. The press is taken as a POINTER event
+ * in the capture phase on the panel and cancelled, so Cornerstone's rotate tool (which
+ * listens for the mouse events a cancelled pointerdown suppresses) never sees it — and a
+ * handler elsewhere cancelling pointerdown (as the lock guard does) cannot starve us of a
+ * mousedown that never comes.
+ */
+function installScissor(vp: Vp3d): void {
+  const host = vp.element.parentElement;
+  if (!host || scissorHosts.has(host)) return;
+  scissorHosts.add(host);
+  host.addEventListener('pointerdown', (e) => {
+    if (!useQc3dStore.getState().scissor.on || e.button !== 0) return;
+    const v = viewport3d();
+    if (!v || !v.element.contains(e.target as Node)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const r = v.element.getBoundingClientRect();
+    const pts: Array<[number, number]> = [[e.clientX - r.left, e.clientY - r.top]];
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('data-testid', LASSO_TESTID);
+    svg.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:7';
+    const line = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+    line.setAttribute('fill', 'rgba(250, 204, 21, 0.12)');
+    line.setAttribute('stroke', 'rgb(250, 204, 21)');
+    line.setAttribute('stroke-width', '1.5');
+    line.setAttribute('stroke-dasharray', '5 3');
+    svg.appendChild(line);
+    v.element.appendChild(svg);
+    const draw = () => line.setAttribute('points', pts.map((p) => p.join(',')).join(' '));
+    const move = (ev: PointerEvent) => { pts.push([ev.clientX - r.left, ev.clientY - r.top]); draw(); };
+    const up = () => {
+      window.removeEventListener('pointermove', move, true);
+      window.removeEventListener('pointerup', up, true);
+      svg.remove();
+      if (pts.length >= 3) qc3dService.scissorCut(pts);
+    };
+    window.addEventListener('pointermove', move, true);
+    window.addEventListener('pointerup', up, true);
+  }, true);
+}
+
 function attach(vp: Vp3d): void {
   installPicking(vp);
+  installScissor(vp);
   vp.removeActors(vp.getActors().filter((a) => a.uid.startsWith(QC3D_ACTOR_PREFIX)).map((a) => a.uid));
   // The volume rendering would hide the surfaces; it comes back when QC closes.
   for (const a of vp.getActors()) a.actor.setVisibility?.(false);
@@ -413,6 +465,55 @@ export const qc3dService = {
     useQc3dStore.getState().set({ selected: null });
     await qc3dService.build();
     return 'ok';
+  },
+
+  /**
+   * The 3D scissor (#256): remove the active member's voxels whose projection falls inside
+   * the lasso (canvas points), or keep only those, through the whole volume along the view.
+   * Previews (⏎ applies, one undo step; a locked segment previews read-only); applying rebuilds.
+   */
+  scissorCut(lasso: Array<[number, number]>): boolean {
+    const st = useQc3dStore.getState();
+    const seg = useSegmentationStore.getState();
+    const layout = useUnifiedLayoutStore.getState().layout;
+    const vp = viewport3d();
+    if (!vp || layout.kind !== 'qc-3d' || !seg.activeSegmentationId || !(seg.activeSegmentIndex > 0)) return false;
+    const member = { containerId: seg.activeSegmentationId, segmentIndex: seg.activeSegmentIndex };
+    let lockedMember: typeof member | null = null;
+    let begun = beginTransaction([member]);
+    if (!begun.ok && begun.reason === 'locked') {
+      lockedMember = member;
+      begun = beginTransaction([member], undefined, { allowLocked: true });
+    }
+    if (!begun.ok) return false;
+    const txn = begun.txn;
+    const grid = txn.grid(member);
+    if (!grid) { txn.discard(); return false; }
+    const g = grid.geometry;
+    const at = (i: number, j: number, k: number) => vp.worldToCanvas(indexToWorld(g, [i, j, k] as Vec3));
+    const c0 = at(0, 0, 0), ci = at(1, 0, 0), cj = at(0, 1, 0), ck = at(0, 0, 1);
+    const proj = {
+      c0: [c0[0], c0[1]] as [number, number],
+      ci: [ci[0] - c0[0], ci[1] - c0[1]] as [number, number],
+      cj: [cj[0] - c0[0], cj[1] - c0[1]] as [number, number],
+      ck: [ck[0] - c0[0], ck[1] - c0[1]] as [number, number],
+    };
+    const mask = Uint8Array.from(grid.data as ArrayLike<number>, (v) => (v === grid.value ? 1 : 0));
+    const cut = scissorCut(mask, [g.dimensions[0], g.dimensions[1], g.dimensions[2]], proj, lasso, st.scissor.remove);
+    let n = 0;
+    for (let f = 0; f < cut.length; f++) if (cut[f]) { txn.set(member, f, false); n++; }
+    if (!n) {
+      txn.discard();
+      useQc3dStore.getState().set({ message: 'The lasso does not cross the active segment' });
+      return false;
+    }
+    discardPreview();
+    useQc3dStore.getState().set({ message: null });
+    startPreview({
+      txn, label: '3D scissor', summary: `−${n.toLocaleString('en-US')} voxels`, viewportId: layout.source, lockedMember,
+      onDone: (committed) => { if (committed) void qc3dService.build(); },
+    });
+    return true;
   },
 
   /** For tests and picking: the built components (world-space meshes). */

@@ -46,6 +46,7 @@ export function useQc3dSheet() {
     qc3dService.start();
     void qc3dService.build();
     return () => {
+      useQc3dStore.getState().set({ scissor: { ...useQc3dStore.getState().scissor, on: false } });
       qc3dService.stop();
       const restore = useQc3dStore.getState().restoreLayout;
       useQc3dStore.getState().set({ restoreLayout: null });
@@ -144,6 +145,8 @@ export function useQc3dSheet() {
     setAllHidden: (hidden: boolean) => st.set({ hiddenSegments: hidden ? labels.map((l) => l.segmentIndex) : [] }),
     rebuild: () => { void qc3dService.build(); },
     select: (segmentIndex: number, componentId: number) => qc3dService.select(segmentIndex, componentId),
+    scissor: st.scissor,
+    setScissor: (p: Partial<{ on: boolean; remove: 'inside' | 'outside' }>) => st.set({ scissor: { ...st.scissor, ...p } }),
     selectedRow,
     selectedLocked,
     deleteSelected: () => { void deleteSelected(); },

@@ -138,7 +138,7 @@ export const SEG_OPERATIONS: Array<{ id: 'cleanup' | 'interpolate' | 'propagate'
   { id: 'cleanup', label: 'Cleanup', title: 'Fill holes, keep largest, remove specks and strays, smooth, open/close (X)' },
   { id: 'propagate', label: 'Propagate', title: 'Grow the segment from the slice on screen into its neighbours, following the image' },
   { id: 'interpolate', label: 'Interpolate', title: 'Fill empty slices between painted ones: every gap, the slice on screen, or between anchors A and B' },
-  { id: 'qc3d', label: '3D QC', title: 'Check the segmentation in 3D beside the slice: surfaces, a component report with strays and specks, jump to and delete components' },
+  { id: 'qc3d', label: '3D QC', title: 'Check the segmentation in 3D beside the slice: surfaces, a component report with strays and specks, jump to and delete components, 3D scissor' },
 ];
 
 export function toolsForKind(kind: ContainerKind): ToolDef[] {
