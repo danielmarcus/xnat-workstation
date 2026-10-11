@@ -14,9 +14,12 @@ type Win = {
     memberVoxelCount: (i: number) => number;
     getPanelFocalPoint: (panelId: string) => [number, number, number] | null;
     worldToPanelPagePoint: (panelId: string, world: [number, number, number]) => { x: number; y: number } | null;
-    qc3dComponents: () => Array<{ segmentIndex: number; componentId: number; visible: boolean; triangles: number; vertices: number; checksum: number }>;
+    qc3dComponents: () => Array<{ segmentIndex: number; componentId: number; visible: boolean; triangles: number; vertices: number; checksum: number; centroid: number[] | null }>;
     getPanelFocalPoint3d?: never;
     getPanelParallelScale: (panelId: string) => number | null;
+    scrollActiveViewport: (delta: number) => void;
+    getPanelSliceState: (panelId: string) => { imageIndex: number };
+    setSegmentLocked: (segmentationId: string, segmentIndex: number, locked: boolean) => void;
   };
 };
 const hooks = (page: Page) => page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.qc3dComponents());
@@ -223,4 +226,63 @@ test('3D QC view: Reset view undoes a zoom; Expand 3D fills the viewport area an
   await expect.poll(() => litPixels(page)).toBeGreaterThan(200);
   await sheet.getByRole('button', { name: 'Shrink 3D' }).click();
   await expect.poll(async () => (await view.boundingBox())!.width).toBeLessThan(grid.width * 0.6);
+});
+
+/** The slice the 2D viewport shows, as its overlay numbers it ("8 / 16" → "8"). */
+const sliceShown = (page: Page) => page.evaluate(() => String((window as unknown as Win).__XNAT_E2E__.getPanelSliceState('panel_0').imageIndex + 1));
+
+test('3D QC report: slice ranges; a row selects and brings the 2D slice to the component', async ({ page }) => {
+  const { sheet } = await builtQc(page);
+  const rows = sheet.getByTestId('qc3d-row');
+  await expect(rows.first().getByTestId('qc3d-row-slices')).toHaveText('8');
+  await expect(rows.nth(1).getByTestId('qc3d-row-slices')).toHaveText('8');
+  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.scrollActiveViewport(3));
+  await expect.poll(() => sliceShown(page)).not.toBe('8');
+  await rows.nth(1).click();
+  await expect(rows.nth(1)).toHaveAttribute('aria-selected', 'true');
+  await expect.poll(() => sliceShown(page)).toBe('8');
+});
+
+test('3D QC: clicking a surface in the 3D view selects that component', async ({ page }) => {
+  const { sheet } = await builtQc(page);
+  const comps = await hooks(page);
+  const target = comps[1];
+  const p = await page.evaluate((w) => (window as unknown as Win).__XNAT_E2E__.worldToPanelPagePoint('panel_qc3d', w as [number, number, number]), target.centroid!);
+  await page.mouse.click(p!.x, p!.y);
+  await expect(sheet.getByTestId('qc3d-row').nth(1)).toHaveAttribute('aria-selected', 'true');
+  // empty space clears it
+  const box = (await page.locator(VIEW_3D).boundingBox())!;
+  await page.mouse.click(box.x + 10, box.y + box.height - 10);
+  await expect(sheet.getByTestId('qc3d-row').nth(1)).toHaveAttribute('aria-selected', 'false');
+});
+
+test('3D QC: Delete component removes exactly that component, as one undo step', async ({ page }) => {
+  const { sheet } = await builtQc(page);
+  const before = await voxels(page);
+  const rows = sheet.getByTestId('qc3d-row');
+  const strayVoxels = Number((await rows.nth(1).locator('td').nth(3).textContent())!.replace(/,/g, ''));
+  await rows.nth(1).click();
+  await sheet.getByRole('button', { name: 'Delete component' }).click();
+  await expect.poll(() => voxels(page)).toBe(before - strayVoxels);
+  await expect.poll(async () => (await hooks(page)).length, { timeout: 30_000 }).toBe(1);
+  await expect(rows).toHaveCount(1);
+  await page.keyboard.press('Control+z');
+  await expect.poll(() => voxels(page)).toBe(before);
+  await expect(sheet.getByTestId('qc3d-stale')).toBeVisible();
+});
+
+test('3D QC: the ⌫ key deletes the selection; a locked segment refuses', async ({ page }) => {
+  const { sheet } = await builtQc(page);
+  const before = await voxels(page);
+  const rows = sheet.getByTestId('qc3d-row');
+  await page.locator('[data-testid="annotations-side-panel"]').getByRole('button', { name: 'Toggle lock' }).first().click();
+  await rows.nth(1).click();
+  await expect(sheet.getByRole('button', { name: 'Delete component' })).toBeDisabled();
+  await page.keyboard.press('Backspace');
+  await page.waitForTimeout(300);
+  expect(await voxels(page)).toBe(before);
+  await page.locator('[data-testid="annotations-side-panel"]').getByRole('button', { name: 'Toggle lock' }).first().click();
+  await rows.nth(1).click();
+  await page.keyboard.press('Backspace');
+  await expect.poll(() => voxels(page)).toBeLessThan(before);
 });

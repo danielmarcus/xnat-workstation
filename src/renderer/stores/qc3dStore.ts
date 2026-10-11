@@ -30,6 +30,8 @@ export interface Qc3dComponentRow {
   volumeCc: number;
   bbox: [number, number, number, number, number, number];
   centroidWorld: [number, number, number];
+  /** Flat index of one of its voxels (delete flood-fills from it). */
+  seed: number;
 }
 
 export interface Qc3dLabelReport {

@@ -80,20 +80,35 @@ export default function Qc3dSheet({ m }: { m: Qc3dSheetModel }) {
         <table className="w-full mt-1.5 text-[10px]" data-testid="qc3d-report">
           <thead>
             <tr className="text-zinc-500 text-left">
-              <th className="font-normal">Label</th><th className="font-normal">Kind</th><th className="font-normal text-right">cc</th><th className="font-normal text-right">voxels</th>
+              <th className="font-normal">Label</th><th className="font-normal">Kind</th><th className="font-normal text-right">cc</th><th className="font-normal text-right">voxels</th><th className="font-normal text-right">slices</th>
             </tr>
           </thead>
           <tbody>
             {m.rows.map((r) => (
-              <tr key={`${r.segmentIndex}:${r.id}`} data-testid="qc3d-row" data-band={r.band} className="border-t border-zinc-800/60">
+              <tr
+                key={`${r.segmentIndex}:${r.id}`}
+                data-testid="qc3d-row"
+                data-band={r.band}
+                aria-selected={r.selected}
+                onClick={() => m.select(r.segmentIndex, r.id)}
+                title="Select it in 3D and show it in the 2D viewport"
+                className={`border-t border-zinc-800/60 cursor-pointer ${r.selected ? 'bg-blue-600/25' : 'hover:bg-zinc-800/60'}`}
+              >
                 <td className="py-0.5"><span className="inline-block w-2 h-2 rounded-sm mr-1" style={{ background: r.color }} />{r.label}</td>
                 <td className={BAND_STYLE[r.band]}>{BAND_LABEL[r.band]}</td>
                 <td className="text-right tabular-nums text-zinc-300">{r.volumeCc < 0.01 ? '<0.01' : r.volumeCc.toFixed(2)}</td>
                 <td className="text-right tabular-nums text-zinc-400">{r.voxels.toLocaleString('en-US')}</td>
+                <td className="text-right tabular-nums text-zinc-400" data-testid="qc3d-row-slices">{r.slices ? (r.slices[0] === r.slices[1] ? r.slices[0] : `${r.slices[0]}–${r.slices[1]}`) : '—'}</td>
               </tr>
             ))}
           </tbody>
         </table>
+        <div className="flex items-center gap-2 mt-1.5">
+          <button type="button" className={BUTTON} disabled={!m.selectedRow || m.selectedLocked} onClick={m.deleteSelected} title="Remove the selected component from its segment (⌫)">
+            Delete component
+          </button>
+          <span className="text-[10px] text-zinc-500">{m.selectedLocked ? 'Locked segment' : 'Click a row or a surface to select'}</span>
+        </div>
       </SheetSection>
       <SheetSection label="Labels">
         <div className="flex gap-2 mb-1">

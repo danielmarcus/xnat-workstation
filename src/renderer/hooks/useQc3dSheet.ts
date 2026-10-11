@@ -19,6 +19,9 @@ export interface Qc3dRow extends Qc3dComponentRow {
   label: string;
   color: string;
   band: ComponentBand;
+  /** Slices as the 2D viewport numbers them, e.g. [12, 15]. */
+  slices: [number, number] | null;
+  selected: boolean;
 }
 
 const BUILD_KEYS: Array<keyof Qc3dSettings> = ['resolution', 'renderer', 'smoothIterations', 'thinBoost'];
@@ -85,8 +88,35 @@ export function useQc3dSheet() {
     const bands = classifyComponents(r.components.map((c) => ({ ...c, centroid: [0, 0, 0] as [number, number, number] })), {
       strayVoxels: st.settings.strayVoxels, speckVoxels: st.settings.speckVoxels,
     });
-    return r.components.map((c, i) => ({ ...c, segmentIndex: r.segmentIndex, label: r.label, color: `rgb(${r.color.join(', ')})`, band: bands[i] }));
-  }), [st.report, st.settings.strayVoxels, st.settings.speckVoxels]);
+    return r.components.map((c, i) => ({
+      ...c, segmentIndex: r.segmentIndex, label: r.label, color: `rgb(${r.color.join(', ')})`, band: bands[i],
+      slices: qc3dService.sliceRange(r.segmentIndex, c.bbox),
+      selected: st.selected?.segmentIndex === r.segmentIndex && st.selected.componentId === c.id,
+    }));
+  }), [st.report, st.settings.strayVoxels, st.settings.speckVoxels, st.selected]);
+
+  const selectedRow = rows.find((r) => r.selected) ?? null;
+  const selectedLocked = !!selectedRow && !!summary?.segments.find((m) => m.segmentIndex === selectedRow.segmentIndex)?.locked;
+  const deleteSelected = async () => {
+    const sel = useQc3dStore.getState().selected;
+    if (!sel) return;
+    const r = await qc3dService.deleteComponent(sel.segmentIndex, sel.componentId);
+    if (r === 'locked') useQc3dStore.getState().set({ message: 'The segment is locked — unlock it to delete' });
+  };
+
+  // Sheet-scoped key: Delete / Backspace removes the selected component.
+  useEffect(() => {
+    if (!open) return;
+    return hotkeyService.pushKeyLayer({
+      onKeyDown: (e) => {
+        if ((e.key !== 'Delete' && e.key !== 'Backspace') || e.ctrlKey || e.metaKey || e.altKey) return false;
+        if (!useQc3dStore.getState().selected) return false;
+        void deleteSelected();
+        return true;
+      },
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   const counts = rows.reduce((acc, r) => ({ ...acc, [r.band]: (acc[r.band] ?? 0) + 1 }), {} as Partial<Record<ComponentBand, number>>);
   const labels = (summary?.segments ?? []).map((m) => ({
@@ -113,6 +143,10 @@ export function useQc3dSheet() {
     }),
     setAllHidden: (hidden: boolean) => st.set({ hiddenSegments: hidden ? labels.map((l) => l.segmentIndex) : [] }),
     rebuild: () => { void qc3dService.build(); },
+    select: (segmentIndex: number, componentId: number) => qc3dService.select(segmentIndex, componentId),
+    selectedRow,
+    selectedLocked,
+    deleteSelected: () => { void deleteSelected(); },
     expanded: useUnifiedLayoutStore((s) => s.layout.kind === 'qc-3d' && !!s.layout.expanded),
     toggleExpanded: () => {
       const l = useUnifiedLayoutStore.getState().layout;

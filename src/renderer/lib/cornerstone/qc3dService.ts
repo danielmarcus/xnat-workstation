@@ -19,6 +19,12 @@ import { classifyComponents, type ComponentBand } from '../segmentation/qc3d/com
 import type { QcMesh } from '../segmentation/qc3d/build';
 import { useSegmentationStore } from '../../stores/segmentationStore';
 import { useQc3dStore, type Qc3dLabelReport } from '../../stores/qc3dStore';
+import { useUnifiedLayoutStore } from '../../stores/unifiedLayoutStore';
+import { beginTransaction } from './labelmapTransaction';
+import { sliceAxisFor } from './maskIslands';
+import { sliceNumbering } from './sliceNumbering';
+import { pickNearest } from '../segmentation/qc3d/pick';
+import type { Axis } from '../segmentation/maskOps/planeIO';
 
 export const QC3D_ACTOR_PREFIX = 'qc3d:';
 /** The 3D panel of the QC layout (mirrors hooks/useViewportLayout's QC_3D_PANEL_ID). */
@@ -50,7 +56,8 @@ type Vp3d = {
   render: () => void;
   getVtkActiveCamera?: () => VtkCamera;
   getRenderer?: () => { resetCameraClippingRange: () => void } | undefined;
-  getCamera: () => { position: number[]; focalPoint: number[]; viewUp: number[] };
+  getCamera: () => { position: number[]; focalPoint: number[]; viewUp: number[]; viewPlaneNormal: number[] };
+  canvasToWorld: (p: number[]) => number[];
   element: HTMLElement;
   setCamera: (c: { focalPoint: number[]; position: number[]; viewUp: number[]; parallelScale: number }) => void;
 };
@@ -175,7 +182,30 @@ function detach(): void {
   }
 }
 
+const picking = new WeakSet<HTMLElement>();
+
+/** A click (not a drag — that rotates) on the 3D view selects the component under it. */
+function installPicking(vp: Vp3d): void {
+  const el = vp.element;
+  if (picking.has(el)) return;
+  picking.add(el);
+  let down: { x: number; y: number } | null = null;
+  el.addEventListener('pointerdown', (e) => { down = e.button === 0 && !e.shiftKey ? { x: e.clientX, y: e.clientY } : null; });
+  el.addEventListener('pointerup', (e) => {
+    const d = down;
+    down = null;
+    if (!d || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 4 || !built.length) return;
+    const v = viewport3d();
+    if (!v) return;
+    const r = v.element.getBoundingClientRect();
+    const hit = qc3dService.pickAt(v.canvasToWorld([e.clientX - r.left, e.clientY - r.top]), v.getCamera().viewPlaneNormal);
+    if (hit) qc3dService.select(hit.segmentIndex, hit.componentId);
+    else useQc3dStore.getState().set({ selected: null });
+  });
+}
+
 function attach(vp: Vp3d): void {
+  installPicking(vp);
   vp.removeActors(vp.getActors().filter((a) => a.uid.startsWith(QC3D_ACTOR_PREFIX)).map((a) => a.uid));
   // The volume rendering would hide the surfaces; it comes back when QC closes.
   for (const a of vp.getActors()) a.actor.setVisibility?.(false);
@@ -222,7 +252,7 @@ export const qc3dService = {
           segmentIndex: member.segmentIndex,
           label: member.label,
           color: [member.color[0], member.color[1], member.color[2]],
-          components: out.components.map((c) => ({ id: c.id, voxels: c.voxels, volumeCc: c.volumeCc, bbox: c.bbox, centroidWorld: c.centroidWorld })),
+          components: out.components.map((c) => ({ id: c.id, voxels: c.voxels, volumeCc: c.volumeCc, bbox: c.bbox, centroidWorld: c.centroidWorld, seed: c.seed })),
         });
         for (const mesh of out.meshes) next.push({ segmentIndex: member.segmentIndex, componentId: mesh.componentId, actor: actorFor(mesh), mesh });
       }
@@ -283,6 +313,106 @@ export const qc3dService = {
     if (!vp) return;
     standardView(vp);
     vp.render();
+  },
+
+  /**
+   * The visible component a view ray hits first: through `point` (on the focal plane) along
+   * −`normal` (Cornerstone's viewPlaneNormal points toward the camera).
+   */
+  pickAt(point: number[], normal: number[]): { segmentIndex: number; componentId: number } | null {
+    const far = 1e5;
+    const origin = point.map((v, d) => v + normal[d] * far);
+    const dir = normal.map((v) => -v);
+    const hit = pickNearest(
+      built.filter((b) => b.actor.getVisibility()).map((b) => ({ key: `${b.segmentIndex}:${b.componentId}`, positions: b.mesh.positions, indices: b.mesh.indices })),
+      origin, dir,
+    );
+    if (!hit) return null;
+    const [segmentIndex, componentId] = hit.key.split(':').map(Number);
+    return { segmentIndex, componentId };
+  },
+
+  /** Select a component (highlighted in 3D) and bring the 2D viewport to it. */
+  select(segmentIndex: number, componentId: number): void {
+    useQc3dStore.getState().set({ selected: { segmentIndex, componentId } });
+    qc3dService.jumpTo(segmentIndex, componentId);
+  },
+
+  /** Move the QC layout's 2D viewport to the slice through a component's centroid (#253). */
+  jumpTo(segmentIndex: number, componentId: number): boolean {
+    const st = useQc3dStore.getState();
+    const row = st.report.find((r) => r.segmentIndex === segmentIndex)?.components.find((c) => c.id === componentId);
+    const layout = useUnifiedLayoutStore.getState().layout;
+    if (!row || layout.kind !== 'qc-3d' || !st.containerId) return false;
+    const vp = viewportService.getViewport(layout.source) as unknown as {
+      type?: string; jumpToWorld?: (w: number[]) => boolean; render?: () => void;
+      getCamera?: () => { viewPlaneNormal?: number[] };
+    } | undefined;
+    if (!vp) return false;
+    if (vp.type && vp.type !== 'stack' && typeof vp.jumpToWorld === 'function') {
+      vp.jumpToWorld(row.centroidWorld);
+      vp.render?.();
+      return true;
+    }
+    const grid = readSegmentVoxelGrid(st.containerId, segmentIndex);
+    const normal = vp.getCamera?.()?.viewPlaneNormal;
+    if (!grid || !normal) return false;
+    const axis = sliceAxisFor(grid.geometry.direction, normal) as Axis;
+    const numbering = sliceNumbering(layout.source, grid.geometry, axis);
+    if (!numbering) return false;
+    const k = Math.round((row.bbox[axis] + row.bbox[axis + 3]) / 2);
+    viewportService.scrollToIndex(layout.source, numbering.toDisplay(k));
+    return true;
+  },
+
+  /** A component's slice range as the 2D viewport numbers its slices (1-based), or null. */
+  sliceRange(segmentIndex: number, bbox: number[]): [number, number] | null {
+    const st = useQc3dStore.getState();
+    const layout = useUnifiedLayoutStore.getState().layout;
+    if (layout.kind !== 'qc-3d' || !st.containerId) return null;
+    const vp = viewportService.getViewport(layout.source) as unknown as { getCamera?: () => { viewPlaneNormal?: number[] } } | undefined;
+    const normal = vp?.getCamera?.()?.viewPlaneNormal;
+    const grid = readSegmentVoxelGrid(st.containerId, segmentIndex);
+    if (!normal || !grid) return null;
+    const axis = sliceAxisFor(grid.geometry.direction, normal) as Axis;
+    const numbering = sliceNumbering(layout.source, grid.geometry, axis);
+    if (!numbering) return null;
+    const a = numbering.toDisplay(bbox[axis]) + 1, b = numbering.toDisplay(bbox[axis + 3]) + 1;
+    return [Math.min(a, b), Math.max(a, b)];
+  },
+
+  /**
+   * Delete a component from its member (#255): a 26-connected flood fill from its seed voxel,
+   * written through a LabelmapTransaction — one undo step (#257). The surfaces rebuild.
+   */
+  async deleteComponent(segmentIndex: number, componentId: number): Promise<'ok' | 'locked' | 'missing'> {
+    const st = useQc3dStore.getState();
+    const row = st.report.find((r) => r.segmentIndex === segmentIndex)?.components.find((c) => c.id === componentId);
+    if (!row || !st.containerId) return 'missing';
+    const member = { containerId: st.containerId, segmentIndex };
+    const begun = beginTransaction([member]);
+    if (!begun.ok) return begun.reason === 'locked' ? 'locked' : 'missing';
+    const txn = begun.txn;
+    const grid = txn.grid(member);
+    if (!grid || !txn.has(member, row.seed)) { txn.discard(); return 'missing'; }
+    const [nx, ny, nz] = grid.geometry.dimensions;
+    const nxy = nx * ny;
+    const stack = [row.seed];
+    txn.set(member, row.seed, false);
+    while (stack.length) {
+      const p = stack.pop()!;
+      const k = Math.floor(p / nxy), j = Math.floor((p - k * nxy) / nx), i = p - k * nxy - j * nx;
+      for (let dk = -1; dk <= 1; dk++) for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
+        const x = i + di, y = j + dj, z = k + dk;
+        if (x < 0 || y < 0 || z < 0 || x >= nx || y >= ny || z >= nz) continue;
+        const q = x + nx * (y + ny * z);
+        if (txn.has(member, q)) { txn.set(member, q, false); stack.push(q); }
+      }
+    }
+    txn.commit();
+    useQc3dStore.getState().set({ selected: null });
+    await qc3dService.build();
+    return 'ok';
   },
 
   /** For tests and picking: the built components (world-space meshes). */

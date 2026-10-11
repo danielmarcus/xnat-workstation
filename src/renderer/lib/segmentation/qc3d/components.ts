@@ -14,6 +14,8 @@ export interface Component3d {
   bbox: [number, number, number, number, number, number];
   /** Mean voxel index. */
   centroid: [number, number, number];
+  /** Flat index of one of its voxels (where a flood fill can start). */
+  seed: number;
 }
 
 export interface Components3d {
@@ -58,7 +60,7 @@ export function labelComponents3d(mask: ArrayLike<number>, dims: Dims): Componen
         }
       }
     }
-    components.push({ id, voxels: n, bbox: [i0, j0, k0, i1, j1, k1], centroid: [si / n, sj / n, sk / n] });
+    components.push({ id, voxels: n, bbox: [i0, j0, k0, i1, j1, k1], centroid: [si / n, sj / n, sk / n], seed: start });
   }
   components.sort((a, b) => b.voxels - a.voxels || a.id - b.id);
   return { labels, components };

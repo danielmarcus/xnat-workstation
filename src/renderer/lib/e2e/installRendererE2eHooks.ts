@@ -1,3 +1,4 @@
+import { useQc3dStore } from '../../stores/qc3dStore';
 import { qc3dService } from '../cornerstone/qc3dService';
 import { computeClient } from '../compute/computeClient';
 import { cache, getEnabledElementByViewportId, metaData, utilities as csUtilities } from '@cornerstonejs/core';
@@ -189,7 +190,7 @@ declare global {
       /** Lowest source-image value under the active segment (ground truth for propagation). */
       activeSegmentMinSourceValue: () => number | null;
       /** The 3D QC surfaces built (per component), and whether each is shown. */
-      qc3dComponents: () => Array<{ segmentIndex: number; componentId: number; visible: boolean; triangles: number; vertices: number; checksum: number }>;
+      qc3dComponents: () => Array<{ segmentIndex: number; componentId: number; visible: boolean; triangles: number; vertices: number; checksum: number; centroid: number[] | null }>;
       /** Slow each compute-worker progress step by this many ms (0 = off), so a solve can be cancelled. */
       setComputeThrottle: (ms: number) => void;
       /** Highest source value under the active segment (null if none / no source). */
@@ -834,7 +835,7 @@ export function installRendererE2eHooks(): void {
       return Number.isFinite(min) ? min : null;
     },
     setComputeThrottle: (ms) => computeClient.setThrottle(ms),
-    qc3dComponents: () => qc3dService.builtComponents().map((c) => ({ segmentIndex: c.segmentIndex, componentId: c.componentId, visible: c.visible, triangles: c.mesh.indices.length / 3, vertices: c.mesh.positions.length / 3, checksum: Math.round(c.mesh.positions.reduce((a, v, i) => a + v * ((i % 7) + 1), 0) * 100) / 100 })),
+    qc3dComponents: () => qc3dService.builtComponents().map((c) => ({ segmentIndex: c.segmentIndex, componentId: c.componentId, visible: c.visible, triangles: c.mesh.indices.length / 3, vertices: c.mesh.positions.length / 3, checksum: Math.round(c.mesh.positions.reduce((a, v, i) => a + v * ((i % 7) + 1), 0) * 100) / 100, centroid: useQc3dStore.getState().report.find((r) => r.segmentIndex === c.segmentIndex)?.components.find((x) => x.id === c.componentId)?.centroidWorld ?? null })),
     activeSegmentMaxSourceValue: () => {
       const { activeSegmentationId, activeSegmentIndex } = useSegmentationStore.getState();
       const g = activeSegmentationId ? readSegmentVoxelGrid(activeSegmentationId, activeSegmentIndex) : null;
