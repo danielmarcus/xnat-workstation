@@ -388,3 +388,30 @@ compute infrastructure they need, and the ROI limit.
   | 58 | Body / edge protection | Edge guard (Sobel/Scharr, gentle/strong, polarity) and *Stop at air* (CT); the ROI limit as a hard boundary |
 
   Full offline E2E (unloaded): 279/279. Unit 1040/1040. Branch 4 complete.
+
+---
+
+## 9. Branch 7 — `seg-3d-qc` (ordered plan)
+
+Cut from `seg-compute-infra` (meshing runs in its compute worker). Wireframe D9-A: a
+**“2D + 3D QC” layout** (the active 2D viewport beside a 3D one) opened by a **3D QC sheet**
+in Process; the user's layout comes back when the sheet closes. Domain items #245–246 and
+#254 (pancreas) stay deferred (decision 4).
+
+**Approach change from §2:** surfaces are built by our own pipeline, not Cornerstone's
+PolySeg `Surface` representation. QC needs per-component colour and picking, a chosen
+resolution (#239), blocky vs marching-cubes extraction (#247), Taubin smoothing (#240),
+stray highlighting (#242) and hide-largest (#248) — PolySeg exposes none of these. The
+pipeline: labelmap → (max-pool) resample → 3D connected components → mesh per component
+(voxel faces, or marching cubes) → Taubin → vtk.js actors added to the existing VOLUME_3D
+viewport (its volume rendering hidden while QC is open). Meshing runs in the compute worker.
+Nothing rebuilds automatically on edits (cross-cutting rule): the sheet marks the surfaces
+**stale** and offers Rebuild (#235).
+
+| Slice | Content | Acceptance |
+|---|---|---|
+| **Q1** | Pure algorithms (`lib/segmentation/qc3d/`): 3D connected components (26-connected) with voxel count, volume (cc), bounding box, centroid; size bands main · fragment · stray · speck from the stray/speck thresholds (#243–244, #252); max-pool resampling to 128 / 192 / 256 on the longest axis (a one-voxel speck stays visible); surface extraction — voxel-face (“blocky”) and marching cubes (#247); Taubin λ/μ smoothing (#240) | Unit tests with known answers (sphere area/volume, component counts and bands, speck survives resampling, Taubin keeps volume while reducing roughness); mutation-checked |
+| **Q2** | `qc3dService` + worker job `surfaceMesh`: build per component on demand, vtk actors in the 3D viewport, colours from the segment (strays/specks highlighted when *Show strays* is on), per-label visibility and hide/show all (#237–238), hide largest (#248), thin-structure boost (#249: components whose thickness is below 2 voxels are meshed one voxel dilated for display only), brightness and ambient (#250), auto-rotate (#241), reset view (#251), rotate / ⇧-drag pan / wheel zoom (#231–233), fullscreen = maximise the 3D panel (#236), stale flag + Rebuild (#235) | E2E: surfaces appear for a painted segment (pixel check on the 3D canvas), visibility and hide-largest change the pixels, Rebuild after an edit |
+| **Q3** | “2D + 3D QC” layout preset and the **3D QC sheet** (Process › 3D QC): render settings, label list, component report (category, cc, voxels, slice range) with stray/speck thresholds; row ↗ jumps the 2D viewport to the component (#253); select by row or by clicking it in 3D (#234), highlighted in both; **Delete component** through a LabelmapTransaction, one undo step (#255, #257); the user's layout restored on close | E2E on `ct-axial-anatomy` with a main region plus strays: report counts/bands, jump moves the 2D slice, delete removes exactly that component and undoes, lock refused, layout restored |
+| **Q4** | **3D scissor** (#256): a lasso drawn on the 3D view removes the active segment's voxels whose projection falls inside it (or keeps only those inside), along the view direction through the whole volume; preview → ⏎ commit, one undo (#257) | E2E: a lasso over half of a region removes that half; undo restores; locked segment refused |
+| **Q5** | Docs (tool reference, this log), full offline E2E (unloaded), visual sweep | CLAUDE.md self-check |
