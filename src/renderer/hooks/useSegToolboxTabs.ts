@@ -31,6 +31,6 @@ export function useSegToolboxTabs(activeToolId: string | null, isSeg: boolean) {
     segTab,
     onSelectSegTab: (tab: SegToolboxTab) => setSegTab(tab),
     openOperationId: openSheet,
-    onOpenOperation: (id: 'cleanup' | 'interpolate' | 'propagate') => openOperation(id),
+    onOpenOperation: (id: 'cleanup' | 'interpolate' | 'propagate' | 'qc3d') => openOperation(id),
   };
 }

@@ -119,7 +119,7 @@ export interface ContextToolboxProps {
   onSelectSegTab?: (tab: 'paint' | 'shape' | 'smart' | 'process') => void;
   /** The Process tab's operations open a sheet; the open one is marked. */
   openOperationId?: string | null;
-  onOpenOperation?: (id: 'cleanup' | 'interpolate' | 'propagate') => void;
+  onOpenOperation?: (id: 'cleanup' | 'interpolate' | 'propagate' | 'qc3d') => void;
   /** The Smart-tab tools' own controls, for the active tool (rendered when it declares 'semiAuto'). */
   renderSemiAutoControls?: (toolId: string) => ReactNode;
 }

@@ -7,9 +7,11 @@
  * `handleComputeRequest` is the worker's whole body, kept here so it runs in unit tests.
  */
 import { randomWalker, type RandomWalkerInput, type RandomWalkerResult } from '../segmentation/semiauto/randomWalker';
+import { buildQcSurfaces, type QcBuildInput, type QcBuildOutput } from '../segmentation/qc3d/build';
 
 export interface ComputeAlgorithms {
   randomWalker: { input: Omit<RandomWalkerInput, 'onProgress'>; output: RandomWalkerResult };
+  qcSurfaces: { input: QcBuildInput; output: QcBuildOutput };
 }
 export type ComputeName = keyof ComputeAlgorithms;
 
@@ -32,6 +34,10 @@ const ALGORITHMS: { [N in ComputeName]: (input: ComputeAlgorithms[N]['input'], p
   randomWalker: (input, progress) => {
     const output = randomWalker({ ...input, onProgress: progress });
     return { output, transfer: [output.probability.buffer, output.mask.buffer] };
+  },
+  qcSurfaces: (input, progress) => {
+    const output = buildQcSurfaces(input, progress);
+    return { output, transfer: output.meshes.flatMap((m) => [m.positions.buffer, m.normals.buffer, m.indices.buffer]) };
   },
 };
 

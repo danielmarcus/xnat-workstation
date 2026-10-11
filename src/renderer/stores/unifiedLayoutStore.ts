@@ -21,7 +21,9 @@ export type LayoutPreset = 'single' | 'mpr-2x2';
 export type UnifiedLayout =
   | { kind: 'single' }
   | { kind: 'mpr-2x2' }
-  | { kind: 'grid'; rows: number; cols: number };
+  | { kind: 'grid'; rows: number; cols: number }
+  /** “2D + 3D QC” (SegWorks parity D9): `source`'s scan in 2D beside a 3D view of it. */
+  | { kind: 'qc-3d'; source: string; expanded?: boolean };
 
 interface UnifiedLayoutStore {
   layout: UnifiedLayout;
@@ -29,6 +31,8 @@ interface UnifiedLayoutStore {
   setPreset: (preset: LayoutPreset) => void;
   /** Set a generic rows×cols grid of independent panels (clamped to >= 1). */
   setGrid: (rows: number, cols: number) => void;
+  /** Set any layout (the 3D QC sheet switches to qc-3d and back). */
+  setLayout: (layout: UnifiedLayout) => void;
 }
 
 function clampDim(v: number): number {
@@ -39,4 +43,5 @@ export const useUnifiedLayoutStore = create<UnifiedLayoutStore>((set) => ({
   layout: { kind: 'single' },
   setPreset: (preset) => set({ layout: { kind: preset } }),
   setGrid: (rows, cols) => set({ layout: { kind: 'grid', rows: clampDim(rows), cols: clampDim(cols) } }),
+  setLayout: (layout) => set({ layout }),
 }));

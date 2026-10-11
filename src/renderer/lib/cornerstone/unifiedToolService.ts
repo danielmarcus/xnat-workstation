@@ -1485,8 +1485,9 @@ export const unifiedToolService = {
         group.addTool(ZoomTool.toolName);
         group.addTool(PanTool.toolName);
         group.setToolActive(TrackballRotateTool.toolName, { bindings: [{ mouseButton: Primary }] });
-        group.setToolActive(ZoomTool.toolName, { bindings: [{ mouseButton: Secondary }] });
-        group.setToolActive(PanTool.toolName, { bindings: [{ mouseButton: Auxiliary }] });
+        // Wheel zooms and ⇧-drag pans as well (SegWorks #232–233 — the 3D QC view).
+        group.setToolActive(ZoomTool.toolName, { bindings: [{ mouseButton: Secondary }, { mouseButton: Wheel }] });
+        group.setToolActive(PanTool.toolName, { bindings: [{ mouseButton: Auxiliary }, { mouseButton: Primary, modifierKey: ShiftModifier }] });
       }
       group.addViewport(viewportId, viewportService.ENGINE_ID);
       console.log('[unifiedToolService] 3D viewport added:', viewportId);

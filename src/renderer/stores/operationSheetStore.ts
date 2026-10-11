@@ -12,7 +12,7 @@ import { create } from 'zustand';
 type ParamValues = Record<string, number | string>;
 
 export type SegToolboxTab = 'paint' | 'shape' | 'smart' | 'process';
-export type OperationSheetId = 'cleanup' | 'interpolate' | 'propagate';
+export type OperationSheetId = 'cleanup' | 'interpolate' | 'propagate' | 'qc3d';
 
 export interface PropagateSettings {
   direction: 'forward' | 'backward' | 'both';

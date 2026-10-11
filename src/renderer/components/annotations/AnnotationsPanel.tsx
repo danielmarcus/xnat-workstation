@@ -13,6 +13,8 @@ import SmartToolControls from './SmartToolControls';
 import { useSemiAutoControls } from '../../hooks/useSemiAutoControls';
 import InterpolateSheet from './InterpolateSheet';
 import PropagateSheet from './PropagateSheet';
+import Qc3dSheet from './Qc3dSheet';
+import { useQc3dSheet } from '../../hooks/useQc3dSheet';
 import { usePropagateSheet } from '../../hooks/usePropagateSheet';
 import { useInterpolateSheet } from '../../hooks/useInterpolateSheet';
 import { useSegToolboxTabs } from '../../hooks/useSegToolboxTabs';
@@ -81,6 +83,7 @@ export default function AnnotationsPanel({ activeViewportId, sourceImageIds }: A
   const cleanup = useCleanupSheet();
   const interpolate = useInterpolateSheet();
   const propagate = usePropagateSheet();
+  const qc3d = useQc3dSheet();
   const checkpoints = useCheckpoints();
   const semiAuto = useSemiAutoControls();
   const handlers = {
@@ -110,7 +113,7 @@ export default function AnnotationsPanel({ activeViewportId, sourceImageIds }: A
       renderSemiAutoControls={(toolId) => <SmartToolControls toolId={toolId} m={semiAuto} />}
     />
   ) : undefined;
-  const sheet = isSeg ? (<><CleanupSheet m={cleanup} /><InterpolateSheet m={interpolate} /><PropagateSheet m={propagate} /></>) : undefined;
+  const sheet = isSeg ? (<><CleanupSheet m={cleanup} /><InterpolateSheet m={interpolate} /><PropagateSheet m={propagate} /><Qc3dSheet m={qc3d} /></>) : undefined;
 
   return (
     <div

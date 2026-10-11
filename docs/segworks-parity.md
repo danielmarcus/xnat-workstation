@@ -424,3 +424,18 @@ Nothing rebuilds automatically on edits (cross-cutting rule): the sheet marks th
   8%/10%, Taubin halves roughness at < 5% volume change); six mutants killed — one survived
   at first because the resampling test's speck sat at the one in-block offset the mutant
   kept, so the test now places specks at every offset.
+- **Q2** (with Q3's layout and sheet shell) — `qc3d/build.ts` (components at full resolution,
+  each meshed from its own crop with one volume-wide max-pool factor, thin boost, world
+  coordinates, outward normals), worker job `qcSurfaces`, `qc3dService` (vtk.js actors in the
+  QC layout's 3D view; its volume rendering hidden meanwhile), `qc3dStore`, `useQc3dSheet`,
+  `Qc3dSheet` (Process › 3D QC). `@kitware/vtk.js` is now a direct dependency, pinned to the
+  version Cornerstone uses. The camera opens on a three-quarter view fitted to the surfaces
+  (`parallelScale` is half the view's *height*, so a tall narrow view is fitted by width).
+  3D view: wheel zoom and ⇧-drag pan added to the 3D tool group. *Expand 3D* lays the 3D
+  panel over the whole viewport area; the 2D viewport stays mounted beneath it.
+  - Test lessons: the overlay text drawn over the 3D canvas made a brightness count pass on
+    an empty view — the E2E counts *coloured* pixels; and Surface Nets is dual to the voxel
+    faces (same triangle count, and for a one-slice region the same vertex count), so the
+    renderer test compares vertex positions.
+  - E2E `annotations/qc-3d` (6 tests); five mutants (hide largest, stale watch, volume left
+    visible, layout not restored, build settings not rebuilding) each killed.

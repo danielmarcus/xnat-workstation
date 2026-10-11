@@ -6,7 +6,11 @@
 import type { Dims } from './components';
 
 export function maxPoolResample(mask: ArrayLike<number>, dims: Dims, target: number): { data: Uint8Array; dims: Dims; factor: number } {
-  const factor = Math.max(1, Math.ceil(Math.max(...dims) / target));
+  return maxPoolByFactor(mask, dims, Math.max(1, Math.ceil(Math.max(...dims) / target)));
+}
+
+/** Max-pool by a given integer factor (the build applies one volume-wide factor to every crop). */
+export function maxPoolByFactor(mask: ArrayLike<number>, dims: Dims, factor: number): { data: Uint8Array; dims: Dims; factor: number } {
   const [nx, ny, nz] = dims;
   if (factor === 1) return { data: Uint8Array.from(mask, (v) => (v ? 1 : 0)), dims: [nx, ny, nz], factor };
   const out: Dims = [Math.ceil(nx / factor), Math.ceil(ny / factor), Math.ceil(nz / factor)];
