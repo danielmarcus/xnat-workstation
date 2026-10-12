@@ -384,4 +384,5 @@ lesson of `7a33519` — every interpolation/propagation is user-triggered and pr
   sharing one close / confirm / stale-notice path (`hooks/operationLifecycle.ts`) and one footer.
   **Anchor keys are now chords** — ⌥A / ⌥B set, ⌥⇧A / ⌥⇧B / ⌥⇧C clear (matched on `e.code`;
   ⌥A types "å" on a Mac): with the operation open while painting keyframes, bare A / B would
-  have taken Angle and Brush away (D12 as narrowed).
+  have taken Angle and Brush away (D12 as narrowed). The bare-letter mutant fails the new “B still picks the Brush” E2E.
+  Unit 1013/1013; full offline E2E on the built app **277/277**.
