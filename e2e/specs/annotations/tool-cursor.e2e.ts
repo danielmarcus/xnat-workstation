@@ -11,6 +11,7 @@
 import { test, expect } from '../../fixtures/electron-app';
 import type { Page } from '@playwright/test';
 import { loadFixture } from '../../helpers/local-fixture';
+import { clickTool } from '../../helpers/toolbox';
 
 type Win = { __XNAT_E2E__: { resetUnifiedSegmentations: () => void } };
 
@@ -45,7 +46,7 @@ test('switching between brush variants never leaves a second cursor behind', asy
   // visual feedback for the sampling-radius control, so it is asserted, not tolerated.
   // Eraser / Sph. Eraser retired into the shared edit mode (edit-mode.e2e.ts covers it).
   for (const tool of ['Brush', 'Sph. Brush', 'Threshold', 'Sph. Thresh', 'Dyn. Thresh', 'Brush']) {
-    await panel.getByRole('button', { name: tool, exact: true }).click();
+    await clickTool(panel, tool);
     await hover();
     const expected = tool === 'Dyn. Thresh' ? 2 : 1;
     const { circles } = await cursorState(page);
@@ -70,7 +71,7 @@ test('a usable tool never shows a forbidden cursor', async ({ page }) => {
   const tools = ['Region', 'Region+', 'Rect Multi', 'Paint Fill', 'Contour Fill', 'Select',
                  'Circle', 'Rect', 'Sphere'];
   for (const [i, tool] of tools.entries()) {
-    await panel.getByRole('button', { name: tool, exact: true }).click();
+    await clickTool(panel, tool);
     await page.mouse.move(box.x + box.width / 2 + i * 3, box.y + box.height / 2 + i * 2, { steps: 2 });
     await page.waitForTimeout(250);
     const { css } = await cursorState(page);

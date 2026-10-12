@@ -14,6 +14,7 @@ import ViewportRuler from './ViewportRuler';
 import ViewportScrollbar from './ViewportScrollbar';
 import { useViewportGestureStore } from '../../stores/viewportGestureStore';
 import ViewportStatusOverlay from './ViewportStatusOverlay';
+import MaskPreviewBar from './MaskPreviewBar';
 import ViewportTimeScrubber from './ViewportTimeScrubber';
 import type { MPRPlane, DisplayPlane } from '@shared/types/viewer';
 
@@ -111,6 +112,7 @@ export default function Viewport({
           <ViewportRuler panelId={panelId} />
           <ViewportScrollbar panelId={panelId} />
           <ViewportTimeScrubber panelId={panelId} />
+          <MaskPreviewBar panelId={panelId} />
         </>
       )}
       {imageIds.length > 0 && <ViewportStatusOverlay panelId={panelId} state={loadState} />}

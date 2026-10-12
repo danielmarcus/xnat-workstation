@@ -1,0 +1,290 @@
+# SegWorks Parity — Overview & Proposed Workplan
+
+Status: **Plan + UI decisions approved 2026-10-10** (branch `segworks-parity`, 2026-10-10)
+
+Source: SegWorks v2.0.610 *User-Facing Feature Inventory* (342 features, 13 sections), plus
+the add-on modules shipped alongside it (Worklist Builder, Mask Relabel by Name, MR lesion
+seg ×3, Lung Segmentation, Batch Stats Collector, LatestMask). Older bundles (2.0.588,
+2.0.609, the Chrome-extension zip) are earlier copies of the same code and were used only
+to cross-check. Numbers like `#152` below refer to the v2.0.610 inventory.
+
+---
+
+## 1. Triage of the 342 SegWorks features
+
+| Bucket | ~Count | What it is |
+|---|---|---|
+| **Not applicable** | ~45 | Exists only because SegWorks is a Chrome extension injected into OHIF |
+| **Already in Workstation** | ~35 | Equivalent exists (possibly with a different UX) |
+| **Partial — extend** | ~30 | Workstation has the base; SegWorks adds options or workflow on top |
+| **Additive — new** | ~230 | Net-new capability that fits Workstation's architecture |
+
+### 1a. Not applicable (drop)
+- Toolbar/menu injection, compact OHIF menu, draggable/resizable shadow-DOM panel, radial
+  menu self-healing remounts (#1–8). Workstation owns its own UI.
+- Chrome site permissions, popup, active-site list, apex-domain grants, version display
+  (#284–290). Popup worklist mirror and last-case shortcut (#336–337).
+- OHIF SEG metadata registration/repair, Quick Finalize, DOM automation of OHIF export
+  (#17–19, #264's export half). Workstation already writes DICOM SEG/RTSTRUCT itself.
+- Self-healing Hide-PHI MutationObserver (#270). The *feature* (Hide PHI) is kept; the
+  self-healing part is a workaround for not owning the DOM.
+- Session-expired banner/relay (609 list). Workstation has its own auth handling.
+- LatestMask module (it automates OHIF's Import Mask dialog). The intent ("open the newest
+  mask by keyword") can be folded into the Worklist branch.
+- Microscopy Annotation Lab. It isn't part of SegWorks and targets slide microscopy.
+
+### 1b. Already present
+- Brush, threshold brushes, sphere brush, circle/rect/sphere scissors, paint fill, and
+  Cornerstone region grow (GrowCut-based RegionSegment/RegionSegmentPlus).
+- Live Wire (basic), Spline contour (basic), freehand contour, and Sculptor.
+- Contour interpolation with accept/auto-accept.
+- Undo/redo: per-container history that respects locks. Ctrl+Z / Ctrl+Shift+Z.
+- Remappable hotkey system, including `[`/`]` brush size and tool keys.
+- Per-segment stats (volume, intensity) and CSV export.
+- Disk-backed autosave and crash recovery; opt-in XNAT autosave.
+- Reviewer approval (RT Approval tags plus lock).
+- Per-segment visibility and lock; the context-overlay toggle; configurable corner fields.
+
+### 1c. Gaps that matter, by theme
+1. **Mask cleanup & mask math.** Workstation has essentially none of it: fill holes, keep
+   largest, remove speckles/strays, smoothing (median/gaussian/anisotropic), open/close,
+   magnet bridge, clear/move/merge/relabel segments, and Smart Cleanup batch planning.
+   This is the largest daily-use gap.
+2. **Labelmap interpolation & propagation.** It was removed in `7a33519` because it ran
+   automatically on every edit and the math was wrong (it computed a union, not an
+   interpolation). SegWorks does it right: explicit and user-triggered, with a gap table,
+   A/B anchors, preview, and several algorithms (SDF, area-preserving, morphology,
+   component matching, image-guided snap). Propagation adds forward/backward/bidirectional
+   with HU/σ tolerance and auto-stop.
+3. **Semi-automatic seeded segmentation.** Level Trace, Smart Brush, Random Walker, 3D
+   Fast GrowCut with seeds, binary Graph Cut, multi-label α-expansion, and Chan-Vese with
+   clinical presets. They all depend on shared infrastructure Workstation lacks: a
+   **preview-then-commit layer**, **ROI constraints**, and **Web Worker compute with
+   progress and cancel**.
+4. **Contour refinement.** Advanced Live Wire cost terms, more spline families
+   (Catmull-Rom, B-spline, Akima, tension…), copying or propagating a spline to the
+   adjacent slice, local ROI spline edit, and Snake refine.
+5. **Review ergonomics.** Auto Review flythrough (cine limited to the segmented range, with
+   overlay flicker and timing), mask-visibility hotkey, Hide-PHI display mode, hold-Q
+   HU hover probe, spring-loaded eraser, baseline snapshot and reset, and named checkpoints
+   with backup-file export and import.
+6. **3D segmentation QC.** Surface rendering of segments in the 3D viewport (PolySeg is
+   registered but unused for this), a 3D connected-component report, jump-to-component,
+   delete component, stray/speck thresholds, and a 3D scissor cut.
+7. **Worklist / Capture / Review.** Absent today (listed under PHASES "Future"). It covers
+   spreadsheet import/export, XNAT id resolution, project fetch, Next & Open,
+   Capture/Review/View-Only modes, skip with reason, comments, filters, report workbooks,
+   and the Worklist Builder.
+8. **Module extensibility.** User-loadable algorithm modules with a small API
+   (`getPixelData`, `getLabelmap`, `pushUndo`, `progress`, `cancelled`, `log`) and
+   schema-driven parameter UI. This would let Workstation run SegWorks' existing modules
+   (lung, glioma lesions, relabel, batch stats).
+
+---
+
+## 2. Proposed branches
+
+Each branch is a self-contained, testable unit that merges to `main`.
+`segworks-parity` is the umbrella branch for this plan doc. Feature branches will be cut
+from `main` as each one starts, following the existing kebab-case convention.
+
+| # | Branch | Scope (inventory refs) | Depends on | Size |
+|---|---|---|---|---|
+| **1** | `mask-ops` | **Foundation:** a `LabelmapTransaction` (snapshot → undo memo → write → render), operation scope (slice / range / volume × active / all labels × optional ROI), and a pure-function `maskOps` library. **Ops:** fill holes, keep largest, remove speckles/strays, median/gaussian smooth, smooth edges, open/close, anisotropic diffusion, magnet bridge, clear on slice, clear/move/merge segment, relabel-by-name. A Cleanup panel and the "S" fill-holes quick panel. (#182–212, #29, #209–210, Relabel module) | — | L |
+| **2** | `review-ergonomics` | Auto Review flythrough (#213–221), mask-visibility hotkey (#340–341), Hide-PHI mode for viewport overlay and header panel (#269), hold-key HU hover probe (#25), spring-loaded eraser and eraser toggle (#23–24), mask-mode HUD (#28), baseline set/reset (#15–16), named checkpoints and backup-file export/import (#258–268, mapped onto the existing disk backup) | 1 (baseline uses the transaction) | M |
+| **3** | `labelmap-interpolation` | Explicit, user-triggered interpolation only: gap scan and gap table, current-slice / gap / all-gaps / all-labels, A/B anchors and hotkeys, preview vs commit, SDF linear / area-preserving / morphology / component-matching / image-guided snap, exact vs chamfer DT (#152–168, #30–31). **Propagation:** fwd/back/bidir, CT HU and MR σ tolerance, max slices, area auto-stop, stable modes, fill-holes / snap / z-smooth (#169–181). Index-space only, so it survives oblique series. | 1 | L |
+| **4** | `seg-compute-infra` + 2D tools | **Infra:** preview layer (transient labelmap overlay plus commit/discard), ROI-constraint tool, and a Worker pool with progress and cancel. **Tools:** Level Trace (#32–51), Smart Brush (#59–62), Random Walker (#63–71), region-grow guards beyond Cornerstone's (#52–58) | 1 | L |
+| **5** | `seg-3d-solvers` | 3D seeded solvers on the #4 infra: Fast GrowCut with fg/bg seeds and slice range (#101–115), binary Graph Cut (#116–123), α-expansion multi-label (#124–135), Chan-Vese multiphase with presets (#136–151) | 4 | XL |
+| **6** | `contour-refine` | Live Wire advanced cost (Scharr, Laplacian, direction, pre-smooth, close tolerance, commit smoothing) (#75–81). Spline families, point undo, commit-undo-reload, copy/propagate to adjacent slice, local ROI edit, self-intersection guard (#82–100). Snake refine (#200–201). Extend Cornerstone's tools where possible and fork only where necessary. | 4 (preview) | L |
+| **7** | `seg-3d-qc` | Segment surfaces in the 3D viewport via PolySeg, per-label visibility, resolution and smoothing, 3D component report with stray/speck thresholds, jump to slice, delete component, 3D scissor, undo (#230–257) | 1 | L |
+| **8** | `worklist` | **Own reviewed plan first; XNAT-backed.** Requirements input from SegWorks: XLSX/CSV import, XNAT id resolution, project fetch, Worklist Builder generation, Next & Open, cursor sync, Capture / Review / View-Only modes, exact series and annotation capture, skip with reason, comments, filters, report workbooks, recovery, dirty flag, XLSX export, segment preset keys (#291–342) | — (benefits from 2) | XL |
+| **9** | `algorithm-modules` | Workstation-native module API and loader, run in a sandboxed Worker (not the renderer, which has Electron privileges). Schema-driven param UI, logs (copy/download), cancel, cached modules. Validate by re-authoring one SegWorks module (e.g. Glioma enhancing lesion) against the native API. (#271–283) | 1, 4 | M |
+
+**Recommended order:** 1 → 2 → 3 → 4 → 7 → 6 → 5 → 9 → 8
+
+Branch 8 is independent of the segmentation work and can run in parallel at any time. Put
+it earlier if case throughput is the bigger pain than tooling.
+
+### Cross-cutting rules (from past lessons in this repo)
+- Nothing runs automatically on `onSegmentationDataModified`. Every algorithm is
+  user-triggered and previews before it commits. This is the lesson of `7a33519`.
+- Operations work in index space, not world space, so oblique acquisitions are safe. Test
+  with the `ct-oblique` fixture as well as axial.
+- Resolve multi-layer group ids (`_layer_N`) before touching labelmaps.
+- Respect locks: no algorithm writes to a locked segment.
+- No toast spam; progress and status show up in the panel itself.
+- **Testing:** unit tests for the pure `maskOps`/solver functions against synthetic
+  volumes. E2E drives the actual button or hotkey and asserts labelmap voxels. Use the
+  `ct-axial-anatomy` fixture for intensity-aware tools.
+
+---
+
+## 3. Decisions (2026-10-10)
+
+1. **Order** — confirmed: 1 → 2 → 3 → 4 → 7 → 6 → 5 → 9 → 8.
+2. **SegWorks code is reference, not source.** Every feature is implemented natively in
+   Workstation's architecture (service layer, Zustand stores, typed IPC, Vitest + Playwright
+   discipline). SegWorks `.js` files and modules are read for algorithm behaviour and
+   parameter ranges only — no compat shim, no ported page-global code. Branch 9 defines a
+   Workstation-native module API; SegWorks modules may be *re-authored* against it as
+   validation, not run unchanged.
+3. **Worklist is XNAT-backed** and engineered on its own merits, not modelled on the
+   SegWorks spreadsheet workflow. It gets its **own carefully reviewed implementation plan**
+   (data model, XNAT storage, concurrency, permissions, migration) before any code. The
+   SegWorks feature list is an input to requirements only.
+4. **Domain-specific items deferred** to a secondary project after the main features ship:
+   pancreas mode / duct joining / plausibility flags (#245–246, #254), Lung Mode auto-click
+   (#222–229), Chan-Vese clinical preset library (#137 — the generic Chan-Vese ships), and
+   pre/post-op worklist filters (#312, #314).
+5. **Port every algorithm variant.** Each variant ships behind the same UI affordance;
+   variants that do not prove useful in review may be dropped later. Keep variants
+   pluggable (one strategy interface per family) so dropping one is a deletion, not a refactor.
+6. **UI wireframes before implementation.** A holistic wireframe set covering every
+   extension point — with alternatives where a decision is needed — is produced and
+   approved *before* branch 1 starts, so layout conflicts surface now rather than mid-project.
+   See [`docs/mockup/segworks-wireframes.html`](mockup/segworks-wireframes.html) and §4.
+
+## 4. UI wireframe decisions (approved 2026-10-10)
+
+All recommended options in [`mockup/segworks-wireframes.html`](mockup/segworks-wireframes.html)
+are adopted:
+
+| # | Decision |
+|---|---|
+| D1 | *Amended 2026-10-12, see below.* Run-style operations live in an **Operations section** of the side panel, its own peer between the member list and the toolbox; the active container/member stay visible |
+| D2 | *Amended 2026-10-12, see below.* The SEG toolbox is **one flat grid, no tabs**, at a fixed height |
+| D3 | Spline / Livewire mask fills are a **boundary mode on Contour Fill** (Freehand · Spline · Livewire), not new tools |
+| D4 | **Viewport preview bar** (top-centre; ⏎ commit, ⎋ discard, hold `\` compare) + sheet footer. Preview = target segment colour, hatched + dashed; never blue, never solid |
+| D5 | The viewport scrollbar becomes a **slice track** (active-segment occupancy, gaps, A/B anchors, draggable range) when a SEG member is active |
+| D6 | **Flythrough mini-player** on the viewport, launched from the container kebab or ⇧Space |
+| D7 | **Hide PHI** toolbar toggle beside Tags (⇧H). Scope: viewport overlay PHI fields + DICOM header PHI values (per-tag reveal) + window title; orientation markers, active ring and XNAT labels kept; exports unaffected |
+| D8 | **Checkpoints in the container kebab** (Review flythrough · Save checkpoint… · Restore checkpoint ▸); “baseline” is a reserved-name checkpoint; file export/import in Settings › File Backup |
+| D9 | **“2D + 3D QC” layout preset** + QC operation sheet; layout restored when the sheet closes |
+| D10 | Worklist space reserved: sidebar **Browse · Worklist** tab + toolbar **case bar** + full-window table view |
+| D11 | Modules run from **Process › Modules** sheets; installed/managed in **Settings › Modules** |
+| D12 | *Narrowed 2026-10-12, see below.* **Sheet-scoped hotkeys** take precedence while a sheet is open; new globals: hold-Q probe, M mask visibility, ⇧Space flythrough, ⇧H PHI, X cleanup, N/⇧N next/prev case, O contour fill, ⏎/⎋ preview, hold-`\` compare |
+
+Shared rules from the wireframe doc (§5 “Sheet rules”) are binding for every branch.
+
+### D1 / D2 amendment (2026-10-12)
+
+Built as first decided, the sheet sat **above** the toolbox but was opened from the toolbox's
+Process tab, so it read as a function of the selected tool. It also made the panel jump: the
+toolbox height followed the active tool (202–283 px), and with the sheet open the member list
+fell to ~180 px. The layouts compared are in
+[`mockup/tools-operations-layout.html`](mockup/tools-operations-layout.html) (A as built ·
+B op inside the Process tab · **C separate section**). **C, no tabs** is adopted:
+
+- **Tools and operations are separate.** A tool is a pointer mode (one active, writes on each
+  stroke); an operation is a job (parameters + scope → preview → commit). Most later
+  operations (Interpolate, Propagate, the solvers, QC) are iterative and used *while* painting,
+  so an operation must stay open and usable whatever tool is active. A tab that hides one or
+  the other cannot do that.
+- **Operations section** (replaces the Process tab + sheet): a 28 px header row — an
+  *Operation* picker; when one is open, the target chip, collapse ▾ and close ✕. Open, it has a
+  fixed-height body (scrolls) and a footer that stays visible (Preview · Commit · Discard, the
+  in-sheet status on its left). Collapsing keeps the operation and any preview alive and leaves a
+  one-line summary. Closing with a preview pending asks inline, as before. **X** opens Cleanup
+  (or expands it). Sheet rules (§5 of the wireframes) otherwise unchanged; the back arrow goes,
+  since there is no list to go back to.
+- **Toolbox: no tabs, fixed height.** Every tool in one grid, in group order (Select, Seg Bidir.,
+  then Paint, Shape, Smart): **4 columns** at ≥ 360 px panel width (with 4 px button padding, labels up to
+  ~66 px fit at the default 400 px; the widest today is 63 px), 3 below that, icon-only below the existing compact width. The Controls area
+  has a fixed height per kind, sized to that kind's tallest tool (Segmentation: Threshold), and
+  scrolls only on very short windows. The backup status moves into the toolbox header so it
+  cannot change the height. Measured target at the default window: toolbox ≈ 290 px (34%);
+  ≈ 323 px once branch 4's three tools arrive.
+- **Short windows:** the member list keeps ≥ 120 px; the operation body shrinks first, then the
+  tool controls scroll.
+- **Stale previews:** a preview is still discarded the moment its segment changes underneath it
+  (a stroke, an undo). Because painting with an operation open is now normal, the section says
+  so — “Preview discarded: the segment changed” — instead of the preview silently vanishing.
+- **D12 narrowed:** with an operation open for long stretches beside the tools, operations get
+  **no bare-letter keys** of their own; only the preview keys (⏎ ⎋ hold-`\`), which exist only
+  while a preview does.
+- **Later branches:** solver seed painters live inside their operation's body and share the one
+  active pointer mode with the toolbox (picking one clears the toolbox highlight and vice versa).
+  If the grid outgrows ~20 tools, revisit grouping.
+
+**Separately reviewed plans required** before implementation: branch 8 (worklist) **and**
+branch 9 (algorithm modules). Neither starts until its own plan is reviewed with the user.
+
+---
+
+## 5. Branch 1 — `mask-ops` (ordered plan)
+
+Cut from `segworks-parity`. Slices land as separate verified commits (`Mask ops S<n>: …`),
+executed top to bottom. Every slice follows the repo's red-before-green discipline; E2E drives
+the real affordance (tab → sheet → Preview → ⏎) and asserts **labelmap voxels**, not store state.
+
+**Ground truth this builds on** (verified in code 2026-10-10):
+- `readSegmentVoxelGrid(containerId, segmentIndex)` (`lib/cornerstone/segmentVoxelGrid.ts`) gives
+  one segment as a world-oriented grid with a live `write()`. In a multi-layer group (what
+  "New Segmentation" creates) **each segment is its own sub-seg stored as value 1**, so
+  multi-segment ops touch several Cornerstone segmentations and segments may overlap.
+- `pushVoxelHistoryMemo` / `isSegmentLockedHere` / `notifyLabelmapChanged`
+  (`unifiedSegService.ts`) are the existing undoable-write path used by island delete/move/paste.
+- Per-slice work happens in the **viewing plane** (`sliceAxisFor`), like island selection, so
+  oblique and MPR views stay index-space correct.
+
+| Slice | Content | Acceptance |
+|---|---|---|
+| **S1** | `lib/segmentation/maskOps/` — pure functions on binary planes (`Uint8Array` + dims + spacing): connected components (4/8), fill holes, keep largest, remove speckles (min area mm²), remove strays (centroid distance mm), median/majority, Gaussian smooth (σ mm, re-threshold), smooth edges (3×3 weighted vote), open/close (radius), anisotropic diffusion (Perona-Malik exp/quadratic, κ, iterations; image-guided), magnet bridge (source→target, max gap, fill-only/overwrite) | Vitest on synthetic planes, each seen red first |
+| **S2** | **Labelmap transaction**: one undo step spanning N members of a container; lock check up-front (refuse whole op, existing lock warning); stage → diff → write → `notifyLabelmapChanged`. **Scope resolver**: `{slices: current \| range \| volume, labels: active \| all \| pick, roi?}` → member grids × plane indices. Refactor island delete/move/paste onto the transaction (structure before features) | Existing island/paste/undo E2E still green; new unit tests for multi-member undo/redo |
+| **S3** | **Preview layer**: staged result rendered on every viewport showing the scan as hatched fill + dashed outline in the target segment colour (SVG layer, like island selection outlines); labelmap untouched until commit. **Viewport preview bar** (top-centre): ⏎ commit · ⎋ discard · hold `\` compare. Preview-scoped key capture | E2E: preview pixels present, labelmap unchanged; ⏎ writes; ⎋ leaves no trace; one Ctrl+Z reverts commit |
+| **S4** | **Toolbox tabs (D2)**: Select + Seg Bidir. pinned; Paint · Shape · Smart · Process; tool hotkeys switch tab; existing tool E2E updated to tab-aware helpers | Pixel/visual check of toolbox; tool-controls & tool-affordance specs green |
+| **S5** | **Operation sheet (D1)** shell + **Cleanup sheet**: op dropdown, params, scope bar, Advanced collapse, footer; back / discard-confirm; locked → Commit disabled with reason; sheet-scoped hotkey hook (D12); `X` opens last-used cleanup op | E2E per op: Process → Cleanup → op → Preview → ⏎ → voxels match the pure-function result on `ct-axial-anatomy` (+ `ct-oblique` for one op) |
+| **S6** | **Slice track (D5)**: scrollbar shows active-segment occupancy when a SEG member is active; draggable range bracket bound to Range scope; click band to jump | E2E: occupancy pixels at painted slices; dragging bracket updates the sheet range |
+| **S7** | **Segment ops**: clear segment (scope), clear active / all labels on slice, move to segment, merge into, duplicate, relabel-by-name (rename + optional merge into an existing same-named member, metadata from donor); magnet bridge two-member UI | E2E on multi-member containers; undo restores both members |
+| **S8** | **Smart Cleanup**: per-label stats → proposed plan table (op per label, thin/small-structure protection) → review/edit → one transaction | E2E: plan shown, edited, committed as one undo step |
+| **S9** | Docs (`annotation-tool-reference.md`, hotkeys), full offline E2E run, dev-app visual sweep against wireframes, merge to `main` | CLAUDE.md self-check answered |
+| **S10** | **D1/D2 amendment**: Operations section (picker header, target chip, collapse/close, fixed body, pinned footer with status) replaces the Process tab + sheet; flat no-tab toolbox (4/3 columns, group order); fixed-height Controls per kind; backup status in the toolbox header; stale-discard message; list ≥ 120 px; docs updated | E2E (seen red on the S9 build): every SEG tool on screen with no tabs; toolbox height identical for every tool and no tool's controls scroll; Cleanup opened from the Operations row stays usable while tools change and does not move the toolbox; collapse keeps the preview; painting under a preview discards it and says so. Existing cleanup / segment-ops / smart-cleanup / slice-track E2E green through the new affordance |
+
+### Branch 1 progress log
+
+- **S1** `f881920` — pure cleanup ops. Magnet bridge zone redefined (SegWorks' rule never joined the segments).
+- **S2** `f125dc5` — labelmap transaction + scope + runner; island delete/move/paste refactored onto it.
+- **S3** — preview layer, viewport preview bar, key layers (D12 mechanism), cleanup catalog + service.
+  Deviations from the wireframe found by looking at the running app: the bar sits **below**
+  the two-line corner readouts (top-centre covered a long series description); slice numbers
+  shown to the user use the **viewport's numbering** (`sliceNumbering.ts`) — grid order is
+  often reversed relative to the stack ("slice 9" was printed while the overlay said 8).
+- **S4+S5** — toolbox tabs (D2) and the operation sheet (D1) + Cleanup sheet, landed together
+  (a Process tab with no sheet would be a dead end). X opens Cleanup. A locked target previews
+  read-only. Deviations: the sheet's **ROI scope is deferred to branch 4**, where the ROI-limit
+  tool that draws it arrives; the Controls strip stays visible under the Process tab (the active
+  tool is still in effect). E2E specs that click tools now go through `e2e/helpers/toolbox.ts`
+  (`clickTool` opens the tool's tab first, as a user would).
+- **S6** — slice track (D5): active-segment occupancy bands on the scrollbar in the viewport's
+  numbering, drawn over the thumb (inset) so the current slice's band is never hidden; the
+  Cleanup Range is a teal bracket whose ends drag to edit the range. Gaps and A/B anchors come
+  with branch 3.
+- **S7** — segment operations in the Cleanup sheet's "Segments" group: Clear (with scope it
+  covers #206/#209/#210), Move into (= SegWorks Merge — they were the same relabel), Copy into,
+  Magnet bridge (fill / overwrite; locked members are never crossed or claimed). One "Into"
+  selector; one undo step across every segment touched (verified in-app: without the history
+  grouper one Ctrl+Z restored only one segment). Decisions: **Duplicate** = add a member with
+  "+" then Copy into it (a "new segment" target would leave an empty member behind on
+  Discard); **relabel-by-name** is covered by rename + Move into.
+- **S8** — Smart Cleanup: a cleanup op over All segments shows a per-segment plan (voxels,
+  small/thin flags, editable action); small (<1500 vox volume / 150 slice) and thin (boundary/area
+  ≥ 0.62 on 3 sampled slices) segments are withheld from eroding ops. Deviation: protected
+  segments default to **Skip** (SegWorks: Median — which also erases 1-px structures); Median is
+  selectable. The plan runs as one undo step.
+- **S9** — `docs/annotation-tool-reference.md` gains the toolbox tabs and the Process-tab
+  operations; full offline E2E 242/242 green on the built app. **Branch 1 complete; awaiting
+  the user's go-ahead to merge to `main`.**
+- **S10** — D1/D2 amendment, on branch `mask-ops-ops-section` (cut from `mask-ops` in a separate
+  worktree: the main checkout held someone's uncommitted focus-handling work). Operations section +
+  flat no-tab toolbox as specified above; in the built app the toolbox is 291 px for every tool and
+  an open operation 260 px (panel 832 px). Deviations found by running it: the 4-column buttons use
+  4 px padding (with 6 px, "Dyn. Thresh" clipped by 0.3 px at 400 px — panel-resize E2E caught
+  it); the open operation's picker is 96 px so a collapsed "Preview pending" summary fits. New
+  `operations-section` E2E (6) red on the S9 build, green now; the stale-notice and collapse
+  assertions also seen red against built mutants. Annotations + tools E2E 190/192 on the first
+  run: panel-resize (fixed above) and `contour-copy-paste` "loaded Structure contour … paste
+  interpolates", which passes 3/3 alone — the known flake another session is fixing.
+  After merging S10 into `mask-ops` with the focus-handling and loaded-contour commits: full offline
+  E2E on the built app **250/250**, unit 981/981, typecheck clean. **Branch 1 ready to merge to
+  `main`.** Branches 2–7 were cut from S9 and need S10 merged forward (their Process-tab sheets
+  and tabbed tools move to the Operations section and the flat grid).

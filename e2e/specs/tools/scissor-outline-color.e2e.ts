@@ -10,6 +10,7 @@
 import { test, expect } from '../../fixtures/electron-app';
 import type { Page } from '@playwright/test';
 import { loadFixture } from '../../helpers/local-fixture';
+import { clickTool } from '../../helpers/toolbox';
 
 type Win = { __XNAT_E2E__: { resetUnifiedSegmentations: () => void } };
 
@@ -30,7 +31,7 @@ async function selectCircleScissors(page: Page) {
   if (!(await panel.isVisible())) await page.getByRole('button', { name: 'Show segmentation panel' }).click();
   await expect(panel).toBeVisible({ timeout: 15_000 });
   await panel.getByRole('button', { name: 'New Segmentation (SEG)' }).click();
-  await panel.getByRole('button', { name: 'Circle', exact: true }).click();
+  await clickTool(panel, 'Circle');
 }
 
 /** Start a circle drag, read the outline strokes while it is on screen, then release. */

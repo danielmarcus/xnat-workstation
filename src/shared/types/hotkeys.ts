@@ -32,6 +32,8 @@ export type HotkeyAction =
   | 'tool.paintFill'
   | 'tool.sculptor'
   | 'tool.stackScroll'
+  // Operations (SegWorks parity)
+  | 'operation.cleanup'
   // Viewport actions
   | 'viewport.reset'
   | 'viewport.toggleInvert'

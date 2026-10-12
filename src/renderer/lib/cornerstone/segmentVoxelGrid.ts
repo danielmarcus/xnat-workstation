@@ -26,6 +26,20 @@ export interface SegmentVoxelGrid {
   csSegmentationId: string;
   /** Write one voxel (flat column-major index) through the live storage. */
   write(flatIndex: number, value: number): void;
+  /**
+   * A reader for the SOURCE image intensity at a grid voxel (modality LUT applied: HU on
+   * CT), in this grid's index space — for image-guided operations. Built on demand; null
+   * when the source pixels are not available.
+   */
+  sourceReader?: () => ((flatIndex: number) => number) | null;
+}
+
+/** Stored value → modality value (rescale slope/intercept) for one source image. */
+function modalityLut(imageId: string): (v: number) => number {
+  const m = metaData.get('modalityLutModule', imageId) as { rescaleSlope?: number; rescaleIntercept?: number } | undefined;
+  const slope = Number.isFinite(m?.rescaleSlope) ? Number(m?.rescaleSlope) : 1;
+  const intercept = Number.isFinite(m?.rescaleIntercept) ? Number(m?.rescaleIntercept) : 0;
+  return (v) => v * slope + intercept;
 }
 
 /** The imagePlaneModule fields a stack slice needs to place it in world space. */
@@ -123,7 +137,7 @@ function slicePlane(imageId: string, image: ImageLike): SlicePlane | null {
   };
 }
 
-function readStack(labelmapImageIds: string[]): Pick<SegmentVoxelGrid, 'geometry' | 'data' | 'write'> | null {
+function readStack(labelmapImageIds: string[]): Pick<SegmentVoxelGrid, 'geometry' | 'data' | 'write' | 'sourceReader'> | null {
   const images: ImageLike[] = [];
   const planes: SlicePlane[] = [];
   for (const id of labelmapImageIds) {
@@ -146,6 +160,20 @@ function readStack(labelmapImageIds: string[]): Pick<SegmentVoxelGrid, 'geometry
   return {
     geometry: placed.geometry,
     data,
+    sourceReader: () => {
+      // Each labelmap slice is derived from one source image; read that image's pixels.
+      const slices = sliceImages.map((img) => {
+        const ref = img.referencedImageId;
+        const src = ref ? (cache.getImage(ref) as ImageLike | undefined) : undefined;
+        const px = src?.voxelManager?.getScalarData?.() ?? src?.getPixelData?.();
+        return px && ref ? { px, lut: modalityLut(ref) } : null;
+      });
+      if (slices.some((sl) => !sl)) return null;
+      return (flatIndex) => {
+        const sl = slices[Math.floor(flatIndex / sliceSize)]!;
+        return sl.lut(sl.px[flatIndex % sliceSize] ?? 0);
+      };
+    },
     write: (flatIndex, value) => {
       const image = sliceImages[Math.floor(flatIndex / sliceSize)];
       const p = flatIndex % sliceSize;
@@ -158,7 +186,7 @@ function readStack(labelmapImageIds: string[]): Pick<SegmentVoxelGrid, 'geometry
   };
 }
 
-function readVolume(volumeId: string): Pick<SegmentVoxelGrid, 'geometry' | 'data' | 'write'> | null {
+function readVolume(volumeId: string): Pick<SegmentVoxelGrid, 'geometry' | 'data' | 'write' | 'sourceReader'> | null {
   // Derived volume labelmaps expose data via getCompleteScalarDataArray() (getScalarData()
   // can be empty); WRITES must go through the voxelManager — the read array is a copy.
   const vol = cache.getVolume(volumeId) as any;
@@ -183,6 +211,15 @@ function readVolume(volumeId: string): Pick<SegmentVoxelGrid, 'geometry' | 'data
       direction: axesToDirection([d[0], d[1], d[2]], [d[3], d[4], d[5]], [d[6], d[7], d[8]]),
     },
     data,
+    sourceReader: () => {
+      // A derived labelmap volume shares its source volume's grid; volumes hold modality
+      // values already (the loader applies the LUT when it fills the volume).
+      const src = vol.referencedVolumeId ? (cache.getVolume(vol.referencedVolumeId) as any) : null;
+      const vm = src?.voxelManager;
+      const arr = (vm?.getCompleteScalarDataArray?.() ?? vm?.getScalarData?.()) as ArrayLike<number> | undefined;
+      if (!arr?.length) return null;
+      return (flatIndex) => arr[flatIndex] ?? 0;
+    },
     write: (flatIndex, value) => {
       if (typeof voxelManager.setAtIJK === 'function') {
         voxelManager.setAtIJK(flatIndex % nx, Math.floor(flatIndex / nx) % ny, Math.floor(flatIndex / (nx * ny)), value);

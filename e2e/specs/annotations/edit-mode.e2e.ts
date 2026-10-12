@@ -14,6 +14,7 @@
 import { test, expect } from '../../fixtures/electron-app';
 import type { Page } from '@playwright/test';
 import { loadFixture } from '../../helpers/local-fixture';
+import { clickTool } from '../../helpers/toolbox';
 
 type Win = {
   __XNAT_E2E__: {
@@ -66,7 +67,7 @@ test('the shape tools add in fill mode and remove in erase mode', async ({ page 
   const panel = await segToolbox(page);
 
   // Fill mode: dragging a rectangle puts voxels in.
-  await panel.getByRole('button', { name: 'Rect', exact: true }).click();
+  await clickTool(panel, 'Rect');
   await panel.getByRole('button', { name: 'fill', exact: true }).click();
   await dragShape(page, [120, 120], [240, 240]);
 
@@ -86,13 +87,13 @@ test('the mode toggle reflects the active mode and survives a tool switch', asyn
   await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.resetUnifiedSegmentations());
   const panel = await segToolbox(page);
 
-  await panel.getByRole('button', { name: 'Circle', exact: true }).click();
+  await clickTool(panel, 'Circle');
   await panel.getByRole('button', { name: 'erase', exact: true }).click();
   await expect(panel.getByRole('button', { name: 'erase', exact: true })).toHaveAttribute('aria-pressed', 'true');
 
   // Switching to another shape tool keeps the mode — it is one setting for the family,
   // not per-tool state, and the toggle must not silently reset to fill.
-  await panel.getByRole('button', { name: 'Sphere', exact: true }).click();
+  await clickTool(panel, 'Sphere');
   await expect(panel.getByRole('button', { name: 'erase', exact: true })).toHaveAttribute('aria-pressed', 'true');
 });
 
@@ -105,7 +106,7 @@ test('holding Shift inverts the mode AND still draws', async ({ page }) => {
   await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.resetUnifiedSegmentations());
   const panel = await segToolbox(page);
 
-  await panel.getByRole('button', { name: 'Rect', exact: true }).click();
+  await clickTool(panel, 'Rect');
   await panel.getByRole('button', { name: 'fill', exact: true }).click();
 
   // Plain drag fills.
@@ -128,7 +129,7 @@ test('the shape tools show one cursor, and it tracks the mode', async ({ page })
   await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.resetUnifiedSegmentations());
   const panel = await segToolbox(page);
 
-  await panel.getByRole('button', { name: 'Circle', exact: true }).click();
+  await clickTool(panel, 'Circle');
   await panel.getByRole('button', { name: 'fill', exact: true }).click();
   await page.waitForTimeout(300);
 
@@ -150,7 +151,7 @@ test('a session that ended in erase does not come back erasing', async ({ page }
   await loadFixture(page, 'ct-axial-300', 'panel_0');
   await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.resetUnifiedSegmentations());
   let panel = await segToolbox(page);
-  await panel.getByRole('button', { name: 'Circle', exact: true }).click();
+  await clickTool(panel, 'Circle');
   await panel.getByRole('button', { name: 'erase', exact: true }).click();
   await expect(panel.getByRole('button', { name: 'erase', exact: true })).toHaveAttribute('aria-pressed', 'true');
 
@@ -158,7 +159,7 @@ test('a session that ended in erase does not come back erasing', async ({ page }
   await loadFixture(page, 'ct-axial-300', 'panel_0');
   await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.resetUnifiedSegmentations());
   panel = await segToolbox(page);
-  await panel.getByRole('button', { name: 'Circle', exact: true }).click();
+  await clickTool(panel, 'Circle');
 
   await expect(
     panel.getByRole('button', { name: 'fill', exact: true }),
@@ -173,7 +174,7 @@ test('the brush follows the same mode as the shape tools', async ({ page }) => {
   await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.resetUnifiedSegmentations());
   const panel = await segToolbox(page);
 
-  await panel.getByRole('button', { name: 'Brush', exact: true }).click();
+  await clickTool(panel, 'Brush');
   await expect(panel.locator('[data-testid="edit-mode-controls"]')).toBeVisible();
   await panel.getByRole('button', { name: 'fill', exact: true }).click();
   await dragShape(page, [140, 140], [200, 200]);
@@ -204,7 +205,7 @@ test('Shift shows the erase cursor while held, for the brush and the shape tools
   const panel = await segToolbox(page);
 
   for (const tool of ['Brush', 'Circle']) {
-    await panel.getByRole('button', { name: tool, exact: true }).click();
+    await clickTool(panel, tool);
     await panel.getByRole('button', { name: 'fill', exact: true }).click();
     await page.waitForTimeout(250);
     const fillCursor = await viewportCursor(page);
@@ -226,7 +227,7 @@ test('the e hotkey toggles the mode for whichever tool is active', async ({ page
   await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.resetUnifiedSegmentations());
   const panel = await segToolbox(page);
 
-  await panel.getByRole('button', { name: 'Brush', exact: true }).click();
+  await clickTool(panel, 'Brush');
   await panel.getByRole('button', { name: 'fill', exact: true }).click();
 
   await page.locator('[data-testid="unified-viewport-element:panel_0"] canvas').click({ position: { x: 5, y: 5 } });
@@ -245,7 +246,7 @@ test('the toggle shows the EFFECTIVE mode, so it can never disagree with the str
   await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.resetUnifiedSegmentations());
   const panel = await segToolbox(page);
 
-  await panel.getByRole('button', { name: 'Brush', exact: true }).click();
+  await clickTool(panel, 'Brush');
   await panel.getByRole('button', { name: 'fill', exact: true }).click();
   await expect(panel.getByRole('button', { name: 'fill', exact: true })).toHaveAttribute('aria-pressed', 'true');
 
@@ -269,7 +270,7 @@ test('a Shift keyup lost to a window blur does not leave the mode inverted', asy
   await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.resetUnifiedSegmentations());
   const panel = await segToolbox(page);
 
-  await panel.getByRole('button', { name: 'Rect', exact: true }).click();
+  await clickTool(panel, 'Rect');
   await panel.getByRole('button', { name: 'fill', exact: true }).click();
 
   await page.keyboard.down('Shift');
@@ -345,7 +346,7 @@ test('naming a new annotation never moves focus off the viewport', async ({ page
   // Accepting the member name ends the sequence: keys are shortcuts again.
   await page.keyboard.press('Enter');
   await page.waitForTimeout(250);
-  await panel.getByRole('button', { name: 'Brush', exact: true }).click();
+  await clickTool(panel, 'Brush');
   await panel.getByRole('button', { name: 'fill', exact: true }).click();
   await page.keyboard.press('e');
   await expect(
@@ -380,7 +381,7 @@ test('creating without typing keeps the default names and leaves hotkeys working
     'the member keeps its default name',
   ).toBeVisible();
 
-  await panel.getByRole('button', { name: 'Brush', exact: true }).click();
+  await clickTool(panel, 'Brush');
   await panel.getByRole('button', { name: 'fill', exact: true }).click();
   await page.keyboard.press('e');
   await expect(panel.getByRole('button', { name: 'erase', exact: true })).toHaveAttribute('aria-pressed', 'true');

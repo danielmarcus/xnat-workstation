@@ -41,6 +41,15 @@ export type ToolControl =
   /** Whether the tool adds to or removes from the segment (Shift inverts). */
   | 'editMode';
 
+/**
+ * The Segmentation tool families (SegWorks parity D2, amended 2026-10-12). The toolbox has
+ * no tabs: every tool is on screen in one grid, ordered general → Paint → Shape → Smart,
+ * so each family sits together. Operations are not tools; they open in the Operations
+ * section (D1).
+ */
+export type SegToolGroup = 'general' | 'paint' | 'shape' | 'smart';
+const SEG_GROUP_ORDER: SegToolGroup[] = ['general', 'paint', 'shape', 'smart'];
+
 export interface ToolDef {
   id: string;
   label: string;
@@ -48,6 +57,8 @@ export interface ToolDef {
   icon: ReactNode;
   /** Controls the toolbox must show while this tool is active. */
   needs?: ToolControl[];
+  /** Segmentation tool family (SEG tools only) — the grid's order. */
+  group?: SegToolGroup;
 }
 
 const S = (children: ReactNode, extra?: Record<string, unknown>) => (
@@ -68,21 +79,21 @@ const SELECT_TOOL: ToolDef = {
 };
 
 const SEG_TOOLS: ToolDef[] = [
-  { id: 'brush', label: 'Brush', title: 'Add to or remove from the active segment on this slice; hold Shift to invert (B)', needs: ['brushSize', 'editMode'], icon: <svg viewBox="0 0 16 16" width={14} height={14} fill="currentColor" stroke="none"><circle cx="8" cy="8" r="3.2" /></svg> },
-  { id: 'threshold', label: 'Threshold', title: 'Paint only where intensity falls inside the window', needs: ['brushSize', 'intensityWindow'], icon: S(<><circle cx="8" cy="8" r="3.8" /><path d="M5 8h6" /></>) },
-  { id: 'dynamicThreshold', label: 'Dyn. Thresh', title: 'Paint within a window sampled from the voxel you click, not a preset one', needs: ['brushSize', 'samplingRadius'], icon: S(<><circle cx="8" cy="8" r="3.8" /><path d="M5 8h6" strokeDasharray="1.5 1" /><circle cx="8" cy="8" r="1" fill="currentColor" stroke="none" /></>) },
-  { id: 'sphereBrush', label: 'Sph. Brush', title: 'Add or remove with a 3D kernel — one stroke also reaches neighbouring slices; hold Shift to invert', needs: ['brushSize', 'editMode'], icon: S(<><circle cx="8" cy="8" r="4" /><ellipse cx="8" cy="8" rx="4" ry="1.7" /></>) },
-  { id: 'sphereThreshold', label: 'Sph. Thresh', title: 'Paint with a 3D kernel, limited to the intensity window', needs: ['brushSize', 'intensityWindow'], icon: S(<><circle cx="8" cy="8" r="4" /><ellipse cx="8" cy="8" rx="4" ry="1.7" /><path d="M5.5 8h5" /></>) },
-  { id: 'circleScissors', label: 'Circle', title: 'Drag a circle; everything inside it is added to or removed from the segment (hold Shift to invert)', needs: ['editMode'], icon: S(<circle cx="8" cy="8" r="5" fill="currentColor" fillOpacity={0.25} />) },
-  { id: 'rectangleScissors', label: 'Rect', title: 'Drag a rectangle; everything inside it is added to or removed from the segment (hold Shift to invert)', needs: ['editMode'], icon: S(<rect x="3" y="4" width="10" height="8" rx="1" fill="currentColor" fillOpacity={0.25} />) },
-  { id: 'sphereScissors', label: 'Sphere', title: 'Drag a sphere; everything inside it is added to or removed from the segment, across slices (hold Shift to invert)', needs: ['editMode'], icon: S(<><circle cx="8" cy="8" r="5" fill="currentColor" fillOpacity={0.25} /><ellipse cx="8" cy="8" rx="5" ry="2" /></>) },
-  { id: 'paintFill', label: 'Paint Fill', title: 'Flood-fill the enclosed region under the cursor (F)', icon: S(<><path d="M3 8l5-5 5 5-5 5z" /><path d="M11 11c1 1 1 2 0 2" /></>) },
-  { id: 'region', label: 'Region', title: 'Grow a region outward from the voxel you click', needs: ['brushSize'], icon: S(<><circle cx="8" cy="8" r="4" strokeDasharray="2 1.3" /><circle cx="8" cy="8" r="1.3" fill="currentColor" stroke="none" /></>) },
-  { id: 'regionPlus', label: 'Region+', title: 'Grow a region outward, adapting the boundary as it goes', needs: ['brushSize'], icon: S(<><circle cx="8" cy="8" r="4" strokeDasharray="2 1.3" /><path d="M8 6v4M6 8h4" /></>) },
-  { id: 'rectMulti', label: 'Rect Multi', title: 'Drag a rectangle; everything inside it within the intensity window joins the segment', needs: ['intensityWindow'], icon: S(<><rect x="4.5" y="2.5" width="9" height="7" rx="1" /><path d="M2.5 5.5v8h9" /></>) },
-  { id: 'contourFill', label: 'Contour Fill', title: 'Draw a boundary; the area it encloses joins the segment', icon: S(<path d="M4 8c0-3 8-3 8 0s-8 3-8 0z" fill="currentColor" fillOpacity={0.25} />) },
-  SELECT_TOOL,
-  { id: 'segBidirectional', label: 'Seg Bidir.', title: 'Measure the active segment\u2019s longest axis and its perpendicular', icon: S(<><ellipse cx="8" cy="8" rx="6" ry="4" strokeDasharray="2 1.3" /><path d="M3.5 8h9M8 4.5v7" /></>) },
+  { id: 'brush', group: 'paint', label: 'Brush', title: 'Add to or remove from the active segment on this slice; hold Shift to invert (B)', needs: ['brushSize', 'editMode'], icon: <svg viewBox="0 0 16 16" width={14} height={14} fill="currentColor" stroke="none"><circle cx="8" cy="8" r="3.2" /></svg> },
+  { id: 'threshold', group: 'paint', label: 'Threshold', title: 'Paint only where intensity falls inside the window', needs: ['brushSize', 'intensityWindow'], icon: S(<><circle cx="8" cy="8" r="3.8" /><path d="M5 8h6" /></>) },
+  { id: 'dynamicThreshold', group: 'paint', label: 'Dyn. Thresh', title: 'Paint within a window sampled from the voxel you click, not a preset one', needs: ['brushSize', 'samplingRadius'], icon: S(<><circle cx="8" cy="8" r="3.8" /><path d="M5 8h6" strokeDasharray="1.5 1" /><circle cx="8" cy="8" r="1" fill="currentColor" stroke="none" /></>) },
+  { id: 'sphereBrush', group: 'paint', label: 'Sph. Brush', title: 'Add or remove with a 3D kernel — one stroke also reaches neighbouring slices; hold Shift to invert', needs: ['brushSize', 'editMode'], icon: S(<><circle cx="8" cy="8" r="4" /><ellipse cx="8" cy="8" rx="4" ry="1.7" /></>) },
+  { id: 'sphereThreshold', group: 'paint', label: 'Sph. Thresh', title: 'Paint with a 3D kernel, limited to the intensity window', needs: ['brushSize', 'intensityWindow'], icon: S(<><circle cx="8" cy="8" r="4" /><ellipse cx="8" cy="8" rx="4" ry="1.7" /><path d="M5.5 8h5" /></>) },
+  { id: 'circleScissors', group: 'shape', label: 'Circle', title: 'Drag a circle; everything inside it is added to or removed from the segment (hold Shift to invert)', needs: ['editMode'], icon: S(<circle cx="8" cy="8" r="5" fill="currentColor" fillOpacity={0.25} />) },
+  { id: 'rectangleScissors', group: 'shape', label: 'Rect', title: 'Drag a rectangle; everything inside it is added to or removed from the segment (hold Shift to invert)', needs: ['editMode'], icon: S(<rect x="3" y="4" width="10" height="8" rx="1" fill="currentColor" fillOpacity={0.25} />) },
+  { id: 'sphereScissors', group: 'shape', label: 'Sphere', title: 'Drag a sphere; everything inside it is added to or removed from the segment, across slices (hold Shift to invert)', needs: ['editMode'], icon: S(<><circle cx="8" cy="8" r="5" fill="currentColor" fillOpacity={0.25} /><ellipse cx="8" cy="8" rx="5" ry="2" /></>) },
+  { id: 'paintFill', group: 'paint', label: 'Paint Fill', title: 'Flood-fill the enclosed region under the cursor (F)', icon: S(<><path d="M3 8l5-5 5 5-5 5z" /><path d="M11 11c1 1 1 2 0 2" /></>) },
+  { id: 'region', group: 'smart', label: 'Region', title: 'Grow a region outward from the voxel you click', needs: ['brushSize'], icon: S(<><circle cx="8" cy="8" r="4" strokeDasharray="2 1.3" /><circle cx="8" cy="8" r="1.3" fill="currentColor" stroke="none" /></>) },
+  { id: 'regionPlus', group: 'smart', label: 'Region+', title: 'Grow a region outward, adapting the boundary as it goes', needs: ['brushSize'], icon: S(<><circle cx="8" cy="8" r="4" strokeDasharray="2 1.3" /><path d="M8 6v4M6 8h4" /></>) },
+  { id: 'rectMulti', group: 'shape', label: 'Rect Multi', title: 'Drag a rectangle; everything inside it within the intensity window joins the segment', needs: ['intensityWindow'], icon: S(<><rect x="4.5" y="2.5" width="9" height="7" rx="1" /><path d="M2.5 5.5v8h9" /></>) },
+  { id: 'contourFill', group: 'shape', label: 'Contour Fill', title: 'Draw a boundary; the area it encloses joins the segment', icon: S(<path d="M4 8c0-3 8-3 8 0s-8 3-8 0z" fill="currentColor" fillOpacity={0.25} />) },
+  { ...SELECT_TOOL, group: 'general' },
+  { id: 'segBidirectional', group: 'general', label: 'Seg Bidir.', title: 'Measure the active segment\u2019s longest axis and its perpendicular', icon: S(<><ellipse cx="8" cy="8" rx="6" ry="4" strokeDasharray="2 1.3" /><path d="M3.5 8h9M8 4.5v7" /></>) },
 ];
 
 const STRUCTURE_TOOLS: ToolDef[] = [
@@ -105,8 +116,16 @@ const MEASUREMENT_TOOLS: ToolDef[] = [
   { id: 'freehandROI', label: 'Freehand ROI', title: 'Measure a freehand region and its statistics', icon: S(<path d="M3 10c1-4 4-5 6-2s4 0 4-3" />) },
 ];
 
+/** Segmentation tools in grid order: each family together, catalog order within it. */
+const SEG_TOOLS_IN_ORDER = SEG_GROUP_ORDER.flatMap((g) => SEG_TOOLS.filter((t) => t.group === g));
+
+/** Operations the Operations section's picker offers (D1, amended 2026-10-12). */
+export const SEG_OPERATIONS: Array<{ id: 'cleanup'; label: string; title: string }> = [
+  { id: 'cleanup', label: 'Cleanup', title: 'Fill holes, keep largest, remove specks and strays, smooth, open/close (X)' },
+];
+
 export function toolsForKind(kind: ContainerKind): ToolDef[] {
-  if (kind === 'SEG') return SEG_TOOLS;
+  if (kind === 'SEG') return SEG_TOOLS_IN_ORDER;
   if (kind === 'RTSTRUCT') return STRUCTURE_TOOLS;
   return MEASUREMENT_TOOLS;
 }

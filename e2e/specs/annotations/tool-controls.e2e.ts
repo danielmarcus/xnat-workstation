@@ -16,6 +16,7 @@
 import { test, expect } from '../../fixtures/electron-app';
 import type { Page } from '@playwright/test';
 import { loadFixture } from '../../helpers/local-fixture';
+import { clickTool } from '../../helpers/toolbox';
 
 type Win = { __XNAT_E2E__: { resetUnifiedSegmentations: () => void } };
 
@@ -57,7 +58,7 @@ test('each tool shows exactly the controls it declares it needs', async ({ page 
   const panel = await segToolbox(page);
 
   for (const c of CASES) {
-    await panel.getByRole('button', { name: c.tool, exact: true }).click();
+    await clickTool(panel, c.tool);
     await page.waitForTimeout(200);
     expect(await visibleControls(panel), `controls shown for "${c.tool}"`).toEqual({
       brushSize: c.brushSize,
@@ -73,7 +74,7 @@ test('the sampling radius control actually drives the dynamic threshold brush', 
   await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.resetUnifiedSegmentations());
   const panel = await segToolbox(page);
 
-  await panel.getByRole('button', { name: 'Dyn. Thresh', exact: true }).click();
+  await clickTool(panel, 'Dyn. Thresh');
   const slider = panel.getByLabel('Sample radius');
   await expect(slider).toBeVisible();
 

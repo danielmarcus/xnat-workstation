@@ -1,0 +1,618 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>SegWorks parity — UI wireframes</title>
+<style>
+  :root{
+    --bg:#09090b; --s1:#18181b; --s2:#1f1f23; --s3:#27272a; --b:#3f3f46; --b2:#52525b;
+    --t:#e4e4e7; --m:#a1a1aa; --d:#71717a;
+    --blue:#3b82f6; --seg:#a855f7; --str:#22c55e; --meas:#f97316; --amber:#f59e0b; --red:#ef4444;
+    --new:#14b8a6;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:#0c0c0f;color:var(--t);font:13px/1.45 -apple-system,BlinkMacSystemFont,"Inter","Segoe UI",sans-serif}
+  main{max-width:1320px;margin:0 auto;padding:28px 28px 80px}
+  h1{font-size:22px;margin:0 0 4px}
+  h2{font-size:17px;margin:44px 0 6px;padding-top:14px;border-top:1px solid var(--s3)}
+  h3{font-size:13px;margin:18px 0 6px;color:var(--m);text-transform:uppercase;letter-spacing:.06em}
+  p,li{color:#c4c4cc;max-width:980px}
+  code{background:var(--s3);padding:1px 4px;border-radius:3px;font-size:12px}
+  .lede{color:var(--m)}
+  .legend{display:flex;gap:18px;flex-wrap:wrap;margin:12px 0;font-size:12px;color:var(--m)}
+  .legend span{display:inline-flex;align-items:center;gap:6px}
+  .sw{width:12px;height:12px;border-radius:2px;display:inline-block}
+  table.t{border-collapse:collapse;width:100%;margin:10px 0;font-size:12px}
+  table.t th,table.t td{border:1px solid var(--s3);padding:6px 8px;text-align:left;vertical-align:top}
+  table.t th{background:var(--s1);color:var(--m);font-weight:600}
+  table.t td.k{white-space:nowrap;font-family:ui-monospace,Menlo,monospace}
+  .rec{color:var(--new);font-weight:600}
+  .warn{color:var(--amber)}
+
+  /* Decision cards */
+  .decision{border:1px solid var(--b);border-radius:8px;background:var(--s1);padding:12px 14px;margin:14px 0}
+  .decision .q{font-weight:600}
+  .decision .id{display:inline-block;background:var(--new);color:#042f2e;font-weight:700;font-size:11px;padding:1px 6px;border-radius:3px;margin-right:6px}
+  .opts{display:grid;gap:14px;margin-top:10px}
+  .opts.c2{grid-template-columns:repeat(2,1fr)}
+  .opts.c3{grid-template-columns:repeat(3,1fr)}
+  .opt{border:1px solid var(--s3);border-radius:6px;padding:10px;background:var(--bg)}
+  .opt.star{border-color:var(--new);box-shadow:0 0 0 1px var(--new) inset}
+  .opt h4{margin:0 0 6px;font-size:12.5px}
+  .opt .pro,.opt .con{font-size:11.5px;margin:4px 0 0;color:var(--m)}
+  .opt .pro::before{content:"+ ";color:var(--str)}
+  .opt .con::before{content:"− ";color:var(--red)}
+  .badge-rec{font-size:10px;color:var(--new);border:1px solid var(--new);border-radius:3px;padding:0 4px;margin-left:6px}
+
+  /* ---------- wireframe primitives (mirror the shipped app, Oct 2026) ---------- */
+  .app{border:1px solid var(--b);border-radius:8px;overflow:hidden;background:var(--bg);font-size:11px;user-select:none}
+  .tbar{display:flex;align-items:center;gap:8px;height:34px;padding:0 8px;background:var(--s1);border-bottom:1px solid var(--s3);color:var(--m);white-space:nowrap;overflow:hidden}
+  .tbar .sep{width:1px;height:16px;background:var(--b)}
+  .tbar .btn{padding:2px 6px;border-radius:4px}
+  .tbar .primary{background:var(--blue);color:#fff}
+  .tbar .sp{flex:1}
+  .body{display:flex;height:100%}
+  .sidebar{width:190px;background:var(--s1);border-right:1px solid var(--s3);display:flex;flex-direction:column}
+  .sidebar .hd{padding:7px 9px;font-weight:600;color:var(--t);border-bottom:1px solid var(--s3)}
+  .sidebar .row{padding:3px 9px;color:var(--m)}
+  .sidebar .row.on{background:var(--s3);color:var(--t)}
+  .vpa{flex:1;display:grid;gap:2px;background:var(--bg);padding:2px;position:relative}
+  .vp{position:relative;background:#000;border-radius:2px;overflow:hidden;min-height:120px}
+  .vp.active::after{content:"";position:absolute;inset:0;box-shadow:0 0 0 2px #a1a1aa inset;pointer-events:none}
+  .vp .ov{position:absolute;color:#d4d4d8;font-family:ui-monospace,Menlo,monospace;font-size:9.5px;line-height:1.3}
+  .vp .tl{top:5px;left:6px}.vp .tr{top:5px;right:12px;text-align:right}.vp .bl{bottom:5px;left:6px}.vp .br{bottom:5px;right:12px;text-align:right}
+  .phantom{position:absolute;left:50%;top:50%;width:62%;aspect-ratio:1;transform:translate(-50%,-50%);border-radius:50%;background:radial-gradient(circle at 50% 50%,#9a9a9a 0 26%,#6b6b6b 27% 100%)}
+  .mask{position:absolute;border-radius:46% 54% 50% 50%;background:rgba(239,68,68,.45);border:1.5px solid #ef4444}
+  .prevmask{position:absolute;border-radius:50% 45% 52% 48%;background:repeating-linear-gradient(45deg,rgba(239,68,68,.45) 0 4px,rgba(239,68,68,.08) 4px 8px);border:1.5px dashed #f87171}
+  .roi{position:absolute;border:1.5px dashed #e4e4e7;border-radius:4px}
+  .sbar{position:absolute;right:2px;top:6px;bottom:6px;width:7px;background:#18181b;border-radius:3px}
+  .sbar .thumb{position:absolute;left:0;right:0;height:12px;background:#52525b;border-radius:3px}
+  .sbar .occ{position:absolute;left:1px;right:1px;background:#ef4444;opacity:.85}
+  .sbar .gap{position:absolute;left:0;right:0;border:1px dashed var(--amber)}
+  .sbar .anc{position:absolute;left:-6px;font-size:8px;color:var(--amber);font-weight:700}
+  .sbar .rng{position:absolute;left:-3px;right:-3px;border:1.5px solid var(--new);border-radius:2px}
+  .pbar{position:absolute;left:50%;top:6px;transform:translateX(-50%);display:flex;gap:6px;align-items:center;background:rgba(24,24,27,.95);border:1px solid var(--b);border-radius:6px;padding:3px 6px;color:var(--t);font-size:10px;white-space:nowrap}
+  .pbar .k{color:var(--d);font-size:9px}
+  .pbar .ok{background:var(--blue);color:#fff;border-radius:3px;padding:1px 6px}
+  .pbar .no{background:var(--s3);border-radius:3px;padding:1px 6px}
+  .hud{position:absolute;background:rgba(24,24,27,.9);border:1px solid var(--b);border-radius:4px;padding:2px 6px;color:var(--t);font-size:10px;white-space:nowrap}
+  .side{width:290px;background:var(--s1);border-left:1px solid var(--s3);display:flex;flex-direction:column}
+  .side .hd{display:flex;align-items:center;justify-content:space-between;padding:8px 10px;font-weight:700;letter-spacing:.04em;border-bottom:1px solid var(--s3)}
+  .side .hd .cr{display:flex;gap:7px;font-weight:400;font-size:10px}
+  .crow{display:flex;align-items:center;gap:6px;padding:5px 10px;border-bottom:1px solid #202024}
+  .crow .nm{flex:1;font-weight:600}
+  .mrow{display:flex;align-items:center;gap:6px;padding:4px 10px 4px 22px}
+  .mrow.on{background:#1e2230;box-shadow:2px 0 0 var(--blue) inset}
+  .mrow .nm{flex:1}
+  .dot{width:9px;height:9px;border-radius:2px;display:inline-block}
+  .ic{color:var(--d);font-size:10px}
+  .grow{flex:1}
+  .tbx{border-top:1px solid var(--s3);background:rgba(24,24,27,.8)}
+  .tbx .th{display:flex;justify-content:space-between;padding:6px 10px;font-size:9px;color:var(--d);text-transform:uppercase;letter-spacing:.06em}
+  .tbx .th .an{color:#ef4444;text-transform:none;letter-spacing:0;font-size:10px}
+  .tabs{display:flex;gap:2px;padding:0 8px 6px}
+  .tabs span{flex:1;text-align:center;padding:3px 0;border-radius:4px;background:var(--s3);color:var(--m);font-size:10px}
+  .tabs span.on{background:#3f3f46;color:var(--t)}
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:3px;padding:0 8px 8px}
+  .grid.c5{grid-template-columns:repeat(5,1fr)}
+  .tool{background:var(--s3);border-radius:4px;padding:4px 6px;color:#d4d4d8;font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tool.on{background:var(--blue);color:#fff}
+  .tool.new{outline:1.5px dashed var(--new);outline-offset:-1.5px}
+  .tool.ico{text-align:center}
+  .ctrls{border-top:1px solid var(--s3);padding:6px 10px}
+  .ctrls .lab{font-size:9px;color:var(--d);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px;display:flex;justify-content:space-between}
+  .slider{display:flex;align-items:center;gap:6px;margin:3px 0;color:var(--m);font-size:10px}
+  .slider .tr{flex:1;height:4px;background:var(--b);border-radius:2px;position:relative}
+  .slider .tr i{position:absolute;left:0;top:0;bottom:0;background:var(--blue);border-radius:2px}
+  .seg{display:flex;border:1px solid var(--b);border-radius:4px;overflow:hidden;font-size:10px}
+  .seg span{flex:1;text-align:center;padding:2px 4px;color:var(--m)}
+  .seg span.on{background:var(--blue);color:#fff}
+  .fld{background:var(--s3);border-radius:3px;padding:1px 5px;color:var(--t);font-size:10px;display:inline-block;min-width:34px}
+  .sel{background:var(--s3);border-radius:3px;padding:1px 5px;color:var(--t);font-size:10px;display:inline-block}
+  .sel::after{content:" ▾";color:var(--d)}
+  .sheet{display:flex;flex-direction:column;border-top:1px solid var(--s3);background:var(--s1)}
+  .sheet .sh{display:flex;align-items:center;gap:6px;padding:7px 10px;border-bottom:1px solid var(--s3)}
+  .sheet .sh b{flex:1}
+  .sheet .sec{padding:6px 10px;border-bottom:1px solid #202024}
+  .sheet .sec .lab{font-size:9px;color:var(--d);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px}
+  .sheet .foot{display:flex;gap:6px;padding:8px 10px;align-items:center}
+  .b{border-radius:4px;padding:3px 9px;background:var(--s3);color:var(--t);font-size:10px}
+  .b.pri{background:var(--blue);color:#fff}
+  .b.dis{opacity:.4}
+  .prog{height:4px;background:var(--b);border-radius:2px;overflow:hidden;margin:4px 0}
+  .prog i{display:block;height:100%;background:var(--blue)}
+  .adv{color:var(--m);font-size:10px;padding:4px 10px;border-bottom:1px solid #202024}
+  .adv::before{content:"▸ "}
+  .list .li{display:flex;gap:6px;align-items:center;padding:3px 0;font-size:10px;color:#d4d4d8}
+  .list .li .grow{color:var(--m)}
+  .callout{position:absolute;background:var(--new);color:#042f2e;font-size:9px;font-weight:700;border-radius:3px;padding:0 4px;white-space:nowrap}
+  .new-tag{display:inline-block;font-size:8.5px;color:var(--new);border:1px solid var(--new);border-radius:3px;padding:0 3px;margin-left:4px;vertical-align:1px}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  .three{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  .cap{font-size:11.5px;color:var(--m);margin:6px 0 0}
+  .toc{columns:3;font-size:12px;margin:8px 0 0;padding-left:18px}
+  .toc a{color:#93c5fd;text-decoration:none}
+</style>
+</head>
+<body><main>
+
+<h1>SegWorks parity — UI wireframes</h1>
+<p class="lede">Holistic placement of every SegWorks-derived extension in Workstation, drafted before branch&nbsp;1 so layout conflicts surface now. The chrome is drawn from the <b>shipped app as built on 2026-10-10</b>, not from the June frozen mockup. Companion plan: <code>docs/segworks-parity.md</code>. Wireframes are schematic: they decide <i>where things live and how they behave</i>, not final pixels.</p>
+<div class="legend">
+  <span><i class="sw" style="background:var(--s3)"></i>exists today</span>
+  <span><i class="sw" style="outline:1.5px dashed var(--new);outline-offset:-2px"></i>new element <span class="new-tag">NEW</span></span>
+  <span><i class="sw" style="background:var(--blue)"></i>blue = active/selection only (unchanged rule)</span>
+  <span><i class="sw" style="background:repeating-linear-gradient(45deg,#ef4444 0 3px,transparent 3px 6px);border:1px dashed #f87171"></i>preview = target segment colour, hatched + dashed (never blue)</span>
+  <span><span class="badge-rec">recommended</span> my pick, open to change</span>
+</div>
+<ol class="toc">
+  <li><a href="#map">Placement map</a></li>
+  <li><a href="#overview">Recommended whole-app view</a></li>
+  <li><a href="#d1">D1 · Where operations live</a></li>
+  <li><a href="#d2">D2 · Toolbox density</a></li>
+  <li><a href="#d3">D3 · Contour-to-mask tools</a></li>
+  <li><a href="#sheet">Operation sheet anatomy</a></li>
+  <li><a href="#d4">D4 · Preview / commit</a></li>
+  <li><a href="#d5">D5 · Slice track on scrollbar</a></li>
+  <li><a href="#d6">D6 · Auto Review flythrough</a></li>
+  <li><a href="#d7">D7 · Hide PHI</a></li>
+  <li><a href="#hud">Viewport HUD &amp; probe</a></li>
+  <li><a href="#d8">D8 · Baseline &amp; checkpoints</a></li>
+  <li><a href="#d9">D9 · 3D QC</a></li>
+  <li><a href="#d10">D10 · Worklist placement</a></li>
+  <li><a href="#d11">D11 · Modules</a></li>
+  <li><a href="#d12">D12 · Hotkeys</a></li>
+  <li><a href="#summary">Decision summary</a></li>
+</ol>
+
+<!-- ===================================================== -->
+<h2 id="map">0 · Placement map</h2>
+<p>Where each feature family from the plan lands. Every surface below already exists except the two marked <span class="new-tag">NEW</span>.</p>
+<table class="t">
+<tr><th>Surface</th><th>Today</th><th>Receives (branch)</th></tr>
+<tr><td>SEG toolbox (side panel, bottom)</td><td>15 tools, 3-wide grid, Controls strip</td><td>Level Trace, Smart Brush, Random Walker seeds (4) · Spline/Livewire as Contour Fill modes (6) · ROI constraint (4) · seed painters inside solver sheets (5)</td></tr>
+<tr><td><b>Operation sheet</b> <span class="new-tag">NEW</span> (in side panel)</td><td>—</td><td>Cleanup &amp; mask math (1) · Interpolate, Propagate (3) · Random Walker run (4) · GrowCut 3D, Graph Cut, α-Expansion, Chan-Vese (5) · Snake refine (6) · 3D QC report (7) · Modules (9)</td></tr>
+<tr><td>Viewport overlay layer</td><td>context overlay, ruler, scrollbar, toast host, status overlay</td><td>Preview bar (4+) · slice track on scrollbar (1,3,6) · cursor HU probe &amp; mask HUD (2) · flythrough mini-player (2) · ROI outline (4)</td></tr>
+<tr><td>Toolbar</td><td>…cine ▶ + fps · Annotate · Tags · ⚙</td><td>Hide-PHI toggle (2) · worklist case bar (8)</td></tr>
+<tr><td>Container row kebab</td><td>Hide all · Lock all · Export DICOM · Export CSV · Revert</td><td>Review flythrough · Set baseline / Revert to baseline · Checkpoints… (2)</td></tr>
+<tr><td>Left sidebar</td><td>XNAT browser (Projects)</td><td>Browse | Worklist tabs (8)</td></tr>
+<tr><td>Layout presets</td><td>1×1 … 2×2, Hanging, MPR</td><td>“2D + 3D QC” preset (7)</td></tr>
+<tr><td>Settings modal</td><td>Hotkeys · Overlay · Annotation · Updates · Interpolation · File Backup · Issue · About</td><td>Interpolation tab gains labelmap defaults (3) · <b>Algorithms</b> tab for per-family defaults (4–6) · <b>Modules</b> tab (9) · File Backup gains checkpoint export/import (2)</td></tr>
+<tr><td><b>Worklist table view</b> <span class="new-tag">NEW</span></td><td>—</td><td>Full-window worklist management (8 — designed in its own plan)</td></tr>
+</table>
+
+<!-- ===================================================== -->
+<h2 id="overview">1 · Recommended whole-app view</h2>
+<p>All recommended options together, mid-task: the user ran <b>Cleanup › Keep largest</b> on a slice range and is looking at the preview before committing. The point of this frame is to check that nothing fights for the same space.</p>
+
+<div class="app" style="height:560px;display:flex;flex-direction:column">
+  <div class="tbar">
+    <b style="color:#86efac">●</b><span>cnda.wustl.edu / CONDR</span><span class="sep"></span>
+    <span class="btn" style="border:1px dashed var(--new);color:var(--t)">◀ Case 12 / 80 · S014_MR1 · <span style="color:var(--amber)">Capture</span> ▶</span>
+    <span class="sep"></span><span>⇩ Import</span><span>⇧ Export ▾</span><span>☆ Favorites ▾</span><span class="sep"></span>
+    <span>▦ 1×2 ▾</span><span>⊞ Hanging ▾</span><span class="sep"></span><span>⌖ ✥ ⌕ ☀</span><span>Presets ▾</span><span>◐</span><span class="sep"></span><span>⟲ ⇋ ⇵ ↺</span><span class="sep"></span><span>↶ ↷</span><span class="sep"></span><span>▶ ━●━ 15 fps</span>
+    <span class="sp"></span>
+    <span class="btn" style="border:1px dashed var(--new)">⊘ PHI</span>
+    <span class="btn primary">Annotate</span><span>Tags</span><span>⚙</span>
+  </div>
+  <div class="body" style="flex:1;min-height:0">
+    <div class="sidebar">
+      <div class="tabs" style="padding:6px 8px"><span>Browse</span><span class="on" style="outline:1px dashed var(--new)">Worklist</span></div>
+      <div class="row">⌕ filter…</div>
+      <div class="row">✓ S011_MR1</div>
+      <div class="row on">● S014_MR1 <span style="color:var(--amber)">capturing</span></div>
+      <div class="row">○ S015_MR2</div>
+      <div class="row">○ S017_CT1</div>
+      <div class="row">⊘ S018_MR1 <span class="ic">skipped</span></div>
+      <div class="row">○ S019_MR1</div>
+      <div class="grow"></div>
+      <div class="row" style="border-top:1px solid var(--s3)">⤢ Open full worklist</div>
+    </div>
+    <div class="vpa" style="grid-template-columns:1fr">
+      <div class="vp active">
+        <div class="phantom"></div>
+        <div class="prevmask" style="left:44%;top:40%;width:13%;height:17%"></div>
+        <div class="mask" style="left:61%;top:53%;width:3%;height:3%;opacity:.35;border-style:dotted"></div>
+        <div class="ov tl">Axial ▾<br>████████<br>████ <span style="color:var(--d)">(PHI hidden)</span></div>
+        <div class="ov tr">AX T1 POST<br>Scan: 9</div>
+        <div class="ov bl">42 / 120<br>Loc: −22.50 mm<br>W: 1999 L: 0</div>
+        <div class="ov br">Zoom: 106%<br>256 × 256</div>
+        <div class="pbar" style="border-color:var(--new)">Preview · Keep largest · slices 30–58 · −14 islands <span class="ok">Commit ⏎</span><span class="no">Discard ⎋</span><span class="k">◐ compare (hold \)</span></div>
+        <div class="hud" style="left:38%;top:62%">HU 43 <span style="color:var(--d)">(Q)</span></div>
+        <div class="sbar"><div class="occ" style="top:24%;height:23%"></div><div class="rng" style="top:23%;height:25%"></div><div class="thumb" style="top:33%"></div><div class="occ" style="top:58%;height:5%"></div><div class="gap" style="top:47.5%;height:10%"></div></div>
+        <div class="callout" style="right:16px;top:30%">slice track</div>
+      </div>
+    </div>
+    <div class="side">
+      <div class="hd">ANNOTATIONS <span class="cr"><span style="color:var(--str)">+⌒</span><span style="color:var(--seg)">+▢</span><span style="color:var(--meas)">+⟋</span></span></div>
+      <div class="crow"><span class="ic">▾</span><span style="color:var(--seg)">▢</span><span class="nm">Tumor_v2</span><span class="ic">2 ✓ + ⎙ ⋮ ✕</span></div>
+      <div class="mrow on"><span class="dot" style="background:#ef4444"></span><span class="nm">Enhancing</span><span class="ic">29 sl ● 👁 🔓 ✕</span></div>
+      <div class="mrow"><span class="dot" style="background:#3b82f6"></span><span class="nm">Necrosis</span><span class="ic">12 sl 👁 🔓 ✕</span></div>
+      <div class="grow"></div>
+      <div class="sheet" style="outline:1px dashed var(--new);outline-offset:-1px">
+        <div class="sh"><span class="ic">←</span><b>Cleanup</b><span style="color:#ef4444;font-size:10px">Enhancing</span></div>
+        <div class="sec"><div class="lab">Operation</div><span class="sel">Keep largest component</span></div>
+        <div class="sec"><div class="lab">Scope</div>
+          <div class="seg" style="margin-bottom:4px"><span>Slice</span><span class="on">Range</span><span>Volume</span></div>
+          <span class="fld">30</span> – <span class="fld">58</span> &nbsp; <span class="seg" style="display:inline-flex;width:120px"><span class="on">Active</span><span>All labels</span></span>
+        </div>
+        <div class="foot"><span class="b">Preview</span><span class="b pri">Commit</span><span class="b">Discard</span></div>
+      </div>
+      <div class="tbx">
+        <div class="th"><span>Segmentation tools</span><span class="an">Enhancing</span></div>
+        <div class="tabs"><span>Paint</span><span>Shape</span><span>Smart</span><span class="on">Process</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+<p class="cap">Check: the sheet pushes the member list up but the <b>active container and member stay visible</b> (the list scrolls, pinned to the active member). The preview bar sits top-centre, clear of all four overlay corners. The case bar is only present while a worklist is open.</p>
+
+<!-- ===================================================== -->
+<h2 id="d1">2 · D1 — Where do run-style operations live?</h2>
+<p>About 25 SegWorks features are <i>operations</i>: pick parameters, run, preview, commit (Cleanup, Interpolate, Propagate, the 3D solvers, Chan-Vese, Snake, 3D QC, modules). Some have 15+ controls (Chan-Vese, α-Expansion, interpolation advanced). They don't fit the toolbox's Controls strip, which is sized for 2–4 sliders.</p>
+<div class="decision"><span class="id">D1</span><span class="q">Container for operations</span>
+<div class="opts c3">
+  <div class="opt star"><h4>A · Operation sheet inside the side panel <span class="badge-rec">recommended</span></h4>
+    <div class="app" style="height:300px"><div class="side" style="width:100%;height:100%">
+      <div class="hd">ANNOTATIONS</div>
+      <div class="crow"><span class="nm">Tumor_v2</span></div>
+      <div class="mrow on"><span class="dot" style="background:#ef4444"></span><span class="nm">Enhancing</span></div>
+      <div class="grow"></div>
+      <div class="sheet" style="outline:1px dashed var(--new);outline-offset:-1px"><div class="sh"><span class="ic">←</span><b>Interpolate</b></div><div class="sec">params…</div><div class="sec">gap table…</div><div class="foot"><span class="b">Preview</span><span class="b pri">Commit</span></div></div>
+      <div class="tbx"><div class="tabs" style="padding-top:6px"><span>Paint</span><span>Shape</span><span>Smart</span><span class="on">Process</span></div></div>
+    </div></div>
+    <p class="pro">Target segment always on screen next to the operation</p><p class="pro">Same place as every other annotation action (CLAUDE.md: lifecycle lives in the side panel)</p><p class="pro">Side panel is already resizable</p><p class="con">Competes with the member list for height on small screens</p>
+  </div>
+  <div class="opt"><h4>B · Second side-panel tab “Process”</h4>
+    <div class="app" style="height:300px"><div class="side" style="width:100%;height:100%">
+      <div class="tabs" style="padding:6px 8px"><span>Annotations</span><span class="on" style="outline:1px dashed var(--new)">Process</span></div>
+      <div class="sheet" style="flex:1"><div class="sh"><b>Interpolate</b><span style="color:#ef4444">Enhancing</span></div><div class="sec">params…</div><div class="sec">gap table…</div><div class="grow"></div><div class="foot"><span class="b">Preview</span><span class="b pri">Commit</span></div></div>
+    </div></div>
+    <p class="pro">Full panel height for parameters</p><p class="con">Hides the member list, so you can't see or change the target while working</p><p class="con">Two-way switching for every op</p>
+  </div>
+  <div class="opt"><h4>C · Floating panel over the viewport area (SegWorks-style)</h4>
+    <div class="app" style="height:300px;position:relative"><div class="vp" style="position:absolute;inset:0"><div class="phantom"></div>
+      <div style="position:absolute;left:12px;top:30px;width:150px;height:200px;background:var(--s1);border:1px dashed var(--new);border-radius:6px;padding:6px;font-size:10px">⠿ <b>Interpolate</b> ✕<br><br>params…<br>gap table…</div></div></div>
+    <p class="pro">Big; can sit near the work</p><p class="con">Covers the image; a fifth surface with its own drag/resize/z-order bugs</p><p class="con">Breaks “no focus in side panels”, since a floating panel is a new focus host</p>
+  </div>
+</div></div>
+
+<!-- ===================================================== -->
+<h2 id="d2">3 · D2 — Toolbox density as tools grow from 15 to ~20</h2>
+<p>New interactive SEG tools: Level Trace, Smart Brush, Random Walker (seed tool), ROI constraint. Spline/Livewire fills are handled in D3 without adding buttons. The solver seed painters live inside their sheets (§4), not in the grid.</p>
+<div class="decision"><span class="id">D2</span><span class="q">How the SEG toolbox holds ~20 tools plus the Process entry point</span>
+<div class="opts c3">
+  <div class="opt star"><h4>A · Category tabs: Paint · Shape · Smart · Process <span class="badge-rec">recommended</span></h4>
+    <div class="tbx" style="border:1px solid var(--s3);border-radius:6px">
+      <div class="th"><span>Segmentation tools</span><span class="an">Enhancing</span></div>
+      <div class="tabs"><span>Paint</span><span>Shape</span><span class="on">Smart</span><span>Process</span></div>
+      <div class="grid"><span class="tool">Region</span><span class="tool">Region+</span><span class="tool new on">Level Trace</span><span class="tool new">Smart Brush</span><span class="tool new">Rand. Walker</span><span class="tool new">ROI limit</span></div>
+      <div class="ctrls"><div class="lab"><span>Controls</span><span>■ Enhancing</span></div><div class="slider">HU tol <span class="tr"><i style="width:35%"></i></span> ±60</div><div class="slider">Edge guard <span class="seg" style="flex:1"><span>Off</span><span class="on">Std</span><span>Strong</span></span></div></div>
+    </div>
+    <div class="list" style="margin-top:8px;font-size:10px;color:var(--m)">
+      <div><b>Paint</b>: Brush, Threshold, Dyn. Thresh, Sph. Brush, Sph. Thresh, Paint Fill, Smart Brush</div>
+      <div><b>Shape</b>: Circle, Rect, Sphere, Rect Multi, Contour Fill (D3)</div>
+      <div><b>Smart</b>: Region, Region+, Level Trace, Random Walker, ROI limit</div>
+      <div><b>Process</b>: list of operations → opens a sheet</div>
+      <div>Select and Seg Bidir. sit pinned in a row above the tabs</div>
+    </div>
+    <p class="pro">Each tab ≤ 3 rows, and the grid stays the height it is today</p><p class="pro">Hotkeys switch tab automatically</p><p class="con">One extra click to reach a tool in another tab</p>
+  </div>
+  <div class="opt"><h4>B · One grid, icon-only, 5 wide</h4>
+    <div class="tbx" style="border:1px solid var(--s3);border-radius:6px">
+      <div class="th"><span>Segmentation tools</span><span class="an">Enhancing</span></div>
+      <div class="grid c5"><span class="tool ico on">●</span><span class="tool ico">⊖</span><span class="tool ico">⊝</span><span class="tool ico">⊜</span><span class="tool ico">⊛</span><span class="tool ico">○</span><span class="tool ico">▭</span><span class="tool ico">◍</span><span class="tool ico">◇</span><span class="tool ico">⁘</span><span class="tool ico">⁜</span><span class="tool ico">⧉</span><span class="tool ico">⬭</span><span class="tool ico">↖</span><span class="tool ico">⌖</span><span class="tool ico new">∿</span><span class="tool ico new">✎</span><span class="tool ico new">⤳</span><span class="tool ico new">⬚</span><span class="tool ico new">⚙</span></div>
+    </div>
+    <p class="pro">Everything one click away; compact</p><p class="con">20 abstract icons are hard to learn, and labels are lost (the responsive icon-only mode exists today only as a fallback)</p>
+  </div>
+  <div class="opt"><h4>C · Tool families with a variant flyout</h4>
+    <div class="tbx" style="border:1px solid var(--s3);border-radius:6px">
+      <div class="th"><span>Segmentation tools</span><span class="an">Enhancing</span></div>
+      <div class="grid"><span class="tool on">Brush ▾</span><span class="tool">Threshold ▾</span><span class="tool">Shapes ▾</span><span class="tool">Fill ▾</span><span class="tool">Grow ▾</span><span class="tool new">Smart ▾</span><span class="tool">Select</span><span class="tool">Seg Bidir.</span><span class="tool new">Process ▾</span></div>
+      <div style="margin:0 8px 8px;padding:4px;border:1px solid var(--b);border-radius:4px;font-size:10px;color:var(--m)">Smart ▾ → Level Trace · Smart Brush · Random Walker · ROI limit</div>
+    </div>
+    <p class="pro">Smallest footprint, and scales without limit</p><p class="con">Hides which variant is active; needs a long-press or ▾ gesture; more E2E surface</p>
+  </div>
+</div></div>
+
+<!-- ===================================================== -->
+<h2 id="d3">4 · D3 — SegWorks Live Wire &amp; Spline write into masks</h2>
+<p>In Workstation, Spline and Livewire are <i>Structure</i> (RTSTRUCT) tools. SegWorks uses them to fill <i>segments</i>. The SEG toolbox already has <b>Contour Fill</b> (freehand boundary → voxels).</p>
+<div class="decision"><span class="id">D3</span><span class="q">How SEG gets spline/livewire boundaries</span>
+<div class="opts c2">
+  <div class="opt star"><h4>A · Contour Fill gains a boundary-mode selector <span class="badge-rec">recommended</span></h4>
+    <div class="ctrls" style="border:1px solid var(--s3);border-radius:6px"><div class="lab"><span>Controls · Contour Fill</span><span>■ Enhancing</span></div>
+      <div class="slider">Boundary <span class="seg" style="flex:1;outline:1px dashed var(--new)"><span>Freehand</span><span class="on">Spline</span><span>Livewire</span></span></div>
+      <div class="slider">Spline <span class="sel">Centripetal Catmull-Rom</span></div>
+      <div class="slider">Mode <span class="seg" style="flex:1"><span class="on">Fill</span><span>Erase</span></span></div>
+      <div class="adv" style="padding-left:0;border:0">Advanced (livewire cost terms / spline ROI edit)</div>
+    </div>
+    <p class="pro">No new buttons; one concept, “draw a boundary, fill it”</p><p class="pro">Branch 6 refinements (spline families, advanced livewire) serve both SEG and RTSTRUCT through the same controls</p><p class="con">The spline-specific actions (copy to next slice, commit-undo-reload) must appear only in Spline mode</p>
+  </div>
+  <div class="opt"><h4>B · Separate “Spline Fill” and “Livewire Fill” tools</h4>
+    <div class="grid" style="padding:0"><span class="tool">Contour Fill</span><span class="tool new">Spline Fill</span><span class="tool new">Livewire Fill</span></div>
+    <p class="pro">Discoverable, and each gets its own hotkey</p><p class="con">Two more buttons in the Shape tab; the three tools share 90% of their behaviour</p>
+  </div>
+</div></div>
+
+<!-- ===================================================== -->
+<h2 id="sheet">5 · Operation sheet anatomy (shared by every operation)</h2>
+<p>One component, one behaviour contract. Every operation is a sheet with the same sections in the same order, which keeps the E2E pattern uniform: open the sheet → set params → Preview → assert preview voxels → Commit → assert labelmap + one undo step.</p>
+<div class="three">
+  <div>
+    <h3>Cleanup (branch 1)</h3>
+    <div class="sheet" style="border:1px solid var(--b);border-radius:6px">
+      <div class="sh"><span class="ic">←</span><b>Cleanup</b><span style="color:#ef4444;font-size:10px">■ Enhancing</span></div>
+      <div class="sec"><div class="lab">Operation</div><span class="sel">Remove speckles</span>
+        <div class="list" style="margin-top:4px;color:var(--d);font-size:9.5px">Fill holes · Keep largest · Remove speckles · Remove strays · Median · Gaussian · Smooth edges · Anisotropic · Open · Close · Magnet bridge · Clear · Move to · Merge into · Relabel</div></div>
+      <div class="sec"><div class="lab">Parameters</div><div class="slider">Min size <span class="tr"><i style="width:20%"></i></span> 10 mm²</div></div>
+      <div class="sec"><div class="lab">Scope</div><div class="seg" style="margin-bottom:4px"><span class="on">Slice</span><span>Range</span><span>Volume</span></div><div class="seg"><span class="on">Active</span><span>All labels</span><span>Pick…</span></div><div style="margin-top:4px;font-size:10px;color:var(--m)">ROI: none · <u>draw</u></div></div>
+      <div class="foot"><span class="b">Preview</span><span class="b pri">Commit</span><span class="b">Discard</span></div>
+    </div>
+  </div>
+  <div>
+    <h3>Interpolate (branch 3)</h3>
+    <div class="sheet" style="border:1px solid var(--b);border-radius:6px">
+      <div class="sh"><span class="ic">←</span><b>Interpolate</b><span style="color:#ef4444;font-size:10px">■ Enhancing</span></div>
+      <div class="sec"><div class="lab">Method</div><span class="sel">Area-preserving SDF</span></div>
+      <div class="sec"><div class="lab">Gaps · 3 found</div>
+        <div class="list"><div class="li">▢ <span class="grow">47 – 52 (6)</span><span class="b">Preview</span></div><div class="li">▢ <span class="grow">71 – 72 (2)</span><span class="b">Preview</span></div><div class="li">▢ <span class="grow">88 (1)</span><span class="b">Preview</span></div></div></div>
+      <div class="sec"><div class="lab">Anchors</div><span style="color:var(--amber)">A</span> <span class="fld">46</span> <span class="b">Set A</span> &nbsp; <span style="color:var(--amber)">B</span> <span class="fld">53</span> <span class="b">Set B</span></div>
+      <div class="adv">Advanced (distance transform, snap strength, all labels)</div>
+      <div class="foot"><span class="b">Fill all gaps</span><span class="b pri">Commit</span><span class="b">Discard</span></div>
+    </div>
+    <p class="cap">Gaps and anchors also appear on the slice track (D5). Propagate is a sibling sheet with Direction · Tolerance · Max slices · Auto-stop.</p>
+  </div>
+  <div>
+    <h3>Alpha-expansion (branch 5), running</h3>
+    <div class="sheet" style="border:1px solid var(--b);border-radius:6px">
+      <div class="sh"><span class="ic">←</span><b>α-Expansion</b><span style="font-size:10px;color:var(--m)">3 labels</span></div>
+      <div class="sec"><div class="lab">Seeds</div>
+        <div class="grid" style="padding:0;grid-template-columns:repeat(4,1fr)"><span class="tool on">■ Liver</span><span class="tool">■ Lesion</span><span class="tool">■ Bkgd</span><span class="tool">Erase</span></div>
+        <div class="slider">Seed brush <span class="tr"><i style="width:25%"></i></span> 4 mm</div>
+        <div style="font-size:9.5px;color:var(--d)">right-drag paints the opposite class</div></div>
+      <div class="sec"><div class="lab">Domain</div><div class="seg"><span class="on">Seeded range</span><span>Full volume</span><span>ROI</span></div></div>
+      <div class="adv">Advanced (12 energy / sweep / post-process controls)</div>
+      <div class="sec"><div class="lab">Running · sweep 3 / 8</div><div class="prog"><i style="width:42%"></i></div><span style="font-size:10px;color:var(--m)">Graph 1.9 M voxels · est. 210 MB</span></div>
+      <div class="foot"><span class="b">Cancel run</span><span class="b dis">Commit</span><span class="b dis">Discard</span><span class="grow"></span><span class="ic">↺ restore seeds</span></div>
+    </div>
+  </div>
+</div>
+<h3>Sheet rules</h3>
+<ul>
+  <li><b>Header</b>: back arrow (to the Process list) · operation name · target member chip in its own colour. Targets come from the panel's active member, so there is no target dropdown. Exception: two-segment ops (Move/Merge/Magnet bridge) add a second “into” selector.</li>
+  <li><b>Advanced</b> is collapsed by default and remembers its state per operation. Algorithm <i>variants</i> (all ported, per decision 5) are a single dropdown, never separate operations.</li>
+  <li><b>Locked members</b>: Commit is disabled with the existing lock explanation; Preview still works (read-only).</li>
+  <li><b>Progress</b> is inline in the sheet and mirrored in the viewport status overlay with Cancel. No toast for progress or success (no-banner rule). A toast is used only for partial failure.</li>
+  <li><b>Memory guard</b> (Graph Cut, α-Exp, Chan-Vese): an estimate line, then an amber warning, then a disabled Run with a reason. Never a modal.</li>
+  <li>Leaving the sheet with an uncommitted preview leads to an inline “Discard preview?” confirm in the sheet, not a dialog.</li>
+</ul>
+
+<!-- ===================================================== -->
+<h2 id="d4">6 · D4 — Preview / commit affordance</h2>
+<div class="decision"><span class="id">D4</span><span class="q">Where Commit/Discard live while a preview is on screen</span>
+<div class="opts c3">
+  <div class="opt star"><h4>A · Viewport preview bar + sheet footer <span class="badge-rec">recommended</span></h4>
+    <div class="vp" style="height:150px"><div class="phantom"></div><div class="prevmask" style="left:42%;top:38%;width:16%;height:20%"></div>
+      <div class="pbar" style="border-color:var(--new)">Preview · Level Trace · 1 slice <span class="ok">Commit ⏎</span><span class="no">Discard ⎋</span></div></div>
+    <p class="pro">Eyes stay on the image; Enter/Esc work with focus in the viewport (focus never lives in panels)</p><p class="pro">Bar names the viewport holding the preview in multi-viewport layouts</p><p class="con">One more overlay element (top-centre is free today)</p>
+  </div>
+  <div class="opt"><h4>B · Sheet footer only</h4>
+    <div class="vp" style="height:150px"><div class="phantom"></div><div class="prevmask" style="left:42%;top:38%;width:16%;height:20%"></div></div>
+    <p class="pro">Simplest</p><p class="con">Interactive tools (Level Trace, Smart Brush) have no sheet, so they would need a second mechanism</p><p class="con">Enter/Esc would need to reach a panel button, which breaks the focus rule</p>
+  </div>
+  <div class="opt"><h4>C · No preview for fast ops (commit immediately, undo to revert)</h4>
+    <div class="vp" style="height:150px"><div class="phantom"></div><div class="mask" style="left:42%;top:38%;width:16%;height:20%"></div></div>
+    <p class="pro">Fewest clicks for Fill holes etc.</p><p class="con">Two behaviours to learn; the very failure behind <code>7a33519</code> (silent volume changes) reappears</p>
+  </div>
+</div>
+<p class="cap" style="margin-top:10px"><b>Preview rendering</b> (applies to all options): the target segment's colour, hatched fill and dashed outline. It is never blue (blue = selection) and never solid (solid = committed). Holding <code>\</code> flips between before and after.</p>
+</div>
+
+<!-- ===================================================== -->
+<h2 id="d5">7 · D5 — Slice track on the viewport scrollbar</h2>
+<p>Several features need “where along the stack” information: interpolation gaps and anchors, cleanup/solver slice ranges, flythrough bounds, 3D QC jump targets, propagation extent. The viewport scrollbar (<code>ViewportScrollbar</code>) already sits on every viewport.</p>
+<div class="decision"><span class="id">D5</span><span class="q">Annotate the scrollbar with active-segment occupancy, gaps, anchors and ranges?</span>
+<div class="opts c2">
+  <div class="opt star"><h4>A · Yes: the scrollbar becomes a slice track <span class="badge-rec">recommended</span></h4>
+    <div style="display:flex;gap:16px;align-items:stretch">
+      <div class="vp" style="height:220px;width:200px"><div class="phantom"></div>
+        <div class="sbar" style="width:9px"><div class="occ" style="top:20%;height:24%"></div><div class="gap" style="top:44%;height:7%"></div><div class="occ" style="top:51%;height:14%"></div><div class="anc" style="top:42%">A</div><div class="anc" style="top:51%">B</div><div class="rng" style="top:18%;height:49%"></div><div class="thumb" style="top:30%"></div></div></div>
+      <div style="font-size:11px;color:var(--m)">
+        <div><span class="sw" style="background:#ef4444"></span> active segment present (segment colour)</div>
+        <div><span class="sw" style="border:1px dashed var(--amber)"></span> interior gap (interpolation candidates)</div>
+        <div><b style="color:var(--amber)">A B</b> interpolation anchors</div>
+        <div><span class="sw" style="border:1.5px solid var(--new)"></span> operation range (drag ends to set Range scope)</div>
+        <div style="margin-top:6px">Click a band to jump to it. Off unless a SEG member is active, so the plain scroll behaviour is unchanged for viewing-only users.</div>
+      </div>
+    </div>
+    <p class="pro">One shared visual for six features; replaces SegWorks' separate sliders</p><p class="con">The scrollbar is 7 px; it needs to widen to ~10 px on hover</p>
+  </div>
+  <div class="opt"><h4>B · No: numeric fields only, inside each sheet</h4>
+    <div class="sec" style="border:1px solid var(--s3);border-radius:6px">Range <span class="fld">30</span> – <span class="fld">58</span> &nbsp; <span class="b">Use current slice</span></div>
+    <p class="pro">No change to a shared component</p><p class="con">You can't see gaps before choosing; anchors become abstract numbers</p>
+  </div>
+</div></div>
+
+<!-- ===================================================== -->
+<h2 id="d6">8 · D6 — Auto Review flythrough</h2>
+<p>SegWorks #213–221: auto-scroll through the segmented range with overlay flicker (anatomy dwell → mask dwell), choice of labels, direction and start point, and a minimised control.</p>
+<div class="decision"><span class="id">D6</span><span class="q">Where the flythrough is launched and controlled</span>
+<div class="opts c3">
+  <div class="opt star"><h4>A · Viewport mini-player, launched from the container kebab or a hotkey <span class="badge-rec">recommended</span></h4>
+    <div class="vp" style="height:170px"><div class="phantom"></div><div class="mask" style="left:42%;top:38%;width:16%;height:20%;opacity:.5"></div>
+      <div class="hud" style="left:8px;bottom:8px;border-color:var(--new);padding:4px 6px">⏸ Review 34 / 58 · ⇅ · anatomy 0.4 s · mask 0.8 s · ▾ labels · ✕</div></div>
+    <p class="pro">Bound to one viewport; the existing cine stays untouched</p><p class="pro">Collapsed by default, which is SegWorks' “minimised controls”</p><p class="con">Settings live in a small ▾ popover</p>
+  </div>
+  <div class="opt"><h4>B · A mode of the toolbar cine control</h4>
+    <div class="tbar" style="border:1px solid var(--s3);border-radius:4px">▶ ━●━ 15 fps <span class="sel" style="outline:1px dashed var(--new)">Mode: Segmented range + flicker</span></div>
+    <p class="pro">Reuses the cine control people already know</p><p class="con">Cine is per-layout, but review is per segment; the labels and timings don't fit in the toolbar</p>
+  </div>
+  <div class="opt"><h4>C · An operation sheet in Process</h4>
+    <div class="sheet" style="border:1px solid var(--b);border-radius:6px"><div class="sh"><b>Review flythrough</b></div><div class="sec">labels · direction · timings</div><div class="foot"><span class="b pri">Start</span></div></div>
+    <p class="pro">Consistent with other ops</p><p class="con">Review isn't an edit; it would occupy the panel during a hands-off review</p>
+  </div>
+</div></div>
+
+<!-- ===================================================== -->
+<h2 id="d7">9 · D7 — Hide PHI</h2>
+<div class="decision"><span class="id">D7</span><span class="q">Control placement and scope</span>
+<div class="opts c2">
+  <div class="opt star"><h4>A · Toolbar toggle, next to Tags, plus hotkey <span class="badge-rec">recommended</span></h4>
+    <div class="tbar" style="border:1px solid var(--s3);border-radius:4px"><span class="sp"></span><span class="btn" style="border:1px dashed var(--new);background:#3f3f46;color:#fff">⊘ PHI hidden</span><span class="btn primary">Annotate</span><span>Tags</span><span>⚙</span></div>
+    <p class="pro">The state is visible at all times, which matters during screen-sharing</p><p class="con">One more toolbar item; it folds into the overflow at narrow widths</p>
+  </div>
+  <div class="opt"><h4>B · Settings › Overlay switch + hotkey only</h4>
+    <p class="pro">No toolbar cost</p><p class="con">No visible indicator that PHI is hidden (or that it <i>isn't</i>)</p>
+  </div>
+</div>
+<p style="margin-top:10px"><b>Scope sub-decision (D7-s)</b>: what “hidden” covers.</p>
+<table class="t">
+<tr><th>Surface</th><th>Option 1: viewport only (SegWorks)</th><th>Option 2: all display surfaces <span class="badge-rec">recommended</span></th></tr>
+<tr><td>Viewport overlay corners (patient name / ID / DOB / study date / institution)</td><td>hidden</td><td>hidden</td></tr>
+<tr><td>Orientation markers and the active-viewport ring</td><td>SegWorks hides them; we keep them (they aren't PHI, and the ring is a functional cue)</td><td>kept</td></tr>
+<tr><td>DICOM header panel (Tags)</td><td>shown</td><td>PHI-tag values masked, with a reveal-per-tag click</td></tr>
+<tr><td>Sidebar subject/session labels, worklist rows, window title</td><td>shown</td><td>labels kept (XNAT labels are pseudonymous by convention); window title stripped</td></tr>
+<tr><td>Exports (CSV, screenshots)</td><td>—</td><td>unaffected; PHI policy for exports stays in <code>dicom-export-field-policy.md</code></td></tr>
+</table>
+</div>
+
+<!-- ===================================================== -->
+<h2 id="hud">10 · Viewport HUD &amp; intensity probe (no decision; confirm)</h2>
+<div class="two">
+  <div class="vp" style="height:200px"><div class="phantom"></div>
+    <div style="position:absolute;left:55%;top:48%;width:14px;height:14px;border:1px solid #fff;border-radius:50%"></div>
+    <div class="hud" style="left:58%;top:42%;border-color:var(--new)">HU 43 · (128, 96, 42)</div>
+    <div class="hud" style="left:50%;bottom:10px;transform:translateX(-50%);border-color:var(--new)">Brush 7 mm · Erase</div>
+  </div>
+  <div>
+    <ul>
+      <li><b>Hold-Q probe</b> (#25): a cursor-adjacent readout while Q is held, without changing tools. The persistent Probe tool (D) stays.</li>
+      <li><b>Mask HUD</b> (#28): a bottom-centre pill for ~1.2 s when a hotkey changes tool, mode or brush size. Bottom-centre is where the ruler sits, so the pill renders above it.</li>
+      <li><b>Spring-loaded eraser</b> (#24): already covered, because holding Shift inverts today. No W binding (W = Window/Level).</li>
+      <li>Neither the probe nor the HUD is a toast; both are transient viewport glyphs, so they don't trip the no-banner rule.</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ===================================================== -->
+<h2 id="d8">11 · D8 — Baseline &amp; named checkpoints</h2>
+<p>SegWorks: Set baseline / Reset to baseline (#15–16), named backups, export/import a backup file (#258–268). Workstation already has disk autosave, crash recovery and “Revert” (to last loaded/saved) in the container kebab.</p>
+<div class="decision"><span class="id">D8</span><span class="q">Where checkpoints live</span>
+<div class="opts c2">
+  <div class="opt star"><h4>A · Container kebab, with checkpoints as a sub-list <span class="badge-rec">recommended</span></h4>
+    <div style="width:230px;border:1px solid var(--b);border-radius:6px;background:var(--s1);font-size:11px">
+      <div style="padding:4px 10px">Hide all</div><div style="padding:4px 10px">Lock all</div><div style="padding:4px 10px">Export to DICOM…</div><div style="padding:4px 10px">Export to CSV…</div>
+      <div style="padding:4px 10px;border-top:1px solid var(--s3);outline:1px dashed var(--new);outline-offset:-2px">Review flythrough</div>
+      <div style="padding:4px 10px;outline:1px dashed var(--new);outline-offset:-2px">Save checkpoint…</div>
+      <div style="padding:4px 10px;outline:1px dashed var(--new);outline-offset:-2px">Restore checkpoint ▸ <span class="ic">“pre-cleanup” 14:02 · “baseline” 13:40</span></div>
+      <div style="padding:4px 10px;border-top:1px solid var(--s3)">Revert</div>
+    </div>
+    <p class="pro">Per-container, like the data it protects; “baseline” is just a checkpoint with a reserved name</p><p class="pro">Export/import of checkpoint files goes into Settings › File Backup, beside recovery</p><p class="con">The kebab grows from 5 to 8 items (it was deliberately trimmed)</p>
+  </div>
+  <div class="opt"><h4>B · Expand the toolbox backup-status row</h4>
+    <div class="ctrls" style="border:1px solid var(--s3);border-radius:6px"><div class="lab"><span>Backup · saved 14:03</span><span>▾</span></div><div class="list"><div class="li">● baseline 13:40 <span class="grow"></span><span class="b">Restore</span></div><div class="li">● pre-cleanup 14:02 <span class="grow"></span><span class="b">Restore</span></div><div class="li"><span class="b">+ Checkpoint</span></div></div></div>
+    <p class="pro">The kebab stays trimmed; it sits next to the autosave status</p><p class="con">The toolbox is tied to the active member's container, so checkpoints for other containers are unreachable</p>
+  </div>
+</div></div>
+
+<!-- ===================================================== -->
+<h2 id="d9">12 · D9 — 3D segmentation QC</h2>
+<div class="decision"><span class="id">D9</span><span class="q">Where the 3D surface view and the component report live</span>
+<div class="opts c3">
+  <div class="opt star"><h4>A · “2D + 3D QC” layout preset + a QC sheet in Process <span class="badge-rec">recommended</span></h4>
+    <div class="app" style="height:180px;display:flex"><div class="vpa" style="grid-template-columns:1fr 1fr;flex:1"><div class="vp active"><div class="phantom"></div><div class="mask" style="left:40%;top:38%;width:18%;height:20%"></div></div><div class="vp" style="background:#0b0b10"><div style="position:absolute;left:30%;top:28%;width:40%;height:44%;border-radius:40% 50% 45% 55%;background:radial-gradient(circle at 35% 35%,#fca5a5,#b91c1c)"></div><div style="position:absolute;left:76%;top:70%;width:6px;height:6px;border-radius:50%;background:#fbbf24;box-shadow:0 0 0 2px #fbbf2455"></div><div class="ov tr">3D · 192³</div></div></div>
+      <div class="side" style="width:120px"><div class="sheet" style="flex:1;border:0"><div class="sh"><b>3D QC</b></div><div class="sec" style="font-size:9.5px">Main 1 · 412 cc<br><span style="color:var(--amber)">Stray 3</span> · 0.2 cc ↗<br>Stray 4 · 0.1 cc ↗<br>Speck ×7</div><div class="foot" style="flex-wrap:wrap"><span class="b">Delete</span><span class="b">✂</span></div></div></div></div>
+    <p class="pro">Reuses the existing VOLUME_3D viewport and layout system; the 2D slice is beside the 3D one for the ↗ jump</p><p class="pro">Edits (delete component, 3D scissor) go through the same transaction and undo as 2D</p><p class="con">Changes the user's layout (restored when the sheet closes)</p>
+  </div>
+  <div class="opt"><h4>B · Dedicated full-window QC mode (SegWorks-style)</h4>
+    <div class="app" style="height:180px;background:#0b0b10;position:relative"><div style="position:absolute;inset:8px;border:1px dashed var(--new);border-radius:4px;color:var(--m);padding:6px;font-size:10px">Full-window 3D + report · ✕ to return</div></div>
+    <p class="pro">Maximum room</p><p class="con">Loses the 2D context for jump/verify; it's a second app mode to maintain</p>
+  </div>
+  <div class="opt"><h4>C · Any existing 3D viewport + report in the kebab</h4>
+    <p class="pro">No new layout</p><p class="con">The user must arrange a 3D viewport themselves; the report has no natural home</p>
+  </div>
+</div></div>
+
+<!-- ===================================================== -->
+<h2 id="d10">13 · D10 — Worklist placement (placement only)</h2>
+<p class="warn">Per decision 3, the worklist gets its own reviewed plan (XNAT-backed data model, concurrency, permissions). This section only reserves <i>space</i> so later segmentation work doesn't occupy it.</p>
+<div class="decision"><span class="id">D10</span><span class="q">Where the worklist appears</span>
+<div class="opts c3">
+  <div class="opt star"><h4>A · Sidebar tab + toolbar case bar + full-window table <span class="badge-rec">recommended</span></h4>
+    <div class="app" style="height:170px;display:flex;flex-direction:column"><div class="tbar"><span class="btn" style="border:1px dashed var(--new);color:var(--t)">◀ 12 / 80 · S014 · Capture ▶</span></div><div class="body" style="flex:1"><div class="sidebar" style="width:110px"><div class="tabs" style="padding:5px"><span>Browse</span><span class="on">Worklist</span></div><div class="row on">● S014</div><div class="row">○ S015</div><div class="row">⤢ full list</div></div><div class="vp" style="flex:1"><div class="phantom"></div></div></div></div>
+    <p class="pro">Navigation while annotating stays in the compact sidebar; managing the worklist (filters, columns, assignment) gets the full-window table</p><p class="pro">The case bar gives Next & Open without the sidebar</p><p class="con">Three touchpoints to keep consistent</p>
+  </div>
+  <div class="opt"><h4>B · Full-window worklist page only (a mode before the viewer)</h4>
+    <p class="pro">Simple; one surface</p><p class="con">Every case change round-trips through a separate page</p>
+  </div>
+  <div class="opt"><h4>C · Bottom dock strip under the viewports</h4>
+    <p class="pro">Wide, so it suits a table</p><p class="con">Takes viewport height permanently; a new docking surface</p>
+  </div>
+</div></div>
+
+<!-- ===================================================== -->
+<h2 id="d11">14 · D11 — Algorithm modules</h2>
+<div class="decision"><span class="id">D11</span><span class="q">Where installed modules run and are managed</span>
+<div class="opts c2">
+  <div class="opt star"><h4>A · Run from Process (a “Modules” group); manage in Settings › Modules <span class="badge-rec">recommended</span></h4>
+    <div class="two">
+      <div class="sheet" style="border:1px solid var(--b);border-radius:6px"><div class="sh"><span class="ic">←</span><b>Enhancing Lesion</b><span class="ic">v1.6.2</span></div><div class="sec"><div class="lab">Parameters (from module schema)</div><div class="slider">Sensitivity <span class="sel">Balanced</span></div><div class="slider">Propagate ± <span class="sel">Auto</span></div></div><div class="foot"><span class="b pri">Run</span><span class="b">Log ▾</span></div></div>
+      <div style="border:1px solid var(--b);border-radius:6px;background:var(--s1);padding:8px;font-size:10.5px"><b>Settings › Modules</b> <span class="new-tag">NEW</span><div class="list" style="margin-top:6px"><div class="li">Enhancing Lesion 1.6.2 <span class="grow"></span>Remove</div><div class="li">Mask Relabel 1.1.0 <span class="grow"></span>Remove</div><div class="li"><span class="b">Import module…</span></div></div><div style="color:var(--d);margin-top:4px">Shows the permissions a module requests (voxel read/write, XNAT read)</div></div>
+    </div>
+    <p class="pro">A module is just another operation (same sheet, preview, undo); installing is a deliberate, settings-level act</p>
+  </div>
+  <div class="opt"><h4>B · Toolbar “Modules ▾” menu</h4>
+    <p class="pro">Discoverable</p><p class="con">Puts annotation actions in the toolbar (against the lifecycle rule); needs a separate param UI</p>
+  </div>
+</div></div>
+
+<!-- ===================================================== -->
+<h2 id="d12">15 · D12 — Hotkeys</h2>
+<p>SegWorks' keys collide with Workstation's: A (angle vs anchor A), B (brush vs anchor B), C (crosshairs vs correction), F (paint fill vs freehand), S (stack scroll vs fill holes), W (W/L vs hold-erase), L (length vs lung mode). All keys remain remappable in Settings › Hotkeys.</p>
+<div class="decision"><span class="id">D12</span><span class="q">How operation-specific keys coexist with the global map</span>
+<div class="opts c2">
+  <div class="opt star"><h4>A · Sheet-scoped keys <span class="badge-rec">recommended</span></h4>
+    <p>While a sheet is open, a small sheet keymap takes precedence over the global map, and the sheet shows its keys inline (e.g. Interpolate: <code>A</code>/<code>B</code> set anchors, <code>⇧A</code>/<code>⇧B</code> clear, <code>⇧C</code> clear both). Closing the sheet restores the global meaning. This is the same mechanism as the existing name-capture handler.</p>
+    <p class="pro">Keeps SegWorks muscle memory where it matters without taking away global keys</p><p class="con">The same key means different things depending on context, so the sheet must show its keys</p>
+  </div>
+  <div class="opt"><h4>B · Global, unique keys only (e.g. Alt+A / Alt+B)</h4>
+    <p class="pro">One meaning per key</p><p class="con">Chords for frequent anchor work; Alt+letter is awkward on macOS</p>
+  </div>
+</div>
+<h3>Proposed global additions (free keys today)</h3>
+<table class="t">
+<tr><th>Key</th><th>Action</th><th>SegWorks origin</th></tr>
+<tr><td class="k">Q (hold)</td><td>Intensity/HU probe at cursor</td><td>#25 (same key)</td></tr>
+<tr><td class="k">M</td><td>Toggle active container mask visibility</td><td>#340 (remappable there too)</td></tr>
+<tr><td class="k">⇧Space</td><td>Start/stop review flythrough on the active viewport</td><td>#213</td></tr>
+<tr><td class="k">⇧H</td><td>Toggle Hide PHI</td><td>#269</td></tr>
+<tr><td class="k">X</td><td>Open Cleanup sheet (last-used op)</td><td>#29 (S in SegWorks; S is taken)</td></tr>
+<tr><td class="k">N / ⇧N</td><td>Worklist next / previous case (only when a worklist is open)</td><td>#315, #317</td></tr>
+<tr><td class="k">O</td><td>Contour Fill (cycles Freehand → Spline → Livewire with D3-A)</td><td>#72, #82</td></tr>
+<tr><td class="k">⏎ / ⎋</td><td>Commit / discard the preview (only while a preview exists)</td><td>#112–114</td></tr>
+<tr><td class="k">\ (hold)</td><td>Show the pre-preview state (compare)</td><td>new</td></tr>
+<tr><td class="k">(unbound)</td><td>Level Trace, Smart Brush, Random Walker, ROI limit; bindable in Settings</td><td>—</td></tr>
+</table>
+</div>
+
+<!-- ===================================================== -->
+<h2 id="summary">16 · Decision summary</h2>
+<table class="t">
+<tr><th>#</th><th>Decision</th><th>Recommended</th><th>Alternatives</th><th>Unblocks</th></tr>
+<tr><td>D1</td><td>Where operations live</td><td class="rec">A · sheet in side panel</td><td>B Process tab · C floating panel</td><td>1, 3, 5, 6, 7, 9</td></tr>
+<tr><td>D2</td><td>Toolbox density</td><td class="rec">A · Paint/Shape/Smart/Process tabs</td><td>B icon grid · C family flyouts</td><td>1, 4</td></tr>
+<tr><td>D3</td><td>Spline/Livewire into masks</td><td class="rec">A · Contour Fill boundary mode</td><td>B separate tools</td><td>6</td></tr>
+<tr><td>D4</td><td>Preview/commit</td><td class="rec">A · viewport bar + sheet footer</td><td>B footer only · C no preview</td><td>1–7</td></tr>
+<tr><td>D5</td><td>Slice track on scrollbar</td><td class="rec">A · yes</td><td>B numeric fields only</td><td>1, 3, 2, 7</td></tr>
+<tr><td>D6</td><td>Flythrough</td><td class="rec">A · viewport mini-player</td><td>B cine mode · C sheet</td><td>2</td></tr>
+<tr><td>D7 / D7-s</td><td>Hide PHI control / scope</td><td class="rec">A toolbar toggle · Option 2 all display surfaces</td><td>B settings only · Option 1 viewport only</td><td>2</td></tr>
+<tr><td>D8</td><td>Checkpoints</td><td class="rec">A · container kebab</td><td>B backup-status row</td><td>2</td></tr>
+<tr><td>D9</td><td>3D QC</td><td class="rec">A · 2D+3D preset + QC sheet</td><td>B full-window mode · C manual</td><td>7</td></tr>
+<tr><td>D10</td><td>Worklist placement</td><td class="rec">A · sidebar tab + case bar + table view</td><td>B page only · C bottom dock</td><td>8 (reserves space)</td></tr>
+<tr><td>D11</td><td>Modules</td><td class="rec">A · Process group + Settings › Modules</td><td>B toolbar menu</td><td>9</td></tr>
+<tr><td>D12</td><td>Hotkey scoping</td><td class="rec">A · sheet-scoped keys</td><td>B global chords</td><td>3, all</td></tr>
+</table>
+<p class="cap">Once these are settled they get recorded in <code>docs/segworks-parity.md §4</code>. Branch 1 then starts with the shared pieces every later branch reuses: the labelmap transaction, operation sheet, preview layer, scope bar and slice track.</p>
+
+</main></body></html>

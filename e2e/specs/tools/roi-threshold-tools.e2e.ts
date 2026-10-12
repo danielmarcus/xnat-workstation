@@ -19,6 +19,7 @@
 import { test, expect } from '../../fixtures/electron-app';
 import type { Page } from '@playwright/test';
 import { loadFixture } from '../../helpers/local-fixture';
+import { clickTool } from '../../helpers/toolbox';
 
 type Win = { __XNAT_E2E__: {
   setActiveUnifiedTool: (t: string) => void;
@@ -63,7 +64,7 @@ for (const tool of [
     const fillWith = async (range: [number, number]) => {
       await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.resetUnifiedSegmentations());
       const panel = await newSegmentation(page);
-      await panel.getByRole('button', { name: tool.label, exact: true }).click();
+      await clickTool(panel, tool.label);
       await page.evaluate((r) => (window as unknown as Win).__XNAT_E2E__.setUnifiedBrushThreshold(r), range);
       await dragRegion(page);
       return page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.getPaintedVoxelCount());

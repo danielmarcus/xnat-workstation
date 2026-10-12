@@ -110,6 +110,7 @@ import { showAlertDialog } from '../../stores/dialogStore';
 import { contourPlaneMetadata } from './contourPlaneMetadata';
 import { GENERATED_IMAGE_SCHEME } from './generatedImageLoader';
 import { labelmapStorage } from './labelmapLayers';
+import { registerHistoryGrouper } from './labelmapTransaction';
 
 // ─── Constants ──────────────────────────────────────────────────
 
@@ -1712,6 +1713,9 @@ function withHistoryGroup(fn: () => void): void {
     ring?.endGroupRecording?.();
   }
 }
+
+// The labelmap transaction's multi-member edits are one undo step through this grouping.
+registerHistoryGrouper(withHistoryGroup);
 
 export const segmentationService = {
   /**

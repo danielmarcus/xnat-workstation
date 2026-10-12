@@ -19,6 +19,7 @@
 import { test, expect } from '../../fixtures/electron-app';
 import type { Page } from '@playwright/test';
 import { loadFixture } from '../../helpers/local-fixture';
+import { clickTool } from '../../helpers/toolbox';
 
 type Win = {
   __XNAT_E2E__: {
@@ -58,7 +59,7 @@ test('a shape tool used earlier does not answer Shift-drag once the brush is sel
   await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.setUnifiedBrushSize(20));
 
   // Use Circle first — this is what leaves the stale Shift binding behind.
-  await panel.getByRole('button', { name: 'Circle', exact: true }).click();
+  await clickTool(panel, 'Circle');
   await panel.getByRole('button', { name: 'fill', exact: true }).click();
   await drag(page, [130, 130], [200, 200]);
   const afterCircle = await paintedVoxels(page);
@@ -66,7 +67,7 @@ test('a shape tool used earlier does not answer Shift-drag once the brush is sel
 
   // Now the brush, and Shift-drag over the filled area. Shift inverts fill→erase, so
   // this must REMOVE voxels. If the stale scissors binding wins it ADDS a disc instead.
-  await panel.getByRole('button', { name: 'Brush', exact: true }).click();
+  await clickTool(panel, 'Brush');
   await drag(page, [140, 140], [190, 190], true);
 
   expect(
@@ -81,7 +82,7 @@ test('only the active tool is bound to the mouse after a switch', async ({ page 
   const panel = await segToolbox(page);
 
   for (const tool of ['Circle', 'Rect', 'Sphere', 'Brush', 'Sph. Brush', 'Threshold']) {
-    await panel.getByRole('button', { name: tool, exact: true }).click();
+    await clickTool(panel, tool);
     await page.waitForTimeout(120);
     const bound = await page.evaluate(() => {
       const w = window as unknown as { __XNAT_E2E__: { toolsBoundToPrimary?: () => string[] } };

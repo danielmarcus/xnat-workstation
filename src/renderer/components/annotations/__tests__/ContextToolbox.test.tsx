@@ -43,6 +43,37 @@ describe('ContextToolbox', () => {
     expect((screen.getByLabelText('Sphere') as HTMLButtonElement).disabled).toBe(true);
   });
 
+  it('every Segmentation tool is in one grid, with no tabs, family by family (D2 as amended)', () => {
+    render(<ContextToolbox kind="SEG" activeMemberName="S" activeToolId={null} onSelectTool={vi.fn()} />);
+    expect(screen.queryAllByRole('tab')).toHaveLength(0);
+    const grid = screen.getByTestId('toolbox-grid');
+    expect(Array.from(grid.querySelectorAll('button')).map((b) => b.getAttribute('aria-label'))).toEqual([
+      'Select', 'Seg Bidir.',
+      'Brush', 'Threshold', 'Dyn. Thresh', 'Sph. Brush', 'Sph. Thresh', 'Paint Fill',
+      'Circle', 'Rect', 'Sphere', 'Rect Multi', 'Contour Fill',
+      'Region', 'Region+',
+    ]);
+  });
+
+  it('lays the grid out in the requested number of columns', () => {
+    const { rerender } = render(<ContextToolbox kind="SEG" activeMemberName="S" activeToolId={null} onSelectTool={vi.fn()} columns={4} />);
+    expect(screen.getByTestId('toolbox-grid').className).toContain('grid-cols-4');
+    rerender(<ContextToolbox kind="SEG" activeMemberName="S" activeToolId={null} onSelectTool={vi.fn()} />);
+    expect(screen.getByTestId('toolbox-grid').className).toContain('grid-cols-3');
+  });
+
+  it('other kinds have no tabs either', () => {
+    render(<ContextToolbox kind="RTSTRUCT" activeMemberName="GTV" activeToolId={null} onSelectTool={vi.fn()} />);
+    expect(screen.queryAllByRole('tab')).toHaveLength(0);
+  });
+
+  it('the backup status sits in the header, above the grid, so it cannot change the toolbox height', () => {
+    setup({ backupStatus: 'Backed up · 2s ago' });
+    const status = screen.getByTestId('backup-status');
+    const grid = screen.getByTestId('toolbox-grid');
+    expect(status.compareDocumentPosition(grid) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it('shows the SEG controls strip (opacity) + silent backup status when provided', async () => {
     const onOpacityChange = vi.fn();
     setup({

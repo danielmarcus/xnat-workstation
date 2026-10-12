@@ -15,6 +15,7 @@
 import { test, expect } from '../../fixtures/electron-app';
 import type { Page } from '@playwright/test';
 import { loadFixture } from '../../helpers/local-fixture';
+import { clickTool } from '../../helpers/toolbox';
 
 type Win = { __XNAT_E2E__: {
   getPaintedVoxelsPerSlice: () => Array<{ segmentationId: string; dims: [number, number, number]; perSlice: number[] }>;
@@ -53,7 +54,7 @@ async function stroke(page: Page) {
 
 /** Pick a tool by its real toolbox button, not by a hook. */
 const pickTool = (panel: ReturnType<Page['locator']>, label: string) =>
-  panel.getByRole('button', { name: label, exact: true }).click();
+  clickTool(panel, label);
 
 test('the spherical brush paints across slices; the circle brush does not', async ({ page }) => {
   await loadFixture(page, 'ct-axial-300', 'panel_0');
