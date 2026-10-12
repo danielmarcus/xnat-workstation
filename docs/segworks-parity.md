@@ -284,3 +284,7 @@ the real affordance (tab → sheet → Preview → ⏎) and asserts **labelmap v
   assertions also seen red against built mutants. Annotations + tools E2E 190/192 on the first
   run: panel-resize (fixed above) and `contour-copy-paste` "loaded Structure contour … paste
   interpolates", which passes 3/3 alone — the known flake another session is fixing.
+  After merging S10 into `mask-ops` with the focus-handling and loaded-contour commits: full offline
+  E2E on the built app **250/250**, unit 981/981, typecheck clean. **Branch 1 ready to merge to
+  `main`.** Branches 2–7 were cut from S9 and need S10 merged forward (their Process-tab sheets
+  and tabbed tools move to the Operations section and the flat grid).
