@@ -343,6 +343,9 @@ that evaluation land on `mask-ops` and are merged forward here.
   refused unless same series and grid; stored as a new checkpoint). Status in place, not a toast.
 - **R6** — tool reference documents the review/display controls; full offline E2E run on the
   built app: 260/260. **Branch 2 complete.**
+- **Forward merge of S10 (2026-10-12)** — `mask-ops` (Operations section, flat toolbox, focus
+  handling) merged in; only the hotkey files conflicted (hold-Q / M kept beside the new
+  `holdsKeyboard` guard). Unit 993/993; full offline E2E on the built app **268/268**.
 
 ---
 
