@@ -23,7 +23,7 @@ function Segmented<T extends string>({ value, options, onChange, label }: { valu
   );
 }
 
-function Param({ spec, value, onChange, onDone }: { spec: ParamSpec; value: number | string; onChange: (v: number | string) => void; onDone: () => void }) {
+function Param({ spec, value, onChange }: { spec: ParamSpec; value: number | string; onChange: (v: number | string) => void }) {
   if (spec.kind === 'select') {
     return (
       <label className="flex items-center gap-2 mt-1 text-[10px] text-zinc-400" title={spec.hint}>
@@ -31,7 +31,7 @@ function Param({ spec, value, onChange, onDone }: { spec: ParamSpec; value: numb
         <select
           aria-label={spec.label}
           value={String(value)}
-          onChange={(e) => { onChange(e.target.value); onDone(); }}
+          onChange={(e) => onChange(e.target.value)}
           className="flex-1 px-1 py-0.5 rounded bg-zinc-800 text-zinc-200 text-[10px]"
         >
           {spec.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
@@ -50,7 +50,6 @@ function Param({ spec, value, onChange, onDone }: { spec: ParamSpec; value: numb
         step={spec.step}
         value={Number(value)}
         onChange={(e) => onChange(Number(e.target.value))}
-        onPointerUp={onDone}
         className="flex-1 accent-blue-500"
       />
       <span className="text-zinc-300 tabular-nums whitespace-nowrap">
@@ -77,7 +76,7 @@ export default function CleanupSheet({ m }: { m: CleanupSheetModel }) {
       advanced={advanced.length ? (
         <div className="px-3 py-2 border-b border-zinc-800/70">
           {advanced.map((spec) => (
-            <Param key={spec.key} spec={spec} value={m.params[spec.key]} onChange={(v) => m.setParam(spec.key, v)} onDone={m.releaseFocus} />
+            <Param key={spec.key} spec={spec} value={m.params[spec.key]} onChange={(v) => m.setParam(spec.key, v)} />
           ))}
         </div>
       ) : undefined}
@@ -146,7 +145,7 @@ export default function CleanupSheet({ m }: { m: CleanupSheetModel }) {
       {basic.length > 0 && (
         <SheetSection label="Parameters">
           {basic.map((spec) => (
-            <Param key={spec.key} spec={spec} value={m.params[spec.key]} onChange={(v) => m.setParam(spec.key, v)} onDone={m.releaseFocus} />
+            <Param key={spec.key} spec={spec} value={m.params[spec.key]} onChange={(v) => m.setParam(spec.key, v)} />
           ))}
         </SheetSection>
       )}
@@ -194,7 +193,7 @@ export default function CleanupSheet({ m }: { m: CleanupSheetModel }) {
       {m.smart.visible && (
         <SheetSection label="Per-segment plan">
           <label className="flex items-center gap-2 text-[10px] text-zinc-300">
-            <input type="checkbox" checked={m.smart.protect} onChange={(e) => { m.smart.setProtect(e.target.checked); m.releaseFocus(); }} />
+            <input type="checkbox" checked={m.smart.protect} onChange={(e) => m.smart.setProtect(e.target.checked)} />
             Protect small and thin segments
           </label>
           {m.smart.protect && (

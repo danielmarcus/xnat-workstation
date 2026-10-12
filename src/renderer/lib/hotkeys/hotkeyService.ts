@@ -14,6 +14,7 @@ import type { HotkeyAction, HotkeyBinding, HotkeyMap } from '@shared/types/hotke
 import { ToolName, WL_PRESETS, panelId as makePanelId } from '@shared/types/viewer';
 import type { LayoutType } from '@shared/types/viewer';
 import { DEFAULT_HOTKEY_MAP } from './defaultHotkeyMap';
+import { holdsKeyboard } from './keepFocusInViewports';
 import { useViewerStore } from '../../stores/viewerStore';
 import { useOperationSheetStore } from '../../stores/operationSheetStore';
 import { useSegmentationStore } from '../../stores/segmentationStore';
@@ -379,10 +380,12 @@ export interface KeyLayer {
 }
 const keyLayers: KeyLayer[] = [];
 
+/** The key press belongs to the focused field, not the shortcuts: text entry, or a form
+ *  control in a modal dialog. A slider, checkbox or dropdown in the chrome does NOT hold
+ *  the keyboard (see keepFocusInViewports) — treating it as a field swallowed every
+ *  shortcut after it was clicked. */
 function inFormField(e: KeyboardEvent): boolean {
-  const t = e.target as HTMLElement | null;
-  const tag = t?.tagName;
-  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || !!t?.isContentEditable;
+  return holdsKeyboard(e.target as Element | null);
 }
 
 function handleKeyUp(e: KeyboardEvent): void {
@@ -404,18 +407,9 @@ function handleKeyDown(e: KeyboardEvent): void {
     e.stopPropagation();
     return;
   }
-  // Input guard: don't intercept when focus is in a form element,
+  // Input guard: don't intercept when focus is in a field that holds the keyboard,
   // UNLESS it's Tab which we want for viewport cycling even from controls.
-  const tag = (e.target as HTMLElement)?.tagName;
-  const isTextInput = tag === 'INPUT' || tag === 'TEXTAREA';
-  const isFormControl = isTextInput || tag === 'SELECT';
-  if (isFormControl) {
-    // Allow Tab through even in form controls (for viewport cycling)
-    if (e.key !== 'Tab') return;
-  }
-
-  // Also guard for contentEditable elements (except Tab)
-  if ((e.target as HTMLElement)?.isContentEditable && e.key !== 'Tab') return;
+  if (inFormField(e) && e.key !== 'Tab') return;
 
   if (!inFormField(e)) {
     for (let i = keyLayers.length - 1; i >= 0; i--) {

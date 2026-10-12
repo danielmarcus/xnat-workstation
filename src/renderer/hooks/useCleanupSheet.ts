@@ -51,8 +51,6 @@ export interface CleanupSheetModel {
   back(): void;
   confirmLeave(): void;
   cancelLeave(): void;
-  /** Give the keyboard back to the viewport after a control was used. */
-  releaseFocus(): void;
   /** Smart Cleanup — shown when a cleanup op runs over All segments. */
   smart: {
     visible: boolean;
@@ -232,7 +230,6 @@ export function useCleanupSheet(): CleanupSheetModel {
       sheet.closeSheet();
     },
     cancelLeave: () => sheet.setConfirmingLeave(false),
-    releaseFocus: () => hotkeyService.focusActiveViewport(),
     smart: {
       visible: smartVisible,
       protect: sheet.smartProtect,
