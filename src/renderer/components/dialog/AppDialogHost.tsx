@@ -35,7 +35,7 @@ export default function AppDialogHost() {
         onClick={() => resolveActive(false)}
       />
 
-      <div className="relative w-full max-w-md rounded-xl border border-zinc-700 bg-zinc-900 shadow-2xl">
+      <div className="relative w-full max-w-md rounded-xl border border-zinc-700 bg-zinc-900 shadow-2xl" role="dialog" aria-modal="true" aria-label={active.title}>
         <div className="border-b border-zinc-800 px-4 py-3">
           <h3 className="text-sm font-semibold text-zinc-100">{active.title}</h3>
         </div>

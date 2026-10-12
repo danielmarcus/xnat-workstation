@@ -510,7 +510,7 @@ export default function SettingsModal({ open, onClose, onRecover, initialTab }: 
         onClick={onClose}
       />
 
-      <div className="relative w-full max-w-4xl h-[min(80vh,560px)] bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl overflow-hidden flex">
+      <div className="relative w-full max-w-4xl h-[min(80vh,560px)] bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl overflow-hidden flex" role="dialog" aria-modal="true" aria-label="Settings">
         <div className="w-40 border-r border-zinc-800 p-2 bg-zinc-950/50">
           <div className="px-2 py-2 text-[11px] uppercase tracking-wide text-zinc-500">Settings</div>
           <div className="space-y-1">

@@ -1,12 +1,13 @@
 /**
  * Labelmap interpolation (SegWorks parity #152–168; branch 3 I2). User-triggered only:
- * Process › Interpolate fills empty slices between painted ones — every gap, the slice on
+ * Operations › Interpolate fills empty slices between painted ones — every gap, the slice on
  * screen, or between anchors A and B — previewed, committed with ⏎ as one undo step.
  */
 import { test, expect } from '../../fixtures/electron-app';
 import type { Locator, Page } from '@playwright/test';
 import { loadFixture } from '../../helpers/local-fixture';
 import { clickTool } from '../../helpers/toolbox';
+import { openOperation } from '../../helpers/operations';
 
 type Win = { __XNAT_E2E__: { clearAllContainers: () => void; memberVoxelCount: (i: number) => number; activeSegmentSliceCounts: () => number[] } };
 const VIEWPORT = '[data-testid="unified-viewport-element:panel_0"]';
@@ -47,13 +48,7 @@ async function gapOfThree(page: Page, fixture = 'ct-axial-300') {
   return { panel, toolbox, first };
 }
 
-async function openInterpolate(toolbox: Locator, panel: Locator) {
-  await toolbox.getByRole('tab', { name: 'Process' }).click();
-  await toolbox.getByRole('button', { name: 'Interpolate', exact: true }).click();
-  const sheet = panel.getByTestId('interpolate-sheet');
-  await expect(sheet).toBeVisible();
-  return sheet;
-}
+const openInterpolate = (_toolbox: Locator, panel: Locator) => openOperation(panel, 'Interpolate');
 
 test('all gaps: the table and the slice track show the gap; preview, then ⏎ fills it as one undo step', async ({ page }) => {
   const { panel, toolbox, first } = await gapOfThree(page);
@@ -91,13 +86,13 @@ test('this slice: fills only the empty slice on screen', async ({ page }) => {
   await expect(sheet.getByTestId('gap-table').locator('li')).toHaveCount(2); // the gap split in two
 });
 
-test('anchors: A and B set from the keyboard, drawn on the track, and A → B fills between them', async ({ page }) => {
+test('anchors: ⌥A and ⌥B set from the keyboard, drawn on the track, and A → B fills between them', async ({ page }) => {
   const { panel, toolbox, first } = await gapOfThree(page);
   const sheet = await openInterpolate(toolbox, panel);
   await page.locator(VIEWPORT).click({ position: { x: 5, y: 5 } });
-  await page.keyboard.press('b');
+  await page.keyboard.press('Alt+KeyB');
   await step(page, -4);
-  await page.keyboard.press('a');
+  await page.keyboard.press('Alt+KeyA');
   await expect(sheet.getByTestId('anchor-a')).toHaveText(String(first));
   await expect(sheet.getByTestId('anchor-b')).toHaveText(String(await shown(page) === first ? first + 4 : first));
   await expect(page.locator(`${SCROLLBAR} [data-testid="slice-track-anchor-a"]`)).toHaveAttribute('data-slice', String(first));
@@ -106,13 +101,20 @@ test('anchors: A and B set from the keyboard, drawn on the track, and A → B fi
   await expect.poll(async () => (await sliceCounts(page)).filter((c) => c > 0).length).toBe(5);
 });
 
-test('the anchor keys belong to the sheet: closed, A selects Angle again', async ({ page }) => {
-  const { panel, toolbox } = await gapOfThree(page);
+test('with Interpolate open, B still picks the Brush: the anchors are ⌥ chords, not bare letters', async ({ page }) => {
+  // An operation stays open while the user paints (D1/D12 as amended 2026-10-12), so it
+  // must not take the tool hotkeys: paint a keyframe with B, set an anchor with ⌥A.
+  const { panel, toolbox, first } = await gapOfThree(page);
   const sheet = await openInterpolate(toolbox, panel);
-  await sheet.getByRole('button', { name: 'Back to operations' }).click();
+  await clickTool(toolbox, 'Select');
   await page.locator(VIEWPORT).click({ position: { x: 5, y: 5 } });
-  await page.keyboard.press('a');
-  await expect(page.getByTestId('viewport-hud')).toHaveText('Angle');
+  await page.keyboard.press('b');
+  await expect(toolbox.getByRole('button', { name: 'Brush', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(sheet).toBeVisible();
+  await step(page, -4);
+  await page.keyboard.press('Alt+KeyA');
+  await expect(sheet.getByTestId('anchor-a')).toHaveText(String(first));
+  await expect(sheet.getByTestId('anchor-b')).toHaveText('—');
 });
 
 test('a single gap can be previewed from its row', async ({ page }) => {

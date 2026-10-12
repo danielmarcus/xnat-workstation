@@ -12,7 +12,7 @@ import { viewportService } from './viewportService';
 import { beginTransaction, type LabelmapTransaction, type MemberRef } from './labelmapTransaction';
 import { sliceAxisFor } from './maskIslands';
 import { worldToIndex, type Vec3, type VoxelGridGeometry } from './segmentationService/voxelClipboard';
-import { commitPreview, discardPreview, refreshPreview, startPreview } from './maskPreview';
+import { commitPreview, discardPreview, discardPreviewForEdit, refreshPreview, startPreview } from './maskPreview';
 import { getSourceImageIds } from './sourceImageTracking';
 import { getWorldPointFromClientPoint } from './unifiedCrosshair';
 import { semiAutoBridge } from './tools/semiAutoBridge';
@@ -128,7 +128,7 @@ export const semiAutoService = {
 
   /** Smart Brush: a stroke begins (returns false when nothing can be painted). */
   smartBrushBegin(viewportId: string, world: number[]): boolean {
-    discardPreview();
+    discardPreviewForEdit();
     const t = openTarget();
     if (!t) return false;
     if (t.lockedMember) { t.txn.discard(); return false; }

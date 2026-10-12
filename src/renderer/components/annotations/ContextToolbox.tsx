@@ -1,18 +1,21 @@
 /**
  * ContextToolbox (Rebuild Phase 3, R3.6) — the kind-adaptive tool grid (frozen
- * mockup §4). Presentational. Header = "<KIND> tools" + the active member's name
- * in its kind color. 3-column icon+label grid (responsive → icon-only when
- * `compact`). Tool states: active = blue; unavailable here = disabled
- * (temporary); FoR-disabled = dashed + slash + disabled (D3, supplied at runtime
- * via `disabledToolIds`); otherwise normal. A Controls strip follows (Segmentation:
- * active segment + labelmap opacity + the active tool's settings; Structure: contour
- * thickness + contour opacity) + the silent in-place backup status
- * (§3.4 — never a toast/banner). Behaviour injected via callbacks.
+ * mockup §4; SegWorks parity D2 as amended 2026-10-12). Presentational. Header =
+ * "<KIND> tools" + the silent in-place backup status (§3.4 — never a toast/banner) + the
+ * active member's name in its kind color. One icon+label grid holding every tool — no
+ * tabs — in `columns` columns (icon-only when `compact`). Tool states: active = blue;
+ * FoR-disabled = dashed + slash + disabled (D3, supplied at runtime via
+ * `disabledToolIds`); otherwise normal. A Controls strip follows (Segmentation: active
+ * segment + labelmap opacity + the active tool's settings; Structure: contour thickness +
+ * contour opacity). The toolbox never changes height as tools change: the Segmentation
+ * Controls area is sized to its tallest tool and the backup status sits in the header.
+ * Behaviour injected via callbacks. Operations are not here: they have their own section
+ * (OperationsSection, D1).
  */
 import type { ReactNode } from 'react';
 import type { ContainerKind } from '@shared/types/annotation';
 import type { ThresholdPreset } from '@shared/types/viewer';
-import { KIND_TOOLS_LABEL, SEG_OPERATIONS, SEG_TOOL_TABS, toolsForKind, type ToolControl, type ToolDef } from './toolCatalog';
+import { KIND_TOOLS_LABEL, toolsForKind, type ToolControl, type ToolDef } from './toolCatalog';
 
 const KIND_COLOR: Record<ContainerKind, string> = {
   RTSTRUCT: '#ef4444', // member-name color follows the active member's swatch; default red
@@ -57,6 +60,17 @@ export interface ContextToolboxControls {
   thresholdPresets?: ThresholdPreset[];
 }
 
+/**
+ * Fixed height of the Controls area, per kind whose controls change with the tool: sized to
+ * the tallest tool with its Advanced settings folded (Segmentation: Level Trace with the band
+ * "From scan" and an ROI limit drawn, and Random Walker with its Run row), so switching tools
+ * never moves the panel. E2E operations-section checks that no tool's controls overflow it.
+ * Kinds not listed have the same controls for every tool.
+ */
+const CONTROLS_HEIGHT: Partial<Record<ContainerKind, number>> = { SEG: 180 };
+/** On a short window the Controls area may shrink to its header + one row, then scrolls. */
+const CONTROLS_MIN_HEIGHT = 54;
+
 const BACKUP_ROW_STYLE: Record<'saving' | 'saved' | 'error', string> = {
   saving: 'text-blue-400',
   saved: 'text-emerald-400/90',
@@ -99,13 +113,15 @@ export interface ContextToolboxProps {
   onSelectTool: (toolId: string) => void;
   /** Icon-only when the panel is narrow. */
   compact?: boolean;
+  /** Grid columns: 4 at the default width and wider, 3 when narrower. Default 3. */
+  columns?: 3 | 4;
   /** SEG-only controls strip. */
   controls?: ContextToolboxControls;
   /**
    * Silent in-place local-backup status text, e.g. "Backed up · 2s ago"
-   * (null/undefined = hidden). Sits at the foot of the toolbox (§3.4) for every
-   * annotation kind — local backup is not a SEG-only concern, so it is not part
-   * of the SEG controls strip.
+   * (null/undefined = hidden). Sits in the toolbox header (§3.4; moved from the foot on
+   * 2026-10-12 so its appearing cannot change the toolbox height) for every annotation
+   * kind — local backup is not a SEG-only concern, so it is not part of the SEG controls.
    */
   backupStatus?: string | null;
   /**
@@ -114,20 +130,14 @@ export interface ContextToolboxProps {
    * icon/color rather than a toast (§3.4). Defaults to 'saved'.
    */
   backupStatusKind?: 'saving' | 'saved' | 'error';
-  /** Segmentation toolbox tab (SegWorks parity D2). Ignored for other kinds. */
-  segTab?: 'paint' | 'shape' | 'smart' | 'process';
-  onSelectSegTab?: (tab: 'paint' | 'shape' | 'smart' | 'process') => void;
-  /** The Process tab's operations open a sheet; the open one is marked. */
-  openOperationId?: string | null;
-  onOpenOperation?: (id: 'cleanup' | 'interpolate' | 'propagate' | 'qc3d') => void;
-  /** The Smart-tab tools' own controls, for the active tool (rendered when it declares 'semiAuto'). */
+  /** The Smart tools' own controls, for the active tool (rendered when it declares 'semiAuto'). */
   renderSemiAutoControls?: (toolId: string) => ReactNode;
 }
 
 export default function ContextToolbox(props: ContextToolboxProps) {
   const {
-    kind, activeMemberName, activeMemberColor, activeToolId, disabledToolIds = [], onSelectTool, compact, controls,
-    backupStatus, backupStatusKind, segTab = 'paint', onSelectSegTab, openOperationId, onOpenOperation, renderSemiAutoControls,
+    kind, activeMemberName, activeMemberColor, activeToolId, disabledToolIds = [], onSelectTool, compact, columns = 3, controls,
+    backupStatus, backupStatusKind, renderSemiAutoControls,
   } = props;
   const tools = toolsForKind(kind);
   const disabled = new Set(disabledToolIds);
@@ -163,7 +173,7 @@ export default function ContextToolbox(props: ContextToolboxProps) {
         aria-label={t.label}
         aria-pressed={isActive}
         onClick={() => onSelectTool(t.id)}
-        className={`flex items-center gap-1.5 px-2 py-1.5 rounded ${cls} ${compact ? 'justify-center' : ''}`}
+        className={`flex items-center min-w-0 py-1.5 rounded ${columns === 4 ? 'gap-1 px-1' : 'gap-1.5 px-2'} ${cls} ${compact ? 'justify-center' : ''}`}
       >
         {t.icon}
         {!compact && <span className="truncate">{t.label}</span>}
@@ -172,66 +182,34 @@ export default function ContextToolbox(props: ContextToolboxProps) {
   }
 
   return (
-    <div className="border-t border-zinc-800 bg-zinc-900/80" data-testid="context-toolbox">
-      <div className="px-3 py-2 flex items-center justify-between">
-        <span className="text-[9px] text-zinc-500 uppercase tracking-wide">{KIND_TOOLS_LABEL[kind]}</span>
-        <span className="text-[10px]" style={{ color: nameColor }}>{activeMemberName}</span>
+    <div className="border-t border-zinc-800 bg-zinc-900/80 flex flex-col min-h-0" style={{ flex: '0 1 auto' }} data-testid="context-toolbox">
+      <div className="px-3 py-2 flex items-center gap-2 shrink-0">
+        <span className="text-[9px] text-zinc-500 uppercase tracking-wide whitespace-nowrap">{KIND_TOOLS_LABEL[kind]}</span>
+        <span className="flex-1" />
+        {backupStatus && (
+          <span
+            data-testid="backup-status"
+            title={backupStatus}
+            className={`flex items-center gap-1 min-w-0 text-[10px] ${BACKUP_ROW_STYLE[backupStatusKind ?? 'saved']}`}
+          >
+            <span className="shrink-0"><BackupIcon kind={backupStatusKind ?? 'saved'} /></span>
+            <span className="truncate">{backupStatus}</span>
+          </span>
+        )}
+        <span className="text-[10px] truncate min-w-0 max-w-[45%]" style={{ color: nameColor }}>{activeMemberName}</span>
       </div>
 
-      {kind === 'SEG' ? (
-        <>
-          <div className="px-2 pb-1 grid grid-cols-3 gap-1 text-[11px]" data-testid="toolbox-pinned">
-            {tools.filter((t) => t.group === 'pinned').map(renderTool)}
-          </div>
-          <div className="px-2 pb-1.5 flex gap-0.5" role="tablist" aria-label="Segmentation tool groups">
-            {SEG_TOOL_TABS.map((tab) => (
-              <button
-                key={tab.id}
-                type="button"
-                role="tab"
-                aria-selected={segTab === tab.id}
-                onClick={() => onSelectSegTab?.(tab.id)}
-                className={`flex-1 rounded py-0.5 text-[10px] ${segTab === tab.id ? 'bg-zinc-700 text-zinc-100' : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700/70'}`}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
-          {segTab === 'process' ? (
-            <div className="px-2 pb-2 grid grid-cols-3 gap-1 text-[11px]" role="tabpanel" aria-label="Process">
-              {SEG_OPERATIONS.map((op) => {
-                const open = openOperationId === op.id;
-                return (
-                  <button
-                    key={op.id}
-                    type="button"
-                    title={op.title}
-                    aria-label={op.label}
-                    aria-pressed={open}
-                    onClick={() => onOpenOperation?.(op.id)}
-                    className={`flex items-center gap-1.5 px-2 py-1.5 rounded ${open ? 'bg-zinc-600 text-white' : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300'} ${compact ? 'justify-center' : ''}`}
-                  >
-                    <svg viewBox="0 0 16 16" width={14} height={14} fill="none" stroke="currentColor" strokeWidth={1.4}>
-                      <path d="M3 13l4-4M9 3l4 4-6 6-4-4z" />
-                    </svg>
-                    {!compact && <span className="truncate">{op.label}</span>}
-                  </button>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="px-2 pb-2 grid grid-cols-3 gap-1 text-[11px]" role="tabpanel" aria-label={SEG_TOOL_TABS.find((t) => t.id === segTab)?.label}>
-              {tools.filter((t) => t.group === segTab).map(renderTool)}
-            </div>
-          )}
-        </>
-      ) : (
-        <div className={`p-2 grid grid-cols-3 gap-1 text-[11px]`}>{tools.map(renderTool)}</div>
-      )}
+      <div className={`px-2 pb-2 grid ${columns === 4 ? 'grid-cols-4' : 'grid-cols-3'} gap-1 text-[11px] shrink-0`} data-testid="toolbox-grid">
+        {tools.map(renderTool)}
+      </div>
 
       {controls && (
         <>
-          <div className="px-3 py-2 border-t border-zinc-800">
+          <div
+            data-testid="toolbox-controls"
+            className="px-3 py-2 border-t border-zinc-800 overflow-y-auto min-h-0"
+            style={CONTROLS_HEIGHT[kind] ? { flex: `0 1 ${CONTROLS_HEIGHT[kind]}px`, minHeight: CONTROLS_MIN_HEIGHT } : { flex: 'none' }}
+          >
             <div className="flex items-center justify-between">
               <span className="text-[9px] text-zinc-500 uppercase tracking-wide">Controls</span>
               <span className="flex items-center gap-1 text-[10px] text-zinc-300">
@@ -370,15 +348,6 @@ export default function ContextToolbox(props: ContextToolboxProps) {
         </>
       )}
 
-      {backupStatus && (
-        <div
-          data-testid="backup-status"
-          className={`px-3 py-1.5 border-t border-zinc-800 flex items-center gap-1.5 text-[10px] ${BACKUP_ROW_STYLE[backupStatusKind ?? 'saved']}`}
-        >
-          <BackupIcon kind={backupStatusKind ?? 'saved'} />
-          {backupStatus}
-        </div>
-      )}
     </div>
   );
 }

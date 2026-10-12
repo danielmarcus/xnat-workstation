@@ -33,38 +33,35 @@ html, body, #root {
  * when the unified path replaced them; `unified-viewport` is the one that renders today.
  * box-shadow is NOT suppressed on the container — that is how the active ring is drawn.
  */
-/* ── No focus outlines in the side panels ───────────────────────────────────────
+/* ── No focus outlines on the viewer's controls ─────────────────────────────────
  *
- * The XNAT browser and the annotations panel are mouse-driven. Keyboard shortcuts are
- * viewport-only, and neither panel has keyboard navigation, so a focus ring there marks
- * something the user cannot navigate to and cannot act on — reported as an outline
- * appearing "very sporadically" on a row clicked several actions ago.
+ * The viewer chrome — both side panels and the toolbox, the toolbar, the DICOM tags
+ * panel, the controls overlaid on a viewport — is mouse-driven. Keyboard shortcuts are
+ * viewport-only and nothing in the chrome has keyboard navigation, so a focus ring there
+ * marks something the user cannot navigate to and cannot act on.
  *
  * It appears because Chrome grants :focus-visible retroactively: a mouse click focuses a
- * <button> without drawing anything, and the next keyboard interaction flips the browser
- * into keyboard modality and rings whatever still holds focus. Left to itself the ring is
- * also painted in the macOS system ACCENT colour (measured rgb(229,151,0)) — a colour the
- * app never chose and that differs per machine.
+ * control (a button, and just the same a slider, checkbox or dropdown) without drawing
+ * anything, and the next keyboard interaction flips the browser into keyboard modality
+ * and rings whatever still holds focus. The ring is painted in the macOS system ACCENT
+ * colour (measured rgb(229,151,0)) — a colour the app never chose, not part of the design.
  *
  * This is the display half. The behaviour half is keepFocusInViewports.ts, which releases
- * the stranded focus so Space and Enter cannot re-activate a panel row either. Both are
- * needed: suppressing the ring alone would hide the problem rather than fix it.
+ * the stranded focus so keys reach the viewport instead of the control. Both are needed:
+ * suppressing the ring alone would hide the problem rather than fix it.
  *
- * Text entry is NOT covered — the scan filter and rename fields style their own focus and
- * legitimately hold the keyboard while typing.
+ * Exempt, as there: text entry (it legitimately holds the keyboard while typing, and the
+ * scan filter and rename fields style their own focus) and modal dialogs (keyboard
+ * surfaces of their own, which focus a button on open).
  */
-[data-testid="xnat-browser"] :focus,
-[data-testid="xnat-browser"] :focus-visible,
-[data-testid="annotations-side-panel"] :focus,
-[data-testid="annotations-side-panel"] :focus-visible {
+:is(:focus, :focus-visible):not(
+  textarea,
+  [contenteditable]:not([contenteditable="false"]),
+  input:is(:not([type]), [type="text"], [type="search"], [type="email"], [type="password"], [type="url"], [type="tel"], [type="number"]),
+  [role="dialog"] *,
+  [aria-modal="true"] *
+) {
   outline: none !important;
-}
-
-[data-testid="xnat-browser"] input:focus,
-[data-testid="xnat-browser"] textarea:focus,
-[data-testid="annotations-side-panel"] input:focus,
-[data-testid="annotations-side-panel"] textarea:focus {
-  outline: revert !important;
 }
 
 [data-testid^="unified-viewport"]:focus,

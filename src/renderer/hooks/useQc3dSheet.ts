@@ -13,6 +13,7 @@ import { useQc3dStore, type Qc3dComponentRow, type Qc3dSettings } from '../store
 import { useSegmentationStore } from '../stores/segmentationStore';
 import { useUnifiedLayoutStore } from '../stores/unifiedLayoutStore';
 import { useViewerStore } from '../stores/viewerStore';
+import { closeOperation } from './operationLifecycle';
 
 export interface Qc3dRow extends Qc3dComponentRow {
   segmentIndex: number;
@@ -156,8 +157,10 @@ export function useQc3dSheet() {
       if (l.kind === 'qc-3d') useUnifiedLayoutStore.getState().setLayout({ ...l, expanded: !l.expanded });
     },
     resetView: () => qc3dService.resetView(),
-    releaseFocus: () => hotkeyService.focusActiveViewport(),
-    back: () => closeSheet(),
+    summary: st.building !== null
+      ? `Building · ${Math.round(st.building * 100)}%`
+      : `${counts.stray ?? 0} stray · ${counts.speck ?? 0} speck`,
+    close: closeOperation,
   };
 }
 

@@ -3,7 +3,7 @@
  * Level Trace's band / growth / edge guard / smoothing, Smart Brush's radius, tolerance and
  * spacing, Random Walker's β, seed size, Run and Clear seeds, and the ROI limit's Clear.
  */
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import type { SemiAutoControlsModel } from '../../hooks/useSemiAutoControls';
 
 function Row({ label, children, testId }: { label: string; children: ReactNode; testId?: string }) {
@@ -30,8 +30,8 @@ function Slider({ label, value, min, max, step = 1, unit, onChange }: {
   );
 }
 
-function Segmented<T extends string>({ label, value, options, onChange }: {
-  label: string; value: T; options: Array<[T, string]>; onChange: (v: T) => void;
+function Segmented<T extends string>({ label, value, options, onChange, trailing }: {
+  label: string; value: T; options: Array<[T, string]>; onChange: (v: T) => void; trailing?: ReactNode;
 }) {
   return (
     <Row label={label}>
@@ -45,6 +45,7 @@ function Segmented<T extends string>({ label, value, options, onChange }: {
           </button>
         ))}
       </div>
+      {trailing}
     </Row>
   );
 }
@@ -90,35 +91,51 @@ function RoiChip({ m }: { m: SemiAutoControlsModel }) {
 
 export default function SmartToolControls({ toolId, m }: { toolId: string; m: SemiAutoControlsModel }) {
   const lt = m.levelTrace;
+  // Level Trace has more settings than the toolbox's fixed Controls area holds (D2 as
+  // amended 2026-10-12): band, tolerance and edge guard show; the rest fold under Advanced.
+  const [ltAdvanced, setLtAdvanced] = useState(false);
+  const advancedToggle = (
+    <button
+      type="button"
+      aria-expanded={ltAdvanced}
+      onClick={() => setLtAdvanced((v) => !v)}
+      className="text-[10px] text-zinc-400 hover:text-zinc-200 whitespace-nowrap"
+    >
+      {ltAdvanced ? '▾' : '▸'} Advanced
+    </button>
+  );
   const body = (() => {
     switch (toolId) {
       case 'levelTrace':
         return (
           <>
             <Segmented label="Band" value={lt.modality ?? 'auto'} options={[['auto', 'From scan'], ['ct', 'CT (HU)'], ['mr', 'MR (σ)']]}
-              onChange={(v) => m.setLevelTrace({ modality: v === 'auto' ? null : v })} />
+              onChange={(v) => m.setLevelTrace({ modality: v === 'auto' ? null : v })} trailing={advancedToggle} />
             {lt.modality !== 'mr' && (
               <Slider label="HU tolerance" value={lt.huTolerance} min={10} max={400} step={10} unit=" HU" onChange={(v) => m.setLevelTrace({ huTolerance: v })} />
             )}
             {lt.modality !== 'ct' && (
               <>
                 <Slider label="Band width" value={lt.sigmaK} min={0.5} max={5} step={0.1} unit=" σ" onChange={(v) => m.setLevelTrace({ sigmaK: v })} />
-                <Segmented label="Sample" value={String(lt.window) as '7' | '11' | '15'} options={[['7', '7×7'], ['11', '11×11'], ['15', '15×15']]}
-                  onChange={(v) => m.setLevelTrace({ window: Number(v) as 7 | 11 | 15 })} />
               </>
             )}
+            <Segmented label="Edge guard" value={lt.edgeGuard} options={[['off', 'Off'], ['gentle', 'Gentle'], ['strong', 'Strong']]} onChange={(v) => m.setLevelTrace({ edgeGuard: v })} />
+            {ltAdvanced && (<>
+            {lt.modality !== 'ct' && (
+              <Segmented label="Sample" value={String(lt.window) as '7' | '11' | '15'} options={[['7', '7×7'], ['11', '11×11'], ['15', '15×15']]}
+                onChange={(v) => m.setLevelTrace({ window: Number(v) as 7 | 11 | 15 })} />
+            )}
+            <Segmented label="Smoothing" value={lt.smoothing} options={[['none', 'None'], ['gentle', 'Gentle'], ['standard', 'Std'], ['strong', 'Strong']]} onChange={(v) => m.setLevelTrace({ smoothing: v })} />
             <Segmented label="Growth" value={lt.growth} options={[['binary', 'Binary'], ['fuzzy', 'Fuzzy']]} onChange={(v) => m.setLevelTrace({ growth: v })} />
             {lt.growth === 'fuzzy' && (
               <Slider label="Affinity" value={lt.fuzzyThreshold} min={0.1} max={0.9} step={0.05} unit="" onChange={(v) => m.setLevelTrace({ fuzzyThreshold: v })} />
             )}
-            <Segmented label="Edge guard" value={lt.edgeGuard} options={[['off', 'Off'], ['gentle', 'Gentle'], ['strong', 'Strong']]} onChange={(v) => m.setLevelTrace({ edgeGuard: v })} />
             {lt.edgeGuard !== 'off' && (
               <>
                 <Segmented label="Operator" value={lt.edgeOperator} options={[['sobel', 'Sobel'], ['scharr', 'Scharr']]} onChange={(v) => m.setLevelTrace({ edgeOperator: v })} />
                 <Segmented label="Polarity" value={lt.polarity} options={[['auto', 'Any'], ['darkToLight', 'Dark→light'], ['lightToDark', 'Light→dark']]} onChange={(v) => m.setLevelTrace({ polarity: v })} />
               </>
             )}
-            <Segmented label="Smoothing" value={lt.smoothing} options={[['none', 'None'], ['gentle', 'Gentle'], ['standard', 'Std'], ['strong', 'Strong']]} onChange={(v) => m.setLevelTrace({ smoothing: v })} />
             <Slider label="Simplify" value={lt.simplifyPx} min={0} max={5} step={0.5} unit=" px" onChange={(v) => m.setLevelTrace({ simplifyPx: v })} />
             <Slider label="Round corners" value={lt.roundCorners} min={0} max={4} unit="×" onChange={(v) => m.setLevelTrace({ roundCorners: v })} />
             <GuardRow m={m} />
@@ -126,6 +143,7 @@ export default function SmartToolControls({ toolId, m }: { toolId: string; m: Se
               <Check label="Fill holes" checked={lt.fillHoles} onChange={(v) => m.setLevelTrace({ fillHoles: v })} />
               {lt.modality !== 'mr' && <Check label="Stop at air" checked={lt.airGuard} onChange={(v) => m.setLevelTrace({ airGuard: v })} />}
             </div>
+            </>)}
             <RoiChip m={m} />
           </>
         );

@@ -101,6 +101,18 @@ const outlines = (page: Page) =>
   );
 const GTV = 'rgb(255, 0, 0)';
 
+/**
+ * Step one slice and wait until the new slice is drawn. Read straight after the key
+ * press, the SVG can still hold the slice just left — here the paste, the same colour
+ * and place as the interpolated contour being looked for — and pass on a stale frame.
+ */
+async function stepSlice(page: Page, key: 'ArrowUp' | 'ArrowDown') {
+  const from = (await snapshot(page)).currentSliceIndex ?? 0;
+  await page.keyboard.press(key);
+  await expect.poll(async () => (await snapshot(page)).currentSliceIndex).toBe(from + (key === 'ArrowDown' ? 1 : -1));
+  await page.evaluate(() => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))));
+}
+
 test('a loaded Structure contour can be copied, and the paste interpolates with it', async ({ page }) => {
   // rtstruct-typed: four ROIs, each one square on the same slice. Their contours come in
   // through the RTSTRUCT loader, not a tool stroke.
@@ -143,7 +155,7 @@ test('a loaded Structure contour can be copied, and the paste interpolates with 
 
   // Interpolation joins the paste to the loaded contour: both slices in between get one.
   for (const step of [1, 2]) {
-    await page.keyboard.press('ArrowUp');
+    await stepSlice(page, 'ArrowUp');
     await expect
       .poll(async () => (await outlines(page)).map((o) => o.stroke), {
         timeout: 5_000,
@@ -201,7 +213,7 @@ test('a stroke drawn a few slices from an untouched loaded contour interpolates 
   await expect.poll(async () => (await outlines(page)).map((o) => o.stroke), { message: 'the stroke lands in GTV' }).toEqual([GTV]);
 
   for (const step of [1, 2]) {
-    await page.keyboard.press('ArrowUp');
+    await stepSlice(page, 'ArrowUp');
     await expect
       .poll(async () => (await outlines(page)).map((o) => o.stroke), {
         timeout: 5_000,

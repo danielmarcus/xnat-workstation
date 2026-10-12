@@ -1,13 +1,27 @@
-/** 3D QC sheet (SegWorks #230–257; D9). Presentational; everything from useQc3dSheet. */
+/**
+ * 3D QC (SegWorks #230–257; D9). Presentational; everything from useQc3dSheet. Rendered as
+ * the open operation of the Operations section; its sections scroll in the operation's body
+ * while the footer (Rebuild · Reset view · Expand 3D · Done) stays put. Collapsing it keeps
+ * the 2D + 3D layout; closing it (Done or ✕) restores the user's layout.
+ */
 import type { ReactNode } from 'react';
 import type { Qc3dSheetModel } from '../../hooks/useQc3dSheet';
-import OperationSheet, { SheetSection } from './OperationSheet';
+import { OperationBody } from './OperationsSection';
 
-function Slider({ label, min, max, step, value, unit, onChange, onDone }: { label: string; min: number; max: number; step: number; value: number; unit?: string; onChange: (v: number) => void; onDone: () => void }) {
+function SheetSection({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="mt-2 first:mt-0">
+      <div className="text-[9px] text-zinc-500 uppercase tracking-wide mb-1">{label}</div>
+      {children}
+    </div>
+  );
+}
+
+function Slider({ label, min, max, step, value, unit, onChange }: { label: string; min: number; max: number; step: number; value: number; unit?: string; onChange: (v: number) => void }) {
   return (
     <label className="flex items-center gap-2 mt-1 text-[10px] text-zinc-400">
       <span className="whitespace-nowrap w-16">{label}</span>
-      <input type="range" aria-label={label} min={min} max={max} step={step} value={value} onChange={(e) => onChange(Number(e.target.value))} onPointerUp={onDone} className="flex-1 accent-blue-500" />
+      <input type="range" aria-label={label} min={min} max={max} step={step} value={value} onChange={(e) => onChange(Number(e.target.value))} className="flex-1 min-w-0 accent-blue-500" />
       <span className="text-zinc-300 tabular-nums whitespace-nowrap w-10 text-right">{value}{unit ?? ''}</span>
     </label>
   );
@@ -48,22 +62,19 @@ export default function Qc3dSheet({ m }: { m: Qc3dSheetModel }) {
     ? <span data-testid="qc3d-building">Building surfaces · {Math.round(m.building * 100)}%</span>
     : m.stale ? <span className="text-amber-300" data-testid="qc3d-stale">The segmentation changed — Rebuild to update</span> : null;
   return (
-    <OperationSheet
-      title="3D QC"
+    <OperationBody
       testId="qc3d-sheet"
-      target={m.target}
-      onBack={m.back}
       message={m.message}
       footer={(
         <>
-          <button type="button" onClick={m.rebuild} disabled={m.building !== null} className="rounded bg-blue-600 px-2.5 py-1 text-[10px] text-white hover:bg-blue-500 disabled:opacity-40">Rebuild</button>
+          <button type="button" onClick={m.rebuild} disabled={m.building !== null} className="rounded bg-blue-600 px-2.5 py-0.5 text-[10px] text-white hover:bg-blue-500 disabled:opacity-40">Rebuild</button>
           <button type="button" onClick={m.resetView} className={BUTTON}>Reset view</button>
           <button type="button" onClick={m.toggleExpanded} aria-pressed={m.expanded} className={BUTTON}>{m.expanded ? 'Shrink 3D' : 'Expand 3D'}</button>
-          <button type="button" onClick={m.back} className="rounded bg-zinc-800 px-2.5 py-1 text-[10px] text-zinc-300 hover:bg-zinc-700">Done</button>
+          <button type="button" onClick={m.close} className="rounded bg-zinc-800 px-2.5 py-0.5 text-[10px] text-zinc-300 hover:bg-zinc-700">Done</button>
         </>
       )}
     >
-      {status && <div className="px-3 py-1.5 text-[10px] text-zinc-400 border-b border-zinc-800/70">{status}</div>}
+      {status && <div className="mb-1.5 text-[10px] text-zinc-400">{status}</div>}
       <SheetSection label="Components">
         <div className="flex items-center gap-2 text-[10px] text-zinc-400" data-testid="qc3d-counts">
           <span>{m.counts.main ?? 0} main</span>·<span>{m.counts.fragment ?? 0} fragment</span>·
@@ -147,15 +158,15 @@ export default function Qc3dSheet({ m }: { m: Qc3dSheetModel }) {
           <Check label="Hide largest" checked={s.hideLargest} onChange={(v) => m.set({ hideLargest: v })} />
           <Check label="Auto-rotate" checked={s.autoRotate} onChange={(v) => m.set({ autoRotate: v })} />
         </div>
-        <Slider label="Brightness" min={0} max={1} step={0.05} value={s.brightness} onChange={(v) => m.set({ brightness: v })} onDone={m.releaseFocus} />
-        <Slider label="Ambient" min={0} max={1} step={0.05} value={s.ambient} onChange={(v) => m.set({ ambient: v })} onDone={m.releaseFocus} />
+        <Slider label="Brightness" min={0} max={1} step={0.05} value={s.brightness} onChange={(v) => m.set({ brightness: v })} />
+        <Slider label="Ambient" min={0} max={1} step={0.05} value={s.ambient} onChange={(v) => m.set({ ambient: v })} />
       </SheetSection>
       <SheetSection label="Surfaces">
         <Segmented label="Resolution" value={s.resolution} options={[[128, '128'], [192, '192'], [256, '256']]} onChange={(v) => m.set({ resolution: v })} />
         <Segmented label="Renderer" value={s.renderer} options={[['smooth', 'Smooth'], ['blocky', 'Voxels']]} onChange={(v) => m.set({ renderer: v })} />
-        <Slider label="Smoothing" min={0} max={30} step={1} value={s.smoothIterations} onChange={(v) => m.set({ smoothIterations: v })} onDone={m.releaseFocus} />
+        <Slider label="Smoothing" min={0} max={30} step={1} value={s.smoothIterations} onChange={(v) => m.set({ smoothIterations: v })} />
         <Check label="Thicken thin structures (display only)" checked={s.thinBoost} onChange={(v) => m.set({ thinBoost: v })} />
       </SheetSection>
-    </OperationSheet>
+    </OperationBody>
   );
 }

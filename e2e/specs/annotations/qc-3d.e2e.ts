@@ -1,12 +1,13 @@
 /**
  * 3D QC (SegWorks parity branch 7, D9) on the anatomy phantom: Process › 3D QC switches to
  * the “2D + 3D QC” layout, builds a surface per component and reports them; the user's
- * layout comes back when the sheet closes. Every step is a real click or drag.
+ * layout comes back when the operation closes (collapsing it keeps the QC layout). Every step is a real click or drag.
  */
 import { test, expect } from '../../fixtures/electron-app';
 import type { Locator, Page } from '@playwright/test';
 import { loadFixture } from '../../helpers/local-fixture';
 import { clickTool } from '../../helpers/toolbox';
+import { openOperation } from '../../helpers/operations';
 
 type Win = {
   __XNAT_E2E__: {
@@ -93,13 +94,7 @@ async function segmentWithStray(page: Page): Promise<{ panel: Locator; toolbox: 
   return { panel, toolbox };
 }
 
-async function openQc(toolbox: Locator, panel: Locator): Promise<Locator> {
-  await toolbox.getByRole('tab', { name: 'Process' }).click();
-  await toolbox.getByRole('button', { name: '3D QC', exact: true }).click();
-  const sheet = panel.getByTestId('qc3d-sheet');
-  await expect(sheet).toBeVisible();
-  return sheet;
-}
+const openQc = (_toolbox: Locator, panel: Locator): Promise<Locator> => openOperation(panel, '3D QC');
 
 test('3D QC: the 2D + 3D layout opens, surfaces are built and reported, and the layout comes back', async ({ page }) => {
   const { panel, toolbox } = await segmentWithStray(page);
@@ -124,6 +119,18 @@ async function builtQc(page: Page, n = 2) {
   await expect.poll(() => litPixels(page), { timeout: 10_000 }).toBeGreaterThan(200);
   return { panel, toolbox, sheet };
 }
+
+test('3D QC collapsed keeps the 2D + 3D layout; ✕ closes it and the layout comes back', async ({ page }) => {
+  // Collapsing folds the operation to its header row without ending it (D1 as amended
+  // 2026-10-12), so the QC layout it opened stays until the operation is closed.
+  const { panel, sheet } = await builtQc(page);
+  await panel.getByRole('button', { name: 'Collapse operation' }).click();
+  await expect(sheet).toHaveCount(0);
+  await expect(page.locator(VIEW_3D)).toBeVisible();
+  await panel.getByRole('button', { name: 'Close operation' }).click();
+  await expect(page.locator(VIEW_3D)).toHaveCount(0);
+  await expect(page.locator('[data-testid="unified-viewport-element:panel_0"]')).toBeVisible();
+});
 
 test('3D QC display: hide largest, label visibility, stray highlight and brightness change the 3D view', async ({ page }) => {
   const { sheet } = await builtQc(page);
