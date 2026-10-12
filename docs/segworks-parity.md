@@ -544,3 +544,10 @@ Nothing rebuilds automatically on edits (cross-cutting rule): the sheet marks th
   Branch 7 complete. Known, not fixed here: switching to the QC layout narrows the 2D
   viewport and Cornerstone keeps its vertical fit, so the 2D image is cropped at the sides
   until the user zooms out (the same happens for any layout that narrows a viewport).
+- **Forward merge of S10 (2026-10-12)** — 3D QC moves from a Process-tab sheet into the
+  Operations section (picker: Cleanup · Propagate · Interpolate · 3D QC); its sections scroll in
+  the operation's body above its own footer (Rebuild · Reset view · Expand 3D · Done). Collapsing
+  it keeps the 2D + 3D layout; Done or ✕ closes it and restores the user's layout (new E2E). Its
+  collapsed summary reads "N stray · N speck" (or the build progress). Unit 1069/1069; full
+  offline E2E on the built app **302/302**; checked in the built app with Interpolate open beside
+  Level Trace and with 3D QC open (toolbox 379 px, operation 260 px, Controls 180 px).
