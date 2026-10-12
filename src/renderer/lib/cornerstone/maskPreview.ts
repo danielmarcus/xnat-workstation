@@ -90,6 +90,7 @@ export function startPreview(o: StartPreviewOptions): void {
   if (!o.silent) {
     useMaskPreviewStore.setState({
       active: true, label: o.label, summary: o.summary, viewportId: o.viewportId, comparing: false, readOnly: !!o.lockedMember,
+      discardedStale: false,
     });
   }
   render();
@@ -142,8 +143,29 @@ export function setComparing(comparing: boolean): void {
 function end(): void {
   pending?.removeKeyLayer();
   pending = null;
-  useMaskPreviewStore.setState({ active: false, label: '', summary: '', viewportId: null, comparing: false, readOnly: false });
+  useMaskPreviewStore.setState({
+    // discardedStale is left alone: a Smart Brush stroke's own commit (a silent preview) must
+    // not clear the notice that it replaced an operation's preview. A new visible preview or
+    // clearStaleNotice() clears it.
+    active: false, label: '', summary: '', viewportId: null, comparing: false, readOnly: false,
+  });
   render();
+}
+
+/**
+ * An edit is about to change the segment under a pending preview (a Smart Brush stroke
+ * begins): discard the preview, and let the open operation say why it went — as it does
+ * when a brush stroke changes the labelmap under it (installDataWatch).
+ */
+export function discardPreviewForEdit(): void {
+  if (!pending) return;
+  discardPreview();
+  useMaskPreviewStore.setState({ discardedStale: true });
+}
+
+/** Forget that the last preview was discarded as stale (the user has moved on). */
+export function clearStaleNotice(): void {
+  if (useMaskPreviewStore.getState().discardedStale) useMaskPreviewStore.setState({ discardedStale: false });
 }
 
 // ─── Stale-preview guard ─────────────────────────────────────────────────────
@@ -158,6 +180,7 @@ function installDataWatch(): void {
     if (id && pending.csSegmentationIds.has(id)) {
       console.warn('[maskPreview] labelmap changed under the preview; discarding it');
       discardPreview();
+      useMaskPreviewStore.setState({ discardedStale: true });
     }
   }) as EventListener);
 }

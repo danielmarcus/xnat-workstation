@@ -26,11 +26,14 @@ export interface AnnotationsSidePanelProps {
   /** The context toolbox — rendered below the list when present. */
   toolbox?: ReactNode;
   /**
-   * An open operation sheet (SegWorks parity D1) — between the list and the toolbox, so
-   * the active container and member stay on screen while it is used.
+   * The Operations section (SegWorks parity D1, amended 2026-10-12) — its own section
+   * between the list and the toolbox, so the active container and member stay on screen
+   * while an operation is used, and the toolbox stays usable beside it.
    */
-  sheet?: ReactNode;
+  operations?: ReactNode;
 }
+
+const LIST_MIN_HEIGHT = 120;
 
 const CTA: { kind: ContainerKind; color: string; label: string }[] = [
   { kind: 'RTSTRUCT', color: '#34d399', label: 'Structure' },
@@ -93,7 +96,7 @@ function EmptyBody({ canCreate }: { canCreate: boolean }) {
 }
 
 export default function AnnotationsSidePanel(props: AnnotationsSidePanelProps) {
-  const { containerCount, canCreate, unsavedCount, onCreate, onReviewUnsaved, children, toolbox, sheet } = props;
+  const { containerCount, canCreate, unsavedCount, onCreate, onReviewUnsaved, children, toolbox, operations } = props;
   const isEmpty = containerCount === 0;
 
   return (
@@ -107,8 +110,9 @@ export default function AnnotationsSidePanel(props: AnnotationsSidePanelProps) {
         </>
       ) : (
         <>
-          <div className="flex-1 overflow-y-auto min-h-[64px]">{children}</div>
-          {sheet}
+          {/* The list keeps at least 120 px on short windows; an open operation shrinks first. */}
+          <div className="flex-1 overflow-y-auto" style={{ minHeight: LIST_MIN_HEIGHT }}>{children}</div>
+          {operations}
           {toolbox}
         </>
       )}

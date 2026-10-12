@@ -1,7 +1,7 @@
 /**
  * The pending mask-operation preview, as the UI sees it (SegWorks parity D4). The staged
  * edit itself lives in lib/cornerstone/maskPreview; this is what the preview bar and the
- * operation sheet render from.
+ * open operation render from.
  */
 import { create } from 'zustand';
 
@@ -18,6 +18,11 @@ export interface MaskPreviewState {
   comparing: boolean;
   /** The target is locked: shown for inspection, cannot be committed. */
   readOnly: boolean;
+  /**
+   * The last preview was discarded because its segment changed underneath it (a stroke, an
+   * undo). Lets the open operation say so instead of the preview silently vanishing.
+   */
+  discardedStale: boolean;
 }
 
 export const useMaskPreviewStore = create<MaskPreviewState>(() => ({
@@ -27,4 +32,5 @@ export const useMaskPreviewStore = create<MaskPreviewState>(() => ({
   viewportId: null,
   comparing: false,
   readOnly: false,
+  discardedStale: false,
 }));

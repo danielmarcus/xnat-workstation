@@ -8,6 +8,7 @@ import { test, expect } from '../../fixtures/electron-app';
 import type { Locator, Page } from '@playwright/test';
 import { loadFixture } from '../../helpers/local-fixture';
 import { clickTool } from '../../helpers/toolbox';
+import { openOperation } from '../../helpers/operations';
 
 type Win = {
   __XNAT_E2E__: {
@@ -123,7 +124,7 @@ test('ROI limit confines Level Trace, shows on the image, and clears', async ({ 
 });
 
 test('Random Walker: foreground and ⇧ background seeds, Run previews the lesion', async ({ page }) => {
-  const toolbox = await smartTool(page, 'Rand. Walker');
+  const toolbox = await smartTool(page, 'Rnd. Walker');
   const controls = toolbox.getByTestId('smart-tool-controls');
   const run = controls.getByRole('button', { name: 'Run' });
   await expect(run).toBeDisabled();
@@ -175,10 +176,7 @@ test('ROI limit confines Cleanup: Clear erases only inside the rectangle', async
 
   await clickTool(toolbox, 'ROI limit');
   await drag(page, [[10, -15], [25, 15]]); // the lesion's left half
-  await toolbox.getByRole('tab', { name: 'Process' }).click();
-  await toolbox.getByRole('button', { name: 'Cleanup', exact: true }).click();
-  const sheet = page.getByTestId('cleanup-sheet');
-  await sheet.getByLabel('Cleanup operation').selectOption({ label: 'Clear' });
+  const sheet = await openOperation(page.locator('[data-testid="annotations-side-panel"]'), 'Cleanup', 'Clear');
   await sheet.getByRole('button', { name: 'Commit' }).click();
   await expect.poll(() => voxels(page)).toBeLessThan(lesion);
   const left = await voxels(page);
@@ -187,7 +185,7 @@ test('ROI limit confines Cleanup: Clear erases only inside the rectangle', async
 });
 
 async function seededWalker(page: Page) {
-  const toolbox = await smartTool(page, 'Rand. Walker');
+  const toolbox = await smartTool(page, 'Rnd. Walker');
   const controls = toolbox.getByTestId('smart-tool-controls');
   await controls.getByRole('slider', { name: 'Edge (β)' }).fill('2000');
   await drag(page, [[22, 0], [28, 0]]);
@@ -233,6 +231,7 @@ test('Random Walker: the progress bar’s Cancel button stops the solve', async 
 test('Level Trace intensity guard: typed in, it keeps the trace inside its range', async ({ page }) => {
   const toolbox = await smartTool(page, 'Level Trace');
   await toolbox.getByRole('group', { name: 'Band' }).getByRole('button', { name: 'CT (HU)' }).click();
+  await toolbox.getByRole('button', { name: /Advanced/ }).click(); // the guard is an Advanced setting
   // ±100 HU from the lesion (+70) reaches the tissue (+40): unguarded, the body is taken.
   const guard = toolbox.getByTestId('intensity-guard');
   await guard.getByRole('checkbox').check();
@@ -251,6 +250,7 @@ test('Level Trace intensity guard: read from the ROI limit', async ({ page }) =>
   await drag(page, [[22, -3], [28, 3]]); // inside the lesion
   await clickTool(toolbox, 'Level Trace');
   await toolbox.getByRole('group', { name: 'Band' }).getByRole('button', { name: 'CT (HU)' }).click();
+  await toolbox.getByRole('button', { name: /Advanced/ }).click(); // the guard is an Advanced setting
   const guard = toolbox.getByTestId('intensity-guard');
   await guard.getByRole('button', { name: 'From ROI' }).click();
   await expect(guard.getByLabel('Guard minimum')).toHaveValue('70');

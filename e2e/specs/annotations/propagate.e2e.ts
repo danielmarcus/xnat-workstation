@@ -1,12 +1,13 @@
 /**
  * Mask propagation (SegWorks parity #169–181; branch 3 I3): from a seed painted inside the
- * anatomy phantom's bone core (+1000 HU in +40 HU tissue), Process › Propagate grows the
+ * anatomy phantom's bone core (+1000 HU in +40 HU tissue), Operations › Propagate grows the
  * segment slice by slice through the core and stops where it ends — never into the tissue.
  */
 import { test, expect } from '../../fixtures/electron-app';
 import type { Page } from '@playwright/test';
 import { loadFixture } from '../../helpers/local-fixture';
 import { clickTool } from '../../helpers/toolbox';
+import { openOperation } from '../../helpers/operations';
 
 type Win = { __XNAT_E2E__: { clearAllContainers: () => void; memberVoxelCount: (i: number) => number; activeSegmentSliceCounts: () => number[]; activeSegmentMinSourceValue: () => number | null } };
 const VIEWPORT = '[data-testid="unified-viewport-element:panel_0"]';
@@ -33,11 +34,7 @@ async function seededSheet(page: Page, paint = true) {
     await page.mouse.up();
     await page.waitForTimeout(250);
   }
-  await toolbox.getByRole('tab', { name: 'Process' }).click();
-  await toolbox.getByRole('button', { name: 'Propagate', exact: true }).click();
-  const sheet = panel.getByTestId('propagate-sheet');
-  await expect(sheet).toBeVisible();
-  return sheet;
+  return openOperation(panel, 'Propagate');
 }
 
 test('propagates through the bone core in both directions, and only through bone', async ({ page }) => {
