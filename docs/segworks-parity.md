@@ -466,4 +466,4 @@ compute infrastructure they need, and the ROI limit.
   panel-resize E2E caught it). A Smart Brush stroke that replaces an operation's preview now
   raises the same "Preview discarded: the segment changed" notice as any other edit
   (`discardPreviewForEdit` at stroke start; the stroke's own silent commit no longer clears it)
-  — new E2E, seen red against a built mutant.
+  — new E2E, seen red against a built mutant. Unit 1042/1042; full offline E2E on the built app **288/288**.
