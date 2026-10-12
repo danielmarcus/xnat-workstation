@@ -29,7 +29,7 @@ import { useApprovalStore } from '../../stores/approvalStore';
 import { buildApprovalModule, parseApprovalModule } from '../annotations/approval';
 import type { ApprovalRecord } from '@shared/types/annotation';
 import * as contourRep from './contourRepresentation';
-import { contourPlaneMetadata, type PlaneViewport } from './contourPlaneMetadata';
+import { contourPlaneMetadata, volumeSliceIndexForPoint, type PlaneViewport } from './contourPlaneMetadata';
 import {
   formatOperatorsNameForConnection,
   upsertOperatorsName,
@@ -525,7 +525,10 @@ async function loadRtStructAsContours(
       }
 
       const annotationUID = csUtilities.uuidv4();
-      const sliceIndex = viewportImageIds.indexOf(referencedImageId);
+      // The viewport's slice index, not the image's position in its image list — on a
+      // volume viewport the two can run in opposite directions (volumeSliceIndexForPoint).
+      const sliceIndex = volumeSliceIndexForPoint(planeViewport, polyline[0])
+        ?? viewportImageIds.indexOf(referencedImageId);
       const plane = contourPlaneMetadata(planeViewport, sliceIndex >= 0 ? sliceIndex : null);
       const interpolationUID = chainedImageIds.has(referencedImageId) ? csUtilities.uuidv4() : chainUID;
       chainedImageIds.add(referencedImageId);

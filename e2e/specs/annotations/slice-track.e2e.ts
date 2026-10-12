@@ -8,6 +8,7 @@ import { test, expect } from '../../fixtures/electron-app';
 import type { Page } from '@playwright/test';
 import { loadFixture } from '../../helpers/local-fixture';
 import { clickTool } from '../../helpers/toolbox';
+import { openOperation } from '../../helpers/operations';
 
 type Win = { __XNAT_E2E__: { clearAllContainers: () => void } };
 const VIEWPORT = '[data-testid="unified-viewport-element:panel_0"]';
@@ -87,11 +88,9 @@ test('with no segment active the scrollbar is unmarked', async ({ page }) => {
 });
 
 test('a Range scope is drawn on the track, and dragging its end edits the range', async ({ page }) => {
-  const { panel, toolbox } = await segmentation(page);
+  const { panel } = await segmentation(page);
   const current = await shownSlice(page);
-  await toolbox.getByRole('tab', { name: 'Process' }).click();
-  await toolbox.getByRole('button', { name: 'Cleanup', exact: true }).click();
-  const sheet = panel.getByTestId('cleanup-sheet');
+  const sheet = await openOperation(panel, 'Cleanup');
   await sheet.getByRole('group', { name: 'Slices' }).getByRole('button', { name: 'Range' }).click();
 
   const range = page.locator(`${SCROLLBAR} [data-testid="slice-track-range"]`);

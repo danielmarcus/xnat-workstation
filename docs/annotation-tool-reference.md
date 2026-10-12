@@ -1,6 +1,6 @@
 # Annotation tool reference
 
-Generated from `src/renderer/components/annotations/toolCatalog.tsx` on 2026-09-21; Segmentation tabs and operations added 2026-10-10.
+Generated from `src/renderer/components/annotations/toolCatalog.tsx` on 2026-09-21; Segmentation operations added 2026-10-10; Segmentation tool families and the Operations section 2026-10-12.
 `toolCatalog.test` enforces the rules this table depends on: labels and icons unique
 across the whole catalog, no tooltip that merely repeats its label, a hotkey advertised
 if and only if `defaultHotkeyMap` defines one, and every declared control renderable.
@@ -11,37 +11,45 @@ listing no control needs none.
 
 ## Segmentation
 
-| Tool | Tab | Tooltip | Controls |
+| Tool | Family | Tooltip | Controls |
 |---|---|---|---|
+| **Select** | general | Click a painted region to make its segment the active one | — |
+| **Seg Bidir.** | general | Measure the active segment’s longest axis and its perpendicular | — |
 | **Brush** | Paint | Add to or remove from the active segment on this slice; hold Shift to invert (B) | brushSize, editMode |
 | **Threshold** | Paint | Paint only where intensity falls inside the window | brushSize, intensityWindow |
 | **Dyn. Thresh** | Paint | Paint within a window sampled from the voxel you click, not a preset one | brushSize, samplingRadius |
 | **Sph. Brush** | Paint | Add or remove with a 3D kernel — one stroke also reaches neighbouring slices; hold Shift to invert | brushSize, editMode |
 | **Sph. Thresh** | Paint | Paint with a 3D kernel, limited to the intensity window | brushSize, intensityWindow |
+| **Paint Fill** | Paint | Flood-fill the enclosed region under the cursor (F) | — |
 | **Circle** | Shape | Drag a circle; everything inside it is added to or removed from the segment (hold Shift to invert) | editMode |
 | **Rect** | Shape | Drag a rectangle; everything inside it is added to or removed from the segment (hold Shift to invert) | editMode |
 | **Sphere** | Shape | Drag a sphere; everything inside it is added to or removed from the segment, across slices (hold Shift to invert) | editMode |
-| **Paint Fill** | Paint | Flood-fill the enclosed region under the cursor (F) | — |
-| **Region** | Smart | Grow a region outward from the voxel you click | brushSize |
-| **Region+** | Smart | Grow a region outward, adapting the boundary as it goes | brushSize |
 | **Rect Multi** | Shape | Drag a rectangle; everything inside it within the intensity window joins the segment | intensityWindow |
 | **Contour Fill** | Shape | Draw a boundary; the area it encloses joins the segment | — |
-| **Select** | pinned | Click a painted region to make its segment the active one | — |
-| **Seg Bidir.** | pinned | Measure the active segment’s longest axis and its perpendicular | — |
+| **Region** | Smart | Grow a region outward from the voxel you click | brushSize |
+| **Region+** | Smart | Grow a region outward, adapting the boundary as it goes | brushSize |
 
-The Segmentation toolbox groups its tools on **Paint · Shape · Smart** tabs, with Select and
-Seg Bidir. pinned above them; choosing a tool by hotkey shows its tab (SegWorks parity D2).
-The fourth tab, **Process**, lists operations rather than tools.
+The Segmentation toolbox shows **every tool at once, with no tabs**, family by family in the
+order above — four columns at the default panel width, three when narrower, icons only when
+very narrow (SegWorks parity D2, amended 2026-10-12). It keeps **one height whatever tool is
+active**: the Controls area is sized to the tallest tool (Threshold), and the local-backup
+status sits in the toolbox header.
 
-## Segmentation operations (Process tab)
+## Segmentation operations (Operations section)
 
-An operation opens a **sheet** between the member list and the toolbox. It runs on the
+Operations are not tools. They open from the **Operation** picker in the panel's
+**Operations** section, between the member list and the toolbox (SegWorks parity D1, amended
+2026-10-12), and **stay open while tools change** — paint, then preview again. The header
+shows the target segment; **▾** collapses the operation to one line without ending it or its
+preview; **✕** closes it (asking first, inline, if a preview is pending). If the segment
+changes under a pending preview — a stroke, an undo — the preview is discarded and the
+operation's status line says so. An operation runs on the
 panel's active segment, over a **scope** — Slice (the one on screen) · Range (in the
 viewport's own slice numbers; also draggable on the scrollbar's slice track) · Volume, ×
 Active segment · All segments — and shows a **preview** before anything is written: added
 voxels hatched in the segment's colour, removed voxels dimmed. **⏎** commits (one undo step
 across every segment touched), **⎋** discards, hold **\\** to compare with the current mask.
-A locked segment previews read-only. **X** opens Cleanup.
+A locked segment previews read-only. **X** opens (or expands) Cleanup.
 
 | Operation | Group | What it does | Parameters |
 |---|---|---|---|

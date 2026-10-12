@@ -124,7 +124,7 @@ describe('hotkeyService', () => {
     expect(viewportServiceMock.scrollToIndex).toHaveBeenCalledWith('panel_0', 4);
   });
 
-  it('ignores non-Tab hotkeys in form controls and contentEditable elements', () => {
+  it('ignores non-Tab hotkeys in text entry and contentEditable elements', () => {
     hotkeyService.setHotkeyMap({
       [HOTKEY_ACTIONS.togglePanel]: [{ key: 'a' }],
       [HOTKEY_ACTIONS.cycleViewport]: [{ key: 'Tab' }],
@@ -133,7 +133,6 @@ describe('hotkeyService', () => {
 
     dispatchKey({ key: 'a', target: makeInputTarget('INPUT') });
     dispatchKey({ key: 'a', target: makeInputTarget('TEXTAREA') });
-    dispatchKey({ key: 'a', target: makeInputTarget('SELECT') });
     dispatchKey({ key: 'a', target: makeDivTarget({ contentEditable: true }) });
 
     expect(segmentationState.togglePanel).not.toHaveBeenCalled();
@@ -141,6 +140,40 @@ describe('hotkeyService', () => {
 
     dispatchKey({ key: 'Tab', target: makeInputTarget('INPUT') });
     expect(viewerState.setActiveViewport).toHaveBeenCalled();
+  });
+
+  it('a focused slider, checkbox or dropdown in the chrome does not swallow the shortcuts', () => {
+    // Only text entry holds the keyboard (keepFocusInViewports). Treating every <input> /
+    // <select> as a field swallowed every shortcut after a toolbox slider was dragged.
+    hotkeyService.setHotkeyMap({ [HOTKEY_ACTIONS.togglePanel]: [{ key: 'a' }] });
+    hotkeyService.install();
+
+    const range = makeInputTarget('INPUT') as HTMLInputElement;
+    range.type = 'range';
+    const checkbox = makeInputTarget('INPUT') as HTMLInputElement;
+    checkbox.type = 'checkbox';
+    dispatchKey({ key: 'a', target: range });
+    dispatchKey({ key: 'a', target: checkbox });
+    dispatchKey({ key: 'a', target: makeInputTarget('SELECT') });
+
+    expect(segmentationState.togglePanel).toHaveBeenCalledTimes(3);
+  });
+
+  it('form controls inside a modal dialog keep their keys', () => {
+    hotkeyService.setHotkeyMap({ [HOTKEY_ACTIONS.togglePanel]: [{ key: 'a' }] });
+    hotkeyService.install();
+
+    const dialog = document.createElement('div');
+    dialog.setAttribute('role', 'dialog');
+    document.body.appendChild(dialog);
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    const select = document.createElement('select');
+    dialog.append(checkbox, select);
+    dispatchKey({ key: 'a', target: checkbox });
+    dispatchKey({ key: 'a', target: select });
+
+    expect(segmentationState.togglePanel).not.toHaveBeenCalled();
   });
 
   it('installs/removes its keydown, keyup and blur listeners and avoids double-registration', () => {
