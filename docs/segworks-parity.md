@@ -285,6 +285,269 @@ the real affordance (tab → sheet → Preview → ⏎) and asserts **labelmap v
   run: panel-resize (fixed above) and `contour-copy-paste` "loaded Structure contour … paste
   interpolates", which passes 3/3 alone — the known flake another session is fixing.
   After merging S10 into `mask-ops` with the focus-handling and loaded-contour commits: full offline
-  E2E on the built app **250/250**, unit 981/981, typecheck clean. **Branch 1 ready to merge to
-  `main`.** Branches 2–7 were cut from S9 and need S10 merged forward (their Process-tab sheets
+  E2E on the built app **250/250**, unit 981/981, typecheck clean. Merged to `main` and pushed
+  2026-10-12 (`3103649`; full offline E2E 252/252 on the merge). Branches 2–7 were cut from S9 and need S10 merged forward (their Process-tab sheets
   and tabbed tools move to the Operations section and the flat grid).
+
+---
+
+## 6. Branch 2 — `review-ergonomics` (ordered plan)
+
+Cut from `mask-ops` (it reuses the labelmap transaction, slice numbering/occupancy and key
+layers) in a separate worktree, so `mask-ops` can be evaluated in parallel. Fixes found in
+that evaluation land on `mask-ops` and are merged forward here.
+
+| Slice | Content | Acceptance |
+|---|---|---|
+| **R1** | **Hide PHI (D7)** — toolbar toggle beside Tags + ⇧H; persisted preference (a restart must not silently re-expose PHI). Hides PHI fields in the viewport overlay corners, masks PHI tag values in the DICOM header panel (per-tag reveal), strips PHI from the window title. Orientation markers, active ring, XNAT labels and exports unchanged | E2E: overlay text and header values absent in pixels/DOM when on; present when off; survives reload |
+| **R2** | **M** toggles the active container's mask visibility; **mask-mode HUD** — a ~1.2 s bottom-centre readout (above the ruler) when a hotkey changes tool, mode or brush size | E2E: M hides/shows labelmap pixels; HUD appears on `[`/`]`/E/B and fades |
+| **R3** | **Hold-Q intensity probe** — cursor-adjacent readout (modality value + voxel ijk) while Q is held, without changing tools; "hold" bindings in the hotkey system (keyup ends) | E2E: value shown matches the Probe tool's at the same point; gone on keyup |
+| **R4** | **Auto Review flythrough (D6)** — viewport mini-player from the container kebab or ⇧Space: segments to review, direction, start at bounds/current, anatomy and mask dwell (overlay flicker), pause/stop, collapsed by default; bounds from slice occupancy in the viewport's numbering | E2E: visits exactly the occupied range in order; mask hidden during anatomy dwell (pixels); stop restores visibility |
+| **R5** | **Checkpoints (D8)** — kebab: Save checkpoint… · Restore checkpoint ▸ (named, timestamped; "baseline" reserved); restore = one undo step through the labelmap transaction; persisted on disk beside autosave (retention 4 per container + baseline); Settings › File Backup: export/import a checkpoint file, guarded by study/series identity | E2E: save → edit → restore returns exact voxels; undo of restore; survives reload; import refuses a different series |
+| **R6** | Docs, full offline E2E, visual sweep vs wireframes §8–§11 | CLAUDE.md self-check |
+
+### Branch 2 progress log
+
+- **R1** — Hide PHI: toolbar "PHI" toggle (struck eye + amber tint when on; label constant so the
+  toolbar does not reflow) + ⇧H; persisted. Overlay leaves out patient name/ID, study date,
+  institution; DICOM header masks PHI values (Patient group + PS3.15-style identifiers, `shared/phi.ts`)
+  with per-tag Reveal, and masked values are not searchable. The window title is a fixed
+  "XNAT Workstation" — nothing to strip. **Found:** for locally imported files the overlay's
+  patient/study fields and the Tags panel are empty (metadata modules / wadouri cache not
+  populated) — pre-existing, so overlay/header masking is verified by component tests, not E2E.
+- **R2** — M toggles the active segmentation's masks; a ~1.2 s readout on the active viewport
+  after hotkey changes (tool, Fill/Erase, brush size, masks, PHI). The spec caught two bugs on
+  the way: visibility syncs to the stores asynchronously (the readout said "Masks shown" after
+  hiding — the action now states its own result), and the summary's `visible` flag does not
+  follow a hide (the second M hid again — it now reads the manager's presentation override,
+  as the member rows do).
+- **R3** — hold Q: intensity beside the cursor ("HU 70 · (88, 64, 8)" — value with the modality
+  unit, and the voxel index), any tool, gone on key-up; nothing shown off the image. The hotkey
+  system gains HOLD actions (key repeat ignored; released on key-up or window blur, so a key let
+  go elsewhere never leaves one stuck). Verified against the anatomy phantom's known regions.
+- **R4** — Auto Review flythrough: kebab "Review flythrough" or ⇧Space; steps through the bounds
+  of the chosen segments in the viewport's numbering (gaps included), flickering the masks
+  (anatomy → mask) on that viewport only without touching the panel's visibility; Space pauses,
+  ⎋ stops and restores. Player sits top-centre (the preview bar's slot — bottom-left, as
+  wireframed, is where the slice/position/W-L readouts are); a review discards any preview.
+  An unstable zustand selector (`?? []`) in the first draft re-rendered forever (React #185)
+  and broke every viewport — caught by the E2E run.
+- **R5a** — checkpoints: container menu "Save checkpoint…" (name, or "Use as baseline") and
+  "Restore checkpoint ▸" (Baseline first, newest first, delete per row). Voxels stored as
+  gzip'd runs on disk (`<userData>/checkpoints/<session__series__label>/`), so they survive
+  reloads and match a re-created segmentation of the same scan; restore = one undo step through
+  the labelmap transaction, refused (toast) if a segment is locked; retention 4 named + 1
+  baseline. Remaining: **R5b** checkpoint file export/import in Settings › File Backup.
+- **R5b** — Settings › File Backup › "Segmentation checkpoints · <active segmentation>": Export…
+  per checkpoint (save dialog, `.wscheckpoint` JSON) and Import checkpoint file… (validated shape;
+  refused unless same series and grid; stored as a new checkpoint). Status in place, not a toast.
+- **R6** — tool reference documents the review/display controls; full offline E2E run on the
+  built app: 260/260. **Branch 2 complete.**
+- **Forward merge of S10 (2026-10-12)** — `mask-ops` (Operations section, flat toolbox, focus
+  handling) merged in; only the hotkey files conflicted (hold-Q / M kept beside the new
+  `holdsKeyboard` guard). Unit 993/993; full offline E2E on the built app **268/268**.
+
+---
+
+## 7. Branch 3 — `labelmap-interpolation` (ordered plan)
+
+Cut from `review-ergonomics` (same worktree). Nothing ever runs on a labelmap edit — the
+lesson of `7a33519` — every interpolation/propagation is user-triggered and previewed.
+
+| Slice | Content | Acceptance |
+|---|---|---|
+| **I1** | Pure algorithms (`lib/segmentation/interpolation/`): exact EDT (Felzenszwalb) + chamfer DT, signed distance; SDF linear; area-preserving SDF; morphology (Schenk 2000) — **fixed** for non-overlapping anchors (SegWorks returns empty intermediates when A ∩ B = ∅); component matching (Lee & Wang 2000); volume-accurate morphology; image-guided boundary snap (Sobel). Gap finding | Unit tests on synthetic anchors, seen red; mutation-checked |
+| **I2** | Interpolate service + sheet (Process › Interpolate): method, gap table (Preview per gap · Fill all), A/B anchors (Set A/B; sheet-scoped keys A, B, ⇧A, ⇧B, ⇧C), Active/All segments, Advanced (DT quality); slice track shows gaps (amber) and anchors; preview → ⏎ | E2E: gap filled between two painted slices, intermediate areas monotone, one undo; nothing happens without the user (labelmap-no-interpolation stays green); oblique fixture |
+| **I3** | Propagation (pure + sheet): from the current slice forward/backward/both, CT HU tolerance or MR σ, max slices, auto-stop on area change, stable (median) mode, fill holes, boundary snap, z-smoothing | E2E on `ct-axial-anatomy`: propagates through the bone core and stops at its end |
+| **I4** | Docs, full offline E2E, visual sweep | CLAUDE.md self-check |
+
+### Branch 3 progress log
+
+- **I1** `0203fdd` — interpolation algorithms; Schenk fixed for non-overlapping anchors (centroid
+  alignment — the shape moves across; SegWorks went empty, and no SDF blend can move a shape).
+- **I2** — Process › Interpolate: method (6), fill All gaps / This slice / A → B, Active/All segments,
+  gap table (Preview gap per row), sheet-scoped A/B/⇧A/⇧B/⇧C, Advanced distance transform; gaps
+  (amber) and anchors on the slice track; preview → ⏎, one undo. Never automatic
+  (labelmap-no-interpolation green).
+- **I3** — Process › Propagate: from the slice on screen backward / both / forward, up to N slices;
+  CT ±HU or MR σ (auto from the series' modality); stable median reference; optional growth limit,
+  area-change stop, fill holes, edge guard, z-smoothing. Each slice takes the in-window region
+  connected to the previous mask; the first step's runaway check compares with the structure on
+  the seed slice (a partial seed is not a leak). Added to what is painted; other segments protected.
+- **I4** — tool reference documents Interpolate and Propagate. Full offline E2E: 268/269 — the one
+  failure is `contour-copy-paste` ("…the paste interpolates with it"), which is **flaky on `main`
+  itself** (measured: main 3/45, review-ergonomics 5/45, this branch ~3/18 with `--repeat-each`);
+  it alternated between its two interpolation tests across runs. Not caused by this work; flagged
+  as a separate task. **Branch 3 complete.**
+- **Forward merge of S10 (2026-10-12)** — Interpolate and Propagate move from Process-tab sheets
+  into the Operations section (picker: Cleanup · Propagate · Interpolate) in its compact row style,
+  sharing one close / confirm / stale-notice path (`hooks/operationLifecycle.ts`) and one footer.
+  **Anchor keys are now chords** — ⌥A / ⌥B set, ⌥⇧A / ⌥⇧B / ⌥⇧C clear (matched on `e.code`;
+  ⌥A types "å" on a Mac): with the operation open while painting keyframes, bare A / B would
+  have taken Angle and Brush away (D12 as narrowed). The bare-letter mutant fails the new “B still picks the Brush” E2E.
+  Unit 1013/1013; full offline E2E on the built app **277/277**.
+
+---
+
+## 8. Branch 4 — `seg-compute-infra` (ordered plan)
+
+Cut from `labelmap-interpolation`. Interactive semi-automatic tools on the Smart tab, the
+compute infrastructure they need, and the ROI limit.
+
+| Slice | Content | Acceptance |
+|---|---|---|
+| **C1** | Pure algorithms (`lib/segmentation/semiauto/`): Random Walker (Grady 2006 — standardised 8-connected weights, Jacobi-PCG, label-flip stop), Level Trace (CT HU band / MR adaptive band with 7·11·15 windows; binary growth or Udupa fuzzy connectedness; Sobel/Scharr edge guard with strength and polarity; CT air guard; fill holes; Gaussian smoothing; RDP simplification + Chaikin rounding), Smart Brush (connected, in-tolerance dabs along the drag) | Unit tests with known answers, mutation-checked |
+| **C2** | Compute worker: a module Web Worker that runs a named algorithm on transferred buffers, reports progress, and can be cancelled; Random Walker runs there. Progress + Cancel in the preview bar's slot while running (no toast) | Unit: worker protocol; E2E: a long solve shows progress and Cancel leaves nothing behind |
+| **C3** | Smart tab tools (custom Cornerstone tools, like Select): **Level Trace** (click → preview; Controls: band, growth, edge guard, smoothing, outline), **Smart Brush** (drag paints directly, one undo per stroke; Controls: radius, tolerance, spacing), **Random Walker** (left-drag foreground seeds, right/⇧-drag background; Controls: seed size, β, Run, Clear seeds; seeds drawn as an overlay; Run → preview), **ROI limit** (drag a rectangle; confines Level Trace, Random Walker and Cleanup's scope; Clear) | E2E per tool on `ct-axial-anatomy` against the phantom's known regions; one undo; locked segment refused |
+| **C4** | Region-grow guards (#52–58) are delivered by Level Trace's binary mode plus the ROI limit (intensity guard read from the ROI, edge protection) — document the mapping; docs, full offline E2E (unloaded), visual sweep | CLAUDE.md self-check |
+
+### Branch 4 progress log
+
+- **C1** (c140893) — pure algorithms with known-answer unit tests, mutation-checked.
+- **C3** — the four Smart-tab tools, built before C2 so that the worker has a real caller to
+  move. Tools are BaseTool subclasses that take the press in `preMouseDownCallback` (like
+  Select) and reach `semiAutoService` through `tools/semiAutoBridge` — importing the service
+  from the tool classes pulled the stores and the tool service into `init`. Controls render
+  in the toolbox's Controls strip (`SmartToolControls`, via `useSemiAutoControls`); the ROI
+  rectangle and seed strokes are an SVG layer per viewport (`semiAutoOverlay`). Random Walker
+  binds ⇧+Primary (Cornerstone dispatches on an exact modifier match), crops to the seeds'
+  box + padding or to the ROI limit, and runs on the main thread for now (C2 moves it).
+  Cleanup's scope honours the ROI limit.
+  - Two Random Walker defects found by the E2E, fixed red-first in C1's code: the label-flip
+    stop fired after ~20 CG iterations (few labels flip early because CG starts every
+    probability at 0.5 — now gated on a small residual), and regions walled off from every
+    seed by strong edges (air in the crop's corners) came back as foreground (now only
+    foreground connected to a foreground seed is kept). β is standardised by the crop's σ,
+    so a 30 HU lesion beside bone needs β ≈ 2000; the slider runs 10–4000.
+  - The `worldToPanelPagePoint` E2E hook divided by devicePixelRatio, but Cornerstone's
+    `worldToCanvas` is already in CSS pixels; no spec used it before.
+  - E2E `annotations/smart-tools` (6 tests) on `ct-axial-anatomy`; five mutants (ROI ignored
+    by Level Trace / by Cleanup, Smart Brush tolerance ignored, no ⇧ binding for Random
+    Walker, Smart Brush ignoring the lock) each killed by its own test. Tools + annotations
+    E2E groups 216/216.
+- **C2** — `lib/compute/`: `protocol.ts` (request → progress… → result | error; the
+  worker's body, `handleComputeRequest`, is plain code so unit tests run it), `compute.worker.ts`
+  (a module worker), `computeClient.ts` (one job at a time; a new job or Cancel terminates the
+  worker — a solve in a tight loop cannot read a cancel message — and the next job starts a
+  fresh one). Random Walker runs there: the crop and seeds are prepared on the main thread with
+  no transaction held open across the solve; the result is applied through a new transaction
+  on the same member. While it runs, the preview bar's slot shows *Running · Random Walker*,
+  a progress bar (the residual's fall on a log scale) and Cancel; ⎋ cancels too. An E2E-only
+  throttle (`setComputeThrottle`) slows each progress step so the run can be watched and
+  cancelled. Unit 8 tests (4 client mutants killed); E2E 2 more (Escape / Cancel button
+  mutants killed). Tools + annotations E2E 217/218 — the miss is the known
+  `contour-copy-paste` flake (3/3 on rerun).
+- **C4** — region-grow guards (#52–58). Six of the seven were already delivered by Level
+  Trace's binary mode, the ROI limit and the edge/air guards; the explicit intensity guard
+  (#56) and reading it from an ROI (#57) were missing and were added (red-first unit tests;
+  E2E with two killed mutants).
+
+  | # | SegWorks feature | Workstation |
+  |---|---|---|
+  | 52 | Seeded region grow | Level Trace, binary growth: the connected region inside the band around the clicked pixel (and Cornerstone's Region / Region+) |
+  | 53 | Seed placement, reposition / clear before running | The click previews; clicking again replaces the preview, ⎋ clears it, ⏎ commits — nothing is written until then |
+  | 54 | HU tolerance | Level Trace › HU tolerance |
+  | 55 | Modality detection | Level Trace › Band: *From scan* reads the series modality (CT → HU band, otherwise MR σ band) |
+  | 56 | Intensity guard | Level Trace › Intensity guard: only [min, max] is taken, whatever the band allows |
+  | 57 | Read intensity guard from ROI | Intensity guard › *From ROI*: the 2nd–98th percentile of the image inside the ROI limit, on the slice shown |
+  | 58 | Body / edge protection | Edge guard (Sobel/Scharr, gentle/strong, polarity) and *Stop at air* (CT); the ROI limit as a hard boundary |
+
+  Full offline E2E (unloaded): 279/279. Unit 1040/1040. Branch 4 complete.
+- **Forward merge of S10 (2026-10-12)** — the four Smart tools join the flat grid in their
+  families (Smart Brush with Paint; Level Trace, Random Walker, ROI limit with Smart): 19 tools,
+  5 rows. Their controls stay in the toolbox's Controls area, which is now **180 px** — sized to
+  the tallest tool with Advanced folded, measured in the built app (Level Trace with band "From
+  scan" and an ROI limit, Random Walker with its Run row and ROI chip). Level Trace gains an
+  **Advanced ▸** toggle on its Band row: band, tolerance and edge guard stay in view; sample size,
+  smoothing, growth, edge operator, polarity, simplify, round corners, the intensity guard and the
+  hole / air checks fold away (329 px when open; the area scrolls). Toolbox **379 px** (46% of
+  the default panel; the amendment's 323 px estimate assumed Threshold stayed the tallest).
+  "Rand. Walker" became **"Rnd. Walker"** — 68.7 px clipped the 66.75 px four-column label (the
+  panel-resize E2E caught it). A Smart Brush stroke that replaces an operation's preview now
+  raises the same "Preview discarded: the segment changed" notice as any other edit
+  (`discardPreviewForEdit` at stroke start; the stroke's own silent commit no longer clears it)
+  — new E2E, seen red against a built mutant. Unit 1042/1042; full offline E2E on the built app **288/288**.
+
+---
+
+## 9. Branch 7 — `seg-3d-qc` (ordered plan)
+
+Cut from `seg-compute-infra` (meshing runs in its compute worker). Wireframe D9-A: a
+**“2D + 3D QC” layout** (the active 2D viewport beside a 3D one) opened by a **3D QC sheet**
+in Process; the user's layout comes back when the sheet closes. Domain items #245–246 and
+#254 (pancreas) stay deferred (decision 4).
+
+**Approach change from §2:** surfaces are built by our own pipeline, not Cornerstone's
+PolySeg `Surface` representation. QC needs per-component colour and picking, a chosen
+resolution (#239), blocky vs marching-cubes extraction (#247), Taubin smoothing (#240),
+stray highlighting (#242) and hide-largest (#248) — PolySeg exposes none of these. The
+pipeline: labelmap → (max-pool) resample → 3D connected components → mesh per component
+(voxel faces, or marching cubes) → Taubin → vtk.js actors added to the existing VOLUME_3D
+viewport (its volume rendering hidden while QC is open). Meshing runs in the compute worker.
+Nothing rebuilds automatically on edits (cross-cutting rule): the sheet marks the surfaces
+**stale** and offers Rebuild (#235).
+
+| Slice | Content | Acceptance |
+|---|---|---|
+| **Q1** | Pure algorithms (`lib/segmentation/qc3d/`): 3D connected components (26-connected) with voxel count, volume (cc), bounding box, centroid; size bands main · fragment · stray · speck from the stray/speck thresholds (#243–244, #252); max-pool resampling to 128 / 192 / 256 on the longest axis (a one-voxel speck stays visible); surface extraction — voxel-face (“blocky”) and naive Surface Nets for the smooth renderer (#247; VTK's SurfaceNets3D method — closed, oriented, no 256-case tables, fewer triangles than marching cubes); Taubin λ/μ smoothing (#240) | Unit tests with known answers (sphere area/volume, component counts and bands, speck survives resampling, Taubin keeps volume while reducing roughness); mutation-checked |
+| **Q2** | `qc3dService` + worker job `surfaceMesh`: build per component on demand, vtk actors in the 3D viewport, colours from the segment (strays/specks highlighted when *Show strays* is on), per-label visibility and hide/show all (#237–238), hide largest (#248), thin-structure boost (#249: components whose thickness is below 2 voxels are meshed one voxel dilated for display only), brightness and ambient (#250), auto-rotate (#241), reset view (#251), rotate / ⇧-drag pan / wheel zoom (#231–233), fullscreen = maximise the 3D panel (#236), stale flag + Rebuild (#235) | E2E: surfaces appear for a painted segment (pixel check on the 3D canvas), visibility and hide-largest change the pixels, Rebuild after an edit |
+| **Q3** | “2D + 3D QC” layout preset and the **3D QC sheet** (Process › 3D QC): render settings, label list, component report (category, cc, voxels, slice range) with stray/speck thresholds; row ↗ jumps the 2D viewport to the component (#253); select by row or by clicking it in 3D (#234) — highlighted in 3D and in the report, and the 2D viewport jumps to it; **Delete component** through a LabelmapTransaction, one undo step (#255, #257); the user's layout restored on close | E2E on `ct-axial-anatomy` with a main region plus strays: report counts/bands, jump moves the 2D slice, delete removes exactly that component and undoes, lock refused, layout restored |
+| **Q4** | **3D scissor** (#256): a lasso drawn on the 3D view removes the active segment's voxels whose projection falls inside it (or keeps only those inside), along the view direction through the whole volume; preview → ⏎ commit, one undo (#257) | E2E: a lasso over half of a region removes that half; undo restores; locked segment refused |
+| **Q5** | Docs (tool reference, this log), full offline E2E (unloaded), visual sweep | CLAUDE.md self-check |
+
+### Branch 7 progress log
+
+- **Q1** — `lib/segmentation/qc3d/`: `components.ts` (26-connected labelling, largest first,
+  bands), `resample.ts` (max-pool), `mesh.ts` (voxel faces, Surface Nets, volume/area),
+  `smooth.ts` (Taubin). 11 unit tests (closed-and-oriented checks, sphere volume/area within
+  8%/10%, Taubin halves roughness at < 5% volume change); six mutants killed — one survived
+  at first because the resampling test's speck sat at the one in-block offset the mutant
+  kept, so the test now places specks at every offset.
+- **Q2** (with Q3's layout and sheet shell) — `qc3d/build.ts` (components at full resolution,
+  each meshed from its own crop with one volume-wide max-pool factor, thin boost, world
+  coordinates, outward normals), worker job `qcSurfaces`, `qc3dService` (vtk.js actors in the
+  QC layout's 3D view; its volume rendering hidden meanwhile), `qc3dStore`, `useQc3dSheet`,
+  `Qc3dSheet` (Process › 3D QC). `@kitware/vtk.js` is now a direct dependency, pinned to the
+  version Cornerstone uses. The camera opens on a three-quarter view fitted to the surfaces
+  (`parallelScale` is half the view's *height*, so a tall narrow view is fitted by width).
+  3D view: wheel zoom and ⇧-drag pan added to the 3D tool group. *Expand 3D* lays the 3D
+  panel over the whole viewport area; the 2D viewport stays mounted beneath it.
+  - Test lessons: the overlay text drawn over the 3D canvas made a brightness count pass on
+    an empty view — the E2E counts *coloured* pixels; and Surface Nets is dual to the voxel
+    faces (same triangle count, and for a one-slice region the same vertex count), so the
+    renderer test compares vertex positions.
+  - E2E `annotations/qc-3d` (6 tests); five mutants (hide largest, stale watch, volume left
+    visible, layout not restored, build settings not rebuilding) each killed.
+- **Q3** — select a component by its report row or by clicking its surface (a click, not a
+  drag — that rotates; ray-picked against the visible meshes, `qc3d/pick.ts`): it turns white
+  in 3D, its row highlights, and the 2D viewport moves to the slice through it (stack: by
+  the viewport's own slice numbering; volume viewport: `jumpToWorld`). The report shows each
+  component's slices in that numbering. **Delete component** (button, or ⌫ while the sheet is
+  open) flood-fills from the component's seed voxel through a LabelmapTransaction — one undo
+  step — and rebuilds; a locked segment refuses. Four mutants killed (no jump, ray reversed,
+  delete only the seed, delete ignoring the lock).
+- **Q4** — 3D scissor: with ✂ Scissor on, a drag on the 3D view draws a lasso (the press is
+  taken as a capture-phase pointer event and cancelled, so the rotate tool never sees it).
+  Under parallel projection a voxel's canvas position is affine in its index, so four
+  projected points place every voxel (`qc3d/scissor.ts`); the active member's voxels inside
+  the lasso (or outside — *Keep inside*) are removed through the whole volume, as a preview
+  on the 2D viewport (⏎ applies, one undo step; a locked segment previews read-only). The 3D
+  surfaces rebuild when the cut is applied.
+  - Found while testing: with a locked segment, something on the viewport cancels
+    `pointerdown`, which suppresses the compatibility `mousedown` — a mouse-event lasso never
+    started. Pointer events fix it.
+  - Mutants: press not taken from the rotate tool, *Keep inside* ignored, locked refused
+    instead of previewed — each killed by an E2E; the slice axis ignored in the projection
+    survived the unit tests until a side-view test that selects by k was added (the even–odd
+    ray direction mutant is equivalent).
+- **Q5** — tool reference updated; full offline E2E (unloaded) 292/292; unit 1067/1067.
+  Branch 7 complete. Known, not fixed here: switching to the QC layout narrows the 2D
+  viewport and Cornerstone keeps its vertical fit, so the 2D image is cropped at the sides
+  until the user zooms out (the same happens for any layout that narrows a viewport).
+- **Forward merge of S10 (2026-10-12)** — 3D QC moves from a Process-tab sheet into the
+  Operations section (picker: Cleanup · Propagate · Interpolate · 3D QC); its sections scroll in
+  the operation's body above its own footer (Rebuild · Reset view · Expand 3D · Done). Collapsing
+  it keeps the 2D + 3D layout; Done or ✕ closes it and restores the user's layout (new E2E). Its
+  collapsed summary reads "N stray · N speck" (or the build progress). Unit 1069/1069; full
+  offline E2E on the built app **302/302**; checked in the built app with Interpolate open beside
+  Level Trace and with 3D QC open (toolbox 379 px, operation 260 px, Controls 180 px).

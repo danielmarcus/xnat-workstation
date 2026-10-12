@@ -10,6 +10,7 @@ import type { LayoutType } from '@shared/types/viewer';
 import { BUILT_IN_PROTOCOLS } from '@shared/types/hangingProtocol';
 import CollapsibleGroup from './CollapsibleGroup';
 import SettingsModal from '../settings/SettingsModal';
+import { usePreferencesStore } from '../../stores/preferencesStore';
 import { useToolbarCollapse } from '../../hooks/useToolbarCollapse';
 import { useActiveModality } from '../../hooks/useActiveModality';
 import {
@@ -317,6 +318,34 @@ function DicomTagsToggle({
     >
       <IconDocument className="w-3.5 h-3.5" />
       <span className="tb-label">Tags</span>
+    </button>
+  );
+}
+
+/**
+ * Hide PHI (SegWorks parity D7). The state stays visible on the toolbar — during screen
+ * sharing it matters to see at a glance whether identifying fields are hidden.
+ */
+function HidePhiToggle() {
+  const hidden = usePreferencesStore((s) => s.preferences.hidePhi === true);
+  const setHidePhi = usePreferencesStore((s) => s.setHidePhi);
+  return (
+    <button
+      onClick={() => setHidePhi(!hidden)}
+      aria-pressed={hidden}
+      aria-label="Hide PHI"
+      title={hidden ? 'Patient-identifying fields are hidden — click to show (⇧H)' : 'Hide patient-identifying fields (⇧H)'}
+      className={`flex items-center gap-1.5 px-2 py-1.5 text-[11px] rounded transition-colors shrink-0 ${
+        hidden ? 'bg-amber-500/15 text-amber-200 ring-1 ring-inset ring-amber-500/40' : 'text-zinc-300 hover:bg-zinc-800'
+      }`}
+    >
+      <svg viewBox="0 0 16 16" width={14} height={14} fill="none" stroke="currentColor" strokeWidth={1.4} aria-hidden="true">
+        <path d="M1.5 8s2.4-4.5 6.5-4.5S14.5 8 14.5 8s-2.4 4.5-6.5 4.5S1.5 8 1.5 8z" />
+        <circle cx="8" cy="8" r="2" />
+        {hidden && <path d="M2.5 13.5l11-11" />}
+      </svg>
+      {/* Same label in both states (no toolbar reflow); the struck eye + tint carry the state. */}
+      <span className="tb-label">PHI</span>
     </button>
   );
 }
@@ -677,6 +706,7 @@ export default function Toolbar({
 
         {/* Right group — always inline: Annotate (blue when open) · Tags · Settings. */}
         <div className="shrink-0 flex items-center gap-1 px-2 border-l border-zinc-800">
+          <HidePhiToggle />
           <SegmentationPanelToggle label="Annotate" />
           {onToggleDicomPanel && <DicomTagsToggle active={showDicomPanel} onToggle={onToggleDicomPanel} />}
           <IconButton

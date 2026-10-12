@@ -85,6 +85,12 @@ export const IPC = {
   BACKUP_DELETE_SESSION: 'backup:delete-session',
   BACKUP_LIST_ALL_SESSIONS: 'backup:list-all-sessions',
   BACKUP_GET_CACHE_PATH: 'backup:get-cache-path',
+  CHECKPOINT_WRITE: 'checkpoint:write',
+  CHECKPOINT_LIST: 'checkpoint:list',
+  CHECKPOINT_READ: 'checkpoint:read',
+  CHECKPOINT_DELETE: 'checkpoint:delete',
+  CHECKPOINT_EXPORT: 'checkpoint:export',
+  CHECKPOINT_IMPORT: 'checkpoint:import',
 
   // Diagnostics (renderer → main)
   DIAGNOSTICS_GET_MAIN_SNAPSHOT: 'diagnostics:get-main-snapshot',

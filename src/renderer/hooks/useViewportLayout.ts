@@ -11,6 +11,9 @@ import { useUnifiedLayoutStore } from '../stores/unifiedLayoutStore';
 import { viewportLayoutService } from '../lib/cornerstone/viewportLayoutService';
 import type { MPRPlane } from '@shared/types/viewer';
 
+/** The 3D panel of the “2D + 3D QC” layout. */
+export const QC_3D_PANEL_ID = 'panel_qc3d';
+
 export interface ResolvedPanel {
   panelId: string;
   orientation: MPRPlane;
@@ -20,6 +23,8 @@ export interface ResolvedPanel {
   preferNative: boolean;
   /** Render as a 3D volume rendering instead of a slice (C5c — MPR's 4th slot). */
   render3d: boolean;
+  /** Fills the whole viewport area, over the other panels (the QC layout's expanded 3D view). */
+  expanded?: boolean;
 }
 
 export function useViewportLayout(): {
@@ -36,7 +41,15 @@ export function useViewportLayout(): {
   let panels: ResolvedPanel[];
   let grid: { rows: number; cols: number };
 
-  if (layout.kind === 'grid') {
+  if (layout.kind === 'qc-3d') {
+    // “2D + 3D QC”: the source panel keeps its id (and so its viewport state); the 3D
+    // view beside it renders the same scan.
+    panels = [
+      { panelId: layout.source, orientation: 'AXIAL', sourcePanelId: layout.source, preferNative: true, render3d: false },
+      { panelId: QC_3D_PANEL_ID, orientation: 'CORONAL', sourcePanelId: layout.source, preferNative: false, render3d: true, expanded: !!layout.expanded },
+    ];
+    grid = { rows: 1, cols: 2 };
+  } else if (layout.kind === 'grid') {
     // Independent panels — each sources its own imageIds (multi-scan). Each opens
     // in its scan's native plane.
     panels = viewportLayoutService.gridPanels(layout.rows, layout.cols).map((p) => ({

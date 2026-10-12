@@ -8,7 +8,31 @@
 import { useMaskPreview } from '../../hooks/useMaskPreview';
 
 export default function MaskPreviewBar({ panelId }: { panelId: string }) {
-  const { active, label, summary, viewportId, comparing, readOnly, commit, discard } = useMaskPreview();
+  const { active, label, summary, viewportId, comparing, readOnly, commit, discard, job, cancelJob } = useMaskPreview();
+  if (job && job.viewportId === panelId) {
+    const pct = Math.round(job.fraction * 100);
+    return (
+      <div
+        data-testid="compute-progress-bar"
+        className="absolute top-12 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 whitespace-nowrap rounded-md border border-zinc-700 bg-zinc-900/95 px-2 py-1 text-[11px] text-zinc-200 shadow"
+      >
+        <span>Running · <span className="font-medium">{job.label}</span></span>
+        <span className="relative h-1.5 w-24 overflow-hidden rounded bg-zinc-700" role="progressbar" aria-label={`${job.label} progress`} aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
+          <span className="absolute inset-y-0 left-0 bg-blue-500" style={{ width: `${pct}%` }} />
+        </span>
+        <span className="text-zinc-400 w-8 text-right">{pct}%</span>
+        <button
+          type="button"
+          tabIndex={-1}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={cancelJob}
+          className="rounded bg-zinc-700 px-2 py-0.5 hover:bg-zinc-600"
+        >
+          Cancel <span className="opacity-70">⎋</span>
+        </button>
+      </div>
+    );
+  }
   if (!active || viewportId !== panelId) return null;
   return (
     <div

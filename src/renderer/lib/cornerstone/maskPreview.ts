@@ -50,6 +50,11 @@ export interface StartPreviewOptions {
   onDone?: (committed: boolean) => void;
   /** The target is locked: the preview is read-only and commit is refused with the lock warning. */
   lockedMember?: MemberRef | null;
+  /**
+   * A live stroke (Smart Brush): the change is drawn as it grows, but there is no preview
+   * bar and no ⏎ / ⎋ keys — the tool commits on release.
+   */
+  silent?: boolean;
 }
 
 /** Show a staged transaction as a preview. Replaces (discards) any preview already open. */
@@ -60,7 +65,7 @@ export function startPreview(o: StartPreviewOptions): void {
     o.onDone?.(false);
     return;
   }
-  const removeKeyLayer = hotkeyService.pushKeyLayer({
+  const removeKeyLayer = o.silent ? () => {} : hotkeyService.pushKeyLayer({
     onKeyDown: (e) => {
       if (e.ctrlKey || e.metaKey || e.altKey) return false;
       if (e.key === 'Enter') { commitPreview(); return true; }
@@ -82,10 +87,19 @@ export function startPreview(o: StartPreviewOptions): void {
     onDone: o.onDone,
   };
   installDataWatch();
-  useMaskPreviewStore.setState({
-    active: true, label: o.label, summary: o.summary, viewportId: o.viewportId, comparing: false, readOnly: !!o.lockedMember,
-    discardedStale: false,
-  });
+  if (!o.silent) {
+    useMaskPreviewStore.setState({
+      active: true, label: o.label, summary: o.summary, viewportId: o.viewportId, comparing: false, readOnly: !!o.lockedMember,
+      discardedStale: false,
+    });
+  }
+  render();
+}
+
+/** Redraw the pending preview after its transaction grew (a live stroke). */
+export function refreshPreview(): void {
+  if (!pending) return;
+  for (const c of pending.txn.changes()) pending.csSegmentationIds.add(c.grid.csSegmentationId);
   render();
 }
 
@@ -130,9 +144,23 @@ function end(): void {
   pending?.removeKeyLayer();
   pending = null;
   useMaskPreviewStore.setState({
-    active: false, label: '', summary: '', viewportId: null, comparing: false, readOnly: false, discardedStale: false,
+    // discardedStale is left alone: a Smart Brush stroke's own commit (a silent preview) must
+    // not clear the notice that it replaced an operation's preview. A new visible preview or
+    // clearStaleNotice() clears it.
+    active: false, label: '', summary: '', viewportId: null, comparing: false, readOnly: false,
   });
   render();
+}
+
+/**
+ * An edit is about to change the segment under a pending preview (a Smart Brush stroke
+ * begins): discard the preview, and let the open operation say why it went — as it does
+ * when a brush stroke changes the labelmap under it (installDataWatch).
+ */
+export function discardPreviewForEdit(): void {
+  if (!pending) return;
+  discardPreview();
+  useMaskPreviewStore.setState({ discardedStale: true });
 }
 
 /** Forget that the last preview was discarded as stale (the user has moved on). */

@@ -16,6 +16,12 @@ import type { LayoutType } from '@shared/types/viewer';
 import { DEFAULT_HOTKEY_MAP } from './defaultHotkeyMap';
 import { holdsKeyboard } from './keepFocusInViewports';
 import { useViewerStore } from '../../stores/viewerStore';
+import { usePreferencesStore } from '../../stores/preferencesStore';
+import { useHudStore } from '../../stores/hudStore';
+import { useProbeStore } from '../../stores/probeStore';
+import { isFlythroughRunning, startFlythrough, stopFlythrough } from '../cornerstone/flythroughService';
+import { useSegmentationManagerStore } from '../../stores/segmentationManagerStore';
+import { segmentationManager } from '../segmentation/segmentationManagerSingleton';
 import { useOperationSheetStore } from '../../stores/operationSheetStore';
 import { useSegmentationStore } from '../../stores/segmentationStore';
 import { viewportService } from '../cornerstone/viewportService';
@@ -131,7 +137,47 @@ function buildClockwisePanelOrder(rows: number, cols: number): string[] {
  * Execute a hotkey action by calling the appropriate store methods.
  * Returns true if the action was handled (caller should preventDefault).
  */
+/** How a hotkey-chosen tool is named in the viewport readout. */
+const TOOL_HUD_LABEL: Partial<Record<string, string>> = {
+  [ToolName.WindowLevel]: 'Window/Level', [ToolName.Pan]: 'Pan', [ToolName.Zoom]: 'Zoom',
+  [ToolName.Length]: 'Length', [ToolName.Angle]: 'Angle', [ToolName.Bidirectional]: 'Bidirectional',
+  [ToolName.Probe]: 'Probe', [ToolName.ArrowAnnotate]: 'Arrow', [ToolName.Crosshairs]: 'Crosshairs',
+  [ToolName.Brush]: 'Brush', [ToolName.ThresholdBrush]: 'Threshold', [ToolName.CircleScissors]: 'Circle',
+  [ToolName.RectangleScissors]: 'Rect', [ToolName.StackScroll]: 'Scroll',
+};
+
+/** The readout a handled hotkey leaves on the active viewport (null = none). */
+function hudTextFor(action: HotkeyAction): string | null {
+  const tool = TOOL_ACTION_MAP[action];
+  if (tool) return TOOL_HUD_LABEL[tool] ?? null;
+  const seg = useSegmentationStore.getState();
+  switch (action) {
+    case 'annotation.toggleEditMode': return `Mode: ${seg.editMode === 'erase' ? 'Erase' : 'Fill'}`;
+    case 'brush.decrease':
+    case 'brush.increase': return `Brush ${seg.brushSize} mm`;
+    case 'view.toggleHidePhi': return usePreferencesStore.getState().preferences.hidePhi ? 'PHI hidden' : 'PHI shown';
+    default: return null;
+  }
+}
+
+/**
+ * A readout an action states itself, from its INTENT — for actions whose effect reaches
+ * the stores asynchronously (mask visibility syncs from Cornerstone events), so reading
+ * the store right after would report the old state.
+ */
+let actionHud: string | null = null;
+
 function dispatchAction(action: HotkeyAction): boolean {
+  actionHud = null;
+  const handled = dispatchActionInner(action);
+  if (handled) {
+    const text = actionHud ?? hudTextFor(action);
+    if (text) useHudStore.getState().show(text);
+  }
+  return handled;
+}
+
+function dispatchActionInner(action: HotkeyAction): boolean {
   const viewerState = useViewerStore.getState();
 
   // ─── Tool switching ─────────────────────────────────────────
@@ -154,6 +200,30 @@ function dispatchAction(action: HotkeyAction): boolean {
     case 'annotation.toggleEditMode':
       unifiedToolService.toggleEditMode();
       return true;
+    case 'review.flythrough': {
+      if (isFlythroughRunning()) {
+        stopFlythrough();
+        return true;
+      }
+      return startFlythrough().ok;
+    }
+    case 'segmentation.toggleMasks': {
+      const seg = useSegmentationStore.getState();
+      const c = seg.segmentations.find((s) => s.segmentationId === seg.activeSegmentationId);
+      if (!c) return false;
+      // Visibility as the panel shows it: the manager's presentation override wins over
+      // the summary's flag (which does not follow a hide), exactly as the member rows read it.
+      const pres = useSegmentationManagerStore.getState().presentation[c.segmentationId];
+      const show = !c.segments.some((m) => pres?.visibility?.[m.segmentIndex] ?? m.visible);
+      segmentationManager.setAllMembersVisible(c.segmentationId, show);
+      actionHud = show ? 'Masks shown' : 'Masks hidden';
+      return true;
+    }
+    case 'view.toggleHidePhi': {
+      const prefs = usePreferencesStore.getState();
+      prefs.setHidePhi(prefs.preferences.hidePhi !== true);
+      return true;
+    }
     case 'operation.cleanup': {
       // Only meaningful with a Segmentation active and the panel showing it.
       const seg = useSegmentationStore.getState();
@@ -380,6 +450,27 @@ export interface KeyLayer {
 }
 const keyLayers: KeyLayer[] = [];
 
+/**
+ * HOLD actions: on while their key is held, off on key-up (or when the window loses
+ * focus, so a key released elsewhere never leaves one stuck on). Key repeat is ignored.
+ */
+const HOLD_ACTIONS: Partial<Record<HotkeyAction, (on: boolean) => void>> = {
+  'probe.hold': (on) => useProbeStore.getState().setHolding(on),
+};
+/** Keys (lower-case KeyboardEvent.key) currently holding a hold action, → that action. */
+const heldKeys = new Map<string, HotkeyAction>();
+
+function releaseHeld(key?: string): boolean {
+  let released = false;
+  for (const [k, action] of [...heldKeys]) {
+    if (key !== undefined && k !== key) continue;
+    heldKeys.delete(k);
+    HOLD_ACTIONS[action]?.(false);
+    released = true;
+  }
+  return released;
+}
+
 /** The key press belongs to the focused field, not the shortcuts: text entry, or a form
  *  control in a modal dialog. A slider, checkbox or dropdown in the chrome does NOT hold
  *  the keyboard (see keepFocusInViewports) — treating it as a field swallowed every
@@ -388,7 +479,12 @@ function inFormField(e: KeyboardEvent): boolean {
   return holdsKeyboard(e.target as Element | null);
 }
 
+function onWindowBlur(): void {
+  releaseHeld();
+}
+
 function handleKeyUp(e: KeyboardEvent): void {
+  if (releaseHeld(e.key.toLowerCase())) return;
   if (inFormField(e)) return;
   for (let i = keyLayers.length - 1; i >= 0; i--) {
     if (keyLayers[i].onKeyUp?.(e)) {
@@ -433,6 +529,16 @@ function handleKeyDown(e: KeyboardEvent): void {
   const action = lookup.get(normalized);
   if (!action) return;
 
+  const hold = HOLD_ACTIONS[action];
+  if (hold) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.repeat || heldKeys.has(e.key.toLowerCase())) return;
+    heldKeys.set(e.key.toLowerCase(), action);
+    hold(true);
+    return;
+  }
+
   const handled = dispatchAction(action);
   if (handled) {
     e.preventDefault();
@@ -451,6 +557,7 @@ export const hotkeyService = {
     if (listenerInstalled) return;
     window.addEventListener('keydown', handleKeyDown, { capture: true });
     window.addEventListener('keyup', handleKeyUp, { capture: true });
+    window.addEventListener('blur', onWindowBlur);
     listenerInstalled = true;
     console.log('[hotkeyService] Global keyboard listener installed');
   },
@@ -462,6 +569,7 @@ export const hotkeyService = {
     if (!listenerInstalled) return;
     window.removeEventListener('keydown', handleKeyDown, { capture: true });
     window.removeEventListener('keyup', handleKeyUp, { capture: true });
+    window.removeEventListener('blur', onWindowBlur);
     listenerInstalled = false;
     console.log('[hotkeyService] Global keyboard listener removed');
   },

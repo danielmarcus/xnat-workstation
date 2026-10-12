@@ -24,6 +24,13 @@ export interface ContainerListHandlers {
   onSetAllLocked: (containerId: string, locked: boolean) => void;
   /** Kebab: revert a container to last-saved. Optional — the menu item only shows when provided. */
   onRevertContainer?: (containerId: string) => void;
+  /** Kebab (Segmentations): review the segmented slices as a flythrough (SegWorks parity D6). */
+  onReviewFlythrough?: (containerId: string) => void;
+  /** Kebab (Segmentations): checkpoints (SegWorks parity D8). */
+  checkpointsOf?: (containerId: string) => Array<{ id: string; name: string; createdAt: string; kind: 'baseline' | 'named' }>;
+  onSaveCheckpoint?: (containerId: string) => void;
+  onRestoreCheckpoint?: (containerId: string, checkpointId: string) => void;
+  onDeleteCheckpoint?: (containerId: string, checkpointId: string) => void;
   /** Kebab: export a container as a standalone DICOM file. */
   onExportContainerDicom: (containerId: string) => void;
   /** Kebab: export a container's per-member metrics as CSV. */
@@ -118,6 +125,11 @@ export default function ContainerList(props: ContainerListProps) {
               onSetAllVisible={(visible) => h.onSetAllVisible(c.id, visible)}
               onSetAllLocked={(locked) => h.onSetAllLocked(c.id, locked)}
               onRevert={h.onRevertContainer ? () => h.onRevertContainer!(c.id) : undefined}
+              onReviewFlythrough={h.onReviewFlythrough && c.kind === 'SEG' ? () => h.onReviewFlythrough!(c.id) : undefined}
+              checkpoints={c.kind === 'SEG' ? h.checkpointsOf?.(c.id) : undefined}
+              onSaveCheckpoint={h.onSaveCheckpoint && c.kind === 'SEG' ? () => h.onSaveCheckpoint!(c.id) : undefined}
+              onRestoreCheckpoint={h.onRestoreCheckpoint && c.kind === 'SEG' ? (id) => h.onRestoreCheckpoint!(c.id, id) : undefined}
+              onDeleteCheckpoint={h.onDeleteCheckpoint && c.kind === 'SEG' ? (id) => h.onDeleteCheckpoint!(c.id, id) : undefined}
               onExportDicom={() => h.onExportContainerDicom(c.id)}
               onExportCsv={() => h.onExportContainerCsv(c.id)}
               onDeleteFromServer={h.onDeleteFromServer ? () => h.onDeleteFromServer!(c.id) : undefined}

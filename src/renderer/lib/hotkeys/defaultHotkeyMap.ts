@@ -29,6 +29,8 @@ export const DEFAULT_HOTKEY_MAP: HotkeyMap = {
   'tool.arrowAnnotate': [{ key: 't' }], // T for text annotation
   'tool.paintFill':   [{ key: 'f' }],
   'tool.stackScroll': [{ key: 's' }],
+  'segmentation.toggleMasks': [{ key: 'm' }], // M — hide / show the active segmentation's masks
+  'probe.hold': [{ key: 'q' }], // hold Q — intensity under the cursor, without changing tools
   'operation.cleanup': [{ key: 'x' }], // X — open (or expand) Cleanup in the Operations section (Segmentation)
 
   // ─── Viewport Actions ────────────────────────────────────────
@@ -36,6 +38,7 @@ export const DEFAULT_HOTKEY_MAP: HotkeyMap = {
   'viewport.rotate90':      [{ key: 'r', modifiers: { shift: true } }],
   'viewport.toggleInvert':  [{ key: 'i' }],
   'viewport.flipH':         [{ key: 'h' }],
+  'view.toggleHidePhi':     [{ key: 'h', modifiers: { shift: true } }], // ⇧H — Hide PHI
   'viewport.flipV':         [{ key: 'v' }],
 
   // ─── Zoom ─────────────────────────────────────────────────────
@@ -44,6 +47,7 @@ export const DEFAULT_HOTKEY_MAP: HotkeyMap = {
 
   // ─── Cine ────────────────────────────────────────────────────
   'viewport.toggleCine': [{ key: ' ' }], // Spacebar
+  'review.flythrough': [{ key: ' ', modifiers: { shift: true } }], // ⇧Space — start/stop the segmentation review
 
   // ─── Layout ──────────────────────────────────────────────────
   'layout.1x1': [{ key: '1' }],

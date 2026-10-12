@@ -5,6 +5,7 @@ import { registerProxyHandlers } from './ipc/proxyHandlers';
 import { registerExportHandlers } from './ipc/exportHandlers';
 import { registerUploadHandlers } from './ipc/uploadHandlers';
 import { registerBackupHandlers } from './ipc/backupHandlers';
+import { registerCheckpointHandlers } from './ipc/checkpointHandlers';
 import { registerDiagnosticsHandlers } from './ipc/diagnosticsHandlers';
 import { registerUpdateHandlers } from './ipc/updateHandlers';
 import { installMainLogCapture } from './diagnostics/mainLogBuffer';
@@ -225,6 +226,7 @@ app.whenReady().then(() => {
   registerExportHandlers();
   registerUploadHandlers();
   registerBackupHandlers();
+  registerCheckpointHandlers();
   registerDiagnosticsHandlers();
   registerUpdateHandlers();
   autoUpdateService.initialize();

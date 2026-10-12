@@ -38,3 +38,27 @@ test('Tags panel lists the header of a local import', async ({ page }: { page: P
   await expect(patientName).toContainText('PHANTOM^SPHERE');
   await expect(panel.getByText('No DICOM tags available for this image.')).toHaveCount(0);
 });
+
+test('Hide PHI masks the overlay and the Tags panel of a local import', async ({ page }: { page: Page }) => {
+  // Hide PHI (SegWorks parity branch 2, R1) could only be checked by component tests while
+  // local imports showed no overlay date / institution and an empty Tags panel; with those
+  // real, the masking is checked here on the real surfaces.
+  await loadFixture(page, 'ct-axial-300');
+  const institution = page.locator('[data-testid="overlay-field-institutionName:panel_0"]');
+  const studyDate = page.locator('[data-testid="overlay-field-studyDate:panel_0"]');
+  await expect(institution).toHaveText('XNAT E2E PHANTOM', { timeout: 20_000 });
+  await page.getByRole('button', { name: 'Tags' }).click();
+  const panel = page.getByRole('complementary', { name: 'DICOM tags' });
+  const patientName = panel.locator('[data-tag="(0010,0010)"]');
+  await expect(patientName).toContainText('PHANTOM^SPHERE', { timeout: 20_000 });
+
+  await page.getByRole('button', { name: 'Hide PHI' }).click();
+  await expect(institution).toHaveCount(0);
+  await expect(studyDate).toHaveCount(0);
+  await expect(patientName).not.toContainText('PHANTOM^SPHERE');
+  await expect(patientName.locator('[data-testid^="phi-masked:"]')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Hide PHI' }).click();
+  await expect(institution).toHaveText('XNAT E2E PHANTOM');
+  await expect(patientName).toContainText('PHANTOM^SPHERE');
+});

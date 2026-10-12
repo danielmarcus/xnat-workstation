@@ -11,7 +11,32 @@ import { create } from 'zustand';
 /** Parameter values of one operation (mirrors maskOps/catalog's ParamValues; stores import no lib code). */
 type ParamValues = Record<string, number | string>;
 
-export type OperationSheetId = 'cleanup';
+export type OperationSheetId = 'cleanup' | 'interpolate' | 'propagate' | 'qc3d';
+
+export interface PropagateSettings {
+  direction: 'forward' | 'backward' | 'both';
+  /** null = from the scan's modality. */
+  modality: 'ct' | 'mr' | null;
+  huTolerance: number;
+  sigma: number;
+  maxSlices: number;
+  stable: boolean;
+  growPx: number;
+  /** Stop when the area changes by more than this percentage between slices. */
+  maxAreaChangePct: number;
+  fillHoles: boolean;
+  edgeGuard: boolean;
+  zSmoothing: boolean;
+}
+
+export interface InterpolateSettings {
+  method: 'sdfLinear' | 'sdfArea' | 'morphology' | 'components' | 'volumeMorphology' | 'imageGuided';
+  distance: 'exact' | 'chamfer';
+  fill: 'gaps' | 'current' | 'anchors';
+  /** Anchors in the viewport's displayed numbering (1-based); null = unset. */
+  anchorA: number | null;
+  anchorB: number | null;
+}
 
 export interface SheetScope {
   slices: 'current' | 'range' | 'volume';
@@ -43,6 +68,10 @@ interface OperationSheetState {
   planOverrides: Record<number, string>;
   /** Closing the operation with a pending preview asks first, inline. */
   confirmingLeave: boolean;
+  interp: InterpolateSettings;
+  setInterp: (patch: Partial<InterpolateSettings>) => void;
+  prop: PropagateSettings;
+  setProp: (patch: Partial<PropagateSettings>) => void;
 
   /** Open (or expand) an operation. */
   openOperation: (id: OperationSheetId) => void;
@@ -74,6 +103,13 @@ export const useOperationSheetStore = create<OperationSheetState>((set) => ({
   smartSafeAction: 'skip',
   planOverrides: {},
   confirmingLeave: false,
+  interp: { method: 'sdfArea', distance: 'exact', fill: 'gaps', anchorA: null, anchorB: null },
+  setInterp: (patch) => set((s) => ({ interp: { ...s.interp, ...patch }, message: null })),
+  prop: {
+    direction: 'both', modality: null, huTolerance: 150, sigma: 2, maxSlices: 50, stable: true, growPx: 0,
+    maxAreaChangePct: 60, fillHoles: true, edgeGuard: false, zSmoothing: false,
+  },
+  setProp: (patch) => set((s) => ({ prop: { ...s.prop, ...patch }, message: null })),
 
   openOperation: (openSheet) => set((s) => ({
     openSheet,

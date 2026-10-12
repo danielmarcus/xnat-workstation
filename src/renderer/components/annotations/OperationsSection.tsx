@@ -128,3 +128,54 @@ export function OperationRow({ label, children, title }: { label: string; childr
     </div>
   );
 }
+
+/** A row of mutually exclusive buttons (scope, direction, fill…), as a labelled group. */
+export function Segmented<T extends string>({ value, options, onChange, label, className = '' }: {
+  value: T;
+  options: Array<{ value: T; label: string; ariaLabel?: string }>;
+  onChange: (v: T) => void;
+  label: string;
+  className?: string;
+}) {
+  return (
+    <div className={`flex rounded overflow-hidden border border-zinc-700 ${className}`} role="group" aria-label={label}>
+      {options.map((o) => (
+        <button
+          key={o.value}
+          type="button"
+          aria-label={o.ariaLabel}
+          aria-pressed={value === o.value}
+          onClick={() => onChange(o.value)}
+          className={`flex-1 px-1.5 py-0.5 text-[10px] whitespace-nowrap ${value === o.value ? 'bg-blue-600 text-white' : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'}`}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** The footer every previewing operation shares: Preview · Commit · Discard. */
+export function PreviewCommitButtons({ onPreview, onCommit, onDiscard, canPreview, canCommit, previewActive, commitTitle }: {
+  onPreview: () => void;
+  onCommit: () => void;
+  onDiscard: () => void;
+  canPreview: boolean;
+  canCommit: boolean;
+  previewActive: boolean;
+  commitTitle?: string;
+}) {
+  return (
+    <>
+      <button type="button" onClick={onPreview} disabled={!canPreview} className="rounded bg-zinc-700 px-2.5 py-0.5 text-[10px] text-zinc-100 hover:bg-zinc-600 disabled:opacity-40">
+        Preview
+      </button>
+      <button type="button" onClick={onCommit} disabled={!canCommit} title={commitTitle} className="rounded bg-blue-600 px-2.5 py-0.5 text-[10px] text-white hover:bg-blue-500 disabled:opacity-40">
+        Commit
+      </button>
+      <button type="button" onClick={onDiscard} disabled={!previewActive} className="rounded bg-zinc-800 px-2.5 py-0.5 text-[10px] text-zinc-300 hover:bg-zinc-700 disabled:opacity-40">
+        Discard
+      </button>
+    </>
+  );
+}

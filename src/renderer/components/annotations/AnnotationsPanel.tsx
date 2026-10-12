@@ -9,10 +9,20 @@ import AnnotationsSidePanel from './AnnotationsSidePanel';
 import ContainerList from './ContainerList';
 import ContextToolbox from './ContextToolbox';
 import CleanupSheet from './CleanupSheet';
+import SmartToolControls from './SmartToolControls';
+import { useSemiAutoControls } from '../../hooks/useSemiAutoControls';
 import OperationsSection from './OperationsSection';
+import type { OperationSheetId } from '../../stores/operationSheetStore';
 import { useOperationsSection } from '../../hooks/useOperationsSection';
+import InterpolateSheet from './InterpolateSheet';
+import PropagateSheet from './PropagateSheet';
+import Qc3dSheet from './Qc3dSheet';
+import { useQc3dSheet } from '../../hooks/useQc3dSheet';
+import { usePropagateSheet } from '../../hooks/usePropagateSheet';
+import { useInterpolateSheet } from '../../hooks/useInterpolateSheet';
 import { useCleanupSheet } from '../../hooks/useCleanupSheet';
-import { ConfirmDialog, ConflictDialog, ReviewUnsavedDialog } from './dialogs';
+import { CheckpointNameDialog, ConfirmDialog, ConflictDialog, ReviewUnsavedDialog } from './dialogs';
+import { useCheckpoints } from '../../hooks/useCheckpoints';
 import { useAnnotationsPanel } from '../../hooks/useAnnotationsPanel';
 import { usePreferencesStore } from '../../stores/preferencesStore';
 import {
@@ -78,6 +88,19 @@ export default function AnnotationsPanel({ activeViewportId, sourceImageIds }: A
   const isSeg = panel.toolbox?.kind === 'SEG';
   const operations = useOperationsSection(isSeg);
   const cleanup = useCleanupSheet();
+  const interpolate = useInterpolateSheet();
+  const propagate = usePropagateSheet();
+  const qc3d = useQc3dSheet();
+  const checkpoints = useCheckpoints();
+  const semiAuto = useSemiAutoControls();
+  const handlers = {
+    ...panel.handlers,
+    onKebab: (id: string) => { panel.handlers.onKebab(id); checkpoints.refresh(id); },
+    checkpointsOf: checkpoints.listOf,
+    onSaveCheckpoint: checkpoints.openSave,
+    onRestoreCheckpoint: (id: string, cp: string) => { void checkpoints.restore(id, cp); },
+    onDeleteCheckpoint: (id: string, cp: string) => { void checkpoints.remove(id, cp); },
+  };
 
   const toolbox = panel.toolbox ? (
     <ContextToolbox
@@ -91,20 +114,26 @@ export default function AnnotationsPanel({ activeViewportId, sourceImageIds }: A
       backupStatusKind={panel.backupStatus?.kind}
       compact={compactTools}
       columns={toolColumns}
+      renderSemiAutoControls={(toolId) => <SmartToolControls toolId={toolId} m={semiAuto} />}
     />
   ) : undefined;
+  // The open operation's model supplies the section's target, summary and close.
+  const openModel = operations.openId === 'interpolate' ? interpolate : operations.openId === 'propagate' ? propagate : operations.openId === 'qc3d' ? qc3d : cleanup;
   const operationsSection = isSeg ? (
     <OperationsSection
       operations={operations.operations}
       openId={operations.openId}
-      onOpen={(id) => operations.open(id as 'cleanup')}
+      onOpen={(id) => operations.open(id as OperationSheetId)}
       collapsed={operations.collapsed}
       onToggleCollapsed={operations.toggleCollapsed}
-      onClose={cleanup.close}
-      target={cleanup.target}
-      summary={cleanup.summary}
+      onClose={openModel.close}
+      target={openModel.target}
+      summary={openModel.summary}
     >
       <CleanupSheet m={cleanup} />
+      <InterpolateSheet m={interpolate} />
+      <PropagateSheet m={propagate} />
+      <Qc3dSheet m={qc3d} />
     </OperationsSection>
   ) : undefined;
 
@@ -139,7 +168,7 @@ export default function AnnotationsPanel({ activeViewportId, sourceImageIds }: A
       >
         <ContainerList
           containers={panel.containers}
-          handlers={panel.handlers}
+          handlers={handlers}
           isExpanded={panel.isExpanded}
           isActive={panel.isActive}
           metricOf={panel.metricOf}
@@ -157,6 +186,13 @@ export default function AnnotationsPanel({ activeViewportId, sourceImageIds }: A
           onEditConsumed={panel.onEditConsumed}
         />
       </AnnotationsSidePanel>
+      {checkpoints.savingFor && (
+        <CheckpointNameDialog
+          defaultName={`Checkpoint ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}
+          onSave={(name, baseline) => { void checkpoints.save(checkpoints.savingFor!, name, baseline); }}
+          onCancel={checkpoints.cancelSave}
+        />
+      )}
       {panel.reviewDialog && (
         <ReviewUnsavedDialog
           entries={panel.reviewDialog.entries}

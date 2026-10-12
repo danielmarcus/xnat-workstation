@@ -193,6 +193,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke(IPC.BACKUP_GET_CACHE_PATH),
   },
 
+  checkpoint: {
+    write: (key: string, record: unknown) => ipcRenderer.invoke(IPC.CHECKPOINT_WRITE, key, record),
+    list: (key: string) => ipcRenderer.invoke(IPC.CHECKPOINT_LIST, key),
+    read: (key: string, id: string) => ipcRenderer.invoke(IPC.CHECKPOINT_READ, key, id),
+    delete: (key: string, id: string) => ipcRenderer.invoke(IPC.CHECKPOINT_DELETE, key, id),
+    exportFile: (key: string, id: string) => ipcRenderer.invoke(IPC.CHECKPOINT_EXPORT, key, id),
+    importFile: () => ipcRenderer.invoke(IPC.CHECKPOINT_IMPORT),
+  },
+
   diagnostics: {
     getMainSnapshot: () =>
       ipcRenderer.invoke(IPC.DIAGNOSTICS_GET_MAIN_SNAPSHOT),

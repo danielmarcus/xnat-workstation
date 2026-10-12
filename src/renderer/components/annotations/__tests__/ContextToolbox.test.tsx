@@ -49,9 +49,9 @@ describe('ContextToolbox', () => {
     const grid = screen.getByTestId('toolbox-grid');
     expect(Array.from(grid.querySelectorAll('button')).map((b) => b.getAttribute('aria-label'))).toEqual([
       'Select', 'Seg Bidir.',
-      'Brush', 'Threshold', 'Dyn. Thresh', 'Sph. Brush', 'Sph. Thresh', 'Paint Fill',
+      'Brush', 'Threshold', 'Dyn. Thresh', 'Sph. Brush', 'Sph. Thresh', 'Paint Fill', 'Smart Brush',
       'Circle', 'Rect', 'Sphere', 'Rect Multi', 'Contour Fill',
-      'Region', 'Region+',
+      'Region', 'Region+', 'Level Trace', 'Rnd. Walker', 'ROI limit',
     ]);
   });
 

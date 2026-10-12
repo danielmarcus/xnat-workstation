@@ -63,6 +63,7 @@ import { Enums as CoreEnums, eventTarget } from '@cornerstonejs/core';
 import { cursors as csCursors } from '@cornerstonejs/tools';
 import SafePaintFillTool from './tools/SafePaintFillTool';
 import SelectTool from './tools/SelectTool';
+import { LevelTraceTool, RandomWalkerSeedTool, RoiLimitTool, SmartBrushTool } from './tools/semiAutoTools';
 import { SELECT_ARROW_PATH, SELECT_ARROW_HOTSPOT } from '../selectArrow';
 import { applySelectedContourStyle } from './selectedStyle';
 import { applyLockedSculptGuard } from './lockedSculptGuard';
@@ -121,6 +122,10 @@ const UNIFIED_TOOL_MAP: Partial<Record<ToolName, string>> = {
   [ToolName.RegionSegment]: RegionSegmentTool.toolName,
   [ToolName.RegionSegmentPlus]: RegionSegmentPlusTool.toolName,
   [ToolName.Select]: SelectTool.toolName,
+  [ToolName.LevelTrace]: LevelTraceTool.toolName,
+  [ToolName.SmartBrush]: SmartBrushTool.toolName,
+  [ToolName.RandomWalker]: RandomWalkerSeedTool.toolName,
+  [ToolName.RoiLimit]: RoiLimitTool.toolName,
   // SegmentBidirectional is an ACTION, not a drawing mode — the panel runs it against the
   // active segment rather than binding it to the mouse (see useAnnotationsPanel). It is
   // mapped below so the tool resolves; entering it by free-draw is what used to crash,
@@ -636,6 +641,7 @@ function ensureToolGroup(): ToolTypes.IToolGroup | undefined {
     SphereScissorsTool, SafePaintFillTool, SculptorTool, SelectTool,
     RegionSegmentTool, RegionSegmentPlusTool, SegmentBidirectionalTool,
     RectangleROIThresholdTool, LabelMapEditWithContourTool,
+    LevelTraceTool, SmartBrushTool, RandomWalkerSeedTool, RoiLimitTool,
   ];
   // Per-tool addTool configuration. Most of FULL_SET needs none, but a tool whose
   // Cornerstone default is unusable in Electron must get its override HERE — the
@@ -1252,8 +1258,9 @@ export const unifiedToolService = {
     const bindings: Array<{ mouseButton: number; modifierKey?: number }> = [
       { mouseButton: Primary },
     ];
-    // Select needs it too: Shift-click adds to (or removes from) the selection.
-    if (EDIT_MODE_TOOLS.has(toolName) || toolName === ToolName.Select) {
+    // Select needs it too: Shift-click adds to (or removes from) the selection; and
+    // Random Walker, whose Shift-drag lays background seeds.
+    if (EDIT_MODE_TOOLS.has(toolName) || toolName === ToolName.Select || toolName === ToolName.RandomWalker) {
       bindings.push({ mouseButton: Primary, modifierKey: ShiftModifier });
     }
     toolGroup.setToolActive(csName, { bindings });
@@ -1478,8 +1485,9 @@ export const unifiedToolService = {
         group.addTool(ZoomTool.toolName);
         group.addTool(PanTool.toolName);
         group.setToolActive(TrackballRotateTool.toolName, { bindings: [{ mouseButton: Primary }] });
-        group.setToolActive(ZoomTool.toolName, { bindings: [{ mouseButton: Secondary }] });
-        group.setToolActive(PanTool.toolName, { bindings: [{ mouseButton: Auxiliary }] });
+        // Wheel zooms and ⇧-drag pans as well (SegWorks #232–233 — the 3D QC view).
+        group.setToolActive(ZoomTool.toolName, { bindings: [{ mouseButton: Secondary }, { mouseButton: Wheel }] });
+        group.setToolActive(PanTool.toolName, { bindings: [{ mouseButton: Auxiliary }, { mouseButton: Primary, modifierKey: ShiftModifier }] });
       }
       group.addViewport(viewportId, viewportService.ENGINE_ID);
       console.log('[unifiedToolService] 3D viewport added:', viewportId);

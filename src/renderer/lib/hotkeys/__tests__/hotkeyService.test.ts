@@ -2,6 +2,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import type { HotkeyMap } from '@shared/types/hotkeys';
 import { dispatchKey, makeDivTarget, makeInputTarget } from '../../../test/hotkeys/keyboard';
 import { HOTKEY_ACTIONS, TEST_HOTKEY_MAP } from '../../../test/hotkeys/hotkeyFixtures';
+import { useProbeStore } from '../../../stores/probeStore';
 
 const viewerState = {
   mprActive: false,
@@ -175,24 +176,41 @@ describe('hotkeyService', () => {
     expect(segmentationState.togglePanel).not.toHaveBeenCalled();
   });
 
-  it('installs/removes one keydown and one keyup listener and avoids double-registration', () => {
+  it('installs/removes its keydown, keyup and blur listeners and avoids double-registration', () => {
     const addSpy = vi.spyOn(window, 'addEventListener');
     const removeSpy = vi.spyOn(window, 'removeEventListener');
 
     hotkeyService.install();
     hotkeyService.install();
 
-    // keyup exists for key layers' hold-to-compare (SegWorks parity D12).
-    expect(addSpy).toHaveBeenCalledTimes(2);
+    // keyup: key layers' hold-to-compare and hold actions; blur: release held actions.
+    expect(addSpy).toHaveBeenCalledTimes(3);
+    expect(addSpy).toHaveBeenCalledWith('blur', expect.any(Function));
     expect(addSpy).toHaveBeenCalledWith('keydown', expect.any(Function), { capture: true });
     expect(addSpy).toHaveBeenCalledWith('keyup', expect.any(Function), { capture: true });
 
     hotkeyService.uninstall();
     hotkeyService.uninstall();
 
-    expect(removeSpy).toHaveBeenCalledTimes(2);
+    expect(removeSpy).toHaveBeenCalledTimes(3);
     expect(removeSpy).toHaveBeenCalledWith('keydown', expect.any(Function), { capture: true });
     expect(removeSpy).toHaveBeenCalledWith('keyup', expect.any(Function), { capture: true });
+  });
+
+  it('a hold action is on while its key is held — repeats ignored — and off on key-up or blur', () => {
+    hotkeyService.setHotkeyMap({ 'probe.hold': [{ key: 'q' }] });
+    hotkeyService.install();
+    const holding = () => useProbeStore.getState().holding;
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'q', bubbles: true }));
+    expect(holding()).toBe(true);
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'q', repeat: true, bubbles: true }));
+    expect(holding()).toBe(true);
+    window.dispatchEvent(new KeyboardEvent('keyup', { key: 'q', bubbles: true }));
+    expect(holding()).toBe(false);
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'q', bubbles: true }));
+    window.dispatchEvent(new Event('blur'));
+    expect(holding(), 'released when the window loses focus').toBe(false);
+    hotkeyService.uninstall();
   });
 
   it('a key layer takes keys ahead of the global map, newest first, until removed', () => {

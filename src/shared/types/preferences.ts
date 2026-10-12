@@ -176,6 +176,12 @@ export interface PreferencesV1 {
    */
   xnatAutosaveEnabled?: boolean;
   /**
+   * Hide PHI display mode (SegWorks parity D7): patient-identifying fields are hidden in
+   * the viewport overlay and masked in the DICOM header panel. Persisted, so a restart
+   * never silently re-exposes PHI on a shared screen. Optional for back-compat.
+   */
+  hidePhi?: boolean;
+  /**
    * Debounce interval (seconds) for XNAT auto-save — how long after the last edit
    * a container is saved to the server. Independent of the local-backup cadence.
    * Optional for back-compat; defaults to 10s.
@@ -260,5 +266,6 @@ export const DEFAULT_PREFERENCES: PreferencesV1 = {
   // CNDA safety: server autosave defaults OFF. Nothing writes to XNAT until the
   // user opts in via Settings.
   xnatAutosaveEnabled: false,
+  hidePhi: false,
   xnatAutosaveIntervalSeconds: 10,
 };

@@ -20,9 +20,9 @@ const VIEWPORT = '[data-testid="unified-viewport-element:panel_0"]';
 /** Every Segmentation tool, in the toolbox's group order. */
 const SEG_TOOLS = [
   'Select', 'Seg Bidir.',
-  'Brush', 'Threshold', 'Dyn. Thresh', 'Sph. Brush', 'Sph. Thresh', 'Paint Fill',
+  'Brush', 'Threshold', 'Dyn. Thresh', 'Sph. Brush', 'Sph. Thresh', 'Paint Fill', 'Smart Brush',
   'Circle', 'Rect', 'Sphere', 'Rect Multi', 'Contour Fill',
-  'Region', 'Region+',
+  'Region', 'Region+', 'Level Trace', 'Rnd. Walker', 'ROI limit',
 ];
 
 test.beforeEach(({ page }) => page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.clearAllContainers()));
@@ -147,4 +147,19 @@ test('painting under a pending preview discards it, and the operation says so', 
   await expect(sheet.getByTestId('sheet-message')).toHaveText('Preview discarded: the segment changed');
   // The stroke landed and nothing stale was committed.
   expect(await voxels(page)).toBeGreaterThan(beforeStroke);
+});
+
+test('a Smart Brush stroke under a pending preview discards it too, and the operation says so', async ({ page }) => {
+  // Smart Brush paints through a live (silent) preview of its own, which replaces the
+  // operation's preview; its commit on release must not wipe the notice.
+  const { panel, toolbox } = await segmentation(page);
+  await twoIslands(page);
+  const sheet = await openOperation(panel, 'Cleanup', 'Keep largest');
+  await sheet.getByRole('button', { name: 'Preview' }).click();
+  await expect(page.getByTestId('mask-preview-bar')).toBeVisible();
+
+  await clickTool(toolbox, 'Smart Brush');
+  await stroke(page, 0.3, 0.3, 0.1);
+  await expect(page.getByTestId('mask-preview-bar')).toHaveCount(0);
+  await expect(sheet.getByTestId('sheet-message')).toHaveText('Preview discarded: the segment changed');
 });

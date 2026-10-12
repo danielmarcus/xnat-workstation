@@ -31,7 +31,8 @@ export default function UnifiedViewportGrid({ panelImageIds }: UnifiedViewportGr
         const imageIds = panelImageIds[p.sourcePanelId] ?? [];
         const scanId = p.sourcePanelId === 'panel_0' ? 'local:scan' : `local:${p.sourcePanelId}`;
         return (
-          <div key={p.panelId} className="relative min-w-0 min-h-0">
+          // An expanded panel covers the grid; the others stay mounted (and sized) beneath it.
+          <div key={p.panelId} className={p.expanded ? 'absolute inset-0 z-20' : 'relative min-w-0 min-h-0'} data-expanded={p.expanded ? 'true' : undefined}>
             <Viewport
               panelId={p.panelId}
               imageIds={imageIds}

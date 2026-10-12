@@ -46,6 +46,11 @@ export enum ToolName {
   SegmentBidirectional = 'SegmentBidirectional',
   RectangleROIThreshold = 'RectangleROIThreshold',
   LabelmapEditWithContour = 'LabelmapEditWithContour',
+  // Smart tab (SegWorks parity branch 4)
+  LevelTrace = 'LevelTrace',
+  SmartBrush = 'SmartBrush',
+  RandomWalker = 'RandomWalker',
+  RoiLimit = 'RoiLimit',
 }
 
 /** Set of all annotation/measurement tool names */
@@ -143,6 +148,10 @@ export const TOOL_DISPLAY_NAMES: Record<ToolName, string> = {
   [ToolName.SegmentBidirectional]: 'Segment Bidir.',
   [ToolName.RectangleROIThreshold]: 'Rect Threshold',
   [ToolName.LabelmapEditWithContour]: 'Contour Fill',
+  [ToolName.LevelTrace]: 'Level Trace',
+  [ToolName.SmartBrush]: 'Smart Brush',
+  [ToolName.RandomWalker]: 'Random Walker',
+  [ToolName.RoiLimit]: 'ROI limit',
 };
 
 /** Window/Level preset definition */

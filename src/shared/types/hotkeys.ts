@@ -34,6 +34,12 @@ export type HotkeyAction =
   | 'tool.stackScroll'
   // Operations (SegWorks parity)
   | 'operation.cleanup'
+  // Display
+  | 'view.toggleHidePhi'
+  | 'segmentation.toggleMasks'
+  | 'review.flythrough'
+  // Hold actions: active while the key is held
+  | 'probe.hold'
   // Viewport actions
   | 'viewport.reset'
   | 'viewport.toggleInvert'

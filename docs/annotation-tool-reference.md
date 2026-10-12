@@ -21,6 +21,7 @@ listing no control needs none.
 | **Sph. Brush** | Paint | Add or remove with a 3D kernel — one stroke also reaches neighbouring slices; hold Shift to invert | brushSize, editMode |
 | **Sph. Thresh** | Paint | Paint with a 3D kernel, limited to the intensity window | brushSize, intensityWindow |
 | **Paint Fill** | Paint | Flood-fill the enclosed region under the cursor (F) | — |
+| **Smart Brush** | Paint | Paint only the tissue under the brush — it does not spill across boundaries. One undo step per stroke; refuses a locked segment | radius (mm), tolerance, spacing |
 | **Circle** | Shape | Drag a circle; everything inside it is added to or removed from the segment (hold Shift to invert) | editMode |
 | **Rect** | Shape | Drag a rectangle; everything inside it is added to or removed from the segment (hold Shift to invert) | editMode |
 | **Sphere** | Shape | Drag a sphere; everything inside it is added to or removed from the segment, across slices (hold Shift to invert) | editMode |
@@ -28,12 +29,17 @@ listing no control needs none.
 | **Contour Fill** | Shape | Draw a boundary; the area it encloses joins the segment | — |
 | **Region** | Smart | Grow a region outward from the voxel you click | brushSize |
 | **Region+** | Smart | Grow a region outward, adapting the boundary as it goes | brushSize |
+| **Level Trace** | Smart | Click a structure: the connected region of similar intensity is previewed; ⏎ adds it (a locked segment previews read-only) | band (from scan · CT HU tolerance · MR k·σ over a 7/11/15 window), growth (binary · fuzzy + affinity), edge guard (off · gentle · strong; Sobel/Scharr; polarity), smoothing, simplify, round corners, intensity guard (min–max, or *From ROI*), fill holes, stop at air |
+| **Rnd. Walker** | Smart | Drag foreground seeds; ⇧-drag background seeds (green / red on the image); Run previews the segmentation between them | β (edge sensitivity), seed size, Run, Clear seeds |
+| **ROI limit** | Smart | Drag a rectangle (dashed amber on the image) that Level Trace, Random Walker and Cleanup stay inside | Clear |
 
 The Segmentation toolbox shows **every tool at once, with no tabs**, family by family in the
 order above — four columns at the default panel width, three when narrower, icons only when
 very narrow (SegWorks parity D2, amended 2026-10-12). It keeps **one height whatever tool is
-active**: the Controls area is sized to the tallest tool (Threshold), and the local-backup
-status sits in the toolbox header.
+active**: the Controls area is sized to the tallest tool with its **Advanced** settings folded
+(Level Trace keeps band, tolerance and edge guard in view; sample size, smoothing, growth,
+edge operator, polarity, simplify, round corners, the intensity guard and the hole / air checks
+are under Advanced), and the local-backup status sits in the toolbox header.
 
 ## Segmentation operations (Operations section)
 
@@ -67,9 +73,45 @@ A locked segment previews read-only. **X** opens (or expands) Cleanup.
 | **Copy into…** | Segments | Add to another segment, keeping both | Into |
 | **Magnet bridge…** | Segments | Grow another segment across a gap to meet this one | Into, max gap (px), fill / overwrite |
 
+**Interpolate** fills empty slices between painted ones — every gap (listed, each previewable),
+the slice on screen, or between anchors **A** and **B** (⌥A / ⌥B set one at the slice on
+screen while Interpolate is open; ⌥⇧A / ⌥⇧B / ⌥⇧C clear — chords, so A and B still pick Angle
+and Brush while painting keyframes) — with Linear SDF, Area-preserving SDF, Morphology, Component matching,
+Volume-accurate morphology or Image-guided snap. **Propagate** grows the segment from the
+slice on screen into its neighbours (backward / both / forward), keeping to voxels whose
+intensity matches (±HU on CT, kσ on MR) and stopping where the structure ends or leaks.
+Neither ever runs on its own.
+
+**3D QC** switches to the **2D + 3D QC** layout (the active viewport beside a 3D view of
+its scan; collapsing 3D QC keeps that layout, and your own comes back when it closes) and builds a surface for every
+connected component of every segment. The **report** lists each component — Main, Fragment,
+Stray (≤ the stray threshold, voxels) or Speck (≤ the speck threshold) — with its volume,
+voxel count and slices. Click a row or a surface to select it: it turns white in 3D and the
+2D viewport moves to it; **Delete component** (or ⌫) removes it, one undo step. **✂ Scissor**:
+draw a lasso on the 3D view to remove the active segment's voxels inside it (or keep only
+those inside) through the whole volume along the view; ⏎ applies. Display: per-segment
+visibility, highlight strays, hide largest, brightness, ambient, auto-rotate, reset view,
+expand 3D. Surfaces: resolution (128 / 192 / 256), smooth or voxel renderer, smoothing,
+thicken thin structures (display only). In the 3D view: drag rotates, ⇧-drag pans, the wheel
+zooms. An edit marks the surfaces out of date — **Rebuild** updates them.
+
 With **All segments**, a Clean operation first proposes a **per-segment plan** (Smart
 Cleanup): small and thin segments are withheld from operations that would erode them; each
 row's action can be edited before running.
+
+## Review and display (Segmentation)
+
+| Control | Where | What it does |
+|---|---|---|
+| **Review flythrough** | container menu · **⇧Space** | Steps the viewport through the slices the segments occupy (gaps included), showing the anatomy then the mask on each. Space pauses, ⎋ stops; settings (segments, direction, start, flicker, dwell) behind ▾ on the player |
+| **Save checkpoint…** | container menu | Saves every segment's voxels under a name, or as the Baseline (one per segmentation, kept until replaced). The newest four named checkpoints are kept |
+| **Restore checkpoint ▸** | container menu | Writes a checkpoint back as one undo step; refused if a segment is locked |
+| **Checkpoint files** | Settings › File Backup | Export a checkpoint to a `.wscheckpoint` file; import one made from the same series |
+| **M** | viewport | Hide / show the active segmentation's masks |
+| **Hold Q** | viewport | Intensity under the cursor (HU on CT) and voxel index, whatever the tool |
+| **PHI** · **⇧H** | toolbar | Hide patient-identifying fields in the overlay and the Tags panel (persisted) |
+
+Hotkey changes (tool, Fill/Erase, brush size, masks, PHI) show a brief readout on the active viewport.
 
 ## Structure
 

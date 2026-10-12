@@ -13,6 +13,8 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 // eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
 import { cachedDataset } from '../../lib/cornerstone/dicomDatasetSource';
+import { usePreferencesStore } from '../../stores/preferencesStore';
+import { isPhiTag, PHI_MASK } from '@shared/phi';
 import { useViewerStore } from '../../stores/viewerStore';
 // eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
 import { viewportService } from '../../lib/cornerstone/viewportService';
@@ -171,6 +173,10 @@ export default function DicomHeaderPanel({ onClose }: DicomHeaderPanelProps) {
   const [search, setSearch] = useState('');
   const [showPrivate, setShowPrivate] = useState(false);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  // Hide PHI (SegWorks parity D7): PHI values are masked unless revealed one at a time.
+  const hidePhi = usePreferencesStore((s) => s.preferences.hidePhi === true);
+  const [revealed, setRevealed] = useState<Set<string>>(new Set());
+  const masked = (t: ParsedTag) => hidePhi && isPhiTag(t.tagKey) && !revealed.has(t.tagKey);
 
   // Subscribe to active viewport and image index changes
   const activeViewportId = useViewerStore((s) => s.activeViewportId);
@@ -235,13 +241,15 @@ export default function DicomHeaderPanel({ onClose }: DicomHeaderPanelProps) {
           t.name.toLowerCase().includes(q) ||
           t.tag.toLowerCase().includes(q) ||
           t.vr.toLowerCase().includes(q) ||
-          t.value.toLowerCase().includes(q) ||
+          // A masked value must not be findable: matching it would reveal it.
+          (!masked(t) && t.value.toLowerCase().includes(q)) ||
           t.tagKey.toLowerCase().includes(q),
       );
     }
 
     return tags;
-  }, [allTags, search, showPrivate]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allTags, search, showPrivate, hidePhi, revealed]);
 
   // Group tags by module
   const groupedTags = useMemo(() => {
@@ -376,12 +384,25 @@ export default function DicomHeaderPanel({ onClose }: DicomHeaderPanelProps) {
                             {t.name}
                           </span>
                         </div>
-                        <div
-                          className="text-[11px] text-zinc-300 mt-0.5 break-all leading-snug"
-                          title={t.value}
-                        >
-                          {t.value || <span className="text-zinc-700 italic">empty</span>}
-                        </div>
+                        {masked(t) ? (
+                          <div className="flex items-center gap-2 text-[11px] mt-0.5" data-testid={`phi-masked:${t.tagKey}`}>
+                            <span className="text-zinc-500 tracking-widest">{PHI_MASK}</span>
+                            <button
+                              type="button"
+                              onClick={() => setRevealed((r) => new Set(r).add(t.tagKey))}
+                              className="text-[10px] text-zinc-400 hover:text-zinc-200 underline"
+                            >
+                              Reveal
+                            </button>
+                          </div>
+                        ) : (
+                          <div
+                            className="text-[11px] text-zinc-300 mt-0.5 break-all leading-snug"
+                            title={t.value}
+                          >
+                            {t.value || <span className="text-zinc-700 italic">empty</span>}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>

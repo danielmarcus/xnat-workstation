@@ -18,6 +18,7 @@
 import { useViewerStore } from '../../stores/viewerStore';
 import { useMetadataStore } from '../../stores/metadataStore';
 import { usePreferencesStore } from '../../stores/preferencesStore';
+import { PHI_OVERLAY_FIELDS } from '@shared/phi';
 import { useCrosshairIntensity } from '../../hooks/useCrosshairIntensity';
 import { EMPTY_OVERLAY } from '@shared/types/dicom';
 import { DEFAULT_OVERLAY_CORNERS } from '@shared/types/preferences';
@@ -66,6 +67,7 @@ export default function ViewportOverlay({ panelId, render3d = false }: ViewportO
   const vp = useViewerStore((s) => s.viewports[panelId]);
   const overlay = useMetadataStore((s) => s.overlays[panelId]) ?? EMPTY_OVERLAY;
   const overlayPrefs = usePreferencesStore((s) => s.preferences.overlay);
+  const hidePhi = usePreferencesStore((s) => s.preferences.hidePhi === true);
 
   const subjectLabel = useViewerStore(
     (s) => s.panelSubjectLabelMap[panelId] ?? s.panelXnatContextMap[panelId]?.subjectId ?? '',
@@ -129,6 +131,8 @@ export default function ViewportOverlay({ panelId, render3d = false }: ViewportO
   /** The display string for a field key, or null when there's nothing to show. */
   const fieldText = (field: OverlayFieldKey): string | null => {
     if (render3d && SLICE_ONLY_FIELDS.includes(field)) return null;
+    // Hide PHI (SegWorks parity D7): identifying fields are left out entirely.
+    if (hidePhi && PHI_OVERLAY_FIELDS.has(field)) return null;
     switch (field) {
       case 'orientationSelector':
         return displayOrientation ? titleCase(displayOrientation) : null;

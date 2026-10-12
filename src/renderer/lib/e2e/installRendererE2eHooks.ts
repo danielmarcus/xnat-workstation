@@ -1,3 +1,6 @@
+import { useQc3dStore } from '../../stores/qc3dStore';
+import { qc3dService } from '../cornerstone/qc3dService';
+import { computeClient } from '../compute/computeClient';
 import { cache, getEnabledElementByViewportId, metaData, utilities as csUtilities } from '@cornerstonejs/core';
 import {
   annotation as csAnnotation,
@@ -8,6 +11,7 @@ import {
 import { useSegmentationStore } from '../../stores/segmentationStore';
 import { maskOpsService } from '../cornerstone/maskOpsService';
 import { readSegmentVoxelGrid } from '../cornerstone/segmentVoxelGrid';
+import { deleteCheckpoint, listCheckpoints } from '../cornerstone/checkpointService';
 import { useSegmentationManagerStore } from '../../stores/segmentationManagerStore';
 import { useViewerStore } from '../../stores/viewerStore';
 import { useConnectionStore } from '../../stores/connectionStore';
@@ -183,6 +187,18 @@ declare global {
       activeSegmentVoxelCount: () => number;
       /** Voxel count of segment `segmentIndex` of the active container (-1 if none). */
       memberVoxelCount: (segmentIndex: number) => number;
+      /** Lowest source-image value under the active segment (ground truth for propagation). */
+      activeSegmentMinSourceValue: () => number | null;
+      /** The 3D QC surfaces built (per component), and whether each is shown. */
+      qc3dComponents: () => Array<{ segmentIndex: number; componentId: number; visible: boolean; triangles: number; vertices: number; checksum: number; centroid: number[] | null }>;
+      /** Slow each compute-worker progress step by this many ms (0 = off), so a solve can be cancelled. */
+      setComputeThrottle: (ms: number) => void;
+      /** Highest source value under the active segment (null if none / no source). */
+      activeSegmentMaxSourceValue: () => number | null;
+      /** Active segment's voxel count per slice of its grid (k axis), in grid order. */
+      activeSegmentSliceCounts: () => number[];
+      /** Delete every checkpoint of the active Segmentation (isolation: checkpoints persist per profile). */
+      deleteActiveCheckpoints: () => Promise<number>;
       /** Remove all measurement annotations (test isolation for SR/measurement specs). */
       clearAllAnnotations: () => void;
       /** Full panel clean-slate (segmentations + measurements, cs + stores). */
@@ -809,6 +825,42 @@ export function installRendererE2eHooks(): void {
       for (let i = 0; i < g.data.length; i++) if (g.data[i] === g.value) n++;
       return n;
     },
+    activeSegmentMinSourceValue: () => {
+      const { activeSegmentationId, activeSegmentIndex } = useSegmentationStore.getState();
+      const g = activeSegmentationId ? readSegmentVoxelGrid(activeSegmentationId, activeSegmentIndex) : null;
+      const read = g?.sourceReader?.();
+      if (!g || !read) return null;
+      let min = Infinity;
+      for (let i = 0; i < g.data.length; i++) if (g.data[i] === g.value) min = Math.min(min, read(i));
+      return Number.isFinite(min) ? min : null;
+    },
+    setComputeThrottle: (ms) => computeClient.setThrottle(ms),
+    qc3dComponents: () => qc3dService.builtComponents().map((c) => ({ segmentIndex: c.segmentIndex, componentId: c.componentId, visible: c.visible, triangles: c.mesh.indices.length / 3, vertices: c.mesh.positions.length / 3, checksum: Math.round(c.mesh.positions.reduce((a, v, i) => a + v * ((i % 7) + 1), 0) * 100) / 100, centroid: useQc3dStore.getState().report.find((r) => r.segmentIndex === c.segmentIndex)?.components.find((x) => x.id === c.componentId)?.centroidWorld ?? null })),
+    activeSegmentMaxSourceValue: () => {
+      const { activeSegmentationId, activeSegmentIndex } = useSegmentationStore.getState();
+      const g = activeSegmentationId ? readSegmentVoxelGrid(activeSegmentationId, activeSegmentIndex) : null;
+      const read = g?.sourceReader?.();
+      if (!g || !read) return null;
+      let max = -Infinity;
+      for (let i = 0; i < g.data.length; i++) if (g.data[i] === g.value) max = Math.max(max, read(i));
+      return Number.isFinite(max) ? max : null;
+    },
+    activeSegmentSliceCounts: () => {
+      const { activeSegmentationId, activeSegmentIndex } = useSegmentationStore.getState();
+      const g = activeSegmentationId ? readSegmentVoxelGrid(activeSegmentationId, activeSegmentIndex) : null;
+      if (!g) return [];
+      const [nx, ny, nz] = g.geometry.dimensions;
+      const out = new Array(nz).fill(0);
+      for (let i = 0; i < g.data.length; i++) if (g.data[i] === g.value) out[Math.floor(i / (nx * ny))]++;
+      return out;
+    },
+    deleteActiveCheckpoints: async () => {
+      const id = useSegmentationStore.getState().activeSegmentationId;
+      if (!id) return 0;
+      const list = await listCheckpoints(id);
+      for (const c of list) await deleteCheckpoint(id, c.id);
+      return list.length;
+    },
     resetUnifiedSegmentations: () => {
       try {
         (csSegmentation as unknown as { removeAllSegmentations?: () => void }).removeAllSegmentations?.();
@@ -968,9 +1020,9 @@ export function installRendererE2eHooks(): void {
         `[data-testid="unified-viewport-element:${panelId}"] canvas`,
       ) as HTMLCanvasElement | null;
       if (!canvas) return null;
+      // worldToCanvas is in CSS pixels (not device pixels), so no devicePixelRatio scaling.
       const rect = canvas.getBoundingClientRect();
-      const dpr = canvas.width && rect.width ? canvas.width / rect.width : 1;
-      return { x: rect.left + canvasPt[0] / dpr, y: rect.top + canvasPt[1] / dpr };
+      return { x: rect.left + canvasPt[0], y: rect.top + canvasPt[1] };
     },
     createUnifiedContourSeg: (label?: string) => createContainerAsPanel('RTSTRUCT', label ?? 'Structure'),
     getPaintedVoxelsPerSlice: () => {

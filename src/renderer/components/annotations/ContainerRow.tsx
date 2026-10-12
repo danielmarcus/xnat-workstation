@@ -75,6 +75,13 @@ export interface ContainerRowProps {
   onSetAllLocked?: (locked: boolean) => void;
   /** Kebab: discard unsaved changes back to last-saved. Item shown only when provided. */
   onRevert?: () => void;
+  /** Kebab: start the segmentation review flythrough (Segmentations only). */
+  onReviewFlythrough?: () => void;
+  /** Kebab (Segmentations): checkpoints — save, and the saved list to restore or delete. */
+  checkpoints?: Array<{ id: string; name: string; createdAt: string; kind: 'baseline' | 'named' }>;
+  onSaveCheckpoint?: () => void;
+  onRestoreCheckpoint?: (id: string) => void;
+  onDeleteCheckpoint?: (id: string) => void;
   /** Kebab: export this container as a standalone DICOM file to local disk. */
   onExportDicom?: () => void;
   /** Kebab: export this container's per-member metrics as a CSV file. */
@@ -85,7 +92,7 @@ export interface ContainerRowProps {
 }
 
 export default function ContainerRow(props: ContainerRowProps) {
-  const { container, expanded, transport, onResolveConflict, crossPanelCount, capturing, capturedDraft, autoEdit, onEditConsumed, onCommitName, onToggleExpand, onActivate, onApproveToggle, onAddMember, onSave, onKebab, onDelete, onRename, onSetAllVisible, onSetAllLocked, onRevert, onExportDicom, onExportCsv, onDeleteFromServer } = props;
+  const { container, expanded, transport, onResolveConflict, crossPanelCount, capturing, capturedDraft, autoEdit, onEditConsumed, onCommitName, onToggleExpand, onActivate, onApproveToggle, onAddMember, onSave, onKebab, onDelete, onRename, onSetAllVisible, onSetAllLocked, onRevert, onReviewFlythrough, checkpoints, onSaveCheckpoint, onRestoreCheckpoint, onDeleteCheckpoint, onExportDicom, onExportCsv, onDeleteFromServer } = props;
   // The container has a server copy iff its source carries an XNAT scan id.
   const onServer = !!container.source?.scanId;
   const saving = transport?.phase === 'saving' || transport?.phase === 'loading';
@@ -97,6 +104,7 @@ export default function ContainerRow(props: ContainerRowProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(container.label);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [checkpointsOpen, setCheckpointsOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Kebab aggregate state → "Hide all" vs "Show all", "Lock all" vs "Unlock all".
@@ -296,6 +304,60 @@ export default function ContainerRow(props: ContainerRowProps) {
                 >
                   Revert
                 </MenuItem>
+              )}
+              {onReviewFlythrough && (
+                <>
+                  <div className="my-1 border-t border-zinc-800" role="separator" />
+                  <MenuItem
+                    testid={`menu-flythrough-${container.id}`}
+                    onClick={() => { onReviewFlythrough(); setMenuOpen(false); }}
+                  >
+                    Review flythrough
+                  </MenuItem>
+                </>
+              )}
+              {onSaveCheckpoint && (
+                <MenuItem
+                  testid={`menu-save-checkpoint-${container.id}`}
+                  disabled={approved}
+                  onClick={() => { onSaveCheckpoint(); setMenuOpen(false); }}
+                >
+                  Save checkpoint…
+                </MenuItem>
+              )}
+              {onRestoreCheckpoint && (
+                <>
+                  <MenuItem
+                    testid={`menu-restore-checkpoint-${container.id}`}
+                    disabled={approved || !checkpoints?.length}
+                    onClick={() => setCheckpointsOpen((v) => !v)}
+                  >
+                    Restore checkpoint {checkpointsOpen ? '▾' : '▸'}
+                  </MenuItem>
+                  {checkpointsOpen && (checkpoints ?? []).map((c) => (
+                    <div key={c.id} className="flex items-center gap-1 pl-5 pr-2 py-0.5" data-testid={`checkpoint-${c.id}`}>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="flex-1 text-left truncate text-zinc-300 hover:text-white"
+                        onClick={() => { onRestoreCheckpoint(c.id); setMenuOpen(false); setCheckpointsOpen(false); }}
+                      >
+                        {c.kind === 'baseline' ? <span className="text-amber-300">Baseline</span> : c.name}
+                        <span className="text-zinc-500"> · {new Date(c.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                      </button>
+                      {onDeleteCheckpoint && (
+                        <button
+                          type="button"
+                          aria-label={`Delete checkpoint ${c.name}`}
+                          className="text-zinc-600 hover:text-red-400"
+                          onClick={() => onDeleteCheckpoint(c.id)}
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </>
               )}
               <div className="my-1 border-t border-zinc-800" role="separator" />
               <MenuItem

@@ -12,6 +12,7 @@
 import { useEffect, useState } from 'react';
 import { maskOpsService, type RunResult, type ServiceScope } from '../lib/cornerstone/maskOpsService';
 import { clearStaleNotice, commitPreview, discardPreview } from '../lib/cornerstone/maskPreview';
+import { closeOperation, confirmCloseOperation, STALE_PREVIEW_MESSAGE } from './operationLifecycle';
 import { onLabelmapModified } from '../lib/cornerstone/sliceTrack';
 import type { PlanEntry } from '../lib/segmentation/maskOps/smartPlan';
 import { hotkeyService } from '../lib/hotkeys/hotkeyService';
@@ -70,7 +71,6 @@ export interface CleanupSheetModel {
 }
 
 const LOCK_MSG = (name: string) => `${name} is locked — preview only`;
-const STALE_MSG = 'Preview discarded: the segment changed';
 
 function describeFailure(r: Extract<RunResult, { ok: false }>): string {
   switch (r.reason) {
@@ -188,7 +188,7 @@ export function useCleanupSheet(): CleanupSheetModel {
       sheet.setInto(i);
       hotkeyService.focusActiveViewport();
     },
-    message: sheet.message ?? (discardedStale ? STALE_MSG : target?.locked ? LOCK_MSG(target.name) : null),
+    message: sheet.message ?? (discardedStale ? STALE_PREVIEW_MESSAGE : target?.locked ? LOCK_MSG(target.name) : null),
     previewActive,
     previewReadOnly,
     confirmingLeave: sheet.confirmingLeave,
@@ -229,22 +229,8 @@ export function useCleanupSheet(): CleanupSheetModel {
       discardPreview();
       hotkeyService.focusActiveViewport();
     },
-    close: () => {
-      if (useMaskPreviewStore.getState().active && !useMaskPreviewStore.getState().readOnly) {
-        // The confirmation is inline in the operation, so it must be on screen.
-        sheet.setCollapsed(false);
-        sheet.setConfirmingLeave(true);
-        return;
-      }
-      discardPreview();
-      clearStaleNotice();
-      sheet.closeSheet();
-    },
-    confirmLeave: () => {
-      discardPreview();
-      clearStaleNotice();
-      sheet.closeSheet();
-    },
+    close: closeOperation,
+    confirmLeave: confirmCloseOperation,
     cancelLeave: () => sheet.setConfirmingLeave(false),
     smart: {
       visible: smartVisible,

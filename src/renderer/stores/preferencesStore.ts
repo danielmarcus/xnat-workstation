@@ -57,6 +57,7 @@ interface PreferencesStore {
   setTrashResourceName: (name: string) => void;
   // ─── XNAT autosave (opt-in, default OFF) ───────────────────
   setXnatAutosaveEnabled: (enabled: boolean) => void;
+  setHidePhi: (hidden: boolean) => void;
   setXnatAutosaveIntervalSeconds: (seconds: number) => void;
   // ─── Feature flags ─────────────────────────────────────────
   resetAll: () => void;
@@ -135,6 +136,7 @@ function makeDefaultPreferences(): PreferencesV1 {
     backup: { ...DEFAULT_BACKUP_PREFERENCES },
     deletion: { ...DEFAULT_DELETION_PREFERENCES },
     xnatAutosaveEnabled: DEFAULT_PREFERENCES.xnatAutosaveEnabled ?? false,
+    hidePhi: DEFAULT_PREFERENCES.hidePhi ?? false,
     xnatAutosaveIntervalSeconds: DEFAULT_PREFERENCES.xnatAutosaveIntervalSeconds ?? 10,
   };
 }
@@ -560,6 +562,13 @@ export const usePreferencesStore = create<PreferencesStore>()(
           },
         })),
 
+      // ─── Hide PHI display mode ───────────────────────────────
+
+      setHidePhi: (hidden) =>
+        set((state) => ({
+          preferences: { ...state.preferences, hidePhi: hidden },
+        })),
+
       // ─── XNAT autosave (opt-in, default OFF) ─────────────────
 
       setXnatAutosaveEnabled: (enabled) =>
@@ -669,6 +678,7 @@ export const usePreferencesStore = create<PreferencesStore>()(
             // to OFF so an upgrade never silently enables server writes.
             xnatAutosaveEnabled:
               (incoming as Partial<PreferencesV1>).xnatAutosaveEnabled === true,
+            hidePhi: (incoming as Partial<PreferencesV1>).hidePhi === true,
             xnatAutosaveIntervalSeconds:
               typeof (incoming as Partial<PreferencesV1>).xnatAutosaveIntervalSeconds === 'number'
                 ? (incoming as Partial<PreferencesV1>).xnatAutosaveIntervalSeconds
