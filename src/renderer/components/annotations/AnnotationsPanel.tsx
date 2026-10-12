@@ -9,11 +9,13 @@ import AnnotationsSidePanel from './AnnotationsSidePanel';
 import ContainerList from './ContainerList';
 import ContextToolbox from './ContextToolbox';
 import CleanupSheet from './CleanupSheet';
+import OperationsSection from './OperationsSection';
+import type { OperationSheetId } from '../../stores/operationSheetStore';
+import { useOperationsSection } from '../../hooks/useOperationsSection';
 import InterpolateSheet from './InterpolateSheet';
 import PropagateSheet from './PropagateSheet';
 import { usePropagateSheet } from '../../hooks/usePropagateSheet';
 import { useInterpolateSheet } from '../../hooks/useInterpolateSheet';
-import { useSegToolboxTabs } from '../../hooks/useSegToolboxTabs';
 import { useCleanupSheet } from '../../hooks/useCleanupSheet';
 import { CheckpointNameDialog, ConfirmDialog, ConflictDialog, ReviewUnsavedDialog } from './dialogs';
 import { useCheckpoints } from '../../hooks/useCheckpoints';
@@ -25,6 +27,9 @@ import {
   ANNOTATION_PANEL_COMPACT_TOOLS_WIDTH,
   clampAnnotationPanelWidth,
 } from '@shared/types/preferences';
+
+/** Panel width from which the toolbox shows four columns (labels up to ~66 px fit at 400 px). */
+const TOOLBOX_FOUR_COLUMN_WIDTH = 360;
 
 export interface AnnotationsPanelProps {
   activeViewportId: string;
@@ -45,6 +50,8 @@ export default function AnnotationsPanel({ activeViewportId, sourceImageIds }: A
   // Below this width the toolbox drops labels and shows icons only; between here and
   // the default width the labels simply ellipsize.
   const compactTools = panelWidth < ANNOTATION_PANEL_COMPACT_TOOLS_WIDTH;
+  // Four tool columns fit every label at the default width; narrower panels use three.
+  const toolColumns = panelWidth >= TOOLBOX_FOUR_COLUMN_WIDTH ? 4 : 3;
 
   // Drag handle on the LEFT edge: the panel's right edge is anchored to the window, so
   // width = rightEdge - cursorX.
@@ -75,7 +82,7 @@ export default function AnnotationsPanel({ activeViewportId, sourceImageIds }: A
   };
 
   const isSeg = panel.toolbox?.kind === 'SEG';
-  const tabs = useSegToolboxTabs(panel.toolbox?.activeToolId ?? null, isSeg);
+  const operations = useOperationsSection(isSeg);
   const cleanup = useCleanupSheet();
   const interpolate = useInterpolateSheet();
   const propagate = usePropagateSheet();
@@ -100,13 +107,27 @@ export default function AnnotationsPanel({ activeViewportId, sourceImageIds }: A
       backupStatus={panel.backupStatus?.text}
       backupStatusKind={panel.backupStatus?.kind}
       compact={compactTools}
-      segTab={tabs.segTab}
-      onSelectSegTab={tabs.onSelectSegTab}
-      openOperationId={tabs.openOperationId}
-      onOpenOperation={tabs.onOpenOperation}
+      columns={toolColumns}
     />
   ) : undefined;
-  const sheet = isSeg ? (<><CleanupSheet m={cleanup} /><InterpolateSheet m={interpolate} /><PropagateSheet m={propagate} /></>) : undefined;
+  // The open operation's model supplies the section's target, summary and close.
+  const openModel = operations.openId === 'interpolate' ? interpolate : operations.openId === 'propagate' ? propagate : cleanup;
+  const operationsSection = isSeg ? (
+    <OperationsSection
+      operations={operations.operations}
+      openId={operations.openId}
+      onOpen={(id) => operations.open(id as OperationSheetId)}
+      collapsed={operations.collapsed}
+      onToggleCollapsed={operations.toggleCollapsed}
+      onClose={openModel.close}
+      target={openModel.target}
+      summary={openModel.summary}
+    >
+      <CleanupSheet m={cleanup} />
+      <InterpolateSheet m={interpolate} />
+      <PropagateSheet m={propagate} />
+    </OperationsSection>
+  ) : undefined;
 
   return (
     <div
@@ -135,7 +156,7 @@ export default function AnnotationsPanel({ activeViewportId, sourceImageIds }: A
         onCreate={panel.onCreate}
         onReviewUnsaved={panel.onReviewUnsaved}
         toolbox={toolbox}
-        sheet={sheet}
+        operations={operationsSection}
       >
         <ContainerList
           containers={panel.containers}

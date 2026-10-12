@@ -3,7 +3,8 @@
  * from the slice on screen into its neighbours, following the image.
  */
 import { maskOpsService, type RunResult } from '../lib/cornerstone/maskOpsService';
-import { commitPreview, discardPreview } from '../lib/cornerstone/maskPreview';
+import { clearStaleNotice, commitPreview, discardPreview } from '../lib/cornerstone/maskPreview';
+import { closeOperation, confirmCloseOperation, STALE_PREVIEW_MESSAGE } from './operationLifecycle';
 import { hotkeyService } from '../lib/hotkeys/hotkeyService';
 import { useMaskPreviewStore } from '../stores/maskPreviewStore';
 import { useOperationSheetStore, type PropagateSettings } from '../stores/operationSheetStore';
@@ -26,6 +27,7 @@ export function usePropagateSheet() {
   const open = sheet.openSheet === 'propagate';
   const previewActive = useMaskPreviewStore((st) => st.active);
   const previewReadOnly = useMaskPreviewStore((st) => st.readOnly);
+  const discardedStale = useMaskPreviewStore((st) => st.discardedStale);
   const activeSegmentationId = useSegmentationStore((st) => st.activeSegmentationId);
   const activeSegmentIndex = useSegmentationStore((st) => st.activeSegmentIndex);
   const segmentations = useSegmentationStore((st) => st.segmentations);
@@ -34,6 +36,7 @@ export function usePropagateSheet() {
   const modality = p.modality ?? (open ? maskOpsService.activeModality() : 'ct');
 
   const run = (commit: boolean) => {
+    clearStaleNotice();
     const r = maskOpsService.previewPropagation({
       direction: p.direction,
       maxSlices: p.maxSlices,
@@ -46,33 +49,29 @@ export function usePropagateSheet() {
     sheet.setMessage(r.ok ? (r.readOnly ? `${target?.name ?? 'This segment'} is locked — preview only` : null) : describe(r));
     hotkeyService.focusActiveViewport();
   };
-  const changing = () => { if (useMaskPreviewStore.getState().active) discardPreview(); };
+  const changing = () => { if (useMaskPreviewStore.getState().active) discardPreview(); clearStaleNotice(); };
 
   return {
     open,
     target,
     settings: p,
     modality,
-    message: sheet.message ?? (target?.locked ? `${target.name} is locked — preview only` : null),
+    message: sheet.message ?? (discardedStale ? STALE_PREVIEW_MESSAGE : target?.locked ? `${target.name} is locked — preview only` : null),
+    summary: previewActive ? 'Preview pending' : p.direction === 'both' ? 'Both directions' : p.direction === 'forward' ? 'Forward' : 'Backward',
     previewActive,
     previewReadOnly,
     confirmingLeave: sheet.confirmingLeave,
     advancedOpen: !!sheet.advancedOpen.propagate,
     toggleAdvanced: () => sheet.toggleAdvanced('propagate'),
     set: (patch: Partial<PropagateSettings>) => { changing(); sheet.setProp(patch); },
-    releaseFocus: () => hotkeyService.focusActiveViewport(),
     preview: () => run(false),
     commit: () => {
       if (useMaskPreviewStore.getState().active) { commitPreview(); hotkeyService.focusActiveViewport(); return; }
       run(true);
     },
     discard: () => { discardPreview(); hotkeyService.focusActiveViewport(); },
-    back: () => {
-      if (useMaskPreviewStore.getState().active && !useMaskPreviewStore.getState().readOnly) { sheet.setConfirmingLeave(true); return; }
-      discardPreview();
-      sheet.closeSheet();
-    },
-    confirmLeave: () => { discardPreview(); sheet.closeSheet(); },
+    close: closeOperation,
+    confirmLeave: confirmCloseOperation,
     cancelLeave: () => sheet.setConfirmingLeave(false),
   };
 }
