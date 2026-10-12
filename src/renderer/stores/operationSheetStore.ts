@@ -1,17 +1,16 @@
 /**
- * Segmentation toolbox tab + operation sheet state (SegWorks parity D1/D2).
+ * Operations section state (SegWorks parity D1, amended 2026-10-12).
  *
- * The SEG toolbox shows one of four tabs; the Process tab lists operations, and opening
- * one shows its sheet between the member list and the toolbox. Kept in a store (not
- * component state) because hotkeys switch the tab and open sheets too. Parameter values
- * and scope persist per operation for the session, so reopening a sheet resumes where
- * the user left it.
+ * One operation at a time is open in the Operations section, between the member list and
+ * the toolbox; it stays open while tools change, and can be collapsed to a one-line
+ * summary without ending it (or its preview). Kept in a store (not component state)
+ * because hotkeys open operations too. Parameter values and scope persist per operation
+ * for the session, so reopening an operation resumes where the user left it.
  */
 import { create } from 'zustand';
 /** Parameter values of one operation (mirrors maskOps/catalog's ParamValues; stores import no lib code). */
 type ParamValues = Record<string, number | string>;
 
-export type SegToolboxTab = 'paint' | 'shape' | 'smart' | 'process';
 export type OperationSheetId = 'cleanup';
 
 export interface SheetScope {
@@ -23,15 +22,16 @@ export interface SheetScope {
 }
 
 interface OperationSheetState {
-  segTab: SegToolboxTab;
   openSheet: OperationSheetId | null;
+  /** The open operation is folded to its header row; it (and any preview) stays alive. */
+  collapsed: boolean;
   cleanupOpId: string;
   /** Parameter values per cleanup op id. */
   params: Record<string, ParamValues>;
   scope: SheetScope;
   /** Advanced section expanded, per op id. */
   advancedOpen: Record<string, boolean>;
-  /** One-line in-sheet status (never a toast): "Nothing to change", lock reasons, … */
+  /** One-line status in the open operation (never a toast): "Nothing to change", lock reasons, … */
   message: string | null;
   /** The "Into" member of a two-segment operation (segment index). */
   intoSegmentIndex: number | null;
@@ -41,12 +41,13 @@ interface OperationSheetState {
   smartSafeAction: string;
   /** The user's edits to the proposed plan, by segment index. Reset when the proposal changes. */
   planOverrides: Record<number, string>;
-  /** Leaving the sheet with a pending preview asks first, inline. */
+  /** Closing the operation with a pending preview asks first, inline. */
   confirmingLeave: boolean;
 
-  setSegTab: (tab: SegToolboxTab) => void;
+  /** Open (or expand) an operation. */
   openOperation: (id: OperationSheetId) => void;
   closeSheet: () => void;
+  setCollapsed: (collapsed: boolean) => void;
   setCleanupOp: (opId: string) => void;
   setParam: (opId: string, key: string, value: number | string) => void;
   setScope: (patch: Partial<SheetScope>) => void;
@@ -61,8 +62,8 @@ interface OperationSheetState {
 }
 
 export const useOperationSheetStore = create<OperationSheetState>((set) => ({
-  segTab: 'paint',
   openSheet: null,
+  collapsed: false,
   cleanupOpId: 'fillHoles',
   params: {},
   scope: { slices: 'current', from: 1, to: 1, labels: 'active' },
@@ -74,9 +75,14 @@ export const useOperationSheetStore = create<OperationSheetState>((set) => ({
   planOverrides: {},
   confirmingLeave: false,
 
-  setSegTab: (segTab) => set({ segTab }),
-  openOperation: (openSheet) => set({ openSheet, segTab: 'process', message: null, confirmingLeave: false }),
-  closeSheet: () => set({ openSheet: null, message: null, confirmingLeave: false }),
+  openOperation: (openSheet) => set((s) => ({
+    openSheet,
+    collapsed: false,
+    message: s.openSheet === openSheet ? s.message : null,
+    confirmingLeave: false,
+  })),
+  closeSheet: () => set({ openSheet: null, collapsed: false, message: null, confirmingLeave: false }),
+  setCollapsed: (collapsed) => set({ collapsed, confirmingLeave: false }),
   setCleanupOp: (cleanupOpId) => set({ cleanupOpId, message: null, planOverrides: {} }),
   setParam: (opId, key, value) => set((s) => ({ params: { ...s.params, [opId]: { ...s.params[opId], [key]: value } }, message: null })),
   setScope: (patch) => set((s) => ({ scope: { ...s.scope, ...patch }, message: null, planOverrides: {} })),

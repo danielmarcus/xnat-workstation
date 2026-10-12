@@ -8,6 +8,7 @@ import { test, expect } from '../../fixtures/electron-app';
 import type { Page } from '@playwright/test';
 import { loadFixture } from '../../helpers/local-fixture';
 import { clickTool } from '../../helpers/toolbox';
+import { openOperation } from '../../helpers/operations';
 
 type Win = { __XNAT_E2E__: { clearAllContainers: () => void; memberVoxelCount: (i: number) => number } };
 const VIEWPORT = '[data-testid="unified-viewport-element:panel_0"]';
@@ -44,10 +45,7 @@ async function blobAndLine(page: Page) {
   await stroke(page, 0.55, 0.3, 0.2, 0.25);
   expect(await count(page, 1), 'blob painted').toBeGreaterThan(200);
   expect(await count(page, 2), 'line painted').toBeGreaterThan(0);
-  await toolbox.getByRole('tab', { name: 'Process' }).click();
-  await toolbox.getByRole('button', { name: 'Cleanup', exact: true }).click();
-  const sheet = panel.getByTestId('cleanup-sheet');
-  await sheet.getByLabel('Cleanup operation').selectOption({ label: 'Gaussian smooth' });
+  const sheet = await openOperation(panel, 'Cleanup', 'Gaussian smooth');
   await sheet.getByRole('group', { name: 'Labels' }).getByRole('button', { name: 'All segments' }).click();
   return { panel, toolbox, sheet };
 }

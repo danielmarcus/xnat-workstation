@@ -39,55 +39,39 @@ describe('ContextToolbox', () => {
   // implemented; a tool unavailable in the current context is still disabled, which the
   // next case covers.
   it('disables tools with no FoR-matched viewport (D3)', () => {
-    setup({ disabledToolIds: ['sphereScissors'], segTab: 'shape' });
+    setup({ disabledToolIds: ['sphereScissors'] });
     expect((screen.getByLabelText('Sphere') as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it('Segmentation tools are split into Paint · Shape · Smart tabs; Select and Seg Bidir. stay pinned (D2)', async () => {
-    const onSelectSegTab = vi.fn();
-    const { rerender } = render(
-      <ContextToolbox kind="SEG" activeMemberName="S" activeToolId={null} onSelectTool={vi.fn()} segTab="paint" onSelectSegTab={onSelectSegTab} />,
-    );
-    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Paint', 'Shape', 'Smart', 'Process']);
-    expect(screen.getByLabelText('Brush')).toBeTruthy();
-    expect(screen.queryByLabelText('Circle')).toBeNull();
-    expect(screen.getByLabelText('Select')).toBeTruthy();
-    expect(screen.getByLabelText('Seg Bidir.')).toBeTruthy();
-    await userEvent.click(screen.getByRole('tab', { name: 'Shape' }));
-    expect(onSelectSegTab).toHaveBeenCalledWith('shape');
-
-    rerender(<ContextToolbox kind="SEG" activeMemberName="S" activeToolId={null} onSelectTool={vi.fn()} segTab="smart" />);
-    expect(screen.getByLabelText('Region+')).toBeTruthy();
-    expect(screen.queryByLabelText('Brush')).toBeNull();
-    expect(screen.getByLabelText('Select')).toBeTruthy();
+  it('every Segmentation tool is in one grid, with no tabs, family by family (D2 as amended)', () => {
+    render(<ContextToolbox kind="SEG" activeMemberName="S" activeToolId={null} onSelectTool={vi.fn()} />);
+    expect(screen.queryAllByRole('tab')).toHaveLength(0);
+    const grid = screen.getByTestId('toolbox-grid');
+    expect(Array.from(grid.querySelectorAll('button')).map((b) => b.getAttribute('aria-label'))).toEqual([
+      'Select', 'Seg Bidir.',
+      'Brush', 'Threshold', 'Dyn. Thresh', 'Sph. Brush', 'Sph. Thresh', 'Paint Fill',
+      'Circle', 'Rect', 'Sphere', 'Rect Multi', 'Contour Fill',
+      'Region', 'Region+',
+    ]);
   });
 
-  it('every Segmentation tool is reachable from exactly one tab or the pinned row', () => {
-    const seen: string[] = [];
-    for (const segTab of ['paint', 'shape', 'smart'] as const) {
-      const { unmount } = render(<ContextToolbox kind="SEG" activeMemberName="S" activeToolId={null} onSelectTool={vi.fn()} segTab={segTab} />);
-      const panel = screen.getByRole('tabpanel');
-      seen.push(...Array.from(panel.querySelectorAll('button')).map((b) => b.getAttribute('aria-label') ?? ''));
-      unmount();
-    }
-    const pinned = ['Select', 'Seg Bidir.'];
-    const all = [...seen, ...pinned].sort();
-    expect(new Set(all).size).toBe(all.length);
-    expect(all).toEqual(
-      ['Brush', 'Circle', 'Contour Fill', 'Dyn. Thresh', 'Paint Fill', 'Rect', 'Rect Multi', 'Region', 'Region+', 'Seg Bidir.', 'Select', 'Sph. Brush', 'Sph. Thresh', 'Sphere', 'Threshold'].sort(),
-    );
+  it('lays the grid out in the requested number of columns', () => {
+    const { rerender } = render(<ContextToolbox kind="SEG" activeMemberName="S" activeToolId={null} onSelectTool={vi.fn()} columns={4} />);
+    expect(screen.getByTestId('toolbox-grid').className).toContain('grid-cols-4');
+    rerender(<ContextToolbox kind="SEG" activeMemberName="S" activeToolId={null} onSelectTool={vi.fn()} />);
+    expect(screen.getByTestId('toolbox-grid').className).toContain('grid-cols-3');
   });
 
-  it('the Process tab lists operations; choosing one opens its sheet', async () => {
-    const onOpenOperation = vi.fn();
-    render(<ContextToolbox kind="SEG" activeMemberName="S" activeToolId={null} onSelectTool={vi.fn()} segTab="process" onOpenOperation={onOpenOperation} />);
-    await userEvent.click(screen.getByLabelText('Cleanup'));
-    expect(onOpenOperation).toHaveBeenCalledWith('cleanup');
-  });
-
-  it('other kinds have no tabs', () => {
+  it('other kinds have no tabs either', () => {
     render(<ContextToolbox kind="RTSTRUCT" activeMemberName="GTV" activeToolId={null} onSelectTool={vi.fn()} />);
     expect(screen.queryAllByRole('tab')).toHaveLength(0);
+  });
+
+  it('the backup status sits in the header, above the grid, so it cannot change the toolbox height', () => {
+    setup({ backupStatus: 'Backed up · 2s ago' });
+    const status = screen.getByTestId('backup-status');
+    const grid = screen.getByTestId('toolbox-grid');
+    expect(status.compareDocumentPosition(grid) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it('shows the SEG controls strip (opacity) + silent backup status when provided', async () => {
