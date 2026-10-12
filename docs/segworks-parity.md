@@ -151,8 +151,8 @@ are adopted:
 
 | # | Decision |
 |---|---|
-| D1 | Run-style operations open an **operation sheet** inside the side panel, between the member list and the toolbox; the active container/member stay visible |
-| D2 | SEG toolbox gets **Paint · Shape · Smart · Process** tabs; Select + Seg Bidir. pinned above the tabs; hotkeys switch tab |
+| D1 | *Amended 2026-10-12, see below.* Run-style operations live in an **Operations section** of the side panel, its own peer between the member list and the toolbox; the active container/member stay visible |
+| D2 | *Amended 2026-10-12, see below.* The SEG toolbox is **one flat grid, no tabs**, at a fixed height |
 | D3 | Spline / Livewire mask fills are a **boundary mode on Contour Fill** (Freehand · Spline · Livewire), not new tools |
 | D4 | **Viewport preview bar** (top-centre; ⏎ commit, ⎋ discard, hold `\` compare) + sheet footer. Preview = target segment colour, hatched + dashed; never blue, never solid |
 | D5 | The viewport scrollbar becomes a **slice track** (active-segment occupancy, gaps, A/B anchors, draggable range) when a SEG member is active |
@@ -162,9 +162,49 @@ are adopted:
 | D9 | **“2D + 3D QC” layout preset** + QC operation sheet; layout restored when the sheet closes |
 | D10 | Worklist space reserved: sidebar **Browse · Worklist** tab + toolbar **case bar** + full-window table view |
 | D11 | Modules run from **Process › Modules** sheets; installed/managed in **Settings › Modules** |
-| D12 | **Sheet-scoped hotkeys** take precedence while a sheet is open; new globals: hold-Q probe, M mask visibility, ⇧Space flythrough, ⇧H PHI, X cleanup, N/⇧N next/prev case, O contour fill, ⏎/⎋ preview, hold-`\` compare |
+| D12 | *Narrowed 2026-10-12, see below.* **Sheet-scoped hotkeys** take precedence while a sheet is open; new globals: hold-Q probe, M mask visibility, ⇧Space flythrough, ⇧H PHI, X cleanup, N/⇧N next/prev case, O contour fill, ⏎/⎋ preview, hold-`\` compare |
 
 Shared rules from the wireframe doc (§5 “Sheet rules”) are binding for every branch.
+
+### D1 / D2 amendment (2026-10-12)
+
+Built as first decided, the sheet sat **above** the toolbox but was opened from the toolbox's
+Process tab, so it read as a function of the selected tool. It also made the panel jump: the
+toolbox height followed the active tool (202–283 px), and with the sheet open the member list
+fell to ~180 px. The layouts compared are in
+[`mockup/tools-operations-layout.html`](mockup/tools-operations-layout.html) (A as built ·
+B op inside the Process tab · **C separate section**). **C, no tabs** is adopted:
+
+- **Tools and operations are separate.** A tool is a pointer mode (one active, writes on each
+  stroke); an operation is a job (parameters + scope → preview → commit). Most later
+  operations (Interpolate, Propagate, the solvers, QC) are iterative and used *while* painting,
+  so an operation must stay open and usable whatever tool is active. A tab that hides one or
+  the other cannot do that.
+- **Operations section** (replaces the Process tab + sheet): a 28 px header row — an
+  *Operation* picker; when one is open, the target chip, collapse ▾ and close ✕. Open, it has a
+  fixed-height body (scrolls) and a footer that stays visible (Preview · Commit · Discard, the
+  in-sheet status on its left). Collapsing keeps the operation and any preview alive and leaves a
+  one-line summary. Closing with a preview pending asks inline, as before. **X** opens Cleanup
+  (or expands it). Sheet rules (§5 of the wireframes) otherwise unchanged; the back arrow goes,
+  since there is no list to go back to.
+- **Toolbox: no tabs, fixed height.** Every tool in one grid, in group order (Select, Seg Bidir.,
+  then Paint, Shape, Smart): **4 columns** at ≥ 360 px panel width (with 4 px button padding, labels up to
+  ~66 px fit at the default 400 px; the widest today is 63 px), 3 below that, icon-only below the existing compact width. The Controls area
+  has a fixed height per kind, sized to that kind's tallest tool (Segmentation: Threshold), and
+  scrolls only on very short windows. The backup status moves into the toolbox header so it
+  cannot change the height. Measured target at the default window: toolbox ≈ 290 px (34%);
+  ≈ 323 px once branch 4's three tools arrive.
+- **Short windows:** the member list keeps ≥ 120 px; the operation body shrinks first, then the
+  tool controls scroll.
+- **Stale previews:** a preview is still discarded the moment its segment changes underneath it
+  (a stroke, an undo). Because painting with an operation open is now normal, the section says
+  so — “Preview discarded: the segment changed” — instead of the preview silently vanishing.
+- **D12 narrowed:** with an operation open for long stretches beside the tools, operations get
+  **no bare-letter keys** of their own; only the preview keys (⏎ ⎋ hold-`\`), which exist only
+  while a preview does.
+- **Later branches:** solver seed painters live inside their operation's body and share the one
+  active pointer mode with the toolbox (picking one clears the toolbox highlight and vice versa).
+  If the grid outgrows ~20 tools, revisit grouping.
 
 **Separately reviewed plans required** before implementation: branch 8 (worklist) **and**
 branch 9 (algorithm modules). Neither starts until its own plan is reviewed with the user.
@@ -198,6 +238,7 @@ the real affordance (tab → sheet → Preview → ⏎) and asserts **labelmap v
 | **S7** | **Segment ops**: clear segment (scope), clear active / all labels on slice, move to segment, merge into, duplicate, relabel-by-name (rename + optional merge into an existing same-named member, metadata from donor); magnet bridge two-member UI | E2E on multi-member containers; undo restores both members |
 | **S8** | **Smart Cleanup**: per-label stats → proposed plan table (op per label, thin/small-structure protection) → review/edit → one transaction | E2E: plan shown, edited, committed as one undo step |
 | **S9** | Docs (`annotation-tool-reference.md`, hotkeys), full offline E2E run, dev-app visual sweep against wireframes, merge to `main` | CLAUDE.md self-check answered |
+| **S10** | **D1/D2 amendment**: Operations section (picker header, target chip, collapse/close, fixed body, pinned footer with status) replaces the Process tab + sheet; flat no-tab toolbox (4/3 columns, group order); fixed-height Controls per kind; backup status in the toolbox header; stale-discard message; list ≥ 120 px; docs updated | E2E (seen red on the S9 build): every SEG tool on screen with no tabs; toolbox height identical for every tool and no tool's controls scroll; Cleanup opened from the Operations row stays usable while tools change and does not move the toolbox; collapse keeps the preview; painting under a preview discards it and says so. Existing cleanup / segment-ops / smart-cleanup / slice-track E2E green through the new affordance |
 
 ### Branch 1 progress log
 
@@ -233,3 +274,13 @@ the real affordance (tab → sheet → Preview → ⏎) and asserts **labelmap v
 - **S9** — `docs/annotation-tool-reference.md` gains the toolbox tabs and the Process-tab
   operations; full offline E2E 242/242 green on the built app. **Branch 1 complete; awaiting
   the user's go-ahead to merge to `main`.**
+- **S10** — D1/D2 amendment, on branch `mask-ops-ops-section` (cut from `mask-ops` in a separate
+  worktree: the main checkout held someone's uncommitted focus-handling work). Operations section +
+  flat no-tab toolbox as specified above; in the built app the toolbox is 291 px for every tool and
+  an open operation 260 px (panel 832 px). Deviations found by running it: the 4-column buttons use
+  4 px padding (with 6 px, "Dyn. Thresh" clipped by 0.3 px at 400 px — panel-resize E2E caught
+  it); the open operation's picker is 96 px so a collapsed "Preview pending" summary fits. New
+  `operations-section` E2E (6) red on the S9 build, green now; the stale-notice and collapse
+  assertions also seen red against built mutants. Annotations + tools E2E 190/192 on the first
+  run: panel-resize (fixed above) and `contour-copy-paste` "loaded Structure contour … paste
+  interpolates", which passes 3/3 alone — the known flake another session is fixing.

@@ -42,11 +42,13 @@ export type ToolControl =
   | 'editMode';
 
 /**
- * The Segmentation toolbox's tool tabs (SegWorks parity D2). Every SEG tool belongs to
- * exactly one tab, or is pinned above the tabs (Select, Seg Bidir.). The fourth tab,
- * Process, lists operations rather than tools.
+ * The Segmentation tool families (SegWorks parity D2, amended 2026-10-12). The toolbox has
+ * no tabs: every tool is on screen in one grid, ordered general → Paint → Shape → Smart,
+ * so each family sits together. Operations are not tools; they open in the Operations
+ * section (D1).
  */
-export type SegToolGroup = 'pinned' | 'paint' | 'shape' | 'smart';
+export type SegToolGroup = 'general' | 'paint' | 'shape' | 'smart';
+const SEG_GROUP_ORDER: SegToolGroup[] = ['general', 'paint', 'shape', 'smart'];
 
 export interface ToolDef {
   id: string;
@@ -55,7 +57,7 @@ export interface ToolDef {
   icon: ReactNode;
   /** Controls the toolbox must show while this tool is active. */
   needs?: ToolControl[];
-  /** Segmentation toolbox tab (SEG tools only). */
+  /** Segmentation tool family (SEG tools only) — the grid's order. */
   group?: SegToolGroup;
 }
 
@@ -90,8 +92,8 @@ const SEG_TOOLS: ToolDef[] = [
   { id: 'regionPlus', group: 'smart', label: 'Region+', title: 'Grow a region outward, adapting the boundary as it goes', needs: ['brushSize'], icon: S(<><circle cx="8" cy="8" r="4" strokeDasharray="2 1.3" /><path d="M8 6v4M6 8h4" /></>) },
   { id: 'rectMulti', group: 'shape', label: 'Rect Multi', title: 'Drag a rectangle; everything inside it within the intensity window joins the segment', needs: ['intensityWindow'], icon: S(<><rect x="4.5" y="2.5" width="9" height="7" rx="1" /><path d="M2.5 5.5v8h9" /></>) },
   { id: 'contourFill', group: 'shape', label: 'Contour Fill', title: 'Draw a boundary; the area it encloses joins the segment', icon: S(<path d="M4 8c0-3 8-3 8 0s-8 3-8 0z" fill="currentColor" fillOpacity={0.25} />) },
-  { ...SELECT_TOOL, group: 'pinned' },
-  { id: 'segBidirectional', group: 'pinned', label: 'Seg Bidir.', title: 'Measure the active segment\u2019s longest axis and its perpendicular', icon: S(<><ellipse cx="8" cy="8" rx="6" ry="4" strokeDasharray="2 1.3" /><path d="M3.5 8h9M8 4.5v7" /></>) },
+  { ...SELECT_TOOL, group: 'general' },
+  { id: 'segBidirectional', group: 'general', label: 'Seg Bidir.', title: 'Measure the active segment\u2019s longest axis and its perpendicular', icon: S(<><ellipse cx="8" cy="8" rx="6" ry="4" strokeDasharray="2 1.3" /><path d="M3.5 8h9M8 4.5v7" /></>) },
 ];
 
 const STRUCTURE_TOOLS: ToolDef[] = [
@@ -114,26 +116,16 @@ const MEASUREMENT_TOOLS: ToolDef[] = [
   { id: 'freehandROI', label: 'Freehand ROI', title: 'Measure a freehand region and its statistics', icon: S(<path d="M3 10c1-4 4-5 6-2s4 0 4-3" />) },
 ];
 
-export const SEG_TOOL_TABS: Array<{ id: 'paint' | 'shape' | 'smart' | 'process'; label: string }> = [
-  { id: 'paint', label: 'Paint' },
-  { id: 'shape', label: 'Shape' },
-  { id: 'smart', label: 'Smart' },
-  { id: 'process', label: 'Process' },
-];
+/** Segmentation tools in grid order: each family together, catalog order within it. */
+const SEG_TOOLS_IN_ORDER = SEG_GROUP_ORDER.flatMap((g) => SEG_TOOLS.filter((t) => t.group === g));
 
-/** The tab a SEG tool lives on (null for pinned tools and non-SEG tools). */
-export function segTabOf(toolId: string | null): 'paint' | 'shape' | 'smart' | null {
-  const g = SEG_TOOLS.find((t) => t.id === toolId)?.group;
-  return g && g !== 'pinned' ? g : null;
-}
-
-/** Operations the Process tab lists (each opens its sheet). */
+/** Operations the Operations section's picker offers (D1, amended 2026-10-12). */
 export const SEG_OPERATIONS: Array<{ id: 'cleanup'; label: string; title: string }> = [
   { id: 'cleanup', label: 'Cleanup', title: 'Fill holes, keep largest, remove specks and strays, smooth, open/close (X)' },
 ];
 
 export function toolsForKind(kind: ContainerKind): ToolDef[] {
-  if (kind === 'SEG') return SEG_TOOLS;
+  if (kind === 'SEG') return SEG_TOOLS_IN_ORDER;
   if (kind === 'RTSTRUCT') return STRUCTURE_TOOLS;
   return MEASUREMENT_TOOLS;
 }

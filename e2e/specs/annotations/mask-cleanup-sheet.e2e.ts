@@ -1,8 +1,8 @@
 /**
- * Segmentation toolbox tabs + the Cleanup operation sheet (SegWorks parity D1/D2, branch 1
- * S4/S5 — docs/mockup/segworks-wireframes.html §2–§5).
+ * The Cleanup operation (SegWorks parity branch 1 S5; in the Operations section since the
+ * 2026-10-12 D1 amendment — layout and tool independence are in operations-section.e2e).
  *
- * Drives the real affordances — the Process tab, the sheet's operation picker, scope
+ * Drives the real affordances — the Operation picker, Cleanup's operation picker, scope
  * buttons and footer, the ⏎ key, the X hotkey, the member row's lock — and asserts the
  * labelmap voxels, which are the ground truth.
  */
@@ -10,6 +10,7 @@ import { test, expect } from '../../fixtures/electron-app';
 import type { Locator, Page } from '@playwright/test';
 import { loadFixture } from '../../helpers/local-fixture';
 import { clickTool } from '../../helpers/toolbox';
+import { openOperation } from '../../helpers/operations';
 
 type Win = { __XNAT_E2E__: { clearAllContainers: () => void; activeSegmentVoxelCount: () => number } };
 const VIEWPORT = '[data-testid="unified-viewport-element:panel_0"]';
@@ -57,27 +58,7 @@ async function segmentation(page: Page, fixture = 'ct-axial-300') {
   return { panel, toolbox };
 }
 
-async function openCleanup(toolbox: Locator, panel: Locator, op?: string) {
-  await toolbox.getByRole('tab', { name: 'Process' }).click();
-  await toolbox.getByRole('button', { name: 'Cleanup', exact: true }).click();
-  const sheet = panel.getByTestId('cleanup-sheet');
-  await expect(sheet).toBeVisible();
-  if (op) await sheet.getByLabel('Cleanup operation').selectOption({ label: op });
-  return sheet;
-}
-
-test('the Process tab opens the Cleanup sheet; the active member stays visible and is its target', async ({ page }) => {
-  const { panel, toolbox } = await segmentation(page);
-  const sheet = await openCleanup(toolbox, panel);
-  await expect(sheet.getByTestId('sheet-target')).toHaveText('Segment 1');
-  await expect(panel.locator('[data-testid^="member-row-"]').first()).toBeVisible();
-  // The sheet sits between the member list and the toolbox.
-  const sb = (await sheet.boundingBox())!;
-  const tb = (await toolbox.boundingBox())!;
-  const mb = (await panel.locator('[data-testid^="member-row-"]').first().boundingBox())!;
-  expect(mb.y).toBeLessThan(sb.y);
-  expect(sb.y + sb.height).toBeLessThanOrEqual(tb.y + 1);
-});
+const openCleanup = (_toolbox: Locator, panel: Locator, op?: string) => openOperation(panel, 'Cleanup', op);
 
 test('Keep largest: Preview shows it, ⏎ writes it as one undo step', async ({ page }) => {
   const { panel, toolbox } = await segmentation(page);
@@ -158,35 +139,25 @@ test('a locked segment previews read-only and cannot be committed', async ({ pag
   expect(await voxels(page)).toBe(before);
 });
 
-test('X opens the Cleanup sheet from the viewport', async ({ page }) => {
+test('X opens Cleanup from the viewport', async ({ page }) => {
   const { panel } = await segmentation(page);
   await page.locator(VIEWPORT).click({ position: { x: 5, y: 5 } });
   await page.keyboard.press('x');
   await expect(panel.getByTestId('cleanup-sheet')).toBeVisible();
 });
 
-test('leaving the sheet with a preview pending asks first, inline', async ({ page }) => {
+test('closing Cleanup with a preview pending asks first, inline', async ({ page }) => {
   const { panel, toolbox } = await segmentation(page);
   await stroke(page, 0.25, 0.5, 0.2);
   await stroke(page, 0.75, 0.5, 0.01);
   const sheet = await openCleanup(toolbox, panel, 'Keep largest');
   await sheet.getByRole('button', { name: 'Preview' }).click();
-  await sheet.getByRole('button', { name: 'Back to operations' }).click();
+  await panel.getByRole('button', { name: 'Close operation' }).click();
   await expect(sheet.getByText('Discard the preview?')).toBeVisible();
   await expect(page.getByRole('dialog')).toHaveCount(0); // inline, not a modal
   await sheet.getByRole('button', { name: 'Discard', exact: true }).click();
   await expect(panel.getByTestId('cleanup-sheet')).toHaveCount(0);
   await expect(page.getByTestId('mask-preview-bar')).toHaveCount(0);
-});
-
-test('the tab follows the active tool: a hotkey to a Paint tool shows the Paint tab', async ({ page }) => {
-  const { toolbox } = await segmentation(page);
-  await clickTool(toolbox, 'Circle');
-  await expect(toolbox.getByRole('tab', { name: 'Shape' })).toHaveAttribute('aria-selected', 'true');
-  await page.locator(VIEWPORT).click({ position: { x: 5, y: 5 } });
-  await page.keyboard.press('b');
-  await expect(toolbox.getByRole('tab', { name: 'Paint' })).toHaveAttribute('aria-selected', 'true');
-  await expect(toolbox.getByRole('button', { name: 'Brush', exact: true })).toHaveAttribute('aria-pressed', 'true');
 });
 
 test('Fill holes works on an oblique acquisition (index space, not world space)', async ({ page }) => {

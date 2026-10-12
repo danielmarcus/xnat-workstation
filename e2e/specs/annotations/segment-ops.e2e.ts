@@ -10,6 +10,7 @@ import { test, expect } from '../../fixtures/electron-app';
 import type { Locator, Page } from '@playwright/test';
 import { loadFixture } from '../../helpers/local-fixture';
 import { clickTool } from '../../helpers/toolbox';
+import { openOperation } from '../../helpers/operations';
 
 type Win = { __XNAT_E2E__: { clearAllContainers: () => void; memberVoxelCount: (i: number) => number } };
 const VIEWPORT = '[data-testid="unified-viewport-element:panel_0"]';
@@ -53,13 +54,7 @@ async function activate(panel: Locator, name: string) {
   await panel.locator('[data-testid^="member-row-"]', { hasText: name }).first().click();
 }
 
-async function openOp(toolbox: Locator, panel: Locator, op: string) {
-  await toolbox.getByRole('tab', { name: 'Process' }).click();
-  await toolbox.getByRole('button', { name: 'Cleanup', exact: true }).click();
-  const sheet = panel.getByTestId('cleanup-sheet');
-  await sheet.getByLabel('Cleanup operation').selectOption({ label: op });
-  return sheet;
-}
+const openOp = (_toolbox: Locator, panel: Locator, op: string) => openOperation(panel, 'Cleanup', op);
 
 test('Clear erases the active segment on the slice on screen only', async ({ page }) => {
   const { panel, toolbox } = await twoSegments(page);

@@ -1,0 +1,672 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Tools vs. operations — side-panel layout (draft mockup)</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { background:#09090b; }
+  svg { display:block; }
+  .hatch { fill:url(#hatch); }
+  input[type=range] { height:14px; }
+  .seg button { line-height:1.35; }
+</style>
+</head>
+<body class="text-zinc-300 antialiased" style="font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;">
+<div class="px-8 py-6 max-w-[1560px]">
+  <h1 class="text-white text-lg font-semibold">Tools vs. operations: side-panel layout (draft mockup)</h1>
+  <p class="text-zinc-400 text-sm mt-1 max-w-4xl">
+    Interactive draft for the D1/D2 rework on <code class="text-zinc-300">mask-ops</code>. Sizes mirror the running app:
+    rows and sections use the heights measured from the build. <b class="text-zinc-200">A</b> is what is built today.
+    <b class="text-zinc-200">B</b> puts the operation inside the Process tab as that tab's controls.
+    <b class="text-zinc-200">C</b> (recommended) gives operations their own section and gives the toolbox a fixed height.
+    Click tools, open Cleanup, click the image to paint, and scroll the image (wheel or ↑/↓) to change slice.
+  </p>
+
+  <div class="flex flex-wrap items-center gap-6 mt-4 text-xs">
+    <div class="flex items-center gap-2"><span class="text-zinc-500 uppercase tracking-wide text-[10px]">Layout</span>
+      <div class="seg flex rounded overflow-hidden border border-zinc-700" id="layoutSeg"></div></div>
+    <div class="flex items-center gap-2"><span class="text-zinc-500 uppercase tracking-wide text-[10px]">Window height</span>
+      <div class="seg flex rounded overflow-hidden border border-zinc-700" id="winSeg"></div></div>
+    <div class="flex items-center gap-2" id="cSeg"></div>
+    <span class="text-zinc-500">Keys: <b class="text-zinc-300">B</b> brush · <b class="text-zinc-300">T</b> threshold · <b class="text-zinc-300">X</b> cleanup · <b class="text-zinc-300">⏎</b> commit · <b class="text-zinc-300">⎋</b> discard · <b class="text-zinc-300">↑/↓</b> slice</span>
+  </div>
+
+  <div class="flex flex-wrap gap-6 mt-5 items-start">
+    <div id="stage"></div>
+    <div class="w-[330px] shrink-0 text-xs space-y-4" id="notes"></div>
+  </div>
+</div>
+
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+      <rect width="6" height="6" fill="transparent" />
+      <line x1="0" y1="0" x2="0" y2="6" stroke="currentColor" stroke-width="2.2" />
+    </pattern>
+  </defs>
+</svg>
+
+<script>
+/* ------------------------------------------------------------------ data */
+const TOOLS = [
+  { id: 'select', g: 'pinned', label: 'Select', needs: [] },
+  { id: 'segBidir', g: 'pinned', label: 'Seg Bidir.', needs: [] },
+  { id: 'brush', g: 'paint', label: 'Brush', needs: ['size', 'mode'] },
+  { id: 'threshold', g: 'paint', label: 'Threshold', needs: ['size', 'window'] },
+  { id: 'dyn', g: 'paint', label: 'Dyn. Thresh', needs: ['size', 'sample'] },
+  { id: 'sphBrush', g: 'paint', label: 'Sph. Brush', needs: ['size', 'mode'] },
+  { id: 'sphThresh', g: 'paint', label: 'Sph. Thresh', needs: ['size', 'window'] },
+  { id: 'paintFill', g: 'paint', label: 'Paint Fill', needs: [] },
+  { id: 'circle', g: 'shape', label: 'Circle', needs: ['mode'] },
+  { id: 'rect', g: 'shape', label: 'Rect', needs: ['mode'] },
+  { id: 'sphere', g: 'shape', label: 'Sphere', needs: ['mode'] },
+  { id: 'rectMulti', g: 'shape', label: 'Rect Multi', needs: ['window'] },
+  { id: 'contourFill', g: 'shape', label: 'Contour Fill', needs: [] },
+  { id: 'region', g: 'smart', label: 'Region', needs: ['size'] },
+  { id: 'regionPlus', g: 'smart', label: 'Region+', needs: ['size'] },
+];
+/** Interactive SEG tools planned for branch 4 (wireframe D2); shown greyed when "planned tools" is on. */
+const PLANNED = [
+  { id: 'smartBrush', g: 'paint', label: 'Smart Brush', needs: [], planned: true },
+  { id: 'levelTrace', g: 'smart', label: 'Level Trace', needs: [], planned: true },
+  { id: 'roiLimit', g: 'smart', label: 'ROI limit', needs: [], planned: true },
+];
+const TABS = [{ id: 'paint', label: 'Paint' }, { id: 'shape', label: 'Shape' }, { id: 'smart', label: 'Smart' }];
+
+const CLEANUP = [
+  { id: 'fillHoles', g: 'clean', label: 'Fill holes', desc: 'Fill enclosed empty regions inside the segment.',
+    params: [{ k: 'maxHole', label: 'Largest hole', min: 0, max: 5000, step: 10, def: 0, unit: 'mm²' }] },
+  { id: 'keepLargest', g: 'clean', label: 'Keep largest', desc: 'Delete every island except the largest on each slice.',
+    params: [{ k: 'alsoKeep', label: 'Also keep ≥', min: 0, max: 100, step: 5, def: 0, unit: '% of largest', adv: true }] },
+  { id: 'removeSpeckles', g: 'clean', label: 'Remove speckles', desc: 'Remove islands smaller than a minimum area.',
+    params: [{ k: 'minArea', label: 'Smaller than', min: 1, max: 1000, step: 1, def: 10, unit: 'mm²' }] },
+  { id: 'removeStrays', g: 'clean', label: 'Remove strays', desc: 'Remove islands whose centre is far from the largest island.',
+    params: [{ k: 'maxDist', label: 'Farther than', min: 5, max: 120, step: 1, def: 30, unit: 'mm' },
+             { k: 'protect', label: 'Protect ≥', min: 0, max: 100, step: 5, def: 15, unit: '% of largest', adv: true }] },
+  { id: 'median', g: 'clean', label: 'Median smooth', desc: 'Majority vote in a neighbourhood; keeps edges fairly crisp.',
+    params: [{ k: 'radius', label: 'Radius', min: 1, max: 5, step: 1, def: 2, unit: 'px' }] },
+  { id: 'gaussian', g: 'clean', label: 'Gaussian smooth', desc: 'Blur and re-threshold; rounds corners and jagged outlines.',
+    params: [{ k: 'sigma', label: 'σ', min: 0.5, max: 4, step: 0.1, def: 1.2, unit: 'px' },
+             { k: 'thr', label: 'Threshold', min: 0.2, max: 0.8, step: 0.05, def: 0.45, adv: true }] },
+  { id: 'smoothEdges', g: 'clean', label: 'Smooth edges', desc: 'A light local vote that rounds isolated jagged pixels.',
+    params: [{ k: 'strength', label: 'Strength', min: 0.1, max: 1.5, step: 0.1, def: 0.5 }] },
+  { id: 'open', g: 'clean', label: 'Morph open', desc: 'Erode then dilate: removes thin protrusions and weak bridges.',
+    params: [{ k: 'radius', label: 'Radius', min: 1, max: 5, step: 1, def: 1, unit: 'px' }] },
+  { id: 'close', g: 'clean', label: 'Morph close', desc: 'Dilate then erode: seals narrow grooves and small gaps.',
+    params: [{ k: 'radius', label: 'Radius', min: 1, max: 5, step: 1, def: 1, unit: 'px' }] },
+  { id: 'anisotropic', g: 'clean', label: 'Anisotropic diffusion', desc: 'Edge-preserving smoothing: keeps boundaries the image supports.',
+    params: [{ k: 'iter', label: 'Iterations', min: 1, max: 50, step: 1, def: 10 },
+             { k: 'kappa', label: 'κ', min: 5, max: 200, step: 5, def: 30 },
+             { k: 'cond', label: 'Conduction', select: ['Exponential (gentler)', 'Quadratic (sharper)'], adv: true }] },
+  { id: 'clear', g: 'segments', label: 'Clear', desc: 'Erase the segment across the scope.', params: [] },
+  { id: 'moveInto', g: 'segments', label: 'Move into…', pair: true, desc: 'Relabel this segment’s voxels as another segment (merge).', params: [] },
+  { id: 'copyInto', g: 'segments', label: 'Copy into…', pair: true, desc: 'Add this segment’s voxels to another segment, keeping both.', params: [] },
+  { id: 'magnetBridge', g: 'segments', label: 'Magnet bridge…', pair: true, desc: 'Grow another segment across a small gap until it meets this one.',
+    params: [{ k: 'gap', label: 'Max gap', min: 1, max: 60, step: 1, def: 10, unit: 'px' },
+             { k: 'bmode', label: 'Mode', select: ['Fill gaps only', 'Overwrite other segments'] }] },
+];
+
+/** Operations offered by the picker. Only Cleanup is built; Interpolate is illustrative. */
+const OPERATIONS = [
+  { id: 'cleanup', label: 'Cleanup' },
+  { id: 'interpolate', label: 'Interpolate', note: 'illustrative · branch 3' },
+  { id: 'propagate', label: 'Propagate', disabled: 'branch 3' },
+  { id: 'solve', label: 'Solve ▸ (RW, GrowCut, Graph Cut…)', short: 'Solve ▾', disabled: 'branches 4–5' },
+  { id: 'qc', label: '3D QC report', short: '3D QC', disabled: 'branch 7' },
+  { id: 'modules', label: 'Modules ▸', short: 'Modules ▾', disabled: 'branch 9' },
+];
+
+const TOTAL = 40;
+const range = (a, b) => Array.from({ length: b - a + 1 }, (_, i) => a + i);
+
+/* ------------------------------------------------------------------ state */
+const S = {
+  layout: 'C', win: 900, cToolbox: 'flat', future: false,
+  tool: 'brush', tab: 'paint', prevTool: null,
+  member: 0,
+  members: [
+    { name: 'Enhancing', color: '#ec4899', slices: new Set([12, 18, 25]) },
+    { name: 'Necrotic core', color: '#f59e0b', slices: new Set(range(14, 20)) },
+    { name: 'Edema', color: '#22d3ee', slices: new Set(range(8, 28)) },
+    { name: 'Resection cavity', color: '#a3e635', slices: new Set() },
+    { name: 'Vessel', color: '#818cf8', slices: new Set(range(5, 33)) },
+  ],
+  slice: 18,
+  opacity: 0.5, size: 8, mode: 'fill', thr: [-100, 300], sample: 3,
+  op: { open: false, collapsed: false, kind: 'cleanup', cleanup: 'fillHoles', params: {}, adv: {}, into: 1,
+        scope: { slices: 'current', labels: 'active', from: 12, to: 25 }, method: 'Linear (shape-based)' },
+  preview: null, // { kind, label, member, slices:[], stale }
+  status: null,
+  backupAt: Date.now() - 2000,
+};
+CLEANUP.forEach((o) => o.params.forEach((p) => { S.op.params[`${o.id}.${p.k}`] = p.select ? p.select[0] : p.def; }));
+
+const activeTool = () => TOOLS.find((t) => t.id === S.tool);
+const member = () => S.members[S.member];
+const cleanupDef = () => CLEANUP.find((o) => o.id === S.op.cleanup);
+const panelH = () => S.win - 68; // measured: 900 px window → 872 inner → 832 px panel
+
+/* ------------------------------------------------------------------ small renderers */
+const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+const icon = (g) => {
+  if (g === 'pinned') return '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M4 2l8 6-4 1-2 4z"/></svg>';
+  if (g === 'shape') return '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="3" y="4" width="10" height="8" rx="1" fill="currentColor" fill-opacity=".25"/></svg>';
+  if (g === 'smart') return '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="4" stroke-dasharray="2 1.3"/></svg>';
+  if (g === 'op') return '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 13l4-4M9 3l4 4-6 6-4-4z"/></svg>';
+  return '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="3.4"/></svg>';
+};
+function seg(act, value, options, extra = '') {
+  return `<div class="flex rounded overflow-hidden border border-zinc-700 ${extra}">${options.map(([v, l]) =>
+    `<button type="button" data-act="${act}" data-arg="${v}" class="flex-1 px-1.5 py-0.5 text-[10px] whitespace-nowrap ${value === v ? 'bg-blue-600 text-white' : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'}">${l}</button>`).join('')}</div>`;
+}
+function rangeRow(label, key, val, min, max, step, unit, labelW = '') {
+  return `<label class="flex items-center gap-2 mt-1.5 text-[10px] text-zinc-400">
+    <span class="whitespace-nowrap ${labelW}">${label}</span>
+    <input type="range" data-live="${key}" min="${min}" max="${max}" step="${step}" value="${val}" class="flex-1 accent-blue-500 min-w-0">
+    <span class="text-zinc-300 tabular-nums whitespace-nowrap" data-out="${key}">${fmt(val, unit)}</span></label>`;
+}
+const fmt = (v, unit) => `${+(+v).toFixed(2)}${unit ? '&nbsp;' + unit : ''}`;
+function selectRow(label, key, value, options, labelW = '') {
+  return `<label class="flex items-center gap-2 mt-1.5 text-[10px] text-zinc-400"><span class="whitespace-nowrap ${labelW}">${label}</span>
+    <select data-set="${key}" class="flex-1 min-w-0 px-1 py-0.5 rounded bg-zinc-800 text-zinc-200 text-[10px]">${options.map((o) =>
+      `<option ${o === value ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select></label>`;
+}
+const swatch = (c, size = 'w-2.5 h-2.5') => `<span class="inline-block ${size} rounded-sm shrink-0" style="background:${c}"></span>`;
+
+/* ------------------------------------------------------------------ panel: header + list */
+function panelHeader() {
+  return `<div class="px-3 py-2.5 border-b border-zinc-800 flex items-center justify-between shrink-0" style="height:37px">
+    <span class="text-zinc-200 text-xs font-medium tracking-wide">ANNOTATIONS</span>
+    <span class="flex items-center gap-2 text-zinc-500 text-[11px]">＋ Structure ＋ Segmentation ＋ Measurement</span></div>`;
+}
+function list() {
+  const rows = S.members.map((m, i) => {
+    const on = i === S.member;
+    return `<div data-act="member" data-arg="${i}" class="flex items-center gap-2 pl-6 pr-3 py-1 cursor-pointer text-[11px] ${on ? 'border-l-2 border-blue-500 bg-blue-600/10 text-zinc-100' : 'border-l-2 border-transparent text-zinc-300 hover:bg-zinc-800/60'}">
+      <span class="w-3 h-3 rounded-full shrink-0" style="background:${m.color}"></span>
+      <span class="flex-1 truncate">${esc(m.name)}</span>
+      <span class="text-[10px] text-zinc-500 tabular-nums">${m.slices.size ? m.slices.size + ' sl' : 'empty'}</span>
+      <span class="text-zinc-600">👁</span></div>`;
+  }).join('');
+  return `<div class="flex items-center gap-2 px-3 py-1.5 text-[11px] text-zinc-200 bg-zinc-800/40">
+      <span class="text-zinc-500">▾</span><span class="text-pink-400 font-semibold text-[10px]">SEG</span>
+      <span class="flex-1 truncate">Tumor_v2</span><span class="text-[10px] text-zinc-500">${S.members.length} segments</span></div>
+    ${rows}
+    <div class="flex items-center gap-2 px-3 py-1.5 text-[11px] text-zinc-400 mt-1">
+      <span class="text-zinc-500">▸</span><span class="text-emerald-400 font-semibold text-[10px]">RT</span>
+      <span class="flex-1 truncate">Planning_RS</span><span class="text-[10px] text-zinc-500">12 ROIs</span></div>
+    <div class="flex items-center gap-2 px-3 py-1.5 text-[11px] text-zinc-400">
+      <span class="text-zinc-500">▸</span><span class="text-orange-400 font-semibold text-[10px]">SR</span>
+      <span class="flex-1 truncate">Baseline measurements</span><span class="text-[10px] text-zinc-500">4</span></div>`;
+}
+
+/* ------------------------------------------------------------------ toolbox */
+function toolButton(t, dense = false) {
+  const on = t.id === S.tool;
+  const cls = t.planned ? 'bg-zinc-900 border border-dashed border-zinc-700 text-zinc-500 cursor-not-allowed'
+    : on ? 'bg-blue-600 text-white' : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300';
+  return `<button type="button" ${t.planned ? 'disabled title="Planned · branch 4"' : `data-act="tool" data-arg="${t.id}"`} class="flex items-center ${dense ? 'gap-1 px-1.5' : 'gap-1.5 px-2'} py-1.5 rounded min-w-0 ${cls}">${icon(t.g)}<span class="truncate">${t.label}</span></button>`;
+}
+const flatToolbox = () => S.layout === 'C' && S.cToolbox === 'flat';
+/** Every tool in reading order: pinned, then Paint, Shape, Smart (planned ones join their group). */
+function allTools() {
+  const pool = S.future ? [...TOOLS, ...PLANNED] : TOOLS;
+  return ['pinned', 'paint', 'shape', 'smart'].flatMap((g) => pool.filter((t) => t.g === g));
+}
+/** Flat grid: 4 columns at the default width. Rows are 28.5 px with 4 px gaps, plus 8 px padding. */
+const flatGridH = () => { const rows = Math.ceil(allTools().length / 4); return Math.round(rows * 28.5 + (rows - 1) * 4 + 8); };
+function backupBadge() {
+  const s = Math.max(1, Math.round((Date.now() - S.backupAt) / 1000));
+  return `<span class="flex items-center gap-1 text-[10px] text-emerald-400/90" title="Local backup">✓ ${s}s ago</span>`;
+}
+function toolControls() {
+  const need = (c) => activeTool()?.needs.includes(c);
+  let h = `<div class="flex items-center justify-between">
+      <span class="text-[9px] text-zinc-500 uppercase tracking-wide">Controls</span>
+      <span class="flex items-center gap-1 text-[10px] text-zinc-300">${swatch(member().color)}${esc(member().name)}</span></div>`;
+  h += rangeRow('Labelmap opacity', 'opacity', Math.round(S.opacity * 100), 0, 100, 1, '%');
+  if (need('size')) h += rangeRow('Brush size', 'size', S.size, 1, 50, 1, 'mm');
+  if (need('sample')) h += rangeRow('Sample radius', 'sample', S.sample, 1, 10, 1, 'vox');
+  if (need('mode')) h += `<div class="flex items-center gap-2 mt-1.5"><span class="text-[10px] text-zinc-400">Mode</span>${seg('mode', S.mode, [['fill', 'Fill'], ['erase', 'Erase']], 'flex-1')}<span class="text-[10px] text-zinc-500">⇧ inverts</span></div>`;
+  if (need('window')) h += `<div class="flex items-center gap-2 mt-1.5 text-[10px] text-zinc-400"><span>Threshold</span>
+      <input type="number" value="${S.thr[0]}" class="w-16 px-1 py-0.5 rounded bg-zinc-800 text-zinc-200 tabular-nums"><span class="text-zinc-500">to</span>
+      <input type="number" value="${S.thr[1]}" class="w-16 px-1 py-0.5 rounded bg-zinc-800 text-zinc-200 tabular-nums"></div>
+      ${selectRow('Preset', 'preset', 'Soft tissue', ['Custom', 'Soft tissue', 'Bone', 'Lung', 'Contrast-enhanced'])}`;
+  if (S.layout === 'A' && S.tab === 'process') h += `<div class="mt-1.5 text-[10px] text-zinc-500 italic">Strip stays under Process (as built): the active tool is still armed.</div>`;
+  return h;
+}
+
+/** Height reserved by B and C so nothing below the grid ever moves (2 rows of buttons). */
+const GRID_H = 69;
+const CONTROLS_H = { B: 220, C: 125 };
+
+function toolbox() {
+  const L = S.layout;
+  const tabs = L === 'C' ? TABS : [...TABS, { id: 'process', label: 'Process' }];
+  const header = `<div class="px-3 py-2 flex items-center justify-between gap-2" style="height:31px">
+      <span class="text-[9px] text-zinc-500 uppercase tracking-wide">Segmentation tools</span>
+      <span class="flex items-center gap-2">${L !== 'A' ? backupBadge() : ''}<span class="text-[10px]" style="color:${member().color}">${esc(member().name)}</span></span></div>`;
+  const pinned = `<div class="px-2 pb-1 grid grid-cols-3 gap-1 text-[11px]">${TOOLS.filter((t) => t.g === 'pinned').map((t) => toolButton(t)).join('')}</div>`;
+  const tabRow = `<div class="px-2 pb-1.5 flex gap-0.5">${tabs.map((t) =>
+    `<button type="button" data-act="tab" data-arg="${t.id}" class="flex-1 rounded py-0.5 text-[10px] ${S.tab === t.id ? 'bg-zinc-700 text-zinc-100' : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700/70'}">${t.label}</button>`).join('')}</div>`;
+
+  let grid;
+  if (S.tab === 'process') {
+    const ops = L === 'A' ? OPERATIONS.slice(0, 1) : OPERATIONS;
+    grid = ops.map((o) => {
+      const open = (L === 'A' ? S.op.open : true) && S.op.kind === o.id && (L !== 'B' || S.op.open);
+      const dis = !!o.disabled;
+      return `<button type="button" ${dis ? 'disabled' : ''} data-act="processOp" data-arg="${o.id}" title="${o.disabled ? 'Arrives in ' + o.disabled : o.note || ''}"
+        class="flex items-center gap-1.5 px-2 py-1.5 rounded ${dis ? 'bg-zinc-900 border border-dashed border-zinc-800 text-zinc-600 cursor-not-allowed' : open ? 'bg-zinc-600 text-white' : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300'}">${icon('op')}<span class="truncate">${o.short || o.label}</span></button>`;
+    }).join('');
+  } else {
+    grid = (S.future ? [...TOOLS, ...PLANNED] : TOOLS).filter((t) => t.g === S.tab).map((t) => toolButton(t)).join('');
+  }
+  const gridStyle = L === 'A' ? '' : `style="height:${GRID_H}px"`;
+  const gridHtml = `<div class="px-2 pb-2 grid grid-cols-3 gap-1 text-[11px] content-start" ${gridStyle}>${grid}</div>`;
+
+  // Controls region
+  let controls;
+  if (L === 'B' && S.tab === 'process') {
+    controls = `<div class="flex flex-col min-h-0 h-full">
+        <div class="px-3 pt-2">${rangeRow('Labelmap opacity', 'opacity', Math.round(S.opacity * 100), 0, 100, 1, '%')}</div>
+        ${S.op.open ? opBody(true) : `<div class="px-3 py-3 text-[10px] text-zinc-500">Pick an operation above. The viewport tool switched to <b class="text-zinc-300">Select</b> while you are here.</div>`}</div>`;
+  } else {
+    controls = `<div class="px-3 py-2 overflow-y-auto min-h-0 h-full">${toolControls()}</div>`;
+  }
+  const ctlStyle = L === 'A' ? '' : `style="flex:0 1 ${CONTROLS_H[L]}px; min-height:54px"`;
+  const backupRow = L === 'A' ? `<div class="px-3 py-1.5 border-t border-zinc-800 flex items-center gap-1.5 text-[10px] text-emerald-400/90">✓ Backed up · ${Math.max(1, Math.round((Date.now() - S.backupAt) / 1000))}s ago</div>` : '';
+
+  const fixedTotal = flatToolbox() ? 31 + flatGridH() + CONTROLS_H.C : 31 + 33 + 25 + GRID_H + (CONTROLS_H[L] || 0);
+  const outer = L === 'A' ? 'class="border-t border-zinc-800 bg-zinc-900/80 shrink-0"'
+    : `class="border-t border-zinc-800 bg-zinc-900/80 flex flex-col min-h-0" style="flex:0 1 ${fixedTotal}px"`;
+  return `<div data-m="tools" ${outer}>
+      <div class="shrink-0">${header}${flatToolbox()
+        ? `<div class="px-2 pb-2 grid grid-cols-4 gap-1 text-[11px]">${allTools().map((t) => toolButton(t, true)).join('')}</div>`
+        : pinned + tabRow + gridHtml}</div>
+      <div class="border-t border-zinc-800 flex flex-col min-h-0" ${ctlStyle}>${controls}</div>
+      ${backupRow}</div>`;
+}
+
+/* ------------------------------------------------------------------ operation bodies (compact: B and C) */
+function cleanupBody() {
+  const o = cleanupDef();
+  const basic = o.params.filter((p) => !p.adv), adv = o.params.filter((p) => p.adv);
+  const advOpen = !!S.op.adv[o.id];
+  const LW = 'w-[64px]';
+  const param = (p) => p.select ? selectRow(p.label, `param.${o.id}.${p.k}`, S.op.params[`${o.id}.${p.k}`], p.select, LW)
+    : rangeRow(p.label, `param.${o.id}.${p.k}`, S.op.params[`${o.id}.${p.k}`], p.min, p.max, p.step, p.unit, LW);
+  const opts = (g) => CLEANUP.filter((x) => x.g === g).map((x) => `<option value="${x.id}" ${x.id === o.id ? 'selected' : ''}>${x.label}</option>`).join('');
+  let h = `<label class="flex items-center gap-2 text-[10px] text-zinc-400"><span class="${LW}">Operation</span>
+      <select data-set="cleanupOp" class="flex-1 min-w-0 px-1 py-0.5 rounded bg-zinc-800 text-zinc-200 text-[11px]">
+      <optgroup label="Clean">${opts('clean')}</optgroup><optgroup label="Segments">${opts('segments')}</optgroup></select></label>
+    <div class="flex items-start gap-2 mt-1 text-[10px]"><span class="flex-1 text-zinc-500 truncate" title="${esc(o.desc)}">${esc(o.desc)}</span>
+      ${adv.length ? `<button type="button" data-act="adv" class="text-zinc-400 hover:text-zinc-200 whitespace-nowrap">${advOpen ? '▾' : '▸'} Advanced</button>` : ''}</div>`;
+  if (o.pair) {
+    const others = S.members.map((m, i) => [i, m]).filter(([i]) => i !== S.member);
+    h += `<label class="flex items-center gap-2 mt-1.5 text-[10px] text-zinc-400"><span class="${LW}">Into</span>
+      <select data-set="into" class="flex-1 min-w-0 px-1 py-0.5 rounded bg-zinc-800 text-zinc-200 text-[10px]">${others.map(([i, m]) =>
+        `<option value="${i}" ${i === S.op.into ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}</select></label>`;
+  }
+  h += basic.map(param).join('');
+  if (advOpen) h += adv.map(param).join('');
+  const sc = S.op.scope;
+  h += `<div class="flex items-center gap-2 mt-1.5 text-[10px] text-zinc-400"><span class="${LW}">Scope</span>
+      ${seg('scopeSlices', sc.slices, [['current', 'Slice'], ['range', 'Range'], ['volume', 'Volume']], 'flex-[3]')}
+      ${o.pair ? '' : seg('scopeLabels', sc.labels, [['active', 'Active'], ['all', 'All']], 'flex-[2]')}</div>`;
+  if (sc.slices === 'range') h += `<div class="flex items-center gap-1.5 mt-1.5 text-[10px] text-zinc-400"><span class="${LW}">Slices</span>
+      <input type="number" data-set="from" value="${sc.from}" class="w-12 px-1 py-0.5 rounded bg-zinc-800 text-zinc-200 tabular-nums">–
+      <input type="number" data-set="to" value="${sc.to}" class="w-12 px-1 py-0.5 rounded bg-zinc-800 text-zinc-200 tabular-nums">
+      <span class="text-zinc-500">of ${TOTAL} · drag the bracket on the scrollbar</span></div>`;
+  if (sc.labels === 'all' && o.g === 'clean') {
+    h += `<div class="mt-2 text-[9px] text-zinc-500 uppercase tracking-wide">Per-segment plan</div>
+      <table class="w-full mt-0.5 text-[10px]">${S.members.map((m) => {
+        const vox = m.slices.size * 812, small = vox > 0 && vox < 6000, thin = m.name === 'Vessel';
+        return `<tr class="border-t border-zinc-800/70"><td class="py-0.5 text-zinc-200 truncate max-w-[110px]">${esc(m.name)}</td>
+          <td class="py-0.5 text-zinc-500 tabular-nums text-right pr-1">${vox.toLocaleString('en-US')}</td>
+          <td class="py-0.5">${small ? '<span class="rounded border border-amber-600/60 px-1 text-amber-300">small</span>' : ''}${thin ? '<span class="rounded border border-amber-600/60 px-1 text-amber-300">thin</span>' : ''}</td>
+          <td class="py-0.5 text-right"><select ${vox ? '' : 'disabled'} class="px-1 py-0.5 rounded bg-zinc-800 text-zinc-200 text-[10px]"><option>${small || thin ? 'Skip' : o.label}</option><option>Median smooth</option><option>Skip</option></select></td></tr>`;
+      }).join('')}</table>`;
+  }
+  return h;
+}
+
+function keyframeInfo(m) {
+  const ks = [...m.slices].sort((a, b) => a - b);
+  const gaps = [];
+  for (let i = 1; i < ks.length; i++) if (ks[i] - ks[i - 1] > 1) gaps.push([ks[i - 1] + 1, ks[i] - 1]);
+  return { ks, gaps };
+}
+function interpolateBody() {
+  const m = member(), { ks, gaps } = keyframeInfo(m);
+  const LW = 'w-[64px]';
+  return `<div class="text-[10px] text-zinc-500">Fills the slices between painted keyframes. <i>Illustrative: branch 3.</i></div>
+    <div class="flex items-start gap-2 mt-1.5 text-[10px] text-zinc-400"><span class="${LW} shrink-0">Keyframes</span>
+      <span class="flex flex-wrap gap-1">${ks.length ? ks.map((k) => `<button data-act="goto" data-arg="${k}" class="rounded px-1 tabular-nums ${k === S.slice ? 'bg-blue-600 text-white' : 'bg-zinc-800 text-zinc-200 hover:bg-zinc-700'}">${k}</button>`).join('') : '<span class="text-zinc-500">none: paint a slice</span>'}</span></div>
+    <div class="flex items-start gap-2 mt-1.5 text-[10px] text-zinc-400"><span class="${LW} shrink-0">Gaps</span>
+      <span class="flex flex-wrap gap-1">${gaps.length ? gaps.map(([a, b]) => `<button data-act="goto" data-arg="${Math.round((a + b) / 2)}" class="rounded px-1 border border-amber-600/60 text-amber-300 tabular-nums">${a}–${b} (${b - a + 1})</button>`).join('') : '<span class="text-zinc-500">none</span>'}</span></div>
+    ${selectRow('Method', 'method', S.op.method, ['Linear (shape-based)', 'Morphological', 'Spline'], LW)}
+    <div class="mt-1.5 text-[10px] text-zinc-500">Paint any slice with any tool: keyframes and gaps update while this stays open.</div>`;
+}
+
+function opFooter() {
+  const p = S.preview, locked = false;
+  const stale = p && p.stale;
+  const msg = stale ? '<span class="text-amber-300">Target changed: preview is out of date</span>'
+    : p ? `<span class="text-zinc-400">Preview: ${esc(p.label)} · ${p.slices.length} slice${p.slices.length === 1 ? '' : 's'}</span>`
+    : S.status ? `<span class="text-emerald-400/90">${esc(S.status)}</span>` : '';
+  return `<div class="flex items-center gap-1.5 px-3 py-1 border-t border-zinc-800 shrink-0" style="height:32px">
+    <span class="flex-1 truncate text-[10px]">${msg}</span>
+    <button data-act="preview" class="rounded bg-zinc-700 px-2.5 py-0.5 text-[10px] text-zinc-100 hover:bg-zinc-600">${stale ? 'Re-preview' : 'Preview'}</button>
+    <button data-act="commit" ${p && !stale && !locked ? '' : 'disabled'} class="rounded bg-blue-600 px-2.5 py-0.5 text-[10px] text-white hover:bg-blue-500 disabled:opacity-40">Commit</button>
+    <button data-act="discard" ${p ? '' : 'disabled'} class="rounded bg-zinc-800 px-2.5 py-0.5 text-[10px] text-zinc-300 hover:bg-zinc-700 disabled:opacity-40">Discard</button></div>`;
+}
+
+/** Scrolling body + pinned footer, shared by B (inside the toolbox) and C (own section). */
+function opBody(inToolbox) {
+  const body = S.op.kind === 'interpolate' ? interpolateBody() : cleanupBody();
+  return `<div class="px-3 py-2 overflow-y-auto min-h-0 flex-1 ${inToolbox ? '' : ''}">${body}</div>${opFooter()}`;
+}
+
+/* ------------------------------------------------------------------ C: operations section */
+function opsSectionC() {
+  const opts = OPERATIONS.map((o) => `<option value="${o.id}" ${o.disabled ? 'disabled' : ''} ${S.op.open && S.op.kind === o.id ? 'selected' : ''}>${o.label}${o.disabled ? ' · ' + o.disabled : o.note ? ' · ' + o.note : ''}</option>`).join('');
+  const picker = `<select data-set="opKind" class="px-1 py-0.5 rounded bg-zinc-800 text-zinc-200 text-[10px] min-w-0 ${S.op.open ? '' : 'flex-1'}" style="${S.op.open ? 'width:104px' : ''}">
+      ${S.op.open ? '' : '<option value="" selected>Open an operation…</option>'}${opts}</select>`;
+  const p = S.preview;
+  const summary = p ? (p.stale ? '<span class="text-amber-300">preview out of date</span>' : '<span class="text-zinc-300">preview pending</span>')
+    : S.op.kind === 'cleanup' ? `<span class="text-zinc-500">${cleanupDef().label}</span>` : `<span class="text-zinc-500">${keyframeInfo(member()).gaps.length} gaps</span>`;
+  const header = `<div class="flex items-center gap-2 px-3 border-b border-zinc-800 shrink-0" style="height:28px">
+      <span class="text-[9px] text-zinc-500 uppercase tracking-wide">Operations</span>
+      ${picker}
+      ${S.op.open ? `<span class="flex-1 min-w-0 truncate text-[10px]">${S.op.collapsed ? summary : ''}</span>
+        <span class="flex items-center gap-1 text-[10px] shrink-0" style="color:${member().color}">${swatch(member().color, 'w-2 h-2')}${esc(member().name)}</span>
+        <button data-act="opCollapse" title="${S.op.collapsed ? 'Expand' : 'Collapse (the operation stays alive)'}" class="text-zinc-400 hover:text-zinc-100 px-0.5">${S.op.collapsed ? '▴' : '▾'}</button>
+        <button data-act="opClose" title="Close" class="text-zinc-400 hover:text-zinc-100 px-0.5">✕</button>` : ''}
+    </div>`;
+  if (!S.op.open || S.op.collapsed) return `<div data-m="ops" class="border-t border-zinc-800 bg-zinc-900 shrink-0">${header}</div>`;
+  return `<div data-m="ops" class="border-t border-zinc-800 bg-zinc-900 flex flex-col min-h-0" style="flex:0 1 260px">
+      ${header}
+      <div class="flex flex-col" style="flex:1 10 auto;min-height:96px">${opBody(false)}</div></div>`;
+}
+
+/* ------------------------------------------------------------------ A: as-built sheet */
+function sheetA() {
+  if (!S.op.open) return '';
+  const o = cleanupDef();
+  const basic = o.params.filter((p) => !p.adv), adv = o.params.filter((p) => p.adv);
+  const advOpen = !!S.op.adv[o.id];
+  const sec = (label, inner) => `<div class="px-3 py-2 border-b border-zinc-800/70"><div class="text-[9px] text-zinc-500 uppercase tracking-wide mb-1">${label}</div>${inner}</div>`;
+  const param = (p) => p.select ? selectRow(p.label, `param.${o.id}.${p.k}`, S.op.params[`${o.id}.${p.k}`], p.select)
+    : rangeRow(p.label, `param.${o.id}.${p.k}`, S.op.params[`${o.id}.${p.k}`], p.min, p.max, p.step, p.unit);
+  const opts = (g) => CLEANUP.filter((x) => x.g === g).map((x) => `<option value="${x.id}" ${x.id === o.id ? 'selected' : ''}>${x.label}</option>`).join('');
+  const sc = S.op.scope;
+  let body = sec('Operation', `<select data-set="cleanupOp" class="w-full px-1 py-0.5 rounded bg-zinc-800 text-zinc-200 text-[11px]"><optgroup label="Clean">${opts('clean')}</optgroup><optgroup label="Segments">${opts('segments')}</optgroup></select>
+      <div class="mt-1 text-[10px] text-zinc-500">${esc(o.desc)}</div>`);
+  if (basic.length) body += sec('Parameters', basic.map(param).join(''));
+  body += sec('Scope', seg('scopeSlices', sc.slices, [['current', 'Slice'], ['range', 'Range'], ['volume', 'Volume']]) +
+    (sc.slices === 'range' ? `<div class="flex items-center gap-1.5 mt-1.5 text-[10px] text-zinc-400">Slices <input type="number" data-set="from" value="${sc.from}" class="w-14 px-1 py-0.5 rounded bg-zinc-800 text-zinc-200">–<input type="number" data-set="to" value="${sc.to}" class="w-14 px-1 py-0.5 rounded bg-zinc-800 text-zinc-200"><span class="text-zinc-500">of ${TOTAL}</span></div>` : '') +
+    (o.pair ? '' : `<div class="mt-1.5">${seg('scopeLabels', sc.labels, [['active', 'Active segment'], ['all', 'All segments']])}</div>`));
+  if (adv.length) body += `<button data-act="adv" class="w-full text-left px-3 py-1.5 text-[10px] text-zinc-400 hover:text-zinc-200 border-b border-zinc-800/70">${advOpen ? '▾' : '▸'} Advanced</button>${advOpen ? `<div class="px-3 py-2 border-b border-zinc-800/70">${adv.map(param).join('')}</div>` : ''}`;
+  if (sc.labels === 'all' && o.g === 'clean') body += sec('Per-segment plan', `<label class="flex items-center gap-2 text-[10px] text-zinc-300"><input type="checkbox" checked> Protect small and thin segments</label>
+      <table class="w-full mt-1.5 text-[10px]">${S.members.map((m) => `<tr class="border-t border-zinc-800/70"><td class="py-0.5 text-zinc-200">${esc(m.name)}</td><td class="text-right text-zinc-500 pr-1">${(m.slices.size * 812).toLocaleString('en-US')}</td><td class="text-right"><select class="px-1 rounded bg-zinc-800 text-[10px]"><option>${o.label}</option></select></td></tr>`).join('')}</table>`);
+  const p = S.preview;
+  return `<div data-m="ops" class="border-t border-zinc-800 bg-zinc-900 flex flex-col min-h-0" style="max-height:60%">
+    <div class="flex items-center gap-2 px-3 py-2 border-b border-zinc-800 shrink-0"><button data-act="opClose" class="text-zinc-400 hover:text-zinc-100 text-xs">←</button>
+      <span class="flex-1 text-xs font-semibold text-zinc-100">Cleanup</span>
+      <span class="flex items-center gap-1 text-[10px]" style="color:${member().color}">${swatch(member().color, 'w-2 h-2')}${esc(member().name)}</span></div>
+    <div class="overflow-y-auto min-h-0">${body}</div>
+    ${p ? `<div class="px-3 py-1.5 text-[10px] ${p.stale ? 'text-amber-300' : 'text-amber-300/90'}">${p.stale ? 'Target changed: preview is out of date' : 'Preview on the viewport: ⏎ commit · ⎋ discard'}</div>` : ''}
+    <div class="flex items-center gap-1.5 px-3 py-2 border-t border-zinc-800 shrink-0">
+      <button data-act="preview" class="rounded bg-zinc-700 px-2.5 py-1 text-[10px] text-zinc-100 hover:bg-zinc-600">Preview</button>
+      <button data-act="commit" ${p && !p.stale ? '' : 'disabled'} class="rounded bg-blue-600 px-2.5 py-1 text-[10px] text-white disabled:opacity-40">Commit</button>
+      <button data-act="discard" ${p ? '' : 'disabled'} class="rounded bg-zinc-800 px-2.5 py-1 text-[10px] text-zinc-300 disabled:opacity-40">Discard</button></div></div>`;
+}
+
+/* ------------------------------------------------------------------ viewport */
+function viewport() {
+  const W = 560, H = panelH();
+  const cx = W / 2, cy = H / 2, R = Math.min(W, H) * 0.36;
+  const blob = (i, m) => {
+    const ang = i * 1.3, d = R * (0.15 + 0.08 * i), rr = R * (i === 2 ? 0.34 : i === 4 ? 0.08 : 0.16);
+    return { x: cx + Math.cos(ang) * d, y: cy + Math.sin(ang) * d * 0.7, r: rr };
+  };
+  let shapes = '';
+  S.members.forEach((m, i) => {
+    if (!m.slices.has(S.slice)) return;
+    const b = blob(i, m);
+    shapes += `<ellipse cx="${b.x}" cy="${b.y}" rx="${b.r}" ry="${b.r * 0.8}" fill="${m.color}" fill-opacity="${S.opacity * 0.9}" stroke="${m.color}" stroke-width="1.2"/>`;
+  });
+  const p = S.preview;
+  if (p && p.slices.includes(S.slice)) {
+    const b = blob(p.member, S.members[p.member]);
+    const c = S.members[p.member].color;
+    shapes += `<g style="color:${c}"><ellipse cx="${b.x}" cy="${b.y}" rx="${b.r * 1.12}" ry="${b.r * 0.92}" class="hatch" stroke="${c}" stroke-width="1.5" stroke-dasharray="5 3" opacity="${p.stale ? 0.35 : 0.9}"/></g>`;
+  }
+  // slice track: active member occupancy + range bracket
+  const occ = [...member().slices].map((s) => `<div class="absolute left-0.5 right-0.5 rounded-sm" style="top:${((s - 1) / TOTAL) * 100}%;height:${100 / TOTAL}%;background:${member().color};opacity:.75"></div>`).join('');
+  const sc = S.op.scope;
+  const bracket = S.op.open && S.op.kind === 'cleanup' && sc.slices === 'range'
+    ? `<div class="absolute -left-1 -right-1 border-y-2 border-l-2 border-blue-400 rounded-l" style="top:${((sc.from - 1) / TOTAL) * 100}%;height:${((sc.to - sc.from + 1) / TOTAL) * 100}%"></div>` : '';
+  const thumb = `<div class="absolute left-0 right-0 border border-zinc-200 rounded-sm" style="top:${((S.slice - 1) / TOTAL) * 100}%;height:${100 / TOTAL}%"></div>`;
+  const paints = activeTool() && activeTool().g !== 'pinned';
+  const bar = p ? `<div class="absolute left-1/2 -translate-x-1/2 top-12 flex items-center gap-2 whitespace-nowrap rounded bg-zinc-900/95 border ${p.stale ? 'border-amber-600/70' : 'border-zinc-700'} px-2.5 py-1 text-[11px] shadow">
+      ${p.stale ? '<span class="text-amber-300">Preview out of date</span><button data-act="preview" class="rounded bg-zinc-700 px-2 py-0.5 text-zinc-100">Re-preview</button>'
+        : `<span class="text-zinc-300">Preview · ${esc(p.label)} · ${p.slices.length} slice${p.slices.length === 1 ? '' : 's'}</span><button data-act="commit" class="rounded bg-blue-600 px-2 py-0.5 text-white">Commit ⏎</button>`}
+      <button data-act="discard" class="rounded bg-zinc-800 px-2 py-0.5 text-zinc-300">Discard ⎋</button></div>` : '';
+  return `<div class="relative bg-black overflow-hidden select-none ${paints ? 'cursor-crosshair' : 'cursor-default'}" style="width:${W}px;height:${H}px" id="vp">
+    <svg width="${W}" height="${H}" data-act="paint">
+      <ellipse cx="${cx}" cy="${cy}" rx="${R * 1.35}" ry="${R * 1.05}" fill="#3f3f46"/>
+      <ellipse cx="${cx}" cy="${cy}" rx="${R * 1.2}" ry="${R * 0.92}" fill="#52525b"/>
+      <ellipse cx="${cx - R * 0.4}" cy="${cy - R * 0.1}" rx="${R * 0.35}" ry="${R * 0.5}" fill="#71717a"/>
+      ${shapes}
+    </svg>
+    <div class="absolute left-2 top-1.5 text-[10px] text-zinc-400 leading-tight pointer-events-none">CT ABD/PEL W CONTRAST<br>Se 3 · Im ${S.slice}/${TOTAL}</div>
+    <div class="absolute right-2 top-1.5 text-[10px] text-zinc-400 text-right leading-tight pointer-events-none">W 400 L 40<br>${paints ? `${activeTool().label} · click to ${S.mode === 'erase' && activeTool().needs.includes('mode') ? 'erase' : 'paint'} ${esc(member().name)}` : 'Select: clicks do not paint'}</div>
+    ${bar}
+    <div class="absolute right-1 top-10 bottom-10 w-3 bg-zinc-900/80 rounded-sm">${occ}${bracket}${thumb}</div>
+  </div>`;
+}
+
+/* ------------------------------------------------------------------ assemble */
+function panel() {
+  const L = S.layout;
+  const listMin = L === 'A' ? 64 : 120;
+  const ops = L === 'C' ? opsSectionC() : L === 'A' ? sheetA() : '';
+  return `<div class="bg-zinc-900 border-l border-zinc-800 flex flex-col overflow-hidden" style="width:400px;height:${panelH()}px" id="panel">
+    ${panelHeader()}
+    <div data-m="list" class="flex-1 overflow-y-auto" style="min-height:${listMin}px">${list()}</div>
+    ${ops}
+    ${toolbox()}
+  </div>`;
+}
+function app() {
+  return `<div class="relative rounded-lg border border-zinc-700 overflow-hidden" style="width:960px">
+    <div class="h-7 bg-zinc-800 flex items-center gap-1.5 px-3 text-[10px] text-zinc-500"><span class="w-2.5 h-2.5 rounded-full bg-zinc-600"></span><span class="w-2.5 h-2.5 rounded-full bg-zinc-600"></span><span class="w-2.5 h-2.5 rounded-full bg-zinc-600"></span><span class="ml-3">XNAT Workstation · window ${S.win} px tall</span></div>
+    <div class="h-10 bg-zinc-900 border-b border-zinc-800 flex items-center gap-3 px-3 text-[11px] text-zinc-500">Toolbar · W/L · Pan · Zoom · Layout · Tags</div>
+    <div class="flex">${viewport()}${panel()}</div>
+  </div>`;
+}
+
+const NOTES = {
+  A: { title: 'A · As built (D1)', points: [
+      'Process tab → <b>Cleanup</b> opens a sheet <i>above</i> the toolbox.',
+      'The toolbox height follows the tool: compare Select and Threshold.',
+      'With the sheet open, the member list shrinks to ~180 px.',
+      'The sheet header repeats the target the toolbox header already shows.'] },
+  B: { title: 'B · Operation inside the Process tab', points: [
+      'The toolbox has a fixed height (~378 px). Switching tools never moves anything.',
+      'Process: the op buttons sit in the grid and the op fills the Controls area. The viewport tool switches to <b>Select</b>.',
+      'Pick a tool (or press B) and the op disappears; its state is kept. Return with X or Process.',
+      'Painting while a preview is pending makes the preview stale (try: Preview, B, click the image).',
+      'Cost: you can\'t see the op while you paint (try Interpolate: you have to keep switching tabs).'] },
+  C: { title: 'C · Separate operations section (recommended)', points: [
+      'The toolbox has a fixed height that depends only on tools. <b>No tabs</b>: every tool visible in 4 columns (~290 px; ~323 px with the planned tools). <b>Tabs</b>: Paint · Shape · Smart (~283 px).',
+      'Operations open from their own row (28 px when closed). The body has a fixed height and scrolls; the footer stays put.',
+      'Tools stay usable with the op open. Try <b>Interpolate</b>: paint slice 15 with the brush and watch the gaps update.',
+      '▾ collapses the op to one summary row; the preview and the op stay alive.',
+      'At 600 px the list keeps ≥120 px: the op body shrinks first, then the tool controls scroll.'] },
+};
+
+function renderControls() {
+  document.getElementById('cSeg').innerHTML = S.layout !== 'C' ? '' : `<span class="text-zinc-500 uppercase tracking-wide text-[10px]">C toolbox</span>
+    <div class="seg flex rounded overflow-hidden border border-zinc-700">${[['flat', 'No tabs · 4 columns'], ['tabs', 'Tabs']].map(([v, l]) =>
+      `<button data-act="cToolbox" data-arg="${v}" class="px-2.5 py-1 text-[11px] ${S.cToolbox === v ? 'bg-blue-600 text-white' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'}">${l}</button>`).join('')}</div>
+    <label class="flex items-center gap-1.5 text-[11px] text-zinc-400"><input type="checkbox" data-act="future" ${S.future ? 'checked' : ''}> + planned tools (branch 4)</label>`;
+  document.getElementById('layoutSeg').innerHTML = [['A', 'A · As built'], ['B', 'B · In Process tab'], ['C', 'C · Separate section ★']].map(([v, l]) =>
+    `<button data-act="layout" data-arg="${v}" class="px-2.5 py-1 text-[11px] ${S.layout === v ? 'bg-blue-600 text-white' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'}">${l}</button>`).join('');
+  document.getElementById('winSeg').innerHTML = [900, 760, 600].map((v) =>
+    `<button data-act="win" data-arg="${v}" class="px-2.5 py-1 text-[11px] ${S.win === v ? 'bg-blue-600 text-white' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'}">${v}${v === 900 ? ' (default)' : v === 600 ? ' (min)' : ''}</button>`).join('');
+}
+
+function measure() {
+  const P = document.getElementById('panel').getBoundingClientRect().height;
+  const get = (k) => { const el = document.querySelector(`[data-m="${k}"]`); return el ? Math.round(el.getBoundingClientRect().height) : 0; };
+  const rows = [['Member list', get('list'), '#3b82f6'], ['Operations', get('ops'), '#14b8a6'], ['Tools', get('tools'), '#a855f7']];
+  const n = NOTES[S.layout];
+  document.getElementById('notes').innerHTML = `
+    <div class="rounded border border-zinc-700 bg-zinc-900 p-3">
+      <div class="text-[10px] uppercase tracking-wide text-zinc-500 mb-2">Live heights · panel ${Math.round(P)} px</div>
+      ${rows.map(([l, h, c]) => `<div class="flex items-center gap-2 py-0.5"><span class="w-2 h-2 rounded-sm" style="background:${c}"></span><span class="flex-1">${l}</span>
+        <span class="tabular-nums text-zinc-100">${h} px</span><span class="tabular-nums text-zinc-500 w-10 text-right">${Math.round((h / P) * 100)}%</span></div>
+        <div class="h-1.5 rounded bg-zinc-800 mb-1"><div class="h-1.5 rounded" style="width:${(h / P) * 100}%;background:${c}"></div></div>`).join('')}
+    </div>
+    <div class="rounded border border-zinc-700 bg-zinc-900 p-3">
+      <div class="text-zinc-100 font-semibold mb-1.5">${n.title}</div>
+      <ul class="list-disc pl-4 space-y-1 text-zinc-400">${n.points.map((p) => `<li>${p}</li>`).join('')}</ul>
+    </div>
+    <div class="rounded border border-zinc-800 p-3 text-zinc-500 text-[11px]">Draft for discussion. Not a frozen visual baseline. Disabled operations show where later branches plug in.</div>`;
+}
+
+function render() {
+  renderControls();
+  document.getElementById('stage').innerHTML = app();
+  measure();
+  // The Tailwind CDN generates newly used classes asynchronously; measure again once it has.
+  setTimeout(measure, 120);
+  setTimeout(measure, 600);
+}
+
+/* ------------------------------------------------------------------ behaviour */
+function setTool(id) {
+  const t = TOOLS.find((x) => x.id === id);
+  S.tool = id;
+  if (t.g !== 'pinned') S.tab = t.g; // the tab follows the tool
+  else if (S.layout === 'B' && S.tab === 'process' && id !== 'select') S.tab = 'paint';
+}
+function openOp(kind) {
+  S.op.kind = kind; S.op.open = true; S.op.collapsed = false;
+  if (S.layout !== 'C') { if (S.tab !== 'process') enterProcess(); }
+}
+function enterProcess() {
+  S.tab = 'process';
+  if (S.layout === 'B' && S.tool !== 'select') { S.prevTool = S.tool; S.tool = 'select'; }
+}
+function previewSlices() {
+  if (S.op.kind === 'interpolate') return keyframeInfo(member()).gaps.flatMap(([a, b]) => range(a, b));
+  const sc = S.op.scope;
+  if (sc.slices === 'current') return [S.slice];
+  if (sc.slices === 'range') return range(Math.min(sc.from, sc.to), Math.max(sc.from, sc.to));
+  return [...member().slices].sort((a, b) => a - b);
+}
+function doPreview() {
+  const label = S.op.kind === 'interpolate' ? `Interpolate · ${S.op.method.split(' ')[0]}` : cleanupDef().label;
+  S.preview = { kind: S.op.kind, label, member: S.member, slices: previewSlices(), stale: false };
+  S.status = null;
+}
+function doCommit() {
+  const p = S.preview; if (!p || p.stale) return;
+  const m = S.members[p.member];
+  if (p.kind === 'interpolate') p.slices.forEach((s) => m.slices.add(s));
+  else if (S.op.cleanup === 'clear') p.slices.forEach((s) => m.slices.delete(s));
+  else if (S.op.cleanup === 'moveInto' || S.op.cleanup === 'copyInto') {
+    p.slices.forEach((s) => { if (m.slices.has(s)) { S.members[S.op.into].slices.add(s); if (S.op.cleanup === 'moveInto') m.slices.delete(s); } });
+  }
+  S.preview = null; S.status = `Committed ${p.label} · one undo step`; S.backupAt = Date.now();
+}
+function paint() {
+  const t = activeTool(); if (!t || t.g === 'pinned') return;
+  const m = member();
+  if (S.mode === 'erase' && t.needs.includes('mode')) m.slices.delete(S.slice); else m.slices.add(S.slice);
+  if (S.preview && (S.preview.member === S.member || S.op.scope.labels === 'all')) S.preview.stale = true;
+  S.backupAt = Date.now();
+}
+
+document.addEventListener('click', (e) => {
+  const el = e.target.closest('[data-act]'); if (!el || el.disabled) return;
+  const a = el.dataset.act, arg = el.dataset.arg;
+  switch (a) {
+    case 'layout': S.layout = arg; S.op.open = false; S.preview = null; S.status = null; if (S.tab === 'process') S.tab = 'paint'; if (S.tool === 'select' && S.prevTool) S.tool = S.prevTool; if (arg === 'A' && S.op.kind === 'interpolate') S.op.kind = 'cleanup'; break;
+    case 'win': S.win = +arg; break;
+    case 'cToolbox': S.cToolbox = arg; break;
+    case 'future': S.future = !S.future; break;
+    case 'tool': setTool(arg); break;
+    case 'tab':
+      if (arg === 'process') enterProcess();
+      else { S.tab = arg; if (S.layout === 'B' && S.prevTool) { S.tool = S.prevTool; S.prevTool = null; if (TOOLS.find((t) => t.id === S.tool).g !== arg) S.tool = TOOLS.find((t) => t.g === arg).id; } }
+      break;
+    case 'processOp': openOp(arg); break;
+    case 'member': S.member = +arg; if (S.op.into === S.member) S.op.into = (S.member + 1) % S.members.length; if (S.preview && S.preview.member !== S.member) S.preview.stale = true; break;
+    case 'mode': S.mode = arg; break;
+    case 'scopeSlices': S.op.scope.slices = arg; break;
+    case 'scopeLabels': S.op.scope.labels = arg; break;
+    case 'adv': S.op.adv[S.op.cleanup] = !S.op.adv[S.op.cleanup]; break;
+    case 'preview': doPreview(); break;
+    case 'commit': doCommit(); break;
+    case 'discard': S.preview = null; break;
+    case 'opCollapse': S.op.collapsed = !S.op.collapsed; break;
+    case 'opClose': S.op.open = false; S.preview = null; S.status = null; break;
+    case 'goto': S.slice = +arg; break;
+    case 'paint': paint(); break;
+    default: return;
+  }
+  render();
+});
+document.addEventListener('input', (e) => {
+  const k = e.target.dataset.live; if (!k) return;
+  const v = +e.target.value;
+  if (k === 'opacity') S.opacity = v / 100; else if (k === 'size') S.size = v; else if (k === 'sample') S.sample = v;
+  else if (k.startsWith('param.')) S.op.params[k.slice(6)] = v;
+  const out = document.querySelector(`[data-out="${k}"]`);
+  if (out) out.innerHTML = fmt(v, out.innerHTML.split('&nbsp;')[1] || '');
+  if (k === 'opacity') { const vp = document.getElementById('vp'); if (vp) vp.outerHTML = viewport(); }
+});
+document.addEventListener('change', (e) => {
+  const k = e.target.dataset.set; if (!k) return;
+  const v = e.target.value;
+  if (k === 'cleanupOp') S.op.cleanup = v;
+  else if (k === 'opKind') { if (v) openOp(v); }
+  else if (k === 'into') S.op.into = +v;
+  else if (k === 'from') S.op.scope.from = Math.max(1, Math.min(TOTAL, +v));
+  else if (k === 'to') S.op.scope.to = Math.max(1, Math.min(TOTAL, +v));
+  else if (k === 'method') S.op.method = v;
+  else if (k.startsWith('param.')) S.op.params[k.slice(6)] = v;
+  else return;
+  render();
+});
+document.addEventListener('wheel', (e) => {
+  if (!e.target.closest('#vp')) return;
+  e.preventDefault();
+  S.slice = Math.max(1, Math.min(TOTAL, S.slice + (e.deltaY > 0 ? 1 : -1)));
+  render();
+}, { passive: false });
+document.addEventListener('keydown', (e) => {
+  if (e.target.matches?.('input, select')) return;
+  const k = e.key;
+  if (k === 'ArrowUp' || k === 'ArrowDown') { S.slice = Math.max(1, Math.min(TOTAL, S.slice + (k === 'ArrowDown' ? 1 : -1))); e.preventDefault(); }
+  else if (k === 'Enter' && S.preview) doCommit();
+  else if (k === 'Escape' && S.preview) S.preview = null;
+  else if (k === 'b' || k === 'B') setTool('brush');
+  else if (k === 't' || k === 'T') setTool('threshold');
+  else if (k === 'x' || k === 'X') openOp('cleanup');
+  else return;
+  render();
+});
+setInterval(() => { const b = document.querySelectorAll('[title="Local backup"]'); if (b.length) render(); }, 5000);
+
+render();
+</script>
+</body>
+</html>
