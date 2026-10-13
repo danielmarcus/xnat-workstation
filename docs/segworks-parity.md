@@ -618,3 +618,19 @@ Structure Spline and Livewire tools through the same controls (D3, wireframes §
   (four survived the first round and the tests were strengthened — a circular reference
   ring, a missing local-extreme case, and two morph cases that could not tell the variants
   apart).
+- **F2** — `AppLivewireContourTool` extends Cornerstone's Live Wire under the **same tool name**
+  (RTSTRUCT export, the tool group and annotations unchanged). Advanced mode rebuilds the
+  scissors on the same normalised image with F1's cost (the private blend is replaced on the
+  instance); close tolerance adjusts only the click's canvas position that Cornerstone's
+  close test reads (its own threshold is a fixed 10 px); commit smoothing runs Chaikin on the
+  closed path. Settings live in a dependency-free module (`contourToolSettings`) the tool
+  reads at click time; `ContourToolControls` renders them (Edge cost Basic/Advanced, Edge
+  weight, ▸ Weights: direction / Laplacian / pre-smooth / kernel, Close within, Smooth
+  commit). Structure Controls area fixed at **176 px** (Live Wire Advanced, folded).
+  **Found on the way:** a Live Wire contour whose anchors are far apart (120°) can take the
+  long way round and close by retracing it — a zero-area contour that Cornerstone's contour
+  union rightly drops (the stroke vanishes). Not a code bug; the E2E anchors are 45° apart.
+  The first wrapper copied the click event onto Event's prototype, whose accessors throw on a
+  non-Event (the click died silently); it is now a plain object. E2E `contour-refine` (4):
+  height test red before the fixed height; the three behaviour tests red against a build with
+  Cornerstone's own Live Wire. Unit 1109/1109.

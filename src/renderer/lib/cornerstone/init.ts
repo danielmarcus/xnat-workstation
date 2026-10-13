@@ -24,7 +24,6 @@ import {
   BrushTool,
   PlanarFreehandContourSegmentationTool,
   SplineContourSegmentationTool,
-  LivewireContourSegmentationTool,
   CircleScissorsTool,
   RectangleScissorsTool,
   SphereScissorsTool,
@@ -38,6 +37,7 @@ import {
 } from '@cornerstonejs/tools';
 import SafePaintFillTool from './tools/SafePaintFillTool';
 import SelectTool from './tools/SelectTool';
+import { AppLivewireContourTool } from './tools/AppLivewireContourTool';
 import { SEMI_AUTO_TOOLS } from './tools/semiAutoTools';
 import { utilities as csToolsUtilities } from '@cornerstonejs/tools';
 import { init as initDicomImageLoader } from '@cornerstonejs/dicom-image-loader';
@@ -120,7 +120,9 @@ export async function initCornerstone(): Promise<void> {
   // Segmentation tools — contour
   addTool(PlanarFreehandContourSegmentationTool);
   addTool(SplineContourSegmentationTool);
-  addTool(LivewireContourSegmentationTool);
+  // Live Wire with SegWorks' settings (branch 6 F2) — the same tool name, so everything
+  // keyed on Cornerstone's Live Wire still finds it.
+  addTool(AppLivewireContourTool);
   addTool(SculptorTool);
   addTool(LabelMapEditWithContourTool);
 

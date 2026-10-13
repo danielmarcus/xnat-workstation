@@ -41,7 +41,9 @@ export type ToolControl =
   /** Whether the tool adds to or removes from the segment (Shift inverts). */
   | 'editMode'
   /** The Smart tab tools' own settings (rendered by the semi-auto controls panel). */
-  | 'semiAuto';
+  | 'semiAuto'
+  /** Live Wire / Spline drawing settings (branch 6; rendered by ContourToolControls). */
+  | 'contourDraw';
 
 /**
  * The Segmentation tool families (SegWorks parity D2, amended 2026-10-12). The toolbox has
@@ -105,7 +107,7 @@ const SEG_TOOLS: ToolDef[] = [
 const STRUCTURE_TOOLS: ToolDef[] = [
   { id: 'freehand', label: 'Freehand', title: 'Trace a boundary freehand', icon: S(<path d="M3 11c1-4 4-6 6-3s5 1 4-3" />) },
   { id: 'spline', label: 'Spline', title: 'Place points; a smooth curve is fitted through them', icon: S(<path d="M2 11c3 0 3-6 6-6s3 6 6 6" />) },
-  { id: 'livewire', label: 'Livewire', title: 'Trace a boundary that snaps to the nearest image edge', icon: S(<path d="M3 12c2-6 8-6 10 0" />, { strokeDasharray: '2 1.3' }) },
+  { id: 'livewire', label: 'Livewire', title: 'Trace a boundary that snaps to the nearest image edge', needs: ['contourDraw'], icon: S(<path d="M3 12c2-6 8-6 10 0" />, { strokeDasharray: '2 1.3' }) },
   { id: 'sculptor', label: 'Sculptor', title: 'Push or pull an existing boundary into shape', needs: ['brushSize'], icon: S(<><circle cx="8" cy="8" r="5" /><path d="M8 3v10" /></>) },
   SELECT_TOOL,
 ];

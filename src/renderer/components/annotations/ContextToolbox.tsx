@@ -63,11 +63,15 @@ export interface ContextToolboxControls {
 /**
  * Fixed height of the Controls area, per kind whose controls change with the tool: sized to
  * the tallest tool with its Advanced settings folded (Segmentation: Level Trace with the band
- * "From scan" and an ROI limit drawn, and Random Walker with its Run row), so switching tools
- * never moves the panel. E2E operations-section checks that no tool's controls overflow it.
+ * "From scan" and an ROI limit drawn, and Random Walker with its Run row; Structure: Live
+ * Wire in Advanced mode), so switching tools never moves the panel. E2E operations-section checks that no tool's controls overflow it.
  * Kinds not listed have the same controls for every tool.
  */
-const CONTROLS_HEIGHT: Partial<Record<ContainerKind, number>> = { SEG: 180 };
+const CONTROLS_HEIGHT: Partial<Record<ContainerKind, number>> = {
+  SEG: 180,
+  // Structure: contour thickness + opacity, then Live Wire's own settings (Advanced, folded).
+  RTSTRUCT: 176,
+};
 /** On a short window the Controls area may shrink to its header + one row, then scrolls. */
 const CONTROLS_MIN_HEIGHT = 54;
 
@@ -132,12 +136,14 @@ export interface ContextToolboxProps {
   backupStatusKind?: 'saving' | 'saved' | 'error';
   /** The Smart tools' own controls, for the active tool (rendered when it declares 'semiAuto'). */
   renderSemiAutoControls?: (toolId: string) => ReactNode;
+  /** Live Wire / Spline drawing settings, for the active tool (when it declares 'contourDraw'). */
+  renderContourControls?: (toolId: string) => ReactNode;
 }
 
 export default function ContextToolbox(props: ContextToolboxProps) {
   const {
     kind, activeMemberName, activeMemberColor, activeToolId, disabledToolIds = [], onSelectTool, compact, columns = 3, controls,
-    backupStatus, backupStatusKind, renderSemiAutoControls,
+    backupStatus, backupStatusKind, renderSemiAutoControls, renderContourControls,
   } = props;
   const tools = toolsForKind(kind);
   const disabled = new Set(disabledToolIds);
@@ -344,6 +350,7 @@ export default function ContextToolbox(props: ContextToolboxProps) {
               </div>
             )}
             {needs('semiAuto') && activeToolId && renderSemiAutoControls?.(activeToolId)}
+            {needs('contourDraw') && activeToolId && renderContourControls?.(activeToolId)}
           </div>
         </>
       )}
