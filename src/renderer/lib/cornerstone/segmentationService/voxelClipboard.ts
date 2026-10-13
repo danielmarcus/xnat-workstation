@@ -83,7 +83,7 @@ export function indexToWorld(geom: VoxelGridGeometry, index: Vec3): Vec3 {
 }
 
 /** world → fractional index: (Directionᵀ · (world − origin)) ./ spacing. */
-function worldToIndexFloat(geom: VoxelGridGeometry, world: Vec3): Vec3 {
+export function worldToIndexFloat(geom: VoxelGridGeometry, world: Vec3): Vec3 {
   const d = geom.direction;
   const diff: Vec3 = [world[0] - geom.origin[0], world[1] - geom.origin[1], world[2] - geom.origin[2]];
   // transpose of an orthonormal direction matrix = its inverse

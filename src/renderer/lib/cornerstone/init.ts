@@ -36,8 +36,8 @@ import {
 } from '@cornerstonejs/tools';
 import SafePaintFillTool from './tools/SafePaintFillTool';
 import SelectTool from './tools/SelectTool';
-import { AppLivewireContourTool } from './tools/AppLivewireContourTool';
-import { AppSplineContourTool } from './tools/AppSplineContourTool';
+import { AppLivewireContourTool, ContourFillLivewireTool } from './tools/AppLivewireContourTool';
+import { AppSplineContourTool, ContourFillSplineTool } from './tools/AppSplineContourTool';
 import { SEMI_AUTO_TOOLS } from './tools/semiAutoTools';
 import { utilities as csToolsUtilities } from '@cornerstonejs/tools';
 import { init as initDicomImageLoader } from '@cornerstonejs/dicom-image-loader';
@@ -126,6 +126,9 @@ export async function initCornerstone(): Promise<void> {
   addTool(AppLivewireContourTool);
   addTool(SculptorTool);
   addTool(LabelMapEditWithContourTool);
+  // Contour Fill's Spline and Live Wire boundaries (branch 6 F4, D3).
+  addTool(ContourFillSplineTool);
+  addTool(ContourFillLivewireTool);
 
   // SplineContourSegmentationTool inherits getContourSequence from
   // ContourBaseTool but doesn't self-register with AnnotationToPointData

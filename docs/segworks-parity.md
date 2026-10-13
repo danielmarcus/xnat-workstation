@@ -656,3 +656,21 @@ Structure Spline and Livewire tools through the same controls (D3, wireframes §
   in-between count, which let a guard-off mutant survive; refused-click tests now read the
   settled state. E2E +6 (red against a build with Cornerstone's own Spline and a no-op Fit ROI;
   the guard test against a guard-off mutant). Unit 1116/1116.
+- **F4** — Contour Fill's boundary (D3) is a "Boundary" control — Freehand · Spline · Live
+  Wire — remembered across tool switches; **O** picks Contour Fill, and pressed again cycles
+  the boundary (HUD `Contour Fill · <mode>`). Freehand stays Cornerstone's
+  LabelMapEditWithContour with its own undo bridge. Spline and Live Wire are two plain
+  (non-segmentation) contour tools — `ContourFillSpline` / `ContourFillLivewire`, the same F2/F3
+  mixins on Cornerstone's `SplineROITool` / `LivewireContourTool`, so every setting applies —
+  whose closed outline `fillOutlineIntoActiveSegment` rasterizes in image index space (oblique
+  safe) and unions into the active segment through the labelmap transaction (one undo step),
+  then removes the outline. A locked segment is refused twice over: the draw-gesture guard
+  stops the gesture (the fill tools are SEGMENTATION_TOOLS), and the fill service refuses with
+  the same lock warning as a backstop. **Found on the way:** the locked test first asserted
+  only "nothing filled", which the transaction guarantees on its own — it survived a
+  lock-bypass mutant; it now asserts the lock warning, and is red only when BOTH the guard and
+  the service check are removed (each alone keeps it green — verified as two mutants). The new
+  tool classes reach Cornerstone by deep import, which the unit tests' `@cornerstonejs/tools`
+  mock does not cover, so the two suites that load `unifiedToolService` mock those modules (as
+  they already did SafePaintFillTool). E2E +8 (`contour-fill-modes`; red against mutants of
+  the boundary switch, the tool selection and O cycling). Unit 1116/1116.

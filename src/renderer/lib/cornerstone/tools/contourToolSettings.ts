@@ -10,6 +10,7 @@
  */
 import { DEFAULT_LIVEWIRE_COST, type LivewireCostOptions } from '../../segmentation/contours/livewireCost';
 import { DEFAULT_SPLINE_OPTIONS, type SplineAlgorithm } from '../../segmentation/contours/splines';
+import type { ContourFillMode } from '@shared/types/viewer';
 
 export interface LivewireSettings extends LivewireCostOptions {
   /** Basic = Cornerstone's own cost; Advanced = the weighted cost of #75–79. */
@@ -53,12 +54,22 @@ export const DEFAULT_SPLINE_SETTINGS: SplineSettings = {
   fitMargin: 0.3, // SegWorks roiFitMargin
 };
 
+/** Contour Fill's boundary (D3): how the outline that fills the active segment is drawn. */
+export type { ContourFillMode };
+
 export interface ContourToolSettings {
   livewire: LivewireSettings;
   spline: SplineSettings;
+  contourFillMode: ContourFillMode;
 }
 
-let settings: ContourToolSettings = { livewire: { ...DEFAULT_LIVEWIRE_SETTINGS }, spline: { ...DEFAULT_SPLINE_SETTINGS } };
+const defaults = (): ContourToolSettings => ({
+  livewire: { ...DEFAULT_LIVEWIRE_SETTINGS },
+  spline: { ...DEFAULT_SPLINE_SETTINGS },
+  contourFillMode: 'freehand',
+});
+
+let settings: ContourToolSettings = defaults();
 const listeners = new Set<() => void>();
 
 export function getContourToolSettings(): ContourToolSettings {
@@ -75,6 +86,11 @@ export function setSplineSettings(patch: Partial<SplineSettings>): void {
   for (const l of listeners) l();
 }
 
+export function setContourFillMode(contourFillMode: ContourFillMode): void {
+  settings = { ...settings, contourFillMode };
+  for (const l of listeners) l();
+}
+
 export function subscribeContourToolSettings(listener: () => void): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);
@@ -82,7 +98,7 @@ export function subscribeContourToolSettings(listener: () => void): () => void {
 
 /** Back to the defaults (E2E isolation and "Reset"). */
 export function resetContourToolSettings(): void {
-  settings = { livewire: { ...DEFAULT_LIVEWIRE_SETTINGS }, spline: { ...DEFAULT_SPLINE_SETTINGS } };
+  settings = defaults();
   for (const l of listeners) l();
 }
 
@@ -101,6 +117,20 @@ export interface SplineActions {
   /** Discard the spline being drawn (#84); false when none is. */
   clear(): boolean;
 }
-let splineActions: SplineActions | null = null;
-export function registerSplineActions(a: SplineActions | null): void { splineActions = a; }
-export function getSplineActions(): SplineActions | null { return splineActions; }
+/**
+ * Every Spline tool registers (the Structure Spline and Contour Fill's Spline boundary); an
+ * action goes to whichever one is drawing — the others answer false.
+ */
+const splineActionProviders = new Set<SplineActions>();
+export function registerSplineActions(a: SplineActions): () => void {
+  splineActionProviders.add(a);
+  return () => splineActionProviders.delete(a);
+}
+export function getSplineActions(): SplineActions | null {
+  if (!splineActionProviders.size) return null;
+  const all = [...splineActionProviders];
+  return {
+    undoLastPoint: () => all.some((p) => p.undoLastPoint()),
+    clear: () => all.some((p) => p.clear()),
+  };
+}

@@ -25,6 +25,11 @@ import {
 } from '../../../test/cornerstone/cornerstoneMocks';
 import { resetCornerstoneMocks } from '../../../test/cornerstone/resetCornerstoneMocks';
 
+// The Contour Fill boundary tools subclass Cornerstone classes reached by deep import,
+// which the @cornerstonejs/tools mock does not cover.
+vi.mock('../tools/AppSplineContourTool', () => ({ ContourFillSplineTool: { toolName: 'ContourFillSpline' } }));
+vi.mock('../tools/AppLivewireContourTool', () => ({ ContourFillLivewireTool: { toolName: 'ContourFillLivewire' } }));
+
 const cs = createCornerstoneMockState();
 
 let unifiedToolService: (typeof import('../unifiedToolService'))['unifiedToolService'];

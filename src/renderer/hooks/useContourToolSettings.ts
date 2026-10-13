@@ -7,6 +7,7 @@
 import { useSyncExternalStore } from 'react';
 import {
   getContourToolSettings,
+  setContourFillMode,
   setLivewireSettings,
   setSplineSettings,
   subscribeContourToolSettings,
@@ -17,12 +18,18 @@ import { contourToolService } from '../lib/cornerstone/contourToolService';
 import { SPLINE_ALGORITHMS } from '../lib/segmentation/contours/splines';
 import { hotkeyService } from '../lib/hotkeys/hotkeyService';
 import { useSemiAutoStore } from '../stores/semiAutoStore';
+import { useViewerStore } from '../stores/viewerStore';
+import { CONTOUR_FILL_MODES, CONTOUR_FILL_MODE_LABEL, CONTOUR_FILL_TOOLNAME, contourFillModeOf, type ContourFillMode } from '@shared/types/viewer';
 
 export interface ContourToolSettingsModel {
   livewire: LivewireSettings;
   setLivewire(patch: Partial<LivewireSettings>): void;
   spline: SplineSettings;
   setSpline(patch: Partial<SplineSettings>): void;
+  /** Contour Fill's boundary (D3) and the modes on offer. */
+  contourFillMode: ContourFillMode;
+  contourFillModes: ReadonlyArray<{ id: ContourFillMode; label: string }>;
+  setContourFillMode(mode: ContourFillMode): void;
   /** The spline families on offer, for the Algorithm picker. */
   splineAlgorithms: ReadonlyArray<{ id: string; label: string }>;
   /** An ROI limit is drawn (local editing, Fit to ROI and the ROI active spline use it). */
@@ -41,6 +48,15 @@ export function useContourToolSettings(): ContourToolSettingsModel {
     setLivewire: setLivewireSettings,
     spline: settings.spline,
     setSpline: setSplineSettings,
+    contourFillMode: settings.contourFillMode,
+    contourFillModes: CONTOUR_FILL_MODES.map((id) => ({ id, label: CONTOUR_FILL_MODE_LABEL[id] })),
+    setContourFillMode: (mode) => {
+      setContourFillMode(mode);
+      // Switching boundary while Contour Fill is in use switches the tool that draws it.
+      const viewer = useViewerStore.getState();
+      if (contourFillModeOf(viewer.activeTool)) viewer.setActiveTool(CONTOUR_FILL_TOOLNAME[mode]);
+      hotkeyService.focusActiveViewport();
+    },
     splineAlgorithms: SPLINE_ALGORITHMS,
     roiPresent,
     undoSplinePoint: thenViewport(() => contourToolService.undoLastSplinePoint()),

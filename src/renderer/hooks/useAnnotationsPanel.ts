@@ -48,6 +48,8 @@ import { buildApprovalModule, formatReviewerName } from '../lib/annotations/appr
 import { useSegmentMetrics } from './useSegmentMetrics';
 import { useActiveModality } from './useActiveModality';
 import { CATALOG_TO_TOOLNAME, TOOLNAME_TO_CATALOG, toolsForKind } from '../components/annotations/toolCatalog';
+import { CONTOUR_FILL_TOOLNAME } from '@shared/types/viewer';
+import { getContourToolSettings } from '../lib/cornerstone/tools/contourToolSettings';
 import type { ContainerListHandlers } from '../components/annotations/ContainerList';
 import type { RowTransport } from '../components/annotations/ContainerRow';
 
@@ -722,7 +724,10 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
         });
       return;
     }
-    const toolName = CATALOG_TO_TOOLNAME[toolId];
+    // Contour Fill draws with the tool of its current boundary mode (D3).
+    const toolName = toolId === 'contourFill'
+      ? CONTOUR_FILL_TOOLNAME[getContourToolSettings().contourFillMode]
+      : CATALOG_TO_TOOLNAME[toolId];
     if (toolName && unifiedToolService.isToolSupported(toolName)) {
       useViewerStore.getState().setActiveTool(toolName); // routes to unifiedToolService + updates activeTool
     } else {

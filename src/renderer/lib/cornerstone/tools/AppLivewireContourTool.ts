@@ -21,7 +21,7 @@
  * (as selectedStyle and the scissor-outline patches do), with the reason here.
  */
 import { getEnabledElement } from '@cornerstonejs/core';
-import { LivewireContourSegmentationTool } from '@cornerstonejs/tools';
+import { LivewireContourSegmentationTool, LivewireContourTool } from '@cornerstonejs/tools';
 import { LivewireScissors } from '@cornerstonejs/tools/utilities/livewire/LivewireScissors';
 import { linkCost, livewireCostMaps, type LivewireCostMaps } from '../../segmentation/contours/livewireCost';
 import { chaikin } from '../../segmentation/contours/polygon';
@@ -65,11 +65,17 @@ interface EditData {
 
 type Viewport = { worldToCanvas(p: number[]): [number, number] };
 
-export class AppLivewireContourTool extends LivewireContourSegmentationTool {
-  static toolName = LivewireContourSegmentationTool.toolName;
+type LivewireBase = abstract new (...args: any[]) => LivewireContourTool;
 
-  constructor(toolProps = {}, defaultToolProps?: Record<string, unknown>) {
-    super(toolProps, defaultToolProps as never);
+/**
+ * SegWorks' Live Wire settings on a Cornerstone Live Wire tool — the Structure tool
+ * (LivewireContourSegmentationTool) and Contour Fill's Live Wire boundary (the plain
+ * LivewireContourTool, branch 6 F4) both get exactly the same behaviour.
+ */
+export function withLivewireSettings<TBase extends LivewireBase>(Base: TBase) {
+  abstract class LivewireWithSettings extends Base {
+  constructor(...args: any[]) {
+    super(...args);
     const self = this as unknown as {
       _mouseDownCallback: (evt: { type: string; detail: Record<string, unknown> } & Record<string, unknown>) => void;
       editData: EditData | null;
@@ -129,4 +135,19 @@ export class AppLivewireContourTool extends LivewireContourSegmentationTool {
     }
     super.updateAnnotation(livewirePath);
   }
+}
+  return LivewireWithSettings;
+}
+
+/** The Structure Live Wire — Cornerstone's tool name, so everything keyed on it still finds it. */
+export class AppLivewireContourTool extends withLivewireSettings(LivewireContourSegmentationTool) {
+  static toolName = LivewireContourSegmentationTool.toolName;
+}
+
+/**
+ * Contour Fill's Live Wire boundary (D3): a plain (non-segmentation) Live Wire whose closed
+ * contour the fill listener rasterizes into the active segment and then removes.
+ */
+export class ContourFillLivewireTool extends withLivewireSettings(LivewireContourTool) {
+  static toolName = 'ContourFillLivewire';
 }

@@ -95,7 +95,7 @@ const SEG_TOOLS: ToolDef[] = [
   { id: 'region', group: 'smart', label: 'Region', title: 'Grow a region outward from the voxel you click', needs: ['brushSize'], icon: S(<><circle cx="8" cy="8" r="4" strokeDasharray="2 1.3" /><circle cx="8" cy="8" r="1.3" fill="currentColor" stroke="none" /></>) },
   { id: 'regionPlus', group: 'smart', label: 'Region+', title: 'Grow a region outward, adapting the boundary as it goes', needs: ['brushSize'], icon: S(<><circle cx="8" cy="8" r="4" strokeDasharray="2 1.3" /><path d="M8 6v4M6 8h4" /></>) },
   { id: 'rectMulti', group: 'shape', label: 'Rect Multi', title: 'Drag a rectangle; everything inside it within the intensity window joins the segment', needs: ['intensityWindow'], icon: S(<><rect x="4.5" y="2.5" width="9" height="7" rx="1" /><path d="M2.5 5.5v8h9" /></>) },
-  { id: 'contourFill', group: 'shape', label: 'Contour Fill', title: 'Draw a boundary; the area it encloses joins the segment', icon: S(<path d="M4 8c0-3 8-3 8 0s-8 3-8 0z" fill="currentColor" fillOpacity={0.25} />) },
+  { id: 'contourFill', group: 'shape', label: 'Contour Fill', title: 'Draw a boundary — freehand, spline or live wire — and the area it encloses joins the segment (O)', needs: ['contourDraw'], icon: S(<path d="M4 8c0-3 8-3 8 0s-8 3-8 0z" fill="currentColor" fillOpacity={0.25} />) },
   { id: 'levelTrace', group: 'smart', label: 'Level Trace', title: 'Click a structure: the connected region of similar intensity is previewed; ⏎ adds it', needs: ['semiAuto'], icon: S(<><path d="M3 9c1-4 9-5 10-1s-6 6-9 3" /><circle cx="8" cy="8" r="1" fill="currentColor" stroke="none" /></>) },
   { id: 'smartBrush', group: 'paint', label: 'Smart Brush', title: 'Paint only the tissue under the brush — it does not spill across boundaries', needs: ['semiAuto'], icon: S(<><circle cx="8" cy="8" r="4" /><path d="M8 4v8" strokeDasharray="1.5 1" /></>) },
   { id: 'randomWalker', group: 'smart', label: 'Rnd. Walker', title: 'Drag foreground seeds; ⇧-drag background seeds; Run segments between them (Random Walker)', needs: ['semiAuto'], icon: S(<><path d="M3 12l3-4 2 3 3-6 2 4" /></>) },
@@ -196,6 +196,11 @@ export const CATALOG_TO_TOOLNAME: Record<string, ToolName> = {
 };
 
 /** Reverse map: Cornerstone ToolName → catalog id (for toolbox active highlight). */
-export const TOOLNAME_TO_CATALOG: Partial<Record<ToolName, string>> = Object.fromEntries(
-  Object.entries(CATALOG_TO_TOOLNAME).map(([catalogId, toolName]) => [toolName, catalogId]),
-) as Partial<Record<ToolName, string>>;
+export const TOOLNAME_TO_CATALOG: Partial<Record<ToolName, string>> = {
+  ...(Object.fromEntries(
+    Object.entries(CATALOG_TO_TOOLNAME).map(([catalogId, toolName]) => [toolName, catalogId]),
+  ) as Partial<Record<ToolName, string>>),
+  // Every Contour Fill boundary highlights the one Contour Fill button.
+  [ToolName.ContourFillSpline]: 'contourFill',
+  [ToolName.ContourFillLivewire]: 'contourFill',
+};

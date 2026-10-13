@@ -23,7 +23,7 @@
  * (as the Live Wire subclass does), with the reason here.
  */
 import { getEnabledElement, utilities as csUtils, VolumeViewport } from '@cornerstonejs/core';
-import { SplineContourSegmentationTool, utilities as csToolsUtils } from '@cornerstonejs/tools';
+import { SplineContourSegmentationTool, SplineROITool, utilities as csToolsUtils } from '@cornerstonejs/tools';
 import { Spline } from '@cornerstonejs/tools/tools/annotation/splines/Spline';
 import { LinearSpline } from '@cornerstonejs/tools/tools/annotation/splines/LinearSpline';
 import type { SplineCurveSegment } from '@cornerstonejs/tools/types/SplineCurveSegment';
@@ -197,15 +197,21 @@ interface Annotation {
 
 type InteractionEvt = { type: string; detail: { element: HTMLDivElement; currentPoints: { canvas: Point2; world: number[] } } };
 
-export class AppSplineContourTool extends SplineContourSegmentationTool {
-  static toolName = SplineContourSegmentationTool.toolName;
+type SplineBase = abstract new (...args: any[]) => SplineROITool;
 
+/**
+ * SegWorks' spline families and editing on a Cornerstone Spline tool — the Structure tool
+ * (SplineContourSegmentationTool) and Contour Fill's Spline boundary (the plain
+ * SplineROITool, branch 6 F4) both get exactly the same behaviour.
+ */
+export function withSplineFeatures<TBase extends SplineBase>(Base: TBase) {
+  abstract class SplineWithFeatures extends Base {
   /** Where the spline being drawn lives (for the toolbox's undo / clear). */
   private drawingElement: HTMLDivElement | null = null;
   private readonly lastGood = new WeakMap<object, { points: number[][]; closed: boolean }>();
 
-  constructor(toolProps = {}) {
-    super(toolProps);
+  constructor(...args: any[]) {
+    super(...args);
     const config = (this.configuration as { spline: { configuration: Record<string, Record<string, unknown>> } }).spline.configuration;
     for (const [algorithm, Class] of Object.entries(FAMILY_CLASSES)) config[SPLINE_TYPE[algorithm as SplineAlgorithm]] = { Class };
     config.LINEAR = { ...(config.LINEAR ?? {}), Class: LinearSpline };
@@ -241,7 +247,7 @@ export class AppSplineContourTool extends SplineContourSegmentationTool {
     });
   }
 
-  addNewAnnotation(evt: Parameters<SplineContourSegmentationTool['addNewAnnotation']>[0]) {
+  addNewAnnotation(evt: Parameters<SplineROITool['addNewAnnotation']>[0]) {
     const e = evt as unknown as InteractionEvt;
     const s = getContourToolSettings().spline;
     const rect = s.editMode === 'localRoi' ? roiCanvasRect(e.detail.element) : null;
@@ -250,7 +256,7 @@ export class AppSplineContourTool extends SplineContourSegmentationTool {
     return super.addNewAnnotation(evt);
   }
 
-  protected createAnnotation(evt: Parameters<SplineContourSegmentationTool['createAnnotation']>[0]) {
+  protected createAnnotation(evt: Parameters<SplineROITool['createAnnotation']>[0]) {
     (this.configuration as { spline: { type: string } }).spline.type = SPLINE_TYPE[getContourToolSettings().spline.algorithm];
     return super.createAnnotation(evt);
   }
@@ -333,4 +339,19 @@ export class AppSplineContourTool extends SplineContourSegmentationTool {
     this.cancel(element);
     return true;
   }
+}
+  return SplineWithFeatures;
+}
+
+/** The Structure Spline — Cornerstone's tool name, so everything keyed on it still finds it. */
+export class AppSplineContourTool extends withSplineFeatures(SplineContourSegmentationTool) {
+  static toolName = SplineContourSegmentationTool.toolName;
+}
+
+/**
+ * Contour Fill's Spline boundary (D3): a plain (non-segmentation) Spline whose closed curve
+ * the fill listener rasterizes into the active segment and then removes.
+ */
+export class ContourFillSplineTool extends withSplineFeatures(SplineROITool) {
+  static toolName = 'ContourFillSpline';
 }

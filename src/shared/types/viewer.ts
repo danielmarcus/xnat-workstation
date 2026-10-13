@@ -46,6 +46,9 @@ export enum ToolName {
   SegmentBidirectional = 'SegmentBidirectional',
   RectangleROIThreshold = 'RectangleROIThreshold',
   LabelmapEditWithContour = 'LabelmapEditWithContour',
+  /** Contour Fill's Spline and Live Wire boundaries (SegWorks parity D3, branch 6). */
+  ContourFillSpline = 'ContourFillSpline',
+  ContourFillLivewire = 'ContourFillLivewire',
   // Smart tab (SegWorks parity branch 4)
   LevelTrace = 'LevelTrace',
   SmartBrush = 'SmartBrush',
@@ -86,6 +89,8 @@ export const SEGMENTATION_TOOLS = new Set<ToolName>([
   ToolName.SegmentBidirectional,
   ToolName.RectangleROIThreshold,
   ToolName.LabelmapEditWithContour,
+  ToolName.ContourFillSpline,
+  ToolName.ContourFillLivewire,
 ]);
 
 /** Contour-based segmentation tools (create annotation-like persistent objects) */
@@ -111,9 +116,25 @@ export const LABELMAP_SEG_TOOLS = new Set<ToolName>([
   ToolName.RegionSegmentPlus,
   ToolName.RectangleROIThreshold,
   ToolName.LabelmapEditWithContour,
+  ToolName.ContourFillSpline,
+  ToolName.ContourFillLivewire,
 ]);
 
 /** Human-readable display names for all tools */
+/** Contour Fill's boundary modes (SegWorks parity D3, branch 6) and the tool each draws with. */
+export type ContourFillMode = 'freehand' | 'spline' | 'livewire';
+export const CONTOUR_FILL_MODES: readonly ContourFillMode[] = ['freehand', 'spline', 'livewire'];
+export const CONTOUR_FILL_MODE_LABEL: Record<ContourFillMode, string> = { freehand: 'Freehand', spline: 'Spline', livewire: 'Live Wire' };
+export const CONTOUR_FILL_TOOLNAME: Record<ContourFillMode, ToolName> = {
+  freehand: ToolName.LabelmapEditWithContour,
+  spline: ToolName.ContourFillSpline,
+  livewire: ToolName.ContourFillLivewire,
+};
+/** The boundary mode an active Contour Fill tool draws with (null: not Contour Fill). */
+export function contourFillModeOf(tool: ToolName | null | undefined): ContourFillMode | null {
+  return CONTOUR_FILL_MODES.find((m) => CONTOUR_FILL_TOOLNAME[m] === tool) ?? null;
+}
+
 export const TOOL_DISPLAY_NAMES: Record<ToolName, string> = {
   [ToolName.WindowLevel]: 'W/L',
   [ToolName.Pan]: 'Pan',
@@ -148,6 +169,8 @@ export const TOOL_DISPLAY_NAMES: Record<ToolName, string> = {
   [ToolName.SegmentBidirectional]: 'Segment Bidir.',
   [ToolName.RectangleROIThreshold]: 'Rect Threshold',
   [ToolName.LabelmapEditWithContour]: 'Contour Fill',
+  [ToolName.ContourFillSpline]: 'Contour Fill (Spline)',
+  [ToolName.ContourFillLivewire]: 'Contour Fill (Live Wire)',
   [ToolName.LevelTrace]: 'Level Trace',
   [ToolName.SmartBrush]: 'Smart Brush',
   [ToolName.RandomWalker]: 'Random Walker',

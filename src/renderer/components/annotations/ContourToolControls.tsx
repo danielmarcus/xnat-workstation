@@ -148,8 +148,26 @@ function SplineControls({ m }: { m: ContourToolSettingsModel }) {
   );
 }
 
+/** Contour Fill (D3): the boundary is drawn freehand, as a spline or with Live Wire — then filled. */
+function ContourFillControls({ m }: { m: ContourToolSettingsModel }) {
+  return (
+    <div data-testid="contour-fill-controls">
+      <Segmented
+        label="Boundary"
+        value={m.contourFillMode}
+        options={m.contourFillModes.map((o) => [o.id, o.label] as [typeof o.id, string])}
+        onChange={m.setContourFillMode}
+        title="How the outline is drawn (O cycles). Whatever it encloses joins the active segment"
+      />
+      {m.contourFillMode === 'spline' && <SplineControls m={m} />}
+      {m.contourFillMode === 'livewire' && <LivewireControls m={m} />}
+    </div>
+  );
+}
+
 export default function ContourToolControls({ toolId, m }: { toolId: string; m: ContourToolSettingsModel }) {
   if (toolId === 'livewire') return <LivewireControls m={m} />;
   if (toolId === 'spline') return <SplineControls m={m} />;
+  if (toolId === 'contourFill') return <ContourFillControls m={m} />;
   return null;
 }

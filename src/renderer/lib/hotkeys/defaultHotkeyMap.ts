@@ -31,6 +31,7 @@ export const DEFAULT_HOTKEY_MAP: HotkeyMap = {
   'tool.stackScroll': [{ key: 's' }],
   'segmentation.toggleMasks': [{ key: 'm' }], // M — hide / show the active segmentation's masks
   'probe.hold': [{ key: 'q' }], // hold Q — intensity under the cursor, without changing tools
+  'tool.labelmapEditWithContour': [{ key: 'o' }], // O — Contour Fill; again cycles Freehand → Spline → Live Wire (D3)
   'operation.cleanup': [{ key: 'x' }], // X — open (or expand) Cleanup in the Operations section (Segmentation)
 
   // ─── Viewport Actions ────────────────────────────────────────
