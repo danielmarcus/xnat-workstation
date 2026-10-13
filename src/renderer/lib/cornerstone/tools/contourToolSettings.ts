@@ -42,7 +42,20 @@ export interface SplineSettings {
   /** Fit to ROI (#92): ROI size × multiplier, plus a margin (fraction of the ROI). */
   fitMultiplier: number;
   fitMargin: number;
+  /**
+   * How Propagate ◀ ▶ carries the spline to the next slice (#87–89): its control points pulled
+   * onto that slice's edges, the region propagated as a mask, or the mask then refined by the
+   * morphological snake.
+   */
+  propagateTrack: PropagateTrack;
 }
+
+export type PropagateTrack = 'deform' | 'mask' | 'maskSnake';
+export const PROPAGATE_TRACKS: ReadonlyArray<{ id: PropagateTrack; label: string }> = [
+  { id: 'deform', label: 'Deform spline' },
+  { id: 'mask', label: 'Mask' },
+  { id: 'maskSnake', label: 'Mask + snake' },
+];
 
 export const DEFAULT_SPLINE_SETTINGS: SplineSettings = {
   algorithm: 'centripetalCR',
@@ -52,6 +65,7 @@ export const DEFAULT_SPLINE_SETTINGS: SplineSettings = {
   editMode: 'global',
   fitMultiplier: 1,
   fitMargin: 0.3, // SegWorks roiFitMargin
+  propagateTrack: 'deform',
 };
 
 /** Contour Fill's boundary (D3): how the outline that fills the active segment is drawn. */

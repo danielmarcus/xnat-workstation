@@ -18,20 +18,27 @@
  *    inside it.
  *  - ROI active spline (#99): the drawn curve is pulled onto image edges inside the ROI, in
  *    image index space (`refineTowardEdges`).
+ *  - The spline in hand (F5, #85–89): a closed spline placed from control points exactly as
+ *    the tool's first click creates one, editable by its handles, recording no history until
+ *    it is committed — then completed the way a drawn spline completes when it closes.
  *
  * Cornerstone declares the members involved `private`; they are replaced on the instance
  * (as the Live Wire subclass does), with the reason here.
  */
 import { getEnabledElement, utilities as csUtils, VolumeViewport } from '@cornerstonejs/core';
-import { SplineContourSegmentationTool, SplineROITool, utilities as csToolsUtils } from '@cornerstonejs/tools';
+import { annotation as csAnnotation, SplineContourSegmentationTool, SplineROITool, utilities as csToolsUtils } from '@cornerstonejs/tools';
 import { Spline } from '@cornerstonejs/tools/tools/annotation/splines/Spline';
 import { LinearSpline } from '@cornerstonejs/tools/tools/annotation/splines/LinearSpline';
 import type { SplineCurveSegment } from '@cornerstonejs/tools/types/SplineCurveSegment';
+import type { ContourWindingDirection } from '@cornerstonejs/tools/types/ContourAnnotation';
 import { refineTowardEdges, splineSegments, type Point, type SplineAlgorithm } from '../../segmentation/contours/splines';
 import { hasSelfIntersection, hasSelfIntersectionOpen } from '../../segmentation/contours/polygon';
 import { getContourRoi, getContourToolSettings, registerSplineActions, type SplineSettings } from './contourToolSettings';
 
 type Point2 = [number, number];
+
+/** ContourWindingDirection.Clockwise — the enum is not in the package's runtime exports. */
+const CLOCKWISE = 1 as ContourWindingDirection;
 
 /** Cornerstone's spline click-to-close distance (screen px), SplineROITool.ts. */
 const SPLINE_CLICK_CLOSE_CURVE_DIST = 10;
@@ -155,42 +162,62 @@ function roiCanvasRect(element: HTMLDivElement): { x0: number; y0: number; x1: n
 const inRect = (r: { x0: number; y0: number; x1: number; y1: number }, p: Point2) => p[0] >= r.x0 && p[0] <= r.x1 && p[1] >= r.y0 && p[1] <= r.y1;
 
 /**
- * The slice on screen as an image plane, with canvas ↔ plane-index transforms — the same
- * stack / volume split Cornerstone's Live Wire uses to read its pixels.
+ * The slice on screen as an image plane, with canvas ↔ plane-index transforms. A stack shows
+ * one image; a volume is read in its own index space, on the index axis nearest the view
+ * normal — so a volume seen along its acquisition plane works however that plane is tilted
+ * in the world (Cornerstone's getCurrentVolumeViewportSlice refuses oblique views).
  */
-function slicePlane(element: HTMLDivElement): { width: number; height: number; scalar: ArrayLike<number>; toPlane: (c: Point2) => Point2; toCanvas: (p: Point2) => Point2 } | null {
+export function slicePlane(element: HTMLDivElement): { width: number; height: number; scalar: ArrayLike<number>; toPlane: (c: Point2) => Point2; toCanvas: (p: Point2) => Point2 } | null {
   const enabled = getEnabledElement(element);
   const viewport = enabled?.viewport as unknown as Viewport | undefined;
   if (!viewport) return null;
   const vid = viewport.getImageData();
   if (!vid) return null;
+  const image = vid.imageData as never;
   if (!(viewport instanceof VolumeViewport)) {
     const scalar = vid.scalarData;
     if (!scalar) return null;
-    const image = vid.imageData as never;
     return {
       width: vid.dimensions[0], height: vid.dimensions[1], scalar,
-      toPlane: (c) => { const ijk = csUtils.transformWorldToIndex(image, viewport.canvasToWorld(c) as never); return [ijk[0], ijk[1]]; },
+      toPlane: (c) => { const ijk = csUtils.transformWorldToIndexContinuous(image, viewport.canvasToWorld(c) as never) as number[]; return [ijk[0], ijk[1]]; },
       toCanvas: (p) => viewport.worldToCanvas(csUtils.transformIndexToWorld(image, [p[0], p[1], 0]) as number[]),
     };
   }
-  const vp = viewport as unknown as Viewport; // past the instanceof check, typed as Cornerstone's
-  const slice = csUtils.getCurrentVolumeViewportSlice(viewport as never) as unknown as {
-    width: number; height: number; scalarData: ArrayLike<number>; sliceToIndexMatrix: number[]; indexToSliceMatrix: number[];
-  };
-  const image = vid.imageData as never;
-  const mul = (m: number[], v: number[]) => [0, 1, 2].map((r) => m[r] * v[0] + m[4 + r] * v[1] + m[8 + r] * v[2] + m[12 + r]);
+  const vp = viewport as unknown as Viewport & { getCamera(): { focalPoint: number[]; viewPlaneNormal: number[] } };
+  const cam = vp.getCamera();
+  const dims = vid.dimensions;
+  const direction = (vid as unknown as { direction: number[] }).direction;
+  const voxels = (vid as unknown as { voxelManager?: { getAtIndex(i: number): number } }).voxelManager;
+  if (!voxels || !direction || !cam.focalPoint || !cam.viewPlaneNormal) return null;
+  // The index axis whose world direction is closest to the view normal is the slice axis.
+  const along = [0, 1, 2].map((a) => Math.abs(direction[a * 3] * cam.viewPlaneNormal[0] + direction[a * 3 + 1] * cam.viewPlaneNormal[1] + direction[a * 3 + 2] * cam.viewPlaneNormal[2]));
+  const axis = along.indexOf(Math.max(...along));
+  const [ax, ay] = axis === 0 ? [1, 2] : axis === 1 ? [0, 2] : [0, 1];
+  const slice = Math.round((csUtils.transformWorldToIndexContinuous(image, cam.focalPoint as never) as number[])[axis]);
+  if (slice < 0 || slice >= dims[axis]) return null;
+  const width = dims[ax], height = dims[ay];
+  const scalar = new Float32Array(width * height);
+  const ijk = [0, 0, 0];
+  ijk[axis] = slice;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      ijk[ax] = x; ijk[ay] = y;
+      scalar[x + y * width] = voxels.getAtIndex(ijk[0] + ijk[1] * dims[0] + ijk[2] * dims[0] * dims[1]);
+    }
+  }
   return {
-    width: slice.width, height: slice.height, scalar: slice.scalarData,
-    toPlane: (c) => { const ijk = csUtils.transformWorldToIndex(image, vp.canvasToWorld(c) as never); const s = mul(slice.indexToSliceMatrix, ijk as number[]); return [s[0], s[1]]; },
-    toCanvas: (p) => vp.worldToCanvas(csUtils.transformIndexToWorld(image, mul(slice.sliceToIndexMatrix, [p[0], p[1], 0]) as never) as number[]),
+    width, height, scalar,
+    toPlane: (c) => { const q = csUtils.transformWorldToIndexContinuous(image, vp.canvasToWorld(c) as never) as number[]; return [q[ax], q[ay]]; },
+    toCanvas: (p) => { const q = [0, 0, 0]; q[axis] = slice; q[ax] = p[0]; q[ay] = p[1]; return vp.worldToCanvas(csUtils.transformIndexToWorld(image, q as never) as number[]); },
   };
 }
 
 interface Annotation {
+  annotationUID?: string;
+  invalidated?: boolean;
   data: {
     handles: { points: number[][] };
-    contour: { closed: boolean };
+    contour: { closed: boolean; polyline?: number[][] };
     spline?: { instance?: FamilySpline | Spline; type?: string };
   };
 }
@@ -209,6 +236,8 @@ export function withSplineFeatures<TBase extends SplineBase>(Base: TBase) {
   /** Where the spline being drawn lives (for the toolbox's undo / clear). */
   private drawingElement: HTMLDivElement | null = null;
   private readonly lastGood = new WeakMap<object, { points: number[][]; closed: boolean }>();
+  /** Splines in hand (F5) and the element each was placed on. */
+  private readonly inHand = new Map<string, HTMLDivElement>();
 
   constructor(...args: any[]) {
     super(...args);
@@ -259,6 +288,71 @@ export function withSplineFeatures<TBase extends SplineBase>(Base: TBase) {
   protected createAnnotation(evt: Parameters<SplineROITool['createAnnotation']>[0]) {
     (this.configuration as { spline: { type: string } }).spline.type = SPLINE_TYPE[getContourToolSettings().spline.algorithm];
     return super.createAnnotation(evt);
+  }
+
+  /** An edit of a spline in hand records no history: only its commit does (F5). */
+  createMemo(...args: Parameters<SplineROITool['createMemo']>): void {
+    const uid = (args[1] as Annotation | undefined)?.annotationUID;
+    if (uid && this.inHand.has(uid)) return;
+    super.createMemo(...args);
+  }
+
+  /**
+   * Put a closed spline through `points` (world) in hand on `element`'s viewport — created
+   * as this tool's first click would create it (the active member for a Structure, the
+   * chosen family) — and return its UID.
+   */
+  placeInHand(element: HTMLDivElement, points: number[][]): string | null {
+    const viewport = getEnabledElement(element)?.viewport as unknown as Viewport | undefined;
+    if (!viewport || points.length < 3) return null;
+    const evt = { type: 'splineInHand', detail: { element, currentPoints: { world: [...points[0]], canvas: viewport.worldToCanvas(points[0]) } } };
+    const annotation = this.createAnnotation(evt as never) as unknown as Annotation | undefined;
+    if (!annotation) return null;
+    // Cornerstone gives an annotation its UID when it is added; this one is known by it first.
+    annotation.annotationUID ??= csUtils.uuidv4();
+    annotation.data.handles.points = points.map((p) => [...p]);
+    annotation.data.contour.closed = true;
+    this.inHand.set(annotation.annotationUID, element);
+    this.addAnnotation(annotation as never, element);
+    this.renderOn(element);
+    return annotation.annotationUID;
+  }
+
+  /** Commit a spline in hand: one history entry, then completed as a drawn spline is. */
+  commitInHand(uid: string): boolean {
+    const element = this.inHand.get(uid);
+    const annotation = csAnnotation.state.getAnnotation(uid) as unknown as Annotation | undefined;
+    this.inHand.delete(uid);
+    if (!element || !annotation) return false;
+    // Committed before its first render (⏎ straight after it was placed): its outline is not
+    // built yet — build it now, as rendering would. (Placed moments ago, so still on screen:
+    // the outline is built in canvas space.)
+    if (!annotation.data.contour.polyline?.length) {
+      const viewport = getEnabledElement(element)?.viewport;
+      const spline = (this as unknown as { _updateSplineInstance: (e: HTMLDivElement, a: Annotation) => Spline })._updateSplineInstance(element, annotation);
+      this.updateContourPolyline(annotation as never, {
+        points: spline.getPolylinePoints(), closed: true, targetWindingDirection: CLOCKWISE,
+      }, viewport as never, { updateWindingDirection: true });
+    }
+    this.createMemo(element, annotation as never, { newAnnotation: true });
+    this.doneEditMemo();
+    (this as unknown as { triggerAnnotationCompleted: (a: Annotation, hole: boolean) => void }).triggerAnnotationCompleted(annotation, false);
+    this.renderOn(element);
+    return true;
+  }
+
+  /** Drop a spline in hand (nothing was recorded for it). */
+  discardInHand(uid: string): boolean {
+    const element = this.inHand.get(uid);
+    this.inHand.delete(uid);
+    if (!element || !csAnnotation.state.getAnnotation(uid)) return false;
+    csAnnotation.state.removeAnnotation(uid);
+    this.renderOn(element);
+    return true;
+  }
+
+  private renderOn(element: HTMLDivElement): void {
+    csToolsUtils.triggerAnnotationRenderForViewportIds(csToolsUtils.viewportFilters.getViewportIdsWithToolToRender(element, this.getToolName()));
   }
 
   /** A click while drawing: refused outside the ROI (local mode), or if closing would cross. */
@@ -328,8 +422,8 @@ export function withSplineFeatures<TBase extends SplineBase>(Base: TBase) {
     // Not Cornerstone's _deleteControlPointByIndex: it is for editing a finished spline and
     // removes the whole annotation at three points. While drawing, undo drops one point.
     points.pop();
-    (editData.annotation as unknown as { invalidated: boolean }).invalidated = true;
-    csToolsUtils.triggerAnnotationRenderForViewportIds(csToolsUtils.viewportFilters.getViewportIdsWithToolToRender(element, this.getToolName()));
+    editData.annotation.invalidated = true;
+    this.renderOn(element);
     return true;
   }
 

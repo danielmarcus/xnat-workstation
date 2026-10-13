@@ -128,6 +128,16 @@ function SplineControls({ m }: { m: ContourToolSettingsModel }) {
               Refuse a point or drag that makes the curve cross itself
             </label>
           </Row>
+          <Row label="Track" title="How Propagate carries the spline to the next slice">
+            <select
+              aria-label="Propagation track"
+              value={sp.propagateTrack}
+              onChange={(e) => m.setSpline({ propagateTrack: e.target.value as typeof sp.propagateTrack })}
+              className="flex-1 min-w-0 px-1 py-0.5 rounded bg-zinc-800 text-zinc-200 text-[10px]"
+            >
+              {m.propagateTracks.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+            </select>
+          </Row>
         </>
       )}
       <Segmented
@@ -142,7 +152,16 @@ function SplineControls({ m }: { m: ContourToolSettingsModel }) {
       />
       <Row label="Spline">
         <button type="button" className={BUTTON} onClick={m.undoSplinePoint} title="Remove the last point of the spline being drawn (also Backspace)">Undo point</button>
-        <button type="button" className={BUTTON} onClick={m.clearSpline} title="Discard the spline being drawn">Clear</button>
+        <button type="button" className={BUTTON} onClick={m.clearSpline} title="Discard the spline being drawn or held (⎋)">Clear</button>
+        {m.splineInHand && (
+          <button type="button" className={BUTTON} onClick={m.commitSpline} title="Commit the spline in hand (⏎) — one undo step">Commit</button>
+        )}
+      </Row>
+      <Row label="Slice">
+        <button type="button" className={BUTTON} disabled={!m.canUndoEdit} onClick={m.undoAndEdit} title="Undo the last spline and hold its points again to adjust them">Undo &amp; edit</button>
+        <button type="button" className={BUTTON} onClick={m.copyNearby} title="Hold the outline from the nearest slice that has one, to adjust it here — nothing is written until ⏎">Copy nearby</button>
+        <button type="button" className={BUTTON} disabled={m.propagating} onClick={() => m.propagate(-1)} aria-label="Propagate to the previous slice" title="Commit this spline and carry it to the previous slice (track in ▸ Options)">◀</button>
+        <button type="button" className={BUTTON} disabled={m.propagating} onClick={() => m.propagate(1)} aria-label="Propagate to the next slice" title="Commit this spline and carry it to the next slice (track in ▸ Options)">▶</button>
       </Row>
     </div>
   );

@@ -11,10 +11,14 @@ import {
   setLivewireSettings,
   setSplineSettings,
   subscribeContourToolSettings,
+  PROPAGATE_TRACKS,
   type LivewireSettings,
+  type PropagateTrack,
   type SplineSettings,
 } from '../lib/cornerstone/tools/contourToolSettings';
 import { contourToolService } from '../lib/cornerstone/contourToolService';
+import { splineSliceService } from '../lib/cornerstone/splineSliceService';
+import { useSplineSliceStore } from '../stores/splineSliceStore';
 import { SPLINE_ALGORITHMS } from '../lib/segmentation/contours/splines';
 import { hotkeyService } from '../lib/hotkeys/hotkeyService';
 import { useSemiAutoStore } from '../stores/semiAutoStore';
@@ -37,11 +41,21 @@ export interface ContourToolSettingsModel {
   undoSplinePoint(): void;
   clearSpline(): void;
   fitToRoi(): void;
+  /** The spline slice workflow (F5): a spline is in hand (⏎ commits, ⎋ discards). */
+  splineInHand: boolean;
+  commitSpline(): void;
+  canUndoEdit: boolean;
+  undoAndEdit(): void;
+  copyNearby(): void;
+  propagating: boolean;
+  propagate(direction: -1 | 1): void;
+  propagateTracks: ReadonlyArray<{ id: PropagateTrack; label: string }>;
 }
 
 export function useContourToolSettings(): ContourToolSettingsModel {
   const settings = useSyncExternalStore(subscribeContourToolSettings, getContourToolSettings);
   const roiPresent = useSemiAutoStore((s) => !!s.roi);
+  const slice = useSplineSliceStore();
   const thenViewport = (f: () => unknown) => () => { f(); hotkeyService.focusActiveViewport(); };
   return {
     livewire: settings.livewire,
@@ -60,7 +74,16 @@ export function useContourToolSettings(): ContourToolSettingsModel {
     splineAlgorithms: SPLINE_ALGORITHMS,
     roiPresent,
     undoSplinePoint: thenViewport(() => contourToolService.undoLastSplinePoint()),
-    clearSpline: thenViewport(() => contourToolService.clearSpline()),
+    // Clear drops a spline in hand as well as one being drawn.
+    clearSpline: thenViewport(() => splineSliceService.discardInHand() || contourToolService.clearSpline()),
     fitToRoi: thenViewport(() => contourToolService.fitToRoi()),
+    splineInHand: slice.inHand,
+    commitSpline: thenViewport(() => splineSliceService.commitInHand()),
+    canUndoEdit: slice.canUndoEdit,
+    undoAndEdit: thenViewport(() => void splineSliceService.undoAndEdit()),
+    copyNearby: thenViewport(() => splineSliceService.copyNearby()),
+    propagating: slice.busy,
+    propagate: (direction) => thenViewport(() => void splineSliceService.propagate(direction))(),
+    propagateTracks: PROPAGATE_TRACKS,
   };
 }

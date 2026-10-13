@@ -611,10 +611,11 @@ path a drawn spline takes when it closes (Cornerstone's completion → union int
 a Structure, F4's fill for a Segmentation — one undo step either way), **⎋ discards** it. Its
 edits record no history; only the commit does.
 
-1. **Undo & edit** (#85): enabled while the last spline commit is still the newest entry of
-   the active container's undo history (the entry's identity is captured when the commit
-   settles). It undoes the commit through the normal undo path and puts the same control
-   points back in hand, on their slice.
+1. **Undo & edit** (#85): enabled after a spline commit; it acts only while that commit is
+   still the newest entry of the active container's undo history (the entry's identity is
+   captured when the commit settles) and otherwise says so and undoes nothing. It undoes the
+   commit through the normal undo path and puts the same control points back in hand, on
+   their slice.
 2. **Copy nearby** (#86): the active member's content on the nearest other slice (up to 10
    away; the previous slice wins a tie), projected onto this slice and put in hand — nothing is
    written. The control points are that slice's remembered spline when it was drawn as one,
@@ -703,3 +704,27 @@ needed; the height E2E keeps it fixed across tools.
   mock does not cover, so the two suites that load `unifiedToolService` mock those modules (as
   they already did SafePaintFillTool). E2E +8 (`contour-fill-modes`; red against mutants of
   the boundary switch, the tool selection and O cycling). Unit 1116/1116.
+- **F5** — the spline slice workflow, as designed above (`splineSliceService`; the spline in
+  hand is `placeInHand` / `commitInHand` / `discardInHand` on the F3 Spline mixin, so both
+  annotation types share it). Controls: a **Slice** row (Undo & edit · Copy nearby · ◀ ▶),
+  **Commit** beside Undo point / Clear while a spline is held, and **Track** in ▸ Options; the
+  Controls heights grow to 186 (Segmentation) / 182 (Structure) px. Copy nearby's control points
+  are the remembered spline when that slice was drawn as one, else its outline resampled
+  (`outlineControlPoints`: the LARGEST island — Level Trace's `traceBoundary` takes the first
+  one in scan order). **Found on the way:** (1) Cornerstone gives an annotation its UID only
+  when it is added, so a spline placed in hand was never found again — it now gets one first;
+  (2) ⏎ straight after a spline is placed came before its first render, which is where its
+  outline is built — commit builds it when it is missing; (3) F3's `slicePlane` read volumes
+  through Cornerstone's `getCurrentVolumeViewportSlice`, which refuses oblique views — it now
+  reads the volume in its own index space (also fixes the ROI active spline on oblique
+  series); (4) a Segmentation's outlines are located by the grid's own slice index (an oblique
+  outline is not in the view plane); (5) two first guesses about the tracks were wrong and
+  the tests now say what they do: Deform walks a point a pixel per pass and so reaches an
+  edge several pixels away, and Mask from a ring inside the bone is refused by propagation's
+  leak guard (area change > 60 %). The operations-section height test now also counts
+  Contour Fill's three boundaries. E2E +17 (`spline-slice-workflow`), red against mutants of:
+  the track switch (each way), the stale-commit check, the remembered control points, the
+  commit-time outline, the oblique slice reader, and a held spline's edits recording history
+  (pinned on Cornerstone's own ring — the per-container history never sees those entries).
+  Not pinned: Mask + snake vs Mask (on the phantom's crisp edges the snake leaves the mask
+  where it is). Annotations + tools E2E 271/271; unit 1121/1121.
