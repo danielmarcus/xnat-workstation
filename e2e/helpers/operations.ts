@@ -5,7 +5,7 @@
  */
 import { expect, type Locator } from '@playwright/test';
 
-const BODY_TEST_ID = { Cleanup: 'cleanup-sheet', Interpolate: 'interpolate-sheet', Propagate: 'propagate-sheet', 'Seeded segmentation': 'seeded-sheet', '3D QC': 'qc3d-sheet' } as const;
+const BODY_TEST_ID = { Cleanup: 'cleanup-sheet', Interpolate: 'interpolate-sheet', Propagate: 'propagate-sheet', 'Seeded segmentation': 'seeded-sheet', 'Region competition': 'region-sheet', '3D QC': 'qc3d-sheet' } as const;
 
 export async function openOperation(panel: Locator, name: keyof typeof BODY_TEST_ID, cleanupOp?: string): Promise<Locator> {
   await panel.getByLabel('Operation', { exact: true }).selectOption({ label: name });

@@ -26,7 +26,9 @@ import { BACKGROUND, useSeedStore, type SeedStroke } from '../../stores/seedStor
 import { useComputeStore } from '../../stores/computeStore';
 import { useSegmentationStore } from '../../stores/segmentationStore';
 import { useSemiAutoStore } from '../../stores/semiAutoStore';
-import type { SeededSettings } from '../../stores/operationSheetStore';
+import type { RegionSettings, SeededSettings } from '../../stores/operationSheetStore';
+import { metaData } from '@cornerstonejs/core';
+import { getSourceImageIds } from './sourceImageTracking';
 import { ToolName } from '@shared/types/viewer';
 import { useViewerStore } from '../../stores/viewerStore';
 
@@ -276,6 +278,166 @@ export const solverService = {
   },
 
 };
+
+// ─── Region competition (SegWorks' "Chan-Vese", G5) ───────────────────────────
+
+export type RegionResult =
+  | { ok: true; added: number; removed: number; readOnly: boolean }
+  | { ok: false; reason: 'no-target' | 'no-viewport' | 'no-roi' | 'no-image' | 'too-large' | 'one-class' | 'no-change' | 'cancelled' | 'failed'; detail?: string };
+
+function isCt(containerId: string): boolean {
+  const img = getSourceImageIds(containerId)?.[0];
+  const m = img ? (metaData.get('generalSeriesModule', img) as { modality?: string } | undefined)?.modality : undefined;
+  return !m || m.toUpperCase() === 'CT';
+}
+
+/**
+ * The box region competition runs on: in-plane the ROI limit (required — as in SegWorks: the
+ * model assumes each label, Background included, is roughly one intensity, which a whole
+ * slice of air, tissue and bone is not), through the slice on screen, ± Z pad, the selected
+ * members' extent ± 10 / ± 20 slices, or the volume.
+ */
+export function regionDomain(r: RegionSettings, viewportId: string):
+  | { ok: true; box: Box; voxels: number; estimate: MemoryEstimate; labels: number[] }
+  | { ok: false; reason: 'no-target' | 'no-viewport' | 'no-roi' } {
+  const t = activeTarget();
+  if (!t) return { ok: false, reason: 'no-target' };
+  const grid = gridOf({ containerId: t.containerId, segmentIndex: t.active });
+  const vp = viewportService.getViewport(viewportId) as { getCamera?: () => { viewPlaneNormal?: number[]; focalPoint?: number[] } } | undefined;
+  const cam = vp?.getCamera?.();
+  if (!grid || !cam?.viewPlaneNormal || !cam.focalPoint) return { ok: false, reason: 'no-viewport' };
+  const geometry = grid.geometry;
+  const axis = sliceAxisFor(geometry.direction, cam.viewPlaneNormal) as Axis;
+  const [ax, ay] = planeAxes(axis);
+  const size = [geometry.dimensions[ax], geometry.dimensions[ay], geometry.dimensions[axis]];
+  const cur = Math.round(toPlane(geometry, axis, cam.focalPoint)[2]);
+  const labels = (r.labels ?? [t.active]).filter((i) => t.members.some((m) => m.segmentIndex === i));
+  let lo = [0, 0, 0], hi = [size[0] - 1, size[1] - 1, size[2] - 1];
+  if (r.mode === 'slice') { lo[2] = hi[2] = cur; }
+  else if (r.mode === 'bounded') { lo[2] = cur - r.zPad; hi[2] = cur + r.zPad; }
+  else if (r.mode === 'extent10' || r.mode === 'extent20') {
+    // The selected members' slice extent.
+    const begun = beginTransaction(labels.map((segmentIndex) => ({ containerId: t.containerId, segmentIndex })), undefined, { allowLocked: true });
+    let z0 = Infinity, z1 = -Infinity;
+    if (begun.ok) {
+      for (let k = 0; k < size[2]; k++) {
+        for (const segmentIndex of labels) {
+          const plane = begun.txn.readPlane({ containerId: t.containerId, segmentIndex }, axis, k);
+          if (plane?.data.some((v) => v)) { z0 = Math.min(z0, k); z1 = Math.max(z1, k); }
+        }
+      }
+      begun.txn.discard();
+    }
+    const pad = r.mode === 'extent10' ? 10 : 20;
+    if (z0 > z1) { z0 = z1 = cur; }
+    lo[2] = z0 - pad; hi[2] = z1 + pad;
+  }
+  const roi = useSemiAutoStore.getState().roi;
+  if (!roi || roi.viewportId !== viewportId) return { ok: false, reason: 'no-roi' };
+  {
+    const pts = roi.corners.map((c) => toPlane(geometry, axis, c));
+    lo = [Math.floor(Math.min(...pts.map((p) => p[0]))), Math.floor(Math.min(...pts.map((p) => p[1]))), lo[2]];
+    hi = [Math.ceil(Math.max(...pts.map((p) => p[0]))), Math.ceil(Math.max(...pts.map((p) => p[1]))), hi[2]];
+  }
+  for (let k = 0; k < 3; k++) { lo[k] = Math.max(0, lo[k]); hi[k] = Math.min(size[k] - 1, hi[k]); }
+  const dims: Dims = [hi[0] - lo[0] + 1, hi[1] - lo[1] + 1, hi[2] - lo[2] + 1];
+  const voxels = voxelCount(dims);
+  return {
+    ok: true,
+    box: { geometry, axis, ax, ay, lo: lo as [number, number, number], dims, spacing: [geometry.spacing[ax], geometry.spacing[ay], geometry.spacing[axis]] },
+    voxels,
+    estimate: estimateMemory('regionCompetition', voxels, 2, memoryLimits),
+    labels,
+  };
+}
+
+export async function runRegionCompetition(r: RegionSettings, viewportId: string, opts: { commit?: boolean } = {}): Promise<RegionResult> {
+  const t = activeTarget();
+  if (!t) return { ok: false, reason: 'no-target' };
+  const dom = regionDomain(r, viewportId);
+  if (!dom.ok) return { ok: false, reason: dom.reason };
+  if (dom.estimate.level === 'block') return { ok: false, reason: 'too-large', detail: dom.estimate.reason ?? undefined };
+  const { box } = dom;
+  const lockedSet = new Set(t.members.filter((m) => m.locked).map((m) => m.segmentIndex));
+  // Labels that may change: the selected, unlocked members, and Background if included.
+  const movableMembers = dom.labels.filter((i) => !lockedSet.has(i));
+  const movable = [...movableMembers, ...(r.includeBackground ? [BACKGROUND] : [])];
+  if (movable.length < 2) return { ok: false, reason: 'one-class' };
+  const everyone: MemberRef[] = t.members.map((m) => ({ containerId: t.containerId, segmentIndex: m.segmentIndex }));
+  const read = beginTransaction(everyone, undefined, { allowLocked: true });
+  if (!read.ok) return { ok: false, reason: 'no-target' };
+  const source = read.txn.grid(everyone.find((m) => m.segmentIndex === t.active)!)?.sourceReader?.() ?? null;
+  if (!source) { read.txn.discard(); return { ok: false, reason: 'no-image' }; }
+  const n = voxelCount(box.dims);
+  const image = new Float32Array(n);
+  const initial = new Uint8Array(n);
+  for (let z = 0, i = 0; z < box.dims[2]; z++) for (let y = 0; y < box.dims[1]; y++) for (let x = 0; x < box.dims[0]; x++, i++) {
+    const flat = flatOf(box, x, y, z);
+    image[i] = source(flat);
+    for (const m of everyone) if (read.txn.has(m, flat)) { initial[i] = m.segmentIndex; break; }
+  }
+  read.txn.discard();
+  const job = computeClient.run('regionCompetition', {
+    image, dims: box.dims, spacing: box.spacing, initial: initial.slice(), movable,
+    options: {
+      iterations: r.iterations, smoothXY: r.smoothXY, dataWeight: r.dataWeight, stay: r.stay, edgeWeight: r.edgeWeight,
+      edgeGate: r.edgeGate, cleanup: r.cleanup, smoothZ: r.smoothZ, zCoupling: r.zCoupling,
+      clip: r.clipOn && isCt(t.containerId) ? { lo: r.clipLo, hi: r.clipHi } : null,
+    },
+  }, { onProgress: (f) => useComputeStore.getState().progress(f), transfer: [image.buffer] });
+  discardPreview();
+  useComputeStore.getState().start(REGION_LABEL, viewportId);
+  running = job;
+  const removeKeys = hotkeyService.pushKeyLayer({
+    onKeyDown: (e) => {
+      if (e.key !== 'Escape' || e.ctrlKey || e.metaKey || e.altKey) return false;
+      job.cancel();
+      return true;
+    },
+  });
+  let out: Uint8Array;
+  try {
+    out = await job.result;
+  } catch (e) {
+    if (e instanceof ComputeCancelled) return { ok: false, reason: 'cancelled' };
+    console.warn('[solverService] region competition failed:', e);
+    return { ok: false, reason: 'failed' };
+  } finally {
+    removeKeys();
+    if (running === job) { running = null; useComputeStore.getState().end(); }
+  }
+  const writers: MemberRef[] = movableMembers.map((segmentIndex) => ({ containerId: t.containerId, segmentIndex }));
+  const begun = beginTransaction(writers);
+  if (!begun.ok) return { ok: false, reason: 'no-target' };
+  const { txn } = begun;
+  const writerOf = new Map(writers.map((w) => [w.segmentIndex, w]));
+  let added = 0, removed = 0;
+  for (let z = 0, i = 0; z < box.dims[2]; z++) for (let y = 0; y < box.dims[1]; y++) for (let x = 0; x < box.dims[0]; x++, i++) {
+    if (out[i] === initial[i]) continue;
+    const flat = flatOf(box, x, y, z);
+    const from = writerOf.get(initial[i]);
+    const to = writerOf.get(out[i]);
+    if (from) { txn.set(from, flat, false); removed++; }
+    if (to) { txn.set(to, flat, true); added++; }
+  }
+  if (!added && !removed) { txn.discard(); return { ok: false, reason: 'no-change' }; }
+  startPreview({ txn, label: REGION_LABEL, summary: `+${added.toLocaleString('en-US')} −${removed.toLocaleString('en-US')} voxels`, viewportId });
+  if (opts.commit) commitPreview();
+  return { ok: true, added, removed, readOnly: false };
+}
+
+export const REGION_LABEL = 'Region competition';
+
+/** What a region competition run tells the user. */
+export function describeRegion(r: RegionResult): string | null {
+  if (r.ok) return null;
+  switch (r.reason) {
+    case 'one-class': return 'Select a segment and include Background — or two segments — to compete';
+    case 'no-change': return 'Nothing moved — the boundaries already fit';
+    case 'no-roi': return 'Draw an ROI limit round the structure on this viewport (Segmentation tools › ROI limit)';
+    default: return describeSeeded(r as SeededResult);
+  }
+}
 
 /** What a seeded run tells the user, in the operation's status line. */
 export function describeSeeded(r: SeededResult): string | null {

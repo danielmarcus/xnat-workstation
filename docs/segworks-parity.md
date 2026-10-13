@@ -902,3 +902,20 @@ preset would set are all exposed, so presets can be added later as data.
   intensity goes to Background). E2E +3 (each member's own structure, Dice > 0.85, unseeded
   tissue unlabelled, one undo step; the selector; a locked member) — all red before the code;
   mutants of the selector's filter and of the locked-member skip each red.
+- **G5** — **Region competition** (SegWorks' "Chan-Vese") joins the Operations picker: Run on
+  the slice on screen · ± Z pad · the segmentation's slices ± 10 / ± 20 · the volume; labels
+  that compete (members, Background); iterations; under Parameters every field a SegWorks
+  preset sets (smoothness in-plane / through slices, data weight, stay bias, edge assist and
+  gate, island clean-up with 0 = off, CT clip, Z pad, Z coupling). The result is written both
+  ways (voxels gained and lost) through the transaction, one undo step; unselected and locked
+  members never change. **Decisions on the way:** (1) the **ROI limit is required**, as in
+  SegWorks — two-phase competition assumes Background is roughly one intensity, and over a
+  whole slice (air, tissue, bone) its mean lands near −50 HU, so the body floods into the
+  segment; (2) in the 3D modes a mask on one slice among empty ones is smoothed away by the
+  through-slice coupling — the model wants a 3D mask, and the tool reference says so. E2E +5
+  (`region-competition`: a 3D loose mask pulled onto the lesion, ±15 % of its area on the
+  slice, one undo step; slice mode leaves the next slice alone; an unselected member keeps
+  every voxel; no ROI → the reason, Run disabled; oblique), red against mutants of: the
+  selection, the mode, the ROI requirement, writing removals. Survivor: swapping the box's
+  in-plane dimensions — image and labels are misread together and the per-voxel data term
+  still decides (the box layout itself is pinned by Seeded segmentation's axes mutant).

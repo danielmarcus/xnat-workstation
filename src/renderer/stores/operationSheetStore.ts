@@ -11,7 +11,7 @@ import { create } from 'zustand';
 /** Parameter values of one operation (mirrors maskOps/catalog's ParamValues; stores import no lib code). */
 type ParamValues = Record<string, number | string>;
 
-export type OperationSheetId = 'cleanup' | 'interpolate' | 'propagate' | 'seeded' | 'qc3d';
+export type OperationSheetId = 'cleanup' | 'interpolate' | 'propagate' | 'seeded' | 'regionCompetition' | 'qc3d';
 
 export interface PropagateSettings {
   direction: 'forward' | 'backward' | 'both';
@@ -70,6 +70,28 @@ export interface SeededSettings {
   postShrinkGrow: number;
 }
 
+/** Region competition, SegWorks' "Chan-Vese" (branch 5, G5): the existing labels compete for voxels. */
+export interface RegionSettings {
+  mode: 'slice' | 'bounded' | 'extent10' | 'extent20' | 'volume';
+  /** Members that may change (segment indices); null = the active one. */
+  labels: number[] | null;
+  includeBackground: boolean;
+  iterations: number;
+  smoothXY: number;
+  dataWeight: number;
+  stay: number;
+  edgeWeight: number;
+  edgeGate: number;
+  /** Islands below this many voxels join a neighbour (0 = off). */
+  cleanup: number;
+  clipOn: boolean;
+  clipLo: number;
+  clipHi: number;
+  zPad: number;
+  smoothZ: number;
+  zCoupling: number;
+}
+
 export interface SheetScope {
   slices: 'current' | 'range' | 'volume';
   /** Range ends as the viewport DISPLAYS them (1-based, "8 / 16"). */
@@ -106,6 +128,8 @@ interface OperationSheetState {
   setProp: (patch: Partial<PropagateSettings>) => void;
   seeded: SeededSettings;
   setSeeded: (patch: Partial<SeededSettings>) => void;
+  region: RegionSettings;
+  setRegion: (patch: Partial<RegionSettings>) => void;
 
   /** Open (or expand) an operation. */
   openOperation: (id: OperationSheetId) => void;
@@ -151,6 +175,12 @@ export const useOperationSheetStore = create<OperationSheetState>((set) => ({
     postOn: false, postKeep: 'seed', postMinIsland: 300, postSmooth: 1, postShrinkGrow: 1,
   },
   setSeeded: (patch) => set((s) => ({ seeded: { ...s.seeded, ...patch }, message: null })),
+  region: {
+    mode: 'bounded', labels: null, includeBackground: true,
+    iterations: 18, smoothXY: 2.4, dataWeight: 0.002, stay: 0.35, edgeWeight: 0.012, edgeGate: 35, cleanup: 24,
+    clipOn: true, clipLo: -150, clipHi: 250, zPad: 2, smoothZ: 1.1, zCoupling: 0.9,
+  },
+  setRegion: (patch) => set((s) => ({ region: { ...s.region, ...patch }, message: null })),
 
   openOperation: (openSheet) => set((s) => ({
     openSheet,

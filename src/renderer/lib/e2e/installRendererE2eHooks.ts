@@ -39,7 +39,8 @@ import type { XnatScan } from '@shared/types/xnat';
 import { exportMeasurementsToDicomSr } from '../cornerstone/srExport';
 import { ToolName } from '@shared/types/viewer';
 import { resetContourToolSettings } from '../cornerstone/tools/contourToolSettings';
-import { indexToWorld } from '../cornerstone/segmentationService/voxelClipboard';
+import { indexToWorld, worldToIndex } from '../cornerstone/segmentationService/voxelClipboard';
+import { sliceAxisFor } from '../cornerstone/maskIslands';
 import { setSolverMemoryLimits } from '../cornerstone/solverService';
 import { useSeedStore } from '../../stores/seedStore';
 
@@ -198,6 +199,8 @@ declare global {
       memberSphereDice: (segmentIndex: number, center: [number, number, number], radius: number) => number;
       /** Lower (or reset, null) the solvers' memory limits so the guard's states show on small fixtures. */
       setSolverMemoryLimits: (limits: { warn: number; block: number } | null) => void;
+      /** A member's voxels on the slice the viewport shows. */
+      memberSliceVoxelCount: (segmentIndex: number, panelId: string) => number;
       clearSeeds: () => void;
       /** Lowest source-image value under the active segment (ground truth for propagation). */
       activeSegmentMinSourceValue: () => number | null;
@@ -855,6 +858,23 @@ export function installRendererE2eHooks(): void {
       return a + b ? (2 * inter) / (a + b) : 0;
     },
     setSolverMemoryLimits: (limits) => setSolverMemoryLimits(limits),
+    memberSliceVoxelCount: (segmentIndex, panelId) => {
+      const { activeSegmentationId } = useSegmentationStore.getState();
+      const g = activeSegmentationId ? readSegmentVoxelGrid(activeSegmentationId, segmentIndex) : null;
+      const vp = viewportService.getViewport(panelId) as { getCamera?: () => { viewPlaneNormal?: number[]; focalPoint?: number[] } } | undefined;
+      const cam = vp?.getCamera?.();
+      if (!g || !cam?.viewPlaneNormal || !cam.focalPoint) return -1;
+      const axis = sliceAxisFor(g.geometry.direction, cam.viewPlaneNormal);
+      const slice = worldToIndex(g.geometry, cam.focalPoint as [number, number, number])[axis];
+      const [nx, ny] = g.geometry.dimensions;
+      let n = 0;
+      for (let i = 0; i < g.data.length; i++) {
+        if (g.data[i] !== g.value) continue;
+        const ijk = [i % nx, Math.floor(i / nx) % ny, Math.floor(i / (nx * ny))];
+        if (ijk[axis] === slice) n++;
+      }
+      return n;
+    },
     clearSeeds: () => useSeedStore.setState({ strokes: [], lastRun: null, paintClass: null, brushPx: 8 }),
     memberVoxelCount: (segmentIndex) => {
       const { activeSegmentationId } = useSegmentationStore.getState();
