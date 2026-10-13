@@ -97,6 +97,13 @@ async function loadInitModule(options?: { splineRegistered?: boolean }): Promise
     init: initDicomLoader,
   }));
 
+  // Live Wire with SegWorks' settings (branch 6) — registered under Cornerstone's own name.
+  // Spline with SegWorks' families (branch 6) — registered under Cornerstone's own name.
+  vi.doMock('../tools/AppSplineContourTool', () => ({ AppSplineContourTool: splineTool, ContourFillSplineTool: { toolName: 'ContourFillSpline' } }));
+  vi.doMock('../tools/AppLivewireContourTool', () => ({
+    AppLivewireContourTool: { toolName: 'LivewireContourSegmentationTool' },
+    ContourFillLivewireTool: { toolName: 'ContourFillLivewire' },
+  }));
   vi.doMock('../tools/SafePaintFillTool', () => ({
     default: { toolName: 'SafePaintFill' },
   }));
@@ -130,6 +137,7 @@ describe('initCornerstone', () => {
     });
     expect(mocks.addTool).toHaveBeenCalled();
     expect(mocks.addTool).toHaveBeenCalledWith(expect.objectContaining({ toolName: 'SafePaintFill' }));
+    expect(mocks.addTool).toHaveBeenCalledWith(expect.objectContaining({ toolName: 'LivewireContourSegmentationTool' }));
     expect(mocks.register).toHaveBeenCalledTimes(1);
     // Legacy metadata provider stays on until the dataSetCacheManager readers move (v5 plan, Phase 6).
     expect(mocks.initDicomLoader).toHaveBeenCalledWith({ maxWebWorkers: 4, useLegacyMetadataProvider: true });

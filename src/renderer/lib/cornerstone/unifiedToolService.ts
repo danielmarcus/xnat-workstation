@@ -64,6 +64,8 @@ import { cursors as csCursors } from '@cornerstonejs/tools';
 import SafePaintFillTool from './tools/SafePaintFillTool';
 import SelectTool from './tools/SelectTool';
 import { LevelTraceTool, RandomWalkerSeedTool, RoiLimitTool, SmartBrushTool } from './tools/semiAutoTools';
+import { ContourFillSplineTool } from './tools/AppSplineContourTool';
+import { ContourFillLivewireTool } from './tools/AppLivewireContourTool';
 import { SELECT_ARROW_PATH, SELECT_ARROW_HOTSPOT } from '../selectArrow';
 import { applySelectedContourStyle } from './selectedStyle';
 import { applyLockedSculptGuard } from './lockedSculptGuard';
@@ -131,6 +133,8 @@ const UNIFIED_TOOL_MAP: Partial<Record<ToolName, string>> = {
   // mapped below so the tool resolves; entering it by free-draw is what used to crash,
   // because that path sets no segmentationId and the colour lookup returns null.
   [ToolName.LabelmapEditWithContour]: LabelMapEditWithContourTool.toolName,
+  [ToolName.ContourFillSpline]: ContourFillSplineTool.toolName,
+  [ToolName.ContourFillLivewire]: ContourFillLivewireTool.toolName,
   // Measurement (annotation) tools
   [ToolName.Angle]: AngleTool.toolName,
   [ToolName.Bidirectional]: BidirectionalTool.toolName,
@@ -642,6 +646,7 @@ function ensureToolGroup(): ToolTypes.IToolGroup | undefined {
     RegionSegmentTool, RegionSegmentPlusTool, SegmentBidirectionalTool,
     RectangleROIThresholdTool, LabelMapEditWithContourTool,
     LevelTraceTool, SmartBrushTool, RandomWalkerSeedTool, RoiLimitTool,
+    ContourFillSplineTool, ContourFillLivewireTool,
   ];
   // Per-tool addTool configuration. Most of FULL_SET needs none, but a tool whose
   // Cornerstone default is unusable in Electron must get its override HERE — the
@@ -834,6 +839,9 @@ const CURSOR_FOR_TOOL: Partial<Record<ToolName, string>> = {
   // The Select tools point at things rather than draw: an arrow, as their icon shows.
   [ToolName.Select]: SELECT_CURSOR,
   [ToolName.LabelmapEditWithContour]: 'crosshair',
+  // Contour Fill's other boundaries draw like it does (D3).
+  [ToolName.ContourFillSpline]: 'crosshair',
+  [ToolName.ContourFillLivewire]: 'crosshair',
 };
 
 /**

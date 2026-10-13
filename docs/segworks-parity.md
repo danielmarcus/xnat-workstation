@@ -551,3 +551,206 @@ Nothing rebuilds automatically on edits (cross-cutting rule): the sheet marks th
   collapsed summary reads "N stray · N speck" (or the build progress). Unit 1069/1069; full
   offline E2E on the built app **302/302**; checked in the built app with Interpolate open beside
   Level Trace and with 3D QC open (toolbox 379 px, operation 260 px, Controls 180 px).
+
+---
+
+## 10. Branch 6 — `contour-refine` (ordered plan — for review)
+
+Cut from `main` after branches 1–4 and 7 merged (2026-10-12). Scope: SegWorks #72–100 (Live
+Wire and Spline Contour) and #200–201 (Snake Refine), read from the v2.0.610 inventory and the
+reference source (`segworks_livewire_core.js`, `segworks_spline_core.js`, `segworks_core.js`).
+
+**What the inventory changes about the scope.** In SegWorks, Live Wire and Spline Contour are
+*mask* tools: the closed contour is committed into the active segment (#74, #82). Snake Refine
+is a Cleanup operation on the active segment's boundary (#200, inside the Cleanup range
+#182–212). So this branch is mainly **D3** — Contour Fill gains *Spline* and *Live Wire*
+boundary modes for Segmentations — and its refinements also reach Workstation's existing
+Structure Spline and Livewire tools through the same controls (D3, wireframes §4).
+
+### Design points (decided in this plan; flag any to change)
+
+1. **Snake Refine is a Cleanup operation**, in the Operations section's Clean group, on the
+   active segment with the usual scope. No Operations section is needed for Structures.
+2. **The Structure toolbox gets a fixed-height Controls area**, like Segmentation's (D2 as
+   amended): Spline and Live Wire now have settings, so Structure controls change with the
+   tool. Sized to the tallest Structure tool with Advanced folded; the
+   `operations-section` height E2E is extended to the Structure toolbox.
+3. **Extend Cornerstone, do not fork.** Live Wire: subclass `LivewireContourSegmentationTool`
+   (and the labelmap variant used by Contour Fill) to supply our own cost map; Cornerstone's
+   built-in cost stays as the *Basic* mode. Spline: Cornerstone's spline configuration takes a
+   class per type, so the new families are `Spline` subclasses registered there (Centripetal
+   Catmull-Rom, Cubic B-spline and Linear already exist).
+4. **Local ROI spline editing uses branch 4's ROI limit** rectangle, not a second ROI concept.
+5. **Every variant ships** (decision 5): seven spline algorithms; Live Wire Basic and Advanced;
+   Snake edge-only, GVF, balloon, and the morphological snake.
+6. **No new toolbox buttons** (D3). **O** cycles Contour Fill Freehand → Spline → Live Wire
+   (D12 global). Spline-only actions (undo commit and reload, copy from a nearby slice,
+   propagate) appear only in Spline mode.
+7. **Index space throughout** — every boundary is rasterized through Contour Fill's index-space
+   rasterizer inside the labelmap transaction (one undo step, locks respected), so `ct-oblique`
+   works (see the oblique contour limits). Each slice's E2E includes an oblique case.
+
+### Slices
+
+| Slice | Content | Acceptance |
+|---|---|---|
+| **F1** | Pure algorithms (`lib/segmentation/contours/`): spline families — centripetal Catmull-Rom (#93), cubic B-spline (#94), monotone cubic, Fritsch-Carlson (#95), Akima (#96), local Catmull-Rom+ (#97), tension spline (#98), ROI active spline = local CR+ nudged toward image gradients inside the ROI (#99); self-intersection test (#100); Chaikin smoothing (#81). Live Wire cost builder: Gaussian pre-smoothing σ (#78), Scharr or Sobel gradient (#76), gradient weight (#75), direction term (#77), Laplacian zero-crossing cue (#79) — SegWorks defaults 0.85 / 0.15 / σ 0.8 / 0.12. Snake on binary planes: Kass edge-snap, optional GVF external force (μ 0.2, 40 iterations), optional balloon force (0.15), morphological snake; label-aware boundary competition (#201) | Vitest on synthetic planes and curves, each seen red first; interpolating families pass through every control point, approximating ones do not; Akima / monotone show no overshoot on a step; mutation-checked |
+| **F2** | **Live Wire** with the new cost: Basic (Cornerstone's) and **Advanced** mode; Controls — gradient weight, close tolerance (#80), commit smoothing (#81); Advanced folds direction weight, pre-smoothing, Laplacian cue, edge kernel. Applies to the Structure Livewire tool. **Structure toolbox fixed Controls height** (design point 2) | E2E on `ct-axial-anatomy`: an Advanced path between two anchors on the lesion follows its edge (pixel distance to the known boundary below a bound) where Basic cuts across; close tolerance governs when the contour closes; Structure toolbox height identical for every Structure tool and no controls overflow (seen red first) |
+| **F3** | **Spline** families and editing in the Spline tool: algorithm picker (all seven + Cornerstone's Cardinal/Linear); point undo (#83) and clear (#84) as visible actions beside the keys; self-intersection protection toggle (#100); **global vs local-ROI edit** (#90–91) — local edits change only the part of the contour inside the ROI limit; ROI viewport fit with multiplier and margin (#92); ROI active spline (#99) | E2E: switching algorithm changes the drawn curve through the same points (control points unchanged); a local-ROI edit leaves every contour point outside the ROI where it was; a crossing edit is refused with the toggle on; oblique case |
+| **F4** | **D3 — Contour Fill boundary modes** Freehand · Spline · Live Wire for Segmentations, **O** cycles; Spline and Live Wire boundaries are drawn with F2/F3's tools and their controls (one shared controls component), then rasterized into the active segment through the index-space rasterizer and the labelmap transaction | E2E: each mode fills the lesion on `ct-axial-anatomy` and on `ct-oblique` (voxels inside the drawn boundary, one undo step); a locked segment is refused with the existing warning; O cycles the mode (the cursor follows) |
+| **F5** | **Spline slice workflow** (Spline mode, Segmentations and Structures): undo the last commit and reload its control points for adjustment (#85); copy a spline from a nearby slice as an editable contour (#86); **propagate** backward / forward (#87–88) with preview tracks — spline deformation, mask propagation (branch 3's propagation), propagation + morphological snake (#89) — previewed, ⏎ commits | E2E: commit → undo-and-reload restores the voxels and the same control points; copy lands an editable contour on the current slice with no voxels written; each propagation track previews on the next slice and commits as one undo step |
+| **F6** | **Snake Refine** (#200–201): a Cleanup operation (Clean group) — iterations, edge weight, variant (edge · GVF · balloon · morphological), **Replace boundary with neighbours** off by default; Advanced folds GVF μ / iterations and balloon strength; scope Slice / Range | E2E on `ct-axial-anatomy`: a deliberately loose mask around the lesion moves toward its edge (Dice with the known lesion rises); neighbours untouched by default and only shared-boundary pixels reassigned when allowed; preview → ⏎, one undo; oblique case |
+| **F7** | Docs (`annotation-tool-reference.md`: Live Wire and Spline settings, Contour Fill modes, Snake Refine), full offline E2E, visual sweep in the built app, merge to `main` | CLAUDE.md self-check answered |
+
+**F5 design (worked out before building it, 2026-10-12).** One mechanism serves all three
+actions and both annotation types: the **spline in hand** — a closed spline on the current
+slice, created by the mode's own tool exactly as its first click would create it (Structure:
+the Spline tool on the active member; Segmentation: Contour Fill's Spline boundary), with the
+chosen family, and editable by its handles. It is the preview: **⏎ commits** it through the
+path a drawn spline takes when it closes (Cornerstone's completion → union into the member for
+a Structure, F4's fill for a Segmentation — one undo step either way), **⎋ discards** it. Its
+edits record no history; only the commit does.
+
+1. **Undo & edit** (#85): enabled after a spline commit; it acts only while that commit is
+   still the newest entry of the active container's undo history (the entry's identity is
+   captured when the commit settles) and otherwise says so and undoes nothing. It undoes the
+   commit through the normal undo path and puts the same control points back in hand, on
+   their slice.
+2. **Copy nearby** (#86): the active member's content on the nearest other slice (up to 10
+   away; the previous slice wins a tie), projected onto this slice and put in hand — nothing is
+   written. The control points are that slice's remembered spline when it was drawn as one,
+   otherwise its outline resampled to control points (a Structure's contour; a Segmentation's
+   largest island boundary).
+3. **Propagate ◀ ▶** (#87–89): the spline in hand (committed first) — or else the member's
+   outline here — is carried to the previous / next slice, the viewport moves there, and the
+   result is put in hand. Track (in ▸ Options): **Deform** (control points pulled onto edges on
+   the new slice, `refineTowardEdges`), **Mask** (branch 3's `propagateStep` from this slice's
+   region, outline → control points), **Mask + snake** (then the morphological snake). Slice by
+   slice: adjust, ▶, adjust, ▶ — each slice one undo step.
+
+Shown only in Spline mode: a **Slice** row (Undo & edit · Copy nearby · ◀ ▶), and **Commit**
+beside Undo point / Clear while a spline is in hand. The Controls height grows to fit if
+needed; the height E2E keeps it fixed across tools.
+
+### Branch 6 progress log
+
+- **Plan** — written 2026-10-12; approved to proceed through all slices.
+- **F1** — `lib/segmentation/contours/`: `splines.ts` (seven families + `refineTowardEdges`),
+  `polygon.ts` (self-intersection; Chaikin and rasterize re-exported from Level Trace),
+  `livewireCost.ts` (pre-smoothing, Scharr/Sobel, Laplacian zero-crossing, direction term,
+  weighted link cost in Cornerstone's scissors form), `snake.ts` (edge, GVF, balloon,
+  morphological; neighbour / lock / ROI rules). Two deviations from SegWorks, both fixes:
+  its morphological snake could only grow (the retract step was a no-op), so this is the
+  published MorphGAC; and its area guard is applied, as SegWorks does, **per step**
+  (+15 % / −30 %) — applied to the original area it stopped deflation short of the edge.
+  SegWorks' "Local Catmull-Rom+" and "Tension spline" are the same cardinal curve with
+  different tension caps (0.95 / 0.98); both ship. 39 unit tests; 20 mutants, all killed
+  (four survived the first round and the tests were strengthened — a circular reference
+  ring, a missing local-extreme case, and two morph cases that could not tell the variants
+  apart).
+- **F2** — `AppLivewireContourTool` extends Cornerstone's Live Wire under the **same tool name**
+  (RTSTRUCT export, the tool group and annotations unchanged). Advanced mode rebuilds the
+  scissors on the same normalised image with F1's cost (the private blend is replaced on the
+  instance); close tolerance adjusts only the click's canvas position that Cornerstone's
+  close test reads (its own threshold is a fixed 10 px); commit smoothing runs Chaikin on the
+  closed path. Settings live in a dependency-free module (`contourToolSettings`) the tool
+  reads at click time; `ContourToolControls` renders them (Edge cost Basic/Advanced, Edge
+  weight, ▸ Weights: direction / Laplacian / pre-smooth / kernel, Close within, Smooth
+  commit). Structure Controls area fixed at **176 px** (Live Wire Advanced, folded).
+  **Found on the way:** a Live Wire contour whose anchors are far apart (120°) can take the
+  long way round and close by retracing it — a zero-area contour that Cornerstone's contour
+  union rightly drops (the stroke vanishes). Not a code bug; the E2E anchors are 45° apart.
+  The first wrapper copied the click event onto Event's prototype, whose accessors throw on a
+  non-Event (the click died silently); it is now a plain object. E2E `contour-refine` (4):
+  height test red before the fixed height; the three behaviour tests red against a build with
+  Cornerstone's own Live Wire. Unit 1109/1109.
+- **F3** — `AppSplineContourTool` extends Cornerstone's Spline under the same tool name. Each
+  family is a Cornerstone `Spline` subclass (`FamilySpline`, curve pieces from F1's new
+  `splineSegments`; Cornerstone evaluates splines in canvas coordinates) registered as a
+  spline type (`SW_*`); the chosen family applies when a spline is created. Self-intersection
+  protection: a crossing close is refused before Cornerstone closes (closing completes the
+  drawing there); any other crossing edit is undone at the render-time rebuild every edit goes
+  through. Undo point removes one point (Cornerstone's own delete is for finished splines and
+  drops the whole spline at three points); Clear cancels. Local ROI mode (with the ROI limit
+  drawn): points are added and moved only inside it — **the acceptance was narrowed** from
+  "every contour point outside the ROI stays put", which no interpolating spline can promise
+  (the pieces next to a moved point change). Fit ROI zooms and centres the ROI limit's viewport
+  (`contourToolService`). ROI active spline refines the curve toward edges inside the ROI in
+  image index space (stack and volume). Controls: Algorithm (+ ▸ Options: density, tension,
+  no-crossing), Edit Global / Local ROI (+ Fit ROI), Undo point / Clear.
+  **Found on the way:** (1) the self-intersection test counted only strict crossings, so a
+  symmetric curve passing through the same sample point twice was missed — signs are now
+  compared with zero as a value of its own (new unit test, strict-sign mutant killed);
+  (2) Cornerstone holds a canvas mousedown back while it waits for a possible double-click, so a
+  reading right after a click lags by one — a `poll` for a refused click could pass on the
+  in-between count, which let a guard-off mutant survive; refused-click tests now read the
+  settled state. E2E +6 (red against a build with Cornerstone's own Spline and a no-op Fit ROI;
+  the guard test against a guard-off mutant). Unit 1116/1116.
+- **F4** — Contour Fill's boundary (D3) is a "Boundary" control — Freehand · Spline · Live
+  Wire — remembered across tool switches; **O** picks Contour Fill, and pressed again cycles
+  the boundary (HUD `Contour Fill · <mode>`). Freehand stays Cornerstone's
+  LabelMapEditWithContour with its own undo bridge. Spline and Live Wire are two plain
+  (non-segmentation) contour tools — `ContourFillSpline` / `ContourFillLivewire`, the same F2/F3
+  mixins on Cornerstone's `SplineROITool` / `LivewireContourTool`, so every setting applies —
+  whose closed outline `fillOutlineIntoActiveSegment` rasterizes in image index space (oblique
+  safe) and unions into the active segment through the labelmap transaction (one undo step),
+  then removes the outline. A locked segment is refused twice over: the draw-gesture guard
+  stops the gesture (the fill tools are SEGMENTATION_TOOLS), and the fill service refuses with
+  the same lock warning as a backstop. **Found on the way:** the locked test first asserted
+  only "nothing filled", which the transaction guarantees on its own — it survived a
+  lock-bypass mutant; it now asserts the lock warning, and is red only when BOTH the guard and
+  the service check are removed (each alone keeps it green — verified as two mutants). The new
+  tool classes reach Cornerstone by deep import, which the unit tests' `@cornerstonejs/tools`
+  mock does not cover, so the two suites that load `unifiedToolService` mock those modules (as
+  they already did SafePaintFillTool). E2E +8 (`contour-fill-modes`; red against mutants of
+  the boundary switch, the tool selection and O cycling). Unit 1116/1116.
+- **F5** — the spline slice workflow, as designed above (`splineSliceService`; the spline in
+  hand is `placeInHand` / `commitInHand` / `discardInHand` on the F3 Spline mixin, so both
+  annotation types share it). Controls: a **Slice** row (Undo & edit · Copy nearby · ◀ ▶),
+  **Commit** beside Undo point / Clear while a spline is held, and **Track** in ▸ Options; the
+  Controls heights grow to 186 (Segmentation) / 182 (Structure) px. Copy nearby's control points
+  are the remembered spline when that slice was drawn as one, else its outline resampled
+  (`outlineControlPoints`: the LARGEST island — Level Trace's `traceBoundary` takes the first
+  one in scan order). **Found on the way:** (1) Cornerstone gives an annotation its UID only
+  when it is added, so a spline placed in hand was never found again — it now gets one first;
+  (2) ⏎ straight after a spline is placed came before its first render, which is where its
+  outline is built — commit builds it when it is missing; (3) F3's `slicePlane` read volumes
+  through Cornerstone's `getCurrentVolumeViewportSlice`, which refuses oblique views — it now
+  reads the volume in its own index space (also fixes the ROI active spline on oblique
+  series); (4) a Segmentation's outlines are located by the grid's own slice index (an oblique
+  outline is not in the view plane); (5) two first guesses about the tracks were wrong and
+  the tests now say what they do: Deform walks a point a pixel per pass and so reaches an
+  edge several pixels away, and Mask from a ring inside the bone is refused by propagation's
+  leak guard (area change > 60 %). The operations-section height test now also counts
+  Contour Fill's three boundaries. E2E +17 (`spline-slice-workflow`), red against mutants of:
+  the track switch (each way), the stale-commit check, the remembered control points, the
+  commit-time outline, the oblique slice reader, and a held spline's edits recording history
+  (pinned on Cornerstone's own ring — the per-container history never sees those entries).
+  Not pinned: Mask + snake vs Mask (on the phantom's crisp edges the snake leaves the mask
+  where it is). Annotations + tools E2E 271/271; unit 1121/1121.
+- **F6** — **Snake refine** is a Cleanup operation (Clean group): Variant (Edge · Gradient
+  vector flow · Balloon · Morphological), Iterations, Edge weight, **Neighbours** (Keep — the
+  default — or Replace shared boundary); Advanced folds GVF μ / iterations and Balloon force;
+  the usual Slice / Range / Volume scope, preview, ⏎, one undo step. #201 is built on the
+  plane runner: `runPlaneOp` now hands an operation its neighbours' and the locked members'
+  pixels and lets it CLAIM pixels, which leave their unlocked owners first (the pair runner's
+  mechanism, generalised); an operation declares when it claims, so the service opens the
+  unlocked neighbours for writing. **Deviation from the plan:** the E2E uses the bone (1000 vs
+  40 HU) rather than the lesion, whose 30 HU edge is too faint to be a dependable target.
+  **Found on the way:** the neighbour test first placed Segment 2 one pixel clear of the seed
+  (pixel centres fall on the half millimetre), so "shared boundary" rightly claimed nothing —
+  it now touches; a redundant lock check in the claim loop was an equivalent mutant and was
+  removed. Unit +7 (runner claims, catalog wiring; mutants: variant, claimed set, claims flag,
+  always-replace); E2E +5 (`snake-refine`; mutants: neighbours not opened for writing, locked
+  members not passed, snake never running, variant ignored — each red). Checked in the built
+  app: the preview dims exactly the loose band, the sheet fits the Operations section.
+- **F7** — `annotation-tool-reference.md`: Contour Fill's boundaries and **O**, a *Spline and Live
+  Wire* section (settings, the Slice workflow and its tracks), Snake refine in the operations
+  table. Checks on the built app: typecheck, lint, unit **1128/1128**; full offline E2E
+  **342/342** on the second run. The first full run had one failure outside this branch's
+  area — `transport/sr-scan-click-reload` hung to its 2-minute timeout — which passed alone
+  (3.7 s), with the transport folder (19/19) and in the full rerun: intermittent, not
+  reproduced. Visual sweep done slice by slice in the built app (F2–F6 screenshots: Live Wire
+  and Spline controls, Contour Fill's three boundaries, the Slice row with a spline in hand
+  on the propagated slice, the Structure toolbox, Snake refine's preview and sheet). Branch 6
+  complete.

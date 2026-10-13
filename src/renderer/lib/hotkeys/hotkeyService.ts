@@ -11,7 +11,8 @@
  * through existing stores (viewerStore, segmentationStore, annotationStore).
  */
 import type { HotkeyAction, HotkeyBinding, HotkeyMap } from '@shared/types/hotkeys';
-import { ToolName, WL_PRESETS, panelId as makePanelId } from '@shared/types/viewer';
+import { CONTOUR_FILL_MODE_LABEL, CONTOUR_FILL_MODES, CONTOUR_FILL_TOOLNAME, contourFillModeOf, ToolName, WL_PRESETS, panelId as makePanelId } from '@shared/types/viewer';
+import { getContourToolSettings, setContourFillMode } from '../cornerstone/tools/contourToolSettings';
 import type { LayoutType } from '@shared/types/viewer';
 import { DEFAULT_HOTKEY_MAP } from './defaultHotkeyMap';
 import { holdsKeyboard } from './keepFocusInViewports';
@@ -222,6 +223,20 @@ function dispatchActionInner(action: HotkeyAction): boolean {
     case 'view.toggleHidePhi': {
       const prefs = usePreferencesStore.getState();
       prefs.setHidePhi(prefs.preferences.hidePhi !== true);
+      return true;
+    }
+    case 'tool.labelmapEditWithContour': {
+      // Contour Fill (D3): the first press picks it in its current boundary mode; pressed
+      // while it is active, it moves to the next mode.
+      const seg = useSegmentationStore.getState();
+      if (!seg.activeSegmentationId || !seg.showPanel) return false;
+      const activeMode = contourFillModeOf(viewerState.activeTool);
+      const mode = activeMode
+        ? CONTOUR_FILL_MODES[(CONTOUR_FILL_MODES.indexOf(activeMode) + 1) % CONTOUR_FILL_MODES.length]
+        : getContourToolSettings().contourFillMode;
+      setContourFillMode(mode);
+      viewerState.setActiveTool(CONTOUR_FILL_TOOLNAME[mode]);
+      actionHud = `Contour Fill · ${CONTOUR_FILL_MODE_LABEL[mode]}`;
       return true;
     }
     case 'operation.cleanup': {

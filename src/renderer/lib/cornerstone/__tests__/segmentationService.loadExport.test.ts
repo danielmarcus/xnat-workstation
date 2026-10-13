@@ -420,6 +420,11 @@ vi.mock('../tools/SafePaintFillTool', () => ({
   default: { toolName: 'SafePaintFill' },
 }));
 
+// The Contour Fill boundary tools subclass Cornerstone classes reached by deep import,
+// which the @cornerstonejs/tools mock does not cover.
+vi.mock('../tools/AppSplineContourTool', () => ({ ContourFillSplineTool: { toolName: 'ContourFillSpline' } }));
+vi.mock('../tools/AppLivewireContourTool', () => ({ ContourFillLivewireTool: { toolName: 'ContourFillLivewire' } }));
+
 vi.mock('../rtStructService', () => ({
   rtStructService: {
     parseRtStruct: vi.fn(() => ({ referencedSeriesUID: null })),

@@ -4119,6 +4119,17 @@ export const segmentationService = {
   // ─── Undo / Redo ──────────────────────────────────────────────
 
   /**
+   * The entry the next undo() would apply — for its identity only (branch 6 F5: "is the last
+   * spline commit still the newest edit?"). null when there is nothing to undo.
+   */
+  peekUndoEntry(): unknown {
+    const acid = activeUndoContainerId();
+    if (acid) return perContainerHistory.peekUndo(acid) ?? null;
+    const ring = DefaultHistoryMemo as { canUndo?: boolean; ring?: unknown[]; position?: number } | undefined;
+    return ring?.canUndo ? (ring.ring?.[ring.position ?? -1] ?? null) : null;
+  },
+
+  /**
    * Undo the last segmentation/contour edit.
    * Uses Cornerstone3D's DefaultHistoryMemo ring buffer.
    */

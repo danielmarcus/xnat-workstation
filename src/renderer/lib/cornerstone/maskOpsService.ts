@@ -105,13 +105,22 @@ export const maskOpsService = {
       .filter((i) => !plan || (plan[i] && plan[i] !== 'skip'))
       .map((segmentIndex) => ({ containerId, segmentIndex }));
     if (members.length === 0) return { ok: false, reason: 'no-target' };
+    const isMember = (i: number) => members.some((m) => m.segmentIndex === i);
+    const lockedOthers: MemberRef[] = summary.segments
+      .filter((m) => m.locked && !isMember(m.segmentIndex))
+      .map((m) => ({ containerId, segmentIndex: m.segmentIndex }));
+    // An operation that claims neighbours' pixels (Snake refine, #201) writes the unlocked ones too.
+    const claims = !plan && !!op.claims?.(params);
+    const writers = claims
+      ? [...members, ...allMembers.filter((m) => !isMember(m.segmentIndex) && !lockedOthers.some((l) => l.segmentIndex === m.segmentIndex))]
+      : members;
 
     // A locked target can still be previewed (read-only); it can never be committed.
     let lockedMember: MemberRef | null = null;
-    let begun = beginTransaction(members);
+    let begun = beginTransaction(writers);
     if (!begun.ok && begun.reason === 'locked') {
       lockedMember = begun.member;
-      begun = beginTransaction(members, undefined, { allowLocked: true });
+      begun = beginTransaction(writers, undefined, { allowLocked: true });
     }
     if (!begun.ok) return { ok: false, reason: begun.reason, member: begun.member };
     const { txn } = begun;
@@ -140,6 +149,7 @@ export const maskOpsService = {
       txn,
       members,
       allMembers,
+      lockedMembers: lockedOthers,
       axis: where.axis,
       slices,
       op: (plane, ctx) => {

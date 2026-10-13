@@ -10,6 +10,8 @@ import ContainerList from './ContainerList';
 import ContextToolbox from './ContextToolbox';
 import CleanupSheet from './CleanupSheet';
 import SmartToolControls from './SmartToolControls';
+import ContourToolControls from './ContourToolControls';
+import { useContourToolSettings } from '../../hooks/useContourToolSettings';
 import { useSemiAutoControls } from '../../hooks/useSemiAutoControls';
 import OperationsSection from './OperationsSection';
 import type { OperationSheetId } from '../../stores/operationSheetStore';
@@ -93,6 +95,7 @@ export default function AnnotationsPanel({ activeViewportId, sourceImageIds }: A
   const qc3d = useQc3dSheet();
   const checkpoints = useCheckpoints();
   const semiAuto = useSemiAutoControls();
+  const contourTools = useContourToolSettings();
   const handlers = {
     ...panel.handlers,
     onKebab: (id: string) => { panel.handlers.onKebab(id); checkpoints.refresh(id); },
@@ -115,6 +118,7 @@ export default function AnnotationsPanel({ activeViewportId, sourceImageIds }: A
       compact={compactTools}
       columns={toolColumns}
       renderSemiAutoControls={(toolId) => <SmartToolControls toolId={toolId} m={semiAuto} />}
+      renderContourControls={(toolId) => <ContourToolControls toolId={toolId} m={contourTools} />}
     />
   ) : undefined;
   // The open operation's model supplies the section's target, summary and close.

@@ -11,20 +11,25 @@ import { metaData } from '@cornerstonejs/core';
 import { viewportService } from './viewportService';
 import { beginTransaction, type LabelmapTransaction, type MemberRef } from './labelmapTransaction';
 import { sliceAxisFor } from './maskIslands';
-import { worldToIndex, type Vec3, type VoxelGridGeometry } from './segmentationService/voxelClipboard';
+import { worldToIndex, worldToIndexFloat, type Vec3, type VoxelGridGeometry } from './segmentationService/voxelClipboard';
 import { commitPreview, discardPreview, discardPreviewForEdit, refreshPreview, startPreview } from './maskPreview';
 import { getSourceImageIds } from './sourceImageTracking';
 import { getWorldPointFromClientPoint } from './unifiedCrosshair';
 import { semiAutoBridge } from './tools/semiAutoBridge';
+import { setContourRoiProvider } from './tools/contourToolSettings';
 import { startSemiAutoOverlay } from './semiAutoOverlay';
 import { type Axis, extractValues, planeAxes, planeSize, sliceIndices } from '../segmentation/maskOps/planeIO';
-import { guardFromSamples, levelTrace } from '../segmentation/semiauto/levelTrace';
+import { guardFromSamples, levelTrace, rasterize } from '../segmentation/semiauto/levelTrace';
 import { smartBrushDab, strokeDabs } from '../segmentation/semiauto/smartBrush';
 import { computeClient, ComputeCancelled } from '../compute/computeClient';
 import { hotkeyService } from '../hotkeys/hotkeyService';
 import { useComputeStore } from '../../stores/computeStore';
 import { useSegmentationStore } from '../../stores/segmentationStore';
 import { useSemiAutoStore, type RoiLimit } from '../../stores/semiAutoStore';
+import { warnMemberLocked } from '../annotations/lockWarning';
+import { eventTarget } from '@cornerstonejs/core';
+import { annotation as csAnnotation, Enums as ToolEnums, utilities as csToolsUtilities } from '@cornerstonejs/tools';
+import { useViewerStore } from '../../stores/viewerStore';
 
 export type SemiAutoResult =
   | { ok: true; added: number; readOnly: boolean }
@@ -374,3 +379,60 @@ Object.assign(semiAutoBridge, {
 });
 
 startSemiAutoOverlay();
+
+// ─── Contour Fill: Spline and Live Wire boundaries (branch 6 F4, D3) ──────────
+//
+// Contour Fill's Spline and Live Wire modes draw with plain (non-segmentation) Cornerstone
+// tools under their own names. When such an outline closes, it is rasterized into the
+// active segment here — in the segment's own index space, on the viewing plane (so oblique
+// series work), through the labelmap transaction (one undo step; a locked segment is
+// refused with the usual warning) — and the outline is removed. Freehand mode keeps
+// Cornerstone's LabelMapEditWithContour and its index-space fill (contourEditPrereq).
+
+const CONTOUR_FILL_OUTLINE_TOOLS = new Set(['ContourFillSpline', 'ContourFillLivewire']);
+
+export type ContourFillResult = { ok: true; added: number } | { ok: false; reason: 'no-target' | 'no-viewport' | 'locked' | 'not-planar' };
+
+/** Fill the area a closed world-space outline encloses into the active segment. */
+export function fillOutlineIntoActiveSegment(viewportId: string, outline: number[][]): ContourFillResult {
+  const t = openTarget();
+  if (!t) return { ok: false, reason: 'no-target' };
+  if (t.lockedMember) {
+    t.txn.discard();
+    warnMemberLocked(t.lockedMember.containerId, t.lockedMember.segmentIndex, 'change it');
+    return { ok: false, reason: 'locked' };
+  }
+  const grid = t.txn.grid(t.member);
+  const vp = viewportService.getViewport(viewportId) as { getCamera?: () => { viewPlaneNormal?: number[] } } | undefined;
+  const normal = vp?.getCamera?.()?.viewPlaneNormal;
+  if (!grid || !normal || outline.length < 3) { t.txn.discard(); return { ok: false, reason: 'no-viewport' }; }
+  const axis = sliceAxisFor(grid.geometry.direction, normal) as Axis;
+  const [ax, ay] = planeAxes(axis);
+  const ijk = outline.map((p) => worldToIndexFloat(grid.geometry, p as Vec3));
+  const slices = ijk.map((p) => Math.round(p[axis]));
+  const slice = slices[0];
+  if (slices.some((s) => s !== slice)) { t.txn.discard(); return { ok: false, reason: 'not-planar' }; }
+  const { width, height } = planeSize(grid.geometry.dimensions, axis);
+  const region = rasterize(ijk.map((p) => [p[ax], p[ay]] as [number, number]), width, height);
+  const current = t.txn.readPlane(t.member, axis, slice)!;
+  const union = Uint8Array.from(region, (v, i) => (v || current.data[i] ? 1 : 0));
+  const { added } = t.txn.applyPlane(t.member, axis, slice, { width, height, data: union });
+  if (!added) { t.txn.discard(); return { ok: true, added: 0 }; }
+  t.txn.commit();
+  return { ok: true, added };
+}
+
+eventTarget.addEventListener(ToolEnums.Events.ANNOTATION_COMPLETED, ((evt: CustomEvent) => {
+  const annotation = evt.detail?.annotation as { annotationUID?: string; metadata?: { toolName?: string }; data?: { contour?: { polyline?: number[][] } } } | undefined;
+  if (!annotation || !CONTOUR_FILL_OUTLINE_TOOLS.has(annotation.metadata?.toolName ?? '')) return;
+  const outline = annotation.data?.contour?.polyline ?? [];
+  const viewportId = useViewerStore.getState().activeViewportId;
+  const r = fillOutlineIntoActiveSegment(viewportId, outline);
+  if (!r.ok && r.reason !== 'locked') console.warn('[semiAutoService] Contour Fill outline not filled:', r.reason);
+  // The outline was only a way to draw the boundary: it goes once filled (or refused).
+  if (annotation.annotationUID) csAnnotation.state.removeAnnotation(annotation.annotationUID);
+  csToolsUtilities.triggerAnnotationRenderForViewportIds([viewportId]);
+}) as EventListener);
+
+// The ROI limit also confines the Spline tool's local editing and the ROI active spline (branch 6).
+setContourRoiProvider(() => useSemiAutoStore.getState().roi);

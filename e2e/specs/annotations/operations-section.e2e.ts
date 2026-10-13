@@ -77,8 +77,20 @@ test('the toolbox keeps one height whatever tool is active, and no tool\'s contr
       return c ? c.scrollHeight - c.clientHeight : null;
     });
   }
+  // Contour Fill's controls change with its boundary (D3): each mode counts as a tool here.
+  await clickTool(toolbox, 'Contour Fill');
+  for (const mode of ['Freehand', 'Spline', 'Live Wire']) {
+    await toolbox.getByRole('group', { name: 'Boundary' }).getByRole('button', { name: mode }).click();
+    await page.waitForTimeout(80);
+    const key = `Contour Fill · ${mode}`;
+    heights[key] = Math.round((await toolbox.boundingBox())!.height);
+    overflow[key] = await toolbox.evaluate((el) => {
+      const c = el.querySelector('[data-testid="toolbox-controls"]');
+      return c ? c.scrollHeight - c.clientHeight : null;
+    });
+  }
   expect(new Set(Object.values(heights)).size, JSON.stringify(heights)).toBe(1);
-  for (const label of SEG_TOOLS) expect(overflow[label], `${label} controls overflow`).toBe(0);
+  for (const label of Object.keys(overflow)) expect(overflow[label], `${label} controls overflow`).toBe(0);
 });
 
 test('Cleanup opens from the Operations row, between the member list and the toolbox, and the toolbox stays put', async ({ page }) => {

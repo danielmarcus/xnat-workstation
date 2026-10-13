@@ -34,6 +34,8 @@ export type HotkeyAction =
   | 'tool.stackScroll'
   // Operations (SegWorks parity)
   | 'operation.cleanup'
+  /** Contour Fill; pressed again, cycles its boundary Freehand → Spline → Live Wire (D3). */
+  | 'tool.labelmapEditWithContour'
   // Display
   | 'view.toggleHidePhi'
   | 'segmentation.toggleMasks'

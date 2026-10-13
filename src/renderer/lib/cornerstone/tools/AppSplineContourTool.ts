@@ -1,0 +1,451 @@
+/**
+ * Spline with SegWorks' families and editing (parity branch 6, F3; inventory #82–100 —
+ * docs/segworks-parity.md §10).
+ *
+ * Extends Cornerstone's SplineContourSegmentationTool rather than forking it, under the
+ * SAME tool name (annotations, RTSTRUCT export, the AnnotationToPointData registration and
+ * the tool group are unchanged):
+ *
+ *  - Families (#93–99): each F1 family is a Cornerstone `Spline` subclass (FamilySpline)
+ *    built from `splineSegments`, registered as a spline type; the chosen family is applied
+ *    when a spline is created. Cornerstone evaluates splines in CANVAS coordinates.
+ *  - Point undo (#83) and clear (#84) are offered to the toolbox through `registerSplineActions`.
+ *  - Self-intersection protection (#100): a closing click whose closed curve would cross
+ *    itself is refused before Cornerstone sees it (closing completes the drawing there);
+ *    any other edit — a new point, a drag — that makes the curve cross is undone at the
+ *    render-time rebuild (`_updateSplineInstance`, which every edit goes through).
+ *  - Local ROI editing (#90–91): with an ROI limit drawn, points are added and moved only
+ *    inside it.
+ *  - ROI active spline (#99): the drawn curve is pulled onto image edges inside the ROI, in
+ *    image index space (`refineTowardEdges`).
+ *  - The spline in hand (F5, #85–89): a closed spline placed from control points exactly as
+ *    the tool's first click creates one, editable by its handles, recording no history until
+ *    it is committed — then completed the way a drawn spline completes when it closes.
+ *
+ * Cornerstone declares the members involved `private`; they are replaced on the instance
+ * (as the Live Wire subclass does), with the reason here.
+ */
+import { getEnabledElement, utilities as csUtils, VolumeViewport } from '@cornerstonejs/core';
+import { annotation as csAnnotation, SplineContourSegmentationTool, SplineROITool, utilities as csToolsUtils } from '@cornerstonejs/tools';
+import { Spline } from '@cornerstonejs/tools/tools/annotation/splines/Spline';
+import { LinearSpline } from '@cornerstonejs/tools/tools/annotation/splines/LinearSpline';
+import type { SplineCurveSegment } from '@cornerstonejs/tools/types/SplineCurveSegment';
+import type { ContourWindingDirection } from '@cornerstonejs/tools/types/ContourAnnotation';
+import { refineTowardEdges, splineSegments, type Point, type SplineAlgorithm } from '../../segmentation/contours/splines';
+import { hasSelfIntersection, hasSelfIntersectionOpen } from '../../segmentation/contours/polygon';
+import { getContourRoi, getContourToolSettings, registerSplineActions, type SplineSettings } from './contourToolSettings';
+
+type Point2 = [number, number];
+
+/** ContourWindingDirection.Clockwise — the enum is not in the package's runtime exports. */
+const CLOCKWISE = 1 as ContourWindingDirection;
+
+/** Cornerstone's spline click-to-close distance (screen px), SplineROITool.ts. */
+const SPLINE_CLICK_CLOSE_CURVE_DIST = 10;
+
+/** Spline type names registered with Cornerstone for each family. */
+export const SPLINE_TYPE: Record<SplineSettings['algorithm'], string> = {
+  centripetalCR: 'SW_CENTRIPETAL_CR',
+  cubicBSpline: 'SW_CUBIC_BSPLINE',
+  monotoneCubic: 'SW_MONOTONE_CUBIC',
+  akima: 'SW_AKIMA',
+  localCR: 'SW_LOCAL_CR',
+  tensionSpline: 'SW_TENSION',
+  roiActiveSpline: 'SW_ROI_ACTIVE',
+  linear: 'LINEAR', // Cornerstone's own
+};
+
+function toSegment(points: Point2[], controlPoints: SplineCurveSegment['controlPoints'], previousCurveSegmentsLength: number): SplineCurveSegment {
+  const lineSegments: SplineCurveSegment['lineSegments'] = [];
+  let length = 0;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (let i = 1; i < points.length; i++) {
+    const start = points[i - 1], end = points[i];
+    const l = Math.hypot(end[0] - start[0], end[1] - start[1]);
+    const aabb = { minX: Math.min(start[0], end[0]), maxX: Math.max(start[0], end[0]), minY: Math.min(start[1], end[1]), maxY: Math.max(start[1], end[1]) };
+    minX = Math.min(minX, aabb.minX); maxX = Math.max(maxX, aabb.maxX); minY = Math.min(minY, aabb.minY); maxY = Math.max(maxY, aabb.maxY);
+    lineSegments.push({ points: { start, end }, aabb, length: l, previousLineSegmentsLength: length });
+    length += l;
+  }
+  return { controlPoints, aabb: { minX, minY, maxX, maxY }, length, previousCurveSegmentsLength, lineSegments };
+}
+
+/** A Cornerstone spline whose curve is one of the F1 families (canvas coordinates). */
+export abstract class FamilySpline extends Spline {
+  protected abstract readonly algorithm: SplineAlgorithm;
+  /** Optional per-render refinement of the closed curve (the ROI active spline). */
+  refiner: ((pts: Point[]) => Point[]) | null = null;
+
+  protected getTransformMatrix(): number[] {
+    return []; // not a fixed-basis cubic; the curve comes from splineSegments
+  }
+
+  protected getSplineCurves(): SplineCurveSegment[] {
+    return this.build(this.controlPoints, this.closed);
+  }
+
+  protected getPreviewCurveSegments(controlPointPreview: Point2, closeSpline: boolean): SplineCurveSegment[] {
+    const pts = [...this.controlPoints];
+    if (!closeSpline) pts.push(controlPointPreview);
+    return this.build(pts, closeSpline);
+  }
+
+  private build(cps: Point2[], closed: boolean): SplineCurveSegment[] {
+    if (cps.length < 2) return [];
+    const n = cps.length;
+    let pieces: Point2[][];
+    if (n === 2) {
+      pieces = closed ? [[cps[0], cps[1]], [cps[1], cps[0]]] : [[cps[0], cps[1]]];
+    } else {
+      const s = getContourToolSettings().spline;
+      const segs = splineSegments(cps.map((p) => ({ x: p[0], y: p[1] })), this.algorithm, { samplesPerSegment: s.samplesPerSegment, tension: s.tension });
+      let flat = segs;
+      if (closed && this.refiner) {
+        // Refine the whole closed curve (normals need neighbours), then cut it back into pieces.
+        const sizes = segs.map((g) => g.length);
+        const refined = this.refiner(segs.flat());
+        flat = [];
+        let k = 0;
+        for (const size of sizes) { flat.push(refined.slice(k, k + size)); k += size; }
+      }
+      pieces = flat.map((g) => g.map((p) => [p.x, p.y] as Point2));
+      if (!closed) pieces = pieces.slice(0, -1); // an open curve has no closing piece
+    }
+    const out: SplineCurveSegment[] = [];
+    let previous = 0;
+    pieces.forEach((pts, i) => {
+      const at = (k: number) => cps[((k % n) + n) % n];
+      const seg = toSegment(pts, { p0: at(i - 1), p1: cps[i], p2: at(i + 1), p3: at(i + 2) }, previous);
+      previous += seg.length;
+      out.push(seg);
+    });
+    return out;
+  }
+}
+
+function familyClass(algorithm: SplineAlgorithm): new () => FamilySpline {
+  return class extends FamilySpline {
+    protected readonly algorithm = algorithm;
+  };
+}
+
+export const FAMILY_CLASSES: Record<SplineAlgorithm, new () => FamilySpline> = {
+  centripetalCR: familyClass('centripetalCR'),
+  cubicBSpline: familyClass('cubicBSpline'),
+  monotoneCubic: familyClass('monotoneCubic'),
+  akima: familyClass('akima'),
+  localCR: familyClass('localCR'),
+  tensionSpline: familyClass('tensionSpline'),
+  roiActiveSpline: familyClass('roiActiveSpline'),
+};
+
+type Viewport = {
+  worldToCanvas(p: number[]): Point2;
+  canvasToWorld(p: Point2): number[];
+  getImageData(): { dimensions: number[]; scalarData?: ArrayLike<number>; imageData: unknown } | undefined;
+};
+
+/** The ROI limit as a canvas rectangle on this element's viewport (null if none here). */
+function roiCanvasRect(element: HTMLDivElement): { x0: number; y0: number; x1: number; y1: number } | null {
+  const roi = getContourRoi();
+  if (!roi) return null;
+  const enabled = getEnabledElement(element);
+  const viewport = enabled?.viewport as unknown as (Viewport & { id: string }) | undefined;
+  if (!viewport || viewport.id !== roi.viewportId) return null;
+  const pts = roi.corners.map((c) => viewport.worldToCanvas(c));
+  return {
+    x0: Math.min(...pts.map((p) => p[0])), x1: Math.max(...pts.map((p) => p[0])),
+    y0: Math.min(...pts.map((p) => p[1])), y1: Math.max(...pts.map((p) => p[1])),
+  };
+}
+
+const inRect = (r: { x0: number; y0: number; x1: number; y1: number }, p: Point2) => p[0] >= r.x0 && p[0] <= r.x1 && p[1] >= r.y0 && p[1] <= r.y1;
+
+/**
+ * The slice on screen as an image plane, with canvas ↔ plane-index transforms. A stack shows
+ * one image; a volume is read in its own index space, on the index axis nearest the view
+ * normal — so a volume seen along its acquisition plane works however that plane is tilted
+ * in the world (Cornerstone's getCurrentVolumeViewportSlice refuses oblique views).
+ */
+export function slicePlane(element: HTMLDivElement): { width: number; height: number; scalar: ArrayLike<number>; toPlane: (c: Point2) => Point2; toCanvas: (p: Point2) => Point2 } | null {
+  const enabled = getEnabledElement(element);
+  const viewport = enabled?.viewport as unknown as Viewport | undefined;
+  if (!viewport) return null;
+  const vid = viewport.getImageData();
+  if (!vid) return null;
+  const image = vid.imageData as never;
+  if (!(viewport instanceof VolumeViewport)) {
+    const scalar = vid.scalarData;
+    if (!scalar) return null;
+    return {
+      width: vid.dimensions[0], height: vid.dimensions[1], scalar,
+      toPlane: (c) => { const ijk = csUtils.transformWorldToIndexContinuous(image, viewport.canvasToWorld(c) as never) as number[]; return [ijk[0], ijk[1]]; },
+      toCanvas: (p) => viewport.worldToCanvas(csUtils.transformIndexToWorld(image, [p[0], p[1], 0]) as number[]),
+    };
+  }
+  const vp = viewport as unknown as Viewport & { getCamera(): { focalPoint: number[]; viewPlaneNormal: number[] } };
+  const cam = vp.getCamera();
+  const dims = vid.dimensions;
+  const direction = (vid as unknown as { direction: number[] }).direction;
+  const voxels = (vid as unknown as { voxelManager?: { getAtIndex(i: number): number } }).voxelManager;
+  if (!voxels || !direction || !cam.focalPoint || !cam.viewPlaneNormal) return null;
+  // The index axis whose world direction is closest to the view normal is the slice axis.
+  const along = [0, 1, 2].map((a) => Math.abs(direction[a * 3] * cam.viewPlaneNormal[0] + direction[a * 3 + 1] * cam.viewPlaneNormal[1] + direction[a * 3 + 2] * cam.viewPlaneNormal[2]));
+  const axis = along.indexOf(Math.max(...along));
+  const [ax, ay] = axis === 0 ? [1, 2] : axis === 1 ? [0, 2] : [0, 1];
+  const slice = Math.round((csUtils.transformWorldToIndexContinuous(image, cam.focalPoint as never) as number[])[axis]);
+  if (slice < 0 || slice >= dims[axis]) return null;
+  const width = dims[ax], height = dims[ay];
+  const scalar = new Float32Array(width * height);
+  const ijk = [0, 0, 0];
+  ijk[axis] = slice;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      ijk[ax] = x; ijk[ay] = y;
+      scalar[x + y * width] = voxels.getAtIndex(ijk[0] + ijk[1] * dims[0] + ijk[2] * dims[0] * dims[1]);
+    }
+  }
+  return {
+    width, height, scalar,
+    toPlane: (c) => { const q = csUtils.transformWorldToIndexContinuous(image, vp.canvasToWorld(c) as never) as number[]; return [q[ax], q[ay]]; },
+    toCanvas: (p) => { const q = [0, 0, 0]; q[axis] = slice; q[ax] = p[0]; q[ay] = p[1]; return vp.worldToCanvas(csUtils.transformIndexToWorld(image, q as never) as number[]); },
+  };
+}
+
+interface Annotation {
+  annotationUID?: string;
+  invalidated?: boolean;
+  data: {
+    handles: { points: number[][] };
+    contour: { closed: boolean; polyline?: number[][] };
+    spline?: { instance?: FamilySpline | Spline; type?: string };
+  };
+}
+
+type InteractionEvt = { type: string; detail: { element: HTMLDivElement; currentPoints: { canvas: Point2; world: number[] } } };
+
+type SplineBase = abstract new (...args: any[]) => SplineROITool;
+
+/**
+ * SegWorks' spline families and editing on a Cornerstone Spline tool — the Structure tool
+ * (SplineContourSegmentationTool) and Contour Fill's Spline boundary (the plain
+ * SplineROITool, branch 6 F4) both get exactly the same behaviour.
+ */
+export function withSplineFeatures<TBase extends SplineBase>(Base: TBase) {
+  abstract class SplineWithFeatures extends Base {
+  /** Where the spline being drawn lives (for the toolbox's undo / clear). */
+  private drawingElement: HTMLDivElement | null = null;
+  private readonly lastGood = new WeakMap<object, { points: number[][]; closed: boolean }>();
+  /** Splines in hand (F5) and the element each was placed on. */
+  private readonly inHand = new Map<string, HTMLDivElement>();
+
+  constructor(...args: any[]) {
+    super(...args);
+    const config = (this.configuration as { spline: { configuration: Record<string, Record<string, unknown>> } }).spline.configuration;
+    for (const [algorithm, Class] of Object.entries(FAMILY_CLASSES)) config[SPLINE_TYPE[algorithm as SplineAlgorithm]] = { Class };
+    config.LINEAR = { ...(config.LINEAR ?? {}), Class: LinearSpline };
+
+    const self = this as unknown as {
+      _updateSplineInstance: (element: HTMLDivElement, annotation: Annotation) => Spline;
+      _mouseDownCallback: (evt: InteractionEvt) => void;
+      _dragCallback: (evt: InteractionEvt) => void;
+      editData: { annotation: Annotation; handleIndex?: number } | null;
+    };
+
+    const rebuild = self._updateSplineInstance.bind(this);
+    self._updateSplineInstance = (element, annotation) => this.guardedRebuild(rebuild, element, annotation);
+
+    const mouseDown = self._mouseDownCallback;
+    self._mouseDownCallback = (evt) => {
+      const annotation = self.editData?.annotation;
+      if (annotation && !this.allowClick(evt, annotation)) return;
+      mouseDown(evt);
+    };
+
+    const drag = self._dragCallback;
+    self._dragCallback = (evt) => {
+      const s = getContourToolSettings().spline;
+      const rect = s.editMode === 'localRoi' ? roiCanvasRect(evt.detail.element) : null;
+      if (rect && !inRect(rect, evt.detail.currentPoints.canvas)) return; // #91: stay inside the ROI
+      drag(evt);
+    };
+
+    registerSplineActions({
+      undoLastPoint: () => this.undoLastPoint(),
+      clear: () => this.clearDrawing(),
+    });
+  }
+
+  addNewAnnotation(evt: Parameters<SplineROITool['addNewAnnotation']>[0]) {
+    const e = evt as unknown as InteractionEvt;
+    const s = getContourToolSettings().spline;
+    const rect = s.editMode === 'localRoi' ? roiCanvasRect(e.detail.element) : null;
+    if (rect && !inRect(rect, e.detail.currentPoints.canvas)) return undefined as never; // #90: start inside the ROI
+    this.drawingElement = e.detail.element;
+    return super.addNewAnnotation(evt);
+  }
+
+  protected createAnnotation(evt: Parameters<SplineROITool['createAnnotation']>[0]) {
+    (this.configuration as { spline: { type: string } }).spline.type = SPLINE_TYPE[getContourToolSettings().spline.algorithm];
+    return super.createAnnotation(evt);
+  }
+
+  /** An edit of a spline in hand records no history: only its commit does (F5). */
+  createMemo(...args: Parameters<SplineROITool['createMemo']>): void {
+    const uid = (args[1] as Annotation | undefined)?.annotationUID;
+    if (uid && this.inHand.has(uid)) return;
+    super.createMemo(...args);
+  }
+
+  /**
+   * Put a closed spline through `points` (world) in hand on `element`'s viewport — created
+   * as this tool's first click would create it (the active member for a Structure, the
+   * chosen family) — and return its UID.
+   */
+  placeInHand(element: HTMLDivElement, points: number[][]): string | null {
+    const viewport = getEnabledElement(element)?.viewport as unknown as Viewport | undefined;
+    if (!viewport || points.length < 3) return null;
+    const evt = { type: 'splineInHand', detail: { element, currentPoints: { world: [...points[0]], canvas: viewport.worldToCanvas(points[0]) } } };
+    const annotation = this.createAnnotation(evt as never) as unknown as Annotation | undefined;
+    if (!annotation) return null;
+    // Cornerstone gives an annotation its UID when it is added; this one is known by it first.
+    annotation.annotationUID ??= csUtils.uuidv4();
+    annotation.data.handles.points = points.map((p) => [...p]);
+    annotation.data.contour.closed = true;
+    this.inHand.set(annotation.annotationUID, element);
+    this.addAnnotation(annotation as never, element);
+    this.renderOn(element);
+    return annotation.annotationUID;
+  }
+
+  /** Commit a spline in hand: one history entry, then completed as a drawn spline is. */
+  commitInHand(uid: string): boolean {
+    const element = this.inHand.get(uid);
+    const annotation = csAnnotation.state.getAnnotation(uid) as unknown as Annotation | undefined;
+    this.inHand.delete(uid);
+    if (!element || !annotation) return false;
+    // Committed before its first render (⏎ straight after it was placed): its outline is not
+    // built yet — build it now, as rendering would. (Placed moments ago, so still on screen:
+    // the outline is built in canvas space.)
+    if (!annotation.data.contour.polyline?.length) {
+      const viewport = getEnabledElement(element)?.viewport;
+      const spline = (this as unknown as { _updateSplineInstance: (e: HTMLDivElement, a: Annotation) => Spline })._updateSplineInstance(element, annotation);
+      this.updateContourPolyline(annotation as never, {
+        points: spline.getPolylinePoints(), closed: true, targetWindingDirection: CLOCKWISE,
+      }, viewport as never, { updateWindingDirection: true });
+    }
+    this.createMemo(element, annotation as never, { newAnnotation: true });
+    this.doneEditMemo();
+    (this as unknown as { triggerAnnotationCompleted: (a: Annotation, hole: boolean) => void }).triggerAnnotationCompleted(annotation, false);
+    this.renderOn(element);
+    return true;
+  }
+
+  /** Drop a spline in hand (nothing was recorded for it). */
+  discardInHand(uid: string): boolean {
+    const element = this.inHand.get(uid);
+    this.inHand.delete(uid);
+    if (!element || !csAnnotation.state.getAnnotation(uid)) return false;
+    csAnnotation.state.removeAnnotation(uid);
+    this.renderOn(element);
+    return true;
+  }
+
+  private renderOn(element: HTMLDivElement): void {
+    csToolsUtils.triggerAnnotationRenderForViewportIds(csToolsUtils.viewportFilters.getViewportIdsWithToolToRender(element, this.getToolName()));
+  }
+
+  /** A click while drawing: refused outside the ROI (local mode), or if closing would cross. */
+  private allowClick(evt: InteractionEvt, annotation: Annotation): boolean {
+    const s = getContourToolSettings().spline;
+    const rect = s.editMode === 'localRoi' ? roiCanvasRect(evt.detail.element) : null;
+    const spline = annotation.data.spline?.instance as Spline | undefined;
+    const closing = !!spline && annotation.data.handles.points.length >= 3
+      && spline.getClosestControlPointWithinDistance(evt.detail.currentPoints.canvas, SPLINE_CLICK_CLOSE_CURVE_DIST)?.index === 0;
+    if (rect && !closing && !inRect(rect, evt.detail.currentPoints.canvas)) return false;
+    if (s.preventSelfIntersection && closing && spline) {
+      spline.closed = true;
+      const crosses = hasSelfIntersection(spline.getPolylinePoints().map((p) => ({ x: p[0], y: p[1] })));
+      spline.closed = false;
+      if (crosses) return false;
+    }
+    return true;
+  }
+
+  /** Rebuild the curve; undo the edit if it made the curve cross itself (#100). */
+  private guardedRebuild(rebuild: (element: HTMLDivElement, annotation: Annotation) => Spline, element: HTMLDivElement, annotation: Annotation): Spline {
+    let spline = rebuild(element, annotation);
+    const s = getContourToolSettings().spline;
+    if (spline instanceof FamilySpline) {
+      spline.refiner = s.algorithm === 'roiActiveSpline' ? this.edgeRefiner(element) : null;
+    }
+    const snapshot = () => ({ points: annotation.data.handles.points.map((p) => [...p]), closed: annotation.data.contour.closed });
+    if (!s.preventSelfIntersection) {
+      this.lastGood.set(annotation, snapshot());
+      return spline;
+    }
+    const poly = spline.getPolylinePoints().map((p) => ({ x: p[0], y: p[1] }));
+    const crosses = annotation.data.contour.closed ? hasSelfIntersection(poly) : hasSelfIntersectionOpen(poly);
+    const good = this.lastGood.get(annotation);
+    if (crosses && good) {
+      annotation.data.handles.points = good.points.map((p) => [...p]);
+      annotation.data.contour.closed = good.closed;
+      spline = rebuild(element, annotation);
+    } else if (!crosses) {
+      this.lastGood.set(annotation, snapshot());
+    }
+    return spline;
+  }
+
+  /** The ROI active spline's refinement for this element (null without an ROI here). */
+  private edgeRefiner(element: HTMLDivElement): ((pts: Point[]) => Point[]) | null {
+    const rect = roiCanvasRect(element);
+    const plane = rect ? slicePlane(element) : null;
+    if (!rect || !plane) return null;
+    const a = plane.toPlane([rect.x0, rect.y0]), b = plane.toPlane([rect.x1, rect.y1]);
+    const roi = { x0: Math.min(a[0], b[0]), y0: Math.min(a[1], b[1]), x1: Math.max(a[0], b[0]), y1: Math.max(a[1], b[1]) };
+    return (pts) => {
+      const inPlane = pts.map((p) => { const q = plane.toPlane([p.x, p.y]); return { x: q[0], y: q[1] }; });
+      return refineTowardEdges(inPlane, plane.scalar, plane.width, plane.height, roi).map((p) => {
+        const c = plane.toCanvas([p.x, p.y]);
+        return { x: c[0], y: c[1] };
+      });
+    };
+  }
+
+  private undoLastPoint(): boolean {
+    const editData = (this as unknown as { editData: { annotation: Annotation } | null }).editData;
+    const element = this.drawingElement;
+    if (!this.isDrawing || !editData?.annotation || !element) return false;
+    const points = editData.annotation.data.handles.points;
+    if (points.length <= 1) return this.clearDrawing();
+    // Not Cornerstone's _deleteControlPointByIndex: it is for editing a finished spline and
+    // removes the whole annotation at three points. While drawing, undo drops one point.
+    points.pop();
+    editData.annotation.invalidated = true;
+    this.renderOn(element);
+    return true;
+  }
+
+  private clearDrawing(): boolean {
+    const element = this.drawingElement;
+    if (!this.isDrawing || !element) return false;
+    this.cancel(element);
+    return true;
+  }
+}
+  return SplineWithFeatures;
+}
+
+/** The Structure Spline — Cornerstone's tool name, so everything keyed on it still finds it. */
+export class AppSplineContourTool extends withSplineFeatures(SplineContourSegmentationTool) {
+  static toolName = SplineContourSegmentationTool.toolName;
+}
+
+/**
+ * Contour Fill's Spline boundary (D3): a plain (non-segmentation) Spline whose closed curve
+ * the fill listener rasterizes into the active segment and then removes.
+ */
+export class ContourFillSplineTool extends withSplineFeatures(SplineROITool) {
+  static toolName = 'ContourFillSpline';
+}
