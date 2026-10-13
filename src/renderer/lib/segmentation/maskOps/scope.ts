@@ -50,7 +50,18 @@ export interface PlaneOpContext {
   spacing: PlaneSpacing;
   /** Image intensities of the slice (plane order) when the runner was given an image reader. */
   image?: Float32Array;
+  /** Pixels of the container's other members on this slice. */
+  others?: Uint8Array;
+  /** Pixels of locked members on this slice: never to be taken. */
+  protect?: Uint8Array;
 }
+
+/**
+ * What a plane operation returns: the member's new plane, and optionally the pixels it
+ * CLAIMS from its neighbours (Snake Refine's "Replace boundary with neighbours", #201) —
+ * those leave their (unlocked) owners so the member can take them.
+ */
+export type PlaneOpOutput = MaskPlane | { plane: MaskPlane; claimed?: Uint8Array };
 
 export interface RunPlaneOpOptions {
   txn: LabelmapTransaction;
@@ -60,7 +71,9 @@ export interface RunPlaneOpOptions {
   allMembers: MemberRef[];
   axis: Axis;
   slices: number[];
-  op: (plane: MaskPlane, ctx: PlaneOpContext) => MaskPlane;
+  op: (plane: MaskPlane, ctx: PlaneOpContext) => PlaneOpOutput;
+  /** Members that may not be changed (locked): their pixels are never claimed. */
+  lockedMembers?: MemberRef[];
   /** Restrict changes to this plane-shaped mask (applies to every slice). */
   roi?: ArrayLike<number>;
   /** Image intensities for a slice, in plane order (image-guided operations). */
@@ -94,10 +107,26 @@ export function runPlaneOp(o: RunPlaneOpOptions): RunPlaneOpResult {
     const spacing = planeSpacing(grid.geometry.spacing, o.axis);
     const { width, height } = planeSize(dims, o.axis);
     const others = o.allMembers.filter((m) => keyOf(m) !== keyOf(member));
+    const locked = new Set((o.lockedMembers ?? []).map(keyOf));
+    const lockedOthers = others.filter((m) => locked.has(keyOf(m)));
     for (const slice of o.slices) {
       const before = o.txn.readPlane(member, o.axis, slice);
       if (!before) continue;
-      const after = o.op(before, { member, slice, spacing, image: o.readImage?.(slice) });
+      const otherPx = o.txn.unionPlane(others, o.axis, slice, width, height);
+      const protect = o.txn.unionPlane(lockedOthers, o.axis, slice, width, height);
+      const out = o.op(before, { member, slice, spacing, image: o.readImage?.(slice), others: otherPx, protect });
+      const after = 'plane' in out ? out.plane : out;
+      const claimed = 'plane' in out ? out.claimed : undefined;
+      // Claimed pixels leave their unlocked owners first (inside the ROI), so the member can take them.
+      if (claimed) {
+        for (const m of others) {
+          if (locked.has(keyOf(m))) continue;
+          const p = o.txn.readPlane(m, o.axis, slice);
+          if (!p) continue;
+          const next = Uint8Array.from(p.data, (v, i) => (v && claimed[i] && (!o.roi || o.roi[i]) ? 0 : v));
+          if (next.some((v, i) => v !== p.data[i])) removed += o.txn.applyPlane(m, o.axis, slice, { ...p, data: next }).removed;
+        }
+      }
       const blocked = o.allowTakeover ? undefined : o.txn.unionPlane(others, o.axis, slice, width, height);
       const r = o.txn.applyPlane(member, o.axis, slice, after, { blocked, roi: o.roi });
       added += r.added;

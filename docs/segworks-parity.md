@@ -728,3 +728,19 @@ needed; the height E2E keeps it fixed across tools.
   (pinned on Cornerstone's own ring — the per-container history never sees those entries).
   Not pinned: Mask + snake vs Mask (on the phantom's crisp edges the snake leaves the mask
   where it is). Annotations + tools E2E 271/271; unit 1121/1121.
+- **F6** — **Snake refine** is a Cleanup operation (Clean group): Variant (Edge · Gradient
+  vector flow · Balloon · Morphological), Iterations, Edge weight, **Neighbours** (Keep — the
+  default — or Replace shared boundary); Advanced folds GVF μ / iterations and Balloon force;
+  the usual Slice / Range / Volume scope, preview, ⏎, one undo step. #201 is built on the
+  plane runner: `runPlaneOp` now hands an operation its neighbours' and the locked members'
+  pixels and lets it CLAIM pixels, which leave their unlocked owners first (the pair runner's
+  mechanism, generalised); an operation declares when it claims, so the service opens the
+  unlocked neighbours for writing. **Deviation from the plan:** the E2E uses the bone (1000 vs
+  40 HU) rather than the lesion, whose 30 HU edge is too faint to be a dependable target.
+  **Found on the way:** the neighbour test first placed Segment 2 one pixel clear of the seed
+  (pixel centres fall on the half millimetre), so "shared boundary" rightly claimed nothing —
+  it now touches; a redundant lock check in the claim loop was an equivalent mutant and was
+  removed. Unit +7 (runner claims, catalog wiring; mutants: variant, claimed set, claims flag,
+  always-replace); E2E +5 (`snake-refine`; mutants: neighbours not opened for writing, locked
+  members not passed, snake never running, variant ignored — each red). Checked in the built
+  app: the preview dims exactly the loose band, the sheet fits the Operations section.

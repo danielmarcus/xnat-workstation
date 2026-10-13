@@ -109,6 +109,57 @@ describe('runPlaneOp', () => {
   });
 });
 
+describe('runPlaneOp — claiming from neighbours (Snake Refine #201)', () => {
+  const DIMS: [number, number, number] = [5, 1, 1];
+  const geometry = { dimensions: DIMS, spacing: [1, 1, 1] as [number, number, number], origin: [0, 0, 0] as [number, number, number], direction: [1, 0, 0, 0, 1, 0, 0, 0, 1] };
+  const M = (i: number) => ({ containerId: 'H', segmentIndex: i });
+  function layered(rows: Record<number, string>) {
+    const data: Record<number, Uint8Array> = {};
+    const grids: Record<string, SegmentVoxelGrid> = {};
+    for (const [i, r] of Object.entries(rows)) {
+      const d = Uint8Array.from([...r].map((c) => (c === '#' ? 1 : 0)));
+      data[Number(i)] = d;
+      grids[`H|${i}`] = { geometry, data: d, value: 1, csSegmentationId: `H_layer_${i}`, write: (f, v) => { d[f] = v; } };
+    }
+    const deps: TransactionDeps = { readGrid: (c, s) => grids[`${c}|${s}`] ?? null, isLocked: () => false, pushMemos: () => {}, notifyChanged: () => {} };
+    return { deps, show: (i: number) => [...data[i]].map((v) => (v ? '#' : '.')).join('') };
+  }
+
+  it('the op sees its neighbours and the locked pixels; what it claims leaves an unlocked owner, never a locked one', () => {
+    const { deps, show } = layered({ 1: '#....', 2: '.#...', 3: '..#..' });
+    const r = beginTransaction([M(1), M(2)], deps);
+    if (!r.ok) throw new Error('begin');
+    let seen: { others?: string; protect?: string } = {};
+    const bits = (a?: Uint8Array) => (a ? [...a].map((v) => (v ? '#' : '.')).join('') : undefined);
+    runPlaneOp({
+      txn: r.txn, members: [M(1)], allMembers: [M(1), M(2), M(3)], lockedMembers: [M(3)], axis: 2, slices: [0],
+      op: (p, c) => {
+        seen = { others: bits(c.others), protect: bits(c.protect) };
+        // Grow over both neighbours, claiming them.
+        return { plane: { ...p, data: Uint8Array.from([1, 1, 1, 0, 0]) }, claimed: Uint8Array.from([0, 1, 1, 0, 0]) };
+      },
+    });
+    r.txn.commit();
+    expect(seen).toEqual({ others: '.##..', protect: '..#..' });
+    expect(show(2), 'unlocked neighbour loses the claimed pixel').toBe('.....');
+    expect(show(3), 'locked neighbour keeps it').toBe('..#..');
+    expect(show(1), 'the member takes only what it may').toBe('##...');
+  });
+
+  it('an op that claims nothing still never takes a neighbour\'s pixel', () => {
+    const { deps, show } = layered({ 1: '#....', 2: '.#...' });
+    const r = beginTransaction([M(1), M(2)], deps);
+    if (!r.ok) throw new Error('begin');
+    runPlaneOp({
+      txn: r.txn, members: [M(1)], allMembers: [M(1), M(2)], axis: 2, slices: [0],
+      op: (p) => ({ ...p, data: Uint8Array.from([1, 1, 1, 0, 0]) }),
+    });
+    r.txn.commit();
+    expect(show(1)).toBe('#.#..');
+    expect(show(2)).toBe('.#...');
+  });
+});
+
 describe('runPairOp', () => {
   const DIMS: [number, number, number] = [5, 1, 1];
   const geometry = { dimensions: DIMS, spacing: [1, 1, 1] as [number, number, number], origin: [0, 0, 0] as [number, number, number], direction: [1, 0, 0, 0, 1, 0, 0, 0, 1] };

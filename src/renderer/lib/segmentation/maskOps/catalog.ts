@@ -5,7 +5,8 @@
  * mm / mm² and kernel radii in pixels.
  */
 import type { MaskPlane } from './plane';
-import type { PlaneOpContext } from './scope';
+import type { PlaneOpContext, PlaneOpOutput } from './scope';
+import { snakeRefine, type SnakeVariant } from '../contours/snake';
 import {
   anisotropicDiffusion,
   magnetBridge,
@@ -54,7 +55,9 @@ export interface CleanupOp {
   /** Needs the source image under the plane. */
   usesImage?: boolean;
   /** Single-segment operation over each member in the label scope. */
-  run?: (plane: MaskPlane, ctx: PlaneOpContext, params: ParamValues) => MaskPlane;
+  run?: (plane: MaskPlane, ctx: PlaneOpContext, params: ParamValues) => PlaneOpOutput;
+  /** With these parameters the operation may claim pixels of other members (so they are written too). */
+  claims?: (params: ParamValues) => boolean;
   /** Two-segment operation: the active member (source) and an "Into" member (target). */
   runPair?: (source: MaskPlane, target: MaskPlane, ctx: PairOpContext, params: ParamValues) => PairOpResult;
 }
@@ -161,6 +164,51 @@ export const CLEANUP_OPS: CleanupOp[] = [
       conduction: p.conduction === 'quadratic' ? 'quadratic' : 'exp',
       image: ctx.image,
     }),
+  },
+  {
+    id: 'snakeRefine',
+    group: 'clean',
+    label: 'Snake refine',
+    description: 'Move the boundary onto the image edges nearby (active contour).',
+    usesImage: true,
+    params: [
+      {
+        key: 'variant', label: 'Variant', kind: 'select', default: 'edge',
+        options: [
+          { value: 'edge', label: 'Edge (Kass)' },
+          { value: 'gvf', label: 'Gradient vector flow' },
+          { value: 'balloon', label: 'Balloon' },
+          { value: 'morph', label: 'Morphological' },
+        ],
+        hint: 'GVF reaches edges farther away; Balloon also inflates; Morphological is the most robust to noise',
+      },
+      { key: 'iterations', label: 'Iterations', kind: 'number', min: 1, max: 100, step: 1, default: 20, hint: 'Morphological uses at most 8' },
+      { key: 'edgeWeight', label: 'Edge weight', kind: 'number', min: 0, max: 1, step: 0.05, default: 0.55, hint: 'How strongly edges stop the morphological contour' },
+      {
+        key: 'replaceNeighbours', label: 'Neighbours', kind: 'select', default: 'keep',
+        options: [{ value: 'keep', label: 'Keep (default)' }, { value: 'replace', label: 'Replace shared boundary' }],
+        hint: 'Replace: pixels of a touching segment along the shared boundary may be taken (never a locked one)',
+      },
+      { key: 'gvfMu', label: 'GVF μ', kind: 'number', min: 0.05, max: 0.5, step: 0.05, default: 0.2, advanced: true },
+      { key: 'gvfIterations', label: 'GVF iterations', kind: 'number', min: 5, max: 100, step: 5, default: 40, advanced: true },
+      { key: 'balloon', label: 'Balloon force', kind: 'number', min: -0.5, max: 0.5, step: 0.05, default: 0.15, advanced: true, hint: '> 0 grows, < 0 shrinks' },
+    ],
+    claims: (p) => p.replaceNeighbours === 'replace',
+    run: (plane, ctx, p) => {
+      if (!ctx.image) return plane;
+      const allowReplace = p.replaceNeighbours === 'replace';
+      const out = snakeRefine(plane, ctx.image, {
+        variant: String(p.variant) as SnakeVariant,
+        iterations: num(p, 'iterations'),
+        edgeWeight: num(p, 'edgeWeight'),
+        gvfMu: num(p, 'gvfMu'),
+        gvfIterations: num(p, 'gvfIterations'),
+        balloon: num(p, 'balloon'),
+      }, { others: ctx.others, protect: ctx.protect, allowReplace });
+      if (!allowReplace || !ctx.others) return out;
+      const others = ctx.others;
+      return { plane: out, claimed: Uint8Array.from(out.data, (v, i) => (v && others[i] ? 1 : 0)) };
+    },
   },
   {
     id: 'clear',
