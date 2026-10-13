@@ -37,13 +37,19 @@ module.exports = {
     repo: 'xnat-workstation',
     releaseType: 'release',
   },
-  files: ['dist/**/*', 'package.json'],
+  // Rollup's platform binary reaches the tree only through a dependency's packaging slip
+  // (jpeg-lossless-decoder-js lists it as optional); the app never loads it.
+  files: ['dist/**/*', 'package.json', '!**/node_modules/@rollup/**'],
   extraResources: [
     {
       from: 'build/',
       to: 'build/',
       filter: ['*.png', '*.ico', '*.icns'],
     },
+    // The licence and every third-party notice ship with the application.
+    { from: 'LICENSE', to: 'licenses/LICENSE' },
+    { from: 'THIRD-PARTY-NOTICES.txt', to: 'licenses/THIRD-PARTY-NOTICES.txt' },
+    { from: 'node_modules/electron/dist/LICENSES.chromium.html', to: 'licenses/LICENSES.chromium.html' },
   ],
   mac: {
     icon: 'build/icon.icns',

@@ -39,6 +39,11 @@ jobs:
       - name: Lint (layering boundaries)
         run: npm run lint
 
+      # THIRD-PARTY-NOTICES.txt must list every shipped dependency's licence: after a
+      # dependency change, run `npm run notices` and commit the result.
+      - name: Third-party notices up to date
+        run: npm run notices:check
+
       # `npm run build` does NOT typecheck the renderer — build:renderer is `vite build`,
       # and esbuild strips types without checking them. Only build:main ran tsc, so
       # renderer + e2e type errors accumulated unseen (57 and 251 respectively, cleared
