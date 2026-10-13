@@ -8,10 +8,26 @@
  */
 import { randomWalker, type RandomWalkerInput, type RandomWalkerResult } from '../segmentation/semiauto/randomWalker';
 import { buildQcSurfaces, type QcBuildInput, type QcBuildOutput } from '../segmentation/qc3d/build';
+import { runSeededSolve, type SeededSolveInput, type SeededSolveOutput } from '../segmentation/solvers/seeded';
+import { regionCompetition, type RegionCompetitionOptions } from '../segmentation/solvers/regionCompetition';
+import type { Dims, Spacing } from '../segmentation/solvers/volume';
+
+/** Region competition (branch 5, G5): a label map evolved over a box; `movable` labels may change. */
+export interface RegionCompetitionInput {
+  image: Float32Array;
+  dims: Dims;
+  spacing: Spacing;
+  initial: Uint8Array;
+  movable: number[];
+  options: Omit<RegionCompetitionOptions, 'movable' | 'onProgress'>;
+}
 
 export interface ComputeAlgorithms {
   randomWalker: { input: Omit<RandomWalkerInput, 'onProgress'>; output: RandomWalkerResult };
   qcSurfaces: { input: QcBuildInput; output: QcBuildOutput };
+  /** Branch 5: Fast GrowCut, Graph Cut and α-expansion (null = not enough seeds). */
+  seededSolve: { input: SeededSolveInput; output: SeededSolveOutput | null };
+  regionCompetition: { input: RegionCompetitionInput; output: Uint8Array };
 }
 export type ComputeName = keyof ComputeAlgorithms;
 
@@ -34,6 +50,14 @@ const ALGORITHMS: { [N in ComputeName]: (input: ComputeAlgorithms[N]['input'], p
   randomWalker: (input, progress) => {
     const output = randomWalker({ ...input, onProgress: progress });
     return { output, transfer: [output.probability.buffer, output.mask.buffer] };
+  },
+  seededSolve: (input, progress) => {
+    const output = runSeededSolve(input, progress);
+    return { output, transfer: output ? [output.labels.buffer, ...(output.initial ? [output.initial.buffer] : [])] : [] };
+  },
+  regionCompetition: (input, progress) => {
+    const output = regionCompetition(input.image, input.dims, input.spacing, input.initial, { ...input.options, movable: new Set(input.movable), onProgress: progress });
+    return { output, transfer: [output.buffer] };
   },
   qcSurfaces: (input, progress) => {
     const output = buildQcSurfaces(input, progress);

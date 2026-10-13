@@ -128,10 +128,12 @@ const MEASUREMENT_TOOLS: ToolDef[] = [
 const SEG_TOOLS_IN_ORDER = SEG_GROUP_ORDER.flatMap((g) => SEG_TOOLS.filter((t) => t.group === g));
 
 /** Operations the Operations section's picker offers (D1, amended 2026-10-12). */
-export const SEG_OPERATIONS: Array<{ id: 'cleanup' | 'interpolate' | 'propagate' | 'qc3d'; label: string; title: string }> = [
+export const SEG_OPERATIONS: Array<{ id: 'cleanup' | 'interpolate' | 'propagate' | 'seeded' | 'regionCompetition' | 'qc3d'; label: string; title: string }> = [
   { id: 'cleanup', label: 'Cleanup', title: 'Fill holes, keep largest, remove specks and strays, smooth, open/close (X)' },
   { id: 'propagate', label: 'Propagate', title: 'Grow the segment from the slice on screen into its neighbours, following the image' },
   { id: 'interpolate', label: 'Interpolate', title: 'Fill empty slices between painted ones: every gap, the slice on screen, or between anchors A and B' },
+  { id: 'seeded', label: 'Seeded segmentation', title: 'Paint seeds of the segments and the Background, then solve in 3D: Fast GrowCut, Graph Cut or multi-label graph cut' },
+  { id: 'regionCompetition', label: 'Region competition', title: 'Let the segments and the Background compete for voxels by intensity and smoothness, starting from the segmentation as it is (SegWorks\' Chan-Vese)' },
   { id: 'qc3d', label: '3D QC', title: 'Check the segmentation in 3D beside the slice: surfaces, a component report with strays and specks, jump to and delete components, 3D scissor' },
 ];
 

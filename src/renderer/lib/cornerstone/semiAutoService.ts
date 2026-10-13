@@ -26,6 +26,7 @@ import { hotkeyService } from '../hotkeys/hotkeyService';
 import { useComputeStore } from '../../stores/computeStore';
 import { useSegmentationStore } from '../../stores/segmentationStore';
 import { useSemiAutoStore, type RoiLimit } from '../../stores/semiAutoStore';
+import { useSeedStore } from '../../stores/seedStore';
 import { warnMemberLocked } from '../annotations/lockWarning';
 import { eventTarget } from '@cornerstonejs/core';
 import { annotation as csAnnotation, Enums as ToolEnums, utilities as csToolsUtilities } from '@cornerstonejs/tools';
@@ -184,13 +185,17 @@ export const semiAutoService = {
   },
 
   /**
-   * Random Walker on the seeds' slice: foreground and background seed strokes (drawn on
+   * Random Walker on the slice on screen: foreground and background seed strokes (drawn on
    * `viewportId`) become seed masks; the solve runs on the seeds' bounding box plus padding
    * (or the ROI limit, when one is drawn there) and its foreground is previewed (⏎ commits).
    */
   async randomWalkerRun(viewportId: string): Promise<SemiAutoResult> {
     const s = useSemiAutoStore.getState();
-    const seeds = s.seeds?.viewportId === viewportId ? s.seeds.strokes : [];
+    const { activeSegmentationId: containerId, activeSegmentIndex: active } = useSegmentationStore.getState();
+    // The active segment's seeds are foreground; Background's and other segments' are background.
+    const seeds = useSeedStore.getState().strokes
+      .filter((st) => st.containerId === containerId && st.viewportId === viewportId)
+      .map((st) => ({ ...st, kind: st.cls === active ? 'fg' as const : 'bg' as const }));
     if (!seeds.some((st) => st.kind === 'fg') || !seeds.some((st) => st.kind === 'bg')) return { ok: false, reason: 'no-seeds' };
     const t = openTarget();
     if (!t) return { ok: false, reason: 'no-target' };
@@ -198,7 +203,9 @@ export const semiAutoService = {
     const source = grid?.sourceReader?.() ?? null;
     if (!grid) { t.txn.discard(); return { ok: false, reason: 'no-labelmap' }; }
     if (!source) { t.txn.discard(); return { ok: false, reason: 'no-image' }; }
-    const first = planePoint(viewportId, grid.geometry, seeds[0].points[0]);
+    // The slice on screen (the shared seed store can hold seeds on other slices too).
+    const focal = (viewportService.getViewport(viewportId) as { getCamera?: () => { focalPoint?: number[] } } | undefined)?.getCamera?.()?.focalPoint;
+    const first = focal ? planePoint(viewportId, grid.geometry, focal) : null;
     if (!first) { t.txn.discard(); return { ok: false, reason: 'no-viewport' }; }
     const { axis, slice } = first;
     const { width, height } = planeSize(grid.geometry.dimensions, axis);
@@ -206,9 +213,9 @@ export const semiAutoService = {
     // Rasterise the strokes on the seeds' slice (points on other slices are ignored).
     const fg = new Uint8Array(width * height);
     const bg = new Uint8Array(width * height);
-    const r = Math.max(0, s.randomWalker.seedRadiusPx);
     let x0 = width, y0 = height, x1 = -1, y1 = -1;
     for (const st of seeds) {
+      const r = Math.max(0, st.radiusPx);
       const pts = st.points.map((w) => worldToIndex(grid.geometry, w as Vec3)).filter((p) => p[axis] === slice).map((p) => [p[ax], p[ay]] as [number, number]);
       const out = st.kind === 'fg' ? fg : bg;
       for (const [cx, cy] of strokeDabs(pts, 1)) {
@@ -290,11 +297,6 @@ export const semiAutoService = {
     return { ok: true, added, readOnly: !!after.lockedMember };
   },
 
-  /** Cancel the running compute job (the preview bar's Cancel). */
-  cancelCompute(): void {
-    runningJob?.cancel();
-  },
-
   /**
    * Read Level Trace's intensity guard from the ROI limit (SegWorks #57): the 2nd–98th
    * percentile of the image inside the rectangle, on the slice `viewportId` shows.
@@ -374,8 +376,15 @@ Object.assign(semiAutoBridge, {
   smartBrushExtend: semiAutoService.smartBrushExtend,
   smartBrushEnd: semiAutoService.smartBrushEnd,
   setRoi: (viewportId: string, corners: number[][]) => useSemiAutoStore.getState().setRoi({ viewportId, corners }),
-  addSeedStroke: (viewportId: string, kind: 'fg' | 'bg', w: number[]) => useSemiAutoStore.getState().addSeedStroke(viewportId, { kind, points: [w] }),
-  extendSeedStroke: (w: number[]) => useSemiAutoStore.getState().extendSeedStroke(w),
+  addSeedStroke: (viewportId: string, kind: 'fg' | 'bg', w: number[]) => {
+    const { activeSegmentationId: containerId, activeSegmentIndex: active } = useSegmentationStore.getState();
+    if (!containerId) return;
+    useSeedStore.getState().addStroke({
+      containerId, viewportId, cls: kind === 'fg' ? active : 0,
+      radiusPx: useSemiAutoStore.getState().randomWalker.seedRadiusPx, points: [w],
+    });
+  },
+  extendSeedStroke: (w: number[]) => useSeedStore.getState().extendStroke(w),
 });
 
 startSemiAutoOverlay();

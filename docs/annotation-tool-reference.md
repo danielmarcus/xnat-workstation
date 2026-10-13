@@ -84,6 +84,36 @@ slice on screen into its neighbours (backward / both / forward), keeping to voxe
 intensity matches (±HU on CT, kσ on MR) and stopping where the structure ends or leaks.
 Neither ever runs on its own.
 
+**Seeded segmentation** solves a 3D box from painted seeds. **Paint seeds** makes the seed
+painter the pointer mode (picking any tool ends it); the palette's classes are the
+segmentation's segments and **Background** — drag lays the chosen class, **⇧-drag** lays
+Background, **Erase** removes seed under the brush; **Seed brush** sets the radius (px), and
+**↺ Restore seeds** brings back the seeds of the last run. Seeds are kept per slice and shared
+with Random Walker. **Domain**: around the seeds (± the in-plane and slice pads under
+Advanced), the ROI limit, or the volume — with an estimate line (voxels · MB) that turns amber,
+then disables Run with the reason, when the box is too large. **Method**:
+
+| Method | Solves | Controls |
+|---|---|---|
+| **Fast GrowCut** | the active segment against everything else: each voxel takes the class of the seed it is nearest to along intensity steps | intensity range (gate) |
+| **Graph Cut** | the active segment against everything else: an intensity model per class plus a boundary that prefers image edges | λ (smoothness), σ (edge sensitivity) |
+| **Multi-label graph cut** (α-expansion) | every seeded segment and Background at once; Background takes whatever resembles no seeded structure | smoothness, σ, sweeps; Advanced: unary and initialiser weights |
+
+Graph Cut and multi-label results can be cleaned up (Advanced; off by default): keep the seeded
+or the largest component, remove islands, smoothing and shrink–grow passes. Run previews (with
+progress and **Cancel run** / ⎋ while it solves); the result only adds voxels, other segments
+keep theirs; a locked segment is not written (with one target, it previews read-only). A
+multi-label preview has a **Show** selector (All · one segment).
+
+**Region competition** (SegWorks' "Chan-Vese") starts from the segmentation as it is: the
+segments ticked under **Labels that compete** (and Background) trade voxels by intensity and
+boundary smoothness, inside the **ROI limit** (required). **Run on**: the slice on screen,
+slices around it (± Z pad), the segmentation's slices ± 10 / ± 20, or the volume. Iterations;
+under Parameters: in-plane and through-slice smoothness, data weight, stay bias, edge assist and
+gate, island clean-up (0 = off), CT intensity clip, Z pad, Z coupling. Unticked and locked
+segments never change. In 3D modes it wants a mask on the slices it covers — a single drawn
+slice among empty ones is smoothed away.
+
 **3D QC** switches to the **2D + 3D QC** layout (the active viewport beside a 3D view of
 its scan; collapsing 3D QC keeps that layout, and your own comes back when it closes) and builds a surface for every
 connected component of every segment. The **report** lists each component — Main, Fragment,

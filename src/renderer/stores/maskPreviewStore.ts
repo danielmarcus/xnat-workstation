@@ -23,6 +23,8 @@ export interface MaskPreviewState {
    * undo). Lets the open operation say so instead of the preview silently vanishing.
    */
   discardedStale: boolean;
+  /** Show only this member's part of a multi-member preview (#133); null = all. */
+  showOnly: number | null;
 }
 
 export const useMaskPreviewStore = create<MaskPreviewState>(() => ({
@@ -33,4 +35,5 @@ export const useMaskPreviewStore = create<MaskPreviewState>(() => ({
   comparing: false,
   readOnly: false,
   discardedStale: false,
+  showOnly: null,
 }));

@@ -1,18 +1,21 @@
 /**
- * The Smart tab's on-image marks (SegWorks parity branch 4): the ROI limit as a dashed
- * rectangle on the viewport it was drawn on, and Random Walker seed strokes (foreground
- * green, background red) on the slice they were drawn on. An SVG layer per viewport,
- * redrawn on every render and whenever the marks change.
+ * Seeding and Smart-tool marks on the image (SegWorks parity branches 4–5): the ROI limit as
+ * a dashed rectangle on the viewport it was drawn on, and seed strokes (seedStore — Random
+ * Walker's and the solvers') on the slice they were drawn on, in their class's colour
+ * (Background grey), as wide as their brush. An SVG layer per viewport, redrawn on every
+ * render and whenever the marks change.
  */
 import { Enums as CoreEnums, getEnabledElementByViewportId, utilities as csUtils } from '@cornerstonejs/core';
 import { useSemiAutoStore } from '../../stores/semiAutoStore';
+import { BACKGROUND, useSeedStore } from '../../stores/seedStore';
+import { useSegmentationStore } from '../../stores/segmentationStore';
 
 const OVERLAY_TESTID = 'semi-auto-overlay';
 const NS = 'http://www.w3.org/2000/svg';
 
 type Viewport = {
   element: HTMLDivElement;
-  getCamera: () => { viewPlaneNormal?: number[]; focalPoint?: number[] };
+  getCamera: () => { viewPlaneNormal?: number[]; focalPoint?: number[]; viewUp?: number[] };
   getImageData?: () => { spacing?: number[]; direction?: number[] } | undefined;
   worldToCanvas: (p: number[]) => [number, number];
 };
@@ -44,6 +47,17 @@ function overlayFor(id: string, vp: Viewport): SVGSVGElement {
   return svg;
 }
 
+/** Canvas units per image pixel along the view's horizontal axis. */
+function canvasPerPixel(vp: Viewport): number {
+  const cam = vp.getCamera();
+  const f = cam.focalPoint, n = cam.viewPlaneNormal, up = cam.viewUp;
+  const mm = vp.getImageData?.()?.spacing?.[0] ?? 1;
+  if (!f || !n || !up) return 1;
+  const right = [up[1] * n[2] - up[2] * n[1], up[2] * n[0] - up[0] * n[2], up[0] * n[1] - up[1] * n[0]];
+  const a = vp.worldToCanvas(f), b = vp.worldToCanvas([f[0] + right[0] * mm, f[1] + right[1] * mm, f[2] + right[2] * mm]);
+  return Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+}
+
 /** Is a world point on the slice the viewport shows? (within half a slice) */
 function onSlice(vp: Viewport, p: number[]): boolean {
   const cam = vp.getCamera();
@@ -65,10 +79,8 @@ function drawOn(viewportId: string): void {
   if (!vp) return;
   const svg = overlayFor(viewportId, vp);
   svg.replaceChildren();
-  const { roi, seeds, seedSize } = (() => {
-    const s = useSemiAutoStore.getState();
-    return { roi: s.roi, seeds: s.seeds, seedSize: s.randomWalker.seedRadiusPx };
-  })();
+  const roi = useSemiAutoStore.getState().roi;
+  const strokes = useSeedStore.getState().strokes.filter((st) => st.viewportId === viewportId);
   let marks = 0;
   if (roi?.viewportId === viewportId && roi.corners.length === 4) {
     const pts = roi.corners.map((c) => vp.worldToCanvas(c));
@@ -82,19 +94,23 @@ function drawOn(viewportId: string): void {
     svg.appendChild(poly);
     marks++;
   }
-  if (seeds?.viewportId === viewportId) {
-    for (const st of seeds.strokes) {
+  if (strokes.length) {
+    const seg = useSegmentationStore.getState();
+    const pxCanvas = canvasPerPixel(vp);
+    for (const st of strokes) {
       const pts = st.points.filter((p) => onSlice(vp, p)).map((p) => vp.worldToCanvas(p));
       if (!pts.length) continue;
+      const member = seg.segmentations.find((c) => c.segmentationId === st.containerId)?.segments.find((m) => m.segmentIndex === st.cls);
       const line = document.createElementNS(NS, 'polyline');
       line.setAttribute('points', (pts.length === 1 ? [pts[0], pts[0]] : pts).map((p) => p.join(',')).join(' '));
       line.setAttribute('fill', 'none');
-      line.setAttribute('stroke', st.kind === 'fg' ? 'rgb(74, 222, 128)' : 'rgb(248, 113, 113)');
-      line.setAttribute('stroke-width', String(Math.max(3, seedSize * 2)));
+      line.setAttribute('stroke', st.cls === BACKGROUND || !member ? 'rgb(161, 161, 170)' : `rgb(${member.color[0]}, ${member.color[1]}, ${member.color[2]})`);
+      line.setAttribute('stroke-width', String(Math.max(3, (2 * st.radiusPx + 1) * pxCanvas)));
       line.setAttribute('stroke-linecap', 'round');
       line.setAttribute('stroke-linejoin', 'round');
       line.setAttribute('stroke-opacity', '0.8');
-      line.setAttribute('data-mark', st.kind === 'fg' ? 'seed-fg' : 'seed-bg');
+      line.setAttribute('data-mark', st.cls === BACKGROUND ? 'seed-bg' : 'seed-fg');
+      line.setAttribute('data-class', String(st.cls));
       svg.appendChild(line);
       marks++;
     }
@@ -109,7 +125,7 @@ function drawAll(): void {
   const s = useSemiAutoStore.getState();
   const ids = new Set<string>(drawn);
   if (s.roi) ids.add(s.roi.viewportId);
-  if (s.seeds) ids.add(s.seeds.viewportId);
+  for (const st of useSeedStore.getState().strokes) ids.add(st.viewportId);
   for (const id of ids) drawOn(id);
 }
 
@@ -119,6 +135,7 @@ export function startSemiAutoOverlay(): void {
   if (started) return;
   started = true;
   useSemiAutoStore.subscribe((s, prev) => {
-    if (s.roi !== prev.roi || s.seeds !== prev.seeds || s.randomWalker.seedRadiusPx !== prev.randomWalker.seedRadiusPx) drawAll();
+    if (s.roi !== prev.roi) drawAll();
   });
+  useSeedStore.subscribe((s, prev) => { if (s.strokes !== prev.strokes) drawAll(); });
 }

@@ -90,7 +90,7 @@ export function startPreview(o: StartPreviewOptions): void {
   if (!o.silent) {
     useMaskPreviewStore.setState({
       active: true, label: o.label, summary: o.summary, viewportId: o.viewportId, comparing: false, readOnly: !!o.lockedMember,
-      discardedStale: false,
+      discardedStale: false, showOnly: null,
     });
   }
   render();
@@ -134,6 +134,13 @@ export function discardPreview(): void {
   p.onDone?.(false);
 }
 
+/** Show one member's part of the preview (#133 — α-expansion's label selector), or all (null). */
+export function showPreviewMember(segmentIndex: number | null): void {
+  if (!pending || useMaskPreviewStore.getState().showOnly === segmentIndex) return;
+  useMaskPreviewStore.setState({ showOnly: segmentIndex });
+  render();
+}
+
 export function setComparing(comparing: boolean): void {
   if (!pending || useMaskPreviewStore.getState().comparing === comparing) return;
   useMaskPreviewStore.setState({ comparing });
@@ -147,7 +154,7 @@ function end(): void {
     // discardedStale is left alone: a Smart Brush stroke's own commit (a silent preview) must
     // not clear the notice that it replaced an operation's preview. A new visible preview or
     // clearStaleNotice() clears it.
-    active: false, label: '', summary: '', viewportId: null, comparing: false, readOnly: false,
+    active: false, label: '', summary: '', viewportId: null, comparing: false, readOnly: false, showOnly: null,
   });
   render();
 }
@@ -354,7 +361,9 @@ function render(): void {
   }
   if (!pending || useMaskPreviewStore.getState().comparing) return;
 
+  const showOnly = useMaskPreviewStore.getState().showOnly;
   for (const { grid, member, writes } of pending.txn.changes()) {
+    if (showOnly !== null && member.segmentIndex !== showOnly) continue;
     const flatStorage = !mlg.isMultiLayerGroup(member.containerId);
     for (const viewportId of csSegmentation.state.getViewportIdsWithSegmentation(grid.csSegmentationId)) {
       const vp = viewportOf(viewportId);
