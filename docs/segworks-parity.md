@@ -973,12 +973,18 @@ owns undo and display).
 
 1. **Package.** A module is one file, `*.xwmodule` — a zip holding `manifest.json`, an ES-module
    entry script, optional `.wasm` files and an optional `signature.json`. The manifest declares:
-   id (reverse-DNS), name, version (semver), **API version** (`1.x`), publisher, licence,
-   description, parameters (the Cleanup schema: number · select · boolean · …), what it reads
+   id (reverse-DNS), name, version (semver), **API version** (`1.x`), **runtime**, publisher,
+   licence, description, parameters (the Cleanup schema: number · select · boolean · …), what it reads
    (image; the active member / named members / all members; seeds; ROI limit), what it writes
    (the active member, named members, or new members it creates — name and colour), the scopes
    it supports (slice · range · volume · ROI), optional post steps, and an optional memory
    estimate (bytes per voxel) for the guard.
+   **Runtime** names where the module's code runs. API 1.0 supports one: `wasm-worker`
+   (JavaScript and WebAssembly in the sandboxed worker — C, C++ and Rust code compiled to
+   WebAssembly included). Any other value is refused with the reason. The field exists from the
+   start so that a later runtime is a new runtime, not a new API version: the API is messages
+   (data in, masks out), so the same messages can travel to a worker, a pipe or a server. Trust
+   rules attach per runtime (see Out of scope for the candidates).
 2. **Trust tiers.**
    - **Verified** — signed (Ed25519, over a canonical hash of every file in the package) by a
      key the app trusts. The open-source build trusts Washington University's publishing key;
@@ -1023,7 +1029,7 @@ owns undo and display).
 
 | Slice | Content | Acceptance |
 |---|---|---|
-| **M1** | **Package format and verification** (pure + main process): manifest schema and validation; zip reading with guards (path traversal, size and file-count limits, no symlinks); canonical hashing; Ed25519 verification (Node crypto); trust classification; the `module:*` CLI scripts | Unit, each seen red first: a valid package parses; every malformed manifest and unsafe zip is refused with a reason; a signature verifies, and one changed byte in any file fails it; unsigned → Community, unknown key → Community, trusted key → Verified, bad signature → Refused; an unsupported API major is refused |
+| **M1** | **Package format and verification** (pure + main process): manifest schema and validation; zip reading with guards (path traversal, size and file-count limits, no symlinks); canonical hashing; Ed25519 verification (Node crypto); trust classification; the `module:*` CLI scripts | Unit, each seen red first: a valid package parses; every malformed manifest and unsafe zip is refused with a reason; a signature verifies, and one changed byte in any file fails it; unsigned → Community, unknown key → Community, trusted key → Verified, bad signature → Refused; an unsupported API major or runtime is refused, naming it |
 | **M2** | **Install and manage**: main-process store under `userData/modules/<id>/<version>/`, IPC (list, inspect, install, remove, enable, trust key); **Settings › Modules** — installed list (name, version, publisher, badge, Enabled), Install from file (and drag-drop) with the trust dialog (who signed it, what it reads / writes; confirmation for Community), Remove, trusted publishers, Allow community modules | E2E on the built app with fixture packages (generated and signed with a test key in the test setup): a Verified install has no warning; a Community install needs confirmation and shows its badge; a tampered package is refused with the reason; the allow-community setting off refuses Community; removing deletes the files; a module altered on disk after install is refused at load |
 | **M3** | **Sandbox runtime**: the `xnat-module://` protocol and its CSP; the run worker; the host ↔ worker protocol (API 1.0: context, image box, member masks, seeds, ROI; progress, cancelled, log / warn / error; result); cooperative cancel then terminate; a run time-out; the log buffer | E2E with a deliberately hostile fixture module: `fetch`, `importScripts` from another origin, `XMLHttpRequest` and WebSocket are all blocked (and logged); it cannot see `window`, `require` or `electronAPI`; a module that ignores Cancel is terminated; unit tests of the protocol |
 | **M4** | **Module operations**: the Modules group in the Operations picker; the operation body — parameters rendered from the manifest, scope (slice · range · volume · ROI, as the manifest allows), the memory estimate, trust badge, Run / Commit / Discard, Cancel, the Log (Copy · Download); the result staged, previewed and committed through the transaction (locks, other members, claims, new members); post steps from the built-in Cleanup operations | E2E with the example module (an intensity threshold — SegWorks' template, re-authored): parameters render from its manifest; Run previews; ⏎ commits one undo step; a locked member is not written; Cancel leaves nothing; the log copies and downloads; a module creating a new member adds it with its name and colour; oblique case |
@@ -1032,9 +1038,23 @@ owns undo and display).
 | **M7** | Docs (tool reference: Modules in the Operations section; Settings › Modules), full offline E2E, visual sweep in the built app, merge to `main` | CLAUDE.md self-check answered |
 
 **Out of scope:** a module marketplace or update feed (install is from a file; updating is
-installing a newer version); native-code modules; implementing licence enforcement (only the
-interface); porting the other SegWorks add-ons (each is its own module, built after the API is
-proven).
+installing a newer version); implementing licence enforcement (only the interface); porting the
+other SegWorks add-ons (each is its own module, built after the API is proven); runtimes other
+than `wasm-worker`. Candidate later runtimes, recorded so the design keeps room for them:
+
+- **`onnx`** — machine-learning models (nnU-Net / MONAI exports) run by ONNX Runtime Web in the
+  sandboxed worker, on WebGPU or WebAssembly; the model ships as data in the module. Needed only
+  if the runtime is better provided by the host than bundled per module.
+- **`xnat-container`** — the module names a container image that XNAT's Container Service runs
+  server-side on the session; the result returns as a DICOM SEG through the usual preview and
+  commit. The home for heavy or GPU work in any language (nnU-Net, TotalSegmentator, Python
+  pipelines); trust lies with the server's administrators, who control which images may run.
+- **`native-process`** — a per-platform executable the main process launches, speaking the same
+  messages over a pipe. Last resort: the operating systems quarantine or flag unsigned
+  downloaded executables, so the publisher must sign (and on macOS notarise) every build;
+  sandboxing native code differs per OS and is weak; so it would be **Verified only**, never
+  Community. In-process native addons (`.node`) are ruled out — full privileges, and a crash
+  takes the app down.
 
 ### Branch 9 progress log
 
