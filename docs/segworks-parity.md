@@ -754,3 +754,85 @@ needed; the height E2E keeps it fixed across tools.
   and Spline controls, Contour Fill's three boundaries, the Slice row with a spline in hand
   on the propagated slice, the Structure toolbox, Snake refine's preview and sheet). Branch 6
   complete.
+
+---
+
+## 11. Branch 5 — `seg-3d-solvers` (ordered plan — for review)
+
+Cut from `main` after branch 6 merged (2026-10-13). Scope: SegWorks #101–151 — Fast GrowCut
+(#101–115), binary Graph Cut (#116–123), multi-label α-expansion (#124–135) and multiphase
+Chan-Vese (#136–151, the clinical preset library #137 deferred by decision 4). Read from the
+v2.0.610 inventory and its reference source (`segworks_core.js` GrowCut / Graph Cut,
+`segworks_graphcut_ml_*.js`, `segworks_chanvese_*.js`).
+
+**What the reference source changes about the scope.** The SegWorks code does not implement
+what its labels say, and a faithful port would carry its defects:
+
+| SegWorks feature | What the code actually does | This branch |
+|---|---|---|
+| "Fast GrowCut" | The original cellular-automaton GrowCut, swept in place (order-dependent), full volume per iteration; ±x/±y neighbours **wrap across row and slice ends** (its bounds check is never called) | True **Fast GrowCut** (Zhu et al. 2014: Dijkstra-style shortest-path propagation from the seeds, one pass, incremental re-runs); 6-connected with real bounds |
+| Binary Graph Cut | Boykov–Jolly energy solved by Dinic with a **recursive** DFS (stack overflow on large ROIs); a 3 M-voxel cap | Same energy, solved by **Boykov–Kolmogorov** (iterative, the standard for image grids) on typed arrays |
+| α-Expansion | "one-vs-rest expansion" (`exactAlphaExpansion: false`): no pairwise term between two non-α labels; every ROI voxel is forced into a seeded label, so the **whole ROI box is painted** unless background is seeded | True **α-expansion** for the Potts model (Boykov–Veksler–Zabih), with **Background as a label of its own** |
+| "Multiphase Chan-Vese" | ICM region competition (piecewise-constant means + Potts) swept in place, order-dependent | The same model, named honestly ("Region competition (Chan-Vese)"), updated in **checkerboard** order so the result does not depend on scan order |
+| Parameters | `Number(x \|\| default)` — **0 silently becomes the default** (island cleanup cannot be turned off; Keep 0 → 0.05) | 0 means 0 |
+| Commit | Writes the label into every voxel, **overwriting other segments**; Chan-Vese overwrites its whole ROI box, zeros included | The labelmap transaction: written members only, other members preserved, locks respected, one undo step |
+| Memory guards | Inconsistent (`confirm()` dialogs; a UI guard the run-time cap always pre-empts; none for GrowCut or α-expansion) | One guard for every solver: estimate line → amber warning → disabled Run with a reason (wireframes §5). Never a modal |
+
+Defaults and ranges are SegWorks' wherever its controls carry over (listed per slice).
+
+### Design points (decided in this plan; flag any to change)
+
+1. **Two operations, variants in a dropdown** (sheet rule). **Seeded segmentation** — Method:
+   Fast GrowCut · Graph Cut · Multi-label graph cut (α-expansion) — and **Region competition**
+   (Chan-Vese), which starts from the existing segmentation and needs no seeds. Both join the
+   Operations picker (Cleanup · Propagate · Interpolate · Seeded segmentation · Region
+   competition · 3D QC).
+2. **One seed model for every seeded method.** Seeds are classes: each member of the active
+   segmentation, plus **Background**. The binary methods solve the active member against
+   Background *and every other member's seeds*; α-expansion solves all seeded classes at once.
+   So switching Method never loses seeds. Seeds are world-space strokes kept per slice
+   (multi-slice, #105), drawn as an overlay in the class's colour (Background grey), with a
+   brush radius in mm.
+3. **The seed painter is a pointer mode owned by the operation** (wireframe rule): the
+   operation's *Paint seeds* toggle takes the one active pointer mode (the toolbox highlight
+   clears; picking a tool ends seeding). Left-drag paints the selected class, **right-drag (or
+   ⇧) paints Background** — for the binary methods the "opposite class" (#104); Erase removes
+   seed under the brush. **Restore seeds** brings back the seeds of the last run (#115).
+   Branch 4's Random Walker seeds move onto the same model (single slice, two classes), so
+   there is one seed store and one overlay, not two.
+4. **Domain**: *Seeded range* (seeds' slice extent ± Z pad, XY = seeds' box ± XY pad — the
+   α-expansion defaults, 24 px / 2 slices), *ROI limit* (branch 4's rectangle, over the seeded
+   or a chosen slice range), *Volume*. Shown as the box it will solve, with its voxel count and
+   memory estimate. Index space throughout (`ct-oblique` works).
+5. **Compute in the worker** (branch 4's protocol): progress, Cancel, one job at a time. A
+   cancelled α-expansion keeps nothing (no partial commit) — simpler than SegWorks' checkpoints
+   and consistent with the other operations.
+6. **Memory guard** from each solver's measured peak bytes per voxel (measured in G1, not
+   guessed): amber above the warning level, Run disabled above the limit, with the reason.
+   A test seam lowers the limits so the E2E can show both states on the small fixtures.
+7. **Post-processing is shared and 3D** (Graph Cut #123, α-expansion #132, region competition
+   #148): keep the seeded component (or the largest), remove islands below N voxels (never one
+   holding a seed), majority smoothing, shrink–grow — 6-connected, in
+   `lib/segmentation/maskOps` beside the 2D cleanup. Off by default, as in SegWorks.
+8. **Preview and commit are the existing ones** (D4): the hatched preview on every viewport
+   showing the segment, ⏎ / ⎋ / hold-`\`, one undo step across every member written. A
+   multi-label preview has a **label selector** (All · one member, #133) that filters the
+   overlay. A locked member previews read-only and is never written.
+
+### Slices
+
+| Slice | Content | Acceptance |
+|---|---|---|
+| **G1** | Pure solvers (`lib/segmentation/solvers/`): seed rasterisation (3D, disc per slice); **Fast GrowCut** (heap-ordered, 6-connected, intensity constraint #110 applied as a gate during growth, early stop #109, iteration cap #108 kept as a safety bound); **Boykov–Kolmogorov** max-flow on typed arrays; binary energy (Gaussian NLL unary, λ·exp(−ΔI²/2σ²) n-links, hard seeds); **α-expansion** (Potts, Background a label, sweeps cap, early stop); **region competition** (checkerboard ICM, 2D / 3D with Z coupling, edge gate, stay bias, HU clip); 3D post-processing; memory estimators | Vitest on synthetic volumes, each seen red first: a two-intensity sphere is recovered from two seeds by each seeded method (Dice > 0.95); a wrap-around regression (a seed on the last column never reaches the next row); BK equals a brute-force min cut on small random graphs; α-expansion energy never rises between sweeps and Background stays background; region competition is the same in any scan order; 0 parameters stay 0; mutation-checked |
+| **G2** | **Seeded segmentation** operation with **Fast GrowCut**: shared seed store + overlay (Random Walker migrated onto it), seed painter mode from the operation, class palette (members + Background, Erase), right-drag opposite class, brush (mm), Domain + box + estimate line, worker run with progress / Cancel, preview → ⏎ (one undo step), Restore seeds; slice track shows the domain's range | E2E on `ct-axial-anatomy`: seeds in the lesion (+70 HU) and the tissue round it on two slices → the preview covers the 3D lesion (Dice with the known sphere > 0.85, via a new E2E hook) and nothing is written until ⏎; Cancel leaves nothing; Restore seeds; Random Walker unchanged (its E2E green); oblique case |
+| **G3** | **Graph Cut** (binary): λ 50 (5–200), σ 30 HU (5–150), Domain, post-processing; memory guard on all seeded methods | E2E: seeds → lesion preview (Dice > 0.85); λ high vs low changes the boundary's smoothness; keep-seeded-component removes a disconnected false region; the guard's amber line and disabled Run with the test seam |
+| **G4** | **Multi-label graph cut (α-expansion)**: one class per member + Background; ROI pads (XY 24 px, Z 2), locality / intensity / seed-bias initialisation, smooth 6, σ 30, sweeps 2 (1–4), post-processing; multi-member commit; preview **label selector** | E2E: bone, lesion and tissue-as-Background seeded → each member previews its own structure (Dice > 0.85 each) and unseeded voxels stay unlabelled; the selector shows one member's preview; commit writes both members in one undo step; a locked member is not written |
+| **G5** | **Region competition (Chan-Vese)** operation: modes Current slice · Bounded (± Z pad) · Segmentation extent ± 10 / ± 20 · Volume; labels (members) + include Background; iterations 18 (1–200), smoothness XY 2.4, data weight 0.002, stay bias 0.35, edge assist 0.012 / gate 35, cleanup below 24 voxels (0 = off), HU clip −150 / 250 (CT only), Z pad 2, Z smoothness 1.1, Z coupling 0.9; ROI limit optional; members not selected (and locked ones) are not changed (#149) | E2E: a mask drawn 3 mm loose round the lesion on three slices is pulled onto it (Dice rises above 0.85); current-slice mode changes only that slice; a member not selected keeps every voxel; cleanup 0 keeps a 2-voxel island; oblique case |
+| **G6** | Docs (`annotation-tool-reference.md`: both operations, seeds, domain, guard), full offline E2E, visual sweep in the built app, merge to `main` | CLAUDE.md self-check answered |
+
+**Deferred (decision 4):** the Chan-Vese clinical preset library (#137) — the parameters a
+preset would set are all exposed, so presets can be added later as data.
+
+### Branch 5 progress log
+
+- **Plan** — written 2026-10-13, for review.
