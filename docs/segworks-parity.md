@@ -98,7 +98,7 @@ from `main` as each one starts, following the existing kebab-case convention.
 | **6** | `contour-refine` | Live Wire advanced cost (Scharr, Laplacian, direction, pre-smooth, close tolerance, commit smoothing) (#75–81). Spline families, point undo, commit-undo-reload, copy/propagate to adjacent slice, local ROI edit, self-intersection guard (#82–100). Snake refine (#200–201). Extend Cornerstone's tools where possible and fork only where necessary. | 4 (preview) | L |
 | **7** | `seg-3d-qc` | Segment surfaces in the 3D viewport via PolySeg, per-label visibility, resolution and smoothing, 3D component report with stray/speck thresholds, jump to slice, delete component, 3D scissor, undo (#230–257) | 1 | L |
 | **8** | `worklist` | **Own reviewed plan first; XNAT-backed.** Requirements input from SegWorks: XLSX/CSV import, XNAT id resolution, project fetch, Worklist Builder generation, Next & Open, cursor sync, Capture / Review / View-Only modes, exact series and annotation capture, skip with reason, comments, filters, report workbooks, recovery, dirty flag, XLSX export, segment preset keys (#291–342) | — (benefits from 2) | XL |
-| **9** | `algorithm-modules` | Workstation-native module API and loader, run in a sandboxed Worker (not the renderer, which has Electron privileges). Schema-driven param UI, logs (copy/download), cancel, cached modules. Validate by re-authoring one SegWorks module (e.g. Glioma enhancing lesion) against the native API. (#271–283) | 1, 4 | M |
+| **9** | `algorithm-modules` | *Re-scoped 2026-10-13 — see §12:* the open-source module host for community and commercial (signed) modules. Workstation-native module API and loader, run in a sandboxed Worker (not the renderer, which has Electron privileges). Schema-driven param UI, logs (copy/download), cancel, installed modules. Validate by re-authoring one SegWorks add-on against the native API. (#271–283) | 1, 4 | L |
 
 **Recommended order:** 1 → 2 → 3 → 4 → 7 → 6 → 5 → 9 → 8
 
@@ -929,3 +929,113 @@ preset would set are all exposed, so presets can be added later as data.
   seeds) is what renders, with Run in place of Preview; no legacy chrome replaced; nothing
   deferred except the Chan-Vese preset library (decision 4); every acceptance test was seen
   red (before the code, or against a built mutant) and drives the real affordances.
+
+---
+
+## 12. Branch 9 — `algorithm-modules` (ordered plan — for review)
+
+Cut from `main` after branch 5 and the licence files merged (2026-10-13). Scope: SegWorks
+#271–283, re-scoped (2026-10-13) from a SegWorks port to a **product feature**: Workstation
+is released as an open-source viewer, and a separate commercial offering adds value through
+modules — including the SegWorks add-on algorithms (MR lesion, post-op edema, lung, batch
+statistics). So:
+
+- **The module host is part of the open-source app.** The commercial offering is modules
+  (signed by Washington University), not a fork of the host.
+- **Unsigned and community modules are accepted.** Anyone can write, sign with their own key,
+  and share a module; users can install one that is unsigned.
+- **Modules never touch the signed application bundle.** They are installed in the user's data
+  folder and are JavaScript / WebAssembly only — data to the operating system — so adding one
+  never breaks the app's code signature or notarisation, and needs no re-signing.
+
+**What SegWorks did, and what changes.** SegWorks injected each module's script into the viewer
+page: it ran on the UI thread with the page's full privileges, wrote the labelmap directly and
+managed undo itself (`pushUndo`, `finalize`). Workstation's renderer has Electron privileges and
+XNAT session state, so a module here is a **pure function in a sandbox**: the host hands it the
+data, it returns masks, and the host applies them through the path every operation uses
+(transaction, preview, locks, one undo step). SegWorks' API maps across: `rows / cols /
+sliceCount / modality / activeSegId` → the context; `getPixelData / getImageMeta` → the image
+box in modality units (HU on CT); `getLabelmap` → the requested member masks;
+`progress / cancelled / log / warn / error` → the same; `pushUndo / finalize` → gone (the host
+owns undo and display).
+
+| SegWorks # | Feature | Here |
+|---|---|---|
+| 271 | Import a module | Install from a module package (Settings › Modules, or drag-drop) |
+| 272–273 | Cached modules; load or skip | Installed modules persist; each has an **Enabled** switch |
+| 274, 283 | Flush cache; delete | **Remove** |
+| 275 | Schema-driven parameters | The manifest's parameters, rendered by the controls the Cleanup operations already use |
+| 276–277 | Run; cancel | An operation per module: Run → preview → ⏎; Cancel (cooperative, then the worker is terminated) |
+| 278–279 | Module cleanup / gap fill hooks | **Post steps** the manifest names from the built-in Cleanup operations (Fill holes, Keep largest, 3D clean-up …) — no module-defined hooks |
+| 280–282 | Log; copy; download | The operation's Log panel: Copy, Download (.txt) |
+
+### Design points (decided in this plan; flag any to change)
+
+1. **Package.** A module is one file, `*.xwmodule` — a zip holding `manifest.json`, an ES-module
+   entry script, optional `.wasm` files and an optional `signature.json`. The manifest declares:
+   id (reverse-DNS), name, version (semver), **API version** (`1.x`), publisher, licence,
+   description, parameters (the Cleanup schema: number · select · boolean · …), what it reads
+   (image; the active member / named members / all members; seeds; ROI limit), what it writes
+   (the active member, named members, or new members it creates — name and colour), the scopes
+   it supports (slice · range · volume · ROI), optional post steps, and an optional memory
+   estimate (bytes per voxel) for the guard.
+2. **Trust tiers.**
+   - **Verified** — signed (Ed25519, over a canonical hash of every file in the package) by a
+     key the app trusts. The open-source build trusts Washington University's publishing key;
+     users can add trusted publisher keys in Settings › Modules.
+   - **Community** — unsigned, or signed by a key the user has not trusted. **Accepted**: the
+     install shows who signed it (if anyone) and what it reads and writes, and asks for
+     confirmation; the module carries a Community badge wherever it appears. A setting
+     **Allow community modules** (on by default) lets an organisation turn this off.
+   - **Refused** — a signature that does not verify (tampered), a package that fails validation,
+     or an API version the host does not support. Never installable, never loaded.
+   Signatures are checked at install **and at every load** (the installed files are hashed again),
+   so a module altered on disk afterwards is refused.
+3. **Sandbox.** Each run is a dedicated Web Worker, created fresh and terminated at the end.
+   Module files are served by a custom `xnat-module://` protocol from the install folder, with a
+   Content-Security-Policy of `default-src 'none'; script-src 'self' 'wasm-unsafe-eval'` — no
+   network, no `importScripts` from elsewhere, no other origins. The worker has no DOM, no Node,
+   no IPC, no XNAT credentials or cookies, and no file access: it sees only the data the host
+   posts to it, and only what its manifest declared. Native code (`.node`, dylib, DLL) is not
+   supported.
+4. **The host owns writing.** A module returns masks (and optionally new members and a
+   measurement table); the host stages them in a LabelmapTransaction: written members gain (or,
+   if the manifest says *replace*, become) the mask; other members keep their voxels unless the
+   manifest declares claims (as Snake refine does); locked members are never written; the result
+   is previewed (D4) and ⏎ commits one undo step.
+5. **Where modules appear.** Each enabled module is an operation in the **Operations picker**,
+   in a **Modules** group below the built-in operations (amends D11, written when operations
+   lived on a Process tab that the D1 amendment removed). Installing, enabling, removing and
+   trusting publishers live in **Settings › Modules** (D11 unchanged).
+6. **API versioning.** The host implements API `1.x`; a module declares the major it was built
+   for. Minor versions only add. A future `2.x` host may keep a `1.x` adapter.
+7. **Commercial modules.** The same host runs them. A manifest may declare that it **requires a
+   licence**; the host asks a *licence provider* — an interface in the open-source code with no
+   implementation — and without one shows "Requires a licence" and does not run it. The
+   commercial offering supplies the provider. (In an open-source host, a determined user can
+   remove the check by building their own; the protection that matters is contractual. The
+   signature protects integrity — what runs is what was published — not secrecy.)
+8. **Authoring tools ship in the open-source repo**: `npm run module:keygen`, `module:pack`,
+   `module:sign`, `module:verify`; an example module; and `docs/module-authoring.md` (API
+   reference, manifest schema, signing, testing a module).
+
+### Slices
+
+| Slice | Content | Acceptance |
+|---|---|---|
+| **M1** | **Package format and verification** (pure + main process): manifest schema and validation; zip reading with guards (path traversal, size and file-count limits, no symlinks); canonical hashing; Ed25519 verification (Node crypto); trust classification; the `module:*` CLI scripts | Unit, each seen red first: a valid package parses; every malformed manifest and unsafe zip is refused with a reason; a signature verifies, and one changed byte in any file fails it; unsigned → Community, unknown key → Community, trusted key → Verified, bad signature → Refused; an unsupported API major is refused |
+| **M2** | **Install and manage**: main-process store under `userData/modules/<id>/<version>/`, IPC (list, inspect, install, remove, enable, trust key); **Settings › Modules** — installed list (name, version, publisher, badge, Enabled), Install from file (and drag-drop) with the trust dialog (who signed it, what it reads / writes; confirmation for Community), Remove, trusted publishers, Allow community modules | E2E on the built app with fixture packages (generated and signed with a test key in the test setup): a Verified install has no warning; a Community install needs confirmation and shows its badge; a tampered package is refused with the reason; the allow-community setting off refuses Community; removing deletes the files; a module altered on disk after install is refused at load |
+| **M3** | **Sandbox runtime**: the `xnat-module://` protocol and its CSP; the run worker; the host ↔ worker protocol (API 1.0: context, image box, member masks, seeds, ROI; progress, cancelled, log / warn / error; result); cooperative cancel then terminate; a run time-out; the log buffer | E2E with a deliberately hostile fixture module: `fetch`, `importScripts` from another origin, `XMLHttpRequest` and WebSocket are all blocked (and logged); it cannot see `window`, `require` or `electronAPI`; a module that ignores Cancel is terminated; unit tests of the protocol |
+| **M4** | **Module operations**: the Modules group in the Operations picker; the operation body — parameters rendered from the manifest, scope (slice · range · volume · ROI, as the manifest allows), the memory estimate, trust badge, Run / Commit / Discard, Cancel, the Log (Copy · Download); the result staged, previewed and committed through the transaction (locks, other members, claims, new members); post steps from the built-in Cleanup operations | E2E with the example module (an intensity threshold — SegWorks' template, re-authored): parameters render from its manifest; Run previews; ⏎ commits one undo step; a locked member is not written; Cancel leaves nothing; the log copies and downloads; a module creating a new member adds it with its name and colour; oblique case |
+| **M5** | **Validation module**: re-author one SegWorks add-on algorithm against API 1.0 — the post-op edema segmentation (its source is in the v2.0.610 bundle) — as a signed example, built and tested outside the host's source tree | E2E: installed from its package, it segments on a fixture built for it (a synthetic MR-like phantom with a known region), Dice above a stated bound; it needs nothing the API does not offer (any gap found is an API change, made here) |
+| **M6** | **Commercial hooks and authoring**: the licence-provider interface and the "Requires a licence" state; `docs/module-authoring.md`; a threat model (`docs/module-security.md`: what a module can and cannot reach, and why) | E2E: a module declaring a required licence shows "Requires a licence" and cannot run without a provider; with a test provider it runs. The authoring guide's example builds, signs and installs as written |
+| **M7** | Docs (tool reference: Modules in the Operations section; Settings › Modules), full offline E2E, visual sweep in the built app, merge to `main` | CLAUDE.md self-check answered |
+
+**Out of scope:** a module marketplace or update feed (install is from a file; updating is
+installing a newer version); native-code modules; implementing licence enforcement (only the
+interface); porting the other SegWorks add-ons (each is its own module, built after the API is
+proven).
+
+### Branch 9 progress log
+
+- **Plan** — written 2026-10-13, for review.
