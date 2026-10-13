@@ -3,7 +3,7 @@
  * the commit / discard actions, so presentational components never import the service.
  */
 import { commitPreview, discardPreview } from '../lib/cornerstone/maskPreview';
-import { semiAutoService } from '../lib/cornerstone/semiAutoService';
+import { computeClient } from '../lib/compute/computeClient';
 import { useMaskPreviewStore, type MaskPreviewState } from '../stores/maskPreviewStore';
 import { useComputeStore, type ComputeJobState } from '../stores/computeStore';
 
@@ -16,5 +16,5 @@ export function useMaskPreview(): MaskPreviewState & {
 } {
   const state = useMaskPreviewStore();
   const job = useComputeStore((s) => s.job);
-  return { ...state, commit: () => { commitPreview(); }, discard: discardPreview, job, cancelJob: () => semiAutoService.cancelCompute() };
+  return { ...state, commit: () => { commitPreview(); }, discard: discardPreview, job, cancelJob: () => computeClient.cancelCurrent() };
 }

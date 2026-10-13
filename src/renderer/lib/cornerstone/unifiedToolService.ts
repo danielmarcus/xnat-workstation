@@ -63,7 +63,7 @@ import { Enums as CoreEnums, eventTarget } from '@cornerstonejs/core';
 import { cursors as csCursors } from '@cornerstonejs/tools';
 import SafePaintFillTool from './tools/SafePaintFillTool';
 import SelectTool from './tools/SelectTool';
-import { LevelTraceTool, RandomWalkerSeedTool, RoiLimitTool, SmartBrushTool } from './tools/semiAutoTools';
+import { LevelTraceTool, RandomWalkerSeedTool, RoiLimitTool, SmartBrushTool, SolverSeedTool } from './tools/semiAutoTools';
 import { ContourFillSplineTool } from './tools/AppSplineContourTool';
 import { ContourFillLivewireTool } from './tools/AppLivewireContourTool';
 import { SELECT_ARROW_PATH, SELECT_ARROW_HOTSPOT } from '../selectArrow';
@@ -127,6 +127,7 @@ const UNIFIED_TOOL_MAP: Partial<Record<ToolName, string>> = {
   [ToolName.LevelTrace]: LevelTraceTool.toolName,
   [ToolName.SmartBrush]: SmartBrushTool.toolName,
   [ToolName.RandomWalker]: RandomWalkerSeedTool.toolName,
+  [ToolName.SolverSeeds]: SolverSeedTool.toolName,
   [ToolName.RoiLimit]: RoiLimitTool.toolName,
   // SegmentBidirectional is an ACTION, not a drawing mode — the panel runs it against the
   // active segment rather than binding it to the mouse (see useAnnotationsPanel). It is
@@ -645,7 +646,7 @@ function ensureToolGroup(): ToolTypes.IToolGroup | undefined {
     SphereScissorsTool, SafePaintFillTool, SculptorTool, SelectTool,
     RegionSegmentTool, RegionSegmentPlusTool, SegmentBidirectionalTool,
     RectangleROIThresholdTool, LabelMapEditWithContourTool,
-    LevelTraceTool, SmartBrushTool, RandomWalkerSeedTool, RoiLimitTool,
+    LevelTraceTool, SmartBrushTool, RandomWalkerSeedTool, RoiLimitTool, SolverSeedTool,
     ContourFillSplineTool, ContourFillLivewireTool,
   ];
   // Per-tool addTool configuration. Most of FULL_SET needs none, but a tool whose
@@ -1268,7 +1269,7 @@ export const unifiedToolService = {
     ];
     // Select needs it too: Shift-click adds to (or removes from) the selection; and
     // Random Walker, whose Shift-drag lays background seeds.
-    if (EDIT_MODE_TOOLS.has(toolName) || toolName === ToolName.Select || toolName === ToolName.RandomWalker) {
+    if (EDIT_MODE_TOOLS.has(toolName) || toolName === ToolName.Select || toolName === ToolName.RandomWalker || toolName === ToolName.SolverSeeds) {
       bindings.push({ mouseButton: Primary, modifierKey: ShiftModifier });
     }
     toolGroup.setToolActive(csName, { bindings });

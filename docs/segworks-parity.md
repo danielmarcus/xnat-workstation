@@ -856,3 +856,24 @@ preset would set are all exposed, so presets can be added later as data.
   compensated: re-adopting orphans (only speed — a freed orphan is regrown), α-expansion's
   energy check (a move's minimum can never exceed the current energy), and the move graph's
   pairwise term alone (the energy check still rejects moves that roughen the labelling).
+- **G2** — **Seeded segmentation** joins the Operations picker (before 3D QC). One seed store
+  (`seedStore`) serves Random Walker and the solvers: strokes of a class (a member, or
+  Background = 0) in world space, with the brush radius fixed when drawn; the overlay draws them
+  on their slice in the class's colour, as wide as the brush. Random Walker moved onto it (its
+  foreground = the active member's strokes, background = everything else) and now solves the
+  slice on screen. The seed painter is the operation's pointer mode (`SolverSeeds` tool): drag
+  lays the chosen class (palette: members, Background, Erase), ⇧-drag lays Background — **not
+  right-drag** as in #104: the right button zooms in every viewport. `solverService` builds the
+  box (around seeds ± pads, ROI limit, or volume) in the grid's index space along the viewing
+  plane, rasterises the seeds, runs `seededSolve` in the worker (progress, ⎋ / Cancel run),
+  stages the result additively (other members keep their voxels; a locked member previews
+  read-only) and previews it. The progress bar's Cancel now cancels whatever job runs
+  (`computeClient.cancelCurrent`) — it was wired to Random Walker's only. The estimate line
+  shows voxels and MB, amber, then blocked with the reason. **Found on the way:** SegWorks'
+  default 8 px brush is a 17 mm stroke on the phantom's 1 mm pixels — wider than the lesion —
+  so Background seeds painted over it; the E2E uses a 2 px brush (the default stays SegWorks').
+  The oblique sphere fills the whole stack, so its test solves the Volume. E2E +6
+  (`seeded-segmentation`: the 3D lesion Dice > 0.85 from two seeded slices, one undo step;
+  Cancel and Restore seeds; the pointer mode; Erase; the guard; oblique), red against
+  mutants of: the box's axes, the class mapping, the seed snapshot, ⇧, Erase, the guard and
+  the painter's activation. Related E2E 52/52 (Random Walker unchanged).

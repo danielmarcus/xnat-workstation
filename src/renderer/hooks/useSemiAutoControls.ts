@@ -4,6 +4,8 @@
  */
 import { describeSemiAuto, semiAutoService } from '../lib/cornerstone/semiAutoService';
 import { useSemiAutoStore } from '../stores/semiAutoStore';
+import { useSeedStore } from '../stores/seedStore';
+import { useSegmentationStore } from '../stores/segmentationStore';
 import { useViewerStore } from '../stores/viewerStore';
 import { useComputeStore } from '../stores/computeStore';
 
@@ -13,7 +15,11 @@ export function useSemiAutoControls() {
   const s = useSemiAutoStore();
   const activeViewportId = useViewerStore((st) => st.activeViewportId);
   const computeJob = useComputeStore((st) => st.job);
-  const seeds = s.seeds?.viewportId === activeViewportId ? s.seeds.strokes : [];
+  const strokes = useSeedStore((st) => st.strokes);
+  const containerId = useSegmentationStore((st) => st.activeSegmentationId);
+  const active = useSegmentationStore((st) => st.activeSegmentIndex);
+  // Random Walker's seeds: the active segment's (foreground) and everything else (background).
+  const seeds = strokes.filter((x) => x.containerId === containerId && x.viewportId === activeViewportId);
   return {
     levelTrace: s.levelTrace,
     setLevelTrace: s.setLevelTrace,
@@ -21,13 +27,13 @@ export function useSemiAutoControls() {
     setSmartBrush: s.setSmartBrush,
     randomWalker: s.randomWalker,
     setRandomWalker: s.setRandomWalker,
-    seedCounts: { fg: seeds.filter((x) => x.kind === 'fg').length, bg: seeds.filter((x) => x.kind === 'bg').length },
+    seedCounts: { fg: seeds.filter((x) => x.cls === active).length, bg: seeds.filter((x) => x.cls !== active).length },
     runRandomWalker: () => {
       s.setMessage(null);
       void semiAutoService.randomWalkerRun(activeViewportId).then((r) => useSemiAutoStore.getState().setMessage(describeSemiAuto(r, 'Random Walker')));
     },
     running: !!computeJob,
-    clearSeeds: () => { s.clearSeeds(); s.setMessage(null); },
+    clearSeeds: () => { useSeedStore.getState().clear(containerId ?? undefined); s.setMessage(null); },
     roiDrawn: !!s.roi,
     roiHere: s.roi?.viewportId === activeViewportId,
     clearRoi: () => s.setRoi(null),

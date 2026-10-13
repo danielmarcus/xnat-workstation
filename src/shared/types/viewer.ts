@@ -53,6 +53,8 @@ export enum ToolName {
   LevelTrace = 'LevelTrace',
   SmartBrush = 'SmartBrush',
   RandomWalker = 'RandomWalker',
+  /** The Seeded segmentation operation's seed painter (branch 5) — a pointer mode, not a toolbox tool. */
+  SolverSeeds = 'SolverSeeds',
   RoiLimit = 'RoiLimit',
 }
 
@@ -174,6 +176,7 @@ export const TOOL_DISPLAY_NAMES: Record<ToolName, string> = {
   [ToolName.LevelTrace]: 'Level Trace',
   [ToolName.SmartBrush]: 'Smart Brush',
   [ToolName.RandomWalker]: 'Random Walker',
+  [ToolName.SolverSeeds]: 'Paint seeds',
   [ToolName.RoiLimit]: 'ROI limit',
 };
 

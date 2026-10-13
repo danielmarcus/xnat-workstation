@@ -76,6 +76,14 @@ export function createComputeClient(makeWorker: () => WorkerLike) {
         },
       };
     },
+    /** Cancel whatever job is running (the progress bar's Cancel — whichever operation started it). */
+    cancelCurrent(): void {
+      if (!current) return;
+      const c = current;
+      current = null;
+      stop();
+      c.reject(new ComputeCancelled());
+    },
     /** E2E seam: slow each progress step so a solve can be watched and cancelled. */
     setThrottle(ms: number): void {
       throttleMs = ms;

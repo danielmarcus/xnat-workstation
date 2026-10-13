@@ -14,6 +14,9 @@ export interface SemiAutoBridge {
   setRoi(viewportId: string, corners: number[][]): void;
   addSeedStroke(viewportId: string, kind: 'fg' | 'bg', world: number[]): void;
   extendSeedStroke(world: number[]): void;
+  /** The Seeded segmentation painter (branch 5): a stroke of the chosen class, or Background with ⇧. */
+  solverSeedBegin(viewportId: string, world: number[], background: boolean): void;
+  solverSeedExtend(world: number[]): void;
 }
 
 export const semiAutoBridge: Partial<SemiAutoBridge> = {};

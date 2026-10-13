@@ -11,7 +11,7 @@ import { create } from 'zustand';
 /** Parameter values of one operation (mirrors maskOps/catalog's ParamValues; stores import no lib code). */
 type ParamValues = Record<string, number | string>;
 
-export type OperationSheetId = 'cleanup' | 'interpolate' | 'propagate' | 'qc3d';
+export type OperationSheetId = 'cleanup' | 'interpolate' | 'propagate' | 'seeded' | 'qc3d';
 
 export interface PropagateSettings {
   direction: 'forward' | 'backward' | 'both';
@@ -36,6 +36,38 @@ export interface InterpolateSettings {
   /** Anchors in the viewport's displayed numbering (1-based); null = unset. */
   anchorA: number | null;
   anchorB: number | null;
+}
+
+/** Seeded segmentation (branch 5): Fast GrowCut · Graph Cut · α-expansion, from painted seeds. */
+export interface SeededSettings {
+  method: 'growCut' | 'graphCut' | 'alphaExpansion';
+  /** The box solved: around the seeds, the ROI limit, or the whole volume. */
+  domain: 'seeded' | 'roi' | 'volume';
+  /** Padding round the seeds' box: in-plane pixels and slices (SegWorks α-expansion 24 / 2). */
+  padXY: number;
+  padZ: number;
+  /** Fast GrowCut's intensity gate (#110). */
+  gateOn: boolean;
+  gateLo: number;
+  gateHi: number;
+  /** Graph Cut: λ and σ (SegWorks 50 / 30). */
+  lambda: number;
+  sigma: number;
+  /** α-expansion (SegWorks defaults). */
+  smooth: number;
+  alphaSigma: number;
+  sweeps: number;
+  uInt: number;
+  uLoc: number;
+  locality: number;
+  intensity: number;
+  seedBias: number;
+  /** Post-processing (off by default, as in SegWorks). */
+  postOn: boolean;
+  postKeep: 'off' | 'seed' | 'largest';
+  postMinIsland: number;
+  postSmooth: number;
+  postShrinkGrow: number;
 }
 
 export interface SheetScope {
@@ -72,6 +104,8 @@ interface OperationSheetState {
   setInterp: (patch: Partial<InterpolateSettings>) => void;
   prop: PropagateSettings;
   setProp: (patch: Partial<PropagateSettings>) => void;
+  seeded: SeededSettings;
+  setSeeded: (patch: Partial<SeededSettings>) => void;
 
   /** Open (or expand) an operation. */
   openOperation: (id: OperationSheetId) => void;
@@ -110,6 +144,13 @@ export const useOperationSheetStore = create<OperationSheetState>((set) => ({
     maxAreaChangePct: 60, fillHoles: true, edgeGuard: false, zSmoothing: false,
   },
   setProp: (patch) => set((s) => ({ prop: { ...s.prop, ...patch }, message: null })),
+  seeded: {
+    method: 'growCut', domain: 'seeded', padXY: 24, padZ: 2, gateOn: false, gateLo: -150, gateHi: 250,
+    lambda: 50, sigma: 30,
+    smooth: 6, alphaSigma: 30, sweeps: 2, uInt: 0.75, uLoc: 0.25, locality: 0.65, intensity: 0.35, seedBias: 0.9,
+    postOn: false, postKeep: 'seed', postMinIsland: 300, postSmooth: 1, postShrinkGrow: 1,
+  },
+  setSeeded: (patch) => set((s) => ({ seeded: { ...s.seeded, ...patch }, message: null })),
 
   openOperation: (openSheet) => set((s) => ({
     openSheet,
