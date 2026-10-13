@@ -602,6 +602,35 @@ Structure Spline and Livewire tools through the same controls (D3, wireframes §
 | **F6** | **Snake Refine** (#200–201): a Cleanup operation (Clean group) — iterations, edge weight, variant (edge · GVF · balloon · morphological), **Replace boundary with neighbours** off by default; Advanced folds GVF μ / iterations and balloon strength; scope Slice / Range | E2E on `ct-axial-anatomy`: a deliberately loose mask around the lesion moves toward its edge (Dice with the known lesion rises); neighbours untouched by default and only shared-boundary pixels reassigned when allowed; preview → ⏎, one undo; oblique case |
 | **F7** | Docs (`annotation-tool-reference.md`: Live Wire and Spline settings, Contour Fill modes, Snake Refine), full offline E2E, visual sweep in the built app, merge to `main` | CLAUDE.md self-check answered |
 
+**F5 design (worked out before building it, 2026-10-12).** One mechanism serves all three
+actions and both annotation types: the **spline in hand** — a closed spline on the current
+slice, created by the mode's own tool exactly as its first click would create it (Structure:
+the Spline tool on the active member; Segmentation: Contour Fill's Spline boundary), with the
+chosen family, and editable by its handles. It is the preview: **⏎ commits** it through the
+path a drawn spline takes when it closes (Cornerstone's completion → union into the member for
+a Structure, F4's fill for a Segmentation — one undo step either way), **⎋ discards** it. Its
+edits record no history; only the commit does.
+
+1. **Undo & edit** (#85): enabled while the last spline commit is still the newest entry of
+   the active container's undo history (the entry's identity is captured when the commit
+   settles). It undoes the commit through the normal undo path and puts the same control
+   points back in hand, on their slice.
+2. **Copy nearby** (#86): the active member's content on the nearest other slice (up to 10
+   away; the previous slice wins a tie), projected onto this slice and put in hand — nothing is
+   written. The control points are that slice's remembered spline when it was drawn as one,
+   otherwise its outline resampled to control points (a Structure's contour; a Segmentation's
+   largest island boundary).
+3. **Propagate ◀ ▶** (#87–89): the spline in hand (committed first) — or else the member's
+   outline here — is carried to the previous / next slice, the viewport moves there, and the
+   result is put in hand. Track (in ▸ Options): **Deform** (control points pulled onto edges on
+   the new slice, `refineTowardEdges`), **Mask** (branch 3's `propagateStep` from this slice's
+   region, outline → control points), **Mask + snake** (then the morphological snake). Slice by
+   slice: adjust, ▶, adjust, ▶ — each slice one undo step.
+
+Shown only in Spline mode: a **Slice** row (Undo & edit · Copy nearby · ◀ ▶), and **Commit**
+beside Undo point / Clear while a spline is in hand. The Controls height grows to fit if
+needed; the height E2E keeps it fixed across tools.
+
 ### Branch 6 progress log
 
 - **Plan** — written 2026-10-12; approved to proceed through all slices.

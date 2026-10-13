@@ -5,6 +5,8 @@
  * for Level Trace (branch 4) and are re-exported, not duplicated.
  */
 import type { Point } from './splines';
+import { traceBoundary } from '../semiauto/levelTrace';
+import { labelComponents, type MaskPlane } from '../maskOps/plane';
 
 export { chaikin, rasterize } from '../semiauto/levelTrace';
 
@@ -67,4 +69,45 @@ export function hasSelfIntersectionOpen(polyline: Point[]): boolean {
     }
   }
   return false;
+}
+
+/** `k` points at equal arc length round a closed polygon, starting at its first vertex. */
+export function resampleClosed(poly: Point[], k: number): Point[] {
+  if (poly.length < 2 || k < 1) return poly.map((p) => ({ ...p }));
+  const n = poly.length;
+  const edge = (i: number) => Math.hypot(poly[(i + 1) % n].x - poly[i].x, poly[(i + 1) % n].y - poly[i].y);
+  let perimeter = 0;
+  for (let i = 0; i < n; i++) perimeter += edge(i);
+  if (perimeter <= EPS) return [{ ...poly[0] }];
+  const out: Point[] = [];
+  let i = 0, walked = 0; // arc length at the start of edge i
+  for (let j = 0; j < k; j++) {
+    const target = (perimeter * j) / k;
+    while (walked + edge(i) < target - EPS) { walked += edge(i); i++; }
+    const len = edge(i), t = len > EPS ? (target - walked) / len : 0;
+    const a = poly[i], b = poly[(i + 1) % n];
+    out.push({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
+  }
+  return out;
+}
+
+/**
+ * Control points for a spline round a mask's largest island (#86, #89 — a Segmentation's
+ * outline as an editable spline): its traced boundary resampled to one point per ~8 px of
+ * boundary, between 6 and 24.
+ */
+export function outlineControlPoints(mask: MaskPlane): Point[] {
+  const { labels, sizes } = labelComponents(mask.data, mask.width, mask.height);
+  let best = 0;
+  for (let c = 1; c < sizes.length; c++) if (sizes[c] > (sizes[best] ?? 0)) best = c;
+  if (!best) return [];
+  const island = Uint8Array.from(labels, (l) => (l === best ? 1 : 0));
+  const boundary = traceBoundary({ width: mask.width, height: mask.height, data: island }).map(([x, y]) => ({ x, y }));
+  if (boundary.length < 3) return boundary;
+  let perimeter = 0;
+  for (let i = 0; i < boundary.length; i++) {
+    const a = boundary[i], b = boundary[(i + 1) % boundary.length];
+    perimeter += Math.hypot(b.x - a.x, b.y - a.y);
+  }
+  return resampleClosed(boundary, Math.max(6, Math.min(24, Math.round(perimeter / 8))));
 }
