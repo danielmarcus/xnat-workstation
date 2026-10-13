@@ -12,7 +12,10 @@
  *
  * D_p(k) = uInt · NLL_k(I_p) + uLoc · 100 · (distance to class k's seed centroid / box
  * diagonal) — the intensity and locality terms of SegWorks' unary, on the 0–100 scale its
- * smoothness defaults assume. Seeds are hard. The starting labelling is SegWorks'
+ * smoothness defaults assume. Seeds are hard. Background (when the caller names its class) is
+ * "everything else": its intensity cost is capped at half the others' (50), so a voxel unlike
+ * every seeded structure — air in the box, an unseeded organ — is Background, not whichever
+ * structure happens to be nearest. The starting labelling is SegWorks'
  * initialiser: each voxel's nearest model by locality, intensity and seed bias.
  */
 import { BinaryEnergy } from './energy';
@@ -56,6 +59,7 @@ export interface AlphaExpansionResult {
 export function alphaExpansion(
   image: ArrayLike<number>, d: Dims, spacing: Spacing, seeds: Uint8Array, classes: number,
   o: AlphaExpansionOptions = DEFAULT_ALPHA_EXPANSION, onProgress?: (fraction: number) => void,
+  backgroundClass?: number,
 ): AlphaExpansionResult | null {
   const n = voxelCount(d);
   const models = seedModels(image, seeds, classes);
@@ -84,7 +88,7 @@ export function alphaExpansion(
       let v: number;
       if (!seeded[k]) v = HARD;
       else if (seeds[i]) v = seeds[i] === k + 1 ? 0 : HARD;
-      else v = o.uInt * nll(image[i], models[k]) + o.uLoc * 100 * locOf(i, k);
+      else v = o.uInt * nll(image[i], models[k], k === backgroundClass ? 50 : 100) + o.uLoc * 100 * locOf(i, k);
       D[i * classes + k] = v;
     }
   }

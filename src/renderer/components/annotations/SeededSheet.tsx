@@ -46,6 +46,17 @@ export default function SeededSheet({ m }: { m: SeededSheetModel }) {
         </>
       )}
     >
+      {m.previewMembers.length > 1 && (
+        <OperationRow label="Show">
+          <Segmented
+            label="Show"
+            className="flex-1"
+            value={m.showOnly === null ? 'all' : String(m.showOnly)}
+            onChange={(v) => m.showMember(v === 'all' ? null : Number(v))}
+            options={[{ value: 'all', label: 'All' }, ...m.previewMembers.map((p) => ({ value: String(p.id), label: p.name }))]}
+          />
+        </OperationRow>
+      )}
       <OperationRow label="Method">
         <select
           aria-label="Method"

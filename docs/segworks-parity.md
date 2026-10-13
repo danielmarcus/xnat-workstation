@@ -889,3 +889,16 @@ preset would set are all exposed, so presets can be added later as data.
   foreground intensity model toward the tissue round it (component choice stays unit-tested).
   E2E +4, red against: λ not passed, σ not passed, clean-up not passed, and the method ignored
   (caught by the λ test — Fast GrowCut has no λ).
+- **G4** — **Multi-label graph cut (α-expansion)**: the palette's classes are the members plus
+  Background, so one run segments several structures; smoothness, σ and sweeps in view, the
+  pads, unary weights, initialiser weights and clean-up under Advanced (SegWorks defaults).
+  Commit writes every solved member in one undo step; a locked member is simply not written
+  (its seeds still shape the solve; the preview bar says which), and the preview has a
+  **Show** selector (All · one member, #133) that filters the hatched overlay
+  (`showPreviewMember`). **Found on the way:** air in the box matched none of the seed models,
+  every class's intensity cost hit the same cap, and the locality term handed it to the
+  nearest structure — Segment 1 took 19 000 voxels of air. Background is now "everything
+  else": its intensity cost is capped at half the others' (unit test: an unseeded fourth
+  intensity goes to Background). E2E +3 (each member's own structure, Dice > 0.85, unseeded
+  tissue unlabelled, one undo step; the selector; a locked member) — all red before the code;
+  mutants of the selector's filter and of the locked-member skip each red.

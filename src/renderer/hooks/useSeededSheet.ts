@@ -7,7 +7,7 @@
  */
 import { useMemo } from 'react';
 import { describeSeeded, seededDomain, solverService } from '../lib/cornerstone/solverService';
-import { clearStaleNotice, commitPreview, discardPreview } from '../lib/cornerstone/maskPreview';
+import { clearStaleNotice, commitPreview, discardPreview, showPreviewMember } from '../lib/cornerstone/maskPreview';
 import { closeOperation, confirmCloseOperation, STALE_PREVIEW_MESSAGE } from './operationLifecycle';
 import { hotkeyService } from '../lib/hotkeys/hotkeyService';
 import { useComputeStore } from '../stores/computeStore';
@@ -32,6 +32,8 @@ export function useSeededSheet() {
   const previewActive = useMaskPreviewStore((st) => st.active);
   const previewReadOnly = useMaskPreviewStore((st) => st.readOnly);
   const discardedStale = useMaskPreviewStore((st) => st.discardedStale);
+  const previewLabel = useMaskPreviewStore((st) => st.label);
+  const showOnly = useMaskPreviewStore((st) => st.showOnly);
   const job = useComputeStore((st) => st.job);
   const activeViewportId = useViewerStore((st) => st.activeViewportId);
   const activeTool = useViewerStore((st) => st.activeTool);
@@ -52,6 +54,11 @@ export function useSeededSheet() {
     ...(container?.segments ?? []).map((m) => ({ id: m.segmentIndex as number, name: m.label, color: rgb(m.color) })),
     { id: BACKGROUND, name: 'Background', color: 'rgb(161, 161, 170)' },
   ].map((c) => ({ ...c, strokes: mine.filter((x) => x.cls === c.id).length }));
+
+  // α-expansion's preview label selector (#133): All, or one of the members it solved.
+  const previewMembers = previewActive && previewLabel === 'Multi-label graph cut'
+    ? classes.filter((c) => c.id !== BACKGROUND && c.strokes > 0).map((c) => ({ id: c.id, name: c.name }))
+    : [];
 
   const domain = useMemo(
     () => (open ? seededDomain(s, activeViewportId) : null),
@@ -95,6 +102,9 @@ export function useSeededSheet() {
     summary: running ? 'Running…' : previewActive ? 'Preview pending' : `${mine.length} seed stroke${mine.length === 1 ? '' : 's'}`,
     previewActive,
     previewReadOnly,
+    previewMembers,
+    showOnly,
+    showMember: (segmentIndex: number | null) => showPreviewMember(segmentIndex),
     confirmingLeave: sheet.confirmingLeave,
     advancedOpen: !!sheet.advancedOpen.seeded,
     toggleAdvanced: () => sheet.toggleAdvanced('seeded'),

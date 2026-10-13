@@ -261,3 +261,72 @@ test('the memory estimate follows the method: Graph Cut needs more per voxel tha
   await sheet.getByLabel('Method').selectOption('graphCut');
   await expect.poll(mb).toBeGreaterThan(growCut * 5);
 });
+
+// ─── Multi-label graph cut, α-expansion (G4) ─────────────────────────────────
+
+const BONE: [number, number, number] = [0, 0, 0];
+
+/** Segment 1 seeded in the lesion, Segment 2 in the bone, Background in the tissue, on two slices. */
+async function seedThree(page: Page, panel: Locator, sheet: Locator) {
+  await panel.getByRole('button', { name: 'Add member' }).first().click();
+  await page.keyboard.press('Escape');
+  await panel.locator('[data-testid^="member-row-"]', { hasText: 'Segment 1' }).first().click();
+  await fineBrush(sheet);
+  const classes = sheet.getByRole('group', { name: 'Seed class' });
+  for (const key of [null, 'ArrowDown'] as const) {
+    if (key) await stepSlice(page, key);
+    await classes.getByRole('button', { name: /Segment 1/ }).click();
+    await drag(page, [[22, 0], [28, 0]]);
+    await classes.getByRole('button', { name: /Segment 2/ }).click();
+    await drag(page, [[-3, 0], [3, 0]]);
+    await classes.getByRole('button', { name: /Background/ }).click();
+    await drag(page, [[0, 28], [30, 22], [45, 0], [30, -22], [0, -28]]);
+  }
+  await sheet.getByLabel('Method').selectOption('alphaExpansion');
+}
+
+const member = (page: Page, i: number) => page.evaluate((idx) => (window as unknown as Win & { __XNAT_E2E__: { memberVoxelCount: (i: number) => number } }).__XNAT_E2E__.memberVoxelCount(idx), i);
+
+test('α-expansion: each member previews its own structure, unseeded tissue stays unlabelled; ⏎ writes both in one undo step', async ({ page }) => {
+  const { panel, sheet } = await open(page);
+  await seedThree(page, panel, sheet);
+  await sheet.getByRole('button', { name: 'Run' }).click();
+  await expect(page.getByTestId('mask-preview-bar')).toContainText('Multi-label graph cut', { timeout: 30_000 });
+  expect(await member(page, 1) + await member(page, 2), 'previewed, not written').toBe(0);
+  await page.keyboard.press('Enter');
+  await expect.poll(() => member(page, 1)).toBeGreaterThan(0);
+  expect(await dice(page, LESION, 8, 1)).toBeGreaterThan(0.85);
+  expect(await dice(page, BONE, 14, 2)).toBeGreaterThan(0.85);
+  await page.keyboard.press('Control+z');
+  await expect.poll(async () => (await member(page, 1)) + (await member(page, 2))).toBe(0);
+});
+
+test('α-expansion preview label selector: one member\'s preview at a time', async ({ page }) => {
+  const { panel, sheet } = await open(page);
+  await seedThree(page, panel, sheet);
+  await sheet.getByRole('button', { name: 'Run' }).click();
+  await expect(page.getByTestId('mask-preview-bar')).toContainText('Multi-label graph cut', { timeout: 30_000 });
+  const overlay = page.locator('[data-testid="unified-viewport-element:panel_0"] [data-testid="mask-preview-overlay"]');
+  const added = async () => Number(await overlay.getAttribute('data-added'));
+  await expect.poll(added).toBeGreaterThan(0);
+  const all = await added();
+  const show = sheet.getByRole('group', { name: 'Show' });
+  await show.getByRole('button', { name: 'Segment 1' }).click();
+  await expect.poll(added).toBeLessThan(all);
+  const lesionOnly = await added();
+  await show.getByRole('button', { name: 'Segment 2' }).click();
+  await expect.poll(added).not.toBe(lesionOnly);
+  expect(lesionOnly + (await added())).toBe(all);
+  await show.getByRole('button', { name: 'All' }).click();
+  await expect.poll(added).toBe(all);
+});
+
+test('α-expansion with a locked member: it is not written; the other member is', async ({ page }) => {
+  const { panel, sheet } = await open(page);
+  await seedThree(page, panel, sheet);
+  await panel.locator('[data-testid^="member-row-"]', { hasText: 'Segment 2' }).first().getByRole('button', { name: 'Toggle lock' }).click();
+  await panel.locator('[data-testid^="member-row-"]', { hasText: 'Segment 1' }).first().click();
+  await runAndCommit(page, sheet, 'Multi-label graph cut');
+  expect(await dice(page, LESION, 8, 1)).toBeGreaterThan(0.85);
+  expect(await member(page, 2)).toBe(0);
+});

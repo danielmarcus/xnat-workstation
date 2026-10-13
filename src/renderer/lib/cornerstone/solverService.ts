@@ -229,8 +229,14 @@ export const solverService = {
     }
     if (!out) return { ok: false, reason: alpha ? 'one-class' : 'no-seeds' };
 
-    // Stage the result: written members gain voxels; other members keep theirs.
-    const writers: MemberRef[] = memberClasses.map((segmentIndex) => ({ containerId: t.containerId, segmentIndex }));
+    // Stage the result: written members gain voxels; other members keep theirs. Under
+    // α-expansion a locked member is simply not written (its seeds still shaped the solve);
+    // with one target, a locked one previews read-only.
+    const locked = new Set(t.members.filter((m) => m.locked).map((m) => m.segmentIndex));
+    let writeIndices = memberClasses;
+    if (alpha && memberClasses.some((i) => !locked.has(i))) writeIndices = memberClasses.filter((i) => !locked.has(i));
+    const skipped = memberClasses.filter((i) => !writeIndices.includes(i));
+    const writers: MemberRef[] = writeIndices.map((segmentIndex) => ({ containerId: t.containerId, segmentIndex }));
     let lockedMember: MemberRef | null = null;
     let begun = beginTransaction(writers);
     if (!begun.ok && begun.reason === 'locked') {
@@ -240,9 +246,10 @@ export const solverService = {
     if (!begun.ok) return { ok: false, reason: 'no-target' };
     const { txn } = begun;
     const everyone: MemberRef[] = t.members.map((m) => ({ containerId: t.containerId, segmentIndex: m.segmentIndex }));
+    const writerOf = new Map(writers.map((w) => [w.segmentIndex, w]));
     const memberOfLabel = (l: number): MemberRef | null => {
-      if (!alpha) return l === 1 ? writers[0] : null;
-      return l >= 1 && l <= memberClasses.length ? writers[l - 1] : null;
+      const segmentIndex = alpha ? memberClasses[l - 1] : l === 1 ? t.active : undefined;
+      return segmentIndex === undefined ? null : writerOf.get(segmentIndex) ?? null;
     };
     let added = 0;
     for (let z = 0, i = 0; z < box.dims[2]; z++) for (let y = 0; y < box.dims[1]; y++) for (let x = 0; x < box.dims[0]; x++, i++) {
@@ -255,8 +262,10 @@ export const solverService = {
       added++;
     }
     if (!added) { txn.discard(); return { ok: false, reason: 'no-change' }; }
+    const names = (ix: number[]) => ix.map((i) => useSegmentationStore.getState().segmentations.find((c) => c.segmentationId === t.containerId)?.segments.find((m) => m.segmentIndex === i)?.label ?? `Segment ${i}`);
     startPreview({
-      txn, label: METHOD_LABEL[s.method], summary: `+${added.toLocaleString('en-US')} voxels`, viewportId, lockedMember,
+      txn, label: METHOD_LABEL[s.method], viewportId, lockedMember,
+      summary: `+${added.toLocaleString('en-US')} voxels${skipped.length ? ` · ${names(skipped).join(', ')} locked — not written` : ''}`,
     });
     if (opts.commit && !lockedMember) commitPreview();
     return { ok: true, added, readOnly: !!lockedMember };

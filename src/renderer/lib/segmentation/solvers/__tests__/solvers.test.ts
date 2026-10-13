@@ -158,6 +158,15 @@ describe('α-expansion (multi-label)', () => {
     expect(fit(0.001)).toBeLessThan(0.85);
   });
 
+  it('Background takes what resembles no seeded structure: an unseeded third intensity (air) is not given to A or B', () => {
+    const air = sphere(16, 4, 6, 6); // a pocket of a fourth intensity, seeded by nobody
+    const withAir = imageOf([[a, 100], [b, 200], [air, -1000]], 0, 8);
+    const r = alphaExpansion(withAir, D, SP, seeds, 3, alphaDefaults(), undefined, 0)!;
+    let wrong = 0, n = 0;
+    for (let i = 0; i < air.length; i++) if (air[i]) { n++; if (r.labels[i] !== 0) wrong++; }
+    expect(wrong / n).toBeLessThan(0.05);
+  });
+
   it('needs two seeded classes', () => {
     expect(alphaExpansion(img, D, SP, Uint8Array.from(seeds, (v) => (v === 1 ? 1 : 0)), 3)).toBeNull();
   });

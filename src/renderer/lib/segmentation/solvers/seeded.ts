@@ -44,7 +44,7 @@ export interface SeededSolveOutput {
 export function runSeededSolve(input: SeededSolveInput, onProgress?: (fraction: number) => void): SeededSolveOutput | null {
   const { method, image, dims, spacing, seeds, classes } = input;
   if (method === 'alphaExpansion') {
-    const r = alphaExpansion(image, dims, spacing, seeds, classes, input.alpha, onProgress);
+    const r = alphaExpansion(image, dims, spacing, seeds, classes, input.alpha, onProgress, input.backgroundClass);
     if (!r) return null;
     if (input.post?.enabled) {
       // Clean each written class on its own; what a class loses becomes Background.
