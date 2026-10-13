@@ -16,6 +16,8 @@
     "typecheck:main": "tsc -p tsconfig.main.json --noEmit",
     "typecheck:e2e": "tsc -p e2e/tsconfig.json --noEmit",
     "start": "electron .",
+    "notices": "node scripts/generate-third-party-notices.cjs",
+    "notices:check": "node scripts/generate-third-party-notices.cjs --check",
     "package": "electron-builder --config electron-builder.config.js",
     "package:win": "node scripts/package-win.js",
     "lint": "eslint src",

@@ -9,6 +9,8 @@ build/*
 !build/xnat-logo.png
 !build/entitlements.mac.plist
 !build/entitlements.mac.inherit.plist
+# Upstream licence texts the third-party notices are generated from.
+!build/notices/
 out/
 
 # Vite
