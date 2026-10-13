@@ -26,7 +26,7 @@ listing no control needs none.
 | **Rect** | Shape | Drag a rectangle; everything inside it is added to or removed from the segment (hold Shift to invert) | editMode |
 | **Sphere** | Shape | Drag a sphere; everything inside it is added to or removed from the segment, across slices (hold Shift to invert) | editMode |
 | **Rect Multi** | Shape | Drag a rectangle; everything inside it within the intensity window joins the segment | intensityWindow |
-| **Contour Fill** | Shape | Draw a boundary; the area it encloses joins the segment | — |
+| **Contour Fill** | Shape | Draw a boundary; the area it encloses joins the segment (one undo step; a locked segment is refused). **O** picks it, and pressed again cycles the boundary | Boundary: Freehand · Spline · Live Wire (remembered), then that boundary's controls (see *Spline and Live Wire* below) |
 | **Region** | Smart | Grow a region outward from the voxel you click | brushSize |
 | **Region+** | Smart | Grow a region outward, adapting the boundary as it goes | brushSize |
 | **Level Trace** | Smart | Click a structure: the connected region of similar intensity is previewed; ⏎ adds it (a locked segment previews read-only) | band (from scan · CT HU tolerance · MR k·σ over a 7/11/15 window), growth (binary · fuzzy + affinity), edge guard (off · gentle · strong; Sobel/Scharr; polarity), smoothing, simplify, round corners, intensity guard (min–max, or *From ROI*), fill holes, stop at air |
@@ -39,7 +39,8 @@ very narrow (SegWorks parity D2, amended 2026-10-12). It keeps **one height what
 active**: the Controls area is sized to the tallest tool with its **Advanced** settings folded
 (Level Trace keeps band, tolerance and edge guard in view; sample size, smoothing, growth,
 edge operator, polarity, simplify, round corners, the intensity guard and the hole / air checks
-are under Advanced), and the local-backup status sits in the toolbox header.
+are under Advanced; the tallest is Contour Fill with its Spline boundary), and the local-backup
+status sits in the toolbox header.
 
 ## Segmentation operations (Operations section)
 
@@ -68,6 +69,7 @@ A locked segment previews read-only. **X** opens (or expands) Cleanup.
 | **Smooth edges** | Clean | Light 3×3 vote | strength |
 | **Morph open / close** | Clean | Erode→dilate / dilate→erode | radius (px) |
 | **Anisotropic diffusion** | Clean | Edge-preserving, image-guided smoothing | iterations, κ, conduction |
+| **Snake refine** | Clean | Move the boundary onto the image edges nearby (active contour) | variant (Edge · Gradient vector flow — reaches edges farther away · Balloon — also inflates · Morphological — robust to noise), iterations, edge weight, neighbours (Keep · Replace shared boundary — a touching segment's pixels along the shared boundary may be taken, never a locked one's); Advanced: GVF μ, GVF iterations, balloon force |
 | **Clear** | Segments | Erase the segment over the scope | — |
 | **Move into…** | Segments | Relabel as another segment (merge) | Into |
 | **Copy into…** | Segments | Add to another segment, keeping both | Into |
@@ -118,9 +120,38 @@ Hotkey changes (tool, Fill/Erase, brush size, masks, PHI) show a brief readout o
 | Tool | Tooltip | Controls |
 |---|---|---|
 | **Freehand** | Trace a boundary freehand | — |
-| **Spline** | Place points; a smooth curve is fitted through them | — |
-| **Livewire** | Trace a boundary that snaps to the nearest image edge | — |
+| **Spline** | Place points; a smooth curve is fitted through them | see *Spline and Live Wire* |
+| **Livewire** | Trace a boundary that snaps to the nearest image edge | see *Spline and Live Wire* |
 | **Sculptor** | Push or pull an existing boundary into shape | brushSize |
+
+The Structure toolbox, like the Segmentation one, keeps one height whatever tool is active.
+
+## Spline and Live Wire
+
+The same controls serve the Structure **Spline** / **Livewire** tools and Contour Fill's
+Spline / Live Wire boundaries (SegWorks parity branch 6).
+
+**Live Wire** — **Edge cost**: Basic (Cornerstone's) or Advanced (gradient weight, direction
+weight, pre-smoothing σ, Laplacian zero-crossing cue, Scharr / Sobel); **Close within** — how
+near the first point (screen px) a click closes the contour; **Smooth commit** — Chaikin passes
+on the committed contour (off, 1–3).
+
+**Spline** — **Algorithm**: Centripetal Catmull-Rom, Cubic B-spline, Monotone cubic, Akima,
+Local Catmull-Rom+, Tension spline, ROI active spline (pulls the curve onto image edges inside
+the ROI limit), Linear; **▸ Options**: density, tension, *No crossing* (refuses a point or drag
+that makes the curve cross itself), propagation **Track**. **Edit**: Global, or Local ROI
+(points are added and moved only inside the ROI limit; **Fit ROI** zooms to it). **Spline**:
+Undo point (also ⌫), Clear, and Commit while a spline is held.
+
+**Slice** — the spline slice workflow. Each action puts a spline **in hand**: a closed,
+editable spline on the slice, nothing written yet; **⏎** commits it (one undo step), **⎋** or
+Clear drops it.
+
+| Action | What it does |
+|---|---|
+| **Undo & edit** | Undo the last spline and hold its points again to adjust them — only while it is still the newest edit |
+| **Copy nearby** | Hold the outline from the nearest slice that has one (up to 10 away): its own control points if it was drawn as a spline, otherwise its outline as an editable spline |
+| **◀ ▶** | Commit the spline in hand (or take the outline on this slice) and carry it to the previous / next slice, moving there. Track: **Deform spline** (points pulled onto that slice's edges), **Mask** (propagated by intensity — stops if the area would jump by more than 60 %), **Mask + snake** (then the morphological snake) |
 
 ## Measurement
 

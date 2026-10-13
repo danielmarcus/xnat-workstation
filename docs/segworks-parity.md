@@ -744,3 +744,13 @@ needed; the height E2E keeps it fixed across tools.
   always-replace); E2E +5 (`snake-refine`; mutants: neighbours not opened for writing, locked
   members not passed, snake never running, variant ignored — each red). Checked in the built
   app: the preview dims exactly the loose band, the sheet fits the Operations section.
+- **F7** — `annotation-tool-reference.md`: Contour Fill's boundaries and **O**, a *Spline and Live
+  Wire* section (settings, the Slice workflow and its tracks), Snake refine in the operations
+  table. Checks on the built app: typecheck, lint, unit **1128/1128**; full offline E2E
+  **342/342** on the second run. The first full run had one failure outside this branch's
+  area — `transport/sr-scan-click-reload` hung to its 2-minute timeout — which passed alone
+  (3.7 s), with the transport folder (19/19) and in the full rerun: intermittent, not
+  reproduced. Visual sweep done slice by slice in the built app (F2–F6 screenshots: Live Wire
+  and Spline controls, Contour Fill's three boundaries, the Slice row with a spline in hand
+  on the propagated slice, the Structure toolbox, Snake refine's preview and sheet). Branch 6
+  complete.
