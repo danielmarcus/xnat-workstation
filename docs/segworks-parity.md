@@ -936,17 +936,21 @@ preset would set are all exposed, so presets can be added later as data.
 
 Cut from `main` after branch 5 and the licence files merged (2026-10-13). Scope: SegWorks
 #271–283, re-scoped (2026-10-13) from a SegWorks port to a **product feature**: Workstation
-is released as an open-source viewer, and a separate commercial offering adds value through
-modules — including the SegWorks add-on algorithms (MR lesion, post-op edema, lung, batch
-statistics). So:
+is released as an open-source viewer, and a **separate commercial edition — its own shipped,
+signed application** — adds value, including the SegWorks add-on algorithms (MR lesion,
+post-op edema, lung, batch statistics). So:
 
-- **The module host is part of the open-source app.** The commercial offering is modules
-  (signed by Washington University), not a fork of the host.
-- **Unsigned and community modules are accepted.** Anyone can write, sign with their own key,
-  and share a module; users can install one that is unsigned.
-- **Modules never touch the signed application bundle.** They are installed in the user's data
-  folder and are JavaScript / WebAssembly only — data to the operating system — so adding one
-  never breaks the app's code signature or notarisation, and needs no re-signing.
+- **The module host is part of the open-source app,** and both editions use it.
+- **The commercial edition is a build, not a set of add-ons.** It is the open-source core plus
+  **bundled modules** and its own edition configuration (product name, app id, branding), built
+  and signed as its own product. Its modules ship *inside* its signed bundle — covered by that
+  signature — so licensing, distribution and updates are the commercial edition's own business;
+  the open-source host needs no licence mechanism.
+- **Unsigned and community modules are accepted** in either edition. Anyone can write, sign
+  with their own key and share a module; users can install one that is unsigned.
+- **Installed modules never touch the signed application bundle.** They go in the user's data
+  folder and are JavaScript / WebAssembly only — data to the operating system — so installing
+  one never breaks the app's code signature or notarisation, and needs no re-signing.
 
 **What SegWorks did, and what changes.** SegWorks injected each module's script into the viewer
 page: it ran on the UI thread with the page's full privileges, wrote the labelmap directly and
@@ -961,9 +965,9 @@ owns undo and display).
 
 | SegWorks # | Feature | Here |
 |---|---|---|
-| 271 | Import a module | Install from a module package (Settings › Modules, or drag-drop) |
+| 271 | Import a module | Install from a module package (Settings › Modules, or drag-drop); or bundled with an edition |
 | 272–273 | Cached modules; load or skip | Installed modules persist; each has an **Enabled** switch |
-| 274, 283 | Flush cache; delete | **Remove** |
+| 274, 283 | Flush cache; delete | **Remove** (installed modules; bundled ones can only be disabled) |
 | 275 | Schema-driven parameters | The manifest's parameters, rendered by the controls the Cleanup operations already use |
 | 276–277 | Run; cancel | An operation per module: Run → preview → ⏎; Cancel (cooperative, then the worker is terminated) |
 | 278–279 | Module cleanup / gap fill hooks | **Post steps** the manifest names from the built-in Cleanup operations (Fill holes, Keep largest, 3D clean-up …) — no module-defined hooks |
@@ -986,6 +990,10 @@ owns undo and display).
    (data in, masks out), so the same messages can travel to a worker, a pipe or a server. Trust
    rules attach per runtime (see Out of scope for the candidates).
 2. **Trust tiers.**
+   - **Bundled** — shipped inside the application bundle (`resources/modules/`), covered by the
+     app's own code signature, so no module signature is needed or checked. Listed in Settings ›
+     Modules; can be disabled, not removed. This is how an edition (the commercial one, or the
+     open-source app's examples) carries its modules.
    - **Verified** — signed (Ed25519, over a canonical hash of every file in the package) by a
      key the app trusts. The open-source build trusts Washington University's publishing key;
      users can add trusted publisher keys in Settings › Modules.
@@ -1015,12 +1023,13 @@ owns undo and display).
    trusting publishers live in **Settings › Modules** (D11 unchanged).
 6. **API versioning.** The host implements API `1.x`; a module declares the major it was built
    for. Minor versions only add. A future `2.x` host may keep a `1.x` adapter.
-7. **Commercial modules.** The same host runs them. A manifest may declare that it **requires a
-   licence**; the host asks a *licence provider* — an interface in the open-source code with no
-   implementation — and without one shows "Requires a licence" and does not run it. The
-   commercial offering supplies the provider. (In an open-source host, a determined user can
-   remove the check by building their own; the protection that matters is contractual. The
-   signature protects integrity — what runs is what was published — not secrecy.)
+7. **Editions.** An edition is chosen at build time by an edition configuration
+   (`edition.config.*`: product name, app id, branding, the bundled-modules folder, trusted
+   publisher keys); electron-builder packages that folder into `resources/modules/`. The
+   open-source repo ships the default edition (its example modules) and documents how another
+   repository builds an edition on the core — which is how the commercial edition is made. The
+   open-source host has no licence mechanism: the commercial edition handles licensing in its own
+   build.
 8. **Authoring tools ship in the open-source repo**: `npm run module:keygen`, `module:pack`,
    `module:sign`, `module:verify`; an example module; and `docs/module-authoring.md` (API
    reference, manifest schema, signing, testing a module).
@@ -1032,13 +1041,14 @@ owns undo and display).
 | **M1** | **Package format and verification** (pure + main process): manifest schema and validation; zip reading with guards (path traversal, size and file-count limits, no symlinks); canonical hashing; Ed25519 verification (Node crypto); trust classification; the `module:*` CLI scripts | Unit, each seen red first: a valid package parses; every malformed manifest and unsafe zip is refused with a reason; a signature verifies, and one changed byte in any file fails it; unsigned → Community, unknown key → Community, trusted key → Verified, bad signature → Refused; an unsupported API major or runtime is refused, naming it |
 | **M2** | **Install and manage**: main-process store under `userData/modules/<id>/<version>/`, IPC (list, inspect, install, remove, enable, trust key); **Settings › Modules** — installed list (name, version, publisher, badge, Enabled), Install from file (and drag-drop) with the trust dialog (who signed it, what it reads / writes; confirmation for Community), Remove, trusted publishers, Allow community modules | E2E on the built app with fixture packages (generated and signed with a test key in the test setup): a Verified install has no warning; a Community install needs confirmation and shows its badge; a tampered package is refused with the reason; the allow-community setting off refuses Community; removing deletes the files; a module altered on disk after install is refused at load |
 | **M3** | **Sandbox runtime**: the `xnat-module://` protocol and its CSP; the run worker; the host ↔ worker protocol (API 1.0: context, image box, member masks, seeds, ROI; progress, cancelled, log / warn / error; result); cooperative cancel then terminate; a run time-out; the log buffer | E2E with a deliberately hostile fixture module: `fetch`, `importScripts` from another origin, `XMLHttpRequest` and WebSocket are all blocked (and logged); it cannot see `window`, `require` or `electronAPI`; a module that ignores Cancel is terminated; unit tests of the protocol |
-| **M4** | **Module operations**: the Modules group in the Operations picker; the operation body — parameters rendered from the manifest, scope (slice · range · volume · ROI, as the manifest allows), the memory estimate, trust badge, Run / Commit / Discard, Cancel, the Log (Copy · Download); the result staged, previewed and committed through the transaction (locks, other members, claims, new members); post steps from the built-in Cleanup operations | E2E with the example module (an intensity threshold — SegWorks' template, re-authored): parameters render from its manifest; Run previews; ⏎ commits one undo step; a locked member is not written; Cancel leaves nothing; the log copies and downloads; a module creating a new member adds it with its name and colour; oblique case |
-| **M5** | **Validation module**: re-author one SegWorks add-on algorithm against API 1.0 — the post-op edema segmentation (its source is in the v2.0.610 bundle) — as a signed example, built and tested outside the host's source tree | E2E: installed from its package, it segments on a fixture built for it (a synthetic MR-like phantom with a known region), Dice above a stated bound; it needs nothing the API does not offer (any gap found is an API change, made here) |
-| **M6** | **Commercial hooks and authoring**: the licence-provider interface and the "Requires a licence" state; `docs/module-authoring.md`; a threat model (`docs/module-security.md`: what a module can and cannot reach, and why) | E2E: a module declaring a required licence shows "Requires a licence" and cannot run without a provider; with a test provider it runs. The authoring guide's example builds, signs and installs as written |
+| **M4** | **Module operations**, on **one operation registry** for built-ins and modules: the Operations picker, parameter controls (from a schema), the memory guard and the preview / commit path are driven by a shared operation descriptor, so a module's operation is built exactly as a built-in one is and the two cannot drift. The Modules group in the Operations picker; the operation body — parameters rendered from the manifest, scope (slice · range · volume · ROI, as the manifest allows), the memory estimate, trust badge, Run / Commit / Discard, Cancel, the Log (Copy · Download); the result staged, previewed and committed through the transaction (locks, other members, claims, new members); post steps from the built-in Cleanup operations | Unit: the built-in operations are listed from the registry (no picker regression — the operations-section E2E stays green). E2E with the example module (an intensity threshold — SegWorks' template, re-authored): parameters render from its manifest; Run previews; ⏎ commits one undo step; a locked member is not written; Cancel leaves nothing; the log copies and downloads; a module creating a new member adds it with its name and colour; oblique case |
+| **M5** | **Validation modules**: (a) re-author one SegWorks add-on algorithm against API 1.0 — the post-op edema segmentation (its source is in the v2.0.610 bundle) — as a signed example, built and tested outside the host's source tree; (b) **a built-in as a module** — Fast GrowCut, packaged as a module from the same pure solver, to prove API 1.0 can express a real Workstation operation | E2E: (a) installed from its package, it segments on a fixture built for it (a synthetic MR-like phantom with a known region), Dice above a stated bound; (b) on the same seeds and box, the module's result equals the built-in Fast GrowCut's **voxel for voxel**. Neither needs anything the API does not offer (any gap found is an API change, made here) |
+| **M6** | **Editions and authoring**: bundled modules (`resources/modules/`, the Bundled tier, disable-not-remove) and the edition configuration electron-builder reads; `docs/editions.md` (how a separate repository builds an edition on the core — the commercial edition's route); `docs/module-authoring.md`; a threat model (`docs/module-security.md`: what a module can and cannot reach, and why) | E2E: a bundled module (the example) is listed as Bundled, runs, can be disabled and cannot be removed; a packaged build with a test edition configuration carries its bundled module and its name. The authoring guide's example builds, signs and installs as written |
 | **M7** | Docs (tool reference: Modules in the Operations section; Settings › Modules), full offline E2E, visual sweep in the built app, merge to `main` | CLAUDE.md self-check answered |
 
 **Out of scope:** a module marketplace or update feed (install is from a file; updating is
-installing a newer version); implementing licence enforcement (only the interface); porting the
+installing a newer version); licensing (the commercial edition's own build); the commercial
+edition itself (another repository, built on this core); porting the
 other SegWorks add-ons (each is its own module, built after the API is proven); runtimes other
 than `wasm-worker`. Candidate later runtimes, recorded so the design keeps room for them:
 
@@ -1058,4 +1068,8 @@ than `wasm-worker`. Candidate later runtimes, recorded so the design keeps room 
 
 ### Branch 9 progress log
 
-- **Plan** — written 2026-10-13, for review.
+- **Plan** — written 2026-10-13. Amended the same day: the commercial edition is its own shipped
+  build carrying bundled modules (not modules installed into the open-source app), so the
+  licence-provider hook is dropped and M6 becomes editions; a manifest `runtime` field; one
+  operation registry for built-ins and modules (M4); a built-in as a module, equal voxel for
+  voxel (M5). Approved to proceed through all slices.
