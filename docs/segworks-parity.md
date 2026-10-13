@@ -919,3 +919,13 @@ preset would set are all exposed, so presets can be added later as data.
   selection, the mode, the ROI requirement, writing removals. Survivor: swapping the box's
   in-plane dimensions — image and labels are misread together and the per-voxel data term
   still decides (the box layout itself is pinned by Seeded segmentation's axes mutant).
+- **G6** — tool reference (both operations, seeds, domain, the guard); checks on the built app:
+  typecheck, lint, unit **1157/1157**, full offline E2E **360/360** first time. Visual sweep in
+  the built app: Fast GrowCut's sheet and seed overlay (G2), the multi-label preview with its
+  Show selector — bone and lesion each hatched in their segment's colour, tissue unlabelled —
+  and Region competition's preview inside the ROI limit with its Parameters open. Branch 5
+  complete. CLAUDE.md self-check: seen in the built app (screenshots); the mockup's solver
+  sheet (wireframes §5: seeds palette, brush, domain, estimate line, Cancel run, restore
+  seeds) is what renders, with Run in place of Preview; no legacy chrome replaced; nothing
+  deferred except the Chan-Vese preset library (decision 4); every acceptance test was seen
+  red (before the code, or against a built mutant) and drives the real affordances.
