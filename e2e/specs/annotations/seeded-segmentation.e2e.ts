@@ -191,3 +191,73 @@ test('Fast GrowCut on an oblique acquisition segments the sphere (index space)',
   await expect.poll(() => voxels(page)).toBeGreaterThan(0);
   expect(await dice(page, [0, 0, 0], 24)).toBeGreaterThan(0.85);
 });
+
+// ─── Graph Cut (G3) ──────────────────────────────────────────────────────────
+
+/** Lesion seeds (a Background ring clear of the bone), Graph Cut chosen. */
+async function graphCutOnLesion(page: Page, sheet: Locator, sigma: number) {
+  await seedLesion(page, sheet);
+  await sheet.getByLabel('Method').selectOption('graphCut');
+  await sheet.getByLabel('Edge σ', { exact: true }).fill(String(sigma));
+}
+
+async function runAndCommit(page: Page, sheet: Locator, label: string) {
+  await sheet.getByRole('button', { name: 'Run' }).click();
+  await expect(page.getByTestId('mask-preview-bar')).toContainText(label, { timeout: 30_000 });
+  await page.keyboard.press('Enter');
+  await expect.poll(() => voxels(page)).toBeGreaterThan(0);
+}
+
+test('Graph Cut: the lesion from its seeds (σ matched to the phantom\'s edge), previewed, ⏎', async ({ page }) => {
+  const { sheet } = await open(page);
+  await graphCutOnLesion(page, sheet, 10);
+  await sheet.getByRole('button', { name: 'Run' }).click();
+  await expect(page.getByTestId('mask-preview-bar')).toContainText('Graph Cut');
+  expect(await voxels(page), 'previewed, not written').toBe(0);
+  await page.keyboard.press('Enter');
+  await expect.poll(() => voxels(page)).toBeGreaterThan(0);
+  expect(await dice(page, LESION, 8)).toBeGreaterThan(0.85);
+});
+
+test('λ trades the data term against the boundary: with weak edges (σ 30) λ 5 takes the lesion, λ 200 only the seeds\' surroundings', async ({ page }) => {
+  const { sheet } = await open(page);
+  await graphCutOnLesion(page, sheet, 30);
+  await sheet.getByLabel('Smoothness λ', { exact: true }).fill('5');
+  await runAndCommit(page, sheet, 'Graph Cut');
+  expect(await dice(page, LESION, 8)).toBeGreaterThan(0.85);
+  await page.keyboard.press('Control+z');
+  await expect.poll(() => voxels(page)).toBe(0);
+  await sheet.getByLabel('Smoothness λ', { exact: true }).fill('200');
+  await runAndCommit(page, sheet, 'Graph Cut');
+  expect(await voxels(page)).toBeLessThan(250);
+});
+
+/**
+ * Clean-up reaches the solve. (Which component is kept is unit-tested on synthetic volumes: on
+ * this phantom a stray seed elsewhere does not make a separate blob — it pulls the foreground
+ * intensity model toward the tissue around it, and the tissue joins the foreground.)
+ */
+test('clean-up is off by default; on, its smoothing and shrink–grow pass trim the result, still the lesion', async ({ page }) => {
+  const { sheet } = await open(page);
+  await graphCutOnLesion(page, sheet, 10);
+  await runAndCommit(page, sheet, 'Graph Cut');
+  const raw = await voxels(page);
+  await page.keyboard.press('Control+z');
+  await expect.poll(() => voxels(page)).toBe(0);
+  await sheet.getByRole('button', { name: /Advanced/ }).click();
+  await expect(sheet.getByLabel('Clean up the result')).not.toBeChecked();
+  await sheet.getByLabel('Clean up the result').check();
+  await runAndCommit(page, sheet, 'Graph Cut');
+  expect(await voxels(page)).toBeLessThan(raw);
+  expect(await dice(page, LESION, 8)).toBeGreaterThan(0.9);
+});
+
+test('the memory estimate follows the method: Graph Cut needs more per voxel than Fast GrowCut', async ({ page }) => {
+  const { sheet } = await open(page);
+  await seedLesion(page, sheet);
+  const mb = async () => Number((await sheet.getByTestId('seeded-estimate').textContent())?.match(/est\. (\d+) MB/)?.[1]);
+  await sheet.getByRole('group', { name: 'Domain' }).getByRole('button', { name: 'Volume' }).click();
+  const growCut = await mb();
+  await sheet.getByLabel('Method').selectOption('graphCut');
+  await expect.poll(mb).toBeGreaterThan(growCut * 5);
+});

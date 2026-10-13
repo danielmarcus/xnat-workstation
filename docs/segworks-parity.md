@@ -877,3 +877,15 @@ preset would set are all exposed, so presets can be added later as data.
   Cancel and Restore seeds; the pointer mode; Erase; the guard; oblique), red against
   mutants of: the box's axes, the class mapping, the seed snapshot, ⇧, Erase, the guard and
   the painter's activation. Related E2E 52/52 (Random Walker unchanged).
+- **G3** — **Graph Cut** in the Seeded segmentation operation: λ (5–200, SegWorks 50), σ
+  (5–150, 30), and the shared clean-up under Advanced (off by default; keep the seeded / the
+  largest component, remove islands, smoothing and shrink–grow passes); the memory guard covers
+  every method (Graph Cut's estimate is ≈ 6× Fast GrowCut's for the same box). **Found on the
+  way:** on the noise-free phantom the lesion's 30 HU edge is not an edge at σ 30, so at
+  λ 50 the cheapest cut is a small surface round the seeds (72 voxels) — Boykov–Jolly's
+  trade-off, not a fault; with σ matched to the edge (10) it takes the lesion exactly (712).
+  The E2E says so: λ 5 vs λ 200 at σ 30. A planned test of "keep the seeded component" with a
+  stray seed was dropped: a stray seed does not make a separate blob here, it pulls the
+  foreground intensity model toward the tissue round it (component choice stays unit-tested).
+  E2E +4, red against: λ not passed, σ not passed, clean-up not passed, and the method ignored
+  (caught by the λ test — Fast GrowCut has no λ).
