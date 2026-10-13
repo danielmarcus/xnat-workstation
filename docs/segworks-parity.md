@@ -770,7 +770,7 @@ what its labels say, and a faithful port would carry its defects:
 
 | SegWorks feature | What the code actually does | This branch |
 |---|---|---|
-| "Fast GrowCut" | The original cellular-automaton GrowCut, swept in place (order-dependent), full volume per iteration; ±x/±y neighbours **wrap across row and slice ends** (its bounds check is never called) | True **Fast GrowCut** (Zhu et al. 2014: Dijkstra-style shortest-path propagation from the seeds, one pass, incremental re-runs); 6-connected with real bounds |
+| "Fast GrowCut" | The original cellular-automaton GrowCut, swept in place (order-dependent), full volume per iteration; ±x/±y neighbours **wrap across row and slice ends** (its bounds check is never called) | True **Fast GrowCut** (Zhu et al. 2014: Dijkstra-style shortest-path propagation from the seeds, one pass); 6-connected with real bounds |
 | Binary Graph Cut | Boykov–Jolly energy solved by Dinic with a **recursive** DFS (stack overflow on large ROIs); a 3 M-voxel cap | Same energy, solved by **Boykov–Kolmogorov** (iterative, the standard for image grids) on typed arrays |
 | α-Expansion | "one-vs-rest expansion" (`exactAlphaExpansion: false`): no pairwise term between two non-α labels; every ROI voxel is forced into a seeded label, so the **whole ROI box is painted** unless background is seeded | True **α-expansion** for the Potts model (Boykov–Veksler–Zabih), with **Background as a label of its own** |
 | "Multiphase Chan-Vese" | ICM region competition (piecewise-constant means + Potts) swept in place, order-dependent | The same model, named honestly ("Region competition (Chan-Vese)"), updated in **checkerboard** order so the result does not depend on scan order |
@@ -823,7 +823,7 @@ Defaults and ranges are SegWorks' wherever its controls carry over (listed per s
 
 | Slice | Content | Acceptance |
 |---|---|---|
-| **G1** | Pure solvers (`lib/segmentation/solvers/`): seed rasterisation (3D, disc per slice); **Fast GrowCut** (heap-ordered, 6-connected, intensity constraint #110 applied as a gate during growth, early stop #109, iteration cap #108 kept as a safety bound); **Boykov–Kolmogorov** max-flow on typed arrays; binary energy (Gaussian NLL unary, λ·exp(−ΔI²/2σ²) n-links, hard seeds); **α-expansion** (Potts, Background a label, sweeps cap, early stop); **region competition** (checkerboard ICM, 2D / 3D with Z coupling, edge gate, stay bias, HU clip); 3D post-processing; memory estimators | Vitest on synthetic volumes, each seen red first: a two-intensity sphere is recovered from two seeds by each seeded method (Dice > 0.95); a wrap-around regression (a seed on the last column never reaches the next row); BK equals a brute-force min cut on small random graphs; α-expansion energy never rises between sweeps and Background stays background; region competition is the same in any scan order; 0 parameters stay 0; mutation-checked |
+| **G1** | Pure solvers (`lib/segmentation/solvers/`): seed rasterisation (3D, disc per slice); **Fast GrowCut** (heap-ordered shortest paths, 6-connected, intensity constraint #110 applied as a gate during growth; one pass, so #108–109's iteration cap and early stop have nothing to bound); **Boykov–Kolmogorov** max-flow on typed arrays; binary energy (Gaussian NLL unary, λ·exp(−ΔI²/2σ²) n-links, hard seeds); **α-expansion** (Potts, Background a label, sweeps cap, early stop); **region competition** (checkerboard ICM, 2D / 3D with Z coupling, edge gate, stay bias, HU clip); 3D post-processing; memory estimators | Vitest on synthetic volumes, each seen red first: a two-intensity sphere is recovered from two seeds by each seeded method (Dice > 0.95); a wrap-around regression (a seed on the last column never reaches the next row); BK equals a brute-force min cut on small random graphs; α-expansion energy never rises between sweeps and Background stays background; region competition is the same in any scan order; 0 parameters stay 0; mutation-checked |
 | **G2** | **Seeded segmentation** operation with **Fast GrowCut**: shared seed store + overlay (Random Walker migrated onto it), seed painter mode from the operation, class palette (members + Background, Erase), right-drag opposite class, brush (mm), Domain + box + estimate line, worker run with progress / Cancel, preview → ⏎ (one undo step), Restore seeds; slice track shows the domain's range | E2E on `ct-axial-anatomy`: seeds in the lesion (+70 HU) and the tissue round it on two slices → the preview covers the 3D lesion (Dice with the known sphere > 0.85, via a new E2E hook) and nothing is written until ⏎; Cancel leaves nothing; Restore seeds; Random Walker unchanged (its E2E green); oblique case |
 | **G3** | **Graph Cut** (binary): λ 50 (5–200), σ 30 HU (5–150), Domain, post-processing; memory guard on all seeded methods | E2E: seeds → lesion preview (Dice > 0.85); λ high vs low changes the boundary's smoothness; keep-seeded-component removes a disconnected false region; the guard's amber line and disabled Run with the test seam |
 | **G4** | **Multi-label graph cut (α-expansion)**: one class per member + Background; ROI pads (XY 24 px, Z 2), locality / intensity / seed-bias initialisation, smooth 6, σ 30, sweeps 2 (1–4), post-processing; multi-member commit; preview **label selector** | E2E: bone, lesion and tissue-as-Background seeded → each member previews its own structure (Dice > 0.85 each) and unseeded voxels stay unlabelled; the selector shows one member's preview; commit writes both members in one undo step; a locked member is not written |
@@ -835,4 +835,24 @@ preset would set are all exposed, so presets can be added later as data.
 
 ### Branch 5 progress log
 
-- **Plan** — written 2026-10-13, for review.
+- **Plan** — written 2026-10-13, approved to proceed through all slices.
+- **G1** — `lib/segmentation/solvers/`: `maxflow.ts` (Boykov–Kolmogorov on typed arrays,
+  iterative), `energy.ts` (Kolmogorov–Zabih binary energies), `volume.ts` (6-neighbours with
+  real bounds, seed rasterisation, Gaussian seed models with a σ ≥ 5 floor and a capped NLL),
+  `fastGrowCut.ts`, `graphCut.ts`, `alphaExpansion.ts`, `regionCompetition.ts`, `memory.ts`;
+  `maskOps/volumeCleanup.ts` (keep component, islands, 3×3×3 majority, shrink–grow). Bytes per
+  voxel in the guard are counted from each solver's allocations (GrowCut 22, Graph Cut 141,
+  α-expansion 172 + 4·classes, region competition 24); limits 512 MB amber / 1.5 GB blocked.
+  **Deviations from the plan:** Fast GrowCut has no iterations (#108–109 do not apply), and
+  SegWorks' α-expansion "switch bonus" / "keep" terms are dropped — they patched its
+  one-vs-rest approximation and mean nothing in true α-expansion. Unit +30: max-flow and
+  binary energies against brute force on 600 random problems; a 200 000-node chain (no
+  recursion); recovery of known spheres (Dice > 0.95) by each solver; the wrap-around
+  regression; mirror-symmetry (scan-order independence) of region competition; cleanup 0 =
+  off. Mutants killed: the bottleneck, the orphans' neighbours, re-activation after an
+  augment, submodularity, both wrap-around bounds, GrowCut's edge cost and gate, λ, hard
+  seeds, the in-place sweep, 0 read as default, locked labels moving, seeded islands, seeds
+  in smoothing, and smoothness removed from α-expansion. Survivors, each equivalent or
+  compensated: re-adopting orphans (only speed — a freed orphan is regrown), α-expansion's
+  energy check (a move's minimum can never exceed the current energy), and the move graph's
+  pairwise term alone (the energy check still rejects moves that roughen the labelling).
