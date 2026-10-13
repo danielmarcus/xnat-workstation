@@ -23,7 +23,6 @@ import {
   CrosshairsTool,
   BrushTool,
   PlanarFreehandContourSegmentationTool,
-  SplineContourSegmentationTool,
   CircleScissorsTool,
   RectangleScissorsTool,
   SphereScissorsTool,
@@ -38,6 +37,7 @@ import {
 import SafePaintFillTool from './tools/SafePaintFillTool';
 import SelectTool from './tools/SelectTool';
 import { AppLivewireContourTool } from './tools/AppLivewireContourTool';
+import { AppSplineContourTool } from './tools/AppSplineContourTool';
 import { SEMI_AUTO_TOOLS } from './tools/semiAutoTools';
 import { utilities as csToolsUtilities } from '@cornerstonejs/tools';
 import { init as initDicomImageLoader } from '@cornerstonejs/dicom-image-loader';
@@ -119,7 +119,8 @@ export async function initCornerstone(): Promise<void> {
 
   // Segmentation tools — contour
   addTool(PlanarFreehandContourSegmentationTool);
-  addTool(SplineContourSegmentationTool);
+  // Spline with SegWorks' families and editing (branch 6 F3) — the same tool name.
+  addTool(AppSplineContourTool);
   // Live Wire with SegWorks' settings (branch 6 F2) — the same tool name, so everything
   // keyed on Cornerstone's Live Wire still finds it.
   addTool(AppLivewireContourTool);
@@ -131,8 +132,8 @@ export async function initCornerstone(): Promise<void> {
   // (unlike PlanarFreehand and Livewire which do). Without registration,
   // RTSTRUCT export throws "Unknown tool type" for spline annotations.
   const { AnnotationToPointData } = csToolsUtilities.contours;
-  if (AnnotationToPointData && !AnnotationToPointData.TOOL_NAMES[SplineContourSegmentationTool.toolName]) {
-    AnnotationToPointData.register(SplineContourSegmentationTool);
+  if (AnnotationToPointData && !AnnotationToPointData.TOOL_NAMES[AppSplineContourTool.toolName]) {
+    AnnotationToPointData.register(AppSplineContourTool);
   }
 
   // Segmentation tools — smart/AI (GrowCut)

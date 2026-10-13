@@ -3,7 +3,7 @@
  * points with a known answer.
  */
 import { describe, expect, it } from 'vitest';
-import { refineTowardEdges, splinePath, SPLINE_ALGORITHMS, type Point, type SplineAlgorithm } from '../splines';
+import { refineTowardEdges, splinePath, splineSegments, SPLINE_ALGORITHMS, type Point, type SplineAlgorithm } from '../splines';
 
 const square: Point[] = [{ x: 10, y: 10 }, { x: 40, y: 10 }, { x: 40, y: 40 }, { x: 10, y: 40 }];
 const nearest = (curve: Point[], p: Point) => Math.min(...curve.map((c) => Math.hypot(c.x - p.x, c.y - p.y)));
@@ -89,6 +89,23 @@ describe('splinePath', () => {
   it('more samples per segment give a denser curve', () => {
     expect(splinePath(square, 'centripetalCR', { samplesPerSegment: 40 }).length)
       .toBeGreaterThan(splinePath(square, 'centripetalCR', { samplesPerSegment: 10 }).length);
+  });
+});
+
+describe('splineSegments', () => {
+  it('gives one piece per control point, joined end to start, interpolating pieces running point to point', () => {
+    const segs = splineSegments(square, 'akima');
+    expect(segs).toHaveLength(square.length);
+    segs.forEach((seg, i) => {
+      const next = segs[(i + 1) % segs.length];
+      expect(seg[seg.length - 1].x).toBeCloseTo(next[0].x, 9);
+      expect(seg[seg.length - 1].y).toBeCloseTo(next[0].y, 9);
+      expect(Math.hypot(seg[0].x - square[i].x, seg[0].y - square[i].y)).toBeLessThan(1e-9);
+    });
+  });
+
+  it('fewer than three control points give no closed curve', () => {
+    expect(splineSegments(square.slice(0, 2), 'centripetalCR')).toEqual([]);
   });
 });
 

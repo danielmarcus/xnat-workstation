@@ -16,6 +16,7 @@ import { commitPreview, discardPreview, discardPreviewForEdit, refreshPreview, s
 import { getSourceImageIds } from './sourceImageTracking';
 import { getWorldPointFromClientPoint } from './unifiedCrosshair';
 import { semiAutoBridge } from './tools/semiAutoBridge';
+import { setContourRoiProvider } from './tools/contourToolSettings';
 import { startSemiAutoOverlay } from './semiAutoOverlay';
 import { type Axis, extractValues, planeAxes, planeSize, sliceIndices } from '../segmentation/maskOps/planeIO';
 import { guardFromSamples, levelTrace } from '../segmentation/semiauto/levelTrace';
@@ -374,3 +375,6 @@ Object.assign(semiAutoBridge, {
 });
 
 startSemiAutoOverlay();
+
+// The ROI limit also confines the Spline tool's local editing and the ROI active spline (branch 6).
+setContourRoiProvider(() => useSemiAutoStore.getState().roi);

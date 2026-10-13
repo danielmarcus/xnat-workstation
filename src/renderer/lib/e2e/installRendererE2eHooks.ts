@@ -73,7 +73,7 @@ declare global {
       getActiveSegmentationState: () => ActiveSegmentationState;
       getActiveContourSnapshot: (panelId?: string, segmentationId?: string | null) => ActiveContourSnapshot;
       /** Every contour annotation's tool name and a polyline fingerprint (to see it change). */
-      getContourShapes: () => Array<{ toolName: string; polyline: string; closed: boolean }>;
+      getContourShapes: () => Array<{ toolName: string; polyline: string; closed: boolean; handles: number }>;
       /** Contour drawing tools (Live Wire, Spline) back to their defaults — branch 6. */
       resetContourToolSettings: () => void;
       activateSegmentation: (panelId: string, segmentationId: string, segmentIndex?: number) => void;
@@ -427,6 +427,7 @@ export function installRendererE2eHooks(): void {
               .map((p) => p.map((v) => Math.round(v * 100) / 100)),
           ),
           closed: (annotation.data as { contour?: { closed?: boolean } }).contour?.closed === true,
+          handles: (annotation.data as { handles?: { points?: unknown[] } }).handles?.points?.length ?? 0,
         })),
     resetContourToolSettings: () => resetContourToolSettings(),
     activateSegmentation: (panelId: string, segmentationId: string, segmentIndex = 1) => {

@@ -634,3 +634,25 @@ Structure Spline and Livewire tools through the same controls (D3, wireframes §
   non-Event (the click died silently); it is now a plain object. E2E `contour-refine` (4):
   height test red before the fixed height; the three behaviour tests red against a build with
   Cornerstone's own Live Wire. Unit 1109/1109.
+- **F3** — `AppSplineContourTool` extends Cornerstone's Spline under the same tool name. Each
+  family is a Cornerstone `Spline` subclass (`FamilySpline`, curve pieces from F1's new
+  `splineSegments`; Cornerstone evaluates splines in canvas coordinates) registered as a
+  spline type (`SW_*`); the chosen family applies when a spline is created. Self-intersection
+  protection: a crossing close is refused before Cornerstone closes (closing completes the
+  drawing there); any other crossing edit is undone at the render-time rebuild every edit goes
+  through. Undo point removes one point (Cornerstone's own delete is for finished splines and
+  drops the whole spline at three points); Clear cancels. Local ROI mode (with the ROI limit
+  drawn): points are added and moved only inside it — **the acceptance was narrowed** from
+  "every contour point outside the ROI stays put", which no interpolating spline can promise
+  (the pieces next to a moved point change). Fit ROI zooms and centres the ROI limit's viewport
+  (`contourToolService`). ROI active spline refines the curve toward edges inside the ROI in
+  image index space (stack and volume). Controls: Algorithm (+ ▸ Options: density, tension,
+  no-crossing), Edit Global / Local ROI (+ Fit ROI), Undo point / Clear.
+  **Found on the way:** (1) the self-intersection test counted only strict crossings, so a
+  symmetric curve passing through the same sample point twice was missed — signs are now
+  compared with zero as a value of its own (new unit test, strict-sign mutant killed);
+  (2) Cornerstone holds a canvas mousedown back while it waits for a possible double-click, so a
+  reading right after a click lags by one — a `poll` for a refused click could pass on the
+  in-between count, which let a guard-off mutant survive; refused-click tests now read the
+  settled state. E2E +6 (red against a build with Cornerstone's own Spline and a no-op Fit ROI;
+  the guard test against a guard-off mutant). Unit 1116/1116.

@@ -98,6 +98,8 @@ async function loadInitModule(options?: { splineRegistered?: boolean }): Promise
   }));
 
   // Live Wire with SegWorks' settings (branch 6) — registered under Cornerstone's own name.
+  // Spline with SegWorks' families (branch 6) — registered under Cornerstone's own name.
+  vi.doMock('../tools/AppSplineContourTool', () => ({ AppSplineContourTool: splineTool }));
   vi.doMock('../tools/AppLivewireContourTool', () => ({
     AppLivewireContourTool: { toolName: 'LivewireContourSegmentationTool' },
   }));

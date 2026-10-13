@@ -6,6 +6,11 @@
  * contour, commit smoothing densifies the committed contour, and the Structure toolbox
  * keeps one height whatever tool is active.
  *
+ * F3 — Spline families and editing, on the Structure Spline tool: the family decides the
+ * curve through the same points, Undo point / Clear act on the spline being drawn, the
+ * no-crossing guard refuses a crossing point, Local ROI editing keeps points inside the ROI
+ * limit, Fit ROI zooms to it, and the ROI active spline pulls the curve onto the edge.
+ *
  * ct-axial-anatomy: bone core +1000 HU (sphere r 14 mm) in +40 HU tissue, 1 mm pixels; the
  * slice on screen is 1.5 mm off centre, so the bone edge there is at r ≈ 13.9 mm. Every
  * gesture is a real click on the canvas.
@@ -19,7 +24,8 @@ type Win = {
   __XNAT_E2E__: {
     clearAllContainers: () => void;
     resetContourToolSettings: () => void;
-    getContourShapes: () => Array<{ toolName: string; polyline: string; closed: boolean }>;
+    getContourShapes: () => Array<{ toolName: string; polyline: string; closed: boolean; handles: number }>;
+    getPanelParallelScale: (panelId: string) => number | null;
     getPanelFocalPoint: (panelId: string) => [number, number, number] | null;
     worldToPanelPagePoint: (panelId: string, world: [number, number, number]) => { x: number; y: number } | null;
   };
@@ -51,7 +57,7 @@ async function at(page: Page, dx: number, dy: number): Promise<{ x: number; y: n
   }, [dx, dy] as const);
 }
 
-async function structure(page: Page) {
+async function structure(page: Page, tool = 'Livewire') {
   await loadFixture(page, 'ct-axial-anatomy', 'panel_0');
   const panel = page.locator('[data-testid="annotations-side-panel"]');
   if (!(await panel.isVisible())) await page.getByRole('button', { name: 'Show segmentation panel' }).click();
@@ -59,23 +65,23 @@ async function structure(page: Page) {
   await panel.getByRole('button', { name: 'New Structure (RTSTRUCT)' }).click();
   await page.keyboard.press('Escape');
   const toolbox = panel.locator('[data-testid="context-toolbox"]');
-  await expect(toolbox.getByRole('button', { name: 'Livewire', exact: true })).toBeVisible({ timeout: 10_000 });
-  await clickTool(toolbox, 'Livewire');
+  await expect(toolbox.getByRole('button', { name: tool, exact: true })).toBeVisible({ timeout: 10_000 });
+  await clickTool(toolbox, tool);
   return { panel, toolbox };
 }
 
-/** Anchors on the bone edge at the given angles (degrees). */
-async function anchorsOnBone(page: Page, degrees: number[]) {
+/** Anchors on a circle of radius `r` (default: the bone edge) at the given angles (degrees). */
+async function anchorsOnBone(page: Page, degrees: number[], r = BONE_R) {
   for (const d of degrees) {
-    const p = await at(page, BONE_R * Math.cos((d * Math.PI) / 180), BONE_R * Math.sin((d * Math.PI) / 180));
+    const p = await at(page, r * Math.cos((d * Math.PI) / 180), r * Math.sin((d * Math.PI) / 180));
     await page.mouse.click(p.x, p.y);
     await page.waitForTimeout(120);
   }
 }
 
 /** Close by clicking `offsetPx` screen pixels (outward, along x) from the first anchor at 0°. */
-async function clickNearFirst(page: Page, offsetPx: number) {
-  const p = await at(page, BONE_R, 0);
+async function clickNearFirst(page: Page, offsetPx: number, r = BONE_R) {
+  const p = await at(page, r, 0);
   await page.mouse.click(p.x + offsetPx, p.y);
   await page.waitForTimeout(250);
 }
@@ -195,4 +201,137 @@ test('the Structure toolbox keeps one height whatever tool is active, and no too
   await measure('Livewire (Advanced)');
   expect(new Set(Object.values(heights)).size, JSON.stringify(heights)).toBe(1);
   for (const k of Object.keys(overflow)) expect(overflow[k], `${k} controls overflow`).toBe(0);
+});
+
+// ─── F3 — Spline ─────────────────────────────────────────────────────────────
+
+const meanRadius = (polyline: string, f: number[]) => {
+  const pts = JSON.parse(polyline) as number[][];
+  return pts.reduce((a, p) => a + Math.hypot(p[0] - f[0], p[1] - f[1]), 0) / pts.length;
+};
+const focal = (page: Page) => page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.getPanelFocalPoint('panel_0')!);
+const splineHandles = async (page: Page) =>
+  (await shapes(page)).filter((s) => s.toolName === 'SplineContourSegmentationTool').map((s) => s.handles);
+/**
+ * Control points once the clicks have landed. Cornerstone holds a canvas mousedown back for
+ * a moment to see whether a double-click follows, so a reading right after a click lags by
+ * one; a test that a click was REFUSED must wait for that, then read the final state (a poll
+ * could pass on the in-between count).
+ */
+const settledHandles = async (page: Page) => {
+  await page.waitForTimeout(800);
+  return splineHandles(page);
+};
+
+async function drawClosedSpline(page: Page, algorithm: string, r = BONE_R) {
+  const { toolbox } = await structure(page, 'Spline');
+  await toolbox.getByLabel('Spline algorithm').selectOption(algorithm);
+  await anchorsOnBone(page, RING, r);
+  await clickNearFirst(page, 0, r);
+  return committed(page);
+}
+
+test('spline families: a cubic B-spline through the same points commits inside the Catmull-Rom curve', async ({ page }) => {
+  const f = await (async () => { await structure(page, 'Spline'); return focal(page); })();
+  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.clearAllContainers());
+  const cr = meanRadius((await drawClosedSpline(page, 'centripetalCR')).polyline, f);
+  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.clearAllContainers());
+  const bs = meanRadius((await drawClosedSpline(page, 'cubicBSpline')).polyline, f);
+  // B-spline approximates: it stays inside the polygon of its points; Catmull-Rom passes through them.
+  expect(bs).toBeLessThan(cr - 0.3);
+});
+
+test('Undo point removes the last point of the spline being drawn; Clear discards it', async ({ page }) => {
+  const { toolbox } = await structure(page, 'Spline');
+  await anchorsOnBone(page, [0, 45, 90]);
+  await expect.poll(() => splineHandles(page)).toEqual([3]);
+  await toolbox.getByRole('button', { name: 'Undo point' }).click();
+  await expect.poll(() => splineHandles(page)).toEqual([2]);
+  await toolbox.getByRole('button', { name: 'Clear', exact: true }).click();
+  await expect.poll(() => splineHandles(page)).toEqual([]);
+});
+
+test('the no-crossing guard refuses a point that makes the curve cross itself', async ({ page }) => {
+  const bowTie: Array<[number, number]> = [[-10, -10], [10, 10], [10, -10], [-10, 10]];
+  const place = async () => {
+    for (const [x, y] of bowTie) {
+      const p = await at(page, x, y);
+      await page.mouse.click(p.x, p.y);
+      await page.waitForTimeout(120);
+    }
+  };
+  const { toolbox } = await structure(page, 'Spline');
+  await place();
+  expect(await settledHandles(page)).toEqual([4]); // off: accepted
+  await toolbox.getByRole('button', { name: 'Clear', exact: true }).click();
+  await expect.poll(() => splineHandles(page)).toEqual([]);
+
+  await toolbox.getByRole('button', { name: /Options/ }).click();
+  await toolbox.getByLabel('Prevent self-intersection').check();
+  await place();
+  expect(await settledHandles(page)).toEqual([3]); // on: the crossing point is refused
+  await toolbox.getByRole('button', { name: 'Clear', exact: true }).click();
+});
+
+/** An ROI limit drawn with the Segmentation toolbox's ROI limit tool, then a Structure. */
+async function structureWithRoi(page: Page, roi: [[number, number], [number, number]]) {
+  await loadFixture(page, 'ct-axial-anatomy', 'panel_0');
+  const panel = page.locator('[data-testid="annotations-side-panel"]');
+  if (!(await panel.isVisible())) await page.getByRole('button', { name: 'Show segmentation panel' }).click();
+  await panel.getByRole('button', { name: 'New Segmentation (SEG)' }).click();
+  await page.keyboard.press('Escape');
+  const toolbox = panel.locator('[data-testid="context-toolbox"]');
+  await clickTool(toolbox, 'ROI limit');
+  const a = await at(page, roi[0][0], roi[0][1]), b = await at(page, roi[1][0], roi[1][1]);
+  await page.mouse.move(a.x, a.y);
+  await page.mouse.down();
+  await page.mouse.move(b.x, b.y, { steps: 6 });
+  await page.mouse.up();
+  await expect(toolbox.getByTestId('roi-limit-controls')).toContainText('Drawn');
+  await panel.getByRole('button', { name: 'New Structure (RTSTRUCT)' }).click();
+  await page.keyboard.press('Escape');
+  await clickTool(toolbox, 'Spline');
+  return { panel, toolbox };
+}
+
+test('Local ROI editing: points go down only inside the ROI limit', async ({ page }) => {
+  const { toolbox } = await structureWithRoi(page, [[-20, -20], [20, 20]]);
+  await toolbox.getByRole('group', { name: 'Edit' }).getByRole('button', { name: 'Local ROI' }).click();
+  const click = async (x: number, y: number) => { const p = await at(page, x, y); await page.mouse.click(p.x, p.y); await page.waitForTimeout(150); };
+  await click(30, 30); // outside: no spline starts
+  expect(await settledHandles(page)).toEqual([]);
+  await click(10, 0); // inside: the first point
+  await click(35, 0); // outside: refused
+  await click(0, 10); // inside
+  expect(await settledHandles(page)).toEqual([2]);
+  await toolbox.getByRole('button', { name: 'Clear', exact: true }).click();
+});
+
+test('Fit ROI zooms the viewport to the ROI limit and centres it', async ({ page }) => {
+  const { toolbox } = await structureWithRoi(page, [[10, 10], [30, 30]]);
+  const before = await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.getPanelParallelScale('panel_0'));
+  const f0 = await focal(page);
+  await toolbox.getByRole('group', { name: 'Edit' }).getByRole('button', { name: 'Local ROI' }).click();
+  await toolbox.getByRole('button', { name: 'Fit ROI' }).click();
+  await expect.poll(() => page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.getPanelParallelScale('panel_0'))).toBeLessThan(before! / 2);
+  const f1 = await focal(page);
+  expect(Math.hypot(f1[0] - (f0[0] + 20), f1[1] - (f0[1] + 20))).toBeLessThan(1);
+});
+
+test('ROI active spline: points inside the edge commit closer to it than the same points with plain Local Catmull-Rom+', async ({ page }) => {
+  await structureWithRoi(page, [[-25, -25], [25, 25]]);
+  const f = await focal(page);
+  const radiusFor = async (algorithm: string) => {
+    const toolbox = page.locator('[data-testid="annotations-side-panel"] [data-testid="context-toolbox"]');
+    await toolbox.getByLabel('Spline algorithm').selectOption(algorithm);
+    await anchorsOnBone(page, RING, BONE_R - 2);
+    await clickNearFirst(page, 0, BONE_R - 2);
+    const c = await committed(page);
+    return meanRadius(c.polyline, f);
+  };
+  const plain = await radiusFor('localCR');
+  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.clearAllContainers());
+  await structureWithRoi(page, [[-25, -25], [25, 25]]);
+  const active = await radiusFor('roiActiveSpline');
+  expect(Math.abs(active - BONE_R)).toBeLessThan(Math.abs(plain - BONE_R) - 0.5);
 });

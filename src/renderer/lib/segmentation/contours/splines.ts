@@ -94,20 +94,20 @@ function centripetalSegment(p0: Point, p1: Point, p2: Point, p3: Point, n: numbe
   return out;
 }
 
-function centripetalCR(ctrl: Point[], o: SplineOptions): Point[] {
-  const out: Point[] = [];
+function centripetalCR(ctrl: Point[], o: SplineOptions): Point[][] {
+  const segs: Point[][] = [];
   for (let i = 0; i < ctrl.length; i++) {
     const p1 = ctrl[i];
     const p2 = at(ctrl, i + 1);
-    pushSegment(out, centripetalSegment(at(ctrl, i - 1), p1, p2, at(ctrl, i + 2), samplesFor(p1, p2, o)));
+    segs.push(centripetalSegment(at(ctrl, i - 1), p1, p2, at(ctrl, i + 2), samplesFor(p1, p2, o)));
   }
-  return out;
+  return segs;
 }
 
 // ─── Uniform cubic B-spline ───────────────────────────────────────────────────
 
-function cubicBSpline(ctrl: Point[], o: SplineOptions): Point[] {
-  const out: Point[] = [];
+function cubicBSpline(ctrl: Point[], o: SplineOptions): Point[][] {
+  const segs: Point[][] = [];
   for (let i = 0; i < ctrl.length; i++) {
     const p0 = at(ctrl, i - 1), p1 = ctrl[i], p2 = at(ctrl, i + 1), p3 = at(ctrl, i + 2);
     const n = samplesFor(p1, p2, o);
@@ -120,9 +120,9 @@ function cubicBSpline(ctrl: Point[], o: SplineOptions): Point[] {
       const b3 = u3 / 6;
       seg.push({ x: b0 * p0.x + b1 * p1.x + b2 * p2.x + b3 * p3.x, y: b0 * p0.y + b1 * p1.y + b2 * p2.y + b3 * p3.y });
     }
-    pushSegment(out, seg);
+    segs.push(seg);
   }
-  return out;
+  return segs;
 }
 
 // ─── Hermite forms: cardinal, monotone, Akima ─────────────────────────────────
@@ -133,9 +133,9 @@ function hermite(y0: number, y1: number, m0: number, m1: number, u: number): num
   return (2 * u3 - 3 * u2 + 1) * y0 + (u3 - 2 * u2 + u) * m0 + (-2 * u3 + 3 * u2) * y1 + (u3 - u2) * m1;
 }
 
-function cardinal(ctrl: Point[], o: SplineOptions, maxTension: number): Point[] {
+function cardinal(ctrl: Point[], o: SplineOptions, maxTension: number): Point[][] {
   const s = 1 - clamp(o.tension, 0, maxTension);
-  const out: Point[] = [];
+  const segs: Point[][] = [];
   for (let i = 0; i < ctrl.length; i++) {
     const p0 = at(ctrl, i - 1), p1 = ctrl[i], p2 = at(ctrl, i + 1), p3 = at(ctrl, i + 2);
     const m1 = { x: (s * (p2.x - p0.x)) / 2, y: (s * (p2.y - p0.y)) / 2 };
@@ -146,9 +146,9 @@ function cardinal(ctrl: Point[], o: SplineOptions, maxTension: number): Point[] 
       const u = k / n;
       seg.push({ x: hermite(p1.x, p2.x, m1.x, m2.x, u), y: hermite(p1.y, p2.y, m1.y, m2.y, u) });
     }
-    pushSegment(out, seg);
+    segs.push(seg);
   }
-  return out;
+  return segs;
 }
 
 /** Periodic chord-length knot spacing h[k] = |P[k+1] − P[k]|. */
@@ -190,11 +190,11 @@ function akimaSlopes(v: number[], h: number[]): number[] {
   });
 }
 
-function perCoordinate(ctrl: Point[], o: SplineOptions, slopes: (v: number[], h: number[]) => number[]): Point[] {
+function perCoordinate(ctrl: Point[], o: SplineOptions, slopes: (v: number[], h: number[]) => number[]): Point[][] {
   const h = chordSpacing(ctrl);
   const xs = ctrl.map((p) => p.x), ys = ctrl.map((p) => p.y);
   const mx = slopes(xs, h), my = slopes(ys, h);
-  const out: Point[] = [];
+  const segs: Point[][] = [];
   for (let k = 0; k < ctrl.length; k++) {
     const p1 = ctrl[k], p2 = at(ctrl, k + 1);
     const n = samplesFor(p1, p2, o);
@@ -206,20 +206,21 @@ function perCoordinate(ctrl: Point[], o: SplineOptions, slopes: (v: number[], h:
         y: hermite(p1.y, p2.y, my[k] * h[k], at(my, k + 1) * h[k], u),
       });
     }
-    pushSegment(out, seg);
+    segs.push(seg);
   }
-  return out;
+  return segs;
 }
 
 // ─── Dispatcher ───────────────────────────────────────────────────────────────
 
 /**
- * The closed curve through (or near) `ctrl` for `algorithm`. Fewer than three control
- * points are returned as they are (no closed curve yet).
+ * The closed curve's pieces: segment i runs from (near) ctrl[i] to (near) ctrl[i+1], both
+ * ends included — what Cornerstone's spline classes draw and hit-test. Fewer than three
+ * control points give no closed curve (an empty list).
  */
-export function splinePath(ctrl: Point[], algorithm: SplineAlgorithm, options: Partial<SplineOptions> = {}): Point[] {
+export function splineSegments(ctrl: Point[], algorithm: SplineAlgorithm, options: Partial<SplineOptions> = {}): Point[][] {
   const o = { ...DEFAULT_SPLINE_OPTIONS, ...options };
-  if (ctrl.length < 3) return ctrl.map((p) => ({ ...p }));
+  if (ctrl.length < 3) return [];
   switch (algorithm) {
     case 'cubicBSpline': return cubicBSpline(ctrl, o);
     case 'monotoneCubic': return perCoordinate(ctrl, o, monotoneSlopes);
@@ -230,6 +231,17 @@ export function splinePath(ctrl: Point[], algorithm: SplineAlgorithm, options: P
     case 'centripetalCR':
     default: return centripetalCR(ctrl, o);
   }
+}
+
+/**
+ * The closed curve through (or near) `ctrl` for `algorithm`, as one polyline (the last
+ * point is not repeated). Fewer than three control points are returned as they are.
+ */
+export function splinePath(ctrl: Point[], algorithm: SplineAlgorithm, options: Partial<SplineOptions> = {}): Point[] {
+  if (ctrl.length < 3) return ctrl.map((p) => ({ ...p }));
+  const out: Point[] = [];
+  for (const seg of splineSegments(ctrl, algorithm, options)) pushSegment(out, seg);
+  return out;
 }
 
 // ─── ROI active spline: nudge toward image edges ──────────────────────────────

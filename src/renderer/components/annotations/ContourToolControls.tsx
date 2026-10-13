@@ -92,7 +92,64 @@ function LivewireControls({ m }: { m: ContourToolSettingsModel }) {
   );
 }
 
+const BUTTON = 'text-[10px] px-2 py-0.5 rounded border border-zinc-700 bg-zinc-800 text-zinc-200 hover:bg-zinc-700 disabled:opacity-40 disabled:hover:bg-zinc-800';
+const TENSIONED = new Set(['localCR', 'tensionSpline', 'roiActiveSpline']);
+
+function SplineControls({ m }: { m: ContourToolSettingsModel }) {
+  const sp = m.spline;
+  const [optionsOpen, setOptionsOpen] = useState(false);
+  return (
+    <div data-testid="spline-controls">
+      <Row label="Algorithm" title="Interpolating families pass through every point; Cubic B-spline smooths them; Monotone and Akima avoid overshoot; ROI active pulls the curve onto image edges inside the ROI limit">
+        <select
+          aria-label="Spline algorithm"
+          value={sp.algorithm}
+          onChange={(e) => m.setSpline({ algorithm: e.target.value as typeof sp.algorithm })}
+          className="flex-1 min-w-0 px-1 py-0.5 rounded bg-zinc-800 text-zinc-200 text-[10px]"
+        >
+          {m.splineAlgorithms.map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}
+          <option value="linear">Linear (polygon)</option>
+        </select>
+        <button type="button" aria-expanded={optionsOpen} onClick={() => setOptionsOpen((v) => !v)} className="text-[10px] text-zinc-400 hover:text-zinc-200 whitespace-nowrap">
+          {optionsOpen ? '▾' : '▸'} Options
+        </button>
+      </Row>
+      {optionsOpen && (
+        <>
+          <Slider label="Density" value={sp.samplesPerSegment} min={8} max={64} step={2} onChange={(v) => m.setSpline({ samplesPerSegment: v })}
+            title="Samples between two control points: smoother curve, slower drawing" />
+          {TENSIONED.has(sp.algorithm) && (
+            <Slider label="Tension" value={sp.tension} min={0} max={0.95} step={0.01} onChange={(v) => m.setSpline({ tension: v })}
+              title="Higher = tighter curve, closer to the straight lines between points" />
+          )}
+          <Row label="No crossing">
+            <label className="flex items-center gap-1 text-[10px] text-zinc-300">
+              <input type="checkbox" checked={sp.preventSelfIntersection} onChange={(e) => m.setSpline({ preventSelfIntersection: e.target.checked })} aria-label="Prevent self-intersection" className="accent-blue-500" />
+              Refuse a point or drag that makes the curve cross itself
+            </label>
+          </Row>
+        </>
+      )}
+      <Segmented
+        label="Edit"
+        value={sp.editMode}
+        options={[['global', 'Global'], ['localRoi', 'Local ROI']]}
+        onChange={(editMode) => m.setSpline({ editMode })}
+        title="Local ROI: points are added and moved only inside the ROI limit (draw one with the Segmentation ROI limit tool)"
+        trailing={sp.editMode === 'localRoi' ? (
+          <button type="button" className={BUTTON} disabled={!m.roiPresent} onClick={m.fitToRoi} title="Zoom the viewport to the ROI limit">Fit ROI</button>
+        ) : undefined}
+      />
+      <Row label="Spline">
+        <button type="button" className={BUTTON} onClick={m.undoSplinePoint} title="Remove the last point of the spline being drawn (also Backspace)">Undo point</button>
+        <button type="button" className={BUTTON} onClick={m.clearSpline} title="Discard the spline being drawn">Clear</button>
+      </Row>
+    </div>
+  );
+}
+
 export default function ContourToolControls({ toolId, m }: { toolId: string; m: ContourToolSettingsModel }) {
   if (toolId === 'livewire') return <LivewireControls m={m} />;
+  if (toolId === 'spline') return <SplineControls m={m} />;
   return null;
 }
