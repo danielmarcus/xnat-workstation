@@ -604,4 +604,17 @@ Structure Spline and Livewire tools through the same controls (D3, wireframes §
 
 ### Branch 6 progress log
 
-- **Plan** — written 2026-10-12, awaiting review.
+- **Plan** — written 2026-10-12; approved to proceed through all slices.
+- **F1** — `lib/segmentation/contours/`: `splines.ts` (seven families + `refineTowardEdges`),
+  `polygon.ts` (self-intersection; Chaikin and rasterize re-exported from Level Trace),
+  `livewireCost.ts` (pre-smoothing, Scharr/Sobel, Laplacian zero-crossing, direction term,
+  weighted link cost in Cornerstone's scissors form), `snake.ts` (edge, GVF, balloon,
+  morphological; neighbour / lock / ROI rules). Two deviations from SegWorks, both fixes:
+  its morphological snake could only grow (the retract step was a no-op), so this is the
+  published MorphGAC; and its area guard is applied, as SegWorks does, **per step**
+  (+15 % / −30 %) — applied to the original area it stopped deflation short of the edge.
+  SegWorks' "Local Catmull-Rom+" and "Tension spline" are the same cardinal curve with
+  different tension caps (0.95 / 0.98); both ship. 39 unit tests; 20 mutants, all killed
+  (four survived the first round and the tests were strengthened — a circular reference
+  ring, a missing local-extreme case, and two morph cases that could not tell the variants
+  apart).
