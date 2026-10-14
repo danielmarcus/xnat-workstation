@@ -2,7 +2,9 @@
 
 Synthetic, PHI-free DICOM datasets for **offline** Playwright E2E (no live XNAT,
 no network). The generator is the source of truth; the generated `.dcm` files are
-git-ignored (regenerate them locally before running E2E that needs them).
+committed, so a fresh checkout runs E2E as is — regenerate (and commit) them whenever
+`generate.cjs` changes. `ct-perf-300` (~150 MB, perf harness only) is not committed;
+`npm run test:perf` generates it.
 
 ## Generate
 
@@ -47,8 +49,8 @@ co-generated source UIDs directly and is validated against the app's loader.
   regeneration is internally consistent but not byte-identical across runs.
 - Loaded into the app via the local-DICOM import path (`App.loadLocalFiles`),
   driven in E2E by `e2e/helpers/local-fixture.ts`.
-- `ensureFixture` generates a dataset only when its directory is empty, so a
-  checkout with older generated files keeps them after `generate.cjs` changes.
-  Delete the dataset directory to pick a change up — e.g. the CT series gained
+- `ensureFixture` generates a dataset only when its directory is empty, so the
+  committed files are what E2E uses: after changing `generate.cjs`, regenerate the
+  dataset and commit it — e.g. the CT series gained
   `InstitutionName` ("XNAT E2E PHANTOM") on 2026-10-10, which
   `e2e/specs/viewport/local-dicom-metadata` asserts.
