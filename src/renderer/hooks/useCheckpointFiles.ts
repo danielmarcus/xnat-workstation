@@ -15,7 +15,7 @@ export function useCheckpointFiles() {
   const [status, setStatus] = useState<string | null>(null);
 
   useEffect(() => {
-    if (containerId) checkpoints.refresh(containerId);
+    if (containerId) void checkpoints.refresh(containerId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [containerId]);
 
@@ -26,14 +26,17 @@ export function useCheckpointFiles() {
     exportOne: async (checkpointId: string) => {
       if (!containerId) return;
       const r = await exportCheckpointFile(containerId, checkpointId);
+      await checkpoints.refresh(containerId); // the list is re-read after every file action (#101)
       setStatus(r.ok ? `Saved to ${r.path}` : r.canceled ? null : `Export failed: ${r.error ?? 'unknown error'}`);
     },
     importOne: async () => {
       if (!containerId) return;
       const r = await importCheckpointFile(containerId);
+      // Re-read before reporting, so "Imported" never shows beside a list without the import,
+      // nor with a checkpoint retention just removed (#101).
+      await checkpoints.refresh(containerId);
       if (r.ok) {
         setStatus(`Imported “${r.name}” — restore it from the segmentation’s menu`);
-        checkpoints.refresh(containerId);
       } else if (!r.canceled) {
         setStatus(
           r.reason === 'other-series' ? 'That checkpoint was made from a different series — not imported'
