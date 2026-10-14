@@ -28,9 +28,9 @@ Status: open · fixed (commit) · won't fix (reason).
 
 | ID | P | Finding | Source | Status |
 |---|---|---|---|---|
-| T1 | P1 | Region: a click does nothing — it needs a drag (radius); tooltip says "click" | sweep | open |
-| T2 | P1 | Region+: a click does nothing unless the mouse rested 500 ms first; no feedback | sweep | open |
-| T3 | P1 | Rect Multi pushes no undo step — Ctrl+Z undoes the previous edit (erased another segment) | sweep | open |
+| T1 | P1 | Region: a click does nothing — it needs a drag (radius); tooltip said "click"; 3D, no undo step, wrote locked segments | sweep | fixed |
+| T2 | P1 | Region+: a click does nothing unless the mouse rested 500 ms first; no feedback; no undo step | sweep | fixed |
+| T3 | P1 | Rect Multi pushes no undo step — Ctrl+Z undoes the previous edit (erased another segment) | sweep | fixed |
 | T4 | P1 | Spline / Live Wire / Contour Fill: Escape or a tool switch mid-draw leaves the drawing live and freezes navigation | review (contours 2) | open |
 | T5 | P1 | Backspace/Delete while drawing a spline deletes the selection instead of the last point | review (contours 3) | open |
 | T6 | P2 | Smart Brush live overlay never grows past the first dab (preview bucket cache) | review (mask ops 5) | open |

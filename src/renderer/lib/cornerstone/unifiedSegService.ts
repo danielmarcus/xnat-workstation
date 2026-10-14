@@ -28,7 +28,7 @@ import { viewportService } from './viewportService';
 import type { ContainerSpatialId, ViewportSpatialId } from './spatialIdentity';
 import * as mlg from './multiLayerGroup';
 import { readSegmentVoxelGrid } from './segmentVoxelGrid';
-import { beginTransaction, isSegmentLockedHere, onVoxelMemoRestored, type MemberRef } from './labelmapTransaction';
+import { beginDirectEdit, beginTransaction, isSegmentLockedHere, onVoxelMemoRestored, type MemberRef } from './labelmapTransaction';
 import {
   copyVoxelRegion,
   pasteVoxelRegion,
@@ -471,6 +471,15 @@ export const unifiedSegService = {
       const sourceVolume = viewportSourceVolume(viewportId);
       if (!segVolume || !sourceVolume) return false;
 
+      // Cornerstone's fill writes the labelmap directly: bracket it so it is one undo step
+      // and never lands in a locked segment (beginDirectEdit).
+      const member: MemberRef = { containerId: groupId, segmentIndex };
+      if (isSegmentLockedHere(groupId, segmentIndex)) {
+        warnMemberLocked(groupId, segmentIndex, 'fill it');
+        for (const uid of uids) { try { csAnnotation.state.removeAnnotation(uid); } catch { /* gone */ } }
+        return true;
+      }
+      const edit = beginDirectEdit(member);
       const [lower, upper] = s.thresholdRange;
       csToolUtilities.segmentation.rectangleROIThresholdVolumeByRange(
         uids,
@@ -478,6 +487,7 @@ export const unifiedSegService = {
         [{ volume: sourceVolume, lower: Math.min(lower, upper), upper: Math.max(lower, upper) }] as never,
         { overwrite: false, segmentationId, segmentIndex: csSegmentIndex } as never,
       );
+      edit?.finish();
 
       for (const uid of uids) {
         try {

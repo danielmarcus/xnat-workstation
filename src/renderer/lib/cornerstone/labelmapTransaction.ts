@@ -313,3 +313,45 @@ export const defaultDeps: TransactionDeps = {
   },
   notifyChanged: notifyLabelmapChanged,
 };
+
+/**
+ * A Cornerstone tool that writes the labelmap itself — Region / Region+ (grow-cut), Rect Multi
+ * (threshold ROI) — pushes no history memo and checks no lock: its edit could not be undone
+ * (Ctrl+Z undid the edit before it instead) and it wrote into locked segments. Bracket such a
+ * write with `beginDirectEdit(member)` … `finish()`: the member's voxels are snapshotted before,
+ * and what the tool changed is recorded afterwards as ONE undo step, like any app edit — or, if
+ * the member is locked, put back.
+ */
+export interface DirectEdit {
+  /** Record (or, for a locked member, revert) what changed since `beginDirectEdit`. */
+  finish(): 'recorded' | 'reverted' | 'no-change';
+}
+
+export function beginDirectEdit(member: MemberRef, deps: TransactionDeps = defaultDeps): DirectEdit | null {
+  const locked = deps.isLocked(member.containerId, member.segmentIndex);
+  const begun = beginTransaction([member], deps, { allowLocked: true });
+  if (!begun.ok) return null;
+  const { txn } = begun;
+  const before = txn.grid(member);
+  if (!before) return null;
+  return {
+    finish() {
+      const now = deps.readGrid(member.containerId, member.segmentIndex);
+      if (!now || now.data.length !== before.data.length) { txn.discard(); return 'no-change'; }
+      const changed: number[] = [];
+      for (let i = 0; i < now.data.length; i++) {
+        if ((now.data[i] === now.value) !== (before.data[i] === before.value)) changed.push(i);
+      }
+      if (!changed.length) { txn.discard(); return 'no-change'; }
+      if (locked) {
+        for (const i of changed) now.write(i, before.data[i]);
+        txn.discard();
+        deps.notifyChanged(now.csSegmentationId);
+        return 'reverted';
+      }
+      for (const i of changed) txn.set(member, i, now.data[i] === now.value);
+      txn.commit();
+      return 'recorded';
+    },
+  };
+}

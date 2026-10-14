@@ -142,7 +142,15 @@ async function setup(page: Page, fixture: string, orientation: string): Promise<
  * Wait until the masks stop changing: the same for ~1 s. Some tools write asynchronously (a
  * grow-cut takes a second or two), so "unchanged twice in a row" is not "done".
  */
-async function settled(page: Page, tag: string): Promise<Diff> {
+async function settled(page: Page, tag: string, awaitChange = false): Promise<Diff> {
+  if (awaitChange) {
+    // A tool that should change the mask gets up to 15 s to start (a 3D grow-cut takes seconds).
+    for (let i = 0; i < 75; i++) {
+      const d = await H(page).diff(tag);
+      if (d && Object.values(d).some((m) => m.added + m.removed > 0)) break;
+      await page.waitForTimeout(200);
+    }
+  }
   let last = '';
   let same = 0;
   for (let i = 0; i < 60 && same < 6; i++) {
@@ -173,7 +181,7 @@ for (const ctx of CONTEXTS) {
         } catch (e) {
           problems.push(`gesture failed: ${String(e).split('\n')[0]}`);
         }
-        const d = await settled(page, 'before');
+        const d = await settled(page, 'before', tool.expect === 'change');
         const active = d[1], other = d[2];
         if (tool.expect === 'change' && !changed(d, 1)) problems.push('the active segment did not change');
         if (tool.expect === 'none' && (changed(d, 1) || changed(d, 2))) problems.push(`a segment changed (${JSON.stringify(d)})`);
