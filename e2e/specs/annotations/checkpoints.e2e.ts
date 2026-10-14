@@ -124,3 +124,20 @@ test('checkpoints survive a reload and restore into the same scan’s segmentati
   await restore(panel2, 'kept');
   await expect.poll(() => count(page)).toBe(atSave);
 });
+
+test('renaming a segmentation keeps its checkpoints (#102: the label was in the key)', async ({ page }) => {
+  const panel = await segmentation(page);
+  await stroke(page, 0.3);
+  const atSave = await count(page);
+  await saveCheckpoint(page, panel, 'before-rename');
+
+  await panel.locator('[data-testid^="container-activate-"] span[title]').first().dblclick();
+  await panel.getByLabel('Rename container').fill('Renamed liver/tumour');
+  await page.keyboard.press('Enter');
+  await expect(panel.locator('[data-testid^="container-activate-"] span[title="Renamed liver/tumour"]')).toHaveCount(1);
+
+  await stroke(page, 0.55);
+  expect(await count(page)).toBeGreaterThan(atSave);
+  await restore(panel, 'before-rename');
+  await expect.poll(() => count(page)).toBe(atSave);
+});

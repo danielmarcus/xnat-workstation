@@ -30,7 +30,7 @@ export default function CheckpointFilesSection() {
           {f.list.map((c) => (
             <li key={c.id} className="flex items-center gap-2 text-[11px]" data-testid={`checkpoint-file-${c.id}`}>
               <span className="flex-1 text-zinc-300 truncate">
-                {c.kind === 'baseline' ? 'Baseline' : c.name}
+                <span>{c.kind === 'baseline' ? 'Baseline' : c.name}</span>
                 <span className="text-zinc-500"> · {new Date(c.createdAt).toLocaleString()}</span>
               </span>
               <button

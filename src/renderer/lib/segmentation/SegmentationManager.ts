@@ -14,6 +14,7 @@
 import { viewportReadyService } from '../cornerstone/viewportReadyService';
 import { segmentationService } from '../cornerstone/segmentationService';
 import { rtStructService } from '../cornerstone/rtStructService';
+import { checkpointIdentity, followCheckpointRename } from '../cornerstone/checkpointService';
 import { useSegmentationManagerStore, type RGBA } from '../../stores/segmentationManagerStore';
 import { useSegmentationStore } from '../../stores/segmentationStore';
 import { useViewerStore } from '../../stores/viewerStore';
@@ -1065,7 +1066,10 @@ export class SegmentationManager {
    * Rename a segmentation (the top-level label).
    */
   renameSegmentation(segmentationId: string, newLabel: string): void {
+    const before = checkpointIdentity(segmentationId);
     segmentationService.renameSegmentation(segmentationId, newLabel);
+    // Checkpoints are filed under the label: they move with it (#102).
+    void followCheckpointRename(segmentationId, before);
   }
 
   /**

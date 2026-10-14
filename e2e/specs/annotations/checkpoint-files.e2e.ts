@@ -146,6 +146,12 @@ test('an imported checkpoint is kept — it counts as the newest, not as the dat
   await stubOpen(electronApp, file);
   await section.getByRole('button', { name: 'Import checkpoint file…' }).click();
   await expect(section.getByTestId('checkpoint-files-status')).toContainText('Imported “exp”');
+  // The section's own list shows the import at once (#101: it stayed stale until reopened).
+  const rows = section.locator('[data-testid^="checkpoint-file-"]');
+  await expect(rows.filter({ hasText: /^exp · / }), 'the import is listed in File Backup').toHaveCount(1);
+  await expect(rows.filter({ hasText: /^n1 · / }), 'retention is reflected in File Backup').toHaveCount(0);
+  await expect(rows).toHaveCount(4);
+  await expect(section.getByText('exp', { exact: true }), 'the import is listed by name').toHaveCount(1);
   await closeSettings(page);
   await panel.getByRole('button', { name: 'Container menu' }).first().click();
   await panel.getByRole('menuitem', { name: /Restore checkpoint/ }).click();
