@@ -1,8 +1,8 @@
 /**
  * Segmentation checkpoints (SegWorks parity D8, #15–16, #258–268): a named snapshot of a
  * Segmentation's voxels that can be restored as one undo step. Stored on disk beside the
- * autosave backups, keyed by session + source series + container label (container ids
- * are not stable across loads).
+ * autosave backups, keyed by source series + container label (container ids are not
+ * stable across loads; see checkpointService).
  */
 export interface CheckpointMemberData {
   segmentIndex: number;

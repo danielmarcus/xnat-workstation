@@ -6,9 +6,19 @@
  * so a restore can itself be undone. Retention: the newest four named checkpoints per
  * Segmentation plus one baseline (kept until replaced).
  *
- * Identity across loads: container ids are regenerated on every load, so a checkpoint is
- * filed under session + source series + container label, and a restore checks the series
- * and grid size match before touching anything.
+ * Identity across loads: container ids are regenerated on every load, and nothing else
+ * survives one — a SEG's SeriesInstanceUID is minted afresh on every export, and a
+ * never-saved container has no XNAT scan at all. So a checkpoint is filed under source
+ * series + container label (#102):
+ *   - no session: the series UID is globally unique, and the viewer's session is the
+ *     last-loaded one, not necessarily the container's;
+ *   - the label is followed on rename (followCheckpointRename), so a rename moves the
+ *     checkpoints instead of orphaning them;
+ *   - main hashes the key into the directory name, so labels that differ only in
+ *     punctuation never share one;
+ *   - a listing passes series + label so checkpoints filed under the pre-#102 key
+ *     (session + series + label) are adopted.
+ * A restore still checks the series and grid size match before touching anything.
  */
 import { metaData } from '@cornerstonejs/core';
 import type { CheckpointMeta, CheckpointRecord } from '@shared/types/checkpoint';
@@ -17,7 +27,6 @@ import { getSourceImageIds } from './sourceImageTracking';
 import { beginTransaction, type MemberRef } from './labelmapTransaction';
 import { encodeRuns, forEachInRuns, packRuns, unpackRuns } from '../segmentation/checkpointCodec';
 import { useSegmentationStore } from '../../stores/segmentationStore';
-import { useViewerStore } from '../../stores/viewerStore';
 
 export const NAMED_RETENTION = 4;
 
@@ -39,8 +48,30 @@ export function checkpointIdentity(containerId: string): Identity | null {
     ? (metaData.get('generalSeriesModule', imageId) as { seriesInstanceUID?: string } | undefined)?.seriesInstanceUID
     : undefined;
   if (!summary || !series) return null;
-  const session = useViewerStore.getState().sessionId || 'local';
-  return { key: `${session}__${series}__${summary.label}`, seriesInstanceUID: series, label: summary.label };
+  return { key: `${series}__${summary.label}`, seriesInstanceUID: series, label: summary.label };
+}
+
+/** Containers that have checkpoints of their own this run: listed some, saved or imported one. */
+const owners = new Set<string>();
+
+async function listKey(id: Identity) {
+  return api()?.list(id.key, { seriesInstanceUID: id.seriesInstanceUID, containerLabel: id.label });
+}
+
+/**
+ * A container was renamed: move its checkpoints from the key it had (`before`) to its
+ * current one. Only for a container that has checkpoints of its own or was loaded (not
+ * created) — naming a brand-new "Segmentation 1" must not take the checkpoints an earlier
+ * "Segmentation 1" on the same series left behind.
+ */
+export async function followCheckpointRename(containerId: string, before: Identity | null): Promise<void> {
+  const after = checkpointIdentity(containerId);
+  const store = api();
+  if (!before || !after || !store || before.key === after.key) return;
+  if (!owners.has(containerId) && !useSegmentationStore.getState().xnatOriginMap[containerId]) return;
+  await listKey(before); // adopt anything still filed under the pre-#102 key first
+  const r = await store.move(before.key, after.key, after.label);
+  if (!r.ok) console.warn('[checkpointService] checkpoints not moved on rename:', r.error);
 }
 
 export type CheckpointResult =
@@ -77,21 +108,22 @@ export async function saveCheckpoint(containerId: string, name: string, kind: 'b
   };
   const w = await store.write(id.key, record);
   if (!w.ok) return { ok: false, reason: 'write-failed', detail: w.error };
-  await applyRetention(id.key, record);
+  owners.add(containerId);
+  await applyRetention(id, record);
   return { ok: true, id: record.id };
 }
 
 /** Keep one baseline (the new one) and the newest NAMED_RETENTION named checkpoints. */
-async function applyRetention(key: string, saved: CheckpointRecord): Promise<void> {
+async function applyRetention(id: Identity, saved: CheckpointRecord): Promise<void> {
   const store = api();
-  const listed = await store?.list(key);
+  const listed = await listKey(id);
   if (!store || !listed?.ok || !listed.checkpoints) return;
   const named = listed.checkpoints.filter((c) => c.kind === 'named');
   const doomed = [
     ...(saved.kind === 'baseline' ? listed.checkpoints.filter((c) => c.kind === 'baseline' && c.id !== saved.id) : []),
     ...named.slice(NAMED_RETENTION),
   ];
-  for (const c of doomed) await store.delete(key, c.id);
+  for (const c of doomed) await store.delete(id.key, c.id);
 }
 
 /** Checkpoints for a Segmentation, baseline first then newest first. */
@@ -99,8 +131,9 @@ export async function listCheckpoints(containerId: string): Promise<CheckpointMe
   const id = checkpointIdentity(containerId);
   const store = api();
   if (!id || !store) return [];
-  const r = await store.list(id.key);
-  if (!r.ok || !r.checkpoints) return [];
+  const r = await listKey(id);
+  if (!r?.ok || !r.checkpoints) return [];
+  if (r.checkpoints.length > 0) owners.add(containerId);
   return [...r.checkpoints].sort((a, b) =>
     a.kind === b.kind ? b.createdAt.localeCompare(a.createdAt) : a.kind === 'baseline' ? -1 : 1);
 }
@@ -185,6 +218,7 @@ export async function importCheckpointFile(containerId: string): Promise<ImportR
   const stored: CheckpointRecord = { ...rec, id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`, containerLabel: id.label, createdAt: new Date().toISOString() };
   const w = await store.write(id.key, stored);
   if (!w.ok) return { ok: false, reason: 'write-failed', detail: w.error };
-  await applyRetention(id.key, stored);
+  owners.add(containerId);
+  await applyRetention(id, stored);
   return { ok: true, name: stored.name };
 }
