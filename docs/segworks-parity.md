@@ -1185,3 +1185,34 @@ than `wasm-worker`. Candidate later runtimes, recorded so the design keeps room 
   against mutants of: the cavity rule, the gradient-argument fix, creating only the first new
   member, the label check, the module's seed radius, and the host's seed x / z. Modules,
   operations, solver and cleanup E2E (118) green. Checked in the built app (screenshot).
+- **M6** — editions and authoring. **The edition configuration** (`edition.config.json`, the
+  open-source default; another repository's named by `XNAT_EDITION`; validated by
+  `src/main/modules/edition.ts`): product name, **app name**, app id, artifact prefix, bundled
+  module directories or packages, trusted publisher keys, optional `publish`. `npm run
+  build:edition` (part of `build` and `package`) packs the modules into `build/edition/modules/`
+  and records `build/edition/edition.json`; `electron-builder.config.js` takes the names, app id
+  and artifact names from it and ships `edition.json` and `modules/` in the resources (only the
+  open-source edition publishes to this project's releases). At run time the app reads its
+  edition: bundled modules (the Bundled tier, disable-not-remove, not replaceable), the
+  edition's trusted keys, its product name (window title, menu, About) and app name. **Found on
+  the way:** (1) the app hard-coded `app.name = 'XNAT'`, so a packaged edition still called
+  itself XNAT — and `app.name` also names the user-data folder, so naming it after the product
+  would have moved every open-source user's data: hence a separate `appName` ("XNAT" for the
+  open-source edition — never to change), each other edition getting its own user-data; (2) the
+  page's `<title>` overwrote the window's — the main window now keeps the edition's; (3) my
+  mutation loop reverted the source but not `dist/`, so the next run tested the last mutant —
+  the loop now rebuilds after every revert. E2E gets an empty bundled folder per worker through
+  `XNAT_E2E_BUNDLED_MODULES`, honoured only under `E2E_TESTING`. **Docs:**
+  `docs/module-authoring.md` (quick start, package, manifest, API 1.0, signing, testing),
+  `docs/editions.md` (configuration, building, another edition's route, checking),
+  `docs/module-security.md` (the threat model: what a module can reach, the layers, what is not
+  protected). **Tests:** unit +7 (edition validation; the E2E override ignored outside
+  E2E_TESTING; an edition's key makes its modules Verified); E2E +2 (`modules/module-editions`:
+  Bundled, runs, disabled leaves the picker, no Remove, not replaceable;
+  `modules/module-authoring-guide`: the guide's quick start, extracted from the doc and run as
+  written, builds, signs, verifies and installs as Verified through the UI);
+  `npm run test:edition` packages the app with a test edition and checks the package and the
+  packaged app (name, window title, its bundled module). Red against mutants of: Remove for a
+  bundled module, the bundled-replace guard, the E2E gate, the edition's keys, and the bundled
+  modules dropped from the package. Modules E2E (27) green. Checked in the built app
+  (screenshot).

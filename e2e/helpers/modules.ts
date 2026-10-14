@@ -111,3 +111,17 @@ export async function trustPublisherDirect(app: ElectronApplication): Promise<vo
     if (!handlers.moduleStore().trustKey(k).ok) throw new Error('trustKey failed');
   }, [HANDLERS_JS, { keyId: PUBLISHER.keyId, publicKey: PUBLISHER.publicKey, name: 'E2E Publisher' }] as const);
 }
+
+/** This worker's folder of bundled modules (the fixture's XNAT_E2E_BUNDLED_MODULES): an edition's, for the test. */
+export async function bundledDir(app: ElectronApplication): Promise<string> {
+  const dir = await app.evaluate(() => process.env.XNAT_E2E_BUNDLED_MODULES ?? '');
+  if (!dir) throw new Error('XNAT_E2E_BUNDLED_MODULES is not set (E2E_KEEP_BUNDLED?)');
+  return dir;
+}
+
+/** Make a package part of this worker's "edition"; returns a function that takes it out again. */
+export async function bundle(app: ElectronApplication, pkg: string): Promise<() => void> {
+  const target = path.join(await bundledDir(app), path.basename(pkg));
+  fs.copyFileSync(pkg, target);
+  return () => fs.rmSync(target, { force: true });
+}

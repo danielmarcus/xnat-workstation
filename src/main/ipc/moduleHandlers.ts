@@ -10,17 +10,37 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import { IPC } from '../../shared/ipcChannels';
-import { ModuleStore } from '../modules/moduleStore';
+import { BUILTIN_TRUSTED_KEYS, ModuleStore } from '../modules/moduleStore';
+import { editionPaths, readEditionInfo, type EditionInfo } from '../modules/edition';
 import type { ModuleInspection } from '../../shared/modules/types';
 
-/** Where an edition's bundled modules live: inside the app bundle, or the repo's in development. */
+/**
+ * The built edition (docs/editions.md): inside the app bundle (resources/edition.json and
+ * resources/modules/), or in development the repo's `build/edition/` (`npm run build:edition`).
+ * E2E points the bundled modules at a folder of its own — only under E2E_TESTING, so the
+ * environment can never make an ordinary run treat a folder as part of the signed app.
+ */
+function editionDir(): string {
+  return app.isPackaged ? process.resourcesPath : path.join(app.getAppPath(), 'build', 'edition');
+}
+
+let edition: EditionInfo | null | undefined;
+/** The edition this app is (null when none was built — development without `build:edition`). */
+export function currentEdition(): EditionInfo | null {
+  if (edition === undefined) edition = readEditionInfo(editionPaths(editionDir()).info);
+  return edition;
+}
+
 export function bundledModulesDir(): string {
-  return app.isPackaged ? path.join(process.resourcesPath, 'modules') : path.join(app.getAppPath(), 'modules', 'bundled');
+  const e2e = process.env.E2E_TESTING === '1' ? process.env.XNAT_E2E_BUNDLED_MODULES : undefined;
+  return e2e || editionPaths(editionDir()).modules;
 }
 
 let store: ModuleStore | null = null;
 export function moduleStore(): ModuleStore {
-  if (!store) store = new ModuleStore(path.join(app.getPath('userData'), 'modules'), bundledModulesDir());
+  if (!store) {
+    store = new ModuleStore(path.join(app.getPath('userData'), 'modules'), bundledModulesDir(), [...BUILTIN_TRUSTED_KEYS, ...(currentEdition()?.trustedKeys ?? [])]);
+  }
   return store;
 }
 

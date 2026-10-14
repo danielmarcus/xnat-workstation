@@ -47,6 +47,9 @@ export const test = base.extend<
         ...process.env,
         // Signal to the app that E2E tests are running (hides window, skips DevTools)
         E2E_TESTING: '1',
+        // An empty folder of bundled modules per worker — tests put an edition's packages in it
+        // (helpers/modules.ts); E2E_KEEP_BUNDLED=1 keeps the build's own (packaged-edition check).
+        ...(process.env.E2E_KEEP_BUNDLED === '1' ? {} : { XNAT_E2E_BUNDLED_MODULES: fs.mkdtempSync(path.join(os.tmpdir(), 'xnat-e2e-bundled-')) }),
         NODE_ENV: 'production',
       },
     });

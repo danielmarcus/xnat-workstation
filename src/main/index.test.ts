@@ -90,6 +90,7 @@ vi.mock('electron', () => ({
 
 vi.mock('./ipc/moduleHandlers', () => ({
   registerModuleHandlers: mocks.registerModuleHandlers,
+  currentEdition: () => null,
 }));
 
 vi.mock('./modules/moduleRuntime', () => ({

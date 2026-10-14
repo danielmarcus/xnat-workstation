@@ -19,7 +19,7 @@ import type { ModuleListing, ModuleSettings, ModuleSummary, TrustedKey } from '.
 
 export type { ModuleListing, ModuleSettings, ModuleSummary, TrustedKey };
 
-/** Keys every build trusts — an edition adds its publisher's (M6). Empty until one is issued. */
+/** Keys every build trusts; an edition adds its own (edition.json's trustedKeys — docs/editions.md). */
 export const BUILTIN_TRUSTED_KEYS: TrustedKey[] = [];
 
 const DEFAULT_SETTINGS: ModuleSettings = { allowCommunity: true, trustedKeys: [], enabled: {} };
