@@ -62,6 +62,8 @@ function writeCtSeries(outDir, opts) {
     imageOrientationPatient = [1, 0, 0, 0, 1, 0],
     // First InstanceNumber — lets several calls share one series without colliding.
     instanceNumberStart = 1,
+    // Stored = value − intercept, as real CT stores HU + 1024 with intercept −1024 (0 = identity).
+    rescaleIntercept = 0,
   } = opts;
   const rowCos = imageOrientationPatient.slice(0, 3);
   const colCos = imageOrientationPatient.slice(3, 6);
@@ -100,7 +102,7 @@ function writeCtSeries(outDir, opts) {
         const wx = ca * rowCos[0] + ra * colCos[0] + sa * normal[0];
         const wy = ca * rowCos[1] + ra * colCos[1] + sa * normal[1];
         const wz = ca * rowCos[2] + ra * colCos[2] + sa * normal[2];
-        pixels[i++] = voxel(wx, wy, wz);
+        pixels[i++] = voxel(wx, wy, wz) - rescaleIntercept;
       }
     }
 
@@ -132,7 +134,7 @@ function writeCtSeries(outDir, opts) {
       BitsStored: 16,
       HighBit: 15,
       PixelRepresentation: 1, // signed (HU)
-      RescaleIntercept: 0,
+      RescaleIntercept: rescaleIntercept,
       RescaleSlope: 1,
       RescaleType: 'HU',
       PixelSpacing: pixelSpacing,
@@ -728,6 +730,38 @@ function generateMrFlairPostop(outDir) {
   });
 }
 
+/**
+ * A realistic-size CT body (the tool sweep, e2e/specs/sweep): 512 × 512 at 0.7 mm, 40 slices of
+ * 2.5 mm, deterministic noise (±12 HU). An elliptical body (40 HU, 150 × 110 mm) in air; a
+ * liver-like region (60 HU) to the right; a vertebra (700 HU, r 14 mm, posterior); a contrast
+ * vessel (250 HU, r 6 mm) along z; and a lesion (110 HU, r 15 mm) at the centre of the volume —
+ * so the focal point of every orientation lies inside it.
+ */
+function ctBody512Voxel(x, y, z) {
+  const noise = ((Math.sin(x * 12.9898 + y * 78.233 + z * 37.719) * 43758.5453) % 1) * 12;
+  if ((x * x) / (150 * 150) + (y * y) / (110 * 110) > 1) return -1000;
+  if (Math.hypot(x, y, z) <= 15) return Math.round(110 + noise);
+  if (Math.hypot(x, y - 75) <= 14) return Math.round(700 + noise);
+  if (Math.hypot(x - 30, y + 35) <= 6) return Math.round(250 + noise);
+  if (((x + 70) * (x + 70)) / (55 * 55) + (y * y) / (60 * 60) + (z * z) / (60 * 60) <= 1) return Math.round(60 + noise);
+  return Math.round(40 + noise);
+}
+
+function generateCtBody512(outDir) {
+  return writeCtSeries(outDir, {
+    rows: 512,
+    cols: 512,
+    numSlices: 40,
+    pixelSpacing: [0.7, 0.7],
+    sliceThickness: 2.5,
+    seriesDescription: 'CT BODY 512 (synthetic)',
+    rescaleIntercept: -1024, // as real CT: stored HU + 1024
+    patientId: 'CT-BODY-512',
+    patientName: 'PHANTOM^BODY512',
+    voxel: ctBody512Voxel,
+  });
+}
+
 const GENERATORS = {
   'ct-axial-300': generateCtAxial300,
   // Perf-only (large, slow to generate) — excluded from the generate-all default.
@@ -743,6 +777,7 @@ const GENERATORS = {
   '4dct-phases': generate4dctPhases,
   'cine-us': generateCineUs,
   'mr-flair-postop': generateMrFlairPostop,
+  'ct-body-512': generateCtBody512,
 };
 
 function main() {

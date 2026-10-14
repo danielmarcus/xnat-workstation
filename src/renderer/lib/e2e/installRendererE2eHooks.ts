@@ -203,6 +203,20 @@ declare global {
       memberSphereDice: (segmentIndex: number, center: [number, number, number], radius: number, innerRadius?: number) => number;
       /** The flat indices of a member's voxels, ascending — for voxel-for-voxel comparisons (M5). */
       memberVoxelIndices: (segmentIndex: number) => number[] | null;
+      /**
+       * The plane a viewport shows, in the active segmentation's voxel grid: the grid axis its
+       * slices run along, the slice index there, and the voxel at the focal point (the sweep).
+       */
+      viewportPlane: (panelId: string) => { axis: 0 | 1 | 2; index: number; focal: [number, number, number]; dims: [number, number, number] } | null;
+      /** The source image's value (HU on CT) at the viewport's focal voxel, as operations read it. */
+      sourceValueAtFocal: (panelId: string) => number | null;
+      /** Remember every member's voxels of the active segmentation under a tag (the sweep's "before"). */
+      snapshotMembers: (tag: string) => number;
+      /**
+       * What changed since the snapshot, per member: voxels added / removed, the distinct slice
+       * indices (along the viewport's axis) of the changes, and whether the focal voxel changed.
+       */
+      diffMembers: (tag: string, panelId: string) => Record<number, { added: number; removed: number; planes: number[]; focalChanged: boolean; now: number }> | null;
       /** Lower (or reset, null) the solvers' memory limits so the guard's states show on small fixtures. */
       setSolverMemoryLimits: (limits: { warn: number; block: number } | null) => void;
       /** Run an installed module through the sandbox (branch 9, M3), optionally cancelling it. */
@@ -253,6 +267,11 @@ declare global {
       getPanelParallelScale: (panelId: string) => number | null;
       /** Convert a world point to PAGE coordinates on a panel's canvas (DPR-corrected). */
       worldToPanelPagePoint: (panelId: string, world: [number, number, number]) => { x: number; y: number } | null;
+      /**
+       * The page point `dx` mm to the right of and `dy` mm below the focal point, in the plane the
+       * viewport shows — whatever its orientation (the sweep's gestures).
+       */
+      inPlanePagePoint: (panelId: string, dx: number, dy: number) => { x: number; y: number } | null;
       /** Create a Structure (RTSTRUCT) exactly as the side panel does, with ROI 1 active. */
       createUnifiedContourSeg: (label?: string) => Promise<{ segmentationId: string; segmentIndex: number }>;
       /** Swap the XNAT scan API for a scripted fake (scan-click autoload specs). */
@@ -897,6 +916,73 @@ export function installRendererE2eHooks(): void {
       return n;
     },
     clearSeeds: () => useSeedStore.setState({ strokes: [], lastRun: null, paintClass: null, brushPx: 8 }),
+    viewportPlane: (panelId) => {
+      const { activeSegmentationId, activeSegmentIndex } = useSegmentationStore.getState();
+      const g = activeSegmentationId ? readSegmentVoxelGrid(activeSegmentationId, activeSegmentIndex) : null;
+      const vp = viewportService.getViewport(panelId) as { getCamera?: () => { viewPlaneNormal?: number[]; focalPoint?: number[] } } | undefined;
+      const cam = vp?.getCamera?.();
+      if (!g || !cam?.viewPlaneNormal || !cam.focalPoint) return null;
+      const axis = sliceAxisFor(g.geometry.direction, cam.viewPlaneNormal);
+      const focal = worldToIndex(g.geometry, cam.focalPoint as [number, number, number]) as [number, number, number];
+      return { axis, index: focal[axis], focal, dims: [...g.geometry.dimensions] as [number, number, number] };
+    },
+    sourceValueAtFocal: (panelId) => {
+      const { activeSegmentationId, activeSegmentIndex } = useSegmentationStore.getState();
+      const g = activeSegmentationId ? readSegmentVoxelGrid(activeSegmentationId, activeSegmentIndex) : null;
+      const vp = viewportService.getViewport(panelId) as { getCamera?: () => { focalPoint?: number[] } } | undefined;
+      const f = vp?.getCamera?.()?.focalPoint;
+      const read = g?.sourceReader?.();
+      if (!g || !f || !read) return null;
+      const [nx, ny] = g.geometry.dimensions;
+      const ijk = worldToIndex(g.geometry, f as [number, number, number]);
+      return read(ijk[0] + nx * (ijk[1] + ny * ijk[2]));
+    },
+    snapshotMembers: (tag) => {
+      const { activeSegmentationId, segmentations } = useSegmentationStore.getState();
+      const seg = segmentations.find((x) => x.segmentationId === activeSegmentationId);
+      const snap = new Map<number, Set<number>>();
+      for (const m of seg?.segments ?? []) {
+        const g = readSegmentVoxelGrid(activeSegmentationId!, m.segmentIndex);
+        const set = new Set<number>();
+        if (g) for (let i = 0; i < g.data.length; i++) if (g.data[i] === g.value) set.add(i);
+        snap.set(m.segmentIndex, set);
+      }
+      const w = window as unknown as { __sweepSnapshots?: Map<string, Map<number, Set<number>>> };
+      (w.__sweepSnapshots ??= new Map()).set(tag, snap);
+      return snap.size;
+    },
+    diffMembers: (tag, panelId) => {
+      const w = window as unknown as { __sweepSnapshots?: Map<string, Map<number, Set<number>>> };
+      const snap = w.__sweepSnapshots?.get(tag);
+      const { activeSegmentationId, segmentations } = useSegmentationStore.getState();
+      const seg = segmentations.find((x) => x.segmentationId === activeSegmentationId);
+      const vp = viewportService.getViewport(panelId) as { getCamera?: () => { viewPlaneNormal?: number[]; focalPoint?: number[] } } | undefined;
+      const cam = vp?.getCamera?.();
+      if (!snap || !seg || !cam?.viewPlaneNormal || !cam.focalPoint) return null;
+      const out: Record<number, { added: number; removed: number; planes: number[]; focalChanged: boolean; now: number }> = {};
+      for (const m of seg.segments) {
+        const g = readSegmentVoxelGrid(activeSegmentationId!, m.segmentIndex);
+        if (!g) continue;
+        const [nx, ny] = g.geometry.dimensions;
+        const axis = sliceAxisFor(g.geometry.direction, cam.viewPlaneNormal);
+        const f = worldToIndex(g.geometry, cam.focalPoint as [number, number, number]);
+        const focalFlat = f[0] + nx * (f[1] + ny * f[2]);
+        const before = snap.get(m.segmentIndex) ?? new Set<number>();
+        const planes = new Set<number>();
+        let added = 0, removed = 0, now = 0, focalChanged = false;
+        const touch = (i: number) => {
+          planes.add(axis === 0 ? i % nx : axis === 1 ? Math.floor(i / nx) % ny : Math.floor(i / (nx * ny)));
+          if (i === focalFlat) focalChanged = true;
+        };
+        for (let i = 0; i < g.data.length; i++) {
+          const on = g.data[i] === g.value;
+          if (on) now++;
+          if (on && !before.has(i)) { added++; touch(i); } else if (!on && before.has(i)) { removed++; touch(i); }
+        }
+        out[m.segmentIndex] = { added, removed, planes: [...planes].sort((a, b) => a - b), focalChanged, now };
+      }
+      return out;
+    },
     memberVoxelIndices: (segmentIndex) => {
       const { activeSegmentationId } = useSegmentationStore.getState();
       const g = activeSegmentationId ? readSegmentVoxelGrid(activeSegmentationId, segmentIndex) : null;
@@ -1109,6 +1195,22 @@ export function installRendererE2eHooks(): void {
       ) as HTMLCanvasElement | null;
       if (!canvas) return null;
       // worldToCanvas is in CSS pixels (not device pixels), so no devicePixelRatio scaling.
+      const rect = canvas.getBoundingClientRect();
+      return { x: rect.left + canvasPt[0], y: rect.top + canvasPt[1] };
+    },
+    inPlanePagePoint: (panelId: string, dx: number, dy: number) => {
+      const ee = getEnabledElementByViewportId(panelId) as
+        | { viewport?: { getCamera?: () => { viewPlaneNormal?: number[]; viewUp?: number[]; focalPoint?: number[] }; worldToCanvas?: (w: [number, number, number]) => [number, number] } }
+        | undefined;
+      const cam = ee?.viewport?.getCamera?.();
+      if (!cam?.viewPlaneNormal || !cam.viewUp || !cam.focalPoint) return null;
+      const [n, u, f] = [cam.viewPlaneNormal, cam.viewUp, cam.focalPoint];
+      // Screen right = viewUp × viewPlaneNormal (VTK: direction of projection is −normal).
+      const r = [u[1] * n[2] - u[2] * n[1], u[2] * n[0] - u[0] * n[2], u[0] * n[1] - u[1] * n[0]];
+      const world = [0, 1, 2].map((k) => f[k] + dx * r[k] - dy * u[k]) as [number, number, number];
+      const canvasPt = ee?.viewport?.worldToCanvas?.(world);
+      const canvas = document.querySelector(`[data-testid="unified-viewport-element:${panelId}"] canvas`) as HTMLCanvasElement | null;
+      if (!canvasPt || !canvas) return null;
       const rect = canvas.getBoundingClientRect();
       return { x: rect.left + canvasPt[0], y: rect.top + canvasPt[1] };
     },
