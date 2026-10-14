@@ -39,9 +39,12 @@ export const test = base.extend<
     // `release/mac-arm64/XNAT Workstation.app/Contents/MacOS/XNAT Workstation`), whose
     // entry point is baked into its asar — so no main-entry argument. Default: dist/.
     const executablePath = process.env.E2E_EXECUTABLE_PATH;
+    // E2E_ELECTRON_ARGS adds Chromium switches, e.g. on a GPU-less Linux host
+    // `--enable-unsafe-swiftshader` gives the software WebGL2 Cornerstone needs.
+    const extraArgs = (process.env.E2E_ELECTRON_ARGS ?? '').split(/\s+/).filter(Boolean);
     const app = await _electron.launch({
       ...(executablePath ? { executablePath } : {}),
-      args: executablePath ? [`--user-data-dir=${userDataDir}`] : [mainEntry, `--user-data-dir=${userDataDir}`],
+      args: [...(executablePath ? [] : [mainEntry]), `--user-data-dir=${userDataDir}`, ...extraArgs],
       cwd: projectRoot,
       env: {
         ...process.env,
