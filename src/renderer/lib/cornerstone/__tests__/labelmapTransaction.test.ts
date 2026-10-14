@@ -119,7 +119,7 @@ describe('commit', () => {
     r.txn.commit();
     expect(pushed).toHaveLength(1); // one step
     expect(pushed[0].map((m) => m.csSegmentationId).sort()).toEqual(['G_layer_1', 'G_layer_2']);
-    expect(pushed[0].find((m) => m.csSegmentationId === 'G_layer_1')?.changes).toEqual([1, 0, 1]);
+    expect(pushed[0].find((m) => m.csSegmentationId === 'G_layer_1')?.changes).toEqual(Int32Array.from([1, 0, 1]));
     expect(notified.sort()).toEqual(['G_layer_1', 'G_layer_2']);
   });
 
@@ -182,7 +182,7 @@ describe('flat (shared) labelmap', () => {
     r.txn.set(FB, 1, true);
     r.txn.commit();
     expect(pushed[0]).toHaveLength(1);
-    expect(pushed[0][0].changes).toEqual([0, 0, 1, 1, 0, 2]);
+    expect(Array.from(pushed[0][0].changes)).toEqual([0, 0, 1, 1, 0, 2]);
   });
 });
 
@@ -224,6 +224,31 @@ describe('planeIO', () => {
     expect(p.height).toBe(2);
     expect(Array.from(p.data)).toEqual([0, 0, 0, 0, 0, 1]);
   });
+});
+
+describe('large transactions (X5 / #96)', () => {
+  it('stages more than 2^24 writes (the V8 Map limit) without throwing, and commit writes them all', () => {
+    // 256 × 256 × 257 = 16,842,752 voxels > 2^24 = 16,777,216.
+    const dims: [number, number, number] = [256, 256, 257];
+    const n = dims[0] * dims[1] * dims[2];
+    expect(n).toBeGreaterThan(2 ** 24);
+    const data = new Uint8Array(n);
+    let written = 0;
+    const g: SegmentVoxelGrid = {
+      geometry: { ...GEOM, dimensions: dims }, data, value: 1, csSegmentationId: 'BIG',
+      write: (f, v) => { data[f] = v; written++; },
+    };
+    const { d, pushed } = deps({ 'G|1': g });
+    const r = beginTransaction([A], d);
+    if (!r.ok) throw new Error('begin');
+    expect(() => { for (let f = 0; f < n; f++) r.txn.set(A, f, true); }).not.toThrow();
+    expect(r.txn.has(A, n - 1)).toBe(true);
+    expect(data[n - 1]).toBe(0); // still staged
+    expect(r.txn.commit()).toBe(true);
+    expect(written).toBe(n);
+    expect(data.every((v) => v === 1)).toBe(true);
+    expect(pushed[0][0].changes.length).toBe(3 * n);
+  }, 120_000);
 });
 
 void vi;

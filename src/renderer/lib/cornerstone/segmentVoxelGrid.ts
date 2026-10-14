@@ -32,6 +32,14 @@ export interface SegmentVoxelGrid {
    * when the source pixels are not available.
    */
   sourceReader?: () => ((flatIndex: number) => number) | null;
+  /** The live labelmap value at a voxel, read without copying the whole grid. Absent on a
+   *  plain in-memory grid, which reads `data`. */
+  at?(flatIndex: number): number;
+}
+
+/** The labelmap value at `flat` — through `at` when the grid has it, else `data`. */
+export function voxelAt(grid: SegmentVoxelGrid, flat: number): number {
+  return grid.at ? grid.at(flat) : grid.data[flat];
 }
 
 /**

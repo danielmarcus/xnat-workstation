@@ -22,7 +22,7 @@ Status: open · fixed (commit) · won't fix (reason). Open items are tracked as 
 | X2 | P1 | A pending preview survives switching operation, active segment, container, viewport or scan; the next Commit / ⏎ writes the old preview | review (mask ops 3, 4; interp 14) | fixed |
 | X3 | P2 | Operations don't check the active viewport shows the active container (wrong plane / slices) | review | open — #91 |
 | X4 | P3 | Full-volume copies of every member per mask op, per brush move (Cleanup All smart plan, Interpolate gap table undebounced) | review | partly fixed (smart plan and gap table debounced; the per-op whole-volume copy remains) — #95 |
-| X5 | P3 | Transactions stage per-voxel Map entries: > 16.7M writes throws (V8 Map limit) | review | open — #96 |
+| X5 | P3 | Transactions stage per-voxel Map entries: > 16.7M writes throws (V8 Map limit) | review | fixed — #96 |
 
 ## Segmentation tools (toolbox)
 

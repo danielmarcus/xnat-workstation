@@ -20,7 +20,7 @@
 import { utilities as csCoreUtilities } from '@cornerstonejs/core';
 import { segmentation as csSegmentation, utilities as csToolUtilities } from '@cornerstonejs/tools';
 import * as mlg from './multiLayerGroup';
-import { readSegmentVoxelGrid, type SegmentVoxelGrid } from './segmentVoxelGrid';
+import { readSegmentVoxelGrid, voxelAt, type SegmentVoxelGrid } from './segmentVoxelGrid';
 import type { MaskPlane } from '../segmentation/maskOps/plane';
 import { type Axis, sliceIndices, planeSize } from '../segmentation/maskOps/planeIO';
 
@@ -34,7 +34,8 @@ export interface VoxelMemoRecord {
   containerId: string;
   segmentIndex: number;
   csSegmentationId: string;
-  changes: number[];
+  /** A typed array: a volume edit can write more voxels than a JS array holds comfortably. */
+  changes: ArrayLike<number>;
 }
 
 export interface TransactionDeps {
@@ -51,11 +52,88 @@ export type BeginResult =
 
 const keyOf = (m: MemberRef) => `${m.containerId}|${m.segmentIndex}`;
 
+/**
+ * The staged writes to one Cornerstone segmentation, held DENSE: one Uint16Array per grid
+ * slice (axis 2), allocated on the first write to it, storing value + 1 (0 = not staged).
+ * A Map of voxel -> value capped a transaction at V8's 2^24 entries (a Volume module or
+ * cleanup on 512² × 300 threw "Map maximum size exceeded", X5) and cost ~50 bytes a voxel;
+ * this is 2 bytes a voxel of the slices touched, whatever the count.
+ */
+export class StagedWrites {
+  private readonly chunks: Array<Uint16Array | undefined>;
+  private count = 0;
+
+  constructor(readonly sliceSize: number, slices: number) {
+    this.chunks = new Array(slices);
+  }
+
+  /** Number of staged voxels. */
+  get size(): number {
+    return this.count;
+  }
+
+  /** The staged value at `flat`, or undefined if none is staged. */
+  get(flat: number): number | undefined {
+    const c = this.chunks[Math.floor(flat / this.sliceSize)];
+    const v = c ? c[flat % this.sliceSize] : 0;
+    return v === 0 ? undefined : v - 1;
+  }
+
+  set(flat: number, value: number): void {
+    if (!(value >= 0 && value < 0xffff)) throw new RangeError(`[labelmapTransaction] labelmap value ${value} out of range`);
+    const k = Math.floor(flat / this.sliceSize);
+    let c = this.chunks[k];
+    if (!c) c = this.chunks[k] = new Uint16Array(this.sliceSize);
+    const p = flat % this.sliceSize;
+    if (c[p] === 0) this.count++;
+    c[p] = value + 1;
+  }
+
+  delete(flat: number): void {
+    const c = this.chunks[Math.floor(flat / this.sliceSize)];
+    const p = flat % this.sliceSize;
+    if (c && c[p] !== 0) {
+      c[p] = 0;
+      this.count--;
+    }
+  }
+
+  /** The raw chunk of grid slice `k` (value + 1 per pixel, 0 = not staged), if any write touched it. */
+  chunk(k: number): Uint16Array | undefined {
+    return this.chunks[k];
+  }
+
+  /** Every staged (value, flat), in flat order. */
+  forEach(fn: (value: number, flat: number) => void): void {
+    for (let k = 0; k < this.chunks.length; k++) {
+      const c = this.chunks[k];
+      if (!c) continue;
+      const base = k * this.sliceSize;
+      for (let p = 0; p < c.length; p++) if (c[p] !== 0) fn(c[p] - 1, base + p);
+    }
+  }
+
+  /** Every staged voxel index, in flat order. */
+  *keys(): IterableIterator<number> {
+    for (let k = 0; k < this.chunks.length; k++) {
+      const c = this.chunks[k];
+      if (!c) continue;
+      const base = k * this.sliceSize;
+      for (let p = 0; p < c.length; p++) if (c[p] !== 0) yield base + p;
+    }
+  }
+
+  clear(): void {
+    this.chunks.fill(undefined);
+    this.count = 0;
+  }
+}
+
 interface Staged {
   grid: SegmentVoxelGrid;
   /** The first written member — the memo's (container, segment) for undo and locks. */
   member: MemberRef;
-  writes: Map<number, number>;
+  writes: StagedWrites;
 }
 
 export class LabelmapTransaction {
@@ -82,9 +160,8 @@ export class LabelmapTransaction {
 
   /** Raw labelmap value at `flat` in the member's storage, staged writes included. */
   private raw(grid: SegmentVoxelGrid, flat: number): number {
-    const st = this.staged.get(grid.csSegmentationId);
-    const v = st?.writes.get(flat);
-    return v === undefined ? grid.data[flat] : v;
+    const v = this.staged.get(grid.csSegmentationId)?.writes.get(flat);
+    return v === undefined ? voxelAt(grid, flat) : v;
   }
 
   /** Whether the member owns voxel `flat`, staged writes included. */
@@ -108,10 +185,11 @@ export class LabelmapTransaction {
     if (next === current) return;
     let st = this.staged.get(g.csSegmentationId);
     if (!st) {
-      st = { grid: g, member, writes: new Map() };
+      const [nx, ny, nz] = g.geometry.dimensions;
+      st = { grid: g, member, writes: new StagedWrites(nx * ny, nz) };
       this.staged.set(g.csSegmentationId, st);
     }
-    if (next === g.data[flat]) st.writes.delete(flat); // back to the live value: no change
+    if (next === voxelAt(g, flat)) st.writes.delete(flat); // back to the live value: no change
     else st.writes.set(flat, next);
   }
 
@@ -173,7 +251,7 @@ export class LabelmapTransaction {
   }
 
   /** Staged changes per Cornerstone segmentation (what a preview draws, what commit writes). */
-  changes(): Array<{ grid: SegmentVoxelGrid; member: MemberRef; writes: ReadonlyMap<number, number> }> {
+  changes(): Array<{ grid: SegmentVoxelGrid; member: MemberRef; writes: StagedWrites }> {
     return [...this.staged.values()].filter((s) => s.writes.size > 0).map((s) => ({ grid: s.grid, member: s.member, writes: s.writes }));
   }
 
@@ -187,14 +265,17 @@ export class LabelmapTransaction {
     this.done = true;
     const records: VoxelMemoRecord[] = [];
     for (const { grid, member, writes } of this.changes()) {
-      const changes: number[] = [];
-      for (const [flat, value] of writes) {
-        const old = grid.data[flat];
-        if (old === value) continue;
-        changes.push(flat, old, value);
+      const changes = new Int32Array(3 * writes.size);
+      let n = 0;
+      writes.forEach((value, flat) => {
+        const old = voxelAt(grid, flat);
+        if (old === value) return;
+        changes[n++] = flat;
+        changes[n++] = old;
+        changes[n++] = value;
         grid.write(flat, value);
-      }
-      if (changes.length) records.push({ ...member, csSegmentationId: grid.csSegmentationId, changes });
+      });
+      if (n) records.push({ ...member, csSegmentationId: grid.csSegmentationId, changes: n === changes.length ? changes : changes.subarray(0, n) });
     }
     if (records.length === 0) return false;
     this.deps.pushMemos(records);

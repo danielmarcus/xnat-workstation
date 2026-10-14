@@ -20,12 +20,12 @@ import { eventTarget, metaData } from '@cornerstonejs/core';
 import { Enums as ToolEnums } from '@cornerstonejs/tools';
 import * as mlg from './multiLayerGroup';
 import { viewportService } from './viewportService';
-import { beginTransaction, type MemberRef } from './labelmapTransaction';
+import { beginTransaction, type LabelmapTransaction, type MemberRef } from './labelmapTransaction';
 import { OBLIQUE_VIEW_MESSAGE, sliceAxisFor, viewAlignedWithGrid } from './maskIslands';
 import { forEachBoxVoxel, makeBox, toPlane, type Box } from './gridBox';
 import { sliceNumbering } from './sliceNumbering';
 import { getSourceImageIds } from './sourceImageTracking';
-import { commitPreview, discardPreview, startPreview } from './maskPreview';
+import { commitPreview, discardPreview, hasPreview, startPreview } from './maskPreview';
 import { segmentationService } from './segmentationService';
 import { segmentationManager } from '../segmentation/segmentationManagerSingleton';
 import { CLEANUP_OPS } from '../segmentation/maskOps/catalog';
@@ -248,70 +248,83 @@ export async function runModuleOperation(o: {
   const before = t.active;
   const outputs: Array<{ ref: MemberRef; mask: Uint8Array }> = [];
   const created: number[] = [];
-  if (manifest.writes.target === 'new') {
-    for (let k = 0; k < labels; k++) {
-      postProcess(planes[k], box, manifest, { containerId: t.containerId, segmentIndex: -1 - k });
-      if (!planes[k].includes(1)) continue;
-      const idx = await segmentationManager.addSegment(t.containerId, newMembers[k].name);
-      const [r, g, b] = newMembers[k].color;
-      segmentationService.setSegmentColor(t.containerId, idx, [r, g, b, 255]);
-      created.push(idx);
-      outputs.push({ ref: { containerId: t.containerId, segmentIndex: idx }, mask: planes[k] });
-      // Cornerstone's first render of a new member reports its labelmap as modified; staged
-      // before that, the preview would take it for an edit under it and discard itself.
-      await firstRender(t.containerId, idx, o.viewportId);
-    }
-  } else {
-    const ref = { containerId: t.containerId, segmentIndex: t.active };
-    postProcess(planes[0], box, manifest, ref);
-    outputs.push({ ref, mask: planes[0] });
-  }
+  /** Remove the members this run created (once: a discarded preview and a failure both call it). */
   const undoNew = () => {
     if (!created.length) return;
-    for (const idx of created) segmentationManager.removeSegment(t.containerId, idx);
+    for (const idx of created.splice(0)) segmentationManager.removeSegment(t.containerId, idx);
     segmentationService.setActiveSegmentIndex(t.containerId, before);
   };
-  if (!outputs.length) return { ok: false, reason: 'no-change' };
-
-  const targets = new Set(outputs.map((x) => x.ref.segmentIndex));
-  const locked = t.members.some((m) => targets.has(m.segmentIndex) && m.locked);
-  const others = t.members.filter((m) => !targets.has(m.segmentIndex));
-  const claimable = manifest.writes.claims ? others.filter((m) => !m.locked).map((m) => ({ containerId: t.containerId, segmentIndex: m.segmentIndex })) : [];
-  const writers = [...outputs.map((x) => x.ref), ...claimable];
-  let begun = beginTransaction(writers);
-  let lockedMember: MemberRef | null = null;
-  if (!begun.ok && begun.reason === 'locked') {
-    lockedMember = begun.member;
-    begun = beginTransaction(writers, undefined, { allowLocked: true });
-  }
-  if (!begun.ok) { undoNew(); return { ok: false, reason: 'no-target' }; }
-  const { txn } = begun;
-  const otherRefs = others.map((m) => ({ containerId: t.containerId, segmentIndex: m.segmentIndex }));
-  let added = 0, removed = 0;
-  for (const { ref: target, mask: m } of outputs) {
-    forEachBoxVoxel(box, (i, flat) => {
-      const on = m[i] === 1;
-      const has = txn.has(target, flat);
-      if (on && !has) {
-        const owner = otherRefs.find((r) => txn.has(r, flat));
-        if (owner) {
-          if (!claimable.some((c) => c.segmentIndex === owner.segmentIndex)) return; // other members keep theirs
-          txn.set(owner, flat, false);
-        }
-        txn.set(target, flat, true); added++;
-      } else if (!on && has && manifest.writes.mode === 'replace') {
-        txn.set(target, flat, false); removed++;
+  // The apply phase can throw (an out-of-memory staging a huge mask, a Cornerstone error):
+  // the run must then not leave behind the empty members it created (X5).
+  let txn: LabelmapTransaction | null = null;
+  try {
+    if (manifest.writes.target === 'new') {
+      for (let k = 0; k < labels; k++) {
+        postProcess(planes[k], box, manifest, { containerId: t.containerId, segmentIndex: -1 - k });
+        if (!planes[k].includes(1)) continue;
+        const idx = await segmentationManager.addSegment(t.containerId, newMembers[k].name);
+        const [r, g, b] = newMembers[k].color;
+        segmentationService.setSegmentColor(t.containerId, idx, [r, g, b, 255]);
+        created.push(idx);
+        outputs.push({ ref: { containerId: t.containerId, segmentIndex: idx }, mask: planes[k] });
+        // Cornerstone's first render of a new member reports its labelmap as modified; staged
+        // before that, the preview would take it for an edit under it and discard itself.
+        await firstRender(t.containerId, idx, o.viewportId);
       }
+    } else {
+      const ref = { containerId: t.containerId, segmentIndex: t.active };
+      postProcess(planes[0], box, manifest, ref);
+      outputs.push({ ref, mask: planes[0] });
+    }
+    if (!outputs.length) return { ok: false, reason: 'no-change' };
+
+    const targets = new Set(outputs.map((x) => x.ref.segmentIndex));
+    const locked = t.members.some((m) => targets.has(m.segmentIndex) && m.locked);
+    const others = t.members.filter((m) => !targets.has(m.segmentIndex));
+    const claimable = manifest.writes.claims ? others.filter((m) => !m.locked).map((m) => ({ containerId: t.containerId, segmentIndex: m.segmentIndex })) : [];
+    const writers = [...outputs.map((x) => x.ref), ...claimable];
+    let begun = beginTransaction(writers);
+    let lockedMember: MemberRef | null = null;
+    if (!begun.ok && begun.reason === 'locked') {
+      lockedMember = begun.member;
+      begun = beginTransaction(writers, undefined, { allowLocked: true });
+    }
+    if (!begun.ok) { undoNew(); return { ok: false, reason: 'no-target' }; }
+    txn = begun.txn;
+    const staging = txn;
+    const otherRefs = others.map((m) => ({ containerId: t.containerId, segmentIndex: m.segmentIndex }));
+    let added = 0, removed = 0;
+    for (const { ref: target, mask: m } of outputs) {
+      forEachBoxVoxel(box, (i, flat) => {
+        const on = m[i] === 1;
+        const has = staging.has(target, flat);
+        if (on && !has) {
+          const owner = otherRefs.find((r) => staging.has(r, flat));
+          if (owner) {
+            if (!claimable.some((c) => c.segmentIndex === owner.segmentIndex)) return; // other members keep theirs
+            staging.set(owner, flat, false);
+          }
+          staging.set(target, flat, true); added++;
+        } else if (!on && has && manifest.writes.mode === 'replace') {
+          staging.set(target, flat, false); removed++;
+        }
+      });
+    }
+    if (!added && !removed) { txn.discard(); undoNew(); return { ok: false, reason: 'no-change' }; }
+    startPreview({
+      txn, label: manifest.name, viewportId: o.viewportId, lockedMember: lockedMember ?? (locked ? outputs[0].ref : null),
+      summary: `${added ? `+${added.toLocaleString('en-US')}` : ''}${added && removed ? ' ' : ''}${removed ? `−${removed.toLocaleString('en-US')}` : ''} voxels`,
+      onDone: (committed) => { if (!committed) undoNew(); },
     });
+    if (o.commit && !locked && !lockedMember) commitPreview();
+    return { ok: true, added, removed, readOnly: locked || !!lockedMember, table: cleanTable(result.table) };
+  } catch (e) {
+    console.warn('[moduleOperationService] applying the result failed:', e);
+    if (hasPreview()) discardPreview(); // ours: any earlier preview was discarded before the run
+    else if (txn) txn.discard();
+    undoNew();
+    return { ok: false, reason: 'failed', detail: e instanceof Error ? e.message : String(e) };
   }
-  if (!added && !removed) { txn.discard(); undoNew(); return { ok: false, reason: 'no-change' }; }
-  startPreview({
-    txn, label: manifest.name, viewportId: o.viewportId, lockedMember: lockedMember ?? (locked ? outputs[0].ref : null),
-    summary: `${added ? `+${added.toLocaleString('en-US')}` : ''}${added && removed ? ' ' : ''}${removed ? `−${removed.toLocaleString('en-US')}` : ''} voxels`,
-    onDone: (committed) => { if (!committed) undoNew(); },
-  });
-  if (o.commit && !locked && !lockedMember) commitPreview();
-  return { ok: true, added, removed, readOnly: locked || !!lockedMember, table: cleanTable(result.table) };
 }
 
 /**
