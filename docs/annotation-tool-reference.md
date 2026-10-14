@@ -131,6 +131,26 @@ With **All segments**, a Clean operation first proposes a **per-segment plan** (
 Cleanup): small and thin segments are withheld from operations that would erode them; each
 row's action can be edited before running.
 
+**Modules** are operations too: every enabled module is listed in the picker's **Modules**
+group, after the built-ins, and opens like one — its badge (Bundled · Verified · Community) and
+publisher, its parameters (*Advanced* folded), the scopes it allows (Slice · Range · Volume ·
+ROI limit), a memory estimate, **Run** → preview → ⏎ / **Commit** / **Discard**, **Cancel run**
+(also in the progress bar). A module may write the active segment, or create segments of its
+own (named and coloured by the module; discarded with the preview if it is). **▸ Log** shows
+what the module reported; **Copy** and **Download** take it away. A module runs in a sandbox and
+sees only what it declares it reads. The examples: *Intensity threshold* and *Post-op edema*
+(draw an ROI limit tightly round the post-op region; it writes **Edema** and, when it finds
+one, **Cavity**). Writing modules: [module-authoring.md](module-authoring.md).
+
+**Settings › Modules**: **Install module…** (or drop a `.xwmodule` on the page) — a Community
+module (unsigned, or signed by a publisher you have not trusted) shows who signed it and what
+it reads and writes, and installs only once you confirm; **Enabled** per module; **Remove**
+(an edition's Bundled modules can only be disabled); refused modules in red, with the reason
+(changed on disk, an unsupported API or runtime, a bad signature); **Trusted publishers** —
+**Add trusted publisher…** from the `public.json` a publisher gives you, after which their
+modules install as Verified; **Allow community modules**. See
+[module-security.md](module-security.md) for what a module can and cannot reach.
+
 ## Review and display (Segmentation)
 
 | Control | Where | What it does |

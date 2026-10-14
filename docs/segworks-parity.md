@@ -98,7 +98,7 @@ from `main` as each one starts, following the existing kebab-case convention.
 | **6** | `contour-refine` | Live Wire advanced cost (Scharr, Laplacian, direction, pre-smooth, close tolerance, commit smoothing) (#75–81). Spline families, point undo, commit-undo-reload, copy/propagate to adjacent slice, local ROI edit, self-intersection guard (#82–100). Snake refine (#200–201). Extend Cornerstone's tools where possible and fork only where necessary. | 4 (preview) | L |
 | **7** | `seg-3d-qc` | Segment surfaces in the 3D viewport via PolySeg, per-label visibility, resolution and smoothing, 3D component report with stray/speck thresholds, jump to slice, delete component, 3D scissor, undo (#230–257) | 1 | L |
 | **8** | `worklist` | **Own reviewed plan first; XNAT-backed.** Requirements input from SegWorks: XLSX/CSV import, XNAT id resolution, project fetch, Worklist Builder generation, Next & Open, cursor sync, Capture / Review / View-Only modes, exact series and annotation capture, skip with reason, comments, filters, report workbooks, recovery, dirty flag, XLSX export, segment preset keys (#291–342) | — (benefits from 2) | XL |
-| **9** | `algorithm-modules` | *Re-scoped 2026-10-13 — see §12:* the open-source module host for community and commercial (signed) modules. Workstation-native module API and loader, run in a sandboxed Worker (not the renderer, which has Electron privileges). Schema-driven param UI, logs (copy/download), cancel, installed modules. Validate by re-authoring one SegWorks add-on against the native API. (#271–283) | 1, 4 | L |
+| **9** | `algorithm-modules` | *Re-scoped 2026-10-13 — see §12:* the open-source module host for community and commercial (signed) modules. Workstation-native module API and loader, each run in a sandboxed process of its own (not the renderer, which has Electron privileges; §12 design point 3). Schema-driven param UI, logs (copy/download), cancel, installed modules. Validate by re-authoring one SegWorks add-on against the native API. (#271–283) | 1, 4 | L |
 
 **Recommended order:** 1 → 2 → 3 → 4 → 7 → 6 → 5 → 9 → 8
 
@@ -1216,3 +1216,13 @@ than `wasm-worker`. Candidate later runtimes, recorded so the design keeps room 
   bundled module, the bundled-replace guard, the E2E gate, the edition's keys, and the bundled
   modules dropped from the package. Modules E2E (27) green. Checked in the built app
   (screenshot).
+- **M7** — the tool reference (`docs/annotation-tool-reference.md`: modules in the Operations
+  section, Settings › Modules), CLAUDE.md's project structure, and the branch table's stale
+  "sandboxed Worker" corrected. Full offline E2E: **385 passed**, 1 skipped (the packaged-edition
+  spec, which runs only under `npm run test:edition` — green separately). Visual sweep in the
+  built app: the module sheet and its preview (M4), the post-op edema result (M5), Settings ›
+  Modules with a Bundled module (M6). Self-check: seen in the built app — yes (screenshots);
+  matches the plan and D11 (Settings › Modules) / D1 (operations stay in the Operations
+  section) — yes; legacy chrome replaced — none (new surfaces); follow-ups — the off-grid slider
+  defaults of the built-in Seeded sheet (found here, separate task); red-before-green — every
+  slice's tests seen failing against mutants. Ready to merge to `main` on the user's go-ahead.

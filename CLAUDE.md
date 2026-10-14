@@ -26,6 +26,7 @@ src/
     index.ts                # App entry: window, tray, menu, dock icon
     ipc/                    # IPC handlers (auth, upload, export, proxy)
     xnat/                   # XNAT REST client and session management
+    modules/                # Algorithm modules: packages + signatures, store, sandbox runtime, editions
   preload/
     index.ts                # Context bridge: exposes electronAPI to renderer
   renderer/                 # Vite root (React SPA)
@@ -61,6 +62,8 @@ src/
     ipcChannels.ts          # Typed IPC channel constants
     types/                  # TypeScript interfaces (ElectronAPI, DICOM types, XNAT types)
     dicomTagDictionary.ts   # DICOM tag name lookup
+modules/                    # Example modules (examples/) and built-ins packaged as modules (builtins/)
+edition.config.json         # The open-source edition (docs/editions.md)
 build/                      # App icons for packaging
   icon.png                  # Full-color app icon (320x320)
   iconTemplate.png          # macOS tray icon (22x22, monochrome template)
