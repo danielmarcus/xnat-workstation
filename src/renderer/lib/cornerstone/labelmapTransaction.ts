@@ -203,19 +203,45 @@ export class LabelmapTransaction {
     if (axis === 2) {
       // A grid slice is one labelmap image: read its pixels and the slice's staged chunk
       // directly — never the rest of the grid (X4).
-      const live = g.slice?.(slice) ?? null;
-      const staged = this.staged.get(g.csSegmentationId)?.writes.chunk(slice);
       const base = slice * data.length;
+      // The slice's pixels: the labelmap image's own, or (an in-memory grid) a run of `data`.
+      let live = g.slice?.(slice) ?? null;
+      let off = 0;
+      if (!live && !g.at) { live = g.data; off = base; }
+      const staged = this.staged.get(g.csSegmentationId)?.writes.chunk(slice);
+      const value = g.value;
+      if (live && !staged) {
+        for (let p = 0; p < data.length; p++) if (live[off + p] === value) data[p] = 1;
+        return { width, height, data };
+      }
       for (let p = 0; p < data.length; p++) {
         const s = staged ? staged[p] : 0;
-        const v = s !== 0 ? s - 1 : live ? live[p] : voxelAt(g, base + p);
-        if (v === g.value) data[p] = 1;
+        const v = s !== 0 ? s - 1 : live ? live[off + p] : voxelAt(g, base + p);
+        if (v === value) data[p] = 1;
       }
       return { width, height, data };
     }
     const idx = sliceIndices(dims, axis, slice);
     for (let p = 0; p < idx.length; p++) if (this.raw(g, idx[p]) === g.value) data[p] = 1;
     return { width, height, data };
+  }
+
+  /** Whether the member has any voxel on the slice, staged writes included — on an unstaged
+   *  grid slice a native scan of the image's pixels, with no plane built (O8). */
+  anyOnPlane(member: MemberRef, axis: Axis, slice: number): boolean {
+    const g = this.grid(member);
+    if (!g) return false;
+    if (axis === 2 && !this.staged.get(g.csSegmentationId)?.writes.chunk(slice)) {
+      const n = g.geometry.dimensions[0] * g.geometry.dimensions[1];
+      const own = g.slice?.(slice) ?? null;
+      const live = own ?? (g.at ? null : g.data);
+      const off = own ? 0 : slice * n;
+      if (live && ArrayBuffer.isView(live)) {
+        return (live as unknown as Uint16Array).subarray(off, off + n).indexOf(g.value) >= 0;
+      }
+    }
+    const p = this.readPlane(member, axis, slice);
+    return !!p && p.data.includes(1);
   }
 
   /**
@@ -228,25 +254,32 @@ export class LabelmapTransaction {
     axis: Axis,
     slice: number,
     after: MaskPlane,
-    opts: { blocked?: ArrayLike<number>; roi?: ArrayLike<number> } = {},
+    opts: {
+      blocked?: ArrayLike<number>;
+      roi?: ArrayLike<number>;
+      /** The member's plane as staged right now, when the caller already holds it (saves a read). */
+      current?: MaskPlane;
+    } = {},
   ): { added: number; removed: number } {
     const g = this.grid(member);
-    const current = g && this.readPlane(member, axis, slice);
+    const current = g && (opts.current ?? this.readPlane(member, axis, slice));
     if (!g || !current) return { added: 0, removed: 0 };
-    const idx = sliceIndices(g.geometry.dimensions, axis, slice);
+    // Grid indices only where a pixel changes (a grid slice is one contiguous run).
+    const idx = axis === 2 ? null : sliceIndices(g.geometry.dimensions, axis, slice);
+    const base = slice * current.data.length;
     let added = 0;
     let removed = 0;
-    for (let p = 0; p < idx.length; p++) {
-      if (opts.roi && !opts.roi[p]) continue;
+    for (let p = 0; p < current.data.length; p++) {
       const had = current.data[p] === 1;
       const want = after.data[p] === 1;
       if (had === want) continue;
+      if (opts.roi && !opts.roi[p]) continue;
       if (want) {
         if (opts.blocked?.[p]) continue;
-        this.set(member, idx[p], true);
+        this.set(member, idx ? idx[p] : base + p, true);
         added++;
       } else {
-        this.set(member, idx[p], false);
+        this.set(member, idx ? idx[p] : base + p, false);
         removed++;
       }
     }

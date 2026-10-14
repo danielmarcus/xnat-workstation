@@ -177,6 +177,9 @@ export const maskOpsService = {
       },
       readImage: source ? (s) => extractValues(grid.geometry.dimensions, where.axis, s, source) : undefined,
       roi: roiPlaneMask(useSemiAutoStore.getState().roi, viewportId, grid.geometry, where.axis),
+      // Every Cleanup operation leaves an empty plane empty (catalog.test holds it): a Volume
+      // run skips the slices a member is not on.
+      skipEmpty: true,
     });
     if (result.added + result.removed === 0) {
       txn.discard();

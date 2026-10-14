@@ -57,3 +57,22 @@ describe('Snake refine (Cleanup)', () => {
     expect(result(op.run!(p, ctx({ image: undefined }), defaults())).plane).toBe(p);
   });
 });
+
+describe('every plane operation leaves an empty plane empty (O8: a Volume run skips empty slices)', () => {
+  const empty = () => plane(new Uint8Array(W * H));
+  const others = disc(10);
+  for (const o of CLEANUP_OPS.filter((c) => c.run)) {
+    const base: ParamValues = Object.fromEntries(o.params.map((p) => [p.key, p.default]));
+    const variants: ParamValues[] = [base];
+    for (const p of o.params) {
+      if (p.kind === 'select') for (const opt of p.options) variants.push({ ...base, [p.key]: opt.value });
+      else variants.push({ ...base, [p.key]: p.min }, { ...base, [p.key]: p.max });
+    }
+    it(o.id, () => {
+      for (const params of variants) {
+        const out = result(o.run!(empty(), ctx({ others, protect: new Uint8Array(W * H) }), params)).plane;
+        expect(out.data.includes(1), JSON.stringify(params)).toBe(false);
+      }
+    });
+  }
+});

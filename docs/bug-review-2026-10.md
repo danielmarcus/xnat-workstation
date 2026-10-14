@@ -52,7 +52,7 @@ Status: open · fixed (commit) · won't fix (reason). Open items are tracked as 
 | O5 | P2 | Slice-track range shows / drags on every viewport, for every op; drag doesn't discard the preview | review (interp 5, 6; mask ops 11) | fixed |
 | O6 | P2 | Interpolation anchors, Cleanup range, ROI limit, smart-plan overrides never reset per scan / container / orientation | review | fixed |
 | O7 | P2 | Slice track and gap table stale after an orientation change | review (interp 4) | fixed |
-| O8 | P3 | Volume / All cleanup synchronous on the UI thread: tens of seconds on 512² × 300 | review (mask ops 1) | open — #97 |
+| O8 | P3 | Volume / All cleanup synchronous on the UI thread: tens of seconds on 512² × 300 | review (mask ops 1) | partly fixed (empty slices skipped without reading planes, each slice's member planes read once and shared, Fill holes / smoothing cropped to the mask, separable Gaussian: 5 members × 100 × 512² Fill holes All 22–116 s → ~2.5 s in a loaded unit run; still synchronous — no worker, progress or Cancel yet) — #97 |
 | O9 | P3 | Ctrl+V lands displaced after panning | review (mask ops 13) | fixed |
 
 ## Found by the regression tests while fixing
