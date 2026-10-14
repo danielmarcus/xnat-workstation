@@ -43,6 +43,7 @@ import { useSegmentationStore } from '../../stores/segmentationStore';
 import { useAnnotationSelectionStore } from '../../stores/annotationSelectionStore';
 import { useSemiAutoStore } from '../../stores/semiAutoStore';
 import { BACKGROUND, useSeedStore } from '../../stores/seedStore';
+import { viewportShowsSegmentation } from './viewportShows';
 
 /** Peak bytes per voxel assumed when a manifest does not say: image 4, masks, result, copies. */
 const DEFAULT_BYTES_PER_VOXEL = 16;
@@ -90,7 +91,8 @@ export function moduleDomain(manifest: ModuleManifest, scope: ModuleScopeChoice,
   if (!t) return { ok: false, reason: 'no-target' };
   const grid = gridOf({ containerId: t.containerId, segmentIndex: t.active });
   const cam = (viewportService.getViewport(viewportId) as { getCamera?: () => { viewPlaneNormal?: number[]; focalPoint?: number[] } } | undefined)?.getCamera?.();
-  if (!grid || !cam?.viewPlaneNormal || !cam.focalPoint) return { ok: false, reason: 'no-viewport' };
+  // Only a viewport showing the segment has "the slice on screen" in its grid (#91).
+  if (!grid || !cam?.viewPlaneNormal || !cam.focalPoint || !viewportShowsSegmentation(viewportId, grid)) return { ok: false, reason: 'no-viewport' };
   const geometry = grid.geometry;
   if ((scope.kind === 'slice' || scope.kind === 'range') && !viewAlignedWithGrid(geometry.direction, cam.viewPlaneNormal)) return { ok: false, reason: 'oblique-view' };
   const axis = sliceAxisFor(geometry.direction, cam.viewPlaneNormal) as Axis;

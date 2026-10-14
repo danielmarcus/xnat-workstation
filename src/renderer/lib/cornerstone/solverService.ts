@@ -33,6 +33,7 @@ import { getSourceImageIds } from './sourceImageTracking';
 import { ToolName } from '@shared/types/viewer';
 import { useViewerStore } from '../../stores/viewerStore';
 import { recordSeedRaster } from './seedRasterProbe';
+import { viewportShowsSegmentation } from './viewportShows';
 
 const METHOD_LABEL: Record<SeededSettings['method'], string> = {
   growCut: 'Fast GrowCut', graphCut: 'Graph Cut', alphaExpansion: 'Multi-label graph cut',
@@ -80,16 +81,19 @@ function gridOf(member: MemberRef) {
  * seed painter and the sheet's estimate line ask on every pointer move. A labelmap's geometry
  * changes only with the segmentation itself, so any change to the segmentations drops it.
  */
-const geometryCache = new Map<string, VoxelGridGeometry>();
+/** Geometry plus the Cornerstone segmentation holding the member's voxels (a multi-layer
+ *  member's sub-segmentation) — what the viewport guard (#91) checks. */
+type MemberGeometry = VoxelGridGeometry & { csSegmentationId: string };
+const geometryCache = new Map<string, MemberGeometry>();
 let cachedFor: unknown = null;
-function geometryOf(member: MemberRef): VoxelGridGeometry | null {
+function geometryOf(member: MemberRef): MemberGeometry | null {
   const segmentations = useSegmentationStore.getState().segmentations;
   if (segmentations !== cachedFor) { geometryCache.clear(); cachedFor = segmentations; }
   const key = `${member.containerId}#${member.segmentIndex}`;
   let g = geometryCache.get(key);
   if (!g) {
-    g = gridOf(member)?.geometry;
-    if (g) geometryCache.set(key, g);
+    const grid = gridOf(member);
+    if (grid) { g = { ...grid.geometry, csSegmentationId: grid.csSegmentationId }; geometryCache.set(key, g); }
   }
   return g ?? null;
 }
@@ -182,7 +186,8 @@ export function seededDomain(s: SeededSettings, viewportId: string): SeededDomai
   if (!t) return { ok: false, reason: 'no-target' };
   const geometry = geometryOf({ containerId: t.containerId, segmentIndex: t.active });
   const normal = viewNormal(viewportId);
-  if (!geometry || !normal) return { ok: false, reason: 'no-viewport' };
+  // Only a viewport showing the segment has "the slice on screen" in its grid (#91).
+  if (!geometry || !normal || !viewportShowsSegmentation(viewportId, geometry)) return { ok: false, reason: 'no-viewport' };
   const axis = sliceAxisFor(geometry.direction, normal) as Axis;
   const [ax, ay] = planeAxes(axis);
   const dimsG = geometry.dimensions;
@@ -382,7 +387,7 @@ export function regionDomain(r: RegionSettings, viewportId: string):
   const grid = gridOf({ containerId: t.containerId, segmentIndex: t.active });
   const vp = viewportService.getViewport(viewportId) as { getCamera?: () => { viewPlaneNormal?: number[]; focalPoint?: number[] } } | undefined;
   const cam = vp?.getCamera?.();
-  if (!grid || !cam?.viewPlaneNormal || !cam.focalPoint) return { ok: false, reason: 'no-viewport' };
+  if (!grid || !cam?.viewPlaneNormal || !cam.focalPoint || !viewportShowsSegmentation(viewportId, grid)) return { ok: false, reason: 'no-viewport' };
   const geometry = grid.geometry;
   const axis = sliceAxisFor(geometry.direction, cam.viewPlaneNormal) as Axis;
   const [ax, ay] = planeAxes(axis);

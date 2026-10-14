@@ -10,6 +10,7 @@
 import { viewportService } from './viewportService';
 import { readSegmentVoxelGrid } from './segmentVoxelGrid';
 import { beginTransaction, type MemberRef } from './labelmapTransaction';
+import { viewportShowsSegmentation } from './viewportShows';
 
 /**
  * With several segments targeted (Labels = All), a locked one is left out — protected like any
@@ -143,6 +144,8 @@ export const maskOpsService = {
     if (!begun.ok) return { ok: false, reason: begun.reason, member: begun.member };
     const { txn } = begun;
     const grid = txn.grid(members[0]);
+    // Only a viewport showing the segment has "the slice on screen" in its grid (#91).
+    if (grid && !viewportShowsSegmentation(viewportId, grid)) { txn.discard(); return { ok: false, reason: 'no-viewport' }; }
     if (grid && scope.slices.kind !== 'volume' && !viewAligned(viewportId, grid.geometry)) { txn.discard(); return { ok: false, reason: 'oblique-view' }; }
     const where = grid ? viewportSlice(viewportId, grid.geometry) : null;
     if (!grid || !where) {
@@ -242,6 +245,7 @@ export const maskOpsService = {
     if (!begun.ok) return { ok: false, reason: begun.reason, member: begun.member };
     const { txn } = begun;
     const grid = txn.grid(target);
+    if (grid && !viewportShowsSegmentation(viewportId, grid)) { txn.discard(); return { ok: false, reason: 'no-viewport' }; }
     if (grid && scope.slices.kind !== 'volume' && !viewAligned(viewportId, grid.geometry)) { txn.discard(); return { ok: false, reason: 'oblique-view' }; }
     const where = grid ? viewportSlice(viewportId, grid.geometry) : null;
     if (!grid || !where) {
@@ -289,8 +293,8 @@ export const maskOpsService = {
     if (!begun.ok) return null;
     const { txn } = begun;
     const first = members.map((m) => txn.grid(m.ref)).find((g) => g);
-    const where = first ? viewportSlice(vpId, first.geometry) : null;
-    if (!first || !where) return null;
+    const where = first && viewportShowsSegmentation(vpId, first) ? viewportSlice(vpId, first.geometry) : null;
+    if (!first || !where) { txn.discard(); return null; }
     const numbering = sliceNumbering(vpId, first.geometry, where.axis);
     const gridScope = scope.slices.kind === 'range' && numbering
       ? { kind: 'range' as const, from: numbering.toGrid(scope.slices.from), to: numbering.toGrid(scope.slices.to) }
@@ -350,6 +354,7 @@ export const maskOpsService = {
     if (!begun.ok) return { ok: false, reason: begun.reason, member: begun.member };
     const { txn } = begun;
     const grid = txn.grid(members[0]);
+    if (grid && !viewportShowsSegmentation(viewportId, grid)) { txn.discard(); return { ok: false, reason: 'no-viewport' }; }
     if (grid && o.fill.kind !== 'gaps' && o.fill.kind !== 'gap' && !viewAligned(viewportId, grid.geometry)) { txn.discard(); return { ok: false, reason: 'oblique-view' }; }
     const where = grid ? viewportSlice(viewportId, grid.geometry) : null;
     const numbering = grid && where ? sliceNumbering(viewportId, grid.geometry, where.axis) : null;
@@ -438,7 +443,7 @@ export const maskOpsService = {
     const out: Array<{ segmentIndex: number; name: string; from: number; to: number }> = [];
     for (const m of summary.segments) {
       const g = readSegmentVoxelGrid(containerId, m.segmentIndex);
-      if (!g) continue;
+      if (!g || !viewportShowsSegmentation(vpId, g)) continue;
       const where = viewportSlice(vpId, g.geometry);
       const numbering = where ? sliceNumbering(vpId, g.geometry, where.axis) : null;
       if (!where || !numbering) continue;
@@ -493,6 +498,7 @@ export const maskOpsService = {
     if (!begun.ok) return { ok: false, reason: begun.reason, member: begun.member };
     const { txn } = begun;
     const grid = txn.grid(member);
+    if (grid && !viewportShowsSegmentation(viewportId, grid)) { txn.discard(); return { ok: false, reason: 'no-viewport' }; }
     if (grid && !viewAligned(viewportId, grid.geometry)) { txn.discard(); return { ok: false, reason: 'oblique-view' }; }
     const where = grid ? viewportSlice(viewportId, grid.geometry) : null;
     const numbering = grid && where ? sliceNumbering(viewportId, grid.geometry, where.axis) : null;

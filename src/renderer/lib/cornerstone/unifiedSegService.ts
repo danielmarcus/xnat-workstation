@@ -505,10 +505,15 @@ export const unifiedSegService = {
       }
       const edit = beginDirectEdit(member);
       const [lower, upper] = s.thresholdRange;
+      // The window is inclusive (#98): Cornerstone's same-grid test rejects `value <= lower ||
+      // value >= upper` — exclusive at both ends — so a 300 HU sphere under the default
+      // −100…300 window filled nothing. The bounds are widened by far less than any distinct
+      // stored value (a float32 voxel next to 300 is 3e-5 away).
+      const inclusive = (v: number, dir: number) => v + dir * Math.max(1e-9, Math.abs(v) * 1e-9);
       csToolUtilities.segmentation.rectangleROIThresholdVolumeByRange(
         uids,
         segVolume as never,
-        [{ volume: sourceVolume, lower: Math.min(lower, upper), upper: Math.max(lower, upper) }] as never,
+        [{ volume: sourceVolume, lower: inclusive(Math.min(lower, upper), -1), upper: inclusive(Math.max(lower, upper), 1) }] as never,
         { overwrite: false, segmentationId, segmentIndex: csSegmentIndex } as never,
       );
       edit?.finish();

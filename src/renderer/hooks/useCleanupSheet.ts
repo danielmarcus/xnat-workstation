@@ -77,7 +77,7 @@ function describeFailure(r: Extract<RunResult, { ok: false }>): string {
   switch (r.reason) {
     case 'no-change': return 'Nothing to change in this scope';
     case 'no-target': return 'Select a segment to clean up';
-    case 'no-viewport': return 'Open the segment’s scan in a viewport first';
+    case 'no-viewport': return 'Open the segment’s scan in this viewport';
     case 'oblique-view': return OBLIQUE_VIEW_MESSAGE;
     case 'no-labelmap': return 'This segment has no voxels to work on yet';
     case 'locked': return 'This segment is locked';

@@ -81,3 +81,22 @@ for (const tool of [
     ).toBeLessThan(wide);
   });
 }
+
+/**
+ * #98 (ledger F3): the window's bounds are inclusive. On the binary sphere phantom every
+ * sphere voxel reads exactly 300 HU — the upper bound of the default CT window (Soft
+ * Tissue, −100…300) — and Rect Multi wrote nothing: Cornerstone's same-grid test in
+ * `thresholdVolumeByRange` is `value <= lower || value >= upper → reject`, i.e. EXCLUSIVE
+ * at both ends (its resampled-grid test is inclusive). Driven with the default window,
+ * as a user meets it.
+ */
+test('Rect Multi includes voxels exactly at the window\'s upper bound (300 HU sphere, −100…300)', async ({ page }) => {
+  await loadFixture(page, 'ct-axial-300', 'panel_0');
+  await expect.poll(() => page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.isUnifiedVolumeReady()), { timeout: 30_000 }).toBe(true);
+  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.resetUnifiedSegmentations());
+  const panel = await newSegmentation(page);
+  await clickTool(panel, 'Rect Multi');
+  await dragRegion(page);
+  const filled = await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.getPaintedVoxelCount());
+  expect(filled, 'the 300 HU sphere under the rectangle must be filled').toBeGreaterThan(0);
+});

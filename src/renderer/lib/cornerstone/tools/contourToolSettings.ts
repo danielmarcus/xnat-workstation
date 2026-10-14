@@ -148,3 +148,35 @@ export function getSplineActions(): SplineActions | null {
     clear: () => all.some((p) => p.clear()),
   };
 }
+
+/**
+ * Splines in hand (F5), by annotation UID. A held spline is a preview: its placement and the
+ * edits to it are not edits to the container — only its commit is (#99) — so the dirty /
+ * autosave tracking skips annotation events for these.
+ */
+const splinesInHand = new Set<string>();
+export function setSplineInHand(uid: string, inHand: boolean): void {
+  if (inHand) splinesInHand.add(uid);
+  else splinesInHand.delete(uid);
+}
+export function isSplineInHand(uid: string | undefined): boolean {
+  return !!uid && splinesInHand.has(uid);
+}
+
+/**
+ * Whether a spline in hand is being rendered. Cornerstone's contour-segmentation tools fire
+ * SEGMENTATION_DATA_MODIFIED (which carries no annotation) from rendering an edited contour;
+ * for a held spline that is not an edit either.
+ */
+let heldSplineRenders = 0;
+export function whileRenderingSplineInHand<T>(render: () => T): T {
+  heldSplineRenders++;
+  try {
+    return render();
+  } finally {
+    heldSplineRenders--;
+  }
+}
+export function isRenderingSplineInHand(): boolean {
+  return heldSplineRenders > 0;
+}
