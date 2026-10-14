@@ -34,8 +34,13 @@ export interface SegmentVoxelGrid {
   sourceReader?: () => ((flatIndex: number) => number) | null;
 }
 
-/** Stored value → modality value (rescale slope/intercept) for one source image. */
-function modalityLut(imageId: string): (v: number) => number {
+/**
+ * Pixel value → modality value for one source image. The DICOM image loader pre-scales by
+ * default (its pixels already ARE modality values — HU on CT), so the rescale is applied only to
+ * an image the loader did not scale; applying it again read real CT 1024 HU low.
+ */
+function modalityLut(imageId: string, image?: ImageLike): (v: number) => number {
+  if (image?.preScale?.scaled) return (v) => v;
   const m = metaData.get('modalityLutModule', imageId) as { rescaleSlope?: number; rescaleIntercept?: number } | undefined;
   const slope = Number.isFinite(m?.rescaleSlope) ? Number(m?.rescaleSlope) : 1;
   const intercept = Number.isFinite(m?.rescaleIntercept) ? Number(m?.rescaleIntercept) : 0;
@@ -113,6 +118,8 @@ export function stackGridGeometry(planes: SlicePlane[]): { geometry: VoxelGridGe
 
 type ImageLike = {
   referencedImageId?: string;
+  /** Set by the DICOM image loader when it applied the modality LUT to the pixels itself. */
+  preScale?: { scaled?: boolean };
   voxelManager?: { getScalarData?: () => ArrayLike<number>; setAtIndex?: (i: number, v: number) => void };
   getPixelData?: () => { [i: number]: number; length: number };
 };
@@ -166,7 +173,7 @@ function readStack(labelmapImageIds: string[]): Pick<SegmentVoxelGrid, 'geometry
         const ref = img.referencedImageId;
         const src = ref ? (cache.getImage(ref) as ImageLike | undefined) : undefined;
         const px = src?.voxelManager?.getScalarData?.() ?? src?.getPixelData?.();
-        return px && ref ? { px, lut: modalityLut(ref) } : null;
+        return px && ref ? { px, lut: modalityLut(ref, src) } : null;
       });
       if (slices.some((sl) => !sl)) return null;
       return (flatIndex) => {

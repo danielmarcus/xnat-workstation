@@ -18,7 +18,7 @@ Status: open · fixed (commit) · won't fix (reason).
 
 | ID | P | Finding | Source | Status |
 |---|---|---|---|---|
-| X1 | P1 | Stack source reader applies rescale slope/intercept twice (loader pre-scales): every absolute-HU feature reads HU−1024 on real CT — Seeded gate, Level Trace guard, Region clip, module input | review + sweep (HU test, red in all orientations) | open |
+| X1 | P1 | Stack source reader applies rescale slope/intercept twice (loader pre-scales): every absolute-HU feature reads HU−1024 on real CT — Seeded gate, Level Trace guard, Region clip, module input | review + sweep (HU test, red in all orientations) | fixed |
 | X2 | P1 | A pending preview survives switching operation, active segment, container, viewport or scan; the next Commit / ⏎ writes the old preview | review (mask ops 3, 4; interp 14) | open |
 | X3 | P2 | Operations don't check the active viewport shows the active container (wrong plane / slices) | review | open |
 | X4 | P3 | Full-volume copies of every member per mask op, per brush move (Cleanup All smart plan, Interpolate gap table undebounced) | review | open |
