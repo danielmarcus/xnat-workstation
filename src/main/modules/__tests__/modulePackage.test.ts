@@ -34,6 +34,8 @@ describe('manifest', () => {
   });
 
   it('reports every problem, not just the first', () => {
+    // The id is a URL host: a numeric label would make it an IPv4 address (installs, never runs).
+    for (const id of ['org.example.2024', 'com.x.0x1f', '1.2']) expect(validateManifest({ ...MANIFEST, id }).ok, id).toBe(false);
     const r = validateManifest({ ...MANIFEST, id: 'Not An Id', version: '1', entry: '../evil.js', scopes: [] });
     expect(r.ok).toBe(false);
     if (!r.ok) {

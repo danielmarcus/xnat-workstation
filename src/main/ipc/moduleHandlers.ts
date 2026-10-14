@@ -32,7 +32,7 @@ export function currentEdition(): EditionInfo | null {
 }
 
 export function bundledModulesDir(): string {
-  const e2e = process.env.E2E_TESTING === '1' ? process.env.XNAT_E2E_BUNDLED_MODULES : undefined;
+  const e2e = process.env.E2E_TESTING === '1' && !app.isPackaged ? process.env.XNAT_E2E_BUNDLED_MODULES : undefined;
   return e2e || editionPaths(editionDir()).modules;
 }
 

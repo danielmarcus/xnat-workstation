@@ -130,7 +130,7 @@ export function seededDomain(s: SeededSettings, viewportId: string): SeededDomai
 
 export type SeededResult =
   | { ok: true; added: number; readOnly: boolean }
-  | { ok: false; reason: 'no-target' | 'no-viewport' | 'no-seeds' | 'no-roi' | 'no-image' | 'too-large' | 'one-class' | 'no-change' | 'cancelled' | 'failed'; detail?: string };
+  | { ok: false; reason: 'no-target' | 'no-viewport' | 'no-seeds' | 'no-background' | 'no-roi' | 'no-image' | 'too-large' | 'one-class' | 'no-change' | 'cancelled' | 'failed'; detail?: string };
 
 let running: { cancel: () => void } | null = null;
 
@@ -149,8 +149,12 @@ export const solverService = {
 
     // Classes: the binary methods solve the active member (class 0) against everything else;
     // α-expansion solves Background (class 0) and every seeded member.
-    const strokes = strokesOf(t.containerId);
+    // Seeds of a segment that no longer exists are ignored (they made α fail after the solve).
+    const strokes = strokesOf(t.containerId).filter((x) => x.cls === BACKGROUND || t.members.some((m) => m.segmentIndex === x.cls));
     const alpha = s.method === 'alphaExpansion';
+    // α-expansion with no Background seeds has no Background to give any voxel to: it painted
+    // the whole box with the seeded segments.
+    if (alpha && !strokes.some((x) => x.cls === BACKGROUND)) return { ok: false, reason: 'no-background' };
     const memberClasses = alpha ? [...new Set(strokes.map((x) => x.cls).filter((c) => c !== BACKGROUND))].sort((a, b) => a - b) : [t.active];
     const classOf = (cls: number) => (alpha ? (cls === BACKGROUND ? 0 : 1 + memberClasses.indexOf(cls)) : cls === t.active ? 0 : 1);
     const classes = alpha ? 1 + memberClasses.length : 2;
@@ -427,6 +431,7 @@ export function describeSeeded(r: SeededResult): string | null {
     case 'no-viewport': return 'Open the segment’s scan in this viewport';
     case 'no-seeds': return 'Paint seeds of the segment and of the Background (⇧) first';
     case 'one-class': return 'Seed at least two classes (segments or Background)';
+    case 'no-background': return 'Seed the Background too (⇧) — without it every voxel goes to a segment';
     case 'no-roi': return 'Draw an ROI limit on this viewport, or pick another domain';
     case 'no-image': return 'The image under the segment is not available';
     case 'too-large': return r.detail ?? 'Too large to solve — narrow the domain';

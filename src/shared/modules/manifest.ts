@@ -65,7 +65,9 @@ export interface ModuleManifest {
 
 export type ManifestCheck = { ok: true; manifest: ModuleManifest } | { ok: false; errors: string[] };
 
-const ID = /^[a-z0-9]+(\.[a-z0-9][a-z0-9-]*)+$/;
+// The id is the module's URL host (xnat-module://<id>/): a last label that is a number made it an
+// IPv4 address, so such a module installed but could never run. Every label starts with a letter.
+const ID = /^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)+$/;
 const SEMVER = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/;
 const API = /^(\d+)\.(\d+)$/;
 const SAFE_PATH = /^(?!\/)(?!.*\.\.)(?!.*\\)[A-Za-z0-9._/-]+$/;
@@ -104,7 +106,7 @@ export function validateManifest(json: unknown): ManifestCheck {
   const errors: string[] = [];
   if (!isObj(json)) return { ok: false, errors: ['manifest.json: not a JSON object'] };
   const m = json;
-  if (!isStr(m.id, 128) || !ID.test(m.id)) errors.push('id: reverse-DNS in lower case is required (e.g. org.example.my-module)');
+  if (!isStr(m.id, 128) || !ID.test(m.id)) errors.push('id: reverse-DNS in lower case, each part starting with a letter, is required (e.g. org.example.my-module)');
   if (!isStr(m.name, 80)) errors.push('name: required (at most 80 characters)');
   if (!isStr(m.version, 64) || !SEMVER.test(m.version)) errors.push('version: a semantic version is required (e.g. 1.2.0)');
   if (!isStr(m.apiVersion, 16) || !API.test(m.apiVersion)) errors.push('apiVersion: major.minor is required (e.g. 1.0)');

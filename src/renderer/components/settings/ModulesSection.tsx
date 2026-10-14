@@ -24,10 +24,12 @@ export default function ModulesSection() {
     <div
       className={`space-y-4 rounded-lg ${dragging ? 'outline outline-2 outline-blue-500/60' : ''}`}
       data-testid="modules-settings"
-      onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+      // stopPropagation: the app's own drop zone (DICOM files) sits behind the dialog.
+      onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDragging(true); }}
       onDragLeave={() => setDragging(false)}
       onDrop={(e) => {
         e.preventDefault();
+        e.stopPropagation();
         setDragging(false);
         const f = e.dataTransfer.files[0];
         if (f) void m.drop(f);

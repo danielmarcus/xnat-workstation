@@ -310,7 +310,20 @@ export async function runModuleOperation(o: {
     onDone: (committed) => { if (!committed) undoNew(); },
   });
   if (o.commit && !locked && !lockedMember) commitPreview();
-  return { ok: true, added, removed, readOnly: locked || !!lockedMember, table: result.table };
+  return { ok: true, added, removed, readOnly: locked || !!lockedMember, table: cleanTable(result.table) };
+}
+
+/**
+ * A module's result table, as text: a module (a community one included) is not trusted to
+ * return the shape it should — an object in a cell, a row that is not a list, crashed the panel.
+ */
+function cleanTable(t: unknown): { columns: string[]; rows: string[][] } | undefined {
+  const tbl = t as { columns?: unknown; rows?: unknown } | null | undefined;
+  if (!tbl || !Array.isArray(tbl.columns) || !Array.isArray(tbl.rows)) return undefined;
+  const cell = (v: unknown) => (v === null || v === undefined ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v)).slice(0, 200);
+  const columns = tbl.columns.slice(0, 50).map(cell);
+  const rows = tbl.rows.slice(0, 1000).filter(Array.isArray).map((r) => (r as unknown[]).slice(0, columns.length).map(cell));
+  return { columns, rows };
 }
 
 /** Resolves once a just-created member has been rendered on the viewport (or after a while, regardless). */

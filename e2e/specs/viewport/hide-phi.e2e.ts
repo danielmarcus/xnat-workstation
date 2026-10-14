@@ -61,3 +61,18 @@ test('the setting survives a reload', async ({ page }) => {
   await expect(toggle(page)).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByTestId('overlay-field-studyDate:panel_0')).toHaveCount(0);
 });
+
+test('a revealed PHI value is masked again when Hide PHI is switched back on', async ({ page }) => {
+  await viewer(page);
+  await setHidden(page, true);
+  await page.getByRole('button', { name: 'Tags' }).click();
+  const tags = page.getByRole('complementary', { name: 'DICOM tags' }).or(page.locator('[aria-label="DICOM tags"]')).first();
+  const masked = tags.locator('[data-testid^="phi-masked:"]').first();
+  await expect(masked).toBeVisible({ timeout: 10_000 });
+  const key = (await masked.getAttribute('data-testid'))!;
+  await masked.getByRole('button', { name: 'Reveal' }).click();
+  await expect(tags.locator(`[data-testid="${key}"]`)).toHaveCount(0); // shown
+  await setHidden(page, false);
+  await setHidden(page, true);
+  await expect(tags.locator(`[data-testid="${key}"]`), 'masked again').toBeVisible();
+});

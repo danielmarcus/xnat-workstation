@@ -110,6 +110,25 @@ describe('ModuleStore', () => {
     expect(l.status === 'ok' && l.summary.tier).toBe('community');
   });
 
+  it('a broken install folder is listed as refused — the others still list and load', () => {
+    const s = new ModuleStore(tmp());
+    s.install(unsigned('org.example.ok'), { acceptCommunity: true });
+    s.install(unsigned('org.example.broken'), { acceptCommunity: true });
+    const root = (s as unknown as { root: string }).root;
+    fs.rmSync(path.join(root, 'installed', 'org.example.broken', 'files'), { recursive: true, force: true });
+    const listed = Object.fromEntries(s.list().map((l) => [l.status === 'ok' ? l.summary.id : l.id, l.status]));
+    expect(listed).toEqual({ 'org.example.ok': 'ok', 'org.example.broken': 'refused' });
+    expect(s.load('org.example.ok').ok).toBe(true);
+    expect(s.load('org.example.broken').ok).toBe(false);
+  });
+
+  it('with Allow community modules off, installed community modules are listed as refused (not runnable)', () => {
+    const s = new ModuleStore(tmp());
+    s.install(unsigned('org.example.comm'), { acceptCommunity: true });
+    s.setAllowCommunity(false);
+    expect(s.list()[0]).toMatchObject({ status: 'refused', reason: expect.stringMatching(/turned off/) });
+  });
+
   it('a refused package is never installed, with its reason', () => {
     const s = new ModuleStore(tmp());
     const bad = new Map(files('org.example.j'));

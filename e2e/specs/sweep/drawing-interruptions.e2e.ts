@@ -17,6 +17,7 @@ type Hooks = {
   inPlanePagePoint: (panelId: string, dx: number, dy: number) => { x: number; y: number } | null;
   viewportPlane: (panelId: string) => { axis: number; index: number } | null;
   activeSegmentVoxelCount: () => number;
+  selectedIslandCount: () => number;
 };
 const PANEL = 'panel_0';
 const h = <K extends keyof Hooks>(page: Page, k: K, ...a: Parameters<Hooks[K]>) =>
@@ -90,6 +91,7 @@ test('Backspace while drawing a Spline drops a point — it never deletes the se
   await clickTool(toolbox, 'Select');
   const c = await pt(page, 32, 32);
   await page.mouse.click(c.x, c.y);
+  await expect.poll(() => h(page, 'selectedIslandCount'), { message: 'the island is selected — Delete WOULD erase it' }).toBe(1);
   // Draw, then Backspace.
   await startBoundary(page, toolbox, 'Spline');
   await page.keyboard.press('Backspace');

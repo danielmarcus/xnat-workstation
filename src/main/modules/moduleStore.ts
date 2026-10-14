@@ -23,7 +23,7 @@ export type { ModuleListing, ModuleSettings, ModuleSummary, TrustedKey };
 export const BUILTIN_TRUSTED_KEYS: TrustedKey[] = [];
 
 const DEFAULT_SETTINGS: ModuleSettings = { allowCommunity: true, trustedKeys: [], enabled: {} };
-const safeId = (id: string) => /^[a-z0-9]+(\.[a-z0-9][a-z0-9-]*)+$/.test(id);
+const safeId = (id: string) => /^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)+$/.test(id);
 
 function readTree(dir: string): Map<string, Buffer> {
   const out = new Map<string, Buffer>();
@@ -140,7 +140,13 @@ export class ModuleStore {
     } catch {
       return { result: { ok: false, reason: 'The installation record is missing' } };
     }
-    const files = readTree(path.join(dir, 'files'));
+    let files: Map<string, Buffer>;
+    try {
+      files = readTree(path.join(dir, 'files'));
+    } catch (e) {
+      // One broken folder (an interrupted remove, permissions) must not break every listing.
+      return { result: { ok: false, reason: `Its files cannot be read (${e instanceof Error ? e.message : String(e)})` } };
+    }
     const result = checkFiles(files, this.trustedIds());
     if (result.ok && result.digest !== record.digest) {
       return { result: { ok: false, reason: 'Its files were changed after it was installed', manifest: result.manifest } };
@@ -159,6 +165,10 @@ export class ModuleStore {
       for (const id of fs.readdirSync(this.installedDir).filter((d) => !d.startsWith('.')).sort()) {
         if (!safeId(id) || bundled.has(id)) continue;
         const { result } = this.checkInstalled(id);
+        if (result.ok && result.tier === 'community' && !this.settings().allowCommunity) {
+          out.push({ status: 'refused', id, name: result.manifest.name, reason: 'Community modules are turned off (Settings › Modules)', bundled: false });
+          continue;
+        }
         out.push(result.ok ? { status: 'ok', summary: this.summary(result, false) } : { status: 'refused', id, name: result.manifest?.name, reason: result.reason, bundled: false });
       }
     }

@@ -45,7 +45,7 @@ Status: open · fixed (commit) · won't fix (reason).
 
 | ID | P | Finding | Source | Status |
 |---|---|---|---|---|
-| O1 | P1 | Interpolate A → B with All erases segments empty on the anchors | review (interp 2) | open |
+| O1 | P1 | Interpolate A → B with All erases segments empty on the anchors | review (interp 2) | fixed |
 | O2 | P2 | All segments + any locked member → whole op read-only; message names the wrong segment | review (mask ops 6, interp 13) | open |
 | O3 | P2 | Copy into / Magnet bridge refuse a locked *source* | review (mask ops 7) | open |
 | O4 | P2 | Interpolate gap-table row previews the active segment, not the row's | review (mask ops 8, interp 7) | open |
@@ -63,7 +63,7 @@ reference implementations; the defects are in the services around them.
 | ID | P | Finding | Source | Status |
 |---|---|---|---|---|
 | S1 | P1 | A finished solve replaces whatever preview is pending; a Smart Brush release can then commit the solver result unreviewed; closing the sheet doesn't cancel the job | review (solvers 1) | fixed |
-| S2 | P1 | α-expansion with no Background seeds paints the whole box | review (solvers 2, script) | open |
+| S2 | P1 | α-expansion with no Background seeds paints the whole box | review (solvers 2, script) | fixed |
 | S3 | P2 | Seed / Smart Brush / Random Walker brush round in voxels, not mm — ~7× tall on sagittal/coronal of thick-slice data | review (solvers 4) | open |
 | S4 | P2 | Seeds painted in another orientation silently reduced to a few voxels | review (solvers 3) | open |
 | S5 | P2 | Erasing seed points re-bridges the stroke with straight lines | review (solvers 5, script) | open |
@@ -77,7 +77,7 @@ reference implementations; the defects are in the services around them.
 
 | ID | P | Finding | Source | Status |
 |---|---|---|---|---|
-| R1 | P2 | Hide PHI back on doesn't re-mask tags revealed earlier | review (interp 10) | open |
+| R1 | P2 | Hide PHI back on doesn't re-mask tags revealed earlier | review (interp 10) | fixed |
 | R2 | P2 | Imported checkpoint can be deleted by retention at once | review (interp 11) | open |
 | R3 | P2 | Flythrough segment filter leaks between containers | review (interp 9) | open |
 | R4 | P3 | Checkpoint identity: session from last load, label in key, unsafe-name collisions | review (interp 12) | open |
@@ -90,11 +90,11 @@ reference implementations; the defects are in the services around them.
 | M2 | P1 | A crashed / timed-out / quit-killed run never settles (sheet stuck "Running…") | review (modules 2) | fixed |
 | M3 | P1 | Cancel ignored when the module finishes within 2 s; Commit then writes it | review (modules 3) | fixed |
 | M4 | P2 | Results in WebAssembly memory fail (non-transferable buffer) | review (modules 4, reproduced) | open |
-| M5 | P2 | One broken install folder breaks Settings and the catalog | review (modules 8, reproduced) | open |
-| M6 | P2 | Community modules still listed as runnable with Allow community off | review (modules 9) | open |
-| M7 | P2 | Numeric last id label (org.x.2024) installs but can never run | review (modules 10, reproduced) | open |
-| M8 | P2 | Module table not validated — can crash the panel | review (modules 7) | open |
+| M5 | P2 | One broken install folder breaks Settings and the catalog | review (modules 8, reproduced) | fixed |
+| M6 | P2 | Community modules still listed as runnable with Allow community off | review (modules 9) | fixed |
+| M7 | P2 | Numeric last id label (org.x.2024) installs but can never run | review (modules 10, reproduced) | fixed |
+| M8 | P2 | Module table not validated — can crash the panel | review (modules 7) | fixed |
 | M9 | P2 | A run writes into whichever sheet is open; two runs can overlap | review (modules 12) | open |
-| M10 | P2 | Dropping a module on Settings also triggers the DICOM loader | review (modules 13) | open |
-| M11 | P2 | E2E bundled-folder override honoured in packaged builds | review (modules 14) | open |
+| M10 | P2 | Dropping a module on Settings also triggers the DICOM loader | review (modules 13) | fixed |
+| M11 | P2 | E2E bundled-folder override honoured in packaged builds | review (modules 14) | fixed |
 | M12 | P3 | Per-run session / files leak; runs survive a page reload (fixed with M2); new segments stay after undo; stale params after upgrade; unvalidated postSteps; token reuse; signer text unsigned; key id 64-bit only; sync scans | review (modules 5, 6, 15) | open |

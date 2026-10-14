@@ -372,7 +372,9 @@ export const maskOpsService = {
       for (const [a, b] of spans) {
         const A = planeAt(a);
         const B = planeAt(b);
-        if (!A || !B) continue;
+        // Only between slices where this segment IS painted: interpolating toward an empty anchor
+        // (Labels = All, a segment absent on A or B) erased it from every slice in between.
+        if (!A || !B || !A.data.includes(1) || !B.data.includes(1)) continue;
         const targets = o.fill.kind === 'current' ? [where.slice] : Array.from({ length: b - a - 1 }, (_, i) => a + 1 + i);
         for (const k of targets) {
           const image = source ? extractValues(grid.geometry.dimensions, axis, k, source) : undefined;
