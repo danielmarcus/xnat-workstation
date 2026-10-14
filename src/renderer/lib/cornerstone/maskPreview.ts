@@ -311,6 +311,19 @@ function bucketsFor(writes: StagedWrites, dims: ArrayLike<number>, axis: Axis): 
   return buckets;
 }
 
+/**
+ * The staged voxels on grid slice `k` (axis 2): read off the slice's own chunk — bucketing every
+ * staged voxel first cost a pass over all of them (a Volume Cleanup stages millions, O8).
+ */
+function flatsOnGridSlice(writes: StagedWrites, dims: ArrayLike<number>, k: number): number[] | undefined {
+  const c = writes.chunk(k);
+  if (!c) return undefined;
+  const base = k * dims[0] * dims[1];
+  const out: number[] = [];
+  for (let p = 0; p < c.length; p++) if (c[p] !== 0) out.push(base + p);
+  return out;
+}
+
 /** Plane coordinates of a flat index on a slice along `axis`. */
 function planeXY(flat: number, dims: ArrayLike<number>, axis: Axis): [number, number] {
   const nx = dims[0];
@@ -344,7 +357,13 @@ function pathsFor(
     const [cx, cy] = vp.worldToCanvas(indexToWorld(grid.geometry, ijk));
     return `${cx.toFixed(1)} ${cy.toFixed(1)}`;
   };
-  const set = new Set(pixels.map(([x, y]) => `${x},${y}`));
+  // Which plane pixels are in the set, for the boundary test (a bitmap: a string set of a large
+  // preview's pixels cost more than the drawing).
+  const w = grid.geometry.dimensions[ax];
+  const h = grid.geometry.dimensions[ay];
+  const set = new Uint8Array(w * h);
+  for (const [x, y] of pixels) set[x + y * w] = 1;
+  const has = (x: number, y: number) => x >= 0 && y >= 0 && x < w && y < h && set[x + y * w] === 1;
   const rows = new Map<number, number[]>();
   for (const [x, y] of pixels) {
     let r = rows.get(y);
@@ -368,10 +387,10 @@ function pathsFor(
   }
   let outline = '';
   for (const [x, y] of pixels) {
-    if (!set.has(`${x - 1},${y}`)) outline += `M${toCanvas(x - 0.5, y - 0.5)}L${toCanvas(x - 0.5, y + 0.5)}`;
-    if (!set.has(`${x + 1},${y}`)) outline += `M${toCanvas(x + 0.5, y - 0.5)}L${toCanvas(x + 0.5, y + 0.5)}`;
-    if (!set.has(`${x},${y - 1}`)) outline += `M${toCanvas(x - 0.5, y - 0.5)}L${toCanvas(x + 0.5, y - 0.5)}`;
-    if (!set.has(`${x},${y + 1}`)) outline += `M${toCanvas(x - 0.5, y + 0.5)}L${toCanvas(x + 0.5, y + 0.5)}`;
+    if (!has(x - 1, y)) outline += `M${toCanvas(x - 0.5, y - 0.5)}L${toCanvas(x - 0.5, y + 0.5)}`;
+    if (!has(x + 1, y)) outline += `M${toCanvas(x + 0.5, y - 0.5)}L${toCanvas(x + 0.5, y + 0.5)}`;
+    if (!has(x, y - 1)) outline += `M${toCanvas(x - 0.5, y - 0.5)}L${toCanvas(x + 0.5, y - 0.5)}`;
+    if (!has(x, y + 1)) outline += `M${toCanvas(x - 0.5, y + 0.5)}L${toCanvas(x + 0.5, y + 0.5)}`;
   }
   return { fill, outline };
 }
@@ -422,7 +441,9 @@ function render(): void {
       if (!vp || !cam?.viewPlaneNormal || !cam.focalPoint) continue;
       const axis = sliceAxisFor(grid.geometry.direction, cam.viewPlaneNormal) as Axis;
       const slice = worldToIndex(grid.geometry, cam.focalPoint as Vec3)[axis];
-      const flats = bucketsFor(writes, grid.geometry.dimensions, axis).get(slice);
+      const flats = axis === 2
+        ? flatsOnGridSlice(writes, grid.geometry.dimensions, slice)
+        : bucketsFor(writes, grid.geometry.dimensions, axis).get(slice);
       const svg = overlayFor(vp);
       if (!flats?.length) continue;
 

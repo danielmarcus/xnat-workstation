@@ -25,7 +25,16 @@ function withoutLockedWhenSeveral(indices: number[], segments: Array<{ segmentIn
 }
 import { sliceAxisFor, viewAlignedWithGrid } from './maskIslands';
 import { worldToIndex, type Vec3 } from './segmentationService/voxelClipboard';
-import { commitPreview, startPreview } from './maskPreview';
+import { commitPreview, discardPreview, startPreview } from './maskPreview';
+import { eventTarget } from '@cornerstonejs/core';
+import { Enums as csToolsEnums } from '@cornerstonejs/tools';
+import { cleanupComputeClient, ComputeCancelled, type ComputeJob } from '../compute/computeClient';
+import { applyCleanupJob, cleanupTransfer, gatherCleanupJob, type CleanupAction, type CleanupJobOutput } from '../segmentation/maskOps/cleanupJob';
+import { hotkeyService } from '../hotkeys/hotkeyService';
+import { useComputeStore } from '../../stores/computeStore';
+import { useMaskPreviewStore } from '../../stores/maskPreviewStore';
+import { useOperationSheetStore } from '../../stores/operationSheetStore';
+import { showToast } from '../../stores/toastStore';
 import { sliceNumbering } from './sliceNumbering';
 import { cleanupOp, defaultParams, type ParamValues } from '../segmentation/maskOps/catalog';
 import { INTERPOLATORS, findGaps, type InterpolationMethod } from '../segmentation/interpolation/interpolate';
@@ -86,6 +95,130 @@ function summarize(added: number, removed: number, slices: number[]): string {
   return parts.join(' · ');
 }
 
+export interface CleanupOptions {
+  viewportId?: string;
+  onDone?: (committed: boolean) => void;
+  commit?: boolean;
+  targetSegmentIndex?: number;
+  /** Smart Cleanup: the reviewed action per segment index ('skip' or an op id). */
+  plan?: Record<number, string>;
+  /** Parameters for plan actions other than `opId` (defaults otherwise). */
+  planParams?: Record<string, ParamValues>;
+}
+
+/**
+ * Which runs go to the Cleanup worker (O8, #97): every Volume run, and a Range of at least
+ * WORKER_MIN_SLICES slices. A Slice run (and a short Range) stays on this thread — a slice
+ * costs milliseconds, about what gathering and posting it would — and so do the two-segment
+ * operations, which copy planes rather than compute on them.
+ */
+export const WORKER_MIN_SLICES = 8;
+
+export function cleanupRunsInWorker(opId: string, scope: ServiceScope): boolean {
+  if (!cleanupOp(opId)?.run) return false;
+  if (scope.slices.kind === 'volume') return true;
+  return scope.slices.kind === 'range' && Math.abs(scope.slices.to - scope.slices.from) + 1 >= WORKER_MIN_SLICES;
+}
+
+/** A run that ended without a preview: `cancelled` (the user, or the context moved on) is silent; `stale` and `failed` are reported. */
+export type CleanupRunResult = RunResult | { ok: false; reason: 'cancelled' | 'stale' | 'failed'; member?: undefined };
+
+/** Everything a Cleanup run needs, resolved from the panel's active target and the viewport. */
+function prepareCleanup(opId: string, params: ParamValues, scope: ServiceScope, opts: CleanupOptions) {
+  const op = cleanupOp(opId);
+  if (!op?.run) return { ok: false as const, reason: 'unknown-op' as const };
+  const seg = useSegmentationStore.getState();
+  const containerId = seg.activeSegmentationId;
+  const active = seg.activeSegmentIndex;
+  const summary = seg.segmentations.find((s) => s.segmentationId === containerId);
+  if (!containerId || !summary || !(active > 0)) return { ok: false as const, reason: 'no-target' as const };
+  const viewportId = opts.viewportId ?? useViewerStore.getState().activeViewportId;
+  if (!viewportId) return { ok: false as const, reason: 'no-viewport' as const };
+
+  const allIndices = summary.segments.map((s) => s.segmentIndex);
+  const allMembers: MemberRef[] = allIndices.map((segmentIndex) => ({ containerId, segmentIndex }));
+  const plan = opts.plan;
+  const members: MemberRef[] = withoutLockedWhenSeveral(resolveLabels(scope.labels, active, allIndices)
+    .filter((i) => !plan || (plan[i] && plan[i] !== 'skip')), summary.segments)
+    .map((segmentIndex) => ({ containerId, segmentIndex }));
+  if (members.length === 0) return { ok: false as const, reason: 'no-target' as const };
+  const isMember = (i: number) => members.some((m) => m.segmentIndex === i);
+  const lockedOthers: MemberRef[] = summary.segments
+    .filter((m) => m.locked && !isMember(m.segmentIndex))
+    .map((m) => ({ containerId, segmentIndex: m.segmentIndex }));
+  // An operation that claims neighbours' pixels (Snake refine, #201) writes the unlocked ones too.
+  const claims = !plan && !!op.claims?.(params);
+  const writers = claims
+    ? [...members, ...allMembers.filter((m) => !isMember(m.segmentIndex) && !lockedOthers.some((l) => l.segmentIndex === m.segmentIndex))]
+    : members;
+
+  // A locked target can still be previewed (read-only); it can never be committed.
+  let lockedMember: MemberRef | null = null;
+  let begun = beginTransaction(writers);
+  if (!begun.ok && begun.reason === 'locked') {
+    lockedMember = begun.member;
+    begun = beginTransaction(writers, undefined, { allowLocked: true });
+  }
+  if (!begun.ok) return { ok: false as const, reason: begun.reason, member: begun.member };
+  const { txn } = begun;
+  const grid = txn.grid(members[0]);
+  // Only a viewport showing the segment has "the slice on screen" in its grid (#91).
+  if (grid && !viewportShowsSegmentation(viewportId, grid)) { txn.discard(); return { ok: false as const, reason: 'no-viewport' as const }; }
+  if (grid && scope.slices.kind !== 'volume' && !viewAligned(viewportId, grid.geometry)) { txn.discard(); return { ok: false as const, reason: 'oblique-view' as const }; }
+  const where = grid ? viewportSlice(viewportId, grid.geometry) : null;
+  if (!grid || !where) {
+    txn.discard();
+    return { ok: false as const, reason: 'no-viewport' as const };
+  }
+  const numbering = sliceNumbering(viewportId, grid.geometry, where.axis);
+  const gridScope = scope.slices.kind === 'range' && numbering
+    ? { kind: 'range' as const, from: numbering.toGrid(scope.slices.from), to: numbering.toGrid(scope.slices.to) }
+    : scope.slices;
+  const slices = resolveSlices(gridScope, sliceCount(grid.geometry.dimensions, where.axis), where.slice);
+
+  // Per-segment actions (Smart Cleanup) or the one op for every member.
+  const actionOf = (segmentIndex: number) => {
+    const id = plan?.[segmentIndex] ?? opId;
+    const o = cleanupOp(id);
+    return o?.run ? { id, o, p: id === opId ? params : { ...defaultParams(o), ...opts.planParams?.[id] } } : null;
+  };
+  const needsImage = members.some((m) => actionOf(m.segmentIndex)?.o.usesImage);
+  const source = needsImage ? grid.sourceReader?.() ?? null : null;
+  if (needsImage && !source) console.warn('[maskOpsService] source image unavailable; running', opId, 'without image guidance');
+  return {
+    ok: true as const,
+    txn, grid, where, numbering, slices, members, allMembers, lockedOthers, lockedMember, viewportId, actionOf,
+    label: plan ? `Smart cleanup · ${op.label}` : op.label,
+    readImage: source ? (s: number) => extractValues(grid.geometry.dimensions, where.axis, s, source) : undefined,
+    roi: roiPlaneMask(useSemiAutoStore.getState().roi, viewportId, grid.geometry, where.axis),
+  };
+}
+
+/** Where a worker Cleanup's progress bar hands over from the worker to staging its result. */
+const APPLY_FROM = 0.8;
+
+/** The running worker Cleanup, if any: a new one replaces it. */
+let cleanupRun: { stop: (why: 'cancelled' | 'stale') => void } | null = null;
+
+/**
+ * What a worker Cleanup's result belongs to (X2): the active container, segment and viewport,
+ * the scan in that viewport, the operation open, the members and their locks, and the ROI —
+ * plus what the caller adds (the operation, its parameters and scope).
+ */
+function cleanupContext(viewportId: string, extra?: () => string): string {
+  const seg = useSegmentationStore.getState();
+  const viewer = useViewerStore.getState();
+  const container = seg.segmentations.find((s) => s.segmentationId === seg.activeSegmentationId);
+  return JSON.stringify([
+    seg.activeSegmentationId, seg.activeSegmentIndex, viewer.activeViewportId,
+    viewer.panelScanMap[viewportId] ?? null, viewer.panelImageIdsMap[viewportId]?.[0] ?? null,
+    useOperationSheetStore.getState().openSheet,
+    container?.segments.map((m) => `${m.segmentIndex}${m.locked ? 'L' : ''}`) ?? null,
+    useSemiAutoStore.getState().roi ?? null,
+    extra?.() ?? null,
+  ]);
+}
+
 export const maskOpsService = {
   /**
    * Stage `opId` over `scope` on the active container and show it as a preview on
@@ -95,91 +228,27 @@ export const maskOpsService = {
     opId: string,
     params: ParamValues,
     scope: ServiceScope,
-    opts: {
-      viewportId?: string;
-      onDone?: (committed: boolean) => void;
-      commit?: boolean;
-      targetSegmentIndex?: number;
-      /** Smart Cleanup: the reviewed action per segment index ('skip' or an op id). */
-      plan?: Record<number, string>;
-      /** Parameters for plan actions other than `opId` (defaults otherwise). */
-      planParams?: Record<string, ParamValues>;
-    } = {},
+    opts: CleanupOptions = {},
   ): RunResult {
     const op = cleanupOp(opId);
     if (!op) return { ok: false, reason: 'unknown-op' };
     if (op.runPair) return maskOpsService.previewPair(opId, params, scope, opts);
-    const seg = useSegmentationStore.getState();
-    const containerId = seg.activeSegmentationId;
-    const active = seg.activeSegmentIndex;
-    const summary = seg.segmentations.find((s) => s.segmentationId === containerId);
-    if (!containerId || !summary || !(active > 0)) return { ok: false, reason: 'no-target' };
-    const viewportId = opts.viewportId ?? useViewerStore.getState().activeViewportId;
-    if (!viewportId) return { ok: false, reason: 'no-viewport' };
-
-    const allIndices = summary.segments.map((s) => s.segmentIndex);
-    const allMembers: MemberRef[] = allIndices.map((segmentIndex) => ({ containerId, segmentIndex }));
-    const plan = opts.plan;
-    const members: MemberRef[] = withoutLockedWhenSeveral(resolveLabels(scope.labels, active, allIndices)
-      .filter((i) => !plan || (plan[i] && plan[i] !== 'skip')), summary.segments)
-      .map((segmentIndex) => ({ containerId, segmentIndex }));
-    if (members.length === 0) return { ok: false, reason: 'no-target' };
-    const isMember = (i: number) => members.some((m) => m.segmentIndex === i);
-    const lockedOthers: MemberRef[] = summary.segments
-      .filter((m) => m.locked && !isMember(m.segmentIndex))
-      .map((m) => ({ containerId, segmentIndex: m.segmentIndex }));
-    // An operation that claims neighbours' pixels (Snake refine, #201) writes the unlocked ones too.
-    const claims = !plan && !!op.claims?.(params);
-    const writers = claims
-      ? [...members, ...allMembers.filter((m) => !isMember(m.segmentIndex) && !lockedOthers.some((l) => l.segmentIndex === m.segmentIndex))]
-      : members;
-
-    // A locked target can still be previewed (read-only); it can never be committed.
-    let lockedMember: MemberRef | null = null;
-    let begun = beginTransaction(writers);
-    if (!begun.ok && begun.reason === 'locked') {
-      lockedMember = begun.member;
-      begun = beginTransaction(writers, undefined, { allowLocked: true });
-    }
-    if (!begun.ok) return { ok: false, reason: begun.reason, member: begun.member };
-    const { txn } = begun;
-    const grid = txn.grid(members[0]);
-    // Only a viewport showing the segment has "the slice on screen" in its grid (#91).
-    if (grid && !viewportShowsSegmentation(viewportId, grid)) { txn.discard(); return { ok: false, reason: 'no-viewport' }; }
-    if (grid && scope.slices.kind !== 'volume' && !viewAligned(viewportId, grid.geometry)) { txn.discard(); return { ok: false, reason: 'oblique-view' }; }
-    const where = grid ? viewportSlice(viewportId, grid.geometry) : null;
-    if (!grid || !where) {
-      txn.discard();
-      return { ok: false, reason: 'no-viewport' };
-    }
-    const numbering = sliceNumbering(viewportId, grid.geometry, where.axis);
-    const gridScope = scope.slices.kind === 'range' && numbering
-      ? { kind: 'range' as const, from: numbering.toGrid(scope.slices.from), to: numbering.toGrid(scope.slices.to) }
-      : scope.slices;
-    const slices = resolveSlices(gridScope, sliceCount(grid.geometry.dimensions, where.axis), where.slice);
-
-    // Per-segment actions (Smart Cleanup) or the one op for every member.
-    const actionOf = (segmentIndex: number) => {
-      const id = plan?.[segmentIndex] ?? opId;
-      const o = cleanupOp(id);
-      return o?.run ? { o, p: id === opId ? params : { ...defaultParams(o), ...opts.planParams?.[id] } } : null;
-    };
-    const needsImage = members.some((m) => actionOf(m.segmentIndex)?.o.usesImage);
-    const source = needsImage ? grid.sourceReader?.() ?? null : null;
-    if (needsImage && !source) console.warn('[maskOpsService] source image unavailable; running', opId, 'without image guidance');
+    const prep = prepareCleanup(opId, params, scope, opts);
+    if (!prep.ok) return prep;
+    const { txn, where, numbering, actionOf } = prep;
     const result = runPlaneOp({
       txn,
-      members,
-      allMembers,
-      lockedMembers: lockedOthers,
+      members: prep.members,
+      allMembers: prep.allMembers,
+      lockedMembers: prep.lockedOthers,
       axis: where.axis,
-      slices,
+      slices: prep.slices,
       op: (plane, ctx) => {
         const a = actionOf(ctx.member.segmentIndex);
         return a ? a.o.run!(plane, ctx, a.p) : plane;
       },
-      readImage: source ? (s) => extractValues(grid.geometry.dimensions, where.axis, s, source) : undefined,
-      roi: roiPlaneMask(useSemiAutoStore.getState().roi, viewportId, grid.geometry, where.axis),
+      readImage: prep.readImage,
+      roi: prep.roi,
       // Every Cleanup operation leaves an empty plane empty (catalog.test holds it): a Volume
       // run skips the slices a member is not on.
       skipEmpty: true,
@@ -191,14 +260,139 @@ export const maskOpsService = {
     const shown = result.changedSlices.map((k) => numbering?.toDisplay(k) ?? k);
     startPreview({
       txn,
-      label: plan ? `Smart cleanup · ${op.label}` : op.label,
+      label: prep.label,
       summary: summarize(result.added, result.removed, shown),
-      viewportId,
+      viewportId: prep.viewportId,
       onDone: opts.onDone,
-      lockedMember,
+      lockedMember: prep.lockedMember,
     });
-    const committed = !!opts.commit && !lockedMember && commitPreview();
-    return { ok: true, added: result.added, removed: result.removed, slices: result.changedSlices, readOnly: !!lockedMember, committed };
+    const committed = !!opts.commit && !prep.lockedMember && commitPreview();
+    return { ok: true, added: result.added, removed: result.removed, slices: result.changedSlices, readOnly: !!prep.lockedMember, committed };
+  },
+
+  /**
+   * previewCleanup on the Cleanup worker (O8, #97) — what the sheet runs when
+   * `cleanupRunsInWorker`: this thread gathers the planes in scope (handing the thread back as
+   * it goes), the worker computes, and the result is staged and previewed exactly as
+   * previewCleanup's would be (⏎ commits it as one undo step). Progress and Cancel show in the
+   * viewport's preview-bar slot, as a solve's do; ⎋ cancels too. A new run cancels this one.
+   *
+   * The result is dropped — never shown or committed — if anything it was made for changes
+   * meanwhile (`cleanupContext`, plus `opts.context` from the caller): silently, as a cancel.
+   * An EDIT of the segmentation meanwhile drops it too, and the operation says why (the
+   * stale-preview notice): it was computed from voxels that are no longer there.
+   */
+  async runCleanupInWorker(
+    opId: string,
+    params: ParamValues,
+    scope: ServiceScope,
+    opts: CleanupOptions & { context?: () => string } = {},
+  ): Promise<CleanupRunResult> {
+    cleanupRun?.stop('cancelled');
+    discardPreview();
+    const prep = prepareCleanup(opId, params, scope, opts);
+    if (!prep.ok) return prep;
+    const { txn, where, numbering, viewportId } = prep;
+    let state: 'running' | 'cancelled' | 'stale' = 'running';
+    let job: ComputeJob<CleanupJobOutput> | null = null;
+    const stop = (why: 'cancelled' | 'stale') => {
+      if (state !== 'running') return;
+      state = why;
+      job?.cancel();
+    };
+    const run = { stop };
+    cleanupRun = run;
+    const jobId = useComputeStore.getState().start(prep.label, viewportId, () => stop('cancelled'), 'cleanup');
+    const removeKeys = hotkeyService.pushKeyLayer({
+      onKeyDown: (e) => {
+        if (e.key !== 'Escape' || e.ctrlKey || e.metaKey || e.altKey) return false;
+        stop('cancelled');
+        return true;
+      },
+    });
+    const context = cleanupContext(viewportId, opts.context);
+    const check = () => { if (cleanupContext(viewportId, opts.context) !== context) stop('cancelled'); };
+    const unsubscribe = [useSegmentationStore, useViewerStore, useOperationSheetStore, useSemiAutoStore].map((s) => s.subscribe(check));
+    const segIds = new Set(prep.allMembers.map((m) => txn.grid(m)?.csSegmentationId).filter((id): id is string => !!id));
+    const onEdit = ((evt: CustomEvent) => {
+      const id = (evt.detail as { segmentationId?: string } | undefined)?.segmentationId;
+      if (id && segIds.has(id)) stop('stale');
+    }) as EventListener;
+    eventTarget.addEventListener(csToolsEnums.Events.SEGMENTATION_DATA_MODIFIED, onEdit);
+    // Hand the thread back every few milliseconds while gathering and applying.
+    let since = performance.now();
+    const pause = async () => {
+      if (performance.now() - since > 8) {
+        await new Promise((r) => setTimeout(r, 0));
+        since = performance.now();
+      }
+      return state === 'running';
+    };
+    let shown = false;
+    const ended = (): CleanupRunResult => {
+      if (state === 'stale') {
+        useMaskPreviewStore.setState({ discardedStale: true });
+        return { ok: false, reason: 'stale' };
+      }
+      return { ok: false, reason: 'cancelled' };
+    };
+    try {
+      const actions: Record<number, CleanupAction> = {};
+      for (const m of prep.members) {
+        const a = prep.actionOf(m.segmentIndex);
+        if (a) actions[m.segmentIndex] = { opId: a.id, params: a.p };
+      }
+      const input = await gatherCleanupJob(txn, {
+        axis: where.axis, members: prep.members, allMembers: prep.allMembers, lockedMembers: prep.lockedOthers,
+        actions, slices: prep.slices, roi: prep.roi, readImage: prep.readImage,
+      }, pause);
+      if (input === 'stopped' || state !== 'running') return ended();
+      if (!input) return { ok: false, reason: 'no-change' };
+      const window = input.window;
+      job = cleanupComputeClient.run('cleanupVolume', input, {
+        // The worker's slices, then staging the result here (a large result takes a while).
+        onProgress: (f) => useComputeStore.getState().progress(APPLY_FROM * f, jobId),
+        transfer: cleanupTransfer(input),
+      });
+      const out = await job.result;
+      if (state !== 'running') return ended();
+      if (out.added + out.removed === 0) return { ok: false, reason: 'no-change' };
+      const staged = await applyCleanupJob(txn, where.axis, { window, allMembers: prep.allMembers }, out, pause,
+        (f) => useComputeStore.getState().progress(APPLY_FROM + (1 - APPLY_FROM) * f, jobId));
+      if (!staged) return ended();
+      // The labelmap's scan is still in the viewport (the context covers the rest).
+      if (!viewportShowsSegmentation(viewportId, prep.grid)) return { ok: false, reason: 'cancelled' };
+      removeKeys();
+      useComputeStore.getState().end(jobId);
+      shown = startPreview({
+        txn,
+        label: prep.label,
+        summary: summarize(out.added, out.removed, out.changedSlices.map((k) => numbering?.toDisplay(k) ?? k)),
+        viewportId,
+        onDone: opts.onDone,
+        lockedMember: prep.lockedMember,
+      });
+      if (!shown) return { ok: false, reason: 'cancelled' };
+      const committed = !!opts.commit && !prep.lockedMember && commitPreview();
+      return { ok: true, added: out.added, removed: out.removed, slices: out.changedSlices, readOnly: !!prep.lockedMember, committed };
+    } catch (e) {
+      if (e instanceof ComputeCancelled || state !== 'running') return ended();
+      console.warn('[maskOpsService] cleanup worker failed:', e);
+      showToast(`${prep.label} failed: ${e instanceof Error ? e.message : String(e)}`, 'error');
+      return { ok: false, reason: 'failed' };
+    } finally {
+      if (!shown) txn.discard();
+      unsubscribe.forEach((u) => u());
+      eventTarget.removeEventListener(csToolsEnums.Events.SEGMENTATION_DATA_MODIFIED, onEdit);
+      removeKeys();
+      useComputeStore.getState().end(jobId);
+      if (cleanupRun === run) cleanupRun = null;
+    }
+  },
+
+  /** Cancel the running worker Cleanup, if any. */
+  cancelCleanup(): void {
+    cleanupRun?.stop('cancelled');
   },
 
   /**

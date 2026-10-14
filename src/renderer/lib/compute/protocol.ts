@@ -11,6 +11,7 @@ import { buildQcSurfaces, type QcBuildInput, type QcBuildOutput } from '../segme
 import { runSeededSolve, type SeededSolveInput, type SeededSolveOutput } from '../segmentation/solvers/seeded';
 import { regionCompetition, type RegionCompetitionOptions } from '../segmentation/solvers/regionCompetition';
 import type { Dims, Spacing } from '../segmentation/solvers/volume';
+import { cleanupTransfer, runCleanupJob, type CleanupJobInput, type CleanupJobOutput } from '../segmentation/maskOps/cleanupJob';
 
 /** Region competition (branch 5, G5): a label map evolved over a box; `movable` labels may change. */
 export interface RegionCompetitionInput {
@@ -28,6 +29,8 @@ export interface ComputeAlgorithms {
   /** Branch 5: Fast GrowCut, Graph Cut and α-expansion (null = not enough seeds). */
   seededSolve: { input: SeededSolveInput; output: SeededSolveOutput | null };
   regionCompetition: { input: RegionCompetitionInput; output: Uint8Array };
+  /** A Volume Cleanup (O8, #97) — run on the Cleanup worker of its own (cleanupComputeClient). */
+  cleanupVolume: { input: CleanupJobInput; output: CleanupJobOutput };
 }
 export type ComputeName = keyof ComputeAlgorithms;
 
@@ -58,6 +61,10 @@ const ALGORITHMS: { [N in ComputeName]: (input: ComputeAlgorithms[N]['input'], p
   regionCompetition: (input, progress) => {
     const output = regionCompetition(input.image, input.dims, input.spacing, input.initial, { ...input.options, movable: new Set(input.movable), onProgress: progress });
     return { output, transfer: [output.buffer] };
+  },
+  cleanupVolume: (input, progress) => {
+    const output = runCleanupJob(input, progress);
+    return { output, transfer: cleanupTransfer(output) };
   },
   qcSurfaces: (input, progress) => {
     const output = buildQcSurfaces(input, progress);

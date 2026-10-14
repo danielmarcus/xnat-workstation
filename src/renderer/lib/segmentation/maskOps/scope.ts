@@ -106,36 +106,72 @@ export interface RunPlaneOpResult {
  * re-read per member, twice: an "All" run cost members² plane reads per slice).
  */
 export function runPlaneOp(o: RunPlaneOpOptions): RunPlaneOpResult {
+  const { txn, axis } = o;
+  return runPlaneOpOn({
+    size: (m) => {
+      const grid = txn.grid(m);
+      return grid ? { spacing: planeSpacing(grid.geometry.spacing, axis), ...planeSize(grid.geometry.dimensions, axis) } : null;
+    },
+    any: (m, slice) => txn.anyOnPlane(m, axis, slice),
+    read: (m, slice) => txn.readPlane(m, axis, slice),
+    apply: (m, slice, after, opts) => txn.applyPlane(m, axis, slice, after, opts),
+  }, o);
+}
+
+/**
+ * Where `runPlaneOpOn` reads and writes member planes: a labelmap transaction (runPlaneOp), or
+ * the planes a Volume Cleanup gathered from one and sent to the Cleanup worker (O8,
+ * cleanupJob.ts). One runner for both, so the worker computes exactly what this thread would.
+ */
+export interface PlaneStore {
+  /** The member's plane size and spacing; null when it has no labelmap. */
+  size(member: MemberRef): { width: number; height: number; spacing: PlaneSpacing } | null;
+  any(member: MemberRef, slice: number): boolean;
+  read(member: MemberRef, slice: number): MaskPlane | null;
+  /** LabelmapTransaction.applyPlane's contract: gains are skipped where `blocked` or outside `roi`, losses outside `roi`. */
+  apply(
+    member: MemberRef,
+    slice: number,
+    after: MaskPlane,
+    opts: { blocked?: ArrayLike<number>; roi?: ArrayLike<number>; current?: MaskPlane },
+  ): { added: number; removed: number };
+}
+
+/** runPlaneOp over any plane store; `onSlice` reports each slice done (the worker's progress). */
+export function runPlaneOpOn(
+  store: PlaneStore,
+  o: Omit<RunPlaneOpOptions, 'txn' | 'axis'> & { onSlice?: (done: number, total: number) => void },
+): RunPlaneOpResult {
   const keyOf = (m: MemberRef) => `${m.containerId}|${m.segmentIndex}`;
   let added = 0;
   let removed = 0;
   const changed = new Set<number>();
   const locked = new Set((o.lockedMembers ?? []).map(keyOf));
   const runs = o.members.flatMap((member) => {
-    const grid = o.txn.grid(member);
-    if (!grid) return [];
+    const size = store.size(member);
+    if (!size) return [];
     const others = o.allMembers.filter((m) => keyOf(m) !== keyOf(member));
     return [{
       member,
-      spacing: planeSpacing(grid.geometry.spacing, o.axis),
-      ...planeSize(grid.geometry.dimensions, o.axis),
+      ...size,
       others,
       lockedOthers: others.filter((m) => locked.has(keyOf(m))),
     }];
   });
+  let done = 0;
   for (const slice of o.slices) {
     // This slice's planes, read once (an empty one not at all) and dropped after any write to the slice.
     const planes = new Map<string, { any: boolean; p?: MaskPlane | null }>();
     const entry = (m: MemberRef) => {
       const k = keyOf(m);
       let e = planes.get(k);
-      if (!e) planes.set(k, (e = { any: o.txn.anyOnPlane(m, o.axis, slice) }));
+      if (!e) planes.set(k, (e = { any: store.any(m, slice) }));
       return e;
     };
     const has = (m: MemberRef) => entry(m).any;
     const plane = (m: MemberRef) => {
       const e = entry(m);
-      if (e.p === undefined) e.p = o.txn.readPlane(m, o.axis, slice);
+      if (e.p === undefined) e.p = store.read(m, slice);
       return e.p;
     };
     const union = (members: MemberRef[], width: number, height: number) => {
@@ -169,7 +205,7 @@ export function runPlaneOp(o: RunPlaneOpOptions): RunPlaneOpResult {
           if (!p) continue;
           const next = Uint8Array.from(p.data, (v, i) => (v && claimed[i] && (!o.roi || o.roi[i]) ? 0 : v));
           if (next.some((v, i) => v !== p.data[i])) {
-            removed += o.txn.applyPlane(m, o.axis, slice, { ...p, data: next }).removed;
+            removed += store.apply(m, slice, { ...p, data: next }, {}).removed;
             planes.clear(); // a shared labelmap: one write can change several members
             claimedAny = true;
           }
@@ -177,7 +213,7 @@ export function runPlaneOp(o: RunPlaneOpOptions): RunPlaneOpResult {
       }
       const blocked = o.allowTakeover ? undefined : claimedAny ? union(others, width, height) : otherPx;
       // Claims only clear OTHER members' pixels, so `before` is still the member's plane.
-      const r = o.txn.applyPlane(member, o.axis, slice, after, { blocked, roi: o.roi, current: before });
+      const r = store.apply(member, slice, after, { blocked, roi: o.roi, current: before });
       added += r.added;
       removed += r.removed;
       if (r.added || r.removed) {
@@ -185,6 +221,7 @@ export function runPlaneOp(o: RunPlaneOpOptions): RunPlaneOpResult {
         planes.clear();
       }
     }
+    o.onSlice?.(++done, o.slices.length);
   }
   return { added, removed, changedSlices: [...changed].sort((a, b) => a - b) };
 }
