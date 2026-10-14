@@ -10,7 +10,10 @@ const h = vi.hoisted(() => {
   type Filter = (d: { url: string; webContentsId?: number }, cb: (r: { cancel: boolean }) => void) => void;
   const sessions: Array<{ partition: string; handler: Handler | null; filter: Filter | null; cleared: string[] }> = [];
   const windows: Array<{ url: string; webContents: { id: number } }> = [];
-  const crash = { onLoad: false };
+  // 'event-first': Electron reports the crash, then the load fails. 'load-first': the load
+  // fails while the crash is not reported yet — only isCrashed() knows (what the app sees).
+  // 'event-later': the load fails, isCrashed() is still false, the report follows shortly.
+  const crash = { onLoad: null as null | 'event-first' | 'load-first' | 'event-later' };
   let nextId = 100;
   const fromPartition = (partition: string) => {
     const s = { partition, handler: null as Handler | null, filter: null as Filter | null, cleared: [] as string[] };
@@ -33,13 +36,14 @@ const h = vi.hoisted(() => {
       setWebRTCIPHandlingPolicy: () => {},
       on: (ev: string, f: (...a: unknown[]) => void) => { this.listeners.set(ev, f); },
       postMessage: () => {},
+      isCrashed: () => crash.onLoad === 'event-first' || crash.onLoad === 'load-first',
     };
     constructor() { windows.push(this); }
     async loadURL(u: string) {
       this.url = u;
       if (crash.onLoad) {
-        // The process dies while the page loads: Electron reports the crash, then the load fails.
-        this.listeners.get('render-process-gone')?.({}, { reason: 'killed' });
+        if (crash.onLoad === 'event-first') this.listeners.get('render-process-gone')?.({}, { reason: 'killed' });
+        if (crash.onLoad === 'event-later') setTimeout(() => this.listeners.get('render-process-gone')?.({}, { reason: 'killed' }), 50);
         throw new Error("ERR_FAILED (-2) loading '" + u + "'");
       }
     }
@@ -118,14 +122,14 @@ describe('module runs (#103 item 1)', () => {
 });
 
 describe('a run whose process dies while it loads', () => {
-  it('reports that the process ended, not that the load failed', async () => {
-    h.crash.onLoad = true;
+  it.each(['event-first', 'load-first', 'event-later'] as const)('reports that the process ended, not that the load failed (%s)', async (order) => {
+    h.crash.onLoad = order;
     try {
       const r = await startModuleRun(sender(), 'org.example.a');
       expect(r.ok).toBe(false);
-      if (!r.ok) expect(r.reason).toMatch(/^The module stopped: the module's process ended \(killed\)$/);
+      if (!r.ok) expect(r.reason).toMatch(/^The module stopped: the module's process ended/);
     } finally {
-      h.crash.onLoad = false;
+      h.crash.onLoad = null;
     }
   });
 });
