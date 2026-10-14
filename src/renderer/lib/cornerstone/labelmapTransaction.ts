@@ -199,8 +199,21 @@ export class LabelmapTransaction {
     if (!g) return null;
     const dims = g.geometry.dimensions;
     const { width, height } = planeSize(dims, axis);
+    const data = new Uint8Array(width * height);
+    if (axis === 2) {
+      // A grid slice is one labelmap image: read its pixels and the slice's staged chunk
+      // directly — never the rest of the grid (X4).
+      const live = g.slice?.(slice) ?? null;
+      const staged = this.staged.get(g.csSegmentationId)?.writes.chunk(slice);
+      const base = slice * data.length;
+      for (let p = 0; p < data.length; p++) {
+        const s = staged ? staged[p] : 0;
+        const v = s !== 0 ? s - 1 : live ? live[p] : voxelAt(g, base + p);
+        if (v === g.value) data[p] = 1;
+      }
+      return { width, height, data };
+    }
     const idx = sliceIndices(dims, axis, slice);
-    const data = new Uint8Array(idx.length);
     for (let p = 0; p < idx.length; p++) if (this.raw(g, idx[p]) === g.value) data[p] = 1;
     return { width, height, data };
   }
@@ -218,13 +231,14 @@ export class LabelmapTransaction {
     opts: { blocked?: ArrayLike<number>; roi?: ArrayLike<number> } = {},
   ): { added: number; removed: number } {
     const g = this.grid(member);
-    if (!g) return { added: 0, removed: 0 };
+    const current = g && this.readPlane(member, axis, slice);
+    if (!g || !current) return { added: 0, removed: 0 };
     const idx = sliceIndices(g.geometry.dimensions, axis, slice);
     let added = 0;
     let removed = 0;
     for (let p = 0; p < idx.length; p++) {
       if (opts.roi && !opts.roi[p]) continue;
-      const had = this.raw(g, idx[p]) === g.value;
+      const had = current.data[p] === 1;
       const want = after.data[p] === 1;
       if (had === want) continue;
       if (want) {
@@ -410,22 +424,27 @@ export interface DirectEdit {
 
 export function beginDirectEdit(member: MemberRef, deps: TransactionDeps = defaultDeps): DirectEdit | null {
   const locked = deps.isLocked(member.containerId, member.segmentIndex);
-  const begun = beginTransaction([member], deps, { allowLocked: true });
-  if (!begun.ok) return null;
-  const { txn } = begun;
-  const before = txn.grid(member);
-  if (!before) return null;
+  const live = deps.readGrid(member.containerId, member.segmentIndex);
+  if (!live) return null;
+  // The edit is staged against a SNAPSHOT of the member taken now (a stack is copied on this
+  // first read of `data`), so commit records what the tool changed as old -> new; reads through
+  // `at` would see the tool's writes and stage nothing.
+  const beforeData = live.data;
+  const before: SegmentVoxelGrid = {
+    geometry: live.geometry, data: beforeData, value: live.value, csSegmentationId: live.csSegmentationId, write: live.write,
+  };
+  const txn = new LabelmapTransaction(deps, [member], new Map([[keyOf(member), before]]));
   return {
     finish() {
       const now = deps.readGrid(member.containerId, member.segmentIndex);
-      if (!now || now.data.length !== before.data.length) { txn.discard(); return 'no-change'; }
+      if (!now || now.data.length !== beforeData.length) { txn.discard(); return 'no-change'; }
       const changed: number[] = [];
       for (let i = 0; i < now.data.length; i++) {
-        if ((now.data[i] === now.value) !== (before.data[i] === before.value)) changed.push(i);
+        if ((now.data[i] === now.value) !== (beforeData[i] === before.value)) changed.push(i);
       }
       if (!changed.length) { txn.discard(); return 'no-change'; }
       if (locked) {
-        for (const i of changed) now.write(i, before.data[i]);
+        for (const i of changed) now.write(i, beforeData[i]);
         txn.discard();
         deps.notifyChanged(now.csSegmentationId);
         return 'reverted';

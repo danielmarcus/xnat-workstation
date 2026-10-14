@@ -18,7 +18,11 @@ import type { Vec3, VoxelGridGeometry } from './segmentationService/voxelClipboa
 
 export interface SegmentVoxelGrid {
   geometry: VoxelGridGeometry;
-  /** Labelmap values, column-major over geometry.dimensions. */
+  /**
+   * Labelmap values, column-major over geometry.dimensions. On a stack this is a COPY of the
+   * whole stack, made on first access (and a snapshot from then on): an operation that needs
+   * a voxel or a plane reads `at` / `slice` instead (X4 — `voxelAt`, the transaction).
+   */
   data: ArrayLike<number>;
   /** The value this segment is stored as in `data` (1 on a multi-layer sub-seg). */
   value: number;
@@ -35,6 +39,9 @@ export interface SegmentVoxelGrid {
   /** The live labelmap value at a voxel, read without copying the whole grid. Absent on a
    *  plain in-memory grid, which reads `data`. */
   at?(flatIndex: number): number;
+  /** The live values of grid slice `k` (axis 2, `i + j·nx`) — the labelmap image's own pixels,
+   *  not a copy; null if unavailable. Absent where slices are not stored apart (a volume). */
+  slice?(k: number): ArrayLike<number> | null;
 }
 
 /** The labelmap value at `flat` — through `at` when the grid has it, else `data`. */
@@ -152,29 +159,64 @@ function slicePlane(imageId: string, image: ImageLike): SlicePlane | null {
   };
 }
 
-function readStack(labelmapImageIds: string[]): Pick<SegmentVoxelGrid, 'geometry' | 'data' | 'write' | 'sourceReader'> | null {
+type GridPart = Pick<SegmentVoxelGrid, 'geometry' | 'data' | 'write' | 'sourceReader' | 'at' | 'slice'>;
+
+/**
+ * A stack's placement, per labelmap image-id list (Cornerstone keeps the list for the life
+ * of the segmentation): reading a member is then a lookup, not one metadata query per slice.
+ */
+const placementCache = new WeakMap<string[], { geometry: VoxelGridGeometry; order: number[] }>();
+
+function readStack(labelmapImageIds: string[]): GridPart | null {
   const images: ImageLike[] = [];
   const planes: SlicePlane[] = [];
+  let placed = placementCache.get(labelmapImageIds) ?? null;
   for (const id of labelmapImageIds) {
     const image = cache.getImage(id) as ImageLike | undefined;
-    const plane = image ? slicePlane(id, image) : null;
-    if (!image || !plane) return null;
+    if (!image) return null;
     images.push(image);
+    if (placed) continue;
+    const plane = slicePlane(id, image);
+    if (!plane) return null;
     planes.push(plane);
   }
-  const placed = stackGridGeometry(planes);
-  if (!placed) return null;
+  if (!placed) {
+    placed = stackGridGeometry(planes);
+    if (!placed) return null;
+    placementCache.set(labelmapImageIds, placed);
+  }
   const [nx, ny, nz] = placed.geometry.dimensions;
   const sliceSize = nx * ny;
-  const data = new Uint16Array(sliceSize * nz);
   const sliceImages = placed.order.map((i) => images[i]);
-  sliceImages.forEach((image, k) => {
-    const pixels = image.voxelManager?.getScalarData?.() ?? image.getPixelData?.();
-    if (pixels) for (let p = 0; p < sliceSize && p < pixels.length; p++) data[k * sliceSize + p] = pixels[p];
-  });
+  // Each slice's pixels, fetched the first time a voxel on it is read: an operation on one
+  // slice touches one image per member, never the whole stack (X4).
+  const slicePixels: Array<ArrayLike<number> | null | undefined> = new Array(nz);
+  const pixelsOf = (k: number): ArrayLike<number> | null => {
+    let px = slicePixels[k];
+    if (px === undefined) {
+      const image = sliceImages[k];
+      px = slicePixels[k] = (image?.voxelManager?.getScalarData?.() ?? image?.getPixelData?.()) ?? null;
+    }
+    return px;
+  };
+  let copy: Uint16Array | null = null;
   return {
     geometry: placed.geometry,
-    data,
+    get data() {
+      if (!copy) {
+        copy = new Uint16Array(sliceSize * nz);
+        for (let k = 0; k < nz; k++) {
+          const pixels = pixelsOf(k);
+          if (pixels) for (let p = 0; p < sliceSize && p < pixels.length; p++) copy[k * sliceSize + p] = pixels[p];
+        }
+      }
+      return copy;
+    },
+    at: (flatIndex) => {
+      const px = pixelsOf(Math.floor(flatIndex / sliceSize));
+      return px ? (px[flatIndex % sliceSize] ?? 0) : 0;
+    },
+    slice: (k) => (k >= 0 && k < nz ? pixelsOf(k) : null),
     sourceReader: () => {
       // Each labelmap slice is derived from one source image; read that image's pixels.
       const slices = sliceImages.map((img) => {
@@ -201,7 +243,7 @@ function readStack(labelmapImageIds: string[]): Pick<SegmentVoxelGrid, 'geometry
   };
 }
 
-function readVolume(volumeId: string): Pick<SegmentVoxelGrid, 'geometry' | 'data' | 'write' | 'sourceReader'> | null {
+function readVolume(volumeId: string): GridPart | null {
   // Derived volume labelmaps expose data via getCompleteScalarDataArray() (getScalarData()
   // can be empty); WRITES must go through the voxelManager — the read array is a copy.
   const vol = cache.getVolume(volumeId) as any;
@@ -265,7 +307,8 @@ export function readSegmentVoxelGrid(segmentationId: string, segmentIndex: numbe
       : storage.imageIdLists[0]?.length
         ? readStack(storage.imageIdLists[0])
         : null;
-    return grid ? { ...grid, value, csSegmentationId } : null;
+    // Not spread: `data` is a lazy getter, which a spread would evaluate (copying the grid).
+    return grid ? Object.assign(grid, { value, csSegmentationId }) : null;
   } catch (err) {
     console.warn('[segmentVoxelGrid] could not read labelmap:', err);
     return null;

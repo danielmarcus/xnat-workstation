@@ -13,6 +13,8 @@ export type Vec3 = [number, number, number];
 export interface IslandGrid {
   geometry: { dimensions: Vec3 | number[]; spacing: Vec3 | number[]; origin: Vec3 | number[]; direction: number[] };
   data: ArrayLike<number>;
+  /** A voxel read that copies nothing (a stack-backed SegmentVoxelGrid); else `data` is read. */
+  at?(flatIndex: number): number;
   value: number;
 }
 
@@ -75,7 +77,8 @@ function inPlane(axis: 0 | 1 | 2): [0 | 1 | 2, 0 | 1 | 2] {
  */
 export function islandAt(grid: IslandGrid, seed: number, axis: 0 | 1 | 2): number[] {
   const dims = grid.geometry.dimensions;
-  if (grid.data[seed] !== grid.value) return [];
+  const at = (f: number) => (grid.at ? grid.at(f) : grid.data[f]);
+  if (at(seed) !== grid.value) return [];
   const [a, b] = inPlane(axis);
   const seen = new Set<number>([seed]);
   const out: number[] = [];
@@ -92,7 +95,7 @@ export function islandAt(grid: IslandGrid, seed: number, axis: 0 | 1 | 2): numbe
         n[b] += db;
         if (n[a] < 0 || n[b] < 0 || n[a] >= dims[a] || n[b] >= dims[b]) continue;
         const nf = flatOf(n, dims);
-        if (seen.has(nf) || grid.data[nf] !== grid.value) continue;
+        if (seen.has(nf) || at(nf) !== grid.value) continue;
         seen.add(nf);
         stack.push(nf);
       }
