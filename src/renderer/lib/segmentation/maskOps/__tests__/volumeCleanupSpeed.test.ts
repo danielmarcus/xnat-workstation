@@ -13,8 +13,14 @@ const NX = 512;
 const NY = 512;
 const NZ = 100;
 const MEMBERS = 5;
-/** Generous for a loaded shared 4-CPU box (~2.5 s there under a load of 14); the unoptimised runner took 22–116 s. */
-const BUDGET_MS = 6000;
+/**
+ * Generous: ~2.5 s on a shared 4-CPU box under a load of 14, 7.5 s with a full test suite and
+ * E2E run beside it; the unoptimised runner took 22 s (and 116 s loaded). The plane-read count
+ * below is the load-independent half of the check.
+ */
+const BUDGET_MS = 12000;
+/** 100 member-slices are painted; each costs a handful of plane reads (it was ~10 per member per slice, empty or not: ~5000). */
+const MAX_PLANE_READS = 500;
 
 function setup() {
   const grids: Record<string, SegmentVoxelGrid> = {};
@@ -44,6 +50,9 @@ describe('Volume cleanup over every member (O8)', () => {
     const params = defaultParams(op);
     const r = beginTransaction(all, deps);
     if (!r.ok) throw new Error('begin');
+    let reads = 0;
+    const readPlane = r.txn.readPlane.bind(r.txn);
+    r.txn.readPlane = (...a) => { reads++; return readPlane(...a); };
     const t0 = performance.now();
     const res = runPlaneOp({
       txn: r.txn, members: all, allMembers: all, axis: 2, slices: Array.from({ length: NZ }, (_, k) => k),
@@ -51,6 +60,7 @@ describe('Volume cleanup over every member (O8)', () => {
     });
     const ms = performance.now() - t0;
     expect(res.added).toBe(MEMBERS * 20 * 400);
+    expect(reads).toBeLessThan(MAX_PLANE_READS);
     expect(ms).toBeLessThan(BUDGET_MS);
   }, 120_000);
 });
