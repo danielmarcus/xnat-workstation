@@ -8,7 +8,7 @@
  * and handed to maskPreview, which commits it (one undo step) or discards it.
  */
 import { viewportService } from './viewportService';
-import { readSegmentVoxelGrid } from './segmentVoxelGrid';
+import { readSegmentVoxelGrid, voxelAt } from './segmentVoxelGrid';
 import { beginTransaction, type MemberRef } from './labelmapTransaction';
 import { viewportShowsSegmentation } from './viewportShows';
 
@@ -180,6 +180,9 @@ export const maskOpsService = {
       },
       readImage: source ? (s) => extractValues(grid.geometry.dimensions, where.axis, s, source) : undefined,
       roi: roiPlaneMask(useSemiAutoStore.getState().roi, viewportId, grid.geometry, where.axis),
+      // Every Cleanup operation leaves an empty plane empty (catalog.test holds it): a Volume
+      // run skips the slices a member is not on.
+      skipEmpty: true,
     });
     if (result.added + result.removed === 0) {
       txn.discard();
@@ -450,7 +453,7 @@ export const maskOpsService = {
       const dims = g.geometry.dimensions;
       const filled = Array.from({ length: dims[where.axis] }, (_, k) => {
         const idx = sliceIndices(dims, where.axis, k);
-        for (let p = 0; p < idx.length; p++) if (g.data[idx[p]] === g.value) return true;
+        for (let p = 0; p < idx.length; p++) if (voxelAt(g, idx[p]) === g.value) return true;
         return false;
       });
       for (const gap of findGaps(filled)) {

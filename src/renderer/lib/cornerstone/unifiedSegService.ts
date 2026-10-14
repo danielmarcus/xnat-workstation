@@ -27,7 +27,7 @@ import {
 import { viewportService } from './viewportService';
 import type { ContainerSpatialId, ViewportSpatialId } from './spatialIdentity';
 import * as mlg from './multiLayerGroup';
-import { readSegmentVoxelGrid } from './segmentVoxelGrid';
+import { readSegmentVoxelGrid, voxelAt } from './segmentVoxelGrid';
 import { beginDirectEdit, beginTransaction, isSegmentLockedHere, onVoxelMemoRestored, type MemberRef } from './labelmapTransaction';
 import {
   copyVoxelRegion,
@@ -76,7 +76,7 @@ function voxelsOnActiveSlice(grid: NonNullable<ReturnType<typeof readSegmentVoxe
   for (let a = 0; a < ai; a++) {
     for (let b = 0; b < bi; b++) {
       const flat = axis === 0 ? at(slice, a, b) : axis === 1 ? at(a, slice, b) : at(a, b, slice);
-      if (grid.data[flat] === grid.value) out.push(flat);
+      if (voxelAt(grid, flat) === grid.value) out.push(flat);
     }
   }
   return out;
@@ -548,7 +548,8 @@ export const unifiedSegService = {
     if (!grid) return false;
     const voxels = sel ? sel.islands.flatMap((i) => i.voxels) : voxelsOnActiveSlice(grid);
     if (voxels.length === 0) return false;
-    const mask = new Uint8Array(grid.data.length);
+    const [nx, ny, nz] = grid.geometry.dimensions;
+    const mask = new Uint8Array(nx * ny * nz);
     for (const v of voxels) mask[v] = 1;
     const clip = copyVoxelRegion({ geometry: grid.geometry, data: mask }, 1);
     if (!clip) return false;

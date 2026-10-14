@@ -21,8 +21,8 @@ Status: open · fixed (commit) · won't fix (reason). Open items are tracked as 
 | X1 | P1 | Stack source reader applies rescale slope/intercept twice (loader pre-scales): every absolute-HU feature reads HU−1024 on real CT — Seeded gate, Level Trace guard, Region clip, module input | review + sweep (HU test, red in all orientations) | fixed |
 | X2 | P1 | A pending preview survives switching operation, active segment, container, viewport or scan; the next Commit / ⏎ writes the old preview | review (mask ops 3, 4; interp 14) | fixed |
 | X3 | P2 | Operations don't check the active viewport shows the active container (wrong plane / slices) | review | fixed — #91 |
-| X4 | P3 | Full-volume copies of every member per mask op, per brush move (Cleanup All smart plan, Interpolate gap table undebounced) | review | partly fixed (smart plan and gap table debounced; the per-op whole-volume copy remains) — #95 |
-| X5 | P3 | Transactions stage per-voxel Map entries: > 16.7M writes throws (V8 Map limit) | review | open — #96 |
+| X4 | P3 | Full-volume copies of every member per mask op, per brush move (Cleanup All smart plan, Interpolate gap table undebounced) | review | fixed (smart plan and gap table debounced; stack grids read per slice from the labelmap images, copied only when `data` is asked for; placement cached per image-id list; a volume-backed labelmap is still read whole, once per grid) — #95 |
+| X5 | P3 | Transactions stage per-voxel Map entries: > 16.7M writes throws (V8 Map limit) | review | fixed — #96 |
 
 ## Segmentation tools (toolbox)
 
@@ -52,7 +52,7 @@ Status: open · fixed (commit) · won't fix (reason). Open items are tracked as 
 | O5 | P2 | Slice-track range shows / drags on every viewport, for every op; drag doesn't discard the preview | review (interp 5, 6; mask ops 11) | fixed |
 | O6 | P2 | Interpolation anchors, Cleanup range, ROI limit, smart-plan overrides never reset per scan / container / orientation | review | fixed |
 | O7 | P2 | Slice track and gap table stale after an orientation change | review (interp 4) | fixed |
-| O8 | P3 | Volume / All cleanup synchronous on the UI thread: tens of seconds on 512² × 300 | review (mask ops 1) | open — #97 |
+| O8 | P3 | Volume / All cleanup synchronous on the UI thread: tens of seconds on 512² × 300 | review (mask ops 1) | partly fixed (empty slices skipped without reading planes, each slice's member planes read once and shared, Fill holes / smoothing cropped to the mask, separable Gaussian: 5 members × 100 × 512² Fill holes All 22–116 s → ~2.5 s in a loaded unit run; still synchronous — no worker, progress or Cancel yet) — #97 |
 | O9 | P3 | Ctrl+V lands displaced after panning | review (mask ops 13) | fixed |
 
 ## Found by the regression tests while fixing

@@ -344,3 +344,145 @@ describe('magnetBridge', () => {
     expect(Array.from(src)).toEqual(before);
   });
 });
+
+describe('smoothing equals the unoptimised 2D form (O8)', () => {
+  /** The previous implementations, verbatim: full-plane 2D window / kernel. */
+  function convolve2d(p: MaskPlane, kernel: Float64Array, radius: number, threshold: number): Uint8Array {
+    const { width: w, height: h, data } = p;
+    const kw = 2 * radius + 1;
+    const out = new Uint8Array(data.length);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        let sum = 0;
+        let wsum = 0;
+        for (let dy = -radius; dy <= radius; dy++) {
+          const yy = y + dy;
+          if (yy < 0 || yy >= h) continue;
+          for (let dx = -radius; dx <= radius; dx++) {
+            const xx = x + dx;
+            if (xx < 0 || xx >= w) continue;
+            const k = kernel[dx + radius + (dy + radius) * kw];
+            wsum += k;
+            if (data[xx + yy * w]) sum += k;
+          }
+        }
+        out[x + y * w] = wsum > 0 && sum / wsum >= threshold ? 1 : 0;
+      }
+    }
+    return out;
+  }
+  function gaussian2d(p: MaskPlane, sigma: number, threshold: number): Uint8Array {
+    const r = Math.ceil(sigma * 3);
+    const kw = 2 * r + 1;
+    const kernel = new Float64Array(kw * kw);
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) kernel[dx + r + (dy + r) * kw] = Math.exp(-(dx * dx + dy * dy) / (2 * sigma * sigma));
+    }
+    return convolve2d(p, kernel, r, threshold);
+  }
+  function median2d(p: MaskPlane, r: number): Uint8Array {
+    const { width: w, height: h, data } = p;
+    const out = new Uint8Array(data.length);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        let set = 0;
+        let total = 0;
+        for (let dy = -r; dy <= r; dy++) {
+          const yy = y + dy;
+          if (yy < 0 || yy >= h) continue;
+          for (let dx = -r; dx <= r; dx++) {
+            const xx = x + dx;
+            if (xx < 0 || xx >= w) continue;
+            total++;
+            if (data[xx + yy * w]) set++;
+          }
+        }
+        out[x + y * w] = set > total / 2 ? 1 : 0;
+      }
+    }
+    return out;
+  }
+
+  /** A painted-looking mask: overlapping brush discs with jagged edges, one touching the plane edge. */
+  function painted(w: number, h: number, seed: number): MaskPlane {
+    let s = seed;
+    const rnd = () => ((s = (s * 1103515245 + 12345) % 2147483648) / 2147483648);
+    const data = new Uint8Array(w * h);
+    const disc = (cx: number, cy: number, r: number) => {
+      for (let y = Math.max(0, Math.floor(cy - r)); y <= Math.min(h - 1, Math.ceil(cy + r)); y++) {
+        for (let x = Math.max(0, Math.floor(cx - r)); x <= Math.min(w - 1, Math.ceil(cx + r)); x++) {
+          if ((x - cx) ** 2 + (y - cy) ** 2 <= r * r) data[x + y * w] = 1;
+        }
+      }
+    };
+    let cx = w * 0.4, cy = h * 0.5;
+    for (let i = 0; i < 60; i++) { cx += (rnd() - 0.5) * 12; cy += (rnd() - 0.5) * 12; disc(cx, cy, 4 + rnd() * 8); }
+    disc(2, h / 3, 9); // against the edge
+    for (let i = 0; i < 200; i++) data[Math.floor(rnd() * w * h)] ^= 1; // speckle and pinholes
+    return { width: w, height: h, data };
+  }
+  const diff = (a: Uint8Array, b: Uint8Array) => a.reduce((n, v, i) => n + (v !== b[i] ? 1 : 0), 0);
+
+  it('gaussianSmooth (separable, cropped) gives the same pixels as the 2D kernel', () => {
+    for (const seed of [1, 7, 42]) {
+      const p = painted(160, 128, seed);
+      for (const sigma of [0.5, 1.2, 2, 3.3, 4]) {
+        for (const threshold of [0.2, 0.45, 0.5, 0.8]) {
+          expect(diff(gaussianSmooth(p, { sigma, threshold }).data, gaussian2d(p, sigma, threshold)), `σ=${sigma} t=${threshold} seed=${seed}`).toBe(0);
+        }
+      }
+    }
+  });
+
+  it('fillHoles (cropped to the mask) fills the same holes as on the whole plane', () => {
+    function fillHoles2d(p: MaskPlane, spacing: PlaneSpacing, maxHoleAreaMm2?: number): Uint8Array {
+      const { width: w, height: h } = p;
+      const bg = labelComponents(p.data, w, h, 4, 0);
+      const touchesBorder = new Uint8Array(bg.count + 1);
+      for (let x = 0; x < w; x++) { touchesBorder[bg.labels[x]] = 1; touchesBorder[bg.labels[x + (h - 1) * w]] = 1; }
+      for (let y = 0; y < h; y++) { touchesBorder[bg.labels[y * w]] = 1; touchesBorder[bg.labels[w - 1 + y * w]] = 1; }
+      const out = new Uint8Array(p.data);
+      for (let i = 0; i < out.length; i++) {
+        const id = bg.labels[i];
+        if (id === 0 || touchesBorder[id]) continue;
+        if (bg.sizes[id] * spacing.x * spacing.y <= (maxHoleAreaMm2 ?? Infinity)) out[i] = 1;
+      }
+      return out;
+    }
+    const spacing = { x: 0.8, y: 0.6 };
+    for (const seed of [2, 5, 8, 13]) {
+      const p = painted(160, 128, seed);
+      for (const max of [undefined, 1, 5, 40]) {
+        expect(diff(fillHoles(p, spacing, { maxHoleAreaMm2: max }).data, fillHoles2d(p, spacing, max)), `seed=${seed} max=${max}`).toBe(0);
+      }
+    }
+  });
+
+  it('medianSmooth and smoothEdges (cropped) are unchanged', () => {
+    for (const seed of [3, 9]) {
+      const p = painted(160, 128, seed);
+      for (const radius of [1, 2, 5]) expect(diff(medianSmooth(p, { radius }).data, median2d(p, radius))).toBe(0);
+      for (const strength of [0.1, 0.5, 1.5]) {
+        const kernel = Float64Array.from([1, 2, 1, 2, 4, 2, 1, 2, 1]);
+        expect(diff(smoothEdges(p, { strength }).data, convolve2d(p, kernel, 1, 0.5 - (strength - 0.5) * 0.15))).toBe(0);
+      }
+    }
+  });
+
+  it('an empty plane stays empty, and costs no window pass', () => {
+    const p = { width: 512, height: 512, data: new Uint8Array(512 * 512) };
+    expect(gaussianSmooth(p, { sigma: 4 }).data.includes(1)).toBe(false);
+    expect(medianSmooth(p, { radius: 5 }).data.includes(1)).toBe(false);
+  });
+
+  it('σ = 4 on a 512² slice with a painted organ takes well under the 2D kernel\'s time', () => {
+    const p = painted(512, 512, 5);
+    const t0 = performance.now();
+    gaussianSmooth(p, { sigma: 4 });
+    const fast = performance.now() - t0;
+    const t1 = performance.now();
+    gaussian2d(p, 4, 0.45);
+    const slow = performance.now() - t1;
+    expect(fast).toBeLessThan(slow / 4);
+  });
+});

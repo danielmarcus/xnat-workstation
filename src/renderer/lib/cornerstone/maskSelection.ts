@@ -13,7 +13,7 @@
 import { Enums as CoreEnums, getEnabledElementByViewportId } from '@cornerstonejs/core';
 import { segmentation as csSegmentation } from '@cornerstonejs/tools';
 import * as mlg from './multiLayerGroup';
-import { readSegmentVoxelGrid, type SegmentVoxelGrid } from './segmentVoxelGrid';
+import { readSegmentVoxelGrid, voxelAt, type SegmentVoxelGrid } from './segmentVoxelGrid';
 import { worldToIndex } from './segmentationService/voxelClipboard';
 import { islandAt, islandOutline, sliceAxisFor } from './maskIslands';
 import { SELECTED_EXTRA_WIDTH } from './selectedStyle';
@@ -120,7 +120,7 @@ function islandUnder(viewportId: string, world: number[]) {
     const ijk = worldToIndex(grid.geometry, world as [number, number, number]);
     if (ijk.some((v, a) => v < 0 || v >= dims[a])) continue;
     const seed = ijk[0] + ijk[1] * dims[0] + ijk[2] * dims[0] * dims[1];
-    if (grid.data[seed] !== grid.value) continue;
+    if (voxelAt(grid, seed) !== grid.value) continue;
     const axis = sliceAxisFor(grid.geometry.direction, normal);
     const voxels = islandAt(grid, seed, axis);
     return { ...c, grid, axis, slice: ijk[axis], seed, voxels };
@@ -192,7 +192,7 @@ export function selectIslandsContaining(viewportId: string, containerId: string,
   const covered = new Set<number>();
   const islands: SelectedIsland[] = [];
   for (const flat of voxels) {
-    if (covered.has(flat) || grid.data[flat] !== grid.value) continue;
+    if (covered.has(flat) || voxelAt(grid, flat) !== grid.value) continue;
     const island = islandAt(grid, flat, axis);
     island.forEach((v) => covered.add(v));
     islands.push({ voxels: island, outline: islandOutline(grid, island, axis) });

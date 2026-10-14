@@ -8,7 +8,7 @@
  */
 import { eventTarget } from '@cornerstonejs/core';
 import { Enums as ToolEnums, segmentation as csSegmentation } from '@cornerstonejs/tools';
-import { readSegmentVoxelGrid } from './segmentVoxelGrid';
+import { readSegmentVoxelGrid, voxelAt } from './segmentVoxelGrid';
 import { sliceNumbering } from './sliceNumbering';
 import { viewportSlice } from './maskOpsService';
 import { gridIndexOf, planeSize, type Axis } from '../segmentation/maskOps/planeIO';
@@ -34,7 +34,7 @@ export function occupiedDisplaySlices(viewportId: string, containerId: string, s
     let hit = false;
     for (let y = 0; y < height && !hit; y++) {
       for (let x = 0; x < width; x++) {
-        if (grid.data[gridIndexOf(dims, axis, k, x, y)] === grid.value) { hit = true; break; }
+        if (voxelAt(grid, gridIndexOf(dims, axis, k, x, y)) === grid.value) { hit = true; break; }
       }
     }
     if (hit) out.push(numbering.toDisplay(k));

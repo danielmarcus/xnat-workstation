@@ -16,9 +16,9 @@
 import { Enums as CoreEnums, eventTarget, getEnabledElementByViewportId } from '@cornerstonejs/core';
 import { Enums as ToolEnums, segmentation as csSegmentation } from '@cornerstonejs/tools';
 import * as mlg from './multiLayerGroup';
-import type { LabelmapTransaction, MemberRef } from './labelmapTransaction';
+import type { LabelmapTransaction, MemberRef, StagedWrites } from './labelmapTransaction';
 import { warnMemberLocked } from '../annotations/lockWarning';
-import type { SegmentVoxelGrid } from './segmentVoxelGrid';
+import { voxelAt, type SegmentVoxelGrid } from './segmentVoxelGrid';
 import { sliceAxisFor } from './maskIslands';
 import { indexToWorld, worldToIndex, type Vec3 } from './segmentationService/voxelClipboard';
 import { type Axis, planeAxes } from '../segmentation/maskOps/planeIO';
@@ -46,7 +46,7 @@ interface Pending {
 let pending: Pending | null = null;
 let committing = false;
 /** Per change: writes bucketed by axis → slice, built lazily (a volume op can stage a lot). */
-const bucketCache = new WeakMap<ReadonlyMap<number, number>, Map<Axis, Map<number, number[]>>>();
+const bucketCache = new WeakMap<StagedWrites, Map<Axis, Map<number, number[]>>>();
 
 export interface StartPreviewOptions {
   txn: LabelmapTransaction;
@@ -287,7 +287,7 @@ function colorOf(viewportId: string, containerId: string, segmentIndex: number):
   return [255, 255, 255];
 }
 
-function bucketsFor(writes: ReadonlyMap<number, number>, dims: ArrayLike<number>, axis: Axis): Map<number, number[]> {
+function bucketsFor(writes: StagedWrites, dims: ArrayLike<number>, axis: Axis): Map<number, number[]> {
   let byAxis = bucketCache.get(writes);
   if (!byAxis) {
     byAxis = new Map();
@@ -431,7 +431,7 @@ function render(): void {
       for (const flat of flats) {
         const next = writes.get(flat)!;
         const added = next !== 0;
-        const seg = flatStorage ? (added ? next : grid.data[flat]) : member.segmentIndex;
+        const seg = flatStorage ? (added ? next : voxelAt(grid, flat)) : member.segmentIndex;
         const key = `${seg}|${added}`;
         let g = groups.get(key);
         if (!g) groups.set(key, (g = { seg, added, px: [] }));
