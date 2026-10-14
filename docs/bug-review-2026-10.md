@@ -20,7 +20,7 @@ Status: open · fixed (commit) · won't fix (reason). Open items are tracked as 
 |---|---|---|---|---|
 | X1 | P1 | Stack source reader applies rescale slope/intercept twice (loader pre-scales): every absolute-HU feature reads HU−1024 on real CT — Seeded gate, Level Trace guard, Region clip, module input | review + sweep (HU test, red in all orientations) | fixed |
 | X2 | P1 | A pending preview survives switching operation, active segment, container, viewport or scan; the next Commit / ⏎ writes the old preview | review (mask ops 3, 4; interp 14) | fixed |
-| X3 | P2 | Operations don't check the active viewport shows the active container (wrong plane / slices) | review | open — #91 |
+| X3 | P2 | Operations don't check the active viewport shows the active container (wrong plane / slices) | review | fixed — #91 |
 | X4 | P3 | Full-volume copies of every member per mask op, per brush move (Cleanup All smart plan, Interpolate gap table undebounced) | review | partly fixed (smart plan and gap table debounced; the per-op whole-volume copy remains) — #95 |
 | X5 | P3 | Transactions stage per-voxel Map entries: > 16.7M writes throws (V8 Map limit) | review | open — #96 |
 
@@ -60,7 +60,7 @@ Status: open · fixed (commit) · won't fix (reason). Open items are tracked as 
 | ID | P | Finding | Source | Status |
 |---|---|---|---|---|
 | F1 | P1 | Every drag-following tool (Smart Brush, Random Walker seeds, the Seeded painter) lost its stroke's first movement — Cornerstone releases a held mouse-down on the move that a window listener added at press time had already missed (a quick flick painted one dab) | S9 regression test | fixed |
-| F3 | P3 | Rect Multi writes nothing where the intensity equals the window's upper bound exactly (binary 300 HU phantom vs −100…300) — not reproduced on realistic data | sweep (binary phantom) | open — #98 |
+| F3 | P3 | Rect Multi writes nothing where the intensity equals the window's upper bound exactly (binary 300 HU phantom vs −100…300) — not reproduced on realistic data | sweep (binary phantom) | fixed — #98 |
 | F2 | P2 | Cornerstone replays a click held 400 ms for double-click detection: Escape just after a click restarted the drawing and froze navigation | T4 regression test | fixed |
 
 ## Solvers, compute, 3D QC
