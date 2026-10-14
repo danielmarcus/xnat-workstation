@@ -168,6 +168,9 @@ function runForUrl(url: string): Run | undefined {
   }
 }
 
+/** How long a failed load waits for a crash report that may explain it. */
+const GONE_GRACE_MS = 1000;
+
 /** The longest a run may take before its process is destroyed. */
 const RUN_LIMIT_MS = 30 * 60 * 1000;
 
@@ -219,7 +222,16 @@ export async function startModuleRun(sender: WebContents, id: string): Promise<{
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.webContents.setWebRTCIPHandlingPolicy('disable_non_proxied_udp');
   win.webContents.on('will-navigate', (e) => e.preventDefault());
-  win.webContents.on('render-process-gone', (_e, d) => stopModuleRun(runId, `the module's process ended (${d.reason})`));
+  // Why the process went, if it did — a crash while the page loads also fails the load, and
+  // the crash is the reason to report.
+  let gone: string | undefined;
+  let onGoneReported = () => {};
+  const goneReported = new Promise<void>((r) => { onGoneReported = r; });
+  win.webContents.on('render-process-gone', (_e, d) => {
+    gone = `the module's process ended (${d.reason})`;
+    onGoneReported();
+    stopModuleRun(runId, gone);
+  });
   const timer = setTimeout(() => stopModuleRun(runId, 'it ran longer than the 30-minute limit'), RUN_LIMIT_MS);
   // The page that started the run going away — closed, or reloading (Cmd+R, a dev reload) —
   // ends it: nothing could receive its result.
@@ -235,7 +247,12 @@ export async function startModuleRun(sender: WebContents, id: string): Promise<{
   try {
     await win.loadURL(`${prefix}__host.html`);
   } catch (e) {
-    stopModuleRun(runId, 'it could not start');
+    // The load can fail before the crash is reported: ask the page's process, and give the
+    // report a moment to arrive.
+    if (!gone && !win.isDestroyed() && win.webContents.isCrashed()) gone = "the module's process ended";
+    if (!gone) await Promise.race([goneReported, new Promise((r) => setTimeout(r, GONE_GRACE_MS))]);
+    stopModuleRun(runId, gone ?? 'it could not start');
+    if (gone) return { ok: false, reason: `The module stopped: ${gone}` };
     return { ok: false, reason: `The module could not start: ${e instanceof Error ? e.message : String(e)}` };
   }
   const { port1, port2 } = new MessageChannelMain();
