@@ -10,6 +10,7 @@ const h = vi.hoisted(() => {
   type Filter = (d: { url: string; webContentsId?: number }, cb: (r: { cancel: boolean }) => void) => void;
   const sessions: Array<{ partition: string; handler: Handler | null; filter: Filter | null; cleared: string[] }> = [];
   const windows: Array<{ url: string; webContents: { id: number } }> = [];
+  const crash = { onLoad: false };
   let nextId = 100;
   const fromPartition = (partition: string) => {
     const s = { partition, handler: null as Handler | null, filter: null as Filter | null, cleared: [] as string[] };
@@ -25,19 +26,27 @@ const h = vi.hoisted(() => {
   class BrowserWindow {
     url = '';
     destroyed = false;
+    listeners = new Map<string, (...a: unknown[]) => void>();
     webContents = {
       id: nextId++,
       setWindowOpenHandler: () => {},
       setWebRTCIPHandlingPolicy: () => {},
-      on: () => {},
+      on: (ev: string, f: (...a: unknown[]) => void) => { this.listeners.set(ev, f); },
       postMessage: () => {},
     };
     constructor() { windows.push(this); }
-    async loadURL(u: string) { this.url = u; }
+    async loadURL(u: string) {
+      this.url = u;
+      if (crash.onLoad) {
+        // The process dies while the page loads: Electron reports the crash, then the load fails.
+        this.listeners.get('render-process-gone')?.({}, { reason: 'killed' });
+        throw new Error("ERR_FAILED (-2) loading '" + u + "'");
+      }
+    }
     isDestroyed() { return this.destroyed; }
     destroy() { this.destroyed = true; }
   }
-  return { sessions, windows, fromPartition, BrowserWindow };
+  return { sessions, windows, fromPartition, BrowserWindow, crash };
 });
 
 vi.mock('electron', () => ({
@@ -105,5 +114,18 @@ describe('module runs (#103 item 1)', () => {
     expect(c.ok).toBe(true);
     expect(h.sessions, 'still one session').toHaveLength(1);
     if (c.ok) stopModuleRun(c.runId);
+  });
+});
+
+describe('a run whose process dies while it loads', () => {
+  it('reports that the process ended, not that the load failed', async () => {
+    h.crash.onLoad = true;
+    try {
+      const r = await startModuleRun(sender(), 'org.example.a');
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.reason).toMatch(/^The module stopped: the module's process ended \(killed\)$/);
+    } finally {
+      h.crash.onLoad = false;
+    }
   });
 });

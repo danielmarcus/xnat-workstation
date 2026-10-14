@@ -219,7 +219,13 @@ export async function startModuleRun(sender: WebContents, id: string): Promise<{
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.webContents.setWebRTCIPHandlingPolicy('disable_non_proxied_udp');
   win.webContents.on('will-navigate', (e) => e.preventDefault());
-  win.webContents.on('render-process-gone', (_e, d) => stopModuleRun(runId, `the module's process ended (${d.reason})`));
+  // Why the process went, if it did — a crash while the page loads also fails the load, and
+  // the crash is the reason to report.
+  let gone: string | undefined;
+  win.webContents.on('render-process-gone', (_e, d) => {
+    gone = `the module's process ended (${d.reason})`;
+    stopModuleRun(runId, gone);
+  });
   const timer = setTimeout(() => stopModuleRun(runId, 'it ran longer than the 30-minute limit'), RUN_LIMIT_MS);
   // The page that started the run going away — closed, or reloading (Cmd+R, a dev reload) —
   // ends it: nothing could receive its result.
@@ -236,6 +242,7 @@ export async function startModuleRun(sender: WebContents, id: string): Promise<{
     await win.loadURL(`${prefix}__host.html`);
   } catch (e) {
     stopModuleRun(runId, 'it could not start');
+    if (gone) return { ok: false, reason: `The module stopped: ${gone}` };
     return { ok: false, reason: `The module could not start: ${e instanceof Error ? e.message : String(e)}` };
   }
   const { port1, port2 } = new MessageChannelMain();
