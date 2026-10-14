@@ -199,17 +199,17 @@ function readStack(labelmapImageIds: string[]): GridPart | null {
     }
     return px;
   };
-  let copy: Uint16Array | null = null;
   return {
     geometry: placed.geometry,
-    get data() {
-      if (!copy) {
-        copy = new Uint16Array(sliceSize * nz);
-        for (let k = 0; k < nz; k++) {
-          const pixels = pixelsOf(k);
-          if (pixels) for (let p = 0; p < sliceSize && p < pixels.length; p++) copy[k * sliceSize + p] = pixels[p];
-        }
+    // On first access the getter replaces itself with the copy as a plain property: callers
+    // loop over `grid.data[i]`, and a getter call per voxel made a whole-volume pass ~3× slower.
+    get data(): Uint16Array {
+      const copy = new Uint16Array(sliceSize * nz);
+      for (let k = 0; k < nz; k++) {
+        const pixels = pixelsOf(k);
+        if (pixels) for (let p = 0; p < sliceSize && p < pixels.length; p++) copy[k * sliceSize + p] = pixels[p];
       }
+      Object.defineProperty(this, 'data', { value: copy, writable: true, enumerable: true, configurable: true });
       return copy;
     },
     at: (flatIndex) => {
