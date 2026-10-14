@@ -62,6 +62,7 @@ Status: open · fixed (commit) · won't fix (reason). Open items are tracked as 
 | F1 | P1 | Every drag-following tool (Smart Brush, Random Walker seeds, the Seeded painter) lost its stroke's first movement — Cornerstone releases a held mouse-down on the move that a window listener added at press time had already missed (a quick flick painted one dab) | S9 regression test | fixed |
 | F3 | P3 | Rect Multi writes nothing where the intensity equals the window's upper bound exactly (binary 300 HU phantom vs −100…300) — not reproduced on realistic data | sweep (binary phantom) | fixed — #98 |
 | F2 | P2 | Cornerstone replays a click held 400 ms for double-click detection: Escape just after a click restarted the drawing and froze navigation | T4 regression test | fixed |
+| F4 | P2 | A local RTSTRUCT (or SEG) imported with its images loaded after a fixed 200 ms, not when the viewport existed: on a slow host its ROIDisplayColors fell back to the default palette, its locked members came out unlocked (the presentation restore toggled locks), and its contours carried no view plane, so nothing interpolated with them | contour-copy-paste E2E | fixed |
 
 ## Solvers, compute, 3D QC
 

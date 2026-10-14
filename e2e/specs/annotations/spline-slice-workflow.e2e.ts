@@ -48,12 +48,17 @@ const sliceIndex = (page: Page) => page.evaluate(() => (window as unknown as Win
 const inHand = async (page: Page, toolName: string) => (await shapes(page)).filter((s) => s.toolName === toolName && s.closed);
 const toast = (page: Page) => page.locator('[data-testid="viewport-toast"]');
 
-async function at(page: Page, dx: number, dy: number): Promise<{ x: number; y: number }> {
-  return page.evaluate(([dx, dy]) => {
+/**
+ * The page point dx mm along world X and dy mm along `col` from the focal point. `col` must
+ * lie in the slice on screen — world +Y on an axial slice; on a tilted acquisition, its
+ * column direction (a world-Y offset there projects to only cos(tilt) of itself).
+ */
+async function at(page: Page, dx: number, dy: number, col: readonly number[] = [0, 1, 0]): Promise<{ x: number; y: number }> {
+  return page.evaluate(([dx, dy, col]) => {
     const h = (window as unknown as Win).__XNAT_E2E__;
     const f = h.getPanelFocalPoint('panel_0')!;
-    return h.worldToPanelPagePoint('panel_0', [f[0] + dx, f[1] + dy, f[2]])!;
-  }, [dx, dy] as const);
+    return h.worldToPanelPagePoint('panel_0', [f[0] + dx + dy * col[0], f[1] + dy * col[1], f[2] + dy * col[2]])!;
+  }, [dx, dy, col] as const);
 }
 
 async function open(page: Page, kind: 'SEG' | 'RTSTRUCT', fixture = 'ct-axial-anatomy'): Promise<Locator> {
@@ -76,13 +81,13 @@ async function open(page: Page, kind: 'SEG' | 'RTSTRUCT', fixture = 'ct-axial-an
 }
 
 /** Click anchors round a circle of radius r (mm), then the first again to close. */
-async function clickRing(page: Page, r: number) {
+async function clickRing(page: Page, r: number, col?: readonly number[]) {
   for (const d of RING) {
-    const p = await at(page, r * Math.cos((d * Math.PI) / 180), r * Math.sin((d * Math.PI) / 180));
+    const p = await at(page, r * Math.cos((d * Math.PI) / 180), r * Math.sin((d * Math.PI) / 180), col);
     await page.mouse.click(p.x, p.y);
     await page.waitForTimeout(120);
   }
-  const first = await at(page, r, 0);
+  const first = await at(page, r, 0, col);
   await page.mouse.click(first.x, first.y);
 }
 
@@ -318,10 +323,14 @@ test('⎋ drops the spline in hand and writes nothing', async ({ page }) => {
 test('Propagate on an oblique acquisition: the spline follows the sphere onto the next slice (index space)', async ({ page }) => {
   // ct-oblique: a sphere (r 24 mm, 300 HU in −1000) on a ~30° tilted acquisition plane; the
   // slices either side of the one shown are both 1.5 mm from its centre (r ≈ 23.95 mm).
+  // The ring is drawn IN the acquisition plane (column direction [0, cos 30°, sin 30°]). Offset
+  // along world Y instead, it was an ellipse of cos 30° the area (~1546 voxels against the
+  // section's ~1804), and the propagated spline — on the sphere, ~1780 — measured 1.15× it.
   const toolbox = await open(page, 'SEG', 'ct-oblique');
-  await clickRing(page, Math.sqrt(24 * 24 - 1.5 * 1.5));
+  await clickRing(page, Math.sqrt(24 * 24 - 1.5 * 1.5), [0, Math.cos(Math.PI / 6), Math.sin(Math.PI / 6)]);
   await expect.poll(() => voxels(page), { timeout: 8_000 }).toBeGreaterThan(1000);
   const one = await voxels(page);
+  expect(one, 'the ring fills the section, not an ellipse of it').toBeGreaterThan(Math.PI * (24 * 24 - 1.5 * 1.5) * 0.9);
   await toolbox.getByRole('button', { name: 'Propagate to the next slice' }).click();
   await expect.poll(async () => (await inHand(page, FILL_SPLINE)).length).toBe(1);
   await page.keyboard.press('Enter');
