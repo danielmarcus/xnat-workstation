@@ -35,11 +35,21 @@ export function crc32(buf: Uint8Array): number {
   return (c ^ 0xffffffff) >>> 0;
 }
 
-/** A package path is relative, forward-slashed and never escapes the package. */
+/** Device names Windows reserves in every folder, with any extension (`con.js` is the console). */
+const WINDOWS_RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\.|$)/i;
+
+/**
+ * A package path is relative, forward-slashed and never escapes the package — and names the same
+ * file on every OS the app runs on: no `:` (an NTFS alternate data stream, or a drive), no device
+ * name Windows reserves, no part ending in a dot or space (Windows drops them, so `a.` is `a`).
+ */
 export function isSafePath(name: string): boolean {
-  if (!name || name.length > 255 || name.startsWith('/') || name.includes('\\') || /^[A-Za-z]:/.test(name)) return false;
+  if (!name || name.length > 255 || name.startsWith('/') || name.includes('\\') || name.includes(':')) return false;
   if (name.includes('\0')) return false;
-  return name.split('/').every((part, i, all) => part !== '..' && part !== '.' && (part !== '' || i === all.length - 1));
+  return name.split('/').every((part, i, all) => {
+    if (part === '') return i === all.length - 1; // a directory entry's trailing slash
+    return part !== '..' && part !== '.' && !WINDOWS_RESERVED.test(part) && !/[. ]$/.test(part);
+  });
 }
 
 /** Read every file in a zip. Directory entries are skipped; anything unsafe throws ZipError. */
@@ -57,6 +67,9 @@ export function readZip(buf: Buffer, limits: ZipLimits = PACKAGE_LIMITS): Map<st
   if (cdOffset + cdSize > eocd) throw new ZipError('corrupt central directory');
 
   const out = new Map<string, Buffer>();
+  // Windows and macOS file systems ignore case: two names (or folders) differing only in case
+  // would install as one, and the module then be refused at its first load. Lower case → as written.
+  const folded = new Map<string, string>();
   let total = 0;
   let p = cdOffset;
   for (let n = 0; n < entries; n++) {
@@ -86,6 +99,13 @@ export function readZip(buf: Buffer, limits: ZipLimits = PACKAGE_LIMITS): Map<st
     total += usize;
     if (total > limits.maxTotalBytes) throw new ZipError(`the package unpacks to more than ${limits.maxTotalBytes} bytes`);
     if (out.has(name)) throw new ZipError(`${name}: listed twice`);
+    const parts = name.split('/');
+    for (let k = 1; k <= parts.length; k++) {
+      const prefix = parts.slice(0, k).join('/');
+      const seen = folded.get(prefix.toLowerCase());
+      if (seen !== undefined && seen !== prefix) throw new ZipError(`${name}: names that differ only in case (${seen})`);
+      folded.set(prefix.toLowerCase(), prefix);
+    }
 
     if (buf.readUInt32LE(localOffset) !== 0x04034b50) throw new ZipError(`${name}: corrupt local header`);
     const lNameLen = buf.readUInt16LE(localOffset + 26);

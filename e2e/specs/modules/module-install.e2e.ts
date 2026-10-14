@@ -53,6 +53,18 @@ test('a community module asks first — who signed it, what it reads and writes 
   await expect(s.getByTestId('module-row-org.e2e.community')).toContainText('Community');
 });
 
+test('a double-click on Install installs once, and says so (#103)', async ({ electronApp, page }) => {
+  const s = await openModules(page);
+  await stubOpen(electronApp, buildPackage('double', manifest('org.e2e.double'), SCRIPT));
+  await s.getByRole('button', { name: 'Install module…' }).click();
+  await s.getByTestId('module-confirm').getByRole('button', { name: 'Install' }).dblclick();
+  await expect(s.getByTestId('module-row-org.e2e.double')).toContainText('Community');
+  await expect(s.getByTestId('modules-status')).toContainText('Installed Module double 1.0.0 (community)');
+  await page.waitForTimeout(500); // both clicks answered
+  await expect(s.getByTestId('modules-status')).not.toContainText('Not installed');
+  await expect(s.getByTestId('modules-status')).toContainText('Installed Module double 1.0.0 (community)');
+});
+
 test('a module signed by a key you have not trusted is Community, and names the key', async ({ electronApp, page }) => {
   const s = await openModules(page);
   await stubOpen(electronApp, buildPackage('stranger', manifest('org.e2e.stranger'), SCRIPT, { sign: true }));

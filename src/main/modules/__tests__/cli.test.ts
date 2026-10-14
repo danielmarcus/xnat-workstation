@@ -20,13 +20,17 @@ describe('module CLI', () => {
       fs.mkdirSync('mod');
       fs.writeFileSync('mod/manifest.json', JSON.stringify(MANIFEST));
       fs.writeFileSync('mod/module.js', 'export function run() { return {}; }');
-      expect(runCli(['keygen', 'k'], log)).toBe(0);
-      expect(runCli(['pack', 'mod', 'a.xwmodule', '--key', 'k.private.pem', '--signer', 'Example'], log)).toBe(0);
+      expect(runCli(['keygen', 'k', '--publisher', 'Example Labs'], log)).toBe(0);
+      expect(runCli(['pack', 'mod', 'a.xwmodule', '--key', 'k.private.pem', '--signer', 'Someone Else'], log)).toBe(0);
       expect(runCli(['verify', 'a.xwmodule', '--trust', 'k.public.json'], log)).toBe(0);
       expect(out.join('\n')).toMatch(/VERIFIED/);
+      // Named by the trusted key's public.json, not by signature.json's unsigned signer (#103 item 5).
+      expect(out.join('\n')).toMatch(/\(Example Labs\)/);
+      expect(out.join('\n')).not.toMatch(/Someone Else/);
       out.length = 0;
       expect(runCli(['verify', 'a.xwmodule'], log)).toBe(0);
       expect(out.join('\n')).toMatch(/COMMUNITY/);
+      expect(out.join('\n')).not.toMatch(/Someone Else/);
       fs.writeFileSync('mod/manifest.json', JSON.stringify({ ...MANIFEST, runtime: 'native-process' }));
       expect(runCli(['pack', 'mod', 'b.xwmodule'], log)).toBe(1);
       expect(out.join('\n')).toMatch(/"native-process"/);

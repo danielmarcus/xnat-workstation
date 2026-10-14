@@ -35,8 +35,8 @@ Each run gets a **fresh, hidden, sandboxed renderer process** of its own
 |---|---|
 | OS process sandbox (`sandbox: true`), no Node (`nodeIntegration: false`, `contextIsolation`) | No `require`, `process`, file system or child processes |
 | A preload that only relays one message port | No `electronAPI`, no IPC to the main process |
-| Its own in-memory session (`xnat-module-run-<uuid>`) | No cookies, cache or storage shared with the app — no XNAT session; nothing persists |
-| Every request cancelled except its own `xnat-module://<id>/` files | No network (XNAT, the internet, localhost), no `file://` |
+| The module sandbox's in-memory session (`xnat-module-sandbox`), with an origin of its own per run (`xnat-module://run-<uuid>/`), cleared when the run ends | No cookies, cache or storage shared with the app — no XNAT session; nothing shared between runs; nothing persists |
+| Every request cancelled except its own run's files | No network (XNAT, the internet, localhost), no `file://`, no other run's files |
 | Content-Security-Policy `default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; worker-src 'self'` | No `eval` / `Function`, no remote scripts, `fetch` / XHR / WebSocket only to its own files |
 | Navigation prevented, `window.open` denied, every permission denied | No escaping the page, no camera, notifications, clipboard… |
 | A time limit (30 min), Cancel then destroy (2 s), destroyed with the app page | A runaway module is stopped |
@@ -48,15 +48,24 @@ reachable and asserts the server saw nothing).
 **Installing** is guarded too (`src/main/modules/`):
 
 - A package is read by a strict zip reader: entry, size and path limits; no `..`, absolute paths
-  or links.
+  or links; no name that is not the same file on every OS (a `:` — an NTFS stream —, a Windows
+  device name such as `con.js`, two names differing only in case).
+- Post steps (`postSteps`) are validated with the manifest: only the Cleanup operations that need
+  only the mask, with their parameters' types and ranges.
 - The manifest is validated; an unknown API major or runtime is refused by name.
 - A package the user picks is checked in the main process and installed **by token** — renderer
   code can never point the installer at an arbitrary path.
 - Installed files go to the user-data folder, never the app bundle; their digest is recorded and
-  **re-checked at every listing and every run**, so a module changed on disk is refused, signed
-  or not.
-- Community modules need the user's confirmation (showing the signer and what the module reads
-  and writes), and can be turned off altogether (*Allow community modules*).
+  re-checked at every run (and at a listing, when a file's size or time changed). A **signed**
+  module changed on disk is refused: its signature no longer matches. An **unsigned** module
+  changed on disk is refused only if `install.json` — where the digest is recorded, itself
+  unsigned — was left as it was: the check catches corruption and careless edits, not someone
+  who can write to the user's data folder, who can rewrite both (see below).
+- A key is trusted by its whole public key, not only its 16-digit id; a Verified module is shown
+  with the trusted key's own name (the `signer` text in a package's signature is not covered by
+  the signature, and is not shown).
+- Community modules need the user's confirmation (showing the signing key, if any, and what the
+  module reads and writes), and can be turned off altogether (*Allow community modules*).
 
 ## What it does not protect against
 
@@ -72,6 +81,10 @@ reachable and asserts the server saw nothing).
 - **Seeing the data it was given.** A module sees the image data it declares, and could encode it
   into its result. It cannot send it anywhere — there is no channel out but the result — but a
   mask the user then exports or uploads carries whatever the module put in it.
+- **Someone who can write to the user's data folder.** They can change an installed unsigned
+  module and its recorded digest together, or add a trusted key to the module settings. Protecting
+  the user's own account from itself is outside this design; a signed module's signature still
+  catches a change to its files (unless the key list was changed too).
 - **Side channels** between a run and the rest of the machine (timing and the like) are not
   addressed.
 - **Bundled modules** are part of an edition and run in the same sandbox; their trust comes from

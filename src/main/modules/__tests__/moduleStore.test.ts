@@ -129,6 +129,30 @@ describe('ModuleStore', () => {
     expect(s.list()[0]).toMatchObject({ status: 'refused', reason: expect.stringMatching(/turned off/) });
   });
 
+  it('a key trusted by the edition whose id matches but whose key differs does not verify (#103 item 6)', () => {
+    const other = generateKeyPair();
+    const s = new ModuleStore(tmp(), null, [{ keyId: key.keyId, publicKey: other.publicKey, name: 'Edition key' }]);
+    const r = s.install(signed('org.example.k'), { acceptCommunity: true });
+    expect(r.ok && r.summary.tier).toBe('community');
+  });
+
+  it('a Verified module shows the trusted key\'s name, whatever signature.json says (#103 item 5)', () => {
+    const s = new ModuleStore(tmp());
+    s.trustKey({ keyId: key.keyId, publicKey: key.publicKey, name: 'Example Labs' });
+    const r = s.install(packFiles(signFiles(files('org.example.l'), key.privateKeyPem, 'Someone Else')));
+    expect(r.ok && r.summary.signature.signer).toBe('Example Labs');
+    const l = s.list()[0];
+    expect(l.status === 'ok' && l.summary.signature.signer).toBe('Example Labs');
+  });
+
+  it('a package with two names differing only in case is refused at install, not after (#103 item 9)', () => {
+    const s = new ModuleStore(tmp());
+    const f = files('org.example.m');
+    f.set('lib/Helper.js', Buffer.from('export const y = 2;'));
+    expect(s.install(packFiles(f), { acceptCommunity: true })).toMatchObject({ ok: false, reason: expect.stringMatching(/differ only in case/) });
+    expect(s.list()).toHaveLength(0);
+  });
+
   it('a refused package is never installed, with its reason', () => {
     const s = new ModuleStore(tmp());
     const bad = new Map(files('org.example.j'));

@@ -20,7 +20,11 @@ import { eventTarget, metaData } from '@cornerstonejs/core';
 import { Enums as ToolEnums } from '@cornerstonejs/tools';
 import * as mlg from './multiLayerGroup';
 import { viewportService } from './viewportService';
-import { beginTransaction, type MemberRef } from './labelmapTransaction';
+import {
+  beginTransaction, defaultDeps, notifyLabelmapChanged, recordHistoryStep, voxelHistoryMemo,
+  type AppHistoryMemo, type MemberRef, type TransactionDeps, type VoxelMemoRecord,
+} from './labelmapTransaction';
+import { readSegmentVoxelGrid } from './segmentVoxelGrid';
 import { OBLIQUE_VIEW_MESSAGE, sliceAxisFor, viewAlignedWithGrid } from './maskIslands';
 import { forEachBoxVoxel, makeBox, toPlane, type Box } from './gridBox';
 import { sliceNumbering } from './sliceNumbering';
@@ -36,6 +40,7 @@ import { runModule, ModuleRunCancelled, type ModuleLogLine, type ModuleRun } fro
 import { MODULE_API_VERSION, type ModuleManifest, type ModuleScope } from '@shared/modules/manifest';
 import { useComputeStore } from '../../stores/computeStore';
 import { useSegmentationStore } from '../../stores/segmentationStore';
+import { useAnnotationSelectionStore } from '../../stores/annotationSelectionStore';
 import { useSemiAutoStore } from '../../stores/semiAutoStore';
 import { BACKGROUND, useSeedStore } from '../../stores/seedStore';
 
@@ -132,12 +137,15 @@ export function cancelModuleOperation(): void {
   running?.cancel();
 }
 
-/** Apply the manifest's post steps — built-in Cleanup operations — to the mask, slice by slice. */
+/**
+ * Apply the manifest's post steps — built-in Cleanup operations — to the mask, slice by slice.
+ * The manifest was validated against POST_STEP_OPS, so every step names a mask-only operation.
+ */
 function postProcess(mask: Uint8Array, box: Box, manifest: ModuleManifest, member: MemberRef): void {
   const [nx, ny, nz] = box.dims;
   for (const step of manifest.postSteps ?? []) {
     const op = CLEANUP_OPS.find((o) => o.id === step.op && o.run && !o.usesImage);
-    if (!op?.run) continue;
+    if (!op?.run) throw new Error(`[moduleOperationService] post step ${step.op} is not a mask-only Cleanup operation`);
     const params = Object.fromEntries(op.params.map((p) => [p.key, step.params?.[p.key] ?? p.default]));
     for (let z = 0; z < nz; z++) {
       const plane = { width: nx, height: ny, data: mask.slice(z * nx * ny, (z + 1) * nx * ny) };
@@ -248,6 +256,7 @@ export async function runModuleOperation(o: {
   const before = t.active;
   const outputs: Array<{ ref: MemberRef; mask: Uint8Array }> = [];
   const created: number[] = [];
+  const createdSpecs: NewMemberSpec[] = [];
   if (manifest.writes.target === 'new') {
     for (let k = 0; k < labels; k++) {
       postProcess(planes[k], box, manifest, { containerId: t.containerId, segmentIndex: -1 - k });
@@ -256,6 +265,7 @@ export async function runModuleOperation(o: {
       const [r, g, b] = newMembers[k].color;
       segmentationService.setSegmentColor(t.containerId, idx, [r, g, b, 255]);
       created.push(idx);
+      createdSpecs.push({ index: idx, name: newMembers[k].name, color: [r, g, b] });
       outputs.push({ ref: { containerId: t.containerId, segmentIndex: idx }, mask: planes[k] });
       // Cornerstone's first render of a new member reports its labelmap as modified; staged
       // before that, the preview would take it for an edit under it and discard itself.
@@ -278,11 +288,16 @@ export async function runModuleOperation(o: {
   const others = t.members.filter((m) => !targets.has(m.segmentIndex));
   const claimable = manifest.writes.claims ? others.filter((m) => !m.locked).map((m) => ({ containerId: t.containerId, segmentIndex: m.segmentIndex })) : [];
   const writers = [...outputs.map((x) => x.ref), ...claimable];
-  let begun = beginTransaction(writers);
+  // Committed, the members it created are part of the one undo step: undo removes them, redo
+  // creates them again with their voxels (#103) — not the voxels alone, which left them empty.
+  const deps: TransactionDeps = createdSpecs.length
+    ? { ...defaultDeps, pushMemos: (records) => recordHistoryStep(newMembersStep(t.containerId, createdSpecs, before, records)) }
+    : defaultDeps;
+  let begun = beginTransaction(writers, deps);
   let lockedMember: MemberRef | null = null;
   if (!begun.ok && begun.reason === 'locked') {
     lockedMember = begun.member;
-    begun = beginTransaction(writers, undefined, { allowLocked: true });
+    begun = beginTransaction(writers, deps, { allowLocked: true });
   }
   if (!begun.ok) { undoNew(); return { ok: false, reason: 'no-target' }; }
   const { txn } = begun;
@@ -312,6 +327,61 @@ export async function runModuleOperation(o: {
   });
   if (o.commit && !locked && !lockedMember) commitPreview();
   return { ok: true, added, removed, readOnly: locked || !!lockedMember, table: cleanTable(result.table) };
+}
+
+interface NewMemberSpec {
+  index: number;
+  name: string;
+  color: [number, number, number];
+}
+
+/**
+ * The undo step of a commit that created members: ONE memo for the created members — undo
+ * removes them (and so their voxels), redo creates them again (new indices) and writes their
+ * voxels — then the voxel memos of the members that already existed (those it claimed from).
+ * Undone last-to-first, so the claimed voxels return before the new members go.
+ */
+function newMembersStep(containerId: string, specs: NewMemberSpec[], before: number, records: VoxelMemoRecord[]): AppHistoryMemo[] {
+  const isNew = (r: VoxelMemoRecord) => specs.some((m) => m.index === r.segmentIndex);
+  const members = specs.map((m) => ({ ...m, changes: records.find((r) => r.segmentIndex === m.index)?.changes ?? [] }));
+  const others = records.filter((r) => !isNew(r)).map(voxelHistoryMemo);
+  const activate = (index: number) => {
+    segmentationService.setActiveSegmentIndex(containerId, index);
+    const sel = useAnnotationSelectionStore.getState();
+    if (sel.activeMember?.containerId === containerId) sel.activate(containerId, String(index));
+  };
+  const remove = () => {
+    for (const m of [...members].reverse()) segmentationManager.removeSegment(containerId, m.index);
+    activate(before);
+  };
+  const recreate = async () => {
+    for (const m of members) {
+      m.index = await segmentationManager.addSegment(containerId, m.name);
+      segmentationService.setSegmentColor(containerId, m.index, [...m.color, 255]);
+      const g = readSegmentVoxelGrid(containerId, m.index);
+      if (!g) continue;
+      for (let i = 0; i < m.changes.length; i += 3) g.write(m.changes[i], m.changes[i + 2]);
+      notifyLabelmapChanged(g.csSegmentationId);
+    }
+    memo.segmentIndex = members[0].index;
+    memo.segmentationId = readSegmentVoxelGrid(containerId, members[0].index)?.csSegmentationId ?? memo.segmentationId;
+    activate(members[members.length - 1].index);
+  };
+  // Re-creating is asynchronous: an undo pressed meanwhile waits for it.
+  let busy: Promise<void> | null = null;
+  const memo: AppHistoryMemo = {
+    id: `module-members-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    operationType: 'labelmap',
+    segmentationId: records.find(isNew)?.csSegmentationId ?? containerId,
+    segmentIndex: members[0].index,
+    restoreMemo: (isUndo = true) => {
+      const fail = (e: unknown) => console.warn('[moduleOperationService] restoring the created segments failed:', e);
+      if (busy) { busy = busy.then(isUndo ? remove : recreate).catch(fail); return; }
+      if (!isUndo) { busy = recreate().catch(fail).finally(() => { busy = null; }); return; }
+      try { remove(); } catch (e) { fail(e); }
+    },
+  };
+  return [memo, ...others];
 }
 
 /**

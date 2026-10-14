@@ -45,7 +45,12 @@ export function moduleStore(): ModuleStore {
 }
 
 const MAX_PACKAGE_BYTES = 300 * 2 ** 20;
-const pending = new Map<string, { buf: Buffer; at: number }>();
+/**
+ * Picked packages by token. A token is consumed by its install: the package is dropped, and the
+ * outcome kept for the token's lifetime — a second install with it (a double-click on Install)
+ * answers with that outcome rather than installing again or saying the pick expired (#103).
+ */
+const pending = new Map<string, { buf: Buffer | null; at: number; installed?: ReturnType<ModuleStore['install']> }>();
 const TOKEN_TTL_MS = 10 * 60 * 1000;
 
 function holdForInstall(buf: Buffer): ModuleInspection {
@@ -95,9 +100,11 @@ export function registerModuleHandlers(): void {
 
   ipcMain.handle(IPC.MODULES_INSTALL, (_e, token: string, acceptCommunity: boolean) => {
     const held = pending.get(token);
-    if (!held) return { ok: false, reason: 'Pick the module again (the selection expired)' };
-    const r = moduleStore().install(held.buf, { acceptCommunity: !!acceptCommunity });
-    if (r.ok || !('needsConfirmation' in r && r.needsConfirmation)) pending.delete(token);
+    if (!held || Date.now() - held.at > TOKEN_TTL_MS) return { ok: false, reason: 'Pick the module again (the selection expired)' };
+    if (held.installed) return held.installed;
+    const r = moduleStore().install(held.buf!, { acceptCommunity: !!acceptCommunity });
+    if (r.ok) pending.set(token, { buf: null, at: held.at, installed: r });
+    else if (!('needsConfirmation' in r && r.needsConfirmation)) pending.delete(token);
     return r;
   });
 
