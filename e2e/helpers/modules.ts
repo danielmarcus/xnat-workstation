@@ -60,3 +60,24 @@ export async function installedFile(app: ElectronApplication, id: string, file: 
     return path.join(a.getPath('userData'), 'modules', 'installed', i, 'files', f);
   }, [id, file] as const);
 }
+
+/**
+ * The app's compiled module handlers, by absolute path — under Playwright the main module is its
+ * loader, not the app's entry, so a relative require would miss. The same file is the same
+ * (already loaded) module, so this is the app's own store.
+ */
+export const HANDLERS_JS = path.resolve(__dirname, '..', '..', 'dist', 'main', 'main', 'ipc', 'moduleHandlers.js');
+
+/** Install a package straight into the main process's store (sandbox tests; the UI path is M2's). */
+export async function installDirect(app: ElectronApplication, file: string): Promise<{ ok: boolean; reason?: string }> {
+  return app.evaluate((_e, [f, h]) => {
+    const fs = process.mainModule!.require('fs') as typeof import('fs');
+    const handlers = process.mainModule!.require(h) as { moduleStore: () => { install: (b: Buffer, o: object) => { ok: boolean; reason?: string } } };
+    return handlers.moduleStore().install(fs.readFileSync(f), { acceptCommunity: true });
+  }, [file, HANDLERS_JS] as const);
+}
+
+/** How many windows the app has (a run's sandbox is a hidden window). */
+export async function windowCount(app: ElectronApplication): Promise<number> {
+  return app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length);
+}

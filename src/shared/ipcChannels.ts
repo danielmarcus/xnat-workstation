@@ -102,6 +102,10 @@ export const IPC = {
   MODULES_SET_ALLOW_COMMUNITY: 'modules:set-allow-community',
   MODULES_TRUST_KEY_PICK: 'modules:trust-key-pick',
   MODULES_UNTRUST_KEY: 'modules:untrust-key',
+  MODULES_RUN_START: 'modules:run-start',
+  MODULES_RUN_STOP: 'modules:run-stop',
+  /** main → renderer: a run's message port (with its run id). */
+  MODULES_RUN_PORT: 'modules:run-port',
 
   // Diagnostics (renderer → main)
   DIAGNOSTICS_GET_MAIN_SNAPSHOT: 'diagnostics:get-main-snapshot',

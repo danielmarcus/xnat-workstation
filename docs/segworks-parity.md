@@ -1005,13 +1005,16 @@ owns undo and display).
      or an API version the host does not support. Never installable, never loaded.
    Signatures are checked at install **and at every load** (the installed files are hashed again),
    so a module altered on disk afterwards is refused.
-3. **Sandbox.** Each run is a dedicated Web Worker, created fresh and terminated at the end.
-   Module files are served by a custom `xnat-module://` protocol from the install folder, with a
-   Content-Security-Policy of `default-src 'none'; script-src 'self' 'wasm-unsafe-eval'` — no
-   network, no `importScripts` from elsewhere, no other origins. The worker has no DOM, no Node,
-   no IPC, no XNAT credentials or cookies, and no file access: it sees only the data the host
-   posts to it, and only what its manifest declared. Native code (`.node`, dylib, DLL) is not
-   supported.
+3. **Sandbox.** *(Amended in M3: a sandboxed process, not a Web Worker — a worker must share the
+   app page's origin, and one made from a blob would inherit the page's access, the DICOMweb
+   proxy included.)* Each run is a fresh, hidden, sandboxed renderer process with its own
+   in-memory session (no cookies, nothing persisted), destroyed at the end of the run. Module
+   files are served by a custom `xnat-module://` protocol from the re-checked package, with a
+   Content-Security-Policy of `default-src 'none'; script-src 'self' 'wasm-unsafe-eval';
+   connect-src 'self'; …`, and the session cancels every request that is not for the module's
+   own files — two independent layers. No Node, no API, no navigation, no popups, no
+   permissions: the module sees only the data the app page posts on its message port, and only
+   what its manifest declared. Native code (`.node`, dylib, DLL) is not supported.
 4. **The host owns writing.** A module returns masks (and optionally new members and a
    measurement table); the host stages them in a LabelmapTransaction: written members gain (or,
    if the manifest says *replace*, become) the mask; other members keep their voxels unless the
@@ -1106,3 +1109,21 @@ than `wasm-worker`. Candidate later runtimes, recorded so the design keeps room 
   deletes; an unsupported runtime refused by name), red against mutants of the digest check, the
   confirmation, the community-off check and the trusted keys. Checked in the built app
   (screenshot).
+- **M3** — the sandbox, as design point 3 now reads (`moduleRuntime.ts`: `xnat-module://`
+  scheme, per-run in-memory session, CSP, request filter, hidden sandboxed window with a preload
+  that only relays its port; a MessagePort pair between the app page and the module, data
+  transferred; a 30-minute limit; destroyed when the run ends, the page goes, or the app quits).
+  API 1.0's runner (`moduleRunner.ts`): `run(input, api)` with `progress`, `cancelled`, `log` /
+  `warn` / `error` (and the module's own console, relayed); Cancel asks, then after 2 s
+  destroys. **Found on the way:** (1) the run's port reaches the page before the `runStart`
+  reply, so ports are caught by one listener and kept by run id; (2) the first hostile test
+  aimed at addresses that refused connections anyway, so "blocked" proved nothing — removing
+  both network layers passed it. It now targets a local server the test knows is reachable and
+  asserts the server saw **no** request. With both layers removed it fails; with either layer
+  alone it still passes — each layer suffices by itself (defence in depth, as designed). E2E +5
+  (`modules/module-sandbox`: input, progress, logs, result, own files reachable, process gone
+  afterwards; the hostile module — reachable server, internet, the app's proxy, file://, XHR,
+  WebSocket, remote import, eval, Function, require, process, the app's API, cookies,
+  window.open; cooperative and forced Cancel; a module that throws or exports no `run`; a
+  disabled or missing module), red against mutants of: both network layers, the sandbox / Node,
+  eval in the CSP, popups, and destroying the run.

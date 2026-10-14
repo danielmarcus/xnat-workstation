@@ -232,6 +232,10 @@ export interface ElectronAPI {
     /** Pick a publisher's public.json and trust its key. */
     trustKeyPick(): Promise<{ ok: boolean; reason?: string; canceled?: boolean; key?: import('../modules/types').TrustedKey }>;
     untrustKey(keyId: string): Promise<{ ok: boolean }>;
+    /** Start a sandboxed run; its port arrives as a window message { type: 'xw-module-port', runId }. */
+    runStart(id: string): Promise<{ ok: true; runId: string } | { ok: false; reason: string }>;
+    /** End a run: its sandboxed process is destroyed. */
+    runStop(runId: string): Promise<{ ok: boolean }>;
   };
   diagnostics?: {
     getMainSnapshot(): Promise<MainDiagnosticsSnapshotResult>;

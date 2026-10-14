@@ -10,6 +10,11 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import { IPC } from '../shared/ipcChannels';
 
+// A module run's message port (branch 9): relayed to the page, which talks to the sandbox on it.
+ipcRenderer.on(IPC.MODULES_RUN_PORT, (e, info: { runId: string }) => {
+  window.postMessage({ type: 'xw-module-port', runId: info.runId }, '*', e.ports);
+});
+
 contextBridge.exposeInMainWorld('electronAPI', {
   platform: process.platform,
 
@@ -213,6 +218,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     setAllowCommunity: (allow: boolean) => ipcRenderer.invoke(IPC.MODULES_SET_ALLOW_COMMUNITY, allow),
     trustKeyPick: () => ipcRenderer.invoke(IPC.MODULES_TRUST_KEY_PICK),
     untrustKey: (keyId: string) => ipcRenderer.invoke(IPC.MODULES_UNTRUST_KEY, keyId),
+    runStart: (id: string) => ipcRenderer.invoke(IPC.MODULES_RUN_START, id),
+    runStop: (runId: string) => ipcRenderer.invoke(IPC.MODULES_RUN_STOP, runId),
   },
 
   diagnostics: {

@@ -43,6 +43,7 @@ import { indexToWorld, worldToIndex } from '../cornerstone/segmentationService/v
 import { sliceAxisFor } from '../cornerstone/maskIslands';
 import { setSolverMemoryLimits } from '../cornerstone/solverService';
 import { useSeedStore } from '../../stores/seedStore';
+import { runModule, type ModuleLogLine } from '../modules/moduleRunner';
 
 type ActiveSegmentationState = {
   activeSegmentationId: string | null;
@@ -199,6 +200,8 @@ declare global {
       memberSphereDice: (segmentIndex: number, center: [number, number, number], radius: number) => number;
       /** Lower (or reset, null) the solvers' memory limits so the guard's states show on small fixtures. */
       setSolverMemoryLimits: (limits: { warn: number; block: number } | null) => void;
+      /** Run an installed module through the sandbox (branch 9, M3), optionally cancelling it. */
+      runModule: (id: string, input: Record<string, unknown>, cancelAfterMs?: number) => Promise<{ ok: boolean; result?: unknown; error?: string; logs: ModuleLogLine[]; progress: number }>;
       /** A member's voxels on the slice the viewport shows. */
       memberSliceVoxelCount: (segmentIndex: number, panelId: string) => number;
       clearSeeds: () => void;
@@ -858,6 +861,18 @@ export function installRendererE2eHooks(): void {
       return a + b ? (2 * inter) / (a + b) : 0;
     },
     setSolverMemoryLimits: (limits) => setSolverMemoryLimits(limits),
+    runModule: async (id, input, cancelAfterMs) => {
+      const logs: ModuleLogLine[] = [];
+      let progress = 0;
+      const run = runModule(id, input, { onLog: (l) => logs.push(l), onProgress: () => { progress++; } });
+      if (cancelAfterMs !== undefined) setTimeout(() => run.cancel(), cancelAfterMs);
+      try {
+        const result = await run.result;
+        return { ok: true, result, logs, progress };
+      } catch (e) {
+        return { ok: false, error: e instanceof Error ? `${e.name}: ${e.message}` : String(e), logs, progress };
+      }
+    },
     memberSliceVoxelCount: (segmentIndex, panelId) => {
       const { activeSegmentationId } = useSegmentationStore.getState();
       const g = activeSegmentationId ? readSegmentVoxelGrid(activeSegmentationId, segmentIndex) : null;

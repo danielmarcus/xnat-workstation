@@ -7,6 +7,10 @@ import { registerUploadHandlers } from './ipc/uploadHandlers';
 import { registerBackupHandlers } from './ipc/backupHandlers';
 import { registerCheckpointHandlers } from './ipc/checkpointHandlers';
 import { registerModuleHandlers } from './ipc/moduleHandlers';
+import { registerModuleRunHandlers, registerModuleScheme } from './modules/moduleRuntime';
+
+// Modules' sandboxed windows load from xnat-module:// — a scheme must be registered before ready.
+registerModuleScheme();
 import { registerDiagnosticsHandlers } from './ipc/diagnosticsHandlers';
 import { registerUpdateHandlers } from './ipc/updateHandlers';
 import { installMainLogCapture } from './diagnostics/mainLogBuffer';
@@ -229,6 +233,7 @@ app.whenReady().then(() => {
   registerBackupHandlers();
   registerCheckpointHandlers();
   registerModuleHandlers();
+  registerModuleRunHandlers();
   registerDiagnosticsHandlers();
   registerUpdateHandlers();
   autoUpdateService.initialize();
