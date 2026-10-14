@@ -12,7 +12,7 @@ found, from two sources:
 
 Priority: **P1** breaks basic single-viewport use or loses / corrupts data · **P2** wrong in a
 common situation · **P3** edge case, hardening, performance on large data.
-Status: open · fixed (commit) · won't fix (reason).
+Status: open · fixed (commit) · won't fix (reason). Open items are tracked as GitHub issues (#91–#103).
 
 ## Cross-cutting
 
@@ -20,9 +20,9 @@ Status: open · fixed (commit) · won't fix (reason).
 |---|---|---|---|---|
 | X1 | P1 | Stack source reader applies rescale slope/intercept twice (loader pre-scales): every absolute-HU feature reads HU−1024 on real CT — Seeded gate, Level Trace guard, Region clip, module input | review + sweep (HU test, red in all orientations) | fixed |
 | X2 | P1 | A pending preview survives switching operation, active segment, container, viewport or scan; the next Commit / ⏎ writes the old preview | review (mask ops 3, 4; interp 14) | fixed |
-| X3 | P2 | Operations don't check the active viewport shows the active container (wrong plane / slices) | review | open |
-| X4 | P3 | Full-volume copies of every member per mask op, per brush move (Cleanup All smart plan, Interpolate gap table undebounced) | review | partly fixed (smart plan and gap table debounced; the per-op whole-volume copy remains) |
-| X5 | P3 | Transactions stage per-voxel Map entries: > 16.7M writes throws (V8 Map limit) | review | open |
+| X3 | P2 | Operations don't check the active viewport shows the active container (wrong plane / slices) | review | open — #91 |
+| X4 | P3 | Full-volume copies of every member per mask op, per brush move (Cleanup All smart plan, Interpolate gap table undebounced) | review | partly fixed (smart plan and gap table debounced; the per-op whole-volume copy remains) — #95 |
+| X5 | P3 | Transactions stage per-voxel Map entries: > 16.7M writes throws (V8 Map limit) | review | open — #96 |
 
 ## Segmentation tools (toolbox)
 
@@ -39,7 +39,7 @@ Status: open · fixed (commit) · won't fix (reason).
 | T9 | P2 | Undo & edit can undo an unrelated edit; ignores member / viewport | review (contours 5, 6) | fixed |
 | T10 | P2 | Copy nearby / Propagate use stale remembered splines, other planes, holes | review (contours 7, 8) | fixed |
 | T11 | P2 | On an oblique reformat (e.g. coronal of an oblique scan) the plane tools edited a grid slice that is not the one shown — Level Trace 12 mm off the plane, Rect Multi 6 mm; Region / Region+ did nothing, Region+ threw on hover | sweep (world-space invariant) | fixed (refused with a message; Volume-scope operations still work) |
-| T12 | P3 | Double-click close bypasses No crossing; spline in hand marks container dirty; render-time shape depends on globals; Fit ROI jumps slice; RTSTRUCT plane from camera | review (contours 9–13) | open |
+| T12 | P3 | Double-click close bypasses No crossing; spline in hand marks container dirty; render-time shape depends on globals; Fit ROI jumps slice; RTSTRUCT plane from camera | review (contours 9–13) | open — #99 |
 
 ## Operations
 
@@ -52,7 +52,7 @@ Status: open · fixed (commit) · won't fix (reason).
 | O5 | P2 | Slice-track range shows / drags on every viewport, for every op; drag doesn't discard the preview | review (interp 5, 6; mask ops 11) | fixed |
 | O6 | P2 | Interpolation anchors, Cleanup range, ROI limit, smart-plan overrides never reset per scan / container / orientation | review | fixed |
 | O7 | P2 | Slice track and gap table stale after an orientation change | review (interp 4) | fixed |
-| O8 | P3 | Volume / All cleanup synchronous on the UI thread: tens of seconds on 512² × 300 | review (mask ops 1) | open |
+| O8 | P3 | Volume / All cleanup synchronous on the UI thread: tens of seconds on 512² × 300 | review (mask ops 1) | open — #97 |
 | O9 | P3 | Ctrl+V lands displaced after panning | review (mask ops 13) | fixed |
 
 ## Found by the regression tests while fixing
@@ -60,7 +60,7 @@ Status: open · fixed (commit) · won't fix (reason).
 | ID | P | Finding | Source | Status |
 |---|---|---|---|---|
 | F1 | P1 | Every drag-following tool (Smart Brush, Random Walker seeds, the Seeded painter) lost its stroke's first movement — Cornerstone releases a held mouse-down on the move that a window listener added at press time had already missed (a quick flick painted one dab) | S9 regression test | fixed |
-| F3 | P3 | Rect Multi writes nothing where the intensity equals the window's upper bound exactly (binary 300 HU phantom vs −100…300) — not reproduced on realistic data | sweep (binary phantom) | open |
+| F3 | P3 | Rect Multi writes nothing where the intensity equals the window's upper bound exactly (binary 300 HU phantom vs −100…300) — not reproduced on realistic data | sweep (binary phantom) | open — #98 |
 | F2 | P2 | Cornerstone replays a click held 400 ms for double-click detection: Escape just after a click restarted the drawing and froze navigation | T4 regression test | fixed |
 
 ## Solvers, compute, 3D QC
@@ -72,14 +72,14 @@ reference implementations; the defects are in the services around them.
 |---|---|---|---|---|
 | S1 | P1 | A finished solve replaces whatever preview is pending; a Smart Brush release can then commit the solver result unreviewed; closing the sheet doesn't cancel the job | review (solvers 1) | fixed |
 | S2 | P1 | α-expansion with no Background seeds paints the whole box | review (solvers 2, script) | fixed |
-| S3 | P2 | Seed / Smart Brush / Random Walker brush round in voxels, not mm — ~7× tall on sagittal/coronal of thick-slice data | review (solvers 4) | open |
-| S4 | P2 | Seeds painted in another orientation silently reduced to a few voxels | review (solvers 3) | open |
+| S3 | P2 | Seed / Smart Brush / Random Walker brush round in voxels, not mm — ~7× tall on sagittal/coronal of thick-slice data | review (solvers 4) | open — #92 |
+| S4 | P2 | Seeds painted in another orientation silently reduced to a few voxels | review (solvers 3) | open — #93 |
 | S5 | P2 | Erasing seed points re-bridges the stroke with straight lines | review (solvers 5, script) | fixed |
-| S6 | P2 | Replaced jobs: old job's cleanup hides the new job's progress bar (fixed: job ids); QC builds and solves cancel each other silently; overlapping QC builds corrupt state | review (solvers 9–11) | open |
+| S6 | P2 | Replaced jobs: old job's cleanup hides the new job's progress bar (fixed: job ids); QC builds and solves cancel each other silently; overlapping QC builds corrupt state | review (solvers 9–11) | open — #94 |
 | S7 | P2 | 3D scissor cuts the active segmentation, not the one shown | review (solvers 14) | fixed |
 | S8 | P2 | Seeds of a deleted member break α after the solve; paintClass survives container change; a failed stroke start extends the previous stroke | review (solvers 15, 16) | fixed |
 | S9 | P2 | Smart Brush leaves gaps on fast drags; Level Trace with simplify loses its bottom row | review (solvers 17, 18) | fixed |
-| S10 | P3 | Whole-volume copies per seed-paint move and per QC row; QC staleness misses edits during a build; QC opens empty from non-panel_0 MPR; surfaces overstate thick slices; Delete component on a stale report; progress stuck; Restore seeds clobbers other containers | review (solvers 6–8, 12, 13, 19–22) | open |
+| S10 | P3 | Whole-volume copies per seed-paint move and per QC row; QC staleness misses edits during a build; QC opens empty from non-panel_0 MPR; surfaces overstate thick slices; Delete component on a stale report; progress stuck; Restore seeds clobbers other containers | review (solvers 6–8, 12, 13, 19–22) | open — #100 |
 
 ## Review ergonomics
 
@@ -88,8 +88,8 @@ reference implementations; the defects are in the services around them.
 | R1 | P2 | Hide PHI back on doesn't re-mask tags revealed earlier | review (interp 10) | fixed |
 | R2 | P2 | Imported checkpoint can be deleted by retention at once | review (interp 11) | fixed |
 | R3 | P2 | Flythrough segment filter leaks between containers | review (interp 9) | fixed |
-| R5 | P3 | Settings › File Backup does not list a checkpoint just imported (stale list) | sweep (R2 test) | open |
-| R4 | P3 | Checkpoint identity: session from last load, label in key, unsafe-name collisions | review (interp 12) | open |
+| R5 | P3 | Settings › File Backup does not list a checkpoint just imported (stale list) | sweep (R2 test) | open — #101 |
+| R4 | P3 | Checkpoint identity: session from last load, label in key, unsafe-name collisions | review (interp 12) | open — #102 |
 
 ## Modules
 
@@ -106,4 +106,4 @@ reference implementations; the defects are in the services around them.
 | M9 | P2 | A run writes into whichever sheet is open; two runs can overlap | review (modules 12) | fixed |
 | M10 | P2 | Dropping a module on Settings also triggers the DICOM loader | review (modules 13) | fixed |
 | M11 | P2 | E2E bundled-folder override honoured in packaged builds | review (modules 14) | fixed |
-| M12 | P3 | Per-run session / files leak; runs survive a page reload (fixed with M2); new segments stay after undo; stale params after upgrade; unvalidated postSteps; token reuse; signer text unsigned; key id 64-bit only; sync scans | review (modules 5, 6, 15) | open |
+| M12 | P3 | Per-run session / files leak; runs survive a page reload (fixed with M2); new segments stay after undo; stale params after upgrade; unvalidated postSteps; token reuse; signer text unsigned; key id 64-bit only; sync scans | review (modules 5, 6, 15) | open — #103 |
