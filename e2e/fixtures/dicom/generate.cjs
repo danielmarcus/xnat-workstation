@@ -762,6 +762,29 @@ function generateCtBody512(outDir) {
   });
 }
 
+/**
+ * The same body, acquired OBLIQUELY (~30° about x): 256 × 256 at 1.4 mm, 40 slices of 2.5 mm,
+ * real-CT storage. Its acquisition plane is not a world plane, and a coronal view of it is an
+ * oblique reformat that cuts across the voxel grid (the tool sweep).
+ */
+function generateCtBodyOblique(outDir) {
+  const cos30 = Math.cos(Math.PI / 6);
+  const sin30 = Math.sin(Math.PI / 6);
+  return writeCtSeries(outDir, {
+    rows: 256,
+    cols: 256,
+    numSlices: 40,
+    pixelSpacing: [1.4, 1.4],
+    sliceThickness: 2.5,
+    imageOrientationPatient: [1, 0, 0, 0, cos30, sin30],
+    seriesDescription: 'CT BODY OBLIQUE (synthetic, ~30deg tilt)',
+    patientId: 'CT-BODY-OBLIQUE',
+    patientName: 'PHANTOM^BODYOBLIQUE',
+    rescaleIntercept: -1024,
+    voxel: ctBody512Voxel,
+  });
+}
+
 const GENERATORS = {
   'ct-axial-300': generateCtAxial300,
   // Perf-only (large, slow to generate) — excluded from the generate-all default.
@@ -778,6 +801,7 @@ const GENERATORS = {
   'cine-us': generateCineUs,
   'mr-flair-postop': generateMrFlairPostop,
   'ct-body-512': generateCtBody512,
+  'ct-body-oblique': generateCtBodyOblique,
 };
 
 function main() {

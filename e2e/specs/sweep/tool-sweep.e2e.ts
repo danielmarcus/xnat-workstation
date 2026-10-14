@@ -17,12 +17,12 @@ import type { Locator, Page } from '@playwright/test';
 import { loadFixture } from '../../helpers/local-fixture';
 import { clickTool } from '../../helpers/toolbox';
 
-type Diff = Record<number, { added: number; removed: number; planes: number[]; focalChanged: boolean; now: number }>;
+type Diff = Record<number, { added: number; removed: number; planes: number[]; focalChanged: boolean; now: number; maxPlaneMm: number; minFocalMm: number; voxelDiagMm: number }>;
 type Hooks = {
   clearAllContainers: () => void;
   snapshotMembers: (tag: string) => number;
   diffMembers: (tag: string, panelId: string) => Diff | null;
-  viewportPlane: (panelId: string) => { axis: 0 | 1 | 2; index: number; focal: [number, number, number]; dims: [number, number, number] } | null;
+  viewportPlane: (panelId: string) => { axis: 0 | 1 | 2; index: number; focal: [number, number, number]; dims: [number, number, number]; aligned: boolean } | null;
   inPlanePagePoint: (panelId: string, dx: number, dy: number) => { x: number; y: number } | null;
   sourceValueAtFocal: (panelId: string) => number | null;
 };
@@ -97,12 +97,15 @@ const TOOLS: ToolCase[] = [
   { label: 'Select', expect: 'none', flat: true, focal: false, gesture: (p) => click(p) },
 ];
 
+/** The app's own plane tools, which work on grid slices — refused on an oblique reformat. */
+const REFUSE_ON_OBLIQUE_VIEW = new Set(['Level Trace', 'Smart Brush', 'Region', 'Region+', 'Rect Multi']);
+
 const CONTEXTS: Array<{ fixture: string; orientation: 'ACQUISITION' | 'SAGITTAL' | 'CORONAL' }> = [
   { fixture: 'ct-body-512', orientation: 'ACQUISITION' },
   { fixture: 'ct-body-512', orientation: 'SAGITTAL' },
   { fixture: 'ct-body-512', orientation: 'CORONAL' },
-  { fixture: 'ct-oblique', orientation: 'ACQUISITION' },
-  { fixture: 'ct-oblique', orientation: 'CORONAL' },
+  { fixture: 'ct-body-oblique', orientation: 'ACQUISITION' },
+  { fixture: 'ct-body-oblique', orientation: 'CORONAL' },
 ];
 
 /** Errors the renderer logs while a case runs. */
@@ -174,23 +177,31 @@ for (const ctx of CONTEXTS) {
         const problems: string[] = [];
         const plane = await H(page).plane();
         await H(page).snapshot('before');
+        // On an oblique reformat the plane tools refuse (their "slice on screen" would be a grid
+        // slice that is not the one shown, or Cornerstone's grid-axis box) — nothing may change.
+        const expectHere: Expect = !plane?.aligned && REFUSE_ON_OBLIQUE_VIEW.has(tool.label) ? 'none' : tool.expect;
         const errorsOf = captureErrors(page);
         await clickTool(toolbox, tool.label);
         try {
           await tool.gesture(page);
-          if (tool.after) await tool.after(page);
+          if (tool.after && expectHere !== 'none') await tool.after(page);
         } catch (e) {
           problems.push(`gesture failed: ${String(e).split('\n')[0]}`);
         }
-        const d = await settled(page, 'before', tool.expect === 'change');
+        const d = await settled(page, 'before', expectHere === 'change');
         const active = d[1], other = d[2];
-        if (tool.expect === 'change' && !changed(d, 1)) problems.push('the active segment did not change');
-        if (tool.expect === 'none' && (changed(d, 1) || changed(d, 2))) problems.push(`a segment changed (${JSON.stringify(d)})`);
-        if (changed(d, 1)) {
+        if (expectHere === 'change' && !changed(d, 1)) problems.push('the active segment did not change');
+        if (expectHere === 'none' && (changed(d, 1) || changed(d, 2))) problems.push(`a segment changed (${JSON.stringify(d)})`);
+        if (changed(d, 1) && plane?.aligned) {
           if (tool.focal && !active.focalChanged) problems.push(`the voxel under the gesture did not change (changes on slices ${active.planes.slice(0, 8).join(',')} of axis ${plane?.axis}; screen slice ${plane?.index})`);
           if (tool.flat && (active.planes.length !== 1 || active.planes[0] !== plane?.index)) {
             problems.push(`a 2D tool changed slices ${active.planes.slice(0, 8).join(',')}${active.planes.length > 8 ? '…' : ''} along axis ${plane?.axis}, not just the one on screen (${plane?.index})`);
           }
+        } else if (changed(d, 1)) {
+          // An oblique reformat cuts across the grid: a 2D edit is the voxels the plane passes
+          // through (centres within half a voxel diagonal of it), and it reaches the gesture.
+          if (tool.flat && active.maxPlaneMm > active.voxelDiagMm / 2 + 0.01) problems.push(`a 2D tool changed voxels ${active.maxPlaneMm.toFixed(2)} mm from the plane on screen (a voxel diagonal is ${active.voxelDiagMm.toFixed(2)} mm)`);
+          if (tool.focal && active.minFocalMm > active.voxelDiagMm) problems.push(`the change does not reach the gesture: nearest ${active.minFocalMm.toFixed(2)} mm away`);
         }
         if (changed(d, 2)) problems.push(`the other segment changed (+${other.added} −${other.removed})`);
 
@@ -207,7 +218,7 @@ for (const ctx of CONTEXTS) {
         problems.push(...errorsOf());
 
         // Locked: the same gesture changes nothing, and throws nothing.
-        if (tool.expect !== 'none') {
+        if (expectHere !== 'none') {
           await page.keyboard.press('Control+z');
           await settled(page, 'before');
           await panel.locator('[data-testid^="member-row-"]').first().getByRole('button', { name: 'Toggle lock' }).click();

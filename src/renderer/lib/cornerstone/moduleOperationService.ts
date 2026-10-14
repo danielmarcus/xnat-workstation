@@ -21,7 +21,7 @@ import { Enums as ToolEnums } from '@cornerstonejs/tools';
 import * as mlg from './multiLayerGroup';
 import { viewportService } from './viewportService';
 import { beginTransaction, type MemberRef } from './labelmapTransaction';
-import { sliceAxisFor } from './maskIslands';
+import { OBLIQUE_VIEW_MESSAGE, sliceAxisFor, viewAlignedWithGrid } from './maskIslands';
 import { forEachBoxVoxel, makeBox, toPlane, type Box } from './gridBox';
 import { sliceNumbering } from './sliceNumbering';
 import { getSourceImageIds } from './sourceImageTracking';
@@ -51,7 +51,7 @@ export interface ModuleScopeChoice {
 
 export type ModuleDomain =
   | { ok: true; box: Box; voxels: number; estimate: MemoryEstimate; currentSlice: number }
-  | { ok: false; reason: 'no-target' | 'no-viewport' | 'no-roi' | 'no-range' | 'scope' };
+  | { ok: false; reason: 'no-target' | 'no-viewport' | 'oblique-view' | 'no-roi' | 'no-range' | 'scope' };
 
 interface Target {
   containerId: string;
@@ -87,6 +87,7 @@ export function moduleDomain(manifest: ModuleManifest, scope: ModuleScopeChoice,
   const cam = (viewportService.getViewport(viewportId) as { getCamera?: () => { viewPlaneNormal?: number[]; focalPoint?: number[] } } | undefined)?.getCamera?.();
   if (!grid || !cam?.viewPlaneNormal || !cam.focalPoint) return { ok: false, reason: 'no-viewport' };
   const geometry = grid.geometry;
+  if ((scope.kind === 'slice' || scope.kind === 'range') && !viewAlignedWithGrid(geometry.direction, cam.viewPlaneNormal)) return { ok: false, reason: 'oblique-view' };
   const axis = sliceAxisFor(geometry.direction, cam.viewPlaneNormal) as Axis;
   const [ax, ay] = planeAxes(axis);
   const size = [geometry.dimensions[ax], geometry.dimensions[ay], geometry.dimensions[axis]];
@@ -123,7 +124,7 @@ function modalityOf(containerId: string): string {
 
 export type ModuleOperationResult =
   | { ok: true; added: number; removed: number; readOnly: boolean; table?: { columns: string[]; rows: unknown[][] } }
-  | { ok: false; reason: 'no-target' | 'no-viewport' | 'no-roi' | 'no-range' | 'scope' | 'no-image' | 'too-large' | 'cancelled' | 'failed' | 'bad-result' | 'no-change'; detail?: string };
+  | { ok: false; reason: 'no-target' | 'no-viewport' | 'oblique-view' | 'no-roi' | 'no-range' | 'scope' | 'no-image' | 'too-large' | 'cancelled' | 'failed' | 'bad-result' | 'no-change'; detail?: string };
 
 let running: ModuleRun<unknown> | null = null;
 
@@ -345,6 +346,7 @@ export function describeModuleResult(r: ModuleOperationResult): string | null {
   switch (r.reason) {
     case 'no-target': return 'Select a segment first';
     case 'no-viewport': return 'Open the segment’s scan in this viewport';
+    case 'oblique-view': return OBLIQUE_VIEW_MESSAGE;
     case 'no-roi': return 'Draw an ROI limit on this viewport, or pick another scope';
     case 'no-range': return 'Set the range of slices';
     case 'scope': return 'This module does not support that scope';

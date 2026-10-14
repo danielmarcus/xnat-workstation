@@ -36,7 +36,8 @@ import {
   type VoxelRegionClip,
   type Vec3,
 } from './segmentationService/voxelClipboard';
-import { sliceAxisFor } from './maskIslands';
+import { OBLIQUE_VIEW_MESSAGE, sliceAxisFor, viewAlignedWithGrid } from './maskIslands';
+import { showToast } from '../../stores/toastStore';
 import { clearMaskSelection, getMaskSelection, selectIslandsContaining, setIslandMoveStarter, setMaskPreviewDelta } from './maskSelection';
 import { Enums as ToolEnums } from '@cornerstonejs/tools';
 import { warnMemberLocked } from '../annotations/lockWarning';
@@ -488,6 +489,15 @@ export const unifiedSegService = {
       // Cornerstone's fill writes the labelmap directly: bracket it so it is one undo step
       // and never lands in a locked segment (beginDirectEdit).
       const member: MemberRef = { containerId: groupId, segmentIndex };
+      // On an oblique reformat Cornerstone fills the rectangle's box in GRID axes — voxels off
+      // the plane on screen: refused.
+      const g = readSegmentVoxelGrid(groupId, segmentIndex);
+      const n = (viewportService.getViewport(viewportId) as { getCamera?: () => { viewPlaneNormal?: number[] } } | undefined)?.getCamera?.()?.viewPlaneNormal;
+      if (g && n && !viewAlignedWithGrid(g.geometry.direction, n)) {
+        showToast(OBLIQUE_VIEW_MESSAGE, 'warning');
+        for (const uid of uids) { try { csAnnotation.state.removeAnnotation(uid); } catch { /* gone */ } }
+        return true;
+      }
       if (isSegmentLockedHere(groupId, segmentIndex)) {
         warnMemberLocked(groupId, segmentIndex, 'fill it');
         for (const uid of uids) { try { csAnnotation.state.removeAnnotation(uid); } catch { /* gone */ } }

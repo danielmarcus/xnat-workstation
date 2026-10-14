@@ -13,8 +13,8 @@ import { useOperationSheetStore } from '../../stores/operationSheetStore';
 /** What a viewport shows: its scan (first image and count) and its orientation. */
 function viewportKey(viewportId: string): string {
   const v = useViewerStore.getState();
-  const ids = v.panelImageIdsMap[viewportId] ?? [];
-  return `${ids[0] ?? ''}|${ids.length}|${v.panelOrientationMap[viewportId] ?? ''}`;
+  const ids = v.panelImageIdsMap?.[viewportId] ?? [];
+  return `${ids[0] ?? ''}|${ids.length}|${v.panelOrientationMap?.[viewportId] ?? ''}`;
 }
 
 /** The active viewport's view and the active segmentation — what slice numbers refer to. */

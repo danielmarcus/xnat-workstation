@@ -27,6 +27,7 @@ node e2e/fixtures/dicom/generate.cjs ct-axial-300 # one dataset
 | `cine-us`          | Multi-frame ultrasound (16 frames, 8-bit, moving bar, cine-rate tags). | ✅ built |
 | `mr-flair-postop` | FLAIR-like post-operative brain (MR): brain 300 with deterministic noise, a hyperintense edema shell (650, r 16 mm at (20, −5, 0)) round a dark resection cavity (60, r 6 mm), a dark ventricle outside it. Backs the post-op edema module (`e2e/specs/modules/module-validation`). | ✅ built |
 | `ct-body-512` | Realistic-size CT body: 512 × 512 × 40 (0.7 mm, 2.5 mm slices), noise, body / liver / vertebra / vessel and a 110 HU lesion at the volume centre. Backs the tool sweep (`e2e/specs/sweep`). | ✅ built |
+| `ct-body-oblique` | The `ct-body-512` body acquired obliquely (~30° about x): 256 × 256 × 40, 1.4 mm, 2.5 mm slices, real-CT storage. Its coronal view is an oblique reformat. Backs the tool sweep. | ✅ built |
 | `mr-localizer-3plane` | ONE MR series with three orientations (axial, sagittal with a 96×128 matrix, coronal), 5 images each — a tri-plane localizer. Not reconstructable as a volume; loads as a stack (`e2e/specs/viewport/mixed-orientation-series`). | ✅ built |
 
 **All 9 design fixtures built.** `4dct-phases` / `cine-us` carry no §G acceptance

@@ -22,7 +22,7 @@ function withoutLockedWhenSeveral(indices: number[], segments: Array<{ segmentIn
   const unlocked = indices.filter((i) => !segments.find((m) => m.segmentIndex === i)?.locked);
   return unlocked.length ? unlocked : indices;
 }
-import { sliceAxisFor } from './maskIslands';
+import { sliceAxisFor, viewAlignedWithGrid } from './maskIslands';
 import { worldToIndex, type Vec3 } from './segmentationService/voxelClipboard';
 import { commitPreview, startPreview } from './maskPreview';
 import { sliceNumbering } from './sliceNumbering';
@@ -52,9 +52,15 @@ import { useViewerStore } from '../../stores/viewerStore';
 
 export type RunResult =
   | { ok: true; added: number; removed: number; slices: number[]; readOnly: boolean; committed: boolean }
-  | { ok: false; reason: 'no-target' | 'no-viewport' | 'locked' | 'no-labelmap' | 'unknown-op' | 'no-change' | 'no-seed' | 'no-image'; member?: MemberRef };
+  | { ok: false; reason: 'no-target' | 'no-viewport' | 'oblique-view' | 'locked' | 'no-labelmap' | 'unknown-op' | 'no-change' | 'no-seed' | 'no-image'; member?: MemberRef };
 
 /** The viewing axis and on-screen slice of a viewport, in a grid's index space. */
+/** Whether the viewport shows planes of this grid — "the slice on screen" is then a grid slice. */
+function viewAligned(viewportId: string, geometry: { direction: number[] }): boolean {
+  const n = (viewportService.getViewport(viewportId) as { getCamera?: () => { viewPlaneNormal?: number[] } } | undefined)?.getCamera?.()?.viewPlaneNormal;
+  return !n || viewAlignedWithGrid(geometry.direction, n);
+}
+
 export function viewportSlice(viewportId: string, geometry: { direction: number[]; dimensions: ArrayLike<number> } & Parameters<typeof worldToIndex>[0]): { axis: Axis; slice: number } | null {
   const vp = viewportService.getViewport(viewportId) as { getCamera?: () => { focalPoint?: number[]; viewPlaneNormal?: number[] } } | undefined;
   const cam = vp?.getCamera?.();
@@ -137,6 +143,7 @@ export const maskOpsService = {
     if (!begun.ok) return { ok: false, reason: begun.reason, member: begun.member };
     const { txn } = begun;
     const grid = txn.grid(members[0]);
+    if (grid && scope.slices.kind !== 'volume' && !viewAligned(viewportId, grid.geometry)) { txn.discard(); return { ok: false, reason: 'oblique-view' }; }
     const where = grid ? viewportSlice(viewportId, grid.geometry) : null;
     if (!grid || !where) {
       txn.discard();
@@ -235,6 +242,7 @@ export const maskOpsService = {
     if (!begun.ok) return { ok: false, reason: begun.reason, member: begun.member };
     const { txn } = begun;
     const grid = txn.grid(target);
+    if (grid && scope.slices.kind !== 'volume' && !viewAligned(viewportId, grid.geometry)) { txn.discard(); return { ok: false, reason: 'oblique-view' }; }
     const where = grid ? viewportSlice(viewportId, grid.geometry) : null;
     if (!grid || !where) {
       txn.discard();
@@ -342,6 +350,7 @@ export const maskOpsService = {
     if (!begun.ok) return { ok: false, reason: begun.reason, member: begun.member };
     const { txn } = begun;
     const grid = txn.grid(members[0]);
+    if (grid && o.fill.kind !== 'gaps' && o.fill.kind !== 'gap' && !viewAligned(viewportId, grid.geometry)) { txn.discard(); return { ok: false, reason: 'oblique-view' }; }
     const where = grid ? viewportSlice(viewportId, grid.geometry) : null;
     const numbering = grid && where ? sliceNumbering(viewportId, grid.geometry, where.axis) : null;
     if (!grid || !where || !numbering) {
@@ -484,6 +493,7 @@ export const maskOpsService = {
     if (!begun.ok) return { ok: false, reason: begun.reason, member: begun.member };
     const { txn } = begun;
     const grid = txn.grid(member);
+    if (grid && !viewAligned(viewportId, grid.geometry)) { txn.discard(); return { ok: false, reason: 'oblique-view' }; }
     const where = grid ? viewportSlice(viewportId, grid.geometry) : null;
     const numbering = grid && where ? sliceNumbering(viewportId, grid.geometry, where.axis) : null;
     if (!grid || !where || !numbering) { txn.discard(); return { ok: false, reason: 'no-viewport' }; }

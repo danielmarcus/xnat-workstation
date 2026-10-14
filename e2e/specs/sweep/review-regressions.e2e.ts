@@ -230,3 +230,20 @@ test('O3: Copy into works from a locked segment — it only reads its source', a
   await expect.poll(() => hooks(page).member(2)).toBe(seg1);
   expect(await hooks(page).member(1), 'the locked source is unchanged').toBe(seg1);
 });
+
+test('T11: on an oblique reformat Level Trace refuses and says why — it does not edit a slice that is not on screen', async ({ page }) => {
+  await loadFixture(page, 'ct-body-oblique', PANEL);
+  await page.locator(`[data-panel-id="${PANEL}"]`).getByTitle('Viewport orientation').selectOption('CORONAL');
+  const panel = page.locator('[data-testid="annotations-side-panel"]');
+  if (!(await panel.isVisible())) await page.getByRole('button', { name: 'Show segmentation panel' }).click();
+  await panel.getByRole('button', { name: 'New Segmentation (SEG)' }).click();
+  await page.keyboard.press('Escape');
+  const toolbox = panel.locator('[data-testid="context-toolbox"]');
+  await expect(toolbox.getByRole('button', { name: 'Brush', exact: true })).toBeVisible({ timeout: 10_000 });
+  await clickTool(toolbox, 'Level Trace');
+  const p = (await hooks(page).point(0, 0))!;
+  await page.mouse.click(p.x, p.y);
+  await expect(toolbox.getByText(/cuts across the scan’s slices/)).toBeVisible();
+  expect(await hooks(page).member(1)).toBe(0);
+  await expect(page.getByTestId('mask-preview-bar')).toHaveCount(0);
+});

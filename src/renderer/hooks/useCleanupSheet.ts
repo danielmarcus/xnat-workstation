@@ -9,6 +9,7 @@
  * first, inline. A preview discarded because its segment changed (the user painted with the
  * operation open) is reported in the status line.
  */
+import { OBLIQUE_VIEW_MESSAGE } from '../lib/cornerstone/maskIslands';
 import { useEffect, useState } from 'react';
 import { maskOpsService, type RunResult, type ServiceScope } from '../lib/cornerstone/maskOpsService';
 import { clearStaleNotice, commitPreview, discardPreview } from '../lib/cornerstone/maskPreview';
@@ -77,6 +78,7 @@ function describeFailure(r: Extract<RunResult, { ok: false }>): string {
     case 'no-change': return 'Nothing to change in this scope';
     case 'no-target': return 'Select a segment to clean up';
     case 'no-viewport': return 'Open the segment’s scan in a viewport first';
+    case 'oblique-view': return OBLIQUE_VIEW_MESSAGE;
     case 'no-labelmap': return 'This segment has no voxels to work on yet';
     case 'locked': return 'This segment is locked';
     default: return 'Operation unavailable';

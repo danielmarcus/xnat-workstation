@@ -10,7 +10,7 @@
 import { metaData } from '@cornerstonejs/core';
 import { viewportService } from './viewportService';
 import { beginTransaction, type LabelmapTransaction, type MemberRef } from './labelmapTransaction';
-import { sliceAxisFor } from './maskIslands';
+import { OBLIQUE_VIEW_MESSAGE, sliceAxisFor, viewAlignedWithGrid } from './maskIslands';
 import { worldToIndex, worldToIndexFloat, type Vec3, type VoxelGridGeometry } from './segmentationService/voxelClipboard';
 import { commitPreview, discardPreview, discardPreviewForEdit, refreshPreview, startPreview } from './maskPreview';
 import { getSourceImageIds } from './sourceImageTracking';
@@ -21,7 +21,6 @@ import { startSemiAutoOverlay } from './semiAutoOverlay';
 import { type Axis, extractValues, planeAxes, planeSize, sliceIndices } from '../segmentation/maskOps/planeIO';
 import { guardFromSamples, levelTrace, rasterize } from '../segmentation/semiauto/levelTrace';
 import { smartBrushDab, strokeDabs } from '../segmentation/semiauto/smartBrush';
-import { installOperationContextReset } from './operationContextReset';
 import { computeClient, ComputeCancelled } from '../compute/computeClient';
 import { hotkeyService } from '../hotkeys/hotkeyService';
 import { useComputeStore } from '../../stores/computeStore';
@@ -35,7 +34,7 @@ import { useViewerStore } from '../../stores/viewerStore';
 
 export type SemiAutoResult =
   | { ok: true; added: number; readOnly: boolean }
-  | { ok: false; reason: 'no-target' | 'no-viewport' | 'no-labelmap' | 'no-image' | 'outside' | 'no-change' | 'no-seeds' | 'cancelled' | 'failed' };
+  | { ok: false; reason: 'no-target' | 'no-viewport' | 'oblique-view' | 'no-labelmap' | 'no-image' | 'outside' | 'no-change' | 'no-seeds' | 'cancelled' | 'failed' };
 
 let runningJob: { cancel: () => void } | null = null;
 
@@ -66,6 +65,13 @@ function openTarget(on?: MemberRef): Target | null {
 }
 
 /** The viewing axis, slice and in-plane pixel of a world point, for a grid seen in a viewport. */
+/** Whether the viewport shows planes of this grid (see viewAlignedWithGrid). */
+function aligned(viewportId: string, geometry: VoxelGridGeometry): boolean {
+  const vp = viewportService.getViewport(viewportId) as { getCamera?: () => { viewPlaneNormal?: number[] } } | undefined;
+  const normal = vp?.getCamera?.()?.viewPlaneNormal;
+  return !normal || viewAlignedWithGrid(geometry.direction, normal);
+}
+
 export function planePoint(viewportId: string, geometry: VoxelGridGeometry, world: number[]): { axis: Axis; slice: number; x: number; y: number } | null {
   const vp = viewportService.getViewport(viewportId) as { getCamera?: () => { viewPlaneNormal?: number[] } } | undefined;
   const normal = vp?.getCamera?.()?.viewPlaneNormal;
@@ -112,6 +118,7 @@ export const semiAutoService = {
     if (!t) return { ok: false, reason: 'no-target' };
     const grid = t.txn.grid(t.member);
     if (!grid) { t.txn.discard(); return { ok: false, reason: 'no-labelmap' }; }
+    if (!aligned(viewportId, grid.geometry)) { t.txn.discard(); return { ok: false, reason: 'oblique-view' }; }
     const at = planePoint(viewportId, grid.geometry, world);
     const source = grid.sourceReader?.() ?? null;
     if (!at) { t.txn.discard(); return { ok: false, reason: 'no-viewport' }; }
@@ -140,6 +147,11 @@ export const semiAutoService = {
     if (!t) return false;
     if (t.lockedMember) { t.txn.discard(); return false; }
     const grid = t.txn.grid(t.member);
+    if (grid && !aligned(viewportId, grid.geometry)) {
+      t.txn.discard();
+      useSemiAutoStore.getState().setMessage(OBLIQUE_VIEW_MESSAGE);
+      return false;
+    }
     const at = grid ? planePoint(viewportId, grid.geometry, world) : null;
     const source = grid?.sourceReader?.() ?? null;
     if (!grid || !at || !source) { t.txn.discard(); return false; }
@@ -213,6 +225,7 @@ export const semiAutoService = {
     if (!source) { t.txn.discard(); return { ok: false, reason: 'no-image' }; }
     // The slice on screen (the shared seed store can hold seeds on other slices too).
     const focal = (viewportService.getViewport(viewportId) as { getCamera?: () => { focalPoint?: number[] } } | undefined)?.getCamera?.()?.focalPoint;
+    if (!aligned(viewportId, grid.geometry)) { t.txn.discard(); return { ok: false, reason: 'oblique-view' }; }
     const first = focal ? planePoint(viewportId, grid.geometry, focal) : null;
     if (!first) { t.txn.discard(); return { ok: false, reason: 'no-viewport' }; }
     const { axis, slice } = first;
@@ -367,6 +380,7 @@ export function describeSemiAuto(r: SemiAutoResult, tool: string): string | null
   switch (r.reason) {
     case 'no-target': return 'Select a segment first';
     case 'no-viewport': return 'Open the segment’s scan in this viewport';
+    case 'oblique-view': return OBLIQUE_VIEW_MESSAGE;
     case 'no-labelmap': case 'no-image': return `${tool} is unavailable for this scan`;
     case 'outside': return 'Click inside the image';
     case 'no-change': return 'Nothing to add here';
@@ -399,7 +413,6 @@ Object.assign(semiAutoBridge, {
 });
 
 startSemiAutoOverlay();
-installOperationContextReset();
 
 // ─── Contour Fill: Spline and Live Wire boundaries (branch 6 F4, D3) ──────────
 //

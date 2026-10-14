@@ -1,4 +1,5 @@
 import { init as initCore, imageLoader, volumeLoader } from '@cornerstonejs/core';
+import { installOperationContextReset } from './operationContextReset';
 import { GENERATED_IMAGE_SCHEME, generatedImageLoader } from './generatedImageLoader';
 import { geometryDynamicVolumeLoader, GEOMETRY_DYNAMIC_VOLUME_SCHEME } from './dynamicVolumeLoader';
 import { init as initTools, addTool } from '@cornerstonejs/tools';
@@ -77,6 +78,8 @@ export async function initCornerstone(): Promise<void> {
   // v5 replaces every finished contour stroke with new annotations (the contour union);
   // keep the selection on the result so Ctrl+C / delete still find it.
   installContourStrokeSelection();
+  // Slice numbers, anchors, the ROI limit and plan overrides are cleared when their view changes.
+  installOperationContextReset();
 
   // Register PolySeg addon for automatic conversion between segmentation
   // representations (labelmap ↔ contour ↔ surface)

@@ -104,6 +104,8 @@ async function loadInitModule(options?: { splineRegistered?: boolean }): Promise
     AppLivewireContourTool: { toolName: 'LivewireContourSegmentationTool' },
     ContourFillLivewireTool: { toolName: 'ContourFillLivewire' },
   }));
+  vi.doMock('../tools/AppRegionSegmentPlusTool', () => ({ AppRegionSegmentTool: { toolName: 'RegionSegment' }, AppRegionSegmentPlusTool: { toolName: 'RegionSegmentPlus' } }));
+  vi.doMock('../operationContextReset', () => ({ installOperationContextReset: vi.fn() }));
   vi.doMock('../tools/SafePaintFillTool', () => ({
     default: { toolName: 'SafePaintFill' },
   }));

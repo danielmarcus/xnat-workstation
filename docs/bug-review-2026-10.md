@@ -38,7 +38,7 @@ Status: open · fixed (commit) · won't fix (reason).
 | T8 | P2 | Locked / approved Structure members editable through Copy nearby, Propagate, Undo & edit, ⏎ commit | review (contours 1) | fixed |
 | T9 | P2 | Undo & edit can undo an unrelated edit; ignores member / viewport | review (contours 5, 6) | fixed |
 | T10 | P2 | Copy nearby / Propagate use stale remembered splines, other planes, holes | review (contours 7, 8) | open |
-| T11 | P3 | Level Trace / Smart Brush write one slice off on a reformatted oblique plane | sweep | open |
+| T11 | P2 | On an oblique reformat (e.g. coronal of an oblique scan) the plane tools edited a grid slice that is not the one shown — Level Trace 12 mm off the plane, Rect Multi 6 mm; Region / Region+ did nothing, Region+ threw on hover | sweep (world-space invariant) | fixed (refused with a message; Volume-scope operations still work) |
 | T12 | P3 | Double-click close bypasses No crossing; spline in hand marks container dirty; render-time shape depends on globals; Fit ROI jumps slice; RTSTRUCT plane from camera | review (contours 9–13) | open |
 
 ## Operations
@@ -60,6 +60,7 @@ Status: open · fixed (commit) · won't fix (reason).
 | ID | P | Finding | Source | Status |
 |---|---|---|---|---|
 | F1 | P1 | Every drag-following tool (Smart Brush, Random Walker seeds, the Seeded painter) lost its stroke's first movement — Cornerstone releases a held mouse-down on the move that a window listener added at press time had already missed (a quick flick painted one dab) | S9 regression test | fixed |
+| F3 | P3 | Rect Multi writes nothing where the intensity equals the window's upper bound exactly (binary 300 HU phantom vs −100…300) — not reproduced on realistic data | sweep (binary phantom) | open |
 | F2 | P2 | Cornerstone replays a click held 400 ms for double-click detection: Escape just after a click restarted the drawing and froze navigation | T4 regression test | fixed |
 
 ## Solvers, compute, 3D QC

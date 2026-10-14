@@ -11,6 +11,9 @@
  *    click computes the seeds when they are not ready, and a click it cannot use says why.
  */
 import { RegionSegmentPlusTool, RegionSegmentTool } from '@cornerstonejs/tools';
+import { getEnabledElement } from '@cornerstonejs/core';
+import { readSegmentVoxelGrid } from '../segmentVoxelGrid';
+import { OBLIQUE_VIEW_MESSAGE, viewAlignedWithGrid } from '../maskIslands';
 import { showToast } from '../../../stores/toastStore';
 import { useSegmentationStore } from '../../../stores/segmentationStore';
 import { beginDirectEdit, isSegmentLockedHere, type MemberRef } from '../labelmapTransaction';
@@ -24,14 +27,29 @@ function activeMember(): MemberRef | null {
   return activeSegmentationId && activeSegmentIndex > 0 ? { containerId: activeSegmentationId, segmentIndex: activeSegmentIndex } : null;
 }
 
-/** False (with the lock warning) when the active segment is locked. */
-function mayEdit(): boolean {
+/**
+ * False (with the reason) when the active segment is locked, or when the view is an oblique
+ * reformat — Cornerstone's grow-cut works in the grid's axes and segmented nothing there.
+ */
+function mayEdit(element?: HTMLDivElement): boolean {
   const m = activeMember();
   if (m && isSegmentLockedHere(m.containerId, m.segmentIndex)) {
     warnMemberLocked(m.containerId, m.segmentIndex, 'segment it');
     return false;
   }
+  if (!aligned(element)) {
+    showToast(OBLIQUE_VIEW_MESSAGE, 'warning');
+    return false;
+  }
   return true;
+}
+
+/** Whether the element's view shows planes of the active segment's grid (not an oblique reformat). */
+function aligned(element: HTMLDivElement | undefined): boolean {
+  const m = activeMember();
+  const grid = m ? readSegmentVoxelGrid(m.containerId, m.segmentIndex) : null;
+  const normal = element ? (getEnabledElement(element)?.viewport as { getCamera?: () => { viewPlaneNormal?: number[] } } | undefined)?.getCamera?.()?.viewPlaneNormal : undefined;
+  return !grid || !normal || viewAlignedWithGrid(grid.geometry.direction, normal);
 }
 
 /** Run Cornerstone's grow-cut write as a recorded edit of the active segment. */
@@ -49,7 +67,7 @@ export class AppRegionSegmentTool extends RegionSegmentTool {
   static toolName = RegionSegmentTool.toolName;
 
   async preMouseDownCallback(evt: MouseDownEvt): Promise<boolean> {
-    if (!mayEdit()) return false;
+    if (!mayEdit(evt.detail.element as HTMLDivElement)) return false;
     return super.preMouseDownCallback(evt as never);
   }
 
@@ -61,8 +79,27 @@ export class AppRegionSegmentTool extends RegionSegmentTool {
 export class AppRegionSegmentPlusTool extends RegionSegmentPlusTool {
   static toolName = RegionSegmentPlusTool.toolName;
 
+  /**
+   * Cornerstone runs its seed heuristic on a timer while the pointer merely hovers — and it
+   * THROWS on an oblique view ("Oblique view is not supported yet"), an uncaught error per rest.
+   * Not on an oblique reformat, then; anywhere else its errors are contained.
+   */
+  mouseMoveCallback(evt: Parameters<RegionSegmentPlusTool['mouseMoveCallback']>[0]): void {
+    if (!aligned(evt.detail.element as HTMLDivElement)) return;
+    super.mouseMoveCallback(evt);
+  }
+
+  async onMouseStable(...args: Parameters<Stable>): Promise<void> {
+    try {
+      await (RegionSegmentPlusTool.prototype as unknown as { onMouseStable: Stable }).onMouseStable.apply(this, args);
+    } catch (err) {
+      console.warn('[AppRegionSegmentPlusTool] seed heuristic failed:', err);
+      (this as unknown as { allowedToProceed: boolean }).allowedToProceed = false;
+    }
+  }
+
   async preMouseDownCallback(evt: MouseDownEvt): Promise<boolean> {
-    if (!mayEdit()) return false;
+    if (!mayEdit(evt.detail.element as HTMLDivElement)) return false;
     const self = this as unknown as { allowedToProceed: boolean; mouseTimer: number | null; onMouseStable: Stable };
     if (!self.allowedToProceed) {
       if (self.mouseTimer !== null) { window.clearTimeout(self.mouseTimer); self.mouseTimer = null; }

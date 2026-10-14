@@ -209,7 +209,7 @@ declare global {
        * The plane a viewport shows, in the active segmentation's voxel grid: the grid axis its
        * slices run along, the slice index there, and the voxel at the focal point (the sweep).
        */
-      viewportPlane: (panelId: string) => { axis: 0 | 1 | 2; index: number; focal: [number, number, number]; dims: [number, number, number] } | null;
+      viewportPlane: (panelId: string) => { axis: 0 | 1 | 2; index: number; focal: [number, number, number]; dims: [number, number, number]; aligned: boolean } | null;
       /** The seed strokes painted (Seeded segmentation): class and point count of each. */
       seedStrokes: () => Array<{ cls: number; points: number }>;
       /** How many mask islands are selected (the Select tool on a Segmentation). */
@@ -232,7 +232,7 @@ declare global {
        * What changed since the snapshot, per member: voxels added / removed, the distinct slice
        * indices (along the viewport's axis) of the changes, and whether the focal voxel changed.
        */
-      diffMembers: (tag: string, panelId: string) => Record<number, { added: number; removed: number; planes: number[]; focalChanged: boolean; now: number }> | null;
+      diffMembers: (tag: string, panelId: string) => Record<number, { added: number; removed: number; planes: number[]; focalChanged: boolean; now: number; maxPlaneMm: number; minFocalMm: number; voxelDiagMm: number }> | null;
       /** Lower (or reset, null) the solvers' memory limits so the guard's states show on small fixtures. */
       setSolverMemoryLimits: (limits: { warn: number; block: number } | null) => void;
       /** Run an installed module through the sandbox (branch 9, M3), optionally cancelling it. */
@@ -940,7 +940,11 @@ export function installRendererE2eHooks(): void {
       if (!g || !cam?.viewPlaneNormal || !cam.focalPoint) return null;
       const axis = sliceAxisFor(g.geometry.direction, cam.viewPlaneNormal);
       const focal = worldToIndex(g.geometry, cam.focalPoint as [number, number, number]) as [number, number, number];
-      return { axis, index: focal[axis], focal, dims: [...g.geometry.dimensions] as [number, number, number] };
+      // Aligned: the view plane is a plane of the voxel grid (not an oblique reformat).
+      const dir = g.geometry.direction, n = cam.viewPlaneNormal;
+      const col = [dir[axis], dir[axis + 3], dir[axis + 6]];
+      const aligned = Math.abs(col[0] * n[0] + col[1] * n[1] + col[2] * n[2]) / (Math.hypot(n[0], n[1], n[2]) || 1) > 0.999;
+      return { axis, index: focal[axis], focal, dims: [...g.geometry.dimensions] as [number, number, number], aligned };
     },
     selectedIslandCount: () => getMaskSelection()?.islands.length ?? 0,
     seedStrokes: () => useSeedStore.getState().strokes.map((st) => ({ cls: st.cls, points: st.points.length })),
@@ -997,7 +1001,9 @@ export function installRendererE2eHooks(): void {
       const vp = viewportService.getViewport(panelId) as { getCamera?: () => { viewPlaneNormal?: number[]; focalPoint?: number[] } } | undefined;
       const cam = vp?.getCamera?.();
       if (!snap || !seg || !cam?.viewPlaneNormal || !cam.focalPoint) return null;
-      const out: Record<number, { added: number; removed: number; planes: number[]; focalChanged: boolean; now: number }> = {};
+      const out: Record<number, { added: number; removed: number; planes: number[]; focalChanged: boolean; now: number; maxPlaneMm: number; minFocalMm: number; voxelDiagMm: number }> = {};
+      const nrm = cam.viewPlaneNormal, fp = cam.focalPoint;
+      const nl = Math.hypot(nrm[0], nrm[1], nrm[2]) || 1;
       for (const m of seg.segments) {
         const g = readSegmentVoxelGrid(activeSegmentationId!, m.segmentIndex);
         if (!g) continue;
@@ -1008,16 +1014,24 @@ export function installRendererE2eHooks(): void {
         const before = snap.get(m.segmentIndex) ?? new Set<number>();
         const planes = new Set<number>();
         let added = 0, removed = 0, now = 0, focalChanged = false;
+        // In world space: how far changed voxels lie from the plane on screen and from the focal
+        // point — the invariants for a plane that cuts across the voxel grid (an oblique reformat).
+        let maxPlaneMm = 0, minFocalMm = Infinity;
         const touch = (i: number) => {
           planes.add(axis === 0 ? i % nx : axis === 1 ? Math.floor(i / nx) % ny : Math.floor(i / (nx * ny)));
           if (i === focalFlat) focalChanged = true;
+          const w = indexToWorld(g.geometry, [i % nx, Math.floor(i / nx) % ny, Math.floor(i / (nx * ny))]);
+          const d = [w[0] - fp[0], w[1] - fp[1], w[2] - fp[2]];
+          maxPlaneMm = Math.max(maxPlaneMm, Math.abs(d[0] * nrm[0] + d[1] * nrm[1] + d[2] * nrm[2]) / nl);
+          minFocalMm = Math.min(minFocalMm, Math.hypot(d[0], d[1], d[2]));
         };
         for (let i = 0; i < g.data.length; i++) {
           const on = g.data[i] === g.value;
           if (on) now++;
           if (on && !before.has(i)) { added++; touch(i); } else if (!on && before.has(i)) { removed++; touch(i); }
         }
-        out[m.segmentIndex] = { added, removed, planes: [...planes].sort((a, b) => a - b), focalChanged, now };
+        const sp = g.geometry.spacing;
+        out[m.segmentIndex] = { added, removed, planes: [...planes].sort((a, b) => a - b), focalChanged, now, maxPlaneMm, minFocalMm, voxelDiagMm: Math.hypot(sp[0], sp[1], sp[2]) };
       }
       return out;
     },

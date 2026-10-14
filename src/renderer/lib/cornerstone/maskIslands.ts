@@ -16,6 +16,22 @@ export interface IslandGrid {
   value: number;
 }
 
+/**
+ * Whether a view shows planes of the voxel grid — false for an oblique reformat (e.g. coronal of
+ * an obliquely acquired scan), which cuts across the grid's slices. Tools and operations that act
+ * on "the slice on screen" work on a grid slice; on an oblique reformat that slice is not the one
+ * shown (Level Trace wrote voxels 12 mm from it), so they refuse there.
+ */
+export function viewAlignedWithGrid(direction: number[], viewPlaneNormal: ArrayLike<number>): boolean {
+  const axis = sliceAxisFor(direction, viewPlaneNormal);
+  const n = Math.hypot(viewPlaneNormal[0], viewPlaneNormal[1], viewPlaneNormal[2]) || 1;
+  const dot = Math.abs(direction[axis] * viewPlaneNormal[0] + direction[3 + axis] * viewPlaneNormal[1] + direction[6 + axis] * viewPlaneNormal[2]) / n;
+  return dot > 0.999;
+}
+
+/** What a refusal on an oblique reformat says. */
+export const OBLIQUE_VIEW_MESSAGE = 'This view cuts across the scan’s slices — edit in the Acquisition orientation';
+
 /** The grid axis (0 = i, 1 = j, 2 = k) most parallel to a view-plane normal. */
 export function sliceAxisFor(direction: number[], viewPlaneNormal: ArrayLike<number>): 0 | 1 | 2 {
   let best: 0 | 1 | 2 = 2;

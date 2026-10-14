@@ -16,7 +16,7 @@ type Diff = Record<number, { added: number; removed: number; planes: number[]; f
 type Hooks = {
   snapshotMembers: (tag: string) => number;
   diffMembers: (tag: string, panelId: string) => Diff | null;
-  viewportPlane: (panelId: string) => { axis: 0 | 1 | 2; index: number; focal: [number, number, number]; dims: [number, number, number] } | null;
+  viewportPlane: (panelId: string) => { axis: 0 | 1 | 2; index: number; focal: [number, number, number]; dims: [number, number, number]; aligned: boolean } | null;
   inPlanePagePoint: (panelId: string, dx: number, dy: number) => { x: number; y: number } | null;
 };
 const PANEL = 'panel_0';
@@ -139,7 +139,8 @@ const OPS: OpCase[] = [
     run: async (panel, page) => {
       const sheet = await openOperation(panel, 'Interpolate');
       await sheet.getByRole('button', { name: 'Preview', exact: true }).click();
-      await commit(sheet, page);
+      // It may refuse (an oblique reformat) — then there is no preview to commit.
+      if (await page.getByTestId('mask-preview-bar').isVisible({ timeout: 10_000 }).catch(() => false)) await sheet.getByRole('button', { name: 'Commit' }).click();
     },
   },
   {
@@ -158,7 +159,7 @@ const CONTEXTS: Array<{ fixture: string; orientation: 'ACQUISITION' | 'SAGITTAL'
   { fixture: 'ct-body-512', orientation: 'ACQUISITION' },
   { fixture: 'ct-body-512', orientation: 'SAGITTAL' },
   { fixture: 'ct-body-512', orientation: 'CORONAL' },
-  { fixture: 'ct-oblique', orientation: 'CORONAL' },
+  { fixture: 'ct-body-oblique', orientation: 'CORONAL' },
 ];
 
 for (const ctx of CONTEXTS) {
@@ -177,8 +178,11 @@ for (const ctx of CONTEXTS) {
           problems.push(`could not run: ${String(e).split('\n')[0]}`);
         }
         const d = await settled(page, 'before');
-        if (op.expect === 'change' && !changed(d, 1)) problems.push('the active segment did not change');
-        if (changed(d, 1)) {
+        // On an oblique reformat the operations that act on the slice on screen refuse, and the
+        // painted "slices" lie across the grid — only the generic invariants apply.
+        const oblique = !plane?.aligned;
+        if (op.expect === 'change' && !oblique && !changed(d, 1)) problems.push('the active segment did not change');
+        if (changed(d, 1) && !oblique) {
           const pl = d[1].planes;
           if (op.flat && (pl.length !== 1 || pl[0] !== plane?.index)) problems.push(`Slice scope changed slices ${pl.slice(0, 8).join(',')}${pl.length > 8 ? '…' : ''} along axis ${plane?.axis}, not just the one on screen (${plane?.index})`);
           if (op.between) {

@@ -7,6 +7,7 @@
  * open (D12, narrowed 2026-10-12). Matched on the physical key (`e.code`): on a Mac, ⌥A
  * types "å".
  */
+import { OBLIQUE_VIEW_MESSAGE } from '../lib/cornerstone/maskIslands';
 import { useEffect, useState } from 'react';
 import { maskOpsService, type RunResult } from '../lib/cornerstone/maskOpsService';
 import { clearStaleNotice, commitPreview, discardPreview } from '../lib/cornerstone/maskPreview';
@@ -27,6 +28,7 @@ function describe(r: Extract<RunResult, { ok: false }>, fill: InterpolateSetting
   }
   if (r.reason === 'no-target') return 'Select a segment to interpolate';
   if (r.reason === 'no-viewport') return 'Open the segment’s scan in a viewport first';
+  if (r.reason === 'oblique-view') return OBLIQUE_VIEW_MESSAGE;
   return 'Interpolation unavailable';
 }
 
