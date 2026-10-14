@@ -99,7 +99,7 @@ export default function InterpolateSheet({ m }: { m: InterpolateSheetModel }) {
               <button
                 type="button"
                 aria-label={`Preview gap ${g.from + 1}–${g.to + 1} of ${g.name}`}
-                onClick={() => m.previewGap(g.from + 1, g.to + 1)}
+                onClick={() => m.previewGap(g.from + 1, g.to + 1, g.segmentIndex)}
                 className="rounded bg-zinc-800 px-1.5 py-0.5 hover:bg-zinc-700"
               >
                 Preview gap

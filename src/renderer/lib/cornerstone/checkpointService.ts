@@ -180,7 +180,9 @@ export async function importCheckpointFile(containerId: string): Promise<ImportR
   const grid = summary?.segments.map((m) => readSegmentVoxelGrid(containerId, m.segmentIndex)).find((g) => g);
   const d = grid?.geometry.dimensions;
   if (!d || d[0] !== rec.dims[0] || d[1] !== rec.dims[1] || d[2] !== rec.dims[2]) return { ok: false, reason: 'other-grid' };
-  const stored: CheckpointRecord = { ...rec, id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`, containerLabel: id.label };
+  // Stamped as made now: retention keeps the newest named checkpoints, and an import carrying
+  // its file's older date was deleted the moment it was imported.
+  const stored: CheckpointRecord = { ...rec, id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`, containerLabel: id.label, createdAt: new Date().toISOString() };
   const w = await store.write(id.key, stored);
   if (!w.ok) return { ok: false, reason: 'write-failed', detail: w.error };
   await applyRetention(id.key, stored);

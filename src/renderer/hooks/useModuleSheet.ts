@@ -55,15 +55,29 @@ export function useModuleSheet() {
   const running = !!job && !!manifest && job.label === manifest.name;
 
   const run = (commit: boolean) => {
-    if (!manifest) return;
+    if (!manifest || !moduleId) return;
     clearStaleNotice();
+    // One job at a time: a second run used to replace the first's job and its preview.
+    if (useComputeStore.getState().job) {
+      sheet.setMessage('Another operation is running — wait for it, or cancel it');
+      return;
+    }
     sheet.setMessage(null);
     setTable(null);
     setLogs([]);
-    void runModuleOperation({ manifest, params: values, scope, viewportId: activeViewportId, commit, onLog: (l) => setLogs((x) => [...x, l]) })
+    // A run's log, table and status belong to its own module: they are dropped if the user has
+    // moved to another operation meanwhile (they used to land in whichever sheet was open).
+    const sheetId = `module:${moduleId}` as const;
+    const stillOpen = () => useOperationSheetStore.getState().openSheet === sheetId;
+    void runModuleOperation({ manifest, params: values, scope, viewportId: activeViewportId, commit, onLog: (l) => { if (stillOpen()) setLogs((x) => [...x, l]); } })
       .then((r) => {
+        if (!stillOpen()) return;
         useOperationSheetStore.getState().setMessage(describeModuleResult(r));
         if (r.ok && r.table) setTable(r.table);
+      })
+      .catch((e: unknown) => {
+        console.warn('[useModuleSheet] module operation failed:', e);
+        if (stillOpen()) useOperationSheetStore.getState().setMessage(`The module operation failed: ${e instanceof Error ? e.message : String(e)}`);
       });
     hotkeyService.focusActiveViewport();
   };

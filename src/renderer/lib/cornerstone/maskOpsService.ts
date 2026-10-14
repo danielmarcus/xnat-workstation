@@ -10,6 +10,18 @@
 import { viewportService } from './viewportService';
 import { readSegmentVoxelGrid } from './segmentVoxelGrid';
 import { beginTransaction, type MemberRef } from './labelmapTransaction';
+
+/**
+ * With several segments targeted (Labels = All), a locked one is left out — protected like any
+ * segment the operation does not target. Before, one locked segment made the whole operation a
+ * read-only preview (with a message naming another segment). One locked target alone still
+ * previews read-only.
+ */
+function withoutLockedWhenSeveral(indices: number[], segments: Array<{ segmentIndex: number; locked: boolean }>): number[] {
+  if (indices.length < 2) return indices;
+  const unlocked = indices.filter((i) => !segments.find((m) => m.segmentIndex === i)?.locked);
+  return unlocked.length ? unlocked : indices;
+}
 import { sliceAxisFor } from './maskIslands';
 import { worldToIndex, type Vec3 } from './segmentationService/voxelClipboard';
 import { commitPreview, startPreview } from './maskPreview';
@@ -101,8 +113,8 @@ export const maskOpsService = {
     const allIndices = summary.segments.map((s) => s.segmentIndex);
     const allMembers: MemberRef[] = allIndices.map((segmentIndex) => ({ containerId, segmentIndex }));
     const plan = opts.plan;
-    const members: MemberRef[] = resolveLabels(scope.labels, active, allIndices)
-      .filter((i) => !plan || (plan[i] && plan[i] !== 'skip'))
+    const members: MemberRef[] = withoutLockedWhenSeveral(resolveLabels(scope.labels, active, allIndices)
+      .filter((i) => !plan || (plan[i] && plan[i] !== 'skip')), summary.segments)
       .map((segmentIndex) => ({ containerId, segmentIndex }));
     if (members.length === 0) return { ok: false, reason: 'no-target' };
     const isMember = (i: number) => members.some((m) => m.segmentIndex === i);
@@ -314,7 +326,7 @@ export const maskOpsService = {
     if (!viewportId) return { ok: false, reason: 'no-viewport' };
     const allIndices = summary.segments.map((m) => m.segmentIndex);
     const allMembers: MemberRef[] = allIndices.map((segmentIndex) => ({ containerId, segmentIndex }));
-    const members: MemberRef[] = resolveLabels(o.labels, active, allIndices).map((segmentIndex) => ({ containerId, segmentIndex }));
+    const members: MemberRef[] = withoutLockedWhenSeveral(resolveLabels(o.labels, active, allIndices), summary.segments).map((segmentIndex) => ({ containerId, segmentIndex }));
     if (!members.length) return { ok: false, reason: 'no-target' };
 
     let lockedMember: MemberRef | null = null;

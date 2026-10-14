@@ -56,9 +56,22 @@ describe('link costs', () => {
     expect(gap(0.6)).toBeGreaterThan(gap(0.05));
   });
 
-  it('weights scale their own term', () => {
-    expect(linkCost(m, 5, 10, 5, 11, { gradientWeight: 1, laplacianWeight: 0, directionWeight: 0 }))
-      .toBeGreaterThan(linkCost(m, 5, 10, 5, 11, { gradientWeight: 0.2, laplacianWeight: 0, directionWeight: 0 }));
+  it('weights set the balance between the terms (only their ratio matters)', () => {
+    const only = (w: Partial<{ gradientWeight: number; laplacianWeight: number; directionWeight: number }>) =>
+      linkCost(m, 5, 10, 5, 11, { gradientWeight: 0, laplacianWeight: 0, directionWeight: 0, ...w });
+    expect(only({ gradientWeight: 1 })).toBeCloseTo(only({ gradientWeight: 0.2 }), 12);
+    const g = only({ gradientWeight: 1 }), d = only({ directionWeight: 1 });
+    expect(only({ gradientWeight: 3, directionWeight: 1 })).toBeCloseTo((3 * g + d) / 4, 12);
+  });
+
+  it('every link costs less than 1 — whatever the sliders (Cornerstone\'s 256-bucket queue needs it)', () => {
+    for (const w of [{ gradientWeight: 1, laplacianWeight: 1, directionWeight: 1 }, { gradientWeight: 0.85, laplacianWeight: 0.12, directionWeight: 0.15 }, { gradientWeight: 0, laplacianWeight: 0, directionWeight: 1 }]) {
+      let max = 0;
+      for (let y = 1; y < m.height - 1; y++) for (let x = 1; x < m.width - 1; x++) {
+        for (const [dx, dy] of [[1, 0], [0, 1], [1, 1], [-1, 1]]) max = Math.max(max, linkCost(m, x, y, x + dx, y + dy, w));
+      }
+      expect(max, JSON.stringify(w)).toBeLessThan(1);
+    }
   });
 });
 

@@ -19,6 +19,7 @@ import { classifyComponents, type ComponentBand } from '../segmentation/qc3d/com
 import type { QcMesh } from '../segmentation/qc3d/build';
 import { useSegmentationStore } from '../../stores/segmentationStore';
 import { useQc3dStore, type Qc3dLabelReport } from '../../stores/qc3dStore';
+import { showToast } from '../../stores/toastStore';
 import { useUnifiedLayoutStore } from '../../stores/unifiedLayoutStore';
 import { beginTransaction } from './labelmapTransaction';
 import { sliceAxisFor } from './maskIslands';
@@ -477,8 +478,14 @@ export const qc3dService = {
     const seg = useSegmentationStore.getState();
     const layout = useUnifiedLayoutStore.getState().layout;
     const vp = viewport3d();
-    if (!vp || layout.kind !== 'qc-3d' || !seg.activeSegmentationId || !(seg.activeSegmentIndex > 0)) return false;
-    const member = { containerId: seg.activeSegmentationId, segmentIndex: seg.activeSegmentIndex };
+    // The segmentation whose surfaces are shown — not whichever is active in the panel now.
+    const containerId = st.containerId;
+    if (!vp || layout.kind !== 'qc-3d' || !containerId || !(seg.activeSegmentIndex > 0)) return false;
+    if (seg.activeSegmentationId !== containerId) {
+      showToast('The 3D view shows another segmentation — select one of its segments to cut it.', 'warning');
+      return false;
+    }
+    const member = { containerId, segmentIndex: seg.activeSegmentIndex };
     let lockedMember: typeof member | null = null;
     let begun = beginTransaction([member]);
     if (!begun.ok && begun.reason === 'locked') {

@@ -336,3 +336,21 @@ test('the Slice row and Commit appear only for a spline: Live Wire boundary has 
   await expect(button(toolbox, 'Copy nearby')).toHaveCount(0);
   await expect(button(toolbox, 'Undo & edit')).toHaveCount(0);
 });
+
+test('Copy nearby on a locked segment is refused with the lock warning — nothing held, nothing written', async ({ page }) => {
+  // The spline actions are buttons and keys: the draw guard (a pointer-down check) never saw
+  // them, and they wrote into locked — approved — segments.
+  const toolbox = await open(page, 'SEG');
+  await clickRing(page, BONE_R);
+  await expect.poll(() => voxels(page), { timeout: 8_000 }).toBeGreaterThan(DISC * 0.85);
+  const one = await voxels(page);
+  await stepSlice(page, 'ArrowDown');
+  const panel = page.locator('[data-testid="annotations-side-panel"]');
+  await panel.locator('[data-testid^="member-row-"]').first().getByRole('button', { name: 'Toggle lock' }).click();
+  await button(toolbox, 'Copy nearby').click();
+  await expect(toast(page)).toContainText('locked');
+  expect(await inHand(page, FILL_SPLINE)).toHaveLength(0);
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(300);
+  expect(await voxels(page)).toBe(one);
+});

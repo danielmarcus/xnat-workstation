@@ -22,13 +22,15 @@ const hooks = (page: Page) => ({
   slice: () => page.evaluate(() => (window as unknown as { __XNAT_E2E__: Hooks }).__XNAT_E2E__.viewportPlane('panel_0')?.index ?? -1),
 });
 
-async function drag(page: Page, path: Array<[number, number]>) {
+async function drag(page: Page, path: Array<[number, number]>, shift = false) {
   const pts = [];
   for (const [dx, dy] of path) pts.push((await hooks(page).point(dx, dy))!);
+  if (shift) await page.keyboard.down('Shift');
   await page.mouse.move(pts[0].x, pts[0].y);
   await page.mouse.down();
   for (const p of pts.slice(1)) await page.mouse.move(p.x, p.y, { steps: 6 });
   await page.mouse.up();
+  if (shift) await page.keyboard.up('Shift');
 }
 
 async function step(page: Page, key: 'ArrowUp' | 'ArrowDown', times = 1) {
@@ -98,4 +100,48 @@ test('S2: α-expansion without Background seeds is refused — it does not paint
   await expect(sheet.getByTestId('sheet-message')).toContainText('Seed the Background too');
   await expect(page.getByTestId('mask-preview-bar')).toHaveCount(0);
   expect(await hooks(page).member(1) + await hooks(page).member(2)).toBe(0);
+});
+
+test('O2: Cleanup over All segments with one segment locked still commits the others — the locked one is left alone', async ({ page }) => {
+  const { panel, toolbox } = await setup(page);
+  await clickTool(toolbox, 'Rect');
+  // Segment 1: a ring (a hole to fill). Segment 2: a ring too, then locked.
+  await row(panel, 'Segment 1').click();
+  await drag(page, [[-12, -12], [12, 12]]);
+  await drag(page, [[-4, -4], [4, 4]], true); // ⇧ inverts the shape tool: erase the middle
+  const seg1 = await hooks(page).member(1);
+  expect(seg1).toBeGreaterThan(0);
+  await row(panel, 'Segment 2').click();
+  await drag(page, [[30, 30], [44, 44]]);
+  const seg2 = await hooks(page).member(2);
+  await row(panel, 'Segment 2').getByRole('button', { name: 'Toggle lock' }).click();
+  await row(panel, 'Segment 1').click();
+  const sheet = await openOperation(panel, 'Cleanup', 'Fill holes');
+  await sheet.getByRole('group', { name: 'Labels' }).getByRole('button', { name: /All/ }).click();
+  await sheet.getByRole('button', { name: 'Preview', exact: true }).click();
+  await expect(page.getByTestId('mask-preview-bar')).toBeVisible();
+  await expect(sheet.getByRole('button', { name: 'Commit' }), 'not a read-only preview').toBeEnabled();
+  await sheet.getByRole('button', { name: 'Commit' }).click();
+  await expect.poll(() => hooks(page).member(1), { message: 'Segment 1’s hole filled' }).toBeGreaterThan(seg1);
+  expect(await hooks(page).member(2), 'the locked Segment 2 untouched').toBe(seg2);
+});
+
+test('O4: a gap-table row previews its own segment\'s gap, whichever segment is active', async ({ page }) => {
+  const { panel, toolbox } = await setup(page);
+  await clickTool(toolbox, 'Rect');
+  // Segment 2 on slices s and s+3 (a gap); Segment 1 — active — elsewhere, no gap.
+  await row(panel, 'Segment 2').click();
+  await drag(page, [[-8, -8], [8, 8]]);
+  await step(page, 'ArrowDown', 3);
+  await drag(page, [[-8, -8], [8, 8]]);
+  const seg2 = await hooks(page).member(2);
+  await row(panel, 'Segment 1').click();
+  await drag(page, [[30, 30], [40, 40]]);
+  const sheet = await openOperation(panel, 'Interpolate');
+  const gapRow = sheet.getByRole('button', { name: /Preview gap .* of Segment 2/ });
+  await expect(gapRow).toBeVisible();
+  await gapRow.click();
+  await expect(page.getByTestId('mask-preview-bar')).toBeVisible({ timeout: 15_000 });
+  await sheet.getByRole('button', { name: 'Commit' }).click();
+  await expect.poll(() => hooks(page).member(2), { message: 'Segment 2’s gap filled' }).toBeGreaterThan(seg2);
 });

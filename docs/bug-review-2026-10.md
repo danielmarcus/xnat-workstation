@@ -34,9 +34,9 @@ Status: open · fixed (commit) · won't fix (reason).
 | T4 | P1 | Spline / Live Wire / Contour Fill: Escape or a tool switch mid-draw leaves the drawing live and freezes navigation (also: Cornerstone replays a click held 400 ms for double-click detection, so Escape soon after a click started a new drawing) | review (contours 2) | fixed |
 | T5 | P1 | Backspace/Delete while drawing a spline deletes the selection instead of the last point | review (contours 3) | fixed |
 | T6 | P2 | Smart Brush live overlay never grows past the first dab (preview bucket cache) | review (mask ops 5) | fixed |
-| T7 | P2 | Advanced Live Wire costs exceed 1 → bucket queue disorder → paths not shortest | review (contours 4) | open |
-| T8 | P2 | Locked / approved Structure members editable through Copy nearby, Propagate, Undo & edit, ⏎ commit | review (contours 1) | open |
-| T9 | P2 | Undo & edit can undo an unrelated edit; ignores member / viewport | review (contours 5, 6) | open |
+| T7 | P2 | Advanced Live Wire costs exceed 1 → bucket queue disorder → paths not shortest | review (contours 4) | fixed |
+| T8 | P2 | Locked / approved Structure members editable through Copy nearby, Propagate, Undo & edit, ⏎ commit | review (contours 1) | fixed |
+| T9 | P2 | Undo & edit can undo an unrelated edit; ignores member / viewport | review (contours 5, 6) | fixed |
 | T10 | P2 | Copy nearby / Propagate use stale remembered splines, other planes, holes | review (contours 7, 8) | open |
 | T11 | P3 | Level Trace / Smart Brush write one slice off on a reformatted oblique plane | sweep | open |
 | T12 | P3 | Double-click close bypasses No crossing; spline in hand marks container dirty; render-time shape depends on globals; Fit ROI jumps slice; RTSTRUCT plane from camera | review (contours 9–13) | open |
@@ -46,9 +46,9 @@ Status: open · fixed (commit) · won't fix (reason).
 | ID | P | Finding | Source | Status |
 |---|---|---|---|---|
 | O1 | P1 | Interpolate A → B with All erases segments empty on the anchors | review (interp 2) | fixed |
-| O2 | P2 | All segments + any locked member → whole op read-only; message names the wrong segment | review (mask ops 6, interp 13) | open |
+| O2 | P2 | All segments + any locked member → whole op read-only; message names the wrong segment | review (mask ops 6, interp 13) | fixed |
 | O3 | P2 | Copy into / Magnet bridge refuse a locked *source* | review (mask ops 7) | open |
-| O4 | P2 | Interpolate gap-table row previews the active segment, not the row's | review (mask ops 8, interp 7) | open |
+| O4 | P2 | Interpolate gap-table row previews the active segment, not the row's | review (mask ops 8, interp 7) | fixed |
 | O5 | P2 | Slice-track range shows / drags on every viewport, for every op; drag doesn't discard the preview | review (interp 5, 6; mask ops 11) | open |
 | O6 | P2 | Interpolation anchors, Cleanup range, ROI limit, smart-plan overrides never reset per scan / container / orientation | review | open |
 | O7 | P2 | Slice track and gap table stale after an orientation change | review (interp 4) | open |
@@ -68,7 +68,7 @@ reference implementations; the defects are in the services around them.
 | S4 | P2 | Seeds painted in another orientation silently reduced to a few voxels | review (solvers 3) | open |
 | S5 | P2 | Erasing seed points re-bridges the stroke with straight lines | review (solvers 5, script) | open |
 | S6 | P2 | Replaced jobs: old job's cleanup hides the new job's progress bar (fixed: job ids); QC builds and solves cancel each other silently; overlapping QC builds corrupt state | review (solvers 9–11) | open |
-| S7 | P2 | 3D scissor cuts the active segmentation, not the one shown | review (solvers 14) | open |
+| S7 | P2 | 3D scissor cuts the active segmentation, not the one shown | review (solvers 14) | fixed |
 | S8 | P2 | Seeds of a deleted member break α after the solve; paintClass survives container change; a failed stroke start extends the previous stroke | review (solvers 15, 16) | open |
 | S9 | P2 | Smart Brush leaves gaps on fast drags; Level Trace with simplify loses its bottom row | review (solvers 17, 18) | open |
 | S10 | P3 | Whole-volume copies per seed-paint move and per QC row; QC staleness misses edits during a build; QC opens empty from non-panel_0 MPR; surfaces overstate thick slices; Delete component on a stale report; progress stuck; Restore seeds clobbers other containers | review (solvers 6–8, 12, 13, 19–22) | open |
@@ -78,8 +78,9 @@ reference implementations; the defects are in the services around them.
 | ID | P | Finding | Source | Status |
 |---|---|---|---|---|
 | R1 | P2 | Hide PHI back on doesn't re-mask tags revealed earlier | review (interp 10) | fixed |
-| R2 | P2 | Imported checkpoint can be deleted by retention at once | review (interp 11) | open |
-| R3 | P2 | Flythrough segment filter leaks between containers | review (interp 9) | open |
+| R2 | P2 | Imported checkpoint can be deleted by retention at once | review (interp 11) | fixed |
+| R3 | P2 | Flythrough segment filter leaks between containers | review (interp 9) | fixed |
+| R5 | P3 | Settings › File Backup does not list a checkpoint just imported (stale list) | sweep (R2 test) | open |
 | R4 | P3 | Checkpoint identity: session from last load, label in key, unsafe-name collisions | review (interp 12) | open |
 
 ## Modules
@@ -94,7 +95,7 @@ reference implementations; the defects are in the services around them.
 | M6 | P2 | Community modules still listed as runnable with Allow community off | review (modules 9) | fixed |
 | M7 | P2 | Numeric last id label (org.x.2024) installs but can never run | review (modules 10, reproduced) | fixed |
 | M8 | P2 | Module table not validated — can crash the panel | review (modules 7) | fixed |
-| M9 | P2 | A run writes into whichever sheet is open; two runs can overlap | review (modules 12) | open |
+| M9 | P2 | A run writes into whichever sheet is open; two runs can overlap | review (modules 12) | fixed |
 | M10 | P2 | Dropping a module on Settings also triggers the DICOM loader | review (modules 13) | fixed |
 | M11 | P2 | E2E bundled-folder override honoured in packaged builds | review (modules 14) | fixed |
 | M12 | P3 | Per-run session / files leak; runs survive a page reload (fixed with M2); new segments stay after undo; stale params after upgrade; unvalidated postSteps; token reuse; signer text unsigned; key id 64-bit only; sync scans | review (modules 5, 6, 15) | open |

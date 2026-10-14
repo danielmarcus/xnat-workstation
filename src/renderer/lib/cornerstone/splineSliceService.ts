@@ -19,7 +19,9 @@
 import { Enums as CoreEnums, eventTarget, getEnabledElementByViewportId, metaData, utilities as csUtils } from '@cornerstonejs/core';
 import { annotation as csAnnotation, Enums as ToolEnums, ToolGroupManager } from '@cornerstonejs/tools';
 import { ToolName } from '@shared/types/viewer';
-import { beginTransaction, type MemberRef } from './labelmapTransaction';
+import { beginTransaction, isSegmentLockedHere, type MemberRef } from './labelmapTransaction';
+import { canDrawOnViewport } from './unifiedSegService';
+import { warnMemberLocked } from '../annotations/lockWarning';
 import { sliceAxisFor } from './maskIslands';
 import { indexToWorld, worldToIndex, type Vec3 } from './segmentationService/voxelClipboard';
 import { getAnnotationUIDs } from './contourRepresentation';
@@ -165,6 +167,8 @@ function heldPoints(): number[][] | null {
 export function commitInHand(): boolean {
   const tool = heldTool();
   const uid = held?.uid;
+  const seg = useSegmentationStore.getState();
+  if (held && seg.activeSegmentationId && !mayEdit({ containerId: seg.activeSegmentationId, segmentIndex: seg.activeSegmentIndex }, held.viewportId)) return false;
   release();
   return !!(tool && uid && tool.commitInHand(uid));
 }
@@ -195,6 +199,15 @@ interface SplineRecord {
 const remembered: SplineRecord[] = [];
 let last: { record: SplineRecord; entry: unknown } | null = null;
 
+/** The newest history entry when each spline started (its first point) — before its commit. */
+const entryAtStart = new Map<string, unknown>();
+eventTarget.addEventListener(ToolEnums.Events.ANNOTATION_ADDED, ((evt: CustomEvent) => {
+  const a = evt.detail?.annotation as { annotationUID?: string; metadata?: { toolName?: string } } | undefined;
+  if (!a?.annotationUID || !SPLINE_TOOL_NAMES.has(a.metadata?.toolName ?? '')) return;
+  entryAtStart.set(a.annotationUID, segmentationService.peekUndoEntry());
+  if (entryAtStart.size > 50) entryAtStart.delete(entryAtStart.keys().next().value as string);
+}) as EventListener);
+
 eventTarget.addEventListener(ToolEnums.Events.ANNOTATION_COMPLETED, ((evt: CustomEvent) => {
   const a = evt.detail?.annotation as { metadata?: { toolName?: string }; data?: { handles?: { points?: number[][] } } } | undefined;
   const points = a?.data?.handles?.points;
@@ -213,14 +226,40 @@ eventTarget.addEventListener(ToolEnums.Events.ANNOTATION_COMPLETED, ((evt: Custo
   };
   remembered.push(record);
   if (remembered.length > 200) remembered.shift();
-  // The commit's history entry settles in the same turn (a Structure's union rewrites it).
+  // The commit's history entry settles in the same turn (a Structure's union rewrites it). It
+  // is this spline's only if one appeared: a commit that wrote nothing (a locked segment, a fill
+  // adding no voxels) pushes none, and "the newest entry" was then some earlier edit — which
+  // Undo & edit undid.
+  const uid = (a as { annotationUID?: string }).annotationUID ?? '';
+  const before = entryAtStart.get(uid);
+  entryAtStart.delete(uid);
   setTimeout(() => {
-    last = { record, entry: segmentationService.peekUndoEntry() };
+    const entry = segmentationService.peekUndoEntry();
+    if (!entry || entry === before) return;
+    last = { record, entry };
     useSplineSliceStore.setState({ canUndoEdit: true });
   }, 0);
 }) as EventListener);
 
 const sameMember = (a: MemberRef, b: MemberRef) => a.containerId === b.containerId && a.segmentIndex === b.segmentIndex;
+
+/**
+ * Whether the spline actions may write the active member here. They are buttons and keys, so
+ * the draw guard (a pointer-down check) never saw them: Copy nearby, Propagate, Undo & edit and
+ * ⏎ wrote into locked (approved) segments and on viewports not showing the member's scan.
+ */
+function mayEdit(member: MemberRef, viewportId: string): boolean {
+  if (isSegmentLockedHere(member.containerId, member.segmentIndex)) {
+    warnMemberLocked(member.containerId, member.segmentIndex, 'edit it');
+    return false;
+  }
+  const d = canDrawOnViewport(member.containerId, viewportId);
+  if (!d.allowed) {
+    showToast(d.reason ?? 'This viewport does not show the segment’s scan', 'warning');
+    return false;
+  }
+  return true;
+}
 
 /** Wait until the viewport shows another slice (or give up). */
 function waitForSlice(viewport: Viewport, before: { focal: number[]; index: number | null }): Promise<boolean> {
@@ -344,9 +383,12 @@ export const splineSliceService = {
   async undoAndEdit(): Promise<SplineSliceResult> {
     const ctx = context();
     if (!ctx) return 'no-spline-tool';
+    if (!mayEdit(ctx.member, ctx.viewportId)) return 'nothing';
     const l = last;
     if (!l) return tell('nothing', 'No spline to undo');
-    if (!l.entry || segmentationService.peekUndoEntry() !== l.entry) {
+    // Its own member, on its own viewport — a spline held on another plane, or committed into
+    // another segment, is not "editing it again".
+    if (!l.entry || segmentationService.peekUndoEntry() !== l.entry || !sameMember(l.record.member, ctx.member) || l.record.viewportId !== ctx.viewportId) {
       last = null;
       useSplineSliceStore.setState({ canUndoEdit: false });
       return tell('stale', 'The last spline is no longer the newest edit');
@@ -371,6 +413,7 @@ export const splineSliceService = {
   copyNearby(): SplineSliceResult {
     const ctx = context();
     if (!ctx) return 'no-spline-tool';
+    if (!mayEdit(ctx.member, ctx.viewportId)) return 'nothing';
     const outlines = outlinesNear(ctx, NEARBY_SLICES);
     for (let d = 1; d <= NEARBY_SLICES; d++) {
       for (const offset of [-d, d]) { // the previous slice wins a tie
@@ -386,6 +429,7 @@ export const splineSliceService = {
   async propagate(direction: -1 | 1): Promise<SplineSliceResult> {
     const ctx = context();
     if (!ctx || useSplineSliceStore.getState().busy) return 'no-spline-tool';
+    if (!mayEdit(ctx.member, ctx.viewportId)) return 'nothing';
     const here = heldPoints() ? null : outlinesNear(ctx, 0).get(0) ?? null;
     const source = heldPoints() ?? (here ? (rememberedAt(ctx, 0) ?? here) : null);
     if (!source || source.length < 3) return tell('nothing', 'Draw a spline on this slice first');

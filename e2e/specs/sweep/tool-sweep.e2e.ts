@@ -77,10 +77,11 @@ const commitPreview = async (page: Page) => {
 
 const TOOLS: ToolCase[] = [
   { label: 'Brush', expect: 'change', flat: true, focal: true, gesture: (p) => drag(p, [[-4, 0], [4, 0]]) },
-  { label: 'Threshold', expect: 'any', flat: true, focal: false, gesture: (p) => drag(p, [[-4, 0], [4, 0]]) },
+  // The default window (CT: Soft Tissue, −100…300 HU) holds the 110 HU lesion under the gesture.
+  { label: 'Threshold', expect: 'change', flat: true, focal: true, gesture: (p) => drag(p, [[-4, 0], [4, 0]]) },
   { label: 'Dyn. Thresh', expect: 'change', flat: true, focal: true, gesture: (p) => drag(p, [[-2, 0], [2, 0]]) },
   { label: 'Sph. Brush', expect: 'change', flat: false, focal: true, gesture: (p) => drag(p, [[-4, 0], [4, 0]]) },
-  { label: 'Sph. Thresh', expect: 'any', flat: false, focal: false, gesture: (p) => drag(p, [[-4, 0], [4, 0]]) },
+  { label: 'Sph. Thresh', expect: 'change', flat: false, focal: true, gesture: (p) => drag(p, [[-4, 0], [4, 0]]) },
   { label: 'Circle', expect: 'change', flat: true, focal: true, gesture: (p) => drag(p, [[0, 0], [8, 0]]) },
   { label: 'Rect', expect: 'change', flat: true, focal: true, gesture: (p) => drag(p, [[-8, -8], [8, 8]]) },
   { label: 'Sphere', expect: 'change', flat: false, focal: true, gesture: (p) => drag(p, [[0, 0], [8, 0]]) },
@@ -88,7 +89,7 @@ const TOOLS: ToolCase[] = [
   // Region segments in 3D inside the sphere you drag; Region+ in 3D from one click.
   { label: 'Region', expect: 'change', flat: false, focal: true, gesture: (p) => drag(p, [[0, 0], [12, 0]]) },
   { label: 'Region+', expect: 'change', flat: false, focal: true, gesture: (p) => click(p) },
-  { label: 'Rect Multi', expect: 'any', flat: true, focal: false, gesture: (p) => drag(p, [[-8, -8], [8, 8]]) },
+  { label: 'Rect Multi', expect: 'change', flat: true, focal: true, gesture: (p) => drag(p, [[-8, -8], [8, 8]]) },
   { label: 'Contour Fill', expect: 'change', flat: true, focal: true, gesture: (p) => drag(p, loop(10)) },
   { label: 'Level Trace', expect: 'change', flat: true, focal: true, gesture: (p) => click(p), after: commitPreview },
   { label: 'Smart Brush', expect: 'change', flat: true, focal: true, gesture: (p) => drag(p, [[-3, 0], [3, 0]]) },
