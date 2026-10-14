@@ -37,7 +37,7 @@ Status: open · fixed (commit) · won't fix (reason).
 | T7 | P2 | Advanced Live Wire costs exceed 1 → bucket queue disorder → paths not shortest | review (contours 4) | fixed |
 | T8 | P2 | Locked / approved Structure members editable through Copy nearby, Propagate, Undo & edit, ⏎ commit | review (contours 1) | fixed |
 | T9 | P2 | Undo & edit can undo an unrelated edit; ignores member / viewport | review (contours 5, 6) | fixed |
-| T10 | P2 | Copy nearby / Propagate use stale remembered splines, other planes, holes | review (contours 7, 8) | open |
+| T10 | P2 | Copy nearby / Propagate use stale remembered splines, other planes, holes | review (contours 7, 8) | fixed |
 | T11 | P2 | On an oblique reformat (e.g. coronal of an oblique scan) the plane tools edited a grid slice that is not the one shown — Level Trace 12 mm off the plane, Rect Multi 6 mm; Region / Region+ did nothing, Region+ threw on hover | sweep (world-space invariant) | fixed (refused with a message; Volume-scope operations still work) |
 | T12 | P3 | Double-click close bypasses No crossing; spline in hand marks container dirty; render-time shape depends on globals; Fit ROI jumps slice; RTSTRUCT plane from camera | review (contours 9–13) | open |
 

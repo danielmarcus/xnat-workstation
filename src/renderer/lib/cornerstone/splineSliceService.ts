@@ -312,9 +312,14 @@ function outlinesNear(ctx: Context, maxOffset: number): Map<number, number[][]> 
   const out = new Map<number, number[][]>();
   if (ctx.kind === 'RTSTRUCT') {
     for (const uid of getAnnotationUIDs(ctx.member.containerId, ctx.member.segmentIndex) ?? []) {
-      const a = csAnnotation.state.getAnnotation(uid) as { data?: { contour?: { polyline?: number[][] } }; metadata?: { viewPlaneNormal?: number[] } } | undefined;
+      const a = csAnnotation.state.getAnnotation(uid) as { parentAnnotationUID?: string; data?: { contour?: { polyline?: number[][] } }; metadata?: { viewPlaneNormal?: number[] } } | undefined;
       const poly = a?.data?.contour?.polyline;
       if (!poly || poly.length < 3) continue;
+      // Not a hole, and on this view's plane — a contour drawn on another plane, projected flat
+      // onto this one, held a sliver.
+      if (a?.parentAnnotationUID) continue;
+      const n = a?.metadata?.viewPlaneNormal;
+      if (n && Math.abs(dot(n, ctx.normal)) < 0.99) continue;
       const d = sliceOffset(ctx, poly[0]);
       if (Math.abs(d) > maxOffset) continue;
       const pts = polylineControlPoints(ctx, poly);
@@ -357,13 +362,33 @@ function outlinesNear(ctx: Context, maxOffset: number): Map<number, number[][]> 
 }
 
 /** A remembered spline of the member on the slice at `offset`, projected here. */
-function rememberedAt(ctx: Context, offset: number): number[][] | null {
+/**
+ * A spline drawn at `offset` slices — its own control points — if it still matches what is there
+ * now (`found`, the outline on that slice): moved, sculpted, erased or redrawn since, the outline
+ * is used instead (the remembered points were copied regardless).
+ */
+function rememberedAt(ctx: Context, offset: number, found: number[][]): number[][] | null {
   for (let i = remembered.length - 1; i >= 0; i--) {
     const r = remembered[i];
     if (!sameMember(r.member, ctx.member) || Math.abs(dot(r.normal, ctx.normal)) < 0.99) continue;
-    if (sliceOffset(ctx, r.points[0]) === offset) return r.points.map((p) => project(ctx, p));
+    if (sliceOffset(ctx, r.points[0]) !== offset) continue;
+    // Compared on this slice: `found` is already projected onto it.
+    const here = r.points.map((p) => project(ctx, p));
+    return matches(here, found) ? here : null;
   }
   return null;
+}
+
+/** Same outline, roughly: centroids within 2 mm and sizes within 15 %. */
+function matches(a: number[][], b: number[][]): boolean {
+  const stats = (pts: number[][]) => {
+    const c = [0, 1, 2].map((k) => pts.reduce((s, p) => s + p[k], 0) / pts.length);
+    const r = pts.reduce((s, p) => s + Math.hypot(p[0] - c[0], p[1] - c[1], p[2] - c[2]), 0) / pts.length;
+    return { c, r };
+  };
+  const A = stats(a), B = stats(b);
+  const move = Math.hypot(A.c[0] - B.c[0], A.c[1] - B.c[1], A.c[2] - B.c[2]);
+  return move <= 2 && Math.abs(A.r - B.r) <= 0.15 * Math.max(A.r, B.r, 1e-6);
 }
 
 // ─── The three actions ───────────────────────────────────────────────────────
@@ -419,7 +444,7 @@ export const splineSliceService = {
       for (const offset of [-d, d]) { // the previous slice wins a tie
         const found = outlines.get(offset);
         if (!found) continue;
-        return hold(ctx, rememberedAt(ctx, offset) ?? found) ? 'ok' : 'nothing';
+        return hold(ctx, rememberedAt(ctx, offset, found) ?? found) ? 'ok' : 'nothing';
       }
     }
     return tell('nothing', `Nothing to copy within ${NEARBY_SLICES} slices`);
@@ -431,7 +456,7 @@ export const splineSliceService = {
     if (!ctx || useSplineSliceStore.getState().busy) return 'no-spline-tool';
     if (!mayEdit(ctx.member, ctx.viewportId)) return 'nothing';
     const here = heldPoints() ? null : outlinesNear(ctx, 0).get(0) ?? null;
-    const source = heldPoints() ?? (here ? (rememberedAt(ctx, 0) ?? here) : null);
+    const source = heldPoints() ?? (here ? (rememberedAt(ctx, 0, here) ?? here) : null);
     if (!source || source.length < 3) return tell('nothing', 'Draw a spline on this slice first');
     if (held) commitInHand();
     const track = getContourToolSettings().spline.propagateTrack;

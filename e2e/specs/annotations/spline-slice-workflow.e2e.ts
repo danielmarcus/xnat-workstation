@@ -375,3 +375,26 @@ test('a spline whose commit wrote nothing is not recorded — Undo & edit does n
   expect(await voxels(page), 'the square is still there').toBe(square);
   await page.keyboard.press('Escape');
 });
+
+test('Copy nearby copies what is on the slice now — not a remembered spline that was edited since', async ({ page }) => {
+  const toolbox = await open(page, 'SEG');
+  await clickRing(page, BONE_R);
+  await expect.poll(() => voxels(page), { timeout: 8_000 }).toBeGreaterThan(DISC * 0.85);
+  // Erase half the disc (⇧ inverts Rect).
+  await clickTool(toolbox, 'Rect');
+  const a = await at(page, -BONE_R - 2, -BONE_R - 2), b = await at(page, 0, BONE_R + 2);
+  await page.keyboard.down('Shift');
+  await page.mouse.move(a.x, a.y); await page.mouse.down(); await page.mouse.move(b.x, b.y, { steps: 8 }); await page.mouse.up();
+  await page.keyboard.up('Shift');
+  await expect.poll(() => voxels(page)).toBeLessThan(DISC * 0.7);
+  await clickTool(toolbox, 'Contour Fill');
+  await toolbox.getByRole('group', { name: 'Boundary' }).getByRole('button', { name: 'Spline' }).click();
+  await stepSlice(page, 'ArrowDown');
+  await button(toolbox, 'Copy nearby').click();
+  const held = await inHand(page, FILL_SPLINE);
+  expect(held).toHaveLength(1);
+  // The held outline is the half disc: no control point left of the cut (x < f.x − 2 mm).
+  const f = await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.getPanelFocalPoint('panel_0')!);
+  expect(Math.min(...held[0].handlePoints.map((p) => p[0])), 'the erased half is not copied').toBeGreaterThan(f[0] - 2);
+  await page.keyboard.press('Escape');
+});
