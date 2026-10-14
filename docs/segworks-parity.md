@@ -1073,3 +1073,17 @@ than `wasm-worker`. Candidate later runtimes, recorded so the design keeps room 
   licence-provider hook is dropped and M6 becomes editions; a manifest `runtime` field; one
   operation registry for built-ins and modules (M4); a built-in as a module, equal voxel for
   voxel (M5). Approved to proceed through all slices.
+- **M1** — `src/shared/modules/manifest.ts` (schema, validation reporting every problem,
+  compatibility: API major and runtime, refused by name); `src/main/modules/zip.ts` (a small zip
+  reader / writer on Node's zlib — no third-party zip code handles untrusted packages: stored or
+  deflated only; no encryption, zip64 or symlinks; no absolute, `..` or backslash paths; entry,
+  size and total limits checked before inflating; inflate capped at the declared size; CRC
+  checked); `src/main/modules/modulePackage.ts` (canonical digest, Ed25519 sign / verify with
+  Node crypto, key ids, tiers: Bundled · Verified · Community · Refused, `readPackage` /
+  `checkFiles` — the same checks at install and at every load); `src/main/modules/cli.ts` with
+  `npm run module:keygen | pack | sign | verify` (private keys written owner-only). Unit +18,
+  mutation-checked (14 mutants: the path, symlink, encryption, CRC, entry-count, size and
+  stored-size guards; the digest covering every file; the key-id check; trust needing a trusted
+  key; invalid signatures refused; the entry check; API major; runtime). **Found on the way:** a
+  deflated entry lying about its size is already stopped by the capped inflate, so the
+  size-mismatch check guards only stored entries — a test for that case was added.
