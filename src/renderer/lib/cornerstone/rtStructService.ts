@@ -29,7 +29,7 @@ import { useApprovalStore } from '../../stores/approvalStore';
 import { buildApprovalModule, parseApprovalModule } from '../annotations/approval';
 import type { ApprovalRecord } from '@shared/types/annotation';
 import * as contourRep from './contourRepresentation';
-import { contourPlaneMetadata, volumeSliceIndexForPoint, type PlaneViewport } from './contourPlaneMetadata';
+import { contourOwnPlane, contourPlaneMetadata, volumeSliceIndexForPoint, type PlaneViewport } from './contourPlaneMetadata';
 import {
   formatOperatorsNameForConnection,
   upsertOperatorsName,
@@ -529,7 +529,19 @@ async function loadRtStructAsContours(
       // volume viewport the two can run in opposite directions (volumeSliceIndexForPoint).
       const sliceIndex = volumeSliceIndexForPoint(planeViewport, polyline[0])
         ?? viewportImageIds.indexOf(referencedImageId);
-      const plane = contourPlaneMetadata(planeViewport, sliceIndex >= 0 ? sliceIndex : null);
+      let plane = contourPlaneMetadata(planeViewport, sliceIndex >= 0 ? sliceIndex : null);
+      // The viewport's plane only if the contour lies in it: loaded while the viewport shows
+      // another orientation, the contour keeps its OWN plane (#99), and its slice index is
+      // its image's position in the series.
+      const own = contourOwnPlane(polyline, referencedImageId ? metaData.get('imagePlaneModule', referencedImageId) as never : null);
+      const vn = plane.viewPlaneNormal;
+      if (own?.viewPlaneNormal && vn) {
+        const on = own.viewPlaneNormal;
+        if (Math.abs(vn[0] * on[0] + vn[1] * on[1] + vn[2] * on[2]) < 0.99) {
+          const index = sourceImageIds.indexOf(referencedImageId);
+          plane = { ...own, ...(index >= 0 ? { sliceIndex: index } : {}) };
+        }
+      }
       const interpolationUID = chainedImageIds.has(referencedImageId) ? csUtilities.uuidv4() : chainUID;
       chainedImageIds.add(referencedImageId);
 

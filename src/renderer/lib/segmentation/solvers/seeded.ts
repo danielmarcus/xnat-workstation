@@ -69,8 +69,7 @@ export function runSeededSolve(input: SeededSolveInput, onProgress?: (fraction: 
     const labels = fastGrowCut(image, dims, binary, { gate: input.gate ?? null, onProgress });
     fg = Uint8Array.from(labels, (l) => (l === 1 ? 1 : 0));
   } else {
-    fg = graphCut(image, dims, binary, input.graphCut);
-    onProgress?.(1);
+    fg = graphCut(image, dims, binary, input.graphCut, onProgress);
   }
   if (!fg) return null;
   if (input.post?.enabled) fg = postProcess3d(fg, dims, input.post, Uint8Array.from(binary, (s) => (s === 1 ? 1 : 0)));

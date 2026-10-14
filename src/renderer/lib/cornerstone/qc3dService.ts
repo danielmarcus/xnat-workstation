@@ -14,7 +14,7 @@ import vtkDataArray from '@kitware/vtk.js/Common/Core/DataArray';
 import { viewportService } from './viewportService';
 import { readSegmentVoxelGrid } from './segmentVoxelGrid';
 import { onLabelmapModified } from './sliceTrack';
-import { computeClient, ComputeCancelled } from '../compute/computeClient';
+import { qcComputeClient, ComputeCancelled } from '../compute/computeClient';
 import { classifyComponents, type ComponentBand } from '../segmentation/qc3d/components';
 import type { QcMesh } from '../segmentation/qc3d/build';
 import { useSegmentationStore } from '../../stores/segmentationStore';
@@ -29,6 +29,7 @@ import { scissorCut } from '../segmentation/qc3d/scissor';
 import { indexToWorld, type Vec3 } from './segmentationService/voxelClipboard';
 import { startPreview, discardPreview } from './maskPreview';
 import type { Axis } from '../segmentation/maskOps/planeIO';
+import type { VoxelGridGeometry } from './segmentationService/voxelClipboard';
 
 export const QC3D_ACTOR_PREFIX = 'qc3d:';
 /** The 3D panel of the QC layout (mirrors hooks/useViewportLayout's QC_3D_PANEL_ID). */
@@ -48,7 +49,21 @@ interface Built {
 }
 
 let built: Built[] = [];
+/** Test seam: whole-volume grid reads made by the QC service. */
+let gridReads = 0;
+export const qc3dGridReads = () => gridReads;
+/** Each member's grid geometry at the last build: the report's slice numbers and jumps use it. */
+let builtGeometry = new Map<number, VoxelGridGeometry>();
 let job: { cancel: () => void } | null = null;
+/**
+ * Which build is current (#94): a build started later, or stop(), supersedes an earlier one,
+ * which then leaves `job`, `building` and the report alone — its late cancellation used to
+ * clear the newer build's job, so stop() could not cancel it and it wrote its report back
+ * after the sheet had closed.
+ */
+let generation = 0;
+/** Labelmap edits seen (the stale watch): a build compares the count at its start and end. */
+let edits = 0;
 let rotateTimer: ReturnType<typeof setInterval> | null = null;
 let stopStaleWatch: (() => void) | null = null;
 
@@ -278,29 +293,36 @@ export const qc3dService = {
       store.set({ message: 'Select a Segmentation first' });
       return false;
     }
+    const gen = ++generation;
     job?.cancel();
+    job = null;
+    const current = () => gen === generation;
+    const editsAtStart = edits;
     const s = store.settings;
     const next: Built[] = [];
     const report: Qc3dLabelReport[] = [];
+    const geometries = new Map<number, VoxelGridGeometry>();
     store.set({ building: 0, message: null });
     const members = summary.segments;
     try {
       for (let m = 0; m < members.length; m++) {
         const member = members[m];
-        const grid = readSegmentVoxelGrid(containerId, member.segmentIndex);
+        const grid = (gridReads++, readSegmentVoxelGrid(containerId, member.segmentIndex));
         if (!grid) continue;
         const mask = Uint8Array.from(grid.data as ArrayLike<number>, (v) => (v === grid.value ? 1 : 0));
         const g = grid.geometry;
-        const run = computeClient.run('qcSurfaces', {
+        geometries.set(member.segmentIndex, g);
+        const run = qcComputeClient.run('qcSurfaces', {
           mask,
           geometry: { dimensions: [g.dimensions[0], g.dimensions[1], g.dimensions[2]], spacing: [g.spacing[0], g.spacing[1], g.spacing[2]], origin: [g.origin[0], g.origin[1], g.origin[2]], direction: [...g.direction] },
           resolution: s.resolution, renderer: s.renderer, smoothIterations: s.smoothIterations, thinBoost: s.thinBoost,
         }, {
-          onProgress: (f) => useQc3dStore.getState().set({ building: (m + f) / members.length }),
+          onProgress: (f) => { if (current()) useQc3dStore.getState().set({ building: (m + f) / members.length }); },
           transfer: [mask.buffer],
         });
         job = run;
         const out = await run.result;
+        if (!current()) return false;
         report.push({
           segmentIndex: member.segmentIndex,
           label: member.label,
@@ -310,18 +332,26 @@ export const qc3dService = {
         for (const mesh of out.meshes) next.push({ segmentIndex: member.segmentIndex, componentId: mesh.componentId, actor: actorFor(mesh), mesh });
       }
     } catch (e) {
-      useQc3dStore.getState().set({ building: null });
-      if (!(e instanceof ComputeCancelled)) {
+      // A superseded build's cancellation is the newer build's business, not ours.
+      if (!current()) return false;
+      job = null;
+      if (e instanceof ComputeCancelled) {
+        // Cancelled, not superseded: what is shown is not the segmentation as it is now.
+        useQc3dStore.getState().set({ building: null, stale: true, message: 'The 3D build was cancelled — Rebuild to update' });
+      } else {
         console.warn('[qc3dService] build failed:', e);
-        useQc3dStore.getState().set({ message: 'The 3D build failed — see the log' });
+        useQc3dStore.getState().set({ building: null, message: 'The 3D build failed — see the log' });
       }
       return false;
-    } finally {
-      job = null;
     }
+    if (!current()) return false;
+    job = null;
     built = next;
-    useQc3dStore.getState().set({ containerId, report, building: null, stale: false, selected: null });
+    builtGeometry = geometries;
+    // An edit made while the build ran may have missed it (#100): the surfaces are then stale.
+    useQc3dStore.getState().set({ containerId, report, building: null, stale: edits !== editsAtStart, selected: null });
     const vp = await waitFor3d();
+    if (!current()) return false;
     if (!vp) {
       useQc3dStore.getState().set({ message: 'The 3D view is not available for this scan' });
       return false;
@@ -334,14 +364,17 @@ export const qc3dService = {
   start(): void {
     stopStaleWatch?.();
     stopStaleWatch = onLabelmapModified(() => {
-      if (built.length && !useQc3dStore.getState().building) useQc3dStore.getState().set({ stale: true });
+      edits++;
+      if (built.length && useQc3dStore.getState().building === null) useQc3dStore.getState().set({ stale: true });
     });
   },
 
   /** End the session: cancel a build, remove the surfaces, bring the volume rendering back. */
   stop(): void {
+    generation++;
     job?.cancel();
     job = null;
+    builtGeometry = new Map();
     stopStaleWatch?.();
     stopStaleWatch = null;
     qc3dService.setAutoRotate(false);
@@ -407,28 +440,31 @@ export const qc3dService = {
       vp.render?.();
       return true;
     }
-    const grid = readSegmentVoxelGrid(st.containerId, segmentIndex);
+    const geometry = builtGeometry.get(segmentIndex);
     const normal = vp.getCamera?.()?.viewPlaneNormal;
-    if (!grid || !normal) return false;
-    const axis = sliceAxisFor(grid.geometry.direction, normal) as Axis;
-    const numbering = sliceNumbering(layout.source, grid.geometry, axis);
+    if (!geometry || !normal) return false;
+    const axis = sliceAxisFor(geometry.direction, normal) as Axis;
+    const numbering = sliceNumbering(layout.source, geometry, axis);
     if (!numbering) return false;
     const k = Math.round((row.bbox[axis] + row.bbox[axis + 3]) / 2);
     viewportService.scrollToIndex(layout.source, numbering.toDisplay(k));
     return true;
   },
 
-  /** A component's slice range as the 2D viewport numbers its slices (1-based), or null. */
+  /**
+   * A component's slice range as the 2D viewport numbers its slices (1-based), or null — from
+   * the geometry the build kept (#100: every report row read the whole volume, on every render).
+   */
   sliceRange(segmentIndex: number, bbox: number[]): [number, number] | null {
     const st = useQc3dStore.getState();
     const layout = useUnifiedLayoutStore.getState().layout;
     if (layout.kind !== 'qc-3d' || !st.containerId) return null;
     const vp = viewportService.getViewport(layout.source) as unknown as { getCamera?: () => { viewPlaneNormal?: number[] } } | undefined;
     const normal = vp?.getCamera?.()?.viewPlaneNormal;
-    const grid = readSegmentVoxelGrid(st.containerId, segmentIndex);
-    if (!normal || !grid) return null;
-    const axis = sliceAxisFor(grid.geometry.direction, normal) as Axis;
-    const numbering = sliceNumbering(layout.source, grid.geometry, axis);
+    const geometry = builtGeometry.get(segmentIndex);
+    if (!normal || !geometry) return null;
+    const axis = sliceAxisFor(geometry.direction, normal) as Axis;
+    const numbering = sliceNumbering(layout.source, geometry, axis);
     if (!numbering) return null;
     const a = numbering.toDisplay(bbox[axis]) + 1, b = numbering.toDisplay(bbox[axis + 3]) + 1;
     return [Math.min(a, b), Math.max(a, b)];
@@ -438,10 +474,13 @@ export const qc3dService = {
    * Delete a component from its member (#255): a 26-connected flood fill from its seed voxel,
    * written through a LabelmapTransaction — one undo step (#257). The surfaces rebuild.
    */
-  async deleteComponent(segmentIndex: number, componentId: number): Promise<'ok' | 'locked' | 'missing'> {
+  async deleteComponent(segmentIndex: number, componentId: number): Promise<'ok' | 'locked' | 'missing' | 'stale'> {
     const st = useQc3dStore.getState();
     const row = st.report.find((r) => r.segmentIndex === segmentIndex)?.components.find((c) => c.id === componentId);
     if (!row || !st.containerId) return 'missing';
+    // An out-of-date report's component may have been merged with another since (the flood
+    // fill would take both) or erased: delete only what the report shows (#100).
+    if (st.stale || st.building !== null) return 'stale';
     const member = { containerId: st.containerId, segmentIndex };
     const begun = beginTransaction([member]);
     if (!begun.ok) return begun.reason === 'locked' ? 'locked' : 'missing';

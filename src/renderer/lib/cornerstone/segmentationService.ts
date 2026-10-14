@@ -62,6 +62,7 @@ import { useTransportStore } from '../../stores/transportStore';
 import { useAnnotationSelectionStore } from '../../stores/annotationSelectionStore';
 import { rtStructService } from './rtStructService';
 import * as contourRep from './contourRepresentation';
+import { isRenderingSplineInHand, isSplineInHand } from './tools/contourToolSettings';
 import { installComponentSelection } from './componentSelection';
 import { warnLocked } from '../annotations/lockWarning';
 import { setMaskMemberActivator } from './maskSelection';
@@ -1185,7 +1186,8 @@ let backupInProgress = false;
 
 /** Called when segmentation pixel data changes — debounces auto-save and marks dirty. */
 function onSegmentationDataModified(evt?: Event): void {
-  if (!isDirtyTrackingSuppressed()) {
+  // A spline in hand is a preview: rendering it is not an edit (#99).
+  if (!isDirtyTrackingSuppressed() && !isRenderingSplineInHand()) {
     const detail = (evt as CustomEvent | undefined)?.detail as
       | { segmentationId?: string; segmentIndex?: number }
       | undefined;
@@ -1222,7 +1224,10 @@ function onSegmentationDataModified(evt?: Event): void {
 }
 
 /** Called when an annotation is completed/modified — triggers auto-save for contour segmentations. */
-function onAnnotationAutoSave(): void {
+function onAnnotationAutoSave(evt?: Event): void {
+  // A spline in hand is a preview, not an edit: only its commit (a new annotation) counts (#99).
+  const uid = ((evt as CustomEvent | undefined)?.detail as { annotation?: { annotationUID?: string } } | undefined)?.annotation?.annotationUID;
+  if (isSplineInHand(uid)) return;
   // Only schedule if there's an active segmentation that has contour data
   const segStore = useSegmentationStore.getState();
   const activeSegId = segStore.activeSegmentationId;

@@ -20,7 +20,7 @@ Status: open · fixed (commit) · won't fix (reason). Open items are tracked as 
 |---|---|---|---|---|
 | X1 | P1 | Stack source reader applies rescale slope/intercept twice (loader pre-scales): every absolute-HU feature reads HU−1024 on real CT — Seeded gate, Level Trace guard, Region clip, module input | review + sweep (HU test, red in all orientations) | fixed |
 | X2 | P1 | A pending preview survives switching operation, active segment, container, viewport or scan; the next Commit / ⏎ writes the old preview | review (mask ops 3, 4; interp 14) | fixed |
-| X3 | P2 | Operations don't check the active viewport shows the active container (wrong plane / slices) | review | open — #91 |
+| X3 | P2 | Operations don't check the active viewport shows the active container (wrong plane / slices) | review | fixed — #91 |
 | X4 | P3 | Full-volume copies of every member per mask op, per brush move (Cleanup All smart plan, Interpolate gap table undebounced) | review | fixed (smart plan and gap table debounced; stack grids read per slice from the labelmap images, copied only when `data` is asked for; placement cached per image-id list; a volume-backed labelmap is still read whole, once per grid) — #95 |
 | X5 | P3 | Transactions stage per-voxel Map entries: > 16.7M writes throws (V8 Map limit) | review | fixed — #96 |
 
@@ -39,7 +39,7 @@ Status: open · fixed (commit) · won't fix (reason). Open items are tracked as 
 | T9 | P2 | Undo & edit can undo an unrelated edit; ignores member / viewport | review (contours 5, 6) | fixed |
 | T10 | P2 | Copy nearby / Propagate use stale remembered splines, other planes, holes | review (contours 7, 8) | fixed |
 | T11 | P2 | On an oblique reformat (e.g. coronal of an oblique scan) the plane tools edited a grid slice that is not the one shown — Level Trace 12 mm off the plane, Rect Multi 6 mm; Region / Region+ did nothing, Region+ threw on hover | sweep (world-space invariant) | fixed (refused with a message; Volume-scope operations still work) |
-| T12 | P3 | Double-click close bypasses No crossing; spline in hand marks container dirty; render-time shape depends on globals; Fit ROI jumps slice; RTSTRUCT plane from camera | review (contours 9–13) | open — #99 |
+| T12 | P3 | Double-click close bypasses No crossing; spline in hand marks container dirty; render-time shape depends on globals; Fit ROI jumps slice; RTSTRUCT plane from camera | review (contours 9–13) | fixed (item 3: the ROI active spline's per-annotation plane cache across viewports has no dedicated test) — #99 |
 
 ## Operations
 
@@ -60,7 +60,7 @@ Status: open · fixed (commit) · won't fix (reason). Open items are tracked as 
 | ID | P | Finding | Source | Status |
 |---|---|---|---|---|
 | F1 | P1 | Every drag-following tool (Smart Brush, Random Walker seeds, the Seeded painter) lost its stroke's first movement — Cornerstone releases a held mouse-down on the move that a window listener added at press time had already missed (a quick flick painted one dab) | S9 regression test | fixed |
-| F3 | P3 | Rect Multi writes nothing where the intensity equals the window's upper bound exactly (binary 300 HU phantom vs −100…300) — not reproduced on realistic data | sweep (binary phantom) | open — #98 |
+| F3 | P3 | Rect Multi writes nothing where the intensity equals the window's upper bound exactly (binary 300 HU phantom vs −100…300) — not reproduced on realistic data | sweep (binary phantom) | fixed — #98 |
 | F2 | P2 | Cornerstone replays a click held 400 ms for double-click detection: Escape just after a click restarted the drawing and froze navigation | T4 regression test | fixed |
 
 ## Solvers, compute, 3D QC
@@ -72,14 +72,14 @@ reference implementations; the defects are in the services around them.
 |---|---|---|---|---|
 | S1 | P1 | A finished solve replaces whatever preview is pending; a Smart Brush release can then commit the solver result unreviewed; closing the sheet doesn't cancel the job | review (solvers 1) | fixed |
 | S2 | P1 | α-expansion with no Background seeds paints the whole box | review (solvers 2, script) | fixed |
-| S3 | P2 | Seed / Smart Brush / Random Walker brush round in voxels, not mm — ~7× tall on sagittal/coronal of thick-slice data | review (solvers 4) | open — #92 |
-| S4 | P2 | Seeds painted in another orientation silently reduced to a few voxels | review (solvers 3) | open — #93 |
+| S3 | P2 | Seed / Smart Brush / Random Walker brush round in voxels, not mm — ~7× tall on sagittal/coronal of thick-slice data | review (solvers 4) | fixed — #92 |
+| S4 | P2 | Seeds painted in another orientation silently reduced to a few voxels | review (solvers 3) | fixed — #93 |
 | S5 | P2 | Erasing seed points re-bridges the stroke with straight lines | review (solvers 5, script) | fixed |
-| S6 | P2 | Replaced jobs: old job's cleanup hides the new job's progress bar (fixed: job ids); QC builds and solves cancel each other silently; overlapping QC builds corrupt state | review (solvers 9–11) | open — #94 |
+| S6 | P2 | Replaced jobs: old job's cleanup hides the new job's progress bar (fixed: job ids); QC builds and solves cancel each other silently; overlapping QC builds corrupt state | review (solvers 9–11) | fixed — #94 |
 | S7 | P2 | 3D scissor cuts the active segmentation, not the one shown | review (solvers 14) | fixed |
 | S8 | P2 | Seeds of a deleted member break α after the solve; paintClass survives container change; a failed stroke start extends the previous stroke | review (solvers 15, 16) | fixed |
 | S9 | P2 | Smart Brush leaves gaps on fast drags; Level Trace with simplify loses its bottom row | review (solvers 17, 18) | fixed |
-| S10 | P3 | Whole-volume copies per seed-paint move and per QC row; QC staleness misses edits during a build; QC opens empty from non-panel_0 MPR; surfaces overstate thick slices; Delete component on a stale report; progress stuck; Restore seeds clobbers other containers | review (solvers 6–8, 12, 13, 19–22) | open — #100 |
+| S10 | P3 | Whole-volume copies per seed-paint move and per QC row; QC staleness misses edits during a build; QC opens empty from non-panel_0 MPR; surfaces overstate thick slices; Delete component on a stale report; progress stuck; Restore seeds clobbers other containers | review (solvers 6–8, 12, 13, 19–22) | fixed — #100 |
 
 ## Review ergonomics
 

@@ -44,9 +44,10 @@ export function useViewportLayout(): {
   if (layout.kind === 'qc-3d') {
     // “2D + 3D QC”: the source panel keeps its id (and so its viewport state); the 3D
     // view beside it renders the same scan.
+    const images = layout.imageSource ?? layout.source;
     panels = [
-      { panelId: layout.source, orientation: 'AXIAL', sourcePanelId: layout.source, preferNative: true, render3d: false },
-      { panelId: QC_3D_PANEL_ID, orientation: 'CORONAL', sourcePanelId: layout.source, preferNative: false, render3d: true, expanded: !!layout.expanded },
+      { panelId: layout.source, orientation: 'AXIAL', sourcePanelId: images, preferNative: true, render3d: false },
+      { panelId: QC_3D_PANEL_ID, orientation: 'CORONAL', sourcePanelId: images, preferNative: false, render3d: true, expanded: !!layout.expanded },
     ];
     grid = { rows: 1, cols: 2 };
   } else if (layout.kind === 'grid') {

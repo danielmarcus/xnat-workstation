@@ -40,10 +40,15 @@ export const contourToolService = {
     if (!vp) return false;
     const { fitMultiplier, fitMargin } = getContourToolSettings().spline;
     const cam = vp.getCamera();
-    const centre = [0, 1, 2].map((k) => roi.corners.reduce((s, c) => s + c[k], 0) / roi.corners.length);
     // ROI extent along the view's up and right axes, in world mm.
     const up = cam.viewUp;
     const normal = [cam.position[0] - cam.focalPoint[0], cam.position[1] - cam.focalPoint[1], cam.position[2] - cam.focalPoint[2]];
+    // The ROI's centre moved along the view normal onto the plane on screen (#99): the ROI was
+    // drawn on some slice, and centring on its corners jumped the view to that slice.
+    const nl = Math.hypot(normal[0], normal[1], normal[2]) || 1;
+    const corner = [0, 1, 2].map((k) => roi.corners.reduce((s, c) => s + c[k], 0) / roi.corners.length);
+    const off = [0, 1, 2].reduce((s, k) => s + (corner[k] - cam.focalPoint[k]) * normal[k], 0) / (nl * nl);
+    const centre = corner.map((v, k) => v - off * normal[k]);
     const right = [up[1] * normal[2] - up[2] * normal[1], up[2] * normal[0] - up[0] * normal[2], up[0] * normal[1] - up[1] * normal[0]];
     const rl = Math.hypot(right[0], right[1], right[2]) || 1;
     const along = (axis: number[], len = 1) => {

@@ -27,7 +27,7 @@ function describe(r: Extract<RunResult, { ok: false }>, fill: InterpolateSetting
       : 'No gaps to fill';
   }
   if (r.reason === 'no-target') return 'Select a segment to interpolate';
-  if (r.reason === 'no-viewport') return 'Open the segment’s scan in a viewport first';
+  if (r.reason === 'no-viewport') return 'Open the segment’s scan in this viewport';
   if (r.reason === 'oblique-view') return OBLIQUE_VIEW_MESSAGE;
   return 'Interpolation unavailable';
 }

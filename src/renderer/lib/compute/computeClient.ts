@@ -91,6 +91,14 @@ export function createComputeClient(makeWorker: () => WorkerLike) {
   };
 }
 
-export const computeClient = createComputeClient(
-  () => new Worker(new URL('./compute.worker.ts', import.meta.url), { type: 'module' }) as unknown as WorkerLike,
-);
+const makeComputeWorker = () => new Worker(new URL('./compute.worker.ts', import.meta.url), { type: 'module' }) as unknown as WorkerLike;
+
+/** The solvers' worker (Random Walker, the seeded methods, region competition, modules). */
+export const computeClient = createComputeClient(makeComputeWorker);
+
+/**
+ * 3D QC's surface builds run in a worker of their own (#94): sharing the solvers' one-job
+ * worker, a solve started during a build cancelled the build (an empty report), and a rebuild
+ * cancelled a running solve — both silently. Each side still replaces only its own jobs.
+ */
+export const qcComputeClient = createComputeClient(makeComputeWorker);

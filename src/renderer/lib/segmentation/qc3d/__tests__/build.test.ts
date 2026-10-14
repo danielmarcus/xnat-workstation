@@ -81,3 +81,20 @@ function up(m: Uint8Array): Uint8Array {
   for (let k = 0; k < N; k++) for (let j = 0; j < N; j++) for (let i = 0; i < N * 4; i++) o[i + N * 4 * (j + N * k)] = m[Math.floor(i / 4) + N * (j + N * k)];
   return o;
 }
+
+describe('buildQcSurfaces on thick slices (S10.5, #100)', () => {
+  it('pools each axis by its own factor: a one-slice plate is one slice thick, not three', () => {
+    const d: [number, number, number] = [300, 300, 10];
+    const g: QcGeometry = { dimensions: d, spacing: [0.7, 0.7, 2.5], origin: [0, 0, 0], direction: [1, 0, 0, 0, 1, 0, 0, 0, 1] };
+    const m = new Uint8Array(d[0] * d[1] * d[2]);
+    for (let j = 100; j < 200; j++) for (let i = 100; i < 200; i++) m[i + d[0] * (j + d[1] * 5)] = 1;
+    const r = buildQcSurfaces({ mask: m, geometry: g, resolution: 128, renderer: 'blocky', smoothIterations: 0, thinBoost: false });
+    const P = r.meshes[0].positions;
+    let z0 = Infinity, z1 = -Infinity, x0 = Infinity, x1 = -Infinity;
+    for (let v = 0; v < P.length; v += 3) { z0 = Math.min(z0, P[v + 2]); z1 = Math.max(z1, P[v + 2]); x0 = Math.min(x0, P[v]); x1 = Math.max(x1, P[v]); }
+    expect(z1 - z0, 'the plate’s thickness in mm').toBeCloseTo(2.5, 3);
+    expect(z0).toBeCloseTo(4.5 * 2.5, 3);
+    // in-plane it is still pooled (×3): its width is 70 mm to within a pooled block
+    expect(Math.abs(x1 - x0 - 70)).toBeLessThanOrEqual(3 * 0.7 + 1e-6);
+  });
+});

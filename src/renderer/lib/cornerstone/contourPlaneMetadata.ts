@@ -88,3 +88,37 @@ export function volumeSliceIndexForPoint(viewport: unknown, point: CoreTypes.Poi
   const step = Math.round(((alongNormal - sliceRange.min) / range) * numScrollSteps);
   return Number.isFinite(step) ? Math.min(Math.max(step, 0), numScrollSteps) : null;
 }
+
+/** Unit normal of a planar polyline (Newell's method), or null for a degenerate one. */
+export function polylineNormal(polyline: ArrayLike<number>[]): CoreTypes.Point3 | null {
+  const n = [0, 0, 0];
+  for (let i = 0; i < polyline.length; i++) {
+    const a = polyline[i], b = polyline[(i + 1) % polyline.length];
+    n[0] += (a[1] - b[1]) * (a[2] + b[2]);
+    n[1] += (a[2] - b[2]) * (a[0] + b[0]);
+    n[2] += (a[0] - b[0]) * (a[1] + b[1]);
+  }
+  const l = Math.hypot(n[0], n[1], n[2]);
+  return l > 1e-9 ? [n[0] / l, n[1] / l, n[2] / l] : null;
+}
+
+/**
+ * The plane metadata of a contour lying in its referenced image's plane, as a view of that
+ * image records it (a stack view: the normal −row × column, view-up −column), for a contour
+ * the viewport is NOT showing in its plane (#99). Loading an RTSTRUCT while the viewport showed
+ * the volume sagittally tagged its axial contours with the sagittal camera's normal, so they
+ * belonged to no view at all. Falls back to the contour's own normal when the referenced
+ * image's orientation is unknown or is not the contour's plane.
+ */
+export function contourOwnPlane(polyline: ArrayLike<number>[], imagePlane: { rowCosines?: ArrayLike<number>; columnCosines?: ArrayLike<number> } | null | undefined): Pick<ContourPlaneMetadata, 'viewPlaneNormal' | 'viewUp'> | null {
+  const own = polylineNormal(polyline);
+  if (!own) return null;
+  const r = imagePlane?.rowCosines, c = imagePlane?.columnCosines;
+  if (r && c && r.length >= 3 && c.length >= 3) {
+    const n: CoreTypes.Point3 = [-(r[1] * c[2] - r[2] * c[1]), -(r[2] * c[0] - r[0] * c[2]), -(r[0] * c[1] - r[1] * c[0])];
+    if (Math.abs(n[0] * own[0] + n[1] * own[1] + n[2] * own[2]) > 0.99) {
+      return { viewPlaneNormal: n, viewUp: [-c[0], -c[1], -c[2]] as CoreTypes.Point3 };
+    }
+  }
+  return { viewPlaneNormal: own };
+}
