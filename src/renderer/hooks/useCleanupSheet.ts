@@ -126,7 +126,13 @@ export function useCleanupSheet(): CleanupSheetModel {
   const [labelmapVersion, setLabelmapVersion] = useState(0);
   useEffect(() => {
     if (!smartVisible) return;
-    return onLabelmapModified(() => setLabelmapVersion((v) => v + 1));
+    // Debounced: a brush fires a change per mouse move, and a plan reads every segment.
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const off = onLabelmapModified(() => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => setLabelmapVersion((v) => v + 1), 200);
+    });
+    return () => { off(); if (timer) clearTimeout(timer); };
   }, [smartVisible]);
   const scopeKey = JSON.stringify(sheet.scope);
   useEffect(() => {

@@ -247,3 +247,37 @@ test('T11: on an oblique reformat Level Trace refuses and says why — it does n
   expect(await hooks(page).member(1)).toBe(0);
   await expect(page.getByTestId('mask-preview-bar')).toHaveCount(0);
 });
+
+test('O7: the slice track follows a change of plane — sagittal to coronal, both 512 slices', async ({ page }) => {
+  await loadFixture(page, 'ct-body-512', PANEL);
+  await page.locator(`[data-panel-id="${PANEL}"]`).getByTitle('Viewport orientation').selectOption('SAGITTAL');
+  const panel = page.locator('[data-testid="annotations-side-panel"]');
+  if (!(await panel.isVisible())) await page.getByRole('button', { name: 'Show segmentation panel' }).click();
+  await panel.getByRole('button', { name: 'New Segmentation (SEG)' }).click();
+  await page.keyboard.press('Escape');
+  const toolbox = panel.locator('[data-testid="context-toolbox"]');
+  await expect(toolbox.getByRole('button', { name: 'Brush', exact: true })).toBeVisible({ timeout: 10_000 });
+  await clickTool(toolbox, 'Rect');
+  await drag(page, [[-6, -6], [6, 6]]); // one sagittal slice: a band 1 slice tall
+  const band = page.locator(`[data-testid="viewport-scrollbar:${PANEL}"] [data-testid="slice-track-band"]`);
+  await expect(band).toHaveCount(1);
+  const span = async () => Number(await band.first().getAttribute('data-to')) - Number(await band.first().getAttribute('data-from'));
+  expect(await span(), 'one sagittal slice').toBe(0);
+  await page.locator(`[data-panel-id="${PANEL}"]`).getByTitle('Viewport orientation').selectOption('CORONAL');
+  // On coronal the same 12 mm square spans ~17 slices of 0.7 mm: the band must be redrawn.
+  await expect.poll(span, { timeout: 5_000 }).toBeGreaterThan(10);
+});
+
+test('O5: the Cleanup Range shows on the active viewport\'s scrollbar only — its numbers are that viewport\'s slices', async ({ page }) => {
+  const { panel, toolbox } = await setup(page);
+  await row(panel, 'Segment 1').click();
+  await clickTool(toolbox, 'Rect');
+  await drag(page, [[-6, -6], [6, 6]]);
+  await page.evaluate(() => (window as unknown as { __XNAT_E2E__: { setLayoutPreset: (p: string) => void } }).__XNAT_E2E__.setLayoutPreset('mpr-2x2'));
+  await expect(page.locator('[data-testid^="viewport-scrollbar:"]')).toHaveCount(3, { timeout: 15_000 }); // the 2×2 MPR: three planes and a 3D view
+  const sheet = await openOperation(panel, 'Cleanup', 'Fill holes');
+  await sheet.getByRole('group', { name: 'Slices' }).getByRole('button', { name: 'Range', exact: true }).click();
+  const active = await page.evaluate(() => (window as unknown as { __XNAT_E2E__: { getActiveViewportId: () => string } }).__XNAT_E2E__.getActiveViewportId());
+  await expect(page.locator('[data-testid="slice-track-range"]')).toHaveCount(1);
+  await expect(page.locator(`[data-testid="viewport-scrollbar:${active}"] [data-testid="slice-track-range"]`)).toHaveCount(1);
+});

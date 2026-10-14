@@ -50,12 +50,19 @@ export function useInterpolateSheet() {
 
   // The gap table: recomputed when the sheet opens and whenever the labelmap changes.
   const [gaps, setGaps] = useState<ReturnType<typeof maskOpsService.interpolationGaps>>([]);
+  // Debounced: a brush fires a change per mouse move, and each recompute reads every segment.
+  const orientation = useViewerStore((st) => st.panelOrientationMap?.[st.activeViewportId] ?? '');
   useEffect(() => {
     if (!open) return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
     const compute = () => setGaps(maskOpsService.interpolationGaps(activeViewportId));
     compute();
-    return onLabelmapModified(compute);
-  }, [open, activeViewportId, activeSegmentationId, segmentations]);
+    const off = onLabelmapModified(() => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(compute, 150);
+    });
+    return () => { off(); if (timer) clearTimeout(timer); };
+  }, [open, activeViewportId, activeSegmentationId, segmentations, orientation]);
 
   // Anchor chords (⌥A / ⌥B, ⌥⇧ to clear) while the operation is open.
   useEffect(() => {

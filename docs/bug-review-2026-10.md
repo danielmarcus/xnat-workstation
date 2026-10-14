@@ -21,7 +21,7 @@ Status: open · fixed (commit) · won't fix (reason).
 | X1 | P1 | Stack source reader applies rescale slope/intercept twice (loader pre-scales): every absolute-HU feature reads HU−1024 on real CT — Seeded gate, Level Trace guard, Region clip, module input | review + sweep (HU test, red in all orientations) | fixed |
 | X2 | P1 | A pending preview survives switching operation, active segment, container, viewport or scan; the next Commit / ⏎ writes the old preview | review (mask ops 3, 4; interp 14) | fixed |
 | X3 | P2 | Operations don't check the active viewport shows the active container (wrong plane / slices) | review | open |
-| X4 | P3 | Full-volume copies of every member per mask op, per brush move (Cleanup All smart plan, Interpolate gap table undebounced) | review | open |
+| X4 | P3 | Full-volume copies of every member per mask op, per brush move (Cleanup All smart plan, Interpolate gap table undebounced) | review | partly fixed (smart plan and gap table debounced; the per-op whole-volume copy remains) |
 | X5 | P3 | Transactions stage per-voxel Map entries: > 16.7M writes throws (V8 Map limit) | review | open |
 
 ## Segmentation tools (toolbox)
@@ -49,9 +49,9 @@ Status: open · fixed (commit) · won't fix (reason).
 | O2 | P2 | All segments + any locked member → whole op read-only; message names the wrong segment | review (mask ops 6, interp 13) | fixed |
 | O3 | P2 | Copy into / Magnet bridge refuse a locked *source* | review (mask ops 7) | fixed |
 | O4 | P2 | Interpolate gap-table row previews the active segment, not the row's | review (mask ops 8, interp 7) | fixed |
-| O5 | P2 | Slice-track range shows / drags on every viewport, for every op; drag doesn't discard the preview | review (interp 5, 6; mask ops 11) | open |
+| O5 | P2 | Slice-track range shows / drags on every viewport, for every op; drag doesn't discard the preview | review (interp 5, 6; mask ops 11) | fixed |
 | O6 | P2 | Interpolation anchors, Cleanup range, ROI limit, smart-plan overrides never reset per scan / container / orientation | review | fixed |
-| O7 | P2 | Slice track and gap table stale after an orientation change | review (interp 4) | open |
+| O7 | P2 | Slice track and gap table stale after an orientation change | review (interp 4) | fixed |
 | O8 | P3 | Volume / All cleanup synchronous on the UI thread: tens of seconds on 512² × 300 | review (mask ops 1) | open |
 | O9 | P3 | Ctrl+V lands displaced after panning | review (mask ops 13) | fixed |
 
