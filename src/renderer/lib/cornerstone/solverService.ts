@@ -81,7 +81,10 @@ function gridOf(member: MemberRef) {
  * changes only with the segmentation itself, so any change to the segmentations drops it.
  */
 const geometryCache = new Map<string, VoxelGridGeometry>();
+let cachedFor: unknown = null;
 function geometryOf(member: MemberRef): VoxelGridGeometry | null {
+  const segmentations = useSegmentationStore.getState().segmentations;
+  if (segmentations !== cachedFor) { geometryCache.clear(); cachedFor = segmentations; }
   const key = `${member.containerId}#${member.segmentIndex}`;
   let g = geometryCache.get(key);
   if (!g) {
@@ -90,7 +93,6 @@ function geometryOf(member: MemberRef): VoxelGridGeometry | null {
   }
   return g ?? null;
 }
-useSegmentationStore.subscribe((s, prev) => { if (s.segmentations !== prev.segmentations) geometryCache.clear(); });
 
 /**
  * The seed brush in mm (#92): `px` pixels of the plane the viewport shows, along its first

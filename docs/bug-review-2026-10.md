@@ -72,14 +72,14 @@ reference implementations; the defects are in the services around them.
 |---|---|---|---|---|
 | S1 | P1 | A finished solve replaces whatever preview is pending; a Smart Brush release can then commit the solver result unreviewed; closing the sheet doesn't cancel the job | review (solvers 1) | fixed |
 | S2 | P1 | α-expansion with no Background seeds paints the whole box | review (solvers 2, script) | fixed |
-| S3 | P2 | Seed / Smart Brush / Random Walker brush round in voxels, not mm — ~7× tall on sagittal/coronal of thick-slice data | review (solvers 4) | open — #92 |
-| S4 | P2 | Seeds painted in another orientation silently reduced to a few voxels | review (solvers 3) | open — #93 |
+| S3 | P2 | Seed / Smart Brush / Random Walker brush round in voxels, not mm — ~7× tall on sagittal/coronal of thick-slice data | review (solvers 4) | fixed — #92 |
+| S4 | P2 | Seeds painted in another orientation silently reduced to a few voxels | review (solvers 3) | fixed — #93 |
 | S5 | P2 | Erasing seed points re-bridges the stroke with straight lines | review (solvers 5, script) | fixed |
-| S6 | P2 | Replaced jobs: old job's cleanup hides the new job's progress bar (fixed: job ids); QC builds and solves cancel each other silently; overlapping QC builds corrupt state | review (solvers 9–11) | open — #94 |
+| S6 | P2 | Replaced jobs: old job's cleanup hides the new job's progress bar (fixed: job ids); QC builds and solves cancel each other silently; overlapping QC builds corrupt state | review (solvers 9–11) | fixed — #94 |
 | S7 | P2 | 3D scissor cuts the active segmentation, not the one shown | review (solvers 14) | fixed |
 | S8 | P2 | Seeds of a deleted member break α after the solve; paintClass survives container change; a failed stroke start extends the previous stroke | review (solvers 15, 16) | fixed |
 | S9 | P2 | Smart Brush leaves gaps on fast drags; Level Trace with simplify loses its bottom row | review (solvers 17, 18) | fixed |
-| S10 | P3 | Whole-volume copies per seed-paint move and per QC row; QC staleness misses edits during a build; QC opens empty from non-panel_0 MPR; surfaces overstate thick slices; Delete component on a stale report; progress stuck; Restore seeds clobbers other containers | review (solvers 6–8, 12, 13, 19–22) | open — #100 |
+| S10 | P3 | Whole-volume copies per seed-paint move and per QC row; QC staleness misses edits during a build; QC opens empty from non-panel_0 MPR; surfaces overstate thick slices; Delete component on a stale report; progress stuck; Restore seeds clobbers other containers | review (solvers 6–8, 12, 13, 19–22) | fixed — #100 |
 
 ## Review ergonomics
 
