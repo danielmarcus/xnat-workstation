@@ -13,7 +13,9 @@ export default function CleanupSheet({ m }: { m: CleanupSheetModel }) {
   if (!m.open) return null;
   const basic = m.op.params.filter((p) => !p.advanced);
   const advanced = m.op.params.filter((p) => p.advanced);
-  const canCommit = !!m.target && !m.target.locked && !m.previewReadOnly;
+  // A pair operation's commit depends on what it writes (its preview says read-only if that is
+  // locked) — not on the active segment, which Copy into and Magnet bridge only read.
+  const canCommit = !!m.target && (m.isPair || !m.target.locked) && !m.previewReadOnly;
   const param = (spec: ParamSpec) => (
     <Param key={spec.key} spec={spec} value={m.params[spec.key]} onChange={(v) => m.setParam(spec.key, v as number | string)} /> // Cleanup has no boolean parameters
   );

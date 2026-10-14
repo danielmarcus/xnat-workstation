@@ -60,6 +60,8 @@ export interface CleanupOp {
   claims?: (params: ParamValues) => boolean;
   /** Two-segment operation: the active member (source) and an "Into" member (target). */
   runPair?: (source: MaskPlane, target: MaskPlane, ctx: PairOpContext, params: ParamValues) => PairOpResult;
+  /** The pair operation changes its source too (Move into empties it) — a locked source refuses it. */
+  writesSource?: boolean;
 }
 
 const num = (p: ParamValues, k: string) => Number(p[k]);
@@ -224,6 +226,7 @@ export const CLEANUP_OPS: CleanupOp[] = [
     label: 'Move into…',
     description: 'Relabel this segment\u2019s voxels as another segment (merge), leaving it empty in the scope.',
     params: [],
+    writesSource: true,
     runPair: (src, dst) => {
       const out = new Uint8Array(dst.data);
       for (let i = 0; i < out.length; i++) if (src.data[i]) out[i] = 1;

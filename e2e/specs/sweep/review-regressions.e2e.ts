@@ -213,3 +213,20 @@ test('S9: a fast Smart Brush stroke paints all along its path — no gaps betwee
   expect(slow).toBeGreaterThan(0);
   expect(fast, `fast ${fast} vs slow ${slow}`).toBeGreaterThan(slow * 0.8);
 });
+
+test('O3: Copy into works from a locked segment — it only reads its source', async ({ page }) => {
+  const { panel, toolbox } = await setup(page);
+  await row(panel, 'Segment 1').click();
+  await clickTool(toolbox, 'Rect');
+  await drag(page, [[-8, -8], [8, 8]]);
+  const seg1 = await hooks(page).member(1);
+  await row(panel, 'Segment 1').getByRole('button', { name: 'Toggle lock' }).click();
+  const sheet = await openOperation(panel, 'Cleanup', 'Copy into…');
+  await sheet.getByLabel('Into segment').selectOption({ label: 'Segment 2' });
+  await sheet.getByRole('button', { name: 'Preview', exact: true }).click();
+  await expect(page.getByTestId('mask-preview-bar')).toBeVisible();
+  await expect(sheet.getByRole('button', { name: 'Commit' })).toBeEnabled();
+  await sheet.getByRole('button', { name: 'Commit' }).click();
+  await expect.poll(() => hooks(page).member(2)).toBe(seg1);
+  expect(await hooks(page).member(1), 'the locked source is unchanged').toBe(seg1);
+});

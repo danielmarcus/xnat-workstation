@@ -47,7 +47,7 @@ Status: open · fixed (commit) · won't fix (reason).
 |---|---|---|---|---|
 | O1 | P1 | Interpolate A → B with All erases segments empty on the anchors | review (interp 2) | fixed |
 | O2 | P2 | All segments + any locked member → whole op read-only; message names the wrong segment | review (mask ops 6, interp 13) | fixed |
-| O3 | P2 | Copy into / Magnet bridge refuse a locked *source* | review (mask ops 7) | open |
+| O3 | P2 | Copy into / Magnet bridge refuse a locked *source* | review (mask ops 7) | fixed |
 | O4 | P2 | Interpolate gap-table row previews the active segment, not the row's | review (mask ops 8, interp 7) | fixed |
 | O5 | P2 | Slice-track range shows / drags on every viewport, for every op; drag doesn't discard the preview | review (interp 5, 6; mask ops 11) | open |
 | O6 | P2 | Interpolation anchors, Cleanup range, ROI limit, smart-plan overrides never reset per scan / container / orientation | review | fixed |

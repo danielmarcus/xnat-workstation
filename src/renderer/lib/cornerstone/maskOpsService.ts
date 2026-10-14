@@ -220,6 +220,10 @@ export const maskOpsService = {
       .filter((m) => m.locked && m.segmentIndex !== active && m.segmentIndex !== targetIndex)
       .map((m) => ({ containerId, segmentIndex: m.segmentIndex }));
     const lockedSet = new Set(lockedOthers.map((m) => m.segmentIndex));
+    // A source the operation only reads (Copy into, Magnet bridge) is not opened for writing — a
+    // locked source refused them, though they never change it.
+    const sourceLocked = summary.segments.find((m) => m.segmentIndex === active)?.locked ?? false;
+    if (sourceLocked && !op.writesSource) lockedSet.add(active);
     const writers = allMembers.filter((m) => !lockedSet.has(m.segmentIndex));
 
     let lockedMember: MemberRef | null = null;
