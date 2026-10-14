@@ -91,6 +91,7 @@ export const IPC = {
   CHECKPOINT_DELETE: 'checkpoint:delete',
   CHECKPOINT_EXPORT: 'checkpoint:export',
   CHECKPOINT_IMPORT: 'checkpoint:import',
+  CHECKPOINT_MOVE: 'checkpoint:move',
 
   // Modules (branch 9) (renderer → main)
   MODULES_LIST: 'modules:list',

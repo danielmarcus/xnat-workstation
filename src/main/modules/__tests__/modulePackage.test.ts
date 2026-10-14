@@ -63,6 +63,19 @@ describe('manifest', () => {
     expect(validateManifest({ ...MANIFEST, writes: { target: 'new', mode: 'add', newMembers: [] } }).ok).toBe(false);
   });
 
+  it('post steps (#103 item 3): only mask-only Cleanup operations, their parameters typed and in range', () => {
+    const steps = (postSteps: unknown) => validateManifest({ ...MANIFEST, postSteps });
+    expect(steps([{ op: 'fillHoles' }, { op: 'removeSpeckles', params: { minAreaMm2: 20 } }, { op: 'gaussian', params: { sigma: 1.5 } }]).ok).toBe(true);
+    const errors = (postSteps: unknown) => { const r = steps(postSteps); return r.ok ? '' : r.errors.join('\n'); };
+    expect(errors([{ op: 'propagate' }]), 'an unknown op').toMatch(/^postSteps\[0\]\.op:/m);
+    expect(errors([{ op: 'fillHoles' }, { op: 'snakeRefine' }]), 'an op that needs the image').toMatch(/^postSteps\[1\]\.op:/m);
+    expect(errors([{ op: 'clear' }]), 'not a cleanup op').toMatch(/^postSteps\[0\]\.op:/m);
+    expect(errors([{ op: 'removeSpeckles', params: { minAreaMm2: '20' } }]), 'a string for a number').toMatch(/^postSteps\[0\]\.params\.minAreaMm2:/m);
+    expect(errors([{ op: 'removeSpeckles', params: { minAreaMm2: 5000 } }]), 'out of range').toMatch(/^postSteps\[0\]\.params\.minAreaMm2:/m);
+    expect(errors([{ op: 'removeSpeckles', params: { radius: 2 } }]), 'a parameter the op does not have').toMatch(/^postSteps\[0\]\.params\.radius:/m);
+    expect(errors([{ op: 'median', params: [2] }]), 'params not an object').toMatch(/^postSteps\[0\]\.params:/m);
+  });
+
   it('compatibility: API major and runtime, refused by name', () => {
     expect(checkCompatibility({ apiVersion: '1.3', runtime: 'wasm-worker' }).ok).toBe(true);
     const api = checkCompatibility({ apiVersion: '2.0', runtime: 'wasm-worker' });
@@ -93,6 +106,23 @@ describe('zip', () => {
     }
   });
 
+  it('refuses names Windows cannot hold as written (#103 item 9): streams, reserved devices, trailing dots', () => {
+    for (const name of ['module.js:hidden', 'a:b/c.js', 'con.js', 'lib/CON', 'aux.wasm', 'Nul', 'com1.txt', 'lpt9.js', 'lib/prn.json', 'a./b.js', 'trailing ', 'x.js.']) {
+      expect(() => readZip(rawZip([[name, Buffer.from('x')]])), name).toThrow(ZipError);
+    }
+    for (const name of ['console.js', 'icon.js', 'com10.js', 'lib/nullable.js', 'a.b/c.js']) {
+      expect(readZip(rawZip([[name, Buffer.from('x')]])).size, name).toBe(1);
+    }
+  });
+
+  it('refuses two names that differ only in case (one file on Windows and macOS) (#103 item 9)', () => {
+    expect(() => readZip(rawZip([['lib/Helper.js', Buffer.from('a')], ['lib/helper.js', Buffer.from('b')]]))).toThrow(/differ only in case/);
+    expect(() => readZip(rawZip([['Lib/a.js', Buffer.from('a')], ['lib/A.js', Buffer.from('b')]]))).toThrow(/differ only in case/);
+    // One folder on those systems, listed back under one spelling: the digest would not match.
+    expect(() => readZip(rawZip([['Lib/a.js', Buffer.from('a')], ['lib/b.js', Buffer.from('b')]]))).toThrow(/differ only in case/);
+    expect(readZip(rawZip([['lib/a.js', Buffer.from('a')], ['lib/A.txt', Buffer.from('b')]])).size).toBe(2);
+  });
+
   it('refuses symlinks, encryption, zip bombs and too many files', () => {
     expect(() => readZip(rawZip([['link', Buffer.from('/etc')]], { symlink: true }))).toThrow(/symbolic link/);
     expect(() => readZip(rawZip([['x', Buffer.from('x')]], { encrypted: true }))).toThrow(/encrypted/);
@@ -121,7 +151,7 @@ describe('zip', () => {
 
 describe('signatures and trust', () => {
   const key = generateKeyPair();
-  const trusted = new Set([key.keyId]);
+  const trusted = [{ keyId: key.keyId, publicKey: key.publicKey, name: 'Example Labs' }];
 
   it('unsigned → Community; signed by a trusted key → Verified; by an unknown key → Community', () => {
     const unsigned = readPackage(packFiles(files()), trusted);
@@ -157,8 +187,29 @@ describe('signatures and trust', () => {
     expect(classify({ status: 'invalid' }, trusted)).toBe('refused');
   });
 
+  it('trust is the whole stored key, not its 64-bit id (#103 item 6)', () => {
+    const other = generateKeyPair();
+    const sig = { status: 'valid' as const, keyId: key.keyId, publicKey: other.publicKey };
+    // A key whose id collides with a trusted key's (a 64-bit second preimage) is not that key.
+    expect(classify(sig, trusted)).toBe('community');
+    expect(classify({ ...sig, publicKey: key.publicKey }, trusted)).toBe('verified');
+  });
+
+  it('the publisher shown is the trusted key\'s own name — the signer text is not signed (#103 item 5)', () => {
+    const signed = signFiles(files(), key.privateKeyPem, 'Example');
+    const sig = JSON.parse(signed.get(SIGNATURE_FILE)!.toString());
+    const renamed = new Map(signed); renamed.set(SIGNATURE_FILE, Buffer.from(JSON.stringify({ ...sig, signer: 'Totally Official Hospital' })));
+    const r = checkFiles(renamed, trusted);
+    expect(r.ok && r.tier).toBe('verified'); // the signer text is outside the signature
+    expect(r.ok && r.signature.signer).toBe('Example Labs');
+    const stranger = generateKeyPair();
+    const s = checkFiles(signFiles(files(), stranger.privateKeyPem, 'Totally Official Hospital'), trusted);
+    expect(s.ok && s.tier).toBe('community');
+    expect(s.ok && s.signature.signer, 'an untrusted key names nobody').toBeUndefined();
+  });
+
   it('bundled modules are covered by the app\'s signature: Bundled, signature not consulted', () => {
-    const r = readPackage(packFiles(files()), new Set(), { bundled: true });
+    const r = readPackage(packFiles(files()), [], { bundled: true });
     expect(r.ok && r.tier).toBe('bundled');
   });
 

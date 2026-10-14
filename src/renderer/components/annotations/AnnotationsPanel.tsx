@@ -107,7 +107,7 @@ export default function AnnotationsPanel({ activeViewportId, sourceImageIds }: A
   const contourTools = useContourToolSettings();
   const handlers = {
     ...panel.handlers,
-    onKebab: (id: string) => { panel.handlers.onKebab(id); checkpoints.refresh(id); },
+    onKebab: (id: string) => { panel.handlers.onKebab(id); void checkpoints.refresh(id); },
     checkpointsOf: checkpoints.listOf,
     onSaveCheckpoint: checkpoints.openSave,
     onRestoreCheckpoint: (id: string, cp: string) => { void checkpoints.restore(id, cp); },

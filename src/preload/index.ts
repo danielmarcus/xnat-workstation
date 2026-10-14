@@ -203,7 +203,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   checkpoint: {
     write: (key: string, record: unknown) => ipcRenderer.invoke(IPC.CHECKPOINT_WRITE, key, record),
-    list: (key: string) => ipcRenderer.invoke(IPC.CHECKPOINT_LIST, key),
+    list: (key: string, legacy?: unknown) => ipcRenderer.invoke(IPC.CHECKPOINT_LIST, key, legacy),
+    move: (fromKey: string, toKey: string, containerLabel: string) => ipcRenderer.invoke(IPC.CHECKPOINT_MOVE, fromKey, toKey, containerLabel),
     read: (key: string, id: string) => ipcRenderer.invoke(IPC.CHECKPOINT_READ, key, id),
     delete: (key: string, id: string) => ipcRenderer.invoke(IPC.CHECKPOINT_DELETE, key, id),
     exportFile: (key: string, id: string) => ipcRenderer.invoke(IPC.CHECKPOINT_EXPORT, key, id),

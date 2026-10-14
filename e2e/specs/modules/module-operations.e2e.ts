@@ -151,6 +151,37 @@ test('a module that writes a new segment creates it, with its name and colour; D
   expect(await member(page, 1), 'the segment that was active is untouched').toBe(0);
 });
 
+test('undoing a module\'s commit takes away the segments it created; redo brings them back with their voxels (#103)', async ({ electronApp, page }) => {
+  const edema = buildPackage('edema-undo', manifest('org.e2e.edema-undo', {
+    name: 'Edema finder', writes: { target: 'new', mode: 'add', newMembers: [{ name: 'Edema', color: [255, 200, 0] }] },
+  }), `export function run(input) { const m = new Uint8Array(input.image.length); for (let i = 0; i < m.length; i++) if (input.image[i] > 500) m[i] = 1; return { mask: m }; }`);
+  const panel = await setup(electronApp, page, [edema]);
+  const rows = panel.locator('[data-testid^="member-row-"]');
+  await expect(rows).toHaveCount(1);
+  const sheet = await openModule(panel, 'Edema finder');
+  await sheet.getByRole('button', { name: 'Run' }).click();
+  await expect(page.getByTestId('mask-preview-bar')).toContainText('Edema finder');
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('mask-preview-bar')).toHaveCount(0);
+  await expect(rows).toHaveCount(2);
+  await expect.poll(() => voxels(page)).toBeGreaterThan(DISC * 0.9);
+  const written = await voxels(page);
+
+  await page.keyboard.press('Control+z');
+  await expect(rows, 'the created segment is gone with its voxels').toHaveCount(1);
+  await expect(rows.first()).not.toContainText('Edema');
+  expect(await member(page, 1), 'the segment that was active is untouched').toBe(0);
+
+  await page.keyboard.press('Control+Shift+z');
+  await expect(rows).toHaveCount(2);
+  await expect(rows.nth(1)).toContainText('Edema');
+  await expect(rows.nth(1).locator('[data-testid^="color-swatch-"]')).toHaveCSS('background-color', 'rgb(255, 200, 0)');
+  await expect.poll(() => voxels(page), 'redone: the segment (active) holds the mask again').toBe(written);
+
+  await page.keyboard.press('Control+z');
+  await expect(rows, 'and undone again').toHaveCount(1);
+});
+
 test('a mask holding a label the module did not declare is refused, with the reason', async ({ electronApp, page }) => {
   const bad = buildPackage('labels', manifest('org.e2e.labels', {
     name: 'Label overflow', writes: { target: 'new', mode: 'add', newMembers: [{ name: 'A', color: [255, 0, 0] }, { name: 'B', color: [0, 0, 255] }] },

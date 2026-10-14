@@ -57,10 +57,42 @@ export interface ModuleManifest {
     newMembers?: Array<{ name: string; color: [number, number, number] }>;
   };
   scopes: ModuleScope[];
-  /** Built-in Cleanup operations offered after a run (#278–279). */
-  postSteps?: Array<{ op: string; params?: Record<string, number | string> }>;
+  /** Built-in Cleanup operations applied after a run (#278–279): ids and parameters from POST_STEP_OPS. */
+  postSteps?: Array<{ op: string; params?: Record<string, number> }>;
   /** Peak bytes per voxel of the box, for the memory guard. */
   bytesPerVoxel?: number;
+}
+
+/**
+ * The Cleanup operations a module may name as post steps — those that need only the mask (the
+ * host applies them slice by slice, without the image) — with their parameters' ranges. As the
+ * Cleanup catalog declares them (renderer/lib/segmentation/maskOps/catalog.ts); a test keeps the
+ * two in step. Anything else is refused when the manifest is validated, not skipped at run time.
+ */
+export const POST_STEP_OPS: Readonly<Record<string, Readonly<Record<string, { min: number; max: number }>>>> = {
+  fillHoles: { maxHoleAreaMm2: { min: 0, max: 5000 } },
+  keepLargest: { alsoKeepPct: { min: 0, max: 100 } },
+  removeSpeckles: { minAreaMm2: { min: 1, max: 1000 } },
+  removeStrays: { maxDistanceMm: { min: 5, max: 120 }, protectPct: { min: 0, max: 100 } },
+  median: { radius: { min: 1, max: 5 } },
+  gaussian: { sigma: { min: 0.5, max: 4 }, threshold: { min: 0.2, max: 0.8 } },
+  smoothEdges: { strength: { min: 0.1, max: 1.5 } },
+  open: { radius: { min: 1, max: 5 } },
+  close: { radius: { min: 1, max: 5 } },
+};
+
+function checkPostStep(step: unknown, i: number, errors: string[]): void {
+  const at = `postSteps[${i}]`;
+  if (!isObj(step)) { errors.push(`${at}: an object { op, params? } is required`); return; }
+  const spec = typeof step.op === 'string' && Object.prototype.hasOwnProperty.call(POST_STEP_OPS, step.op) ? POST_STEP_OPS[step.op] : null;
+  if (!spec) { errors.push(`${at}.op: one of ${Object.keys(POST_STEP_OPS).join(', ')} (Cleanup operations that need only the mask)`); return; }
+  if (step.params === undefined) return;
+  if (!isObj(step.params)) { errors.push(`${at}.params: an object of { name: number } is required when present`); return; }
+  for (const [key, value] of Object.entries(step.params)) {
+    const range = Object.prototype.hasOwnProperty.call(spec, key) ? spec[key] : null;
+    if (!range) errors.push(`${at}.params.${key}: ${step.op} has no such parameter (it has ${Object.keys(spec).join(', ')})`);
+    else if (!isNum(value) || value < range.min || value > range.max) errors.push(`${at}.params.${key}: a number from ${range.min} to ${range.max} is required`);
+  }
 }
 
 export type ManifestCheck = { ok: true; manifest: ModuleManifest } | { ok: false; errors: string[] };
@@ -134,7 +166,10 @@ export function validateManifest(json: unknown): ManifestCheck {
   if (!Array.isArray(m.scopes) || !m.scopes.length || !m.scopes.every((s) => ['slice', 'range', 'volume', 'roi'].includes(s as string))) {
     errors.push('scopes: one or more of "slice", "range", "volume", "roi"');
   }
-  if (m.postSteps !== undefined && (!Array.isArray(m.postSteps) || !m.postSteps.every((s) => isObj(s) && isStr(s.op, 64)))) errors.push('postSteps: a list of { op } is required when present');
+  if (m.postSteps !== undefined) {
+    if (!Array.isArray(m.postSteps) || m.postSteps.length > 20) errors.push('postSteps: a list of at most 20 { op, params? } is required when present');
+    else m.postSteps.forEach((step, i) => checkPostStep(step, i, errors));
+  }
   if (m.bytesPerVoxel !== undefined && (!isNum(m.bytesPerVoxel) || m.bytesPerVoxel <= 0 || m.bytesPerVoxel > 10_000)) errors.push('bytesPerVoxel: a positive number when present');
   return errors.length ? { ok: false, errors } : { ok: true, manifest: m as unknown as ModuleManifest };
 }

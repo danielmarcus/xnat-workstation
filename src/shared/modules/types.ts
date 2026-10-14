@@ -8,7 +8,7 @@ export interface SignatureInfo {
   keyId?: string;
   /** Base64 SPKI DER of the signing key (valid signatures). */
   publicKey?: string;
-  /** The publisher the signature names (informational; trust comes from the key). */
+  /** Verified only: the trusted key's name (signature.json's own `signer` text is unsigned, never shown). */
   signer?: string;
   reason?: string;
 }

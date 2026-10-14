@@ -212,7 +212,10 @@ export interface ElectronAPI {
   };
   checkpoint?: {
     write(key: string, record: import('./checkpoint').CheckpointRecord): Promise<{ ok: boolean; error?: string }>;
-    list(key: string): Promise<{ ok: boolean; checkpoints?: import('./checkpoint').CheckpointMeta[]; error?: string }>;
+    /** `legacy` names the container so checkpoints filed under the pre-#102 key are adopted. */
+    list(key: string, legacy?: { seriesInstanceUID: string; containerLabel: string }): Promise<{ ok: boolean; checkpoints?: import('./checkpoint').CheckpointMeta[]; error?: string }>;
+    /** A rename: move every checkpoint from one key to another, relabelled. */
+    move(fromKey: string, toKey: string, containerLabel: string): Promise<{ ok: boolean; error?: string }>;
     read(key: string, id: string): Promise<{ ok: boolean; record?: import('./checkpoint').CheckpointRecord; error?: string }>;
     delete(key: string, id: string): Promise<{ ok: boolean; error?: string }>;
     /** Save a checkpoint to a file the user picks. */

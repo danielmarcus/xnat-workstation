@@ -387,15 +387,28 @@ export function onVoxelMemoRestored(fn: () => void): () => void {
   return () => restoreListeners.delete(fn);
 }
 
-/**
- * Push one memo on Cornerstone's global history ring (whose push hook files it per
- * container — a multi-layer sub-seg maps to its group). Undo replays the writes in
- * reverse, so a voxel written twice ends at its FIRST old value.
- */
-function pushVoxelMemo(r: VoxelMemoRecord): void {
+/** An app history memo, as Cornerstone's ring holds it (its push hook files it per container by
+ *  `segmentationId` — a multi-layer sub-seg maps to its group). */
+export interface AppHistoryMemo {
+  id: string;
+  operationType: string;
+  segmentationId: string;
+  segmentIndex: number;
+  restoreMemo: (isUndo?: boolean) => void;
+}
+
+function pushHistoryMemo(m: AppHistoryMemo): void {
   const ring = (csCoreUtilities as unknown as { HistoryMemo?: { DefaultHistoryMemo?: { push?: (m: unknown) => void } } })
     .HistoryMemo?.DefaultHistoryMemo;
-  ring?.push?.({
+  ring?.push?.(m);
+}
+
+/**
+ * The memo of one voxel record. Undo replays the writes in reverse, so a voxel written twice
+ * ends at its FIRST old value.
+ */
+export function voxelHistoryMemo(r: VoxelMemoRecord): AppHistoryMemo {
+  return {
     id: `voxels-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     operationType: 'labelmap',
     segmentationId: r.csSegmentationId,
@@ -411,7 +424,7 @@ function pushVoxelMemo(r: VoxelMemoRecord): void {
       }
       notifyLabelmapChanged(g.csSegmentationId);
     },
-  });
+  };
 }
 
 /**
@@ -424,21 +437,24 @@ export function registerHistoryGrouper(fn: (fn: () => void) => void): void {
   historyGrouper = fn;
 }
 
+/** Record memos as ONE undo step (undone last-to-first, redone first-to-last). */
+export function recordHistoryStep(memos: AppHistoryMemo[]): void {
+  if (memos.length === 1) {
+    pushHistoryMemo(memos[0]);
+    return;
+  }
+  if (!historyGrouper) {
+    console.warn('[labelmapTransaction] no history grouper registered; recording', memos.length, 'separate undo steps');
+    memos.forEach(pushHistoryMemo);
+    return;
+  }
+  historyGrouper(() => memos.forEach(pushHistoryMemo));
+}
+
 export const defaultDeps: TransactionDeps = {
   readGrid: readSegmentVoxelGrid,
   isLocked: isSegmentLockedHere,
-  pushMemos: (records) => {
-    if (records.length === 1) {
-      pushVoxelMemo(records[0]);
-      return;
-    }
-    if (!historyGrouper) {
-      console.warn('[labelmapTransaction] no history grouper registered; recording', records.length, 'separate undo steps');
-      records.forEach(pushVoxelMemo);
-      return;
-    }
-    historyGrouper(() => records.forEach(pushVoxelMemo));
-  },
+  pushMemos: (records) => recordHistoryStep(records.map(voxelHistoryMemo)),
   notifyChanged: notifyLabelmapChanged,
 };
 

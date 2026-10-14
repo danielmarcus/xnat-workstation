@@ -88,8 +88,8 @@ reference implementations; the defects are in the services around them.
 | R1 | P2 | Hide PHI back on doesn't re-mask tags revealed earlier | review (interp 10) | fixed |
 | R2 | P2 | Imported checkpoint can be deleted by retention at once | review (interp 11) | fixed |
 | R3 | P2 | Flythrough segment filter leaks between containers | review (interp 9) | fixed |
-| R5 | P3 | Settings › File Backup does not list a checkpoint just imported (stale list) | sweep (R2 test) | open — #101 |
-| R4 | P3 | Checkpoint identity: session from last load, label in key, unsafe-name collisions | review (interp 12) | open — #102 |
+| R5 | P3 | Settings › File Backup does not list a checkpoint just imported (stale list) | sweep (R2 test) | fixed — #101 |
+| R4 | P3 | Checkpoint identity: session from last load, label in key, unsafe-name collisions | review (interp 12) | fixed — #102 |
 
 ## Modules
 
@@ -106,4 +106,4 @@ reference implementations; the defects are in the services around them.
 | M9 | P2 | A run writes into whichever sheet is open; two runs can overlap | review (modules 12) | fixed |
 | M10 | P2 | Dropping a module on Settings also triggers the DICOM loader | review (modules 13) | fixed |
 | M11 | P2 | E2E bundled-folder override honoured in packaged builds | review (modules 14) | fixed |
-| M12 | P3 | Per-run session / files leak; runs survive a page reload (fixed with M2); new segments stay after undo; stale params after upgrade; unvalidated postSteps; token reuse; signer text unsigned; key id 64-bit only; sync scans | review (modules 5, 6, 15) | open — #103 |
+| M12 | P3 | Per-run session / files leak; runs survive a page reload (fixed with M2); new segments stay after undo; stale params after upgrade; unvalidated postSteps; token reuse; signer text unsigned; key id 64-bit only; sync scans | review (modules 5, 6, 15) | fixed — #103 (one shared sandbox session, per-run origin forgotten on stop; undo/redo removes/re-creates created members; postSteps validated against the mask-only Cleanup ops; install token idempotent; Verified shows the trusted key's name; trust matches the whole key; listing cached by size+mtime, bundled load inflates one package; `:` / Windows device names / case-only duplicates refused at install. Unsigned-module disk check: docs corrected, not signed) |
