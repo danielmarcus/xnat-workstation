@@ -1249,7 +1249,10 @@ export default function App() {
 
           setBrowserStatusMessage('Loading local SEG...', 'loading', file.name);
           const { segmentationId, firstNonZeroReferencedImageId } =
-            await segmentationManager.loadSegFromArrayBuffer(segTargetPanel, arrayBuffer, segSourceImageIds);
+            await segmentationManager.loadSegFromArrayBuffer(segTargetPanel, arrayBuffer, segSourceImageIds, {
+              // Wait for the viewport (as for a local RTSTRUCT below).
+              epoch: viewportReadyService.getEpoch(segTargetPanel),
+            });
           useViewerStore.getState().setActiveViewport(segTargetPanel);
           await jumpViewportToReferencedImage(segTargetPanel, firstNonZeroReferencedImageId);
           console.log(`[App] Loaded DICOM SEG file "${file.name}" as ${segmentationId} on ${segTargetPanel}`);
@@ -1296,8 +1299,13 @@ export default function App() {
         try {
           setBrowserStatusMessage('Loading local RTSTRUCT...', 'loading', file.name);
           const arrayBuffer = await file.arrayBuffer();
+          // Wait for the viewport, as the XNAT paths do: a structure set loaded before it
+          // exists gets no representation (so no ROI colours) and no plane metadata from
+          // its view (so its contours never interpolate with a stroke).
           const { segmentationId, firstReferencedImageId } =
-            await segmentationManager.loadRtStructFromArrayBuffer(targetPanel, arrayBuffer, sourceImageIds);
+            await segmentationManager.loadRtStructFromArrayBuffer(targetPanel, arrayBuffer, sourceImageIds, {
+              epoch: viewportReadyService.getEpoch(targetPanel),
+            });
           await jumpViewportToReferencedImage(targetPanel, firstReferencedImageId);
           console.log(`[App] Loaded RTSTRUCT file "${file.name}" as ${segmentationId}`);
           setBrowserStatusMessage('Loaded local RTSTRUCT', 'success', `${file.name} on ${targetPanel}.`);

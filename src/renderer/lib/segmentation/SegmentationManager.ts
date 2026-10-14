@@ -1160,11 +1160,15 @@ export class SegmentationManager {
         }
       }
 
-      // Restore lock state
+      // Restore lock state. Lock is segmentation-level state that outlives the viewport
+      // and the only setter is a toggle, so toggle only a member that lost its lock — a
+      // blind toggle UNLOCKED every member still locked (a loaded structure, on its
+      // second restore).
       for (const [idxStr, locked] of Object.entries(cached.locked)) {
         if (locked) {
           const idx = Number(idxStr);
           if (!Number.isFinite(idx) || !Number.isInteger(idx) || idx <= 0) continue;
+          if (segmentationService.getSegmentLocked(segmentationId, idx)) continue;
           segmentationService.toggleSegmentLocked(segmentationId, idx);
         }
       }

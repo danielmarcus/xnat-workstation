@@ -102,6 +102,18 @@ const outlines = (page: Page) =>
 const GTV = 'rgb(255, 0, 0)';
 
 /**
+ * The Annotations panel, once the import has opened it. An RTSTRUCT import opens the panel
+ * itself when the structure set has loaded — after its viewport is ready, so after the
+ * canvas loadFixture waits for. Toggling the panel when it "is not visible yet" raced that:
+ * the app opened it, then the click closed it again.
+ */
+async function panelOnceLoaded(page: Page) {
+  const panel = page.locator('[data-testid="annotations-side-panel"]');
+  await expect(panel, 'the RTSTRUCT import opens the Annotations panel').toBeVisible({ timeout: 20_000 });
+  return panel;
+}
+
+/**
  * Step one slice and wait until the new slice is drawn. Read straight after the key
  * press, the SVG can still hold the slice just left — here the paste, the same colour
  * and place as the interpolated contour being looked for — and pass on a stale frame.
@@ -117,9 +129,7 @@ test('a loaded Structure contour can be copied, and the paste interpolates with 
   // rtstruct-typed: four ROIs, each one square on the same slice. Their contours come in
   // through the RTSTRUCT loader, not a tool stroke.
   await loadFixture(page, 'rtstruct-typed', 'panel_0');
-  const panel = page.locator('[data-testid="annotations-side-panel"]');
-  if (!(await panel.isVisible())) await page.getByRole('button', { name: 'Show segmentation panel' }).click();
-  await expect(panel).toBeVisible({ timeout: 15_000 });
+  const panel = await panelOnceLoaded(page);
   const activate = panel.locator('[data-testid^="container-activate-"]').first();
   await expect(activate).toBeVisible({ timeout: 20_000 });
   await activate.click();
@@ -169,9 +179,7 @@ test('a stroke drawn a few slices from an untouched loaded contour interpolates 
   // The loaded GTV is never clicked or edited here, so the chain it joins is the one
   // it was loaded with — not one an edit would have given it.
   await loadFixture(page, 'rtstruct-typed', 'panel_0');
-  const panel = page.locator('[data-testid="annotations-side-panel"]');
-  if (!(await panel.isVisible())) await page.getByRole('button', { name: 'Show segmentation panel' }).click();
-  await expect(panel).toBeVisible({ timeout: 15_000 });
+  const panel = await panelOnceLoaded(page);
   const activate = panel.locator('[data-testid^="container-activate-"]').first();
   await expect(activate).toBeVisible({ timeout: 20_000 });
   await activate.click();

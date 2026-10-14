@@ -158,9 +158,11 @@ const { DefaultHistoryMemo } = (csUtilities as any).HistoryMemo;
 // for the typed API; the prior module-level `sourceImageIdsMap` is gone.
 
 /**
- * Tracks loaded DICOM SEG colors per segmentation, keyed by segmentationId.
- * Colors are extracted from RecommendedDisplayRGBValue during loadDicomSeg()
+ * Tracks loaded DICOM colors per segmentation, keyed by segmentationId.
+ * SEG colors are extracted from RecommendedDisplayRGBValue during loadDicomSeg()
  * and consumed (then deleted) in addToViewport() so they override the default palette.
+ * RTSTRUCT ROIDisplayColors land here only when the viewport had no representation to
+ * take them at load (rememberLoadedColors), and are consumed in ensureContourRepresentation().
  */
 const loadedColorsMap = new Map<string, Map<number, [number, number, number, number]>>();
 
@@ -3111,6 +3113,19 @@ export const segmentationService = {
   },
 
   /**
+   * Hold colours a loader read from the file (an RTSTRUCT's ROIDisplayColor) that no
+   * viewport representation could take yet. The store summary reports them meanwhile,
+   * and ensureContourRepresentation() applies them when the representation is added.
+   */
+  rememberLoadedColors(
+    segmentationId: string,
+    colors: Map<number, [number, number, number, number]>,
+  ): void {
+    if (colors.size === 0) return;
+    loadedColorsMap.set(segmentationId, new Map(colors));
+  },
+
+  /**
    * Override the default segment color sequence used for new segments.
    */
   setDefaultColorSequence(colors: [number, number, number, number][]): void {
@@ -3855,6 +3870,19 @@ export const segmentationService = {
       csSegmentation.addContourRepresentationToViewport(viewportId, [
         { segmentationId },
       ]);
+
+      // Colours read from the file that no representation could take at load time
+      // (rememberLoadedColors) — consumed here, as addToViewport() does for a SEG.
+      const loadedColors = loadedColorsMap.get(segmentationId);
+      if (loadedColors && loadedColors.size > 0) {
+        let allColorsApplied = true;
+        for (const [idx, color] of loadedColors.entries()) {
+          try {
+            csSegmentation.config.color.setSegmentIndexColor(viewportId, segmentationId, idx, color as any);
+          } catch { allColorsApplied = false; }
+        }
+        if (allColorsApplied) loadedColorsMap.delete(segmentationId);
+      }
 
       // Ensure active contour segment has a valid color entry.
       if (activeIdx > 0) {
