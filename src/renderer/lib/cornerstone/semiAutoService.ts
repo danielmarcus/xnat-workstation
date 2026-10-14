@@ -18,6 +18,8 @@ import { getWorldPointFromClientPoint } from './unifiedCrosshair';
 import { semiAutoBridge } from './tools/semiAutoBridge';
 import { setContourRoiProvider } from './tools/contourToolSettings';
 import { startSemiAutoOverlay } from './semiAutoOverlay';
+import { recordSeedRaster } from './seedRasterProbe';
+import { seedBrushMm } from './solverService';
 import { type Axis, extractValues, planeAxes, planeSize, sliceIndices } from '../segmentation/maskOps/planeIO';
 import { guardFromSamples, levelTrace, rasterize } from '../segmentation/semiauto/levelTrace';
 import { smartBrushDab, strokeDabs } from '../segmentation/semiauto/smartBrush';
@@ -160,7 +162,7 @@ export const semiAutoService = {
       image: extractValues(grid.geometry.dimensions, at.axis, at.slice, source),
       size: planeSize(grid.geometry.dimensions, at.axis),
       geometry: grid.geometry,
-      mmPerPx: (grid.geometry.spacing[planeAxes(at.axis)[0]] + grid.geometry.spacing[planeAxes(at.axis)[1]]) / 2,
+      mmPerPx: [grid.geometry.spacing[planeAxes(at.axis)[0]], grid.geometry.spacing[planeAxes(at.axis)[1]]],
       started: false,
       last: null,
     };
@@ -176,14 +178,17 @@ export const semiAutoService = {
     if (ijk[st.axis] !== st.slice) return; // a stroke stays on its slice
     const o = useSemiAutoStore.getState().smartBrush;
     const dab = new Uint8Array(st.size.width * st.size.height);
-    const radiusPx = Math.max(1, o.radiusMm / st.mmPerPx);
+    // Round in mm: as many pixels along each axis as that axis's spacing gives (a sagittal
+    // plane of thick-slice CT has 0.7 mm columns and 2.5 mm rows).
+    const radiusPx = Math.max(1, o.radiusMm / st.mmPerPx[0]);
+    const radiusPxY = Math.max(0.5, o.radiusMm / st.mmPerPx[1]);
     // Dabs all along the path since the last move, at most half a radius apart: one dab per
     // mouse event left gaps wherever the pointer moved fast.
     const here: [number, number] = [ijk[ax], ijk[ay]];
-    const centres = st.last ? strokeDabs([st.last, here], Math.min(o.spacingPx, radiusPx / 2)) : [here];
+    const centres = st.last ? strokeDabs([st.last, here], Math.min(o.spacingPx, Math.max(0.5, Math.min(radiusPx, radiusPxY) / 2))) : [here];
     st.last = here;
     for (const [x, y] of centres) {
-      smartBrushDab(st.image, st.size.width, st.size.height, Math.round(x), Math.round(y), { radiusPx, tolerance: o.tolerance, spacingPx: o.spacingPx }, dab);
+      smartBrushDab(st.image, st.size.width, st.size.height, Math.round(x), Math.round(y), { radiusPx, radiusPxY, tolerance: o.tolerance, spacingPx: o.spacingPx }, dab);
     }
     const added = addRegion(st.t, st.axis, st.slice, dab, st.size.width, st.size.height);
     if (!added) return;
@@ -236,18 +241,23 @@ export const semiAutoService = {
     const bg = new Uint8Array(width * height);
     let x0 = width, y0 = height, x1 = -1, y1 = -1;
     for (const st of seeds) {
-      const r = Math.max(0, st.radiusPx);
+      // The brush is round in mm (#92): its radius in pixels along each in-plane axis (+½ px,
+      // so a 0 mm seed is the one pixel under the pointer).
+      const rx2 = (Math.max(0, st.radiusMm) / grid.geometry.spacing[ax]) ** 2 + 0.25;
+      const ry2 = (Math.max(0, st.radiusMm) / grid.geometry.spacing[ay]) ** 2 + 0.25;
+      const rx = Math.sqrt(rx2), ry = Math.sqrt(ry2);
       const pts = st.points.map((w) => worldToIndex(grid.geometry, w as Vec3)).filter((p) => p[axis] === slice).map((p) => [p[ax], p[ay]] as [number, number]);
       const out = st.kind === 'fg' ? fg : bg;
       for (const [cx, cy] of strokeDabs(pts, 1)) {
-        for (let y = Math.floor(cy - r); y <= Math.ceil(cy + r); y++) for (let x = Math.floor(cx - r); x <= Math.ceil(cx + r); x++) {
-          if (x < 0 || y < 0 || x >= width || y >= height || (x - cx) ** 2 + (y - cy) ** 2 > r * r + 0.25) continue;
+        for (let y = Math.floor(cy - ry); y <= Math.ceil(cy + ry); y++) for (let x = Math.floor(cx - rx); x <= Math.ceil(cx + rx); x++) {
+          if (x < 0 || y < 0 || x >= width || y >= height || (x - cx) ** 2 / rx2 + (y - cy) ** 2 / ry2 > 1) continue;
           out[x + y * width] = 1;
           x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y);
         }
       }
     }
     for (let i = 0; i < fg.length; i++) if (fg[i] && bg[i]) bg[i] = 0; // a pixel seeded both ways counts as foreground
+    recordSeedRaster([width, height, 1], [grid.geometry.spacing[ax], grid.geometry.spacing[ay], grid.geometry.spacing[axis]], Uint8Array.from(fg, (v, i) => (v ? 1 : bg[i] ? 2 : 0)));
     if (x1 < 0) { t.txn.discard(); return { ok: false, reason: 'no-seeds' }; }
     // The solve's window: the ROI limit if drawn here, otherwise the seeds' box plus padding.
     const roi = roiPlaneMask(s.roi, viewportId, grid.geometry, axis);
@@ -368,7 +378,8 @@ let stroke: {
   image: Float32Array;
   size: { width: number; height: number };
   geometry: VoxelGridGeometry;
-  mmPerPx: number;
+  /** mm per plane pixel along x and y. */
+  mmPerPx: [number, number];
   started: boolean;
   /** The previous dab centre (plane pixels): the next move dabs all along from it. */
   last: [number, number] | null;
@@ -405,7 +416,7 @@ Object.assign(semiAutoBridge, {
     if (!containerId) return false;
     useSeedStore.getState().addStroke({
       containerId, viewportId, cls: kind === 'fg' ? active : 0,
-      radiusPx: useSemiAutoStore.getState().randomWalker.seedRadiusPx, points: [w],
+      radiusMm: seedBrushMm(viewportId, useSemiAutoStore.getState().randomWalker.seedRadiusPx), points: [w],
     });
     return true;
   },

@@ -1,6 +1,7 @@
 import { useQc3dStore } from '../../stores/qc3dStore';
-import { qc3dService } from '../cornerstone/qc3dService';
-import { computeClient } from '../compute/computeClient';
+import { qc3dGridReads, qc3dService } from '../cornerstone/qc3dService';
+import { lastSeedRaster } from '../cornerstone/seedRasterProbe';
+import { computeClient, qcComputeClient } from '../compute/computeClient';
 import { cache, getEnabledElementByViewportId, metaData, utilities as csUtilities } from '@cornerstonejs/core';
 import {
   annotation as csAnnotation,
@@ -43,7 +44,7 @@ import { ToolName } from '@shared/types/viewer';
 import { resetContourToolSettings } from '../cornerstone/tools/contourToolSettings';
 import { indexToWorld, worldToIndex } from '../cornerstone/segmentationService/voxelClipboard';
 import { sliceAxisFor } from '../cornerstone/maskIslands';
-import { setSolverMemoryLimits } from '../cornerstone/solverService';
+import { setSolverMemoryLimits, solverGridReads } from '../cornerstone/solverService';
 import { useSeedStore } from '../../stores/seedStore';
 import { runModule, type ModuleLogLine } from '../modules/moduleRunner';
 
@@ -243,6 +244,11 @@ declare global {
       /** Lowest source-image value under the active segment (ground truth for propagation). */
       activeSegmentMinSourceValue: () => number | null;
       /** The 3D QC surfaces built (per component), and whether each is shown. */
+      /** The seed raster of the last seeded run (Random Walker or a seeded solve), per class. */
+      lastSeedRaster: () => import('../cornerstone/seedRasterProbe').SeedRasterSummary | null;
+      /** Whole-volume grid reads by the seeded solver / the 3D QC service (lag regressions). */
+      solverGridReads: () => number;
+      qc3dGridReads: () => number;
       qc3dComponents: () => Array<{ segmentIndex: number; componentId: number; visible: boolean; triangles: number; vertices: number; checksum: number; centroid: number[] | null }>;
       /** Slow each compute-worker progress step by this many ms (0 = off), so a solve can be cancelled. */
       setComputeThrottle: (ms: number) => void;
@@ -931,7 +937,7 @@ export function installRendererE2eHooks(): void {
       }
       return n;
     },
-    clearSeeds: () => useSeedStore.setState({ strokes: [], lastRun: null, paintClass: null, brushPx: 8 }),
+    clearSeeds: () => useSeedStore.setState({ strokes: [], lastRun: {}, paintClass: null, brushPx: 8 }),
     viewportPlane: (panelId) => {
       const { activeSegmentationId, activeSegmentIndex } = useSegmentationStore.getState();
       const g = activeSegmentationId ? readSegmentVoxelGrid(activeSegmentationId, activeSegmentIndex) : null;
@@ -1060,7 +1066,10 @@ export function installRendererE2eHooks(): void {
       for (let i = 0; i < g.data.length; i++) if (g.data[i] === g.value) min = Math.min(min, read(i));
       return Number.isFinite(min) ? min : null;
     },
-    setComputeThrottle: (ms) => computeClient.setThrottle(ms),
+    setComputeThrottle: (ms) => { computeClient.setThrottle(ms); qcComputeClient.setThrottle(ms); },
+    lastSeedRaster: () => lastSeedRaster(),
+    solverGridReads: () => solverGridReads(),
+    qc3dGridReads: () => qc3dGridReads(),
     qc3dComponents: () => qc3dService.builtComponents().map((c) => ({ segmentIndex: c.segmentIndex, componentId: c.componentId, visible: c.visible, triangles: c.mesh.indices.length / 3, vertices: c.mesh.positions.length / 3, checksum: Math.round(c.mesh.positions.reduce((a, v, i) => a + v * ((i % 7) + 1), 0) * 100) / 100, centroid: useQc3dStore.getState().report.find((r) => r.segmentIndex === c.segmentIndex)?.components.find((x) => x.id === c.componentId)?.centroidWorld ?? null })),
     activeSegmentMaxSourceValue: () => {
       const { activeSegmentationId, activeSegmentIndex } = useSegmentationStore.getState();

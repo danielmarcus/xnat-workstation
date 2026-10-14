@@ -20,7 +20,7 @@ import { semiAutoBridge } from './tools/semiAutoBridge';
 import { computeClient, ComputeCancelled } from '../compute/computeClient';
 import { hotkeyService } from '../hotkeys/hotkeyService';
 import { type Axis, planeAxes } from '../segmentation/maskOps/planeIO';
-import { rasterizeSeeds, voxelCount, type Dims, type SeedStroke as BoxStroke, type Spacing } from '../segmentation/solvers/volume';
+import { rasterizeSeeds, voxelCount, type Dims } from '../segmentation/solvers/volume';
 import { DEFAULT_MEMORY_LIMITS, estimateMemory, type MemoryEstimate, type MemoryLimits } from '../segmentation/solvers/memory';
 import type { SeededSolveInput } from '../segmentation/solvers/seeded';
 import { BACKGROUND, useSeedStore, type SeedStroke } from '../../stores/seedStore';
@@ -32,6 +32,7 @@ import { metaData } from '@cornerstonejs/core';
 import { getSourceImageIds } from './sourceImageTracking';
 import { ToolName } from '@shared/types/viewer';
 import { useViewerStore } from '../../stores/viewerStore';
+import { recordSeedRaster } from './seedRasterProbe';
 
 const METHOD_LABEL: Record<SeededSettings['method'], string> = {
   growCut: 'Fast GrowCut', graphCut: 'Graph Cut', alphaExpansion: 'Multi-label graph cut',
@@ -60,13 +61,104 @@ function activeTarget(): Active | null {
   };
 }
 
+/** Test seam: how many times the solver read a member's grid (a whole-volume read). */
+let gridReads = 0;
+export const solverGridReads = () => gridReads;
+
 /** The member's grid (read only). */
 function gridOf(member: MemberRef) {
+  gridReads++;
   const begun = beginTransaction([member], undefined, { allowLocked: true });
   if (!begun.ok) return null;
   const grid = begun.txn.grid(member);
   begun.txn.discard();
   return grid;
+}
+
+/**
+ * The member's grid geometry, cached (#100): reading the grid copies the whole volume, and the
+ * seed painter and the sheet's estimate line ask on every pointer move. A labelmap's geometry
+ * changes only with the segmentation itself, so any change to the segmentations drops it.
+ */
+const geometryCache = new Map<string, VoxelGridGeometry>();
+function geometryOf(member: MemberRef): VoxelGridGeometry | null {
+  const key = `${member.containerId}#${member.segmentIndex}`;
+  let g = geometryCache.get(key);
+  if (!g) {
+    g = gridOf(member)?.geometry;
+    if (g) geometryCache.set(key, g);
+  }
+  return g ?? null;
+}
+useSegmentationStore.subscribe((s, prev) => { if (s.segmentations !== prev.segmentations) geometryCache.clear(); });
+
+/**
+ * The seed brush in mm (#92): `px` pixels of the plane the viewport shows, along its first
+ * axis. The brush is then round in mm on any plane — stamped `radiusMm / spacing` voxels along
+ * each in-plane axis — where a radius in voxels was ~4× too tall on sagittal thick-slice CT.
+ */
+export function seedBrushMm(viewportId: string, px: number): number {
+  const seg = useSegmentationStore.getState();
+  const g = seg.activeSegmentationId && seg.activeSegmentIndex > 0 ? geometryOf({ containerId: seg.activeSegmentationId, segmentIndex: seg.activeSegmentIndex }) : null;
+  const normal = viewNormal(viewportId);
+  if (!g || !normal) return px;
+  const [ax] = planeAxes(sliceAxisFor(g.direction, normal) as Axis);
+  return px * g.spacing[ax];
+}
+
+/** The grid axis a stroke was drawn along: its own view's, or `fallback` when not recorded. */
+function strokeAxis(g: VoxelGridGeometry, st: SeedStroke, fallback: Axis): Axis {
+  return st.normal ? (sliceAxisFor(g.direction, st.normal) as Axis) : fallback;
+}
+
+/**
+ * Where a stroke lies in its own plane (#93): the slice it was drawn on, its points there
+ * (in-plane grid coordinates) and its brush in voxels along each in-plane axis.
+ */
+function strokeInPlane(g: VoxelGridGeometry, st: SeedStroke, fallback: Axis) {
+  const axis = strokeAxis(g, st, fallback);
+  const [ax, ay] = planeAxes(axis);
+  const pts = st.points.map((w) => toPlane(g, axis, w));
+  const slice = Math.round(pts[0][2]);
+  return {
+    axis, ax, ay, slice,
+    points: pts.filter((p) => Math.round(p[2]) === slice).map((p) => [p[0], p[1]] as [number, number]),
+    rx: st.radiusMm / g.spacing[ax],
+    ry: st.radiusMm / g.spacing[ay],
+  };
+}
+
+/** A stroke's grid-index bounding box (inclusive, unclipped). */
+function strokeBounds(g: VoxelGridGeometry, st: SeedStroke, fallback: Axis): { lo: number[]; hi: number[] } {
+  const p = strokeInPlane(g, st, fallback);
+  const lo = [0, 0, 0], hi = [0, 0, 0];
+  lo[p.ax] = Math.floor(Math.min(...p.points.map((q) => q[0])) - p.rx); hi[p.ax] = Math.ceil(Math.max(...p.points.map((q) => q[0])) + p.rx);
+  lo[p.ay] = Math.floor(Math.min(...p.points.map((q) => q[1])) - p.ry); hi[p.ay] = Math.ceil(Math.max(...p.points.map((q) => q[1])) + p.ry);
+  lo[p.axis] = hi[p.axis] = p.slice;
+  return { lo, hi };
+}
+
+/**
+ * The grid voxels (i, j, k) a stroke seeds: its brush stamped along it, in the plane and on
+ * the slice it was drawn on — whichever view the run starts from. (Projected onto the run's
+ * plane, a stroke painted on another orientation kept only the points on its first point's
+ * slice: a few voxels.)
+ */
+function strokeVoxels(g: VoxelGridGeometry, st: SeedStroke, fallback: Axis): number[][] {
+  const p = strokeInPlane(g, st, fallback);
+  const b = strokeBounds(g, st, fallback);
+  const x0 = b.lo[p.ax], y0 = b.lo[p.ay];
+  const dims: Dims = [b.hi[p.ax] - x0 + 1, b.hi[p.ay] - y0 + 1, 1];
+  const raster = rasterizeSeeds(dims, [{ cls: 1, z: 0, points: p.points.map(([x, y]) => [x - x0, y - y0] as [number, number]), rx: p.rx, ry: p.ry }]);
+  const out: number[][] = [];
+  const d = g.dimensions;
+  for (let y = 0, i = 0; y < dims[1]; y++) for (let x = 0; x < dims[0]; x++, i++) {
+    if (!raster[i]) continue;
+    const ijk = [0, 0, 0];
+    ijk[p.ax] = x0 + x; ijk[p.ay] = y0 + y; ijk[p.axis] = p.slice;
+    if (ijk.every((v, k) => v >= 0 && v < d[k])) out.push(ijk);
+  }
+  return out;
 }
 
 function viewNormal(viewportId: string): number[] | null {
@@ -86,10 +178,9 @@ export type SeededDomain =
 export function seededDomain(s: SeededSettings, viewportId: string): SeededDomain {
   const t = activeTarget();
   if (!t) return { ok: false, reason: 'no-target' };
-  const grid = gridOf({ containerId: t.containerId, segmentIndex: t.active });
+  const geometry = geometryOf({ containerId: t.containerId, segmentIndex: t.active });
   const normal = viewNormal(viewportId);
-  if (!grid || !normal) return { ok: false, reason: 'no-viewport' };
-  const geometry = grid.geometry;
+  if (!geometry || !normal) return { ok: false, reason: 'no-viewport' };
   const axis = sliceAxisFor(geometry.direction, normal) as Axis;
   const [ax, ay] = planeAxes(axis);
   const dimsG = geometry.dimensions;
@@ -98,15 +189,16 @@ export function seededDomain(s: SeededSettings, viewportId: string): SeededDomai
   if (s.domain !== 'volume') {
     const strokes = strokesOf(t.containerId);
     if (!strokes.length) return { ok: false, reason: 'no-seeds' };
+    // Each stroke's extent in its own plane, seen along this view's axes.
     let x0 = Infinity, y0 = Infinity, z0 = Infinity, x1 = -Infinity, y1 = -Infinity, z1 = -Infinity;
-    for (const st of strokes) for (const w of st.points) {
-      const [x, y, z] = toPlane(geometry, axis, w);
-      x0 = Math.min(x0, x - st.radiusPx); x1 = Math.max(x1, x + st.radiusPx);
-      y0 = Math.min(y0, y - st.radiusPx); y1 = Math.max(y1, y + st.radiusPx);
-      z0 = Math.min(z0, Math.round(z)); z1 = Math.max(z1, Math.round(z));
+    for (const st of strokes) {
+      const b = strokeBounds(geometry, st, axis);
+      x0 = Math.min(x0, b.lo[ax]); x1 = Math.max(x1, b.hi[ax]);
+      y0 = Math.min(y0, b.lo[ay]); y1 = Math.max(y1, b.hi[ay]);
+      z0 = Math.min(z0, b.lo[axis]); z1 = Math.max(z1, b.hi[axis]);
     }
-    lo = [Math.floor(x0) - s.padXY, Math.floor(y0) - s.padXY, z0 - s.padZ];
-    hi = [Math.ceil(x1) + s.padXY, Math.ceil(y1) + s.padXY, z1 + s.padZ];
+    lo = [x0 - s.padXY, y0 - s.padXY, z0 - s.padZ];
+    hi = [x1 + s.padXY, y1 + s.padXY, z1 + s.padZ];
     if (s.domain === 'roi') {
       const roi = useSemiAutoStore.getState().roi;
       if (!roi || roi.viewportId !== viewportId) return { ok: false, reason: 'no-roi' };
@@ -158,17 +250,18 @@ export const solverService = {
     const memberClasses = alpha ? [...new Set(strokes.map((x) => x.cls).filter((c) => c !== BACKGROUND))].sort((a, b) => a - b) : [t.active];
     const classOf = (cls: number) => (alpha ? (cls === BACKGROUND ? 0 : 1 + memberClasses.indexOf(cls)) : cls === t.active ? 0 : 1);
     const classes = alpha ? 1 + memberClasses.length : 2;
-    const boxStrokes: BoxStroke[] = strokes.map((st) => {
-      const pts = st.points.map((w) => toPlane(box.geometry, box.axis, w));
-      return {
-        cls: classOf(st.cls) + 1,
-        z: Math.round(pts[0][2]) - box.lo[2],
-        points: pts.filter((p) => Math.round(p[2]) === Math.round(pts[0][2])).map((p) => [p[0] - box.lo[0], p[1] - box.lo[1]] as [number, number]),
-        rx: st.radiusPx,
-        ry: st.radiusPx,
-      };
-    });
-    const seeds = rasterizeSeeds(box.dims, boxStrokes);
+    // Each stroke is stamped in its own plane (it may have been painted on another view), in
+    // order, so a later stroke wins.
+    const seeds = new Uint8Array(voxelCount(box.dims));
+    const [bx, by, bz] = box.dims;
+    for (const st of strokes) {
+      const cls = classOf(st.cls) + 1;
+      for (const ijk of strokeVoxels(box.geometry, st, box.axis)) {
+        const x = ijk[box.ax] - box.lo[0], y = ijk[box.ay] - box.lo[1], z = ijk[box.axis] - box.lo[2];
+        if (x >= 0 && y >= 0 && z >= 0 && x < bx && y < by && z < bz) seeds[x + bx * (y + by * z)] = cls;
+      }
+    }
+    recordSeedRaster(box.dims, box.spacing, seeds);
     const present = new Set(seeds);
     present.delete(0);
     if (present.size < 2) return { ok: false, reason: alpha ? 'one-class' : 'no-seeds' };
@@ -184,7 +277,7 @@ export const solverService = {
       backgroundClass: alpha ? 0 : undefined,
     };
     discardPreview();
-    useSeedStore.getState().snapshotForRun();
+    useSeedStore.getState().snapshotForRun(t.containerId);
     let jobId = 0;
     const job = computeClient.run('seededSolve', input, {
       onProgress: (f) => useComputeStore.getState().progress(f, jobId),
@@ -443,26 +536,28 @@ export function describeSeeded(r: SeededResult): string | null {
 
 // ─── The seed painter (the operation's pointer mode) ─────────────────────────
 
-let erasing: { viewportId: string; geometry: VoxelGridGeometry; axis: Axis; radius: number } | null = null;
+let erasing: { viewportId: string; geometry: VoxelGridGeometry; axis: Axis; radiusMm: number } | null = null;
 
-/** Remove seed points under the eraser (same slice, within the brush). */
+/** Remove seed points under the eraser (same plane and slice, within the brush, in mm). */
 function eraseAt(w: number[]): void {
   const e = erasing;
   if (!e) return;
   const t = activeTarget();
   if (!t) return;
   const [ex, ey, ez] = toPlane(e.geometry, e.axis, w);
+  const [ax, ay] = planeAxes(e.axis);
   const store = useSeedStore.getState();
   let changed = false;
   // A stroke loses the points under the eraser and is SPLIT there: the rasteriser joins a
   // stroke's points with straight lines, so keeping one stroke re-bridged the erased gap with
   // seeds nobody painted.
   const next = store.strokes.flatMap((st) => {
-    if (st.containerId !== t.containerId) return [st];
+    // A stroke drawn on another orientation does not lie on the eraser's slice.
+    if (st.containerId !== t.containerId || strokeAxis(e.geometry, st, e.axis) !== e.axis) return [st];
     const runs: number[][][] = [[]];
     for (const p of st.points) {
       const [x, y, z] = toPlane(e.geometry, e.axis, p);
-      const hit = Math.round(z) === Math.round(ez) && Math.hypot(x - ex, y - ey) <= e.radius + st.radiusPx;
+      const hit = Math.round(z) === Math.round(ez) && Math.hypot((x - ex) * e.geometry.spacing[ax], (y - ey) * e.geometry.spacing[ay]) <= e.radiusMm + st.radiusMm;
       if (hit) { changed = true; if (runs[runs.length - 1].length) runs.push([]); }
       else runs[runs.length - 1].push(p);
     }
@@ -477,11 +572,11 @@ Object.assign(semiAutoBridge, {
     const t = activeTarget();
     if (!t) return false;
     const store = useSeedStore.getState();
+    const geometry = geometryOf({ containerId: t.containerId, segmentIndex: t.active });
+    const normal = viewNormal(viewportId);
     if (store.paintClass === 'erase' && !background) {
-      const grid = gridOf({ containerId: t.containerId, segmentIndex: t.active });
-      const normal = viewNormal(viewportId);
-      if (!grid || !normal) return false;
-      erasing = { viewportId, geometry: grid.geometry, axis: sliceAxisFor(grid.geometry.direction, normal) as Axis, radius: store.brushPx };
+      if (!geometry || !normal) return false;
+      erasing = { viewportId, geometry, axis: sliceAxisFor(geometry.direction, normal) as Axis, radiusMm: seedBrushMm(viewportId, store.brushPx) };
       eraseAt(world);
       return true;
     }
@@ -489,7 +584,7 @@ Object.assign(semiAutoBridge, {
     // A class left from another segmentation (or a deleted segment) is not a member here.
     const chosen = typeof store.paintClass === 'number' && (store.paintClass === BACKGROUND || t.members.some((m) => m.segmentIndex === store.paintClass)) ? store.paintClass : t.active;
     const cls = background ? BACKGROUND : chosen;
-    store.addStroke({ containerId: t.containerId, viewportId, cls, radiusPx: store.brushPx, points: [world] });
+    store.addStroke({ containerId: t.containerId, viewportId, cls, radiusMm: seedBrushMm(viewportId, store.brushPx), normal: normal ?? undefined, points: [world] });
     return true;
   },
   solverSeedExtend: (world: number[]) => {

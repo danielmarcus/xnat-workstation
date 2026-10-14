@@ -97,7 +97,7 @@ export function useSeededSheet() {
     estimate,
     domainProblem: domain && !domain.ok ? describeSeeded({ ok: false, reason: domain.reason }) : null,
     running,
-    canRestore: !!seeds.lastRun?.length,
+    canRestore: !!(containerId && seeds.lastRun[containerId]?.length),
     message: sheet.message ?? (discardedStale ? STALE_PREVIEW_MESSAGE : target?.locked ? `${target.name} is locked — preview only` : null),
     summary: running ? 'Running…' : previewActive ? 'Preview pending' : `${mine.length} seed stroke${mine.length === 1 ? '' : 's'}`,
     previewActive,
@@ -113,7 +113,7 @@ export function useSeededSheet() {
     choose: (c: number | 'erase') => { seeds.setPaintClass(c); setPainting(true); },
     togglePainting: () => setPainting(!painting),
     setBrush: (px: number) => seeds.setBrushPx(px),
-    restoreSeeds: () => { seeds.restore(); hotkeyService.focusActiveViewport(); },
+    restoreSeeds: () => { if (containerId) seeds.restore(containerId); hotkeyService.focusActiveViewport(); },
     clearSeeds: () => { seeds.clear(containerId ?? undefined); hotkeyService.focusActiveViewport(); },
     preview: () => run(false),
     commit: () => {
