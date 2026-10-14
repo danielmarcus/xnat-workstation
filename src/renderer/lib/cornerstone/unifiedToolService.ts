@@ -62,6 +62,7 @@ import type { Types as ToolTypes } from '@cornerstonejs/tools';
 import { Enums as CoreEnums, eventTarget } from '@cornerstonejs/core';
 import { cursors as csCursors } from '@cornerstonejs/tools';
 import SafePaintFillTool from './tools/SafePaintFillTool';
+import { AppRegionSegmentPlusTool } from './tools/AppRegionSegmentPlusTool';
 import SelectTool from './tools/SelectTool';
 import { LevelTraceTool, RandomWalkerSeedTool, RoiLimitTool, SmartBrushTool, SolverSeedTool } from './tools/semiAutoTools';
 import { ContourFillSplineTool } from './tools/AppSplineContourTool';
@@ -644,7 +645,7 @@ function ensureToolGroup(): ToolTypes.IToolGroup | undefined {
     ProbeTool, ArrowAnnotateTool, PlanarFreehandROITool, SplineContourSegmentationTool,
     LivewireContourSegmentationTool, CircleScissorsTool, RectangleScissorsTool,
     SphereScissorsTool, SafePaintFillTool, SculptorTool, SelectTool,
-    RegionSegmentTool, RegionSegmentPlusTool, SegmentBidirectionalTool,
+    RegionSegmentTool, AppRegionSegmentPlusTool, SegmentBidirectionalTool,
     RectangleROIThresholdTool, LabelMapEditWithContourTool,
     LevelTraceTool, SmartBrushTool, RandomWalkerSeedTool, RoiLimitTool, SolverSeedTool,
     ContourFillSplineTool, ContourFillLivewireTool,

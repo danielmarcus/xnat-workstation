@@ -85,9 +85,9 @@ const TOOLS: ToolCase[] = [
   { label: 'Rect', expect: 'change', flat: true, focal: true, gesture: (p) => drag(p, [[-8, -8], [8, 8]]) },
   { label: 'Sphere', expect: 'change', flat: false, focal: true, gesture: (p) => drag(p, [[0, 0], [8, 0]]) },
   { label: 'Paint Fill', expect: 'any', flat: true, focal: false, gesture: (p) => click(p) },
-  // Region grows inside the circle you drag; Region+ is one click (CS3D: once the mouse has rested).
-  { label: 'Region', expect: 'change', flat: true, focal: true, gesture: (p) => drag(p, [[0, 0], [12, 0]]) },
-  { label: 'Region+', expect: 'change', flat: true, focal: true, gesture: async (p) => { const q = await pt(p, 0, 0); await p.mouse.move(q.x, q.y); await p.waitForTimeout(800); await p.mouse.click(q.x, q.y); } },
+  // Region segments in 3D inside the sphere you drag; Region+ in 3D from one click.
+  { label: 'Region', expect: 'change', flat: false, focal: true, gesture: (p) => drag(p, [[0, 0], [12, 0]]) },
+  { label: 'Region+', expect: 'change', flat: false, focal: true, gesture: (p) => click(p) },
   { label: 'Rect Multi', expect: 'any', flat: true, focal: false, gesture: (p) => drag(p, [[-8, -8], [8, 8]]) },
   { label: 'Contour Fill', expect: 'change', flat: true, focal: true, gesture: (p) => drag(p, loop(10)) },
   { label: 'Level Trace', expect: 'change', flat: true, focal: true, gesture: (p) => click(p), after: commitPreview },
@@ -138,14 +138,17 @@ async function setup(page: Page, fixture: string, orientation: string): Promise<
   return { panel, toolbox };
 }
 
-/** Wait until the masks stop changing (or a while has passed). */
+/**
+ * Wait until the masks stop changing: the same for ~1 s. Some tools write asynchronously (a
+ * grow-cut takes a second or two), so "unchanged twice in a row" is not "done".
+ */
 async function settled(page: Page, tag: string): Promise<Diff> {
   let last = '';
-  for (let i = 0; i < 20; i++) {
-    await page.waitForTimeout(150);
-    const d = await H(page).diff(tag);
-    const key = JSON.stringify(d);
-    if (key === last) return d!;
+  let same = 0;
+  for (let i = 0; i < 60 && same < 6; i++) {
+    await page.waitForTimeout(170);
+    const key = JSON.stringify(await H(page).diff(tag));
+    same = key === last ? same + 1 : 0;
     last = key;
   }
   return JSON.parse(last) as Diff;

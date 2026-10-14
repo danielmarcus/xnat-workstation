@@ -29,12 +29,12 @@ import {
   SculptorTool,
   TrackballRotateTool,
   RegionSegmentTool,
-  RegionSegmentPlusTool,
   SegmentBidirectionalTool,
   RectangleROIThresholdTool,
   LabelMapEditWithContourTool,
 } from '@cornerstonejs/tools';
 import SafePaintFillTool from './tools/SafePaintFillTool';
+import { AppRegionSegmentPlusTool } from './tools/AppRegionSegmentPlusTool';
 import SelectTool from './tools/SelectTool';
 import { AppLivewireContourTool, ContourFillLivewireTool } from './tools/AppLivewireContourTool';
 import { AppSplineContourTool, ContourFillSplineTool } from './tools/AppSplineContourTool';
@@ -141,7 +141,7 @@ export async function initCornerstone(): Promise<void> {
 
   // Segmentation tools — smart/AI (GrowCut)
   addTool(RegionSegmentTool);
-  addTool(RegionSegmentPlusTool);
+  addTool(AppRegionSegmentPlusTool); // Region+: a click works without resting first
 
   // Segmentation tools — utility
   addTool(SelectTool);

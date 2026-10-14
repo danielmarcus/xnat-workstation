@@ -54,12 +54,14 @@ async function step(page: Page, key: 'ArrowUp' | 'ArrowDown', times: number) {
   }
 }
 
+/** Wait until the masks stop changing: the same for ~1 s (see tool-sweep.e2e.ts). */
 async function settled(page: Page, tag: string): Promise<Diff> {
   let last = '';
-  for (let i = 0; i < 25; i++) {
-    await page.waitForTimeout(150);
+  let same = 0;
+  for (let i = 0; i < 60 && same < 6; i++) {
+    await page.waitForTimeout(170);
     const key = JSON.stringify(await H(page).diff(tag));
-    if (key === last) return JSON.parse(key) as Diff;
+    same = key === last ? same + 1 : 0;
     last = key;
   }
   return JSON.parse(last) as Diff;
