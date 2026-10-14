@@ -74,6 +74,12 @@ const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object
 const isStr = (v: unknown, max = 500): v is string => typeof v === 'string' && v.length > 0 && v.length <= max;
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 
+/** A slider snaps to min + k·step: a value off that grid would show (and run with) another one. */
+export function onSliderGrid(value: number, min: number, step: number): boolean {
+  const k = (value - min) / step;
+  return Math.abs(k - Math.round(k)) <= 1e-6;
+}
+
 function checkParam(p: unknown, i: number, errors: string[]): void {
   const at = `params[${i}]`;
   if (!isObj(p)) { errors.push(`${at}: not an object`); return; }
@@ -82,8 +88,7 @@ function checkParam(p: unknown, i: number, errors: string[]): void {
   if (p.kind === 'number') {
     if (!isNum(p.min) || !isNum(p.max) || !isNum(p.step) || !isNum(p.default)) errors.push(`${at}: number parameters need min, max, step and default`);
     else if (p.min > p.max || p.default < p.min || p.default > p.max || p.step <= 0) errors.push(`${at}: needs min ≤ default ≤ max and step > 0`);
-    // A slider snaps to min + k·step: a default off that grid would show (and run with) another value.
-    else if (Math.abs((p.default - p.min) / p.step - Math.round((p.default - p.min) / p.step)) > 1e-6) errors.push(`${at}.default: must be min plus a whole number of steps`);
+    else if (!onSliderGrid(p.default, p.min, p.step)) errors.push(`${at}.default: must be min plus a whole number of steps`);
   } else if (p.kind === 'select') {
     if (!Array.isArray(p.options) || !p.options.length || !p.options.every((o) => isObj(o) && isStr(o.value, 64) && isStr(o.label, 80))) errors.push(`${at}.options: a list of { value, label } is required`);
     else if (!p.options.some((o) => (o as { value: string }).value === p.default)) errors.push(`${at}.default: must be one of the options`);

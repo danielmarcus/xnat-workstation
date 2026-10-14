@@ -28,3 +28,17 @@ export async function setSlider(slider: Locator, value: number): Promise<void> {
   }, value);
   await expect(slider).toHaveValue(String(value));
 }
+
+/**
+ * Every slider in an operation's body sits where its number says: a range input snaps its value
+ * to min + k·step, so a default off that grid puts the thumb (the DOM value) at another number
+ * than the one the row prints and the operation runs with.
+ */
+export async function expectSlidersOnTheirValues(body: Locator): Promise<void> {
+  const rows = await body.locator('input[type="range"]').evaluateAll((els) => els.map((el) => {
+    const input = el as HTMLInputElement;
+    return { label: input.getAttribute('aria-label'), thumb: input.value, shown: input.nextElementSibling?.textContent ?? '' };
+  }));
+  expect(rows.length).toBeGreaterThan(0);
+  for (const r of rows) expect(Number(r.thumb), `${r.label}: thumb at ${r.thumb}, row shows "${r.shown}"`).toBeCloseTo(parseFloat(r.shown), 9);
+}

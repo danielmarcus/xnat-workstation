@@ -12,7 +12,7 @@ import { test, expect } from '../../fixtures/electron-app';
 import type { Locator, Page } from '@playwright/test';
 import { loadFixture } from '../../helpers/local-fixture';
 import { clickTool } from '../../helpers/toolbox';
-import { openOperation } from '../../helpers/operations';
+import { expectSlidersOnTheirValues, openOperation } from '../../helpers/operations';
 
 type Win = {
   __XNAT_E2E__: {
@@ -178,4 +178,12 @@ test('on an oblique acquisition a loose mask is pulled onto the sphere (index sp
   await page.keyboard.press('Enter');
   await expect.poll(() => onSlice(page)).not.toBe(loose);
   expect(Math.abs((await onSlice(page)) - area)).toBeLessThan(Math.abs(loose - area) / 2);
+});
+
+test('every slider\'s thumb sits on the value its row shows, the intensity clip included', async ({ page }) => {
+  const { panel } = await open(page);
+  const sheet = await openOperation(panel, 'Region competition');
+  await sheet.getByRole('button', { name: /Parameters/ }).click();
+  await expect(sheet.getByLabel('Clip intensities (CT)')).toBeChecked();
+  await expectSlidersOnTheirValues(sheet);
 });

@@ -132,8 +132,8 @@ export default function SeededSheet({ m }: { m: SeededSheetModel }) {
           <Check label="Intensity range" checked={s.gateOn} onChange={(gateOn) => m.set({ gateOn })} />
           {s.gateOn && (
             <>
-              <Slider label="From" min={-1024} max={3000} step={10} value={s.gateLo} onChange={(gateLo) => m.set({ gateLo })} />
-              <Slider label="To" min={-1024} max={3000} step={10} value={s.gateHi} onChange={(gateHi) => m.set({ gateHi })} />
+              <Slider label="From" min={-1000} max={3000} step={10} value={s.gateLo} onChange={(gateLo) => m.set({ gateLo })} />
+              <Slider label="To" min={-1000} max={3000} step={10} value={s.gateHi} onChange={(gateHi) => m.set({ gateHi })} />
             </>
           )}
         </>
