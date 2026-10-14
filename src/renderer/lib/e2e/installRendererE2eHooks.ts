@@ -80,7 +80,7 @@ declare global {
       getActiveSegmentationState: () => ActiveSegmentationState;
       getActiveContourSnapshot: (panelId?: string, segmentationId?: string | null) => ActiveContourSnapshot;
       /** Every contour annotation's tool name and a polyline fingerprint (to see it change). */
-      getContourShapes: () => Array<{ toolName: string; polyline: string; closed: boolean; handles: number; handlePoints: number[][] }>;
+      getContourShapes: () => Array<{ toolName: string; polyline: string; closed: boolean; handles: number; handlePoints: number[][]; viewPlaneNormal: number[] | null }>;
       /** Contour drawing tools (Live Wire, Spline) back to their defaults — branch 6. */
       resetContourToolSettings: () => void;
       globalUndoDepth: () => number;
@@ -485,6 +485,7 @@ export function installRendererE2eHooks(): void {
           handles: (annotation.data as { handles?: { points?: unknown[] } }).handles?.points?.length ?? 0,
           handlePoints: ((annotation.data as { handles?: { points?: number[][] } }).handles?.points ?? [])
             .map((p) => p.map((v) => Math.round(v * 100) / 100)),
+          viewPlaneNormal: (annotation.metadata?.viewPlaneNormal as number[] | undefined)?.map((v) => Math.round(v * 1000) / 1000) ?? null,
         })),
     resetContourToolSettings: () => resetContourToolSettings(),
     /** Entries Cornerstone's global history ring can undo (branch 6 F5: a held spline's edits add none). */

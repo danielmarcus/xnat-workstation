@@ -33,12 +33,15 @@ import type { SplineCurveSegment } from '@cornerstonejs/tools/types/SplineCurveS
 import type { ContourWindingDirection } from '@cornerstonejs/tools/types/ContourAnnotation';
 import { refineTowardEdges, splineSegments, type Point, type SplineAlgorithm } from '../../segmentation/contours/splines';
 import { hasSelfIntersection, hasSelfIntersectionOpen } from '../../segmentation/contours/polygon';
-import { getContourRoi, getContourToolSettings, registerSplineActions, type SplineSettings } from './contourToolSettings';
+import { getContourRoi, getContourToolSettings, registerSplineActions, setSplineInHand, whileRenderingSplineInHand, type SplineSettings } from './contourToolSettings';
 
 type Point2 = [number, number];
 
 /** ContourWindingDirection.Clockwise — the enum is not in the package's runtime exports. */
 const CLOCKWISE = 1 as ContourWindingDirection;
+
+/** Cornerstone's double-click event (Enums.Events.MOUSE_DOUBLE_CLICK). */
+const MOUSE_DOUBLE_CLICK = 'CORNERSTONE_TOOLS_MOUSE_DOUBLE_CLICK';
 
 /** Cornerstone's spline click-to-close distance (screen px), SplineROITool.ts. */
 const SPLINE_CLICK_CLOSE_CURVE_DIST = 10;
@@ -75,6 +78,8 @@ export abstract class FamilySpline extends Spline {
   protected abstract readonly algorithm: SplineAlgorithm;
   /** Optional per-render refinement of the closed curve (the ROI active spline). */
   refiner: ((pts: Point[]) => Point[]) | null = null;
+  /** Density and tension of the annotation this curve draws (#99); the global settings otherwise. */
+  params: { samplesPerSegment: number; tension: number } | null = null;
 
   protected getTransformMatrix(): number[] {
     return []; // not a fixed-basis cubic; the curve comes from splineSegments
@@ -97,7 +102,7 @@ export abstract class FamilySpline extends Spline {
     if (n === 2) {
       pieces = closed ? [[cps[0], cps[1]], [cps[1], cps[0]]] : [[cps[0], cps[1]]];
     } else {
-      const s = getContourToolSettings().spline;
+      const s = this.params ?? getContourToolSettings().spline;
       const segs = splineSegments(cps.map((p) => ({ x: p[0], y: p[1] })), this.algorithm, { samplesPerSegment: s.samplesPerSegment, tension: s.tension });
       let flat = segs;
       if (closed && this.refiner) {
@@ -167,7 +172,7 @@ const inRect = (r: { x0: number; y0: number; x1: number; y1: number }, p: Point2
  * normal — so a volume seen along its acquisition plane works however that plane is tilted
  * in the world (Cornerstone's getCurrentVolumeViewportSlice refuses oblique views).
  */
-export function slicePlane(element: HTMLDivElement): { width: number; height: number; scalar: ArrayLike<number>; toPlane: (c: Point2) => Point2; toCanvas: (p: Point2) => Point2 } | null {
+export function slicePlane(element: HTMLDivElement): { width: number; height: number; scalar: ArrayLike<number>; toPlane: (c: Point2) => Point2; toCanvas: (p: Point2) => Point2; worldToPlane: (w: number[]) => Point2; planeToWorld: (p: Point2) => number[] } | null {
   const enabled = getEnabledElement(element);
   const viewport = enabled?.viewport as unknown as Viewport | undefined;
   if (!viewport) return null;
@@ -177,10 +182,12 @@ export function slicePlane(element: HTMLDivElement): { width: number; height: nu
   if (!(viewport instanceof VolumeViewport)) {
     const scalar = vid.scalarData;
     if (!scalar) return null;
+    const worldToPlane = (w: number[]): Point2 => { const ijk = csUtils.transformWorldToIndexContinuous(image, w as never) as number[]; return [ijk[0], ijk[1]]; };
+    const planeToWorld = (p: Point2) => csUtils.transformIndexToWorld(image, [p[0], p[1], 0]) as number[];
     return {
-      width: vid.dimensions[0], height: vid.dimensions[1], scalar,
-      toPlane: (c) => { const ijk = csUtils.transformWorldToIndexContinuous(image, viewport.canvasToWorld(c) as never) as number[]; return [ijk[0], ijk[1]]; },
-      toCanvas: (p) => viewport.worldToCanvas(csUtils.transformIndexToWorld(image, [p[0], p[1], 0]) as number[]),
+      width: vid.dimensions[0], height: vid.dimensions[1], scalar, worldToPlane, planeToWorld,
+      toPlane: (c) => worldToPlane(viewport.canvasToWorld(c)),
+      toCanvas: (p) => viewport.worldToCanvas(planeToWorld(p)),
     };
   }
   const vp = viewport as unknown as Viewport & { getCamera(): { focalPoint: number[]; viewPlaneNormal: number[] } };
@@ -205,10 +212,12 @@ export function slicePlane(element: HTMLDivElement): { width: number; height: nu
       scalar[x + y * width] = voxels.getAtIndex(ijk[0] + ijk[1] * dims[0] + ijk[2] * dims[0] * dims[1]);
     }
   }
+  const worldToPlane = (w: number[]): Point2 => { const q = csUtils.transformWorldToIndexContinuous(image, w as never) as number[]; return [q[ax], q[ay]]; };
+  const planeToWorld = (p: Point2) => { const q = [0, 0, 0]; q[axis] = slice; q[ax] = p[0]; q[ay] = p[1]; return csUtils.transformIndexToWorld(image, q as never) as number[]; };
   return {
-    width, height, scalar,
-    toPlane: (c) => { const q = csUtils.transformWorldToIndexContinuous(image, vp.canvasToWorld(c) as never) as number[]; return [q[ax], q[ay]]; },
-    toCanvas: (p) => { const q = [0, 0, 0]; q[axis] = slice; q[ax] = p[0]; q[ay] = p[1]; return vp.worldToCanvas(csUtils.transformIndexToWorld(image, q as never) as number[]); },
+    width, height, scalar, worldToPlane, planeToWorld,
+    toPlane: (c) => worldToPlane(vp.canvasToWorld(c)),
+    toCanvas: (p) => vp.worldToCanvas(planeToWorld(p)),
   };
 }
 
@@ -218,7 +227,7 @@ interface Annotation {
   data: {
     handles: { points: number[][] };
     contour: { closed: boolean; polyline?: number[][] };
-    spline?: { instance?: FamilySpline | Spline; type?: string };
+    spline?: { instance?: FamilySpline | Spline; type?: string; samplesPerSegment?: number; tension?: number };
   };
 }
 
@@ -236,6 +245,8 @@ export function withSplineFeatures<TBase extends SplineBase>(Base: TBase) {
   /** Where the spline being drawn lives (for the toolbox's undo / clear). */
   private drawingElement: HTMLDivElement | null = null;
   private readonly lastGood = new WeakMap<object, { points: number[][]; closed: boolean }>();
+  /** The ROI active spline's image plane and ROI, per annotation (see edgeRefiner). */
+  private readonly refinePlanes = new WeakMap<object, { plane: NonNullable<ReturnType<typeof slicePlane>>; roi: { x0: number; y0: number; x1: number; y1: number } }>();
   /** Splines in hand (F5) and the element each was placed on. */
   private readonly inHand = new Map<string, HTMLDivElement>();
 
@@ -286,8 +297,22 @@ export function withSplineFeatures<TBase extends SplineBase>(Base: TBase) {
   }
 
   protected createAnnotation(evt: Parameters<SplineROITool['createAnnotation']>[0]) {
-    (this.configuration as { spline: { type: string } }).spline.type = SPLINE_TYPE[getContourToolSettings().spline.algorithm];
-    return super.createAnnotation(evt);
+    const s = getContourToolSettings().spline;
+    (this.configuration as { spline: { type: string } }).spline.type = SPLINE_TYPE[s.algorithm];
+    const annotation = super.createAnnotation(evt);
+    // The curve's shape is the annotation's own (#99): its family is its spline type, and its
+    // density and tension are fixed here — not read from the settings at every render.
+    const spline = (annotation as unknown as Annotation | undefined)?.data?.spline;
+    if (spline) Object.assign(spline, { samplesPerSegment: s.samplesPerSegment, tension: s.tension });
+    return annotation;
+  }
+
+  /** Rendering a spline in hand marks nothing unsaved (#99): see whileRenderingSplineInHand. */
+  renderAnnotationInstance(renderContext: Parameters<SplineROITool['renderAnnotationInstance']>[0]) {
+    const uid = (renderContext as unknown as { annotation?: Annotation }).annotation?.annotationUID;
+    return uid && this.inHand.has(uid)
+      ? whileRenderingSplineInHand(() => super.renderAnnotationInstance(renderContext))
+      : super.renderAnnotationInstance(renderContext);
   }
 
   /** An edit of a spline in hand records no history: only its commit does (F5). */
@@ -313,6 +338,7 @@ export function withSplineFeatures<TBase extends SplineBase>(Base: TBase) {
     annotation.data.handles.points = points.map((p) => [...p]);
     annotation.data.contour.closed = true;
     this.inHand.set(annotation.annotationUID, element);
+    setSplineInHand(annotation.annotationUID, true);
     this.addAnnotation(annotation as never, element);
     this.renderOn(element);
     return annotation.annotationUID;
@@ -323,6 +349,7 @@ export function withSplineFeatures<TBase extends SplineBase>(Base: TBase) {
     const element = this.inHand.get(uid);
     const annotation = csAnnotation.state.getAnnotation(uid) as unknown as Annotation | undefined;
     this.inHand.delete(uid);
+    setSplineInHand(uid, false);
     if (!element || !annotation) return false;
     // Committed before its first render (⏎ straight after it was placed): its outline is not
     // built yet — build it now, as rendering would. (Placed moments ago, so still on screen:
@@ -345,8 +372,9 @@ export function withSplineFeatures<TBase extends SplineBase>(Base: TBase) {
   discardInHand(uid: string): boolean {
     const element = this.inHand.get(uid);
     this.inHand.delete(uid);
-    if (!element || !csAnnotation.state.getAnnotation(uid)) return false;
+    if (!element || !csAnnotation.state.getAnnotation(uid)) { setSplineInHand(uid, false); return false; }
     csAnnotation.state.removeAnnotation(uid);
+    setSplineInHand(uid, false);
     this.renderOn(element);
     return true;
   }
@@ -360,13 +388,21 @@ export function withSplineFeatures<TBase extends SplineBase>(Base: TBase) {
     const s = getContourToolSettings().spline;
     const rect = s.editMode === 'localRoi' ? roiCanvasRect(evt.detail.element) : null;
     const spline = annotation.data.spline?.instance as Spline | undefined;
-    const closing = !!spline && annotation.data.handles.points.length >= 3
+    const points = annotation.data.handles.points.length;
+    const onFirst = !!spline && points >= 3
       && spline.getClosestControlPointWithinDistance(evt.detail.currentPoints.canvas, SPLINE_CLICK_CLOSE_CURVE_DIST)?.index === 0;
+    // Cornerstone closes on a double-click ANYWHERE (#99), adding the point clicked unless it
+    // is on the first one: the same closing, so the same check.
+    const doubleClick = evt.type === MOUSE_DOUBLE_CLICK;
+    const closing = onFirst || (doubleClick && points >= 2);
     if (rect && !closing && !inRect(rect, evt.detail.currentPoints.canvas)) return false;
     if (s.preventSelfIntersection && closing && spline) {
+      const added = !onFirst;
+      if (added) spline.addControlPoint(evt.detail.currentPoints.canvas);
       spline.closed = true;
       const crosses = hasSelfIntersection(spline.getPolylinePoints().map((p) => ({ x: p[0], y: p[1] })));
       spline.closed = false;
+      if (added) spline.deleteControlPointByIndex(spline.numControlPoints - 1);
       if (crosses) return false;
     }
     return true;
@@ -376,8 +412,12 @@ export function withSplineFeatures<TBase extends SplineBase>(Base: TBase) {
   private guardedRebuild(rebuild: (element: HTMLDivElement, annotation: Annotation) => Spline, element: HTMLDivElement, annotation: Annotation): Spline {
     let spline = rebuild(element, annotation);
     const s = getContourToolSettings().spline;
+    const own = annotation.data.spline;
     if (spline instanceof FamilySpline) {
-      spline.refiner = s.algorithm === 'roiActiveSpline' ? this.edgeRefiner(element) : null;
+      // The annotation's own settings and family, not the current ones (#99).
+      spline.params = own?.samplesPerSegment !== undefined && own.tension !== undefined
+        ? { samplesPerSegment: own.samplesPerSegment, tension: own.tension } : null;
+      spline.refiner = own?.type === SPLINE_TYPE.roiActiveSpline ? this.edgeRefiner(element, annotation) : null;
     }
     const snapshot = () => ({ points: annotation.data.handles.points.map((p) => [...p]), closed: annotation.data.contour.closed });
     if (!s.preventSelfIntersection) {
@@ -387,7 +427,8 @@ export function withSplineFeatures<TBase extends SplineBase>(Base: TBase) {
     const poly = spline.getPolylinePoints().map((p) => ({ x: p[0], y: p[1] }));
     const crosses = annotation.data.contour.closed ? hasSelfIntersection(poly) : hasSelfIntersectionOpen(poly);
     const good = this.lastGood.get(annotation);
-    if (crosses && good) {
+    // Never re-open a closed curve: closing ended the drawing (allowClick refuses a crossing close).
+    if (crosses && good && good.closed === annotation.data.contour.closed) {
       annotation.data.handles.points = good.points.map((p) => [...p]);
       annotation.data.contour.closed = good.closed;
       spline = rebuild(element, annotation);
@@ -397,17 +438,29 @@ export function withSplineFeatures<TBase extends SplineBase>(Base: TBase) {
     return spline;
   }
 
-  /** The ROI active spline's refinement for this element (null without an ROI here). */
-  private edgeRefiner(element: HTMLDivElement): ((pts: Point[]) => Point[]) | null {
-    const rect = roiCanvasRect(element);
-    const plane = rect ? slicePlane(element) : null;
-    if (!rect || !plane) return null;
-    const a = plane.toPlane([rect.x0, rect.y0]), b = plane.toPlane([rect.x1, rect.y1]);
-    const roi = { x0: Math.min(a[0], b[0]), y0: Math.min(a[1], b[1]), x1: Math.max(a[0], b[0]), y1: Math.max(a[1], b[1]) };
+  /**
+   * The ROI active spline's refinement, as seen on this element. The image plane and the ROI are
+   * taken once per annotation, on the viewport holding the ROI limit, and cached (#99): the
+   * refinement then works in world space, so every viewport rendering the annotation draws —
+   * and commits — the same curve (before, one with no ROI drew it unrefined).
+   */
+  private edgeRefiner(element: HTMLDivElement, annotation: Annotation): ((pts: Point[]) => Point[]) | null {
+    let cached = this.refinePlanes.get(annotation);
+    if (!cached) {
+      const rect = roiCanvasRect(element);
+      const plane = rect ? slicePlane(element) : null;
+      if (!rect || !plane) return null;
+      const a = plane.toPlane([rect.x0, rect.y0]), b = plane.toPlane([rect.x1, rect.y1]);
+      cached = { plane, roi: { x0: Math.min(a[0], b[0]), y0: Math.min(a[1], b[1]), x1: Math.max(a[0], b[0]), y1: Math.max(a[1], b[1]) } };
+      this.refinePlanes.set(annotation, cached);
+    }
+    const { plane, roi } = cached;
+    const viewport = getEnabledElement(element)?.viewport as unknown as Viewport | undefined;
+    if (!viewport) return null;
     return (pts) => {
-      const inPlane = pts.map((p) => { const q = plane.toPlane([p.x, p.y]); return { x: q[0], y: q[1] }; });
+      const inPlane = pts.map((p) => { const q = plane.worldToPlane(viewport.canvasToWorld([p.x, p.y])); return { x: q[0], y: q[1] }; });
       return refineTowardEdges(inPlane, plane.scalar, plane.width, plane.height, roi).map((p) => {
-        const c = plane.toCanvas([p.x, p.y]);
+        const c = viewport.worldToCanvas(plane.planeToWorld([p.x, p.y]));
         return { x: c[0], y: c[1] };
       });
     };
