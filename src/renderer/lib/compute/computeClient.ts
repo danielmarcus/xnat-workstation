@@ -102,3 +102,9 @@ export const computeClient = createComputeClient(makeComputeWorker);
  * cancelled a running solve — both silently. Each side still replaces only its own jobs.
  */
 export const qcComputeClient = createComputeClient(makeComputeWorker);
+
+/**
+ * Volume / All-segments Cleanup runs on a third worker (O8, #97), for the same reason: one job
+ * per worker, so a Cleanup never cancels a solve or a QC build, nor they a Cleanup.
+ */
+export const cleanupComputeClient = createComputeClient(makeComputeWorker);

@@ -173,11 +173,21 @@ export class LabelmapTransaction {
   /** Stage: add (`on`) or remove the member at voxel `flat`. Removing a voxel the member
    *  does not own is a no-op (it never clears another member in a shared labelmap). */
   set(member: MemberRef, flat: number, on: boolean): void {
-    if (this.done) throw new Error('[labelmapTransaction] set after commit/discard');
-    if (!this.writable.has(keyOf(member))) throw new Error(`[labelmapTransaction] ${keyOf(member)} was not opened for writing`);
+    this.assertWritable(member);
     const g = this.grid(member);
     if (!g) return;
-    const current = this.raw(g, flat);
+    this.stage(g, member, flat, on, voxelAt(g, flat));
+  }
+
+  private assertWritable(member: MemberRef): void {
+    if (this.done) throw new Error('[labelmapTransaction] set after commit/discard');
+    if (!this.writable.has(keyOf(member))) throw new Error(`[labelmapTransaction] ${keyOf(member)} was not opened for writing`);
+  }
+
+  /** set(), given the member's grid and the voxel's LIVE value. */
+  private stage(g: SegmentVoxelGrid, member: MemberRef, flat: number, on: boolean, live: number): void {
+    const staged = this.staged.get(g.csSegmentationId)?.writes.get(flat);
+    const current = staged === undefined ? live : staged;
     let next: number;
     if (on) next = g.value;
     else if (current === g.value) next = 0;
@@ -189,7 +199,7 @@ export class LabelmapTransaction {
       st = { grid: g, member, writes: new StagedWrites(nx * ny, nz) };
       this.staged.set(g.csSegmentationId, st);
     }
-    if (next === voxelAt(g, flat)) st.writes.delete(flat); // back to the live value: no change
+    if (next === live) st.writes.delete(flat); // back to the live value: no change
     else st.writes.set(flat, next);
   }
 
@@ -267,6 +277,15 @@ export class LabelmapTransaction {
     // Grid indices only where a pixel changes (a grid slice is one contiguous run).
     const idx = axis === 2 ? null : sliceIndices(g.geometry.dimensions, axis, slice);
     const base = slice * current.data.length;
+    // A grid slice's live pixels, read directly: `voxelAt` finds the slice's image per voxel,
+    // which made staging a Volume Cleanup's millions of voxels take seconds (O8).
+    const live = axis === 2 ? g.slice?.(slice) ?? null : null;
+    let checked = false;
+    const stage = (p: number, on: boolean) => {
+      if (!checked) { this.assertWritable(member); checked = true; }
+      const flat = idx ? idx[p] : base + p;
+      this.stage(g, member, flat, on, live ? live[p] : voxelAt(g, flat));
+    };
     let added = 0;
     let removed = 0;
     for (let p = 0; p < current.data.length; p++) {
@@ -276,10 +295,10 @@ export class LabelmapTransaction {
       if (opts.roi && !opts.roi[p]) continue;
       if (want) {
         if (opts.blocked?.[p]) continue;
-        this.set(member, idx ? idx[p] : base + p, true);
+        stage(p, true);
         added++;
       } else {
-        this.set(member, idx ? idx[p] : base + p, false);
+        stage(p, false);
         removed++;
       }
     }

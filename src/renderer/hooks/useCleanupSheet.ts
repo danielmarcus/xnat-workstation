@@ -11,7 +11,8 @@
  */
 import { OBLIQUE_VIEW_MESSAGE } from '../lib/cornerstone/maskIslands';
 import { useEffect, useState } from 'react';
-import { maskOpsService, type RunResult, type ServiceScope } from '../lib/cornerstone/maskOpsService';
+import { cleanupRunsInWorker, maskOpsService, type CleanupRunResult, type ServiceScope } from '../lib/cornerstone/maskOpsService';
+import { useComputeStore } from '../stores/computeStore';
 import { clearStaleNotice, commitPreview, discardPreview } from '../lib/cornerstone/maskPreview';
 import { closeOperation, confirmCloseOperation, STALE_PREVIEW_MESSAGE } from './operationLifecycle';
 import { onLabelmapModified } from '../lib/cornerstone/sliceTrack';
@@ -44,6 +45,9 @@ export interface CleanupSheetModel {
   message: string | null;
   previewActive: boolean;
   previewReadOnly: boolean;
+  /** A Volume run is computing on the Cleanup worker (O8): the footer offers Cancel run. */
+  running: boolean;
+  cancel(): void;
   confirmingLeave: boolean;
   /** The one-line summary a collapsed operation shows. */
   summary: string;
@@ -73,7 +77,7 @@ export interface CleanupSheetModel {
 
 const LOCK_MSG = (name: string) => `${name} is locked — preview only`;
 
-function describeFailure(r: Extract<RunResult, { ok: false }>): string {
+function describeFailure(r: Extract<CleanupRunResult, { ok: false }>): string {
   switch (r.reason) {
     case 'no-change': return 'Nothing to change in this scope';
     case 'no-target': return 'Select a segment to clean up';
@@ -88,6 +92,7 @@ function describeFailure(r: Extract<RunResult, { ok: false }>): string {
 export function useCleanupSheet(): CleanupSheetModel {
   const sheet = useOperationSheetStore();
   const previewActive = useMaskPreviewStore((s) => s.active);
+  const running = useComputeStore((s) => s.jobs.some((j) => j.source === 'cleanup'));
   const previewReadOnly = useMaskPreviewStore((s) => s.readOnly);
   const discardedStale = useMaskPreviewStore((s) => s.discardedStale);
   const activeSegmentationId = useSegmentationStore((s) => s.activeSegmentationId);
@@ -162,20 +167,35 @@ export function useCleanupSheet(): CleanupSheetModel {
       sheet.setMessage('Add another segment to this segmentation first');
       return;
     }
-    const r = maskOpsService.previewCleanup(op.id, params, toServiceScope(), {
+    const scope = toServiceScope();
+    const report = (r: CleanupRunResult) => {
+      if (!r.ok) {
+        // A cancel is silent; a stale run says so through the stale-preview notice; a failure toasts.
+        if (r.reason !== 'cancelled' && r.reason !== 'stale' && r.reason !== 'failed') sheet.setMessage(describeFailure(r));
+        return;
+      }
+      sheet.setMessage(r.readOnly ? LOCK_MSG(target?.name ?? 'This segment') : null);
+    };
+    if (cleanupRunsInWorker(op.id, scope)) {
+      // Volume (or a long Range) on the Cleanup worker (O8): the result belongs to this
+      // operation, these parameters and this scope — a change to any of them drops it.
+      sheet.setMessage(null);
+      const context = () => {
+        const s = useOperationSheetStore.getState();
+        return JSON.stringify([s.cleanupOpId, s.params[s.cleanupOpId] ?? null, s.scope, s.smartProtect, s.smartSafeAction, s.planOverrides]);
+      };
+      void maskOpsService.runCleanupInWorker(op.id, params, scope, { commit, plan, planParams: sheet.params, context }).then(report);
+      hotkeyService.focusActiveViewport();
+      return;
+    }
+    const r = maskOpsService.previewCleanup(op.id, params, scope, {
       commit,
       targetSegmentIndex: into ?? undefined,
       plan,
       planParams: sheet.params,
     });
-    if (!r.ok) {
-      sheet.setMessage(describeFailure(r));
-      return;
-    }
-    if (r.readOnly) sheet.setMessage(LOCK_MSG(target?.name ?? 'This segment'));
-    else if (r.committed) sheet.setMessage(null);
-    else sheet.setMessage(null);
-    hotkeyService.focusActiveViewport();
+    report(r);
+    if (r.ok) hotkeyService.focusActiveViewport();
   };
 
   return {
@@ -200,7 +220,7 @@ export function useCleanupSheet(): CleanupSheetModel {
     previewActive,
     previewReadOnly,
     confirmingLeave: sheet.confirmingLeave,
-    summary: previewActive ? 'Preview pending' : op.label,
+    summary: running ? `Running · ${op.label}` : previewActive ? 'Preview pending' : op.label,
     selectOp: (id) => {
       if (useMaskPreviewStore.getState().active) discardPreview();
       clearStaleNotice();
@@ -225,6 +245,11 @@ export function useCleanupSheet(): CleanupSheetModel {
       sheet.setScope(next);
     },
     preview: () => run(false),
+    running,
+    cancel: () => {
+      maskOpsService.cancelCleanup();
+      hotkeyService.focusActiveViewport();
+    },
     commit: () => {
       if (useMaskPreviewStore.getState().active) {
         if (commitPreview()) sheet.setMessage(null);

@@ -1,7 +1,7 @@
 import { useQc3dStore } from '../../stores/qc3dStore';
 import { qc3dGridReads, qc3dService } from '../cornerstone/qc3dService';
 import { lastSeedRaster } from '../cornerstone/seedRasterProbe';
-import { computeClient, qcComputeClient } from '../compute/computeClient';
+import { cleanupComputeClient, computeClient, qcComputeClient } from '../compute/computeClient';
 import { cache, getEnabledElementByViewportId, metaData, utilities as csUtilities } from '@cornerstonejs/core';
 import {
   annotation as csAnnotation,
@@ -1067,7 +1067,7 @@ export function installRendererE2eHooks(): void {
       for (let i = 0; i < g.data.length; i++) if (g.data[i] === g.value) min = Math.min(min, read(i));
       return Number.isFinite(min) ? min : null;
     },
-    setComputeThrottle: (ms) => { computeClient.setThrottle(ms); qcComputeClient.setThrottle(ms); },
+    setComputeThrottle: (ms) => { computeClient.setThrottle(ms); qcComputeClient.setThrottle(ms); cleanupComputeClient.setThrottle(ms); },
     lastSeedRaster: () => lastSeedRaster(),
     solverGridReads: () => solverGridReads(),
     qc3dGridReads: () => qc3dGridReads(),

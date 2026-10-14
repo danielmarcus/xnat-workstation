@@ -24,7 +24,10 @@ export default function CleanupSheet({ m }: { m: CleanupSheetModel }) {
       testId="cleanup-sheet"
       message={m.message}
       confirm={m.confirmingLeave ? { text: 'Discard the preview?', confirmLabel: 'Discard', onConfirm: m.confirmLeave, onCancel: m.cancelLeave } : null}
-      footer={(
+      footer={m.running ? (
+        // A Volume run on the Cleanup worker (O8): progress shows in the viewport, as a solve's.
+        <button type="button" onClick={m.cancel} className="rounded px-2.5 py-0.5 text-[10px] bg-zinc-700 text-zinc-100 hover:bg-zinc-600">Cancel run</button>
+      ) : (
         <PreviewCommitButtons
           onPreview={m.preview}
           onCommit={m.commit}
