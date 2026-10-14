@@ -42,7 +42,9 @@ export function useQc3dSheet() {
     const source = useViewerStore.getState().activeViewportId;
     if (before.kind !== 'qc-3d') {
       useQc3dStore.getState().set({ restoreLayout: before });
-      layoutStore.setLayout({ kind: 'qc-3d', source });
+      // Single and MPR panels all show panel_0's scan; only a grid panel holds its own (#100:
+      // QC opened from an MPR's sagittal view showed an empty 2D view).
+      layoutStore.setLayout({ kind: 'qc-3d', source, imageSource: before.kind === 'grid' ? source : 'panel_0' });
     }
     qc3dService.start();
     void qc3dService.build();
@@ -104,6 +106,8 @@ export function useQc3dSheet() {
     if (!sel) return;
     const r = await qc3dService.deleteComponent(sel.segmentIndex, sel.componentId);
     if (r === 'locked') useQc3dStore.getState().set({ message: 'The segment is locked — unlock it to delete' });
+    else if (r === 'stale') useQc3dStore.getState().set({ message: 'The surfaces are out of date — Rebuild, then delete' });
+    else if (r === 'missing') useQc3dStore.getState().set({ message: 'That component is no longer in the segment — Rebuild to update' });
   };
 
   // Sheet-scoped key: Delete / Backspace removes the selected component.

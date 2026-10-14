@@ -7,6 +7,8 @@
 
 export interface SmartBrushOptions {
   radiusPx: number;
+  /** The radius along y when it differs from x (a plane whose pixels are not square). */
+  radiusPxY?: number;
   tolerance: number;
   spacingPx: number;
 }
@@ -18,7 +20,7 @@ export function smartBrushDab(image: ArrayLike<number>, w: number, h: number, cx
   const x0 = Math.round(cx), y0 = Math.round(cy);
   if (x0 < 0 || y0 < 0 || x0 >= w || y0 >= h) return 0;
   const ref = image[x0 + y0 * w];
-  const r2 = o.radiusPx * o.radiusPx;
+  const rx = o.radiusPx, ry = o.radiusPxY ?? o.radiusPx;
   const seen = new Set<number>([x0 + y0 * w]);
   const stack = [x0 + y0 * w];
   let added = 0;
@@ -29,7 +31,7 @@ export function smartBrushDab(image: ArrayLike<number>, w: number, h: number, cx
     for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
       const nx = x + dx, ny = y + dy;
       if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
-      if ((nx - cx) ** 2 + (ny - cy) ** 2 > r2) continue;
+      if (((nx - cx) / rx) ** 2 + ((ny - cy) / ry) ** 2 > 1) continue;
       const q = nx + ny * w;
       if (seen.has(q)) continue;
       seen.add(q);

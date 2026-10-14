@@ -203,7 +203,7 @@ export async function runModuleOperation(o: {
   if (manifest.reads.seeds) {
     input.seeds = useSeedStore.getState().strokes.filter((s) => s.containerId === t.containerId).map((s) => ({
       cls: s.cls === BACKGROUND ? 'background' : s.cls === t.active ? 'active' : s.cls,
-      radius: s.radiusPx,
+      radius: s.radiusMm / box.spacing[0],
       points: s.points.map((w) => { const p = toPlane(box.geometry, box.axis, w); return [p[0] - box.lo[0], p[1] - box.lo[1], Math.round(p[2]) - box.lo[2]]; }),
     }));
   }

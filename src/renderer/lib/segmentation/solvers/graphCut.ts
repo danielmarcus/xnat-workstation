@@ -26,10 +26,13 @@ const HARD = 1e9;
  * Foreground (1) / background (0) per voxel. `seeds`: 1 = foreground seed, 2 = background
  * seed, 0 = none. Returns null without seeds of both kinds.
  */
-export function graphCut(image: ArrayLike<number>, d: Dims, seeds: Uint8Array, o: GraphCutOptions = DEFAULT_GRAPH_CUT): Uint8Array | null {
+export function graphCut(image: ArrayLike<number>, d: Dims, seeds: Uint8Array, o: GraphCutOptions = DEFAULT_GRAPH_CUT, onProgress?: (fraction: number) => void): Uint8Array | null {
   const n = voxelCount(d);
   const [fg, bg] = seedModels(image, seeds, 2);
   if (!fg.count || !bg.count) return null;
+  // Progress by stage (#100: the bar sat at 0 until the cut was done). The max-flow's own
+  // length is not known in advance; building the graph is the part that scales predictably.
+  onProgress?.(0.1);
   const uFg = new Float32Array(n), uBg = new Float32Array(n);
   let max = 0;
   for (let i = 0; i < n; i++) {
@@ -44,11 +47,14 @@ export function graphCut(image: ArrayLike<number>, d: Dims, seeds: Uint8Array, o
     else if (seeds[i] === 2) e.addUnary(i, HARD, 0);
     else e.addUnary(i, uFg[i] * scale, uBg[i] * scale);
   }
+  onProgress?.(0.25);
   const k = 1 / (2 * o.sigma * o.sigma);
   forEachPair6(d, (p, q) => {
     const w = o.lambda * Math.exp(-((image[p] - image[q]) ** 2) * k);
     e.addPairwise(p, q, 0, w, w, 0);
   });
+  onProgress?.(0.4);
   const { labels } = e.minimize();
+  onProgress?.(1);
   return Uint8Array.from(labels, (x) => (x === 0 ? 1 : 0));
 }

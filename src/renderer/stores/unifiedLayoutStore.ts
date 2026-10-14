@@ -23,7 +23,11 @@ export type UnifiedLayout =
   | { kind: 'mpr-2x2' }
   | { kind: 'grid'; rows: number; cols: number }
   /** “2D + 3D QC” (SegWorks parity D9): `source`'s scan in 2D beside a 3D view of it. */
-  | { kind: 'qc-3d'; source: string; expanded?: boolean };
+  | {
+    kind: 'qc-3d'; source: string; expanded?: boolean;
+    /** The panel whose images `source` shows, when not its own (an MPR or single view: panel_0). */
+    imageSource?: string;
+  };
 
 interface UnifiedLayoutStore {
   layout: UnifiedLayout;
