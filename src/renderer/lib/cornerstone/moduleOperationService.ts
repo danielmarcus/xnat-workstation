@@ -13,7 +13,8 @@
  * API 1.0 input:  { api, dims, spacing, modality, scope, currentSlice, params, image?,
  *                   members?: [{ segmentIndex, name, active, mask }], seeds?: [{ cls, points, radius }],
  *                   roi?: { x0, y0, x1, y1 } }   (box coordinates; masks 1 = in, x fastest)
- * API 1.0 result: { mask: Uint8Array (one value per box voxel), table?: { columns, rows } }
+ * API 1.0 result: { mask: Uint8Array (one value per box voxel: 0 / 1, or for new members the
+ *                   label 1…k of the k-th), table?: { columns, rows } }
  */
 import { eventTarget, metaData } from '@cornerstonejs/core';
 import { Enums as ToolEnums } from '@cornerstonejs/tools';
@@ -232,57 +233,77 @@ export async function runModuleOperation(o: {
     return { ok: false, reason: 'bad-result', detail: `it returned ${got} — expected a Uint8Array of ${n} values (one per voxel of the box)` };
   }
 
-  // The member it writes: the active one, or a new one created now (removed again if discarded).
-  let target: MemberRef = { containerId: t.containerId, segmentIndex: t.active };
-  let created: number | null = null;
-  const before = t.active;
-  if (manifest.writes.target === 'new' && manifest.writes.newMember) {
-    created = await segmentationManager.addSegment(t.containerId, manifest.writes.newMember.name);
-    const [r, g, b] = manifest.writes.newMember.color;
-    segmentationService.setSegmentColor(t.containerId, created, [r, g, b, 255]);
-    target = { containerId: t.containerId, segmentIndex: created };
-    // Cornerstone's first render of the new member reports its labelmap as modified; staged
-    // before that, the preview would take it for an edit under it and discard itself.
-    await firstRender(t.containerId, created, o.viewportId);
-  }
-  postProcess(mask, box, manifest, target);
+  // What it writes: label 1 → the active member; or label k → the k-th new member, created
+  // now (only those that receive voxels; removed again if the preview is discarded).
+  const newMembers = manifest.writes.target === 'new' ? manifest.writes.newMembers ?? [] : [];
+  const labels = manifest.writes.target === 'new' ? newMembers.length : 1;
+  let over = 0;
+  for (let i = 0; i < n; i++) if (mask[i] > labels) { over = mask[i]; break; }
+  if (over) return { ok: false, reason: 'bad-result', detail: `its mask holds the value ${over} — expected 0${labels > 1 ? `–${labels}` : ' or 1'}` };
+  const planes = Array.from({ length: labels }, (_, k) => Uint8Array.from(mask, (v) => (v === k + 1 ? 1 : 0)));
 
-  const locked = t.members.find((m) => m.segmentIndex === target.segmentIndex)?.locked ?? false;
-  const others = t.members.filter((m) => m.segmentIndex !== target.segmentIndex);
+  const before = t.active;
+  const outputs: Array<{ ref: MemberRef; mask: Uint8Array }> = [];
+  const created: number[] = [];
+  if (manifest.writes.target === 'new') {
+    for (let k = 0; k < labels; k++) {
+      postProcess(planes[k], box, manifest, { containerId: t.containerId, segmentIndex: -1 - k });
+      if (!planes[k].includes(1)) continue;
+      const idx = await segmentationManager.addSegment(t.containerId, newMembers[k].name);
+      const [r, g, b] = newMembers[k].color;
+      segmentationService.setSegmentColor(t.containerId, idx, [r, g, b, 255]);
+      created.push(idx);
+      outputs.push({ ref: { containerId: t.containerId, segmentIndex: idx }, mask: planes[k] });
+      // Cornerstone's first render of a new member reports its labelmap as modified; staged
+      // before that, the preview would take it for an edit under it and discard itself.
+      await firstRender(t.containerId, idx, o.viewportId);
+    }
+  } else {
+    const ref = { containerId: t.containerId, segmentIndex: t.active };
+    postProcess(planes[0], box, manifest, ref);
+    outputs.push({ ref, mask: planes[0] });
+  }
+  const undoNew = () => {
+    if (!created.length) return;
+    for (const idx of created) segmentationManager.removeSegment(t.containerId, idx);
+    segmentationService.setActiveSegmentIndex(t.containerId, before);
+  };
+  if (!outputs.length) return { ok: false, reason: 'no-change' };
+
+  const targets = new Set(outputs.map((x) => x.ref.segmentIndex));
+  const locked = t.members.some((m) => targets.has(m.segmentIndex) && m.locked);
+  const others = t.members.filter((m) => !targets.has(m.segmentIndex));
   const claimable = manifest.writes.claims ? others.filter((m) => !m.locked).map((m) => ({ containerId: t.containerId, segmentIndex: m.segmentIndex })) : [];
-  const writers = [target, ...claimable];
+  const writers = [...outputs.map((x) => x.ref), ...claimable];
   let begun = beginTransaction(writers);
   let lockedMember: MemberRef | null = null;
   if (!begun.ok && begun.reason === 'locked') {
-    lockedMember = target;
+    lockedMember = begun.member;
     begun = beginTransaction(writers, undefined, { allowLocked: true });
   }
-  const undoNew = () => {
-    if (created === null) return;
-    segmentationManager.removeSegment(t.containerId, created);
-    segmentationService.setActiveSegmentIndex(t.containerId, before);
-  };
   if (!begun.ok) { undoNew(); return { ok: false, reason: 'no-target' }; }
   const { txn } = begun;
   const otherRefs = others.map((m) => ({ containerId: t.containerId, segmentIndex: m.segmentIndex }));
   let added = 0, removed = 0;
-  forEachBoxVoxel(box, (i, flat) => {
-    const on = mask[i] === 1;
-    const has = txn.has(target, flat);
-    if (on && !has) {
-      const owner = otherRefs.find((m) => txn.has(m, flat));
-      if (owner) {
-        if (!claimable.some((c) => c.segmentIndex === owner.segmentIndex)) return; // other members keep theirs
-        txn.set(owner, flat, false);
+  for (const { ref: target, mask: m } of outputs) {
+    forEachBoxVoxel(box, (i, flat) => {
+      const on = m[i] === 1;
+      const has = txn.has(target, flat);
+      if (on && !has) {
+        const owner = otherRefs.find((r) => txn.has(r, flat));
+        if (owner) {
+          if (!claimable.some((c) => c.segmentIndex === owner.segmentIndex)) return; // other members keep theirs
+          txn.set(owner, flat, false);
+        }
+        txn.set(target, flat, true); added++;
+      } else if (!on && has && manifest.writes.mode === 'replace') {
+        txn.set(target, flat, false); removed++;
       }
-      txn.set(target, flat, true); added++;
-    } else if (!on && has && manifest.writes.mode === 'replace') {
-      txn.set(target, flat, false); removed++;
-    }
-  });
+    });
+  }
   if (!added && !removed) { txn.discard(); undoNew(); return { ok: false, reason: 'no-change' }; }
   startPreview({
-    txn, label: manifest.name, viewportId: o.viewportId, lockedMember: locked ? target : lockedMember,
+    txn, label: manifest.name, viewportId: o.viewportId, lockedMember: lockedMember ?? (locked ? outputs[0].ref : null),
     summary: `${added ? `+${added.toLocaleString('en-US')}` : ''}${added && removed ? ' ' : ''}${removed ? `−${removed.toLocaleString('en-US')}` : ''} voxels`,
     onDone: (committed) => { if (!committed) undoNew(); },
   });

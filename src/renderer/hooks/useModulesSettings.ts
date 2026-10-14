@@ -27,7 +27,8 @@ export function describeAccess(s: Pick<ModuleSummary, 'reads' | 'writes'>): { re
     r.roi ? 'the ROI limit' : null,
   ].filter(Boolean).join(', ') || 'nothing';
   const w = s.writes;
-  const target = w.target === 'new' ? `a new segment${w.newMember ? ` “${w.newMember.name}”` : ''}` : 'the active segment';
+  const names = (w.newMembers ?? []).map((m) => `“${m.name}”`);
+  const target = w.target === 'new' ? (names.length > 1 ? `new segments ${names.join(', ')}` : `a new segment${names.length ? ` ${names[0]}` : ''}`) : 'the active segment';
   const writes = `${w.mode === 'replace' ? 'replaces' : 'adds to'} ${target}${w.claims ? ', and may take pixels of segments it touches' : ''}`;
   return { reads, writes };
 }

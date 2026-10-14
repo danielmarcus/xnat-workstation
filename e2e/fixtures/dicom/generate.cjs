@@ -699,6 +699,35 @@ function generateCineUs(outDir) {
   return { count: 1, rows, cols };
 }
 
+/**
+ * A FLAIR-like post-operative brain (M5's post-op edema module, docs/segworks-parity.md §12):
+ * brain 300 with deterministic noise (±30), a hyperintense edema sphere (650, r 16 mm, centred
+ * at x +20, y −5) around a dark resection cavity (60, r 6 mm, same centre), and a dark
+ * "ventricle" (80, r 8 mm at x −22) outside the edema. 128 × 128, 1 mm, 16 × 3 mm, MR.
+ * The edema is the sphere minus the cavity — the region the module should find.
+ */
+function mrFlairPostopVoxel(x, y, z) {
+  const noise = ((Math.sin(x * 12.9898 + y * 78.233 + z * 37.719) * 43758.5453) % 1) * 30;
+  const brain = (x * x) / (58 * 58) + (y * y) / (50 * 50) + (z * z) / (40 * 40) <= 1;
+  if (!brain) return 0;
+  const d = Math.hypot(x - 20, y + 5, z);
+  if (d <= 6) return Math.round(60 + noise);
+  if (d <= 16) return Math.round(650 + noise);
+  if (Math.hypot(x + 22, y, z) <= 8) return Math.round(80 + noise);
+  return Math.round(300 + noise);
+}
+
+function generateMrFlairPostop(outDir) {
+  return writeCtSeries(outDir, {
+    modality: 'MR',
+    sopClassUID: MR_IMAGE_STORAGE,
+    seriesDescription: 'MR FLAIR POSTOP (synthetic)',
+    patientId: 'MR-FLAIR-POSTOP',
+    patientName: 'PHANTOM^POSTOP',
+    voxel: mrFlairPostopVoxel,
+  });
+}
+
 const GENERATORS = {
   'ct-axial-300': generateCtAxial300,
   // Perf-only (large, slow to generate) — excluded from the generate-all default.
@@ -713,6 +742,7 @@ const GENERATORS = {
   'cross-for-ct-mr': generateCrossForCtMr,
   '4dct-phases': generate4dctPhases,
   'cine-us': generateCineUs,
+  'mr-flair-postop': generateMrFlairPostop,
 };
 
 function main() {
@@ -737,4 +767,6 @@ function main() {
   }
 }
 
-main();
+if (require.main === module) main();
+
+module.exports = { mrFlairPostopVoxel };

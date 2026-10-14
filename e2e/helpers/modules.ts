@@ -100,3 +100,14 @@ export function packDirectory(dir: string, name: string, opts: { sign?: boolean 
 }
 
 export const REPO_MODULES = path.resolve(__dirname, '..', '..', 'modules');
+
+/** The modules built from the host's own source (`npm run build:modules`, part of `npm run build`). */
+export const DIST_MODULES = path.resolve(__dirname, '..', '..', 'dist', 'modules');
+
+/** Trust the E2E publisher's key straight in the main process's store (the UI path is M2's). */
+export async function trustPublisherDirect(app: ElectronApplication): Promise<void> {
+  await app.evaluate((_e, [h, k]) => {
+    const handlers = process.mainModule!.require(h) as { moduleStore: () => { trustKey: (k: object) => { ok: boolean } } };
+    if (!handlers.moduleStore().trustKey(k).ok) throw new Error('trustKey failed');
+  }, [HANDLERS_JS, { keyId: PUBLISHER.keyId, publicKey: PUBLISHER.publicKey, name: 'E2E Publisher' }] as const);
+}

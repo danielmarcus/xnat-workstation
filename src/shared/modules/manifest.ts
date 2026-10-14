@@ -42,15 +42,19 @@ export interface ModuleManifest {
     seeds?: boolean;
     roi?: boolean;
   };
-  /** What it writes: the active member, or one new member it creates. */
+  /** What it writes: the active member, or new members it creates. */
   writes: {
     target: 'active' | 'new';
     /** add: the mask joins the member; replace: within the scope the member becomes the mask. */
     mode: 'add' | 'replace';
     /** May take pixels of other (unlocked) members it touches. */
     claims?: boolean;
-    /** For target "new": the member it creates. */
-    newMember?: { name: string; color: [number, number, number] };
+    /**
+     * For target "new": the members it may create (1–8). The result mask then holds a label per
+     * voxel — 1 for the first, 2 for the second… — and only members that receive voxels are
+     * created. For target "active" the mask is 0 / 1.
+     */
+    newMembers?: Array<{ name: string; color: [number, number, number] }>;
   };
   scopes: ModuleScope[];
   /** Built-in Cleanup operations offered after a run (#278–279). */
@@ -114,9 +118,10 @@ export function validateManifest(json: unknown): ManifestCheck {
   if (!isObj(m.writes) || !['active', 'new'].includes(m.writes.target as string) || !['add', 'replace'].includes(m.writes.mode as string)) {
     errors.push('writes: { target: "active" | "new", mode: "add" | "replace" } is required');
   } else if (m.writes.target === 'new') {
-    const nm = m.writes.newMember;
-    if (!isObj(nm) || !isStr(nm.name, 64) || !Array.isArray(nm.color) || nm.color.length !== 3 || !nm.color.every((c) => isNum(c) && c >= 0 && c <= 255)) {
-      errors.push('writes.newMember: { name, color: [r, g, b] } is required when target is "new"');
+    const nms = m.writes.newMembers;
+    const okMember = (nm: unknown) => isObj(nm) && isStr(nm.name, 64) && Array.isArray(nm.color) && nm.color.length === 3 && nm.color.every((c) => isNum(c) && c >= 0 && c <= 255);
+    if (!Array.isArray(nms) || nms.length < 1 || nms.length > 8 || !nms.every(okMember)) {
+      errors.push('writes.newMembers: a list of 1–8 { name, color: [r, g, b] } is required when target is "new"');
     }
   }
   if (!Array.isArray(m.scopes) || !m.scopes.length || !m.scopes.every((s) => ['slice', 'range', 'volume', 'roi'].includes(s as string))) {

@@ -42,7 +42,7 @@ test('a module signed by a trusted publisher installs at once, as Verified', asy
 
 test('a community module asks first — who signed it, what it reads and writes — and carries its badge', async ({ electronApp, page }) => {
   const s = await openModules(page);
-  await stubOpen(electronApp, buildPackage('community', manifest('org.e2e.community', { reads: { image: true, members: 'active' }, writes: { target: 'new', mode: 'add', newMember: { name: 'Edema', color: [255, 200, 0] } } }), SCRIPT));
+  await stubOpen(electronApp, buildPackage('community', manifest('org.e2e.community', { reads: { image: true, members: 'active' }, writes: { target: 'new', mode: 'add', newMembers: [{ name: 'Edema', color: [255, 200, 0] }] } }), SCRIPT));
   await s.getByRole('button', { name: 'Install module…' }).click();
   const confirm = s.getByTestId('module-confirm');
   await expect(confirm).toContainText('Not signed');

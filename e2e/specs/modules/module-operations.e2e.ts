@@ -130,7 +130,7 @@ test('the log shows what the module said; Copy and Download carry it', async ({ 
 
 test('a module that writes a new segment creates it, with its name and colour; Discard takes it away again', async ({ electronApp, page }) => {
   const edema = buildPackage('edema', manifest('org.e2e.edema', {
-    name: 'Edema finder', writes: { target: 'new', mode: 'add', newMember: { name: 'Edema', color: [255, 200, 0] } },
+    name: 'Edema finder', writes: { target: 'new', mode: 'add', newMembers: [{ name: 'Edema', color: [255, 200, 0] }] },
   }), `export function run(input) { const m = new Uint8Array(input.image.length); for (let i = 0; i < m.length; i++) if (input.image[i] > 500) m[i] = 1; return { mask: m }; }`);
   const panel = await setup(electronApp, page, [edema]);
   const rows = panel.locator('[data-testid^="member-row-"]');
@@ -149,6 +149,18 @@ test('a module that writes a new segment creates it, with its name and colour; D
   await expect(rows.nth(1)).toContainText('Edema');
   await expect.poll(() => voxels(page), 'the new segment (active) holds the mask').toBeGreaterThan(DISC * 0.9);
   expect(await member(page, 1), 'the segment that was active is untouched').toBe(0);
+});
+
+test('a mask holding a label the module did not declare is refused, with the reason', async ({ electronApp, page }) => {
+  const bad = buildPackage('labels', manifest('org.e2e.labels', {
+    name: 'Label overflow', writes: { target: 'new', mode: 'add', newMembers: [{ name: 'A', color: [255, 0, 0] }, { name: 'B', color: [0, 0, 255] }] },
+  }), `export function run(input) { const m = new Uint8Array(input.image.length); m[0] = 1; m[1] = 2; m[2] = 3; return { mask: m }; }`);
+  const panel = await setup(electronApp, page, [bad]);
+  const sheet = await openModule(panel, 'Label overflow');
+  await sheet.getByRole('button', { name: 'Run' }).click();
+  await expect(sheet.getByTestId('sheet-message')).toContainText('holds the value 3 — expected 0–2');
+  await expect(page.getByTestId('mask-preview-bar')).toHaveCount(0);
+  await expect(panel.locator('[data-testid^="member-row-"]')).toHaveCount(1);
 });
 
 test('a module disabled in Settings leaves the picker', async ({ electronApp, page }) => {

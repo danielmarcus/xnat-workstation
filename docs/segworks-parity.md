@@ -1156,3 +1156,32 @@ than `wasm-worker`. Candidate later runtimes, recorded so the design keeps room 
   test checked before the module would have finished, and the system clipboard held an earlier
   run's text — both tests strengthened). Operations / solver / cleanup E2E (115) green. Checked
   in the built app (screenshot).
+- **M5** — the validation modules. **(a)** `modules/examples/postop-edema`: SegWorks'
+  post-op edema add-on (`segworks_autoseg_postop_edema.js`, v2.0.610) re-authored as a plain ES
+  module against API 1.0 — the ROI limit is its zone, the slice on screen its anchor; Gaussian,
+  local normalisation, Sobel, k-means → GMM seeds, banded region growing, closing / largest
+  island / clean-up, then slice by slice outward while the region stays continuous. Result:
+  label 1 Edema, 2 Cavity. Fixture `mr-flair-postop` (FLAIR-like brain with noise, an edema
+  shell round a dark cavity, a dark ventricle elsewhere). **(b)** `modules/builtins/fast-growcut`:
+  the built-in's own `runSeededSolve` (growCut), bundled from `src/` by `npm run build:modules`
+  (now part of `npm run build`) into `dist/modules/`. **The API gap found, and the change made
+  here:** the add-on writes two labels, and API 1.0 wrote one new member — `writes.newMember`
+  became `writes.newMembers` (1–8), the mask a label per voxel (k → the k-th), only members that
+  receive voxels created; a value above the declared labels is refused with the reason.
+  **Found on the way:** (1) the original could never have run: its seed step was called without
+  the gradient map (the zone was passed in its place) and returned an undefined variable — both
+  fixed; (2) its cavity — the zone's darkest class grown in a quantile band — picked normal
+  brain on a zone of edema and brain; the original calls the cavity the "lower-signal inner
+  component", so it is now exactly that, the dark hole the edema encloses; (3) the original's
+  bands are quantiles of the zone, so it wants the zone drawn tightly round the post-op region —
+  offline, an ROI of ±18 mm gives edema Dice 0.98 / cavity 0.91, a ±24 mm one edema ≈ 0.88–0.93
+  and no cavity (documented in the manifest description, not "fixed": it is the algorithm);
+  (4) the first equivalence test seeded the lesion, whose sharp edges give the same mask
+  whatever the seeds — seed radius and slice mutants survived it; it now seeds the segment and
+  Background in homogeneous tissue on different slices, where the boundary follows the seeds.
+  E2E +3 (`modules/module-validation`: (a) signed, Verified, Edema and Cavity created, edema
+  shell Dice > 0.9, cavity > 0.8, the active segment untouched; (b) the module's mask equals
+  the built-in's voxel for voxel; and in `module-operations`, an undeclared label refused), red
+  against mutants of: the cavity rule, the gradient-argument fix, creating only the first new
+  member, the label check, the module's seed radius, and the host's seed x / z. Modules,
+  operations, solver and cleanup E2E (118) green. Checked in the built app (screenshot).

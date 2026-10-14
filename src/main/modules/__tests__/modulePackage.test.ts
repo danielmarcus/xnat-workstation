@@ -56,7 +56,9 @@ describe('manifest', () => {
 
   it('a new member to write needs its name and colour', () => {
     expect(validateManifest({ ...MANIFEST, writes: { target: 'new', mode: 'add' } }).ok).toBe(false);
-    expect(validateManifest({ ...MANIFEST, writes: { target: 'new', mode: 'add', newMember: { name: 'Edema', color: [255, 200, 0] } } }).ok).toBe(true);
+    expect(validateManifest({ ...MANIFEST, writes: { target: 'new', mode: 'add', newMembers: [{ name: 'Edema', color: [255, 200, 0] }] } }).ok).toBe(true);
+    expect(validateManifest({ ...MANIFEST, writes: { target: 'new', mode: 'add', newMembers: [{ name: 'Edema', color: [255, 200, 0] }, { name: 'Cavity', color: [249, 115, 22] }] } }).ok).toBe(true);
+    expect(validateManifest({ ...MANIFEST, writes: { target: 'new', mode: 'add', newMembers: [] } }).ok).toBe(false);
   });
 
   it('compatibility: API major and runtime, refused by name', () => {

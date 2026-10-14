@@ -196,8 +196,13 @@ declare global {
       activeSegmentVoxelCount: () => number;
       /** Voxel count of segment `segmentIndex` of the active container (-1 if none). */
       memberVoxelCount: (segmentIndex: number) => number;
-      /** Dice of a member with a world sphere — the phantoms' structures are spheres (branch 5). */
-      memberSphereDice: (segmentIndex: number, center: [number, number, number], radius: number) => number;
+      /**
+       * Dice of a member with a world sphere — the phantoms' structures are spheres (branch 5) —
+       * or, given an inner radius, with the shell between the two (M5's edema round its cavity).
+       */
+      memberSphereDice: (segmentIndex: number, center: [number, number, number], radius: number, innerRadius?: number) => number;
+      /** The flat indices of a member's voxels, ascending — for voxel-for-voxel comparisons (M5). */
+      memberVoxelIndices: (segmentIndex: number) => number[] | null;
       /** Lower (or reset, null) the solvers' memory limits so the guard's states show on small fixtures. */
       setSolverMemoryLimits: (limits: { warn: number; block: number } | null) => void;
       /** Run an installed module through the sandbox (branch 9, M3), optionally cancelling it. */
@@ -843,7 +848,7 @@ export function installRendererE2eHooks(): void {
       for (let i = 0; i < g.data.length; i++) if (g.data[i] === g.value) n++;
       return n;
     },
-    memberSphereDice: (segmentIndex, center, radius) => {
+    memberSphereDice: (segmentIndex, center, radius, innerRadius = -1) => {
       const { activeSegmentationId } = useSegmentationStore.getState();
       const g = activeSegmentationId ? readSegmentVoxelGrid(activeSegmentationId, segmentIndex) : null;
       if (!g) return -1;
@@ -852,7 +857,8 @@ export function installRendererE2eHooks(): void {
       for (let i = 0; i < g.data.length; i++) {
         const z = Math.floor(i / (nx * ny)), y = Math.floor(i / nx) % ny, x = i % nx;
         const w = indexToWorld(g.geometry, [x, y, z]);
-        const inS = Math.hypot(w[0] - center[0], w[1] - center[1], w[2] - center[2]) <= radius;
+        const d = Math.hypot(w[0] - center[0], w[1] - center[1], w[2] - center[2]);
+        const inS = d <= radius && d > innerRadius;
         const inA = g.data[i] === g.value;
         if (inS) b++;
         if (inA) a++;
@@ -891,6 +897,14 @@ export function installRendererE2eHooks(): void {
       return n;
     },
     clearSeeds: () => useSeedStore.setState({ strokes: [], lastRun: null, paintClass: null, brushPx: 8 }),
+    memberVoxelIndices: (segmentIndex) => {
+      const { activeSegmentationId } = useSegmentationStore.getState();
+      const g = activeSegmentationId ? readSegmentVoxelGrid(activeSegmentationId, segmentIndex) : null;
+      if (!g) return null;
+      const out: number[] = [];
+      for (let i = 0; i < g.data.length; i++) if (g.data[i] === g.value) out.push(i);
+      return out;
+    },
     memberVoxelCount: (segmentIndex) => {
       const { activeSegmentationId } = useSegmentationStore.getState();
       const g = activeSegmentationId ? readSegmentVoxelGrid(activeSegmentationId, segmentIndex) : null;
