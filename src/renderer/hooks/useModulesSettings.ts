@@ -4,6 +4,7 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import type { ModuleInspection, ModuleListing, ModuleSettings, ModuleSummary } from '@shared/modules/types';
+import { refreshModuleCatalog } from '../lib/modules/moduleCatalog';
 
 type Pending = Extract<ModuleInspection, { ok: true }>;
 
@@ -40,6 +41,7 @@ export function useModulesSettings() {
   const refresh = useCallback(async () => {
     const r = await api()?.list();
     if (r) { setModules(r.modules); setSettings(r.settings); }
+    void refreshModuleCatalog(); // the Operations picker follows
   }, []);
   useEffect(() => { void refresh(); }, [refresh]);
 

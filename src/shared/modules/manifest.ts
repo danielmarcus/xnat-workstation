@@ -78,6 +78,8 @@ function checkParam(p: unknown, i: number, errors: string[]): void {
   if (p.kind === 'number') {
     if (!isNum(p.min) || !isNum(p.max) || !isNum(p.step) || !isNum(p.default)) errors.push(`${at}: number parameters need min, max, step and default`);
     else if (p.min > p.max || p.default < p.min || p.default > p.max || p.step <= 0) errors.push(`${at}: needs min ≤ default ≤ max and step > 0`);
+    // A slider snaps to min + k·step: a default off that grid would show (and run with) another value.
+    else if (Math.abs((p.default - p.min) / p.step - Math.round((p.default - p.min) / p.step)) > 1e-6) errors.push(`${at}.default: must be min plus a whole number of steps`);
   } else if (p.kind === 'select') {
     if (!Array.isArray(p.options) || !p.options.length || !p.options.every((o) => isObj(o) && isStr(o.value, 64) && isStr(o.label, 80))) errors.push(`${at}.options: a list of { value, label } is required`);
     else if (!p.options.some((o) => (o as { value: string }).value === p.default)) errors.push(`${at}.default: must be one of the options`);

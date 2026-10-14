@@ -42,6 +42,8 @@ export interface ModuleSummary {
   writes: ModuleManifest['writes'];
   bundled: boolean;
   enabled: boolean;
+  /** The whole manifest — the operation a module becomes is built from it (M4). */
+  manifest: ModuleManifest;
 }
 
 export type ModuleListing =

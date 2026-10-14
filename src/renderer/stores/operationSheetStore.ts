@@ -11,7 +11,9 @@ import { create } from 'zustand';
 /** Parameter values of one operation (mirrors maskOps/catalog's ParamValues; stores import no lib code). */
 type ParamValues = Record<string, number | string>;
 
-export type OperationSheetId = 'cleanup' | 'interpolate' | 'propagate' | 'seeded' | 'regionCompetition' | 'qc3d';
+export type BuiltinOperationId = 'cleanup' | 'interpolate' | 'propagate' | 'seeded' | 'regionCompetition' | 'qc3d';
+/** A built-in operation, or a module's (branch 9): `module:<module id>`. */
+export type OperationSheetId = BuiltinOperationId | `module:${string}`;
 
 export interface PropagateSettings {
   direction: 'forward' | 'backward' | 'both';
@@ -137,6 +139,12 @@ interface OperationSheetState {
   setCollapsed: (collapsed: boolean) => void;
   setCleanupOp: (opId: string) => void;
   setParam: (opId: string, key: string, value: number | string) => void;
+  /** A module operation's parameter values (module id → values; a manifest may declare booleans). */
+  moduleParams: Record<string, Record<string, number | string | boolean>>;
+  setModuleParam: (moduleId: string, key: string, value: number | string | boolean) => void;
+  /** A module operation's scope (module id → choice). */
+  moduleScopes: Record<string, { kind: 'slice' | 'range' | 'volume' | 'roi'; from?: number; to?: number }>;
+  setModuleScope: (moduleId: string, scope: { kind: 'slice' | 'range' | 'volume' | 'roi'; from?: number; to?: number }) => void;
   setScope: (patch: Partial<SheetScope>) => void;
   toggleAdvanced: (opId: string) => void;
   setMessage: (message: string | null) => void;
@@ -192,6 +200,10 @@ export const useOperationSheetStore = create<OperationSheetState>((set) => ({
   setCollapsed: (collapsed) => set({ collapsed, confirmingLeave: false }),
   setCleanupOp: (cleanupOpId) => set({ cleanupOpId, message: null, planOverrides: {} }),
   setParam: (opId, key, value) => set((s) => ({ params: { ...s.params, [opId]: { ...s.params[opId], [key]: value } }, message: null })),
+  moduleParams: {},
+  setModuleParam: (moduleId, key, value) => set((s) => ({ moduleParams: { ...s.moduleParams, [moduleId]: { ...s.moduleParams[moduleId], [key]: value } }, message: null })),
+  moduleScopes: {},
+  setModuleScope: (moduleId, scope) => set((s) => ({ moduleScopes: { ...s.moduleScopes, [moduleId]: scope }, message: null })),
   setScope: (patch) => set((s) => ({ scope: { ...s.scope, ...patch }, message: null, planOverrides: {} })),
   toggleAdvanced: (opId) => set((s) => ({ advancedOpen: { ...s.advancedOpen, [opId]: !s.advancedOpen[opId] } })),
   setMessage: (message) => set({ message }),

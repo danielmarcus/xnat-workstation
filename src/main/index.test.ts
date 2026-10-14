@@ -68,6 +68,9 @@ const mocks = vi.hoisted(() => {
     registerBackupHandlers: vi.fn(),
     registerDiagnosticsHandlers: vi.fn(),
     registerUpdateHandlers: vi.fn(),
+    registerModuleHandlers: vi.fn(),
+    registerModuleRunHandlers: vi.fn(),
+    registerModuleScheme: vi.fn(),
     autoUpdateService: {
       initialize: vi.fn(),
       dispose: vi.fn(),
@@ -83,6 +86,15 @@ vi.mock('electron', () => ({
   nativeImage: mocks.nativeImage,
   ipcMain: mocks.ipcMain,
   shell: mocks.shell,
+}));
+
+vi.mock('./ipc/moduleHandlers', () => ({
+  registerModuleHandlers: mocks.registerModuleHandlers,
+}));
+
+vi.mock('./modules/moduleRuntime', () => ({
+  registerModuleRunHandlers: mocks.registerModuleRunHandlers,
+  registerModuleScheme: mocks.registerModuleScheme,
 }));
 
 vi.mock('./ipc/authHandlers', () => ({
@@ -143,6 +155,9 @@ describe('main/index bootstrap', () => {
     expect(mocks.registerAuthHandlers).toHaveBeenCalledTimes(1);
     expect(mocks.registerProxyHandlers).toHaveBeenCalledTimes(1);
     expect(mocks.registerExportHandlers).toHaveBeenCalledTimes(1);
+    expect(mocks.registerModuleScheme).toHaveBeenCalledTimes(1);
+    expect(mocks.registerModuleHandlers).toHaveBeenCalledTimes(1);
+    expect(mocks.registerModuleRunHandlers).toHaveBeenCalledTimes(1);
     expect(mocks.registerUploadHandlers).toHaveBeenCalledTimes(1);
     expect(mocks.registerBackupHandlers).toHaveBeenCalledTimes(1);
     expect(mocks.registerDiagnosticsHandlers).toHaveBeenCalledTimes(1);

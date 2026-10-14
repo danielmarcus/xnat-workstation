@@ -180,12 +180,21 @@ describe('preload bridge', () => {
     const api = mocks.exposed.api;
     const off = api.on('xnat:not-allowed', vi.fn());
 
-    expect(mocks.on).not.toHaveBeenCalled();
+    expect(mocks.on).not.toHaveBeenCalledWith('xnat:not-allowed', expect.anything());
     expect(warnSpy).toHaveBeenCalledWith(
       '[preload] Blocked IPC listener for unknown channel: xnat:not-allowed',
     );
     expect(() => off()).not.toThrow();
     warnSpy.mockRestore();
+  });
+
+  it('relays a module run\'s message port to the page, tagged with its run id', () => {
+    const post = vi.fn();
+    vi.stubGlobal('window', { postMessage: post });
+    const port = {} as MessagePort;
+    mocks.getOnHandler(IPC.MODULES_RUN_PORT)?.({ ports: [port] } as any, { runId: 'r1' });
+    expect(post).toHaveBeenCalledWith({ type: 'xw-module-port', runId: 'r1' }, '*', [port]);
+    vi.unstubAllGlobals();
   });
 
   it('subscribes and unsubscribes updater status listeners', () => {

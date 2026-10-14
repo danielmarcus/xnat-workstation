@@ -1,0 +1,20 @@
+{
+  "id": "org.xnat.examples.threshold",
+  "name": "Intensity threshold",
+  "version": "1.0.0",
+  "apiVersion": "1.0",
+  "runtime": "wasm-worker",
+  "publisher": "XNAT Workstation examples",
+  "license": "MIT",
+  "description": "Adds every voxel whose intensity (HU on CT) lies inside a window to the active segment. The example module: SegWorks' module template, re-authored for Workstation's API 1.0.",
+  "entry": "module.js",
+  "params": [
+    { "key": "lower", "label": "From", "kind": "number", "min": -1000, "max": 3000, "step": 10, "default": 200, "unit": "HU" },
+    { "key": "upper", "label": "To", "kind": "number", "min": -1000, "max": 3000, "step": 10, "default": 3000, "unit": "HU" },
+    { "key": "largestOnly", "label": "Keep the largest island on each slice", "kind": "boolean", "default": false, "advanced": true }
+  ],
+  "reads": { "image": true, "members": "none" },
+  "writes": { "target": "active", "mode": "add" },
+  "scopes": ["slice", "range", "volume", "roi"],
+  "bytesPerVoxel": 6
+}

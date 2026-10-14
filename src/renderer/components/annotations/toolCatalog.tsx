@@ -128,6 +128,14 @@ const MEASUREMENT_TOOLS: ToolDef[] = [
 const SEG_TOOLS_IN_ORDER = SEG_GROUP_ORDER.flatMap((g) => SEG_TOOLS.filter((t) => t.group === g));
 
 /** Operations the Operations section's picker offers (D1, amended 2026-10-12). */
+/** An entry of the Operations picker: a built-in operation or a module's (one registry, branch 9 M4). */
+export interface OperationDescriptor {
+  id: string;
+  label: string;
+  title: string;
+  group: 'builtin' | 'modules';
+}
+
 export const SEG_OPERATIONS: Array<{ id: 'cleanup' | 'interpolate' | 'propagate' | 'seeded' | 'regionCompetition' | 'qc3d'; label: string; title: string }> = [
   { id: 'cleanup', label: 'Cleanup', title: 'Fill holes, keep largest, remove specks and strays, smooth, open/close (X)' },
   { id: 'propagate', label: 'Propagate', title: 'Grow the segment from the slice on screen into its neighbours, following the image' },

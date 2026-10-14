@@ -1127,3 +1127,32 @@ than `wasm-worker`. Candidate later runtimes, recorded so the design keeps room 
   window.open; cooperative and forced Cancel; a module that throws or exports no `run`; a
   disabled or missing module), red against mutants of: both network layers, the sandbox / Node,
   eval in the CSP, popups, and destroying the run.
+- **M4** — modules as operations, through **one registry** (`useOperationsSection`): the
+  built-ins, then a **Modules** group of every enabled, valid module (`module:<id>`), refreshed
+  when Settings › Modules changes; a module operation that disappears closes. One parameter
+  control (`OperationParam`) serves Cleanup and module manifests alike. `ModuleSheet` /
+  `useModuleSheet`: tier and publisher, parameters (Advanced folded), the manifest's scopes, the
+  memory estimate (`bytesPerVoxel`), Run → preview → ⏎ / Commit / Discard, Cancel run (also from
+  the progress bar, now that a compute job can carry its own cancel), a result table, and the
+  log with Copy and Download (`MODULES_SAVE_LOG`, a save dialog). `moduleOperationService`
+  builds only what the manifest reads (image, members, seeds, ROI) over the scope's box
+  (`gridBox`, extracted from `solverService`, index space — oblique-safe), checks the result,
+  applies post steps (Cleanup ops), and stages it like a built-in: add or replace, claims, other
+  members keep theirs, a locked target previews read-only; `writes.target: "new"` creates the
+  member (name, colour) and removes it again if the preview is discarded. Example module
+  `modules/examples/threshold`. **Found on the way:** (1) the validator accepted a number
+  default off its slider's grid (min −1024, step 10, default 200 → the slider showed 196) — it
+  now requires default = min + k·step, and the example uses min −1000; (2) Cornerstone's first
+  render of a just-created member reports its labelmap modified, so a preview staged at once was
+  discarded as stale — the operation now waits for that member's first render (soft 2 s
+  timeout); (3) M2/M3 had left the main-process bootstrap and preload unit tests red (no
+  `protocol` in the Electron mock; the run-port listener counted as an unknown subscription) —
+  fixed, with a test of the port relay. Unit +2; E2E +8 (`modules/module-operations`: picker
+  group and manifest parameters; Run → ⏎ as one undo step; locked read-only; Cancel leaves
+  nothing; log Copy / Download; a new member with its name and colour, Discard removes it;
+  disabled in Settings leaves the picker; oblique sphere Dice > 0.95), red against mutants of:
+  the image read, the locked read-only, new-member creation, the first-render wait, Cancel, the
+  Modules group, Copy, Download and the enabled filter (Cancel and Copy first survived — the
+  test checked before the module would have finished, and the system clipboard held an earlier
+  run's text — both tests strengthened). Operations / solver / cleanup E2E (115) green. Checked
+  in the built app (screenshot).

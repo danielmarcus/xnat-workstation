@@ -86,6 +86,20 @@ export function registerModuleHandlers(): void {
   ipcMain.handle(IPC.MODULES_SET_ALLOW_COMMUNITY, (_e, allow: boolean) => { moduleStore().setAllowCommunity(!!allow); return { ok: true }; });
   ipcMain.handle(IPC.MODULES_UNTRUST_KEY, (_e, keyId: string) => { moduleStore().untrustKey(keyId); return { ok: true }; });
 
+  /** Download a module's log (#282): the user picks where; plain text. */
+  ipcMain.handle(IPC.MODULES_SAVE_LOG, async (e, text: string, suggested: string) => {
+    try {
+      const win = BrowserWindow.fromWebContents(e.sender) ?? undefined;
+      const opts = { defaultPath: `${String(suggested).replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 80) || 'module'}.log.txt`, filters: [{ name: 'Text', extensions: ['txt'] }] };
+      const result = win ? await dialog.showSaveDialog(win, opts) : await dialog.showSaveDialog(opts);
+      if (result.canceled || !result.filePath) return { ok: false, canceled: true };
+      fs.writeFileSync(result.filePath, String(text));
+      return { ok: true, path: result.filePath };
+    } catch (err) {
+      return { ok: false, reason: errMsg(err) };
+    }
+  });
+
   ipcMain.handle(IPC.MODULES_TRUST_KEY_PICK, async (e) => {
     try {
       const win = BrowserWindow.fromWebContents(e.sender) ?? undefined;

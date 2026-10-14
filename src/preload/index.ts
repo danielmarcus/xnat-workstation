@@ -219,6 +219,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     trustKeyPick: () => ipcRenderer.invoke(IPC.MODULES_TRUST_KEY_PICK),
     untrustKey: (keyId: string) => ipcRenderer.invoke(IPC.MODULES_UNTRUST_KEY, keyId),
     runStart: (id: string) => ipcRenderer.invoke(IPC.MODULES_RUN_START, id),
+    saveLog: (text: string, suggested: string) => ipcRenderer.invoke(IPC.MODULES_SAVE_LOG, text, suggested),
     runStop: (runId: string) => ipcRenderer.invoke(IPC.MODULES_RUN_STOP, runId),
   },
 

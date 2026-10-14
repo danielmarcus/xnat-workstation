@@ -17,7 +17,7 @@ const OPEN_HEIGHT = 260;
 const OPEN_MIN_HEIGHT = 156;
 
 export interface OperationsSectionProps {
-  operations: ReadonlyArray<{ id: string; label: string; title: string }>;
+  operations: ReadonlyArray<{ id: string; label: string; title: string; group?: 'builtin' | 'modules' }>;
   openId: string | null;
   onOpen: (id: string) => void;
   collapsed: boolean;
@@ -48,7 +48,12 @@ export default function OperationsSection(p: OperationsSectionProps) {
           className={`min-w-0 px-1 py-0.5 rounded bg-zinc-800 text-zinc-200 text-[10px] ${p.openId ? 'w-24' : 'flex-1'}`}
         >
           {!p.openId && <option value="">Open an operation…</option>}
-          {p.operations.map((o) => <option key={o.id} value={o.id} title={o.title}>{o.label}</option>)}
+          {p.operations.filter((o) => o.group !== 'modules').map((o) => <option key={o.id} value={o.id} title={o.title}>{o.label}</option>)}
+          {p.operations.some((o) => o.group === 'modules') && (
+            <optgroup label="Modules">
+              {p.operations.filter((o) => o.group === 'modules').map((o) => <option key={o.id} value={o.id} title={o.title}>{o.label}</option>)}
+            </optgroup>
+          )}
         </select>
         {p.openId && (
           <>

@@ -14,3 +14,17 @@ export async function openOperation(panel: Locator, name: keyof typeof BODY_TEST
   if (cleanupOp) await sheet.getByLabel('Cleanup operation').selectOption({ label: cleanupOp });
   return sheet;
 }
+
+/**
+ * Move a slider (an operation's number parameter) to a value — as dragging it does: the value set
+ * through the element's own setter, then the `input` event React's onChange listens to. (A slider
+ * cannot be typed into, and the arrow keys belong to the viewport.)
+ */
+export async function setSlider(slider: Locator, value: number): Promise<void> {
+  await slider.evaluate((el, v) => {
+    const input = el as HTMLInputElement;
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, String(v));
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  }, value);
+  await expect(slider).toHaveValue(String(value));
+}

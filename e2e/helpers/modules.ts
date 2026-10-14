@@ -81,3 +81,22 @@ export async function installDirect(app: ElectronApplication, file: string): Pro
 export async function windowCount(app: ElectronApplication): Promise<number> {
   return app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length);
 }
+
+/** Pack a module directory from the repo (modules/…) into a package, as `npm run module:pack` does. */
+export function packDirectory(dir: string, name: string, opts: { sign?: boolean } = {}): string {
+  const files = new Map<string, Buffer>();
+  const walk = (d: string) => {
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const full = path.join(d, e.name);
+      if (e.isDirectory()) walk(full);
+      else files.set(path.relative(dir, full).split(path.sep).join('/'), fs.readFileSync(full));
+    }
+  };
+  walk(dir);
+  const signed = opts.sign ? signFiles(files, PUBLISHER.privateKeyPem, 'E2E Publisher') : files;
+  const file = path.join(FIXTURE_DIR, `${name}.xwmodule`);
+  fs.writeFileSync(file, packFiles(signed));
+  return file;
+}
+
+export const REPO_MODULES = path.resolve(__dirname, '..', '..', 'modules');

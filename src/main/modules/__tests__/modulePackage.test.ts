@@ -47,6 +47,8 @@ describe('manifest', () => {
   it('checks parameters: default inside range, select default among options, unique keys', () => {
     const bad = (params: unknown[]) => validateManifest({ ...MANIFEST, params });
     expect(bad([{ key: 'a', label: 'A', kind: 'number', min: 0, max: 1, step: 0.1, default: 2 }]).ok).toBe(false);
+    expect(bad([{ key: 'a', label: 'A', kind: 'number', min: -1024, max: 3000, step: 10, default: 200 }]).ok).toBe(false); // off the slider's grid
+    expect(bad([{ key: 'a', label: 'A', kind: 'number', min: 0, max: 1, step: 0.1, default: 0.3 }]).ok).toBe(true);
     expect(bad([{ key: 'a', label: 'A', kind: 'select', options: [{ value: 'x', label: 'X' }], default: 'y' }]).ok).toBe(false);
     expect(bad([{ key: 'a', label: 'A', kind: 'boolean', default: true }, { key: 'a', label: 'B', kind: 'boolean', default: false }]).ok).toBe(false);
     expect(bad([{ key: 'a', label: 'A', kind: 'boolean', default: true }]).ok).toBe(true);

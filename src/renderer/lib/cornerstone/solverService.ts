@@ -13,7 +13,8 @@
 import { viewportService } from './viewportService';
 import { beginTransaction, type MemberRef } from './labelmapTransaction';
 import { sliceAxisFor } from './maskIslands';
-import { worldToIndexFloat, type Vec3, type VoxelGridGeometry } from './segmentationService/voxelClipboard';
+import type { VoxelGridGeometry } from './segmentationService/voxelClipboard';
+import { flatOf, toPlane, type Box } from './gridBox';
 import { commitPreview, discardPreview, startPreview } from './maskPreview';
 import { semiAutoBridge } from './tools/semiAutoBridge';
 import { computeClient, ComputeCancelled } from '../compute/computeClient';
@@ -40,17 +41,6 @@ const METHOD_LABEL: Record<SeededSettings['method'], string> = {
 let memoryLimits: MemoryLimits = DEFAULT_MEMORY_LIMITS;
 export function setSolverMemoryLimits(l: MemoryLimits | null): void {
   memoryLimits = l ?? DEFAULT_MEMORY_LIMITS;
-}
-
-interface Box {
-  geometry: VoxelGridGeometry;
-  axis: Axis;
-  ax: Axis;
-  ay: Axis;
-  /** Lowest corner in (in-plane x, in-plane y, slice) grid indices. */
-  lo: [number, number, number];
-  dims: Dims;
-  spacing: Spacing;
 }
 
 interface Active {
@@ -82,13 +72,6 @@ function gridOf(member: MemberRef) {
 function viewNormal(viewportId: string): number[] | null {
   const vp = viewportService.getViewport(viewportId) as { getCamera?: () => { viewPlaneNormal?: number[] } } | undefined;
   return vp?.getCamera?.()?.viewPlaneNormal ?? null;
-}
-
-/** A seed point in (in-plane x, in-plane y, slice) grid index coordinates. */
-function toPlane(geometry: VoxelGridGeometry, axis: Axis, w: number[]): [number, number, number] {
-  const ijk = worldToIndexFloat(geometry, w as Vec3);
-  const [ax, ay] = planeAxes(axis);
-  return [ijk[ax], ijk[ay], ijk[axis]];
 }
 
 function strokesOf(containerId: string): SeedStroke[] {
@@ -144,13 +127,6 @@ export function seededDomain(s: SeededSettings, viewportId: string): SeededDomai
     estimate: estimateMemory(s.method, voxels, classes, memoryLimits),
   };
 }
-
-const flatOf = (box: Box, x: number, y: number, z: number) => {
-  const ijk = [0, 0, 0];
-  ijk[box.ax] = box.lo[0] + x; ijk[box.ay] = box.lo[1] + y; ijk[box.axis] = box.lo[2] + z;
-  const d = box.geometry.dimensions;
-  return ijk[0] + d[0] * (ijk[1] + d[1] * ijk[2]);
-};
 
 export type SeededResult =
   | { ok: true; added: number; readOnly: boolean }

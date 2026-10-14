@@ -68,7 +68,7 @@ export class ModuleStore {
     return {
       id: m.id, name: m.name, version: m.version, publisher: m.publisher, description: m.description, license: m.license,
       tier: r.tier, signature: r.signature, reads: m.reads, writes: m.writes, bundled,
-      enabled: this.settings().enabled[m.id] ?? true,
+      enabled: this.settings().enabled[m.id] ?? true, manifest: m,
     };
   }
 

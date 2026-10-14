@@ -20,11 +20,13 @@ import InterpolateSheet from './InterpolateSheet';
 import PropagateSheet from './PropagateSheet';
 import SeededSheet from './SeededSheet';
 import RegionSheet from './RegionSheet';
+import ModuleSheet from './ModuleSheet';
 import Qc3dSheet from './Qc3dSheet';
 import { useQc3dSheet } from '../../hooks/useQc3dSheet';
 import { usePropagateSheet } from '../../hooks/usePropagateSheet';
 import { useSeededSheet } from '../../hooks/useSeededSheet';
 import { useRegionSheet } from '../../hooks/useRegionSheet';
+import { useModuleSheet } from '../../hooks/useModuleSheet';
 import { useInterpolateSheet } from '../../hooks/useInterpolateSheet';
 import { useCleanupSheet } from '../../hooks/useCleanupSheet';
 import { CheckpointNameDialog, ConfirmDialog, ConflictDialog, ReviewUnsavedDialog } from './dialogs';
@@ -98,6 +100,7 @@ export default function AnnotationsPanel({ activeViewportId, sourceImageIds }: A
   const propagate = usePropagateSheet();
   const seeded = useSeededSheet();
   const region = useRegionSheet();
+  const moduleOp = useModuleSheet();
   const qc3d = useQc3dSheet();
   const checkpoints = useCheckpoints();
   const semiAuto = useSemiAutoControls();
@@ -129,7 +132,8 @@ export default function AnnotationsPanel({ activeViewportId, sourceImageIds }: A
   ) : undefined;
   // The open operation's model supplies the section's target, summary and close.
   const openModel = operations.openId === 'interpolate' ? interpolate : operations.openId === 'propagate' ? propagate
-    : operations.openId === 'seeded' ? seeded : operations.openId === 'regionCompetition' ? region : operations.openId === 'qc3d' ? qc3d : cleanup;
+    : operations.openId === 'seeded' ? seeded : operations.openId === 'regionCompetition' ? region : operations.openId === 'qc3d' ? qc3d
+    : operations.openId?.startsWith('module:') ? { close: moduleOp.close, target: moduleOp.target, summary: moduleOp.summaryLine } : cleanup;
   const operationsSection = isSeg ? (
     <OperationsSection
       operations={operations.operations}
@@ -146,6 +150,7 @@ export default function AnnotationsPanel({ activeViewportId, sourceImageIds }: A
       <PropagateSheet m={propagate} />
       <SeededSheet m={seeded} />
       <RegionSheet m={region} />
+      <ModuleSheet m={moduleOp} />
       <Qc3dSheet m={qc3d} />
     </OperationsSection>
   ) : undefined;

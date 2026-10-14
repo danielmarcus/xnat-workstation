@@ -6,40 +6,8 @@
  */
 import type { CleanupSheetModel, ParamSpec } from '../../hooks/useCleanupSheet';
 import { OperationBody, OperationRow, PreviewCommitButtons, Segmented } from './OperationsSection';
+import { OperationParam as Param } from './OperationParams';
 
-function Param({ spec, value, onChange }: { spec: ParamSpec; value: number | string; onChange: (v: number | string) => void }) {
-  if (spec.kind === 'select') {
-    return (
-      <OperationRow label={spec.label} title={spec.hint}>
-        <select
-          aria-label={spec.label}
-          value={String(value)}
-          onChange={(e) => onChange(e.target.value)}
-          className="flex-1 min-w-0 px-1 py-0.5 rounded bg-zinc-800 text-zinc-200 text-[10px]"
-        >
-          {spec.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-        </select>
-      </OperationRow>
-    );
-  }
-  return (
-    <OperationRow label={spec.label} title={spec.hint}>
-      <input
-        type="range"
-        aria-label={spec.label}
-        min={spec.min}
-        max={spec.max}
-        step={spec.step}
-        value={Number(value)}
-        onChange={(e) => onChange(Number(e.target.value))}
-        className="flex-1 min-w-0 accent-blue-500"
-      />
-      <span className="text-zinc-300 tabular-nums whitespace-nowrap">
-        {Number(value)}{spec.unit ? ` ${spec.unit}` : ''}
-      </span>
-    </OperationRow>
-  );
-}
 
 export default function CleanupSheet({ m }: { m: CleanupSheetModel }) {
   if (!m.open) return null;
@@ -47,7 +15,7 @@ export default function CleanupSheet({ m }: { m: CleanupSheetModel }) {
   const advanced = m.op.params.filter((p) => p.advanced);
   const canCommit = !!m.target && !m.target.locked && !m.previewReadOnly;
   const param = (spec: ParamSpec) => (
-    <Param key={spec.key} spec={spec} value={m.params[spec.key]} onChange={(v) => m.setParam(spec.key, v)} />
+    <Param key={spec.key} spec={spec} value={m.params[spec.key]} onChange={(v) => m.setParam(spec.key, v as number | string)} /> // Cleanup has no boolean parameters
   );
   return (
     <OperationBody

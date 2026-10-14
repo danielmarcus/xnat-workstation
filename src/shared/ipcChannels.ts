@@ -103,6 +103,7 @@ export const IPC = {
   MODULES_TRUST_KEY_PICK: 'modules:trust-key-pick',
   MODULES_UNTRUST_KEY: 'modules:untrust-key',
   MODULES_RUN_START: 'modules:run-start',
+  MODULES_SAVE_LOG: 'modules:save-log',
   MODULES_RUN_STOP: 'modules:run-stop',
   /** main → renderer: a run's message port (with its run id). */
   MODULES_RUN_PORT: 'modules:run-port',
