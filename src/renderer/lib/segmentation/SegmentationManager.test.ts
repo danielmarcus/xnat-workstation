@@ -555,6 +555,26 @@ describe('SegmentationManager', () => {
     expect(segmentationServiceMock.setLabel).toHaveBeenCalledWith('rt-loaded', 'Loaded RT');
   });
 
+  it('restoring a cached lock leaves a member that is already locked locked', async () => {
+    // Lock is segmentation-level Cornerstone state (it outlives a viewport), and the only
+    // lock setter is a toggle. A restore that toggled every cached-locked member flipped
+    // a loaded structure — which arrives locked — to UNLOCKED whenever it ran on members
+    // still locked: a second restore (the native attach of an RTSTRUCT that loaded before
+    // its viewport was ready), a second viewport on the same scan, a reload.
+    const manager = new SegmentationManager();
+    seedViewerPanelContext();
+    manager.initialize(makeDeps());
+    useSegmentationManagerStore.getState().setPresentation('rt-loaded', 1, { locked: true });
+    useSegmentationManagerStore.getState().setPresentation('rt-loaded', 2, { locked: true });
+    // Member 1 still locked in Cornerstone; member 2 lost its lock (e.g. re-created).
+    segmentationServiceMock.getSegmentLocked.mockImplementation((_id: string, idx: number) => idx === 1);
+
+    await manager.loadRtStructFromArrayBuffer('panel_0', new ArrayBuffer(8), ['img-1']);
+
+    expect(segmentationServiceMock.toggleSegmentLocked).toHaveBeenCalledTimes(1);
+    expect(segmentationServiceMock.toggleSegmentLocked).toHaveBeenCalledWith('rt-loaded', 2);
+  });
+
 
   /**
    * Re-attach on panel (re)load — the XNAT path that no offline E2E can reach.

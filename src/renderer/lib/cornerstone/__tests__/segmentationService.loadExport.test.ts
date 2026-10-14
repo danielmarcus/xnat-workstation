@@ -796,6 +796,46 @@ describe('segmentationService load/export integration (mocked cornerstone)', () 
     expect(segIoMocks.setStyle).toHaveBeenCalled();
   });
 
+  it('a contour segmentation keeps its loaded colours until a viewport representation can take them', async () => {
+    // An RTSTRUCT loaded before its viewport could take a contour representation: its
+    // ROIDisplayColors had nowhere to go. The panel summary must still report them, and
+    // the representation added later must be drawn in them, not in the default palette.
+    segIoMocks.segmentationMap.set('rt-loaded', {
+      segmentationId: 'rt-loaded',
+      label: 'RT',
+      segments: {
+        1: { segmentIndex: 1, label: 'BODY' },
+        2: { segmentIndex: 2, label: 'GTV' },
+      },
+      representationData: { Contour: { annotationUIDsMap: new Map() } },
+    });
+    // Cornerstone: no representation on the viewport ⇒ no colour (null); a fresh one ⇒
+    // a fresh LUT, whose unset entries read as transparent black.
+    const original = segIoMocks.getSegmentIndexColor.getMockImplementation()!;
+    segIoMocks.getSegmentIndexColor.mockImplementation((vp: string, segId: string, idx: number) => (
+      segIoMocks.viewportIdsBySeg.get(segId)?.has(vp)
+        ? (segIoMocks.colorMap.get(`${vp}|${segId}|${idx}`) ?? [0, 0, 0, 0])
+        : (null as unknown as [number, number, number, number])
+    ));
+    try {
+      segmentationService.rememberLoadedColors('rt-loaded', new Map([
+        [1, [0, 255, 0, 255]],
+        [2, [255, 0, 0, 255]],
+      ]));
+      segmentationService.sync();
+      const summary = useSegmentationStore.getState().segmentations.find((s) => s.segmentationId === 'rt-loaded');
+      expect(summary?.segments.map((s) => s.color)).toEqual([[0, 255, 0, 255], [255, 0, 0, 255]]);
+
+      await segmentationService.ensureContourRepresentation('panel_0', 'rt-loaded');
+
+      expect(segIoMocks.colorMap.get('panel_0|rt-loaded|1')).toEqual([0, 255, 0, 255]);
+      expect(segIoMocks.colorMap.get('panel_0|rt-loaded|2')).toEqual([255, 0, 0, 255]);
+    } finally {
+      segIoMocks.getSegmentIndexColor.mockImplementation(original);
+      segmentationService.removeSegmentation('rt-loaded');
+    }
+  });
+
   it('reports exportable content for labelmap and contour segmentations', async () => {
     const groupId = await segmentationService.createStackSegmentation(['src-1', 'src-2'], 'Group', true);
     const groupSeg = useSegmentationStore

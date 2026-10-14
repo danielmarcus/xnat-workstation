@@ -71,6 +71,7 @@ const rtStructMocks = vi.hoisted(() => {
     updateContourStyle: vi.fn(),
     setActiveSegmentIndex: vi.fn(),
     sync: vi.fn(),
+    rememberLoadedColors: vi.fn(),
     getTrackedSourceImageIds: vi.fn(() => ['img-1']),
     denaturalizeDataset: vi.fn((dataset: unknown) => ({ dataset })),
     writeDicomDict: vi.fn(() => {
@@ -185,6 +186,7 @@ vi.mock('../segmentationService', () => ({
     updateContourStyle: rtStructMocks.updateContourStyle,
     setActiveSegmentIndex: rtStructMocks.setActiveSegmentIndex,
     sync: rtStructMocks.sync,
+    rememberLoadedColors: rtStructMocks.rememberLoadedColors,
     getTrackedSourceImageIds: rtStructMocks.getTrackedSourceImageIds,
   },
 }));
@@ -355,6 +357,39 @@ describe('rtStructService', () => {
     expect(rtStructMocks.setActiveSegmentIndex).toHaveBeenCalledWith(result.segmentationId, 1);
     expect(rtStructMocks.sync).toHaveBeenCalled();
     expect(useSegmentationStore.getState().activeSegmentationId).toBe(result.segmentationId);
+    // The colours went onto the representation, so there is nothing left to remember.
+    expect(rtStructMocks.rememberLoadedColors).not.toHaveBeenCalled();
+  });
+
+  it('keeps the ROIDisplayColors for later when the viewport has no representation to take them yet', async () => {
+    rtStructMocks.metadataMap.set('sopCommonModule|img-1', { sopInstanceUID: 'sop-1' });
+    rtStructMocks.metadataMap.set('imagePlaneModule|img-1', { frameOfReferenceUID: 'FOR-1', imagePositionPatient: [0, 0, 0] });
+    // What Cornerstone does when the representation was not added (viewport not ready):
+    // getSegmentIndexColor finds no representation and returns null, so the set throws.
+    rtStructMocks.setSegmentIndexColor.mockImplementation(() => {
+      throw new TypeError("Cannot set properties of null (setting '0')");
+    });
+    const roi = (roiNumber: number, color: [number, number, number]) => ({
+      roiNumber,
+      name: `ROI ${roiNumber}`,
+      color,
+      interpretedType: 'ORGAN',
+      contours: [{ points: [1, 1, 0, 2, 1, 0, 2, 2, 0], referencedSOPInstanceUID: 'sop-1', geometricType: 'CLOSED_PLANAR' }],
+    });
+    const parsed = {
+      structureSetLabel: 'RT',
+      structureSetName: 'RT',
+      referencedSeriesUID: 'SER-1',
+      rois: [roi(1, [0, 255, 0]), roi(2, [255, 0, 0])],
+      approval: { approved: false, reviewerName: null, reviewedAt: null },
+    };
+
+    const result = await rtStructService.loadRtStructAsContours(parsed, ['img-1'], 'panel_0');
+
+    expect(rtStructMocks.rememberLoadedColors).toHaveBeenCalledWith(
+      result.segmentationId,
+      new Map([[1, [0, 255, 0, 255]], [2, [255, 0, 0, 255]]]),
+    );
   });
 
   it('exports contour segmentation to base64 RTSTRUCT and applies source metadata + segment colors', async () => {

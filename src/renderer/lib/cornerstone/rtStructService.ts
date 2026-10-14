@@ -616,21 +616,31 @@ async function loadRtStructAsContours(
     console.debug('[rtStructService] setActiveSegmentation:', err);
   }
 
-  // Set segment colors
+  // Set segment colors (ROIDisplayColor)
+  const roiColors = new Map<number, [number, number, number, number]>();
+  let allColorsApplied = true;
   for (let roiIdx = 0; roiIdx < parsed.rois.length; roiIdx++) {
     const roi = parsed.rois[roiIdx];
     const segmentIndex = roiIdx + 1;
+    const color: [number, number, number, number] = [roi.color[0], roi.color[1], roi.color[2], 255];
+    roiColors.set(segmentIndex, color);
     try {
       csSegmentation.config.color.setSegmentIndexColor(
         viewportId,
         segmentationId,
         segmentIndex,
-        [roi.color[0], roi.color[1], roi.color[2], 255] as any,
+        color as any,
       );
     } catch {
-      // Color setting may fail if representation not ready
+      // Fails when the viewport could not take the representation yet (Cornerstone
+      // skips adding it to a viewport that is not ready, and a colour lives on the
+      // representation). The colours must not be lost with it: the panel summary, the
+      // presentation cache and the representation added later would all fall back to
+      // the default palette.
+      allColorsApplied = false;
     }
   }
+  if (!allColorsApplied) segmentationService.rememberLoadedColors(segmentationId, roiColors);
 
   // Apply contour style
   segmentationService.updateContourStyle();
