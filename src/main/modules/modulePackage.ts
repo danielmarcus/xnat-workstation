@@ -11,7 +11,9 @@
  * Trust (design point 2): Bundled (inside the app bundle — the app's own signature covers it),
  * Verified (a valid signature by a trusted key), Community (unsigned, or a valid signature by a
  * key the user has not trusted), Refused (an invalid signature, an invalid package, or one this
- * host cannot run).
+ * host cannot run). A trusted key is matched by its whole public key, not just its 64-bit id
+ * (#103), and a Verified package names its publisher by the trusted key's own name: the
+ * `signer` text in signature.json is outside what the signature covers.
  */
 import * as crypto from 'crypto';
 import { readZip, writeZip, ZipError } from './zip';
@@ -21,7 +23,7 @@ export const SIGNATURE_FILE = 'signature.json';
 export const SIGNATURE_FORMAT = 'xnat-module-signature/1';
 
 export type { ModuleTier, SignatureInfo } from '../../shared/modules/types';
-import type { ModuleTier, SignatureInfo } from '../../shared/modules/types';
+import type { ModuleTier, SignatureInfo, TrustedKey } from '../../shared/modules/types';
 
 export type PackageResult =
   | { ok: true; manifest: ModuleManifest; files: Map<string, Buffer>; digest: string; signature: SignatureInfo; tier: ModuleTier }
@@ -93,33 +95,40 @@ export function verifySignature(files: Map<string, Buffer>): SignatureInfo {
   const keyId = keyIdOf(spki);
   if (sig.keyId !== keyId) return { status: 'invalid', keyId, reason: 'the key id does not match the signing key' };
   const ok = crypto.verify(null, canonicalDigest(files), key, Buffer.from(sig.signature, 'base64'));
-  const signer = typeof sig.signer === 'string' ? sig.signer.slice(0, 200) : undefined;
+  // signature.json's `signer` is not read: it is not covered by the signature, so anyone could
+  // write any name there. A Verified package is named by the trusted key's own name instead.
   return ok
-    ? { status: 'valid', keyId, publicKey: sig.publicKey, signer }
-    : { status: 'invalid', keyId, signer, reason: 'the files do not match the signature — the package was changed after it was signed' };
+    ? { status: 'valid', keyId, publicKey: sig.publicKey }
+    : { status: 'invalid', keyId, reason: 'the files do not match the signature — the package was changed after it was signed' };
+}
+
+/** The trusted key that made a valid signature — the same key, not merely the same 64-bit id. */
+export function trustedSigner(sig: SignatureInfo, trusted: readonly TrustedKey[]): TrustedKey | null {
+  if (sig.status !== 'valid' || !sig.keyId || !sig.publicKey) return null;
+  const spki = Buffer.from(sig.publicKey, 'base64');
+  return trusted.find((k) => k.keyId === sig.keyId && Buffer.from(k.publicKey, 'base64').equals(spki)) ?? null;
 }
 
 /** The tier a signature earns, given the keys the app trusts. */
-export function classify(sig: SignatureInfo, trustedKeyIds: ReadonlySet<string>, bundled = false): ModuleTier | 'refused' {
+export function classify(sig: SignatureInfo, trusted: readonly TrustedKey[], bundled = false): ModuleTier | 'refused' {
   if (bundled) return 'bundled';
   if (sig.status === 'invalid') return 'refused';
-  if (sig.status === 'valid' && sig.keyId && trustedKeyIds.has(sig.keyId)) return 'verified';
-  return 'community';
+  return trustedSigner(sig, trusted) ? 'verified' : 'community';
 }
 
 /** Read and check a package: format, manifest, entry, compatibility, signature, trust. */
-export function readPackage(buf: Buffer, trustedKeyIds: ReadonlySet<string>, opts: { bundled?: boolean } = {}): PackageResult {
+export function readPackage(buf: Buffer, trusted: readonly TrustedKey[], opts: { bundled?: boolean } = {}): PackageResult {
   let files: Map<string, Buffer>;
   try {
     files = readZip(buf);
   } catch (e) {
     return { ok: false, reason: e instanceof ZipError ? `Not a valid module package: ${e.message}` : 'Not a valid module package' };
   }
-  return checkFiles(files, trustedKeyIds, opts);
+  return checkFiles(files, trusted, opts);
 }
 
 /** The same checks on files already unpacked (an installed module, re-checked at every load). */
-export function checkFiles(files: Map<string, Buffer>, trustedKeyIds: ReadonlySet<string>, opts: { bundled?: boolean } = {}): PackageResult {
+export function checkFiles(files: Map<string, Buffer>, trusted: readonly TrustedKey[], opts: { bundled?: boolean } = {}): PackageResult {
   const rawManifest = files.get('manifest.json');
   if (!rawManifest) return { ok: false, reason: 'The package has no manifest.json' };
   let json: unknown;
@@ -135,8 +144,9 @@ export function checkFiles(files: Map<string, Buffer>, trustedKeyIds: ReadonlySe
   const compat = checkCompatibility(manifest);
   if (!compat.ok) return { ok: false, reason: `This module cannot run here: ${compat.reason}`, manifest };
   const signature = opts.bundled ? ({ status: 'unsigned' } as SignatureInfo) : verifySignature(files);
-  const tier = classify(signature, trustedKeyIds, opts.bundled);
+  const tier = classify(signature, trusted, opts.bundled);
   if (tier === 'refused') return { ok: false, reason: `The signature is invalid: ${signature.reason}`, manifest };
+  if (tier === 'verified') signature.signer = trustedSigner(signature, trusted)!.name;
   return { ok: true, manifest, files, digest: canonicalDigest(files).toString('hex'), signature, tier };
 }
 

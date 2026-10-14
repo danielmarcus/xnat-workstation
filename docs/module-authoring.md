@@ -20,13 +20,14 @@ id of its own, make a publisher key, then pack, sign and check it:
 cp -R modules/examples/threshold my-module
 sed -i.bak 's/org.xnat.examples.threshold/org.example.my-threshold/; s/"Intensity threshold"/"My threshold"/' my-module/manifest.json
 rm my-module/manifest.json.bak
-npm run module:keygen -- my-publisher
-npm run module:pack -- my-module my-module.xwmodule --key my-publisher.private.pem --signer "My Lab"
+npm run module:keygen -- my-publisher --publisher "My Lab"
+npm run module:pack -- my-module my-module.xwmodule --key my-publisher.private.pem
 npm run module:verify -- my-module.xwmodule --trust my-publisher.public.json
 ```
 <!-- quickstart:end -->
 
-`module:verify` prints the module, `VERIFIED` and the key that signed it. To install it:
+`module:verify` prints the module, `VERIFIED` and the key that signed it, with the publisher
+name from its `public.json` — the name the app shows for your modules once the key is trusted. To install it:
 
 1. **Settings › Modules › Add trusted publisher…** and choose `my-publisher.public.json`.
 2. **Install module…** and choose `my-module.xwmodule` (or drop it on the Modules page). It
@@ -90,7 +91,7 @@ paths, no links.
 | `writes.mode` | `add` — the mask joins the segment; `replace` — inside the box, the segment becomes the mask |
 | `writes.claims` | `true` lets it take voxels from other (unlocked) segments; otherwise they keep theirs |
 | `scopes` | Which of *Slice* (the one on screen), *Range* (of slices), *Volume*, *ROI limit* (its rectangle, through the volume) the user may choose |
-| `postSteps` | Built-in Cleanup operations applied to the result, slice by slice (ids from the Cleanup catalog that need only the mask, e.g. `fillHoles`, `keepLargest`, `removeSpeckles`, `smoothEdges`) |
+| `postSteps` | Built-in Cleanup operations applied to the result, slice by slice: `[{ "op": "removeSpeckles", "params": { "minAreaMm2": 20 } }]`. `op` is one of `fillHoles`, `keepLargest`, `removeSpeckles`, `removeStrays`, `median`, `gaussian`, `smoothEdges`, `open`, `close` (the Cleanup operations that need only the mask); `params` are numbers within the Cleanup sheet's ranges, defaults where omitted. Anything else makes the manifest invalid |
 | `bytesPerVoxel` | Your peak memory per voxel of the box, for the memory estimate and guard (default 16) |
 
 ## API 1.0
@@ -148,7 +149,10 @@ and compile WebAssembly. Each run starts fresh — nothing persists between runs
 | **Bundled** | Shipped inside an edition's signed application (see [editions.md](editions.md)) |
 
 Signatures are Ed25519 over a SHA-256 digest of every file but `signature.json`; any change to
-any file invalidates them. A key id is the first 16 hex digits of the SHA-256 of the public key.
+any file invalidates them. A key id is the first 16 hex digits of the SHA-256 of the public key;
+trust compares the whole key. A Verified module is shown with the name the user (or edition) gave
+the trusted key (`module:keygen --publisher`, in its `public.json`) — the `signer` field of
+`signature.json` is not covered by the signature, so the app does not show it.
 `module:sign` re-signs an existing package (e.g. a reviewer countersigning); `module:verify`
 checks a package as the app will.
 

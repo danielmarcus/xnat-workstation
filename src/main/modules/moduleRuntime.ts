@@ -2,17 +2,23 @@
  * The module sandbox (branch 9, M3 — docs/segworks-parity.md §12, design point 3).
  *
  * Each run gets a fresh, hidden, sandboxed renderer process of its own:
- *  - its own in-memory session (no cookies, no cache shared with the app, nothing persisted),
- *    where every request is cancelled except for this module's own files;
- *  - those files served by the `xnat-module://<id>/` protocol from the (re-checked) package, with
- *    a Content-Security-Policy that allows only the module's own scripts and WebAssembly;
+ *  - in the module sandbox's in-memory session (no cookies, no cache shared with the app,
+ *    nothing persisted), where every request is cancelled except for this run's own files;
+ *  - those files served by the `xnat-module://<run host>/` protocol from the (re-checked)
+ *    package, with a Content-Security-Policy that allows only the module's own scripts and
+ *    WebAssembly. Each run has a host — an origin — of its own, so runs share no storage;
  *  - no Node, no preload API beyond receiving its message port, no navigation, no popups, no
  *    permissions.
  * The module talks to the app page over a MessagePort pair (data in, masks out, transferred, not
  * copied through the main process). Stopping a run destroys its process — a module that ignores
  * Cancel cannot keep running.
+ *
+ * The session is ONE, shared by every run (#103): Electron never frees a partition, so a session
+ * per run leaked it — and, through its protocol handler, the package's files (up to 256 MB) —
+ * run after run. What a run serves lives in `runs`, and is forgotten (its origin's storage
+ * cleared) when the run stops.
  */
-import { app, BrowserWindow, ipcMain, MessageChannelMain, protocol, session as electronSession, type WebContents } from 'electron';
+import { app, BrowserWindow, ipcMain, MessageChannelMain, protocol, session as electronSession, type Session, type WebContents } from 'electron';
 import { IPC } from '../../shared/ipcChannels';
 import * as crypto from 'crypto';
 import * as path from 'path';
@@ -108,6 +114,11 @@ window.addEventListener('message', (e) => {
 }
 
 interface Run {
+  /** The run's URL host: `xnat-module://<host>/` is its origin. */
+  host: string;
+  /** The package's files, re-checked when the run started — served from here, never from disk. */
+  files: Map<string, Buffer>;
+  entry: string;
   win: BrowserWindow;
   timer: NodeJS.Timeout;
   sender: WebContents;
@@ -115,6 +126,47 @@ interface Run {
   unlisten: () => void;
 }
 const runs = new Map<string, Run>();
+/** The live runs by host — what the sandbox session serves. */
+const byHost = new Map<string, Run>();
+
+const PARTITION = 'xnat-module-sandbox';
+let sandbox: Session | null = null;
+
+/** The one in-memory session every run's process uses: set up once, serving only live runs. */
+function sandboxSession(): Session {
+  if (sandbox) return sandbox;
+  const ses = electronSession.fromPartition(PARTITION, { cache: false });
+  ses.setPermissionRequestHandler((_wc, _perm, cb) => cb(false));
+  ses.setPermissionCheckHandler(() => false);
+  // Nothing leaves the sandbox: a run's page may request only its own run's files.
+  ses.webRequest.onBeforeRequest((details, cb) => {
+    const run = runForUrl(details.url);
+    const own = !!run && (details.webContentsId === undefined || (!run.win.isDestroyed() && run.win.webContents.id === details.webContentsId));
+    cb({ cancel: !own });
+  });
+  ses.protocol.handle(MODULE_SCHEME, (req) => {
+    const headers = { 'Content-Security-Policy': CSP, 'X-Content-Type-Options': 'nosniff' };
+    const run = runForUrl(req.url);
+    if (!run) return new Response('not found', { status: 404, headers });
+    const rel = decodeURIComponent(new URL(req.url).pathname.replace(/^\//, ''));
+    if (rel === '__host.html') return new Response(hostHtml(), { headers: { ...headers, 'Content-Type': 'text/html' } });
+    if (rel === '__host.js') return new Response(hostJs(run.entry), { headers: { ...headers, 'Content-Type': 'text/javascript' } });
+    const data = run.files.get(rel);
+    if (!data || rel === 'signature.json') return new Response('not found', { status: 404, headers });
+    return new Response(new Uint8Array(data), { headers: { ...headers, 'Content-Type': MIME[path.extname(rel)] ?? 'application/octet-stream' } });
+  });
+  sandbox = ses;
+  return ses;
+}
+
+function runForUrl(url: string): Run | undefined {
+  try {
+    const u = new URL(url);
+    return u.protocol === `${MODULE_SCHEME}:` ? byHost.get(u.host) : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 /** The longest a run may take before its process is destroyed. */
 const RUN_LIMIT_MS = 30 * 60 * 1000;
@@ -128,6 +180,9 @@ export function stopModuleRun(runId: string, reason = 'stopped'): void {
   const r = runs.get(runId);
   if (!r) return;
   runs.delete(runId);
+  byHost.delete(r.host);
+  // Whatever the page stored (localStorage, IndexedDB, Cache Storage) goes with it.
+  void sandbox?.clearStorageData({ origin: `${MODULE_SCHEME}://${r.host}` }).catch(() => {});
   clearTimeout(r.timer);
   r.unlisten();
   if (!r.win.isDestroyed()) r.win.destroy();
@@ -143,24 +198,10 @@ export async function startModuleRun(sender: WebContents, id: string): Promise<{
   if (!loaded.ok) return { ok: false, reason: loaded.reason };
   const { files, manifest } = loaded;
   const runId = crypto.randomUUID();
-  const host = id;
+  // Unguessable, and a host of its own: no run can name (or share an origin with) another's.
+  const host = `run-${runId}`;
   const prefix = `${MODULE_SCHEME}://${host}/`;
-  const ses = electronSession.fromPartition(`xnat-module-run-${runId}`, { cache: false });
-  ses.setPermissionRequestHandler((_wc, _perm, cb) => cb(false));
-  ses.setPermissionCheckHandler(() => false);
-  // Nothing leaves the sandbox: only this module's own files may be requested.
-  ses.webRequest.onBeforeRequest((details, cb) => cb({ cancel: !details.url.startsWith(prefix) }));
-  ses.protocol.handle(MODULE_SCHEME, (req) => {
-    const url = new URL(req.url);
-    if (url.host !== host) return new Response('not found', { status: 404 });
-    const rel = decodeURIComponent(url.pathname.replace(/^\//, ''));
-    const headers = { 'Content-Security-Policy': CSP, 'X-Content-Type-Options': 'nosniff' };
-    if (rel === '__host.html') return new Response(hostHtml(), { headers: { ...headers, 'Content-Type': 'text/html' } });
-    if (rel === '__host.js') return new Response(hostJs(manifest.entry), { headers: { ...headers, 'Content-Type': 'text/javascript' } });
-    const data = files.get(rel);
-    if (!data || rel === 'signature.json') return new Response('not found', { status: 404, headers });
-    return new Response(new Uint8Array(data), { headers: { ...headers, 'Content-Type': MIME[path.extname(rel)] ?? 'application/octet-stream' } });
-  });
+  const ses = sandboxSession();
 
   const win = new BrowserWindow({
     show: false,
@@ -187,7 +228,9 @@ export async function startModuleRun(sender: WebContents, id: string): Promise<{
   sender.once('destroyed', onGone);
   sender.on('did-start-navigation', onNavigate);
   const unlisten = () => { sender.removeListener('destroyed', onGone); sender.removeListener('did-start-navigation', onNavigate); };
-  runs.set(runId, { win, timer, sender, unlisten });
+  const run: Run = { host, files, entry: manifest.entry, win, timer, sender, unlisten };
+  runs.set(runId, run);
+  byHost.set(host, run);
 
   try {
     await win.loadURL(`${prefix}__host.html`);
