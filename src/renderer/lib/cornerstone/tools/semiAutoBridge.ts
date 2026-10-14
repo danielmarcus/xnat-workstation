@@ -12,10 +12,12 @@ export interface SemiAutoBridge {
   smartBrushExtend(world: number[]): void;
   smartBrushEnd(): void;
   setRoi(viewportId: string, corners: number[][]): void;
-  addSeedStroke(viewportId: string, kind: 'fg' | 'bg', world: number[]): void;
+  /** Starts a stroke; false when none could start (the drag must not extend another). */
+  addSeedStroke(viewportId: string, kind: 'fg' | 'bg', world: number[]): boolean;
   extendSeedStroke(world: number[]): void;
   /** The Seeded segmentation painter (branch 5): a stroke of the chosen class, or Background with ⇧. */
-  solverSeedBegin(viewportId: string, world: number[], background: boolean): void;
+  /** Starts a stroke (or an erase); false when none could start. */
+  solverSeedBegin(viewportId: string, world: number[], background: boolean): boolean;
   solverSeedExtend(world: number[]): void;
 }
 

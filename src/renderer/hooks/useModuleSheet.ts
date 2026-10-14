@@ -44,9 +44,16 @@ export function useModuleSheet() {
 
   const values = useMemo(() => {
     const stored = moduleId ? sheet.moduleParams[moduleId] ?? {} : {};
-    return Object.fromEntries((manifest?.params ?? []).map((p) => [p.key, stored[p.key] ?? p.default]));
+    // A value kept from an earlier version of the module is used only if it is still valid for
+    // this one (in range and on its step, among its options, the right type).
+    const valid = (p: NonNullable<typeof manifest>['params'][number], v: unknown): boolean =>
+      p.kind === 'number' ? typeof v === 'number' && v >= p.min && v <= p.max
+        : p.kind === 'select' ? typeof v === 'string' && p.options.some((o) => o.value === v)
+        : typeof v === 'boolean';
+    return Object.fromEntries((manifest?.params ?? []).map((p) => [p.key, valid(p, stored[p.key]) ? stored[p.key] : p.default]));
   }, [manifest, moduleId, sheet.moduleParams]);
-  const scope: ModuleScopeChoice = (moduleId && sheet.moduleScopes[moduleId]) || { kind: manifest?.scopes[0] ?? 'slice' };
+  const savedScope = moduleId ? sheet.moduleScopes[moduleId] : undefined;
+  const scope: ModuleScopeChoice = savedScope && manifest?.scopes.includes(savedScope.kind) ? savedScope : { kind: manifest?.scopes[0] ?? 'slice' };
   const domain = useMemo(
     () => (manifest ? moduleDomain(manifest, scope, activeViewportId) : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- follows the scope, viewport, ROI and target

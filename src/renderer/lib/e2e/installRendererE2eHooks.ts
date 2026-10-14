@@ -210,6 +210,8 @@ declare global {
        * slices run along, the slice index there, and the voxel at the focal point (the sweep).
        */
       viewportPlane: (panelId: string) => { axis: 0 | 1 | 2; index: number; focal: [number, number, number]; dims: [number, number, number] } | null;
+      /** The seed strokes painted (Seeded segmentation): class and point count of each. */
+      seedStrokes: () => Array<{ cls: number; points: number }>;
       /** How many mask islands are selected (the Select tool on a Segmentation). */
       selectedIslandCount: () => number;
       /** Whether a contour (Spline, Live Wire, Freehand, Contour Fill boundary) is being drawn. */
@@ -941,6 +943,7 @@ export function installRendererE2eHooks(): void {
       return { axis, index: focal[axis], focal, dims: [...g.geometry.dimensions] as [number, number, number] };
     },
     selectedIslandCount: () => getMaskSelection()?.islands.length ?? 0,
+    seedStrokes: () => useSeedStore.getState().strokes.map((st) => ({ cls: st.cls, points: st.points.length })),
     contourDrawing: () => !!unifiedToolService.drawingTool(),
     toolInteracting: () => !!(csToolsState as { isInteractingWithTool?: boolean }).isInteractingWithTool,
     toolStateFlags: () => ({ ...(csToolsState as unknown as Record<string, unknown>) }),

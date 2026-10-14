@@ -150,6 +150,19 @@ test('a module whose process dies ends the run with the reason — it does not h
   expect(r.error).toMatch(/The module stopped: the module's process ended/);
 });
 
+test('a result that is a view into WebAssembly memory arrives (copied — it cannot be transferred)', async ({ electronApp, page }) => {
+  await installDirect(electronApp, buildPackage('wasmmem', manifest('org.e2e.wasmmem'), `
+    export function run() {
+      const mem = new WebAssembly.Memory({ initial: 1 });
+      const heap = new Uint8Array(mem.buffer);
+      for (let i = 0; i < 16; i++) heap[100 + i] = i + 1;
+      return { mask: heap.subarray(100, 116) };
+    }`));
+  const r = await run(page, 'org.e2e.wasmmem');
+  expect(r.error).toBeUndefined();
+  expect(Object.values(r.result!.mask as Record<string, number>)).toEqual(Array.from({ length: 16 }, (_, i) => i + 1));
+});
+
 test('a module that throws, or exports no run(), fails with the reason', async ({ electronApp, page }) => {
   await installDirect(electronApp, buildPackage('throws', manifest('org.e2e.throws'), `export function run() { throw new Error('bad input'); }`));
   await installDirect(electronApp, buildPackage('norun', manifest('org.e2e.norun'), `export const nothing = 1;`));

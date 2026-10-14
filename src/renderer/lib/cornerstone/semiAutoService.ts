@@ -21,6 +21,7 @@ import { startSemiAutoOverlay } from './semiAutoOverlay';
 import { type Axis, extractValues, planeAxes, planeSize, sliceIndices } from '../segmentation/maskOps/planeIO';
 import { guardFromSamples, levelTrace, rasterize } from '../segmentation/semiauto/levelTrace';
 import { smartBrushDab, strokeDabs } from '../segmentation/semiauto/smartBrush';
+import { installOperationContextReset } from './operationContextReset';
 import { computeClient, ComputeCancelled } from '../compute/computeClient';
 import { hotkeyService } from '../hotkeys/hotkeyService';
 import { useComputeStore } from '../../stores/computeStore';
@@ -149,6 +150,7 @@ export const semiAutoService = {
       geometry: grid.geometry,
       mmPerPx: (grid.geometry.spacing[planeAxes(at.axis)[0]] + grid.geometry.spacing[planeAxes(at.axis)[1]]) / 2,
       started: false,
+      last: null,
     };
     semiAutoService.smartBrushExtend(world);
     return true;
@@ -162,9 +164,15 @@ export const semiAutoService = {
     if (ijk[st.axis] !== st.slice) return; // a stroke stays on its slice
     const o = useSemiAutoStore.getState().smartBrush;
     const dab = new Uint8Array(st.size.width * st.size.height);
-    smartBrushDab(st.image, st.size.width, st.size.height, ijk[ax], ijk[ay], {
-      radiusPx: Math.max(1, o.radiusMm / st.mmPerPx), tolerance: o.tolerance, spacingPx: o.spacingPx,
-    }, dab);
+    const radiusPx = Math.max(1, o.radiusMm / st.mmPerPx);
+    // Dabs all along the path since the last move, at most half a radius apart: one dab per
+    // mouse event left gaps wherever the pointer moved fast.
+    const here: [number, number] = [ijk[ax], ijk[ay]];
+    const centres = st.last ? strokeDabs([st.last, here], Math.min(o.spacingPx, radiusPx / 2)) : [here];
+    st.last = here;
+    for (const [x, y] of centres) {
+      smartBrushDab(st.image, st.size.width, st.size.height, Math.round(x), Math.round(y), { radiusPx, tolerance: o.tolerance, spacingPx: o.spacingPx }, dab);
+    }
     const added = addRegion(st.t, st.axis, st.slice, dab, st.size.width, st.size.height);
     if (!added) return;
     if (!st.started) {
@@ -349,6 +357,8 @@ let stroke: {
   geometry: VoxelGridGeometry;
   mmPerPx: number;
   started: boolean;
+  /** The previous dab centre (plane pixels): the next move dabs all along from it. */
+  last: [number, number] | null;
 } | null = null;
 
 /** What a failed Smart-tool action tells the user. */
@@ -376,18 +386,20 @@ Object.assign(semiAutoBridge, {
   smartBrushExtend: semiAutoService.smartBrushExtend,
   smartBrushEnd: semiAutoService.smartBrushEnd,
   setRoi: (viewportId: string, corners: number[][]) => useSemiAutoStore.getState().setRoi({ viewportId, corners }),
-  addSeedStroke: (viewportId: string, kind: 'fg' | 'bg', w: number[]) => {
+  addSeedStroke: (viewportId: string, kind: 'fg' | 'bg', w: number[]): boolean => {
     const { activeSegmentationId: containerId, activeSegmentIndex: active } = useSegmentationStore.getState();
-    if (!containerId) return;
+    if (!containerId) return false;
     useSeedStore.getState().addStroke({
       containerId, viewportId, cls: kind === 'fg' ? active : 0,
       radiusPx: useSemiAutoStore.getState().randomWalker.seedRadiusPx, points: [w],
     });
+    return true;
   },
   extendSeedStroke: (w: number[]) => useSeedStore.getState().extendStroke(w),
 });
 
 startSemiAutoOverlay();
+installOperationContextReset();
 
 // ─── Contour Fill: Spline and Live Wire boundaries (branch 6 F4, D3) ──────────
 //

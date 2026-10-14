@@ -354,3 +354,24 @@ test('Copy nearby on a locked segment is refused with the lock warning — nothi
   await page.waitForTimeout(300);
   expect(await voxels(page)).toBe(one);
 });
+
+test('a spline whose commit wrote nothing is not recorded — Undo & edit does not undo the edit before it', async ({ page }) => {
+  // A fill inside an already-painted area adds no voxels and pushes no undo entry; the newest
+  // entry was then the square painted before, and Undo & edit undid THAT.
+  const toolbox = await open(page, 'SEG');
+  await clickTool(toolbox, 'Rect');
+  const a = await at(page, -20, -20), b = await at(page, 20, 20);
+  await page.mouse.move(a.x, a.y); await page.mouse.down(); await page.mouse.move(b.x, b.y, { steps: 8 }); await page.mouse.up();
+  await expect.poll(() => voxels(page)).toBeGreaterThan(0);
+  const square = await voxels(page);
+  await clickTool(toolbox, 'Contour Fill');
+  await toolbox.getByRole('group', { name: 'Boundary' }).getByRole('button', { name: 'Spline' }).click();
+  await clickRing(page, 8); // inside the square: nothing to add
+  await expect.poll(async () => (await inHand(page, FILL_SPLINE)).length).toBe(0);
+  expect(await voxels(page)).toBe(square);
+  // Nothing to undo-and-edit: the button is off — or, if offered, it must not undo the square.
+  if (await button(toolbox, 'Undo & edit').isEnabled()) await button(toolbox, 'Undo & edit').click();
+  await page.waitForTimeout(400);
+  expect(await voxels(page), 'the square is still there').toBe(square);
+  await page.keyboard.press('Escape');
+});

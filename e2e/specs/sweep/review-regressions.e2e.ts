@@ -145,3 +145,71 @@ test('O4: a gap-table row previews its own segment\'s gap, whichever segment is 
   await sheet.getByRole('button', { name: 'Commit' }).click();
   await expect.poll(() => hooks(page).member(2), { message: 'Segment 2’s gap filled' }).toBeGreaterThan(seg2);
 });
+
+test('O9: copy, pan, next slice, paste — the paste lands where the original is, not shifted by the pan', async ({ page }) => {
+  const { panel, toolbox } = await setup(page);
+  await row(panel, 'Segment 1').click();
+  await clickTool(toolbox, 'Rect');
+  await drag(page, [[-6, -6], [6, 6]]);
+  await page.locator(`[data-testid="unified-viewport-element:${PANEL}"]`).hover();
+  await page.keyboard.press('Control+c');
+  // Pan (middle-drag) by ~40 px, then the next slice.
+  const c = (await hooks(page).point(0, 0))!;
+  await page.mouse.move(c.x, c.y);
+  await page.mouse.down({ button: 'middle' });
+  await page.mouse.move(c.x + 40, c.y + 25, { steps: 8 });
+  await page.mouse.up({ button: 'middle' });
+  await step(page, 'ArrowDown');
+  await page.keyboard.press('Control+v');
+  const plane = await page.evaluate(() => (window as unknown as { __XNAT_E2E__: { viewportPlane: (p: string) => { dims: number[] } | null } }).__XNAT_E2E__.viewportPlane('panel_0'));
+  const per = plane!.dims[0] * plane!.dims[1];
+  await expect.poll(async () => new Set(((await page.evaluate(() => (window as unknown as { __XNAT_E2E__: { memberVoxelIndices: (i: number) => number[] } }).__XNAT_E2E__.memberVoxelIndices(1))) ?? []).map((i) => Math.floor(i / per))).size).toBe(2);
+  const idx = (await page.evaluate(() => (window as unknown as { __XNAT_E2E__: { memberVoxelIndices: (i: number) => number[] } }).__XNAT_E2E__.memberVoxelIndices(1)))!;
+  const bySlice = new Map<number, string[]>();
+  for (const i of idx) { const k = Math.floor(i / per); bySlice.set(k, [...(bySlice.get(k) ?? []), String(i % per)]); }
+  const [a, b] = [...bySlice.values()];
+  expect(b.length).toBe(a.length);
+  expect(b, 'the same in-plane pixels').toEqual(a);
+});
+
+test('S5: erasing the middle of a seed stroke splits it — the ends are not re-joined across the erased gap', async ({ page }) => {
+  const { panel } = await setup(page);
+  const sheet = await openOperation(panel, 'Seeded segmentation');
+  await sheet.getByLabel('Seed brush', { exact: true }).fill('3');
+  await sheet.getByRole('button', { name: 'Paint seeds' }).click();
+  await sheet.getByRole('group', { name: 'Seed class' }).getByRole('button', { name: /Segment 1/ }).click();
+  await drag(page, [[-30, 0], [-15, 0], [0, 0], [15, 0], [30, 0]]);
+  const strokes = () => page.evaluate(() => (window as unknown as { __XNAT_E2E__: { seedStrokes: () => Array<{ cls: number; points: number }> } }).__XNAT_E2E__.seedStrokes());
+  expect(await strokes()).toHaveLength(1);
+  await sheet.getByRole('group', { name: 'Seed class' }).getByRole('button', { name: 'Erase' }).click();
+  await drag(page, [[0, -3], [0, 3]]);
+  const after = await strokes();
+  expect(after, 'split in two at the erased gap').toHaveLength(2);
+  expect(after.every((st) => st.points > 0)).toBe(true);
+});
+
+test('O6: the ROI limit is cleared when its viewport changes plane — it no longer confines operations as a one-row strip', async ({ page }) => {
+  const { toolbox } = await setup(page);
+  await clickTool(toolbox, 'ROI limit');
+  await drag(page, [[-10, -10], [10, 10]]);
+  await expect(toolbox.getByText(/Drawn/)).toBeVisible();
+  await page.locator(`[data-panel-id="${PANEL}"]`).getByTitle('Viewport orientation').selectOption('SAGITTAL');
+  await expect(toolbox.getByText(/Drawn/), 'the axial rectangle does not carry over to sagittal').toHaveCount(0);
+});
+
+test('S9: a fast Smart Brush stroke paints all along its path — no gaps between mouse events', async ({ page }) => {
+  const { panel, toolbox } = await setup(page);
+  await row(panel, 'Segment 1').click();
+  await clickTool(toolbox, 'Smart Brush');
+  const stroke = async (dy: number, steps: number) => {
+    const a = (await hooks(page).point(-60, dy))!, b = (await hooks(page).point(-20, dy))!;
+    await page.mouse.move(a.x, a.y); await page.mouse.down(); await page.mouse.move(b.x, b.y, { steps }); await page.mouse.up();
+    await page.waitForTimeout(300);
+  };
+  await stroke(-20, 40); // slow: an event every mm
+  const slow = await hooks(page).member(1);
+  await stroke(20, 1); // fast: one event for 40 mm
+  const fast = (await hooks(page).member(1)) - slow;
+  expect(slow).toBeGreaterThan(0);
+  expect(fast, `fast ${fast} vs slow ${slow}`).toBeGreaterThan(slow * 0.8);
+});

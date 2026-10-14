@@ -50,10 +50,17 @@ Status: open · fixed (commit) · won't fix (reason).
 | O3 | P2 | Copy into / Magnet bridge refuse a locked *source* | review (mask ops 7) | open |
 | O4 | P2 | Interpolate gap-table row previews the active segment, not the row's | review (mask ops 8, interp 7) | fixed |
 | O5 | P2 | Slice-track range shows / drags on every viewport, for every op; drag doesn't discard the preview | review (interp 5, 6; mask ops 11) | open |
-| O6 | P2 | Interpolation anchors, Cleanup range, ROI limit, smart-plan overrides never reset per scan / container / orientation | review | open |
+| O6 | P2 | Interpolation anchors, Cleanup range, ROI limit, smart-plan overrides never reset per scan / container / orientation | review | fixed |
 | O7 | P2 | Slice track and gap table stale after an orientation change | review (interp 4) | open |
 | O8 | P3 | Volume / All cleanup synchronous on the UI thread: tens of seconds on 512² × 300 | review (mask ops 1) | open |
-| O9 | P3 | Ctrl+V lands displaced after panning | review (mask ops 13) | open |
+| O9 | P3 | Ctrl+V lands displaced after panning | review (mask ops 13) | fixed |
+
+## Found by the regression tests while fixing
+
+| ID | P | Finding | Source | Status |
+|---|---|---|---|---|
+| F1 | P1 | Every drag-following tool (Smart Brush, Random Walker seeds, the Seeded painter) lost its stroke's first movement — Cornerstone releases a held mouse-down on the move that a window listener added at press time had already missed (a quick flick painted one dab) | S9 regression test | fixed |
+| F2 | P2 | Cornerstone replays a click held 400 ms for double-click detection: Escape just after a click restarted the drawing and froze navigation | T4 regression test | fixed |
 
 ## Solvers, compute, 3D QC
 
@@ -66,11 +73,11 @@ reference implementations; the defects are in the services around them.
 | S2 | P1 | α-expansion with no Background seeds paints the whole box | review (solvers 2, script) | fixed |
 | S3 | P2 | Seed / Smart Brush / Random Walker brush round in voxels, not mm — ~7× tall on sagittal/coronal of thick-slice data | review (solvers 4) | open |
 | S4 | P2 | Seeds painted in another orientation silently reduced to a few voxels | review (solvers 3) | open |
-| S5 | P2 | Erasing seed points re-bridges the stroke with straight lines | review (solvers 5, script) | open |
+| S5 | P2 | Erasing seed points re-bridges the stroke with straight lines | review (solvers 5, script) | fixed |
 | S6 | P2 | Replaced jobs: old job's cleanup hides the new job's progress bar (fixed: job ids); QC builds and solves cancel each other silently; overlapping QC builds corrupt state | review (solvers 9–11) | open |
 | S7 | P2 | 3D scissor cuts the active segmentation, not the one shown | review (solvers 14) | fixed |
-| S8 | P2 | Seeds of a deleted member break α after the solve; paintClass survives container change; a failed stroke start extends the previous stroke | review (solvers 15, 16) | open |
-| S9 | P2 | Smart Brush leaves gaps on fast drags; Level Trace with simplify loses its bottom row | review (solvers 17, 18) | open |
+| S8 | P2 | Seeds of a deleted member break α after the solve; paintClass survives container change; a failed stroke start extends the previous stroke | review (solvers 15, 16) | fixed |
+| S9 | P2 | Smart Brush leaves gaps on fast drags; Level Trace with simplify loses its bottom row | review (solvers 17, 18) | fixed |
 | S10 | P3 | Whole-volume copies per seed-paint move and per QC row; QC staleness misses edits during a build; QC opens empty from non-panel_0 MPR; surfaces overstate thick slices; Delete component on a stale report; progress stuck; Restore seeds clobbers other containers | review (solvers 6–8, 12, 13, 19–22) | open |
 
 ## Review ergonomics
@@ -90,7 +97,7 @@ reference implementations; the defects are in the services around them.
 | M1 | P1 | WebRTC (STUN) escapes the sandbox | review (modules 1, reproduced) | fixed |
 | M2 | P1 | A crashed / timed-out / quit-killed run never settles (sheet stuck "Running…") | review (modules 2) | fixed |
 | M3 | P1 | Cancel ignored when the module finishes within 2 s; Commit then writes it | review (modules 3) | fixed |
-| M4 | P2 | Results in WebAssembly memory fail (non-transferable buffer) | review (modules 4, reproduced) | open |
+| M4 | P2 | Results in WebAssembly memory fail (non-transferable buffer) | review (modules 4, reproduced) | fixed |
 | M5 | P2 | One broken install folder breaks Settings and the catalog | review (modules 8, reproduced) | fixed |
 | M6 | P2 | Community modules still listed as runnable with Allow community off | review (modules 9) | fixed |
 | M7 | P2 | Numeric last id label (org.x.2024) installs but can never run | review (modules 10, reproduced) | fixed |

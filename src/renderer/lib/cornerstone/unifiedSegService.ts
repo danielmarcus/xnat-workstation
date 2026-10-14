@@ -85,6 +85,20 @@ function voxelsOnActiveSlice(grid: NonNullable<ReturnType<typeof readSegmentVoxe
 onVoxelMemoRestored(clearMaskSelection);
 
 /** Current world focal point of the active viewport (paste-at-slice translation). */
+/** The active viewport's view-plane normal (unit), or null. */
+function activeViewportNormal(): Vec3 | null {
+  try {
+    const vpId = useViewerStore.getState().activeViewportId;
+    const vp = viewportService.getViewport(vpId) as { getCamera?: () => { viewPlaneNormal?: number[] } } | undefined;
+    const n = vp?.getCamera?.()?.viewPlaneNormal;
+    if (!Array.isArray(n) || n.length !== 3) return null;
+    const l = Math.hypot(n[0], n[1], n[2]);
+    return l > 0 ? ([n[0] / l, n[1] / l, n[2] / l] as Vec3) : null;
+  } catch {
+    return null;
+  }
+}
+
 function activeViewportFocalPoint(): Vec3 | null {
   try {
     const vpId = useViewerStore.getState().activeViewportId;
@@ -634,14 +648,19 @@ export const unifiedSegService = {
     const grid = txn.grid(member);
     if (!grid) return false;
 
+    // Moved to the slice on screen: the focal point's change ALONG the view normal only. The
+    // full change also carried any pan in between, so the paste landed beside the original.
     let translationWorld: Vec3 | undefined;
     const nowFocal = activeViewportFocalPoint();
+    const normal = activeViewportNormal();
     if (voxelClipSourceFocal && nowFocal) {
-      translationWorld = [
-        nowFocal[0] - voxelClipSourceFocal[0],
-        nowFocal[1] - voxelClipSourceFocal[1],
-        nowFocal[2] - voxelClipSourceFocal[2],
-      ];
+      const d: Vec3 = [nowFocal[0] - voxelClipSourceFocal[0], nowFocal[1] - voxelClipSourceFocal[1], nowFocal[2] - voxelClipSourceFocal[2]];
+      if (normal) {
+        const along = d[0] * normal[0] + d[1] * normal[1] + d[2] * normal[2];
+        translationWorld = [along * normal[0], along * normal[1], along * normal[2]];
+      } else {
+        translationWorld = d;
+      }
     }
 
     const written: number[] = [];

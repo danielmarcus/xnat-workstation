@@ -8,7 +8,8 @@
  *  - ROI limit:     drag a rectangle → confines Level Trace, Random Walker and Cleanup.
  *  - Random Walker: left-drag foreground seeds, right- or ⇧-drag background seeds.
  */
-import { BaseTool } from '@cornerstonejs/tools';
+import { BaseTool, Enums as ToolEnums } from '@cornerstonejs/tools';
+import { getEnabledElementByViewportId } from '@cornerstonejs/core';
 import type { Types as ToolTypes } from '@cornerstonejs/tools';
 import { semiAutoBridge as bridge } from './semiAutoBridge';
 
@@ -17,18 +18,31 @@ const getWorldPointFromClientPoint = (id: string, x: number, y: number) => bridg
 type Detail = ToolTypes.EventTypes.InteractionEventType['detail'] & { event?: MouseEvent };
 
 /** Follow a drag that began on `viewportId` until release. */
+/**
+ * Follow a drag that began with a press on `viewportId` until the button is released.
+ *
+ * Cornerstone holds a mouse-down for double-click detection and releases it when the drag passes
+ * a tolerance — so by the time a tool's preMouseDownCallback runs, the move that released it has
+ * already happened, and a window `mousemove` listener added then missed it: every stroke lost
+ * its first movement (all of it, for a quick flick). Cornerstone dispatches its own MOUSE_DRAG for
+ * that same move right after the press, so the drag is followed on its events instead.
+ */
 function followDrag(viewportId: string, onMove: (world: number[]) => void, onUp: () => void): void {
-  const move = (e: MouseEvent) => {
-    const w = getWorldPointFromClientPoint(viewportId, e.clientX, e.clientY);
-    if (w) onMove(w as number[]);
+  const element = getEnabledElementByViewportId(viewportId)?.viewport?.element as HTMLDivElement | undefined;
+  if (!element) { onUp(); return; }
+  const move = (e: Event) => {
+    const w = (e as CustomEvent<{ currentPoints?: { world?: number[] } }>).detail?.currentPoints?.world;
+    if (w) onMove(w);
   };
   const up = () => {
-    window.removeEventListener('mousemove', move, true);
-    window.removeEventListener('mouseup', up, true);
+    element.removeEventListener(ToolEnums.Events.MOUSE_DRAG, move);
+    element.removeEventListener(ToolEnums.Events.MOUSE_UP, up);
+    element.removeEventListener(ToolEnums.Events.MOUSE_CLICK, up);
     onUp();
   };
-  window.addEventListener('mousemove', move, true);
-  window.addEventListener('mouseup', up, true);
+  element.addEventListener(ToolEnums.Events.MOUSE_DRAG, move);
+  element.addEventListener(ToolEnums.Events.MOUSE_UP, up);
+  element.addEventListener(ToolEnums.Events.MOUSE_CLICK, up);
 }
 
 export class LevelTraceTool extends BaseTool {
@@ -95,8 +109,9 @@ export class RandomWalkerSeedTool extends BaseTool {
   preMouseDownCallback = (evt: ToolTypes.EventTypes.InteractionEventType): boolean => {
     const { viewportId, currentPoints, event } = evt.detail as Detail;
     const kind = event && (event.button === 2 || event.shiftKey) ? 'bg' : 'fg';
-    bridge.addSeedStroke?.(viewportId, kind, currentPoints.world as number[]);
-    followDrag(viewportId, (w) => bridge.extendSeedStroke?.(w), () => {});
+    // Follow the drag only for a stroke that started: extending would append to the last
+    // stroke in the store — another class, slice or viewport.
+    if (bridge.addSeedStroke?.(viewportId, kind, currentPoints.world as number[])) followDrag(viewportId, (w) => bridge.extendSeedStroke?.(w), () => {});
     return true;
   };
 }
@@ -113,8 +128,7 @@ export class SolverSeedTool extends BaseTool {
   }
   preMouseDownCallback = (evt: ToolTypes.EventTypes.InteractionEventType): boolean => {
     const { viewportId, currentPoints, event } = evt.detail as Detail;
-    bridge.solverSeedBegin?.(viewportId, currentPoints.world as number[], !!event?.shiftKey);
-    followDrag(viewportId, (w) => bridge.solverSeedExtend?.(w), () => {});
+    if (bridge.solverSeedBegin?.(viewportId, currentPoints.world as number[], !!event?.shiftKey)) followDrag(viewportId, (w) => bridge.solverSeedExtend?.(w), () => {});
     return true;
   };
 }

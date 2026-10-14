@@ -88,7 +88,15 @@ window.addEventListener('message', (e) => {
       const mod = await import(${JSON.stringify(`./${entry}`)});
       if (typeof mod.run !== 'function') throw new Error('The module exports no run() function');
       const result = await mod.run(msg.input, api);
-      send({ type: 'result', result: result ?? {} }, [...buffersOf(result)]);
+      try {
+        send({ type: 'result', result: result ?? {} }, [...buffersOf(result)]);
+      } catch {
+        // A view into WebAssembly memory (what an Emscripten / Rust module returns) cannot be
+        // transferred: send copies of the arrays instead.
+        const copy = (v) => (ArrayBuffer.isView(v) ? v.slice() : v && typeof v === 'object' && !(v instanceof ArrayBuffer) ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, copy(x)])) : v);
+        const copied = copy(result ?? {});
+        send({ type: 'result', result: copied }, [...buffersOf(copied)]);
+      }
     } catch (err) {
       send({ type: 'failed', text: String(err && err.stack || err) });
     }

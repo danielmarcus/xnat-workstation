@@ -454,35 +454,43 @@ function eraseAt(w: number[]): void {
   const [ex, ey, ez] = toPlane(e.geometry, e.axis, w);
   const store = useSeedStore.getState();
   let changed = false;
-  const next = store.strokes.map((st) => {
-    if (st.containerId !== t.containerId) return st;
-    const kept = st.points.filter((p) => {
+  // A stroke loses the points under the eraser and is SPLIT there: the rasteriser joins a
+  // stroke's points with straight lines, so keeping one stroke re-bridged the erased gap with
+  // seeds nobody painted.
+  const next = store.strokes.flatMap((st) => {
+    if (st.containerId !== t.containerId) return [st];
+    const runs: number[][][] = [[]];
+    for (const p of st.points) {
       const [x, y, z] = toPlane(e.geometry, e.axis, p);
       const hit = Math.round(z) === Math.round(ez) && Math.hypot(x - ex, y - ey) <= e.radius + st.radiusPx;
-      if (hit) changed = true;
-      return !hit;
-    });
-    return kept.length === st.points.length ? st : { ...st, points: kept };
-  }).filter((st) => st.points.length);
+      if (hit) { changed = true; if (runs[runs.length - 1].length) runs.push([]); }
+      else runs[runs.length - 1].push(p);
+    }
+    const kept = runs.filter((r) => r.length);
+    return kept.length === 1 && kept[0].length === st.points.length ? [st] : kept.map((points) => ({ ...st, points }));
+  });
   if (changed) store.setStrokes(next);
 }
 
 Object.assign(semiAutoBridge, {
-  solverSeedBegin: (viewportId: string, world: number[], background: boolean) => {
+  solverSeedBegin: (viewportId: string, world: number[], background: boolean): boolean => {
     const t = activeTarget();
-    if (!t) return;
+    if (!t) return false;
     const store = useSeedStore.getState();
     if (store.paintClass === 'erase' && !background) {
       const grid = gridOf({ containerId: t.containerId, segmentIndex: t.active });
       const normal = viewNormal(viewportId);
-      if (!grid || !normal) return;
+      if (!grid || !normal) return false;
       erasing = { viewportId, geometry: grid.geometry, axis: sliceAxisFor(grid.geometry.direction, normal) as Axis, radius: store.brushPx };
       eraseAt(world);
-      return;
+      return true;
     }
     erasing = null;
-    const cls = background ? BACKGROUND : typeof store.paintClass === 'number' ? store.paintClass : t.active;
+    // A class left from another segmentation (or a deleted segment) is not a member here.
+    const chosen = typeof store.paintClass === 'number' && (store.paintClass === BACKGROUND || t.members.some((m) => m.segmentIndex === store.paintClass)) ? store.paintClass : t.active;
+    const cls = background ? BACKGROUND : chosen;
     store.addStroke({ containerId: t.containerId, viewportId, cls, radiusPx: store.brushPx, points: [world] });
+    return true;
   },
   solverSeedExtend: (world: number[]) => {
     if (erasing) eraseAt(world);

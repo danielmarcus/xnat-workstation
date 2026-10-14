@@ -249,7 +249,7 @@ export function chaikin(pts: Array<[number, number]>, iterations: number): Array
   return p;
 }
 
-/** Fill a closed polygon (pixel centres inside, even-odd). */
+/** Fill a closed polygon (pixel centres inside, even-odd). Shared by every contour fill. */
 export function rasterize(poly: Array<[number, number]>, w: number, h: number): Uint8Array {
   const out = new Uint8Array(w * h);
   if (poly.length < 3) return out;
@@ -262,6 +262,24 @@ export function rasterize(poly: Array<[number, number]>, w: number, h: number): 
     xs.sort((a, b) => a - b);
     for (let k = 0; k + 1 < xs.length; k += 2) {
       for (let x = Math.ceil(xs[k]); x <= Math.floor(xs[k + 1]); x++) if (x >= 0 && x < w) out[x + y * w] = 1;
+    }
+  }
+  return out;
+}
+
+/**
+ * Fill a TRACED outline — one running through the boundary pixels' centres (traceBoundary): the
+ * inside, and the pixels the outline passes through. A plain fill (half-open in y) dropped the
+ * region's bottom row. Not for drawn contours, whose edges lie between pixels.
+ */
+export function rasterizeTraced(poly: Array<[number, number]>, w: number, h: number): Uint8Array {
+  const out = rasterize(poly, w, h);
+  for (let i = 0; i < poly.length; i++) {
+    const [x1, y1] = poly[i], [x2, y2] = poly[(i + 1) % poly.length];
+    const n = Math.max(1, Math.ceil(Math.hypot(x2 - x1, y2 - y1) * 2));
+    for (let k = 0; k <= n; k++) {
+      const x = Math.round(x1 + ((x2 - x1) * k) / n), y = Math.round(y1 + ((y2 - y1) * k) / n);
+      if (x >= 0 && y >= 0 && x < w && y < h) out[x + y * w] = 1;
     }
   }
   return out;
@@ -297,10 +315,15 @@ export function levelTrace(image: ArrayLike<number>, w: number, h: number, x: nu
     plane = gaussianSmooth(plane, { sigma: o.smoothing === 'gentle' ? 0.8 : o.smoothing === 'standard' ? 1.2 : 2, threshold: 0.5 });
   }
   if (o.simplifyPx > 0 || o.roundCorners > 0) {
+    // The outline of the CLICKED region: smoothing can split it, and the tracer follows the
+    // first component in scan order.
+    const pre = labelComponents(plane.data, w, h, 8);
+    const at = pre.labels[x + y * w];
+    if (at) plane = { width: w, height: h, data: Uint8Array.from(pre.labels, (l) => (l === at ? 1 : 0)) };
     let poly = traceBoundary(plane);
     if (o.simplifyPx > 0) poly = simplify(poly, o.simplifyPx);
     if (o.roundCorners > 0) poly = chaikin(poly, o.roundCorners);
-    plane = { width: w, height: h, data: rasterize(poly, w, h) };
+    plane = { width: w, height: h, data: rasterizeTraced(poly, w, h) };
   }
   // Keep the component containing (or nearest) the click.
   const cc = labelComponents(plane.data, w, h, 8);
