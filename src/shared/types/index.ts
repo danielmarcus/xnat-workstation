@@ -220,6 +220,19 @@ export interface ElectronAPI {
     /** Read a checkpoint file the user picks (validated shape; not yet stored). */
     importFile(): Promise<{ ok: boolean; record?: import('./checkpoint').CheckpointRecord; canceled?: boolean; error?: string }>;
   };
+  modules?: {
+    list(): Promise<{ modules: import('../modules/types').ModuleListing[]; settings: import('../modules/types').ModuleSettings }>;
+    /** Pick a .xwmodule; it is checked and held for install under a token. */
+    pick(): Promise<import('../modules/types').ModuleInspection>;
+    inspectDropped(file: File): Promise<import('../modules/types').ModuleInspection>;
+    install(token: string, acceptCommunity: boolean): Promise<{ ok: boolean; reason?: string; needsConfirmation?: boolean; summary?: import('../modules/types').ModuleSummary }>;
+    remove(id: string): Promise<{ ok: boolean; reason?: string }>;
+    setEnabled(id: string, enabled: boolean): Promise<{ ok: boolean }>;
+    setAllowCommunity(allow: boolean): Promise<{ ok: boolean }>;
+    /** Pick a publisher's public.json and trust its key. */
+    trustKeyPick(): Promise<{ ok: boolean; reason?: string; canceled?: boolean; key?: import('../modules/types').TrustedKey }>;
+    untrustKey(keyId: string): Promise<{ ok: boolean }>;
+  };
   diagnostics?: {
     getMainSnapshot(): Promise<MainDiagnosticsSnapshotResult>;
   };

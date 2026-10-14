@@ -7,7 +7,7 @@
  * XNAT credentials never flow through this bridge — the main process
  * handles authentication via a browser window and cookie-based sessions.
  */
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import { IPC } from '../shared/ipcChannels';
 
 contextBridge.exposeInMainWorld('electronAPI', {
@@ -200,6 +200,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
     delete: (key: string, id: string) => ipcRenderer.invoke(IPC.CHECKPOINT_DELETE, key, id),
     exportFile: (key: string, id: string) => ipcRenderer.invoke(IPC.CHECKPOINT_EXPORT, key, id),
     importFile: () => ipcRenderer.invoke(IPC.CHECKPOINT_IMPORT),
+  },
+
+  modules: {
+    list: () => ipcRenderer.invoke(IPC.MODULES_LIST),
+    pick: () => ipcRenderer.invoke(IPC.MODULES_PICK),
+    /** A file dropped on Settings › Modules: its path comes from the File, via webUtils. */
+    inspectDropped: (file: File) => ipcRenderer.invoke(IPC.MODULES_INSPECT_DROPPED, webUtils.getPathForFile(file)),
+    install: (token: string, acceptCommunity: boolean) => ipcRenderer.invoke(IPC.MODULES_INSTALL, token, acceptCommunity),
+    remove: (id: string) => ipcRenderer.invoke(IPC.MODULES_REMOVE, id),
+    setEnabled: (id: string, enabled: boolean) => ipcRenderer.invoke(IPC.MODULES_SET_ENABLED, id, enabled),
+    setAllowCommunity: (allow: boolean) => ipcRenderer.invoke(IPC.MODULES_SET_ALLOW_COMMUNITY, allow),
+    trustKeyPick: () => ipcRenderer.invoke(IPC.MODULES_TRUST_KEY_PICK),
+    untrustKey: (keyId: string) => ipcRenderer.invoke(IPC.MODULES_UNTRUST_KEY, keyId),
   },
 
   diagnostics: {

@@ -92,6 +92,17 @@ export const IPC = {
   CHECKPOINT_EXPORT: 'checkpoint:export',
   CHECKPOINT_IMPORT: 'checkpoint:import',
 
+  // Modules (branch 9) (renderer → main)
+  MODULES_LIST: 'modules:list',
+  MODULES_PICK: 'modules:pick',
+  MODULES_INSPECT_DROPPED: 'modules:inspect-dropped',
+  MODULES_INSTALL: 'modules:install',
+  MODULES_REMOVE: 'modules:remove',
+  MODULES_SET_ENABLED: 'modules:set-enabled',
+  MODULES_SET_ALLOW_COMMUNITY: 'modules:set-allow-community',
+  MODULES_TRUST_KEY_PICK: 'modules:trust-key-pick',
+  MODULES_UNTRUST_KEY: 'modules:untrust-key',
+
   // Diagnostics (renderer → main)
   DIAGNOSTICS_GET_MAIN_SNAPSHOT: 'diagnostics:get-main-snapshot',
 

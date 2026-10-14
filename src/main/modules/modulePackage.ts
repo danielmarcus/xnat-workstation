@@ -20,17 +20,8 @@ import { checkCompatibility, validateManifest, type ModuleManifest } from '../..
 export const SIGNATURE_FILE = 'signature.json';
 export const SIGNATURE_FORMAT = 'xnat-module-signature/1';
 
-export type ModuleTier = 'bundled' | 'verified' | 'community';
-
-export interface SignatureInfo {
-  status: 'unsigned' | 'valid' | 'invalid';
-  keyId?: string;
-  /** Base64 SPKI DER of the signing key (valid signatures). */
-  publicKey?: string;
-  /** The publisher the signature names (informational; trust comes from the key). */
-  signer?: string;
-  reason?: string;
-}
+export type { ModuleTier, SignatureInfo } from '../../shared/modules/types';
+import type { ModuleTier, SignatureInfo } from '../../shared/modules/types';
 
 export type PackageResult =
   | { ok: true; manifest: ModuleManifest; files: Map<string, Buffer>; digest: string; signature: SignatureInfo; tier: ModuleTier }

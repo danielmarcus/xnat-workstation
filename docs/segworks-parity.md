@@ -1087,3 +1087,22 @@ than `wasm-worker`. Candidate later runtimes, recorded so the design keeps room 
   key; invalid signatures refused; the entry check; API major; runtime). **Found on the way:** a
   deflated entry lying about its size is already stopped by the capped inflate, so the
   size-mismatch check guards only stored entries — a test for that case was added.
+- **M2** — `ModuleStore` (`userData/modules`: settings, `installed/<id>/files`, an install
+  record with the digest; bundled packages read from the edition's folder): install (Community
+  needs the confirmation; refused while Allow community modules is off; bundled ids cannot be
+  replaced), list and load re-check every module — the M1 checks plus the digest recorded at
+  install, so a module changed on disk is refused **even when unsigned**; enable, remove
+  (bundled: disable only), trust / untrust publisher keys (the id must match the key).
+  `moduleHandlers` (IPC): a picked or dropped package is checked in the main process and held
+  under a short-lived token, and is installed **by token** — the renderer never hands the
+  installer a path. **Settings › Modules**: Install module… (and drop), an inline confirmation
+  for Community modules (publisher, signature, what it reads and writes), the installed list
+  with tier badges, Enabled and Remove, refused modules in red with their reason, trusted
+  publishers, Allow community modules. **Found on the way:** the switches are controlled and
+  waited for the IPC round trip, so they lagged a click — they now update at once and the
+  refresh confirms. Unit +9 (store, temp folders); E2E +7 (`modules/module-install`: Verified
+  installs at once; Community asks, shows its signer and access, carries its badge; an untrusted
+  key is named; a tampered package is refused; community off; altered on disk → Refused, Remove
+  deletes; an unsupported runtime refused by name), red against mutants of the digest check, the
+  confirmation, the community-off check and the trusted keys. Checked in the built app
+  (screenshot).

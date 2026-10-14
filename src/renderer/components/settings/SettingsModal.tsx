@@ -15,11 +15,12 @@ import type { BackupSessionSummary } from '@shared/types/backup';
 import { buildIssueReport } from '../../lib/diagnostics/issueReport';
 import { IconClose } from '../icons';
 import CheckpointFilesSection from './CheckpointFilesSection';
+import ModulesSection from './ModulesSection';
 
 declare const __APP_VERSION__: string;
 const APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev';
 
-type SettingsTab = 'hotkeys' | 'overlay' | 'annotation' | 'updates' | 'interpolation' | 'backup' | 'issue' | 'about';
+type SettingsTab = 'hotkeys' | 'overlay' | 'annotation' | 'updates' | 'interpolation' | 'backup' | 'modules' | 'issue' | 'about';
 
 interface SettingsModalProps {
   open: boolean;
@@ -37,6 +38,7 @@ const TAB_ITEMS: Array<{ id: SettingsTab; label: string }> = [
   { id: 'updates', label: 'Updates' },
   { id: 'interpolation', label: 'Interpolation' },
   { id: 'backup', label: 'File Backup' },
+  { id: 'modules', label: 'Modules' },
   { id: 'issue', label: 'Issue Report' },
 ];
 
@@ -1008,6 +1010,8 @@ export default function SettingsModal({ open, onClose, onRecover, initialTab }: 
                 </div>
               </>
             )}
+
+            {activeTab === 'modules' && <ModulesSection />}
 
             {activeTab === 'backup' && (
               <>
