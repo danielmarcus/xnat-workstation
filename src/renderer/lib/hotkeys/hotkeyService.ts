@@ -541,6 +541,21 @@ function handleKeyDown(e: KeyboardEvent): void {
   parts.push(e.key.toLowerCase());
   const normalized = parts.join('+');
 
+  // A contour being drawn takes Escape (discard it — the tool stays) and Backspace / Delete
+  // (drop its last point) before the shortcut map: Escape is otherwise W/L — which left the
+  // drawing live — and Delete deleted the SELECTION instead of a point.
+  if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+    const key = e.key;
+    const took = key === 'Escape' ? unifiedToolService.cancelDrawing()
+      : key === 'Backspace' || key === 'Delete' ? unifiedToolService.undoLastDrawnPoint()
+      : false;
+    if (took) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+  }
+
   const action = lookup.get(normalized);
   if (!action) return;
 

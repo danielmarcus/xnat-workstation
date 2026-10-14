@@ -47,6 +47,12 @@ function hostHtml(): string {
 
 function hostJs(entry: string): string {
   return `
+// WebRTC is a network channel neither the CSP nor the request filter covers (STUN / TURN
+// over UDP): gone before the module loads. There are no frames to fetch it back from.
+for (const k of ['RTCPeerConnection', 'webkitRTCPeerConnection', 'RTCDataChannel', 'RTCSessionDescription', 'RTCIceCandidate',
+  'RTCRtpSender', 'RTCRtpReceiver', 'RTCRtpTransceiver', 'RTCDtlsTransport', 'RTCIceTransport', 'RTCSctpTransport', 'RTCCertificate']) {
+  try { Object.defineProperty(window, k, { value: undefined, writable: false, configurable: false }); } catch {}
+}
 const send = (m, t) => port && port.postMessage(m, t || []);
 let port = null;
 let cancelled = false;
@@ -96,18 +102,28 @@ window.addEventListener('message', (e) => {
 interface Run {
   win: BrowserWindow;
   timer: NodeJS.Timeout;
+  sender: WebContents;
+  /** Removes the listeners this run put on the page that started it. */
+  unlisten: () => void;
 }
 const runs = new Map<string, Run>();
 
 /** The longest a run may take before its process is destroyed. */
 const RUN_LIMIT_MS = 30 * 60 * 1000;
 
-export function stopModuleRun(runId: string): void {
+/**
+ * End a run: destroy its process and tell the page — whatever ended it. `reason` is shown when
+ * the page did not ask (a crash, the time limit, the app quitting); a page that is reloading or
+ * gone is not told.
+ */
+export function stopModuleRun(runId: string, reason = 'stopped'): void {
   const r = runs.get(runId);
   if (!r) return;
   runs.delete(runId);
   clearTimeout(r.timer);
+  r.unlisten();
   if (!r.win.isDestroyed()) r.win.destroy();
+  if (!r.sender.isDestroyed()) r.sender.send(IPC.MODULES_RUN_ENDED, { runId, reason });
 }
 
 /**
@@ -152,16 +168,23 @@ export async function startModuleRun(sender: WebContents, id: string): Promise<{
     },
   });
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  win.webContents.setWebRTCIPHandlingPolicy('disable_non_proxied_udp');
   win.webContents.on('will-navigate', (e) => e.preventDefault());
-  win.webContents.on('render-process-gone', () => stopModuleRun(runId));
-  const timer = setTimeout(() => stopModuleRun(runId), RUN_LIMIT_MS);
-  runs.set(runId, { win, timer });
-  sender.once('destroyed', () => stopModuleRun(runId));
+  win.webContents.on('render-process-gone', (_e, d) => stopModuleRun(runId, `the module's process ended (${d.reason})`));
+  const timer = setTimeout(() => stopModuleRun(runId, 'it ran longer than the 30-minute limit'), RUN_LIMIT_MS);
+  // The page that started the run going away — closed, or reloading (Cmd+R, a dev reload) —
+  // ends it: nothing could receive its result.
+  const onGone = () => stopModuleRun(runId, 'the page went away');
+  const onNavigate = (details: { isMainFrame: boolean; isSameDocument: boolean }) => { if (details.isMainFrame && !details.isSameDocument) onGone(); };
+  sender.once('destroyed', onGone);
+  sender.on('did-start-navigation', onNavigate);
+  const unlisten = () => { sender.removeListener('destroyed', onGone); sender.removeListener('did-start-navigation', onNavigate); };
+  runs.set(runId, { win, timer, sender, unlisten });
 
   try {
     await win.loadURL(`${prefix}__host.html`);
   } catch (e) {
-    stopModuleRun(runId);
+    stopModuleRun(runId, 'it could not start');
     return { ok: false, reason: `The module could not start: ${e instanceof Error ? e.message : String(e)}` };
   }
   const { port1, port2 } = new MessageChannelMain();
@@ -173,5 +196,5 @@ export async function startModuleRun(sender: WebContents, id: string): Promise<{
 export function registerModuleRunHandlers(): void {
   ipcMain.handle(IPC.MODULES_RUN_START, (e, id: string) => startModuleRun(e.sender, id));
   ipcMain.handle(IPC.MODULES_RUN_STOP, (_e, runId: string) => { stopModuleRun(runId); return { ok: true }; });
-  app.on('before-quit', () => { for (const id of [...runs.keys()]) stopModuleRun(id); });
+  app.on('before-quit', () => { for (const id of [...runs.keys()]) stopModuleRun(id, 'the app is quitting'); });
 }

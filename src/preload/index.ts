@@ -14,6 +14,9 @@ import { IPC } from '../shared/ipcChannels';
 ipcRenderer.on(IPC.MODULES_RUN_PORT, (e, info: { runId: string }) => {
   window.postMessage({ type: 'xw-module-port', runId: info.runId }, '*', e.ports);
 });
+ipcRenderer.on(IPC.MODULES_RUN_ENDED, (_e, info: { runId: string; reason: string }) => {
+  window.postMessage({ type: 'xw-module-ended', runId: info.runId, reason: info.reason }, '*');
+});
 
 contextBridge.exposeInMainWorld('electronAPI', {
   platform: process.platform,

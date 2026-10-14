@@ -211,13 +211,14 @@ export async function runModuleOperation(o: {
 
   // The run: progress and Cancel in the progress bar.
   discardPreview();
+  let jobId = 0;
   const run = runModule<{ mask?: unknown; table?: { columns: string[]; rows: unknown[][] } }>(manifest.id, input, {
     transfer,
     onLog: o.onLog,
-    onProgress: (f) => useComputeStore.getState().progress(f),
+    onProgress: (f) => useComputeStore.getState().progress(f, jobId),
   });
   running = run as ModuleRun<unknown>;
-  useComputeStore.getState().start(manifest.name, o.viewportId, () => run.cancel());
+  jobId = useComputeStore.getState().start(manifest.name, o.viewportId, () => run.cancel());
   let result: Awaited<typeof run.result>;
   try {
     result = await run.result;
@@ -225,7 +226,8 @@ export async function runModuleOperation(o: {
     if (e instanceof ModuleRunCancelled) return { ok: false, reason: 'cancelled' };
     return { ok: false, reason: 'failed', detail: e instanceof Error ? e.message : String(e) };
   } finally {
-    if (running === run) { running = null; useComputeStore.getState().end(); }
+    if (running === run) running = null;
+    useComputeStore.getState().end(jobId);
   }
   const mask = result?.mask;
   if (!(mask instanceof Uint8Array) || mask.length !== n) {

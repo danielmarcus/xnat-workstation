@@ -259,12 +259,12 @@ export const semiAutoService = {
     // The solve runs in the compute worker; the preview bar's slot shows its progress and
     // Cancel (⎋) until it finishes.
     discardPreview();
+    let jobId = 0;
     const job = computeClient.run('randomWalker', input, {
-      onProgress: (f) => useComputeStore.getState().progress(f),
+      onProgress: (f) => useComputeStore.getState().progress(f, jobId),
       transfer: [input.image.buffer, input.fg.buffer, input.bg.buffer],
     });
-    const compute = useComputeStore.getState();
-    compute.start('Random Walker', viewportId);
+    jobId = useComputeStore.getState().start('Random Walker', viewportId);
     runningJob = job;
     const removeKeyLayer = hotkeyService.pushKeyLayer({
       onKeyDown: (e) => {
@@ -284,7 +284,7 @@ export const semiAutoService = {
       removeKeyLayer();
       if (runningJob === job) {
         runningJob = null;
-        useComputeStore.getState().end();
+        useComputeStore.getState().end(jobId);
       }
     }
     const after = openTarget(member);

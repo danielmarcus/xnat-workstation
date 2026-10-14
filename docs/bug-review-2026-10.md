@@ -19,7 +19,7 @@ Status: open · fixed (commit) · won't fix (reason).
 | ID | P | Finding | Source | Status |
 |---|---|---|---|---|
 | X1 | P1 | Stack source reader applies rescale slope/intercept twice (loader pre-scales): every absolute-HU feature reads HU−1024 on real CT — Seeded gate, Level Trace guard, Region clip, module input | review + sweep (HU test, red in all orientations) | fixed |
-| X2 | P1 | A pending preview survives switching operation, active segment, container, viewport or scan; the next Commit / ⏎ writes the old preview | review (mask ops 3, 4; interp 14) | open |
+| X2 | P1 | A pending preview survives switching operation, active segment, container, viewport or scan; the next Commit / ⏎ writes the old preview | review (mask ops 3, 4; interp 14) | fixed |
 | X3 | P2 | Operations don't check the active viewport shows the active container (wrong plane / slices) | review | open |
 | X4 | P3 | Full-volume copies of every member per mask op, per brush move (Cleanup All smart plan, Interpolate gap table undebounced) | review | open |
 | X5 | P3 | Transactions stage per-voxel Map entries: > 16.7M writes throws (V8 Map limit) | review | open |
@@ -31,9 +31,9 @@ Status: open · fixed (commit) · won't fix (reason).
 | T1 | P1 | Region: a click does nothing — it needs a drag (radius); tooltip said "click"; 3D, no undo step, wrote locked segments | sweep | fixed |
 | T2 | P1 | Region+: a click does nothing unless the mouse rested 500 ms first; no feedback; no undo step | sweep | fixed |
 | T3 | P1 | Rect Multi pushes no undo step — Ctrl+Z undoes the previous edit (erased another segment) | sweep | fixed |
-| T4 | P1 | Spline / Live Wire / Contour Fill: Escape or a tool switch mid-draw leaves the drawing live and freezes navigation | review (contours 2) | open |
-| T5 | P1 | Backspace/Delete while drawing a spline deletes the selection instead of the last point | review (contours 3) | open |
-| T6 | P2 | Smart Brush live overlay never grows past the first dab (preview bucket cache) | review (mask ops 5) | open |
+| T4 | P1 | Spline / Live Wire / Contour Fill: Escape or a tool switch mid-draw leaves the drawing live and freezes navigation (also: Cornerstone replays a click held 400 ms for double-click detection, so Escape soon after a click started a new drawing) | review (contours 2) | fixed |
+| T5 | P1 | Backspace/Delete while drawing a spline deletes the selection instead of the last point | review (contours 3) | fixed |
+| T6 | P2 | Smart Brush live overlay never grows past the first dab (preview bucket cache) | review (mask ops 5) | fixed |
 | T7 | P2 | Advanced Live Wire costs exceed 1 → bucket queue disorder → paths not shortest | review (contours 4) | open |
 | T8 | P2 | Locked / approved Structure members editable through Copy nearby, Propagate, Undo & edit, ⏎ commit | review (contours 1) | open |
 | T9 | P2 | Undo & edit can undo an unrelated edit; ignores member / viewport | review (contours 5, 6) | open |
@@ -62,12 +62,12 @@ reference implementations; the defects are in the services around them.
 
 | ID | P | Finding | Source | Status |
 |---|---|---|---|---|
-| S1 | P1 | A finished solve replaces whatever preview is pending; a Smart Brush release can then commit the solver result unreviewed; closing the sheet doesn't cancel the job | review (solvers 1) | open |
+| S1 | P1 | A finished solve replaces whatever preview is pending; a Smart Brush release can then commit the solver result unreviewed; closing the sheet doesn't cancel the job | review (solvers 1) | fixed |
 | S2 | P1 | α-expansion with no Background seeds paints the whole box | review (solvers 2, script) | open |
 | S3 | P2 | Seed / Smart Brush / Random Walker brush round in voxels, not mm — ~7× tall on sagittal/coronal of thick-slice data | review (solvers 4) | open |
 | S4 | P2 | Seeds painted in another orientation silently reduced to a few voxels | review (solvers 3) | open |
 | S5 | P2 | Erasing seed points re-bridges the stroke with straight lines | review (solvers 5, script) | open |
-| S6 | P2 | Replaced jobs: old job's cleanup hides the new job's progress bar; QC builds and solves cancel each other silently; overlapping QC builds corrupt state | review (solvers 9–11) | open |
+| S6 | P2 | Replaced jobs: old job's cleanup hides the new job's progress bar (fixed: job ids); QC builds and solves cancel each other silently; overlapping QC builds corrupt state | review (solvers 9–11) | open |
 | S7 | P2 | 3D scissor cuts the active segmentation, not the one shown | review (solvers 14) | open |
 | S8 | P2 | Seeds of a deleted member break α after the solve; paintClass survives container change; a failed stroke start extends the previous stroke | review (solvers 15, 16) | open |
 | S9 | P2 | Smart Brush leaves gaps on fast drags; Level Trace with simplify loses its bottom row | review (solvers 17, 18) | open |
@@ -86,9 +86,9 @@ reference implementations; the defects are in the services around them.
 
 | ID | P | Finding | Source | Status |
 |---|---|---|---|---|
-| M1 | P1 | WebRTC (STUN) escapes the sandbox | review (modules 1, reproduced) | open |
-| M2 | P1 | A crashed / timed-out / quit-killed run never settles (sheet stuck "Running…") | review (modules 2) | open |
-| M3 | P1 | Cancel ignored when the module finishes within 2 s; Commit then writes it | review (modules 3) | open |
+| M1 | P1 | WebRTC (STUN) escapes the sandbox | review (modules 1, reproduced) | fixed |
+| M2 | P1 | A crashed / timed-out / quit-killed run never settles (sheet stuck "Running…") | review (modules 2) | fixed |
+| M3 | P1 | Cancel ignored when the module finishes within 2 s; Commit then writes it | review (modules 3) | fixed |
 | M4 | P2 | Results in WebAssembly memory fail (non-transferable buffer) | review (modules 4, reproduced) | open |
 | M5 | P2 | One broken install folder breaks Settings and the catalog | review (modules 8, reproduced) | open |
 | M6 | P2 | Community modules still listed as runnable with Allow community off | review (modules 9) | open |
@@ -97,4 +97,4 @@ reference implementations; the defects are in the services around them.
 | M9 | P2 | A run writes into whichever sheet is open; two runs can overlap | review (modules 12) | open |
 | M10 | P2 | Dropping a module on Settings also triggers the DICOM loader | review (modules 13) | open |
 | M11 | P2 | E2E bundled-folder override honoured in packaged builds | review (modules 14) | open |
-| M12 | P3 | Per-run session / files leak; runs survive a page reload; new segments stay after undo; stale params after upgrade; unvalidated postSteps; token reuse; signer text unsigned; key id 64-bit only; sync scans | review (modules 5, 6, 15) | open |
+| M12 | P3 | Per-run session / files leak; runs survive a page reload (fixed with M2); new segments stay after undo; stale params after upgrade; unvalidated postSteps; token reuse; signer text unsigned; key id 64-bit only; sync scans | review (modules 5, 6, 15) | open |

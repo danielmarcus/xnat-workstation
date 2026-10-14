@@ -59,7 +59,7 @@ import {
   segmentation as csSegmentation,
 } from '@cornerstonejs/tools';
 import type { Types as ToolTypes } from '@cornerstonejs/tools';
-import { Enums as CoreEnums, eventTarget } from '@cornerstonejs/core';
+import { Enums as CoreEnums, eventTarget, getEnabledElementByViewportId } from '@cornerstonejs/core';
 import { cursors as csCursors } from '@cornerstonejs/tools';
 import SafePaintFillTool from './tools/SafePaintFillTool';
 import { AppRegionSegmentPlusTool, AppRegionSegmentTool } from './tools/AppRegionSegmentPlusTool';
@@ -592,6 +592,33 @@ function setIdleToolMode(toolGroup: ToolTypes.IToolGroup, toolName: string): voi
     /* not all tools support every mode; safe to ignore */
   }
 }
+
+/**
+ * Cornerstone holds every mouse-down for 400 ms (double-click detection) and replays it from a
+ * timer. So a point clicked just before Escape was replayed AFTER the drawing was discarded and
+ * started a new one at the same spot — which then held the viewport (no wheel, no drag) until
+ * the tool changed. A press that happened before a drawing was discarded must not start one.
+ */
+let ignoreBefore = 0;
+let pressGuardInstalled = false;
+function ignorePressesBefore(t: number): void {
+  ignoreBefore = t;
+  if (pressGuardInstalled) return;
+  pressGuardInstalled = true;
+  document.addEventListener(ToolEnums.Events.MOUSE_DOWN_ACTIVATE, (e) => {
+    const pressedAt = (e as CustomEvent<{ event?: Event }>).detail?.event?.timeStamp;
+    if (pressedAt !== undefined && pressedAt <= ignoreBefore) e.stopPropagation();
+  }, true);
+}
+
+/** A Cornerstone contour tool while it draws (the fields drawingTool / cancelDrawing use). */
+type DrawingTool = {
+  isDrawing?: boolean;
+  editData?: { viewportIdsToRender?: string[] } | null;
+  cancel?: (element: HTMLDivElement) => unknown;
+  /** The app's Spline tools (AppSplineContourTool): drop the last placed point. */
+  undoLastPoint?: () => boolean;
+};
 
 // The tool currently bound to Primary; tracked so we demote it (rather than
 // re-`setToolActive` everything, which MERGES bindings in CS3D v4) on a switch.
@@ -1173,6 +1200,10 @@ export const unifiedToolService = {
   setActiveTool(toolName: ToolName): void {
     const toolGroup = ensureToolGroup();
     if (!toolGroup) return;
+    // A contour being drawn ends with its tool: Cornerstone leaves the old tool's draw
+    // listeners attached and `isInteractingWithTool` set, so after a switch mid-draw every
+    // click still added points to the old contour and W/L, pan and wheel-scroll stopped.
+    unifiedToolService.cancelDrawing();
     const csName = UNIFIED_TOOL_MAP[toolName];
     if (!csName) {
       console.warn('[unifiedToolService] Unsupported tool for unified path:', toolName);
@@ -1284,6 +1315,47 @@ export const unifiedToolService = {
     activeToolName = toolName;
     applyToolCursor();
     console.log('[unifiedToolService] Active tool:', toolName, '->', csName);
+  },
+
+  /**
+   * The tool drawing a contour right now — Spline, Live Wire, Freehand, either Contour Fill
+   * boundary — with the element it draws on; null when nothing is being drawn.
+   */
+  drawingTool(): { tool: DrawingTool; element: HTMLDivElement } | null {
+    const toolGroup = ensureToolGroup();
+    if (!toolGroup) return null;
+    for (const inst of Object.values(toolGroup.getToolInstances?.() ?? {})) {
+      const tool = inst as DrawingTool;
+      if (!tool?.isDrawing) continue;
+      const vpId = tool.editData?.viewportIdsToRender?.[0] ?? toolGroup.getViewportIds()[0];
+      const element = vpId ? (getEnabledElementByViewportId(vpId)?.viewport?.element as HTMLDivElement | undefined) : undefined;
+      if (element) return { tool, element };
+    }
+    return null;
+  },
+
+  /** Discard the contour being drawn, if any (Escape; a tool switch). True if one was. */
+  cancelDrawing(): boolean {
+    const d = unifiedToolService.drawingTool();
+    if (!d) return false;
+    ignorePressesBefore(performance.now());
+    try {
+      d.tool.cancel?.(d.element);
+    } catch (err) {
+      console.warn('[unifiedToolService] cancelling the drawing failed:', err);
+    }
+    return true;
+  },
+
+  /**
+   * Backspace while drawing: drop the last placed point (the Spline's own undo), never the
+   * selection. True when a drawing took the key — even a tool without point undo keeps it.
+   */
+  undoLastDrawnPoint(): boolean {
+    const d = unifiedToolService.drawingTool();
+    if (!d) return false;
+    d.tool.undoLastPoint?.();
+    return true;
   },
 
   /**

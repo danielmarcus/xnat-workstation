@@ -53,6 +53,8 @@ const viewportServiceMock = {
 // clamps, writes the unified tool group, and writes segmentationStore.
 const unifiedToolServiceMock = {
   setBrushSize: vi.fn(),
+  cancelDrawing: vi.fn(() => false),
+  undoLastDrawnPoint: vi.fn(() => false),
 };
 
 const segmentationServiceMock = {
@@ -195,6 +197,24 @@ describe('hotkeyService', () => {
     expect(removeSpy).toHaveBeenCalledTimes(3);
     expect(removeSpy).toHaveBeenCalledWith('keydown', expect.any(Function), { capture: true });
     expect(removeSpy).toHaveBeenCalledWith('keyup', expect.any(Function), { capture: true });
+  });
+
+  it('a contour being drawn takes Escape (discarded — no W/L switch) and Backspace (a point — not the selection)', () => {
+    hotkeyService.setHotkeyMap({ 'tool.windowLevel': [{ key: 'Escape' }], 'edit.delete': [{ key: 'Backspace' }] });
+    hotkeyService.install();
+    unifiedToolServiceMock.cancelDrawing.mockReturnValueOnce(true);
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(unifiedToolServiceMock.cancelDrawing).toHaveBeenCalledTimes(1);
+    expect(viewerState.setActiveTool).not.toHaveBeenCalled();
+    unifiedToolServiceMock.undoLastDrawnPoint.mockReturnValueOnce(true);
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Backspace', bubbles: true }));
+    expect(segmentationServiceMock.deleteSelectedContourComponents).not.toHaveBeenCalled();
+    // With nothing being drawn the keys keep their shortcuts.
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(viewerState.setActiveTool).toHaveBeenCalledTimes(1);
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Backspace', bubbles: true }));
+    expect(segmentationServiceMock.deleteSelectedContourComponents).toHaveBeenCalledTimes(1);
+    hotkeyService.uninstall();
   });
 
   it('a hold action is on while its key is held — repeats ignored — and off on key-up or blur', () => {

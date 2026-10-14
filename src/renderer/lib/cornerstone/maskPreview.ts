@@ -24,6 +24,9 @@ import { indexToWorld, worldToIndex, type Vec3 } from './segmentationService/vox
 import { type Axis, planeAxes } from '../segmentation/maskOps/planeIO';
 import { hotkeyService } from '../hotkeys/hotkeyService';
 import { useMaskPreviewStore } from '../../stores/maskPreviewStore';
+import { useSegmentationStore } from '../../stores/segmentationStore';
+import { useViewerStore } from '../../stores/viewerStore';
+import { useOperationSheetStore } from '../../stores/operationSheetStore';
 
 const OVERLAY_TESTID = 'mask-preview-overlay';
 
@@ -34,6 +37,10 @@ interface Pending {
   csSegmentationIds: Set<string>;
   removeKeyLayer: () => void;
   onDone?: (committed: boolean) => void;
+  /** A live stroke's preview (Smart Brush): no bar, committed by the tool on release. */
+  silent: boolean;
+  /** What the preview was made for — it is discarded when any of these changes. */
+  context: string;
 }
 
 let pending: Pending | null = null;
@@ -57,13 +64,24 @@ export interface StartPreviewOptions {
   silent?: boolean;
 }
 
-/** Show a staged transaction as a preview. Replaces (discards) any preview already open. */
-export function startPreview(o: StartPreviewOptions): void {
+/**
+ * Show a staged transaction as a preview. Replaces (discards) any preview already open — except
+ * a live stroke's: a result that arrives while the user is painting (a solve started earlier)
+ * is dropped instead, or it would replace the stroke and be committed by the stroke's release.
+ * Returns whether the preview was shown.
+ */
+export function startPreview(o: StartPreviewOptions): boolean {
+  if (pending?.silent && !o.silent) {
+    console.warn('[maskPreview] a result arrived during a stroke; dropped');
+    o.txn.discard();
+    o.onDone?.(false);
+    return false;
+  }
   if (pending) discardPreview();
   if (o.txn.isEmpty) {
     o.txn.discard();
     o.onDone?.(false);
-    return;
+    return false;
   }
   const removeKeyLayer = o.silent ? () => {} : hotkeyService.pushKeyLayer({
     onKeyDown: (e) => {
@@ -85,8 +103,11 @@ export function startPreview(o: StartPreviewOptions): void {
     csSegmentationIds: new Set(o.txn.changes().map((c) => c.grid.csSegmentationId)),
     removeKeyLayer,
     onDone: o.onDone,
+    silent: !!o.silent,
+    context: previewContext(),
   };
   installDataWatch();
+  installContextWatch();
   if (!o.silent) {
     useMaskPreviewStore.setState({
       active: true, label: o.label, summary: o.summary, viewportId: o.viewportId, comparing: false, readOnly: !!o.lockedMember,
@@ -94,12 +115,18 @@ export function startPreview(o: StartPreviewOptions): void {
     });
   }
   render();
+  return true;
 }
 
 /** Redraw the pending preview after its transaction grew (a live stroke). */
 export function refreshPreview(): void {
   if (!pending) return;
-  for (const c of pending.txn.changes()) pending.csSegmentationIds.add(c.grid.csSegmentationId);
+  for (const c of pending.txn.changes()) {
+    pending.csSegmentationIds.add(c.grid.csSegmentationId);
+    // The stroke's writes map is the same object as it grows: drop its bucketing, or the
+    // overlay keeps drawing the first dab only.
+    bucketCache.delete(c.writes);
+  }
   render();
 }
 
@@ -176,6 +203,30 @@ export function clearStaleNotice(): void {
 }
 
 // ─── Stale-preview guard ─────────────────────────────────────────────────────
+
+/**
+ * What a preview belongs to: the active container, segment and viewport, and the operation
+ * open. A preview outliving a change of any of them was committed by the next ⏎ / Commit
+ * against the new target — another operation's Commit wrote the old one's edit.
+ */
+function previewContext(): string {
+  const seg = useSegmentationStore.getState();
+  return [seg.activeSegmentationId, seg.activeSegmentIndex, useViewerStore.getState().activeViewportId, useOperationSheetStore.getState().openSheet].join('|');
+}
+
+let watchingContext = false;
+function installContextWatch(): void {
+  if (watchingContext) return;
+  watchingContext = true;
+  const check = () => {
+    if (!pending || committing || pending.silent || previewContext() === pending.context) return;
+    discardPreview();
+    useMaskPreviewStore.setState({ discardedStale: true });
+  };
+  useSegmentationStore.subscribe(check);
+  useViewerStore.subscribe(check);
+  useOperationSheetStore.subscribe(check);
+}
 
 let watching = false;
 function installDataWatch(): void {

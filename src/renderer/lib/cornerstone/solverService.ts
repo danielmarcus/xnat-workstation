@@ -181,11 +181,12 @@ export const solverService = {
     };
     discardPreview();
     useSeedStore.getState().snapshotForRun();
+    let jobId = 0;
     const job = computeClient.run('seededSolve', input, {
-      onProgress: (f) => useComputeStore.getState().progress(f),
+      onProgress: (f) => useComputeStore.getState().progress(f, jobId),
       transfer: [image.buffer, seeds.buffer],
     });
-    useComputeStore.getState().start(METHOD_LABEL[s.method], viewportId);
+    jobId = useComputeStore.getState().start(METHOD_LABEL[s.method], viewportId);
     running = job;
     const removeKeys = hotkeyService.pushKeyLayer({
       onKeyDown: (e) => {
@@ -203,7 +204,8 @@ export const solverService = {
       return { ok: false, reason: 'failed' };
     } finally {
       removeKeys();
-      if (running === job) { running = null; useComputeStore.getState().end(); }
+      if (running === job) running = null;
+      useComputeStore.getState().end(jobId);
     }
     if (!out) return { ok: false, reason: alpha ? 'one-class' : 'no-seeds' };
 
@@ -353,6 +355,7 @@ export async function runRegionCompetition(r: RegionSettings, viewportId: string
     for (const m of everyone) if (read.txn.has(m, flat)) { initial[i] = m.segmentIndex; break; }
   }
   read.txn.discard();
+  let regionJobId = 0;
   const job = computeClient.run('regionCompetition', {
     image, dims: box.dims, spacing: box.spacing, initial: initial.slice(), movable,
     options: {
@@ -360,9 +363,9 @@ export async function runRegionCompetition(r: RegionSettings, viewportId: string
       edgeGate: r.edgeGate, cleanup: r.cleanup, smoothZ: r.smoothZ, zCoupling: r.zCoupling,
       clip: r.clipOn && isCt(t.containerId) ? { lo: r.clipLo, hi: r.clipHi } : null,
     },
-  }, { onProgress: (f) => useComputeStore.getState().progress(f), transfer: [image.buffer] });
+  }, { onProgress: (f) => useComputeStore.getState().progress(f, regionJobId), transfer: [image.buffer] });
   discardPreview();
-  useComputeStore.getState().start(REGION_LABEL, viewportId);
+  regionJobId = useComputeStore.getState().start(REGION_LABEL, viewportId);
   running = job;
   const removeKeys = hotkeyService.pushKeyLayer({
     onKeyDown: (e) => {
@@ -380,7 +383,8 @@ export async function runRegionCompetition(r: RegionSettings, viewportId: string
     return { ok: false, reason: 'failed' };
   } finally {
     removeKeys();
-    if (running === job) { running = null; useComputeStore.getState().end(); }
+    if (running === job) running = null;
+    useComputeStore.getState().end(regionJobId);
   }
   const writers: MemberRef[] = movableMembers.map((segmentIndex) => ({ containerId: t.containerId, segmentIndex }));
   const begun = beginTransaction(writers);

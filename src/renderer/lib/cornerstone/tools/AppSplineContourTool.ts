@@ -413,7 +413,7 @@ export function withSplineFeatures<TBase extends SplineBase>(Base: TBase) {
     };
   }
 
-  private undoLastPoint(): boolean {
+  undoLastPoint(): boolean {
     const editData = (this as unknown as { editData: { annotation: Annotation } | null }).editData;
     const element = this.drawingElement;
     if (!this.isDrawing || !editData?.annotation || !element) return false;

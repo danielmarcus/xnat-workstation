@@ -21,6 +21,7 @@ import { useUnifiedLayoutStore, type LayoutPreset } from '../../stores/unifiedLa
 import { volumeService } from '../cornerstone/volumeService';
 import { viewportService } from '../cornerstone/viewportService';
 import { unifiedToolService } from '../cornerstone/unifiedToolService';
+import { state as csToolsState, ToolGroupManager as csToolGroupManager } from '@cornerstonejs/tools';
 import { unifiedSegService, canDrawOnViewport } from '../cornerstone/unifiedSegService';
 import { guardLoad } from '../app/leaveGuard';
 import { undoService } from '../cornerstone/undoService';
@@ -208,6 +209,16 @@ declare global {
        * slices run along, the slice index there, and the voxel at the focal point (the sweep).
        */
       viewportPlane: (panelId: string) => { axis: 0 | 1 | 2; index: number; focal: [number, number, number]; dims: [number, number, number] } | null;
+      /** Whether a contour (Spline, Live Wire, Freehand, Contour Fill boundary) is being drawn. */
+      contourDrawing: () => boolean;
+      /** Cornerstone's "a tool is mid-interaction" flag — while set, wheel and drag do nothing. */
+      toolInteracting: () => boolean;
+      /** Count calls to a unified-group tool's method into window.__toolTrace (debugging probes). */
+      traceToolMethod: (toolName: string, method: string) => boolean;
+      /** Cornerstone tools' global state flags (debugging probes). */
+      toolStateFlags: () => Record<string, unknown>;
+      /** Every tool of the unified group with its mode and bindings (binding-leak checks). */
+      toolBindings: () => Record<string, { mode: string; bindings: Array<{ mouseButton?: number; modifierKey?: number }> }>;
       /** The source image's value (HU on CT) at the viewport's focal voxel, as operations read it. */
       sourceValueAtFocal: (panelId: string) => number | null;
       /** Remember every member's voxels of the active segmentation under a tag (the sweep's "before"). */
@@ -925,6 +936,26 @@ export function installRendererE2eHooks(): void {
       const axis = sliceAxisFor(g.geometry.direction, cam.viewPlaneNormal);
       const focal = worldToIndex(g.geometry, cam.focalPoint as [number, number, number]) as [number, number, number];
       return { axis, index: focal[axis], focal, dims: [...g.geometry.dimensions] as [number, number, number] };
+    },
+    contourDrawing: () => !!unifiedToolService.drawingTool(),
+    toolInteracting: () => !!(csToolsState as { isInteractingWithTool?: boolean }).isInteractingWithTool,
+    toolStateFlags: () => ({ ...(csToolsState as unknown as Record<string, unknown>) }),
+    traceToolMethod: (toolName, method) => {
+      const id = unifiedToolService.getViewportToolGroupId('panel_0');
+      const tool = (id ? csToolGroupManager.getToolGroup(id)?.getToolInstance(toolName) : null) as Record<string, unknown> | null;
+      const fn = tool?.[method];
+      if (typeof fn !== 'function') return false;
+      const w = window as unknown as { __toolTrace?: Record<string, number> };
+      w.__toolTrace ??= {};
+      tool![method] = function (this: unknown, ...a: unknown[]) { w.__toolTrace![`${toolName}.${method}`] = (w.__toolTrace![`${toolName}.${method}`] ?? 0) + 1; return (fn as (...x: unknown[]) => unknown).apply(this, a); };
+      return true;
+    },
+    toolBindings: () => {
+      const id = unifiedToolService.getViewportToolGroupId('panel_0');
+      const tg = id ? csToolGroupManager.getToolGroup(id) : null;
+      const out: Record<string, { mode: string; bindings: Array<{ mouseButton?: number; modifierKey?: number }> }> = {};
+      for (const [name, o] of Object.entries((tg as unknown as { toolOptions?: Record<string, { mode: string; bindings: [] }> })?.toolOptions ?? {})) out[name] = { mode: o.mode, bindings: o.bindings ?? [] };
+      return out;
     },
     sourceValueAtFocal: (panelId) => {
       const { activeSegmentationId, activeSegmentIndex } = useSegmentationStore.getState();

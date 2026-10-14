@@ -107,6 +107,8 @@ export const IPC = {
   MODULES_RUN_STOP: 'modules:run-stop',
   /** main → renderer: a run's message port (with its run id). */
   MODULES_RUN_PORT: 'modules:run-port',
+  /** main → page: a run's process is gone (crashed, timed out, the app quitting, the page reloading). */
+  MODULES_RUN_ENDED: 'modules:run-ended',
 
   // Diagnostics (renderer → main)
   DIAGNOSTICS_GET_MAIN_SNAPSHOT: 'diagnostics:get-main-snapshot',
