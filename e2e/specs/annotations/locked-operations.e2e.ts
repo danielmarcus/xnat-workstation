@@ -227,13 +227,19 @@ test('dragging a locked segment\'s island with Select does not move it, and warn
   await page.mouse.click(inside.x, inside.y);
   const outline = page.locator(`${VIEWPORT} [data-testid="mask-selection-outline"] path`);
   await expect.poll(() => outline.count()).toBe(1);
-  const before = await outline.first().boundingBox();
+  // Measure only a drawn outline: a box read while it is (re)drawn is null, and null read as 0
+  // made "moved" the outline's whole x (616 px under load), not the drag.
+  const boxOf = async () => {
+    await expect.poll(async () => (await outline.first().boundingBox()) !== null).toBe(true);
+    return (await outline.first().boundingBox())!;
+  };
+  const before = await boxOf();
 
   await page.mouse.move(inside.x, inside.y);
   await page.mouse.down();
   await page.mouse.move(inside.x + 60, inside.y, { steps: 10 });
   await page.mouse.up();
   await expectLockWarning(page);
-  const after = await outline.first().boundingBox();
-  expect(Math.round((after?.x ?? 0) - (before?.x ?? 0)), 'the locked island did not move').toBe(0);
+  const after = await boxOf();
+  expect(Math.round(after.x - before.x), 'the locked island did not move').toBe(0);
 });
