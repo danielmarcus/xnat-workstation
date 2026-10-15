@@ -505,10 +505,12 @@ export function beginDirectEdit(member: MemberRef, deps: TransactionDeps = defau
   return {
     finish() {
       const now = deps.readGrid(member.containerId, member.segmentIndex);
-      if (!now || now.data.length !== beforeData.length) { txn.discard(); return 'no-change'; }
+      const nowData = now?.data;
+      if (!now || !nowData || nowData.length !== beforeData.length) { txn.discard(); return 'no-change'; }
       const changed: number[] = [];
-      for (let i = 0; i < now.data.length; i++) {
-        if ((now.data[i] === now.value) !== (beforeData[i] === before.value)) changed.push(i);
+      const nowValue = now.value, beforeValue = before.value;
+      for (let i = 0; i < nowData.length; i++) {
+        if ((nowData[i] === nowValue) !== (beforeData[i] === beforeValue)) changed.push(i);
       }
       if (!changed.length) { txn.discard(); return 'no-change'; }
       if (locked) {

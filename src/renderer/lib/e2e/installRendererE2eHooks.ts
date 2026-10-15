@@ -887,7 +887,7 @@ export function installRendererE2eHooks(): void {
       const g = activeSegmentationId ? readSegmentVoxelGrid(activeSegmentationId, activeSegmentIndex) : null;
       if (!g) return -1;
       let n = 0;
-      for (let i = 0; i < g.data.length; i++) if (g.data[i] === g.value) n++;
+      for (let i = 0, gd = g.data, gv = g.value; i < gd.length; i++) if (gd[i] === gv) n++;
       return n;
     },
     memberSphereDice: (segmentIndex, center, radius, innerRadius = -1) => {
@@ -896,12 +896,12 @@ export function installRendererE2eHooks(): void {
       if (!g) return -1;
       const [nx, ny] = g.geometry.dimensions;
       let inter = 0, a = 0, b = 0;
-      for (let i = 0; i < g.data.length; i++) {
+      for (let i = 0, gd = g.data, gv = g.value; i < gd.length; i++) {
         const z = Math.floor(i / (nx * ny)), y = Math.floor(i / nx) % ny, x = i % nx;
         const w = indexToWorld(g.geometry, [x, y, z]);
         const d = Math.hypot(w[0] - center[0], w[1] - center[1], w[2] - center[2]);
         const inS = d <= radius && d > innerRadius;
-        const inA = g.data[i] === g.value;
+        const inA = gd[i] === gv;
         if (inS) b++;
         if (inA) a++;
         if (inS && inA) inter++;
@@ -931,8 +931,8 @@ export function installRendererE2eHooks(): void {
       const slice = worldToIndex(g.geometry, cam.focalPoint as [number, number, number])[axis];
       const [nx, ny] = g.geometry.dimensions;
       let n = 0;
-      for (let i = 0; i < g.data.length; i++) {
-        if (g.data[i] !== g.value) continue;
+      for (let i = 0, gd = g.data, gv = g.value; i < gd.length; i++) {
+        if (gd[i] !== gv) continue;
         const ijk = [i % nx, Math.floor(i / nx) % ny, Math.floor(i / (nx * ny))];
         if (ijk[axis] === slice) n++;
       }
@@ -993,7 +993,7 @@ export function installRendererE2eHooks(): void {
       for (const m of seg?.segments ?? []) {
         const g = readSegmentVoxelGrid(activeSegmentationId!, m.segmentIndex);
         const set = new Set<number>();
-        if (g) for (let i = 0; i < g.data.length; i++) if (g.data[i] === g.value) set.add(i);
+        if (g) for (let i = 0, gd = g.data, gv = g.value; i < gd.length; i++) if (gd[i] === gv) set.add(i);
         snap.set(m.segmentIndex, set);
       }
       const w = window as unknown as { __sweepSnapshots?: Map<string, Map<number, Set<number>>> };
@@ -1032,8 +1032,8 @@ export function installRendererE2eHooks(): void {
           maxPlaneMm = Math.max(maxPlaneMm, Math.abs(d[0] * nrm[0] + d[1] * nrm[1] + d[2] * nrm[2]) / nl);
           minFocalMm = Math.min(minFocalMm, Math.hypot(d[0], d[1], d[2]));
         };
-        for (let i = 0; i < g.data.length; i++) {
-          const on = g.data[i] === g.value;
+        for (let i = 0, gd = g.data, gv = g.value; i < gd.length; i++) {
+          const on = gd[i] === gv;
           if (on) now++;
           if (on && !before.has(i)) { added++; touch(i); } else if (!on && before.has(i)) { removed++; touch(i); }
         }
@@ -1047,7 +1047,7 @@ export function installRendererE2eHooks(): void {
       const g = activeSegmentationId ? readSegmentVoxelGrid(activeSegmentationId, segmentIndex) : null;
       if (!g) return null;
       const out: number[] = [];
-      for (let i = 0; i < g.data.length; i++) if (g.data[i] === g.value) out.push(i);
+      for (let i = 0, gd = g.data, gv = g.value; i < gd.length; i++) if (gd[i] === gv) out.push(i);
       return out;
     },
     memberVoxelCount: (segmentIndex) => {
@@ -1055,7 +1055,7 @@ export function installRendererE2eHooks(): void {
       const g = activeSegmentationId ? readSegmentVoxelGrid(activeSegmentationId, segmentIndex) : null;
       if (!g) return -1;
       let n = 0;
-      for (let i = 0; i < g.data.length; i++) if (g.data[i] === g.value) n++;
+      for (let i = 0, gd = g.data, gv = g.value; i < gd.length; i++) if (gd[i] === gv) n++;
       return n;
     },
     activeSegmentMinSourceValue: () => {
@@ -1064,7 +1064,7 @@ export function installRendererE2eHooks(): void {
       const read = g?.sourceReader?.();
       if (!g || !read) return null;
       let min = Infinity;
-      for (let i = 0; i < g.data.length; i++) if (g.data[i] === g.value) min = Math.min(min, read(i));
+      for (let i = 0, gd = g.data, gv = g.value; i < gd.length; i++) if (gd[i] === gv) min = Math.min(min, read(i));
       return Number.isFinite(min) ? min : null;
     },
     setComputeThrottle: (ms) => { computeClient.setThrottle(ms); qcComputeClient.setThrottle(ms); cleanupComputeClient.setThrottle(ms); },
@@ -1078,7 +1078,7 @@ export function installRendererE2eHooks(): void {
       const read = g?.sourceReader?.();
       if (!g || !read) return null;
       let max = -Infinity;
-      for (let i = 0; i < g.data.length; i++) if (g.data[i] === g.value) max = Math.max(max, read(i));
+      for (let i = 0, gd = g.data, gv = g.value; i < gd.length; i++) if (gd[i] === gv) max = Math.max(max, read(i));
       return Number.isFinite(max) ? max : null;
     },
     activeSegmentSliceCounts: () => {
@@ -1087,7 +1087,7 @@ export function installRendererE2eHooks(): void {
       if (!g) return [];
       const [nx, ny, nz] = g.geometry.dimensions;
       const out = new Array(nz).fill(0);
-      for (let i = 0; i < g.data.length; i++) if (g.data[i] === g.value) out[Math.floor(i / (nx * ny))]++;
+      for (let i = 0, gd = g.data, gv = g.value; i < gd.length; i++) if (gd[i] === gv) out[Math.floor(i / (nx * ny))]++;
       return out;
     },
     deleteActiveCheckpoints: async () => {

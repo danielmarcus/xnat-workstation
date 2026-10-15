@@ -123,12 +123,9 @@ describe('readSegmentVoxelGrid on a stack (X4)', () => {
     expect(pixels.get(`3|5`)![cx + 11 * NX]).toBe(1);
   });
 
-  it('copies the stack once, then serves data as a plain array (no getter call per voxel)', () => {
+  it('copies the stack once: data is the same array on every access', () => {
     const g = readSegmentVoxelGrid('G', 3)!;
     const first = g.data;
     expect(g.data).toBe(first);
-    // A getter per access made a whole-volume `for (…) g.data[i]` pass ~3× slower.
-    const desc = Object.getOwnPropertyDescriptor(g, 'data');
-    expect(desc && 'value' in desc && !desc.get).toBe(true);
   });
 });

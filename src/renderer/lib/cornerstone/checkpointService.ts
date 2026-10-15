@@ -91,7 +91,8 @@ export async function saveCheckpoint(containerId: string, name: string, kind: 'b
     if (!g) continue;
     const d = g.geometry.dimensions;
     dims = [d[0], d[1], d[2]];
-    const runs = encodeRuns(g.data.length, (i) => g.data[i] === g.value);
+    const data = g.data, value = g.value;
+    const runs = encodeRuns(data.length, (i) => data[i] === value);
     members.push({ segmentIndex: m.segmentIndex, label: m.label, runs: await packRuns(runs) });
   }
   if (!dims) return { ok: false, reason: 'no-labelmap' };
@@ -171,10 +172,11 @@ export async function restoreCheckpoint(containerId: string, checkpointId: strin
       txn.discard();
       return { ok: false, reason: 'other-grid' };
     }
-    const want = new Uint8Array(g.data.length);
+    const data = g.data, value = g.value;
+    const want = new Uint8Array(data.length);
     forEachInRuns(await unpackRuns(m.runs), (i) => { want[i] = 1; });
     for (let i = 0; i < want.length; i++) {
-      const has = g.data[i] === g.value; // live value; set() is a no-op when unchanged
+      const has = data[i] === value; // live value; set() is a no-op when unchanged
       if (has !== (want[i] === 1)) txn.set(ref, i, want[i] === 1);
     }
   }
