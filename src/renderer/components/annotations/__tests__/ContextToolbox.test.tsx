@@ -43,6 +43,17 @@ describe('ContextToolbox', () => {
     expect((screen.getByLabelText('Sphere') as HTMLButtonElement).disabled).toBe(true);
   });
 
+  it('disables a tool this machine cannot run, with the reason as its tooltip', async () => {
+    const { onSelectTool } = setup({ unavailableTools: { region: 'needs WebGPU', regionPlus: 'needs WebGPU' } });
+    for (const label of ['Region', 'Region+']) {
+      const b = screen.getByLabelText(label) as HTMLButtonElement;
+      expect(b.disabled).toBe(true);
+      expect(b.title).toBe('needs WebGPU');
+      await userEvent.click(b);
+    }
+    expect(onSelectTool).not.toHaveBeenCalled();
+  });
+
   it('every Segmentation tool is in one grid, with no tabs, family by family (D2 as amended)', () => {
     render(<ContextToolbox kind="SEG" activeMemberName="S" activeToolId={null} onSelectTool={vi.fn()} />);
     expect(screen.queryAllByRole('tab')).toHaveLength(0);

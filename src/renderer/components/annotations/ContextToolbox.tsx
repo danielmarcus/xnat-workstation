@@ -115,6 +115,11 @@ export interface ContextToolboxProps {
   activeToolId: string | null;
   /** Tool ids disabled because no FoR-matched viewport exists (D3). */
   disabledToolIds?: string[];
+  /**
+   * Tools this machine cannot run, each with why — the button is disabled and its tooltip is
+   * the reason (e.g. Region / Region+ without WebGPU).
+   */
+  unavailableTools?: Partial<Record<string, string>>;
   onSelectTool: (toolId: string) => void;
   /** Icon-only when the panel is narrow. */
   compact?: boolean;
@@ -143,7 +148,7 @@ export interface ContextToolboxProps {
 
 export default function ContextToolbox(props: ContextToolboxProps) {
   const {
-    kind, activeMemberName, activeMemberColor, activeToolId, disabledToolIds = [], onSelectTool, compact, columns = 3, controls,
+    kind, activeMemberName, activeMemberColor, activeToolId, disabledToolIds = [], unavailableTools = {}, onSelectTool, compact, columns = 3, controls,
     backupStatus, backupStatusKind, renderSemiAutoControls, renderContourControls,
   } = props;
   const tools = toolsForKind(kind);
@@ -166,7 +171,8 @@ export default function ContextToolbox(props: ContextToolboxProps) {
 
   function renderTool(t: ToolDef) {
     const isActive = t.id === activeToolId;
-    const isDisabled = disabled.has(t.id);
+    const unavailable = unavailableTools[t.id];
+    const isDisabled = disabled.has(t.id) || !!unavailable;
     let cls: string;
     if (isActive) cls = 'bg-blue-600 text-white';
     else if (isDisabled) cls = 'bg-zinc-900 border border-dashed border-zinc-800 text-zinc-700 cursor-not-allowed';
@@ -176,7 +182,7 @@ export default function ContextToolbox(props: ContextToolboxProps) {
         key={t.id}
         type="button"
         disabled={isDisabled}
-        title={t.title}
+        title={unavailable ?? t.title}
         aria-label={t.label}
         aria-pressed={isActive}
         onClick={() => onSelectTool(t.id)}

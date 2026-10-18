@@ -5,7 +5,7 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import type { SegmentVoxelGrid } from '../segmentVoxelGrid';
-import { beginTransaction, type MemberRef, type TransactionDeps, type VoxelMemoRecord } from '../labelmapTransaction';
+import { beginDirectEdit, beginTransaction, type MemberRef, type TransactionDeps, type VoxelMemoRecord } from '../labelmapTransaction';
 import { extractPlane, gridIndexOf, planeAxes, sliceIndices } from '../../segmentation/maskOps/planeIO';
 
 const DIMS: [number, number, number] = [3, 3, 2];
@@ -252,3 +252,50 @@ describe('large transactions (X5 / #96)', () => {
 });
 
 void vi;
+
+/**
+ * A tool that writes the labelmap itself (Cornerstone's grow-cut): `beginDirectEdit` snapshots
+ * the member, `finish` records what the tool changed, and `abort` — the tool's run failed —
+ * puts back whatever it wrote and records nothing.
+ */
+describe('beginDirectEdit', () => {
+  /** A live grid whose `data` is a copy per read, as a stack labelmap's is. */
+  function liveGrid() {
+    const live = new Uint8Array(18);
+    const g: SegmentVoxelGrid = {
+      geometry: GEOM, value: 1, csSegmentationId: 'G_layer_1',
+      get data() { return live.slice(); },
+      write: (f, v) => { live[f] = v; },
+    };
+    return { g, live };
+  }
+
+  it('finish records the tool\'s write as one undo step', () => {
+    const { g, live } = liveGrid();
+    const { d, pushed } = deps({ 'G|1': g });
+    const edit = beginDirectEdit(A, d)!;
+    live[4] = 1;
+    expect(edit.finish()).toBe('recorded');
+    expect(pushed).toHaveLength(1);
+  });
+
+  it('abort puts back a partial write and records nothing', () => {
+    const { g, live } = liveGrid();
+    const { d, pushed, notified } = deps({ 'G|1': g });
+    const edit = beginDirectEdit(A, d)!;
+    live[4] = 1;
+    live[9] = 1;
+    edit.abort();
+    expect(Array.from(live).every((v) => v === 0)).toBe(true);
+    expect(pushed).toHaveLength(0);
+    expect(notified).toEqual(['G_layer_1']);
+  });
+
+  it('abort with nothing written records and notifies nothing', () => {
+    const { g } = liveGrid();
+    const { d, pushed, notified } = deps({ 'G|1': g });
+    beginDirectEdit(A, d)!.abort();
+    expect(pushed).toHaveLength(0);
+    expect(notified).toEqual([]);
+  });
+});

@@ -68,6 +68,11 @@ interface ToolCase {
   gesture: (page: Page) => Promise<void>;
   /** After the gesture (e.g. a preview to commit). */
   after?: (page: Page) => Promise<void>;
+  /**
+   * A grow-cut tool (Cornerstone's WebGPU engine), by its Cornerstone name. Where the machine has
+   * no WebGPU adapter it is disabled in the toolbox and refuses the gesture ('none').
+   */
+  growCut?: string;
 }
 
 const commitPreview = async (page: Page) => {
@@ -87,8 +92,8 @@ const TOOLS: ToolCase[] = [
   { label: 'Sphere', expect: 'change', flat: false, focal: true, gesture: (p) => drag(p, [[0, 0], [8, 0]]) },
   { label: 'Paint Fill', expect: 'any', flat: true, focal: false, gesture: (p) => click(p) },
   // Region segments in 3D inside the sphere you drag; Region+ in 3D from one click.
-  { label: 'Region', expect: 'change', flat: false, focal: true, gesture: (p) => drag(p, [[0, 0], [12, 0]]) },
-  { label: 'Region+', expect: 'change', flat: false, focal: true, gesture: (p) => click(p) },
+  { label: 'Region', expect: 'change', flat: false, focal: true, growCut: 'RegionSegment', gesture: (p) => drag(p, [[0, 0], [12, 0]]) },
+  { label: 'Region+', expect: 'change', flat: false, focal: true, growCut: 'RegionSegmentPlus', gesture: (p) => click(p) },
   { label: 'Rect Multi', expect: 'change', flat: true, focal: true, gesture: (p) => drag(p, [[-8, -8], [8, 8]]) },
   { label: 'Contour Fill', expect: 'change', flat: true, focal: true, gesture: (p) => drag(p, loop(10)) },
   { label: 'Level Trace', expect: 'change', flat: true, focal: true, gesture: (p) => click(p), after: commitPreview },
@@ -107,6 +112,13 @@ const CONTEXTS: Array<{ fixture: string; orientation: 'ACQUISITION' | 'SAGITTAL'
   { fixture: 'ct-body-oblique', orientation: 'ACQUISITION' },
   { fixture: 'ct-body-oblique', orientation: 'CORONAL' },
 ];
+
+const GROW_CUT_GPU_UNAVAILABLE = 'Region and Region+ need WebGPU, which this computer does not provide. Use the Seeded segmentation operation (Fast GrowCut, on the CPU) instead.';
+
+/** Whether the renderer has a WebGPU adapter (Region / Region+ need one). */
+async function hasWebGpuAdapter(page: Page): Promise<boolean> {
+  return page.evaluate(async () => !!(await (navigator as unknown as { gpu?: { requestAdapter(): Promise<unknown> } }).gpu?.requestAdapter()));
+}
 
 /** Errors the renderer logs while a case runs. */
 function captureErrors(page: Page): () => string[] {
@@ -179,15 +191,26 @@ for (const ctx of CONTEXTS) {
         await H(page).snapshot('before');
         // On an oblique reformat the plane tools refuse (their "slice on screen" would be a grid
         // slice that is not the one shown, or Cornerstone's grid-axis box) — nothing may change.
-        const expectHere: Expect = !plane?.aligned && REFUSE_ON_OBLIQUE_VIEW.has(tool.label) ? 'none' : tool.expect;
+        // Without WebGPU the grow-cut tools are disabled, saying why; one active anyway (chosen
+        // before the check answered) refuses the gesture with that message — nothing may change.
+        const noGpu = !!tool.growCut && !(await hasWebGpuAdapter(page));
+        const expectHere: Expect = noGpu || (!plane?.aligned && REFUSE_ON_OBLIQUE_VIEW.has(tool.label)) ? 'none' : tool.expect;
         const errorsOf = captureErrors(page);
-        await clickTool(toolbox, tool.label);
+        if (noGpu) {
+          const button = toolbox.getByRole('button', { name: tool.label, exact: true });
+          await expect(button).toBeDisabled({ timeout: 10_000 });
+          await expect(button).toHaveAttribute('title', GROW_CUT_GPU_UNAVAILABLE);
+          await page.evaluate((name) => (window as unknown as { __XNAT_E2E__: { setActiveUnifiedTool: (n: string) => void } }).__XNAT_E2E__.setActiveUnifiedTool(name), tool.growCut!);
+        } else {
+          await clickTool(toolbox, tool.label);
+        }
         try {
           await tool.gesture(page);
           if (tool.after && expectHere !== 'none') await tool.after(page);
         } catch (e) {
           problems.push(`gesture failed: ${String(e).split('\n')[0]}`);
         }
+        if (noGpu) await expect(page.getByTestId('viewport-toast').filter({ hasText: GROW_CUT_GPU_UNAVAILABLE })).toBeVisible({ timeout: 10_000 });
         const d = await settled(page, 'before', expectHere === 'change');
         const active = d[1], other = d[2];
         if (expectHere === 'change' && !changed(d, 1)) problems.push('the active segment did not change');

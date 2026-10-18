@@ -488,6 +488,8 @@ export const defaultDeps: TransactionDeps = {
 export interface DirectEdit {
   /** Record (or, for a locked member, revert) what changed since `beginDirectEdit`. */
   finish(): 'recorded' | 'reverted' | 'no-change';
+  /** The tool's run failed: put back whatever it wrote since `beginDirectEdit`, and record nothing. */
+  abort(): void;
 }
 
 export function beginDirectEdit(member: MemberRef, deps: TransactionDeps = defaultDeps): DirectEdit | null {
@@ -502,17 +504,23 @@ export function beginDirectEdit(member: MemberRef, deps: TransactionDeps = defau
     geometry: live.geometry, data: beforeData, value: live.value, csSegmentationId: live.csSegmentationId, write: live.write,
   };
   const txn = new LabelmapTransaction(deps, [member], new Map([[keyOf(member), before]]));
+  /** Indices whose membership differs from the snapshot (and the live grid), or null if unreadable. */
+  const changedSince = () => {
+    const now = deps.readGrid(member.containerId, member.segmentIndex);
+    const nowData = now?.data;
+    if (!now || !nowData || nowData.length !== beforeData.length) return null;
+    const changed: number[] = [];
+    const nowValue = now.value, beforeValue = before.value;
+    for (let i = 0; i < nowData.length; i++) {
+      if ((nowData[i] === nowValue) !== (beforeData[i] === beforeValue)) changed.push(i);
+    }
+    return { now, changed };
+  };
   return {
     finish() {
-      const now = deps.readGrid(member.containerId, member.segmentIndex);
-      const nowData = now?.data;
-      if (!now || !nowData || nowData.length !== beforeData.length) { txn.discard(); return 'no-change'; }
-      const changed: number[] = [];
-      const nowValue = now.value, beforeValue = before.value;
-      for (let i = 0; i < nowData.length; i++) {
-        if ((nowData[i] === nowValue) !== (beforeData[i] === beforeValue)) changed.push(i);
-      }
-      if (!changed.length) { txn.discard(); return 'no-change'; }
+      const diff = changedSince();
+      if (!diff || !diff.changed.length) { txn.discard(); return 'no-change'; }
+      const { now, changed } = diff;
       if (locked) {
         for (const i of changed) now.write(i, beforeData[i]);
         txn.discard();
@@ -522,6 +530,14 @@ export function beginDirectEdit(member: MemberRef, deps: TransactionDeps = defau
       for (const i of changed) txn.set(member, i, now.data[i] === now.value);
       txn.commit();
       return 'recorded';
+    },
+    abort() {
+      const diff = changedSince();
+      if (diff?.changed.length) {
+        for (const i of diff.changed) diff.now.write(i, beforeData[i]);
+        deps.notifyChanged(diff.now.csSegmentationId);
+      }
+      txn.discard();
     },
   };
 }
