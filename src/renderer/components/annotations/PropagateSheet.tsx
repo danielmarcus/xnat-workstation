@@ -3,7 +3,8 @@
  * Rendered as the open operation of the Operations section, in its compact row style.
  */
 import type { PropagateSheetModel } from '../../hooks/usePropagateSheet';
-import { OperationBody, OperationRow, PreviewCommitButtons, Segmented } from './OperationsSection';
+import { MoreToggle, OperationBody, OperationRow, PreviewCommitButtons, Segmented, differsFrom } from './OperationsSection';
+import { PROPAGATE_DEFAULTS } from '../../stores/operationSheetStore';
 
 function Slider({ label, min, max, step, value, unit, onChange }: { label: string; min: number; max: number; step: number; value: number; unit?: string; onChange: (v: number) => void }) {
   return (
@@ -67,9 +68,7 @@ export default function PropagateSheet({ m }: { m: PropagateSheetModel }) {
         ? <Slider label="Tolerance ±" min={10} max={1000} step={10} value={s.huTolerance} unit="HU" onChange={(v) => m.set({ huTolerance: v })} />
         : <Slider label="Tolerance ±" min={0.5} max={5} step={0.1} value={s.sigma} unit="σ" onChange={(v) => m.set({ sigma: v })} />}
       <div className="flex justify-end mt-1 text-[10px]">
-        <button type="button" onClick={m.toggleAdvanced} aria-expanded={m.advancedOpen} className="text-zinc-400 hover:text-zinc-200 whitespace-nowrap">
-          {m.advancedOpen ? '▾' : '▸'} Advanced
-        </button>
+        <MoreToggle open={m.advancedOpen} onToggle={m.toggleAdvanced} changed={differsFrom(s, PROPAGATE_DEFAULTS, ['stable', 'growPx', 'maxAreaChangePct', 'fillHoles', 'edgeGuard', 'zSmoothing'])} />
       </div>
       {m.advancedOpen && (
         <>

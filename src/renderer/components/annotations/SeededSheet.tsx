@@ -4,7 +4,8 @@
  * Random Walker among them since 2026-10-28 (it was a Smart tool with its own seeds).
  */
 import type { SeededSheetModel } from '../../hooks/useSeededSheet';
-import { OperationBody, OperationRow, Segmented } from './OperationsSection';
+import { MoreToggle, OperationBody, OperationRow, Segmented, differsFrom } from './OperationsSection';
+import { SEEDED_DEFAULTS } from '../../stores/operationSheetStore';
 
 function Slider({ label, min, max, step, value, unit, onChange }: { label: string; min: number; max: number; step: number; value: number; unit?: string; onChange: (v: number) => void }) {
   return (
@@ -164,9 +165,11 @@ export default function SeededSheet({ m }: { m: SeededSheetModel }) {
       )}
 
       {!m.walker && <div className="flex justify-end mt-1 text-[10px]">
-        <button type="button" onClick={m.toggleAdvanced} aria-expanded={m.advancedOpen} className="text-zinc-400 hover:text-zinc-200 whitespace-nowrap">
-          {m.advancedOpen ? '▾' : '▸'} Advanced
-        </button>
+        <MoreToggle open={m.advancedOpen} onToggle={m.toggleAdvanced} changed={differsFrom(s, SEEDED_DEFAULTS, [
+          'padXY', 'padZ',
+          ...(s.method === 'alphaExpansion' ? ['uInt', 'uLoc', 'locality', 'intensity'] as const : []),
+          ...(s.method !== 'growCut' ? ['postOn', 'postKeep', 'postMinIsland', 'postSmooth', 'postShrinkGrow'] as const : []),
+        ])} />
       </div>}
       {m.advancedOpen && !m.walker && (
         <>

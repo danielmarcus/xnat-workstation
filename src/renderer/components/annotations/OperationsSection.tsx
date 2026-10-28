@@ -184,3 +184,32 @@ export function PreviewCommitButtons({ onPreview, onCommit, onDiscard, canPrevie
     </>
   );
 }
+
+/**
+ * The More fold (R7-A): the settings beyond a tool's or an operation's essentials. A dot shows
+ * while any of them differs from its default, so a changed setting is never out of sight.
+ */
+export function MoreToggle({ open, onToggle, changed }: { open: boolean; onToggle: () => void; changed: boolean }) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={open}
+      title={changed ? 'Some of these settings differ from their defaults' : undefined}
+      className="flex items-center gap-1 text-[10px] text-zinc-400 hover:text-zinc-200 whitespace-nowrap"
+    >
+      {open ? '▾' : '▸'} More
+      {changed && <span data-testid="more-changed" className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400" />}
+    </button>
+  );
+}
+
+/** Whether any of `keys` differs between `now` and `base` (the More fold's dot). */
+export function differsFrom<T extends object>(now: T, base: T, keys: Array<keyof T>): boolean {
+  return keys.some((k) => JSON.stringify(now[k]) !== JSON.stringify(base[k]));
+}
+
+/** Whether any parameter differs from its declared default. */
+export function paramsChanged(specs: ReadonlyArray<{ key: string; default: unknown }>, values: Record<string, unknown>): boolean {
+  return specs.some((p) => values[p.key] !== undefined && values[p.key] !== p.default);
+}

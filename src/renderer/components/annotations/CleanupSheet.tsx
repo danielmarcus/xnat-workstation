@@ -5,7 +5,7 @@
  * row style (a label, then the control), so the common operations fit without scrolling.
  */
 import type { CleanupSheetModel, ParamSpec } from '../../hooks/useCleanupSheet';
-import { OperationBody, OperationRow, PreviewCommitButtons, Segmented } from './OperationsSection';
+import { MoreToggle, OperationBody, OperationRow, PreviewCommitButtons, Segmented, paramsChanged } from './OperationsSection';
 import { OperationParam as Param } from './OperationParams';
 
 
@@ -57,14 +57,7 @@ export default function CleanupSheet({ m }: { m: CleanupSheetModel }) {
       <div className="flex items-start gap-2 mt-1 text-[10px]">
         <span className="flex-1 min-w-0 text-zinc-500 truncate" title={m.op.description}>{m.op.description}</span>
         {advanced.length > 0 && (
-          <button
-            type="button"
-            onClick={m.toggleAdvanced}
-            aria-expanded={m.advancedOpen}
-            className="text-zinc-400 hover:text-zinc-200 whitespace-nowrap"
-          >
-            {m.advancedOpen ? '▾' : '▸'} Advanced
-          </button>
+          <MoreToggle open={m.advancedOpen} onToggle={m.toggleAdvanced} changed={paramsChanged(advanced, m.params)} />
         )}
       </div>
       {m.isPair && (

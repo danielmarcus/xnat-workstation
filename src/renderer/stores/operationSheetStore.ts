@@ -157,6 +157,19 @@ interface OperationSheetState {
   setConfirmingLeave: (v: boolean) => void;
 }
 
+/** Defaults — the More fold's changed dot compares against them. */
+export const INTERP_DEFAULTS: OperationSheetState['interp'] = { method: 'sdfArea', distance: 'exact', fill: 'gaps', anchorA: null, anchorB: null };
+export const PROPAGATE_DEFAULTS: OperationSheetState['prop'] = {
+  direction: 'both', modality: null, huTolerance: 150, sigma: 2, maxSlices: 50, stable: true, growPx: 0,
+  maxAreaChangePct: 60, fillHoles: true, edgeGuard: false, zSmoothing: false,
+};
+export const SEEDED_DEFAULTS: SeededSettings = {
+  method: 'growCut', domain: 'seeded', padXY: 24, padZ: 2, gateOn: false, gateLo: -150, gateHi: 250,
+  lambda: 50, sigma: 30,
+  smooth: 6, alphaSigma: 30, sweeps: 2, uInt: 0.75, uLoc: 0.25, locality: 0.65, intensity: 0.35, seedBias: 0.9,
+  postOn: false, postKeep: 'seed', postMinIsland: 300, postSmooth: 1, postShrinkGrow: 1,
+};
+
 export const useOperationSheetStore = create<OperationSheetState>((set) => ({
   openSheet: null,
   collapsed: false,
@@ -172,17 +185,9 @@ export const useOperationSheetStore = create<OperationSheetState>((set) => ({
   confirmingLeave: false,
   interp: { method: 'sdfArea', distance: 'exact', fill: 'gaps', anchorA: null, anchorB: null },
   setInterp: (patch) => set((s) => ({ interp: { ...s.interp, ...patch }, message: null })),
-  prop: {
-    direction: 'both', modality: null, huTolerance: 150, sigma: 2, maxSlices: 50, stable: true, growPx: 0,
-    maxAreaChangePct: 60, fillHoles: true, edgeGuard: false, zSmoothing: false,
-  },
+  prop: { ...PROPAGATE_DEFAULTS },
   setProp: (patch) => set((s) => ({ prop: { ...s.prop, ...patch }, message: null })),
-  seeded: {
-    method: 'growCut', domain: 'seeded', padXY: 24, padZ: 2, gateOn: false, gateLo: -150, gateHi: 250,
-    lambda: 50, sigma: 30,
-    smooth: 6, alphaSigma: 30, sweeps: 2, uInt: 0.75, uLoc: 0.25, locality: 0.65, intensity: 0.35, seedBias: 0.9,
-    postOn: false, postKeep: 'seed', postMinIsland: 300, postSmooth: 1, postShrinkGrow: 1,
-  },
+  seeded: { ...SEEDED_DEFAULTS },
   setSeeded: (patch) => set((s) => ({ seeded: { ...s.seeded, ...patch }, message: null })),
   region: {
     mode: 'bounded', labels: null, includeBackground: true,

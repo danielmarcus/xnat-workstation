@@ -424,8 +424,8 @@ export default function ContextToolbox(props: ContextToolboxProps) {
             )}
             {needs('intensityWindow') && controls.thresholdRange && controls.onThresholdRangeChange && (
               <div className="mt-1.5" data-testid="threshold-controls">
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] text-zinc-400 whitespace-nowrap">Threshold</span>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] text-zinc-400 whitespace-nowrap w-12 shrink-0">Window</span>
                   <input
                     type="number"
                     value={controls.thresholdRange[0]}
@@ -433,7 +433,7 @@ export default function ContextToolbox(props: ContextToolboxProps) {
                       controls.onThresholdRangeChange!([Number(e.target.value), controls.thresholdRange![1]])
                     }
                     aria-label="Threshold minimum"
-                    className="w-16 px-1 py-0.5 rounded bg-zinc-800 text-zinc-200 text-[10px] tabular-nums"
+                    className="w-14 px-1 py-0.5 rounded bg-zinc-800 text-zinc-200 text-[10px] tabular-nums"
                   />
                   <span className="text-[10px] text-zinc-500">to</span>
                   <input
@@ -443,12 +443,9 @@ export default function ContextToolbox(props: ContextToolboxProps) {
                       controls.onThresholdRangeChange!([controls.thresholdRange![0], Number(e.target.value)])
                     }
                     aria-label="Threshold maximum"
-                    className="w-16 px-1 py-0.5 rounded bg-zinc-800 text-zinc-200 text-[10px] tabular-nums"
+                    className="w-14 px-1 py-0.5 rounded bg-zinc-800 text-zinc-200 text-[10px] tabular-nums"
                   />
-                </div>
                 {!!controls.thresholdPresets?.length && (
-                  <div className="flex items-center gap-2 mt-1.5">
-                    <span className="text-[10px] text-zinc-400 whitespace-nowrap">Preset</span>
                     <select
                       value={activeThresholdPreset ?? ''}
                       onChange={(e) => {
@@ -456,15 +453,15 @@ export default function ContextToolbox(props: ContextToolboxProps) {
                         if (preset) controls.onThresholdRangeChange!([...preset.range] as [number, number]);
                       }}
                       aria-label="Threshold preset"
-                      className="flex-1 px-1 py-0.5 rounded bg-zinc-800 text-zinc-200 text-[10px]"
+                      className="flex-1 min-w-0 px-1 py-0.5 rounded bg-zinc-800 text-zinc-200 text-[10px]"
                     >
                       <option value="">Custom</option>
                       {controls.thresholdPresets!.map((p) => (
                         <option key={p.name} value={p.name}>{p.name}</option>
                       ))}
                     </select>
-                  </div>
                 )}
+                </div>
               </div>
             )}
             {needs('semiAuto') && activeToolId && renderSemiAutoControls?.(activeToolId)}

@@ -244,7 +244,7 @@ test('clean-up is off by default; on, its smoothing and shrink–grow pass trim 
   const raw = await voxels(page);
   await page.keyboard.press('Control+z');
   await expect.poll(() => voxels(page)).toBe(0);
-  await sheet.getByRole('button', { name: /Advanced/ }).click();
+  await sheet.getByRole('button', { name: /^. More/ }).click();
   await expect(sheet.getByLabel('Clean up the result')).not.toBeChecked();
   await sheet.getByLabel('Clean up the result').check();
   await runAndCommit(page, sheet, 'Graph Cut');
@@ -334,7 +334,7 @@ test('α-expansion with a locked member: it is not written; the other member is'
 test('every slider\'s thumb sits on the value its row shows — the intensity range, clean-up and each method', async ({ page }) => {
   const { sheet } = await open(page);
   await sheet.getByLabel('Intensity range').check();
-  await sheet.getByRole('button', { name: /Advanced/ }).click();
+  await sheet.getByRole('button', { name: /^. More/ }).click();
   await expectSlidersOnTheirValues(sheet);
   for (const method of ['graphCut', 'alphaExpansion']) {
     await sheet.getByLabel('Method').selectOption(method);

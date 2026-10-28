@@ -5,6 +5,8 @@
  */
 import { useState, type ReactNode } from 'react';
 import type { SemiAutoControlsModel } from '../../hooks/useSemiAutoControls';
+import { LEVEL_TRACE_DEFAULTS, SMART_BRUSH_DEFAULTS } from '../../stores/semiAutoStore';
+import { MoreToggle, differsFrom } from './OperationsSection';
 
 function Row({ label, children, testId }: { label: string; children: ReactNode; testId?: string }) {
   return (
@@ -91,18 +93,17 @@ function RoiChip({ m }: { m: SemiAutoControlsModel }) {
 
 export default function SmartToolControls({ toolId, m }: { toolId: string; m: SemiAutoControlsModel }) {
   const lt = m.levelTrace;
-  // Level Trace has more settings than the toolbox's fixed Controls area holds (D2 as
-  // amended 2026-10-12): band, tolerance and edge guard show; the rest fold under Advanced.
+  // Essentials, then More (R7-A): Level Trace shows band, tolerance and edge guard; Smart
+  // Brush its radius and tolerance. The rest fold under More, whose dot shows while any of
+  // them differs from its default.
   const [ltAdvanced, setLtAdvanced] = useState(false);
+  const [sbMore, setSbMore] = useState(false);
   const advancedToggle = (
-    <button
-      type="button"
-      aria-expanded={ltAdvanced}
-      onClick={() => setLtAdvanced((v) => !v)}
-      className="text-[10px] text-zinc-400 hover:text-zinc-200 whitespace-nowrap"
-    >
-      {ltAdvanced ? '▾' : '▸'} Advanced
-    </button>
+    <MoreToggle
+      open={ltAdvanced}
+      onToggle={() => setLtAdvanced((v) => !v)}
+      changed={differsFrom(lt, LEVEL_TRACE_DEFAULTS, ['window', 'smoothing', 'growth', 'fuzzyThreshold', 'edgeOperator', 'polarity', 'simplifyPx', 'roundCorners', 'guard', 'fillHoles', 'airGuard'])}
+    />
   );
   const body = (() => {
     switch (toolId) {
@@ -151,8 +152,16 @@ export default function SmartToolControls({ toolId, m }: { toolId: string; m: Se
         return (
           <>
             <Slider label="Radius" value={m.smartBrush.radiusMm} min={1} max={40} unit=" mm" onChange={(v) => m.setSmartBrush({ radiusMm: v })} />
-            <Slider label="Tolerance" value={m.smartBrush.tolerance} min={5} max={400} step={5} unit="" onChange={(v) => m.setSmartBrush({ tolerance: v })} />
-            <Slider label="Spacing" value={m.smartBrush.spacingPx} min={1} max={10} unit=" px" onChange={(v) => m.setSmartBrush({ spacingPx: v })} />
+            <Row label="Tolerance">
+              <input
+                type="range" min={5} max={400} step={5} value={m.smartBrush.tolerance} aria-label="Tolerance"
+                onChange={(e) => m.setSmartBrush({ tolerance: Number(e.target.value) })}
+                className="flex-1 min-w-0 accent-blue-500"
+              />
+              <span className="text-[10px] text-zinc-300 whitespace-nowrap w-8 text-right">{m.smartBrush.tolerance}</span>
+              <MoreToggle open={sbMore} onToggle={() => setSbMore((v) => !v)} changed={differsFrom(m.smartBrush, SMART_BRUSH_DEFAULTS, ['spacingPx'])} />
+            </Row>
+            {sbMore && <Slider label="Spacing" value={m.smartBrush.spacingPx} min={1} max={10} unit=" px" onChange={(v) => m.setSmartBrush({ spacingPx: v })} />}
           </>
         );
       case 'roiLimit':

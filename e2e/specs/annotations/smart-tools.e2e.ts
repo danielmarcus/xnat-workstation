@@ -245,7 +245,7 @@ test('Random Walker: the progress bar’s Cancel button stops the solve', async 
 test('Level Trace intensity guard: typed in, it keeps the trace inside its range', async ({ page }) => {
   const toolbox = await smartTool(page, 'Level Trace');
   await toolbox.getByRole('group', { name: 'Band' }).getByRole('button', { name: 'CT (HU)' }).click();
-  await toolbox.getByRole('button', { name: /Advanced/ }).click(); // the guard is an Advanced setting
+  await toolbox.getByRole('button', { name: /^. More/ }).click(); // the guard is an Advanced setting
   // ±100 HU from the lesion (+70) reaches the tissue (+40): unguarded, the body is taken.
   const guard = toolbox.getByTestId('intensity-guard');
   await guard.getByRole('checkbox').check();
@@ -264,7 +264,7 @@ test('Level Trace intensity guard: read from the ROI limit', async ({ page }) =>
   await drag(page, [[22, -3], [28, 3]]); // inside the lesion
   await clickTool(toolbox, 'Level Trace');
   await toolbox.getByRole('group', { name: 'Band' }).getByRole('button', { name: 'CT (HU)' }).click();
-  await toolbox.getByRole('button', { name: /Advanced/ }).click(); // the guard is an Advanced setting
+  await toolbox.getByRole('button', { name: /^. More/ }).click(); // the guard is an Advanced setting
   const guard = toolbox.getByTestId('intensity-guard');
   await guard.getByRole('button', { name: 'From ROI' }).click();
   await expect(guard.getByLabel('Guard minimum')).toHaveValue('70');

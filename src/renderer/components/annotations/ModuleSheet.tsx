@@ -3,7 +3,7 @@
  * useModuleSheet. Its parameters are rendered by the same control as Cleanup's.
  */
 import type { ModuleSheetModel } from '../../hooks/useModuleSheet';
-import { OperationBody, OperationRow, Segmented } from './OperationsSection';
+import { MoreToggle, OperationBody, OperationRow, Segmented, paramsChanged } from './OperationsSection';
 import { OperationParam } from './OperationParams';
 
 const BTN = 'rounded px-2.5 py-0.5 text-[10px] disabled:opacity-40';
@@ -62,9 +62,7 @@ export default function ModuleSheet({ m }: { m: ModuleSheetModel }) {
       </div>
       {advanced.length > 0 && (
         <div className="flex justify-end mt-1 text-[10px]">
-          <button type="button" onClick={m.toggleAdvanced} aria-expanded={m.advancedOpen} className="text-zinc-400 hover:text-zinc-200 whitespace-nowrap">
-            {m.advancedOpen ? '▾' : '▸'} Advanced
-          </button>
+          <MoreToggle open={m.advancedOpen} onToggle={m.toggleAdvanced} changed={paramsChanged(advanced, m.values)} />
         </div>
       )}
       {m.advancedOpen && advanced.map(param)}

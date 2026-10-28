@@ -72,7 +72,7 @@ async function snake(panel: Locator, settings: { variant?: string; iterations?: 
   if (settings.iterations) await sheet.getByLabel('Iterations', { exact: true }).fill(String(settings.iterations));
   if (settings.neighbours) await sheet.getByLabel('Neighbours', { exact: true }).selectOption({ label: settings.neighbours });
   if (settings.balloon !== undefined) {
-    await sheet.getByRole('button', { name: /Advanced/ }).click();
+    await sheet.getByRole('button', { name: /^. More/ }).click();
     await sheet.getByLabel('Balloon force', { exact: true }).fill(String(settings.balloon));
   }
   return sheet;

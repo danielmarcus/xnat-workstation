@@ -62,7 +62,7 @@ test('an installed module is an operation in the picker\'s Modules group, its pa
   await expect(sheet.getByLabel('From', { exact: true })).toHaveValue('200');
   await expect(sheet.getByLabel('To', { exact: true })).toHaveValue('3000');
   await expect(sheet.getByRole('group', { name: 'Scope' }).getByRole('button')).toHaveText(['Slice', 'Range', 'Volume', 'ROI limit']);
-  await sheet.getByRole('button', { name: /Advanced/ }).click();
+  await sheet.getByRole('button', { name: /^. More/ }).click();
   await expect(sheet.getByLabel('Keep the largest island on each slice')).not.toBeChecked();
   await expect(sheet.getByTestId('module-estimate')).toContainText(/voxels · est\./);
 });
