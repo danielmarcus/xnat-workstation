@@ -124,6 +124,126 @@ const MEASUREMENT_TOOLS: ToolDef[] = [
   { id: 'freehandROI', label: 'Freehand ROI', title: 'Measure a freehand region and its statistics', icon: S(<path d="M3 10c1-4 4-5 6-2s4 0 4-3" />) },
 ];
 
+/**
+ * A Segmentation tool family (annotation-panel-modes, 2026-10-28): one button in the
+ * toolbox's family row standing for tools that are variants of one gesture. The variants
+ * stay separate Cornerstone tools; the family's mode rows choose between them.
+ */
+export interface ModeAxis {
+  id: string;
+  label: string;
+  options: Array<{ value: string; label: string; title: string }>;
+}
+
+export interface ToolFamily {
+  id: string;
+  label: string;
+  title: string;
+  icon: ReactNode;
+  /** Catalog ids of the family's tools; the first is what the family button starts with. */
+  members: string[];
+  /** The choices between members, one row each. Absent for a one-tool family. */
+  axes?: ModeAxis[];
+  /** Each member's value on every axis (members without one are not reachable by mode). */
+  modes?: Record<string, Record<string, string>>;
+}
+
+const toolDef = (id: string): ToolDef => {
+  const t = SEG_TOOLS.find((x) => x.id === id);
+  if (!t) throw new Error(`toolCatalog: no Segmentation tool "${id}"`);
+  return t;
+};
+
+export const SEG_FAMILIES: ToolFamily[] = [
+  { id: 'select', label: 'Select', title: SELECT_TOOL.title, icon: SELECT_TOOL.icon, members: ['select'] },
+  {
+    id: 'brush',
+    label: 'Brush',
+    title: 'Paint into the active segment: a 2D or 3D kernel, optionally limited to an intensity window, a window sampled from the click, or the tissue under the brush (B)',
+    icon: toolDef('brush').icon,
+    members: ['brush', 'sphereBrush', 'threshold', 'sphereThreshold', 'dynamicThreshold', 'smartBrush'],
+    axes: [
+      { id: 'kernel', label: 'Kernel', options: [
+        { value: '2d', label: '2D', title: 'Paint on the slice on screen' },
+        { value: '3d', label: '3D', title: 'Paint with a sphere: one stroke also reaches neighbouring slices (None and Window limits only)' },
+      ] },
+      { id: 'limit', label: 'Limit', options: [
+        { value: 'none', label: 'None', title: 'Paint everything under the brush' },
+        { value: 'window', label: 'Window', title: 'Paint only where intensity falls inside the window' },
+        { value: 'click', label: 'From click', title: 'Paint within a window sampled from the voxel you click (2D only)' },
+        { value: 'edges', label: 'Edges', title: 'Paint only the tissue under the brush — it does not spill across boundaries (2D only)' },
+      ] },
+    ],
+    modes: {
+      brush: { kernel: '2d', limit: 'none' },
+      sphereBrush: { kernel: '3d', limit: 'none' },
+      threshold: { kernel: '2d', limit: 'window' },
+      sphereThreshold: { kernel: '3d', limit: 'window' },
+      dynamicThreshold: { kernel: '2d', limit: 'click' },
+      smartBrush: { kernel: '2d', limit: 'edges' },
+    },
+  },
+  { id: 'fill', label: 'Fill', title: toolDef('paintFill').title, icon: toolDef('paintFill').icon, members: ['paintFill'] },
+  {
+    id: 'shape',
+    label: 'Shape',
+    title: 'Drag a circle, rectangle or sphere; everything inside it is added to or removed from the segment, optionally only within an intensity window',
+    icon: toolDef('rectangleScissors').icon,
+    members: ['rectangleScissors', 'circleScissors', 'sphereScissors', 'rectMulti'],
+    axes: [
+      { id: 'shape', label: 'Shape', options: [
+        { value: 'circle', label: 'Circle', title: 'Drag a circle on the slice' },
+        { value: 'rect', label: 'Rect', title: 'Drag a rectangle on the slice' },
+        { value: 'sphere', label: 'Sphere', title: 'Drag a sphere: it reaches neighbouring slices (no window limit)' },
+      ] },
+      { id: 'limit', label: 'Limit', options: [
+        { value: 'none', label: 'None', title: 'Everything inside the shape' },
+        { value: 'window', label: 'Window', title: 'Only what falls inside the intensity window (rectangle only)' },
+      ] },
+    ],
+    modes: {
+      circleScissors: { shape: 'circle', limit: 'none' },
+      rectangleScissors: { shape: 'rect', limit: 'none' },
+      sphereScissors: { shape: 'sphere', limit: 'none' },
+      rectMulti: { shape: 'rect', limit: 'window' },
+    },
+  },
+  { id: 'contour', label: 'Contour', title: toolDef('contourFill').title, icon: toolDef('contourFill').icon, members: ['contourFill'] },
+  {
+    id: 'region',
+    label: 'Region',
+    title: 'Segment a structure in 3D with grow-cut: drag a circle across it, or click it once',
+    icon: toolDef('region').icon,
+    members: ['region', 'regionPlus'],
+    axes: [
+      { id: 'gesture', label: 'Gesture', options: [
+        { value: 'drag', label: 'Drag', title: 'Drag a circle across the structure; it is segmented within that sphere' },
+        { value: 'click', label: 'Click', title: 'Click the structure once' },
+      ] },
+    ],
+    modes: { region: { gesture: 'drag' }, regionPlus: { gesture: 'click' } },
+  },
+  { id: 'trace', label: 'Trace', title: toolDef('levelTrace').title, icon: toolDef('levelTrace').icon, members: ['levelTrace', 'roiLimit'] },
+];
+
+/** The family a Segmentation tool belongs to, or undefined (other kinds, moved tools). */
+export function familyOf(toolId: string | null | undefined): ToolFamily | undefined {
+  return toolId ? SEG_FAMILIES.find((f) => f.members.includes(toolId)) : undefined;
+}
+
+/**
+ * The tool to activate when `axis` is set to `value` while `current` is active: the member
+ * with that value and every other axis unchanged, or — when that combination does not
+ * exist (3D + Edges) — the first member that has the value. Undefined when none does.
+ */
+export function resolveMode(family: ToolFamily, current: string | null, axis: string, value: string): string | undefined {
+  const modes = family.modes ?? {};
+  const now = (current && modes[current]) || modes[family.members[0]] || {};
+  const want = { ...now, [axis]: value };
+  const exact = Object.keys(modes).find((id) => Object.entries(want).every(([a, v]) => modes[id][a] === v));
+  return exact ?? Object.keys(modes).find((id) => modes[id][axis] === value);
+}
+
 /** Segmentation tools in grid order: each family together, catalog order within it. */
 const SEG_TOOLS_IN_ORDER = SEG_GROUP_ORDER.flatMap((g) => SEG_TOOLS.filter((t) => t.group === g));
 

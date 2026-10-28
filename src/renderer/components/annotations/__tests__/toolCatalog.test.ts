@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ToolName } from '@shared/types/viewer';
-import { CATALOG_TO_TOOLNAME, TOOLNAME_TO_CATALOG, toolsForKind } from '../toolCatalog';
+import { CATALOG_TO_TOOLNAME, SEG_FAMILIES, TOOLNAME_TO_CATALOG, familyOf, resolveMode, toolsForKind } from '../toolCatalog';
 import { DEFAULT_HOTKEY_MAP } from '../../../lib/hotkeys/defaultHotkeyMap';
 
 /** Rebuild Phase 3, R3.8b — toolbox → Cornerstone tool mapping. */
@@ -83,5 +83,60 @@ describe('catalog presentation contract', () => {
   it('every control a tool declares is one the toolbox knows how to render', () => {
     const known = new Set(['brushSize', 'intensityWindow', 'samplingRadius', 'editMode', 'semiAuto', 'contourDraw']);
     for (const t of ALL) for (const c of t.needs ?? []) expect(known.has(c), `${t.id} needs "${c}"`).toBe(true);
+  });
+});
+
+/** annotation-panel-modes slice 1: Segmentation families and their modes. */
+describe('Segmentation families', () => {
+  const MOVED_OUT = new Set(['randomWalker', 'segBidirectional']);
+
+  it('every Segmentation tool except the moved-out ones belongs to exactly one family', () => {
+    const counts = new Map<string, number>();
+    for (const f of SEG_FAMILIES) for (const id of f.members) counts.set(id, (counts.get(id) ?? 0) + 1);
+    const tools = toolsForKind('SEG').map((t) => t.id).filter((id) => !MOVED_OUT.has(id));
+    expect(tools.filter((id) => counts.get(id) !== 1)).toEqual([]);
+    expect([...counts.keys()].filter((id) => !tools.includes(id))).toEqual([]);
+  });
+
+  it('within a family, no two members share a mode, and every mode value is on its axis', () => {
+    for (const f of SEG_FAMILIES) {
+      if (!f.axes) continue;
+      const keys = Object.values(f.modes ?? {}).map((m) => JSON.stringify(f.axes!.map((a) => m[a.id])));
+      expect(new Set(keys).size, f.id).toBe(keys.length);
+      for (const m of Object.values(f.modes ?? {})) {
+        for (const a of f.axes) expect(a.options.map((o) => o.value), `${f.id}.${a.id}`).toContain(m[a.id]);
+      }
+    }
+  });
+
+  it('every axis option reaches some member', () => {
+    for (const f of SEG_FAMILIES) for (const a of f.axes ?? []) for (const o of a.options) {
+      expect(resolveMode(f, f.members[0], a.id, o.value), `${f.id}.${a.id}=${o.value}`).toBeDefined();
+    }
+  });
+
+  it('family labels are unique and familyOf finds a member’s family', () => {
+    expect(new Set(SEG_FAMILIES.map((f) => f.label)).size).toBe(SEG_FAMILIES.length);
+    expect(familyOf('sphereThreshold')?.id).toBe('brush');
+    expect(familyOf('rectMulti')?.id).toBe('shape');
+    expect(familyOf('roiLimit')?.id).toBe('trace');
+    expect(familyOf('length')).toBeUndefined();
+  });
+
+  const brush = () => SEG_FAMILIES.find((f) => f.id === 'brush')!;
+  const shape = () => SEG_FAMILIES.find((f) => f.id === 'shape')!;
+
+  it('changing one axis keeps the others when the combination exists', () => {
+    expect(resolveMode(brush(), 'brush', 'kernel', '3d')).toBe('sphereBrush');
+    expect(resolveMode(brush(), 'sphereBrush', 'limit', 'window')).toBe('sphereThreshold');
+    expect(resolveMode(brush(), 'sphereThreshold', 'kernel', '2d')).toBe('threshold');
+    expect(resolveMode(shape(), 'circleScissors', 'shape', 'sphere')).toBe('sphereScissors');
+  });
+
+  it('falls back to a member that has the value when the combination does not exist', () => {
+    expect(resolveMode(brush(), 'sphereBrush', 'limit', 'edges')).toBe('smartBrush');
+    expect(resolveMode(brush(), 'sphereThreshold', 'limit', 'click')).toBe('dynamicThreshold');
+    expect(resolveMode(shape(), 'circleScissors', 'limit', 'window')).toBe('rectMulti');
+    expect(resolveMode(shape(), 'rectMulti', 'shape', 'circle')).toBe('circleScissors');
   });
 });
