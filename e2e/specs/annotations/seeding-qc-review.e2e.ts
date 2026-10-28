@@ -8,7 +8,7 @@ import { test, expect } from '../../fixtures/electron-app';
 import type { Locator, Page } from '@playwright/test';
 import { loadFixture } from '../../helpers/local-fixture';
 import { clickTool } from '../../helpers/toolbox';
-import { openOperation } from '../../helpers/operations';
+import { openOperation, setSlider } from '../../helpers/operations';
 
 type Raster = { spacing: [number, number, number]; classes: Record<number, { voxels: number; extentMm: [number, number, number] }> };
 type Win = {
@@ -16,6 +16,7 @@ type Win = {
     clearAllContainers: () => void;
     clearSeeds: () => void;
     setComputeThrottle: (ms: number) => void;
+    startRandomWalker: (viewportId: string) => void;
     setLayoutPreset: (p: 'single' | 'mpr-2x2') => void;
     memberVoxelCount: (i: number) => number;
     inPlanePagePoint: (panelId: string, dx: number, dy: number) => { x: number; y: number } | null;
@@ -100,15 +101,18 @@ test('S3: a seed painted on the sagittal view of thick-slice CT is round in mm',
 });
 
 test('S3: a Random Walker seed on the sagittal view is round in mm', async ({ page }) => {
-  const { toolbox } = await mprBody(page);
+  const { panel } = await mprBody(page);
+  // Random Walker is a Seeded segmentation method (annotation-panel-modes, 2026-10-28).
+  const sheet = await openOperation(panel, 'Seeded segmentation');
+  await sheet.getByLabel('Method').selectOption('randomWalker');
+  await setSlider(sheet.getByRole('slider', { name: 'Seed brush' }), 16);
   await activate(page, 'panel_1');
-  await clickTool(toolbox, 'Rnd. Walker');
-  const controls = toolbox.getByTestId('smart-tool-controls');
-  await controls.getByRole('slider', { name: 'Seed size' }).fill('8');
+  await sheet.getByRole('button', { name: 'Paint seeds' }).click();
   await drag(page, 'panel_1', [[0, 0], [0.5, 0]]);
   await drag(page, 'panel_1', [[40, 0], [40.5, 0]], true);
-  await expect(controls.getByTestId('random-walker-seeds')).toContainText('1 fg · 1 bg');
-  await controls.getByRole('button', { name: 'Run' }).click();
+  await expect(sheet.getByTestId('seed-count-1')).toHaveText('1');
+  await expect(sheet.getByTestId('seed-count-0')).toHaveText('1');
+  await sheet.getByRole('button', { name: 'Run' }).click();
   await expect.poll(() => raster(page)).not.toBeNull();
   const r = (await raster(page))!;
   const fg = r.classes[1];
@@ -163,37 +167,47 @@ async function segmentWithStray(page: Page) {
   return { panel, toolbox };
 }
 
-/** Random Walker seeds on the bone core, which the segment does not have yet (the tool stays on). */
-async function walkerSeeds(page: Page, toolbox: Locator): Promise<Locator> {
-  await clickTool(toolbox, 'Rnd. Walker');
-  const controls = toolbox.getByTestId('smart-tool-controls');
-  await controls.getByRole('slider', { name: 'Edge (β)' }).fill('2000');
+/**
+ * Random Walker seeds on the bone core, which the segment does not have yet, painted with the
+ * Seeded segmentation operation's painter (Random Walker is one of its methods). The operation
+ * is then closed: one operation is open at a time, so these tests open 3D QC next and start the
+ * solve through `startRandomWalker` — no UI path overlaps a solve with a QC build any more, but
+ * the two compute clients must still not disturb each other (#94).
+ */
+async function walkerSeeds(page: Page, panel: Locator): Promise<() => Promise<void>> {
+  const sheet = await openOperation(panel, 'Seeded segmentation');
+  await sheet.getByLabel('Method').selectOption('randomWalker');
+  await setSlider(sheet.getByRole('slider', { name: 'Edge (β)' }), 2000);
+  await setSlider(sheet.getByRole('slider', { name: 'Seed brush' }), 2);
+  await sheet.getByRole('button', { name: 'Paint seeds' }).click();
   await drag(page, 'panel_0', [[-3, 0], [3, 0]]);
   await drag(page, 'panel_0', [[0, -20], [20, 0], [0, 20], [-20, 0], [0, -20]], true);
-  await expect(controls.getByTestId('random-walker-seeds')).toContainText('1 fg · 1 bg');
-  return controls;
+  await expect(sheet.getByTestId('seed-count-1')).toHaveText('1');
+  await expect(sheet.getByTestId('seed-count-0')).toHaveText('1');
+  await panel.getByRole('button', { name: 'Close operation' }).click();
+  return () => page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.startRandomWalker('panel_0'));
 }
 
 test('S6: a solve started during a QC build — both finish; the report is not an empty “0 stray”', async ({ page }) => {
-  const { panel, toolbox } = await segmentWithStray(page);
-  const controls = await walkerSeeds(page, toolbox);
+  const { panel } = await segmentWithStray(page);
+  const run = await walkerSeeds(page, panel);
   await throttle(page, 2500); // the QC build reads its throttle when it starts
   const sheet = await openOperation(panel, '3D QC');
   await expect(sheet).toContainText('Building');
   await throttle(page, 0);
-  await controls.getByRole('button', { name: 'Run' }).click();
+  await run();
   await expect(page.getByTestId('mask-preview-bar')).toContainText('Random Walker', { timeout: 30_000 });
   await expect(sheet.getByTestId('qc3d-row')).toHaveCount(2, { timeout: 30_000 });
   await expect.poll(() => built(page), { timeout: 30_000 }).toBe(2);
 });
 
 test('S6: a QC rebuild during a solve does not cancel the solve', async ({ page }) => {
-  const { panel, toolbox } = await segmentWithStray(page);
+  const { panel } = await segmentWithStray(page);
+  const run = await walkerSeeds(page, panel);
   const sheet = await openOperation(panel, '3D QC');
   await expect(sheet.getByTestId('qc3d-row')).toHaveCount(2, { timeout: 30_000 });
-  const controls = await walkerSeeds(page, toolbox);
   await throttle(page, 60);
-  await controls.getByRole('button', { name: 'Run' }).click();
+  await run();
   await expect(page.getByTestId('compute-progress-bar')).toContainText('Random Walker');
   await sheet.getByRole('button', { name: 'Rebuild' }).click();
   await expect(page.getByTestId('mask-preview-bar')).toContainText('Random Walker', { timeout: 60_000 });

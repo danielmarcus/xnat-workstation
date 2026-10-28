@@ -20,6 +20,7 @@
 import { test, expect } from '../../fixtures/electron-app';
 import type { Page } from '@playwright/test';
 import { loadFixture } from '../../helpers/local-fixture';
+import { clickTool } from '../../helpers/toolbox';
 
 const PANELS = {
   browser: '[data-testid="xnat-browser"]',
@@ -209,7 +210,7 @@ test('a toolbar button does not keep the keyboard: Space does not press it again
 
 test('choosing from a toolbox dropdown hands the keyboard back', async ({ page }) => {
   const panel = await openSegmentationToolbox(page);
-  await panel.locator('[data-testid="context-toolbox"]').getByRole('button', { name: /^Thresh/ }).first().click();
+  await clickTool(panel.locator('[data-testid="context-toolbox"]'), 'Threshold');
   const preset = panel.getByLabel('Threshold preset');
   await expect(preset).toBeVisible({ timeout: 10_000 });
   const option = await preset.locator('option').nth(1).getAttribute('value');

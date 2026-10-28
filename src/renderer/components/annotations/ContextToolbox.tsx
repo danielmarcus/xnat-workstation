@@ -70,8 +70,9 @@ export interface ContextToolboxControls {
 const CONTROLS_HEIGHT: Partial<Record<ContainerKind, number>> = {
   // Segmentation: Contour Fill with the Spline boundary is now the tallest (branch 6 F5's Slice row).
   SEG: 186,
-  // Structure: contour thickness + opacity, then the Spline's settings with its Slice row.
-  RTSTRUCT: 182,
+  // Structure: the editing chip, contour thickness + opacity, then the Spline's settings with
+  // its Slice row.
+  RTSTRUCT: 186,
 };
 /** On a short window the Controls area may shrink to its header + one row, then scrolls. */
 const CONTROLS_MIN_HEIGHT = 54;

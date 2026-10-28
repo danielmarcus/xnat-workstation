@@ -252,6 +252,12 @@ declare global {
       qc3dComponents: () => Array<{ segmentIndex: number; componentId: number; visible: boolean; triangles: number; vertices: number; checksum: number; centroid: number[] | null }>;
       /** Slow each compute-worker progress step by this many ms (0 = off), so a solve can be cancelled. */
       setComputeThrottle: (ms: number) => void;
+      /**
+       * Start a Random Walker solve on the seeds as they are. Since 2026-10-28 it is a Seeded
+       * segmentation method, and one operation is open at a time, so no UI path runs a solve while
+       * the 3D QC sheet builds; this keeps the worker-sharing guarantee (#94) testable.
+       */
+      startRandomWalker: (viewportId: string) => void;
       /** Highest source value under the active segment (null if none / no source). */
       activeSegmentMaxSourceValue: () => number | null;
       /** Active segment's voxel count per slice of its grid (k axis), in grid order. */
@@ -1067,6 +1073,7 @@ export function installRendererE2eHooks(): void {
       for (let i = 0, gd = g.data, gv = g.value; i < gd.length; i++) if (gd[i] === gv) min = Math.min(min, read(i));
       return Number.isFinite(min) ? min : null;
     },
+    startRandomWalker: (viewportId) => { void import('../cornerstone/semiAutoService').then((m) => m.semiAutoService.randomWalkerRun(viewportId)); },
     setComputeThrottle: (ms) => { computeClient.setThrottle(ms); qcComputeClient.setThrottle(ms); cleanupComputeClient.setThrottle(ms); },
     lastSeedRaster: () => lastSeedRaster(),
     solverGridReads: () => solverGridReads(),

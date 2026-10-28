@@ -75,9 +75,13 @@ test('default width fits every tool label without clipping', async ({ page }) =>
 test('dragging the handle resizes the panel and ellipsizes labels', async ({ page }) => {
   await openPanelWithSeg(page);
   const root = page.locator('[data-testid="annotations-panel-root"]');
+  // The seven family labels are short: at 300 px they all fit; just above the compact width
+  // they stay present but ellipsize — the middle state between full and icon-only.
   await dragTo(page, 300);
   expect(Number(await root.getAttribute('data-panel-width'))).toBe(300);
-  // Labels stay present but ellipsize — the middle state between full and icon-only.
+  expect(await clippedTexts(page)).toEqual([]);
+  await dragTo(page, 230);
+  expect(Number(await root.getAttribute('data-panel-width'))).toBe(230);
   expect((await clippedTexts(page)).length).toBeGreaterThan(0);
   await expect(page.locator('[data-testid="context-toolbox"]').getByRole('button', { name: 'Brush', exact: true })).toBeVisible();
 });
