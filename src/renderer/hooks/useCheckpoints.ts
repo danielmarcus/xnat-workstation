@@ -30,7 +30,7 @@ export function useCheckpoints() {
 
   return {
     listOf: (containerId: string) => lists[containerId] ?? [],
-    refresh: (containerId: string) => { void refresh(containerId); },
+    refresh,
     savingFor,
     openSave: (containerId: string) => setSavingFor(containerId),
     cancelSave: () => setSavingFor(null),

@@ -1,4 +1,5 @@
 import { init as initCore, imageLoader, volumeLoader } from '@cornerstonejs/core';
+import { installOperationContextReset } from './operationContextReset';
 import { GENERATED_IMAGE_SCHEME, generatedImageLoader } from './generatedImageLoader';
 import { geometryDynamicVolumeLoader, GEOMETRY_DYNAMIC_VOLUME_SCHEME } from './dynamicVolumeLoader';
 import { init as initTools, addTool } from '@cornerstonejs/tools';
@@ -28,13 +29,12 @@ import {
   SphereScissorsTool,
   SculptorTool,
   TrackballRotateTool,
-  RegionSegmentTool,
-  RegionSegmentPlusTool,
   SegmentBidirectionalTool,
   RectangleROIThresholdTool,
   LabelMapEditWithContourTool,
 } from '@cornerstonejs/tools';
 import SafePaintFillTool from './tools/SafePaintFillTool';
+import { AppRegionSegmentPlusTool, AppRegionSegmentTool } from './tools/AppRegionSegmentPlusTool';
 import SelectTool from './tools/SelectTool';
 import { AppLivewireContourTool, ContourFillLivewireTool } from './tools/AppLivewireContourTool';
 import { AppSplineContourTool, ContourFillSplineTool } from './tools/AppSplineContourTool';
@@ -43,6 +43,7 @@ import { utilities as csToolsUtilities } from '@cornerstonejs/tools';
 import { init as initDicomImageLoader } from '@cornerstonejs/dicom-image-loader';
 import { installInterpolationOrientationFix } from './interpolationAcceptance';
 import { installContourStrokeSelection } from './contourStrokeSelection';
+import { installInactiveContourVisibility } from './inactiveContourVisibility';
 
 let initialized = false;
 
@@ -78,6 +79,10 @@ export async function initCornerstone(): Promise<void> {
   // v5 replaces every finished contour stroke with new annotations (the contour union);
   // keep the selection on the result so Ctrl+C / delete still find it.
   installContourStrokeSelection();
+  // v5 ignores a hidden segment of an inactive contour segmentation; hide it anyway.
+  installInactiveContourVisibility();
+  // Slice numbers, anchors, the ROI limit and plan overrides are cleared when their view changes.
+  installOperationContextReset();
 
   // Register PolySeg addon for automatic conversion between segmentation
   // representations (labelmap ↔ contour ↔ surface)
@@ -140,8 +145,8 @@ export async function initCornerstone(): Promise<void> {
   }
 
   // Segmentation tools — smart/AI (GrowCut)
-  addTool(RegionSegmentTool);
-  addTool(RegionSegmentPlusTool);
+  addTool(AppRegionSegmentTool); // Region: a recorded, lock-respecting edit
+  addTool(AppRegionSegmentPlusTool); // Region+: answers a click; recorded, lock-respecting
 
   // Segmentation tools — utility
   addTool(SelectTool);

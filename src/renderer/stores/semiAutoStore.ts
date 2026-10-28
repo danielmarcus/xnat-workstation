@@ -32,7 +32,6 @@ export interface SmartBrushSettings {
 
 export interface RandomWalkerSettings {
   beta: number;
-  seedRadiusPx: number;
   /** Padding (px) added around the seeds' bounding box for the solve. */
   paddingPx: number;
 }
@@ -57,14 +56,18 @@ interface SemiAutoState {
   setRoi: (roi: RoiLimit | null) => void;
 }
 
+/** Defaults — the More fold's changed dot compares against them. */
+export const LEVEL_TRACE_DEFAULTS: LevelTraceSettings = {
+  modality: null, huTolerance: 100, sigmaK: 2.2, window: 7, growth: 'binary', fuzzyThreshold: 0.5,
+  edgeGuard: 'off', edgeOperator: 'sobel', polarity: 'auto', airGuard: true, fillHoles: true,
+  smoothing: 'none', simplifyPx: 0, roundCorners: 0, guard: null,
+};
+export const SMART_BRUSH_DEFAULTS: SmartBrushSettings = { radiusMm: 6, tolerance: 80, spacingPx: 2 };
+
 export const useSemiAutoStore = create<SemiAutoState>((set) => ({
-  levelTrace: {
-    modality: null, huTolerance: 100, sigmaK: 2.2, window: 7, growth: 'binary', fuzzyThreshold: 0.5,
-    edgeGuard: 'off', edgeOperator: 'sobel', polarity: 'auto', airGuard: true, fillHoles: true,
-    smoothing: 'none', simplifyPx: 0, roundCorners: 0, guard: null,
-  },
-  smartBrush: { radiusMm: 6, tolerance: 80, spacingPx: 2 },
-  randomWalker: { beta: 90, seedRadiusPx: 2, paddingPx: 20 },
+  levelTrace: { ...LEVEL_TRACE_DEFAULTS },
+  smartBrush: { ...SMART_BRUSH_DEFAULTS },
+  randomWalker: { beta: 90, paddingPx: 20 },
   roi: null,
   message: null,
   setMessage: (message) => set({ message }),

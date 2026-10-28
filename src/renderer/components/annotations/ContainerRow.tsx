@@ -77,6 +77,11 @@ export interface ContainerRowProps {
   onRevert?: () => void;
   /** Kebab: start the segmentation review flythrough (Segmentations only). */
   onReviewFlythrough?: () => void;
+  /** Kebab (Segmentations): the labelmap opacity, shared by every labelmap — not a tool setting. */
+  labelmapOpacity?: number;
+  onLabelmapOpacityChange?: (value: number) => void;
+  /** Kebab (Segmentations): measure the active segment's long and short axes. */
+  onMeasureSegment?: () => void;
   /** Kebab (Segmentations): checkpoints — save, and the saved list to restore or delete. */
   checkpoints?: Array<{ id: string; name: string; createdAt: string; kind: 'baseline' | 'named' }>;
   onSaveCheckpoint?: () => void;
@@ -92,7 +97,7 @@ export interface ContainerRowProps {
 }
 
 export default function ContainerRow(props: ContainerRowProps) {
-  const { container, expanded, transport, onResolveConflict, crossPanelCount, capturing, capturedDraft, autoEdit, onEditConsumed, onCommitName, onToggleExpand, onActivate, onApproveToggle, onAddMember, onSave, onKebab, onDelete, onRename, onSetAllVisible, onSetAllLocked, onRevert, onReviewFlythrough, checkpoints, onSaveCheckpoint, onRestoreCheckpoint, onDeleteCheckpoint, onExportDicom, onExportCsv, onDeleteFromServer } = props;
+  const { container, expanded, transport, onResolveConflict, crossPanelCount, capturing, capturedDraft, autoEdit, onEditConsumed, onCommitName, onToggleExpand, onActivate, onApproveToggle, onAddMember, onSave, onKebab, onDelete, onRename, onSetAllVisible, onSetAllLocked, onRevert, onReviewFlythrough, labelmapOpacity, onLabelmapOpacityChange, onMeasureSegment, checkpoints, onSaveCheckpoint, onRestoreCheckpoint, onDeleteCheckpoint, onExportDicom, onExportCsv, onDeleteFromServer } = props;
   // The container has a server copy iff its source carries an XNAT scan id.
   const onServer = !!container.source?.scanId;
   const saving = transport?.phase === 'saving' || transport?.phase === 'loading';
@@ -303,6 +308,29 @@ export default function ContainerRow(props: ContainerRowProps) {
                   onClick={() => { onRevert(); setMenuOpen(false); }}
                 >
                   Revert
+                </MenuItem>
+              )}
+              {labelmapOpacity != null && onLabelmapOpacityChange && (
+                <div className="flex items-center gap-2 px-2.5 py-1 text-zinc-300" data-testid={`menu-opacity-${container.id}`}>
+                  <span className="whitespace-nowrap">Opacity</span>
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    value={Math.round(labelmapOpacity * 100)}
+                    onChange={(e) => onLabelmapOpacityChange(Number(e.target.value) / 100)}
+                    aria-label="Labelmap opacity"
+                    className="flex-1 min-w-0 accent-blue-500"
+                  />
+                  <span className="text-[10px] text-zinc-400 tabular-nums w-7 text-right">{Math.round(labelmapOpacity * 100)}%</span>
+                </div>
+              )}
+              {onMeasureSegment && (
+                <MenuItem
+                  testid={`menu-measure-segment-${container.id}`}
+                  onClick={() => { onMeasureSegment(); setMenuOpen(false); }}
+                >
+                  Measure segment axes
                 </MenuItem>
               )}
               {onReviewFlythrough && (

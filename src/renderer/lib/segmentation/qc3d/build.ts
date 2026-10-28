@@ -4,9 +4,10 @@
  * compute worker runs it and unit tests check it.
  *
  * Components are found at full resolution (the report is exact); each is meshed from its own
- * bounding-box crop, max-pooled by one volume-wide factor (resolution 128/192/256 on the
- * longest axis), so a speck stays visible and each component can be coloured, hidden and
- * picked on its own.
+ * bounding-box crop, max-pooled by volume-wide factors (each axis brought within the resolution
+ * 128/192/256 on its own — one factor for every axis, set by the 512-pixel rows, pooled 40
+ * thick slices three at a time and drew a one-slice structure three slices thick), so a speck
+ * stays visible and each component can be coloured, hidden and picked on its own.
  */
 import { labelComponents3d, type Component3d, type Dims } from './components';
 import { maxPoolByFactor } from './resample';
@@ -51,7 +52,9 @@ export interface QcMesh {
 export interface QcBuildOutput {
   components: QcComponent[];
   meshes: QcMesh[];
+  /** The largest pool factor; `factors` per axis. */
   factor: number;
+  factors: Dims;
 }
 
 export function indexToWorldQc(g: QcGeometry, i: number, j: number, k: number, out: number[] = [0, 0, 0]): number[] {
@@ -65,7 +68,8 @@ export function buildQcSurfaces(inp: QcBuildInput, progress?: (f: number) => voi
   const [nx, ny] = g.dimensions;
   const { labels, components } = labelComponents3d(inp.mask, g.dimensions);
   const voxelCc = (g.spacing[0] * g.spacing[1] * g.spacing[2]) / 1000;
-  const factor = Math.max(1, Math.ceil(Math.max(...g.dimensions) / inp.resolution));
+  const factors = g.dimensions.map((n) => Math.max(1, Math.ceil(n / inp.resolution))) as unknown as Dims;
+  const factor = Math.max(...factors);
   const out: QcComponent[] = [];
   const meshes: QcMesh[] = [];
   const maxMeshed = inp.maxMeshed ?? 2000;
@@ -94,7 +98,7 @@ export function buildQcSurfaces(inp: QcBuildInput, progress?: (f: number) => voi
     out.push({ ...c, volumeCc: c.voxels * voxelCc, centroidWorld, thickness });
     if (n >= maxMeshed) continue;
     if (inp.thinBoost && thickness < 2) crop = dilate26(crop, cd);
-    const pooled = maxPoolByFactor(crop, cd, factor);
+    const pooled = maxPoolByFactor(crop, cd, factors);
     let mesh: Mesh = inp.renderer === 'smooth' ? surfaceNets(pooled.data, pooled.dims) : voxelSurface(pooled.data, pooled.dims);
     if (inp.smoothIterations > 0) mesh = taubinSmooth(mesh, { iterations: inp.smoothIterations });
     // Pooled index → crop index (the block's centre) → volume index → world.
@@ -102,13 +106,13 @@ export function buildQcSurfaces(inp: QcBuildInput, progress?: (f: number) => voi
     const world = new Float32Array(P.length);
     const w = [0, 0, 0];
     for (let v = 0; v < P.length; v += 3) {
-      indexToWorldQc(g, P[v] * factor + (factor - 1) / 2 + ox, P[v + 1] * factor + (factor - 1) / 2 + oy, P[v + 2] * factor + (factor - 1) / 2 + oz, w);
+      indexToWorldQc(g, P[v] * factors[0] + (factors[0] - 1) / 2 + ox, P[v + 1] * factors[1] + (factors[1] - 1) / 2 + oy, P[v + 2] * factors[2] + (factors[2] - 1) / 2 + oz, w);
       world[v] = w[0]; world[v + 1] = w[1]; world[v + 2] = w[2];
     }
     meshes.push({ componentId: c.id, positions: world, normals: vertexNormals(world, mesh.indices), indices: mesh.indices });
     progress?.((n + 1) / Math.min(components.length, maxMeshed));
   }
-  return { components: out, meshes, factor };
+  return { components: out, meshes, factor, factors };
 }
 
 function dilate26(m: Uint8Array, d: Dims): Uint8Array {

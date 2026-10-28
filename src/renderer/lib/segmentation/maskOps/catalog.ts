@@ -56,13 +56,24 @@ export interface CleanupOp {
   usesImage?: boolean;
   /** Single-segment operation over each member in the label scope. */
   run?: (plane: MaskPlane, ctx: PlaneOpContext, params: ParamValues) => PlaneOpOutput;
+  /**
+   * How far (pixels) `run` looks or writes beyond the set pixels' bounding box: run on the plane
+   * cropped to that box grown by this much, it gives exactly the uncropped result (O8 — a Volume
+   * run sends the worker only that window; scopeEquivalence.test holds it). Absent: the whole
+   * plane (Snake refine).
+   */
+  reach?: (params: ParamValues) => number;
   /** With these parameters the operation may claim pixels of other members (so they are written too). */
   claims?: (params: ParamValues) => boolean;
   /** Two-segment operation: the active member (source) and an "Into" member (target). */
   runPair?: (source: MaskPlane, target: MaskPlane, ctx: PairOpContext, params: ParamValues) => PairOpResult;
+  /** The pair operation changes its source too (Move into empties it) — a locked source refuses it. */
+  writesSource?: boolean;
 }
 
 const num = (p: ParamValues, k: string) => Number(p[k]);
+/** A kernel radius as the operation uses it. */
+const px = (p: ParamValues, k: string) => Math.max(1, Math.floor(num(p, k)));
 
 export const CLEANUP_OPS: CleanupOp[] = [
   {
@@ -73,6 +84,7 @@ export const CLEANUP_OPS: CleanupOp[] = [
     params: [
       { key: 'maxHoleAreaMm2', label: 'Largest hole', kind: 'number', min: 0, max: 5000, step: 10, default: 0, unit: 'mm²', hint: '0 = fill every enclosed hole' },
     ],
+    reach: () => 1,
     run: (plane, ctx, p) => fillHoles(plane, ctx.spacing, { maxHoleAreaMm2: num(p, 'maxHoleAreaMm2') > 0 ? num(p, 'maxHoleAreaMm2') : undefined }),
   },
   {
@@ -83,6 +95,7 @@ export const CLEANUP_OPS: CleanupOp[] = [
     params: [
       { key: 'alsoKeepPct', label: 'Also keep islands ≥', kind: 'number', min: 0, max: 100, step: 5, default: 0, unit: '% of largest', advanced: true },
     ],
+    reach: () => 0,
     run: (plane, _ctx, p) => keepLargest(plane, { alsoKeepPct: num(p, 'alsoKeepPct') }),
   },
   {
@@ -91,6 +104,7 @@ export const CLEANUP_OPS: CleanupOp[] = [
     label: 'Remove speckles',
     description: 'Remove islands smaller than a minimum area.',
     params: [{ key: 'minAreaMm2', label: 'Smaller than', kind: 'number', min: 1, max: 1000, step: 1, default: 10, unit: 'mm²' }],
+    reach: () => 0,
     run: (plane, ctx, p) => removeSpeckles(plane, ctx.spacing, { minAreaMm2: num(p, 'minAreaMm2') }),
   },
   {
@@ -102,6 +116,7 @@ export const CLEANUP_OPS: CleanupOp[] = [
       { key: 'maxDistanceMm', label: 'Farther than', kind: 'number', min: 5, max: 120, step: 1, default: 30, unit: 'mm' },
       { key: 'protectPct', label: 'Protect islands ≥', kind: 'number', min: 0, max: 100, step: 5, default: 15, unit: '% of largest', advanced: true },
     ],
+    reach: () => 0,
     run: (plane, ctx, p) => removeStrays(plane, ctx.spacing, { maxDistanceMm: num(p, 'maxDistanceMm'), protectPct: num(p, 'protectPct') }),
   },
   {
@@ -110,6 +125,8 @@ export const CLEANUP_OPS: CleanupOp[] = [
     label: 'Median smooth',
     description: 'Majority vote in a neighbourhood; keeps edges fairly crisp.',
     params: [{ key: 'radius', label: 'Radius', kind: 'number', min: 1, max: 5, step: 1, default: 2, unit: 'px' }],
+    // A pixel up to r beyond the box votes over a window reaching 2r beyond it.
+    reach: (p) => 2 * px(p, 'radius'),
     run: (plane, _ctx, p) => medianSmooth(plane, { radius: num(p, 'radius') }),
   },
   {
@@ -121,6 +138,8 @@ export const CLEANUP_OPS: CleanupOp[] = [
       { key: 'sigma', label: 'σ', kind: 'number', min: 0.5, max: 4, step: 0.1, default: 1.2, unit: 'px' },
       { key: 'threshold', label: 'Threshold', kind: 'number', min: 0.2, max: 0.8, step: 0.05, default: 0.45, advanced: true },
     ],
+    // The same, for the blur's edge renormalisation; a threshold ≤ 0 sets the whole plane.
+    reach: (p) => (num(p, 'threshold') > 0 ? 2 * Math.ceil(Math.max(0.1, num(p, 'sigma')) * 3) : Infinity),
     run: (plane, _ctx, p) => gaussianSmooth(plane, { sigma: num(p, 'sigma'), threshold: num(p, 'threshold') }),
   },
   {
@@ -129,6 +148,7 @@ export const CLEANUP_OPS: CleanupOp[] = [
     label: 'Smooth edges',
     description: 'A light local vote that rounds isolated jagged pixels.',
     params: [{ key: 'strength', label: 'Strength', kind: 'number', min: 0.1, max: 1.5, step: 0.1, default: 0.5 }],
+    reach: (p) => (0.5 - (num(p, 'strength') - 0.5) * 0.15 > 0 ? 2 : Infinity),
     run: (plane, _ctx, p) => smoothEdges(plane, { strength: num(p, 'strength') }),
   },
   {
@@ -137,6 +157,7 @@ export const CLEANUP_OPS: CleanupOp[] = [
     label: 'Morph open',
     description: 'Erode then dilate: removes thin protrusions and weak bridges.',
     params: [{ key: 'radius', label: 'Radius', kind: 'number', min: 1, max: 5, step: 1, default: 1, unit: 'px' }],
+    reach: (p) => 2 * px(p, 'radius'),
     run: (plane, _ctx, p) => openMask(plane, { radius: num(p, 'radius') }),
   },
   {
@@ -145,6 +166,7 @@ export const CLEANUP_OPS: CleanupOp[] = [
     label: 'Morph close',
     description: 'Dilate then erode: seals narrow grooves and small gaps.',
     params: [{ key: 'radius', label: 'Radius', kind: 'number', min: 1, max: 5, step: 1, default: 1, unit: 'px' }],
+    reach: (p) => 2 * px(p, 'radius'),
     run: (plane, _ctx, p) => closeMask(plane, { radius: num(p, 'radius') }),
   },
   {
@@ -158,6 +180,8 @@ export const CLEANUP_OPS: CleanupOp[] = [
       { key: 'kappa', label: 'κ', kind: 'number', min: 5, max: 200, step: 5, default: 30, hint: 'Edge strength (image units) that stops smoothing' },
       { key: 'conduction', label: 'Conduction', kind: 'select', default: 'exp', options: [{ value: 'exp', label: 'Exponential (gentler)' }, { value: 'quadratic', label: 'Quadratic (sharper)' }], advanced: true },
     ],
+    // The ±3 px band around the boundary, the neighbours it reads, and the frame it holds fixed.
+    reach: () => 8,
     run: (plane, ctx, p) => anisotropicDiffusion(plane, {
       iterations: num(p, 'iterations'),
       kappa: num(p, 'kappa'),
@@ -216,6 +240,7 @@ export const CLEANUP_OPS: CleanupOp[] = [
     label: 'Clear',
     description: 'Erase the segment across the scope (Slice + All segments clears the slice).',
     params: [],
+    reach: () => 0,
     run: (plane) => ({ ...plane, data: new Uint8Array(plane.data.length) }),
   },
   {
@@ -224,6 +249,7 @@ export const CLEANUP_OPS: CleanupOp[] = [
     label: 'Move into…',
     description: 'Relabel this segment\u2019s voxels as another segment (merge), leaving it empty in the scope.',
     params: [],
+    writesSource: true,
     runPair: (src, dst) => {
       const out = new Uint8Array(dst.data);
       for (let i = 0; i < out.length; i++) if (src.data[i]) out[i] = 1;

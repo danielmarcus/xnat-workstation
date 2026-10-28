@@ -8,7 +8,7 @@ import { test, expect } from '../../fixtures/electron-app';
 import type { Locator, Page } from '@playwright/test';
 import { loadFixture } from '../../helpers/local-fixture';
 import { clickTool } from '../../helpers/toolbox';
-import { openOperation } from '../../helpers/operations';
+import { openOperation, setSlider } from '../../helpers/operations';
 
 type Win = {
   __XNAT_E2E__: {
@@ -123,30 +123,53 @@ test('ROI limit confines Level Trace, shows on the image, and clears', async ({ 
   await expect.poll(() => voxels(page), 'without the limit the body is taken').toBeGreaterThan(16 * 41);
 });
 
-test('Random Walker: foreground and ⇧ background seeds, Run previews the lesion', async ({ page }) => {
-  const toolbox = await smartTool(page, 'Rnd. Walker');
-  const controls = toolbox.getByTestId('smart-tool-controls');
-  const run = controls.getByRole('button', { name: 'Run' });
-  await expect(run).toBeDisabled();
+/**
+ * Random Walker is a Seeded segmentation method (annotation-panel-modes, 2026-10-28): the
+ * operation's seed painter lays the active segment's seeds (drag) and Background's (⇧-drag),
+ * and Run solves the slice on screen.
+ */
+async function seededWalker(page: Page): Promise<Locator> {
+  const toolbox = await smartTool(page, 'Brush');
+  const sheet = await openOperation(page.locator('[data-testid="annotations-side-panel"]'), 'Seeded segmentation');
+  await sheet.getByLabel('Method').selectOption('randomWalker');
+  await expect(sheet.getByTestId('walker-domain')).toBeVisible();
   // The lesion is only 30 HU above the tissue, against a bone-dominated σ: raise β.
-  await controls.getByRole('slider', { name: 'Edge (β)' }).fill('2000');
+  await setSlider(sheet.getByRole('slider', { name: 'Edge (β)' }), 2000);
+  await setSlider(sheet.getByRole('slider', { name: 'Seed brush' }), 2);
+  await sheet.getByRole('button', { name: 'Paint seeds' }).click();
+  await expect(toolbox.getByTestId('toolbox-grid').locator('[aria-pressed="true"]'), 'painting seeds is no tool').toHaveCount(0);
   await drag(page, [[22, 0], [28, 0]]);
   await drag(page, [[25, -14], [39, 0], [25, 14], [11, 0], [25, -14]], true);
+  await expect(sheet.getByTestId('seed-count-1')).toHaveText('1');
+  await expect(sheet.getByTestId('seed-count-0')).toHaveText('1');
+  return sheet;
+}
+
+test('Random Walker (a Seeded method): segment and ⇧ Background seeds, Run previews the lesion', async ({ page }) => {
+  const sheet = await seededWalker(page);
   await expect(page.getByTestId('mask-preview-bar')).toHaveCount(0);
-  await expect(controls.getByTestId('random-walker-seeds')).toContainText('1 fg · 1 bg');
-  const overlay = page.locator('[data-testid="unified-viewport-element:panel_0"] [data-testid="semi-auto-overlay"]');
-  await expect(overlay).toHaveAttribute('data-marks', '2');
   expect(await voxels(page), 'seeds paint nothing').toBe(0);
 
-  await run.click();
+  await sheet.getByRole('button', { name: 'Run' }).click();
   await expect(page.getByTestId('mask-preview-bar')).toContainText('Random Walker');
   await page.keyboard.press('Enter');
   await expect.poll(() => voxels(page)).toBeGreaterThan(150);
   expect(await voxels(page)).toBeLessThan(260);
   expect((await range(page)).min, 'the lesion, not the tissue around it').toBe(70);
 
-  await controls.getByRole('button', { name: 'Clear seeds' }).click();
-  await expect(overlay).toHaveAttribute('data-marks', '0');
+  await sheet.getByRole('button', { name: 'Clear seeds' }).click();
+  await expect(sheet.getByTestId('seed-count-1')).toHaveText('0');
+});
+
+test('Random Walker without Background seeds says what it needs and runs nothing', async ({ page }) => {
+  await smartTool(page, 'Brush');
+  const sheet = await openOperation(page.locator('[data-testid="annotations-side-panel"]'), 'Seeded segmentation');
+  await sheet.getByLabel('Method').selectOption('randomWalker');
+  await sheet.getByRole('button', { name: 'Paint seeds' }).click();
+  await drag(page, [[22, 0], [28, 0]]);
+  await sheet.getByRole('button', { name: 'Run' }).click();
+  await expect(sheet.getByTestId('sheet-message')).toContainText('Background');
+  await expect(page.getByTestId('mask-preview-bar')).toHaveCount(0);
 });
 
 test('a locked segment: Level Trace previews read-only, Smart Brush paints nothing', async ({ page }) => {
@@ -184,23 +207,14 @@ test('ROI limit confines Cleanup: Clear erases only inside the rectangle', async
   expect(left).toBeLessThan(lesion * 0.6);
 });
 
-async function seededWalker(page: Page) {
-  const toolbox = await smartTool(page, 'Rnd. Walker');
-  const controls = toolbox.getByTestId('smart-tool-controls');
-  await controls.getByRole('slider', { name: 'Edge (β)' }).fill('2000');
-  await drag(page, [[22, 0], [28, 0]]);
-  await drag(page, [[25, -14], [39, 0], [25, 14], [11, 0], [25, -14]], true);
-  await expect(controls.getByTestId('random-walker-seeds')).toContainText('1 fg · 1 bg');
-  return controls;
-}
-
 test('Random Walker solves in the worker: progress shows while it runs, ⎋ cancels and leaves nothing', async ({ page }) => {
   const controls = await seededWalker(page);
+  await controls.getByRole('button', { name: 'Paint seeds' }).click(); // ⎋ must reach the solve, not the painter
   await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.setComputeThrottle(40));
   await controls.getByRole('button', { name: 'Run' }).click();
   const running = page.getByTestId('compute-progress-bar');
   await expect(running).toContainText('Random Walker');
-  await expect(controls.getByRole('button', { name: 'Running…' })).toBeDisabled();
+  await expect(controls.getByRole('button', { name: 'Cancel run' })).toBeVisible();
   const bar = running.getByRole('progressbar');
   await expect.poll(async () => Number(await bar.getAttribute('aria-valuenow'))).toBeGreaterThan(0);
   await page.keyboard.press('Escape');
@@ -231,7 +245,7 @@ test('Random Walker: the progress bar’s Cancel button stops the solve', async 
 test('Level Trace intensity guard: typed in, it keeps the trace inside its range', async ({ page }) => {
   const toolbox = await smartTool(page, 'Level Trace');
   await toolbox.getByRole('group', { name: 'Band' }).getByRole('button', { name: 'CT (HU)' }).click();
-  await toolbox.getByRole('button', { name: /Advanced/ }).click(); // the guard is an Advanced setting
+  await toolbox.getByRole('button', { name: /^. More/ }).click(); // the guard is an Advanced setting
   // ±100 HU from the lesion (+70) reaches the tissue (+40): unguarded, the body is taken.
   const guard = toolbox.getByTestId('intensity-guard');
   await guard.getByRole('checkbox').check();
@@ -250,7 +264,7 @@ test('Level Trace intensity guard: read from the ROI limit', async ({ page }) =>
   await drag(page, [[22, -3], [28, 3]]); // inside the lesion
   await clickTool(toolbox, 'Level Trace');
   await toolbox.getByRole('group', { name: 'Band' }).getByRole('button', { name: 'CT (HU)' }).click();
-  await toolbox.getByRole('button', { name: /Advanced/ }).click(); // the guard is an Advanced setting
+  await toolbox.getByRole('button', { name: /^. More/ }).click(); // the guard is an Advanced setting
   const guard = toolbox.getByTestId('intensity-guard');
   await guard.getByRole('button', { name: 'From ROI' }).click();
   await expect(guard.getByLabel('Guard minimum')).toHaveValue('70');

@@ -89,7 +89,7 @@ export default function RegionSheet({ m }: { m: RegionSheetModel }) {
           <Check label="Clip intensities (CT)" checked={r.clipOn} onChange={(clipOn) => m.set({ clipOn })} />
           {r.clipOn && (
             <>
-              <Slider label="Clip low" min={-1024} max={500} step={10} value={r.clipLo} onChange={(clipLo) => m.set({ clipLo })} />
+              <Slider label="Clip low" min={-1000} max={500} step={10} value={r.clipLo} onChange={(clipLo) => m.set({ clipLo })} />
               <Slider label="Clip high" min={-200} max={1500} step={10} value={r.clipHi} onChange={(clipHi) => m.set({ clipHi })} />
             </>
           )}

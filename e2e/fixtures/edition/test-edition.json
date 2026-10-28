@@ -1,0 +1,9 @@
+{
+  "id": "test-edition",
+  "productName": "XNAT Workstation Test Edition",
+  "appName": "XNAT Test Edition",
+  "appId": "org.xnat.workstation.test-edition",
+  "artifactPrefix": "XNAT-Workstation-Test-Edition",
+  "modules": ["../../../modules/examples/threshold"],
+  "trustedKeys": []
+}

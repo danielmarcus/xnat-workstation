@@ -62,6 +62,7 @@ import { useTransportStore } from '../../stores/transportStore';
 import { useAnnotationSelectionStore } from '../../stores/annotationSelectionStore';
 import { rtStructService } from './rtStructService';
 import * as contourRep from './contourRepresentation';
+import { isRenderingSplineInHand, isSplineInHand } from './tools/contourToolSettings';
 import { installComponentSelection } from './componentSelection';
 import { warnLocked } from '../annotations/lockWarning';
 import { setMaskMemberActivator } from './maskSelection';
@@ -157,9 +158,11 @@ const { DefaultHistoryMemo } = (csUtilities as any).HistoryMemo;
 // for the typed API; the prior module-level `sourceImageIdsMap` is gone.
 
 /**
- * Tracks loaded DICOM SEG colors per segmentation, keyed by segmentationId.
- * Colors are extracted from RecommendedDisplayRGBValue during loadDicomSeg()
+ * Tracks loaded DICOM colors per segmentation, keyed by segmentationId.
+ * SEG colors are extracted from RecommendedDisplayRGBValue during loadDicomSeg()
  * and consumed (then deleted) in addToViewport() so they override the default palette.
+ * RTSTRUCT ROIDisplayColors land here only when the viewport had no representation to
+ * take them at load (rememberLoadedColors), and are consumed in ensureContourRepresentation().
  */
 const loadedColorsMap = new Map<string, Map<number, [number, number, number, number]>>();
 
@@ -1185,7 +1188,8 @@ let backupInProgress = false;
 
 /** Called when segmentation pixel data changes — debounces auto-save and marks dirty. */
 function onSegmentationDataModified(evt?: Event): void {
-  if (!isDirtyTrackingSuppressed()) {
+  // A spline in hand is a preview: rendering it is not an edit (#99).
+  if (!isDirtyTrackingSuppressed() && !isRenderingSplineInHand()) {
     const detail = (evt as CustomEvent | undefined)?.detail as
       | { segmentationId?: string; segmentIndex?: number }
       | undefined;
@@ -1222,7 +1226,10 @@ function onSegmentationDataModified(evt?: Event): void {
 }
 
 /** Called when an annotation is completed/modified — triggers auto-save for contour segmentations. */
-function onAnnotationAutoSave(): void {
+function onAnnotationAutoSave(evt?: Event): void {
+  // A spline in hand is a preview, not an edit: only its commit (a new annotation) counts (#99).
+  const uid = ((evt as CustomEvent | undefined)?.detail as { annotation?: { annotationUID?: string } } | undefined)?.annotation?.annotationUID;
+  if (isSplineInHand(uid)) return;
   // Only schedule if there's an active segmentation that has contour data
   const segStore = useSegmentationStore.getState();
   const activeSegId = segStore.activeSegmentationId;
@@ -3106,6 +3113,19 @@ export const segmentationService = {
   },
 
   /**
+   * Hold colours a loader read from the file (an RTSTRUCT's ROIDisplayColor) that no
+   * viewport representation could take yet. The store summary reports them meanwhile,
+   * and ensureContourRepresentation() applies them when the representation is added.
+   */
+  rememberLoadedColors(
+    segmentationId: string,
+    colors: Map<number, [number, number, number, number]>,
+  ): void {
+    if (colors.size === 0) return;
+    loadedColorsMap.set(segmentationId, new Map(colors));
+  },
+
+  /**
    * Override the default segment color sequence used for new segments.
    */
   setDefaultColorSequence(colors: [number, number, number, number][]): void {
@@ -3850,6 +3870,19 @@ export const segmentationService = {
       csSegmentation.addContourRepresentationToViewport(viewportId, [
         { segmentationId },
       ]);
+
+      // Colours read from the file that no representation could take at load time
+      // (rememberLoadedColors) — consumed here, as addToViewport() does for a SEG.
+      const loadedColors = loadedColorsMap.get(segmentationId);
+      if (loadedColors && loadedColors.size > 0) {
+        let allColorsApplied = true;
+        for (const [idx, color] of loadedColors.entries()) {
+          try {
+            csSegmentation.config.color.setSegmentIndexColor(viewportId, segmentationId, idx, color as any);
+          } catch { allColorsApplied = false; }
+        }
+        if (allColorsApplied) loadedColorsMap.delete(segmentationId);
+      }
 
       // Ensure active contour segment has a valid color entry.
       if (activeIdx > 0) {

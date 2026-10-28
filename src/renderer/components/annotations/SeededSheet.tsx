@@ -1,9 +1,11 @@
 /**
  * Seeded segmentation (SegWorks #101–135; branch 5). Presentational; everything from
- * useSeededSheet. Method is one dropdown (sheet rule: variants are never separate operations).
+ * useSeededSheet. Method is one dropdown (sheet rule: variants are never separate operations) —
+ * Random Walker among them since 2026-10-28 (it was a Smart tool with its own seeds).
  */
 import type { SeededSheetModel } from '../../hooks/useSeededSheet';
-import { OperationBody, OperationRow, Segmented } from './OperationsSection';
+import { MoreToggle, OperationBody, OperationRow, Segmented, differsFrom } from './OperationsSection';
+import { SEEDED_DEFAULTS } from '../../stores/operationSheetStore';
 
 function Slider({ label, min, max, step, value, unit, onChange }: { label: string; min: number; max: number; step: number; value: number; unit?: string; onChange: (v: number) => void }) {
   return (
@@ -67,6 +69,7 @@ export default function SeededSheet({ m }: { m: SeededSheetModel }) {
           <option value="growCut">Fast GrowCut</option>
           <option value="graphCut">Graph Cut</option>
           <option value="alphaExpansion">Multi-label graph cut (α-expansion)</option>
+          <option value="randomWalker">Random Walker (this slice)</option>
         </select>
       </OperationRow>
 
@@ -110,6 +113,11 @@ export default function SeededSheet({ m }: { m: SeededSheetModel }) {
       </div>
       <Slider label="Seed brush" min={2} max={40} step={1} value={m.brushPx} unit="px" onChange={m.setBrush} />
 
+      {m.walker ? (
+        <div className="mt-1.5 text-[10px] text-zinc-500" data-testid="walker-domain">
+          Solves the slice on screen: inside the ROI limit when one is drawn here, otherwise round the seeds. The active segment’s seeds are foreground; Background’s and the other segments’ are background.
+        </div>
+      ) : (<>
       <OperationRow label="Domain">
         <Segmented
           label="Domain"
@@ -126,14 +134,18 @@ export default function SeededSheet({ m }: { m: SeededSheetModel }) {
       >
         {m.domainProblem ?? (m.estimate ? `${m.estimate.text}${m.estimate.reason ? ` — ${m.estimate.reason}` : ''}` : '')}
       </div>
+      </>)}
+      {m.walker && (
+        <Slider label="Edge (β)" min={10} max={4000} step={10} value={m.walkerBeta} onChange={m.setWalkerBeta} />
+      )}
 
       {s.method === 'growCut' && (
         <>
           <Check label="Intensity range" checked={s.gateOn} onChange={(gateOn) => m.set({ gateOn })} />
           {s.gateOn && (
             <>
-              <Slider label="From" min={-1024} max={3000} step={10} value={s.gateLo} onChange={(gateLo) => m.set({ gateLo })} />
-              <Slider label="To" min={-1024} max={3000} step={10} value={s.gateHi} onChange={(gateHi) => m.set({ gateHi })} />
+              <Slider label="From" min={-1000} max={3000} step={10} value={s.gateLo} onChange={(gateLo) => m.set({ gateLo })} />
+              <Slider label="To" min={-1000} max={3000} step={10} value={s.gateHi} onChange={(gateHi) => m.set({ gateHi })} />
             </>
           )}
         </>
@@ -152,12 +164,14 @@ export default function SeededSheet({ m }: { m: SeededSheetModel }) {
         </>
       )}
 
-      <div className="flex justify-end mt-1 text-[10px]">
-        <button type="button" onClick={m.toggleAdvanced} aria-expanded={m.advancedOpen} className="text-zinc-400 hover:text-zinc-200 whitespace-nowrap">
-          {m.advancedOpen ? '▾' : '▸'} Advanced
-        </button>
-      </div>
-      {m.advancedOpen && (
+      {!m.walker && <div className="flex justify-end mt-1 text-[10px]">
+        <MoreToggle open={m.advancedOpen} onToggle={m.toggleAdvanced} changed={differsFrom(s, SEEDED_DEFAULTS, [
+          'padXY', 'padZ',
+          ...(s.method === 'alphaExpansion' ? ['uInt', 'uLoc', 'locality', 'intensity'] as const : []),
+          ...(s.method !== 'growCut' ? ['postOn', 'postKeep', 'postMinIsland', 'postSmooth', 'postShrinkGrow'] as const : []),
+        ])} />
+      </div>}
+      {m.advancedOpen && !m.walker && (
         <>
           <Slider label="Pad in-plane" min={0} max={80} step={2} value={s.padXY} unit="px" onChange={(padXY) => m.set({ padXY })} />
           <Slider label="Pad slices" min={0} max={64} step={1} value={s.padZ} onChange={(padZ) => m.set({ padZ })} />

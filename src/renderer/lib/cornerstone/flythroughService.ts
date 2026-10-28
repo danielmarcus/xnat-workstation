@@ -116,7 +116,11 @@ export function startFlythrough(containerId?: string | null, viewportId?: string
   if (!cid || !vpId || !summary) return { ok: false, reason: 'no-container' };
 
   const st = useFlythroughStore.getState();
-  const chosen = st.segmentIndices.length
+  // The segment filter belongs to the container it was chosen in: segment numbers mean nothing
+  // in another (its review found "nothing segmented", or only some segments).
+  const filtered = st.segmentIndices.length && st.segmentIndicesFor === cid;
+  if (st.segmentIndices.length && !filtered) useFlythroughStore.setState({ segmentIndices: [], segmentIndicesFor: null });
+  const chosen = filtered
     ? summary.segments.filter((m) => st.segmentIndices.includes(m.segmentIndex))
     : summary.segments;
   const occupied = new Set<number>();

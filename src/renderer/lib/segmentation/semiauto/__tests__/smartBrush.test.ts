@@ -1,6 +1,6 @@
 /** Smart Brush (branch 4): paints the tissue under the brush and not across a boundary. */
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_SMART_BRUSH, smartBrushStroke, strokeDabs } from '../smartBrush';
+import { DEFAULT_SMART_BRUSH, smartBrushDab, smartBrushStroke, strokeDabs } from '../smartBrush';
 
 const W = 40;
 const H = 40;
@@ -21,6 +21,16 @@ describe('smartBrushStroke', () => {
     const n = m.reduce((s, v) => s + v, 0);
     expect(n).toBeGreaterThan(70); // ≈ π·5²
     expect(n).toBeLessThan(90);
+  });
+
+  it('an anisotropic plane: radii per axis give a dab round in mm (S3, #92)', () => {
+    // 0.7 mm columns, 2.5 mm rows: a 5.6 mm brush is 8 px wide and 2.24 px tall.
+    const out = new Uint8Array(W * H);
+    smartBrushDab(image, W, H, 10, 20, { ...DEFAULT_SMART_BRUSH, radiusPx: 8, radiusPxY: 2.24, tolerance: 1000 }, out);
+    const xs: number[] = [], ys: number[] = [];
+    for (let i = 0; i < out.length; i++) if (out[i]) { xs.push(i % W); ys.push(Math.floor(i / W)); }
+    const w = (Math.max(...xs) - Math.min(...xs) + 1) * 0.7, h = (Math.max(...ys) - Math.min(...ys) + 1) * 2.5;
+    expect(Math.abs(w - h), `${w} × ${h} mm`).toBeLessThanOrEqual(2.5);
   });
 
   it('dabs are spaced along the drag, endpoints included', () => {

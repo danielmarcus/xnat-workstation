@@ -80,6 +80,11 @@ export interface RunPlaneOpOptions {
   readImage?: (slice: number) => Float32Array | undefined;
   /** Allow adding pixels another member owns (default false: other members are preserved). */
   allowTakeover?: boolean;
+  /**
+   * `op` turns an empty plane into an empty plane (every Cleanup operation does): a member's
+   * empty slices are skipped without running it or reading anyone else's plane (O8).
+   */
+  skipEmpty?: boolean;
 }
 
 export interface RunPlaneOpResult {
@@ -94,45 +99,129 @@ export interface RunPlaneOpResult {
  * against the transaction's staged state, so a later member sees an earlier one's result.
  * A member never gains a pixel another member owns unless `allowTakeover` (SegWorks:
  * "preserve other labels") — in a shared labelmap that would erase the other member.
+ *
+ * Slice by slice, then member by member: an op reads and writes only its own slice, so this
+ * order sees exactly the state the member-by-member order did, while each member's plane
+ * on the slice is read once and reused for every other member's union (O8 — the union was
+ * re-read per member, twice: an "All" run cost members² plane reads per slice).
  */
 export function runPlaneOp(o: RunPlaneOpOptions): RunPlaneOpResult {
+  const { txn, axis } = o;
+  return runPlaneOpOn({
+    size: (m) => {
+      const grid = txn.grid(m);
+      return grid ? { spacing: planeSpacing(grid.geometry.spacing, axis), ...planeSize(grid.geometry.dimensions, axis) } : null;
+    },
+    any: (m, slice) => txn.anyOnPlane(m, axis, slice),
+    read: (m, slice) => txn.readPlane(m, axis, slice),
+    apply: (m, slice, after, opts) => txn.applyPlane(m, axis, slice, after, opts),
+  }, o);
+}
+
+/**
+ * Where `runPlaneOpOn` reads and writes member planes: a labelmap transaction (runPlaneOp), or
+ * the planes a Volume Cleanup gathered from one and sent to the Cleanup worker (O8,
+ * cleanupJob.ts). One runner for both, so the worker computes exactly what this thread would.
+ */
+export interface PlaneStore {
+  /** The member's plane size and spacing; null when it has no labelmap. */
+  size(member: MemberRef): { width: number; height: number; spacing: PlaneSpacing } | null;
+  any(member: MemberRef, slice: number): boolean;
+  read(member: MemberRef, slice: number): MaskPlane | null;
+  /** LabelmapTransaction.applyPlane's contract: gains are skipped where `blocked` or outside `roi`, losses outside `roi`. */
+  apply(
+    member: MemberRef,
+    slice: number,
+    after: MaskPlane,
+    opts: { blocked?: ArrayLike<number>; roi?: ArrayLike<number>; current?: MaskPlane },
+  ): { added: number; removed: number };
+}
+
+/** runPlaneOp over any plane store; `onSlice` reports each slice done (the worker's progress). */
+export function runPlaneOpOn(
+  store: PlaneStore,
+  o: Omit<RunPlaneOpOptions, 'txn' | 'axis'> & { onSlice?: (done: number, total: number) => void },
+): RunPlaneOpResult {
   const keyOf = (m: MemberRef) => `${m.containerId}|${m.segmentIndex}`;
   let added = 0;
   let removed = 0;
   const changed = new Set<number>();
-  for (const member of o.members) {
-    const grid = o.txn.grid(member);
-    if (!grid) continue;
-    const dims = grid.geometry.dimensions;
-    const spacing = planeSpacing(grid.geometry.spacing, o.axis);
-    const { width, height } = planeSize(dims, o.axis);
+  const locked = new Set((o.lockedMembers ?? []).map(keyOf));
+  const runs = o.members.flatMap((member) => {
+    const size = store.size(member);
+    if (!size) return [];
     const others = o.allMembers.filter((m) => keyOf(m) !== keyOf(member));
-    const locked = new Set((o.lockedMembers ?? []).map(keyOf));
-    const lockedOthers = others.filter((m) => locked.has(keyOf(m)));
-    for (const slice of o.slices) {
-      const before = o.txn.readPlane(member, o.axis, slice);
+    return [{
+      member,
+      ...size,
+      others,
+      lockedOthers: others.filter((m) => locked.has(keyOf(m))),
+    }];
+  });
+  let done = 0;
+  for (const slice of o.slices) {
+    // This slice's planes, read once (an empty one not at all) and dropped after any write to the slice.
+    const planes = new Map<string, { any: boolean; p?: MaskPlane | null }>();
+    const entry = (m: MemberRef) => {
+      const k = keyOf(m);
+      let e = planes.get(k);
+      if (!e) planes.set(k, (e = { any: store.any(m, slice) }));
+      return e;
+    };
+    const has = (m: MemberRef) => entry(m).any;
+    const plane = (m: MemberRef) => {
+      const e = entry(m);
+      if (e.p === undefined) e.p = store.read(m, slice);
+      return e.p;
+    };
+    const union = (members: MemberRef[], width: number, height: number) => {
+      const out = new Uint8Array(width * height);
+      for (const m of members) {
+        if (!has(m)) continue;
+        const p = plane(m);
+        if (!p) continue;
+        for (let i = 0; i < out.length; i++) if (p.data[i]) out[i] = 1;
+      }
+      return out;
+    };
+    let image: Float32Array | undefined;
+    let imageRead = false;
+    for (const { member, spacing, width, height, others, lockedOthers } of runs) {
+      if (o.skipEmpty && !has(member)) continue;
+      const before = plane(member);
       if (!before) continue;
-      const otherPx = o.txn.unionPlane(others, o.axis, slice, width, height);
-      const protect = o.txn.unionPlane(lockedOthers, o.axis, slice, width, height);
-      const out = o.op(before, { member, slice, spacing, image: o.readImage?.(slice), others: otherPx, protect });
+      if (!imageRead) { image = o.readImage?.(slice); imageRead = true; }
+      const otherPx = union(others, width, height);
+      const protect = union(lockedOthers, width, height);
+      const out = o.op(before, { member, slice, spacing, image, others: otherPx, protect });
       const after = 'plane' in out ? out.plane : out;
       const claimed = 'plane' in out ? out.claimed : undefined;
       // Claimed pixels leave their unlocked owners first (inside the ROI), so the member can take them.
+      let claimedAny = false;
       if (claimed) {
         for (const m of others) {
-          if (locked.has(keyOf(m))) continue;
-          const p = o.txn.readPlane(m, o.axis, slice);
+          if (locked.has(keyOf(m)) || !has(m)) continue;
+          const p = plane(m);
           if (!p) continue;
           const next = Uint8Array.from(p.data, (v, i) => (v && claimed[i] && (!o.roi || o.roi[i]) ? 0 : v));
-          if (next.some((v, i) => v !== p.data[i])) removed += o.txn.applyPlane(m, o.axis, slice, { ...p, data: next }).removed;
+          if (next.some((v, i) => v !== p.data[i])) {
+            removed += store.apply(m, slice, { ...p, data: next }, {}).removed;
+            planes.clear(); // a shared labelmap: one write can change several members
+            claimedAny = true;
+          }
         }
       }
-      const blocked = o.allowTakeover ? undefined : o.txn.unionPlane(others, o.axis, slice, width, height);
-      const r = o.txn.applyPlane(member, o.axis, slice, after, { blocked, roi: o.roi });
+      const blocked = o.allowTakeover ? undefined : claimedAny ? union(others, width, height) : otherPx;
+      // Claims only clear OTHER members' pixels, so `before` is still the member's plane.
+      const r = store.apply(member, slice, after, { blocked, roi: o.roi, current: before });
       added += r.added;
       removed += r.removed;
-      if (r.added || r.removed) changed.add(slice);
+      if (r.added || r.removed) {
+        changed.add(slice);
+        planes.clear();
+      }
     }
+    o.onSlice?.(++done, o.slices.length);
   }
   return { added, removed, changedSlices: [...changed].sort((a, b) => a - b) };
 }

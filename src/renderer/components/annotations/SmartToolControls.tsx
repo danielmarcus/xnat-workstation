@@ -1,10 +1,12 @@
 /**
  * The Smart-tab tools' rows in the toolbox's Controls strip (SegWorks parity branch 4):
  * Level Trace's band / growth / edge guard / smoothing, Smart Brush's radius, tolerance and
- * spacing, Random Walker's β, seed size, Run and Clear seeds, and the ROI limit's Clear.
+ * spacing, and the ROI limit's Clear.
  */
 import { useState, type ReactNode } from 'react';
 import type { SemiAutoControlsModel } from '../../hooks/useSemiAutoControls';
+import { LEVEL_TRACE_DEFAULTS, SMART_BRUSH_DEFAULTS } from '../../stores/semiAutoStore';
+import { MoreToggle, differsFrom } from './OperationsSection';
 
 function Row({ label, children, testId }: { label: string; children: ReactNode; testId?: string }) {
   return (
@@ -91,18 +93,17 @@ function RoiChip({ m }: { m: SemiAutoControlsModel }) {
 
 export default function SmartToolControls({ toolId, m }: { toolId: string; m: SemiAutoControlsModel }) {
   const lt = m.levelTrace;
-  // Level Trace has more settings than the toolbox's fixed Controls area holds (D2 as
-  // amended 2026-10-12): band, tolerance and edge guard show; the rest fold under Advanced.
+  // Essentials, then More (R7-A): Level Trace shows band, tolerance and edge guard; Smart
+  // Brush its radius and tolerance. The rest fold under More, whose dot shows while any of
+  // them differs from its default.
   const [ltAdvanced, setLtAdvanced] = useState(false);
+  const [sbMore, setSbMore] = useState(false);
   const advancedToggle = (
-    <button
-      type="button"
-      aria-expanded={ltAdvanced}
-      onClick={() => setLtAdvanced((v) => !v)}
-      className="text-[10px] text-zinc-400 hover:text-zinc-200 whitespace-nowrap"
-    >
-      {ltAdvanced ? '▾' : '▸'} Advanced
-    </button>
+    <MoreToggle
+      open={ltAdvanced}
+      onToggle={() => setLtAdvanced((v) => !v)}
+      changed={differsFrom(lt, LEVEL_TRACE_DEFAULTS, ['window', 'smoothing', 'growth', 'fuzzyThreshold', 'edgeOperator', 'polarity', 'simplifyPx', 'roundCorners', 'guard', 'fillHoles', 'airGuard'])}
+    />
   );
   const body = (() => {
     switch (toolId) {
@@ -151,33 +152,23 @@ export default function SmartToolControls({ toolId, m }: { toolId: string; m: Se
         return (
           <>
             <Slider label="Radius" value={m.smartBrush.radiusMm} min={1} max={40} unit=" mm" onChange={(v) => m.setSmartBrush({ radiusMm: v })} />
-            <Slider label="Tolerance" value={m.smartBrush.tolerance} min={5} max={400} step={5} unit="" onChange={(v) => m.setSmartBrush({ tolerance: v })} />
-            <Slider label="Spacing" value={m.smartBrush.spacingPx} min={1} max={10} unit=" px" onChange={(v) => m.setSmartBrush({ spacingPx: v })} />
-          </>
-        );
-      case 'randomWalker':
-        return (
-          <>
-            <Slider label="Edge (β)" value={m.randomWalker.beta} min={10} max={4000} step={10} unit="" onChange={(v) => m.setRandomWalker({ beta: v })} />
-            <Slider label="Seed size" value={m.randomWalker.seedRadiusPx} min={0} max={8} unit=" px" onChange={(v) => m.setRandomWalker({ seedRadiusPx: v })} />
-            <Row label="Seeds" testId="random-walker-seeds">
-              <span className="text-[10px] text-zinc-300 flex-1">
-                <span className="text-green-400">{m.seedCounts.fg} fg</span> · <span className="text-red-400">{m.seedCounts.bg} bg</span>
-                <span className="text-zinc-500"> · ⇧-drag = bg</span>
-              </span>
+            <Row label="Tolerance">
+              <input
+                type="range" min={5} max={400} step={5} value={m.smartBrush.tolerance} aria-label="Tolerance"
+                onChange={(e) => m.setSmartBrush({ tolerance: Number(e.target.value) })}
+                className="flex-1 min-w-0 accent-blue-500"
+              />
+              <span className="text-[10px] text-zinc-300 whitespace-nowrap w-8 text-right">{m.smartBrush.tolerance}</span>
+              <MoreToggle open={sbMore} onToggle={() => setSbMore((v) => !v)} changed={differsFrom(m.smartBrush, SMART_BRUSH_DEFAULTS, ['spacingPx'])} />
             </Row>
-            <div className="flex items-center gap-2 mt-1.5 pl-[5.5rem]">
-              <button type="button" className={BUTTON} disabled={m.running || !m.seedCounts.fg || !m.seedCounts.bg} onClick={m.runRandomWalker}>{m.running ? 'Running…' : 'Run'}</button>
-              <button type="button" className={BUTTON} disabled={!m.seedCounts.fg && !m.seedCounts.bg} onClick={m.clearSeeds}>Clear seeds</button>
-            </div>
-            <RoiChip m={m} />
+            {sbMore && <Slider label="Spacing" value={m.smartBrush.spacingPx} min={1} max={10} unit=" px" onChange={(v) => m.setSmartBrush({ spacingPx: v })} />}
           </>
         );
       case 'roiLimit':
         return (
           <Row label="ROI limit" testId="roi-limit-controls">
             <span className="text-[10px] text-zinc-300 flex-1">
-              {m.roiHere ? 'Drawn — Level Trace, Random Walker and Cleanup stay inside' : m.roiDrawn ? 'Drawn on another viewport' : 'Drag a rectangle on the image'}
+              {m.roiHere ? 'Drawn — Level Trace, the operations and modules stay inside' : m.roiDrawn ? 'Drawn on another viewport' : 'Drag a rectangle on the image'}
             </span>
             <button type="button" className={BUTTON} disabled={!m.roiDrawn} onClick={m.clearRoi}>Clear</button>
           </Row>

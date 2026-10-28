@@ -47,14 +47,13 @@ function overlayFor(id: string, vp: Viewport): SVGSVGElement {
   return svg;
 }
 
-/** Canvas units per image pixel along the view's horizontal axis. */
-function canvasPerPixel(vp: Viewport): number {
+/** Canvas units per mm along the view's horizontal axis (the view is square in mm). */
+function canvasPerMm(vp: Viewport): number {
   const cam = vp.getCamera();
   const f = cam.focalPoint, n = cam.viewPlaneNormal, up = cam.viewUp;
-  const mm = vp.getImageData?.()?.spacing?.[0] ?? 1;
   if (!f || !n || !up) return 1;
   const right = [up[1] * n[2] - up[2] * n[1], up[2] * n[0] - up[0] * n[2], up[0] * n[1] - up[1] * n[0]];
-  const a = vp.worldToCanvas(f), b = vp.worldToCanvas([f[0] + right[0] * mm, f[1] + right[1] * mm, f[2] + right[2] * mm]);
+  const a = vp.worldToCanvas(f), b = vp.worldToCanvas([f[0] + right[0], f[1] + right[1], f[2] + right[2]]);
   return Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
 }
 
@@ -96,7 +95,9 @@ function drawOn(viewportId: string): void {
   }
   if (strokes.length) {
     const seg = useSegmentationStore.getState();
-    const pxCanvas = canvasPerPixel(vp);
+    const perMm = canvasPerMm(vp);
+    // The stamp covers the pixel under the pointer too: half a pixel either side of the radius.
+    const pixelMm = Math.min(...(vp.getImageData?.()?.spacing ?? [1, 1]).slice(0, 2));
     for (const st of strokes) {
       const pts = st.points.filter((p) => onSlice(vp, p)).map((p) => vp.worldToCanvas(p));
       if (!pts.length) continue;
@@ -105,7 +106,7 @@ function drawOn(viewportId: string): void {
       line.setAttribute('points', (pts.length === 1 ? [pts[0], pts[0]] : pts).map((p) => p.join(',')).join(' '));
       line.setAttribute('fill', 'none');
       line.setAttribute('stroke', st.cls === BACKGROUND || !member ? 'rgb(161, 161, 170)' : `rgb(${member.color[0]}, ${member.color[1]}, ${member.color[2]})`);
-      line.setAttribute('stroke-width', String(Math.max(3, (2 * st.radiusPx + 1) * pxCanvas)));
+      line.setAttribute('stroke-width', String(Math.max(3, (2 * st.radiusMm + pixelMm) * perMm)));
       line.setAttribute('stroke-linecap', 'round');
       line.setAttribute('stroke-linejoin', 'round');
       line.setAttribute('stroke-opacity', '0.8');

@@ -59,6 +59,8 @@ export const DEFAULT_HOTKEY_MAP: HotkeyMap = {
   // ─── Panel Toggles ──────────────────────────────────────────
   'panel.toggleSegmentation': [{ key: 'g' }], // G — the Annotations side panel (the only annotation surface)
   'panel.nextViewport': [{ key: 'Tab' }, { key: 'Tab', modifiers: { shift: true } }],
+  // ⌘K / Ctrl+K — find any annotation tool, mode or operation by name (annotation-panel-modes).
+  'panel.findTool': [{ key: 'k', modifiers: { meta: true } }, { key: 'k', modifiers: { ctrl: true } }],
 
   // ─── Brush Size ──────────────────────────────────────────────
   'brush.decrease': [{ key: '[' }],

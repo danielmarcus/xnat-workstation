@@ -5,7 +5,7 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import type { SegmentVoxelGrid } from '../segmentVoxelGrid';
-import { beginTransaction, type MemberRef, type TransactionDeps, type VoxelMemoRecord } from '../labelmapTransaction';
+import { beginDirectEdit, beginTransaction, type MemberRef, type TransactionDeps, type VoxelMemoRecord } from '../labelmapTransaction';
 import { extractPlane, gridIndexOf, planeAxes, sliceIndices } from '../../segmentation/maskOps/planeIO';
 
 const DIMS: [number, number, number] = [3, 3, 2];
@@ -119,7 +119,7 @@ describe('commit', () => {
     r.txn.commit();
     expect(pushed).toHaveLength(1); // one step
     expect(pushed[0].map((m) => m.csSegmentationId).sort()).toEqual(['G_layer_1', 'G_layer_2']);
-    expect(pushed[0].find((m) => m.csSegmentationId === 'G_layer_1')?.changes).toEqual([1, 0, 1]);
+    expect(pushed[0].find((m) => m.csSegmentationId === 'G_layer_1')?.changes).toEqual(Int32Array.from([1, 0, 1]));
     expect(notified.sort()).toEqual(['G_layer_1', 'G_layer_2']);
   });
 
@@ -182,7 +182,7 @@ describe('flat (shared) labelmap', () => {
     r.txn.set(FB, 1, true);
     r.txn.commit();
     expect(pushed[0]).toHaveLength(1);
-    expect(pushed[0][0].changes).toEqual([0, 0, 1, 1, 0, 2]);
+    expect(Array.from(pushed[0][0].changes)).toEqual([0, 0, 1, 1, 0, 2]);
   });
 });
 
@@ -226,4 +226,76 @@ describe('planeIO', () => {
   });
 });
 
+describe('large transactions (X5 / #96)', () => {
+  it('stages more than 2^24 writes (the V8 Map limit) without throwing, and commit writes them all', () => {
+    // 256 × 256 × 257 = 16,842,752 voxels > 2^24 = 16,777,216.
+    const dims: [number, number, number] = [256, 256, 257];
+    const n = dims[0] * dims[1] * dims[2];
+    expect(n).toBeGreaterThan(2 ** 24);
+    const data = new Uint8Array(n);
+    let written = 0;
+    const g: SegmentVoxelGrid = {
+      geometry: { ...GEOM, dimensions: dims }, data, value: 1, csSegmentationId: 'BIG',
+      write: (f, v) => { data[f] = v; written++; },
+    };
+    const { d, pushed } = deps({ 'G|1': g });
+    const r = beginTransaction([A], d);
+    if (!r.ok) throw new Error('begin');
+    expect(() => { for (let f = 0; f < n; f++) r.txn.set(A, f, true); }).not.toThrow();
+    expect(r.txn.has(A, n - 1)).toBe(true);
+    expect(data[n - 1]).toBe(0); // still staged
+    expect(r.txn.commit()).toBe(true);
+    expect(written).toBe(n);
+    expect(data.every((v) => v === 1)).toBe(true);
+    expect(pushed[0][0].changes.length).toBe(3 * n);
+  }, 120_000);
+});
+
 void vi;
+
+/**
+ * A tool that writes the labelmap itself (Cornerstone's grow-cut): `beginDirectEdit` snapshots
+ * the member, `finish` records what the tool changed, and `abort` — the tool's run failed —
+ * puts back whatever it wrote and records nothing.
+ */
+describe('beginDirectEdit', () => {
+  /** A live grid whose `data` is a copy per read, as a stack labelmap's is. */
+  function liveGrid() {
+    const live = new Uint8Array(18);
+    const g: SegmentVoxelGrid = {
+      geometry: GEOM, value: 1, csSegmentationId: 'G_layer_1',
+      get data() { return live.slice(); },
+      write: (f, v) => { live[f] = v; },
+    };
+    return { g, live };
+  }
+
+  it('finish records the tool\'s write as one undo step', () => {
+    const { g, live } = liveGrid();
+    const { d, pushed } = deps({ 'G|1': g });
+    const edit = beginDirectEdit(A, d)!;
+    live[4] = 1;
+    expect(edit.finish()).toBe('recorded');
+    expect(pushed).toHaveLength(1);
+  });
+
+  it('abort puts back a partial write and records nothing', () => {
+    const { g, live } = liveGrid();
+    const { d, pushed, notified } = deps({ 'G|1': g });
+    const edit = beginDirectEdit(A, d)!;
+    live[4] = 1;
+    live[9] = 1;
+    edit.abort();
+    expect(Array.from(live).every((v) => v === 0)).toBe(true);
+    expect(pushed).toHaveLength(0);
+    expect(notified).toEqual(['G_layer_1']);
+  });
+
+  it('abort with nothing written records and notifies nothing', () => {
+    const { g } = liveGrid();
+    const { d, pushed, notified } = deps({ 'G|1': g });
+    beginDirectEdit(A, d)!.abort();
+    expect(pushed).toHaveLength(0);
+    expect(notified).toEqual([]);
+  });
+});

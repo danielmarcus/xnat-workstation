@@ -7,6 +7,7 @@
  * open (D12, narrowed 2026-10-12). Matched on the physical key (`e.code`): on a Mac, ⌥A
  * types "å".
  */
+import { OBLIQUE_VIEW_MESSAGE } from '../lib/cornerstone/maskIslands';
 import { useEffect, useState } from 'react';
 import { maskOpsService, type RunResult } from '../lib/cornerstone/maskOpsService';
 import { clearStaleNotice, commitPreview, discardPreview } from '../lib/cornerstone/maskPreview';
@@ -26,7 +27,8 @@ function describe(r: Extract<RunResult, { ok: false }>, fill: InterpolateSetting
       : 'No gaps to fill';
   }
   if (r.reason === 'no-target') return 'Select a segment to interpolate';
-  if (r.reason === 'no-viewport') return 'Open the segment’s scan in a viewport first';
+  if (r.reason === 'no-viewport') return 'Open the segment’s scan in this viewport';
+  if (r.reason === 'oblique-view') return OBLIQUE_VIEW_MESSAGE;
   return 'Interpolation unavailable';
 }
 
@@ -48,12 +50,19 @@ export function useInterpolateSheet() {
 
   // The gap table: recomputed when the sheet opens and whenever the labelmap changes.
   const [gaps, setGaps] = useState<ReturnType<typeof maskOpsService.interpolationGaps>>([]);
+  // Debounced: a brush fires a change per mouse move, and each recompute reads every segment.
+  const orientation = useViewerStore((st) => st.panelOrientationMap?.[st.activeViewportId] ?? '');
   useEffect(() => {
     if (!open) return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
     const compute = () => setGaps(maskOpsService.interpolationGaps(activeViewportId));
     compute();
-    return onLabelmapModified(compute);
-  }, [open, activeViewportId, activeSegmentationId, segmentations]);
+    const off = onLabelmapModified(() => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(compute, 150);
+    });
+    return () => { off(); if (timer) clearTimeout(timer); };
+  }, [open, activeViewportId, activeSegmentationId, segmentations, orientation]);
 
   // Anchor chords (⌥A / ⌥B, ⌥⇧ to clear) while the operation is open.
   useEffect(() => {
@@ -71,7 +80,8 @@ export function useInterpolateSheet() {
     });
   }, [open]);
 
-  const run = (commit: boolean, fill?: { kind: 'gap'; from: number; to: number }) => {
+  /** `segmentIndex`: a gap-table row's own segment — its gap, whatever the Labels setting. */
+  const run = (commit: boolean, fill?: { kind: 'gap'; from: number; to: number }, segmentIndex?: number) => {
     clearStaleNotice();
     if (!fill && s.fill === 'anchors' && (s.anchorA === null || s.anchorB === null)) {
       sheet.setMessage('Set both anchors, A and B (⌥A and ⌥B), on painted slices');
@@ -81,10 +91,10 @@ export function useInterpolateSheet() {
       ? { kind: 'anchors' as const, a: s.anchorA! - 1, b: s.anchorB! - 1 }
       : { kind: s.fill });
     const r = maskOpsService.previewInterpolation(
-      { method: s.method, distance: s.distance, fill: f, labels: { kind: sheet.scope.labels } },
+      { method: s.method, distance: s.distance, fill: f, labels: segmentIndex !== undefined ? { kind: 'pick', segmentIndices: [segmentIndex] } : { kind: sheet.scope.labels } },
       { commit },
     );
-    sheet.setMessage(r.ok ? (r.readOnly ? `${target?.name ?? 'This segment'} is locked — preview only` : null) : describe(r, s.fill));
+    sheet.setMessage(r.ok ? (r.readOnly ? `${target?.name ?? 'This segment'} is locked — preview only` : null) : describe(r, fill ? 'gaps' : s.fill));
     hotkeyService.focusActiveViewport();
   };
   const changing = () => { if (useMaskPreviewStore.getState().active) discardPreview(); clearStaleNotice(); };
@@ -107,7 +117,7 @@ export function useInterpolateSheet() {
     set: (patch: Partial<InterpolateSettings>) => { changing(); sheet.setInterp(patch); hotkeyService.focusActiveViewport(); },
     setLabels: (labels: 'active' | 'all') => { changing(); sheet.setScope({ labels }); },
     setAnchorHere: (which: 'A' | 'B') => { changing(); sheet.setInterp(which === 'A' ? { anchorA: currentSlice, fill: 'anchors' } : { anchorB: currentSlice, fill: 'anchors' }); },
-    previewGap: (from: number, to: number) => run(false, { kind: 'gap', from: from - 1, to: to - 1 }),
+    previewGap: (from: number, to: number, segmentIndex: number) => run(false, { kind: 'gap', from: from - 1, to: to - 1 }, segmentIndex),
     preview: () => run(false),
     commit: () => {
       if (useMaskPreviewStore.getState().active) { commitPreview(); hotkeyService.focusActiveViewport(); return; }

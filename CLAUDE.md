@@ -26,6 +26,7 @@ src/
     index.ts                # App entry: window, tray, menu, dock icon
     ipc/                    # IPC handlers (auth, upload, export, proxy)
     xnat/                   # XNAT REST client and session management
+    modules/                # Algorithm modules: packages + signatures, store, sandbox runtime, editions
   preload/
     index.ts                # Context bridge: exposes electronAPI to renderer
   renderer/                 # Vite root (React SPA)
@@ -61,6 +62,8 @@ src/
     ipcChannels.ts          # Typed IPC channel constants
     types/                  # TypeScript interfaces (ElectronAPI, DICOM types, XNAT types)
     dicomTagDictionary.ts   # DICOM tag name lookup
+modules/                    # Example modules (examples/) and built-ins packaged as modules (builtins/)
+edition.config.json         # The open-source edition (docs/editions.md)
 build/                      # App icons for packaging
   icon.png                  # Full-color app icon (320x320)
   iconTemplate.png          # macOS tray icon (22x22, monochrome template)
@@ -219,7 +222,7 @@ Overlay layer (on top): dialogs · toast stack · modals · recovery screens
 
 **Annotation lifecycle** (create / name / edit / save / delete) lives **entirely in the Annotations side panel**, not the toolbar. The toolbar holds viewer controls (layout, navigation tools, transform, undo/redo, cine, panel toggles, settings).
 
-**Three peer annotation types**: every container is one of `Segmentation` (DICOM SEG) · `Structure` (DICOM RTSTRUCT) · `Measurement` (DICOM SR). The Annotations side panel header has three corresponding create buttons, and a context-sensitive toolbox at the bottom adapts its tool grid to the active container's type.
+**Three peer annotation types**: every container is one of `Segmentation` (DICOM SEG) · `Structure` (DICOM RTSTRUCT) · `Measurement` (DICOM SR). The Annotations side panel header has three corresponding create buttons, and a context-sensitive toolbox at the bottom adapts its tools to the active container's type. For a Segmentation the toolbox is one row of seven tool **families** whose **modes** pick the tool (Brush: Kernel × Limit, Shape: shape × Limit, Region: Drag/Click), above an options strip of the tool's essentials with the rest under More; operations open in a drawer above it from a grouped Operation menu; ⌘K / Ctrl+K finds any tool, mode or operation by name (`docs/annotation-panel-modes.md`). E2E specs select tools through `e2e/helpers/toolbox.ts` `clickTool`, which maps the pre-family tool names to family + mode clicks.
 
 **Multi-viewport coupling**: containers are **viewport-scoped**, and an annotation belongs to **the scan it was drawn on**. It renders on every viewport showing that scan — a second viewport on the same series, or the planes of an MPR — and on no others; those viewports list it, and it carries a cross-panel pill (`↗ 2 panels`) when it is on more than one. Drawing is allowed only on a viewport showing its own scan. The **unsaved indicator deliberately does not scope** — unsaved work in an unfocused viewport must stay visible, since its review dialog is the only way to save it.
 

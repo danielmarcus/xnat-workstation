@@ -98,7 +98,7 @@ from `main` as each one starts, following the existing kebab-case convention.
 | **6** | `contour-refine` | Live Wire advanced cost (Scharr, Laplacian, direction, pre-smooth, close tolerance, commit smoothing) (#75–81). Spline families, point undo, commit-undo-reload, copy/propagate to adjacent slice, local ROI edit, self-intersection guard (#82–100). Snake refine (#200–201). Extend Cornerstone's tools where possible and fork only where necessary. | 4 (preview) | L |
 | **7** | `seg-3d-qc` | Segment surfaces in the 3D viewport via PolySeg, per-label visibility, resolution and smoothing, 3D component report with stray/speck thresholds, jump to slice, delete component, 3D scissor, undo (#230–257) | 1 | L |
 | **8** | `worklist` | **Own reviewed plan first; XNAT-backed.** Requirements input from SegWorks: XLSX/CSV import, XNAT id resolution, project fetch, Worklist Builder generation, Next & Open, cursor sync, Capture / Review / View-Only modes, exact series and annotation capture, skip with reason, comments, filters, report workbooks, recovery, dirty flag, XLSX export, segment preset keys (#291–342) | — (benefits from 2) | XL |
-| **9** | `algorithm-modules` | Workstation-native module API and loader, run in a sandboxed Worker (not the renderer, which has Electron privileges). Schema-driven param UI, logs (copy/download), cancel, cached modules. Validate by re-authoring one SegWorks module (e.g. Glioma enhancing lesion) against the native API. (#271–283) | 1, 4 | M |
+| **9** | `algorithm-modules` | *Re-scoped 2026-10-13 — see §12:* the open-source module host for community and commercial (signed) modules. Workstation-native module API and loader, each run in a sandboxed process of its own (not the renderer, which has Electron privileges; §12 design point 3). Schema-driven param UI, logs (copy/download), cancel, installed modules. Validate by re-authoring one SegWorks add-on against the native API. (#271–283) | 1, 4 | L |
 
 **Recommended order:** 1 → 2 → 3 → 4 → 7 → 6 → 5 → 9 → 8
 
@@ -205,6 +205,27 @@ B op inside the Process tab · **C separate section**). **C, no tabs** is adopte
 - **Later branches:** solver seed painters live inside their operation's body and share the one
   active pointer mode with the toolbox (picking one clears the toolbox highlight and vice versa).
   If the grid outgrows ~20 tools, revisit grouping.
+
+### D1 / D2 / D12 second amendment (2026-10-28) — tool families and modes
+
+The flat 19-button grid and its long tool controls still crowded the panel (measured: toolbox
+385 px, list ~185 px with Seeded segmentation open). Decided with the user after the
+[wireframes](mockup/annotation-workspace-wireframes.html) (R1-D, R2-C, R3-B, R4-A, R5-A, R6-A,
+R7-A), built on branch `annotation-panel-modes` — plan and log in
+[`annotation-panel-modes.md`](annotation-panel-modes.md):
+
+- **D2 →** the Segmentation toolbox is **one row of seven families** (Select · Brush · Fill ·
+  Shape · Contour · Region · Trace); a family's **modes** pick its tool (Brush: Kernel 2D/3D ×
+  Limit None/Window/From click/Edges; Shape: Circle/Rect/Sphere × None/Window; Region: Drag/
+  Click). The options strip shows the active tool's essentials, the rest under **More** (a dot
+  when a hidden setting differs from its default). The ROI limit is a toggle in the tools
+  header band; Seg Bidir. and labelmap opacity are in the Segmentation ⋮ menu; **Random Walker
+  is a Seeded segmentation method**.
+- **D1 →** the Operations section is a **drawer** with a solid header band, a **grouped
+  Operation menu** (Clean · Fill in · Segment · Check · Modules) and a draggable height; it
+  names no target (the editing chip in the options strip names the active member, once).
+- **D12 →** one panel shortcut is added: **⌘K / Ctrl+K** opens a finder over every tool, mode
+  and operation, by today's name or the old tool names.
 
 **Separately reviewed plans required** before implementation: branch 8 (worklist) **and**
 branch 9 (algorithm modules). Neither starts until its own plan is reviewed with the user.
@@ -929,3 +950,300 @@ preset would set are all exposed, so presets can be added later as data.
   seeds) is what renders, with Run in place of Preview; no legacy chrome replaced; nothing
   deferred except the Chan-Vese preset library (decision 4); every acceptance test was seen
   red (before the code, or against a built mutant) and drives the real affordances.
+
+---
+
+## 12. Branch 9 — `algorithm-modules` (ordered plan — for review)
+
+Cut from `main` after branch 5 and the licence files merged (2026-10-13). Scope: SegWorks
+#271–283, re-scoped (2026-10-13) from a SegWorks port to a **product feature**: Workstation
+is released as an open-source viewer, and a **separate commercial edition — its own shipped,
+signed application** — adds value, including the SegWorks add-on algorithms (MR lesion,
+post-op edema, lung, batch statistics). So:
+
+- **The module host is part of the open-source app,** and both editions use it.
+- **The commercial edition is a build, not a set of add-ons.** It is the open-source core plus
+  **bundled modules** and its own edition configuration (product name, app id, branding), built
+  and signed as its own product. Its modules ship *inside* its signed bundle — covered by that
+  signature — so licensing, distribution and updates are the commercial edition's own business;
+  the open-source host needs no licence mechanism.
+- **Unsigned and community modules are accepted** in either edition. Anyone can write, sign
+  with their own key and share a module; users can install one that is unsigned.
+- **Installed modules never touch the signed application bundle.** They go in the user's data
+  folder and are JavaScript / WebAssembly only — data to the operating system — so installing
+  one never breaks the app's code signature or notarisation, and needs no re-signing.
+
+**What SegWorks did, and what changes.** SegWorks injected each module's script into the viewer
+page: it ran on the UI thread with the page's full privileges, wrote the labelmap directly and
+managed undo itself (`pushUndo`, `finalize`). Workstation's renderer has Electron privileges and
+XNAT session state, so a module here is a **pure function in a sandbox**: the host hands it the
+data, it returns masks, and the host applies them through the path every operation uses
+(transaction, preview, locks, one undo step). SegWorks' API maps across: `rows / cols /
+sliceCount / modality / activeSegId` → the context; `getPixelData / getImageMeta` → the image
+box in modality units (HU on CT); `getLabelmap` → the requested member masks;
+`progress / cancelled / log / warn / error` → the same; `pushUndo / finalize` → gone (the host
+owns undo and display).
+
+| SegWorks # | Feature | Here |
+|---|---|---|
+| 271 | Import a module | Install from a module package (Settings › Modules, or drag-drop); or bundled with an edition |
+| 272–273 | Cached modules; load or skip | Installed modules persist; each has an **Enabled** switch |
+| 274, 283 | Flush cache; delete | **Remove** (installed modules; bundled ones can only be disabled) |
+| 275 | Schema-driven parameters | The manifest's parameters, rendered by the controls the Cleanup operations already use |
+| 276–277 | Run; cancel | An operation per module: Run → preview → ⏎; Cancel (cooperative, then the worker is terminated) |
+| 278–279 | Module cleanup / gap fill hooks | **Post steps** the manifest names from the built-in Cleanup operations (Fill holes, Keep largest, 3D clean-up …) — no module-defined hooks |
+| 280–282 | Log; copy; download | The operation's Log panel: Copy, Download (.txt) |
+
+### Design points (decided in this plan; flag any to change)
+
+1. **Package.** A module is one file, `*.xwmodule` — a zip holding `manifest.json`, an ES-module
+   entry script, optional `.wasm` files and an optional `signature.json`. The manifest declares:
+   id (reverse-DNS), name, version (semver), **API version** (`1.x`), **runtime**, publisher,
+   licence, description, parameters (the Cleanup schema: number · select · boolean · …), what it reads
+   (image; the active member / named members / all members; seeds; ROI limit), what it writes
+   (the active member, named members, or new members it creates — name and colour), the scopes
+   it supports (slice · range · volume · ROI), optional post steps, and an optional memory
+   estimate (bytes per voxel) for the guard.
+   **Runtime** names where the module's code runs. API 1.0 supports one: `wasm-worker`
+   (JavaScript and WebAssembly in the sandboxed worker — C, C++ and Rust code compiled to
+   WebAssembly included). Any other value is refused with the reason. The field exists from the
+   start so that a later runtime is a new runtime, not a new API version: the API is messages
+   (data in, masks out), so the same messages can travel to a worker, a pipe or a server. Trust
+   rules attach per runtime (see Out of scope for the candidates).
+2. **Trust tiers.**
+   - **Bundled** — shipped inside the application bundle (`resources/modules/`), covered by the
+     app's own code signature, so no module signature is needed or checked. Listed in Settings ›
+     Modules; can be disabled, not removed. This is how an edition (the commercial one, or the
+     open-source app's examples) carries its modules.
+   - **Verified** — signed (Ed25519, over a canonical hash of every file in the package) by a
+     key the app trusts. The open-source build trusts Washington University's publishing key;
+     users can add trusted publisher keys in Settings › Modules.
+   - **Community** — unsigned, or signed by a key the user has not trusted. **Accepted**: the
+     install shows who signed it (if anyone) and what it reads and writes, and asks for
+     confirmation; the module carries a Community badge wherever it appears. A setting
+     **Allow community modules** (on by default) lets an organisation turn this off.
+   - **Refused** — a signature that does not verify (tampered), a package that fails validation,
+     or an API version the host does not support. Never installable, never loaded.
+   Signatures are checked at install **and at every load** (the installed files are hashed again),
+   so a module altered on disk afterwards is refused.
+3. **Sandbox.** *(Amended in M3: a sandboxed process, not a Web Worker — a worker must share the
+   app page's origin, and one made from a blob would inherit the page's access, the DICOMweb
+   proxy included.)* Each run is a fresh, hidden, sandboxed renderer process with its own
+   in-memory session (no cookies, nothing persisted), destroyed at the end of the run. Module
+   files are served by a custom `xnat-module://` protocol from the re-checked package, with a
+   Content-Security-Policy of `default-src 'none'; script-src 'self' 'wasm-unsafe-eval';
+   connect-src 'self'; …`, and the session cancels every request that is not for the module's
+   own files — two independent layers. No Node, no API, no navigation, no popups, no
+   permissions: the module sees only the data the app page posts on its message port, and only
+   what its manifest declared. Native code (`.node`, dylib, DLL) is not supported.
+4. **The host owns writing.** A module returns masks (and optionally new members and a
+   measurement table); the host stages them in a LabelmapTransaction: written members gain (or,
+   if the manifest says *replace*, become) the mask; other members keep their voxels unless the
+   manifest declares claims (as Snake refine does); locked members are never written; the result
+   is previewed (D4) and ⏎ commits one undo step.
+5. **Where modules appear.** Each enabled module is an operation in the **Operations picker**,
+   in a **Modules** group below the built-in operations (amends D11, written when operations
+   lived on a Process tab that the D1 amendment removed). Installing, enabling, removing and
+   trusting publishers live in **Settings › Modules** (D11 unchanged).
+6. **API versioning.** The host implements API `1.x`; a module declares the major it was built
+   for. Minor versions only add. A future `2.x` host may keep a `1.x` adapter.
+7. **Editions.** An edition is chosen at build time by an edition configuration
+   (`edition.config.*`: product name, app id, branding, the bundled-modules folder, trusted
+   publisher keys); electron-builder packages that folder into `resources/modules/`. The
+   open-source repo ships the default edition (its example modules) and documents how another
+   repository builds an edition on the core — which is how the commercial edition is made. The
+   open-source host has no licence mechanism: the commercial edition handles licensing in its own
+   build.
+8. **Authoring tools ship in the open-source repo**: `npm run module:keygen`, `module:pack`,
+   `module:sign`, `module:verify`; an example module; and `docs/module-authoring.md` (API
+   reference, manifest schema, signing, testing a module).
+
+### Slices
+
+| Slice | Content | Acceptance |
+|---|---|---|
+| **M1** | **Package format and verification** (pure + main process): manifest schema and validation; zip reading with guards (path traversal, size and file-count limits, no symlinks); canonical hashing; Ed25519 verification (Node crypto); trust classification; the `module:*` CLI scripts | Unit, each seen red first: a valid package parses; every malformed manifest and unsafe zip is refused with a reason; a signature verifies, and one changed byte in any file fails it; unsigned → Community, unknown key → Community, trusted key → Verified, bad signature → Refused; an unsupported API major or runtime is refused, naming it |
+| **M2** | **Install and manage**: main-process store under `userData/modules/<id>/<version>/`, IPC (list, inspect, install, remove, enable, trust key); **Settings › Modules** — installed list (name, version, publisher, badge, Enabled), Install from file (and drag-drop) with the trust dialog (who signed it, what it reads / writes; confirmation for Community), Remove, trusted publishers, Allow community modules | E2E on the built app with fixture packages (generated and signed with a test key in the test setup): a Verified install has no warning; a Community install needs confirmation and shows its badge; a tampered package is refused with the reason; the allow-community setting off refuses Community; removing deletes the files; a module altered on disk after install is refused at load |
+| **M3** | **Sandbox runtime**: the `xnat-module://` protocol and its CSP; the run worker; the host ↔ worker protocol (API 1.0: context, image box, member masks, seeds, ROI; progress, cancelled, log / warn / error; result); cooperative cancel then terminate; a run time-out; the log buffer | E2E with a deliberately hostile fixture module: `fetch`, `importScripts` from another origin, `XMLHttpRequest` and WebSocket are all blocked (and logged); it cannot see `window`, `require` or `electronAPI`; a module that ignores Cancel is terminated; unit tests of the protocol |
+| **M4** | **Module operations**, on **one operation registry** for built-ins and modules: the Operations picker, parameter controls (from a schema), the memory guard and the preview / commit path are driven by a shared operation descriptor, so a module's operation is built exactly as a built-in one is and the two cannot drift. The Modules group in the Operations picker; the operation body — parameters rendered from the manifest, scope (slice · range · volume · ROI, as the manifest allows), the memory estimate, trust badge, Run / Commit / Discard, Cancel, the Log (Copy · Download); the result staged, previewed and committed through the transaction (locks, other members, claims, new members); post steps from the built-in Cleanup operations | Unit: the built-in operations are listed from the registry (no picker regression — the operations-section E2E stays green). E2E with the example module (an intensity threshold — SegWorks' template, re-authored): parameters render from its manifest; Run previews; ⏎ commits one undo step; a locked member is not written; Cancel leaves nothing; the log copies and downloads; a module creating a new member adds it with its name and colour; oblique case |
+| **M5** | **Validation modules**: (a) re-author one SegWorks add-on algorithm against API 1.0 — the post-op edema segmentation (its source is in the v2.0.610 bundle) — as a signed example, built and tested outside the host's source tree; (b) **a built-in as a module** — Fast GrowCut, packaged as a module from the same pure solver, to prove API 1.0 can express a real Workstation operation | E2E: (a) installed from its package, it segments on a fixture built for it (a synthetic MR-like phantom with a known region), Dice above a stated bound; (b) on the same seeds and box, the module's result equals the built-in Fast GrowCut's **voxel for voxel**. Neither needs anything the API does not offer (any gap found is an API change, made here) |
+| **M6** | **Editions and authoring**: bundled modules (`resources/modules/`, the Bundled tier, disable-not-remove) and the edition configuration electron-builder reads; `docs/editions.md` (how a separate repository builds an edition on the core — the commercial edition's route); `docs/module-authoring.md`; a threat model (`docs/module-security.md`: what a module can and cannot reach, and why) | E2E: a bundled module (the example) is listed as Bundled, runs, can be disabled and cannot be removed; a packaged build with a test edition configuration carries its bundled module and its name. The authoring guide's example builds, signs and installs as written |
+| **M7** | Docs (tool reference: Modules in the Operations section; Settings › Modules), full offline E2E, visual sweep in the built app, merge to `main` | CLAUDE.md self-check answered |
+
+**Out of scope:** a module marketplace or update feed (install is from a file; updating is
+installing a newer version); licensing (the commercial edition's own build); the commercial
+edition itself (another repository, built on this core); porting the
+other SegWorks add-ons (each is its own module, built after the API is proven); runtimes other
+than `wasm-worker`. Candidate later runtimes, recorded so the design keeps room for them:
+
+- **`onnx`** — machine-learning models (nnU-Net / MONAI exports) run by ONNX Runtime Web in the
+  sandboxed worker, on WebGPU or WebAssembly; the model ships as data in the module. Needed only
+  if the runtime is better provided by the host than bundled per module.
+- **`xnat-container`** — the module names a container image that XNAT's Container Service runs
+  server-side on the session; the result returns as a DICOM SEG through the usual preview and
+  commit. The home for heavy or GPU work in any language (nnU-Net, TotalSegmentator, Python
+  pipelines); trust lies with the server's administrators, who control which images may run.
+- **`native-process`** — a per-platform executable the main process launches, speaking the same
+  messages over a pipe. Last resort: the operating systems quarantine or flag unsigned
+  downloaded executables, so the publisher must sign (and on macOS notarise) every build;
+  sandboxing native code differs per OS and is weak; so it would be **Verified only**, never
+  Community. In-process native addons (`.node`) are ruled out — full privileges, and a crash
+  takes the app down.
+
+### Branch 9 progress log
+
+- **Plan** — written 2026-10-13. Amended the same day: the commercial edition is its own shipped
+  build carrying bundled modules (not modules installed into the open-source app), so the
+  licence-provider hook is dropped and M6 becomes editions; a manifest `runtime` field; one
+  operation registry for built-ins and modules (M4); a built-in as a module, equal voxel for
+  voxel (M5). Approved to proceed through all slices.
+- **M1** — `src/shared/modules/manifest.ts` (schema, validation reporting every problem,
+  compatibility: API major and runtime, refused by name); `src/main/modules/zip.ts` (a small zip
+  reader / writer on Node's zlib — no third-party zip code handles untrusted packages: stored or
+  deflated only; no encryption, zip64 or symlinks; no absolute, `..` or backslash paths; entry,
+  size and total limits checked before inflating; inflate capped at the declared size; CRC
+  checked); `src/main/modules/modulePackage.ts` (canonical digest, Ed25519 sign / verify with
+  Node crypto, key ids, tiers: Bundled · Verified · Community · Refused, `readPackage` /
+  `checkFiles` — the same checks at install and at every load); `src/main/modules/cli.ts` with
+  `npm run module:keygen | pack | sign | verify` (private keys written owner-only). Unit +18,
+  mutation-checked (14 mutants: the path, symlink, encryption, CRC, entry-count, size and
+  stored-size guards; the digest covering every file; the key-id check; trust needing a trusted
+  key; invalid signatures refused; the entry check; API major; runtime). **Found on the way:** a
+  deflated entry lying about its size is already stopped by the capped inflate, so the
+  size-mismatch check guards only stored entries — a test for that case was added.
+- **M2** — `ModuleStore` (`userData/modules`: settings, `installed/<id>/files`, an install
+  record with the digest; bundled packages read from the edition's folder): install (Community
+  needs the confirmation; refused while Allow community modules is off; bundled ids cannot be
+  replaced), list and load re-check every module — the M1 checks plus the digest recorded at
+  install, so a module changed on disk is refused **even when unsigned**; enable, remove
+  (bundled: disable only), trust / untrust publisher keys (the id must match the key).
+  `moduleHandlers` (IPC): a picked or dropped package is checked in the main process and held
+  under a short-lived token, and is installed **by token** — the renderer never hands the
+  installer a path. **Settings › Modules**: Install module… (and drop), an inline confirmation
+  for Community modules (publisher, signature, what it reads and writes), the installed list
+  with tier badges, Enabled and Remove, refused modules in red with their reason, trusted
+  publishers, Allow community modules. **Found on the way:** the switches are controlled and
+  waited for the IPC round trip, so they lagged a click — they now update at once and the
+  refresh confirms. Unit +9 (store, temp folders); E2E +7 (`modules/module-install`: Verified
+  installs at once; Community asks, shows its signer and access, carries its badge; an untrusted
+  key is named; a tampered package is refused; community off; altered on disk → Refused, Remove
+  deletes; an unsupported runtime refused by name), red against mutants of the digest check, the
+  confirmation, the community-off check and the trusted keys. Checked in the built app
+  (screenshot).
+- **M3** — the sandbox, as design point 3 now reads (`moduleRuntime.ts`: `xnat-module://`
+  scheme, per-run in-memory session, CSP, request filter, hidden sandboxed window with a preload
+  that only relays its port; a MessagePort pair between the app page and the module, data
+  transferred; a 30-minute limit; destroyed when the run ends, the page goes, or the app quits).
+  API 1.0's runner (`moduleRunner.ts`): `run(input, api)` with `progress`, `cancelled`, `log` /
+  `warn` / `error` (and the module's own console, relayed); Cancel asks, then after 2 s
+  destroys. **Found on the way:** (1) the run's port reaches the page before the `runStart`
+  reply, so ports are caught by one listener and kept by run id; (2) the first hostile test
+  aimed at addresses that refused connections anyway, so "blocked" proved nothing — removing
+  both network layers passed it. It now targets a local server the test knows is reachable and
+  asserts the server saw **no** request. With both layers removed it fails; with either layer
+  alone it still passes — each layer suffices by itself (defence in depth, as designed). E2E +5
+  (`modules/module-sandbox`: input, progress, logs, result, own files reachable, process gone
+  afterwards; the hostile module — reachable server, internet, the app's proxy, file://, XHR,
+  WebSocket, remote import, eval, Function, require, process, the app's API, cookies,
+  window.open; cooperative and forced Cancel; a module that throws or exports no `run`; a
+  disabled or missing module), red against mutants of: both network layers, the sandbox / Node,
+  eval in the CSP, popups, and destroying the run.
+- **M4** — modules as operations, through **one registry** (`useOperationsSection`): the
+  built-ins, then a **Modules** group of every enabled, valid module (`module:<id>`), refreshed
+  when Settings › Modules changes; a module operation that disappears closes. One parameter
+  control (`OperationParam`) serves Cleanup and module manifests alike. `ModuleSheet` /
+  `useModuleSheet`: tier and publisher, parameters (Advanced folded), the manifest's scopes, the
+  memory estimate (`bytesPerVoxel`), Run → preview → ⏎ / Commit / Discard, Cancel run (also from
+  the progress bar, now that a compute job can carry its own cancel), a result table, and the
+  log with Copy and Download (`MODULES_SAVE_LOG`, a save dialog). `moduleOperationService`
+  builds only what the manifest reads (image, members, seeds, ROI) over the scope's box
+  (`gridBox`, extracted from `solverService`, index space — oblique-safe), checks the result,
+  applies post steps (Cleanup ops), and stages it like a built-in: add or replace, claims, other
+  members keep theirs, a locked target previews read-only; `writes.target: "new"` creates the
+  member (name, colour) and removes it again if the preview is discarded. Example module
+  `modules/examples/threshold`. **Found on the way:** (1) the validator accepted a number
+  default off its slider's grid (min −1024, step 10, default 200 → the slider showed 196) — it
+  now requires default = min + k·step, and the example uses min −1000; (2) Cornerstone's first
+  render of a just-created member reports its labelmap modified, so a preview staged at once was
+  discarded as stale — the operation now waits for that member's first render (soft 2 s
+  timeout); (3) M2/M3 had left the main-process bootstrap and preload unit tests red (no
+  `protocol` in the Electron mock; the run-port listener counted as an unknown subscription) —
+  fixed, with a test of the port relay. Unit +2; E2E +8 (`modules/module-operations`: picker
+  group and manifest parameters; Run → ⏎ as one undo step; locked read-only; Cancel leaves
+  nothing; log Copy / Download; a new member with its name and colour, Discard removes it;
+  disabled in Settings leaves the picker; oblique sphere Dice > 0.95), red against mutants of:
+  the image read, the locked read-only, new-member creation, the first-render wait, Cancel, the
+  Modules group, Copy, Download and the enabled filter (Cancel and Copy first survived — the
+  test checked before the module would have finished, and the system clipboard held an earlier
+  run's text — both tests strengthened). Operations / solver / cleanup E2E (115) green. Checked
+  in the built app (screenshot).
+- **M5** — the validation modules. **(a)** `modules/examples/postop-edema`: SegWorks'
+  post-op edema add-on (`segworks_autoseg_postop_edema.js`, v2.0.610) re-authored as a plain ES
+  module against API 1.0 — the ROI limit is its zone, the slice on screen its anchor; Gaussian,
+  local normalisation, Sobel, k-means → GMM seeds, banded region growing, closing / largest
+  island / clean-up, then slice by slice outward while the region stays continuous. Result:
+  label 1 Edema, 2 Cavity. Fixture `mr-flair-postop` (FLAIR-like brain with noise, an edema
+  shell round a dark cavity, a dark ventricle elsewhere). **(b)** `modules/builtins/fast-growcut`:
+  the built-in's own `runSeededSolve` (growCut), bundled from `src/` by `npm run build:modules`
+  (now part of `npm run build`) into `dist/modules/`. **The API gap found, and the change made
+  here:** the add-on writes two labels, and API 1.0 wrote one new member — `writes.newMember`
+  became `writes.newMembers` (1–8), the mask a label per voxel (k → the k-th), only members that
+  receive voxels created; a value above the declared labels is refused with the reason.
+  **Found on the way:** (1) the original could never have run: its seed step was called without
+  the gradient map (the zone was passed in its place) and returned an undefined variable — both
+  fixed; (2) its cavity — the zone's darkest class grown in a quantile band — picked normal
+  brain on a zone of edema and brain; the original calls the cavity the "lower-signal inner
+  component", so it is now exactly that, the dark hole the edema encloses; (3) the original's
+  bands are quantiles of the zone, so it wants the zone drawn tightly round the post-op region —
+  offline, an ROI of ±18 mm gives edema Dice 0.98 / cavity 0.91, a ±24 mm one edema ≈ 0.88–0.93
+  and no cavity (documented in the manifest description, not "fixed": it is the algorithm);
+  (4) the first equivalence test seeded the lesion, whose sharp edges give the same mask
+  whatever the seeds — seed radius and slice mutants survived it; it now seeds the segment and
+  Background in homogeneous tissue on different slices, where the boundary follows the seeds.
+  E2E +3 (`modules/module-validation`: (a) signed, Verified, Edema and Cavity created, edema
+  shell Dice > 0.9, cavity > 0.8, the active segment untouched; (b) the module's mask equals
+  the built-in's voxel for voxel; and in `module-operations`, an undeclared label refused), red
+  against mutants of: the cavity rule, the gradient-argument fix, creating only the first new
+  member, the label check, the module's seed radius, and the host's seed x / z. Modules,
+  operations, solver and cleanup E2E (118) green. Checked in the built app (screenshot).
+- **M6** — editions and authoring. **The edition configuration** (`edition.config.json`, the
+  open-source default; another repository's named by `XNAT_EDITION`; validated by
+  `src/main/modules/edition.ts`): product name, **app name**, app id, artifact prefix, bundled
+  module directories or packages, trusted publisher keys, optional `publish`. `npm run
+  build:edition` (part of `build` and `package`) packs the modules into `build/edition/modules/`
+  and records `build/edition/edition.json`; `electron-builder.config.js` takes the names, app id
+  and artifact names from it and ships `edition.json` and `modules/` in the resources (only the
+  open-source edition publishes to this project's releases). At run time the app reads its
+  edition: bundled modules (the Bundled tier, disable-not-remove, not replaceable), the
+  edition's trusted keys, its product name (window title, menu, About) and app name. **Found on
+  the way:** (1) the app hard-coded `app.name = 'XNAT'`, so a packaged edition still called
+  itself XNAT — and `app.name` also names the user-data folder, so naming it after the product
+  would have moved every open-source user's data: hence a separate `appName` ("XNAT" for the
+  open-source edition — never to change), each other edition getting its own user-data; (2) the
+  page's `<title>` overwrote the window's — the main window now keeps the edition's; (3) my
+  mutation loop reverted the source but not `dist/`, so the next run tested the last mutant —
+  the loop now rebuilds after every revert. E2E gets an empty bundled folder per worker through
+  `XNAT_E2E_BUNDLED_MODULES`, honoured only under `E2E_TESTING`. **Docs:**
+  `docs/module-authoring.md` (quick start, package, manifest, API 1.0, signing, testing),
+  `docs/editions.md` (configuration, building, another edition's route, checking),
+  `docs/module-security.md` (the threat model: what a module can reach, the layers, what is not
+  protected). **Tests:** unit +7 (edition validation; the E2E override ignored outside
+  E2E_TESTING; an edition's key makes its modules Verified); E2E +2 (`modules/module-editions`:
+  Bundled, runs, disabled leaves the picker, no Remove, not replaceable;
+  `modules/module-authoring-guide`: the guide's quick start, extracted from the doc and run as
+  written, builds, signs, verifies and installs as Verified through the UI);
+  `npm run test:edition` packages the app with a test edition and checks the package and the
+  packaged app (name, window title, its bundled module). Red against mutants of: Remove for a
+  bundled module, the bundled-replace guard, the E2E gate, the edition's keys, and the bundled
+  modules dropped from the package. Modules E2E (27) green. Checked in the built app
+  (screenshot).
+- **M7** — the tool reference (`docs/annotation-tool-reference.md`: modules in the Operations
+  section, Settings › Modules), CLAUDE.md's project structure, and the branch table's stale
+  "sandboxed Worker" corrected. Full offline E2E: **385 passed**, 1 skipped (the packaged-edition
+  spec, which runs only under `npm run test:edition` — green separately). Visual sweep in the
+  built app: the module sheet and its preview (M4), the post-op edema result (M5), Settings ›
+  Modules with a Bundled module (M6). Self-check: seen in the built app — yes (screenshots);
+  matches the plan and D11 (Settings › Modules) / D1 (operations stay in the Operations
+  section) — yes; legacy chrome replaced — none (new surfaces); follow-ups — the off-grid slider
+  defaults of the built-in Seeded sheet (found here, separate task); red-before-green — every
+  slice's tests seen failing against mutants. Ready to merge to `main` on the user's go-ahead.

@@ -11,7 +11,9 @@ import { create } from 'zustand';
 /** Parameter values of one operation (mirrors maskOps/catalog's ParamValues; stores import no lib code). */
 type ParamValues = Record<string, number | string>;
 
-export type OperationSheetId = 'cleanup' | 'interpolate' | 'propagate' | 'seeded' | 'regionCompetition' | 'qc3d';
+export type BuiltinOperationId = 'cleanup' | 'interpolate' | 'propagate' | 'seeded' | 'regionCompetition' | 'qc3d';
+/** A built-in operation, or a module's (branch 9): `module:<module id>`. */
+export type OperationSheetId = BuiltinOperationId | `module:${string}`;
 
 export interface PropagateSettings {
   direction: 'forward' | 'backward' | 'both';
@@ -40,7 +42,8 @@ export interface InterpolateSettings {
 
 /** Seeded segmentation (branch 5): Fast GrowCut · Graph Cut · α-expansion, from painted seeds. */
 export interface SeededSettings {
-  method: 'growCut' | 'graphCut' | 'alphaExpansion';
+  /** Random Walker solves the slice on screen only (2D); the others solve in 3D. */
+  method: 'growCut' | 'graphCut' | 'alphaExpansion' | 'randomWalker';
   /** The box solved: around the seeds, the ROI limit, or the whole volume. */
   domain: 'seeded' | 'roi' | 'volume';
   /** Padding round the seeds' box: in-plane pixels and slices (SegWorks α-expansion 24 / 2). */
@@ -137,6 +140,12 @@ interface OperationSheetState {
   setCollapsed: (collapsed: boolean) => void;
   setCleanupOp: (opId: string) => void;
   setParam: (opId: string, key: string, value: number | string) => void;
+  /** A module operation's parameter values (module id → values; a manifest may declare booleans). */
+  moduleParams: Record<string, Record<string, number | string | boolean>>;
+  setModuleParam: (moduleId: string, key: string, value: number | string | boolean) => void;
+  /** A module operation's scope (module id → choice). */
+  moduleScopes: Record<string, { kind: 'slice' | 'range' | 'volume' | 'roi'; from?: number; to?: number }>;
+  setModuleScope: (moduleId: string, scope: { kind: 'slice' | 'range' | 'volume' | 'roi'; from?: number; to?: number }) => void;
   setScope: (patch: Partial<SheetScope>) => void;
   toggleAdvanced: (opId: string) => void;
   setMessage: (message: string | null) => void;
@@ -146,7 +155,23 @@ interface OperationSheetState {
   setPlanOverride: (segmentIndex: number, action: string) => void;
   clearPlanOverrides: () => void;
   setConfirmingLeave: (v: boolean) => void;
+  /** The operation drawer's height (R5-A), dragged from its band; session-only. */
+  drawerHeight: number;
+  setDrawerHeight: (h: number) => void;
 }
+
+/** Defaults — the More fold's changed dot compares against them. */
+export const INTERP_DEFAULTS: OperationSheetState['interp'] = { method: 'sdfArea', distance: 'exact', fill: 'gaps', anchorA: null, anchorB: null };
+export const PROPAGATE_DEFAULTS: OperationSheetState['prop'] = {
+  direction: 'both', modality: null, huTolerance: 150, sigma: 2, maxSlices: 50, stable: true, growPx: 0,
+  maxAreaChangePct: 60, fillHoles: true, edgeGuard: false, zSmoothing: false,
+};
+export const SEEDED_DEFAULTS: SeededSettings = {
+  method: 'growCut', domain: 'seeded', padXY: 24, padZ: 2, gateOn: false, gateLo: -150, gateHi: 250,
+  lambda: 50, sigma: 30,
+  smooth: 6, alphaSigma: 30, sweeps: 2, uInt: 0.75, uLoc: 0.25, locality: 0.65, intensity: 0.35, seedBias: 0.9,
+  postOn: false, postKeep: 'seed', postMinIsland: 300, postSmooth: 1, postShrinkGrow: 1,
+};
 
 export const useOperationSheetStore = create<OperationSheetState>((set) => ({
   openSheet: null,
@@ -161,19 +186,13 @@ export const useOperationSheetStore = create<OperationSheetState>((set) => ({
   smartSafeAction: 'skip',
   planOverrides: {},
   confirmingLeave: false,
-  interp: { method: 'sdfArea', distance: 'exact', fill: 'gaps', anchorA: null, anchorB: null },
+  drawerHeight: 260,
+  setDrawerHeight: (drawerHeight) => set({ drawerHeight }),
+  interp: { ...INTERP_DEFAULTS },
   setInterp: (patch) => set((s) => ({ interp: { ...s.interp, ...patch }, message: null })),
-  prop: {
-    direction: 'both', modality: null, huTolerance: 150, sigma: 2, maxSlices: 50, stable: true, growPx: 0,
-    maxAreaChangePct: 60, fillHoles: true, edgeGuard: false, zSmoothing: false,
-  },
+  prop: { ...PROPAGATE_DEFAULTS },
   setProp: (patch) => set((s) => ({ prop: { ...s.prop, ...patch }, message: null })),
-  seeded: {
-    method: 'growCut', domain: 'seeded', padXY: 24, padZ: 2, gateOn: false, gateLo: -150, gateHi: 250,
-    lambda: 50, sigma: 30,
-    smooth: 6, alphaSigma: 30, sweeps: 2, uInt: 0.75, uLoc: 0.25, locality: 0.65, intensity: 0.35, seedBias: 0.9,
-    postOn: false, postKeep: 'seed', postMinIsland: 300, postSmooth: 1, postShrinkGrow: 1,
-  },
+  seeded: { ...SEEDED_DEFAULTS },
   setSeeded: (patch) => set((s) => ({ seeded: { ...s.seeded, ...patch }, message: null })),
   region: {
     mode: 'bounded', labels: null, includeBackground: true,
@@ -192,6 +211,10 @@ export const useOperationSheetStore = create<OperationSheetState>((set) => ({
   setCollapsed: (collapsed) => set({ collapsed, confirmingLeave: false }),
   setCleanupOp: (cleanupOpId) => set({ cleanupOpId, message: null, planOverrides: {} }),
   setParam: (opId, key, value) => set((s) => ({ params: { ...s.params, [opId]: { ...s.params[opId], [key]: value } }, message: null })),
+  moduleParams: {},
+  setModuleParam: (moduleId, key, value) => set((s) => ({ moduleParams: { ...s.moduleParams, [moduleId]: { ...s.moduleParams[moduleId], [key]: value } }, message: null })),
+  moduleScopes: {},
+  setModuleScope: (moduleId, scope) => set((s) => ({ moduleScopes: { ...s.moduleScopes, [moduleId]: scope }, message: null })),
   setScope: (patch) => set((s) => ({ scope: { ...s.scope, ...patch }, message: null, planOverrides: {} })),
   toggleAdvanced: (opId) => set((s) => ({ advancedOpen: { ...s.advancedOpen, [opId]: !s.advancedOpen[opId] } })),
   setMessage: (message) => set({ message }),

@@ -4,7 +4,7 @@
  * is what ViewerPage mounts (replacing the legacy SegmentationPanel on the Segment
  * toggle). The frozen-mockup visual contract is verified against this live render.
  */
-import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import AnnotationsSidePanel from './AnnotationsSidePanel';
 import ContainerList from './ContainerList';
 import ContextToolbox from './ContextToolbox';
@@ -20,17 +20,25 @@ import InterpolateSheet from './InterpolateSheet';
 import PropagateSheet from './PropagateSheet';
 import SeededSheet from './SeededSheet';
 import RegionSheet from './RegionSheet';
+import ModuleSheet from './ModuleSheet';
 import Qc3dSheet from './Qc3dSheet';
 import { useQc3dSheet } from '../../hooks/useQc3dSheet';
 import { usePropagateSheet } from '../../hooks/usePropagateSheet';
 import { useSeededSheet } from '../../hooks/useSeededSheet';
 import { useRegionSheet } from '../../hooks/useRegionSheet';
+import { useModuleSheet } from '../../hooks/useModuleSheet';
 import { useInterpolateSheet } from '../../hooks/useInterpolateSheet';
 import { useCleanupSheet } from '../../hooks/useCleanupSheet';
 import { CheckpointNameDialog, ConfirmDialog, ConflictDialog, ReviewUnsavedDialog } from './dialogs';
 import { useCheckpoints } from '../../hooks/useCheckpoints';
 import { useAnnotationsPanel } from '../../hooks/useAnnotationsPanel';
 import { usePreferencesStore } from '../../stores/preferencesStore';
+import { useGrowCutGpuUnavailableTools } from '../../hooks/useGrowCutGpu';
+import ToolFinder from './ToolFinder';
+import { finderEntries, type FinderEntry } from './finder';
+import { useFinderStore } from '../../stores/finderStore';
+import { useAnnotationSelectionStore } from '../../stores/annotationSelectionStore';
+import { hotkeyService } from '../../lib/hotkeys/hotkeyService';
 import {
   ANNOTATION_PANEL_MIN_WIDTH,
   ANNOTATION_PANEL_MAX_WIDTH,
@@ -98,25 +106,43 @@ export default function AnnotationsPanel({ activeViewportId, sourceImageIds }: A
   const propagate = usePropagateSheet();
   const seeded = useSeededSheet();
   const region = useRegionSheet();
+  const moduleOp = useModuleSheet();
   const qc3d = useQc3dSheet();
   const checkpoints = useCheckpoints();
   const semiAuto = useSemiAutoControls();
   const contourTools = useContourToolSettings();
+  // Region and Region+ run Cornerstone's grow-cut, which needs WebGPU.
+  const unavailableTools = useGrowCutGpuUnavailableTools();
   const handlers = {
     ...panel.handlers,
-    onKebab: (id: string) => { panel.handlers.onKebab(id); checkpoints.refresh(id); },
+    onKebab: (id: string) => { panel.handlers.onKebab(id); void checkpoints.refresh(id); },
     checkpointsOf: checkpoints.listOf,
     onSaveCheckpoint: checkpoints.openSave,
     onRestoreCheckpoint: (id: string, cp: string) => { void checkpoints.restore(id, cp); },
     onDeleteCheckpoint: (id: string, cp: string) => { void checkpoints.remove(id, cp); },
   };
 
+  // The ROI limit toggle returns to the tool that was active before drawing began.
+  const toolBeforeRoi = useRef<string | null>(null);
+  const roiDrawing = panel.toolbox?.activeToolId === 'roiLimit';
+  const roiLimit = isSeg && panel.toolbox ? {
+    drawing: roiDrawing,
+    drawn: semiAuto.roiDrawn,
+    onToggleDraw: () => {
+      const tb = panel.toolbox!;
+      if (roiDrawing) { tb.onSelectTool(toolBeforeRoi.current ?? 'levelTrace'); return; }
+      toolBeforeRoi.current = tb.activeToolId;
+      tb.onSelectTool('roiLimit');
+    },
+    onClear: semiAuto.clearRoi,
+  } : undefined;
   const toolbox = panel.toolbox ? (
     <ContextToolbox
       kind={panel.toolbox.kind}
       activeMemberName={panel.toolbox.activeMemberName}
       activeMemberColor={panel.toolbox.activeMemberColor}
       activeToolId={panel.toolbox.activeToolId}
+      unavailableTools={unavailableTools}
       onSelectTool={panel.toolbox.onSelectTool}
       controls={panel.toolbox.controls}
       backupStatus={panel.backupStatus?.text}
@@ -125,11 +151,19 @@ export default function AnnotationsPanel({ activeViewportId, sourceImageIds }: A
       columns={toolColumns}
       renderSemiAutoControls={(toolId) => <SmartToolControls toolId={toolId} m={semiAuto} />}
       renderContourControls={(toolId) => <ContourToolControls toolId={toolId} m={contourTools} />}
+      editing={panel.toolbox.editing}
+      lastToolOfFamily={panel.toolbox.lastToolOfFamily}
+      roiLimit={roiLimit}
+      onRevealEditing={() => {
+        const id = panel.toolbox?.editingRowTestId;
+        if (id) panelRootRef.current?.querySelector(`[data-testid="${id}"]`)?.scrollIntoView({ block: 'nearest' });
+      }}
     />
   ) : undefined;
-  // The open operation's model supplies the section's target, summary and close.
+  // The open operation's model supplies the drawer's summary and close.
   const openModel = operations.openId === 'interpolate' ? interpolate : operations.openId === 'propagate' ? propagate
-    : operations.openId === 'seeded' ? seeded : operations.openId === 'regionCompetition' ? region : operations.openId === 'qc3d' ? qc3d : cleanup;
+    : operations.openId === 'seeded' ? seeded : operations.openId === 'regionCompetition' ? region : operations.openId === 'qc3d' ? qc3d
+    : operations.openId?.startsWith('module:') ? { close: moduleOp.close, target: moduleOp.target, summary: moduleOp.summaryLine } : cleanup;
   const operationsSection = isSeg ? (
     <OperationsSection
       operations={operations.operations}
@@ -138,17 +172,48 @@ export default function AnnotationsPanel({ activeViewportId, sourceImageIds }: A
       collapsed={operations.collapsed}
       onToggleCollapsed={operations.toggleCollapsed}
       onClose={openModel.close}
-      target={openModel.target}
       summary={openModel.summary}
+      height={operations.height}
+      onHeightChange={operations.setHeight}
     >
       <CleanupSheet m={cleanup} />
       <InterpolateSheet m={interpolate} />
       <PropagateSheet m={propagate} />
       <SeededSheet m={seeded} />
       <RegionSheet m={region} />
+      <ModuleSheet m={moduleOp} />
       <Qc3dSheet m={qc3d} />
     </OperationsSection>
   ) : undefined;
+
+  // ⌘K finder: any tool, mode or operation of the active annotation type, by name.
+  const finderOpen = useFinderStore((s) => s.open);
+  // Nothing to find without an active annotation: the hotkey's request lapses rather than
+  // springing the finder open later.
+  useEffect(() => { if (finderOpen && !panel.toolbox) useFinderStore.getState().setOpen(false); }, [finderOpen, panel.toolbox]);
+  const closeFinder = () => { useFinderStore.getState().setOpen(false); hotkeyService.focusActiveViewport(); };
+  const pickFound = (e: FinderEntry) => {
+    const t = e.target;
+    useFinderStore.getState().setOpen(false);
+    if (t.kind === 'tool') {
+      if (t.toolId === 'roiLimit') { if (!roiDrawing) roiLimit?.onToggleDraw(); }
+      else panel.toolbox?.onSelectTool(t.toolId);
+    } else if (t.kind === 'operation') {
+      operations.open(t.operationId as OperationSheetId);
+      if (t.seededMethod) seeded.set({ method: t.seededMethod });
+    } else {
+      const id = useAnnotationSelectionStore.getState().activeMember?.containerId;
+      if (id) handlers.onMeasureSegment?.(id);
+    }
+    hotkeyService.focusActiveViewport();
+  };
+  const finder = finderOpen && panel.toolbox ? (
+    <ToolFinder
+      entries={finderEntries(panel.toolbox.kind, operations.operations.filter((o) => o.group === 'Modules'))}
+      onPick={pickFound}
+      onClose={closeFinder}
+    />
+  ) : null;
 
   return (
     <div
@@ -199,6 +264,7 @@ export default function AnnotationsPanel({ activeViewportId, sourceImageIds }: A
           onEditConsumed={panel.onEditConsumed}
         />
       </AnnotationsSidePanel>
+      {finder}
       {checkpoints.savingFor && (
         <CheckpointNameDialog
           defaultName={`Checkpoint ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}

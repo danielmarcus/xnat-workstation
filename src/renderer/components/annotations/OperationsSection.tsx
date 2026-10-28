@@ -2,65 +2,159 @@
  * The Operations section (SegWorks parity D1, amended 2026-10-12 — docs/segworks-parity.md
  * §4, docs/mockup/tools-operations-layout.html C).
  *
- * Presentational. Operations are not tools, so they have their own section of the side
- * panel, between the member list and the toolbox: a header row with the Operation picker
- * and, once one is open, its target chip, collapse and close. The open operation fills a
+ * Presentational. Operations are not tools, so they have their own drawer in the side panel,
+ * between the member list and the toolbox (R5-A, annotation-panel-modes 2026-10-28): a solid
+ * header band with the grouped Operation picker (R4-A) and, once one is open, collapse and
+ * close. The drawer's height is dragged from the band's top edge. It names no target: the
+ * operation acts on the active member, named once in the list and once by the toolbox's
+ * editing chip (R6). The open operation fills a
  * fixed-height body that scrolls, above a footer that stays on screen (status on the left,
  * the operation's buttons on the right). It stays open while tools change; collapsing
  * folds it to the header row and a one-line summary without ending it or its preview.
  */
-import type { ReactNode } from 'react';
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 
-/** Height of an open, expanded section at full size: header 28 + body + footer 32. */
-const OPEN_HEIGHT = 260;
+/** Height of an open, expanded drawer at full size: header 28 + body + footer 32. */
+export const OPERATION_DRAWER_HEIGHT = 260;
 /** It shrinks before the toolbox does on short windows, down to header + 96 px body + footer. */
 const OPEN_MIN_HEIGHT = 156;
+/** The tallest a dragged drawer may be. */
+const OPEN_MAX_HEIGHT = 640;
+
+/** The operation picker's groups (R4-A), in menu order. */
+export const OPERATION_GROUPS = ['Clean', 'Fill in', 'Segment', 'Check', 'Modules'] as const;
+export type OperationGroup = (typeof OPERATION_GROUPS)[number];
 
 export interface OperationsSectionProps {
-  operations: ReadonlyArray<{ id: string; label: string; title: string }>;
+  operations: ReadonlyArray<{ id: string; label: string; title: string; group: OperationGroup }>;
   openId: string | null;
   onOpen: (id: string) => void;
   collapsed: boolean;
   onToggleCollapsed: () => void;
   onClose: () => void;
-  /** The open operation's target member (the panel's active member). */
-  target: { name: string; color: string } | null;
   /** One line shown in the header while collapsed, e.g. "Preview pending". */
   summary: string;
+  /** The drawer's height while open and expanded, dragged from the band's top edge. */
+  height?: number;
+  onHeightChange?: (height: number) => void;
   /** The open operation's body (an OperationBody). */
   children?: ReactNode;
 }
 
+/** The grouped operation picker (R4-A): a button naming the open operation, and its menu. */
+function OperationPicker({ operations, openId, onOpen }: Pick<OperationsSectionProps, 'operations' | 'openId' | 'onOpen'>) {
+  const [open, setOpen] = useState(false);
+  const current = operations.find((o) => o.id === openId);
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); setOpen(false); } };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [open]);
+  return (
+    <span className={`relative min-w-0 ${openId ? '' : 'flex-1'}`}>
+      <button
+        type="button"
+        aria-label="Operation"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        title={current?.title}
+        className="flex items-center gap-1 w-full min-w-0 px-1.5 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-[10px]"
+      >
+        <span className="truncate">{current?.label ?? 'Open an operation…'}</span>
+        <span className="text-zinc-500 ml-auto">▾</span>
+      </button>
+      {open && (
+        <>
+          <span className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div
+            role="menu"
+            aria-label="Operations"
+            data-testid="operation-menu"
+            className="absolute left-0 bottom-full mb-1 z-50 w-56 rounded-md border border-zinc-700 bg-zinc-900 shadow-xl py-1 text-[11px]"
+          >
+            {OPERATION_GROUPS.map((g) => {
+              const items = operations.filter((o) => o.group === g);
+              if (!items.length) return null;
+              return (
+                <div key={g} role="group" aria-label={g} className="py-0.5">
+                  <div className="px-2.5 pt-1 pb-0.5 text-[9px] uppercase tracking-wide text-zinc-500">{g}</div>
+                  {items.map((o) => (
+                    <button
+                      key={o.id}
+                      type="button"
+                      role="menuitem"
+                      title={o.title}
+                      aria-current={o.id === openId ? 'true' : undefined}
+                      onClick={() => { setOpen(false); onOpen(o.id); }}
+                      className={`block w-full text-left px-2.5 py-1 hover:bg-zinc-800 ${o.id === openId ? 'text-blue-300' : 'text-zinc-200'}`}
+                    >
+                      {o.label}
+                    </button>
+                  ))}
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </span>
+  );
+}
+
 export default function OperationsSection(p: OperationsSectionProps) {
   const expanded = !!p.openId && !p.collapsed;
+  const height = Math.min(OPEN_MAX_HEIGHT, Math.max(OPEN_MIN_HEIGHT, p.height ?? OPERATION_DRAWER_HEIGHT));
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  // Drag the band's top edge: up grows the drawer (the list gives way), down shrinks it.
+  const onResizePointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const target = e.currentTarget;
+    if (typeof target.setPointerCapture === 'function') {
+      try { target.setPointerCapture(e.pointerId); } catch { /* noop */ }
+    }
+    const startY = e.clientY;
+    const startHeight = rootRef.current?.getBoundingClientRect().height ?? height;
+    const clamp = (h: number) => Math.round(Math.min(OPEN_MAX_HEIGHT, Math.max(OPEN_MIN_HEIGHT, h)));
+    const move = (ev: PointerEvent) => p.onHeightChange?.(clamp(startHeight + startY - ev.clientY));
+    const up = () => {
+      target.removeEventListener('pointermove', move);
+      target.removeEventListener('pointerup', up);
+      target.removeEventListener('pointercancel', up);
+    };
+    target.addEventListener('pointermove', move);
+    target.addEventListener('pointerup', up);
+    target.addEventListener('pointercancel', up);
+  };
   return (
     <div
+      ref={rootRef}
       data-testid="operations-section"
-      className="border-t border-zinc-800 bg-zinc-900 flex flex-col min-h-0"
-      style={expanded ? { flex: `0 10 ${OPEN_HEIGHT}px`, minHeight: OPEN_MIN_HEIGHT } : { flex: 'none' }}
+      className="relative border-t border-zinc-700 bg-zinc-900 flex flex-col min-h-0"
+      style={expanded ? { flex: `0 10 ${height}px`, minHeight: OPEN_MIN_HEIGHT } : { flex: 'none' }}
     >
-      <div className={`flex items-center gap-2 px-3 h-7 shrink-0 ${expanded ? 'border-b border-zinc-800' : ''}`}>
-        <span className="text-[9px] text-zinc-500 uppercase tracking-wide">Operations</span>
-        <select
-          aria-label="Operation"
-          value={p.openId ?? ''}
-          onChange={(e) => e.target.value && p.onOpen(e.target.value)}
-          className={`min-w-0 px-1 py-0.5 rounded bg-zinc-800 text-zinc-200 text-[10px] ${p.openId ? 'w-24' : 'flex-1'}`}
-        >
-          {!p.openId && <option value="">Open an operation…</option>}
-          {p.operations.map((o) => <option key={o.id} value={o.id} title={o.title}>{o.label}</option>)}
-        </select>
+      {expanded && p.onHeightChange && (
+        <div
+          role="separator"
+          aria-orientation="horizontal"
+          aria-label="Resize operation"
+          aria-valuenow={height}
+          aria-valuemin={OPEN_MIN_HEIGHT}
+          aria-valuemax={OPEN_MAX_HEIGHT}
+          data-testid="operation-resize-handle"
+          onPointerDown={onResizePointerDown}
+          className="absolute left-0 right-0 -top-0.5 h-1 z-10 cursor-row-resize hover:bg-blue-500/40 active:bg-blue-500/60"
+        />
+      )}
+      <div className="flex items-center gap-2 px-3 h-7 shrink-0 bg-zinc-800/70 border-b border-zinc-700" data-testid="operation-header">
+        <span className="text-[9px] text-zinc-300 font-semibold uppercase tracking-wide">Operation</span>
+        <OperationPicker operations={p.operations} openId={p.openId} onOpen={p.onOpen} />
         {p.openId && (
           <>
             <span className="flex-1 min-w-0 truncate text-[10px] text-zinc-400" data-testid="operation-summary">
               {p.collapsed ? p.summary : ''}
             </span>
-            {p.target && (
-              <span className="flex items-center gap-1 text-[10px] min-w-0 max-w-[40%]" style={{ color: p.target.color }} data-testid="sheet-target">
-                <span className="inline-block w-2 h-2 rounded-sm shrink-0" style={{ background: p.target.color }} />
-                <span className="truncate">{p.target.name}</span>
-              </span>
-            )}
             <button
               type="button"
               aria-label={p.collapsed ? 'Expand operation' : 'Collapse operation'}
@@ -117,6 +211,35 @@ export function OperationBody(p: OperationBodyProps) {
       )}
     </div>
   );
+}
+
+/**
+ * The More fold (R7-A): the settings beyond a tool's or an operation's essentials. A dot shows
+ * while any of them differs from its default, so a changed setting is never out of sight.
+ */
+export function MoreToggle({ open, onToggle, changed }: { open: boolean; onToggle: () => void; changed: boolean }) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={open}
+      title={changed ? 'Some of these settings differ from their defaults' : undefined}
+      className="flex items-center gap-1 text-[10px] text-zinc-400 hover:text-zinc-200 whitespace-nowrap"
+    >
+      {open ? '▾' : '▸'} More
+      {changed && <span data-testid="more-changed" className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400" />}
+    </button>
+  );
+}
+
+/** Whether any of `keys` differs between `now` and `base` (the More fold's dot). */
+export function differsFrom<T extends object>(now: T, base: T, keys: Array<keyof T>): boolean {
+  return keys.some((k) => JSON.stringify(now[k]) !== JSON.stringify(base[k]));
+}
+
+/** Whether any parameter differs from its declared default. */
+export function paramsChanged(specs: ReadonlyArray<{ key: string; default: unknown }>, values: Record<string, unknown>): boolean {
+  return specs.some((p) => values[p.key] !== undefined && values[p.key] !== p.default);
 }
 
 /** A labelled row of an operation's body, in the toolbox Controls strip's style. */

@@ -4,8 +4,10 @@
  * range, draggable. Display numbering throughout (what the overlay shows).
  */
 import { useEffect, useState } from 'react';
+import { Enums as CoreEnums } from '@cornerstonejs/core';
 import { occupiedDisplaySlices, onLabelmapModified, toRuns } from '../lib/cornerstone/sliceTrack';
 import { useOperationSheetStore } from '../stores/operationSheetStore';
+import { discardPreview } from '../lib/cornerstone/maskPreview';
 import { useSegmentationStore } from '../stores/segmentationStore';
 import { useViewerStore } from '../stores/viewerStore';
 
@@ -29,7 +31,11 @@ export function useSliceTrack(panelId: string): SliceTrack {
     s.segmentations.find((c) => c.segmentationId === s.activeSegmentationId)?.segments.find((m) => m.segmentIndex === s.activeSegmentIndex),
   );
   const total = useViewerStore((s) => s.viewports[panelId]?.totalImages ?? 0);
-  const sheetOpen = useOperationSheetStore((s) => s.openSheet !== null);
+  // The plane shown: a sagittal ↔ coronal switch keeps the slice count (512 and 512) but not the
+  // slices — the bands showed the previous plane's until the next edit.
+  const orientation = useViewerStore((s) => s.panelOrientationMap?.[panelId] ?? '');
+  const isActive = useViewerStore((s) => s.activeViewportId === panelId);
+  const cleanupOpen = useOperationSheetStore((s) => s.openSheet === 'cleanup');
   const interpolating = useOperationSheetStore((s) => s.openSheet === 'interpolate');
   const interp = useOperationSheetStore((s) => s.interp);
   const scope = useOperationSheetStore((s) => s.scope);
@@ -44,25 +50,40 @@ export function useSliceTrack(panelId: string): SliceTrack {
     let timer: ReturnType<typeof setTimeout> | null = null;
     const compute = () => setRuns(toRuns(occupiedDisplaySlices(panelId, containerId, segmentIndex) ?? []));
     compute();
-    const off = onLabelmapModified(() => {
+    const later = () => {
       if (timer) clearTimeout(timer);
       timer = setTimeout(compute, 120);
-    });
+    };
+    const off = onLabelmapModified(later);
+    // The plane changes when the CAMERA does — after the store says so (the reorientation is
+    // asynchronous): recompute on a change of view-plane normal (not on every scroll).
+    const element = document.querySelector(`[data-testid="unified-viewport-element:${panelId}"]`);
+    let normal = '';
+    const onCamera = (e: Event) => {
+      const n = (e as CustomEvent<{ camera?: { viewPlaneNormal?: number[] } }>).detail?.camera?.viewPlaneNormal;
+      const key = n ? n.map((v) => v.toFixed(3)).join(',') : '';
+      if (key && key !== normal) { normal = key; later(); }
+    };
+    element?.addEventListener(CoreEnums.Events.CAMERA_MODIFIED, onCamera);
     return () => {
       off();
+      element?.removeEventListener(CoreEnums.Events.CAMERA_MODIFIED, onCamera);
       if (timer) clearTimeout(timer);
     };
-  }, [panelId, containerId, segmentIndex, total]);
+  }, [panelId, containerId, segmentIndex, total, orientation]);
 
-  const range = sheetOpen && scope.slices === 'range' ? { from: scope.from - 1, to: scope.to - 1 } : null;
+  // The Range and the anchors are slice numbers of the ACTIVE viewport (and the range is
+  // Cleanup's): shown, and draggable, there only — on another viewport they meant other slices.
+  const range = isActive && cleanupOpen && scope.slices === 'range' ? { from: scope.from - 1, to: scope.to - 1 } : null;
   const gaps: Array<[number, number]> = [];
   if (interpolating) for (let i = 1; i < runs.length; i++) gaps.push([runs[i - 1][1] + 1, runs[i][0] - 1]);
   return {
     runs,
     gaps,
-    anchors: interpolating ? { a: interp.anchorA !== null ? interp.anchorA - 1 : null, b: interp.anchorB !== null ? interp.anchorB - 1 : null } : null,
+    anchors: interpolating && isActive ? { a: interp.anchorA !== null ? interp.anchorA - 1 : null, b: interp.anchorB !== null ? interp.anchorB - 1 : null } : null,
     color: seg ? `rgb(${seg.color[0]}, ${seg.color[1]}, ${seg.color[2]})` : null,
     range,
-    setRange: (from, to) => setScope({ from: from + 1, to: to + 1 }),
+    // A new range invalidates a pending preview of the old one (its Commit wrote the old range).
+    setRange: (from, to) => { discardPreview(); setScope({ from: from + 1, to: to + 1 }); },
   };
 }

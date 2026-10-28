@@ -2,6 +2,7 @@
  * The Propagate sheet (SegWorks parity branch 3 I3; #169–181): grow the active segment
  * from the slice on screen into its neighbours, following the image.
  */
+import { OBLIQUE_VIEW_MESSAGE } from '../lib/cornerstone/maskIslands';
 import { maskOpsService, type RunResult } from '../lib/cornerstone/maskOpsService';
 import { clearStaleNotice, commitPreview, discardPreview } from '../lib/cornerstone/maskPreview';
 import { closeOperation, confirmCloseOperation, STALE_PREVIEW_MESSAGE } from './operationLifecycle';
@@ -16,7 +17,8 @@ function describe(r: Extract<RunResult, { ok: false }>): string {
     case 'no-change': return 'Nothing matched on the neighbouring slices — try a wider tolerance';
     case 'no-image': return 'The image under the segment is not available';
     case 'no-target': return 'Select a segment to propagate';
-    case 'no-viewport': return 'Open the segment’s scan in a viewport first';
+    case 'no-viewport': return 'Open the segment’s scan in this viewport';
+    case 'oblique-view': return OBLIQUE_VIEW_MESSAGE;
     default: return 'Propagation unavailable';
   }
 }

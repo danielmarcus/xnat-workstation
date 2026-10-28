@@ -27,8 +27,8 @@ import {
 import { viewportService } from './viewportService';
 import type { ContainerSpatialId, ViewportSpatialId } from './spatialIdentity';
 import * as mlg from './multiLayerGroup';
-import { readSegmentVoxelGrid } from './segmentVoxelGrid';
-import { beginTransaction, isSegmentLockedHere, onVoxelMemoRestored, type MemberRef } from './labelmapTransaction';
+import { readSegmentVoxelGrid, voxelAt } from './segmentVoxelGrid';
+import { beginDirectEdit, beginTransaction, isSegmentLockedHere, onVoxelMemoRestored, type MemberRef } from './labelmapTransaction';
 import {
   copyVoxelRegion,
   pasteVoxelRegion,
@@ -36,7 +36,8 @@ import {
   type VoxelRegionClip,
   type Vec3,
 } from './segmentationService/voxelClipboard';
-import { sliceAxisFor } from './maskIslands';
+import { OBLIQUE_VIEW_MESSAGE, sliceAxisFor, viewAlignedWithGrid } from './maskIslands';
+import { showToast } from '../../stores/toastStore';
 import { clearMaskSelection, getMaskSelection, selectIslandsContaining, setIslandMoveStarter, setMaskPreviewDelta } from './maskSelection';
 import { Enums as ToolEnums } from '@cornerstonejs/tools';
 import { warnMemberLocked } from '../annotations/lockWarning';
@@ -75,7 +76,7 @@ function voxelsOnActiveSlice(grid: NonNullable<ReturnType<typeof readSegmentVoxe
   for (let a = 0; a < ai; a++) {
     for (let b = 0; b < bi; b++) {
       const flat = axis === 0 ? at(slice, a, b) : axis === 1 ? at(a, slice, b) : at(a, b, slice);
-      if (grid.data[flat] === grid.value) out.push(flat);
+      if (voxelAt(grid, flat) === grid.value) out.push(flat);
     }
   }
   return out;
@@ -85,6 +86,20 @@ function voxelsOnActiveSlice(grid: NonNullable<ReturnType<typeof readSegmentVoxe
 onVoxelMemoRestored(clearMaskSelection);
 
 /** Current world focal point of the active viewport (paste-at-slice translation). */
+/** The active viewport's view-plane normal (unit), or null. */
+function activeViewportNormal(): Vec3 | null {
+  try {
+    const vpId = useViewerStore.getState().activeViewportId;
+    const vp = viewportService.getViewport(vpId) as { getCamera?: () => { viewPlaneNormal?: number[] } } | undefined;
+    const n = vp?.getCamera?.()?.viewPlaneNormal;
+    if (!Array.isArray(n) || n.length !== 3) return null;
+    const l = Math.hypot(n[0], n[1], n[2]);
+    return l > 0 ? ([n[0] / l, n[1] / l, n[2] / l] as Vec3) : null;
+  } catch {
+    return null;
+  }
+}
+
 function activeViewportFocalPoint(): Vec3 | null {
   try {
     const vpId = useViewerStore.getState().activeViewportId;
@@ -471,13 +486,37 @@ export const unifiedSegService = {
       const sourceVolume = viewportSourceVolume(viewportId);
       if (!segVolume || !sourceVolume) return false;
 
+      // Cornerstone's fill writes the labelmap directly: bracket it so it is one undo step
+      // and never lands in a locked segment (beginDirectEdit).
+      const member: MemberRef = { containerId: groupId, segmentIndex };
+      // On an oblique reformat Cornerstone fills the rectangle's box in GRID axes — voxels off
+      // the plane on screen: refused.
+      const g = readSegmentVoxelGrid(groupId, segmentIndex);
+      const n = (viewportService.getViewport(viewportId) as { getCamera?: () => { viewPlaneNormal?: number[] } } | undefined)?.getCamera?.()?.viewPlaneNormal;
+      if (g && n && !viewAlignedWithGrid(g.geometry.direction, n)) {
+        showToast(OBLIQUE_VIEW_MESSAGE, 'warning');
+        for (const uid of uids) { try { csAnnotation.state.removeAnnotation(uid); } catch { /* gone */ } }
+        return true;
+      }
+      if (isSegmentLockedHere(groupId, segmentIndex)) {
+        warnMemberLocked(groupId, segmentIndex, 'fill it');
+        for (const uid of uids) { try { csAnnotation.state.removeAnnotation(uid); } catch { /* gone */ } }
+        return true;
+      }
+      const edit = beginDirectEdit(member);
       const [lower, upper] = s.thresholdRange;
+      // The window is inclusive (#98): Cornerstone's same-grid test rejects `value <= lower ||
+      // value >= upper` — exclusive at both ends — so a 300 HU sphere under the default
+      // −100…300 window filled nothing. The bounds are widened by far less than any distinct
+      // stored value (a float32 voxel next to 300 is 3e-5 away).
+      const inclusive = (v: number, dir: number) => v + dir * Math.max(1e-9, Math.abs(v) * 1e-9);
       csToolUtilities.segmentation.rectangleROIThresholdVolumeByRange(
         uids,
         segVolume as never,
-        [{ volume: sourceVolume, lower: Math.min(lower, upper), upper: Math.max(lower, upper) }] as never,
+        [{ volume: sourceVolume, lower: inclusive(Math.min(lower, upper), -1), upper: inclusive(Math.max(lower, upper), 1) }] as never,
         { overwrite: false, segmentationId, segmentIndex: csSegmentIndex } as never,
       );
+      edit?.finish();
 
       for (const uid of uids) {
         try {
@@ -509,7 +548,8 @@ export const unifiedSegService = {
     if (!grid) return false;
     const voxels = sel ? sel.islands.flatMap((i) => i.voxels) : voxelsOnActiveSlice(grid);
     if (voxels.length === 0) return false;
-    const mask = new Uint8Array(grid.data.length);
+    const [nx, ny, nz] = grid.geometry.dimensions;
+    const mask = new Uint8Array(nx * ny * nz);
     for (const v of voxels) mask[v] = 1;
     const clip = copyVoxelRegion({ geometry: grid.geometry, data: mask }, 1);
     if (!clip) return false;
@@ -624,14 +664,19 @@ export const unifiedSegService = {
     const grid = txn.grid(member);
     if (!grid) return false;
 
+    // Moved to the slice on screen: the focal point's change ALONG the view normal only. The
+    // full change also carried any pan in between, so the paste landed beside the original.
     let translationWorld: Vec3 | undefined;
     const nowFocal = activeViewportFocalPoint();
+    const normal = activeViewportNormal();
     if (voxelClipSourceFocal && nowFocal) {
-      translationWorld = [
-        nowFocal[0] - voxelClipSourceFocal[0],
-        nowFocal[1] - voxelClipSourceFocal[1],
-        nowFocal[2] - voxelClipSourceFocal[2],
-      ];
+      const d: Vec3 = [nowFocal[0] - voxelClipSourceFocal[0], nowFocal[1] - voxelClipSourceFocal[1], nowFocal[2] - voxelClipSourceFocal[2]];
+      if (normal) {
+        const along = d[0] * normal[0] + d[1] * normal[1] + d[2] * normal[2];
+        translationWorld = [along * normal[0], along * normal[1], along * normal[2]];
+      } else {
+        translationWorld = d;
+      }
     }
 
     const written: number[] = [];

@@ -27,6 +27,22 @@ export interface FillHolesOptions {
  * wall pixels counts as enclosed — the wall is one 8-connected island.
  */
 export function fillHoles(p: MaskPlane, spacing: PlaneSpacing, opts: FillHolesOptions = {}): MaskPlane {
+  // Only the set pixels' box, grown by one, can hold a hole: the background around it reaches
+  // the plane border, so a component reaching the box's edge is not enclosed either (O8).
+  const box = reach(p, 1);
+  if (!box) return withData(p, new Uint8Array(p.data));
+  const cw = box.x1 - box.x0 + 1;
+  const ch = box.y1 - box.y0 + 1;
+  if (cw === p.width && ch === p.height) return fillHolesIn(p, spacing, opts);
+  const crop = new Uint8Array(cw * ch);
+  for (let y = 0; y < ch; y++) crop.set(p.data.subarray(box.x0 + (box.y0 + y) * p.width, box.x0 + (box.y0 + y) * p.width + cw), y * cw);
+  const filled = fillHolesIn({ width: cw, height: ch, data: crop }, spacing, opts).data;
+  const out = new Uint8Array(p.data);
+  for (let y = 0; y < ch; y++) out.set(filled.subarray(y * cw, (y + 1) * cw), box.x0 + (box.y0 + y) * p.width);
+  return withData(p, out);
+}
+
+function fillHolesIn(p: MaskPlane, spacing: PlaneSpacing, opts: FillHolesOptions): MaskPlane {
   const { width: w, height: h } = p;
   const bg = labelComponents(p.data, w, h, 4, 0);
   const touchesBorder = new Uint8Array(bg.count + 1);
@@ -120,13 +136,38 @@ export function removeStrays(p: MaskPlane, spacing: PlaneSpacing, opts: RemoveSt
 
 // ─── Smoothing ───────────────────────────────────────────────────────────────
 
+/**
+ * The window a neighbourhood operation of radius `r` can set pixels in: the set pixels'
+ * bounding box grown by `r`, clipped to the plane — null when nothing is set. Outside it
+ * every window is empty, so a vote / blur thresholded above 0 leaves it 0 (O8).
+ */
+function reach(p: MaskPlane, r: number): { x0: number; x1: number; y0: number; y1: number } | null {
+  const { width: w, height: h, data } = p;
+  let x0 = w, x1 = -1, y0 = h, y1 = -1;
+  for (let y = 0; y < h; y++) {
+    const row = y * w;
+    for (let x = 0; x < w; x++) {
+      if (!data[row + x]) continue;
+      if (x < x0) x0 = x;
+      if (x > x1) x1 = x;
+      if (y < y0) y0 = y;
+      y1 = y;
+    }
+  }
+  if (x1 < 0) return null;
+  return { x0: Math.max(0, x0 - r), x1: Math.min(w - 1, x1 + r), y0: Math.max(0, y0 - r), y1: Math.min(h - 1, y1 + r) };
+}
+
 /** Majority vote over a (2r+1)² window, clipped at the plane edge. */
 export function medianSmooth(p: MaskPlane, opts: { radius: number }): MaskPlane {
-  const { width: w, height: h, data } = p;
+  const { width: w, data } = p;
   const r = Math.max(1, Math.floor(opts.radius));
   const out = new Uint8Array(data.length);
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
+  const h = p.height;
+  const box = reach(p, r);
+  if (!box) return withData(p, out);
+  for (let y = box.y0; y <= box.y1; y++) {
+    for (let x = box.x0; x <= box.x1; x++) {
       let set = 0;
       let total = 0;
       for (let dy = -r; dy <= r; dy++) {
@@ -150,8 +191,10 @@ function convolveThreshold(p: MaskPlane, kernel: Float64Array, radius: number, t
   const { width: w, height: h, data } = p;
   const kw = 2 * radius + 1;
   const out = new Uint8Array(data.length);
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
+  const box = threshold > 0 ? reach(p, radius) : { x0: 0, x1: w - 1, y0: 0, y1: h - 1 };
+  if (!box) return withData(p, out);
+  for (let y = box.y0; y <= box.y1; y++) {
+    for (let x = box.x0; x <= box.x1; x++) {
       let sum = 0;
       let wsum = 0;
       for (let dy = -radius; dy <= radius; dy++) {
@@ -178,15 +221,55 @@ export interface GaussianSmoothOptions {
   threshold?: number;
 }
 
+/**
+ * Gaussian blur (clipped at the plane edge, renormalised) and re-threshold — SEPARABLY: the
+ * 2D kernel is g(dx)·g(dy) and the edge-clipped weight sum factors the same way, so a row
+ * pass then a column pass give the 2D convolution in 2(2r+1) multiplies a pixel, not
+ * (2r+1)² (σ = 4: 50, not 625 — O8). Only the set pixels' reach is computed. It equals the 2D
+ * form up to floating-point rounding (cleanup.test compares the two on painted masks).
+ */
 export function gaussianSmooth(p: MaskPlane, opts: GaussianSmoothOptions): MaskPlane {
   const sigma = Math.max(0.1, opts.sigma);
   const r = Math.ceil(sigma * 3);
-  const kw = 2 * r + 1;
-  const kernel = new Float64Array(kw * kw);
-  for (let dy = -r; dy <= r; dy++) {
-    for (let dx = -r; dx <= r; dx++) kernel[dx + r + (dy + r) * kw] = Math.exp(-(dx * dx + dy * dy) / (2 * sigma * sigma));
+  const threshold = opts.threshold ?? 0.45;
+  const { width: w, height: h, data } = p;
+  const out = new Uint8Array(data.length);
+  if (!(threshold > 0)) return withData(p, out.fill(1)); // every renormalised blur value is ≥ 0
+  const box = reach(p, r);
+  if (!box) return withData(p, out);
+  const g = new Float64Array(2 * r + 1);
+  for (let d = -r; d <= r; d++) g[d + r] = Math.exp(-(d * d) / (2 * sigma * sigma));
+  // Weight of the kernel's part inside the plane, per column / row (the edge clipping).
+  const clipped = (n: number) => Float64Array.from({ length: n }, (_, c) => {
+    let s = 0;
+    for (let d = Math.max(-r, -c); d <= Math.min(r, n - 1 - c); d++) s += g[d + r];
+    return s;
+  });
+  const wx = clipped(w);
+  const wy = clipped(h);
+  // Row pass over the box: a row outside it is more than r from every set pixel, so sums to 0.
+  const bw = box.x1 - box.x0 + 1;
+  const rowsLo = box.y0, rowsHi = box.y1; // rows beyond the box hold no set pixel
+  const rowSum = new Float64Array(bw * (rowsHi - rowsLo + 1));
+  for (let y = rowsLo; y <= rowsHi; y++) {
+    const src = y * w;
+    const dst = (y - rowsLo) * bw;
+    for (let x = box.x0; x <= box.x1; x++) {
+      let s = 0;
+      const lo = Math.max(-r, -x), hi = Math.min(r, w - 1 - x);
+      for (let dx = lo; dx <= hi; dx++) if (data[src + x + dx]) s += g[dx + r];
+      rowSum[dst + x - box.x0] = s;
+    }
   }
-  return convolveThreshold(p, kernel, r, opts.threshold ?? 0.45);
+  for (let y = box.y0; y <= box.y1; y++) {
+    const lo = Math.max(-r, -y, rowsLo - y), hi = Math.min(r, h - 1 - y, rowsHi - y);
+    for (let x = box.x0; x <= box.x1; x++) {
+      let s = 0;
+      for (let dy = lo; dy <= hi; dy++) s += g[dy + r] * rowSum[(y + dy - rowsLo) * bw + x - box.x0];
+      out[x + y * w] = s / (wx[x] * wy[y]) >= threshold ? 1 : 0;
+    }
+  }
+  return withData(p, out);
 }
 
 /**

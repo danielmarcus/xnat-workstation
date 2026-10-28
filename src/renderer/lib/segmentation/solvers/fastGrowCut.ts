@@ -77,14 +77,18 @@ export function fastGrowCut(image: ArrayLike<number>, d: Dims, seeds: Uint8Array
   const heap = new IndexedHeap(n, dist);
   const gate = o.gate ?? null;
   const open = (i: number) => !gate || (image[i] >= gate.lo && image[i] <= gate.hi);
+  // Progress counts the voxels the gate lets in, not the box: a gated solve settles only those,
+  // and its bar stopped at their share of the box (#100). It ends at 1 either way.
+  let reachable = 0;
   for (let i = 0; i < n; i++) {
+    if (open(i)) reachable++;
     if (seeds[i] && open(i)) { labels[i] = seeds[i]; dist[i] = 0; heap.push(i); }
   }
   let done = 0;
-  const every = Math.max(1, Math.floor(n / 50));
+  const every = Math.max(1, Math.floor(reachable / 50));
   while (heap.length) {
     const p = heap.pop();
-    if (o.onProgress && ++done % every === 0) o.onProgress(done / n);
+    if (o.onProgress && ++done % every === 0) o.onProgress(Math.min(1, done / reachable));
     const dp = dist[p], lp = labels[p], ip = image[p];
     forEachNeighbour6(d, p, (q) => {
       if (heap.settled(q) || !open(q)) return;
@@ -92,5 +96,6 @@ export function fastGrowCut(image: ArrayLike<number>, d: Dims, seeds: Uint8Array
       if (nd < dist[q]) { dist[q] = nd; labels[q] = lp; heap.push(q); }
     });
   }
+  o.onProgress?.(1);
   return labels;
 }

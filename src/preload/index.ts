@@ -7,8 +7,16 @@
  * XNAT credentials never flow through this bridge — the main process
  * handles authentication via a browser window and cookie-based sessions.
  */
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import { IPC } from '../shared/ipcChannels';
+
+// A module run's message port (branch 9): relayed to the page, which talks to the sandbox on it.
+ipcRenderer.on(IPC.MODULES_RUN_PORT, (e, info: { runId: string }) => {
+  window.postMessage({ type: 'xw-module-port', runId: info.runId }, '*', e.ports);
+});
+ipcRenderer.on(IPC.MODULES_RUN_ENDED, (_e, info: { runId: string; reason: string }) => {
+  window.postMessage({ type: 'xw-module-ended', runId: info.runId, reason: info.reason }, '*');
+});
 
 contextBridge.exposeInMainWorld('electronAPI', {
   platform: process.platform,
@@ -195,11 +203,28 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   checkpoint: {
     write: (key: string, record: unknown) => ipcRenderer.invoke(IPC.CHECKPOINT_WRITE, key, record),
-    list: (key: string) => ipcRenderer.invoke(IPC.CHECKPOINT_LIST, key),
+    list: (key: string, legacy?: unknown) => ipcRenderer.invoke(IPC.CHECKPOINT_LIST, key, legacy),
+    move: (fromKey: string, toKey: string, containerLabel: string) => ipcRenderer.invoke(IPC.CHECKPOINT_MOVE, fromKey, toKey, containerLabel),
     read: (key: string, id: string) => ipcRenderer.invoke(IPC.CHECKPOINT_READ, key, id),
     delete: (key: string, id: string) => ipcRenderer.invoke(IPC.CHECKPOINT_DELETE, key, id),
     exportFile: (key: string, id: string) => ipcRenderer.invoke(IPC.CHECKPOINT_EXPORT, key, id),
     importFile: () => ipcRenderer.invoke(IPC.CHECKPOINT_IMPORT),
+  },
+
+  modules: {
+    list: () => ipcRenderer.invoke(IPC.MODULES_LIST),
+    pick: () => ipcRenderer.invoke(IPC.MODULES_PICK),
+    /** A file dropped on Settings › Modules: its path comes from the File, via webUtils. */
+    inspectDropped: (file: File) => ipcRenderer.invoke(IPC.MODULES_INSPECT_DROPPED, webUtils.getPathForFile(file)),
+    install: (token: string, acceptCommunity: boolean) => ipcRenderer.invoke(IPC.MODULES_INSTALL, token, acceptCommunity),
+    remove: (id: string) => ipcRenderer.invoke(IPC.MODULES_REMOVE, id),
+    setEnabled: (id: string, enabled: boolean) => ipcRenderer.invoke(IPC.MODULES_SET_ENABLED, id, enabled),
+    setAllowCommunity: (allow: boolean) => ipcRenderer.invoke(IPC.MODULES_SET_ALLOW_COMMUNITY, allow),
+    trustKeyPick: () => ipcRenderer.invoke(IPC.MODULES_TRUST_KEY_PICK),
+    untrustKey: (keyId: string) => ipcRenderer.invoke(IPC.MODULES_UNTRUST_KEY, keyId),
+    runStart: (id: string) => ipcRenderer.invoke(IPC.MODULES_RUN_START, id),
+    saveLog: (text: string, suggested: string) => ipcRenderer.invoke(IPC.MODULES_SAVE_LOG, text, suggested),
+    runStop: (runId: string) => ipcRenderer.invoke(IPC.MODULES_RUN_STOP, runId),
   },
 
   diagnostics: {

@@ -49,7 +49,7 @@ async function segmentation(page: Page, fixture = 'ct-axial-anatomy') {
   await panel.getByRole('button', { name: 'New Segmentation (SEG)' }).click();
   await page.keyboard.press('Escape');
   const toolbox = panel.locator('[data-testid="context-toolbox"]');
-  await expect(toolbox.getByRole('button', { name: 'Contour Fill', exact: true })).toBeVisible({ timeout: 10_000 });
+  await expect(toolbox.getByRole('button', { name: 'Contour', exact: true })).toBeVisible({ timeout: 10_000 });
   await clickTool(toolbox, 'Contour Fill');
   return { panel, toolbox };
 }
@@ -72,7 +72,7 @@ async function snake(panel: Locator, settings: { variant?: string; iterations?: 
   if (settings.iterations) await sheet.getByLabel('Iterations', { exact: true }).fill(String(settings.iterations));
   if (settings.neighbours) await sheet.getByLabel('Neighbours', { exact: true }).selectOption({ label: settings.neighbours });
   if (settings.balloon !== undefined) {
-    await sheet.getByRole('button', { name: /Advanced/ }).click();
+    await sheet.getByRole('button', { name: /^. More/ }).click();
     await sheet.getByLabel('Balloon force', { exact: true }).fill(String(settings.balloon));
   }
   return sheet;

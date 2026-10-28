@@ -7,6 +7,8 @@ import { create } from 'zustand';
 export interface FlythroughSettings {
   /** Segments whose extent sets the range (empty = every segment of the container). */
   segmentIndices: number[];
+  /** The container `segmentIndices` was chosen in — another container's review ignores it. */
+  segmentIndicesFor?: string | null;
   direction: 'forward' | 'backward';
   startFrom: 'bounds' | 'current';
   /** Flicker the masks off then on at each slice to compare with the anatomy. */
@@ -37,6 +39,7 @@ export interface FlythroughState extends FlythroughSettings {
 
 export const useFlythroughStore = create<FlythroughState>((set) => ({
   segmentIndices: [],
+  segmentIndicesFor: null,
   direction: 'forward',
   startFrom: 'bounds',
   flicker: true,
@@ -52,6 +55,6 @@ export const useFlythroughStore = create<FlythroughState>((set) => ({
   steps: 0,
   anatomyPhase: false,
   settingsOpen: false,
-  setSettings: (patch) => set(patch),
+  setSettings: (patch) => set((s) => (patch.segmentIndices ? { ...patch, segmentIndicesFor: s.containerId } : patch)),
   setSettingsOpen: (settingsOpen) => set({ settingsOpen }),
 }));

@@ -29,7 +29,7 @@ import { useApprovalStore } from '../../stores/approvalStore';
 import { buildApprovalModule, parseApprovalModule } from '../annotations/approval';
 import type { ApprovalRecord } from '@shared/types/annotation';
 import * as contourRep from './contourRepresentation';
-import { contourPlaneMetadata, volumeSliceIndexForPoint, type PlaneViewport } from './contourPlaneMetadata';
+import { contourOwnPlane, contourPlaneMetadata, volumeSliceIndexForPoint, type PlaneViewport } from './contourPlaneMetadata';
 import {
   formatOperatorsNameForConnection,
   upsertOperatorsName,
@@ -529,7 +529,19 @@ async function loadRtStructAsContours(
       // volume viewport the two can run in opposite directions (volumeSliceIndexForPoint).
       const sliceIndex = volumeSliceIndexForPoint(planeViewport, polyline[0])
         ?? viewportImageIds.indexOf(referencedImageId);
-      const plane = contourPlaneMetadata(planeViewport, sliceIndex >= 0 ? sliceIndex : null);
+      let plane = contourPlaneMetadata(planeViewport, sliceIndex >= 0 ? sliceIndex : null);
+      // The viewport's plane only if the contour lies in it: loaded while the viewport shows
+      // another orientation, the contour keeps its OWN plane (#99), and its slice index is
+      // its image's position in the series.
+      const own = contourOwnPlane(polyline, referencedImageId ? metaData.get('imagePlaneModule', referencedImageId) as never : null);
+      const vn = plane.viewPlaneNormal;
+      if (own?.viewPlaneNormal && vn) {
+        const on = own.viewPlaneNormal;
+        if (Math.abs(vn[0] * on[0] + vn[1] * on[1] + vn[2] * on[2]) < 0.99) {
+          const index = sourceImageIds.indexOf(referencedImageId);
+          plane = { ...own, ...(index >= 0 ? { sliceIndex: index } : {}) };
+        }
+      }
       const interpolationUID = chainedImageIds.has(referencedImageId) ? csUtilities.uuidv4() : chainUID;
       chainedImageIds.add(referencedImageId);
 
@@ -604,21 +616,31 @@ async function loadRtStructAsContours(
     console.debug('[rtStructService] setActiveSegmentation:', err);
   }
 
-  // Set segment colors
+  // Set segment colors (ROIDisplayColor)
+  const roiColors = new Map<number, [number, number, number, number]>();
+  let allColorsApplied = true;
   for (let roiIdx = 0; roiIdx < parsed.rois.length; roiIdx++) {
     const roi = parsed.rois[roiIdx];
     const segmentIndex = roiIdx + 1;
+    const color: [number, number, number, number] = [roi.color[0], roi.color[1], roi.color[2], 255];
+    roiColors.set(segmentIndex, color);
     try {
       csSegmentation.config.color.setSegmentIndexColor(
         viewportId,
         segmentationId,
         segmentIndex,
-        [roi.color[0], roi.color[1], roi.color[2], 255] as any,
+        color as any,
       );
     } catch {
-      // Color setting may fail if representation not ready
+      // Fails when the viewport could not take the representation yet (Cornerstone
+      // skips adding it to a viewport that is not ready, and a colour lives on the
+      // representation). The colours must not be lost with it: the panel summary, the
+      // presentation cache and the representation added later would all fall back to
+      // the default palette.
+      allColorsApplied = false;
     }
   }
+  if (!allColorsApplied) segmentationService.rememberLoadedColors(segmentationId, roiColors);
 
   // Apply contour style
   segmentationService.updateContourStyle();

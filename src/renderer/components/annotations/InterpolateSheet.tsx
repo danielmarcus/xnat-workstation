@@ -5,7 +5,8 @@
  * gap table updates while the user paints with the operation open.
  */
 import type { InterpolateSheetModel } from '../../hooks/useInterpolateSheet';
-import { OperationBody, OperationRow, PreviewCommitButtons, Segmented } from './OperationsSection';
+import { MoreToggle, OperationBody, OperationRow, PreviewCommitButtons, Segmented, differsFrom } from './OperationsSection';
+import { INTERP_DEFAULTS } from '../../stores/operationSheetStore';
 
 export default function InterpolateSheet({ m }: { m: InterpolateSheetModel }) {
   if (!m.open) return null;
@@ -40,9 +41,7 @@ export default function InterpolateSheet({ m }: { m: InterpolateSheetModel }) {
       </OperationRow>
       <div className="flex items-start gap-2 mt-1 text-[10px]">
         <span className="flex-1 min-w-0 text-zinc-500 truncate" title={method?.hint}>{method?.hint}</span>
-        <button type="button" onClick={m.toggleAdvanced} aria-expanded={m.advancedOpen} className="text-zinc-400 hover:text-zinc-200 whitespace-nowrap">
-          {m.advancedOpen ? '▾' : '▸'} Advanced
-        </button>
+        <MoreToggle open={m.advancedOpen} onToggle={m.toggleAdvanced} changed={differsFrom(s, INTERP_DEFAULTS, ['distance'])} />
       </div>
       {m.advancedOpen && (
         <OperationRow label="Distance transform">
@@ -99,7 +98,7 @@ export default function InterpolateSheet({ m }: { m: InterpolateSheetModel }) {
               <button
                 type="button"
                 aria-label={`Preview gap ${g.from + 1}–${g.to + 1} of ${g.name}`}
-                onClick={() => m.previewGap(g.from + 1, g.to + 1)}
+                onClick={() => m.previewGap(g.from + 1, g.to + 1, g.segmentIndex)}
                 className="rounded bg-zinc-800 px-1.5 py-0.5 hover:bg-zinc-700"
               >
                 Preview gap

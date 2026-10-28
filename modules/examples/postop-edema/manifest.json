@@ -1,0 +1,27 @@
+{
+  "id": "org.xnat.examples.postop-edema",
+  "name": "Post-op edema",
+  "version": "1.0.0",
+  "apiVersion": "1.0",
+  "runtime": "wasm-worker",
+  "publisher": "XNAT Workstation examples",
+  "license": "MIT",
+  "description": "Segments postoperative edema (FLAIR-bright) and, when one is found, the resection cavity (dark) inside an ROI limit drawn around the region, on the slice on screen and then slice by slice outward while the region stays continuous. Re-authored from the SegWorks add-on against API 1.0.",
+  "entry": "module.js",
+  "params": [
+    { "key": "reach", "label": "Slices each way", "kind": "number", "min": 0, "max": 12, "step": 1, "default": 6, "hint": "How far it follows the region from the slice on screen" },
+    { "key": "cavity", "label": "Find the resection cavity", "kind": "boolean", "default": true },
+    { "key": "polish", "label": "Minimal clean-up", "kind": "boolean", "default": true, "advanced": true, "hint": "Close pinholes, trim spurs, keep the main island" }
+  ],
+  "reads": { "image": true, "members": "none", "roi": true },
+  "writes": {
+    "target": "new",
+    "mode": "add",
+    "newMembers": [
+      { "name": "Edema", "color": [34, 197, 94] },
+      { "name": "Cavity", "color": [249, 115, 22] }
+    ]
+  },
+  "scopes": ["volume", "range"],
+  "bytesPerVoxel": 8
+}

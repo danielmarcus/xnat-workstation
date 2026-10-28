@@ -16,6 +16,33 @@ const discMask = (cx: number, cy: number, r: number) => {
 };
 
 describe('levelTrace', () => {
+  it('outline simplification and rounding keep the whole region — every edge row and column', () => {
+    // The outline runs through the boundary pixels' centres; a half-open fill dropped the bottom row.
+    const img = new Float32Array(W * H);
+    for (let y = 20; y < 30; y++) for (let x = 20; x < 30; x++) img[x + y * W] = 300;
+    for (const o of [{ simplifyPx: 1, roundCorners: 0 }, { simplifyPx: 0, roundCorners: 1 }, { simplifyPx: 1, roundCorners: 1 }]) {
+      const r = levelTrace(img, W, H, 25, 25, { ...DEFAULT_LEVEL_TRACE, ...o });
+      for (const y of [20, 29]) {
+        // Rounded corners cut the corner pixels; the edge row itself stays.
+        if (o.roundCorners) expect(r.data[y * W + 25], `row ${y} ${JSON.stringify(o)}`).toBe(1);
+        else expect(r.data.slice(y * W + 20, y * W + 30).every((v) => v === 1), `row ${y} ${JSON.stringify(o)}`).toBe(true);
+      }
+      expect(area(r.data), JSON.stringify(o)).toBeGreaterThanOrEqual(o.roundCorners ? 88 : 100); // rounding cuts corner pixels only
+    }
+  });
+
+  it('traces the clicked region when smoothing leaves two — not the first in scan order', () => {
+    const img = new Float32Array(W * H);
+    for (let y = 5; y < 15; y++) for (let x = 5; x < 15; x++) img[x + y * W] = 300; // first in scan order
+    for (let y = 30; y < 42; y++) for (let x = 30; x < 42; x++) img[x + y * W] = 300; // clicked
+    for (let x = 14; x < 31; x++) img[x + 22 * W] = 300; // a one-pixel bridge smoothing removes
+    for (let y = 14; y < 23; y++) img[14 + y * W] = 300;
+    for (let y = 22; y < 31; y++) img[30 + y * W] = 300;
+    const r = levelTrace(img, W, H, 35, 35, { ...DEFAULT_LEVEL_TRACE, smoothing: 'standard', simplifyPx: 1 });
+    expect(r.data[35 + 35 * W], 'the clicked square').toBe(1);
+    expect(r.data[10 + 10 * W], 'not the other one').toBe(0);
+  });
+
   it('returns the connected region of similar intensity around the click', () => {
     const img = Float32Array.from(discMask(25, 25, 10), (v) => (v ? 300 : 0));
     const r = levelTrace(img, W, H, 25, 25, DEFAULT_LEVEL_TRACE);

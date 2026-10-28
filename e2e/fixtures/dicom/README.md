@@ -2,7 +2,9 @@
 
 Synthetic, PHI-free DICOM datasets for **offline** Playwright E2E (no live XNAT,
 no network). The generator is the source of truth; the generated `.dcm` files are
-git-ignored (regenerate them locally before running E2E that needs them).
+committed, so a fresh checkout runs E2E as is — regenerate (and commit) them whenever
+`generate.cjs` changes. `ct-perf-300` (~150 MB, perf harness only) is not committed;
+`npm run test:perf` generates it.
 
 ## Generate
 
@@ -25,6 +27,9 @@ node e2e/fixtures/dicom/generate.cjs ct-axial-300 # one dataset
 | `cross-for-ct-mr`  | CT + MR, same study, DIFFERENT Frame of Reference (unregistered, no SRO). | ✅ built |
 | `4dct-phases`      | 4 CT temporal phases (sphere translated in z), shared study + Frame of Reference. | ✅ built |
 | `cine-us`          | Multi-frame ultrasound (16 frames, 8-bit, moving bar, cine-rate tags). | ✅ built |
+| `mr-flair-postop` | FLAIR-like post-operative brain (MR): brain 300 with deterministic noise, a hyperintense edema shell (650, r 16 mm at (20, −5, 0)) round a dark resection cavity (60, r 6 mm), a dark ventricle outside it. Backs the post-op edema module (`e2e/specs/modules/module-validation`). | ✅ built |
+| `ct-body-512` | Realistic-size CT body: 512 × 512 × 40 (0.7 mm, 2.5 mm slices), noise, body / liver / vertebra / vessel and a 110 HU lesion at the volume centre. Backs the tool sweep (`e2e/specs/sweep`). | ✅ built |
+| `ct-body-oblique` | The `ct-body-512` body acquired obliquely (~30° about x): 256 × 256 × 40, 1.4 mm, 2.5 mm slices, real-CT storage. Its coronal view is an oblique reformat. Backs the tool sweep. | ✅ built |
 | `mr-localizer-3plane` | ONE MR series with three orientations (axial, sagittal with a 96×128 matrix, coronal), 5 images each — a tri-plane localizer. Not reconstructable as a volume; loads as a stack (`e2e/specs/viewport/mixed-orientation-series`). | ✅ built |
 
 **All 9 design fixtures built.** `4dct-phases` / `cine-us` carry no §G acceptance
@@ -44,8 +49,8 @@ co-generated source UIDs directly and is validated against the app's loader.
   regeneration is internally consistent but not byte-identical across runs.
 - Loaded into the app via the local-DICOM import path (`App.loadLocalFiles`),
   driven in E2E by `e2e/helpers/local-fixture.ts`.
-- `ensureFixture` generates a dataset only when its directory is empty, so a
-  checkout with older generated files keeps them after `generate.cjs` changes.
-  Delete the dataset directory to pick a change up — e.g. the CT series gained
+- `ensureFixture` generates a dataset only when its directory is empty, so the
+  committed files are what E2E uses: after changing `generate.cjs`, regenerate the
+  dataset and commit it — e.g. the CT series gained
   `InstitutionName` ("XNAT E2E PHANTOM") on 2026-10-10, which
   `e2e/specs/viewport/local-dicom-metadata` asserts.

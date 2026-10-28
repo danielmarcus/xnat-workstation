@@ -44,7 +44,12 @@ export interface MemoryEstimate {
 }
 
 export function estimateMemory(method: SolverMethod, voxels: number, classes = 2, limits: MemoryLimits = DEFAULT_MEMORY_LIMITS): MemoryEstimate {
-  const bytes = voxels * bytesPerVoxel(method, classes);
+  return estimateFromBytesPerVoxel(bytesPerVoxel(method, classes), voxels, limits);
+}
+
+/** The same guard for any job that knows its peak bytes per voxel (a module's manifest, M4). */
+export function estimateFromBytesPerVoxel(perVoxel: number, voxels: number, limits: MemoryLimits = DEFAULT_MEMORY_LIMITS): MemoryEstimate {
+  const bytes = voxels * perVoxel;
   const level = bytes >= limits.block ? 'block' : bytes >= limits.warn ? 'warn' : 'ok';
   const mb = Math.round(bytes / 2 ** 20);
   const vox = voxels >= 1e6 ? `${(voxels / 1e6).toFixed(1)} M` : voxels >= 1e3 ? `${Math.round(voxels / 1e3)} k` : String(voxels);

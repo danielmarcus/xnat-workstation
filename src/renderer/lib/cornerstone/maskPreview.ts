@@ -16,14 +16,17 @@
 import { Enums as CoreEnums, eventTarget, getEnabledElementByViewportId } from '@cornerstonejs/core';
 import { Enums as ToolEnums, segmentation as csSegmentation } from '@cornerstonejs/tools';
 import * as mlg from './multiLayerGroup';
-import type { LabelmapTransaction, MemberRef } from './labelmapTransaction';
+import type { LabelmapTransaction, MemberRef, StagedWrites } from './labelmapTransaction';
 import { warnMemberLocked } from '../annotations/lockWarning';
-import type { SegmentVoxelGrid } from './segmentVoxelGrid';
+import { voxelAt, type SegmentVoxelGrid } from './segmentVoxelGrid';
 import { sliceAxisFor } from './maskIslands';
 import { indexToWorld, worldToIndex, type Vec3 } from './segmentationService/voxelClipboard';
 import { type Axis, planeAxes } from '../segmentation/maskOps/planeIO';
 import { hotkeyService } from '../hotkeys/hotkeyService';
 import { useMaskPreviewStore } from '../../stores/maskPreviewStore';
+import { useSegmentationStore } from '../../stores/segmentationStore';
+import { useViewerStore } from '../../stores/viewerStore';
+import { useOperationSheetStore } from '../../stores/operationSheetStore';
 
 const OVERLAY_TESTID = 'mask-preview-overlay';
 
@@ -34,12 +37,16 @@ interface Pending {
   csSegmentationIds: Set<string>;
   removeKeyLayer: () => void;
   onDone?: (committed: boolean) => void;
+  /** A live stroke's preview (Smart Brush): no bar, committed by the tool on release. */
+  silent: boolean;
+  /** What the preview was made for — it is discarded when any of these changes. */
+  context: string;
 }
 
 let pending: Pending | null = null;
 let committing = false;
 /** Per change: writes bucketed by axis → slice, built lazily (a volume op can stage a lot). */
-const bucketCache = new WeakMap<ReadonlyMap<number, number>, Map<Axis, Map<number, number[]>>>();
+const bucketCache = new WeakMap<StagedWrites, Map<Axis, Map<number, number[]>>>();
 
 export interface StartPreviewOptions {
   txn: LabelmapTransaction;
@@ -57,13 +64,24 @@ export interface StartPreviewOptions {
   silent?: boolean;
 }
 
-/** Show a staged transaction as a preview. Replaces (discards) any preview already open. */
-export function startPreview(o: StartPreviewOptions): void {
+/**
+ * Show a staged transaction as a preview. Replaces (discards) any preview already open — except
+ * a live stroke's: a result that arrives while the user is painting (a solve started earlier)
+ * is dropped instead, or it would replace the stroke and be committed by the stroke's release.
+ * Returns whether the preview was shown.
+ */
+export function startPreview(o: StartPreviewOptions): boolean {
+  if (pending?.silent && !o.silent) {
+    console.warn('[maskPreview] a result arrived during a stroke; dropped');
+    o.txn.discard();
+    o.onDone?.(false);
+    return false;
+  }
   if (pending) discardPreview();
   if (o.txn.isEmpty) {
     o.txn.discard();
     o.onDone?.(false);
-    return;
+    return false;
   }
   const removeKeyLayer = o.silent ? () => {} : hotkeyService.pushKeyLayer({
     onKeyDown: (e) => {
@@ -85,8 +103,11 @@ export function startPreview(o: StartPreviewOptions): void {
     csSegmentationIds: new Set(o.txn.changes().map((c) => c.grid.csSegmentationId)),
     removeKeyLayer,
     onDone: o.onDone,
+    silent: !!o.silent,
+    context: previewContext(),
   };
   installDataWatch();
+  installContextWatch();
   if (!o.silent) {
     useMaskPreviewStore.setState({
       active: true, label: o.label, summary: o.summary, viewportId: o.viewportId, comparing: false, readOnly: !!o.lockedMember,
@@ -94,12 +115,18 @@ export function startPreview(o: StartPreviewOptions): void {
     });
   }
   render();
+  return true;
 }
 
 /** Redraw the pending preview after its transaction grew (a live stroke). */
 export function refreshPreview(): void {
   if (!pending) return;
-  for (const c of pending.txn.changes()) pending.csSegmentationIds.add(c.grid.csSegmentationId);
+  for (const c of pending.txn.changes()) {
+    pending.csSegmentationIds.add(c.grid.csSegmentationId);
+    // The stroke's writes map is the same object as it grows: drop its bucketing, or the
+    // overlay keeps drawing the first dab only.
+    bucketCache.delete(c.writes);
+  }
   render();
 }
 
@@ -177,6 +204,30 @@ export function clearStaleNotice(): void {
 
 // ─── Stale-preview guard ─────────────────────────────────────────────────────
 
+/**
+ * What a preview belongs to: the active container, segment and viewport, and the operation
+ * open. A preview outliving a change of any of them was committed by the next ⏎ / Commit
+ * against the new target — another operation's Commit wrote the old one's edit.
+ */
+function previewContext(): string {
+  const seg = useSegmentationStore.getState();
+  return [seg.activeSegmentationId, seg.activeSegmentIndex, useViewerStore.getState().activeViewportId, useOperationSheetStore.getState().openSheet].join('|');
+}
+
+let watchingContext = false;
+function installContextWatch(): void {
+  if (watchingContext) return;
+  watchingContext = true;
+  const check = () => {
+    if (!pending || committing || pending.silent || previewContext() === pending.context) return;
+    discardPreview();
+    useMaskPreviewStore.setState({ discardedStale: true });
+  };
+  useSegmentationStore.subscribe(check);
+  useViewerStore.subscribe(check);
+  useOperationSheetStore.subscribe(check);
+}
+
 let watching = false;
 function installDataWatch(): void {
   if (watching) return;
@@ -236,7 +287,7 @@ function colorOf(viewportId: string, containerId: string, segmentIndex: number):
   return [255, 255, 255];
 }
 
-function bucketsFor(writes: ReadonlyMap<number, number>, dims: ArrayLike<number>, axis: Axis): Map<number, number[]> {
+function bucketsFor(writes: StagedWrites, dims: ArrayLike<number>, axis: Axis): Map<number, number[]> {
   let byAxis = bucketCache.get(writes);
   if (!byAxis) {
     byAxis = new Map();
@@ -258,6 +309,19 @@ function bucketsFor(writes: ReadonlyMap<number, number>, dims: ArrayLike<number>
   }
   byAxis.set(axis, buckets);
   return buckets;
+}
+
+/**
+ * The staged voxels on grid slice `k` (axis 2): read off the slice's own chunk — bucketing every
+ * staged voxel first cost a pass over all of them (a Volume Cleanup stages millions, O8).
+ */
+function flatsOnGridSlice(writes: StagedWrites, dims: ArrayLike<number>, k: number): number[] | undefined {
+  const c = writes.chunk(k);
+  if (!c) return undefined;
+  const base = k * dims[0] * dims[1];
+  const out: number[] = [];
+  for (let p = 0; p < c.length; p++) if (c[p] !== 0) out.push(base + p);
+  return out;
 }
 
 /** Plane coordinates of a flat index on a slice along `axis`. */
@@ -293,7 +357,13 @@ function pathsFor(
     const [cx, cy] = vp.worldToCanvas(indexToWorld(grid.geometry, ijk));
     return `${cx.toFixed(1)} ${cy.toFixed(1)}`;
   };
-  const set = new Set(pixels.map(([x, y]) => `${x},${y}`));
+  // Which plane pixels are in the set, for the boundary test (a bitmap: a string set of a large
+  // preview's pixels cost more than the drawing).
+  const w = grid.geometry.dimensions[ax];
+  const h = grid.geometry.dimensions[ay];
+  const set = new Uint8Array(w * h);
+  for (const [x, y] of pixels) set[x + y * w] = 1;
+  const has = (x: number, y: number) => x >= 0 && y >= 0 && x < w && y < h && set[x + y * w] === 1;
   const rows = new Map<number, number[]>();
   for (const [x, y] of pixels) {
     let r = rows.get(y);
@@ -317,10 +387,10 @@ function pathsFor(
   }
   let outline = '';
   for (const [x, y] of pixels) {
-    if (!set.has(`${x - 1},${y}`)) outline += `M${toCanvas(x - 0.5, y - 0.5)}L${toCanvas(x - 0.5, y + 0.5)}`;
-    if (!set.has(`${x + 1},${y}`)) outline += `M${toCanvas(x + 0.5, y - 0.5)}L${toCanvas(x + 0.5, y + 0.5)}`;
-    if (!set.has(`${x},${y - 1}`)) outline += `M${toCanvas(x - 0.5, y - 0.5)}L${toCanvas(x + 0.5, y - 0.5)}`;
-    if (!set.has(`${x},${y + 1}`)) outline += `M${toCanvas(x - 0.5, y + 0.5)}L${toCanvas(x + 0.5, y + 0.5)}`;
+    if (!has(x - 1, y)) outline += `M${toCanvas(x - 0.5, y - 0.5)}L${toCanvas(x - 0.5, y + 0.5)}`;
+    if (!has(x + 1, y)) outline += `M${toCanvas(x + 0.5, y - 0.5)}L${toCanvas(x + 0.5, y + 0.5)}`;
+    if (!has(x, y - 1)) outline += `M${toCanvas(x - 0.5, y - 0.5)}L${toCanvas(x + 0.5, y - 0.5)}`;
+    if (!has(x, y + 1)) outline += `M${toCanvas(x - 0.5, y + 0.5)}L${toCanvas(x + 0.5, y + 0.5)}`;
   }
   return { fill, outline };
 }
@@ -371,7 +441,9 @@ function render(): void {
       if (!vp || !cam?.viewPlaneNormal || !cam.focalPoint) continue;
       const axis = sliceAxisFor(grid.geometry.direction, cam.viewPlaneNormal) as Axis;
       const slice = worldToIndex(grid.geometry, cam.focalPoint as Vec3)[axis];
-      const flats = bucketsFor(writes, grid.geometry.dimensions, axis).get(slice);
+      const flats = axis === 2
+        ? flatsOnGridSlice(writes, grid.geometry.dimensions, slice)
+        : bucketsFor(writes, grid.geometry.dimensions, axis).get(slice);
       const svg = overlayFor(vp);
       if (!flats?.length) continue;
 
@@ -380,7 +452,7 @@ function render(): void {
       for (const flat of flats) {
         const next = writes.get(flat)!;
         const added = next !== 0;
-        const seg = flatStorage ? (added ? next : grid.data[flat]) : member.segmentIndex;
+        const seg = flatStorage ? (added ? next : voxelAt(grid, flat)) : member.segmentIndex;
         const key = `${seg}|${added}`;
         let g = groups.get(key);
         if (!g) groups.set(key, (g = { seg, added, px: [] }));

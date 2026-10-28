@@ -76,6 +76,7 @@ beforeAll(async () => {
   // Without this the real SafePaintFillTool module is evaluated against the mock and
   // throws at import time — which vitest reports as SKIPPED tests, not failing ones.
   vi.doMock('../tools/SafePaintFillTool', () => ({ default: { toolName: 'SafePaintFill' } }));
+  vi.doMock('../tools/AppRegionSegmentPlusTool', () => ({ AppRegionSegmentTool: { toolName: 'RegionSegment' }, AppRegionSegmentPlusTool: { toolName: 'RegionSegmentPlus' } }));
   ({ unifiedToolService } = await import('../unifiedToolService'));
 });
 

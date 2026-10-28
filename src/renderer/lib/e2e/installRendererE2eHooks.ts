@@ -1,6 +1,7 @@
 import { useQc3dStore } from '../../stores/qc3dStore';
-import { qc3dService } from '../cornerstone/qc3dService';
-import { computeClient } from '../compute/computeClient';
+import { qc3dGridReads, qc3dService } from '../cornerstone/qc3dService';
+import { lastSeedRaster } from '../cornerstone/seedRasterProbe';
+import { cleanupComputeClient, computeClient, qcComputeClient } from '../compute/computeClient';
 import { cache, getEnabledElementByViewportId, metaData, utilities as csUtilities } from '@cornerstonejs/core';
 import {
   annotation as csAnnotation,
@@ -21,6 +22,8 @@ import { useUnifiedLayoutStore, type LayoutPreset } from '../../stores/unifiedLa
 import { volumeService } from '../cornerstone/volumeService';
 import { viewportService } from '../cornerstone/viewportService';
 import { unifiedToolService } from '../cornerstone/unifiedToolService';
+import { getMaskSelection } from '../cornerstone/maskSelection';
+import { state as csToolsState, ToolGroupManager as csToolGroupManager } from '@cornerstonejs/tools';
 import { unifiedSegService, canDrawOnViewport } from '../cornerstone/unifiedSegService';
 import { guardLoad } from '../app/leaveGuard';
 import { undoService } from '../cornerstone/undoService';
@@ -41,8 +44,9 @@ import { ToolName } from '@shared/types/viewer';
 import { resetContourToolSettings } from '../cornerstone/tools/contourToolSettings';
 import { indexToWorld, worldToIndex } from '../cornerstone/segmentationService/voxelClipboard';
 import { sliceAxisFor } from '../cornerstone/maskIslands';
-import { setSolverMemoryLimits } from '../cornerstone/solverService';
+import { setSolverMemoryLimits, solverGridReads } from '../cornerstone/solverService';
 import { useSeedStore } from '../../stores/seedStore';
+import { runModule, type ModuleLogLine } from '../modules/moduleRunner';
 
 type ActiveSegmentationState = {
   activeSegmentationId: string | null;
@@ -77,7 +81,7 @@ declare global {
       getActiveSegmentationState: () => ActiveSegmentationState;
       getActiveContourSnapshot: (panelId?: string, segmentationId?: string | null) => ActiveContourSnapshot;
       /** Every contour annotation's tool name and a polyline fingerprint (to see it change). */
-      getContourShapes: () => Array<{ toolName: string; polyline: string; closed: boolean; handles: number; handlePoints: number[][] }>;
+      getContourShapes: () => Array<{ toolName: string; polyline: string; closed: boolean; handles: number; handlePoints: number[][]; viewPlaneNormal: number[] | null }>;
       /** Contour drawing tools (Live Wire, Spline) back to their defaults — branch 6. */
       resetContourToolSettings: () => void;
       globalUndoDepth: () => number;
@@ -195,19 +199,65 @@ declare global {
       activeSegmentVoxelCount: () => number;
       /** Voxel count of segment `segmentIndex` of the active container (-1 if none). */
       memberVoxelCount: (segmentIndex: number) => number;
-      /** Dice of a member with a world sphere — the phantoms' structures are spheres (branch 5). */
-      memberSphereDice: (segmentIndex: number, center: [number, number, number], radius: number) => number;
+      /**
+       * Dice of a member with a world sphere — the phantoms' structures are spheres (branch 5) —
+       * or, given an inner radius, with the shell between the two (M5's edema round its cavity).
+       */
+      memberSphereDice: (segmentIndex: number, center: [number, number, number], radius: number, innerRadius?: number) => number;
+      /** The flat indices of a member's voxels, ascending — for voxel-for-voxel comparisons (M5). */
+      memberVoxelIndices: (segmentIndex: number) => number[] | null;
+      /**
+       * The plane a viewport shows, in the active segmentation's voxel grid: the grid axis its
+       * slices run along, the slice index there, and the voxel at the focal point (the sweep).
+       */
+      viewportPlane: (panelId: string) => { axis: 0 | 1 | 2; index: number; focal: [number, number, number]; dims: [number, number, number]; aligned: boolean } | null;
+      /** The seed strokes painted (Seeded segmentation): class and point count of each. */
+      seedStrokes: () => Array<{ cls: number; points: number }>;
+      /** How many mask islands are selected (the Select tool on a Segmentation). */
+      selectedIslandCount: () => number;
+      /** Whether a contour (Spline, Live Wire, Freehand, Contour Fill boundary) is being drawn. */
+      contourDrawing: () => boolean;
+      /** Cornerstone's "a tool is mid-interaction" flag — while set, wheel and drag do nothing. */
+      toolInteracting: () => boolean;
+      /** Count calls to a unified-group tool's method into window.__toolTrace (debugging probes). */
+      traceToolMethod: (toolName: string, method: string) => boolean;
+      /** Cornerstone tools' global state flags (debugging probes). */
+      toolStateFlags: () => Record<string, unknown>;
+      /** Every tool of the unified group with its mode and bindings (binding-leak checks). */
+      toolBindings: () => Record<string, { mode: string; bindings: Array<{ mouseButton?: number; modifierKey?: number }> }>;
+      /** The source image's value (HU on CT) at the viewport's focal voxel, as operations read it. */
+      sourceValueAtFocal: (panelId: string) => number | null;
+      /** Remember every member's voxels of the active segmentation under a tag (the sweep's "before"). */
+      snapshotMembers: (tag: string) => number;
+      /**
+       * What changed since the snapshot, per member: voxels added / removed, the distinct slice
+       * indices (along the viewport's axis) of the changes, and whether the focal voxel changed.
+       */
+      diffMembers: (tag: string, panelId: string) => Record<number, { added: number; removed: number; planes: number[]; focalChanged: boolean; now: number; maxPlaneMm: number; minFocalMm: number; voxelDiagMm: number }> | null;
       /** Lower (or reset, null) the solvers' memory limits so the guard's states show on small fixtures. */
       setSolverMemoryLimits: (limits: { warn: number; block: number } | null) => void;
+      /** Run an installed module through the sandbox (branch 9, M3), optionally cancelling it. */
+      runModule: (id: string, input: Record<string, unknown>, cancelAfterMs?: number) => Promise<{ ok: boolean; result?: unknown; error?: string; logs: ModuleLogLine[]; progress: number }>;
       /** A member's voxels on the slice the viewport shows. */
       memberSliceVoxelCount: (segmentIndex: number, panelId: string) => number;
       clearSeeds: () => void;
       /** Lowest source-image value under the active segment (ground truth for propagation). */
       activeSegmentMinSourceValue: () => number | null;
       /** The 3D QC surfaces built (per component), and whether each is shown. */
+      /** The seed raster of the last seeded run (Random Walker or a seeded solve), per class. */
+      lastSeedRaster: () => import('../cornerstone/seedRasterProbe').SeedRasterSummary | null;
+      /** Whole-volume grid reads by the seeded solver / the 3D QC service (lag regressions). */
+      solverGridReads: () => number;
+      qc3dGridReads: () => number;
       qc3dComponents: () => Array<{ segmentIndex: number; componentId: number; visible: boolean; triangles: number; vertices: number; checksum: number; centroid: number[] | null }>;
       /** Slow each compute-worker progress step by this many ms (0 = off), so a solve can be cancelled. */
       setComputeThrottle: (ms: number) => void;
+      /**
+       * Start a Random Walker solve on the seeds as they are. Since 2026-10-28 it is a Seeded
+       * segmentation method, and one operation is open at a time, so no UI path runs a solve while
+       * the 3D QC sheet builds; this keeps the worker-sharing guarantee (#94) testable.
+       */
+      startRandomWalker: (viewportId: string) => void;
       /** Highest source value under the active segment (null if none / no source). */
       activeSegmentMaxSourceValue: () => number | null;
       /** Active segment's voxel count per slice of its grid (k axis), in grid order. */
@@ -245,6 +295,11 @@ declare global {
       getPanelParallelScale: (panelId: string) => number | null;
       /** Convert a world point to PAGE coordinates on a panel's canvas (DPR-corrected). */
       worldToPanelPagePoint: (panelId: string, world: [number, number, number]) => { x: number; y: number } | null;
+      /**
+       * The page point `dx` mm to the right of and `dy` mm below the focal point, in the plane the
+       * viewport shows — whatever its orientation (the sweep's gestures).
+       */
+      inPlanePagePoint: (panelId: string, dx: number, dy: number) => { x: number; y: number } | null;
       /** Create a Structure (RTSTRUCT) exactly as the side panel does, with ROI 1 active. */
       createUnifiedContourSeg: (label?: string) => Promise<{ segmentationId: string; segmentIndex: number }>;
       /** Swap the XNAT scan API for a scripted fake (scan-click autoload specs). */
@@ -442,6 +497,7 @@ export function installRendererE2eHooks(): void {
           handles: (annotation.data as { handles?: { points?: unknown[] } }).handles?.points?.length ?? 0,
           handlePoints: ((annotation.data as { handles?: { points?: number[][] } }).handles?.points ?? [])
             .map((p) => p.map((v) => Math.round(v * 100) / 100)),
+          viewPlaneNormal: (annotation.metadata?.viewPlaneNormal as number[] | undefined)?.map((v) => Math.round(v * 1000) / 1000) ?? null,
         })),
     resetContourToolSettings: () => resetContourToolSettings(),
     /** Entries Cornerstone's global history ring can undo (branch 6 F5: a held spline's edits add none). */
@@ -837,20 +893,21 @@ export function installRendererE2eHooks(): void {
       const g = activeSegmentationId ? readSegmentVoxelGrid(activeSegmentationId, activeSegmentIndex) : null;
       if (!g) return -1;
       let n = 0;
-      for (let i = 0; i < g.data.length; i++) if (g.data[i] === g.value) n++;
+      for (let i = 0, gd = g.data, gv = g.value; i < gd.length; i++) if (gd[i] === gv) n++;
       return n;
     },
-    memberSphereDice: (segmentIndex, center, radius) => {
+    memberSphereDice: (segmentIndex, center, radius, innerRadius = -1) => {
       const { activeSegmentationId } = useSegmentationStore.getState();
       const g = activeSegmentationId ? readSegmentVoxelGrid(activeSegmentationId, segmentIndex) : null;
       if (!g) return -1;
       const [nx, ny] = g.geometry.dimensions;
       let inter = 0, a = 0, b = 0;
-      for (let i = 0; i < g.data.length; i++) {
+      for (let i = 0, gd = g.data, gv = g.value; i < gd.length; i++) {
         const z = Math.floor(i / (nx * ny)), y = Math.floor(i / nx) % ny, x = i % nx;
         const w = indexToWorld(g.geometry, [x, y, z]);
-        const inS = Math.hypot(w[0] - center[0], w[1] - center[1], w[2] - center[2]) <= radius;
-        const inA = g.data[i] === g.value;
+        const d = Math.hypot(w[0] - center[0], w[1] - center[1], w[2] - center[2]);
+        const inS = d <= radius && d > innerRadius;
+        const inA = gd[i] === gv;
         if (inS) b++;
         if (inA) a++;
         if (inS && inA) inter++;
@@ -858,6 +915,18 @@ export function installRendererE2eHooks(): void {
       return a + b ? (2 * inter) / (a + b) : 0;
     },
     setSolverMemoryLimits: (limits) => setSolverMemoryLimits(limits),
+    runModule: async (id, input, cancelAfterMs) => {
+      const logs: ModuleLogLine[] = [];
+      let progress = 0;
+      const run = runModule(id, input, { onLog: (l) => logs.push(l), onProgress: () => { progress++; } });
+      if (cancelAfterMs !== undefined) setTimeout(() => run.cancel(), cancelAfterMs);
+      try {
+        const result = await run.result;
+        return { ok: true, result, logs, progress };
+      } catch (e) {
+        return { ok: false, error: e instanceof Error ? `${e.name}: ${e.message}` : String(e), logs, progress };
+      }
+    },
     memberSliceVoxelCount: (segmentIndex, panelId) => {
       const { activeSegmentationId } = useSegmentationStore.getState();
       const g = activeSegmentationId ? readSegmentVoxelGrid(activeSegmentationId, segmentIndex) : null;
@@ -868,20 +937,131 @@ export function installRendererE2eHooks(): void {
       const slice = worldToIndex(g.geometry, cam.focalPoint as [number, number, number])[axis];
       const [nx, ny] = g.geometry.dimensions;
       let n = 0;
-      for (let i = 0; i < g.data.length; i++) {
-        if (g.data[i] !== g.value) continue;
+      for (let i = 0, gd = g.data, gv = g.value; i < gd.length; i++) {
+        if (gd[i] !== gv) continue;
         const ijk = [i % nx, Math.floor(i / nx) % ny, Math.floor(i / (nx * ny))];
         if (ijk[axis] === slice) n++;
       }
       return n;
     },
-    clearSeeds: () => useSeedStore.setState({ strokes: [], lastRun: null, paintClass: null, brushPx: 8 }),
+    clearSeeds: () => useSeedStore.setState({ strokes: [], lastRun: {}, paintClass: null, brushPx: 8 }),
+    viewportPlane: (panelId) => {
+      const { activeSegmentationId, activeSegmentIndex } = useSegmentationStore.getState();
+      const g = activeSegmentationId ? readSegmentVoxelGrid(activeSegmentationId, activeSegmentIndex) : null;
+      const vp = viewportService.getViewport(panelId) as { getCamera?: () => { viewPlaneNormal?: number[]; focalPoint?: number[] } } | undefined;
+      const cam = vp?.getCamera?.();
+      if (!g || !cam?.viewPlaneNormal || !cam.focalPoint) return null;
+      const axis = sliceAxisFor(g.geometry.direction, cam.viewPlaneNormal);
+      const focal = worldToIndex(g.geometry, cam.focalPoint as [number, number, number]) as [number, number, number];
+      // Aligned: the view plane is a plane of the voxel grid (not an oblique reformat).
+      const dir = g.geometry.direction, n = cam.viewPlaneNormal;
+      const col = [dir[axis], dir[axis + 3], dir[axis + 6]];
+      const aligned = Math.abs(col[0] * n[0] + col[1] * n[1] + col[2] * n[2]) / (Math.hypot(n[0], n[1], n[2]) || 1) > 0.999;
+      return { axis, index: focal[axis], focal, dims: [...g.geometry.dimensions] as [number, number, number], aligned };
+    },
+    selectedIslandCount: () => getMaskSelection()?.islands.length ?? 0,
+    seedStrokes: () => useSeedStore.getState().strokes.map((st) => ({ cls: st.cls, points: st.points.length })),
+    contourDrawing: () => !!unifiedToolService.drawingTool(),
+    toolInteracting: () => !!(csToolsState as { isInteractingWithTool?: boolean }).isInteractingWithTool,
+    toolStateFlags: () => ({ ...(csToolsState as unknown as Record<string, unknown>) }),
+    traceToolMethod: (toolName, method) => {
+      const id = unifiedToolService.getViewportToolGroupId('panel_0');
+      const tool = (id ? csToolGroupManager.getToolGroup(id)?.getToolInstance(toolName) : null) as Record<string, unknown> | null;
+      const fn = tool?.[method];
+      if (typeof fn !== 'function') return false;
+      const w = window as unknown as { __toolTrace?: Record<string, number> };
+      w.__toolTrace ??= {};
+      tool![method] = function (this: unknown, ...a: unknown[]) { w.__toolTrace![`${toolName}.${method}`] = (w.__toolTrace![`${toolName}.${method}`] ?? 0) + 1; return (fn as (...x: unknown[]) => unknown).apply(this, a); };
+      return true;
+    },
+    toolBindings: () => {
+      const id = unifiedToolService.getViewportToolGroupId('panel_0');
+      const tg = id ? csToolGroupManager.getToolGroup(id) : null;
+      const out: Record<string, { mode: string; bindings: Array<{ mouseButton?: number; modifierKey?: number }> }> = {};
+      for (const [name, o] of Object.entries((tg as unknown as { toolOptions?: Record<string, { mode: string; bindings: [] }> })?.toolOptions ?? {})) out[name] = { mode: o.mode, bindings: o.bindings ?? [] };
+      return out;
+    },
+    sourceValueAtFocal: (panelId) => {
+      const { activeSegmentationId, activeSegmentIndex } = useSegmentationStore.getState();
+      const g = activeSegmentationId ? readSegmentVoxelGrid(activeSegmentationId, activeSegmentIndex) : null;
+      const vp = viewportService.getViewport(panelId) as { getCamera?: () => { focalPoint?: number[] } } | undefined;
+      const f = vp?.getCamera?.()?.focalPoint;
+      const read = g?.sourceReader?.();
+      if (!g || !f || !read) return null;
+      const [nx, ny] = g.geometry.dimensions;
+      const ijk = worldToIndex(g.geometry, f as [number, number, number]);
+      return read(ijk[0] + nx * (ijk[1] + ny * ijk[2]));
+    },
+    snapshotMembers: (tag) => {
+      const { activeSegmentationId, segmentations } = useSegmentationStore.getState();
+      const seg = segmentations.find((x) => x.segmentationId === activeSegmentationId);
+      const snap = new Map<number, Set<number>>();
+      for (const m of seg?.segments ?? []) {
+        const g = readSegmentVoxelGrid(activeSegmentationId!, m.segmentIndex);
+        const set = new Set<number>();
+        if (g) for (let i = 0, gd = g.data, gv = g.value; i < gd.length; i++) if (gd[i] === gv) set.add(i);
+        snap.set(m.segmentIndex, set);
+      }
+      const w = window as unknown as { __sweepSnapshots?: Map<string, Map<number, Set<number>>> };
+      (w.__sweepSnapshots ??= new Map()).set(tag, snap);
+      return snap.size;
+    },
+    diffMembers: (tag, panelId) => {
+      const w = window as unknown as { __sweepSnapshots?: Map<string, Map<number, Set<number>>> };
+      const snap = w.__sweepSnapshots?.get(tag);
+      const { activeSegmentationId, segmentations } = useSegmentationStore.getState();
+      const seg = segmentations.find((x) => x.segmentationId === activeSegmentationId);
+      const vp = viewportService.getViewport(panelId) as { getCamera?: () => { viewPlaneNormal?: number[]; focalPoint?: number[] } } | undefined;
+      const cam = vp?.getCamera?.();
+      if (!snap || !seg || !cam?.viewPlaneNormal || !cam.focalPoint) return null;
+      const out: Record<number, { added: number; removed: number; planes: number[]; focalChanged: boolean; now: number; maxPlaneMm: number; minFocalMm: number; voxelDiagMm: number }> = {};
+      const nrm = cam.viewPlaneNormal, fp = cam.focalPoint;
+      const nl = Math.hypot(nrm[0], nrm[1], nrm[2]) || 1;
+      for (const m of seg.segments) {
+        const g = readSegmentVoxelGrid(activeSegmentationId!, m.segmentIndex);
+        if (!g) continue;
+        const [nx, ny] = g.geometry.dimensions;
+        const axis = sliceAxisFor(g.geometry.direction, cam.viewPlaneNormal);
+        const f = worldToIndex(g.geometry, cam.focalPoint as [number, number, number]);
+        const focalFlat = f[0] + nx * (f[1] + ny * f[2]);
+        const before = snap.get(m.segmentIndex) ?? new Set<number>();
+        const planes = new Set<number>();
+        let added = 0, removed = 0, now = 0, focalChanged = false;
+        // In world space: how far changed voxels lie from the plane on screen and from the focal
+        // point — the invariants for a plane that cuts across the voxel grid (an oblique reformat).
+        let maxPlaneMm = 0, minFocalMm = Infinity;
+        const touch = (i: number) => {
+          planes.add(axis === 0 ? i % nx : axis === 1 ? Math.floor(i / nx) % ny : Math.floor(i / (nx * ny)));
+          if (i === focalFlat) focalChanged = true;
+          const w = indexToWorld(g.geometry, [i % nx, Math.floor(i / nx) % ny, Math.floor(i / (nx * ny))]);
+          const d = [w[0] - fp[0], w[1] - fp[1], w[2] - fp[2]];
+          maxPlaneMm = Math.max(maxPlaneMm, Math.abs(d[0] * nrm[0] + d[1] * nrm[1] + d[2] * nrm[2]) / nl);
+          minFocalMm = Math.min(minFocalMm, Math.hypot(d[0], d[1], d[2]));
+        };
+        for (let i = 0, gd = g.data, gv = g.value; i < gd.length; i++) {
+          const on = gd[i] === gv;
+          if (on) now++;
+          if (on && !before.has(i)) { added++; touch(i); } else if (!on && before.has(i)) { removed++; touch(i); }
+        }
+        const sp = g.geometry.spacing;
+        out[m.segmentIndex] = { added, removed, planes: [...planes].sort((a, b) => a - b), focalChanged, now, maxPlaneMm, minFocalMm, voxelDiagMm: Math.hypot(sp[0], sp[1], sp[2]) };
+      }
+      return out;
+    },
+    memberVoxelIndices: (segmentIndex) => {
+      const { activeSegmentationId } = useSegmentationStore.getState();
+      const g = activeSegmentationId ? readSegmentVoxelGrid(activeSegmentationId, segmentIndex) : null;
+      if (!g) return null;
+      const out: number[] = [];
+      for (let i = 0, gd = g.data, gv = g.value; i < gd.length; i++) if (gd[i] === gv) out.push(i);
+      return out;
+    },
     memberVoxelCount: (segmentIndex) => {
       const { activeSegmentationId } = useSegmentationStore.getState();
       const g = activeSegmentationId ? readSegmentVoxelGrid(activeSegmentationId, segmentIndex) : null;
       if (!g) return -1;
       let n = 0;
-      for (let i = 0; i < g.data.length; i++) if (g.data[i] === g.value) n++;
+      for (let i = 0, gd = g.data, gv = g.value; i < gd.length; i++) if (gd[i] === gv) n++;
       return n;
     },
     activeSegmentMinSourceValue: () => {
@@ -890,10 +1070,14 @@ export function installRendererE2eHooks(): void {
       const read = g?.sourceReader?.();
       if (!g || !read) return null;
       let min = Infinity;
-      for (let i = 0; i < g.data.length; i++) if (g.data[i] === g.value) min = Math.min(min, read(i));
+      for (let i = 0, gd = g.data, gv = g.value; i < gd.length; i++) if (gd[i] === gv) min = Math.min(min, read(i));
       return Number.isFinite(min) ? min : null;
     },
-    setComputeThrottle: (ms) => computeClient.setThrottle(ms),
+    startRandomWalker: (viewportId) => { void import('../cornerstone/semiAutoService').then((m) => m.semiAutoService.randomWalkerRun(viewportId)); },
+    setComputeThrottle: (ms) => { computeClient.setThrottle(ms); qcComputeClient.setThrottle(ms); cleanupComputeClient.setThrottle(ms); },
+    lastSeedRaster: () => lastSeedRaster(),
+    solverGridReads: () => solverGridReads(),
+    qc3dGridReads: () => qc3dGridReads(),
     qc3dComponents: () => qc3dService.builtComponents().map((c) => ({ segmentIndex: c.segmentIndex, componentId: c.componentId, visible: c.visible, triangles: c.mesh.indices.length / 3, vertices: c.mesh.positions.length / 3, checksum: Math.round(c.mesh.positions.reduce((a, v, i) => a + v * ((i % 7) + 1), 0) * 100) / 100, centroid: useQc3dStore.getState().report.find((r) => r.segmentIndex === c.segmentIndex)?.components.find((x) => x.id === c.componentId)?.centroidWorld ?? null })),
     activeSegmentMaxSourceValue: () => {
       const { activeSegmentationId, activeSegmentIndex } = useSegmentationStore.getState();
@@ -901,7 +1085,7 @@ export function installRendererE2eHooks(): void {
       const read = g?.sourceReader?.();
       if (!g || !read) return null;
       let max = -Infinity;
-      for (let i = 0; i < g.data.length; i++) if (g.data[i] === g.value) max = Math.max(max, read(i));
+      for (let i = 0, gd = g.data, gv = g.value; i < gd.length; i++) if (gd[i] === gv) max = Math.max(max, read(i));
       return Number.isFinite(max) ? max : null;
     },
     activeSegmentSliceCounts: () => {
@@ -910,7 +1094,7 @@ export function installRendererE2eHooks(): void {
       if (!g) return [];
       const [nx, ny, nz] = g.geometry.dimensions;
       const out = new Array(nz).fill(0);
-      for (let i = 0; i < g.data.length; i++) if (g.data[i] === g.value) out[Math.floor(i / (nx * ny))]++;
+      for (let i = 0, gd = g.data, gv = g.value; i < gd.length; i++) if (gd[i] === gv) out[Math.floor(i / (nx * ny))]++;
       return out;
     },
     deleteActiveCheckpoints: async () => {
@@ -1080,6 +1264,22 @@ export function installRendererE2eHooks(): void {
       ) as HTMLCanvasElement | null;
       if (!canvas) return null;
       // worldToCanvas is in CSS pixels (not device pixels), so no devicePixelRatio scaling.
+      const rect = canvas.getBoundingClientRect();
+      return { x: rect.left + canvasPt[0], y: rect.top + canvasPt[1] };
+    },
+    inPlanePagePoint: (panelId: string, dx: number, dy: number) => {
+      const ee = getEnabledElementByViewportId(panelId) as
+        | { viewport?: { getCamera?: () => { viewPlaneNormal?: number[]; viewUp?: number[]; focalPoint?: number[] }; worldToCanvas?: (w: [number, number, number]) => [number, number] } }
+        | undefined;
+      const cam = ee?.viewport?.getCamera?.();
+      if (!cam?.viewPlaneNormal || !cam.viewUp || !cam.focalPoint) return null;
+      const [n, u, f] = [cam.viewPlaneNormal, cam.viewUp, cam.focalPoint];
+      // Screen right = viewUp × viewPlaneNormal (VTK: direction of projection is −normal).
+      const r = [u[1] * n[2] - u[2] * n[1], u[2] * n[0] - u[0] * n[2], u[0] * n[1] - u[1] * n[0]];
+      const world = [0, 1, 2].map((k) => f[k] + dx * r[k] - dy * u[k]) as [number, number, number];
+      const canvasPt = ee?.viewport?.worldToCanvas?.(world);
+      const canvas = document.querySelector(`[data-testid="unified-viewport-element:${panelId}"] canvas`) as HTMLCanvasElement | null;
+      if (!canvasPt || !canvas) return null;
       const rect = canvas.getBoundingClientRect();
       return { x: rect.left + canvasPt[0], y: rect.top + canvasPt[1] };
     },

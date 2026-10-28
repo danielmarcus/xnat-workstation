@@ -212,13 +212,35 @@ export interface ElectronAPI {
   };
   checkpoint?: {
     write(key: string, record: import('./checkpoint').CheckpointRecord): Promise<{ ok: boolean; error?: string }>;
-    list(key: string): Promise<{ ok: boolean; checkpoints?: import('./checkpoint').CheckpointMeta[]; error?: string }>;
+    /** `legacy` names the container so checkpoints filed under the pre-#102 key are adopted. */
+    list(key: string, legacy?: { seriesInstanceUID: string; containerLabel: string }): Promise<{ ok: boolean; checkpoints?: import('./checkpoint').CheckpointMeta[]; error?: string }>;
+    /** A rename: move every checkpoint from one key to another, relabelled. */
+    move(fromKey: string, toKey: string, containerLabel: string): Promise<{ ok: boolean; error?: string }>;
     read(key: string, id: string): Promise<{ ok: boolean; record?: import('./checkpoint').CheckpointRecord; error?: string }>;
     delete(key: string, id: string): Promise<{ ok: boolean; error?: string }>;
     /** Save a checkpoint to a file the user picks. */
     exportFile(key: string, id: string): Promise<{ ok: boolean; path?: string; canceled?: boolean; error?: string }>;
     /** Read a checkpoint file the user picks (validated shape; not yet stored). */
     importFile(): Promise<{ ok: boolean; record?: import('./checkpoint').CheckpointRecord; canceled?: boolean; error?: string }>;
+  };
+  modules?: {
+    list(): Promise<{ modules: import('../modules/types').ModuleListing[]; settings: import('../modules/types').ModuleSettings }>;
+    /** Pick a .xwmodule; it is checked and held for install under a token. */
+    pick(): Promise<import('../modules/types').ModuleInspection>;
+    inspectDropped(file: File): Promise<import('../modules/types').ModuleInspection>;
+    install(token: string, acceptCommunity: boolean): Promise<{ ok: boolean; reason?: string; needsConfirmation?: boolean; summary?: import('../modules/types').ModuleSummary }>;
+    remove(id: string): Promise<{ ok: boolean; reason?: string }>;
+    setEnabled(id: string, enabled: boolean): Promise<{ ok: boolean }>;
+    setAllowCommunity(allow: boolean): Promise<{ ok: boolean }>;
+    /** Pick a publisher's public.json and trust its key. */
+    trustKeyPick(): Promise<{ ok: boolean; reason?: string; canceled?: boolean; key?: import('../modules/types').TrustedKey }>;
+    untrustKey(keyId: string): Promise<{ ok: boolean }>;
+    /** Start a sandboxed run; its port arrives as a window message { type: 'xw-module-port', runId }. */
+    runStart(id: string): Promise<{ ok: true; runId: string } | { ok: false; reason: string }>;
+    /** Save a module's log to a file the user picks. */
+    saveLog(text: string, suggested: string): Promise<{ ok: boolean; path?: string; canceled?: boolean; reason?: string }>;
+    /** End a run: its sandboxed process is destroyed. */
+    runStop(runId: string): Promise<{ ok: boolean }>;
   };
   diagnostics?: {
     getMainSnapshot(): Promise<MainDiagnosticsSnapshotResult>;

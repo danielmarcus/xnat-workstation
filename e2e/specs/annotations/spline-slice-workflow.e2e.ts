@@ -48,12 +48,17 @@ const sliceIndex = (page: Page) => page.evaluate(() => (window as unknown as Win
 const inHand = async (page: Page, toolName: string) => (await shapes(page)).filter((s) => s.toolName === toolName && s.closed);
 const toast = (page: Page) => page.locator('[data-testid="viewport-toast"]');
 
-async function at(page: Page, dx: number, dy: number): Promise<{ x: number; y: number }> {
-  return page.evaluate(([dx, dy]) => {
+/**
+ * The page point dx mm along world X and dy mm along `col` from the focal point. `col` must
+ * lie in the slice on screen — world +Y on an axial slice; on a tilted acquisition, its
+ * column direction (a world-Y offset there projects to only cos(tilt) of itself).
+ */
+async function at(page: Page, dx: number, dy: number, col: readonly number[] = [0, 1, 0]): Promise<{ x: number; y: number }> {
+  return page.evaluate(([dx, dy, col]) => {
     const h = (window as unknown as Win).__XNAT_E2E__;
     const f = h.getPanelFocalPoint('panel_0')!;
-    return h.worldToPanelPagePoint('panel_0', [f[0] + dx, f[1] + dy, f[2]])!;
-  }, [dx, dy] as const);
+    return h.worldToPanelPagePoint('panel_0', [f[0] + dx + dy * col[0], f[1] + dy * col[1], f[2] + dy * col[2]])!;
+  }, [dx, dy, col] as const);
 }
 
 async function open(page: Page, kind: 'SEG' | 'RTSTRUCT', fixture = 'ct-axial-anatomy'): Promise<Locator> {
@@ -65,7 +70,7 @@ async function open(page: Page, kind: 'SEG' | 'RTSTRUCT', fixture = 'ct-axial-an
   await page.keyboard.press('Escape');
   const toolbox = panel.locator('[data-testid="context-toolbox"]');
   if (kind === 'SEG') {
-    await expect(toolbox.getByRole('button', { name: 'Contour Fill', exact: true })).toBeVisible({ timeout: 10_000 });
+    await expect(toolbox.getByRole('button', { name: 'Contour', exact: true })).toBeVisible({ timeout: 10_000 });
     await clickTool(toolbox, 'Contour Fill');
     await toolbox.getByRole('group', { name: 'Boundary' }).getByRole('button', { name: 'Spline' }).click();
   } else {
@@ -76,13 +81,13 @@ async function open(page: Page, kind: 'SEG' | 'RTSTRUCT', fixture = 'ct-axial-an
 }
 
 /** Click anchors round a circle of radius r (mm), then the first again to close. */
-async function clickRing(page: Page, r: number) {
+async function clickRing(page: Page, r: number, col?: readonly number[]) {
   for (const d of RING) {
-    const p = await at(page, r * Math.cos((d * Math.PI) / 180), r * Math.sin((d * Math.PI) / 180));
+    const p = await at(page, r * Math.cos((d * Math.PI) / 180), r * Math.sin((d * Math.PI) / 180), col);
     await page.mouse.click(p.x, p.y);
     await page.waitForTimeout(120);
   }
-  const first = await at(page, r, 0);
+  const first = await at(page, r, 0, col);
   await page.mouse.click(first.x, first.y);
 }
 
@@ -318,10 +323,14 @@ test('⎋ drops the spline in hand and writes nothing', async ({ page }) => {
 test('Propagate on an oblique acquisition: the spline follows the sphere onto the next slice (index space)', async ({ page }) => {
   // ct-oblique: a sphere (r 24 mm, 300 HU in −1000) on a ~30° tilted acquisition plane; the
   // slices either side of the one shown are both 1.5 mm from its centre (r ≈ 23.95 mm).
+  // The ring is drawn IN the acquisition plane (column direction [0, cos 30°, sin 30°]). Offset
+  // along world Y instead, it was an ellipse of cos 30° the area (~1546 voxels against the
+  // section's ~1804), and the propagated spline — on the sphere, ~1780 — measured 1.15× it.
   const toolbox = await open(page, 'SEG', 'ct-oblique');
-  await clickRing(page, Math.sqrt(24 * 24 - 1.5 * 1.5));
+  await clickRing(page, Math.sqrt(24 * 24 - 1.5 * 1.5), [0, Math.cos(Math.PI / 6), Math.sin(Math.PI / 6)]);
   await expect.poll(() => voxels(page), { timeout: 8_000 }).toBeGreaterThan(1000);
   const one = await voxels(page);
+  expect(one, 'the ring fills the section, not an ellipse of it').toBeGreaterThan(Math.PI * (24 * 24 - 1.5 * 1.5) * 0.9);
   await toolbox.getByRole('button', { name: 'Propagate to the next slice' }).click();
   await expect.poll(async () => (await inHand(page, FILL_SPLINE)).length).toBe(1);
   await page.keyboard.press('Enter');
@@ -335,4 +344,66 @@ test('the Slice row and Commit appear only for a spline: Live Wire boundary has 
   await toolbox.getByRole('group', { name: 'Boundary' }).getByRole('button', { name: 'Live Wire' }).click();
   await expect(button(toolbox, 'Copy nearby')).toHaveCount(0);
   await expect(button(toolbox, 'Undo & edit')).toHaveCount(0);
+});
+
+test('Copy nearby on a locked segment is refused with the lock warning — nothing held, nothing written', async ({ page }) => {
+  // The spline actions are buttons and keys: the draw guard (a pointer-down check) never saw
+  // them, and they wrote into locked — approved — segments.
+  const toolbox = await open(page, 'SEG');
+  await clickRing(page, BONE_R);
+  await expect.poll(() => voxels(page), { timeout: 8_000 }).toBeGreaterThan(DISC * 0.85);
+  const one = await voxels(page);
+  await stepSlice(page, 'ArrowDown');
+  const panel = page.locator('[data-testid="annotations-side-panel"]');
+  await panel.locator('[data-testid^="member-row-"]').first().getByRole('button', { name: 'Toggle lock' }).click();
+  await button(toolbox, 'Copy nearby').click();
+  await expect(toast(page)).toContainText('locked');
+  expect(await inHand(page, FILL_SPLINE)).toHaveLength(0);
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(300);
+  expect(await voxels(page)).toBe(one);
+});
+
+test('a spline whose commit wrote nothing is not recorded — Undo & edit does not undo the edit before it', async ({ page }) => {
+  // A fill inside an already-painted area adds no voxels and pushes no undo entry; the newest
+  // entry was then the square painted before, and Undo & edit undid THAT.
+  const toolbox = await open(page, 'SEG');
+  await clickTool(toolbox, 'Rect');
+  const a = await at(page, -20, -20), b = await at(page, 20, 20);
+  await page.mouse.move(a.x, a.y); await page.mouse.down(); await page.mouse.move(b.x, b.y, { steps: 8 }); await page.mouse.up();
+  await expect.poll(() => voxels(page)).toBeGreaterThan(0);
+  const square = await voxels(page);
+  await clickTool(toolbox, 'Contour Fill');
+  await toolbox.getByRole('group', { name: 'Boundary' }).getByRole('button', { name: 'Spline' }).click();
+  await clickRing(page, 8); // inside the square: nothing to add
+  await expect.poll(async () => (await inHand(page, FILL_SPLINE)).length).toBe(0);
+  expect(await voxels(page)).toBe(square);
+  // Nothing to undo-and-edit: the button is off — or, if offered, it must not undo the square.
+  if (await button(toolbox, 'Undo & edit').isEnabled()) await button(toolbox, 'Undo & edit').click();
+  await page.waitForTimeout(400);
+  expect(await voxels(page), 'the square is still there').toBe(square);
+  await page.keyboard.press('Escape');
+});
+
+test('Copy nearby copies what is on the slice now — not a remembered spline that was edited since', async ({ page }) => {
+  const toolbox = await open(page, 'SEG');
+  await clickRing(page, BONE_R);
+  await expect.poll(() => voxels(page), { timeout: 8_000 }).toBeGreaterThan(DISC * 0.85);
+  // Erase half the disc (⇧ inverts Rect).
+  await clickTool(toolbox, 'Rect');
+  const a = await at(page, -BONE_R - 2, -BONE_R - 2), b = await at(page, 0, BONE_R + 2);
+  await page.keyboard.down('Shift');
+  await page.mouse.move(a.x, a.y); await page.mouse.down(); await page.mouse.move(b.x, b.y, { steps: 8 }); await page.mouse.up();
+  await page.keyboard.up('Shift');
+  await expect.poll(() => voxels(page)).toBeLessThan(DISC * 0.7);
+  await clickTool(toolbox, 'Contour Fill');
+  await toolbox.getByRole('group', { name: 'Boundary' }).getByRole('button', { name: 'Spline' }).click();
+  await stepSlice(page, 'ArrowDown');
+  await button(toolbox, 'Copy nearby').click();
+  const held = await inHand(page, FILL_SPLINE);
+  expect(held).toHaveLength(1);
+  // The held outline is the half disc: no control point left of the cut (x < f.x − 2 mm).
+  const f = await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.getPanelFocalPoint('panel_0')!);
+  expect(Math.min(...held[0].handlePoints.map((p) => p[0])), 'the erased half is not copied').toBeGreaterThan(f[0] - 2);
+  await page.keyboard.press('Escape');
 });

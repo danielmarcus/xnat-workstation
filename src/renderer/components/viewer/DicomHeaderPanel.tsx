@@ -187,6 +187,9 @@ export default function DicomHeaderPanel({ onClose }: DicomHeaderPanelProps) {
   // Fetch and parse DICOM tags whenever viewport or image changes
   const [allTags, setAllTags] = useState<ParsedTag[]>([]);
   const [currentImageId, setCurrentImageId] = useState<string>('');
+  // A revealed PHI value is masked again when Hide PHI is switched (back) on, and when another
+  // image is shown — revealing is for one value, now, not for the session.
+  useEffect(() => { setRevealed(new Set()); }, [hidePhi, currentImageId]);
 
   useEffect(() => {
     const viewport = viewportService.getViewport(activeViewportId);

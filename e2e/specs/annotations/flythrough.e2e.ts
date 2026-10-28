@@ -120,3 +120,27 @@ test('with nothing segmented it says so instead of starting', async ({ page }) =
   await expect(page.getByTestId('viewport-hud')).toHaveText('Nothing segmented to review');
   await expect(page.getByTestId('flythrough-player')).toHaveCount(0);
 });
+
+test('a segment filter chosen in one segmentation does not apply to another\'s review', async ({ page }) => {
+  // Segment numbers mean nothing across containers: the filter [Segment 2] chosen for A made
+  // B's review find "nothing segmented" (B has only a Segment 1).
+  const { panel } = await segmentedRange(page);
+  await panel.getByRole('button', { name: 'Add member' }).first().click();
+  await page.keyboard.press('Escape');
+  await stroke(page);
+  await startFromMenu(panel);
+  await expect(page.getByTestId('flythrough-player')).toBeVisible();
+  await page.getByRole('button', { name: 'Review settings' }).click();
+  await page.getByTestId('flythrough-settings').getByLabel('Segment 1').uncheck();
+  await page.getByRole('button', { name: 'Stop review' }).click();
+  await expect(page.getByTestId('flythrough-player')).toHaveCount(0);
+  // Segmentation B: only a Segment 1, painted.
+  await panel.getByRole('button', { name: 'New Segmentation (SEG)' }).click();
+  await page.keyboard.press('Escape');
+  await clickTool(panel.locator('[data-testid="context-toolbox"]'), 'Brush');
+  await stroke(page);
+  await panel.getByRole('button', { name: 'Container menu' }).last().click();
+  await panel.getByRole('menuitem', { name: 'Review flythrough' }).click();
+  await expect(page.getByTestId('flythrough-player'), 'B is reviewed — the filter was A\'s').toBeVisible();
+  await page.getByRole('button', { name: 'Stop review' }).click();
+});

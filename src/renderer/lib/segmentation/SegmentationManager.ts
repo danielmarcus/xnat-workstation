@@ -14,6 +14,7 @@
 import { viewportReadyService } from '../cornerstone/viewportReadyService';
 import { segmentationService } from '../cornerstone/segmentationService';
 import { rtStructService } from '../cornerstone/rtStructService';
+import { checkpointIdentity, followCheckpointRename } from '../cornerstone/checkpointService';
 import { useSegmentationManagerStore, type RGBA } from '../../stores/segmentationManagerStore';
 import { useSegmentationStore } from '../../stores/segmentationStore';
 import { useViewerStore } from '../../stores/viewerStore';
@@ -1065,7 +1066,10 @@ export class SegmentationManager {
    * Rename a segmentation (the top-level label).
    */
   renameSegmentation(segmentationId: string, newLabel: string): void {
+    const before = checkpointIdentity(segmentationId);
     segmentationService.renameSegmentation(segmentationId, newLabel);
+    // Checkpoints are filed under the label: they move with it (#102).
+    void followCheckpointRename(segmentationId, before);
   }
 
   /**
@@ -1156,11 +1160,15 @@ export class SegmentationManager {
         }
       }
 
-      // Restore lock state
+      // Restore lock state. Lock is segmentation-level state that outlives the viewport
+      // and the only setter is a toggle, so toggle only a member that lost its lock — a
+      // blind toggle UNLOCKED every member still locked (a loaded structure, on its
+      // second restore).
       for (const [idxStr, locked] of Object.entries(cached.locked)) {
         if (locked) {
           const idx = Number(idxStr);
           if (!Number.isFinite(idx) || !Number.isInteger(idx) || idx <= 0) continue;
+          if (segmentationService.getSegmentLocked(segmentationId, idx)) continue;
           segmentationService.toggleSegmentLocked(segmentationId, idx);
         }
       }

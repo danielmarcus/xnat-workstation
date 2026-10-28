@@ -6,6 +6,11 @@ import { registerExportHandlers } from './ipc/exportHandlers';
 import { registerUploadHandlers } from './ipc/uploadHandlers';
 import { registerBackupHandlers } from './ipc/backupHandlers';
 import { registerCheckpointHandlers } from './ipc/checkpointHandlers';
+import { currentEdition, registerModuleHandlers } from './ipc/moduleHandlers';
+import { registerModuleRunHandlers, registerModuleScheme } from './modules/moduleRuntime';
+
+// Modules' sandboxed windows load from xnat-module:// — a scheme must be registered before ready.
+registerModuleScheme();
 import { registerDiagnosticsHandlers } from './ipc/diagnosticsHandlers';
 import { registerUpdateHandlers } from './ipc/updateHandlers';
 import { installMainLogCapture } from './diagnostics/mainLogBuffer';
@@ -20,9 +25,11 @@ process.stdout?.on?.('error', () => {});
 process.stderr?.on?.('error', () => {});
 
 // ─── App Name ───────────────────────────────────────────────────
-// Set the app name to "XNAT" so macOS shows it in the menu
-// bar and dock instead of the default "Electron".
-app.name = 'XNAT';
+// The edition's names (docs/editions.md): its short name ("XNAT" for the open-source edition)
+// in the macOS menu bar and dock instead of the default "Electron" — and, set before ready, the
+// user-data folder — and its product name in titles and the About panel.
+const PRODUCT_NAME = currentEdition()?.productName ?? 'XNAT Workstation';
+app.name = currentEdition()?.appName ?? 'XNAT';
 
 let mainWindow: BrowserWindow | null = null;
 // App-close guard: set true once the renderer has confirmed it's safe to quit
@@ -74,15 +81,15 @@ function buildAppMenu(): void {
     ...(isMac ? [{
       label: app.name,
       submenu: [
-        { role: 'about' as const, label: 'About XNAT Workstation' },
+        { role: 'about' as const, label: `About ${PRODUCT_NAME}` },
         { type: 'separator' as const },
         { role: 'services' as const },
         { type: 'separator' as const },
-        { role: 'hide' as const, label: 'Hide XNAT Workstation' },
+        { role: 'hide' as const, label: `Hide ${PRODUCT_NAME}` },
         { role: 'hideOthers' as const },
         { role: 'unhide' as const },
         { type: 'separator' as const },
-        { role: 'quit' as const, label: 'Quit XNAT Workstation' },
+        { role: 'quit' as const, label: `Quit ${PRODUCT_NAME}` },
       ],
     }] : []),
     // File menu
@@ -174,7 +181,7 @@ function createWindow(): void {
     // test runs don't interrupt other work.
     show: !isE2E,
     ...(isE2E ? { x: -5000, y: -5000 } : {}),
-    title: 'XNAT Workstation',
+    title: PRODUCT_NAME,
     icon: appIcon.isEmpty() ? undefined : appIcon,
     backgroundColor: '#09090b',
     webPreferences: {
@@ -208,6 +215,8 @@ function createWindow(): void {
   // annotations, and only really close once the renderer replies 'proceed' (via
   // APP_CLOSE_DECISION → allowClose). Bypassed under E2E so the test harness can
   // close the window without a hanging prompt.
+  // The window keeps the edition's product name; the page's own <title> is not an edition's.
+  mainWindow.on('page-title-updated', (e) => e.preventDefault());
   mainWindow.on('close', (e) => {
     if (allowClose || isE2E) return;
     e.preventDefault();
@@ -227,6 +236,8 @@ app.whenReady().then(() => {
   registerUploadHandlers();
   registerBackupHandlers();
   registerCheckpointHandlers();
+  registerModuleHandlers();
+  registerModuleRunHandlers();
   registerDiagnosticsHandlers();
   registerUpdateHandlers();
   autoUpdateService.initialize();
@@ -269,7 +280,7 @@ app.whenReady().then(() => {
   // the dock icon automatically, so no icon property is needed here.
   if (process.platform === 'darwin') {
     app.setAboutPanelOptions({
-      applicationName: 'XNAT Workstation',
+      applicationName: PRODUCT_NAME,
     });
   }
 

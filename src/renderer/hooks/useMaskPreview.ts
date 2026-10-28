@@ -16,5 +16,5 @@ export function useMaskPreview(): MaskPreviewState & {
 } {
   const state = useMaskPreviewStore();
   const job = useComputeStore((s) => s.job);
-  return { ...state, commit: () => { commitPreview(); }, discard: discardPreview, job, cancelJob: () => computeClient.cancelCurrent() };
+  return { ...state, commit: () => { commitPreview(); }, discard: discardPreview, job, cancelJob: () => (job?.cancel ? job.cancel() : computeClient.cancelCurrent()) };
 }

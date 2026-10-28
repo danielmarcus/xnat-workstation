@@ -92,16 +92,14 @@ const SEG_TOOLS: ToolDef[] = [
   { id: 'rectangleScissors', group: 'shape', label: 'Rect', title: 'Drag a rectangle; everything inside it is added to or removed from the segment (hold Shift to invert)', needs: ['editMode'], icon: S(<rect x="3" y="4" width="10" height="8" rx="1" fill="currentColor" fillOpacity={0.25} />) },
   { id: 'sphereScissors', group: 'shape', label: 'Sphere', title: 'Drag a sphere; everything inside it is added to or removed from the segment, across slices (hold Shift to invert)', needs: ['editMode'], icon: S(<><circle cx="8" cy="8" r="5" fill="currentColor" fillOpacity={0.25} /><ellipse cx="8" cy="8" rx="5" ry="2" /></>) },
   { id: 'paintFill', group: 'paint', label: 'Paint Fill', title: 'Flood-fill the enclosed region under the cursor (F)', icon: S(<><path d="M3 8l5-5 5 5-5 5z" /><path d="M11 11c1 1 1 2 0 2" /></>) },
-  { id: 'region', group: 'smart', label: 'Region', title: 'Grow a region outward from the voxel you click', needs: ['brushSize'], icon: S(<><circle cx="8" cy="8" r="4" strokeDasharray="2 1.3" /><circle cx="8" cy="8" r="1.3" fill="currentColor" stroke="none" /></>) },
-  { id: 'regionPlus', group: 'smart', label: 'Region+', title: 'Grow a region outward, adapting the boundary as it goes', needs: ['brushSize'], icon: S(<><circle cx="8" cy="8" r="4" strokeDasharray="2 1.3" /><path d="M8 6v4M6 8h4" /></>) },
+  { id: 'region', group: 'smart', label: 'Region', title: 'Drag a circle across a structure: it is segmented in 3D within that sphere (grow-cut)', needs: ['brushSize'], icon: S(<><circle cx="8" cy="8" r="4" strokeDasharray="2 1.3" /><circle cx="8" cy="8" r="1.3" fill="currentColor" stroke="none" /></>) },
+  { id: 'regionPlus', group: 'smart', label: 'Region+', title: 'Click a structure: it is segmented in 3D (one-click grow-cut)', needs: ['brushSize'], icon: S(<><circle cx="8" cy="8" r="4" strokeDasharray="2 1.3" /><path d="M8 6v4M6 8h4" /></>) },
   { id: 'rectMulti', group: 'shape', label: 'Rect Multi', title: 'Drag a rectangle; everything inside it within the intensity window joins the segment', needs: ['intensityWindow'], icon: S(<><rect x="4.5" y="2.5" width="9" height="7" rx="1" /><path d="M2.5 5.5v8h9" /></>) },
   { id: 'contourFill', group: 'shape', label: 'Contour Fill', title: 'Draw a boundary — freehand, spline or live wire — and the area it encloses joins the segment (O)', needs: ['contourDraw'], icon: S(<path d="M4 8c0-3 8-3 8 0s-8 3-8 0z" fill="currentColor" fillOpacity={0.25} />) },
   { id: 'levelTrace', group: 'smart', label: 'Level Trace', title: 'Click a structure: the connected region of similar intensity is previewed; ⏎ adds it', needs: ['semiAuto'], icon: S(<><path d="M3 9c1-4 9-5 10-1s-6 6-9 3" /><circle cx="8" cy="8" r="1" fill="currentColor" stroke="none" /></>) },
   { id: 'smartBrush', group: 'paint', label: 'Smart Brush', title: 'Paint only the tissue under the brush — it does not spill across boundaries', needs: ['semiAuto'], icon: S(<><circle cx="8" cy="8" r="4" /><path d="M8 4v8" strokeDasharray="1.5 1" /></>) },
-  { id: 'randomWalker', group: 'smart', label: 'Rnd. Walker', title: 'Drag foreground seeds; ⇧-drag background seeds; Run segments between them (Random Walker)', needs: ['semiAuto'], icon: S(<><path d="M3 12l3-4 2 3 3-6 2 4" /></>) },
   { id: 'roiLimit', group: 'smart', label: 'ROI limit', title: 'Drag a rectangle that Level Trace, Random Walker and Cleanup stay inside', needs: ['semiAuto'], icon: S(<rect x="3" y="4" width="10" height="8" rx="1" strokeDasharray="2 1.3" />) },
   { ...SELECT_TOOL, group: 'general' },
-  { id: 'segBidirectional', group: 'general', label: 'Seg Bidir.', title: 'Measure the active segment\u2019s longest axis and its perpendicular', icon: S(<><ellipse cx="8" cy="8" rx="6" ry="4" strokeDasharray="2 1.3" /><path d="M3.5 8h9M8 4.5v7" /></>) },
 ];
 
 const STRUCTURE_TOOLS: ToolDef[] = [
@@ -124,17 +122,149 @@ const MEASUREMENT_TOOLS: ToolDef[] = [
   { id: 'freehandROI', label: 'Freehand ROI', title: 'Measure a freehand region and its statistics', icon: S(<path d="M3 10c1-4 4-5 6-2s4 0 4-3" />) },
 ];
 
+/**
+ * A Segmentation tool family (annotation-panel-modes, 2026-10-28): one button in the
+ * toolbox's family row standing for tools that are variants of one gesture. The variants
+ * stay separate Cornerstone tools; the family's mode rows choose between them.
+ */
+export interface ModeAxis {
+  id: string;
+  label: string;
+  options: Array<{ value: string; label: string; title: string }>;
+}
+
+export interface ToolFamily {
+  id: string;
+  label: string;
+  title: string;
+  icon: ReactNode;
+  /** Catalog ids of the family's tools; the first is what the family button starts with. */
+  members: string[];
+  /** The choices between members, one row each. Absent for a one-tool family. */
+  axes?: ModeAxis[];
+  /** Each member's value on every axis (members without one are not reachable by mode). */
+  modes?: Record<string, Record<string, string>>;
+}
+
+const toolDef = (id: string): ToolDef => {
+  const t = SEG_TOOLS.find((x) => x.id === id);
+  if (!t) throw new Error(`toolCatalog: no Segmentation tool "${id}"`);
+  return t;
+};
+
+export const SEG_FAMILIES: ToolFamily[] = [
+  { id: 'select', label: 'Select', title: SELECT_TOOL.title, icon: SELECT_TOOL.icon, members: ['select'] },
+  {
+    id: 'brush',
+    label: 'Brush',
+    title: 'Paint into the active segment: a 2D or 3D kernel, optionally limited to an intensity window, a window sampled from the click, or the tissue under the brush (B)',
+    icon: toolDef('brush').icon,
+    members: ['brush', 'sphereBrush', 'threshold', 'sphereThreshold', 'dynamicThreshold', 'smartBrush'],
+    axes: [
+      { id: 'kernel', label: 'Kernel', options: [
+        { value: '2d', label: '2D', title: 'Paint on the slice on screen' },
+        { value: '3d', label: '3D', title: 'Paint with a sphere: one stroke also reaches neighbouring slices (None and Window limits only)' },
+      ] },
+      { id: 'limit', label: 'Limit', options: [
+        { value: 'none', label: 'None', title: 'Paint everything under the brush' },
+        { value: 'window', label: 'Window', title: 'Paint only where intensity falls inside the window' },
+        { value: 'click', label: 'From click', title: 'Paint within a window sampled from the voxel you click (2D only)' },
+        { value: 'edges', label: 'Edges', title: 'Paint only the tissue under the brush — it does not spill across boundaries (2D only)' },
+      ] },
+    ],
+    modes: {
+      brush: { kernel: '2d', limit: 'none' },
+      sphereBrush: { kernel: '3d', limit: 'none' },
+      threshold: { kernel: '2d', limit: 'window' },
+      sphereThreshold: { kernel: '3d', limit: 'window' },
+      dynamicThreshold: { kernel: '2d', limit: 'click' },
+      smartBrush: { kernel: '2d', limit: 'edges' },
+    },
+  },
+  { id: 'fill', label: 'Fill', title: toolDef('paintFill').title, icon: toolDef('paintFill').icon, members: ['paintFill'] },
+  {
+    id: 'shape',
+    label: 'Shape',
+    title: 'Drag a circle, rectangle or sphere; everything inside it is added to or removed from the segment, optionally only within an intensity window',
+    icon: toolDef('rectangleScissors').icon,
+    members: ['rectangleScissors', 'circleScissors', 'sphereScissors', 'rectMulti'],
+    axes: [
+      { id: 'shape', label: 'Shape', options: [
+        { value: 'circle', label: 'Circle', title: 'Drag a circle on the slice' },
+        { value: 'rect', label: 'Rect', title: 'Drag a rectangle on the slice' },
+        { value: 'sphere', label: 'Sphere', title: 'Drag a sphere: it reaches neighbouring slices (no window limit)' },
+      ] },
+      { id: 'limit', label: 'Limit', options: [
+        { value: 'none', label: 'None', title: 'Everything inside the shape' },
+        { value: 'window', label: 'Window', title: 'Only what falls inside the intensity window (rectangle only)' },
+      ] },
+    ],
+    modes: {
+      circleScissors: { shape: 'circle', limit: 'none' },
+      rectangleScissors: { shape: 'rect', limit: 'none' },
+      sphereScissors: { shape: 'sphere', limit: 'none' },
+      rectMulti: { shape: 'rect', limit: 'window' },
+    },
+  },
+  { id: 'contour', label: 'Contour', title: toolDef('contourFill').title, icon: toolDef('contourFill').icon, members: ['contourFill'] },
+  {
+    id: 'region',
+    label: 'Region',
+    title: 'Segment a structure in 3D with grow-cut: drag a circle across it, or click it once',
+    icon: toolDef('region').icon,
+    members: ['region', 'regionPlus'],
+    axes: [
+      { id: 'gesture', label: 'Gesture', options: [
+        { value: 'drag', label: 'Drag', title: 'Drag a circle across the structure; it is segmented within that sphere' },
+        { value: 'click', label: 'Click', title: 'Click the structure once' },
+      ] },
+    ],
+    modes: { region: { gesture: 'drag' }, regionPlus: { gesture: 'click' } },
+  },
+  { id: 'trace', label: 'Trace', title: toolDef('levelTrace').title, icon: toolDef('levelTrace').icon, members: ['levelTrace'] },
+];
+
+/** Each grouped tool's own label from before the families — the ⌘K finder still finds it by it. */
+export const TOOL_LABELS_BEFORE_FAMILIES: Readonly<Record<string, string>> = Object.fromEntries(SEG_TOOLS.map((t) => [t.id, t.label]));
+
+/** The family a Segmentation tool belongs to, or undefined (other kinds, moved tools). */
+export function familyOf(toolId: string | null | undefined): ToolFamily | undefined {
+  return toolId ? SEG_FAMILIES.find((f) => f.members.includes(toolId)) : undefined;
+}
+
+/**
+ * The tool to activate when `axis` is set to `value` while `current` is active: the member
+ * with that value and every other axis unchanged, or — when that combination does not
+ * exist (3D + Edges) — the first member that has the value. Undefined when none does.
+ */
+export function resolveMode(family: ToolFamily, current: string | null, axis: string, value: string): string | undefined {
+  const modes = family.modes ?? {};
+  const now = (current && modes[current]) || modes[family.members[0]] || {};
+  const want = { ...now, [axis]: value };
+  const exact = Object.keys(modes).find((id) => Object.entries(want).every(([a, v]) => modes[id][a] === v));
+  return exact ?? Object.keys(modes).find((id) => modes[id][axis] === value);
+}
+
 /** Segmentation tools in grid order: each family together, catalog order within it. */
 const SEG_TOOLS_IN_ORDER = SEG_GROUP_ORDER.flatMap((g) => SEG_TOOLS.filter((t) => t.group === g));
 
-/** Operations the Operations section's picker offers (D1, amended 2026-10-12). */
-export const SEG_OPERATIONS: Array<{ id: 'cleanup' | 'interpolate' | 'propagate' | 'seeded' | 'regionCompetition' | 'qc3d'; label: string; title: string }> = [
-  { id: 'cleanup', label: 'Cleanup', title: 'Fill holes, keep largest, remove specks and strays, smooth, open/close (X)' },
-  { id: 'propagate', label: 'Propagate', title: 'Grow the segment from the slice on screen into its neighbours, following the image' },
-  { id: 'interpolate', label: 'Interpolate', title: 'Fill empty slices between painted ones: every gap, the slice on screen, or between anchors A and B' },
-  { id: 'seeded', label: 'Seeded segmentation', title: 'Paint seeds of the segments and the Background, then solve in 3D: Fast GrowCut, Graph Cut or multi-label graph cut' },
-  { id: 'regionCompetition', label: 'Region competition', title: 'Let the segments and the Background compete for voxels by intensity and smoothness, starting from the segmentation as it is (SegWorks\' Chan-Vese)' },
-  { id: 'qc3d', label: '3D QC', title: 'Check the segmentation in 3D beside the slice: surfaces, a component report with strays and specks, jump to and delete components, 3D scissor' },
+/** An entry of the Operations picker: a built-in operation or a module's (one registry, branch 9 M4). */
+export interface OperationDescriptor {
+  id: string;
+  label: string;
+  title: string;
+  /** Its heading in the grouped picker (R4-A); every module is under Modules. */
+  group: 'Clean' | 'Fill in' | 'Segment' | 'Check' | 'Modules';
+}
+
+/** The built-in operations the picker offers (D1, amended 2026-10-12), each in its group (R4-A). */
+export const SEG_OPERATIONS: Array<{ id: 'cleanup' | 'interpolate' | 'propagate' | 'seeded' | 'regionCompetition' | 'qc3d'; label: string; title: string; group: Exclude<OperationDescriptor['group'], 'Modules'> }> = [
+  { id: 'cleanup', group: 'Clean', label: 'Cleanup', title: 'Fill holes, keep largest, remove specks and strays, smooth, open/close (X)' },
+  { id: 'propagate', group: 'Fill in', label: 'Propagate', title: 'Grow the segment from the slice on screen into its neighbours, following the image' },
+  { id: 'interpolate', group: 'Fill in', label: 'Interpolate', title: 'Fill empty slices between painted ones: every gap, the slice on screen, or between anchors A and B' },
+  { id: 'seeded', group: 'Segment', label: 'Seeded segmentation', title: 'Paint seeds of the segments and the Background, then solve in 3D: Fast GrowCut, Graph Cut or multi-label graph cut' },
+  { id: 'regionCompetition', group: 'Segment', label: 'Region competition', title: 'Let the segments and the Background compete for voxels by intensity and smoothness, starting from the segmentation as it is (SegWorks\' Chan-Vese)' },
+  { id: 'qc3d', group: 'Check', label: '3D QC', title: 'Check the segmentation in 3D beside the slice: surfaces, a component report with strays and specks, jump to and delete components, 3D scissor' },
 ];
 
 export function toolsForKind(kind: ContainerKind): ToolDef[] {
@@ -176,10 +306,8 @@ export const CATALOG_TO_TOOLNAME: Record<string, ToolName> = {
   contourFill: ToolName.LabelmapEditWithContour,
   levelTrace: ToolName.LevelTrace,
   smartBrush: ToolName.SmartBrush,
-  randomWalker: ToolName.RandomWalker,
   roiLimit: ToolName.RoiLimit,
   select: ToolName.Select,
-  segBidirectional: ToolName.SegmentBidirectional,
   // Structure
   freehand: ToolName.FreehandContour,
   spline: ToolName.SplineContour,

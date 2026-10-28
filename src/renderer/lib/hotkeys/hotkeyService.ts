@@ -11,6 +11,7 @@
  * through existing stores (viewerStore, segmentationStore, annotationStore).
  */
 import type { HotkeyAction, HotkeyBinding, HotkeyMap } from '@shared/types/hotkeys';
+import { useFinderStore } from '../../stores/finderStore';
 import { CONTOUR_FILL_MODE_LABEL, CONTOUR_FILL_MODES, CONTOUR_FILL_TOOLNAME, contourFillModeOf, ToolName, WL_PRESETS, panelId as makePanelId } from '@shared/types/viewer';
 import { getContourToolSettings, setContourFillMode } from '../cornerstone/tools/contourToolSettings';
 import type { LayoutType } from '@shared/types/viewer';
@@ -274,6 +275,11 @@ function dispatchActionInner(action: HotkeyAction): boolean {
     // Panel toggles
     case 'panel.toggleSegmentation':
       useSegmentationStore.getState().togglePanel();
+      return true;
+    case 'panel.findTool':
+      // The finder lives in the Annotations panel; with no panel shown there is nothing to find.
+      if (!document.querySelector('[data-testid="annotations-panel-root"]')) return false;
+      useFinderStore.getState().setOpen(true);
       return true;
     case 'panel.nextViewport': {
       // Cycle active viewport clockwise through visible panels
@@ -540,6 +546,21 @@ function handleKeyDown(e: KeyboardEvent): void {
   if (e.metaKey) parts.push('meta');
   parts.push(e.key.toLowerCase());
   const normalized = parts.join('+');
+
+  // A contour being drawn takes Escape (discard it — the tool stays) and Backspace / Delete
+  // (drop its last point) before the shortcut map: Escape is otherwise W/L — which left the
+  // drawing live — and Delete deleted the SELECTION instead of a point.
+  if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+    const key = e.key;
+    const took = key === 'Escape' ? unifiedToolService.cancelDrawing()
+      : key === 'Backspace' || key === 'Delete' ? unifiedToolService.undoLastDrawnPoint()
+      : false;
+    if (took) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+  }
 
   const action = lookup.get(normalized);
   if (!action) return;

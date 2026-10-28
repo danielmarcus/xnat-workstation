@@ -91,6 +91,25 @@ export const IPC = {
   CHECKPOINT_DELETE: 'checkpoint:delete',
   CHECKPOINT_EXPORT: 'checkpoint:export',
   CHECKPOINT_IMPORT: 'checkpoint:import',
+  CHECKPOINT_MOVE: 'checkpoint:move',
+
+  // Modules (branch 9) (renderer → main)
+  MODULES_LIST: 'modules:list',
+  MODULES_PICK: 'modules:pick',
+  MODULES_INSPECT_DROPPED: 'modules:inspect-dropped',
+  MODULES_INSTALL: 'modules:install',
+  MODULES_REMOVE: 'modules:remove',
+  MODULES_SET_ENABLED: 'modules:set-enabled',
+  MODULES_SET_ALLOW_COMMUNITY: 'modules:set-allow-community',
+  MODULES_TRUST_KEY_PICK: 'modules:trust-key-pick',
+  MODULES_UNTRUST_KEY: 'modules:untrust-key',
+  MODULES_RUN_START: 'modules:run-start',
+  MODULES_SAVE_LOG: 'modules:save-log',
+  MODULES_RUN_STOP: 'modules:run-stop',
+  /** main → renderer: a run's message port (with its run id). */
+  MODULES_RUN_PORT: 'modules:run-port',
+  /** main → page: a run's process is gone (crashed, timed out, the app quitting, the page reloading). */
+  MODULES_RUN_ENDED: 'modules:run-ended',
 
   // Diagnostics (renderer → main)
   DIAGNOSTICS_GET_MAIN_SNAPSHOT: 'diagnostics:get-main-snapshot',

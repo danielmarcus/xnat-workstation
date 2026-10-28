@@ -144,11 +144,19 @@ export function directionCost(maps: LivewireCostMaps, ax: number, ay: number, bx
   return Number.isFinite(v) ? v : 1;
 }
 
-/** Cost of stepping from pixel a to its 8-neighbour b. */
+/**
+ * Cost of stepping from pixel a to its 8-neighbour b — the weighted mean of the three terms
+ * (each in [0, 1]), scaled under 1. Cornerstone's live wire runs a Dial queue of 256 buckets
+ * that assumes every link costs less than 1: with the raw weighted sum (up to 3 with the
+ * sliders, 1.045 with the defaults on a flat diagonal) costs wrapped into earlier buckets,
+ * nodes came out of order, and the wire took costlier paths across flat tissue.
+ */
 export function linkCost(maps: LivewireCostMaps, ax: number, ay: number, bx: number, by: number, options: Partial<LivewireCostOptions> = {}): number {
   const o = { ...DEFAULT_LIVEWIRE_COST, ...options };
   const i = by * maps.width + bx;
   let g = maps.gradientCost[i];
   if (ax === bx || ay === by) g *= Math.SQRT1_2; // as Cornerstone: straight links are shorter
-  return o.gradientWeight * g + o.laplacianWeight * maps.laplacianCue[i] + o.directionWeight * directionCost(maps, ax, ay, bx, by);
+  const sum = o.gradientWeight * g + o.laplacianWeight * maps.laplacianCue[i] + o.directionWeight * directionCost(maps, ax, ay, bx, by);
+  const total = o.gradientWeight + o.laplacianWeight + o.directionWeight;
+  return total > 0 ? (0.97 * sum) / total : 0;
 }

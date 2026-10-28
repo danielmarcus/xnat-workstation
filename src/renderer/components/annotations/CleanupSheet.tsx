@@ -5,56 +5,29 @@
  * row style (a label, then the control), so the common operations fit without scrolling.
  */
 import type { CleanupSheetModel, ParamSpec } from '../../hooks/useCleanupSheet';
-import { OperationBody, OperationRow, PreviewCommitButtons, Segmented } from './OperationsSection';
+import { MoreToggle, OperationBody, OperationRow, PreviewCommitButtons, Segmented, paramsChanged } from './OperationsSection';
+import { OperationParam as Param } from './OperationParams';
 
-function Param({ spec, value, onChange }: { spec: ParamSpec; value: number | string; onChange: (v: number | string) => void }) {
-  if (spec.kind === 'select') {
-    return (
-      <OperationRow label={spec.label} title={spec.hint}>
-        <select
-          aria-label={spec.label}
-          value={String(value)}
-          onChange={(e) => onChange(e.target.value)}
-          className="flex-1 min-w-0 px-1 py-0.5 rounded bg-zinc-800 text-zinc-200 text-[10px]"
-        >
-          {spec.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-        </select>
-      </OperationRow>
-    );
-  }
-  return (
-    <OperationRow label={spec.label} title={spec.hint}>
-      <input
-        type="range"
-        aria-label={spec.label}
-        min={spec.min}
-        max={spec.max}
-        step={spec.step}
-        value={Number(value)}
-        onChange={(e) => onChange(Number(e.target.value))}
-        className="flex-1 min-w-0 accent-blue-500"
-      />
-      <span className="text-zinc-300 tabular-nums whitespace-nowrap">
-        {Number(value)}{spec.unit ? ` ${spec.unit}` : ''}
-      </span>
-    </OperationRow>
-  );
-}
 
 export default function CleanupSheet({ m }: { m: CleanupSheetModel }) {
   if (!m.open) return null;
   const basic = m.op.params.filter((p) => !p.advanced);
   const advanced = m.op.params.filter((p) => p.advanced);
-  const canCommit = !!m.target && !m.target.locked && !m.previewReadOnly;
+  // A pair operation's commit depends on what it writes (its preview says read-only if that is
+  // locked) — not on the active segment, which Copy into and Magnet bridge only read.
+  const canCommit = !!m.target && (m.isPair || !m.target.locked) && !m.previewReadOnly;
   const param = (spec: ParamSpec) => (
-    <Param key={spec.key} spec={spec} value={m.params[spec.key]} onChange={(v) => m.setParam(spec.key, v)} />
+    <Param key={spec.key} spec={spec} value={m.params[spec.key]} onChange={(v) => m.setParam(spec.key, v as number | string)} /> // Cleanup has no boolean parameters
   );
   return (
     <OperationBody
       testId="cleanup-sheet"
       message={m.message}
       confirm={m.confirmingLeave ? { text: 'Discard the preview?', confirmLabel: 'Discard', onConfirm: m.confirmLeave, onCancel: m.cancelLeave } : null}
-      footer={(
+      footer={m.running ? (
+        // A Volume run on the Cleanup worker (O8): progress shows in the viewport, as a solve's.
+        <button type="button" onClick={m.cancel} className="rounded px-2.5 py-0.5 text-[10px] bg-zinc-700 text-zinc-100 hover:bg-zinc-600">Cancel run</button>
+      ) : (
         <PreviewCommitButtons
           onPreview={m.preview}
           onCommit={m.commit}
@@ -84,14 +57,7 @@ export default function CleanupSheet({ m }: { m: CleanupSheetModel }) {
       <div className="flex items-start gap-2 mt-1 text-[10px]">
         <span className="flex-1 min-w-0 text-zinc-500 truncate" title={m.op.description}>{m.op.description}</span>
         {advanced.length > 0 && (
-          <button
-            type="button"
-            onClick={m.toggleAdvanced}
-            aria-expanded={m.advancedOpen}
-            className="text-zinc-400 hover:text-zinc-200 whitespace-nowrap"
-          >
-            {m.advancedOpen ? '▾' : '▸'} Advanced
-          </button>
+          <MoreToggle open={m.advancedOpen} onToggle={m.toggleAdvanced} changed={paramsChanged(advanced, m.params)} />
         )}
       </div>
       {m.isPair && (

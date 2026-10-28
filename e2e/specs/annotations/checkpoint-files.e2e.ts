@@ -123,3 +123,38 @@ test('a file that is not a checkpoint is rejected', async ({ page, electronApp }
   await expect(section.getByTestId('checkpoint-files-status')).toContainText('Not a Workstation checkpoint file');
   await closeSettings(page);
 });
+
+test('an imported checkpoint is kept — it counts as the newest, not as the date in its file', async ({ page, electronApp }) => {
+  // Retention keeps the newest four named checkpoints: an import dated by its (older) file was
+  // deleted the moment it was imported.
+  const panel = await segmentationWithCheckpoint(page);
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'ckpt-')), 'exp.wscheckpoint');
+  let section = await openFileBackup(page);
+  await stubSave(electronApp, file);
+  await section.locator('[data-testid^="checkpoint-file-"]', { hasText: 'exp' }).getByRole('button', { name: 'Export…' }).click();
+  await expect(section.getByTestId('checkpoint-files-status')).toContainText('Saved to');
+  await closeSettings(page);
+  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.deleteActiveCheckpoints());
+  for (const name of ['n1', 'n2', 'n3', 'n4']) {
+    await page.waitForTimeout(20); // distinct timestamps
+    await panel.getByRole('button', { name: 'Container menu' }).first().click();
+    await panel.getByRole('menuitem', { name: 'Save checkpoint…' }).click();
+    await page.getByLabel('Checkpoint name').fill(name);
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+  }
+  section = await openFileBackup(page);
+  await stubOpen(electronApp, file);
+  await section.getByRole('button', { name: 'Import checkpoint file…' }).click();
+  await expect(section.getByTestId('checkpoint-files-status')).toContainText('Imported “exp”');
+  // The section's own list shows the import at once (#101: it stayed stale until reopened).
+  const rows = section.locator('[data-testid^="checkpoint-file-"]');
+  await expect(rows.filter({ hasText: /^exp · / }), 'the import is listed in File Backup').toHaveCount(1);
+  await expect(rows.filter({ hasText: /^n1 · / }), 'retention is reflected in File Backup').toHaveCount(0);
+  await expect(rows).toHaveCount(4);
+  await expect(section.getByText('exp', { exact: true }), 'the import is listed by name').toHaveCount(1);
+  await closeSettings(page);
+  await panel.getByRole('button', { name: 'Container menu' }).first().click();
+  await panel.getByRole('menuitem', { name: /Restore checkpoint/ }).click();
+  await expect(panel.locator('[data-testid^="checkpoint-"]', { hasText: 'exp' }), 'the import is still there').toHaveCount(1);
+  await expect(panel.locator('[data-testid^="checkpoint-"]', { hasText: 'n1' }), 'the oldest named one made way').toHaveCount(0);
+});

@@ -26,6 +26,11 @@ export interface ContainerListHandlers {
   onRevertContainer?: (containerId: string) => void;
   /** Kebab (Segmentations): review the segmented slices as a flythrough (SegWorks parity D6). */
   onReviewFlythrough?: (containerId: string) => void;
+  /** Kebab (Segmentations): the labelmap opacity (one value for every labelmap). */
+  labelmapOpacity?: number;
+  onLabelmapOpacityChange?: (value: number) => void;
+  /** Kebab (Segmentations): measure the active segment's long and short axes. */
+  onMeasureSegment?: (containerId: string) => void;
   /** Kebab (Segmentations): checkpoints (SegWorks parity D8). */
   checkpointsOf?: (containerId: string) => Array<{ id: string; name: string; createdAt: string; kind: 'baseline' | 'named' }>;
   onSaveCheckpoint?: (containerId: string) => void;
@@ -126,6 +131,9 @@ export default function ContainerList(props: ContainerListProps) {
               onSetAllLocked={(locked) => h.onSetAllLocked(c.id, locked)}
               onRevert={h.onRevertContainer ? () => h.onRevertContainer!(c.id) : undefined}
               onReviewFlythrough={h.onReviewFlythrough && c.kind === 'SEG' ? () => h.onReviewFlythrough!(c.id) : undefined}
+              labelmapOpacity={c.kind === 'SEG' ? h.labelmapOpacity : undefined}
+              onLabelmapOpacityChange={c.kind === 'SEG' ? h.onLabelmapOpacityChange : undefined}
+              onMeasureSegment={h.onMeasureSegment && c.kind === 'SEG' ? () => h.onMeasureSegment!(c.id) : undefined}
               checkpoints={c.kind === 'SEG' ? h.checkpointsOf?.(c.id) : undefined}
               onSaveCheckpoint={h.onSaveCheckpoint && c.kind === 'SEG' ? () => h.onSaveCheckpoint!(c.id) : undefined}
               onRestoreCheckpoint={h.onRestoreCheckpoint && c.kind === 'SEG' ? (id) => h.onRestoreCheckpoint!(c.id, id) : undefined}
