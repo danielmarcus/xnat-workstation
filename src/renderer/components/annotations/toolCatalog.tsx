@@ -224,6 +224,9 @@ export const SEG_FAMILIES: ToolFamily[] = [
   { id: 'trace', label: 'Trace', title: toolDef('levelTrace').title, icon: toolDef('levelTrace').icon, members: ['levelTrace'] },
 ];
 
+/** Each grouped tool's own label from before the families — the ⌘K finder still finds it by it. */
+export const TOOL_LABELS_BEFORE_FAMILIES: Readonly<Record<string, string>> = Object.fromEntries(SEG_TOOLS.map((t) => [t.id, t.label]));
+
 /** The family a Segmentation tool belongs to, or undefined (other kinds, moved tools). */
 export function familyOf(toolId: string | null | undefined): ToolFamily | undefined {
   return toolId ? SEG_FAMILIES.find((f) => f.members.includes(toolId)) : undefined;

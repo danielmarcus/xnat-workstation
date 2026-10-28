@@ -60,6 +60,7 @@ export type HotkeyAction =
   // Panel toggles
   | 'panel.toggleSegmentation'
   | 'panel.nextViewport'
+  | 'panel.findTool'
   // Brush size
   | 'brush.decrease'
   | 'brush.increase'

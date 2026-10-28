@@ -11,6 +11,7 @@
  * through existing stores (viewerStore, segmentationStore, annotationStore).
  */
 import type { HotkeyAction, HotkeyBinding, HotkeyMap } from '@shared/types/hotkeys';
+import { useFinderStore } from '../../stores/finderStore';
 import { CONTOUR_FILL_MODE_LABEL, CONTOUR_FILL_MODES, CONTOUR_FILL_TOOLNAME, contourFillModeOf, ToolName, WL_PRESETS, panelId as makePanelId } from '@shared/types/viewer';
 import { getContourToolSettings, setContourFillMode } from '../cornerstone/tools/contourToolSettings';
 import type { LayoutType } from '@shared/types/viewer';
@@ -274,6 +275,11 @@ function dispatchActionInner(action: HotkeyAction): boolean {
     // Panel toggles
     case 'panel.toggleSegmentation':
       useSegmentationStore.getState().togglePanel();
+      return true;
+    case 'panel.findTool':
+      // The finder lives in the Annotations panel; with no panel shown there is nothing to find.
+      if (!document.querySelector('[data-testid="annotations-panel-root"]')) return false;
+      useFinderStore.getState().setOpen(true);
       return true;
     case 'panel.nextViewport': {
       // Cycle active viewport clockwise through visible panels

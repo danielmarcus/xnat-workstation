@@ -4,7 +4,7 @@
  * is what ViewerPage mounts (replacing the legacy SegmentationPanel on the Segment
  * toggle). The frozen-mockup visual contract is verified against this live render.
  */
-import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import AnnotationsSidePanel from './AnnotationsSidePanel';
 import ContainerList from './ContainerList';
 import ContextToolbox from './ContextToolbox';
@@ -34,6 +34,11 @@ import { useCheckpoints } from '../../hooks/useCheckpoints';
 import { useAnnotationsPanel } from '../../hooks/useAnnotationsPanel';
 import { usePreferencesStore } from '../../stores/preferencesStore';
 import { useGrowCutGpuUnavailableTools } from '../../hooks/useGrowCutGpu';
+import ToolFinder from './ToolFinder';
+import { finderEntries, type FinderEntry } from './finder';
+import { useFinderStore } from '../../stores/finderStore';
+import { useAnnotationSelectionStore } from '../../stores/annotationSelectionStore';
+import { hotkeyService } from '../../lib/hotkeys/hotkeyService';
 import {
   ANNOTATION_PANEL_MIN_WIDTH,
   ANNOTATION_PANEL_MAX_WIDTH,
@@ -181,6 +186,35 @@ export default function AnnotationsPanel({ activeViewportId, sourceImageIds }: A
     </OperationsSection>
   ) : undefined;
 
+  // ⌘K finder: any tool, mode or operation of the active annotation type, by name.
+  const finderOpen = useFinderStore((s) => s.open);
+  // Nothing to find without an active annotation: the hotkey's request lapses rather than
+  // springing the finder open later.
+  useEffect(() => { if (finderOpen && !panel.toolbox) useFinderStore.getState().setOpen(false); }, [finderOpen, panel.toolbox]);
+  const closeFinder = () => { useFinderStore.getState().setOpen(false); hotkeyService.focusActiveViewport(); };
+  const pickFound = (e: FinderEntry) => {
+    const t = e.target;
+    useFinderStore.getState().setOpen(false);
+    if (t.kind === 'tool') {
+      if (t.toolId === 'roiLimit') { if (!roiDrawing) roiLimit?.onToggleDraw(); }
+      else panel.toolbox?.onSelectTool(t.toolId);
+    } else if (t.kind === 'operation') {
+      operations.open(t.operationId as OperationSheetId);
+      if (t.seededMethod) seeded.set({ method: t.seededMethod });
+    } else {
+      const id = useAnnotationSelectionStore.getState().activeMember?.containerId;
+      if (id) handlers.onMeasureSegment?.(id);
+    }
+    hotkeyService.focusActiveViewport();
+  };
+  const finder = finderOpen && panel.toolbox ? (
+    <ToolFinder
+      entries={finderEntries(panel.toolbox.kind, operations.operations.filter((o) => o.group === 'Modules'))}
+      onPick={pickFound}
+      onClose={closeFinder}
+    />
+  ) : null;
+
   return (
     <div
       ref={panelRootRef}
@@ -230,6 +264,7 @@ export default function AnnotationsPanel({ activeViewportId, sourceImageIds }: A
           onEditConsumed={panel.onEditConsumed}
         />
       </AnnotationsSidePanel>
+      {finder}
       {checkpoints.savingFor && (
         <CheckpointNameDialog
           defaultName={`Checkpoint ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}
