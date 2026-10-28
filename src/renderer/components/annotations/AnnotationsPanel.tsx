@@ -33,7 +33,7 @@ import { CheckpointNameDialog, ConfirmDialog, ConflictDialog, ReviewUnsavedDialo
 import { useCheckpoints } from '../../hooks/useCheckpoints';
 import { useAnnotationsPanel } from '../../hooks/useAnnotationsPanel';
 import { usePreferencesStore } from '../../stores/preferencesStore';
-import { GROW_CUT_GPU_UNAVAILABLE_MESSAGE, useGrowCutGpuStatus } from '../../lib/cornerstone/growCutGpu';
+import { useGrowCutGpuUnavailableTools } from '../../hooks/useGrowCutGpu';
 import {
   ANNOTATION_PANEL_MIN_WIDTH,
   ANNOTATION_PANEL_MAX_WIDTH,
@@ -107,10 +107,7 @@ export default function AnnotationsPanel({ activeViewportId, sourceImageIds }: A
   const semiAuto = useSemiAutoControls();
   const contourTools = useContourToolSettings();
   // Region and Region+ run Cornerstone's grow-cut, which needs WebGPU.
-  const growCutGpu = useGrowCutGpuStatus();
-  const unavailableTools = growCutGpu === 'unavailable'
-    ? { region: GROW_CUT_GPU_UNAVAILABLE_MESSAGE, regionPlus: GROW_CUT_GPU_UNAVAILABLE_MESSAGE }
-    : undefined;
+  const unavailableTools = useGrowCutGpuUnavailableTools();
   const handlers = {
     ...panel.handlers,
     onKebab: (id: string) => { panel.handlers.onKebab(id); void checkpoints.refresh(id); },

@@ -7,10 +7,8 @@
  *
  * Asked once, the way Cornerstone will ask, and cached: an adapter, then a device with the same
  * limits (an adapter whose limits are smaller fails exactly where Cornerstone's would). The
- * toolbox reads the answer to disable both tools; the tools await it before running.
+ * toolbox reads the answer (useGrowCutGpu) to disable both tools; the tools await it before running.
  */
-import { useEffect, useSyncExternalStore } from 'react';
-
 export type GrowCutGpuStatus = 'unknown' | 'available' | 'unavailable';
 
 /** What the user is told when Region / Region+ cannot run here (toast and tooltip). */
@@ -64,15 +62,10 @@ export function growCutGpuStatus(): GrowCutGpuStatus {
   return status;
 }
 
-function subscribe(l: () => void): () => void {
+/** Called when the answer arrives. Returns the unsubscribe. */
+export function subscribeGrowCutGpu(l: () => void): () => void {
   listeners.add(l);
-  return () => listeners.delete(l);
-}
-
-/** The cached answer for React, asking the first time a component wants it. */
-export function useGrowCutGpuStatus(): GrowCutGpuStatus {
-  useEffect(() => { void probeGrowCutGpu(); }, []);
-  return useSyncExternalStore(subscribe, growCutGpuStatus);
+  return () => { listeners.delete(l); };
 }
 
 /** Tests only: forget the cached answer. */
