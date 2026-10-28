@@ -93,6 +93,9 @@ function LivewireControls({ m }: { m: ContourToolSettingsModel }) {
 }
 
 const BUTTON = 'text-[10px] px-2 py-0.5 rounded border border-zinc-700 bg-zinc-800 text-zinc-200 hover:bg-zinc-700 disabled:opacity-40 disabled:hover:bg-zinc-800';
+/** The Spline and Slice rows' buttons: tighter than BUTTON, and never wrapping their label. */
+const SLICE_BUTTON = 'text-[10px] leading-tight whitespace-nowrap px-1.5 py-px rounded border border-zinc-700 bg-zinc-800 text-zinc-200 hover:bg-zinc-700 disabled:opacity-40 disabled:hover:bg-zinc-800';
+const ARROW_BUTTON = 'text-[9px] leading-tight px-1.5 py-px bg-zinc-800 text-zinc-200 hover:bg-zinc-700 disabled:opacity-40 disabled:hover:bg-zinc-800';
 const TENSIONED = new Set(['localCR', 'tensionSpline', 'roiActiveSpline']);
 
 function SplineControls({ m }: { m: ContourToolSettingsModel }) {
@@ -151,18 +154,26 @@ function SplineControls({ m }: { m: ContourToolSettingsModel }) {
         ) : undefined}
       />
       <Row label="Spline">
-        <button type="button" className={BUTTON} onClick={m.undoSplinePoint} title="Remove the last point of the spline being drawn (also Backspace)">Undo point</button>
-        <button type="button" className={BUTTON} onClick={m.clearSpline} title="Discard the spline being drawn or held (⎋)">Clear</button>
+        <button type="button" className={SLICE_BUTTON} onClick={m.undoSplinePoint} title="Remove the last point of the spline being drawn (also Backspace)">Undo point</button>
+        <button type="button" className={SLICE_BUTTON} onClick={m.clearSpline} title="Discard the spline being drawn or held (⎋)">Clear</button>
         {m.splineInHand && (
-          <button type="button" className={BUTTON} onClick={m.commitSpline} title="Commit the spline in hand (⏎) — one undo step">Commit</button>
+          <button type="button" className={SLICE_BUTTON} onClick={m.commitSpline} title="Commit the spline in hand (⏎) — one undo step">Commit</button>
         )}
       </Row>
-      <Row label="Slice">
-        <button type="button" className={BUTTON} disabled={!m.canUndoEdit} onClick={m.undoAndEdit} title="Undo the last spline and hold its points again to adjust them">Undo &amp; edit</button>
-        <button type="button" className={BUTTON} onClick={m.copyNearby} title="Hold the outline from the nearest slice that has one, to adjust it here — nothing is written until ⏎">Copy nearby</button>
-        <button type="button" className={BUTTON} disabled={m.propagating} onClick={() => m.propagate(-1)} aria-label="Propagate to the previous slice" title="Commit this spline and carry it to the previous slice (track in ▸ Options)">◀</button>
-        <button type="button" className={BUTTON} disabled={m.propagating} onClick={() => m.propagate(1)} aria-label="Propagate to the next slice" title="Commit this spline and carry it to the next slice (track in ▸ Options)">▶</button>
-      </Row>
+      {/* Compact, one line from the default width down to ~300 px: no button wraps its label
+          (that doubled the row and made the fixed Controls area scroll), and ◀ ▶ are one pair.
+          Narrower still, whole buttons wrap, aligned under the first. */}
+      <div className="flex items-start gap-2 mt-1.5" data-testid="spline-slice-row">
+        <span className="text-[10px] text-zinc-400 whitespace-nowrap w-20 shrink-0 leading-[18px]">Slice</span>
+        <div className="flex flex-wrap items-center gap-1 min-w-0">
+        <button type="button" className={SLICE_BUTTON} disabled={!m.canUndoEdit} onClick={m.undoAndEdit} title="Undo the last spline and hold its points again to adjust them">Undo &amp; edit</button>
+        <button type="button" className={SLICE_BUTTON} onClick={m.copyNearby} title="Hold the outline from the nearest slice that has one, to adjust it here — nothing is written until ⏎">Copy nearby</button>
+        <span className="flex rounded border border-zinc-700 overflow-hidden" role="group" aria-label="Propagate">
+          <button type="button" className={ARROW_BUTTON} disabled={m.propagating} onClick={() => m.propagate(-1)} aria-label="Propagate to the previous slice" title="Commit this spline and carry it to the previous slice (track in ▸ Options)">◀</button>
+          <button type="button" className={`${ARROW_BUTTON} border-l border-zinc-700`} disabled={m.propagating} onClick={() => m.propagate(1)} aria-label="Propagate to the next slice" title="Commit this spline and carry it to the next slice (track in ▸ Options)">▶</button>
+        </span>
+        </div>
+      </div>
     </div>
   );
 }
