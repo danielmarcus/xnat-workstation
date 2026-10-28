@@ -115,10 +115,30 @@ committed on its own.
 
 - [x] 1 Catalog model
 - [x] 2 Families row + options strip (header band for the tools included)
-- [ ] 3 Essentials + More
+- [x] 3 Essentials + More
 - [x] 4 Moves (ROI limit, Seg Bidir., opacity)
 - [x] 5 Random Walker → Seeded
-- [ ] 6 Operation drawer
-- [ ] 7 Grouped operations menu
-- [ ] 8 ⌘K finder
-- [ ] 9 Docs + measurement
+- [x] 6 Operation drawer
+- [x] 7 Grouped operations menu
+- [x] 8 ⌘K finder
+- [x] 9 Docs + measurement
+
+## Measured result (2026-10-28, built app, 1600 × 872)
+
+The worst case from the wireframes — Level Trace active, Seeded segmentation open:
+
+| | Before (`00610f0`) | After |
+|---|---|---|
+| Toolbox | 385 px (grid 167 + controls 186, scrolling) | 260 px (header band 28 + family row 45 + options 186, no scroll) |
+| Operation | 260 px | 260 px (now draggable) |
+| Annotation list | ~185 px | 275 px |
+| "Segment 1" printed | 4 | 3 (list row, the seed class, the editing chip) |
+
+The options strip keeps a fixed 186 px so the panel never moves as tools change; its
+tallest content is Contour Fill's Spline boundary and the Brush with a window. Level Trace
+leaves ~40 px of it empty. The full offline E2E suite ran on the slice 1–5 build
+(608 passed; the 6 failures were fixed in `0e491cd`); the specs touching slices 3, 6–8 and
+those fixes then passed on the final build (142/142).
+
+Still possible if this is not enough: shrink the options strip to the active tool's height
+(the panel would then move as tools change), or move the tools out (wireframe R1-A).

@@ -206,6 +206,27 @@ B op inside the Process tab · **C separate section**). **C, no tabs** is adopte
   active pointer mode with the toolbox (picking one clears the toolbox highlight and vice versa).
   If the grid outgrows ~20 tools, revisit grouping.
 
+### D1 / D2 / D12 second amendment (2026-10-28) — tool families and modes
+
+The flat 19-button grid and its long tool controls still crowded the panel (measured: toolbox
+385 px, list ~185 px with Seeded segmentation open). Decided with the user after the
+[wireframes](mockup/annotation-workspace-wireframes.html) (R1-D, R2-C, R3-B, R4-A, R5-A, R6-A,
+R7-A), built on branch `annotation-panel-modes` — plan and log in
+[`annotation-panel-modes.md`](annotation-panel-modes.md):
+
+- **D2 →** the Segmentation toolbox is **one row of seven families** (Select · Brush · Fill ·
+  Shape · Contour · Region · Trace); a family's **modes** pick its tool (Brush: Kernel 2D/3D ×
+  Limit None/Window/From click/Edges; Shape: Circle/Rect/Sphere × None/Window; Region: Drag/
+  Click). The options strip shows the active tool's essentials, the rest under **More** (a dot
+  when a hidden setting differs from its default). The ROI limit is a toggle in the tools
+  header band; Seg Bidir. and labelmap opacity are in the Segmentation ⋮ menu; **Random Walker
+  is a Seeded segmentation method**.
+- **D1 →** the Operations section is a **drawer** with a solid header band, a **grouped
+  Operation menu** (Clean · Fill in · Segment · Check · Modules) and a draggable height; it
+  names no target (the editing chip in the options strip names the active member, once).
+- **D12 →** one panel shortcut is added: **⌘K / Ctrl+K** opens a finder over every tool, mode
+  and operation, by today's name or the old tool names.
+
 **Separately reviewed plans required** before implementation: branch 8 (worklist) **and**
 branch 9 (algorithm modules). Neither starts until its own plan is reviewed with the user.
 
