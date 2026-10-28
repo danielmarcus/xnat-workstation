@@ -9,6 +9,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { test, expect } from '../../fixtures/electron-app';
 import { loadFixture } from '../../helpers/local-fixture';
+import { operationGroupItems } from '../../helpers/operations';
 import { resetModules, stubOpen } from '../../helpers/modules';
 
 const ROOT = path.resolve(__dirname, '..', '..', '..');
@@ -50,7 +51,7 @@ test('the authoring guide\'s quick start builds, signs and installs as written',
     if (!(await panel.isVisible())) await page.getByRole('button', { name: 'Show segmentation panel' }).click();
     await panel.getByRole('button', { name: 'New Segmentation (SEG)' }).click();
     await page.keyboard.press('Escape');
-    await expect(panel.getByLabel('Operation', { exact: true }).locator('optgroup[label="Modules"] option')).toHaveText(['My threshold']);
+    await expect.poll(() => operationGroupItems(panel, 'Modules')).toEqual(['My threshold']);
   } finally {
     clean();
   }

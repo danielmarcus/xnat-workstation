@@ -1,14 +1,34 @@
 /**
- * Open an operation from the Annotations panel's Operations row (SegWorks parity D1, as
- * amended 2026-10-12): pick it in the "Operation" picker, as a user does. Returns the
- * operation's body (e.g. `cleanup-sheet`), optionally with a Cleanup operation chosen.
+ * Pick an operation in the Annotations panel's grouped Operation menu (R4-A,
+ * annotation-panel-modes): the Operation button, then the item — as a user does.
+ */
+export async function pickOperation(panel: Locator, label: string): Promise<void> {
+  await panel.getByRole('button', { name: 'Operation', exact: true }).click();
+  await panel.getByRole('menu', { name: 'Operations' }).getByRole('menuitem', { name: label, exact: true }).click();
+}
+
+/** The items under one heading of the Operation menu (opened to read, then closed). */
+export async function operationGroupItems(panel: Locator, group: string): Promise<string[]> {
+  await panel.getByRole('button', { name: 'Operation', exact: true }).click();
+  const menu = panel.getByRole('menu', { name: 'Operations' });
+  await expect(menu).toBeVisible();
+  const items = await menu.getByRole('group', { name: group, exact: true }).getByRole('menuitem').allTextContents();
+  await panel.page().keyboard.press('Escape');
+  await expect(menu).toHaveCount(0);
+  return items;
+}
+
+/**
+ * Open an operation from the Annotations panel's operation drawer: pick it in the grouped
+ * Operation menu, as a user does. Returns the operation's body (e.g. `cleanup-sheet`),
+ * optionally with a Cleanup operation chosen.
  */
 import { expect, type Locator } from '@playwright/test';
 
 const BODY_TEST_ID = { Cleanup: 'cleanup-sheet', Interpolate: 'interpolate-sheet', Propagate: 'propagate-sheet', 'Seeded segmentation': 'seeded-sheet', 'Region competition': 'region-sheet', '3D QC': 'qc3d-sheet' } as const;
 
 export async function openOperation(panel: Locator, name: keyof typeof BODY_TEST_ID, cleanupOp?: string): Promise<Locator> {
-  await panel.getByLabel('Operation', { exact: true }).selectOption({ label: name });
+  await pickOperation(panel, name);
   const sheet = panel.getByTestId(BODY_TEST_ID[name]);
   await expect(sheet).toBeVisible();
   if (cleanupOp) await sheet.getByLabel('Cleanup operation').selectOption({ label: cleanupOp });

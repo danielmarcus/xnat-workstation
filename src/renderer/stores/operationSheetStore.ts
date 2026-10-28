@@ -155,6 +155,9 @@ interface OperationSheetState {
   setPlanOverride: (segmentIndex: number, action: string) => void;
   clearPlanOverrides: () => void;
   setConfirmingLeave: (v: boolean) => void;
+  /** The operation drawer's height (R5-A), dragged from its band; session-only. */
+  drawerHeight: number;
+  setDrawerHeight: (h: number) => void;
 }
 
 /** Defaults — the More fold's changed dot compares against them. */
@@ -183,7 +186,9 @@ export const useOperationSheetStore = create<OperationSheetState>((set) => ({
   smartSafeAction: 'skip',
   planOverrides: {},
   confirmingLeave: false,
-  interp: { method: 'sdfArea', distance: 'exact', fill: 'gaps', anchorA: null, anchorB: null },
+  drawerHeight: 260,
+  setDrawerHeight: (drawerHeight) => set({ drawerHeight }),
+  interp: { ...INTERP_DEFAULTS },
   setInterp: (patch) => set((s) => ({ interp: { ...s.interp, ...patch }, message: null })),
   prop: { ...PROPAGATE_DEFAULTS },
   setProp: (patch) => set((s) => ({ prop: { ...s.prop, ...patch }, message: null })),

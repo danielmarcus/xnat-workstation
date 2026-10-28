@@ -103,7 +103,9 @@ test('Cleanup opens from the Operations row, between the member list and the too
   const { panel, toolbox } = await segmentation(page);
   const closed = (await toolbox.boundingBox())!;
   await openOperation(panel, 'Cleanup');
-  await expect(panel.getByTestId('sheet-target')).toHaveText('Segment 1');
+  // The drawer names no target (R6): the member is named once outside the list, by the chip.
+  await expect(panel.getByTestId('sheet-target')).toHaveCount(0);
+  await expect(panel.getByTestId('editing-chip')).toContainText('Segment 1');
 
   const section = (await panel.getByTestId('operations-section').boundingBox())!;
   const member = (await panel.locator('[data-testid^="member-row-"]').first().boundingBox())!;
@@ -113,6 +115,28 @@ test('Cleanup opens from the Operations row, between the member list and the too
   // Opening an operation takes room from the list, never from the toolbox.
   expect(Math.round(open.height)).toBe(Math.round(closed.height));
   expect(Math.round(open.y)).toBe(Math.round(closed.y));
+});
+
+test('the drawer\'s height is dragged from its band\'s top edge; the list gives way, the toolbox stays put', async ({ page }) => {
+  const { panel, toolbox } = await segmentation(page);
+  await openOperation(panel, 'Cleanup');
+  const drawer = panel.getByTestId('operations-section');
+  const before = (await drawer.boundingBox())!;
+  const tools = (await toolbox.boundingBox())!;
+  const handle = (await panel.getByRole('separator', { name: 'Resize operation' }).boundingBox())!;
+  await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2 - 100, { steps: 8 });
+  await page.mouse.up();
+  const after = (await drawer.boundingBox())!;
+  expect(after.height - before.height).toBeGreaterThan(90);
+  expect(after.height - before.height).toBeLessThan(110);
+  expect(Math.round((await toolbox.boundingBox())!.y)).toBe(Math.round(tools.y));
+  // Collapsed it is the band alone; expanded again it keeps the dragged height.
+  await panel.getByRole('button', { name: 'Collapse operation' }).click();
+  expect((await drawer.boundingBox())!.height).toBeLessThan(40);
+  await panel.getByRole('button', { name: 'Expand operation' }).click();
+  expect(Math.round((await drawer.boundingBox())!.height)).toBe(Math.round(after.height));
 });
 
 test('an open operation stays on screen and usable while the tools change', async ({ page }) => {

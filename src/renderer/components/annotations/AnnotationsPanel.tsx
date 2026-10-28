@@ -155,7 +155,7 @@ export default function AnnotationsPanel({ activeViewportId, sourceImageIds }: A
       }}
     />
   ) : undefined;
-  // The open operation's model supplies the section's target, summary and close.
+  // The open operation's model supplies the drawer's summary and close.
   const openModel = operations.openId === 'interpolate' ? interpolate : operations.openId === 'propagate' ? propagate
     : operations.openId === 'seeded' ? seeded : operations.openId === 'regionCompetition' ? region : operations.openId === 'qc3d' ? qc3d
     : operations.openId?.startsWith('module:') ? { close: moduleOp.close, target: moduleOp.target, summary: moduleOp.summaryLine } : cleanup;
@@ -167,8 +167,9 @@ export default function AnnotationsPanel({ activeViewportId, sourceImageIds }: A
       collapsed={operations.collapsed}
       onToggleCollapsed={operations.toggleCollapsed}
       onClose={openModel.close}
-      target={openModel.target}
       summary={openModel.summary}
+      height={operations.height}
+      onHeightChange={operations.setHeight}
     >
       <CleanupSheet m={cleanup} />
       <InterpolateSheet m={interpolate} />

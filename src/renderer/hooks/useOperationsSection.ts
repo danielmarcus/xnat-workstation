@@ -17,6 +17,9 @@ export interface OperationsSectionModel {
   operations: OperationDescriptor[];
   openId: OperationSheetId | null;
   collapsed: boolean;
+  /** The drawer's height (session), dragged from its band's top edge. */
+  height: number;
+  setHeight(height: number): void;
   open(id: OperationSheetId): void;
   toggleCollapsed(): void;
 }
@@ -28,6 +31,8 @@ export function useOperationsSection(isSeg: boolean): OperationsSectionModel {
   const closeSheet = useOperationSheetStore((s) => s.closeSheet);
   const setCollapsed = useOperationSheetStore((s) => s.setCollapsed);
   const modules = useModuleCatalogStore((s) => s.modules);
+  const height = useOperationSheetStore((s) => s.drawerHeight);
+  const setHeight = useOperationSheetStore((s) => s.setDrawerHeight);
 
   useEffect(() => { void refreshModuleCatalog(); }, []);
   useEffect(() => {
@@ -40,11 +45,13 @@ export function useOperationsSection(isSeg: boolean): OperationsSectionModel {
 
   return {
     operations: [
-      ...SEG_OPERATIONS.map((o) => ({ ...o, group: 'builtin' as const })),
-      ...modules.map((m) => ({ id: `module:${m.id}`, label: m.name, title: m.description, group: 'modules' as const })),
+      ...SEG_OPERATIONS,
+      ...modules.map((m) => ({ id: `module:${m.id}`, label: m.name, title: m.description, group: 'Modules' as const })),
     ],
     openId,
     collapsed,
+    height,
+    setHeight,
     open: (id) => {
       openOperation(id);
       hotkeyService.focusActiveViewport();

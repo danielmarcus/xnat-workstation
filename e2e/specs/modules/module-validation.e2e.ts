@@ -16,7 +16,7 @@ import { test, expect } from '../../fixtures/electron-app';
 import type { ElectronApplication, Locator, Page } from '@playwright/test';
 import { loadFixture } from '../../helpers/local-fixture';
 import { clickTool } from '../../helpers/toolbox';
-import { openOperation } from '../../helpers/operations';
+import { openOperation, pickOperation } from '../../helpers/operations';
 import { DIST_MODULES, installDirect, packDirectory, REPO_MODULES, resetModules, trustPublisherDirect } from '../../helpers/modules';
 
 type Win = { __XNAT_E2E__: {
@@ -77,7 +77,7 @@ async function setup(electronApp: ElectronApplication, page: Page, packages: str
 }
 
 async function openModule(panel: Locator, name: string): Promise<Locator> {
-  await panel.getByLabel('Operation', { exact: true }).selectOption({ label: name });
+  await pickOperation(panel, name);
   const sheet = panel.getByTestId('module-sheet');
   await expect(sheet).toBeVisible();
   return sheet;

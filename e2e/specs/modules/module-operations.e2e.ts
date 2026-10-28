@@ -13,7 +13,7 @@ import * as path from 'path';
 import { test, expect } from '../../fixtures/electron-app';
 import type { ElectronApplication, Locator, Page } from '@playwright/test';
 import { loadFixture } from '../../helpers/local-fixture';
-import { setSlider } from '../../helpers/operations';
+import { setSlider, pickOperation, operationGroupItems } from '../../helpers/operations';
 import { buildPackage, FIXTURE_DIR, installDirect, manifest, packDirectory, REPO_MODULES, resetModules } from '../../helpers/modules';
 
 type Win = { __XNAT_E2E__: {
@@ -44,7 +44,7 @@ async function setup(electronApp: ElectronApplication, page: Page, packages: str
 }
 
 async function openModule(panel: Locator, name: string): Promise<Locator> {
-  await panel.getByLabel('Operation', { exact: true }).selectOption({ label: name });
+  await pickOperation(panel, name);
   const sheet = panel.getByTestId('module-sheet');
   await expect(sheet).toBeVisible();
   return sheet;
@@ -54,9 +54,9 @@ const threshold = () => packDirectory(path.join(REPO_MODULES, 'examples', 'thres
 
 test('an installed module is an operation in the picker\'s Modules group, its parameters from its manifest', async ({ electronApp, page }) => {
   const panel = await setup(electronApp, page, [threshold()]);
-  const picker = panel.getByLabel('Operation', { exact: true });
-  await expect(picker.locator('optgroup[label="Modules"] option')).toHaveText([THRESHOLD]);
-  await expect(picker.locator(':scope > option')).toContainText(['Cleanup', 'Propagate', 'Interpolate']); // the built-ins, first
+  expect(await operationGroupItems(panel, 'Modules')).toEqual([THRESHOLD]);
+  expect(await operationGroupItems(panel, 'Clean')).toEqual(['Cleanup']); // the built-ins keep their groups
+  expect(await operationGroupItems(panel, 'Fill in')).toEqual(['Propagate', 'Interpolate']);
   const sheet = await openModule(panel, THRESHOLD);
   await expect(sheet.getByTestId('module-tier')).toHaveText('Community');
   await expect(sheet.getByLabel('From', { exact: true })).toHaveValue('200');
@@ -196,13 +196,13 @@ test('a mask holding a label the module did not declare is refused, with the rea
 
 test('a module disabled in Settings leaves the picker', async ({ electronApp, page }) => {
   const panel = await setup(electronApp, page, [threshold()]);
-  await expect(panel.getByLabel('Operation', { exact: true }).locator('optgroup[label="Modules"] option')).toHaveText([THRESHOLD]);
+  await expect.poll(() => operationGroupItems(panel, 'Modules')).toEqual([THRESHOLD]);
   await page.getByTitle('Open settings').click();
   const dialog = page.getByRole('dialog', { name: 'Settings' });
   await dialog.getByRole('button', { name: 'Modules', exact: true }).click();
   await dialog.getByLabel(`Enable ${THRESHOLD}`).uncheck();
   await dialog.getByTitle('Close', { exact: true }).click();
-  await expect(panel.getByLabel('Operation', { exact: true }).locator('optgroup[label="Modules"]')).toHaveCount(0);
+  await expect.poll(() => operationGroupItems(panel, 'Modules')).toEqual([]);
 });
 
 test('on an oblique acquisition the module segments the sphere through the volume (index space)', async ({ electronApp, page }) => {

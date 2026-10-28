@@ -8,7 +8,7 @@ import * as path from 'path';
 import { test, expect } from '../../fixtures/electron-app';
 import type { Page } from '@playwright/test';
 import { loadFixture } from '../../helpers/local-fixture';
-import { setSlider } from '../../helpers/operations';
+import { setSlider, pickOperation, operationGroupItems } from '../../helpers/operations';
 import { bundle, installDirect, packDirectory, REPO_MODULES, resetModules } from '../../helpers/modules';
 
 const voxels = (page: Page) => page.evaluate(() => (window as unknown as { __XNAT_E2E__: { activeSegmentVoxelCount: () => number } }).__XNAT_E2E__.activeSegmentVoxelCount());
@@ -39,7 +39,7 @@ test('a bundled module is listed as Bundled, runs, can be disabled, and can be n
     if (!(await panel.isVisible())) await page.getByRole('button', { name: 'Show segmentation panel' }).click();
     await panel.getByRole('button', { name: 'New Segmentation (SEG)' }).click();
     await page.keyboard.press('Escape');
-    await panel.getByLabel('Operation', { exact: true }).selectOption({ label: 'Intensity threshold' });
+    await pickOperation(panel, 'Intensity threshold');
     const sheet = panel.getByTestId('module-sheet');
     await expect(sheet.getByTestId('module-tier')).toHaveText('Bundled');
     await setSlider(sheet.getByLabel('From', { exact: true }), 500);
@@ -53,7 +53,7 @@ test('a bundled module is listed as Bundled, runs, can be disabled, and can be n
     await dialog.getByRole('button', { name: 'Modules', exact: true }).click();
     await row.getByLabel('Enable Intensity threshold').uncheck();
     await dialog.getByTitle('Close', { exact: true }).click();
-    await expect(panel.getByLabel('Operation', { exact: true }).locator('optgroup[label="Modules"]')).toHaveCount(0);
+    await expect.poll(() => operationGroupItems(panel, 'Modules')).toEqual([]);
     await page.getByTitle('Open settings').click();
     await dialog.getByRole('button', { name: 'Modules', exact: true }).click();
     await expect(row).toContainText('Bundled');

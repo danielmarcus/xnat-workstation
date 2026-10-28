@@ -245,22 +245,23 @@ export function resolveMode(family: ToolFamily, current: string | null, axis: st
 /** Segmentation tools in grid order: each family together, catalog order within it. */
 const SEG_TOOLS_IN_ORDER = SEG_GROUP_ORDER.flatMap((g) => SEG_TOOLS.filter((t) => t.group === g));
 
-/** Operations the Operations section's picker offers (D1, amended 2026-10-12). */
 /** An entry of the Operations picker: a built-in operation or a module's (one registry, branch 9 M4). */
 export interface OperationDescriptor {
   id: string;
   label: string;
   title: string;
-  group: 'builtin' | 'modules';
+  /** Its heading in the grouped picker (R4-A); every module is under Modules. */
+  group: 'Clean' | 'Fill in' | 'Segment' | 'Check' | 'Modules';
 }
 
-export const SEG_OPERATIONS: Array<{ id: 'cleanup' | 'interpolate' | 'propagate' | 'seeded' | 'regionCompetition' | 'qc3d'; label: string; title: string }> = [
-  { id: 'cleanup', label: 'Cleanup', title: 'Fill holes, keep largest, remove specks and strays, smooth, open/close (X)' },
-  { id: 'propagate', label: 'Propagate', title: 'Grow the segment from the slice on screen into its neighbours, following the image' },
-  { id: 'interpolate', label: 'Interpolate', title: 'Fill empty slices between painted ones: every gap, the slice on screen, or between anchors A and B' },
-  { id: 'seeded', label: 'Seeded segmentation', title: 'Paint seeds of the segments and the Background, then solve in 3D: Fast GrowCut, Graph Cut or multi-label graph cut' },
-  { id: 'regionCompetition', label: 'Region competition', title: 'Let the segments and the Background compete for voxels by intensity and smoothness, starting from the segmentation as it is (SegWorks\' Chan-Vese)' },
-  { id: 'qc3d', label: '3D QC', title: 'Check the segmentation in 3D beside the slice: surfaces, a component report with strays and specks, jump to and delete components, 3D scissor' },
+/** The built-in operations the picker offers (D1, amended 2026-10-12), each in its group (R4-A). */
+export const SEG_OPERATIONS: Array<{ id: 'cleanup' | 'interpolate' | 'propagate' | 'seeded' | 'regionCompetition' | 'qc3d'; label: string; title: string; group: Exclude<OperationDescriptor['group'], 'Modules'> }> = [
+  { id: 'cleanup', group: 'Clean', label: 'Cleanup', title: 'Fill holes, keep largest, remove specks and strays, smooth, open/close (X)' },
+  { id: 'propagate', group: 'Fill in', label: 'Propagate', title: 'Grow the segment from the slice on screen into its neighbours, following the image' },
+  { id: 'interpolate', group: 'Fill in', label: 'Interpolate', title: 'Fill empty slices between painted ones: every gap, the slice on screen, or between anchors A and B' },
+  { id: 'seeded', group: 'Segment', label: 'Seeded segmentation', title: 'Paint seeds of the segments and the Background, then solve in 3D: Fast GrowCut, Graph Cut or multi-label graph cut' },
+  { id: 'regionCompetition', group: 'Segment', label: 'Region competition', title: 'Let the segments and the Background compete for voxels by intensity and smoothness, starting from the segmentation as it is (SegWorks\' Chan-Vese)' },
+  { id: 'qc3d', group: 'Check', label: '3D QC', title: 'Check the segmentation in 3D beside the slice: surfaces, a component report with strays and specks, jump to and delete components, 3D scissor' },
 ];
 
 export function toolsForKind(kind: ContainerKind): ToolDef[] {
