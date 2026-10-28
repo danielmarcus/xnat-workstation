@@ -1,7 +1,7 @@
 /**
  * The Smart-tab tools' rows in the toolbox's Controls strip (SegWorks parity branch 4):
  * Level Trace's band / growth / edge guard / smoothing, Smart Brush's radius, tolerance and
- * spacing, Random Walker's β, seed size, Run and Clear seeds, and the ROI limit's Clear.
+ * spacing, and the ROI limit's Clear.
  */
 import { useState, type ReactNode } from 'react';
 import type { SemiAutoControlsModel } from '../../hooks/useSemiAutoControls';
@@ -155,29 +155,11 @@ export default function SmartToolControls({ toolId, m }: { toolId: string; m: Se
             <Slider label="Spacing" value={m.smartBrush.spacingPx} min={1} max={10} unit=" px" onChange={(v) => m.setSmartBrush({ spacingPx: v })} />
           </>
         );
-      case 'randomWalker':
-        return (
-          <>
-            <Slider label="Edge (β)" value={m.randomWalker.beta} min={10} max={4000} step={10} unit="" onChange={(v) => m.setRandomWalker({ beta: v })} />
-            <Slider label="Seed size" value={m.randomWalker.seedRadiusPx} min={0} max={8} unit=" px" onChange={(v) => m.setRandomWalker({ seedRadiusPx: v })} />
-            <Row label="Seeds" testId="random-walker-seeds">
-              <span className="text-[10px] text-zinc-300 flex-1">
-                <span className="text-green-400">{m.seedCounts.fg} fg</span> · <span className="text-red-400">{m.seedCounts.bg} bg</span>
-                <span className="text-zinc-500"> · ⇧-drag = bg</span>
-              </span>
-            </Row>
-            <div className="flex items-center gap-2 mt-1.5 pl-[5.5rem]">
-              <button type="button" className={BUTTON} disabled={m.running || !m.seedCounts.fg || !m.seedCounts.bg} onClick={m.runRandomWalker}>{m.running ? 'Running…' : 'Run'}</button>
-              <button type="button" className={BUTTON} disabled={!m.seedCounts.fg && !m.seedCounts.bg} onClick={m.clearSeeds}>Clear seeds</button>
-            </div>
-            <RoiChip m={m} />
-          </>
-        );
       case 'roiLimit':
         return (
           <Row label="ROI limit" testId="roi-limit-controls">
             <span className="text-[10px] text-zinc-300 flex-1">
-              {m.roiHere ? 'Drawn — Level Trace, Random Walker and Cleanup stay inside' : m.roiDrawn ? 'Drawn on another viewport' : 'Drag a rectangle on the image'}
+              {m.roiHere ? 'Drawn — Level Trace, the operations and modules stay inside' : m.roiDrawn ? 'Drawn on another viewport' : 'Drag a rectangle on the image'}
             </span>
             <button type="button" className={BUTTON} disabled={!m.roiDrawn} onClick={m.clearRoi}>Clear</button>
           </Row>

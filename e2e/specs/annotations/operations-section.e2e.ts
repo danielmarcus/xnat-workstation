@@ -1,9 +1,9 @@
 /**
- * The Operations section and the flat Segmentation toolbox (SegWorks parity D1/D2 as
- * amended 2026-10-12 — docs/segworks-parity.md §4, mockup/tools-operations-layout.html C).
+ * The Operations section and the Segmentation toolbox (SegWorks parity D1/D2 as amended
+ * 2026-10-12; tool families and modes, docs/annotation-panel-modes.md, 2026-10-28).
  *
- * Tools and operations are separate: every tool is on screen at once in a toolbox whose
- * height never changes, and an operation opens in its own section between the member list
+ * Tools and operations are separate: every tool family is on screen at once in a toolbox
+ * whose height never changes, and an operation opens in its own section between the member list
  * and the toolbox, where it stays usable while the tools change. Drives the real
  * affordances (tool buttons, the Operation picker, collapse, strokes on the image) and
  * asserts layout in pixels and the labelmap in voxels.
@@ -11,18 +11,20 @@
 import { test, expect } from '../../fixtures/electron-app';
 import type { Page } from '@playwright/test';
 import { loadFixture } from '../../helpers/local-fixture';
-import { clickTool } from '../../helpers/toolbox';
+import { clickTool, toolFamily } from '../../helpers/toolbox';
 import { openOperation } from '../../helpers/operations';
 
 type Win = { __XNAT_E2E__: { clearAllContainers: () => void; activeSegmentVoxelCount: () => number } };
 const VIEWPORT = '[data-testid="unified-viewport-element:panel_0"]';
 
-/** Every Segmentation tool, in the toolbox's group order. */
+/** The Segmentation tool families, in the toolbox's order. */
+const SEG_FAMILIES = ['Select', 'Brush', 'Fill', 'Shape', 'Contour', 'Region', 'Trace'];
+/** Every Segmentation tool (each a family and its modes), plus the ROI limit toggle. */
 const SEG_TOOLS = [
-  'Select', 'Seg Bidir.',
+  'Select',
   'Brush', 'Threshold', 'Dyn. Thresh', 'Sph. Brush', 'Sph. Thresh', 'Paint Fill', 'Smart Brush',
   'Circle', 'Rect', 'Sphere', 'Rect Multi', 'Contour Fill',
-  'Region', 'Region+', 'Level Trace', 'Rnd. Walker', 'ROI limit',
+  'Region', 'Region+', 'Level Trace', 'ROI limit',
 ];
 
 test.beforeEach(({ page }) => page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.clearAllContainers()));
@@ -56,12 +58,16 @@ async function twoIslands(page: Page) {
   await stroke(page, 0.75, 0.5, 0.01);
 }
 
-test('every Segmentation tool is on screen at once: there are no tabs', async ({ page }) => {
+test('every Segmentation tool family is on screen at once, in one row: there are no tabs', async ({ page }) => {
   const { toolbox } = await segmentation(page);
   await expect(toolbox.getByRole('tab')).toHaveCount(0);
-  for (const label of SEG_TOOLS) {
-    await expect(toolbox.getByRole('button', { name: label, exact: true }), label).toBeVisible();
+  const tops = new Set<number>();
+  for (const label of SEG_FAMILIES) {
+    const b = toolbox.getByTestId('toolbox-grid').getByRole('button', { name: label, exact: true });
+    await expect(b, label).toBeVisible();
+    tops.add(Math.round((await b.boundingBox())!.y));
   }
+  expect(tops.size, 'one row').toBe(1);
 });
 
 test('the toolbox keeps one height whatever tool is active, and no tool\'s controls scroll', async ({ page }) => {
@@ -116,7 +122,7 @@ test('an open operation stays on screen and usable while the tools change', asyn
   const sheet = await openOperation(panel, 'Cleanup', 'Keep largest');
   for (const label of ['Threshold', 'Circle', 'Region', 'Brush']) {
     await clickTool(toolbox, label);
-    await expect(toolbox.getByRole('button', { name: label, exact: true })).toHaveAttribute('aria-pressed', 'true');
+    await expect(toolbox.getByTestId('toolbox-grid').getByRole('button', { name: toolFamily(label), exact: true })).toHaveAttribute('aria-pressed', 'true');
     await expect(sheet).toBeVisible();
   }
   await sheet.getByRole('button', { name: 'Preview' }).click();

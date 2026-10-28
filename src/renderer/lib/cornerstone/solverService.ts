@@ -35,7 +35,11 @@ import { useViewerStore } from '../../stores/viewerStore';
 import { recordSeedRaster } from './seedRasterProbe';
 import { viewportShowsSegmentation } from './viewportShows';
 
-const METHOD_LABEL: Record<SeededSettings['method'], string> = {
+/** The Seeded methods solved here, in 3D. (Random Walker solves one slice, in semiAutoService.) */
+export type Seeded3dSettings = SeededSettings & { method: Exclude<SeededSettings['method'], 'randomWalker'> };
+export const isSeeded3d = (s: SeededSettings): s is Seeded3dSettings => s.method !== 'randomWalker';
+
+const METHOD_LABEL: Record<Seeded3dSettings['method'], string> = {
   growCut: 'Fast GrowCut', graphCut: 'Graph Cut', alphaExpansion: 'Multi-label graph cut',
 };
 
@@ -181,7 +185,7 @@ export type SeededDomain =
   | { ok: false; reason: 'no-target' | 'no-viewport' | 'no-seeds' | 'no-roi' };
 
 /** The box the solve would run on, with its memory estimate (the sheet's estimate line). */
-export function seededDomain(s: SeededSettings, viewportId: string): SeededDomain {
+export function seededDomain(s: Seeded3dSettings, viewportId: string): SeededDomain {
   const t = activeTarget();
   if (!t) return { ok: false, reason: 'no-target' };
   const geometry = geometryOf({ containerId: t.containerId, segmentIndex: t.active });
@@ -235,7 +239,7 @@ let running: { cancel: () => void } | null = null;
 
 export const solverService = {
   /** Run the chosen method on the domain; preview the result (⏎ commits), or commit at once. */
-  async runSeeded(s: SeededSettings, viewportId: string, opts: { commit?: boolean } = {}): Promise<SeededResult> {
+  async runSeeded(s: Seeded3dSettings, viewportId: string, opts: { commit?: boolean } = {}): Promise<SeededResult> {
     const t = activeTarget();
     if (!t) return { ok: false, reason: 'no-target' };
     const dom = seededDomain(s, viewportId);

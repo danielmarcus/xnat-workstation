@@ -44,7 +44,6 @@ test('using Segment Bidirectional leaves the brush cursor working', async ({ pag
   await expect(panel).toBeVisible({ timeout: 15_000 });
   await panel.getByRole('button', { name: 'New Segmentation (SEG)' }).click();
   await expect(panel.locator('[data-testid^="member-row-"]').first()).toBeVisible({ timeout: 15_000 });
-  const toolbox = panel.locator('[data-testid="context-toolbox"]');
 
   // Paint a real segment blob.
   await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.setUnifiedBrushSize(40));
@@ -55,8 +54,9 @@ test('using Segment Bidirectional leaves the brush cursor working', async ({ pag
   await page.mouse.move(cx, cy, { steps: 4 }); await page.mouse.move(cx + 30, cy, { steps: 4 }); await page.mouse.up();
   await page.waitForTimeout(300);
 
-  // Run the measurement for real, through the toolbox button.
-  await toolbox.getByRole('button', { name: 'Seg Bidir.', exact: true }).click();
+  // Run the measurement for real, through the Segmentation's ⋮ menu.
+  await panel.getByRole('button', { name: 'Container menu' }).first().click();
+  await panel.getByRole('menuitem', { name: 'Measure segment axes' }).click();
   await page.waitForTimeout(2500);
   // It is an action, so the brush remains the active tool throughout.
   expect(await activeTool(page)).toBe('Brush');

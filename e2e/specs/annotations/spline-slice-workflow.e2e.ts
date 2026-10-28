@@ -70,7 +70,7 @@ async function open(page: Page, kind: 'SEG' | 'RTSTRUCT', fixture = 'ct-axial-an
   await page.keyboard.press('Escape');
   const toolbox = panel.locator('[data-testid="context-toolbox"]');
   if (kind === 'SEG') {
-    await expect(toolbox.getByRole('button', { name: 'Contour Fill', exact: true })).toBeVisible({ timeout: 10_000 });
+    await expect(toolbox.getByRole('button', { name: 'Contour', exact: true })).toBeVisible({ timeout: 10_000 });
     await clickTool(toolbox, 'Contour Fill');
     await toolbox.getByRole('group', { name: 'Boundary' }).getByRole('button', { name: 'Spline' }).click();
   } else {

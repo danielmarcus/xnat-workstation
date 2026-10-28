@@ -32,7 +32,6 @@ export interface SmartBrushSettings {
 
 export interface RandomWalkerSettings {
   beta: number;
-  seedRadiusPx: number;
   /** Padding (px) added around the seeds' bounding box for the solve. */
   paddingPx: number;
 }
@@ -64,7 +63,7 @@ export const useSemiAutoStore = create<SemiAutoState>((set) => ({
     smoothing: 'none', simplifyPx: 0, roundCorners: 0, guard: null,
   },
   smartBrush: { radiusMm: 6, tolerance: 80, spacingPx: 2 },
-  randomWalker: { beta: 90, seedRadiusPx: 2, paddingPx: 20 },
+  randomWalker: { beta: 90, paddingPx: 20 },
   roi: null,
   message: null,
   setMessage: (message) => set({ message }),

@@ -49,9 +49,14 @@ Moving tools out of the panel stays the fallback if this does not buy enough.
 | **Shape** | Circle, Rect, Sphere, Rect Multi | Shape Circle · Rect · Sphere; Limit None · Window |
 | **Contour** | Contour Fill | Boundary Freehand · Spline · Live wire (unchanged) |
 | **Region** | Region, Region+ | Gesture Drag · Click |
-| **Trace** | Level Trace, ROI limit | ROI limit becomes a Draw/Clear control in Trace's options |
+| **Trace** | Level Trace | — |
 
 Moved out of the tool set:
+
+- **ROI limit** → a toggle in the tools header band (▭ ROI, with ✕ to clear once drawn). It
+  confines Level Trace, Cleanup, Seeded's domain, Region competition, the modules and the
+  contour Local ROI / Fit ROI, so it cannot belong to one family: in the header, every tool
+  and open operation can reach it. Pressing it again returns to the tool used before.
 
 - **Random Walker** → a method of the Seeded segmentation operation (it already paints into
   the same seed store; ⇧-drag = Background is the Seeded painter's own rule).
@@ -108,11 +113,11 @@ committed on its own.
 
 ## Status
 
-- [ ] 1 Catalog model
-- [ ] 2 Families row + options strip
+- [x] 1 Catalog model
+- [x] 2 Families row + options strip (header band for the tools included)
 - [ ] 3 Essentials + More
-- [ ] 4 Moves (ROI limit, Seg Bidir., opacity)
-- [ ] 5 Random Walker → Seeded
+- [x] 4 Moves (ROI limit, Seg Bidir., opacity)
+- [x] 5 Random Walker → Seeded
 - [ ] 6 Operation drawer
 - [ ] 7 Grouped operations menu
 - [ ] 8 ⌘K finder

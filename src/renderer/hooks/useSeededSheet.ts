@@ -6,7 +6,8 @@
  * it the active tool (the toolbox highlight clears); picking any tool ends it.
  */
 import { useMemo } from 'react';
-import { describeSeeded, seededDomain, solverService } from '../lib/cornerstone/solverService';
+import { describeSeeded, isSeeded3d, seededDomain, solverService } from '../lib/cornerstone/solverService';
+import { describeSemiAuto, semiAutoService } from '../lib/cornerstone/semiAutoService';
 import { clearStaleNotice, commitPreview, discardPreview, showPreviewMember } from '../lib/cornerstone/maskPreview';
 import { closeOperation, confirmCloseOperation, STALE_PREVIEW_MESSAGE } from './operationLifecycle';
 import { hotkeyService } from '../lib/hotkeys/hotkeyService';
@@ -20,7 +21,7 @@ import { useViewerStore } from '../stores/viewerStore';
 import { ToolName } from '@shared/types/viewer';
 
 const rgb = (c: ArrayLike<number>) => `rgb(${c[0]}, ${c[1]}, ${c[2]})`;
-const RUNNING_LABELS = new Set(['Fast GrowCut', 'Graph Cut', 'Multi-label graph cut']);
+const RUNNING_LABELS = new Set(['Fast GrowCut', 'Graph Cut', 'Multi-label graph cut', 'Random Walker']);
 
 /** The tool that was active before seeding began, restored when it ends from the operation. */
 let toolBeforeSeeding: ToolName | null = null;
@@ -38,6 +39,7 @@ export function useSeededSheet() {
   const activeViewportId = useViewerStore((st) => st.activeViewportId);
   const activeTool = useViewerStore((st) => st.activeTool);
   const roi = useSemiAutoStore((st) => st.roi);
+  const rwBeta = useSemiAutoStore((st) => st.randomWalker.beta);
   const containerId = useSegmentationStore((st) => st.activeSegmentationId);
   const activeIndex = useSegmentationStore((st) => st.activeSegmentIndex);
   const segmentations = useSegmentationStore((st) => st.segmentations);
@@ -60,8 +62,10 @@ export function useSeededSheet() {
     ? classes.filter((c) => c.id !== BACKGROUND && c.strokes > 0).map((c) => ({ id: c.id, name: c.name }))
     : [];
 
+  // Random Walker solves the slice on screen, inside the ROI limit or round the seeds: no 3D domain.
+  const walker = !isSeeded3d(s);
   const domain = useMemo(
-    () => (open ? seededDomain(s, activeViewportId) : null),
+    () => (open && isSeeded3d(s) ? seededDomain(s, activeViewportId) : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the box follows the seeds, settings, viewport and ROI
     [open, s, activeViewportId, seeds.strokes, roi, containerId, activeIndex],
   );
@@ -81,6 +85,15 @@ export function useSeededSheet() {
   const run = (commit: boolean) => {
     clearStaleNotice();
     sheet.setMessage(null);
+    if (!isSeeded3d(s)) {
+      // The active segment's seeds are foreground; Background's and the other segments' are background.
+      void semiAutoService.randomWalkerRun(activeViewportId).then((r) => {
+        useOperationSheetStore.getState().setMessage(describeSemiAuto(r, 'Random Walker'));
+        if (commit && r.ok && !r.readOnly) commitPreview();
+      });
+      hotkeyService.focusActiveViewport();
+      return;
+    }
     void solverService.runSeeded(s, activeViewportId, { commit }).then((r) => useOperationSheetStore.getState().setMessage(describeSeeded(r)));
     hotkeyService.focusActiveViewport();
   };
@@ -90,6 +103,9 @@ export function useSeededSheet() {
     open,
     target,
     settings: s,
+    walker,
+    walkerBeta: rwBeta,
+    setWalkerBeta: (beta: number) => { changing(); useSemiAutoStore.getState().setRandomWalker({ beta }); },
     classes,
     paintClass: seeds.paintClass === 'erase' ? 'erase' as const : paintClass,
     painting,

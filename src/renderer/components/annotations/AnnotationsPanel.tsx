@@ -117,6 +117,20 @@ export default function AnnotationsPanel({ activeViewportId, sourceImageIds }: A
     onDeleteCheckpoint: (id: string, cp: string) => { void checkpoints.remove(id, cp); },
   };
 
+  // The ROI limit toggle returns to the tool that was active before drawing began.
+  const toolBeforeRoi = useRef<string | null>(null);
+  const roiDrawing = panel.toolbox?.activeToolId === 'roiLimit';
+  const roiLimit = isSeg && panel.toolbox ? {
+    drawing: roiDrawing,
+    drawn: semiAuto.roiDrawn,
+    onToggleDraw: () => {
+      const tb = panel.toolbox!;
+      if (roiDrawing) { tb.onSelectTool(toolBeforeRoi.current ?? 'levelTrace'); return; }
+      toolBeforeRoi.current = tb.activeToolId;
+      tb.onSelectTool('roiLimit');
+    },
+    onClear: semiAuto.clearRoi,
+  } : undefined;
   const toolbox = panel.toolbox ? (
     <ContextToolbox
       kind={panel.toolbox.kind}
@@ -132,6 +146,13 @@ export default function AnnotationsPanel({ activeViewportId, sourceImageIds }: A
       columns={toolColumns}
       renderSemiAutoControls={(toolId) => <SmartToolControls toolId={toolId} m={semiAuto} />}
       renderContourControls={(toolId) => <ContourToolControls toolId={toolId} m={contourTools} />}
+      editing={panel.toolbox.editing}
+      lastToolOfFamily={panel.toolbox.lastToolOfFamily}
+      roiLimit={roiLimit}
+      onRevealEditing={() => {
+        const id = panel.toolbox?.editingRowTestId;
+        if (id) panelRootRef.current?.querySelector(`[data-testid="${id}"]`)?.scrollIntoView({ block: 'nearest' });
+      }}
     />
   ) : undefined;
   // The open operation's model supplies the section's target, summary and close.

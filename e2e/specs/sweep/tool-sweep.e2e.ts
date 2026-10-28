@@ -15,7 +15,7 @@
 import { test, expect } from '../../fixtures/electron-app';
 import type { Locator, Page } from '@playwright/test';
 import { loadFixture } from '../../helpers/local-fixture';
-import { clickTool } from '../../helpers/toolbox';
+import { clickTool, toolFamily } from '../../helpers/toolbox';
 
 type Diff = Record<number, { added: number; removed: number; planes: number[]; focalChanged: boolean; now: number; maxPlaneMm: number; minFocalMm: number; voxelDiagMm: number }>;
 type Hooks = {
@@ -197,7 +197,7 @@ for (const ctx of CONTEXTS) {
         const expectHere: Expect = noGpu || (!plane?.aligned && REFUSE_ON_OBLIQUE_VIEW.has(tool.label)) ? 'none' : tool.expect;
         const errorsOf = captureErrors(page);
         if (noGpu) {
-          const button = toolbox.getByRole('button', { name: tool.label, exact: true });
+          const button = toolbox.getByTestId('toolbox-grid').getByRole('button', { name: toolFamily(tool.label), exact: true });
           await expect(button).toBeDisabled({ timeout: 10_000 });
           await expect(button).toHaveAttribute('title', GROW_CUT_GPU_UNAVAILABLE);
           await page.evaluate((name) => (window as unknown as { __XNAT_E2E__: { setActiveUnifiedTool: (n: string) => void } }).__XNAT_E2E__.setActiveUnifiedTool(name), tool.growCut!);

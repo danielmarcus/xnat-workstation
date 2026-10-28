@@ -101,21 +101,6 @@ export class RoiLimitTool extends BaseTool {
   };
 }
 
-export class RandomWalkerSeedTool extends BaseTool {
-  static toolName = 'XnatRandomWalkerSeeds';
-  constructor(toolProps = {}, defaultToolProps = { supportedInteractionTypes: ['Mouse'], configuration: {} }) {
-    super(toolProps, defaultToolProps);
-  }
-  preMouseDownCallback = (evt: ToolTypes.EventTypes.InteractionEventType): boolean => {
-    const { viewportId, currentPoints, event } = evt.detail as Detail;
-    const kind = event && (event.button === 2 || event.shiftKey) ? 'bg' : 'fg';
-    // Follow the drag only for a stroke that started: extending would append to the last
-    // stroke in the store — another class, slice or viewport.
-    if (bridge.addSeedStroke?.(viewportId, kind, currentPoints.world as number[])) followDrag(viewportId, (w) => bridge.extendSeedStroke?.(w), () => {});
-    return true;
-  };
-}
-
 /**
  * The Seeded segmentation operation's seed painter (branch 5, G2): a pointer mode the
  * operation turns on. Drag lays the chosen class (or erases); ⇧-drag lays Background — the
@@ -133,4 +118,4 @@ export class SolverSeedTool extends BaseTool {
   };
 }
 
-export const SEMI_AUTO_TOOLS = [LevelTraceTool, SmartBrushTool, RoiLimitTool, RandomWalkerSeedTool, SolverSeedTool];
+export const SEMI_AUTO_TOOLS = [LevelTraceTool, SmartBrushTool, RoiLimitTool, SolverSeedTool];

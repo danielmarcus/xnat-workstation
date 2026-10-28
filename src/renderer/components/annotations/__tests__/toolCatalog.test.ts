@@ -88,7 +88,8 @@ describe('catalog presentation contract', () => {
 
 /** annotation-panel-modes slice 1: Segmentation families and their modes. */
 describe('Segmentation families', () => {
-  const MOVED_OUT = new Set(['randomWalker', 'segBidirectional']);
+  // Random Walker becomes a Seeded method (slice 5); the ROI limit is the header's toggle.
+  const MOVED_OUT = new Set(['randomWalker', 'roiLimit']);
 
   it('every Segmentation tool except the moved-out ones belongs to exactly one family', () => {
     const counts = new Map<string, number>();
@@ -119,7 +120,6 @@ describe('Segmentation families', () => {
     expect(new Set(SEG_FAMILIES.map((f) => f.label)).size).toBe(SEG_FAMILIES.length);
     expect(familyOf('sphereThreshold')?.id).toBe('brush');
     expect(familyOf('rectMulti')?.id).toBe('shape');
-    expect(familyOf('roiLimit')?.id).toBe('trace');
     expect(familyOf('length')).toBeUndefined();
   });
 

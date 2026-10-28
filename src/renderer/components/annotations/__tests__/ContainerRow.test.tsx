@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { Container } from '@shared/types/annotation';
 import ContainerRow from '../ContainerRow';
@@ -213,5 +213,24 @@ describe('ContainerRow', () => {
     expect(cbs.onAddMember).toHaveBeenCalled();
     expect(cbs.onKebab).toHaveBeenCalled();
     expect(cbs.onDelete).toHaveBeenCalled();
+  });
+  it('a Segmentation\u2019s menu holds the labelmap opacity and the segment-axes measurement (annotation-panel-modes)', async () => {
+    const onLabelmapOpacityChange = vi.fn();
+    const onMeasureSegment = vi.fn();
+    setup({ container: makeContainer({ id: 'seg-1', kind: 'SEG' }), labelmapOpacity: 0.6, onLabelmapOpacityChange, onMeasureSegment });
+    await userEvent.click(screen.getByLabelText('Container menu'));
+    const slider = screen.getByLabelText('Labelmap opacity') as HTMLInputElement;
+    expect(slider.value).toBe('60');
+    fireEvent.change(slider, { target: { value: '25' } });
+    expect(onLabelmapOpacityChange).toHaveBeenCalledWith(0.25);
+    await userEvent.click(screen.getByTestId('menu-measure-segment-seg-1'));
+    expect(onMeasureSegment).toHaveBeenCalled();
+  });
+
+  it('without those handlers the menu offers neither', async () => {
+    setup();
+    await userEvent.click(screen.getByLabelText('Container menu'));
+    expect(screen.queryByLabelText('Labelmap opacity')).toBeNull();
+    expect(screen.queryByText('Measure segment axes')).toBeNull();
   });
 });

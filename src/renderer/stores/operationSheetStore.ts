@@ -42,7 +42,8 @@ export interface InterpolateSettings {
 
 /** Seeded segmentation (branch 5): Fast GrowCut · Graph Cut · α-expansion, from painted seeds. */
 export interface SeededSettings {
-  method: 'growCut' | 'graphCut' | 'alphaExpansion';
+  /** Random Walker solves the slice on screen only (2D); the others solve in 3D. */
+  method: 'growCut' | 'graphCut' | 'alphaExpansion' | 'randomWalker';
   /** The box solved: around the seeds, the ROI limit, or the whole volume. */
   domain: 'seeded' | 'roi' | 'volume';
   /** Padding round the seeds' box: in-plane pixels and slices (SegWorks α-expansion 24 / 2). */

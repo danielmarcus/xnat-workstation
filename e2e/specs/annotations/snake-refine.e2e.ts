@@ -49,7 +49,7 @@ async function segmentation(page: Page, fixture = 'ct-axial-anatomy') {
   await panel.getByRole('button', { name: 'New Segmentation (SEG)' }).click();
   await page.keyboard.press('Escape');
   const toolbox = panel.locator('[data-testid="context-toolbox"]');
-  await expect(toolbox.getByRole('button', { name: 'Contour Fill', exact: true })).toBeVisible({ timeout: 10_000 });
+  await expect(toolbox.getByRole('button', { name: 'Contour', exact: true })).toBeVisible({ timeout: 10_000 });
   await clickTool(toolbox, 'Contour Fill');
   return { panel, toolbox };
 }

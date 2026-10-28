@@ -63,8 +63,9 @@ test('measuring a painted segment draws its bidirectional, without crashing', as
   const linesBefore = await bidirectionalShapes(page);
   pageErrors.length = 0;
 
-  // The real toolbox button.
-  await panel.getByRole('button', { name: 'Seg Bidir.', exact: true }).click();
+  // The real menu item: the Segmentation's ⋮ menu (it moved there from the toolbox).
+  await panel.getByRole('button', { name: 'Container menu' }).first().click();
+  await panel.getByRole('menuitem', { name: 'Measure segment axes' }).click();
   await page.waitForTimeout(2500);
 
   expect(pageErrors, `selecting it must not throw — it used to: ${pageErrors[0] ?? ''}`).toEqual([]);
@@ -91,7 +92,9 @@ test('measuring with nothing painted is a no-op, not a crash', async ({ page }) 
   await expect(panel).toBeVisible({ timeout: 15_000 });
   await panel.getByRole('button', { name: 'New Segmentation (SEG)' }).click();
 
-  await panel.getByRole('button', { name: 'Seg Bidir.', exact: true }).click();
+  await page.keyboard.press('Escape');
+  await panel.getByRole('button', { name: 'Container menu' }).first().click();
+  await panel.getByRole('menuitem', { name: 'Measure segment axes' }).click();
   await page.waitForTimeout(2000);
   expect(pageErrors, 'an empty segment must be handled, not thrown on').toEqual([]);
 });

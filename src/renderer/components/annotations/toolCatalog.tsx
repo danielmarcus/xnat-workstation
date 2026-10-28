@@ -98,10 +98,8 @@ const SEG_TOOLS: ToolDef[] = [
   { id: 'contourFill', group: 'shape', label: 'Contour Fill', title: 'Draw a boundary — freehand, spline or live wire — and the area it encloses joins the segment (O)', needs: ['contourDraw'], icon: S(<path d="M4 8c0-3 8-3 8 0s-8 3-8 0z" fill="currentColor" fillOpacity={0.25} />) },
   { id: 'levelTrace', group: 'smart', label: 'Level Trace', title: 'Click a structure: the connected region of similar intensity is previewed; ⏎ adds it', needs: ['semiAuto'], icon: S(<><path d="M3 9c1-4 9-5 10-1s-6 6-9 3" /><circle cx="8" cy="8" r="1" fill="currentColor" stroke="none" /></>) },
   { id: 'smartBrush', group: 'paint', label: 'Smart Brush', title: 'Paint only the tissue under the brush — it does not spill across boundaries', needs: ['semiAuto'], icon: S(<><circle cx="8" cy="8" r="4" /><path d="M8 4v8" strokeDasharray="1.5 1" /></>) },
-  { id: 'randomWalker', group: 'smart', label: 'Rnd. Walker', title: 'Drag foreground seeds; ⇧-drag background seeds; Run segments between them (Random Walker)', needs: ['semiAuto'], icon: S(<><path d="M3 12l3-4 2 3 3-6 2 4" /></>) },
   { id: 'roiLimit', group: 'smart', label: 'ROI limit', title: 'Drag a rectangle that Level Trace, Random Walker and Cleanup stay inside', needs: ['semiAuto'], icon: S(<rect x="3" y="4" width="10" height="8" rx="1" strokeDasharray="2 1.3" />) },
   { ...SELECT_TOOL, group: 'general' },
-  { id: 'segBidirectional', group: 'general', label: 'Seg Bidir.', title: 'Measure the active segment\u2019s longest axis and its perpendicular', icon: S(<><ellipse cx="8" cy="8" rx="6" ry="4" strokeDasharray="2 1.3" /><path d="M3.5 8h9M8 4.5v7" /></>) },
 ];
 
 const STRUCTURE_TOOLS: ToolDef[] = [
@@ -223,7 +221,7 @@ export const SEG_FAMILIES: ToolFamily[] = [
     ],
     modes: { region: { gesture: 'drag' }, regionPlus: { gesture: 'click' } },
   },
-  { id: 'trace', label: 'Trace', title: toolDef('levelTrace').title, icon: toolDef('levelTrace').icon, members: ['levelTrace', 'roiLimit'] },
+  { id: 'trace', label: 'Trace', title: toolDef('levelTrace').title, icon: toolDef('levelTrace').icon, members: ['levelTrace'] },
 ];
 
 /** The family a Segmentation tool belongs to, or undefined (other kinds, moved tools). */
@@ -304,10 +302,8 @@ export const CATALOG_TO_TOOLNAME: Record<string, ToolName> = {
   contourFill: ToolName.LabelmapEditWithContour,
   levelTrace: ToolName.LevelTrace,
   smartBrush: ToolName.SmartBrush,
-  randomWalker: ToolName.RandomWalker,
   roiLimit: ToolName.RoiLimit,
   select: ToolName.Select,
-  segBidirectional: ToolName.SegmentBidirectional,
   // Structure
   freehand: ToolName.FreehandContour,
   spline: ToolName.SplineContour,

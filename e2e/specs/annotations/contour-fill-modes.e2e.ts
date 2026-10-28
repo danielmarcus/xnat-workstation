@@ -54,7 +54,7 @@ async function segmentation(page: Page, fixture = 'ct-axial-anatomy') {
   await panel.getByRole('button', { name: 'New Segmentation (SEG)' }).click();
   await page.keyboard.press('Escape');
   const toolbox = panel.locator('[data-testid="context-toolbox"]');
-  await expect(toolbox.getByRole('button', { name: 'Contour Fill', exact: true })).toBeVisible({ timeout: 10_000 });
+  await expect(toolbox.getByRole('button', { name: 'Contour', exact: true })).toBeVisible({ timeout: 10_000 });
   await clickTool(toolbox, 'Contour Fill');
   return { panel, toolbox };
 }
@@ -143,7 +143,7 @@ test('O picks Contour Fill, then cycles its boundary Freehand → Spline → Liv
   const pressed = (mode: string) => toolbox.getByRole('group', { name: 'Boundary' }).getByRole('button', { name: mode });
   await page.locator(VIEWPORT).click({ position: { x: 5, y: 5 } });
   await page.keyboard.press('o');
-  await expect(toolbox.getByRole('button', { name: 'Contour Fill', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(toolbox.getByRole('button', { name: 'Contour', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await expect(pressed('Freehand')).toHaveAttribute('aria-pressed', 'true');
   await page.keyboard.press('o');
   await expect(pressed('Spline')).toHaveAttribute('aria-pressed', 'true');
@@ -152,5 +152,5 @@ test('O picks Contour Fill, then cycles its boundary Freehand → Spline → Liv
   await expect(pressed('Live Wire')).toHaveAttribute('aria-pressed', 'true');
   await page.keyboard.press('o');
   await expect(pressed('Freehand')).toHaveAttribute('aria-pressed', 'true');
-  await expect(toolbox.getByRole('button', { name: 'Contour Fill', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(toolbox.getByRole('button', { name: 'Contour', exact: true })).toHaveAttribute('aria-pressed', 'true');
 });

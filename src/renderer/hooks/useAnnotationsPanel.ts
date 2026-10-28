@@ -47,7 +47,8 @@ import { formatBackupStatus } from '../lib/annotations/backupStatus';
 import { buildApprovalModule, formatReviewerName } from '../lib/annotations/approval';
 import { useSegmentMetrics } from './useSegmentMetrics';
 import { useActiveModality } from './useActiveModality';
-import { CATALOG_TO_TOOLNAME, TOOLNAME_TO_CATALOG, toolsForKind } from '../components/annotations/toolCatalog';
+import { CATALOG_TO_TOOLNAME, TOOLNAME_TO_CATALOG, familyOf, toolsForKind } from '../components/annotations/toolCatalog';
+import { useToolFamilyStore } from '../stores/toolFamilyStore';
 import { CONTOUR_FILL_TOOLNAME } from '@shared/types/viewer';
 import { getContourToolSettings } from '../lib/cornerstone/tools/contourToolSettings';
 import type { ContainerListHandlers } from '../components/annotations/ContainerList';
@@ -538,6 +539,26 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
     onSetAllVisible: (id, visible) => segmentationManager.setAllMembersVisible(id, visible),
     onSetAllLocked: (id, locked) => segmentationManager.setAllMembersLocked(id, locked),
     onReviewFlythrough: (id) => { startFlythrough(id); },
+    // Labelmap opacity lives in the Segmentation ⋮ menu: it is not a tool setting.
+    labelmapOpacity: fillAlpha,
+    onLabelmapOpacityChange: (v) => {
+      setFillAlpha(v);
+      segmentationService.updateStyle(v, renderOutline);
+    },
+    // Segment Bidirectional is an ACTION on the active segment, not a drawing mode:
+    // Cornerstone's tool only works when entered through its static hydrate with the
+    // segment named. Binding it as a primary draw tool is what used to crash it — its
+    // free-draw path builds an annotation with no segmentationId, and the render then
+    // dereferences a null colour.
+    onMeasureSegment: (id) => {
+      // From another Segmentation's menu, its first segment becomes the active one first.
+      if (activeMember?.containerId !== id) activateAndBridge(id, containers.find((c) => c.id === id)?.members[0]?.id ?? '');
+      void unifiedSegService
+        .measureActiveSegmentBidirectional(activeViewportId)
+        .then((ok) => {
+          if (!ok) console.warn('[annotationsPanel] no bidirectional could be measured for the active segment.');
+        });
+    },
     onExportContainerDicom: (id) => {
       void (async () => {
         try {
@@ -709,21 +730,6 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
     .filter((c): c is [number, number, number, number] => c !== null);
 
   const onSelectTool = (toolId: string) => {
-    // Segment Bidirectional is an ACTION on the active segment, not a drawing mode:
-    // Cornerstone's tool only works when entered through its static hydrate with the
-    // segment named. Binding it as a primary draw tool is what used to crash it — its
-    // free-draw path builds an annotation with no segmentationId, and the render then
-    // dereferences a null colour. So run the measurement and leave the active tool alone.
-    if (toolId === 'segBidirectional') {
-      void unifiedSegService
-        .measureActiveSegmentBidirectional(activeViewportId)
-        .then((ok) => {
-          if (!ok) {
-            console.warn('[annotationsPanel] no bidirectional could be measured for the active segment.');
-          }
-        });
-      return;
-    }
     // Contour Fill draws with the tool of its current boundary mode (D3).
     const toolName = toolId === 'contourFill'
       ? CONTOUR_FILL_TOOLNAME[getContourToolSettings().contourFillMode]
@@ -739,6 +745,12 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
   };
 
   const activeToolId = TOOLNAME_TO_CATALOG[activeTool] ?? null;
+  // A family button re-activates the family's last-used mode, however it was reached.
+  const lastToolOfFamily = useToolFamilyStore((s) => s.last);
+  useEffect(() => {
+    const family = familyOf(activeToolId);
+    if (family?.axes && activeToolId) useToolFamilyStore.getState().remember(family.id, activeToolId);
+  }, [activeToolId]);
 
   // ── Multi-viewport display state (D9 / cross-panel pill) ──────────────────
   //
@@ -985,17 +997,16 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
           activeMemberColor: rgbaToCss(activeMemberObj?.color),
           activeToolId,
           onSelectTool,
+          lastToolOfFamily,
+          // The options strip's editing chip (R6): the one copy of the name outside the list.
+          editing: activeMemberObj
+            ? { member: activeMemberObj.label, container: activeContainer.label, color: rgbaToCss(activeMemberObj.color) ?? '' }
+            : null,
+          editingRowTestId: activeMemberObj ? `member-row-${activeMemberObj.id}` : null,
           // SEG-only controls strip: labelmap opacity + brush radius apply to the
           // labelmap; RTSTRUCT/SR have no equivalent here.
           controls: activeContainer.kind === 'SEG'
             ? {
-                activeSegmentLabel: activeMemberObj?.label ?? '',
-                activeSegmentColor: rgbaToCss(activeMemberObj?.color),
-                opacity: fillAlpha,
-                onOpacityChange: (v: number) => {
-                  setFillAlpha(v);
-                  segmentationService.updateStyle(v, renderOutline);
-                },
                 brushSize,
                 samplingRadius,
                 onSamplingRadiusChange: (v: number) => unifiedToolService.setSamplingRadius(v),
@@ -1017,8 +1028,6 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
                   // Structure controls: the outline's thickness and opacity (restored
                   // from the legacy panel). Session values; the Settings preference
                   // is the default applied at start-up, as for the labelmap opacity.
-                  activeSegmentLabel: activeMemberObj?.label ?? '',
-                  activeSegmentColor: rgbaToCss(activeMemberObj?.color),
                   lineWidth: contourLineWidth,
                   onLineWidthChange: (v: number) => {
                     useSegmentationStore.getState().setContourLineWidth(v);

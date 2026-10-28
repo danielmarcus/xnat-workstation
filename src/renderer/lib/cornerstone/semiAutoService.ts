@@ -395,7 +395,7 @@ export function describeSemiAuto(r: SemiAutoResult, tool: string): string | null
     case 'no-labelmap': case 'no-image': return `${tool} is unavailable for this scan`;
     case 'outside': return 'Click inside the image';
     case 'no-change': return 'Nothing to add here';
-    case 'no-seeds': return 'Draw foreground and ⇧ background seeds first';
+    case 'no-seeds': return 'Paint seeds of the segment and of the Background (⇧) on this slice first';
     case 'failed': return `${tool} failed — see the log`;
     default: return null;
   }
@@ -411,16 +411,6 @@ Object.assign(semiAutoBridge, {
   smartBrushExtend: semiAutoService.smartBrushExtend,
   smartBrushEnd: semiAutoService.smartBrushEnd,
   setRoi: (viewportId: string, corners: number[][]) => useSemiAutoStore.getState().setRoi({ viewportId, corners }),
-  addSeedStroke: (viewportId: string, kind: 'fg' | 'bg', w: number[]): boolean => {
-    const { activeSegmentationId: containerId, activeSegmentIndex: active } = useSegmentationStore.getState();
-    if (!containerId) return false;
-    useSeedStore.getState().addStroke({
-      containerId, viewportId, cls: kind === 'fg' ? active : 0,
-      radiusMm: seedBrushMm(viewportId, useSemiAutoStore.getState().randomWalker.seedRadiusPx), points: [w],
-    });
-    return true;
-  },
-  extendSeedStroke: (w: number[]) => useSeedStore.getState().extendStroke(w),
 });
 
 startSemiAutoOverlay();

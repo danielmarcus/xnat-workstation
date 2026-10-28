@@ -66,7 +66,7 @@ for (const boundary of ['Spline', 'Live Wire'] as const) {
     await startBoundary(page, toolbox, boundary);
     await page.keyboard.press('Escape');
     await expect.poll(() => drawing(page)).toBe(false);
-    await expect(toolbox.getByRole('button', { name: 'Contour Fill', exact: true })).toHaveAttribute('aria-pressed', 'true');
+    await expect(toolbox.getByRole('button', { name: 'Contour', exact: true })).toHaveAttribute('aria-pressed', 'true');
     await navigates(page);
     expect(await h(page, 'activeSegmentVoxelCount')).toBe(0);
   });
