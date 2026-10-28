@@ -43,6 +43,7 @@ import { utilities as csToolsUtilities } from '@cornerstonejs/tools';
 import { init as initDicomImageLoader } from '@cornerstonejs/dicom-image-loader';
 import { installInterpolationOrientationFix } from './interpolationAcceptance';
 import { installContourStrokeSelection } from './contourStrokeSelection';
+import { installInactiveContourVisibility } from './inactiveContourVisibility';
 
 let initialized = false;
 
@@ -78,6 +79,8 @@ export async function initCornerstone(): Promise<void> {
   // v5 replaces every finished contour stroke with new annotations (the contour union);
   // keep the selection on the result so Ctrl+C / delete still find it.
   installContourStrokeSelection();
+  // v5 ignores a hidden segment of an inactive contour segmentation; hide it anyway.
+  installInactiveContourVisibility();
   // Slice numbers, anchors, the ROI limit and plan overrides are cleared when their view changes.
   installOperationContextReset();
 
