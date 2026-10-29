@@ -86,7 +86,7 @@ would plausibly need.
    (main). The main bundle may be in whatever form the extension's own build produces —
    minified, or compiled to V8 bytecode for the edition's pinned Electron version — so a
    publisher can harden its own code; the core neither provides nor requires that.
-6. **The SDK.** This repository publishes `@xnat/workstation-extension-api`: the API's types,
+6. **The SDK.** This repository publishes `@nrgxnat/workstation-extension-api`: the API's types,
    the manifest schema, a small runtime shim, and test helpers. An extension's repository
    depends on it (and on React as a peer); building an edition then combines the core with
    that repository's bundles. It is published to public npm (question 4).
@@ -232,9 +232,10 @@ licensing.
 3. ~~**Reach beyond R1–R14.**~~ **Decided 2026-10-29:** only R1–R14 now; running a module or
    operation, XNAT-browser columns, ⋮-menu items and the like are added when an extension needs
    them, each as a new minor version of the API.
-4. ~~**Where is the SDK published?**~~ **Decided 2026-10-29:** public npm, under the `@xnat`
-   organisation, as `@xnat/workstation-extension-api` (the scope is shared with the wider XNAT
-   project, so the name says which product it serves). Published from GitHub Actions by npm
+4. ~~**Where is the SDK published?**~~ **Decided 2026-10-29:** public npm, under the `@nrgxnat`
+   organisation (created 2026-10-29; `xnat` was taken), as
+   `@nrgxnat/workstation-extension-api` (the scope may hold other XNAT packages, so the name
+   says which product it serves). Published from GitHub Actions by npm
    trusted publishing (no stored token, with provenance), on its own version line (the API's
    semver, not the app's), and attached to each GitHub release as a fallback.
 5. ~~**Naming.**~~ **Decided 2026-10-29:** "extension" for this, "module" for algorithms.
