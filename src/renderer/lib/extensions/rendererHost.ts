@@ -11,7 +11,7 @@
  */
 import { EXTENSION_API_VERSION } from '@shared/extensions/manifest';
 import type { ExtensionSummary } from '@shared/extensions/types';
-import type { ExtensionXnat, RendererChannel, RendererExtensionContext, RendererPart } from '@shared/extensions/api';
+import { EXTENSION_TEST_GLOBAL, type ExtensionFiles, type ExtensionStorage, type ExtensionXnat, type RendererChannel, type RendererExtensionContext, type RendererPart } from '@shared/extensions/api';
 import { useExtensionStore } from '../../stores/extensionStore';
 import { createExtensionUiApi, disposeExtensionUi, trackForExtension } from './uiRegistry';
 import { createStateApi } from './stateApi';
@@ -50,6 +50,28 @@ function xnatFor(id: string): ExtensionXnat {
   } as ExtensionXnat;
 }
 
+/** ext.storage for a renderer part: the extension's own store, in main (extensionStorage). */
+function storageFor(id: string): ExtensionStorage {
+  const call = (op: string) => (...args: unknown[]) => unwrap(api!.storage(id, op, args));
+  return { get: call('get'), set: call('set'), delete: call('delete'), keys: call('keys') } as ExtensionStorage;
+}
+
+/** ext.files: the system's dialogs, shown by main. */
+function filesFor(id: string): ExtensionFiles {
+  return {
+    open: (options) => unwrap(api!.openFile(id, options)) as ReturnType<ExtensionFiles['open']>,
+    save: (options) => unwrap(api!.saveFile(id, options)) as ReturnType<ExtensionFiles['save']>,
+  };
+}
+
+/** Under a test harness: the running renderer parts' contexts, for their own E2E (R11). */
+function listForTests(id: string, ctx: RendererExtensionContext | null): void {
+  if (!api?.testing) return;
+  const g = globalThis as Record<string, unknown>;
+  const list = (g[EXTENSION_TEST_GLOBAL] ??= {}) as Record<string, RendererExtensionContext>;
+  if (ctx) list[id] = ctx; else delete list[id];
+}
+
 /** Main parts' posts, by extension: one IPC subscription, fanned out. */
 const channelListeners = new Map<string, Set<(message: unknown) => void>>();
 let channelUnsubscribe: (() => void) | null = null;
@@ -83,12 +105,16 @@ async function startRendererPart(s: ExtensionSummary): Promise<ExtensionSummary[
       xnat: xnatFor(id),
       channel: channelFor(id),
       ...createStateApi(id),
+      storage: storageFor(id),
+      files: filesFor(id),
+      testing: !!api.testing,
     };
     await new Promise<void>((resolve, reject) => {
       const t = setTimeout(() => reject(new Error(`did not finish starting within ${START_LIMIT_MS / 1000} s`)), START_LIMIT_MS);
       Promise.resolve().then(() => part.activate!(ctx)).then(() => { clearTimeout(t); resolve(); }, (e) => { clearTimeout(t); reject(e); });
     });
     running.set(id, part);
+    listForTests(id, ctx);
     return null;
   } catch (err) {
     console.warn(`[extensions] ${s.id} did not start: ${errText(err)}`);
@@ -100,6 +126,7 @@ async function startRendererPart(s: ExtensionSummary): Promise<ExtensionSummary[
 function stopRendererPart(id: string): void {
   const part = running.get(id);
   running.delete(id);
+  listForTests(id, null);
   try {
     part?.deactivate?.();
   } catch (err) {

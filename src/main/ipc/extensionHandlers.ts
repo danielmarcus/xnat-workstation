@@ -3,16 +3,35 @@
  * the `xnat-extension://` scheme their renderer parts load from, the IPC Settings › Extensions
  * uses, and stopping main parts at quit.
  */
-import { app, BrowserWindow, ipcMain, protocol, type CustomScheme } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, protocol, type CustomScheme } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
 import { IPC } from '../../shared/ipcChannels';
 import { EXTENSION_SCHEME, ExtensionHost } from '../extensions/extensionHost';
 import { createExtensionXnat } from '../extensions/extensionXnat';
+import { ExtensionStorageStore } from '../extensions/extensionStorage';
+import type { FileFilter } from '../../shared/extensions/api';
 import { getClient, getConnectionInfo } from '../xnat/sessionManager';
 
 /** The renderer part's ext.xnat calls: these, by name, and nothing else. */
 const XNAT_OPS = new Set(['user', 'request', 'getJson', 'permissions', 'resourceFiles']);
+
+/** The renderer part's ext.storage calls. */
+const STORAGE_OPS = new Set(['get', 'set', 'delete', 'keys']);
+
+/** The largest file ext.files.open() reads. */
+const MAX_OPEN_BYTES = 100 * 2 ** 20;
+
+/** Dialog filters from an extension: names and extensions as plain text, nothing else. */
+function filters(raw: unknown): FileFilter[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  return raw
+    .filter((f): f is FileFilter => !!f && typeof f.name === 'string' && Array.isArray(f.extensions))
+    .map((f) => ({ name: f.name.slice(0, 80), extensions: f.extensions.filter((e) => typeof e === 'string' && /^[A-Za-z0-9*]{1,16}$/.test(e)) }));
+}
+
+/** A suggested file name: no folders, nothing a file system would refuse. */
+const safeName = (name: unknown) => String(name ?? 'file').replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').slice(0, 120) || 'file';
 
 /** A result over IPC: an Error thrown in main reaches the renderer with its own message. */
 type Result = { ok: true; value: unknown } | { ok: false; error: string };
@@ -49,7 +68,10 @@ let ready: Promise<void> = Promise.resolve();
 
 export function registerExtensionHandlers(): void {
   const xnat = createExtensionXnat(getClient, getConnectionInfo);
+  const storage = new ExtensionStorageStore(path.join(app.getPath('userData'), 'extension-data'));
   host = new ExtensionHost({
+    storage,
+    testing: process.env.E2E_TESTING === '1',
     dir: extensionsDir(),
     settingsFile: path.join(app.getPath('userData'), 'extensions.json'),
     xnat,
@@ -90,6 +112,43 @@ export function registerExtensionHandlers(): void {
       if (!h.isRunning(id)) throw new Error(`${id} is not running`);
       if (!XNAT_OPS.has(op) || !Array.isArray(args)) throw new Error(`No such ext.xnat call: ${op}`);
       return (xnat as unknown as Record<string, (...a: unknown[]) => unknown>)[op](...args);
+    });
+  });
+  ipcMain.handle(IPC.EXTENSIONS_STORAGE, async (_e, id: string, op: string, args: unknown[]) => {
+    await ready;
+    return result(() => {
+      if (!h.isRunning(id)) throw new Error(`${id} is not running`);
+      if (!STORAGE_OPS.has(op) || !Array.isArray(args)) throw new Error(`No such ext.storage call: ${op}`);
+      return (storage.for(id) as unknown as Record<string, (...a: unknown[]) => unknown>)[op](...args);
+    });
+  });
+  ipcMain.handle(IPC.EXTENSIONS_FILE_OPEN, async (e, id: string, options: { title?: string; filters?: unknown } = {}) => {
+    await ready;
+    return result(async () => {
+      if (!h.isRunning(id)) throw new Error(`${id} is not running`);
+      const win = BrowserWindow.fromWebContents(e.sender) ?? undefined;
+      const opts = { title: typeof options?.title === 'string' ? options.title : undefined, filters: filters(options?.filters), properties: ['openFile' as const] };
+      const r = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts);
+      const file = r.filePaths?.[0];
+      if (r.canceled || !file) return null;
+      const stat = await fs.promises.stat(file);
+      if (!stat.isFile()) throw new Error('Not a file');
+      if (stat.size > MAX_OPEN_BYTES) throw new Error(`The file is larger than ${MAX_OPEN_BYTES / 2 ** 20} MB`);
+      return { name: path.basename(file), data: new Uint8Array(await fs.promises.readFile(file)) };
+    });
+  });
+  ipcMain.handle(IPC.EXTENSIONS_FILE_SAVE, async (e, id: string, options: { suggestedName?: string; data?: unknown; title?: string; filters?: unknown }) => {
+    await ready;
+    return result(async () => {
+      if (!h.isRunning(id)) throw new Error(`${id} is not running`);
+      const data = options?.data;
+      if (typeof data !== 'string' && !(data instanceof Uint8Array)) throw new Error('Nothing to save: data must be text or bytes');
+      const win = BrowserWindow.fromWebContents(e.sender) ?? undefined;
+      const opts = { title: typeof options.title === 'string' ? options.title : undefined, defaultPath: safeName(options.suggestedName), filters: filters(options.filters) };
+      const r = win ? await dialog.showSaveDialog(win, opts) : await dialog.showSaveDialog(opts);
+      if (r.canceled || !r.filePath) return { saved: false };
+      await fs.promises.writeFile(r.filePath, data);
+      return { saved: true, name: path.basename(r.filePath) };
     });
   });
   ipcMain.handle(IPC.EXTENSIONS_CHANNEL_REQUEST, async (_e, id: string, message: unknown) => {

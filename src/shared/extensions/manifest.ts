@@ -8,7 +8,7 @@
  * The extension API this host implements, major.minor. Before 1.0 every minor may break
  * extensions; from 1.0 a minor only adds (design point 3, R12).
  */
-export const EXTENSION_API_VERSION = '0.4';
+export const EXTENSION_API_VERSION = '0.5';
 
 export interface ExtensionManifest {
   /** Reverse-DNS, lower case: `org.example.session-notes`. */

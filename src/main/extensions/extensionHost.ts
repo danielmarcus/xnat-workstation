@@ -14,7 +14,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { EXTENSION_API_VERSION, apiCompatible, incompatibleReason, validateExtensionManifest, type ExtensionManifest } from '../../shared/extensions/manifest';
 import type { ExtensionState, ExtensionSummary } from '../../shared/extensions/types';
-import type { ExtensionXnat, MainExtensionContext, MainPart } from '../../shared/extensions/api';
+import type { ExtensionStorage, ExtensionXnat, MainExtensionContext, MainPart } from '../../shared/extensions/api';
+import type { ExtensionStorageStore } from './extensionStorage';
 
 export const EXTENSION_SCHEME = 'xnat-extension';
 
@@ -46,7 +47,16 @@ interface Options {
   xnat?: ExtensionXnat;
   /** Delivers a main part's ext.channel.post() to its renderer part. */
   post?: (extId: string, message: unknown) => void;
+  /** Per-extension storage (ext.storage). */
+  storage?: ExtensionStorageStore;
+  /** The app runs under a test harness (ext.testing). */
+  testing?: boolean;
 }
+
+/** Without a store (tests): every call refused. */
+const NO_STORAGE: ExtensionStorage = new Proxy({} as ExtensionStorage, {
+  get: () => () => Promise.reject(new Error('Storage is not available')),
+});
 
 /** Without XNAT (tests, or before sign-in is wired): no user, and every call refused. */
 const NO_XNAT: ExtensionXnat = new Proxy({} as ExtensionXnat, {
@@ -220,6 +230,8 @@ export class ExtensionHost {
         apiVersion: EXTENSION_API_VERSION,
         log: (...args) => console.log(`[ext:${m.id}]`, ...args),
         xnat: this.opts.xnat ?? NO_XNAT,
+        storage: this.opts.storage?.for(m.id) ?? NO_STORAGE,
+        testing: !!this.opts.testing,
         channel: {
           handle: (handler) => {
             e.handler = handler;

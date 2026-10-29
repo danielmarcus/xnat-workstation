@@ -40,6 +40,7 @@
     "test:edition": "node scripts/test-edition.mjs",
     "test:e2e:offline": "npx playwright test --config playwright.config.ts --project=app",
     "test:e2e:live": "npx playwright test --config playwright.config.ts --project=auth",
+    "test:e2e:extension-example": "npx playwright test --config extensions/examples/session-notes/playwright.config.ts",
     "test:e2e:headed": "npx playwright test --config playwright.config.ts --headed",
     "test:e2e:debug": "PWDEBUG=1 npx playwright test --config playwright.config.ts",
     "test:e2e:report": "npx playwright show-report e2e/playwright-report",

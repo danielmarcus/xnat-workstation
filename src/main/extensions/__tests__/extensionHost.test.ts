@@ -9,6 +9,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { createRequire } from 'module';
 import { ExtensionHost } from '../extensionHost';
+import { ExtensionStorageStore } from '../extensionStorage';
 import { EXTENSION_API_VERSION } from '../../../shared/extensions/manifest';
 
 let root: string;
@@ -198,5 +199,18 @@ module.exports = {
     await expect(h.channelRequest('org.example.notes', 'hi')).rejects.toThrow(/not running/);
     expect(h.isRunning('org.example.notes')).toBe(false);
     expect(h.isRunning('org.example.plain')).toBe(true);
+  });
+});
+
+describe('ExtensionHost — storage and testing (X5)', () => {
+  it('a main part gets its own storage, and knows whether it runs under a test harness', async () => {
+    const main = `module.exports = { async activate(ext) { await ext.storage.set('ran', ext.testing); ext.channel.handle(() => ext.storage.get('ran')); } };`;
+    ext('notes', manifest('org.example.notes', { main: 'main.js' }), { 'renderer.js': '', 'main.js': main });
+    const storage = new ExtensionStorageStore(path.join(root, 'extension-data'));
+    const h = new ExtensionHost({ dir, settingsFile, load, storage, testing: true });
+    await h.start();
+    expect(await h.channelRequest('org.example.notes', null)).toBe(true);
+    expect(await storage.for('org.example.notes').get('ran')).toBe(true);
+    expect(await storage.for('org.example.other').get('ran')).toBeUndefined();
   });
 });

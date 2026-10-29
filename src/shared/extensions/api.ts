@@ -90,10 +90,44 @@ export interface RendererChannel {
   onMessage(listener: (message: unknown) => void): Dispose;
 }
 
+// ─── X5: storage, files, testing ──────────────────────────────────────
+
+/**
+ * Per-user storage on this computer (R8): JSON values by key, the extension's own — no other
+ * extension can read it. Capped (5 MB). Not for secrets (licences and tokens: X6's secure store).
+ */
+export interface ExtensionStorage {
+  get<T = unknown>(key: string): Promise<T | undefined>;
+  /** Rejects when the value is not JSON, or the store would pass its limit. */
+  set(key: string, value: unknown): Promise<void>;
+  delete(key: string): Promise<void>;
+  keys(): Promise<string[]>;
+}
+
+export interface FileFilter {
+  name: string;
+  /** Without dots: ['json', 'csv']. */
+  extensions: string[];
+}
+
+/** Files the user picks (R8): the system's open and save dialogs. Renderer part only. */
+export interface ExtensionFiles {
+  /** Resolves null when the user cancels. */
+  open(options?: { title?: string; filters?: FileFilter[] }): Promise<{ name: string; data: Uint8Array } | null>;
+  /** Text is written as UTF-8. Resolves { saved: false } when the user cancels. */
+  save(options: { suggestedName: string; data: string | Uint8Array; title?: string; filters?: FileFilter[] }): Promise<{ saved: boolean; name?: string }>;
+}
+
 /** What the main part's activate() receives. */
 export interface MainExtensionContext extends ExtensionContextBase {
   xnat: ExtensionXnat;
   channel: MainChannel;
+  storage: ExtensionStorage;
+  /**
+   * True when the app runs under a test harness (R11): an extension may swap its own
+   * services — a licence server, a remote API — for fakes.
+   */
+  testing: boolean;
 }
 
 /** An XNAT session, as navigation names it. */
@@ -287,7 +321,17 @@ export interface RendererExtensionContext extends ExtensionContextBase {
   viewer: ExtensionViewer;
   annotations: ExtensionAnnotations;
   events: ExtensionEvents;
+  storage: ExtensionStorage;
+  files: ExtensionFiles;
+  /** As the main part's (see MainExtensionContext.testing). */
+  testing: boolean;
 }
+
+/**
+ * Under a test harness the host lists every running renderer part's context here, keyed by
+ * extension id, so an extension's own E2E can drive it (the SDK's testing helpers read it).
+ */
+export const EXTENSION_TEST_GLOBAL = '__xnatWorkstationExtensions';
 
 /**
  * A part's exports. activate() may be async; if it throws, rejects or takes longer than 10 s

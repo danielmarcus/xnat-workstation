@@ -9,16 +9,20 @@
  * - commands for the ⌘K finder and Settings › Hotkeys: next / previous note (N, ⇧N) and open
  *   All notes.
  *
- * The tab names the XNAT session on screen and follows it (ext.viewer, ext.events — X3).
+ * The tab names the XNAT session on screen and follows it (ext.viewer, ext.events — X3). Notes
+ * are kept per session on this computer (ext.storage), and can be exported to and imported from
+ * a JSON file the user picks (ext.files — X5).
  *
  * It is built like any extension: TSX bundled with `react` aliased to the SDK's, so it renders
- * with the app's React (scripts/build-extensions.mjs). Notes are kept in memory for now; storing
- * them in an XNAT resource arrives with storage (X5).
+ * with the app's React (scripts/build-extensions.mjs). Its own E2E (e2e/) runs against a built
+ * app with the SDK's testing helpers.
  */
 import { useState, useSyncExternalStore } from 'react';
 import type { RendererExtensionContext, ToolbarItemHandle } from '@nrgxnat/workstation-extension-api';
 
 interface Note { id: number; text: string; at: Date }
+/** A note as stored and exported. */
+interface StoredNote { text: string; at: string }
 
 // ─── State: the notes, the selected one, and whether the toolbar shows the count ───
 
@@ -28,19 +32,78 @@ let showCount = true;
 let nextId = 1;
 const listeners = new Set<() => void>();
 let session: string | null = null;
-let snapshot: { notes: Note[]; selected: number | null; showCount: boolean; session: string | null } = { notes, selected, showCount, session };
+/** A one-line status shown in the tab (an import's result, a storage error) — never a toast. */
+let status: string | null = null;
+let snapshot: { notes: Note[]; selected: number | null; showCount: boolean; session: string | null; status: string | null } = { notes, selected, showCount, session, status };
 function changed() {
-  snapshot = { notes, selected, showCount, session };
+  snapshot = { notes, selected, showCount, session, status };
   for (const l of listeners) l();
 }
 const subscribe = (l: () => void) => { listeners.add(l); return () => listeners.delete(l); };
 const useNotes = () => useSyncExternalStore(subscribe, () => snapshot);
+
+// ─── Storage: notes per session (or "local" without an XNAT session) ───
+
+let current: RendererExtensionContext | null = null;
+let sessionKey = 'local';
+const notesKey = () => `notes:${sessionKey}`;
+const stored = (list: Note[]): StoredNote[] => list.map((n) => ({ text: n.text, at: n.at.toISOString() }));
+
+function fromStored(list: unknown): Note[] {
+  if (!Array.isArray(list)) throw new Error('not a list of notes');
+  return list
+    .filter((n): n is StoredNote => !!n && typeof (n as StoredNote).text === 'string')
+    .map((n) => ({ id: nextId++, text: n.text, at: new Date(n.at ?? Date.now()) }));
+}
+
+async function save() {
+  try {
+    await current?.storage.set(notesKey(), stored(notes));
+  } catch (err) {
+    status = `Not saved: ${(err as Error).message}`;
+    changed();
+  }
+}
+
+async function load() {
+  const list = await current?.storage.get<StoredNote[]>(notesKey());
+  notes = list ? fromStored(list) : [];
+  selected = notes[0]?.id ?? null;
+  status = null;
+  changed();
+}
 
 function addNote(text: string) {
   const note = { id: nextId++, text, at: new Date() };
   notes = [note, ...notes];
   selected = note.id;
   changed();
+  void save();
+}
+
+async function exportNotes() {
+  const r = await current!.files.save({
+    suggestedName: `notes-${sessionKey}.json`,
+    data: JSON.stringify(stored(notes), null, 2),
+    filters: [{ name: 'JSON', extensions: ['json'] }],
+  });
+  status = r.saved ? `Exported ${notes.length} note${notes.length === 1 ? '' : 's'} to ${r.name}` : null;
+  changed();
+}
+
+async function importNotes() {
+  const file = await current!.files.open({ title: 'Import notes', filters: [{ name: 'JSON', extensions: ['json'] }] });
+  if (!file) return;
+  try {
+    const added = fromStored(JSON.parse(new TextDecoder().decode(file.data)));
+    notes = [...added, ...notes];
+    status = `Imported ${added.length} note${added.length === 1 ? '' : 's'} from ${file.name}`;
+    changed();
+    await save();
+  } catch (err) {
+    status = `Could not import ${file.name}: ${(err as Error).message}`;
+    changed();
+  }
 }
 
 function step(by: 1 | -1) {
@@ -53,10 +116,9 @@ function step(by: 1 | -1) {
 
 const time = (d: Date) => d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-let current: RendererExtensionContext | null = null;
-
-export function activate(ext: RendererExtensionContext) {
+export async function activate(ext: RendererExtensionContext) {
   current = ext;
+  showCount = (await ext.storage.get<boolean>('showCount')) ?? true;
   const { Button, Dialog } = ext.ui.components;
 
   function AddNoteDialog({ onClose }: { onClose: () => void }) {
@@ -97,7 +159,12 @@ export function activate(ext: RendererExtensionContext) {
             </li>
           ))}
         </ul>
-        <div className="p-2.5"><Button onClick={() => setAdding(true)}>+ Add note</Button></div>
+        <div className="p-2.5 flex flex-wrap gap-1.5">
+          <Button onClick={() => setAdding(true)}>+ Add note</Button>
+          <Button onClick={() => { void exportNotes(); }} disabled={s.notes.length === 0}>Export…</Button>
+          <Button onClick={() => { void importNotes(); }}>Import…</Button>
+        </div>
+        {s.status && <div className="px-2.5 pb-2 text-[11px] text-zinc-400" data-testid="notes-status">{s.status}</div>}
         {adding && <AddNoteDialog onClose={() => setAdding(false)} />}
       </div>
     );
@@ -132,7 +199,7 @@ export function activate(ext: RendererExtensionContext) {
     const s = useNotes();
     return (
       <label className="flex items-center gap-2 text-xs text-zinc-300">
-        <input type="checkbox" checked={s.showCount} onChange={(e) => { showCount = e.target.checked; changed(); }} />
+        <input type="checkbox" checked={s.showCount} onChange={(e) => { showCount = e.target.checked; changed(); void ext.storage.set('showCount', showCount); }} />
         Show the note count in the toolbar
       </label>
     );
@@ -147,9 +214,15 @@ export function activate(ext: RendererExtensionContext) {
   ext.commands.register({ id: 'all', title: 'Open All notes', run: () => ext.ui.openView('all') });
 
   // The tab follows the session on screen.
-  const followSession = () => { session = ext.viewer.session()?.sessionLabel ?? null; changed(); };
-  ext.events.on('sessionChanged', followSession);
-  followSession();
+  // The tab follows the session on screen: its label, and its notes.
+  const followSession = async () => {
+    const open = ext.viewer.session();
+    session = open?.sessionLabel ?? null;
+    sessionKey = open?.sessionId ?? 'local';
+    await load();
+  };
+  ext.events.on('sessionChanged', () => { void followSession(); });
+  await followSession();
 
   // The toolbar item follows the notes and the setting.
   const sync = () => item.update({ label: `${notes.length} note${notes.length === 1 ? '' : 's'}`, visible: showCount });

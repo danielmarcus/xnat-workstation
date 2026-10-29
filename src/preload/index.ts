@@ -233,6 +233,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     rendererFailed: (id: string, reason: string) => ipcRenderer.invoke(IPC.EXTENSIONS_RENDERER_FAILED, id, reason),
     xnat: (id: string, op: string, args: unknown[]) => ipcRenderer.invoke(IPC.EXTENSIONS_XNAT, id, op, args),
     channelRequest: (id: string, message: unknown) => ipcRenderer.invoke(IPC.EXTENSIONS_CHANNEL_REQUEST, id, message),
+    storage: (id: string, op: string, args: unknown[]) => ipcRenderer.invoke(IPC.EXTENSIONS_STORAGE, id, op, args),
+    openFile: (id: string, options?: unknown) => ipcRenderer.invoke(IPC.EXTENSIONS_FILE_OPEN, id, options ?? {}),
+    saveFile: (id: string, options: unknown) => ipcRenderer.invoke(IPC.EXTENSIONS_FILE_SAVE, id, options),
+    /** The app runs under a test harness (ext.testing). */
+    testing: process.env.E2E_TESTING === '1',
     onChannelMessage: (callback: (id: string, message: unknown) => void) => {
       const wrapped = (_e: unknown, id: string, message: unknown) => callback(id, message);
       ipcRenderer.on(IPC.EXTENSIONS_CHANNEL_MESSAGE, wrapped);

@@ -117,6 +117,9 @@ export const IPC = {
   EXTENSIONS_RENDERER_FAILED: 'extensions:renderer-failed',
   EXTENSIONS_XNAT: 'extensions:xnat',
   EXTENSIONS_CHANNEL_REQUEST: 'extensions:channel-request',
+  EXTENSIONS_STORAGE: 'extensions:storage',
+  EXTENSIONS_FILE_OPEN: 'extensions:file-open',
+  EXTENSIONS_FILE_SAVE: 'extensions:file-save',
   // main → renderer: a main part's ext.channel.post()
   EXTENSIONS_CHANNEL_MESSAGE: 'extensions:channel-message',
 

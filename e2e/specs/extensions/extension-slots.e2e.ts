@@ -23,6 +23,12 @@ const FAULTY = 'org.xnat.e2e.ui-throws';
 type Win = { __XNAT_E2E__: { clearAllContainers: () => void } };
 test.beforeEach(async ({ page }) => {
   await page.evaluate(() => { try { localStorage.removeItem('xnat.sidebar.tab'); } catch { /* */ } });
+  // Notes persist (ext.storage, X5): start each test with none, through the extension's own ext.
+  await page.waitForFunction((id) => !!(window as unknown as { __xnatWorkstationExtensions?: Record<string, unknown> }).__xnatWorkstationExtensions?.[id], NOTES);
+  await page.evaluate(async (id) => {
+    const ext = (window as unknown as { __xnatWorkstationExtensions: Record<string, { storage: { keys(): Promise<string[]>; delete(k: string): Promise<void> } }> }).__xnatWorkstationExtensions[id];
+    for (const k of await ext.storage.keys()) await ext.storage.delete(k);
+  }, NOTES);
   await page.reload({ waitUntil: 'load' });
   await enterLocalViewer(page);
 });

@@ -20,7 +20,7 @@ for (const name of fs.readdirSync(src).filter((d) => fs.existsSync(path.join(src
   fs.rmSync(out, { recursive: true, force: true });
   fs.mkdirSync(out, { recursive: true });
   for (const f of fs.readdirSync(from)) {
-    if (f === 'src' || f === 'tsconfig.json' || f.startsWith('.')) continue;
+    if (['src', 'e2e', 'tsconfig.json', 'playwright.config.ts'].includes(f) || f.startsWith('.')) continue;
     fs.cpSync(path.join(from, f), path.join(out, f), { recursive: true });
   }
   await build({

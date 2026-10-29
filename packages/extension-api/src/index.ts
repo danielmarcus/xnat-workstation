@@ -5,10 +5,13 @@
  */
 export { EXTENSION_API_VERSION, apiCompatible, validateExtensionManifest } from '../../../src/shared/extensions/manifest';
 export type { ExtensionManifest } from '../../../src/shared/extensions/manifest';
-export { EXTENSION_HOST_GLOBAL } from '../../../src/shared/extensions/api';
+export { EXTENSION_HOST_GLOBAL, EXTENSION_TEST_GLOBAL } from '../../../src/shared/extensions/api';
 export type {
   AnnotationInfo,
   AnnotationTemplate,
+  ExtensionFiles,
+  ExtensionStorage,
+  FileFilter,
   ExtensionAnnotations,
   ExtensionEventName,
   ExtensionEvents,

@@ -35,9 +35,14 @@ function fakeApi(initial: ExtensionSummary[]) {
       message === 'boom' ? { ok: false as const, error: 'handler boom' } : { ok: true as const, value: { from: id, echo: message } }
     )),
     onChannelMessage: vi.fn((cb: (id: string, message: unknown) => void) => { channelListener = cb; return () => { channelListener = null; }; }),
+    storage: vi.fn(async (id: string, op: string, args: unknown[]) => ({ ok: true as const, value: `${id}:${op}:${JSON.stringify(args)}` })),
+    openFile: vi.fn(async () => ({ ok: true as const, value: null })),
+    saveFile: vi.fn(async (_id: string, o: unknown) => ({ ok: true as const, value: { saved: true, name: (o as { suggestedName: string }).suggestedName } })),
+    testing,
   };
 }
 let channelListener: ((id: string, message: unknown) => void) | null = null;
+let testing = false;
 
 const modules: Record<string, unknown> = {
   'xnat-extension://org.example.notes/renderer.js': {
@@ -79,6 +84,8 @@ beforeEach(() => {
   __resetForTests();
   __resetExtensionUiForTests();
   useExtensionStore.setState({ extensions: [] });
+  testing = false;
+  delete (globalThis as Record<string, unknown>).__xnatWorkstationExtensions;
 });
 
 describe('renderer extension host', () => {
@@ -183,5 +190,31 @@ describe('renderer extension host', () => {
     expect(typeof ctx!.viewer.session).toBe('function');
     expect(typeof ctx!.annotations.list).toBe('function');
     expect(typeof ctx!.events.on).toBe('function');
+  });
+
+  it('ext.storage and ext.files are made in main as this extension; ext.testing says whether a harness runs (X5)', async () => {
+    let ctx: RendererExtensionContext | null = null;
+    modules['xnat-extension://org.example.x5/renderer.js'] = { activate: (c: RendererExtensionContext) => { ctx = c; } };
+    const api = fakeApi([active('org.example.x5')]);
+    await startExtensions({ api, importModule });
+    expect(await ctx!.storage.get('notes')).toBe('org.example.x5:get:["notes"]');
+    await ctx!.storage.set('notes', [1]);
+    expect(api.storage).toHaveBeenLastCalledWith('org.example.x5', 'set', ['notes', [1]]);
+    expect(await ctx!.files.save({ suggestedName: 'notes.json', data: '[]' })).toEqual({ saved: true, name: 'notes.json' });
+    expect(api.saveFile).toHaveBeenCalledWith('org.example.x5', { suggestedName: 'notes.json', data: '[]' });
+    expect(await ctx!.files.open()).toBeNull();
+    expect(ctx!.testing).toBe(false);
+    expect((globalThis as Record<string, unknown>).__xnatWorkstationExtensions).toBeUndefined(); // not under a harness
+  });
+
+  it('under a test harness, each running extension\'s context is listed for its E2E — and unlisted when it stops', async () => {
+    testing = true;
+    modules['xnat-extension://org.example.x5/renderer.js'] = { activate: () => {} };
+    const api = fakeApi([active('org.example.x5')]);
+    await startExtensions({ api, importModule });
+    const listed = () => ((globalThis as Record<string, unknown>).__xnatWorkstationExtensions as Record<string, RendererExtensionContext> | undefined)?.['org.example.x5'];
+    expect(listed()).toMatchObject({ id: 'org.example.x5', testing: true });
+    await setExtensionEnabled('org.example.x5', false);
+    expect(listed()).toBeUndefined();
   });
 });

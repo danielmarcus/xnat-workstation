@@ -252,6 +252,13 @@ export interface ElectronAPI {
     xnat(id: string, op: string, args: unknown[]): Promise<{ ok: true; value: unknown } | { ok: false; error: string }>;
     /** A renderer part's ext.channel.request(), answered by its main part. */
     channelRequest(id: string, message: unknown): Promise<{ ok: true; value: unknown } | { ok: false; error: string }>;
+    /** A renderer part's ext.storage call, made in main. */
+    storage(id: string, op: string, args: unknown[]): Promise<{ ok: true; value: unknown } | { ok: false; error: string }>;
+    /** ext.files.open / save: the system dialogs, in main. */
+    openFile(id: string, options?: unknown): Promise<{ ok: true; value: unknown } | { ok: false; error: string }>;
+    saveFile(id: string, options: unknown): Promise<{ ok: true; value: unknown } | { ok: false; error: string }>;
+    /** The app runs under a test harness. */
+    testing: boolean;
     /** Main parts' ext.channel.post(); returns the unsubscribe. */
     onChannelMessage(callback: (id: string, message: unknown) => void): () => void;
   };

@@ -8,8 +8,17 @@
     "noEmit": true,
     "skipLibCheck": true,
     "paths": {
-      "@nrgxnat/workstation-extension-api": ["../../../packages/extension-api/src/index.ts"]
-    }
+      "@nrgxnat/workstation-extension-api": [
+        "../../../packages/extension-api/src/index.ts"
+      ]
+    },
+    "types": [
+      "node"
+    ]
   },
-  "include": ["src"]
+  "include": [
+    "src",
+    "e2e",
+    "playwright.config.ts"
+  ]
 }

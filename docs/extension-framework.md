@@ -319,7 +319,25 @@ licensing.
     panel, select, save and conflict against the in-memory mock XNAT, the approval refusal.
     Opening a real annotation scan is in the signed-in suite (read-only), **not yet run**
     (credentials, as for X3). Live tests stay read-only: CNDA is production.
-- [ ] X5 · [ ] X6 · [ ] X7
+- [x] **X5** — storage, files, test hooks (2026-10-29). As built (API **0.5**):
+  - `ext.storage` in both parts: `get / set / delete / keys`, JSON values, the extension's own
+    file under `userData/extension-data/<id>/storage.json` (atomic writes, 5 MB cap, a damaged
+    file set aside) — `src/main/extensions/extensionStorage.ts`. Not for secrets (X6).
+  - `ext.files` (renderer part): `open({ title, filters })` → `{ name, data }` or null;
+    `save({ suggestedName, data, filters })` → `{ saved, name }` — the system dialogs, shown by
+    main; files up to 100 MB; suggested names stripped of folders.
+  - `ext.testing` (both parts): true under a test harness (E2E_TESTING), so an extension can
+    swap its own services for fakes. Under a harness the host lists each running renderer
+    context on `window.__xnatWorkstationExtensions`.
+  - The harness: `packages/extension-api/src/testing.ts` (the SDK's `/testing` entry) —
+    `launchWorkstation({ mainEntry | executablePath, extensionsDir, userDataDir })`,
+    `extension(page, id).waitUntilRunning() / .evaluate((ext, arg) => …)`, `openViewer(page)`.
+  - The example keeps notes per session in `ext.storage` and exports / imports them as JSON; its
+    own E2E (`extensions/examples/session-notes/e2e/`, `npm run test:e2e:extension-example`)
+    runs from its folder with the harness, a restart included. Notes stay on the computer
+    rather than in an XNAT resource: live tests are read-only (CNDA), so an XNAT-stored example
+    could not be tested; `ext.xnat` can do it.
+- [ ] X6 · [ ] X7
 
 ## Questions for review
 
