@@ -1,8 +1,7 @@
 # Extension framework (plan, for review)
 
 Status: **draft for review, 2026-10-29** (branch `extension-framework`). Nothing is built until
-this plan is reviewed. **Decided 2026-10-29:** questions 1, 2, 3, 5 and 6 (below); question 4
-is open. Question 1 — extensions are bundled into an
+this plan is reviewed. **Decided 2026-10-29:** all six questions (below). Question 1 — extensions are bundled into an
 edition (option a), designed so runtime installation (b) can be added later without redesign;
 and the framework must give an edition what it needs to build a strong licensing model
 (R13–R14, design points 10–11).
@@ -87,10 +86,10 @@ would plausibly need.
    (main). The main bundle may be in whatever form the extension's own build produces —
    minified, or compiled to V8 bytecode for the edition's pinned Electron version — so a
    publisher can harden its own code; the core neither provides nor requires that.
-6. **The SDK.** This repository publishes `@xnat-workstation/extension-api`: the API's types,
+6. **The SDK.** This repository publishes `@xnat/workstation-extension-api`: the API's types,
    the manifest schema, a small runtime shim, and test helpers. An extension's repository
    depends on it (and on React as a peer); building an edition then combines the core with
-   that repository's bundles. Where it is published (npm, GitHub Packages) is question 4.
+   that repository's bundles. It is published to public npm (question 4).
 7. **Lifecycle.** Loaded after sign-in state is known; `activate(ext)` registers slots and
    commands; `deactivate()` on sign-out, on disable, and at quit. Settings › Extensions lists
    what the edition ships (name, version, publisher) with an Enabled switch.
@@ -233,7 +232,11 @@ licensing.
 3. ~~**Reach beyond R1–R14.**~~ **Decided 2026-10-29:** only R1–R14 now; running a module or
    operation, XNAT-browser columns, ⋮-menu items and the like are added when an extension needs
    them, each as a new minor version of the API.
-4. **Where is the SDK published?** Public npm (simplest for anyone), or GitHub Packages.
+4. ~~**Where is the SDK published?**~~ **Decided 2026-10-29:** public npm, under the `@xnat`
+   organisation, as `@xnat/workstation-extension-api` (the scope is shared with the wider XNAT
+   project, so the name says which product it serves). Published from GitHub Actions by npm
+   trusted publishing (no stored token, with provenance), on its own version line (the API's
+   semver, not the app's), and attached to each GitHub release as a fallback.
 5. ~~**Naming.**~~ **Decided 2026-10-29:** "extension" for this, "module" for algorithms.
 6. ~~**DevTools in the open-source edition's packaged builds.**~~ **Decided 2026-10-29:** the
    open-source edition keeps them; every edition gets the fuses and archive integrity; an
