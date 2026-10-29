@@ -6,6 +6,7 @@
  */
 import { test, expect } from '../../fixtures/electron-app';
 import { enterLocalViewer, loadFixture } from '../../helpers/local-fixture';
+import { installPro } from '../../helpers/extensions';
 
 test.skip(process.env.E2E_EDITION_CHECK !== '1', 'run by npm run test:edition');
 
@@ -24,12 +25,14 @@ test('the packaged app is the edition: its name, and its bundled module', async 
 });
 
 test('the packaged app loads the extension the edition ships, from inside its archive', async ({ page }) => {
+  await installPro(page); // its slots need their features licensed (X6)
+  await page.reload({ waitUntil: 'load' });
   await enterLocalViewer(page);
   await page.getByTitle('Open settings').click();
   const dialog = page.getByRole('dialog', { name: 'Settings' });
   await dialog.getByRole('button', { name: 'Extensions', exact: true }).click();
   const row = dialog.getByTestId('extension-row-org.xnat.examples.session-notes');
-  await expect(row.getByTestId('extension-state')).toHaveText('Active');
+  await expect(row.getByTestId('extension-state')).toHaveText('Active · Pro');
   await expect(dialog.locator('[data-testid^="extension-row-"]')).toHaveCount(1);
   // Its UI renders with the app's React, from inside the archive: the sidebar tab and toolbar item.
   await dialog.getByTitle('Close', { exact: true }).click();

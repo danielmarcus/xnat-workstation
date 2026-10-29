@@ -39,10 +39,16 @@ function fakeApi(initial: ExtensionSummary[]) {
     openFile: vi.fn(async () => ({ ok: true as const, value: null })),
     saveFile: vi.fn(async (_id: string, o: unknown) => ({ ok: true as const, value: { saved: true, name: (o as { suggestedName: string }).suggestedName } })),
     testing,
+    reevaluate: vi.fn(async (id: string) => {
+      list = list.map((s) => (s.id === id ? { ...s, state: 'active' as const, gated: false, reason: undefined, tier: 'Pro', features: (s.features ?? []).map((f) => ({ ...f, enabled: true })) } : s));
+      return list;
+    }),
+    onChanged: vi.fn((cb: (l: ExtensionSummary[]) => void) => { changedListener = (l) => { list = l; cb(l); }; return () => { changedListener = null; }; }),
   };
 }
 let channelListener: ((id: string, message: unknown) => void) | null = null;
 let testing = false;
+let changedListener: ((l: ExtensionSummary[]) => void) | null = null;
 
 const modules: Record<string, unknown> = {
   'xnat-extension://org.example.notes/renderer.js': {
@@ -216,5 +222,26 @@ describe('renderer extension host', () => {
     expect(listed()).toMatchObject({ id: 'org.example.x5', testing: true });
     await setExtensionEnabled('org.example.x5', false);
     expect(listed()).toBeUndefined();
+  });
+
+  it('a gated extension is started (for its Settings page) under its gate; a change from main applies live; ext.gate reads it (X6)', async () => {
+    let ctx: RendererExtensionContext | null = null;
+    modules['xnat-extension://org.example.x6/renderer.js'] = { activate: (c: RendererExtensionContext) => { ctx = c; } };
+    const features = [{ id: 'notes', name: 'Notes tab', enabled: false }, { id: 'all', name: 'All notes', enabled: false }];
+    const gated: ExtensionSummary = { ...active('org.example.x6'), state: 'inactive', gated: true, reason: 'No licence', features };
+    const api = fakeApi([gated]);
+    await startExtensions({ api, importModule });
+    expect(ctx).not.toBeNull(); // started although inactive
+    expect(ctx!.gate.current()).toEqual({ active: false, features: [], reason: 'No licence' });
+    expect(useExtensionUiStore.getState().gates['org.example.x6']).toMatchObject({ active: false });
+
+    changedListener!([{ ...gated, state: 'active', gated: false, reason: undefined, tier: 'Basic', features: [{ ...features[0], enabled: true }, features[1]] }]);
+    expect(ctx!.gate.current()).toEqual({ active: true, features: ['notes'], tier: 'Basic' });
+    expect(useExtensionUiStore.getState().gates['org.example.x6']).toEqual({ active: true, features: ['notes'], tier: 'Basic' });
+    expect(useExtensionStore.getState().extensions[0]).toMatchObject({ state: 'active', tier: 'Basic' });
+
+    await ctx!.gate.reevaluate();
+    expect(api.reevaluate).toHaveBeenCalledWith('org.example.x6');
+    expect(ctx!.gate.current()).toEqual({ active: true, features: ['notes', 'all'], tier: 'Pro' });
   });
 });

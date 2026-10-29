@@ -206,6 +206,19 @@ describe('sessionManager', () => {
     expect(sessionManager.isConnected()).toBe(false);
   });
 
+  it('tells listeners when the connection starts and ends (extensions re-check their licences)', async () => {
+    vi.resetModules();
+    const sessionManager = await import('./sessionManager');
+    const seen: Array<string | null> = [];
+    const off = sessionManager.onConnectionChange((info) => seen.push(info ? info.username : null));
+    await sessionManager.browserLogin('https://xnat.example');
+    await sessionManager.logout();
+    await sessionManager.logout(); // already out: no change, no call
+    off();
+    await sessionManager.browserLogin('https://xnat.example');
+    expect(seen).toEqual([expect.any(String), null]);
+  });
+
   it('handles auth failures once and broadcasts session-expired', async () => {
     vi.resetModules();
     const sessionManager = await import('./sessionManager');

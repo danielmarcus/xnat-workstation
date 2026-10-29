@@ -337,7 +337,38 @@ licensing.
     runs from its folder with the harness, a restart included. Notes stay on the computer
     rather than in an XNAT resource: live tests are read-only (CNDA), so an XNAT-stored example
     could not be tested; `ext.xnat` can do it.
-- [ ] X6 · [ ] X7
+- **X6** — built and committed in two halves:
+  - [x] **X6a, licensing hooks** (2026-10-29). As built (API **0.6**):
+    - The gate: a main part's `activate()` returns `{ state: 'active', features?, tier? }` or
+      `{ state: 'inactive', reason }`; an exported `evaluate(ext)` is how the host asks again — on
+      sign-in, sign-out and a change of server (`sessionManager.onConnectionChange`), and on
+      `ext.gate.reevaluate()` from either part. A throw makes it inactive ("Licence check
+      failed: …"). Undeclared features are ignored; no main part means every feature.
+    - Inactive by its own gate, an extension keeps running (`gated: true`): its renderer part
+      starts so its Settings page is there to take a licence; nothing else shows.
+    - The manifest declares `features: [{ id, name }]` and `hosts: [...]`; contributions take
+      `feature`. `uiRegistry.visible()` shows only what the gate enables — slots, commands,
+      ⌘K entries and Settings › Hotkeys; keys are bound and unbound with the gate (`syncKeys`);
+      an open view whose feature is locked closes. Changes apply live.
+    - The renderer part reads the gate (`ext.gate.current()`, `'gateChanged'`) but cannot set it.
+    - Trusted inputs: `ext.xnat.user()` now carries the site id (`/xapi/siteConfig/siteId`,
+      once per connection); `ext.installId` (random, per extension, kept by the host).
+    - `ext.secureStorage` (main part only): text encrypted with Electron `safeStorage`, per
+      extension, refused where the system offers no encryption — `extensionSecureStorage.ts`.
+      Checked to work under the E2E harness on macOS without a keychain prompt.
+    - Settings › Extensions: "Active · Basic", each feature ✓ or 🔒 "not in your licence", and
+      "Contacts: …" for declared hosts.
+    - The example's demonstration gate (`extensions/examples/session-notes/main.js`): an Ed25519-
+      signed licence file — tier, features, expiry, optional XNAT server — verified in the main
+      part, kept in secure storage, imported on its Settings page. Basic = Notes tab and keys;
+      Pro adds the toolbar indicator and All notes. The key pair is a published THROWAWAY; its
+      private half is in the example's `e2e/` (never shipped: `build:extensions` skips `e2e/`).
+    - E2E: `e2e/specs/extensions/extension-licensing.e2e.ts` (no licence, Basic, Pro live,
+      removal live, server-bound, expired, edited-after-signing, declared hosts). Re-evaluation
+      on a real sign-in is unit-tested only (live tests stay read-only; credentials pending).
+  - [ ] **X6b, build integrity**: Electron fuses and archive integrity at packaging, extension
+    digests checked at load, the `devTools` edition setting.
+- [ ] X7
 
 ## Questions for review
 

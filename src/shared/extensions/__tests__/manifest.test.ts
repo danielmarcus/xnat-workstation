@@ -26,6 +26,7 @@ describe('validateExtensionManifest', () => {
     expect(validateExtensionManifest(valid)).toMatchObject({ ok: true, manifest: { id: valid.id } });
     const { main: _main, ...rendererOnly } = valid;
     expect(validateExtensionManifest({ ...rendererOnly, description: 'Notes on the open session' })).toMatchObject({ ok: true });
+    expect(validateExtensionManifest({ ...valid, features: [{ id: 'notes', name: 'Notes tab' }, { id: 'all-notes', name: 'All notes view' }], hosts: ['licence.example.com', 'check.example.org:8443'] })).toMatchObject({ ok: true });
   });
 
   it.each([
@@ -41,6 +42,10 @@ describe('validateExtensionManifest', () => {
     ['an absolute entry', { ...valid, main: '/tmp/main.js' }, /main/],
     ['a renderer entry that is not .js', { ...valid, renderer: 'renderer.ts' }, /renderer/],
     ['an unknown field (a typo, or a newer API)', { ...valid, contribute: {} }, /unknown field "contribute"/],
+    ['a feature without a name', { ...valid, features: [{ id: 'pro' }] }, /features/],
+    ['a feature id twice', { ...valid, features: [{ id: 'pro', name: 'A' }, { id: 'pro', name: 'B' }] }, /features/],
+    ['an upper-case feature id', { ...valid, features: [{ id: 'Pro', name: 'Pro' }] }, /features/],
+    ['a host that is a URL', { ...valid, hosts: ['https://licence.example.com'] }, /hosts/],
   ])('refuses %s, naming the field', (_label, raw, reason) => {
     const r = validateExtensionManifest(raw);
     expect(r.ok).toBe(false);

@@ -18,7 +18,8 @@ import CheckpointFilesSection from './CheckpointFilesSection';
 import ModulesSection from './ModulesSection';
 import ExtensionsSection from './ExtensionsSection';
 import { useExtensionStore } from '../../stores/extensionStore';
-import { commandForAction, useExtensionUiStore } from '../../lib/extensions/uiRegistry';
+import { useShallow } from 'zustand/react/shallow';
+import { commandForAction, useExtensionUiStore, visible } from '../../lib/extensions/uiRegistry';
 import { hotkeyService } from '../../lib/hotkeys/hotkeyService';
 import ExtensionSlot from '../extensions/ExtensionSlot';
 
@@ -262,7 +263,7 @@ export default function SettingsModal({ open, onClose, onRecover, initialTab }: 
   const [recoveringSession, setRecoveringSession] = useState<string | null>(null);
   const currentSessionId = useViewerStore((s) => s.sessionId);
 
-  const extensionCommands = useExtensionUiStore((st) => st.commands);
+  const extensionCommands = useExtensionUiStore(useShallow((st) => visible(st, st.commands)));
   const actionOptions = useMemo(() => {
     const all = new Set<HotkeyAction>(Object.keys(DEFAULT_HOTKEY_MAP) as HotkeyAction[]);
     // Extensions' commands, while their extension runs (an override outlives it, unlisted).

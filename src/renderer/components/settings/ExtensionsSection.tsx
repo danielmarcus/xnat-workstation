@@ -2,6 +2,9 @@
  * Settings › Extensions (extension framework X1, wireframe E4 — docs/mockup/extension-wireframes.html).
  * Every extension the edition ships, in every state, with the reason when it is not active and
  * the Enabled switch. State is shown here, in place: extensions raise no toasts or banners.
+ * X6: the tier the extension's gate named, each declared feature on or locked, and the servers
+ * it declares it contacts (for a site's IT); its Settings page stays reachable while it is
+ * inactive by its own gate — that is where a licence is entered.
  */
 import { useExtensionStore } from '../../stores/extensionStore';
 import { setExtensionEnabled } from '../../lib/extensions/rendererHost';
@@ -32,7 +35,9 @@ export default function ExtensionsSection({ onOpenPage }: { onOpenPage?: (extId:
               {(x.version || x.publisher) && (
                 <span className="text-zinc-500 truncate">{[x.version, x.publisher].filter(Boolean).join(' · ')}</span>
               )}
-              <span className={`px-1.5 py-0.5 rounded text-[10px] ${CHIP[x.state].className}`} data-testid="extension-state">{CHIP[x.state].label}</span>
+              <span className={`px-1.5 py-0.5 rounded text-[10px] ${CHIP[x.state].className}`} data-testid="extension-state">
+                {CHIP[x.state].label}{x.state === 'active' && x.tier ? ` · ${x.tier}` : ''}
+              </span>
               <span className="flex-1" />
               {x.state !== 'refused' && x.id && (
                 <label className="flex items-center gap-1 text-zinc-400">
@@ -47,6 +52,19 @@ export default function ExtensionsSection({ onOpenPage }: { onOpenPage?: (extId:
               )}
             </div>
             {x.reason && <div className="text-[11px] text-zinc-300" data-testid="extension-reason">{x.reason}</div>}
+            {x.features && x.features.length > 0 && (x.state === 'active' || x.gated) && (
+              <ul className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px]" data-testid="extension-features">
+                {x.features.map((f) => (
+                  <li key={f.id} className={f.enabled ? 'text-zinc-300' : 'text-zinc-500'} data-feature={f.id} data-enabled={f.enabled}>
+                    {f.enabled ? <span className="text-emerald-400">✓</span> : <span aria-hidden>🔒</span>} {f.name}
+                    {!f.enabled && <span className="text-zinc-500"> — not in your licence</span>}
+                  </li>
+                ))}
+              </ul>
+            )}
+            {x.hosts && x.hosts.length > 0 && (
+              <div className="text-[11px] text-zinc-500" data-testid="extension-hosts">Contacts: {x.hosts.join(', ')}</div>
+            )}
             {x.id && onOpenPage && pages.some((p) => p.extId === x.id) && (
               <button type="button" className="text-[11px] text-zinc-400 hover:text-zinc-200 underline underline-offset-2" onClick={() => onOpenPage(x.id!)}>
                 Settings…

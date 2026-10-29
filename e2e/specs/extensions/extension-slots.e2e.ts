@@ -10,6 +10,7 @@ import * as path from 'path';
 import type { Page } from '@playwright/test';
 import { test, expect } from '../../fixtures/electron-app';
 import { enterLocalViewer, loadFixture } from '../../helpers/local-fixture';
+import { installPro } from '../../helpers/extensions';
 
 const ROOT = path.resolve(__dirname, '..', '..', '..');
 const edition = fs.mkdtempSync(path.join(os.tmpdir(), 'xnat-e2e-ext-slots-'));
@@ -29,6 +30,7 @@ test.beforeEach(async ({ page }) => {
     const ext = (window as unknown as { __xnatWorkstationExtensions: Record<string, { storage: { keys(): Promise<string[]>; delete(k: string): Promise<void> } }> }).__xnatWorkstationExtensions[id];
     for (const k of await ext.storage.keys()) await ext.storage.delete(k);
   }, NOTES);
+  await installPro(page); // every slot needs its feature licensed (X6)
   await page.reload({ waitUntil: 'load' });
   await enterLocalViewer(page);
 });
@@ -187,7 +189,7 @@ test('disabling an extension removes every slot, command and key it added; enabl
   const s2 = await openSettings(page);
   await s2.getByRole('button', { name: 'Extensions', exact: true }).click();
   await s2.getByTestId(`extension-row-${NOTES}`).getByLabel('Enable Session notes').click();
-  await expect(s2.getByTestId(`extension-row-${NOTES}`).getByTestId('extension-state')).toHaveText('Active');
+  await expect(s2.getByTestId(`extension-row-${NOTES}`).getByTestId('extension-state')).toHaveText('Active · Pro');
   await s2.getByTitle('Close', { exact: true }).click();
   await expect(sidebarTab(page, 'Notes')).toBeVisible();
   await expect(notesItem(page)).toBeVisible();

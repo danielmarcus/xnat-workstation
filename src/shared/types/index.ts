@@ -254,6 +254,10 @@ export interface ElectronAPI {
     channelRequest(id: string, message: unknown): Promise<{ ok: true; value: unknown } | { ok: false; error: string }>;
     /** A renderer part's ext.storage call, made in main. */
     storage(id: string, op: string, args: unknown[]): Promise<{ ok: true; value: unknown } | { ok: false; error: string }>;
+    /** ext.gate.reevaluate(): the main part is asked again; returns the updated list. */
+    reevaluate(id: string): Promise<import('../extensions/types').ExtensionSummary[]>;
+    /** The extensions' states changed in main (a gate re-evaluated); returns the unsubscribe. */
+    onChanged(callback: (list: import('../extensions/types').ExtensionSummary[]) => void): () => void;
     /** ext.files.open / save: the system dialogs, in main. */
     openFile(id: string, options?: unknown): Promise<{ ok: true; value: unknown } | { ok: false; error: string }>;
     saveFile(id: string, options: unknown): Promise<{ ok: true; value: unknown } | { ok: false; error: string }>;

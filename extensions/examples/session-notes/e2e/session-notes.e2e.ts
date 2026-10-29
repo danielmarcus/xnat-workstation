@@ -10,6 +10,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { extension, launchWorkstation, openViewer, type WorkstationRun } from '../../../../packages/extension-api/src/testing';
+import { demoLicence, PRO } from './demoLicence';
 
 const CORE = path.resolve(__dirname, '..', '..', '..', '..');
 const MAIN = path.join(CORE, 'dist', 'main', 'main', 'index.js');
@@ -19,6 +20,8 @@ const ID = 'org.xnat.examples.session-notes';
 async function launch(userDataDir: string): Promise<WorkstationRun> {
   const run = await launchWorkstation({ mainEntry: MAIN, extensionsDir: EXTENSIONS, userDataDir });
   await extension(run.page, ID).waitUntilRunning();
+  // Every feature: a Pro licence, through its own import path (its main part verifies it).
+  await extension(run.page, ID).evaluate((ext, text) => ext.channel.request({ op: 'install-licence', text }), demoLicence({ tier: 'Pro', features: PRO }));
   await openViewer(run.page);
   await run.page.getByRole('tablist', { name: 'Sidebar' }).getByRole('tab', { name: 'Notes', exact: true }).click();
   return run;

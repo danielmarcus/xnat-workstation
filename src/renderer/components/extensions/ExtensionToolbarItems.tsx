@@ -5,7 +5,8 @@
  * or opens the popover it draws. An item the extension has hidden takes no room.
  */
 import { useEffect, useRef, useState } from 'react';
-import { executeExtensionCommand, useExtensionUiStore, type ToolbarItemEntry } from '../../lib/extensions/uiRegistry';
+import { useShallow } from 'zustand/react/shallow';
+import { executeExtensionCommand, useExtensionUiStore, visible, type ToolbarItemEntry } from '../../lib/extensions/uiRegistry';
 import ExtensionSlot from './ExtensionSlot';
 
 function Item({ item, textCollapsed }: { item: ToolbarItemEntry; textCollapsed: boolean }) {
@@ -53,7 +54,7 @@ function Item({ item, textCollapsed }: { item: ToolbarItemEntry; textCollapsed: 
 }
 
 export default function ExtensionToolbarItems({ textCollapsed }: { textCollapsed: boolean }) {
-  const items = useExtensionUiStore((s) => s.toolbarItems).filter((i) => i.spec.visible !== false);
+  const items = useExtensionUiStore(useShallow((s) => visible(s, s.toolbarItems))).filter((i) => i.spec.visible !== false);
   if (items.length === 0) return null;
   return (
     <div className="shrink-0 flex items-center gap-1 px-1" data-testid="extension-toolbar-items">

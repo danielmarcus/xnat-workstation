@@ -35,7 +35,8 @@ import { useAnnotationsPanel } from '../../hooks/useAnnotationsPanel';
 import { usePreferencesStore } from '../../stores/preferencesStore';
 import { useGrowCutGpuUnavailableTools } from '../../hooks/useGrowCutGpu';
 import ToolFinder from './ToolFinder';
-import { executeExtensionCommand, useExtensionUiStore } from '../../lib/extensions/uiRegistry';
+import { useShallow } from 'zustand/react/shallow';
+import { executeExtensionCommand, useExtensionUiStore, visible } from '../../lib/extensions/uiRegistry';
 import { finderEntries, type FinderEntry } from './finder';
 import { useFinderStore } from '../../stores/finderStore';
 import { useAnnotationSelectionStore } from '../../stores/annotationSelectionStore';
@@ -189,7 +190,7 @@ export default function AnnotationsPanel({ activeViewportId, sourceImageIds }: A
 
   // ⌘K finder: any tool, mode or operation of the active annotation type, by name.
   const finderOpen = useFinderStore((s) => s.open);
-  const extensionCommands = useExtensionUiStore((s) => s.commands);
+  const extensionCommands = useExtensionUiStore(useShallow((s) => visible(s, s.commands)));
   // Nothing to find without an active annotation: the hotkey's request lapses rather than
   // springing the finder open later.
   useEffect(() => { if (finderOpen && !panel.toolbox) useFinderStore.getState().setOpen(false); }, [finderOpen, panel.toolbox]);

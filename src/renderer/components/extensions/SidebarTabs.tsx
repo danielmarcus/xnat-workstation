@@ -6,7 +6,8 @@
  * another tab shows, so its place in the XNAT tree is kept.
  */
 import { useEffect, useState, type ReactNode } from 'react';
-import { useExtensionUiStore } from '../../lib/extensions/uiRegistry';
+import { useShallow } from 'zustand/react/shallow';
+import { useExtensionUiStore, visible } from '../../lib/extensions/uiRegistry';
 import ExtensionSlot from './ExtensionSlot';
 
 const STORAGE_KEY = 'xnat.sidebar.tab';
@@ -19,7 +20,8 @@ function remembered(): string {
 }
 
 export default function SidebarTabs({ browser }: { browser: ReactNode }) {
-  const tabs = useExtensionUiStore((s) => s.sidebarTabs);
+  // Only the tabs their extensions' gates allow (X6): a locked tab is absent.
+  const tabs = useExtensionUiStore(useShallow((s) => visible(s, s.sidebarTabs)));
   const [selected, setSelected] = useState(remembered);
   const [moreOpen, setMoreOpen] = useState(false);
   const current = tabs.find((t) => t.extId === selected);

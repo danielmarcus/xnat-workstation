@@ -11,13 +11,15 @@
  *
  * The tab names the XNAT session on screen and follows it (ext.viewer, ext.events — X3). Notes
  * are kept per session on this computer (ext.storage), and can be exported to and imported from
- * a JSON file the user picks (ext.files — X5).
+ * a JSON file the user picks (ext.files — X5). Its features follow a demonstration licence
+ * (X6): Basic gives the Notes tab and its keys; Pro adds the toolbar indicator and the All notes
+ * view. The licence is checked in the main part (main.js); its Settings page imports one.
  *
  * It is built like any extension: TSX bundled with `react` aliased to the SDK's, so it renders
  * with the app's React (scripts/build-extensions.mjs). Its own E2E (e2e/) runs against a built
  * app with the SDK's testing helpers.
  */
-import { useState, useSyncExternalStore } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import type { RendererExtensionContext, ToolbarItemHandle } from '@nrgxnat/workstation-extension-api';
 
 interface Note { id: number; text: string; at: Date }
@@ -195,23 +197,74 @@ export async function activate(ext: RendererExtensionContext) {
     );
   }
 
-  function SettingsPage() {
-    const s = useNotes();
+  type LicenceInfo = { licensee: string; tier: string; expires: string; server: string | null } | null;
+
+  /** The licence, as the main part read it — the renderer part never verifies or enables anything. */
+  function LicenceSection() {
+    const [info, setInfo] = useState<LicenceInfo>(null);
+    const [gate, setGate] = useState(ext.gate.current());
+    const [message, setMessage] = useState<string | null>(null);
+    useEffect(() => {
+      const refresh = () => {
+        setGate(ext.gate.current());
+        void ext.channel.request({ op: 'licence' }).then((l) => setInfo(l as LicenceInfo));
+      };
+      refresh();
+      return ext.events.on('gateChanged', refresh);
+    }, []);
+    const importLicence = async () => {
+      const file = await ext.files.open({ title: 'Import licence', filters: [{ name: 'Licence', extensions: ['json'] }] });
+      if (!file) return;
+      try {
+        await ext.channel.request({ op: 'install-licence', text: new TextDecoder().decode(file.data) });
+        setMessage(`Imported ${file.name}`);
+      } catch (err) {
+        setMessage(`Could not import ${file.name}: ${(err as Error).message}`);
+      }
+    };
     return (
-      <label className="flex items-center gap-2 text-xs text-zinc-300">
-        <input type="checkbox" checked={s.showCount} onChange={(e) => { showCount = e.target.checked; changed(); void ext.storage.set('showCount', showCount); }} />
-        Show the note count in the toolbar
-      </label>
+      <div className="space-y-2 text-xs text-zinc-300" data-testid="notes-licence">
+        <div className="text-[11px] uppercase tracking-wide text-zinc-500">Licence</div>
+        <div data-testid="notes-licence-status">
+          {info ? `${info.tier} · ${info.licensee} · until ${info.expires}${info.server ? ` · for ${info.server}` : ''}` : 'No licence'}
+          {!gate.active && gate.reason ? ` — ${gate.reason}` : ''}
+        </div>
+        <div className="flex gap-1.5">
+          <Button onClick={() => { void importLicence(); }}>Import licence file…</Button>
+          {info && <Button onClick={() => { void ext.channel.request({ op: 'remove-licence' }).then(() => setMessage('Licence removed')); }}>Remove licence</Button>}
+        </div>
+        {message && <div className="text-[11px] text-zinc-400" data-testid="notes-licence-message">{message}</div>}
+      </div>
     );
   }
 
-  ext.ui.sidebarTab({ title: 'Notes', component: NotesTab });
-  const item: ToolbarItemHandle = ext.ui.toolbarItem({ icon: '📝', label: '0 notes', title: 'Notes on this session', popover: CountPopover, visible: showCount });
-  ext.ui.view({ id: 'all', title: 'All notes', component: AllNotesView });
+  function SettingsPage() {
+    const s = useNotes();
+    // The toolbar option only where the licence includes the toolbar indicator.
+    const [hasCount, setHasCount] = useState(ext.gate.current().features.includes('count'));
+    useEffect(() => ext.events.on('gateChanged', () => setHasCount(ext.gate.current().features.includes('count'))), []);
+    return (
+      <div className="space-y-4">
+        <LicenceSection />
+        {hasCount && (
+          <label className="flex items-center gap-2 text-xs text-zinc-300">
+            <input type="checkbox" checked={s.showCount} onChange={(e) => { showCount = e.target.checked; changed(); void ext.storage.set('showCount', showCount); }} />
+            Show the note count in the toolbar
+          </label>
+        )}
+      </div>
+    );
+  }
+
+  // Everything is registered once; the host shows each part only while the licence enables its
+  // feature (and the Settings page always — that is where a licence is imported).
+  ext.ui.sidebarTab({ title: 'Notes', component: NotesTab, feature: 'notes' });
+  const item: ToolbarItemHandle = ext.ui.toolbarItem({ icon: '📝', label: '0 notes', title: 'Notes on this session', popover: CountPopover, visible: showCount, feature: 'count' });
+  ext.ui.view({ id: 'all', title: 'All notes', component: AllNotesView, feature: 'all-notes' });
   ext.ui.settingsPage({ component: SettingsPage });
-  ext.commands.register({ id: 'next', title: 'Next note', run: () => step(1), keys: [{ key: 'n' }] });
-  ext.commands.register({ id: 'previous', title: 'Previous note', run: () => step(-1), keys: [{ key: 'n', modifiers: { shift: true } }] });
-  ext.commands.register({ id: 'all', title: 'Open All notes', run: () => ext.ui.openView('all') });
+  ext.commands.register({ id: 'next', title: 'Next note', run: () => step(1), keys: [{ key: 'n' }], feature: 'notes' });
+  ext.commands.register({ id: 'previous', title: 'Previous note', run: () => step(-1), keys: [{ key: 'n', modifiers: { shift: true } }], feature: 'notes' });
+  ext.commands.register({ id: 'all', title: 'Open All notes', run: () => ext.ui.openView('all'), feature: 'all-notes' });
 
   // The tab follows the session on screen.
   // The tab follows the session on screen: its label, and its notes.

@@ -12,6 +12,7 @@ import * as path from 'path';
 import type { Locator, Page } from '@playwright/test';
 import { test, expect } from '../../fixtures/electron-app';
 import { enterLocalViewer } from '../../helpers/local-fixture';
+import { installPro } from '../../helpers/extensions';
 import { EXTENSION_API_VERSION as API } from '../../../src/shared/extensions/manifest';
 
 const ROOT = path.resolve(__dirname, '..', '..', '..');
@@ -25,8 +26,10 @@ test.use({ extensionsDir: edition });
 
 const NOTES = 'org.xnat.examples.session-notes';
 
-/** The example's own log lines, from a reload on. */
+/** The example's own log lines, from a reload on (with a Pro licence: it is Active — X6). */
 async function reloadCollectingLogs(page: Page): Promise<string[]> {
+  await page.waitForFunction((id) => !!(window as unknown as { __xnatWorkstationExtensions?: Record<string, unknown> }).__xnatWorkstationExtensions?.[id], NOTES).catch(() => {});
+  if (await page.evaluate((id) => !!(window as unknown as { __xnatWorkstationExtensions?: Record<string, unknown> }).__xnatWorkstationExtensions?.[id], NOTES)) await installPro(page);
   const lines: string[] = [];
   page.on('console', (m) => { if (m.text().startsWith(`[ext:${NOTES}]`)) lines.push(m.text()); });
   await page.reload({ waitUntil: 'load' });
@@ -49,7 +52,7 @@ test('Settings › Extensions lists every extension with its state and reason', 
   const notes = s.getByTestId(`extension-row-${NOTES}`);
   await expect(notes).toContainText('Session notes');
   await expect(notes).toContainText('0.1.0 · XNAT Workstation examples');
-  await expect(notes.getByTestId('extension-state')).toHaveText('Active');
+  await expect(notes.getByTestId('extension-state')).toHaveText('Active · Pro');
   await expect(notes.getByLabel('Enable Session notes')).toBeChecked();
 
   const rendererThrows = s.getByTestId('extension-row-org.xnat.e2e.renderer-throws');
@@ -93,6 +96,6 @@ test('the Enabled switch stops the extension, a new window leaves it stopped, an
   expect(logs.filter((l) => l.includes('started'))).toEqual([]);
 
   await row.getByLabel('Enable Session notes').click();
-  await expect(row.getByTestId('extension-state')).toHaveText('Active');
+  await expect(row.getByTestId('extension-state')).toHaveText('Active · Pro');
   await expect.poll(() => logs).toContain(`[ext:${NOTES}] renderer part started (API ${API})`);
 });

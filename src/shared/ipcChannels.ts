@@ -118,6 +118,9 @@ export const IPC = {
   EXTENSIONS_XNAT: 'extensions:xnat',
   EXTENSIONS_CHANNEL_REQUEST: 'extensions:channel-request',
   EXTENSIONS_STORAGE: 'extensions:storage',
+  EXTENSIONS_REEVALUATE: 'extensions:reevaluate',
+  // main → renderer: the extensions' states changed (a gate re-evaluated)
+  EXTENSIONS_CHANGED: 'extensions:changed',
   EXTENSIONS_FILE_OPEN: 'extensions:file-open',
   EXTENSIONS_FILE_SAVE: 'extensions:file-save',
   // main → renderer: a main part's ext.channel.post()

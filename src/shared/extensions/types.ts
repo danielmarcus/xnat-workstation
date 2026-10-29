@@ -19,6 +19,17 @@ export interface ExtensionSummary {
   description?: string;
   state: ExtensionState;
   reason?: string;
-  /** For an active extension: the URL its renderer part loads from. */
+  /** For a running extension: the URL its renderer part loads from. */
   rendererUrl?: string;
+  /**
+   * Inactive by its own decision (its gate, X6) — still running, so its Settings page (where a
+   * licence is entered) stays available. Inactive without this: it did not start.
+   */
+  gated?: boolean;
+  /** The tier its gate named ("Basic"), for Settings. */
+  tier?: string;
+  /** Its declared features, and which its gate enabled. */
+  features?: Array<{ id: string; name: string; enabled: boolean }>;
+  /** The publisher's servers it declares it contacts. */
+  hosts?: string[];
 }

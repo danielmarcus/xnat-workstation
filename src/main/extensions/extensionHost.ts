@@ -14,8 +14,10 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { EXTENSION_API_VERSION, apiCompatible, incompatibleReason, validateExtensionManifest, type ExtensionManifest } from '../../shared/extensions/manifest';
 import type { ExtensionState, ExtensionSummary } from '../../shared/extensions/types';
-import type { ExtensionStorage, ExtensionXnat, MainExtensionContext, MainPart } from '../../shared/extensions/api';
+import * as crypto from 'crypto';
+import type { ExtensionGate, ExtensionSecureStorage, ExtensionStorage, ExtensionXnat, GateState, MainExtensionContext, MainPart } from '../../shared/extensions/api';
 import type { ExtensionStorageStore } from './extensionStorage';
+import type { ExtensionSecureStore } from './extensionSecureStorage';
 
 export const EXTENSION_SCHEME = 'xnat-extension';
 
@@ -32,6 +34,12 @@ interface Entry {
   main?: MainPartExports;
   /** The main part's channel handler (ext.channel.handle). */
   handler?: (message: unknown) => unknown;
+  /** The context its main part was given (evaluate() gets the same). */
+  ctx?: MainExtensionContext;
+  /** Its gate as applied (X6). */
+  gate?: GateState;
+  /** Inactive by its own gate: still running (for its Settings page). */
+  gated?: boolean;
 }
 
 interface Options {
@@ -51,7 +59,15 @@ interface Options {
   storage?: ExtensionStorageStore;
   /** The app runs under a test harness (ext.testing). */
   testing?: boolean;
+  /** Keychain-encrypted storage (ext.secureStorage). */
+  secureStore?: ExtensionSecureStore;
+  /** Told when an extension's state changes without a call from the renderer (a gate re-evaluated). */
+  onChange?: () => void;
 }
+
+const NO_SECURE: ExtensionSecureStorage = new Proxy({} as ExtensionSecureStorage, {
+  get: () => () => Promise.reject(new Error('Secure storage is not available')),
+});
 
 /** Without a store (tests): every call refused. */
 const NO_STORAGE: ExtensionStorage = new Proxy({} as ExtensionStorage, {
@@ -103,8 +119,38 @@ export class ExtensionHost {
       description: e.manifest?.description,
       state: e.state,
       reason: e.reason,
-      rendererUrl: e.state === 'active' ? `${EXTENSION_SCHEME}://${e.manifest!.id}/${e.manifest!.renderer}` : undefined,
+      rendererUrl: this.running(e) ? `${EXTENSION_SCHEME}://${e.manifest!.id}/${e.manifest!.renderer}` : undefined,
+      gated: !!e.gated,
+      tier: e.state === 'active' ? e.gate?.tier : undefined,
+      features: e.manifest?.features?.map((f) => ({ id: f.id, name: f.name, enabled: e.state === 'active' && !!e.gate?.features.includes(f.id) })),
+      hosts: e.manifest?.hosts,
     }));
+  }
+
+  /** The gate an extension's renderer part works under (active, enabled features, tier, reason). */
+  gateOf(id: string): GateState | null {
+    const e = this.loaded(id);
+    if (!e || !this.running(e)) return null;
+    return e.gate ?? { active: true, features: (e.manifest?.features ?? []).map((f) => f.id) };
+  }
+
+  /** Ask an extension's main part again (ext.gate.reevaluate, or a change of sign-in). */
+  async reevaluate(id: string): Promise<void> {
+    const e = this.loaded(id);
+    const part = e?.main;
+    if (!e || !this.running(e) || typeof part?.evaluate !== 'function' || !e.ctx) return;
+    try {
+      const r = await withTimeout(Promise.resolve().then(() => part.evaluate!(e.ctx!)), this.timeoutMs, 'did not finish checking');
+      this.applyGate(e, r);
+    } catch (err) {
+      this.applyGate(e, { state: 'inactive', reason: `Licence check failed: ${errText(err)}` });
+    }
+    this.opts.onChange?.();
+  }
+
+  /** On sign-in, sign-out and a change of XNAT server: every running main part is asked again. */
+  async reevaluateAll(): Promise<void> {
+    for (const e of this.entries) if (e.manifest && this.running(e)) await this.reevaluate(e.manifest.id);
   }
 
   async setEnabled(id: string, enabled: boolean): Promise<void> {
@@ -116,6 +162,7 @@ export class ExtensionHost {
     if (!enabled && e.state !== 'disabled') {
       await this.deactivate(e);
       e.state = 'disabled';
+      e.gated = false;
       e.reason = undefined;
     } else if (enabled && e.state === 'disabled') {
       await this.activate(e);
@@ -125,21 +172,23 @@ export class ExtensionHost {
   /** The renderer could not start its part: the extension is inactive, and its main part stops. */
   async rendererFailed(id: string, reason: string): Promise<void> {
     const e = this.loaded(id);
-    if (!e || e.state !== 'active') return;
+    if (!e || !this.running(e)) return;
     await this.deactivate(e);
     e.state = 'inactive';
+    e.gated = false;
     e.reason = `Failed to start: ${reason}`;
   }
 
   /** Whether the extension is loaded and started (its renderer part may use the host). */
   isRunning(id: string): boolean {
-    return this.loaded(id)?.state === 'active';
+    const e = this.loaded(id);
+    return !!e && this.running(e);
   }
 
   /** The renderer part asks its main part (ext.channel.request). */
   async channelRequest(id: string, message: unknown): Promise<unknown> {
     const e = this.loaded(id);
-    if (!e || e.state !== 'active') throw new Error(`${id} is not running`);
+    if (!e || !this.running(e)) throw new Error(`${id} is not running`);
     if (!e.handler) throw new Error(`${id} has no main part answering requests (ext.channel.handle)`);
     return e.handler(message);
   }
@@ -151,7 +200,7 @@ export class ExtensionHost {
 
   /** At quit: stop every main part. */
   async stopAll(): Promise<void> {
-    await Promise.all(this.entries.filter((e) => e.state === 'active').map((e) => this.deactivate(e)));
+    await Promise.all(this.entries.filter((e) => this.running(e)).map((e) => this.deactivate(e)));
   }
 
   /** The file an `xnat-extension://` URL names — only an active extension's own, existing files. */
@@ -160,7 +209,7 @@ export class ExtensionHost {
     try { u = new URL(url); } catch { return null; }
     if (u.protocol !== `${EXTENSION_SCHEME}:`) return null;
     const e = this.loaded(u.host);
-    if (!e || e.state !== 'active') return null;
+    if (!e || !this.running(e)) return null;
     let rel: string;
     try { rel = decodeURIComponent(u.pathname).replace(/^\/+/, ''); } catch { return null; }
     const file = path.resolve(e.dir, rel);
@@ -169,6 +218,49 @@ export class ExtensionHost {
   }
 
   // ─── internals ───────────────────────────────────────────────
+
+  /** Started and not stopped: active, or inactive by its own gate. */
+  private running(e: Entry): boolean {
+    return e.state === 'active' || (e.state === 'inactive' && !!e.gated);
+  }
+
+  private applyGate(e: Entry, r: unknown): void {
+    const declared = (e.manifest?.features ?? []).map((f) => f.id);
+    const g = (r && typeof r === 'object' ? r : undefined) as ExtensionGate | undefined;
+    if (g?.state === 'inactive') {
+      e.state = 'inactive';
+      e.gated = true;
+      e.reason = String(g.reason || 'Inactive');
+      e.gate = { active: false, features: [], reason: e.reason };
+      return;
+    }
+    const named = g?.state === 'active' && Array.isArray(g.features) ? g.features : null;
+    e.state = 'active';
+    e.gated = false;
+    e.reason = undefined;
+    e.gate = {
+      active: true,
+      features: named ? declared.filter((f) => named.includes(f)) : declared,
+      tier: g?.state === 'active' && typeof g.tier === 'string' ? g.tier : undefined,
+    };
+  }
+
+  /** A random id per extension, kept beside its data (never hardware data). */
+  private installId(id: string): string {
+    const file = path.join(path.dirname(this.opts.settingsFile), 'extension-data', id, 'install-id');
+    try {
+      const v = fs.readFileSync(file, 'utf8').trim();
+      if (v) return v;
+    } catch { /* first run */ }
+    const v = crypto.randomUUID();
+    try {
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, v);
+    } catch (err) {
+      console.warn(`[extensionHost] could not keep ${id}'s install id: ${errText(err)}`);
+    }
+    return v;
+  }
 
   private loaded(id: string): Entry | undefined {
     return this.entries.find((e) => e.manifest?.id === id && e.state !== 'refused');
@@ -217,8 +309,7 @@ export class ExtensionHost {
 
   private async activate(e: Entry): Promise<void> {
     const m = e.manifest!;
-    e.state = 'active';
-    e.reason = undefined;
+    this.applyGate(e, undefined); // no main part, no gate: active, every feature
     if (!m.main) return;
     try {
       const mod = this.load(path.join(e.dir, m.main)) as MainPartExports & { default?: MainPartExports };
@@ -231,6 +322,9 @@ export class ExtensionHost {
         log: (...args) => console.log(`[ext:${m.id}]`, ...args),
         xnat: this.opts.xnat ?? NO_XNAT,
         storage: this.opts.storage?.for(m.id) ?? NO_STORAGE,
+        secureStorage: this.opts.secureStore?.for(m.id) ?? NO_SECURE,
+        installId: this.installId(m.id),
+        gate: { reevaluate: () => this.reevaluate(m.id) },
         testing: !!this.opts.testing,
         channel: {
           handle: (handler) => {
@@ -242,10 +336,15 @@ export class ExtensionHost {
           },
         },
       };
-      await withTimeout(Promise.resolve().then(() => part.activate!(ctx)), this.timeoutMs, 'did not finish starting');
-      e.main = part;
+      e.ctx = ctx;
+      e.main = part; // before the gate: its handler and evaluate() serve while it is gated too
+      const gate = await withTimeout(Promise.resolve().then(() => part.activate!(ctx)), this.timeoutMs, 'did not finish starting');
+      this.applyGate(e, gate);
     } catch (err) {
       e.state = 'inactive';
+      e.gated = false;
+      e.main = undefined;
+      e.ctx = undefined;
       e.handler = undefined;
       e.reason = `Failed to start: ${errText(err)}`;
       console.warn(`[extensionHost] ${m.id} did not start: ${errText(err)}`);
@@ -255,6 +354,7 @@ export class ExtensionHost {
   private async deactivate(e: Entry): Promise<void> {
     const part = e.main;
     e.main = undefined;
+    e.ctx = undefined;
     e.handler = undefined;
     if (typeof part?.deactivate !== 'function') return;
     try {

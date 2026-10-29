@@ -3,15 +3,16 @@
  * the `xnat-extension://` scheme their renderer parts load from, the IPC Settings › Extensions
  * uses, and stopping main parts at quit.
  */
-import { app, BrowserWindow, dialog, ipcMain, protocol, type CustomScheme } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, protocol, safeStorage, type CustomScheme } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
 import { IPC } from '../../shared/ipcChannels';
 import { EXTENSION_SCHEME, ExtensionHost } from '../extensions/extensionHost';
 import { createExtensionXnat } from '../extensions/extensionXnat';
 import { ExtensionStorageStore } from '../extensions/extensionStorage';
+import { ExtensionSecureStore } from '../extensions/extensionSecureStorage';
 import type { FileFilter } from '../../shared/extensions/api';
-import { getClient, getConnectionInfo } from '../xnat/sessionManager';
+import { getClient, getConnectionInfo, onConnectionChange } from '../xnat/sessionManager';
 
 /** The renderer part's ext.xnat calls: these, by name, and nothing else. */
 const XNAT_OPS = new Set(['user', 'request', 'getJson', 'permissions', 'resourceFiles']);
@@ -68,19 +69,29 @@ let ready: Promise<void> = Promise.resolve();
 
 export function registerExtensionHandlers(): void {
   const xnat = createExtensionXnat(getClient, getConnectionInfo);
-  const storage = new ExtensionStorageStore(path.join(app.getPath('userData'), 'extension-data'));
+  const dataDir = path.join(app.getPath('userData'), 'extension-data');
+  const storage = new ExtensionStorageStore(dataDir);
+  const sendAll = (channel: string, ...args: unknown[]) => { for (const w of BrowserWindow.getAllWindows()) w.webContents.send(channel, ...args); };
   host = new ExtensionHost({
     storage,
+    // Licences and tokens: encrypted with the operating system's keychain (design point 10).
+    secureStore: new ExtensionSecureStore(dataDir, {
+      isAvailable: () => safeStorage.isEncryptionAvailable(),
+      encrypt: (text) => safeStorage.encryptString(text),
+      decrypt: (data) => safeStorage.decryptString(data),
+    }),
+    // A gate re-evaluated: the renderer mounts or unmounts what changed, live.
+    onChange: () => sendAll(IPC.EXTENSIONS_CHANGED, host?.list() ?? []),
     testing: process.env.E2E_TESTING === '1',
     dir: extensionsDir(),
     settingsFile: path.join(app.getPath('userData'), 'extensions.json'),
     xnat,
-    post: (id, message) => {
-      for (const w of BrowserWindow.getAllWindows()) w.webContents.send(IPC.EXTENSIONS_CHANNEL_MESSAGE, id, message);
-    },
+    post: (id, message) => sendAll(IPC.EXTENSIONS_CHANNEL_MESSAGE, id, message),
   });
   const h = host;
   ready = h.start().catch((err) => console.error('[extensions] start failed:', err));
+  // Sign-in, sign-out and a change of XNAT server: every gate is asked again (design point 10).
+  onConnectionChange(() => { void ready.then(() => h.reevaluateAll()); });
 
   // The renderer (file:// in a build, the dev server in development, under COEP) imports
   // extension modules cross-origin, so they are served with CORS and CORP headers.
@@ -150,6 +161,12 @@ export function registerExtensionHandlers(): void {
       await fs.promises.writeFile(r.filePath, data);
       return { saved: true, name: path.basename(r.filePath) };
     });
+  });
+  // The renderer part's ext.gate.reevaluate(): its main part is asked again; the list comes back.
+  ipcMain.handle(IPC.EXTENSIONS_REEVALUATE, async (_e, id: string) => {
+    await ready;
+    if (typeof id === 'string') await h.reevaluate(id);
+    return h.list();
   });
   ipcMain.handle(IPC.EXTENSIONS_CHANNEL_REQUEST, async (_e, id: string, message: unknown) => {
     await ready;

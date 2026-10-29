@@ -10,6 +10,7 @@ import type { Container, ContainerKind } from '@shared/types/annotation';
 import { useViewerStore } from '../../stores/viewerStore';
 import { useConnectionStore } from '../../stores/connectionStore';
 import { useAnnotationSelectionStore } from '../../stores/annotationSelectionStore';
+import { useExtensionStore } from '../../stores/extensionStore';
 import { CONTAINER_SOURCES, currentContainers } from '../annotations/currentContainers';
 import { openScan, openSession, revealInBrowser } from '../app/appNavigation';
 import { trackForExtension } from './uiRegistry';
@@ -58,8 +59,16 @@ const find = (id: string) => currentContainers().find((c) => c.id === id);
 
 const list = () => currentContainers().map(info);
 
+/** An extension's gate, as a value that changes when the gate does (X6). */
+function gateKey(extId: string): string {
+  const s = useExtensionStore.getState().extensions.find((x) => x.id === extId);
+  return JSON.stringify(s ? [s.state, s.reason, s.tier, (s.features ?? []).filter((f) => f.enabled).map((f) => f.id)] : null);
+}
+
+type Watch = { read: () => unknown; stores: ReadonlyArray<{ subscribe: (l: () => void) => () => void }> };
+
 /** For each event: the value that changing makes it fire, and the stores it lives in. */
-const WATCH: Record<ExtensionEventName, { read: () => unknown; stores: ReadonlyArray<{ subscribe: (l: () => void) => () => void }> }> = {
+const WATCH: Record<Exclude<ExtensionEventName, 'gateChanged'>, Watch> = {
   signedIn: { read: () => useConnectionStore.getState().status === 'connected', stores: [useConnectionStore] },
   signedOut: { read: () => useConnectionStore.getState().status === 'connected', stores: [useConnectionStore] },
   sessionChanged: { read: () => session()?.sessionId ?? null, stores: [useViewerStore] },
@@ -118,7 +127,9 @@ export function createStateApi(extId: string): { viewer: ExtensionViewer; annota
   };
   const events: ExtensionEvents = {
     on(name, listener) {
-      const w = WATCH[name];
+      const w: Watch | undefined = name === 'gateChanged'
+        ? { read: () => gateKey(extId), stores: [useExtensionStore] }
+        : WATCH[name as keyof typeof WATCH];
       if (!w) throw new Error(`No such event: ${String(name)}`);
       let last = w.read();
       const check = () => {

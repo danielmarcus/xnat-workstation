@@ -31,6 +31,8 @@ export interface ExtensionContextBase {
 export interface XnatUser {
   serverUrl: string;
   username: string;
+  /** The XNAT site id, where the server exposes it — a licence can be bound to it. */
+  siteId?: string;
 }
 
 export interface XnatRequestInit {
@@ -118,11 +120,48 @@ export interface ExtensionFiles {
   save(options: { suggestedName: string; data: string | Uint8Array; title?: string; filters?: FileFilter[] }): Promise<{ saved: boolean; name?: string }>;
 }
 
+// ─── X6: the activation gate (licensing hooks) ─────────────────────────
+
+/**
+ * What the main part's activate() — and evaluate(), when the host asks again — may return
+ * (design point 10). Nothing (undefined) means active with every feature. Licence logic is the
+ * extension's own: the core only acts on the answer.
+ */
+export type ExtensionGate =
+  | { state: 'active'; /** Enabled features (default: all declared). */ features?: string[]; /** Shown in Settings, e.g. "Basic". */ tier?: string }
+  | { state: 'inactive'; /** Shown in Settings, in place. */ reason: string };
+
+/** The gate as the host applied it. */
+export interface GateState {
+  active: boolean;
+  /** The enabled features (every declared one when the gate did not name them). */
+  features: string[];
+  tier?: string;
+  reason?: string;
+}
+
+/**
+ * Text kept encrypted with the operating system's keychain — a licence, a token, activation
+ * state (design point 10). The extension's own; main part only. Rejects where the system offers
+ * no encryption, rather than writing in the clear.
+ */
+export interface ExtensionSecureStorage {
+  get(key: string): Promise<string | undefined>;
+  set(key: string, value: string): Promise<void>;
+  delete(key: string): Promise<void>;
+  keys(): Promise<string[]>;
+}
+
 /** What the main part's activate() receives. */
 export interface MainExtensionContext extends ExtensionContextBase {
   xnat: ExtensionXnat;
   channel: MainChannel;
   storage: ExtensionStorage;
+  secureStorage: ExtensionSecureStorage;
+  /** Random, per extension, kept by the host — not hardware data: nothing identifying leaves the machine. */
+  installId: string;
+  /** Ask the host to run evaluate() again (a licence imported, an expiry reached, a check-in done). */
+  gate: { reevaluate(): Promise<void> };
   /**
    * True when the app runs under a test harness (R11): an extension may swap its own
    * services — a licence server, a remote API — for fakes.
@@ -212,7 +251,9 @@ export type ExtensionEventName =
   | 'sessionChanged'
   | 'activeViewportChanged'
   | 'activeAnnotationChanged'
-  | 'annotationsChanged';
+  | 'annotationsChanged'
+  /** This extension's gate changed (X6). */
+  | 'gateChanged';
 
 export interface ExtensionEvents {
   /** Called after the change; read the new state with the getters. */
@@ -235,6 +276,8 @@ export type SlotComponent = ComponentType;
 export interface SidebarTabSpec {
   title: string;
   component: SlotComponent;
+  /** Shown only while this feature is enabled (X6: the activation gate). */
+  feature?: string;
 }
 
 /**
@@ -255,6 +298,8 @@ export interface ToolbarItemSpec {
   command?: string;
   /** Or a popover to open on click. */
   popover?: SlotComponent;
+  /** Shown only while this feature is enabled (X6). */
+  feature?: string;
 }
 
 export interface ToolbarItemHandle {
@@ -267,6 +312,8 @@ export interface ViewSpec {
   id: string;
   title: string;
   component: SlotComponent;
+  /** Openable only while this feature is enabled (X6). */
+  feature?: string;
 }
 
 /** The extension's page in Settings, under Settings › Extensions (wireframe E4). */
@@ -285,6 +332,8 @@ export interface CommandSpec {
    * unbound and Settings › Hotkeys shows the clash. N and ⇧N are kept free for extensions.
    */
   keys?: KeyBinding[];
+  /** Listed, bound and runnable only while this feature is enabled (X6). */
+  feature?: string;
 }
 
 export interface ExtensionUi {
@@ -325,6 +374,11 @@ export interface RendererExtensionContext extends ExtensionContextBase {
   files: ExtensionFiles;
   /** As the main part's (see MainExtensionContext.testing). */
   testing: boolean;
+  /**
+   * The gate as the host applied it, read-only here: the renderer part cannot enable its own
+   * features (design point 10). reevaluate() asks the main part again; 'gateChanged' fires after.
+   */
+  gate: { current(): GateState; reevaluate(): Promise<void> };
 }
 
 /**
@@ -344,8 +398,14 @@ export interface ExtensionPart<Ctx> {
   deactivate?: () => unknown;
 }
 
-/** main.js: a CommonJS module exporting these (module.exports = { activate, deactivate }). */
-export type MainPart = ExtensionPart<MainExtensionContext>;
+/**
+ * main.js: a CommonJS module exporting these (module.exports = { activate, deactivate }).
+ * activate() may return an ExtensionGate; evaluate(), when exported, is how the host asks again —
+ * on sign-in, sign-out, a change of XNAT server, and ext.gate.reevaluate().
+ */
+export type MainPart = ExtensionPart<MainExtensionContext> & {
+  evaluate?: (ext: MainExtensionContext) => ExtensionGate | void | Promise<ExtensionGate | void>;
+};
 
 /** renderer.js: an ES module exporting these (export function activate…). */
 export type RendererPart = ExtensionPart<RendererExtensionContext>;

@@ -11,6 +11,7 @@ import { useConnectionStore } from '../../../stores/connectionStore';
 import { useAnnotationSelectionStore } from '../../../stores/annotationSelectionStore';
 import { setNavigationHandler } from '../../app/appNavigation';
 import { useTransportStore } from '../../../stores/transportStore';
+import { useExtensionStore } from '../../../stores/extensionStore';
 
 vi.mock('../../annotations/currentContainers', () => ({
   currentContainers: () => containers,
@@ -167,5 +168,17 @@ describe('ext.viewer / ext.annotations / ext.events', () => {
     expect(await annotations.openScan({ projectId: 'P', subjectId: 'S', sessionId: 'E1' }, '3004')).toEqual({ outcome: 'opened' });
     expect(openScanH).toHaveBeenCalledWith({ projectId: 'P', subjectId: 'S', sessionId: 'E1' }, '3004', { derivedOnly: true });
     remove();
+  });
+
+  it('gateChanged fires when this extension\'s gate changes — not another\'s (X6)', () => {
+    const summary = (id: string, tier?: string) => ({ key: id, id, name: id, state: 'active' as const, tier, features: [] });
+    useExtensionStore.setState({ extensions: [summary('org.example.x', 'Basic'), summary('org.example.y')] });
+    const { events } = createStateApi('org.example.x');
+    const fired = vi.fn();
+    events.on('gateChanged', fired);
+    useExtensionStore.setState({ extensions: [summary('org.example.x', 'Basic'), summary('org.example.y', 'Pro')] });
+    expect(fired).not.toHaveBeenCalled();
+    useExtensionStore.setState({ extensions: [summary('org.example.x', 'Pro'), summary('org.example.y', 'Pro')] });
+    expect(fired).toHaveBeenCalledTimes(1);
   });
 });

@@ -11,9 +11,9 @@
  */
 import { EXTENSION_API_VERSION } from '@shared/extensions/manifest';
 import type { ExtensionSummary } from '@shared/extensions/types';
-import { EXTENSION_TEST_GLOBAL, type ExtensionFiles, type ExtensionStorage, type ExtensionXnat, type RendererChannel, type RendererExtensionContext, type RendererPart } from '@shared/extensions/api';
+import { EXTENSION_TEST_GLOBAL, type ExtensionFiles, type ExtensionStorage, type ExtensionXnat, type GateState, type RendererChannel, type RendererExtensionContext, type RendererPart } from '@shared/extensions/api';
 import { useExtensionStore } from '../../stores/extensionStore';
-import { createExtensionUiApi, disposeExtensionUi, trackForExtension } from './uiRegistry';
+import { createExtensionUiApi, disposeExtensionUi, setExtensionGate, trackForExtension } from './uiRegistry';
 import { createStateApi } from './stateApi';
 
 type RendererPartExports = Partial<RendererPart>;
@@ -86,10 +86,28 @@ function channelFor(id: string): RendererChannel {
     },
   };
 }
-const publish = (list: ExtensionSummary[]) => useExtensionStore.getState().setExtensions(list);
+/** An extension's gate as the host applied it (X6), from its summary. */
+export function gateOf(s: ExtensionSummary): GateState {
+  if (s.state !== 'active') return { active: false, features: [], reason: s.reason };
+  const g: GateState = { active: true, features: (s.features ?? []).filter((f) => f.enabled).map((f) => f.id) };
+  if (s.tier) g.tier = s.tier;
+  return g;
+}
+
+/** Publish the list, and apply each running extension's gate to what it shows (live). */
+const publish = (list: ExtensionSummary[]) => {
+  useExtensionStore.getState().setExtensions(list);
+  for (const s of list) {
+    if (!s.id) continue;
+    setExtensionGate(s.id, s.rendererUrl ? gateOf(s) : null);
+  }
+};
+let changedUnsubscribe: (() => void) | null = null;
 
 async function startRendererPart(s: ExtensionSummary): Promise<ExtensionSummary[] | null> {
-  if (!api || s.state !== 'active' || !s.rendererUrl || !s.id) return null;
+  // Active, or inactive by its own gate (still running, for its Settings page): the host says
+  // which by giving it a renderer URL.
+  if (!api || !s.rendererUrl || !s.id) return null;
   try {
     const mod = (await importModule(s.rendererUrl)) as RendererPartExports & { default?: RendererPartExports };
     const part = typeof mod?.activate === 'function' ? mod : mod?.default;
@@ -108,6 +126,13 @@ async function startRendererPart(s: ExtensionSummary): Promise<ExtensionSummary[
       storage: storageFor(id),
       files: filesFor(id),
       testing: !!api.testing,
+      gate: {
+        current: () => {
+          const now = useExtensionStore.getState().extensions.find((x) => x.id === id);
+          return now ? gateOf(now) : { active: false, features: [] };
+        },
+        reevaluate: async () => { publish(await api!.reevaluate(id)); },
+      },
     };
     await new Promise<void>((resolve, reject) => {
       const t = setTimeout(() => reject(new Error(`did not finish starting within ${START_LIMIT_MS / 1000} s`)), START_LIMIT_MS);
@@ -145,12 +170,16 @@ export function startExtensions(opts: { api?: ExtensionsApi; importModule?: Impo
   if (opts.importModule) importModule = opts.importModule;
   started = (async () => {
     if (!api) return;
+    // Main re-evaluated a gate (sign-in, a licence imported): apply it live.
+    changedUnsubscribe = api.onChanged((list) => publish(list));
     channelUnsubscribe = api.onChannelMessage((id, message) => {
       for (const l of [...(channelListeners.get(id) ?? [])]) {
         try { l(message); } catch (err) { console.warn(`[extensions] ${id}: a channel listener failed:`, err); }
       }
     });
+    // The gates are applied before the renderer parts start, so nothing locked shows even briefly.
     let list = await api.list();
+    publish(list);
     for (const s of list) list = (await startRendererPart(s)) ?? list;
     publish(list);
   })();
@@ -193,5 +222,7 @@ export function __resetForTests(): void {
   started = null;
   channelUnsubscribe?.();
   channelUnsubscribe = null;
+  changedUnsubscribe?.();
+  changedUnsubscribe = null;
   channelListeners.clear();
 }

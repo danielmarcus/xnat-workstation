@@ -214,3 +214,89 @@ describe('ExtensionHost — storage and testing (X5)', () => {
     expect(await storage.for('org.example.other').get('ran')).toBeUndefined();
   });
 });
+
+describe('ExtensionHost — the activation gate (X6)', () => {
+  const FEATURES = [{ id: 'notes', name: 'Notes tab' }, { id: 'count', name: 'Toolbar indicator' }, { id: 'all', name: 'All notes view' }];
+  /** A main part whose gate reads a "licence" from its storage — the decision is the extension's. */
+  const gated = `module.exports = {
+  async activate(ext) {
+    ext.channel.handle(async (m) => { await ext.storage.set('licence', m); await ext.gate.reevaluate(); return ext.installId; });
+    return this.evaluate(ext);
+  },
+  async evaluate(ext) {
+    const l = await ext.storage.get('licence');
+    if (!l) return { state: 'inactive', reason: 'No licence for this XNAT server' };
+    return { state: 'active', tier: l.tier, features: l.features };
+  },
+};`;
+  const host = (extra: Record<string, unknown> = {}) => new ExtensionHost({ dir, settingsFile, load, storage: new ExtensionStorageStore(path.join(root, 'data')), ...extra });
+
+  it('inactive by its own decision: the reason is shown, it keeps running for its Settings page, its features are listed off', async () => {
+    ext('notes', manifest('org.example.notes', { main: 'main.js', features: FEATURES, hosts: ['licence.example.com'] }), { 'renderer.js': '', 'main.js': gated });
+    const h = host();
+    await h.start();
+    expect(byKey(h)['org.example.notes']).toMatchObject({
+      state: 'inactive', gated: true, reason: 'No licence for this XNAT server',
+      rendererUrl: expect.stringContaining('renderer.js'),
+      features: [{ id: 'notes', name: 'Notes tab', enabled: false }, { id: 'count', name: 'Toolbar indicator', enabled: false }, { id: 'all', name: 'All notes view', enabled: false }],
+      hosts: ['licence.example.com'],
+    });
+    expect(h.isRunning('org.example.notes')).toBe(true);
+  });
+
+  it('a licence entered while running re-evaluates the gate: active with the tier\'s features only', async () => {
+    ext('notes', manifest('org.example.notes', { main: 'main.js', features: FEATURES }), { 'renderer.js': '', 'main.js': gated });
+    const changed: string[] = [];
+    const h = host({ onChange: () => changed.push('changed') });
+    await h.start();
+    const installId = await h.channelRequest('org.example.notes', { tier: 'Basic', features: ['notes'] });
+    expect(byKey(h)['org.example.notes']).toMatchObject({ state: 'active', tier: 'Basic', gated: false });
+    expect(byKey(h)['org.example.notes'].features!.map((f) => [f.id, f.enabled])).toEqual([['notes', true], ['count', false], ['all', false]]);
+    expect(byKey(h)['org.example.notes'].reason).toBeUndefined();
+    expect(changed).toEqual(['changed']);
+    expect(installId).toMatch(/^[0-9a-f-]{36}$/);
+  });
+
+  it('a gate naming no features enables them all; a gate naming one it does not declare is ignored for it', async () => {
+    ext('a', manifest('org.example.a', { main: 'main.js', features: FEATURES }), { 'renderer.js': '', 'main.js': 'module.exports = { activate() { return { state: \'active\' }; } };' });
+    ext('b', manifest('org.example.b', { main: 'main.js', features: FEATURES }), { 'renderer.js': '', 'main.js': 'module.exports = { activate() { return { state: \'active\', features: [\'notes\', \'made-up\'] }; } };' });
+    const h = host();
+    await h.start();
+    expect(byKey(h)['org.example.a'].features!.every((f) => f.enabled)).toBe(true);
+    expect(byKey(h)['org.example.b'].features!.filter((f) => f.enabled).map((f) => f.id)).toEqual(['notes']);
+  });
+
+  it('the host asks again on a change of sign-in; an evaluate() that throws makes it inactive with the reason', async () => {
+    const bySignIn = `let n = 0; module.exports = { activate() { return { state: 'active' }; }, evaluate() { n += 1; if (n === 2) throw new Error('check-in failed'); return { state: n === 1 ? 'inactive' : 'active', reason: 'Signed out' }; } };`;
+    ext('x', manifest('org.example.x', { main: 'main.js' }), { 'renderer.js': '', 'main.js': bySignIn });
+    const h = host();
+    await h.start();
+    await h.reevaluateAll();
+    expect(byKey(h)['org.example.x']).toMatchObject({ state: 'inactive', reason: 'Signed out', gated: true });
+    await h.reevaluateAll();
+    expect(byKey(h)['org.example.x']).toMatchObject({ state: 'inactive', reason: 'Licence check failed: check-in failed', gated: true });
+    await h.reevaluateAll();
+    expect(byKey(h)['org.example.x']).toMatchObject({ state: 'active' });
+  });
+
+  it('the install id is random, per extension, and kept', async () => {
+    const idMain = `module.exports = { activate(ext) { ext.channel.handle(() => ext.installId); } };`;
+    ext('a', manifest('org.example.a', { main: 'main.js' }), { 'renderer.js': '', 'main.js': idMain });
+    ext('b', manifest('org.example.b', { main: 'main.js' }), { 'renderer.js': '', 'main.js': idMain });
+    const h = host();
+    await h.start();
+    const a = await h.channelRequest('org.example.a', null);
+    expect(a).not.toBe(await h.channelRequest('org.example.b', null));
+    const again = host();
+    await again.start();
+    expect(await again.channelRequest('org.example.a', null)).toBe(a);
+  });
+
+  it('an extension without a main part has no gate: active, every feature on', async () => {
+    ext('plain', manifest('org.example.plain', { features: FEATURES }), { 'renderer.js': '' });
+    const h = host();
+    await h.start();
+    expect(byKey(h)['org.example.plain']).toMatchObject({ state: 'active', gated: false });
+    expect(byKey(h)['org.example.plain'].features!.every((f) => f.enabled)).toBe(true);
+  });
+});

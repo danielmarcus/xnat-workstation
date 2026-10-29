@@ -55,10 +55,30 @@ export function createExtensionXnat(getClient: () => Client | null, getConnectio
     return (r.text.trim() ? JSON.parse(r.text) : null) as T;
   }
 
+  /** The site id, asked once per connection (a licence can be bound to it). */
+  let site: { connectedAt: number; serverUrl: string; id: Promise<string | undefined> } | null = null;
+  function siteIdOf(info: XnatConnectionInfo): Promise<string | undefined> {
+    if (site?.connectedAt !== info.connectedAt || site.serverUrl !== info.serverUrl) {
+      site = {
+        connectedAt: info.connectedAt,
+        serverUrl: info.serverUrl,
+        id: request('/xapi/siteConfig/siteId')
+          .then((r) => {
+            if (!r.ok) return undefined;
+            const t = r.text.trim();
+            try { const v = JSON.parse(t); return typeof v === 'string' ? v : undefined; } catch { return t || undefined; }
+          })
+          .catch(() => undefined),
+      };
+    }
+    return site.id;
+  }
+
   return {
     async user(): Promise<XnatUser | null> {
       const info = getConnection();
-      return info && getClient() ? { serverUrl: info.serverUrl, username: info.username } : null;
+      if (!info || !getClient()) return null;
+      return { serverUrl: info.serverUrl, username: info.username, siteId: await siteIdOf(info) };
     },
     request,
     getJson,

@@ -5,13 +5,16 @@
  * closes it.
  */
 import { useEffect } from 'react';
-import { closeExtensionView, useExtensionUiStore } from '../../lib/extensions/uiRegistry';
+import { allows, closeExtensionView, useExtensionUiStore } from '../../lib/extensions/uiRegistry';
 import { hotkeyService } from '../../lib/hotkeys/hotkeyService';
 import ExtensionSlot from './ExtensionSlot';
 
 export default function ExtensionViewHost() {
   const open = useExtensionUiStore((s) => s.openView);
-  const view = useExtensionUiStore((s) => (s.openView ? s.views.find((v) => v.extId === s.openView!.extId && v.id === s.openView!.id) : undefined));
+  const view = useExtensionUiStore((s) => {
+    const v = s.openView ? s.views.find((x) => x.extId === s.openView!.extId && x.id === s.openView!.id) : undefined;
+    return v && allows(s.gates, v.extId, v.feature) ? v : undefined; // locked (X6): not shown
+  });
 
   useEffect(() => {
     if (!view) return;
