@@ -9,6 +9,6 @@
   ],
   "trustedKeys": [],
   "extensions": [
-    "../../../extensions/examples/session-notes"
+    "../../../dist/extensions/examples/session-notes"
   ]
 }

@@ -4,12 +4,16 @@
  * The main process decides which extensions are active and starts their main parts first; this
  * then imports each active one's renderer part from `xnat-extension://<id>/…` and calls its
  * activate(). A renderer part that fails is reported back, which makes the extension inactive
- * (its main part stops). Stopping runs the other way: renderer part, then main part.
+ * (its main part stops). Stopping runs the other way: renderer part, then main part — and
+ * everything the extension added to the UI is removed with it (uiRegistry). The React side —
+ * the app's React for extension bundles, the components they draw with — is installed by
+ * components/extensions/installExtensionHost before extensions start.
  */
 import { EXTENSION_API_VERSION } from '@shared/extensions/manifest';
 import type { ExtensionSummary } from '@shared/extensions/types';
 import type { RendererExtensionContext, RendererPart } from '@shared/extensions/api';
 import { useExtensionStore } from '../../stores/extensionStore';
+import { createExtensionUiApi, disposeExtensionUi } from './uiRegistry';
 
 type RendererPartExports = Partial<RendererPart>;
 
@@ -36,9 +40,11 @@ async function startRendererPart(s: ExtensionSummary): Promise<ExtensionSummary[
     const id = s.id;
     const ctx: RendererExtensionContext = {
       id,
+      name: s.name,
       version: s.version ?? '',
       apiVersion: EXTENSION_API_VERSION,
       log: (...args) => console.log(`[ext:${id}]`, ...args),
+      ...createExtensionUiApi(id, s.name),
     };
     await new Promise<void>((resolve, reject) => {
       const t = setTimeout(() => reject(new Error(`did not finish starting within ${START_LIMIT_MS / 1000} s`)), START_LIMIT_MS);
@@ -48,6 +54,7 @@ async function startRendererPart(s: ExtensionSummary): Promise<ExtensionSummary[
     return null;
   } catch (err) {
     console.warn(`[extensions] ${s.id} did not start: ${errText(err)}`);
+    disposeExtensionUi(s.id); // whatever it registered before failing
     return api.rendererFailed(s.id, errText(err));
   }
 }
@@ -60,6 +67,7 @@ function stopRendererPart(id: string): void {
   } catch (err) {
     console.warn(`[extensions] ${id} did not stop cleanly: ${errText(err)}`);
   }
+  disposeExtensionUi(id);
 }
 
 /**
@@ -89,6 +97,19 @@ export async function setExtensionEnabled(id: string, enabled: boolean): Promise
     if (s) list = (await startRendererPart(s)) ?? list;
   }
   publish(list);
+}
+
+/**
+ * "Reload extension" on a failed slot (wireframe E7): stop the renderer part — removing all it
+ * added — and start it again.
+ */
+export async function reloadExtension(id: string): Promise<void> {
+  if (!api) return;
+  stopRendererPart(id);
+  const s = useExtensionStore.getState().extensions.find((x) => x.id === id);
+  if (!s) return;
+  const failed = await startRendererPart(s);
+  if (failed) publish(failed);
 }
 
 /** When the window goes away: stop every renderer part. */

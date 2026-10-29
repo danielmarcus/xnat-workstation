@@ -5,6 +5,7 @@
  */
 import { useExtensionStore } from '../../stores/extensionStore';
 import { setExtensionEnabled } from '../../lib/extensions/rendererHost';
+import { useExtensionUiStore } from '../../lib/extensions/uiRegistry';
 import type { ExtensionState } from '@shared/extensions/types';
 
 const CHIP: Record<ExtensionState, { label: string; className: string }> = {
@@ -14,8 +15,9 @@ const CHIP: Record<ExtensionState, { label: string; className: string }> = {
   disabled: { label: 'Disabled', className: 'bg-zinc-700 text-zinc-300' },
 };
 
-export default function ExtensionsSection() {
+export default function ExtensionsSection({ onOpenPage }: { onOpenPage?: (extId: string) => void }) {
   const extensions = useExtensionStore((s) => s.extensions);
+  const pages = useExtensionUiStore((s) => s.settingsPages);
   return (
     <div className="space-y-4" data-testid="extensions-settings">
       <div className="text-xs text-zinc-400">
@@ -45,6 +47,11 @@ export default function ExtensionsSection() {
               )}
             </div>
             {x.reason && <div className="text-[11px] text-zinc-300" data-testid="extension-reason">{x.reason}</div>}
+            {x.id && onOpenPage && pages.some((p) => p.extId === x.id) && (
+              <button type="button" className="text-[11px] text-zinc-400 hover:text-zinc-200 underline underline-offset-2" onClick={() => onOpenPage(x.id!)}>
+                Settings…
+              </button>
+            )}
           </li>
         ))}
       </ul>

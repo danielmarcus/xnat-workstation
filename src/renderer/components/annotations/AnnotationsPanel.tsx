@@ -35,6 +35,7 @@ import { useAnnotationsPanel } from '../../hooks/useAnnotationsPanel';
 import { usePreferencesStore } from '../../stores/preferencesStore';
 import { useGrowCutGpuUnavailableTools } from '../../hooks/useGrowCutGpu';
 import ToolFinder from './ToolFinder';
+import { executeExtensionCommand, useExtensionUiStore } from '../../lib/extensions/uiRegistry';
 import { finderEntries, type FinderEntry } from './finder';
 import { useFinderStore } from '../../stores/finderStore';
 import { useAnnotationSelectionStore } from '../../stores/annotationSelectionStore';
@@ -188,6 +189,7 @@ export default function AnnotationsPanel({ activeViewportId, sourceImageIds }: A
 
   // ⌘K finder: any tool, mode or operation of the active annotation type, by name.
   const finderOpen = useFinderStore((s) => s.open);
+  const extensionCommands = useExtensionUiStore((s) => s.commands);
   // Nothing to find without an active annotation: the hotkey's request lapses rather than
   // springing the finder open later.
   useEffect(() => { if (finderOpen && !panel.toolbox) useFinderStore.getState().setOpen(false); }, [finderOpen, panel.toolbox]);
@@ -198,6 +200,8 @@ export default function AnnotationsPanel({ activeViewportId, sourceImageIds }: A
     if (t.kind === 'tool') {
       if (t.toolId === 'roiLimit') { if (!roiDrawing) roiLimit?.onToggleDraw(); }
       else panel.toolbox?.onSelectTool(t.toolId);
+    } else if (t.kind === 'command') {
+      executeExtensionCommand(t.extId, t.commandId);
     } else if (t.kind === 'operation') {
       operations.open(t.operationId as OperationSheetId);
       if (t.seededMethod) seeded.set({ method: t.seededMethod });
@@ -209,7 +213,7 @@ export default function AnnotationsPanel({ activeViewportId, sourceImageIds }: A
   };
   const finder = finderOpen && panel.toolbox ? (
     <ToolFinder
-      entries={finderEntries(panel.toolbox.kind, operations.operations.filter((o) => o.group === 'Modules'))}
+      entries={finderEntries(panel.toolbox.kind, operations.operations.filter((o) => o.group === 'Modules'), extensionCommands)}
       onPick={pickFound}
       onClose={closeFinder}
     />

@@ -12,11 +12,13 @@ import * as path from 'path';
 import type { Locator, Page } from '@playwright/test';
 import { test, expect } from '../../fixtures/electron-app';
 import { enterLocalViewer } from '../../helpers/local-fixture';
+import { EXTENSION_API_VERSION as API } from '../../../src/shared/extensions/manifest';
 
 const ROOT = path.resolve(__dirname, '..', '..', '..');
 const edition = fs.mkdtempSync(path.join(os.tmpdir(), 'xnat-e2e-ext-edition-'));
-fs.cpSync(path.join(ROOT, 'extensions', 'examples', 'session-notes'), path.join(edition, 'session-notes'), { recursive: true });
-for (const f of fs.readdirSync(path.join(ROOT, 'e2e', 'fixtures', 'extensions'))) {
+// The built example (npm run build): its renderer part is bundled from TSX.
+fs.cpSync(path.join(ROOT, 'dist', 'extensions', 'examples', 'session-notes'), path.join(edition, 'session-notes'), { recursive: true });
+for (const f of fs.readdirSync(path.join(ROOT, 'e2e', 'fixtures', 'extensions')).filter((d) => d !== 'ui-throws')) {
   fs.cpSync(path.join(ROOT, 'e2e', 'fixtures', 'extensions', f), path.join(edition, f), { recursive: true });
 }
 test.use({ extensionsDir: edition });
@@ -41,7 +43,7 @@ async function openExtensions(page: Page): Promise<Locator> {
 
 test('Settings › Extensions lists every extension with its state and reason', async ({ page }) => {
   const logs = await reloadCollectingLogs(page);
-  await expect.poll(() => logs).toContain(`[ext:${NOTES}] renderer part started (API 0.1)`);
+  await expect.poll(() => logs).toContain(`[ext:${NOTES}] renderer part started (API ${API})`);
   const s = await openExtensions(page);
 
   const notes = s.getByTestId(`extension-row-${NOTES}`);
@@ -60,7 +62,7 @@ test('Settings › Extensions lists every extension with its state and reason', 
 
   const newer = s.getByTestId('extension-row-org.xnat.e2e.newer-api');
   await expect(newer.getByTestId('extension-state')).toHaveText('Refused');
-  await expect(newer.getByTestId('extension-reason')).toHaveText('Needs extension API 9.0; this app provides 0.1. Update the app or the extension.');
+  await expect(newer.getByTestId('extension-reason')).toHaveText(`Needs extension API 9.0; this app provides ${API}. Update the app or the extension.`);
   await expect(newer.getByRole('checkbox')).toHaveCount(0);
 
   const malformed = s.getByTestId('extension-row-org.xnat.e2e.malformed');
@@ -74,7 +76,7 @@ test('Settings › Extensions lists every extension with its state and reason', 
 
 test('the Enabled switch stops the extension, a new window leaves it stopped, and it starts again', async ({ page }) => {
   let logs = await reloadCollectingLogs(page);
-  await expect.poll(() => logs).toContain(`[ext:${NOTES}] renderer part started (API 0.1)`);
+  await expect.poll(() => logs).toContain(`[ext:${NOTES}] renderer part started (API ${API})`);
   let s = await openExtensions(page);
   let row = s.getByTestId(`extension-row-${NOTES}`);
 
@@ -92,5 +94,5 @@ test('the Enabled switch stops the extension, a new window leaves it stopped, an
 
   await row.getByLabel('Enable Session notes').click();
   await expect(row.getByTestId('extension-state')).toHaveText('Active');
-  await expect.poll(() => logs).toContain(`[ext:${NOTES}] renderer part started (API 0.1)`);
+  await expect.poll(() => logs).toContain(`[ext:${NOTES}] renderer part started (API ${API})`);
 });

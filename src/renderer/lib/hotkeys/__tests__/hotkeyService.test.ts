@@ -233,6 +233,47 @@ describe('hotkeyService', () => {
     hotkeyService.uninstall();
   });
 
+  it('an extension action takes the key it asks for only when the app does not use it (wireframe E6)', () => {
+    hotkeyService.setHotkeyMap({ 'viewport.zoomOut': [{ key: '-' }] });
+    hotkeyService.install();
+    const next = vi.fn();
+    const clash = vi.fn();
+    const disposeNext = hotkeyService.registerExtensionAction('ext:org.example.notes:next', [{ key: 'n' }], next);
+    const disposeClash = hotkeyService.registerExtensionAction('ext:org.example.notes:zoom', [{ key: '-' }], clash);
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'n', bubbles: true }));
+    expect(next).toHaveBeenCalledTimes(1);
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: '-', bubbles: true }));
+    expect(clash, 'a key the app uses stays the app\'s').not.toHaveBeenCalled();
+    expect(viewportServiceMock.zoomBy).toHaveBeenCalled();
+    expect(hotkeyService.extensionActionKeys('ext:org.example.notes:next')).toEqual({ bound: [{ key: 'n' }], clashing: [] });
+    expect(hotkeyService.extensionActionKeys('ext:org.example.notes:zoom')).toEqual({ bound: [], clashing: [{ key: '-' }] });
+
+    // A user override binds it anyway (the user chose); removing the action unbinds it.
+    hotkeyService.mergeOverrides({ 'ext:org.example.notes:zoom': [{ key: 'j' }] });
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'j', bubbles: true }));
+    expect(clash).toHaveBeenCalledTimes(1);
+    disposeNext();
+    disposeClash();
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'n', bubbles: true }));
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'j', bubbles: true }));
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(clash).toHaveBeenCalledTimes(1);
+    expect(hotkeyService.extensionActions()).toEqual([]);
+    hotkeyService.uninstall();
+  });
+
+  it('an extension action survives the map being replaced (preferences re-applied)', () => {
+    hotkeyService.install();
+    const run = vi.fn();
+    const dispose = hotkeyService.registerExtensionAction('ext:org.example.notes:prev', [{ key: 'n', modifiers: { shift: true } }], run);
+    hotkeyService.setHotkeyMap({ 'viewport.zoomOut': [{ key: '-' }] });
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'N', shiftKey: true, bubbles: true }));
+    expect(run).toHaveBeenCalledTimes(1);
+    dispose();
+    hotkeyService.uninstall();
+  });
+
   it('a key layer takes keys ahead of the global map, newest first, until removed', () => {
     hotkeyService.setHotkeyMap({ 'viewport.zoomOut': [{ key: '-' }] });
     hotkeyService.install();

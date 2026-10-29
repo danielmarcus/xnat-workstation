@@ -5,7 +5,19 @@
  */
 export { EXTENSION_API_VERSION, apiCompatible, validateExtensionManifest } from '../../../src/shared/extensions/manifest';
 export type { ExtensionManifest } from '../../../src/shared/extensions/manifest';
+export { EXTENSION_HOST_GLOBAL } from '../../../src/shared/extensions/api';
 export type {
+  CommandSpec,
+  Dispose,
+  ExtensionCommands,
+  ExtensionUi,
+  KeyBinding,
+  SettingsPageSpec,
+  SidebarTabSpec,
+  SlotComponent,
+  ToolbarItemHandle,
+  ToolbarItemSpec,
+  ViewSpec,
   ExtensionContextBase,
   ExtensionPart,
   MainExtensionContext,

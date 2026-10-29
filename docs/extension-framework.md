@@ -253,7 +253,32 @@ licensing.
     `e2e/specs/extensions/` (fixtures in `e2e/fixtures/extensions/`, chosen per spec with
     `test.use({ extensionsDir })`).
   - "Disabling removes its slots" moves to X2's acceptance, where slots exist.
-- [ ] X2 · [ ] X3 · [ ] X4 · [ ] X5 · [ ] X6 · [ ] X7
+- [x] **X2** — UI slots and commands (2026-10-29). As built (API **0.2**):
+  - `ext.ui`: `sidebarTab` (one per extension), `toolbarItem` (host-drawn button, `update()`
+    for its text and visibility, a command or a popover), `view` / `openView` / `closeView`,
+    `settingsPage`, and `components` (`Button`, `Dialog`). `ext.commands`: `register` (title,
+    run, keys) and `execute`. Types: `src/shared/extensions/api.ts`; registry:
+    `src/renderer/lib/extensions/uiRegistry.ts`. Everything an extension registers is removed
+    when it stops — disabled, failed or reloaded.
+  - React is shared (design point 4): the host puts its React on
+    `globalThis.__xnatWorkstationExtensionHost`; the SDK's `react` and `jsx-runtime` modules
+    read it, and an extension's bundler aliases `react` to them. The example is now TSX, built
+    this way by `npm run build:extensions` into `dist/extensions/examples/`.
+  - Slots: `SidebarTabs` (tabs only when one exists; ⋯ past two; the choice remembered),
+    `ExtensionToolbarItems` (left of the right group; text into the tooltip as the toolbar
+    narrows), `ExtensionViewHost` (over everything under the toolbar; Esc / Back; the
+    toolbar's viewer controls greyed by a CSS rule from a marker), Settings pages nested under
+    Extensions, and `ExtensionSlot` — the error boundary with Reload extension / Copy details.
+  - Keys: an extension command is the hotkey action `ext:<extension>:<command>`; it takes the
+    keys it asks for only where the app has none (a clash is shown in Settings › Hotkeys), and
+    a user override always applies. ⌘K lists commands with their extension's name. **Limit:**
+    the finder itself still opens only with an annotation open (it lives in the Annotations
+    panel); a finder for the whole app is separate work.
+  - The example dropped its "Add note" command: a dialog needs a mounted slot, and a command
+    can run with none showing. Its sidebar tab has the button instead.
+  - E2E: `e2e/specs/extensions/extension-slots.e2e.ts` (E1–E7 and disabling removes every
+    slot, command and key); `npm run test:edition` checks the example's UI in a packaged app.
+- [ ] X3 · [ ] X4 · [ ] X5 · [ ] X6 · [ ] X7
 
 ## Questions for review
 

@@ -5,6 +5,7 @@ import ExportDropdown from './components/viewer/ExportDropdown';
 import LoginForm from './components/connection/LoginForm';
 import ConnectionStatus from './components/connection/ConnectionStatus';
 import XnatBrowser from './components/connection/XnatBrowser';
+import SidebarTabs from './components/extensions/SidebarTabs';
 import { useConnectionStore } from './stores/connectionStore';
 import { useViewerStore } from './stores/viewerStore';
 import { useUnifiedLayoutStore } from './stores/unifiedLayoutStore';
@@ -61,6 +62,7 @@ import BookmarksDropdown from './components/app/BookmarksDropdown';
 import CloseUnsavedDialog from './components/app/CloseUnsavedDialog';
 import { useAppCloseGuard } from './hooks/useAppCloseGuard';
 import { startExtensions, stopExtensions } from './lib/extensions/rendererHost';
+import { installExtensionHost } from './components/extensions/installExtensionHost';
 
 /** DICOM SEG SOP Class UID */
 const SEG_SOP_CLASS_UID = '1.2.840.10008.5.1.4.1.1.66.4';
@@ -791,6 +793,7 @@ export default function App() {
   // The edition's extensions (docs/extension-framework.md): their renderer parts start once the
   // main process has started their main parts, and stop when the window goes away.
   useEffect(() => {
+    installExtensionHost();
     void startExtensions().catch((err) => console.warn('[App] extensions did not start:', err));
     window.addEventListener('beforeunload', stopExtensions);
     return () => window.removeEventListener('beforeunload', stopExtensions);
@@ -3225,13 +3228,18 @@ export default function App() {
                 style={{ width: browserWidth }}
               >
                 <div className="min-h-0 flex-1">
-                  <XnatBrowser
-                    onLoadScan={loadFromXnatScan}
-                    onLoadSession={loadSessionFromXnat}
-                    navigateTo={navigateTo}
-                    onNavigateComplete={() => setNavigateTo(null)}
-                    pinnedItems={pinnedItems}
-                    onTogglePin={handleTogglePin}
+                  {/* Browse, plus any extension's sidebar tab (wireframe E1). */}
+                  <SidebarTabs
+                    browser={
+                      <XnatBrowser
+                        onLoadScan={loadFromXnatScan}
+                        onLoadSession={loadSessionFromXnat}
+                        navigateTo={navigateTo}
+                        onNavigateComplete={() => setNavigateTo(null)}
+                        pinnedItems={pinnedItems}
+                        onTogglePin={handleTogglePin}
+                      />
+                    }
                   />
                 </div>
                 <div className="shrink-0 border-t border-zinc-800 bg-zinc-900/70 px-2.5 py-2">

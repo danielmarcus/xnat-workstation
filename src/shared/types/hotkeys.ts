@@ -7,6 +7,8 @@
  * when defining the default map and the action registry.
  */
 export type HotkeyAction =
+  // An extension's command (docs/extension-framework.md): `ext:<extension id>:<command id>`
+  | `ext:${string}`
   // Tool switching
   | 'tool.windowLevel'
   | 'tool.pan'

@@ -18,11 +18,14 @@ import CheckpointFilesSection from './CheckpointFilesSection';
 import ModulesSection from './ModulesSection';
 import ExtensionsSection from './ExtensionsSection';
 import { useExtensionStore } from '../../stores/extensionStore';
+import { commandForAction, useExtensionUiStore } from '../../lib/extensions/uiRegistry';
+import { hotkeyService } from '../../lib/hotkeys/hotkeyService';
+import ExtensionSlot from '../extensions/ExtensionSlot';
 
 declare const __APP_VERSION__: string;
 const APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev';
 
-type SettingsTab = 'hotkeys' | 'overlay' | 'annotation' | 'updates' | 'interpolation' | 'backup' | 'modules' | 'extensions' | 'issue' | 'about';
+type SettingsTab = 'hotkeys' | 'overlay' | 'annotation' | 'updates' | 'interpolation' | 'backup' | 'modules' | 'extensions' | `ext-page:${string}` | 'issue' | 'about';
 
 interface SettingsModalProps {
   open: boolean;
@@ -108,6 +111,9 @@ const CORNER_OPTIONS: Array<{
 ];
 
 function formatActionLabel(action: HotkeyAction): string {
+  // An extension's command: "Session notes: Next note" (wireframe E6).
+  const command = action.startsWith('ext:') ? commandForAction(action) : undefined;
+  if (command) return `${command.extName}: ${command.title}`;
   return action
     .replace(/\./g, ' ')
     .replace(/([a-z])([A-Z])/g, '$1 $2')
@@ -256,17 +262,31 @@ export default function SettingsModal({ open, onClose, onRecover, initialTab }: 
   const [recoveringSession, setRecoveringSession] = useState<string | null>(null);
   const currentSessionId = useViewerStore((s) => s.sessionId);
 
+  const extensionCommands = useExtensionUiStore((st) => st.commands);
   const actionOptions = useMemo(() => {
     const all = new Set<HotkeyAction>(Object.keys(DEFAULT_HOTKEY_MAP) as HotkeyAction[]);
+    // Extensions' commands, while their extension runs (an override outlives it, unlisted).
+    for (const c of extensionCommands) all.add(c.action);
     for (const key of Object.keys(overrides) as HotkeyAction[]) {
+      if (key.startsWith('ext:') && !extensionCommands.some((c) => c.action === key)) continue;
       all.add(key);
     }
     return Array.from(all).sort();
-  }, [overrides]);
+  }, [overrides, extensionCommands]);
 
   const [activeTab, setActiveTab] = useState<SettingsTab>('hotkeys');
   const hasExtensions = useExtensionStore((st) => st.extensions.length > 0);
-  const tabItems = hasExtensions ? TAB_ITEMS : TAB_ITEMS.filter((t) => t.id !== 'extensions');
+  const settingsPages = useExtensionUiStore((st) => st.settingsPages);
+  const tabItems = useMemo(() => {
+    if (!hasExtensions) return TAB_ITEMS.filter((t) => t.id !== 'extensions');
+    // Each extension's own page, nested under Extensions (wireframe E4).
+    const i = TAB_ITEMS.findIndex((t) => t.id === 'extensions');
+    const pages = settingsPages.map((p) => ({ id: `ext-page:${p.extId}` as SettingsTab, label: p.extName, nested: true }));
+    return [...TAB_ITEMS.slice(0, i + 1), ...pages, ...TAB_ITEMS.slice(i + 1)];
+  }, [hasExtensions, settingsPages]);
+  const openPage = activeTab.startsWith('ext-page:') ? settingsPages.find((p) => `ext-page:${p.extId}` === activeTab) : undefined;
+  // A page whose extension stopped: back to the list.
+  useEffect(() => { if (activeTab.startsWith('ext-page:') && !openPage) setActiveTab('extensions'); }, [activeTab, openPage]);
 
   // Switch to initialTab when it changes (e.g. banner link opens to 'backup')
   useEffect(() => {
@@ -424,7 +444,10 @@ export default function SettingsModal({ open, onClose, onRecover, initialTab }: 
     [overrides],
   );
 
-  const selectedDefaultBindings = selectedAction ? DEFAULT_HOTKEY_MAP[selectedAction] : undefined;
+  const selectedExtensionKeys = selectedAction?.startsWith('ext:') ? hotkeyService.extensionActionKeys(selectedAction) : null;
+  const selectedDefaultBindings = selectedAction
+    ? (selectedExtensionKeys ? selectedExtensionKeys.bound : DEFAULT_HOTKEY_MAP[selectedAction])
+    : undefined;
   const selectedOverrideBindings = selectedAction ? overrides[selectedAction] : undefined;
 
   const applySelectedOverride = () => {
@@ -527,7 +550,7 @@ export default function SettingsModal({ open, onClose, onRecover, initialTab }: 
                 key={tab.id}
                 type="button"
                 onClick={() => setActiveTab(tab.id)}
-                className={`w-full text-left px-2.5 py-2 rounded text-xs transition-colors ${
+                className={`w-full text-left ${'nested' in tab ? 'pl-5 pr-2.5 py-1.5 text-[11px]' : 'px-2.5 py-2 text-xs'} rounded transition-colors ${
                   activeTab === tab.id
                     ? 'bg-blue-600/20 text-blue-300'
                     : 'text-zinc-300 hover:bg-zinc-800 hover:text-white'
@@ -645,6 +668,11 @@ export default function SettingsModal({ open, onClose, onRecover, initialTab }: 
                   {selectedAction && (
                     <div className="text-[11px] text-zinc-500 space-y-0.5">
                       <div>Default: <span className="text-zinc-400">{formatBindings(selectedDefaultBindings)}</span></div>
+                      {selectedExtensionKeys && selectedExtensionKeys.clashing.length > 0 && (
+                        <div data-testid="hotkey-extension-clash">
+                          Asked for <span className="text-zinc-400">{formatBindings(selectedExtensionKeys.clashing)}</span>, which the app already uses — left unbound. Set an override to give it a key.
+                        </div>
+                      )}
                       <div>Override: <span className="text-zinc-400">{formatBindings(selectedOverrideBindings)}</span></div>
                     </div>
                   )}
@@ -1018,7 +1046,13 @@ export default function SettingsModal({ open, onClose, onRecover, initialTab }: 
             )}
 
             {activeTab === 'modules' && <ModulesSection />}
-            {activeTab === 'extensions' && hasExtensions && <ExtensionsSection />}
+            {activeTab === 'extensions' && hasExtensions && <ExtensionsSection onOpenPage={(extId) => setActiveTab(`ext-page:${extId}`)} />}
+            {openPage && (
+              <div className="space-y-3" data-testid={`extension-settings-page-${openPage.extId}`}>
+                <h3 className="text-xs font-medium text-zinc-300">{openPage.extName}</h3>
+                <ExtensionSlot extId={openPage.extId} extName={openPage.extName} component={openPage.component} />
+              </div>
+            )}
 
             {activeTab === 'backup' && (
               <>

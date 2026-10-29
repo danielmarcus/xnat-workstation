@@ -65,7 +65,7 @@ src/
     types/                  # TypeScript interfaces (ElectronAPI, DICOM types, XNAT types)
     dicomTagDictionary.ts   # DICOM tag name lookup
 modules/                    # Example modules (examples/) and built-ins packaged as modules (builtins/)
-extensions/examples/        # The example extension (session-notes); the open-source edition ships none
+extensions/examples/        # The example extension (session-notes, TSX → dist/extensions by build:extensions); the open-source edition ships none
 packages/extension-api/     # The extension SDK, @nrgxnat/workstation-extension-api (re-exports src/shared/extensions)
 edition.config.json         # The open-source edition (docs/editions.md)
 build/                      # App icons for packaging

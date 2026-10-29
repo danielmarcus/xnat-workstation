@@ -31,4 +31,9 @@ test('the packaged app loads the extension the edition ships, from inside its ar
   const row = dialog.getByTestId('extension-row-org.xnat.examples.session-notes');
   await expect(row.getByTestId('extension-state')).toHaveText('Active');
   await expect(dialog.locator('[data-testid^="extension-row-"]')).toHaveCount(1);
+  // Its UI renders with the app's React, from inside the archive: the sidebar tab and toolbar item.
+  await dialog.getByTitle('Close', { exact: true }).click();
+  await page.getByRole('tablist', { name: 'Sidebar' }).getByRole('tab', { name: 'Notes', exact: true }).click();
+  await expect(page.getByTestId('extension-sidebar-tab-org.xnat.examples.session-notes')).toContainText('No notes yet.');
+  await expect(page.getByTestId('extension-toolbar-item-org.xnat.examples.session-notes')).toContainText('0 notes');
 });

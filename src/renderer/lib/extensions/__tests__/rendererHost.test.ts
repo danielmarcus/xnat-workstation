@@ -6,8 +6,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ExtensionSummary } from '@shared/extensions/types';
 import { EXTENSION_API_VERSION } from '@shared/extensions/manifest';
-import { setExtensionEnabled, startExtensions, stopExtensions, __resetForTests } from '../rendererHost';
+import { reloadExtension, setExtensionEnabled, startExtensions, stopExtensions, __resetForTests } from '../rendererHost';
 import { useExtensionStore } from '../../../stores/extensionStore';
+import { useExtensionUiStore, __resetExtensionUiForTests } from '../uiRegistry';
+import type { RendererExtensionContext } from '@shared/extensions/api';
 
 const active = (id: string): ExtensionSummary => ({ key: id, id, name: id, version: '1.0.0', state: 'active', rendererUrl: `xnat-extension://${id}/renderer.js` });
 const calls: string[] = [];
@@ -35,7 +37,29 @@ const modules: Record<string, unknown> = {
   },
   'xnat-extension://org.example.throws/renderer.js': { activate: () => { throw new Error('boom'); } },
   'xnat-extension://org.example.empty/renderer.js': {},
+  'xnat-extension://org.example.ui/renderer.js': {
+    activate: (ext: RendererExtensionContext) => {
+      calls.push(`ui activate ${ext.name}`);
+      const Tab = () => null;
+      ext.ui.sidebarTab({ title: 'Notes', component: Tab });
+      ext.ui.toolbarItem({ label: '3 notes', icon: '📝' });
+      ext.ui.view({ id: 'all', title: 'All notes', component: Tab });
+      ext.ui.settingsPage({ component: Tab });
+      ext.commands.register({ id: 'next', title: 'Next note', run: () => {}, keys: [{ key: 'n' }] });
+      ext.ui.openView('all');
+    },
+  },
+  'xnat-extension://org.example.halfway/renderer.js': {
+    activate: (ext: RendererExtensionContext) => {
+      ext.ui.sidebarTab({ title: 'Half', component: () => null });
+      throw new Error('after registering');
+    },
+  },
 };
+const ui = () => useExtensionUiStore.getState();
+const counts = () => ({ tabs: ui().sidebarTabs.length, items: ui().toolbarItems.length, views: ui().views.length, pages: ui().settingsPages.length, commands: ui().commands.length });
+const NONE = { tabs: 0, items: 0, views: 0, pages: 0, commands: 0 };
+const ALL = { tabs: 1, items: 1, views: 1, pages: 1, commands: 1 };
 const importModule = async (url: string) => {
   if (!(url in modules)) throw new Error(`Failed to fetch dynamically imported module: ${url}`);
   return modules[url];
@@ -44,6 +68,7 @@ const importModule = async (url: string) => {
 beforeEach(() => {
   calls.length = 0;
   __resetForTests();
+  __resetExtensionUiForTests();
   useExtensionStore.setState({ extensions: [] });
 });
 
@@ -94,5 +119,36 @@ describe('renderer extension host', () => {
   it('without the desktop API there are no extensions', async () => {
     await startExtensions({ api: undefined, importModule });
     expect(useExtensionStore.getState().extensions).toEqual([]);
+  });
+
+  it('what an extension adds to the UI is removed when it is disabled, and returns when it is enabled (X2)', async () => {
+    const api = fakeApi([{ ...active('org.example.ui'), name: 'Session notes' }]);
+    await startExtensions({ api, importModule });
+    expect(calls).toEqual(['ui activate Session notes']);
+    expect(counts()).toEqual(ALL);
+    expect(ui().openView).toEqual({ extId: 'org.example.ui', id: 'all' });
+    expect(ui().commands[0]).toMatchObject({ extName: 'Session notes', action: 'ext:org.example.ui:next' });
+
+    await setExtensionEnabled('org.example.ui', false);
+    expect(counts()).toEqual(NONE);
+    expect(ui().openView).toBeNull();
+    await setExtensionEnabled('org.example.ui', true);
+    expect(counts()).toEqual(ALL);
+  });
+
+  it('a renderer part that fails after registering leaves nothing behind', async () => {
+    const api = fakeApi([active('org.example.halfway')]);
+    await startExtensions({ api, importModule });
+    expect(counts()).toEqual(NONE);
+    expect(useExtensionStore.getState().extensions[0]).toMatchObject({ state: 'inactive', reason: 'Failed to start: after registering' });
+  });
+
+  it('reloading an extension removes what it added and runs activate() again', async () => {
+    const api = fakeApi([{ ...active('org.example.ui'), name: 'Session notes' }]);
+    await startExtensions({ api, importModule });
+    ui().toolbarItems.forEach(() => undefined);
+    await reloadExtension('org.example.ui');
+    expect(calls).toEqual(['ui activate Session notes', 'ui activate Session notes']);
+    expect(counts()).toEqual(ALL); // not doubled
   });
 });
