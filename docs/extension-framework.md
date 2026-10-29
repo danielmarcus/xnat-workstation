@@ -1,7 +1,8 @@
 # Extension framework (plan, for review)
 
 Status: **draft for review, 2026-10-29** (branch `extension-framework`). Nothing is built until
-this plan is reviewed. **Decided 2026-10-29:** question 1 — extensions are bundled into an
+this plan is reviewed. **Decided 2026-10-29:** questions 1, 2, 3, 5 and 6 (below); question 4
+is open. Question 1 — extensions are bundled into an
 edition (option a), designed so runtime installation (b) can be added later without redesign;
 and the framework must give an edition what it needs to build a strong licensing model
 (R13–R14, design points 10–11).
@@ -228,15 +229,12 @@ licensing.
 
 1. ~~**Trust model.**~~ **Decided 2026-10-29: (a)**, bundled in an edition, trusted,
    in-process, with (b) kept open. See [Trust and distribution](#trust-and-distribution-why-a).
-2. **UI technology.** Share the app's React (recommended) or require framework-agnostic web
-   components / iframes?
-3. **What may extensions reach beyond the list above?** For example: running a module or a
-   built-in operation, adding columns to the XNAT browser, adding items to a container's ⋮ menu.
-   Recommended: only R1–R12 now; add others when an extension needs them.
+2. ~~**UI technology.**~~ **Decided 2026-10-29:** share the app's React (design point 4).
+3. ~~**Reach beyond R1–R14.**~~ **Decided 2026-10-29:** only R1–R14 now; running a module or
+   operation, XNAT-browser columns, ⋮-menu items and the like are added when an extension needs
+   them, each as a new minor version of the API.
 4. **Where is the SDK published?** Public npm (simplest for anyone), or GitHub Packages.
-5. **Naming.** "Extension" for this and "module" for algorithms, as above — or another pair of
-   words, since both already appear in the UI (Settings › Modules)?
-6. **DevTools in the open-source edition's packaged builds.** Recommended: keep them (useful
-   for diagnosing problems at sites, and there is nothing to protect), while every edition gets
-   the fuses and archive integrity, which cost nothing and close real attack routes. An edition
-   with licensed extensions sets `devTools: false`.
+5. ~~**Naming.**~~ **Decided 2026-10-29:** "extension" for this, "module" for algorithms.
+6. ~~**DevTools in the open-source edition's packaged builds.**~~ **Decided 2026-10-29:** the
+   open-source edition keeps them; every edition gets the fuses and archive integrity; an
+   edition with licensed extensions sets `devTools: false`.
