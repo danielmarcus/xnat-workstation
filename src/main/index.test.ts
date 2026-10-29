@@ -70,7 +70,8 @@ const mocks = vi.hoisted(() => {
     registerUpdateHandlers: vi.fn(),
     registerModuleHandlers: vi.fn(),
     registerModuleRunHandlers: vi.fn(),
-    registerModuleScheme: vi.fn(),
+    registerExtensionHandlers: vi.fn(),
+    protocol: { registerSchemesAsPrivileged: vi.fn() },
     autoUpdateService: {
       initialize: vi.fn(),
       dispose: vi.fn(),
@@ -86,6 +87,7 @@ vi.mock('electron', () => ({
   nativeImage: mocks.nativeImage,
   ipcMain: mocks.ipcMain,
   shell: mocks.shell,
+  protocol: mocks.protocol,
 }));
 
 vi.mock('./ipc/moduleHandlers', () => ({
@@ -95,7 +97,12 @@ vi.mock('./ipc/moduleHandlers', () => ({
 
 vi.mock('./modules/moduleRuntime', () => ({
   registerModuleRunHandlers: mocks.registerModuleRunHandlers,
-  registerModuleScheme: mocks.registerModuleScheme,
+  MODULE_SCHEME_PRIVILEGES: { scheme: 'xnat-module', privileges: {} },
+}));
+
+vi.mock('./ipc/extensionHandlers', () => ({
+  registerExtensionHandlers: mocks.registerExtensionHandlers,
+  EXTENSION_SCHEME_PRIVILEGES: { scheme: 'xnat-extension', privileges: {} },
 }));
 
 vi.mock('./ipc/authHandlers', () => ({
@@ -156,7 +163,11 @@ describe('main/index bootstrap', () => {
     expect(mocks.registerAuthHandlers).toHaveBeenCalledTimes(1);
     expect(mocks.registerProxyHandlers).toHaveBeenCalledTimes(1);
     expect(mocks.registerExportHandlers).toHaveBeenCalledTimes(1);
-    expect(mocks.registerModuleScheme).toHaveBeenCalledTimes(1);
+    // Each call REPLACES the previous registrations, so every privileged scheme goes in one call
+    // (two calls once left xnat-module:// without fetch, and modules could not read their files).
+    expect(mocks.protocol.registerSchemesAsPrivileged).toHaveBeenCalledTimes(1);
+    expect(mocks.protocol.registerSchemesAsPrivileged.mock.calls[0][0].map((s: { scheme: string }) => s.scheme)).toEqual(['xnat-module', 'xnat-extension']);
+    expect(mocks.registerExtensionHandlers).toHaveBeenCalledTimes(1);
     expect(mocks.registerModuleHandlers).toHaveBeenCalledTimes(1);
     expect(mocks.registerModuleRunHandlers).toHaveBeenCalledTimes(1);
     expect(mocks.registerUploadHandlers).toHaveBeenCalledTimes(1);

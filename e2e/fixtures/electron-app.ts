@@ -19,10 +19,17 @@ export type ElectronFixtures = {
 
 export const test = base.extend<
   { page: Page; resetState: void },
-  { electronApp: ElectronApplication }
+  { electronApp: ElectronApplication; extensionsDir: string | undefined }
 >({
+  /**
+   * The edition's extensions for this spec file's app (docs/extension-framework.md): a folder of
+   * extension folders, set with `test.use({ extensionsDir })`. Default: an empty folder, so the
+   * app runs as an edition with no extensions.
+   */
+  extensionsDir: [undefined, { scope: 'worker', option: true }],
+
   // Worker-scoped: one Electron app per spec file
-  electronApp: [async ({}, use) => {
+  electronApp: [async ({ extensionsDir }, use) => {
     const projectRoot = path.resolve(__dirname, '..', '..');
     const mainEntry = path.join(projectRoot, 'dist', 'main', 'main', 'index.js');
 
@@ -53,6 +60,8 @@ export const test = base.extend<
         // An empty folder of bundled modules per worker — tests put an edition's packages in it
         // (helpers/modules.ts); E2E_KEEP_BUNDLED=1 keeps the build's own (packaged-edition check).
         ...(process.env.E2E_KEEP_BUNDLED === '1' ? {} : { XNAT_E2E_BUNDLED_MODULES: fs.mkdtempSync(path.join(os.tmpdir(), 'xnat-e2e-bundled-')) }),
+        // The edition's extensions: the spec's, or none (E2E_KEEP_BUNDLED keeps the package's own).
+        ...(process.env.E2E_KEEP_BUNDLED === '1' ? {} : { XNAT_E2E_EXTENSIONS: extensionsDir ?? fs.mkdtempSync(path.join(os.tmpdir(), 'xnat-e2e-extensions-')) }),
         NODE_ENV: 'production',
       },
     });

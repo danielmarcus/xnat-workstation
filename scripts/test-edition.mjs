@@ -2,13 +2,14 @@
 /**
  * The packaged-edition check (branch 9, M6 — docs/editions.md): package the app, unsigned and
  * unpacked, with a TEST edition (e2e/fixtures/edition/test-edition.json — its own name, app id
- * and one bundled module); check the package carries them; run the packaging spec against the
+ * one bundled module and one extension); check the package carries them; run the packaging spec against the
  * packaged app; then restore the default edition in build/edition. Run after `npm run build`.
  */
 import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
+import { createRequire } from 'module';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const config = path.join(root, 'e2e', 'fixtures', 'edition', 'test-edition.json');
@@ -41,7 +42,15 @@ try {
   if (info.id !== edition.id || info.productName !== edition.productName) fail(`resources/edition.json is not the test edition's: ${JSON.stringify(info)}`);
   const bundled = fs.readdirSync(path.join(resources, 'modules'));
   if (bundled.join() !== 'org.xnat.examples.threshold.xwmodule') fail(`resources/modules holds ${bundled.join(', ') || 'nothing'}`);
-  console.log(`[test-edition] package: ${path.relative(root, exe)}; edition.json and modules/ are the test edition's`);
+  // Extensions are inside the app archive (docs/extension-framework.md, design point 5), not loose resources.
+  const asar = createRequire(import.meta.url)('@electron/asar');
+  const inArchive = asar.listPackage(path.join(resources, 'app.asar')).map((f) => f.split(path.sep).join('/'));
+  for (const f of ['extension.json', 'renderer.js', 'main.js']) {
+    if (!inArchive.includes(`/extensions/org.xnat.examples.session-notes/${f}`)) fail(`app.asar has no extensions/org.xnat.examples.session-notes/${f}`);
+  }
+  if (fs.existsSync(path.join(resources, 'extensions'))) fail('extensions were also shipped as loose resources');
+  if ((info.extensions ?? []).join() !== 'org.xnat.examples.session-notes') fail(`edition.json lists extensions ${JSON.stringify(info.extensions)}`);
+  console.log(`[test-edition] package: ${path.relative(root, exe)}; edition.json, modules/ and the archive's extensions/ are the test edition's`);
 
   run('npx', ['playwright', 'test', '--config', 'playwright.config.ts', '--project=app', 'e2e/specs/packaging/edition-package.e2e.ts', '--reporter=list'], {
     E2E_EXECUTABLE_PATH: exe, E2E_KEEP_BUNDLED: '1', E2E_EDITION_CHECK: '1', E2E_EDITION_PRODUCT: edition.productName, E2E_EDITION_APP_NAME: edition.appName,

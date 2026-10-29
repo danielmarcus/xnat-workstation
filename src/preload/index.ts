@@ -227,6 +227,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     runStop: (runId: string) => ipcRenderer.invoke(IPC.MODULES_RUN_STOP, runId),
   },
 
+  extensions: {
+    list: () => ipcRenderer.invoke(IPC.EXTENSIONS_LIST),
+    setEnabled: (id: string, enabled: boolean) => ipcRenderer.invoke(IPC.EXTENSIONS_SET_ENABLED, id, enabled),
+    rendererFailed: (id: string, reason: string) => ipcRenderer.invoke(IPC.EXTENSIONS_RENDERER_FAILED, id, reason),
+  },
+
   diagnostics: {
     getMainSnapshot: () =>
       ipcRenderer.invoke(IPC.DIAGNOSTICS_GET_MAIN_SNAPSHOT),

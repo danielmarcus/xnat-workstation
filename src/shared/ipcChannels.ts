@@ -111,6 +111,11 @@ export const IPC = {
   /** main → page: a run's process is gone (crashed, timed out, the app quitting, the page reloading). */
   MODULES_RUN_ENDED: 'modules:run-ended',
 
+  // Extensions (renderer → main) — docs/extension-framework.md
+  EXTENSIONS_LIST: 'extensions:list',
+  EXTENSIONS_SET_ENABLED: 'extensions:set-enabled',
+  EXTENSIONS_RENDERER_FAILED: 'extensions:renderer-failed',
+
   // Diagnostics (renderer → main)
   DIAGNOSTICS_GET_MAIN_SNAPSHOT: 'diagnostics:get-main-snapshot',
 

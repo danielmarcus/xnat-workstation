@@ -27,12 +27,17 @@ export interface EditionConfig {
   modules: string[];
   /** Publisher keys every copy of this edition trusts (their public.json contents). */
   trustedKeys: TrustedKey[];
+  /**
+   * Extension directories, relative to the configuration file (docs/extension-framework.md).
+   * Copied into the app archive; absent means none.
+   */
+  extensions?: string[];
   /** electron-builder's `publish` for this edition (default: none, except the open-source one's). */
   publish?: Record<string, unknown> | Array<Record<string, unknown>>;
 }
 
 /** What a built edition records for the app and for electron-builder. */
-export type EditionInfo = Omit<EditionConfig, 'modules'> & { modules: string[] };
+export type EditionInfo = Omit<EditionConfig, 'modules' | 'extensions'> & { modules: string[]; extensions?: string[] };
 
 export function validateEdition(raw: unknown): { ok: true; edition: EditionConfig } | { ok: false; errors: string[] } {
   const e = (raw ?? {}) as Record<string, unknown>;
@@ -54,6 +59,7 @@ export function validateEdition(raw: unknown): { ok: true; edition: EditionConfi
     try { id = typeof key.publicKey === 'string' ? keyIdOf(Buffer.from(key.publicKey, 'base64')) : ''; } catch { /* reported below */ }
     if (!id || id !== key.keyId) errors.push(`trustedKeys[${i}]: keyId must match publicKey (a module:keygen public.json)`);
   });
+  if (e.extensions !== undefined && (!Array.isArray(e.extensions) || !e.extensions.every((x) => typeof x === 'string' && x))) errors.push('extensions: a list of paths, when present');
   if (e.publish !== undefined && (typeof e.publish !== 'object' || e.publish === null)) errors.push('publish: an electron-builder publish configuration, when present');
   return errors.length ? { ok: false, errors } : { ok: true, edition: e as unknown as EditionConfig };
 }
@@ -76,4 +82,4 @@ export function readEditionInfo(file: string): EditionInfo | null {
   }
 }
 
-export const editionPaths = (dir: string) => ({ info: path.join(dir, 'edition.json'), modules: path.join(dir, 'modules') });
+export const editionPaths = (dir: string) => ({ info: path.join(dir, 'edition.json'), modules: path.join(dir, 'modules'), extensions: path.join(dir, 'extensions') });

@@ -60,6 +60,7 @@ import { useBookmarks } from './lib/app/useBookmarks';
 import BookmarksDropdown from './components/app/BookmarksDropdown';
 import CloseUnsavedDialog from './components/app/CloseUnsavedDialog';
 import { useAppCloseGuard } from './hooks/useAppCloseGuard';
+import { startExtensions, stopExtensions } from './lib/extensions/rendererHost';
 
 /** DICOM SEG SOP Class UID */
 const SEG_SOP_CLASS_UID = '1.2.840.10008.5.1.4.1.1.66.4';
@@ -786,6 +787,14 @@ export default function App() {
   useEffect(() => {
     applyPreferences(preferences);
   }, [preferences]);
+
+  // The edition's extensions (docs/extension-framework.md): their renderer parts start once the
+  // main process has started their main parts, and stop when the window goes away.
+  useEffect(() => {
+    void startExtensions().catch((err) => console.warn('[App] extensions did not start:', err));
+    window.addEventListener('beforeunload', stopExtensions);
+    return () => window.removeEventListener('beforeunload', stopExtensions);
+  }, []);
 
   useEffect(() => {
     const updaterApi = window.electronAPI?.updater;

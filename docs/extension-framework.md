@@ -90,9 +90,13 @@ would plausibly need.
    the manifest schema, a small runtime shim, and test helpers. An extension's repository
    depends on it (and on React as a peer); building an edition then combines the core with
    that repository's bundles. It is published to public npm (question 4).
-7. **Lifecycle.** Loaded after sign-in state is known; `activate(ext)` registers slots and
-   commands; `deactivate()` on sign-out, on disable, and at quit. Settings › Extensions lists
-   what the edition ships (name, version, publisher) with an Enabled switch.
+7. **Lifecycle.** *(Amended in X1.)* Started when the app starts — the main part first, then
+   the renderer part once the window is up; `activate(ext)` registers slots and commands;
+   `deactivate()` on disable, when the other part fails, and at quit (main) or when the window
+   goes away (renderer). An extension is **not** restarted on sign-in or sign-out: it learns of
+   them through app events (X3), and the licence gate re-evaluates on them (X6). Settings ›
+   Extensions lists what the edition ships (name, version, publisher, state, reason) with an
+   Enabled switch.
 8. **Permissions follow XNAT.** The API does not add a permission layer of its own: an
    extension acts as the signed-in user, so XNAT's project roles decide what succeeds, and the
    permission query (R4) lets it show View Only where the user cannot write.
@@ -223,6 +227,33 @@ open); an extension store or update feed; untrusted (third-party, unsigned) exte
 extensions that replace core UI rather than add to it; **any licence logic, keys, licence
 server or vendor endpoint in this repository** — the core provides hooks, publishers provide
 licensing.
+
+## Status
+
+- [x] **X0** — decisions and wireframes, approved 2026-10-29.
+- [x] **X1** — package and load (2026-10-29). As built:
+  - `extension.json`: `id`, `name`, `version`, `apiVersion` (major.minor), `publisher`,
+    `description`, `renderer` (ES module), `main` (CommonJS, optional); unknown fields are
+    refused. The host implements API **0.1**: before 1.0 an extension must match the minor
+    exactly, from 1.0 the major (`src/shared/extensions/manifest.ts`).
+  - Each part's `activate()` may be async and has 10 s; throwing, rejecting or timing out makes
+    the extension Inactive with the error as its reason; a renderer part that fails also stops
+    the main part.
+  - The edition's extensions are copied by `build:edition` into `build/edition/extensions/<id>/`
+    and packaged **inside `app.asar`** (`npm run test:edition` checks the archive). An extension
+    the app would refuse fails the edition build.
+  - Main: `src/main/extensions/extensionHost.ts` (no Electron imports; one source folder, so a
+    second source is a folder, not a code path), `src/main/ipc/extensionHandlers.ts` (the
+    `xnat-extension://` scheme, IPC, stopping main parts at quit — only when one is running).
+    Renderer: `src/renderer/lib/extensions/rendererHost.ts`; Settings › Extensions
+    (`ExtensionsSection.tsx`) appears only when the edition ships an extension.
+  - The API types live in `src/shared/extensions/api.ts`; the SDK skeleton
+    (`packages/extension-api/`, `"private": true` until X7) re-exports them.
+  - Example: `extensions/examples/session-notes` (lifecycle only, for now). E2E:
+    `e2e/specs/extensions/` (fixtures in `e2e/fixtures/extensions/`, chosen per spec with
+    `test.use({ extensionsDir })`).
+  - "Disabling removes its slots" moves to X2's acceptance, where slots exist.
+- [ ] X2 · [ ] X3 · [ ] X4 · [ ] X5 · [ ] X6 · [ ] X7
 
 ## Questions for review
 

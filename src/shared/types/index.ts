@@ -242,6 +242,13 @@ export interface ElectronAPI {
     /** End a run: its sandboxed process is destroyed. */
     runStop(runId: string): Promise<{ ok: boolean }>;
   };
+  /** The edition's extensions (docs/extension-framework.md). Each call returns the updated list. */
+  extensions?: {
+    list(): Promise<import('../extensions/types').ExtensionSummary[]>;
+    setEnabled(id: string, enabled: boolean): Promise<import('../extensions/types').ExtensionSummary[]>;
+    /** The renderer could not start an extension's renderer part. */
+    rendererFailed(id: string, reason: string): Promise<import('../extensions/types').ExtensionSummary[]>;
+  };
   diagnostics?: {
     getMainSnapshot(): Promise<MainDiagnosticsSnapshotResult>;
   };

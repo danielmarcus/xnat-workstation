@@ -16,11 +16,13 @@ import { buildIssueReport } from '../../lib/diagnostics/issueReport';
 import { IconClose } from '../icons';
 import CheckpointFilesSection from './CheckpointFilesSection';
 import ModulesSection from './ModulesSection';
+import ExtensionsSection from './ExtensionsSection';
+import { useExtensionStore } from '../../stores/extensionStore';
 
 declare const __APP_VERSION__: string;
 const APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev';
 
-type SettingsTab = 'hotkeys' | 'overlay' | 'annotation' | 'updates' | 'interpolation' | 'backup' | 'modules' | 'issue' | 'about';
+type SettingsTab = 'hotkeys' | 'overlay' | 'annotation' | 'updates' | 'interpolation' | 'backup' | 'modules' | 'extensions' | 'issue' | 'about';
 
 interface SettingsModalProps {
   open: boolean;
@@ -39,6 +41,8 @@ const TAB_ITEMS: Array<{ id: SettingsTab; label: string }> = [
   { id: 'interpolation', label: 'Interpolation' },
   { id: 'backup', label: 'File Backup' },
   { id: 'modules', label: 'Modules' },
+  // Shown only when the edition ships extensions (docs/mockup/extension-wireframes.html, E4).
+  { id: 'extensions', label: 'Extensions' },
   { id: 'issue', label: 'Issue Report' },
 ];
 
@@ -261,6 +265,8 @@ export default function SettingsModal({ open, onClose, onRecover, initialTab }: 
   }, [overrides]);
 
   const [activeTab, setActiveTab] = useState<SettingsTab>('hotkeys');
+  const hasExtensions = useExtensionStore((st) => st.extensions.length > 0);
+  const tabItems = hasExtensions ? TAB_ITEMS : TAB_ITEMS.filter((t) => t.id !== 'extensions');
 
   // Switch to initialTab when it changes (e.g. banner link opens to 'backup')
   useEffect(() => {
@@ -516,7 +522,7 @@ export default function SettingsModal({ open, onClose, onRecover, initialTab }: 
         <div className="w-40 border-r border-zinc-800 p-2 bg-zinc-950/50">
           <div className="px-2 py-2 text-[11px] uppercase tracking-wide text-zinc-500">Settings</div>
           <div className="space-y-1">
-            {TAB_ITEMS.map((tab) => (
+            {tabItems.map((tab) => (
               <button
                 key={tab.id}
                 type="button"
@@ -1012,6 +1018,7 @@ export default function SettingsModal({ open, onClose, onRecover, initialTab }: 
             )}
 
             {activeTab === 'modules' && <ModulesSection />}
+            {activeTab === 'extensions' && hasExtensions && <ExtensionsSection />}
 
             {activeTab === 'backup' && (
               <>

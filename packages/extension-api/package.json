@@ -1,0 +1,15 @@
+{
+  "name": "@nrgxnat/workstation-extension-api",
+  "version": "0.1.0",
+  "description": "Types, manifest schema and helpers for building XNAT Workstation extensions",
+  "license": "MIT",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/danielmarcus/xnat-workstation.git",
+    "directory": "packages/extension-api"
+  },
+  "types": "./src/index.ts",
+  "files": ["dist", "README.md"],
+  "publishConfig": { "access": "public" }
+}

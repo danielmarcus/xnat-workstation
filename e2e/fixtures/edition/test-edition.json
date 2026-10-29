@@ -4,6 +4,11 @@
   "appName": "XNAT Test Edition",
   "appId": "org.xnat.workstation.test-edition",
   "artifactPrefix": "XNAT-Workstation-Test-Edition",
-  "modules": ["../../../modules/examples/threshold"],
-  "trustedKeys": []
+  "modules": [
+    "../../../modules/examples/threshold"
+  ],
+  "trustedKeys": [],
+  "extensions": [
+    "../../../extensions/examples/session-notes"
+  ]
 }

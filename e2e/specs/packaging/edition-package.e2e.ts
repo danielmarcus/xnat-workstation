@@ -1,11 +1,11 @@
 /**
  * The packaged edition (branch 9, M6): run by `npm run test:edition` against an app packaged
  * with the test edition (e2e/fixtures/edition/test-edition.json) — it is named for the edition
- * and lists the module the edition bundles as Bundled, from inside the package. Skipped in the
- * ordinary E2E runs (they launch dist/, not a package).
+ * and lists the module the edition bundles as Bundled, and the extension it ships as Active,
+ * from inside the package. Skipped in the ordinary E2E runs (they launch dist/, not a package).
  */
 import { test, expect } from '../../fixtures/electron-app';
-import { loadFixture } from '../../helpers/local-fixture';
+import { enterLocalViewer, loadFixture } from '../../helpers/local-fixture';
 
 test.skip(process.env.E2E_EDITION_CHECK !== '1', 'run by npm run test:edition');
 
@@ -21,4 +21,14 @@ test('the packaged app is the edition: its name, and its bundled module', async 
   await expect(row).toContainText('Bundled');
   await expect(row.getByRole('button', { name: /Remove/ })).toHaveCount(0);
   await expect(dialog.locator('[data-testid^="module-row-"]')).toHaveCount(1); // only the edition's
+});
+
+test('the packaged app loads the extension the edition ships, from inside its archive', async ({ page }) => {
+  await enterLocalViewer(page);
+  await page.getByTitle('Open settings').click();
+  const dialog = page.getByRole('dialog', { name: 'Settings' });
+  await dialog.getByRole('button', { name: 'Extensions', exact: true }).click();
+  const row = dialog.getByTestId('extension-row-org.xnat.examples.session-notes');
+  await expect(row.getByTestId('extension-state')).toHaveText('Active');
+  await expect(dialog.locator('[data-testid^="extension-row-"]')).toHaveCount(1);
 });

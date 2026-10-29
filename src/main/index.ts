@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, nativeImage, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, Menu, nativeImage, ipcMain, protocol, shell } from 'electron';
 import path from 'path';
 import { registerAuthHandlers } from './ipc/authHandlers';
 import { registerProxyHandlers } from './ipc/proxyHandlers';
@@ -7,10 +7,13 @@ import { registerUploadHandlers } from './ipc/uploadHandlers';
 import { registerBackupHandlers } from './ipc/backupHandlers';
 import { registerCheckpointHandlers } from './ipc/checkpointHandlers';
 import { currentEdition, registerModuleHandlers } from './ipc/moduleHandlers';
-import { registerModuleRunHandlers, registerModuleScheme } from './modules/moduleRuntime';
+import { MODULE_SCHEME_PRIVILEGES, registerModuleRunHandlers } from './modules/moduleRuntime';
+import { EXTENSION_SCHEME_PRIVILEGES, registerExtensionHandlers } from './ipc/extensionHandlers';
 
-// Modules' sandboxed windows load from xnat-module:// — a scheme must be registered before ready.
-registerModuleScheme();
+// Modules' sandboxed windows load from xnat-module://, extensions' renderer parts from
+// xnat-extension://. Privileged schemes must be registered before ready, and in ONE call:
+// each call replaces the previous registrations.
+protocol.registerSchemesAsPrivileged([MODULE_SCHEME_PRIVILEGES, EXTENSION_SCHEME_PRIVILEGES]);
 import { registerDiagnosticsHandlers } from './ipc/diagnosticsHandlers';
 import { registerUpdateHandlers } from './ipc/updateHandlers';
 import { installMainLogCapture } from './diagnostics/mainLogBuffer';
@@ -238,6 +241,7 @@ app.whenReady().then(() => {
   registerCheckpointHandlers();
   registerModuleHandlers();
   registerModuleRunHandlers();
+  registerExtensionHandlers();
   registerDiagnosticsHandlers();
   registerUpdateHandlers();
   autoUpdateService.initialize();

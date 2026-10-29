@@ -28,7 +28,8 @@ signature. See [module-authoring.md](module-authoring.md) for modules themselves
   "appId": "com.xnat.workstation",
   "artifactPrefix": "XNAT-Workstation",
   "modules": ["modules/examples/threshold", "modules/examples/postop-edema"],
-  "trustedKeys": []
+  "trustedKeys": [],
+  "extensions": []
 }
 ```
 
@@ -41,6 +42,7 @@ signature. See [module-authoring.md](module-authoring.md) for modules themselves
 | `artifactPrefix` | Installers and archives are named `<prefix>-<version>-<arch>.<ext>` |
 | `modules` | Module directories (packed at build time) or `.xwmodule` files (copied), relative to the configuration file |
 | `trustedKeys` | Publisher keys (`module:keygen`'s `public.json` contents) every copy trusts: modules they sign install as Verified |
+| `extensions` | Optional: extension directories, relative to the configuration file ([extension-framework.md](extension-framework.md)). Each is checked and copied **into the app archive**; one the app would refuse fails the build |
 | `publish` | Optional: electron-builder's `publish` configuration for this edition (none by default) |
 
 ## Building

@@ -49,7 +49,12 @@ module.exports = {
     : null),
   // Rollup's platform binary reaches the tree only through a dependency's packaging slip
   // (jpeg-lossless-decoder-js lists it as optional); the app never loads it.
-  files: ['dist/**/*', 'package.json', '!**/node_modules/@rollup/**'],
+  files: [
+    'dist/**/*', 'package.json', '!**/node_modules/@rollup/**',
+    // The edition's extensions go INSIDE the app archive, so the archive's integrity check
+    // covers them (docs/extension-framework.md, design points 5 and 11).
+    { from: 'build/edition/extensions', to: 'extensions', filter: ['**/*'] },
+  ],
   extraResources: [
     {
       from: 'build/',
