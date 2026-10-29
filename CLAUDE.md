@@ -8,6 +8,7 @@ XNAT Workstation is a desktop DICOM medical image viewer built on Electron. It c
 
 - **GitHub**: https://github.com/danielmarcus/xnat-workstation (**public**)
 - **Branch**: `main` — work is committed directly to `main`; CI runs on every push to it.
+- **Extensions live elsewhere.** Proprietary extensions (the worklist among them) are built in their own private repositories against the extension framework this app will provide. Their plans, code and requirements never go in this public repository; here, only the framework and its extension slots (sidebar tab, toolbar slot, full-window view, N / ⇧N — SegWorks parity D10, D12).
 
 ## Tech Stack
 

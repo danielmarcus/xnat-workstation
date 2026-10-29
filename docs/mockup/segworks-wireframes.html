@@ -159,7 +159,7 @@
   <li><a href="#hud">Viewport HUD &amp; probe</a></li>
   <li><a href="#d8">D8 · Baseline &amp; checkpoints</a></li>
   <li><a href="#d9">D9 · 3D QC</a></li>
-  <li><a href="#d10">D10 · Worklist placement</a></li>
+  <li><a href="#d10">D10 · Worklist placement (now extension slots)</a></li>
   <li><a href="#d11">D11 · Modules</a></li>
   <li><a href="#d12">D12 · Hotkeys</a></li>
   <li><a href="#summary">Decision summary</a></li>
@@ -173,12 +173,12 @@
 <tr><td>SEG toolbox (side panel, bottom)</td><td>15 tools, 3-wide grid, Controls strip</td><td>Level Trace, Smart Brush, Random Walker seeds (4) · Spline/Livewire as Contour Fill modes (6) · ROI constraint (4) · seed painters inside solver sheets (5)</td></tr>
 <tr><td><b>Operation sheet</b> <span class="new-tag">NEW</span> (in side panel)</td><td>—</td><td>Cleanup &amp; mask math (1) · Interpolate, Propagate (3) · Random Walker run (4) · GrowCut 3D, Graph Cut, α-Expansion, Chan-Vese (5) · Snake refine (6) · 3D QC report (7) · Modules (9)</td></tr>
 <tr><td>Viewport overlay layer</td><td>context overlay, ruler, scrollbar, toast host, status overlay</td><td>Preview bar (4+) · slice track on scrollbar (1,3,6) · cursor HU probe &amp; mask HUD (2) · flythrough mini-player (2) · ROI outline (4)</td></tr>
-<tr><td>Toolbar</td><td>…cine ▶ + fps · Annotate · Tags · ⚙</td><td>Hide-PHI toggle (2) · worklist case bar (8)</td></tr>
+<tr><td>Toolbar</td><td>…cine ▶ + fps · Annotate · Tags · ⚙</td><td>Hide-PHI toggle (2) · extension toolbar slot (was the worklist case bar, 8)</td></tr>
 <tr><td>Container row kebab</td><td>Hide all · Lock all · Export DICOM · Export CSV · Revert</td><td>Review flythrough · Set baseline / Revert to baseline · Checkpoints… (2)</td></tr>
-<tr><td>Left sidebar</td><td>XNAT browser (Projects)</td><td>Browse | Worklist tabs (8)</td></tr>
+<tr><td>Left sidebar</td><td>XNAT browser (Projects)</td><td>Browse | an extension's tab (was the Worklist tab, 8)</td></tr>
 <tr><td>Layout presets</td><td>1×1 … 2×2, Hanging, MPR</td><td>“2D + 3D QC” preset (7)</td></tr>
 <tr><td>Settings modal</td><td>Hotkeys · Overlay · Annotation · Updates · Interpolation · File Backup · Issue · About</td><td>Interpolation tab gains labelmap defaults (3) · <b>Algorithms</b> tab for per-family defaults (4–6) · <b>Modules</b> tab (9) · File Backup gains checkpoint export/import (2)</td></tr>
-<tr><td><b>Worklist table view</b> <span class="new-tag">NEW</span></td><td>—</td><td>Full-window worklist management (8 — designed in its own plan)</td></tr>
+<tr><td><b>Worklist table view</b> <span class="new-tag">NEW</span></td><td>—</td><td>An extension's full-window view (was worklist management, 8 — removed 2026-10-29)</td></tr>
 </table>
 
 <!-- ===================================================== -->
@@ -536,7 +536,7 @@
 
 <!-- ===================================================== -->
 <h2 id="d10">13 · D10 — Worklist placement (placement only)</h2>
-<p class="warn">Per decision 3, the worklist gets its own reviewed plan (XNAT-backed data model, concurrency, permissions). This section only reserves <i>space</i> so later segmentation work doesn't occupy it.</p>
+<p class="warn"><b>Amended 2026-10-29:</b> the worklist has left the SegWorks parity project; it will be built as an extension, outside this repository. The space shown here — a sidebar tab beside Browse, a toolbar slot (the case bar), a full-window view, and N / ⇧N — is kept as <b>extension slots</b> for the planned extension framework. The worklist pictures below show how an extension might fill them.</p>
 <div class="decision"><span class="id">D10</span><span class="q">Where the worklist appears</span>
 <div class="opts c3">
   <div class="opt star"><h4>A · Sidebar tab + toolbar case bar + full-window table <span class="badge-rec">recommended</span></h4>
@@ -588,7 +588,7 @@
 <tr><td class="k">⇧Space</td><td>Start/stop review flythrough on the active viewport</td><td>#213</td></tr>
 <tr><td class="k">⇧H</td><td>Toggle Hide PHI</td><td>#269</td></tr>
 <tr><td class="k">X</td><td>Open Cleanup sheet (last-used op)</td><td>#29 (S in SegWorks; S is taken)</td></tr>
-<tr><td class="k">N / ⇧N</td><td>Worklist next / previous case (only when a worklist is open)</td><td>#315, #317</td></tr>
+<tr><td class="k">N / ⇧N</td><td>Reserved for extensions (first meant for the worklist's next / previous case)</td><td>#315, #317</td></tr>
 <tr><td class="k">O</td><td>Contour Fill (cycles Freehand → Spline → Livewire with D3-A)</td><td>#72, #82</td></tr>
 <tr><td class="k">⏎ / ⎋</td><td>Commit / discard the preview (only while a preview exists)</td><td>#112–114</td></tr>
 <tr><td class="k">\ (hold)</td><td>Show the pre-preview state (compare)</td><td>new</td></tr>
@@ -609,7 +609,7 @@
 <tr><td>D7 / D7-s</td><td>Hide PHI control / scope</td><td class="rec">A toolbar toggle · Option 2 all display surfaces</td><td>B settings only · Option 1 viewport only</td><td>2</td></tr>
 <tr><td>D8</td><td>Checkpoints</td><td class="rec">A · container kebab</td><td>B backup-status row</td><td>2</td></tr>
 <tr><td>D9</td><td>3D QC</td><td class="rec">A · 2D+3D preset + QC sheet</td><td>B full-window mode · C manual</td><td>7</td></tr>
-<tr><td>D10</td><td>Worklist placement</td><td class="rec">A · sidebar tab + case bar + table view</td><td>B page only · C bottom dock</td><td>8 (reserves space)</td></tr>
+<tr><td>D10</td><td>Worklist placement</td><td class="rec">A · sidebar tab + case bar + table view</td><td>B page only · C bottom dock</td><td>extension slots (worklist removed 2026-10-29)</td></tr>
 <tr><td>D11</td><td>Modules</td><td class="rec">A · Process group + Settings › Modules</td><td>B toolbar menu</td><td>9</td></tr>
 <tr><td>D12</td><td>Hotkey scoping</td><td class="rec">A · sheet-scoped keys</td><td>B global chords</td><td>3, all</td></tr>
 </table>

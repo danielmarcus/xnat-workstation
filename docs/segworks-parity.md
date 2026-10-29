@@ -1,6 +1,10 @@
 # SegWorks Parity — Overview & Proposed Workplan
 
-Status: **Plan + UI decisions approved 2026-10-10** (branch `segworks-parity`, 2026-10-10)
+Status: **Plan + UI decisions approved 2026-10-10** (branch `segworks-parity`, 2026-10-10).
+**Complete 2026-10-29:** branches 1–7 and 9 are merged to `main`. The worklist (formerly
+branch 8, SegWorks #291–342 and the Worklist Builder) was removed from this project on
+2026-10-29: it will be built as an extension, outside this repository, on the planned
+extension framework. The space it had reserved in the UI is kept as extension slots (D10, D12).
 
 Source: SegWorks v2.0.610 *User-Facing Feature Inventory* (342 features, 13 sections), plus
 the add-on modules shipped alongside it (Worklist Builder, Mask Relabel by Name, MR lesion
@@ -29,8 +33,8 @@ to cross-check. Numbers like `#152` below refer to the v2.0.610 inventory.
 - Self-healing Hide-PHI MutationObserver (#270). The *feature* (Hide PHI) is kept; the
   self-healing part is a workaround for not owning the DOM.
 - Session-expired banner/relay (609 list). Workstation has its own auth handling.
-- LatestMask module (it automates OHIF's Import Mask dialog). The intent ("open the newest
-  mask by keyword") can be folded into the Worklist branch.
+- LatestMask module (it automates OHIF's Import Mask dialog). Its intent ("open the newest
+  mask by keyword") belonged with the worklist, which has left this project.
 - Microscopy Annotation Lab. It isn't part of SegWorks and targets slide microscopy.
 
 ### 1b. Already present
@@ -71,10 +75,8 @@ to cross-check. Numbers like `#152` below refer to the v2.0.610 inventory.
 6. **3D segmentation QC.** Surface rendering of segments in the 3D viewport (PolySeg is
    registered but unused for this), a 3D connected-component report, jump-to-component,
    delete component, stray/speck thresholds, and a 3D scissor cut.
-7. **Worklist / Capture / Review.** Absent today (listed under PHASES "Future"). It covers
-   spreadsheet import/export, XNAT id resolution, project fetch, Next & Open,
-   Capture/Review/View-Only modes, skip with reason, comments, filters, report workbooks,
-   and the Worklist Builder.
+7. **Worklist / Capture / Review.** *Removed from this project 2026-10-29* — to be built as an
+   extension, outside this repository (see the status note at the top).
 8. **Module extensibility.** User-loadable algorithm modules with a small API
    (`getPixelData`, `getLabelmap`, `pushUndo`, `progress`, `cancelled`, `log`) and
    schema-driven parameter UI. This would let Workstation run SegWorks' existing modules
@@ -97,13 +99,10 @@ from `main` as each one starts, following the existing kebab-case convention.
 | **5** | `seg-3d-solvers` | 3D seeded solvers on the #4 infra: Fast GrowCut with fg/bg seeds and slice range (#101–115), binary Graph Cut (#116–123), α-expansion multi-label (#124–135), Chan-Vese multiphase with presets (#136–151) | 4 | XL |
 | **6** | `contour-refine` | Live Wire advanced cost (Scharr, Laplacian, direction, pre-smooth, close tolerance, commit smoothing) (#75–81). Spline families, point undo, commit-undo-reload, copy/propagate to adjacent slice, local ROI edit, self-intersection guard (#82–100). Snake refine (#200–201). Extend Cornerstone's tools where possible and fork only where necessary. | 4 (preview) | L |
 | **7** | `seg-3d-qc` | Segment surfaces in the 3D viewport via PolySeg, per-label visibility, resolution and smoothing, 3D component report with stray/speck thresholds, jump to slice, delete component, 3D scissor, undo (#230–257) | 1 | L |
-| **8** | `worklist` | **Own reviewed plan first; XNAT-backed.** Requirements input from SegWorks: XLSX/CSV import, XNAT id resolution, project fetch, Worklist Builder generation, Next & Open, cursor sync, Capture / Review / View-Only modes, exact series and annotation capture, skip with reason, comments, filters, report workbooks, recovery, dirty flag, XLSX export, segment preset keys (#291–342) | — (benefits from 2) | XL |
+| ~~8~~ | ~~`worklist`~~ | **Removed 2026-10-29:** out of scope for this project. To be built as an extension on the planned extension framework, outside this repository (#291–342, Worklist Builder) | — | — |
 | **9** | `algorithm-modules` | *Re-scoped 2026-10-13 — see §12:* the open-source module host for community and commercial (signed) modules. Workstation-native module API and loader, each run in a sandboxed process of its own (not the renderer, which has Electron privileges; §12 design point 3). Schema-driven param UI, logs (copy/download), cancel, installed modules. Validate by re-authoring one SegWorks add-on against the native API. (#271–283) | 1, 4 | L |
 
-**Recommended order:** 1 → 2 → 3 → 4 → 7 → 6 → 5 → 9 → 8
-
-Branch 8 is independent of the segmentation work and can run in parallel at any time. Put
-it earlier if case throughput is the bigger pain than tooling.
+**Recommended order:** 1 → 2 → 3 → 4 → 7 → 6 → 5 → 9 — all merged (branch 8 removed 2026-10-29).
 
 ### Cross-cutting rules (from past lessons in this repo)
 - Nothing runs automatically on `onSegmentationDataModified`. Every algorithm is
@@ -121,21 +120,19 @@ it earlier if case throughput is the bigger pain than tooling.
 
 ## 3. Decisions (2026-10-10)
 
-1. **Order** — confirmed: 1 → 2 → 3 → 4 → 7 → 6 → 5 → 9 → 8.
+1. **Order** — confirmed: 1 → 2 → 3 → 4 → 7 → 6 → 5 → 9 → 8 (8, the worklist, removed 2026-10-29).
 2. **SegWorks code is reference, not source.** Every feature is implemented natively in
    Workstation's architecture (service layer, Zustand stores, typed IPC, Vitest + Playwright
    discipline). SegWorks `.js` files and modules are read for algorithm behaviour and
    parameter ranges only — no compat shim, no ported page-global code. Branch 9 defines a
    Workstation-native module API; SegWorks modules may be *re-authored* against it as
    validation, not run unchanged.
-3. **Worklist is XNAT-backed** and engineered on its own merits, not modelled on the
-   SegWorks spreadsheet workflow. It gets its **own carefully reviewed implementation plan**
-   (data model, XNAT storage, concurrency, permissions, migration) before any code. The
-   SegWorks feature list is an input to requirements only.
+3. ~~**Worklist is XNAT-backed** …~~ *Withdrawn 2026-10-29 with the worklist, which left this
+   project.*
 4. **Domain-specific items deferred** to a secondary project after the main features ship:
    pancreas mode / duct joining / plausibility flags (#245–246, #254), Lung Mode auto-click
-   (#222–229), Chan-Vese clinical preset library (#137 — the generic Chan-Vese ships), and
-   pre/post-op worklist filters (#312, #314).
+   (#222–229), Chan-Vese clinical preset library (#137 — the generic Chan-Vese ships). (The pre/post-op
+   worklist filters, #312 and #314, left with the worklist.)
 5. **Port every algorithm variant.** Each variant ships behind the same UI affordance;
    variants that do not prove useful in review may be dropped later. Keep variants
    pluggable (one strategy interface per family) so dropping one is a deletion, not a refactor.
@@ -160,9 +157,9 @@ are adopted:
 | D7 | **Hide PHI** toolbar toggle beside Tags (⇧H). Scope: viewport overlay PHI fields + DICOM header PHI values (per-tag reveal) + window title; orientation markers, active ring and XNAT labels kept; exports unaffected |
 | D8 | **Checkpoints in the container kebab** (Review flythrough · Save checkpoint… · Restore checkpoint ▸); “baseline” is a reserved-name checkpoint; file export/import in Settings › File Backup |
 | D9 | **“2D + 3D QC” layout preset** + QC operation sheet; layout restored when the sheet closes |
-| D10 | Worklist space reserved: sidebar **Browse · Worklist** tab + toolbar **case bar** + full-window table view |
+| D10 | *Amended 2026-10-29:* the space first reserved for the worklist — a second **sidebar tab** beside Browse, a **toolbar slot** (the case bar), and a **full-window view** — is kept as **extension slots** for the planned extension framework |
 | D11 | Modules run from **Process › Modules** sheets; installed/managed in **Settings › Modules** |
-| D12 | *Narrowed 2026-10-12, see below.* **Sheet-scoped hotkeys** take precedence while a sheet is open; new globals: hold-Q probe, M mask visibility, ⇧Space flythrough, ⇧H PHI, X cleanup, N/⇧N next/prev case, O contour fill, ⏎/⎋ preview, hold-`\` compare |
+| D12 | *Narrowed 2026-10-12, see below.* **Sheet-scoped hotkeys** take precedence while a sheet is open; new globals: hold-Q probe, M mask visibility, ⇧Space flythrough, ⇧H PHI, X cleanup, N/⇧N (reserved for extensions since 2026-10-29; first meant for the worklist's next/previous case), O contour fill, ⏎/⎋ preview, hold-`\` compare |
 
 Shared rules from the wireframe doc (§5 “Sheet rules”) are binding for every branch.
 
@@ -227,8 +224,8 @@ R7-A), built on branch `annotation-panel-modes` — plan and log in
 - **D12 →** one panel shortcut is added: **⌘K / Ctrl+K** opens a finder over every tool, mode
   and operation, by today's name or the old tool names.
 
-**Separately reviewed plans required** before implementation: branch 8 (worklist) **and**
-branch 9 (algorithm modules). Neither starts until its own plan is reviewed with the user.
+**Separately reviewed plan required** before implementation: branch 9 (algorithm modules) — done,
+§12. (Branch 8, the worklist, also needed one; it left this project on 2026-10-29.)
 
 ---
 

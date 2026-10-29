@@ -382,7 +382,7 @@ Current rendering map (Explore): one shared `RenderingEngine`; STACK via `viewpo
 
 ### XNAT Integration Enhancements
 - Assessment forms (RECIST 1.1, RANO-BM)
-- Worklist system
+- Extension framework — UI slots (a sidebar tab, a toolbar slot, a full-window view), signed-in XNAT access and app events for trusted extensions built outside this repository; the slots were reserved by SegWorks parity D10
 
 ### Advanced Features
 - Fusion overlays (PET/CT)
