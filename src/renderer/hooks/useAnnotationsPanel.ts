@@ -43,6 +43,7 @@ import { segmentationManager } from '../lib/segmentation/segmentationManagerSing
 import { startFlythrough } from '../lib/cornerstone/flythroughService';
 import { projectContainers } from '../lib/annotations/containerProjection';
 import { containerKindOf } from '../lib/annotations/currentContainers';
+import { activateMember, addMember, createContainer, renameContainer, renameMember, setMemberColor } from './annotationActions';
 import { buildContainerCsv, type MemberStats } from '../lib/annotations/containerCsv';
 import { formatBackupStatus } from '../lib/annotations/backupStatus';
 import { buildApprovalModule, formatReviewerName } from '../lib/annotations/approval';
@@ -67,15 +68,6 @@ function hexToRgba(hex: string): [number, number, number, number] | null {
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255, 255];
 }
 
-/** The tool a kind activates by default when its container becomes active and the
- *  current tool doesn't belong to that kind — so drawing produces the active
- *  container's annotation type (SEG → brush, RTSTRUCT → freehand contour, SR → length).
- *  Each is a registered/supported tool on the unified group. */
-const DEFAULT_TOOL_BY_KIND: Record<ContainerKind, ToolName> = {
-  SEG: ToolName.Brush,
-  RTSTRUCT: ToolName.FreehandContour,
-  SR: ToolName.Length,
-};
 
 export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: string[]) {
   const segmentations = useSegmentationStore((s) => s.segmentations);
@@ -285,78 +277,38 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
   // to that kind — so moving between annotation types switches the drawing tool to
   // match (a measurement tool stays selected across SR containers, but moving to a SEG
   // container swaps to the brush, etc.).
-  const ensureToolForKind = (kind: ContainerKind) => {
-    const currentCatalogId = activeTool ? TOOLNAME_TO_CATALOG[activeTool] : undefined;
-    const validIds = new Set(toolsForKind(kind).map((t) => t.id));
-    if (currentCatalogId && validIds.has(currentCatalogId)) return; // current tool already fits
-    const next = DEFAULT_TOOL_BY_KIND[kind];
-    if (unifiedToolService.isToolSupported(next)) useViewerStore.getState().setActiveTool(next);
-  };
-
   // ── Bridge: mirror the new active member into the legacy active state so drawing targets it. ──
   // `kindHint` is required when activating a JUST-CREATED container: the projected
   // `containers` list is captured at the last render and does not yet include the new
   // container, so the fallback lookup returns undefined and the drawing tool would never
   // switch (the create's "no tool active → can't draw" bug). Existing-container callers
   // (row/name click) omit it and the lookup resolves normally.
-  const activateAndBridge = (containerId: string, memberId: string, kindHint?: ContainerKind) => {
-    useAnnotationSelectionStore.getState().activate(containerId, memberId);
-    const kind = kindHint ?? containers.find((c) => c.id === containerId)?.kind;
-    if (kind) ensureToolForKind(kind);
-    if (containerId.startsWith('sr:')) {
-      // Activating an SR container routes subsequently-drawn measurements into it (D7.1).
-      useAnnotationStore.getState().setActiveSrContainer(containerId);
-      return;
-    }
-    const segStore = useSegmentationStore.getState();
-    segStore.setActiveSegmentation(containerId);
-    const idx = Number(memberId);
-    if (Number.isInteger(idx) && idx > 0) {
-      // Route CORNERSTONE's active segmentation (the brush target), not just the
-      // store. For a multi-layer group this activates the selected segment's sub-seg
-      // layer; the store-only setActiveSegmentIndex left the brush painting whichever
-      // segmentation Cornerstone last activated (e.g. the most-recently-created one),
-      // so selecting one segment but painting into another.
-      segmentationService.setActiveSegmentIndex(containerId, idx);
-    }
-    segmentationService.activateOnViewport(useViewerStore.getState().activeViewportId, containerId);
-  };
+  const activateAndBridge = (containerId: string, memberId: string, kindHint?: ContainerKind) =>
+    activateMember(containerId, memberId, kindHint ?? containers.find((c) => c.id === containerId)?.kind);
 
   const onCreate = (kind: ContainerKind) => {
     if (!canCreate) return;
-    if (kind === 'SR') {
-      // D7.1: create an empty Measurement (SR) container, make it active (so drawn
-      // measurements route into it), and start its name in inline-edit mode. Stamp the
-      // current session so the panel scopes it to this study (A13).
-      const srId = useAnnotationStore
-        .getState()
-        .createSrContainer('Measurement', useViewerStore.getState().sessionId ?? undefined);
-      useAnnotationSelectionStore.getState().activate(srId, srId);
-      ensureToolForKind('SR'); // ready a measurement tool so drawing targets the new set
-      // Name the container by capture, with focus parked on the viewport.
-      hotkeyService.focusActiveViewport();
-      setNaming({ stage: 'container', containerId: srId, memberKey: null, draft: '', touched: false });
-      return;
-    }
     void (async () => {
       try {
-        let segId: string;
-        if (kind === 'RTSTRUCT') {
-          segId = await segmentationManager.createNewStructure(activeViewportId, sourceImageIds);
-          await segmentationManager.addSegment(segId, 'ROI 1'); // D7.6 — create starts with a member
-        } else {
-          // SEG with a default Segment 1 (createDefaultSegment) so the container is drawable immediately.
-          segId = await segmentationManager.createNewSegmentation(activeViewportId, sourceImageIds, undefined, true);
+        // The create itself is shared with extensions (annotationActions): a SEG with
+        // Segment 1, a Structure with ROI 1, or an empty Measurement set (D7.1, D7.6).
+        const id = await createContainer(kind, activeViewportId, sourceImageIds);
+        if (kind === 'SR') {
+          // Active, so drawn measurements route into it; then name it by capture.
+          activateAndBridge(id, id, 'SR');
+          hotkeyService.focusActiveViewport();
+          setNaming({ stage: 'container', containerId: id, memberKey: null, draft: '', touched: false });
+          return;
         }
-        activateAndBridge(segId, '1', kind); // pass the kind — the new container isn't in `containers` yet
+        activateAndBridge(id, '1', kind); // pass the kind — the new container isn't in `containers` yet
         // Park the keyboard on the viewport, then capture keystrokes into the container
         // label and (on Enter) the member label. The rows keep their default names
         // unless the user actually types, so doing nothing is a valid outcome.
         hotkeyService.focusActiveViewport();
         setNaming({
           stage: 'container',
-          containerId: segId,
-          memberKey: `${segId} 1`,
+          containerId: id,
+          memberKey: `${id} 1`,
           draft: '',
           touched: false,
         });
@@ -511,16 +463,12 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
     // Approve / revoke both go through an explicit confirmation (D7.11).
     onApproveToggle: (id) => setApprovalDialogId(id),
     onAddMember: (id) => {
-      if (blockedByApproval(id, 'add member')) return;
-      const container = containers.find((c) => c.id === id);
-      // Measurement (SR) containers have no "+" affordance (the button isn't rendered):
-      // a measurement is authored by drawing with a measurement tool, not by adding an
-      // empty member. Defensive no-op in case the handler is invoked for an SR id.
-      if (container?.kind === 'SR') return;
+      // Refused for an approved container, and for a Measurement set (measurements are
+      // drawn, not added) — annotationActions.addMember, shared with extensions.
       void (async () => {
         try {
-          const defaultLabel = `${container?.kind === 'RTSTRUCT' ? 'ROI' : 'Segment'} ${(container?.members.length ?? 0) + 1}`;
-          const idx = await segmentationManager.addSegment(id, defaultLabel);
+          const idx = await addMember(id);
+          if (idx == null) return;
           activateAndBridge(id, String(idx));
           setAutoEditMemberKey(`${id} ${idx}`); // create-in-edit-mode (D7.6)
         } catch (err) {
@@ -622,12 +570,7 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
       setDeleteServerError(null);
       setDeleteServerId(id);
     },
-    onRenameContainer: (id, name) =>
-      blockedByApproval(id, 'rename container')
-        ? undefined
-        : id.startsWith('sr:')
-        ? useAnnotationStore.getState().renameSrContainer(id, name)
-        : segmentationManager.renameSegmentation(id, name),
+    onRenameContainer: (id, name) => { renameContainer(id, name); },
     onContainerEditCommit: (id) => {
       // Two-step create: once the freshly-created container's name is accepted, advance
       // to editing its default member's name (D7.6) — focus moves label → label.
@@ -697,26 +640,12 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
       const idx = Number(mid);
       if (Number.isInteger(idx) && idx > 0) segmentationService.removeSegment(cid, idx);
     },
-    onRenameMember: (cid, mid, name) => {
-      if (blockedByApproval(cid, 'rename member')) return;
-      if (cid.startsWith('sr:')) { annotationService.setAnnotationLabel(mid, name); return; }
-      const idx = Number(mid);
-      if (Number.isInteger(idx) && idx > 0) segmentationManager.renameSegment(cid, idx, name);
-    },
+    onRenameMember: (cid, mid, name) => { renameMember(cid, mid, name); },
     // The member label edit was accepted — the last step of the create naming sequence
     // (container label → member label). Hand the keyboard back to the viewport so the
     // next keystroke is a shortcut on the image, not a character in the label.
     onMemberEditCommit: () => hotkeyService.focusActiveViewport(),
-    onColorChange: (cid, mid, color) => {
-      if (blockedByApproval(cid, 'change member color')) return;
-      // SR measurement members are keyed by annotationUID — set the Cornerstone
-      // annotation's display color directly (the numeric-index SEG path NaNs on a UID).
-      if (cid.startsWith('sr:')) { annotationService.setAnnotationColor(mid, color); return; }
-      const idx = Number(mid);
-      // userChangedSegmentColor updates Cornerstone AND persists to the presentation
-      // cache (so the projection's member.color reflects it + it survives reload).
-      if (Number.isInteger(idx) && idx > 0) segmentationManager.userChangedSegmentColor(cid, idx, color);
-    },
+    onColorChange: (cid, mid, color) => { setMemberColor(cid, mid, color); },
   };
 
   // Settings color sequence as an RGBA palette for the member color picker.

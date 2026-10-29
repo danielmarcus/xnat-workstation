@@ -300,7 +300,26 @@ licensing.
     hands the spec its own `ext`); `e2e/specs/auth/extension-xnat.e2e.ts` (signed in,
     read-only on the server) is **written but not yet run**: the test account in `.env.e2e`
     is refused by the server (401) — every live spec fails at sign-in the same way.
-- [ ] X4 · [ ] X5 · [ ] X6 · [ ] X7
+- [x] **X4** — the annotations API (2026-10-29). As built (API **0.4**):
+  - `ext.annotations`: `select(containerId, memberId?)`, `create({ kind, label, members: [{
+    label, color }] })` (on the active viewport; it becomes active), `save(id)` →
+    `saved | conflict | failed` with the version token, `openScan(session, scanId)` (annotation
+    scans only) → `opened | cancelled | failed`; `list()` entries now carry `approved` and
+    `versionToken`.
+  - **One implementation with the panel:** the panel's create, activate, add / rename member,
+    colour and the approval lock moved out of `useAnnotationsPanel` into
+    `src/renderer/hooks/annotationActions.ts`; the panel and `ext.annotations` both call it
+    (the extension host gets it through the component layer, as services may not import hooks).
+  - `save` is the panel's per-container save (the injected transport, its conflict detection);
+    an approved container is refused, as the panel's disabled save button refuses it.
+    Selecting stays allowed when approved, as a row click is.
+  - `openScan` runs App's scan-click path (`loadFromXnatScan`, which now reports "not signed
+    in" and "cancelled"); success is judged by the container appearing.
+  - E2E: `e2e/specs/extensions/extension-annotations.e2e.ts` — template create shown in the
+    panel, select, save and conflict against the in-memory mock XNAT, the approval refusal.
+    Opening a real annotation scan is in the signed-in suite (read-only), **not yet run**
+    (credentials, as for X3). Live tests stay read-only: CNDA is production.
+- [ ] X5 · [ ] X6 · [ ] X7
 
 ## Questions for review
 

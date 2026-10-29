@@ -12,6 +12,8 @@ export interface RevealTarget { projectId: string; subjectId?: string; sessionId
 
 interface NavigationHandler {
   openSession(session: XnatSessionRef, options: { scanId?: string }): Promise<OpenOutcome>;
+  /** Open one scan of a session, as clicking it in the browser does. */
+  openScan(session: XnatSessionRef, scanId: string, options: { derivedOnly?: boolean }): Promise<OpenOutcome>;
   revealInBrowser(target: RevealTarget): void;
 }
 
@@ -27,6 +29,15 @@ export async function openSession(session: XnatSessionRef, options: { scanId?: s
   if (!handler) return { outcome: 'failed', reason: 'The viewer is not ready' };
   try {
     return await handler.openSession(session, options);
+  } catch (err) {
+    return { outcome: 'failed', reason: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export async function openScan(session: XnatSessionRef, scanId: string, options: { derivedOnly?: boolean } = {}): Promise<OpenOutcome> {
+  if (!handler) return { outcome: 'failed', reason: 'The viewer is not ready' };
+  try {
+    return await handler.openScan(session, scanId, options);
   } catch (err) {
     return { outcome: 'failed', reason: err instanceof Error ? err.message : String(err) };
   }

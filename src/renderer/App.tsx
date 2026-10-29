@@ -64,6 +64,7 @@ import { useAppCloseGuard } from './hooks/useAppCloseGuard';
 import { startExtensions, stopExtensions } from './lib/extensions/rendererHost';
 import { installExtensionHost } from './components/extensions/installExtensionHost';
 import { setNavigationHandler, type OpenOutcome } from './lib/app/appNavigation';
+import { currentContainers } from './lib/annotations/currentContainers';
 
 /** DICOM SEG SOP Class UID */
 const SEG_SOP_CLASS_UID = '1.2.840.10008.5.1.4.1.1.66.4';
@@ -1495,8 +1496,10 @@ export default function App() {
     scan: XnatScan,
     context: { projectId: string; subjectId: string; sessionLabel: string; projectName?: string; subjectLabel?: string },
     options?: { openInMpr?: boolean },
-  ) => {
-    if (!isConnected) return;
+  ): Promise<OpenOutcome | void> => {
+    // Only the outcomes the caller cannot see are returned (not signed in, cancelled at the
+    // unsaved-changes prompt); ext.annotations.openScan checks the rest by what loaded.
+    if (!isConnected) return { outcome: 'failed', reason: 'Not signed in to XNAT' };
 
     const currentSessionId = useViewerStore.getState().xnatContext?.sessionId ?? null;
 
@@ -1528,7 +1531,7 @@ export default function App() {
       { viewportId: guardViewportId, toSessionId: sessionId, fromSessionId: currentSessionId },
       leavingLabel,
     );
-    if (guard === 'cancel') return;
+    if (guard === 'cancel') return { outcome: 'cancelled' };
 
     if (currentSessionId && currentSessionId !== sessionId) {
       clearSegLoadingLocks();
@@ -2688,6 +2691,22 @@ export default function App() {
         onOutcome: resolve,
       });
     }),
+    openScan: async (ref, scanId, { derivedOnly }) => {
+      if (!isConnected) return { outcome: 'failed', reason: 'Not signed in to XNAT' };
+      const scans = await window.electronAPI.xnat.getScans(ref.sessionId);
+      const scan = scans.find((x) => x.id === scanId);
+      if (!scan) return { outcome: 'failed', reason: `Session ${ref.sessionId} has no scan ${scanId}` };
+      if (derivedOnly && !isDerivedScan(scan)) return { outcome: 'failed', reason: `Scan ${scanId} is not an annotation (SEG, RTSTRUCT or SR)` };
+      const told = await loadFromXnatScan(ref.sessionId, scanId, scan, {
+        projectId: ref.projectId,
+        subjectId: ref.subjectId,
+        sessionLabel: ref.sessionLabel ?? ref.sessionId,
+        subjectLabel: ref.subjectLabel,
+      });
+      if (told) return told;
+      const loaded = currentContainers().some((c) => c.source.sessionId === ref.sessionId && c.source.scanId === scanId);
+      return loaded ? { outcome: 'opened' } : { outcome: 'failed', reason: 'The scan did not load (the browser\'s status says why)' };
+    },
     revealInBrowser: (t) => {
       if (!isConnected) return;
       setShowBrowser(true);
@@ -2702,7 +2721,7 @@ export default function App() {
         skipAutoLoad: true,
       });
     },
-  }), [isConnected]);
+  }), [isConnected, loadFromXnatScan]);
 
   /**
    * E2E seam: expose the REAL scan-load entry so offline specs can drive the exact

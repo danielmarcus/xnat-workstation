@@ -8,6 +8,7 @@ export type { ExtensionManifest } from '../../../src/shared/extensions/manifest'
 export { EXTENSION_HOST_GLOBAL } from '../../../src/shared/extensions/api';
 export type {
   AnnotationInfo,
+  AnnotationTemplate,
   ExtensionAnnotations,
   ExtensionEventName,
   ExtensionEvents,

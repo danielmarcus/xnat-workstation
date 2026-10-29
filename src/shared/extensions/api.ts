@@ -138,14 +138,38 @@ export interface AnnotationInfo {
   dirty: boolean;
   /** Its scan on XNAT, once saved there. */
   xnatScanId?: string;
+  /** Approved containers are edit-locked until the approval is revoked (in the panel). */
+  approved: boolean;
+  /** The version of its last save or load, for save-conflict detection. */
+  versionToken?: string;
   members: Array<{ id: string; label: string }>;
 }
 
-/** Read-only annotation state (X3); acting on annotations arrives in X4. */
+/** What `create()` makes: the kind, its label, and its members' names and colours. */
+export interface AnnotationTemplate {
+  kind: 'SEG' | 'RTSTRUCT' | 'SR';
+  label?: string;
+  /** SEG / RTSTRUCT only: a Measurement set's members are drawn, not created. */
+  members?: Array<{ label: string; color?: [number, number, number] }>;
+}
+
+/**
+ * Annotations, through the Annotations panel's own actions (R7, X4): every rule the panel
+ * applies — approval locks, how a create starts, the save and its conflict detection — applies
+ * here too.
+ */
 export interface ExtensionAnnotations {
   list(): AnnotationInfo[];
   /** The active container and member — the draw target — or null. */
   active(): { annotation: AnnotationInfo; memberId: string } | null;
+  /** Make a member active, as clicking its row does (default: the container's first). */
+  select(containerId: string, memberId?: string): void;
+  /** Create a container on the active viewport from a template; it becomes active. */
+  create(template: AnnotationTemplate): Promise<AnnotationInfo>;
+  /** Save now, through the normal transport. An approved container is refused, as in the panel. */
+  save(containerId: string): Promise<{ outcome: 'saved' | 'conflict' | 'failed'; reason?: string; versionToken?: string }>;
+  /** Open an annotation scan (SEG / RTSTRUCT / SR) of a session, as clicking it in the browser does. */
+  openScan(session: XnatSessionRef, scanId: string): Promise<{ outcome: 'opened' | 'cancelled' | 'failed'; reason?: string }>;
 }
 
 export type ExtensionEventName =

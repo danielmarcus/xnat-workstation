@@ -79,6 +79,22 @@ test('openSession() opens it the browser\'s way and reports opened; sessionChang
   expect(await probe(page, (p) => p.events)).toContain('sessionChanged');
 });
 
+test('annotations.openScan() opens an annotation scan of the session, as clicking it does (X4)', async ({ authenticatedPage: page }) => {
+  const id = await testSessionId(page);
+  const scans = await probe(page, (p, e) => p.ext.xnat.getJson(`/data/experiments/${e}/scans`), id) as Rows;
+  const annotation = scans.ResultSet.Result.find((r) => /^(SEG|RTSTRUCT|SR)$/i.test(r.type ?? '') || /seg|rtstruct|sr/i.test(r.xsiType ?? ''));
+  test.skip(!annotation, 'the test session has no SEG / RTSTRUCT / SR scan');
+  const ref = { projectId: config.testProject, subjectId: config.testSubject, sessionId: id };
+  try {
+    expect(await probe(page, (p, r) => p.ext.viewer.openSession(r), ref)).toEqual({ outcome: 'opened' });
+    expect(await probe(page, (p, a) => p.ext.annotations.openScan(a.ref, a.scan), { ref, scan: annotation!.ID })).toEqual({ outcome: 'opened' });
+    const listed = await probe(page, (p, scan) => p.ext.annotations.list().find((a: { xnatScanId?: string }) => a.xnatScanId === scan), annotation!.ID) as { versionToken?: string } | undefined;
+    expect(listed).toBeTruthy();
+  } finally {
+    await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.clearAllContainers());
+  }
+});
+
 test('openSession() reports cancelled when the user cancels at the unsaved-changes prompt', async ({ authenticatedPage: page }) => {
   const id = await testSessionId(page);
   const all = await probe(page, (p, pr) => p.ext.xnat.getJson(`/data/projects/${pr}/experiments`), config.testProject) as Rows;
