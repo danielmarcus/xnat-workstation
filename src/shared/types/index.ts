@@ -248,6 +248,12 @@ export interface ElectronAPI {
     setEnabled(id: string, enabled: boolean): Promise<import('../extensions/types').ExtensionSummary[]>;
     /** The renderer could not start an extension's renderer part. */
     rendererFailed(id: string, reason: string): Promise<import('../extensions/types').ExtensionSummary[]>;
+    /** A renderer part's ext.xnat call, made in main. */
+    xnat(id: string, op: string, args: unknown[]): Promise<{ ok: true; value: unknown } | { ok: false; error: string }>;
+    /** A renderer part's ext.channel.request(), answered by its main part. */
+    channelRequest(id: string, message: unknown): Promise<{ ok: true; value: unknown } | { ok: false; error: string }>;
+    /** Main parts' ext.channel.post(); returns the unsubscribe. */
+    onChannelMessage(callback: (id: string, message: unknown) => void): () => void;
   };
   diagnostics?: {
     getMainSnapshot(): Promise<MainDiagnosticsSnapshotResult>;

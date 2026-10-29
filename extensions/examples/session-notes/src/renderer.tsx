@@ -9,9 +9,11 @@
  * - commands for the ⌘K finder and Settings › Hotkeys: next / previous note (N, ⇧N) and open
  *   All notes.
  *
+ * The tab names the XNAT session on screen and follows it (ext.viewer, ext.events — X3).
+ *
  * It is built like any extension: TSX bundled with `react` aliased to the SDK's, so it renders
  * with the app's React (scripts/build-extensions.mjs). Notes are kept in memory for now; storing
- * them in an XNAT resource arrives with the XNAT and storage APIs (X3, X5).
+ * them in an XNAT resource arrives with storage (X5).
  */
 import { useState, useSyncExternalStore } from 'react';
 import type { RendererExtensionContext, ToolbarItemHandle } from '@nrgxnat/workstation-extension-api';
@@ -25,9 +27,10 @@ let selected: number | null = null;
 let showCount = true;
 let nextId = 1;
 const listeners = new Set<() => void>();
-let snapshot: { notes: Note[]; selected: number | null; showCount: boolean } = { notes, selected, showCount };
+let session: string | null = null;
+let snapshot: { notes: Note[]; selected: number | null; showCount: boolean; session: string | null } = { notes, selected, showCount, session };
 function changed() {
-  snapshot = { notes, selected, showCount };
+  snapshot = { notes, selected, showCount, session };
   for (const l of listeners) l();
 }
 const subscribe = (l: () => void) => { listeners.add(l); return () => listeners.delete(l); };
@@ -80,6 +83,7 @@ export function activate(ext: RendererExtensionContext) {
     const [adding, setAdding] = useState(false);
     return (
       <div className="text-xs">
+        <div className="px-2.5 pt-2 text-[11px] text-zinc-300" data-testid="notes-session">{s.session ? `Session ${s.session}` : 'No XNAT session open'}</div>
         <div className="px-2.5 py-2 text-[11px] text-zinc-400">{s.notes.length === 0 ? 'No notes yet.' : `${s.notes.length} note${s.notes.length === 1 ? '' : 's'}`}</div>
         <ul>
           {s.notes.map((n) => (
@@ -141,6 +145,11 @@ export function activate(ext: RendererExtensionContext) {
   ext.commands.register({ id: 'next', title: 'Next note', run: () => step(1), keys: [{ key: 'n' }] });
   ext.commands.register({ id: 'previous', title: 'Previous note', run: () => step(-1), keys: [{ key: 'n', modifiers: { shift: true } }] });
   ext.commands.register({ id: 'all', title: 'Open All notes', run: () => ext.ui.openView('all') });
+
+  // The tab follows the session on screen.
+  const followSession = () => { session = ext.viewer.session()?.sessionLabel ?? null; changed(); };
+  ext.events.on('sessionChanged', followSession);
+  followSession();
 
   // The toolbar item follows the notes and the setting.
   const sync = () => item.update({ label: `${notes.length} note${notes.length === 1 ? '' : 's'}`, visible: showCount });

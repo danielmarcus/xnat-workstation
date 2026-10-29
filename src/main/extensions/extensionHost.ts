@@ -14,7 +14,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { EXTENSION_API_VERSION, apiCompatible, incompatibleReason, validateExtensionManifest, type ExtensionManifest } from '../../shared/extensions/manifest';
 import type { ExtensionState, ExtensionSummary } from '../../shared/extensions/types';
-import type { MainExtensionContext, MainPart } from '../../shared/extensions/api';
+import type { ExtensionXnat, MainExtensionContext, MainPart } from '../../shared/extensions/api';
 
 export const EXTENSION_SCHEME = 'xnat-extension';
 
@@ -29,6 +29,8 @@ interface Entry {
   state: ExtensionState;
   reason?: string;
   main?: MainPartExports;
+  /** The main part's channel handler (ext.channel.handle). */
+  handler?: (message: unknown) => unknown;
 }
 
 interface Options {
@@ -40,7 +42,16 @@ interface Options {
   load?: (file: string) => unknown;
   /** How long activate() / deactivate() may take. */
   timeoutMs?: number;
+  /** XNAT as the signed-in user (ext.xnat). */
+  xnat?: ExtensionXnat;
+  /** Delivers a main part's ext.channel.post() to its renderer part. */
+  post?: (extId: string, message: unknown) => void;
 }
+
+/** Without XNAT (tests, or before sign-in is wired): no user, and every call refused. */
+const NO_XNAT: ExtensionXnat = new Proxy({} as ExtensionXnat, {
+  get: (_t, key) => (key === 'user' ? async () => null : () => Promise.reject(new Error('Not signed in to XNAT'))),
+});
 
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
@@ -108,6 +119,19 @@ export class ExtensionHost {
     await this.deactivate(e);
     e.state = 'inactive';
     e.reason = `Failed to start: ${reason}`;
+  }
+
+  /** Whether the extension is loaded and started (its renderer part may use the host). */
+  isRunning(id: string): boolean {
+    return this.loaded(id)?.state === 'active';
+  }
+
+  /** The renderer part asks its main part (ext.channel.request). */
+  async channelRequest(id: string, message: unknown): Promise<unknown> {
+    const e = this.loaded(id);
+    if (!e || e.state !== 'active') throw new Error(`${id} is not running`);
+    if (!e.handler) throw new Error(`${id} has no main part answering requests (ext.channel.handle)`);
+    return e.handler(message);
   }
 
   /** Whether any main part is running (and so has to be stopped at quit). */
@@ -195,11 +219,22 @@ export class ExtensionHost {
         version: m.version,
         apiVersion: EXTENSION_API_VERSION,
         log: (...args) => console.log(`[ext:${m.id}]`, ...args),
+        xnat: this.opts.xnat ?? NO_XNAT,
+        channel: {
+          handle: (handler) => {
+            e.handler = handler;
+            return () => { if (e.handler === handler) e.handler = undefined; };
+          },
+          post: (message) => {
+            if (e.state === 'active') this.opts.post?.(m.id, message);
+          },
+        },
       };
       await withTimeout(Promise.resolve().then(() => part.activate!(ctx)), this.timeoutMs, 'did not finish starting');
       e.main = part;
     } catch (err) {
       e.state = 'inactive';
+      e.handler = undefined;
       e.reason = `Failed to start: ${errText(err)}`;
       console.warn(`[extensionHost] ${m.id} did not start: ${errText(err)}`);
     }
@@ -208,6 +243,7 @@ export class ExtensionHost {
   private async deactivate(e: Entry): Promise<void> {
     const part = e.main;
     e.main = undefined;
+    e.handler = undefined;
     if (typeof part?.deactivate !== 'function') return;
     try {
       await withTimeout(Promise.resolve().then(() => part.deactivate!()), this.timeoutMs, 'did not finish stopping');

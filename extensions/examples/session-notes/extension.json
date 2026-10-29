@@ -2,7 +2,7 @@
   "id": "org.xnat.examples.session-notes",
   "name": "Session notes",
   "version": "0.1.0",
-  "apiVersion": "0.2",
+  "apiVersion": "0.3",
   "publisher": "XNAT Workstation examples",
   "description": "Notes on the open session, kept in an XNAT resource. The worked example of docs/extension-framework.md; the open-source edition does not ship it.",
   "renderer": "renderer.js",

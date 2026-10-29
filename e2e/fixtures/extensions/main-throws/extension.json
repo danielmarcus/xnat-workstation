@@ -1,1 +1,1 @@
-{"id":"org.xnat.e2e.main-throws","name":"Main throws","version":"1.0.0","apiVersion":"0.2","publisher":"E2E fixtures","renderer":"renderer.js","main":"main.js"}
+{"id":"org.xnat.e2e.main-throws","name":"Main throws","version":"1.0.0","apiVersion":"0.3","publisher":"E2E fixtures","renderer":"renderer.js","main":"main.js"}

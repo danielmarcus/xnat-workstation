@@ -278,7 +278,29 @@ licensing.
     can run with none showing. Its sidebar tab has the button instead.
   - E2E: `e2e/specs/extensions/extension-slots.e2e.ts` (E1–E7 and disabling removes every
     slot, command and key); `npm run test:edition` checks the example's UI in a packaged app.
-- [ ] X3 · [ ] X4 · [ ] X5 · [ ] X6 · [ ] X7
+- [x] **X3** — XNAT, navigation, state (2026-10-29). As built (API **0.3**):
+  - `ext.xnat` in both parts: `user()`, `request(path, { method, query, body, contentType })`
+    (HTTP errors are responses), `getJson()`, `permissions(projectId)` (read: the project is
+    visible; write: XNAT lists it under `permissions=edit`), `resourceFiles()`. Made in main
+    through the app's own XnatClient (`rawRequest`: same cookies and CSRF, errors returned) —
+    `src/main/extensions/extensionXnat.ts`; paths must be server-relative under `/data/` or
+    `/xapi/`. The renderer part's calls go over IPC, allowed only for a running extension.
+  - The channel between the parts (design point 2): main `ext.channel.handle` / `post`,
+    renderer `ext.channel.request` / `onMessage`; errors arrive with main's own message.
+  - `ext.viewer`: `session()`, `activeViewport()`, `openSession(ref, { scanId })` →
+    `opened | cancelled | failed` — through the browser's own path (`lib/app/appNavigation.ts`
+    → App's handler → `navigateTo` → XnatBrowser → `loadSessionFromXnat`, which now returns
+    how it ended) — and `revealInBrowser()`.
+  - `ext.annotations` (read-only): `list()`, `active()` — the panel's own projection
+    (`lib/annotations/currentContainers.ts`, now shared with `useAnnotationsPanel`).
+  - `ext.events.on(...)`: `signedIn`, `signedOut`, `sessionChanged`, `activeViewportChanged`,
+    `activeAnnotationChanged`, `annotationsChanged`; listeners go when the extension stops.
+  - Main parts get no events of their own yet: the renderer part can tell them over the channel.
+  - E2E: `e2e/specs/extensions/extension-state.e2e.ts` (offline, through a probe extension that
+    hands the spec its own `ext`); `e2e/specs/auth/extension-xnat.e2e.ts` (signed in,
+    read-only on the server) is **written but not yet run**: the test account in `.env.e2e`
+    is refused by the server (401) — every live spec fails at sign-in the same way.
+- [ ] X4 · [ ] X5 · [ ] X6 · [ ] X7
 
 ## Questions for review
 

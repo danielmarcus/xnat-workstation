@@ -231,6 +231,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     list: () => ipcRenderer.invoke(IPC.EXTENSIONS_LIST),
     setEnabled: (id: string, enabled: boolean) => ipcRenderer.invoke(IPC.EXTENSIONS_SET_ENABLED, id, enabled),
     rendererFailed: (id: string, reason: string) => ipcRenderer.invoke(IPC.EXTENSIONS_RENDERER_FAILED, id, reason),
+    xnat: (id: string, op: string, args: unknown[]) => ipcRenderer.invoke(IPC.EXTENSIONS_XNAT, id, op, args),
+    channelRequest: (id: string, message: unknown) => ipcRenderer.invoke(IPC.EXTENSIONS_CHANNEL_REQUEST, id, message),
+    onChannelMessage: (callback: (id: string, message: unknown) => void) => {
+      const wrapped = (_e: unknown, id: string, message: unknown) => callback(id, message);
+      ipcRenderer.on(IPC.EXTENSIONS_CHANNEL_MESSAGE, wrapped);
+      return () => { ipcRenderer.removeListener(IPC.EXTENSIONS_CHANNEL_MESSAGE, wrapped); };
+    },
   },
 
   diagnostics: {

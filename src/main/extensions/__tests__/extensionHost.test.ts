@@ -169,3 +169,34 @@ describe('ExtensionHost — files the renderer may fetch', () => {
     expect(h.fileFor('xnat-extension://org.example.notes/renderer.js')).toBeNull();
   });
 });
+
+describe('ExtensionHost — the main part\'s context (X3)', () => {
+  const channelMain = `let ext;
+module.exports = {
+  activate(c) { ext = c; c.channel.handle(async (m) => { if (m === 'boom') throw new Error('handler boom'); if (m === 'push') { c.channel.post({ pushed: true }); return 'pushed'; } return { echo: m, user: await c.xnat.user() }; }); },
+};`;
+  it('gets ext.xnat; answers the renderer part through the channel and can post to it', async () => {
+    ext('notes', manifest('org.example.notes', { main: 'main.js' }), { 'renderer.js': '', 'main.js': channelMain });
+    const posted: Array<[string, unknown]> = [];
+    const xnat = { user: async () => ({ serverUrl: 'https://xnat.example.org', username: 'dmarcus' }) } as never;
+    const h = new ExtensionHost({ dir, settingsFile, load, xnat, post: (id, m) => posted.push([id, m]) });
+    await h.start();
+    expect(await h.channelRequest('org.example.notes', 'hi')).toEqual({ echo: 'hi', user: { serverUrl: 'https://xnat.example.org', username: 'dmarcus' } });
+    expect(await h.channelRequest('org.example.notes', 'push')).toBe('pushed');
+    expect(posted).toEqual([['org.example.notes', { pushed: true }]]);
+    await expect(h.channelRequest('org.example.notes', 'boom')).rejects.toThrow('handler boom');
+  });
+
+  it('a request to an extension that is not running, or has no handler, is refused', async () => {
+    ext('notes', manifest('org.example.notes', { main: 'main.js' }), { 'renderer.js': '', 'main.js': channelMain });
+    ext('plain', manifest('org.example.plain'), { 'renderer.js': '' });
+    const h = new ExtensionHost({ dir, settingsFile, load });
+    await h.start();
+    await expect(h.channelRequest('org.example.plain', 'hi')).rejects.toThrow(/no main part/);
+    await expect(h.channelRequest('org.example.none', 'hi')).rejects.toThrow(/not running/);
+    await h.setEnabled('org.example.notes', false);
+    await expect(h.channelRequest('org.example.notes', 'hi')).rejects.toThrow(/not running/);
+    expect(h.isRunning('org.example.notes')).toBe(false);
+    expect(h.isRunning('org.example.plain')).toBe(true);
+  });
+});

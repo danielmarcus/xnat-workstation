@@ -295,6 +295,22 @@ export class XnatClient {
     return response;
   }
 
+  /**
+   * A request for an extension (docs/extension-framework.md, X3): the same session, cookies
+   * and CSRF handling as every app request, but an HTTP error is returned for the caller to
+   * read rather than thrown. Not being signed in — or XNAT answering with its login page,
+   * which is how it reports an expired session — is still an XnatAuthError.
+   */
+  async rawRequest(endpoint: string, options: RequestInit = {}): Promise<Response> {
+    if (!this.jsessionId || this._disconnected) throw new XnatAuthError('Not authenticated');
+    const response = await this.xfetch(`${this.baseUrl}${endpoint}`, options);
+    if (response.status === 401) throw new XnatAuthError('401 Unauthorized');
+    if (response.ok && (response.headers.get('content-type') ?? '').includes('text/html')) {
+      throw new XnatAuthError('Session expired (received HTML login page)');
+    }
+    return response;
+  }
+
   // ─── XNAT REST API Browse ────────────────────────────────────
 
   /**

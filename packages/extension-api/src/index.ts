@@ -7,6 +7,20 @@ export { EXTENSION_API_VERSION, apiCompatible, validateExtensionManifest } from 
 export type { ExtensionManifest } from '../../../src/shared/extensions/manifest';
 export { EXTENSION_HOST_GLOBAL } from '../../../src/shared/extensions/api';
 export type {
+  AnnotationInfo,
+  ExtensionAnnotations,
+  ExtensionEventName,
+  ExtensionEvents,
+  ExtensionViewer,
+  ExtensionXnat,
+  MainChannel,
+  OpenSession,
+  RendererChannel,
+  XnatRequestInit,
+  XnatResourceFile,
+  XnatResponse,
+  XnatSessionRef,
+  XnatUser,
   CommandSpec,
   Dispose,
   ExtensionCommands,

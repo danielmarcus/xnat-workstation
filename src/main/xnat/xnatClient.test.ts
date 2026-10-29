@@ -139,6 +139,25 @@ describe('XnatClient', () => {
     await expect(client2.authenticatedFetch('/data/projects')).rejects.toThrow('XNAT API error: 500 server issue');
   });
 
+  it('rawRequest (extensions): HTTP errors are returned, not thrown; CSRF as for any request; auth still enforced', async () => {
+    const client = new XnatClient('https://xnat.example');
+    await expect(client.rawRequest('/data/projects')).rejects.toBeInstanceOf(XnatAuthError);
+    await client.setAuthFromBrowserLogin({ jsessionId: 'J1', username: 'dan', serverCookies: [], csrfToken: 'csrf-token' });
+
+    mocks.fetch.mockResolvedValueOnce(new Response('denied', { status: 403 }));
+    const r = await client.rawRequest('/data/projects/P1');
+    expect(r.status).toBe(403);
+    expect(await r.text()).toBe('denied');
+
+    mocks.fetch.mockResolvedValueOnce(new Response('{}', { status: 200 }));
+    await client.rawRequest('/data/experiments/E1/resources/NOTES/files/a.json', { method: 'PUT', body: '{}' });
+    expect(mocks.fetch).toHaveBeenLastCalledWith('https://xnat.example/data/experiments/E1/resources/NOTES/files/a.json?XNAT_CSRF=csrf-token', expect.objectContaining({ method: 'PUT' }));
+
+    // XNAT answers an expired session with its login page (200, HTML): that is an auth failure.
+    mocks.fetch.mockResolvedValueOnce(new Response('<html>login</html>', { status: 200, headers: { 'content-type': 'text/html' } }));
+    await expect(client.rawRequest('/data/projects')).rejects.toBeInstanceOf(XnatAuthError);
+  });
+
   it('appends CSRF token for mutating requests and uses fallback user-agent when absent', async () => {
     const client = new XnatClient('https://xnat.example');
     await client.setAuthFromBrowserLogin({

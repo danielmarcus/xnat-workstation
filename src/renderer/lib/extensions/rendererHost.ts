@@ -11,9 +11,10 @@
  */
 import { EXTENSION_API_VERSION } from '@shared/extensions/manifest';
 import type { ExtensionSummary } from '@shared/extensions/types';
-import type { RendererExtensionContext, RendererPart } from '@shared/extensions/api';
+import type { ExtensionXnat, RendererChannel, RendererExtensionContext, RendererPart } from '@shared/extensions/api';
 import { useExtensionStore } from '../../stores/extensionStore';
-import { createExtensionUiApi, disposeExtensionUi } from './uiRegistry';
+import { createExtensionUiApi, disposeExtensionUi, trackForExtension } from './uiRegistry';
+import { createStateApi } from './stateApi';
 
 type RendererPartExports = Partial<RendererPart>;
 
@@ -29,6 +30,40 @@ let api: ExtensionsApi | undefined;
 let importModule: Importer = (url) => import(/* @vite-ignore */ url);
 
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+/** Main's answer over IPC, as the value or an Error with main's own message. */
+async function unwrap(p: Promise<{ ok: true; value: unknown } | { ok: false; error: string }>): Promise<unknown> {
+  const r = await p;
+  if (!r.ok) throw new Error(r.error);
+  return r.value;
+}
+
+/** ext.xnat for a renderer part: every call is made in main (extensionXnat), as this extension. */
+function xnatFor(id: string): ExtensionXnat {
+  const call = (op: string) => (...args: unknown[]) => unwrap(api!.xnat(id, op, args));
+  return {
+    user: call('user'),
+    request: call('request'),
+    getJson: call('getJson'),
+    permissions: call('permissions'),
+    resourceFiles: call('resourceFiles'),
+  } as ExtensionXnat;
+}
+
+/** Main parts' posts, by extension: one IPC subscription, fanned out. */
+const channelListeners = new Map<string, Set<(message: unknown) => void>>();
+let channelUnsubscribe: (() => void) | null = null;
+
+function channelFor(id: string): RendererChannel {
+  return {
+    request: (message) => unwrap(api!.channelRequest(id, message)),
+    onMessage(listener) {
+      if (!channelListeners.has(id)) channelListeners.set(id, new Set());
+      channelListeners.get(id)!.add(listener);
+      return trackForExtension(id, () => { channelListeners.get(id)?.delete(listener); });
+    },
+  };
+}
 const publish = (list: ExtensionSummary[]) => useExtensionStore.getState().setExtensions(list);
 
 async function startRendererPart(s: ExtensionSummary): Promise<ExtensionSummary[] | null> {
@@ -45,6 +80,9 @@ async function startRendererPart(s: ExtensionSummary): Promise<ExtensionSummary[
       apiVersion: EXTENSION_API_VERSION,
       log: (...args) => console.log(`[ext:${id}]`, ...args),
       ...createExtensionUiApi(id, s.name),
+      xnat: xnatFor(id),
+      channel: channelFor(id),
+      ...createStateApi(id),
     };
     await new Promise<void>((resolve, reject) => {
       const t = setTimeout(() => reject(new Error(`did not finish starting within ${START_LIMIT_MS / 1000} s`)), START_LIMIT_MS);
@@ -80,6 +118,11 @@ export function startExtensions(opts: { api?: ExtensionsApi; importModule?: Impo
   if (opts.importModule) importModule = opts.importModule;
   started = (async () => {
     if (!api) return;
+    channelUnsubscribe = api.onChannelMessage((id, message) => {
+      for (const l of [...(channelListeners.get(id) ?? [])]) {
+        try { l(message); } catch (err) { console.warn(`[extensions] ${id}: a channel listener failed:`, err); }
+      }
+    });
     let list = await api.list();
     for (const s of list) list = (await startRendererPart(s)) ?? list;
     publish(list);
@@ -121,4 +164,7 @@ export function __resetForTests(): void {
   running.clear();
   api = undefined;
   started = null;
+  channelUnsubscribe?.();
+  channelUnsubscribe = null;
+  channelListeners.clear();
 }

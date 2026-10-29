@@ -63,6 +63,7 @@ import CloseUnsavedDialog from './components/app/CloseUnsavedDialog';
 import { useAppCloseGuard } from './hooks/useAppCloseGuard';
 import { startExtensions, stopExtensions } from './lib/extensions/rendererHost';
 import { installExtensionHost } from './components/extensions/installExtensionHost';
+import { setNavigationHandler, type OpenOutcome } from './lib/app/appNavigation';
 
 /** DICOM SEG SOP Class UID */
 const SEG_SOP_CLASS_UID = '1.2.840.10008.5.1.4.1.1.66.4';
@@ -2404,8 +2405,9 @@ export default function App() {
       scans: XnatScan[],
       context: { projectId: string; subjectId: string; sessionLabel: string; projectName?: string; subjectLabel?: string },
       options?: { useHangingProtocol?: boolean; targetScanId?: string },
-    ) => {
-      if (!isConnected) return;
+    ): Promise<OpenOutcome> => {
+      // How it ended is reported to whoever asked (an extension's ext.viewer.openSession).
+      if (!isConnected) return { outcome: 'failed', reason: 'Not signed in to XNAT' };
 
       const previousSessionId = useViewerStore.getState().sessionId;
       if (previousSessionId && previousSessionId !== sessionId) {
@@ -2416,7 +2418,7 @@ export default function App() {
           { viewportId: null, toSessionId: sessionId, fromSessionId: previousSessionId },
           useViewerStore.getState().xnatContext?.sessionLabel || undefined,
         );
-        if (guard === 'cancel') return;
+        if (guard === 'cancel') return { outcome: 'cancelled' };
         dicomwebLoader.clearScanImageIdsCache(previousSessionId);
       }
 
@@ -2653,18 +2655,54 @@ export default function App() {
           'success',
           `${results.length} scan(s) available.`,
         );
-
+        return { outcome: 'opened' };
       } catch (err) {
         console.error('Session load failed:', err);
         const msg = err instanceof Error ? err.message : String(err);
         setLoadError(msg);
         setBrowserStatusMessage('Session load failed', 'error', msg);
+        return { outcome: 'failed', reason: msg };
       } finally {
         setLoading(false);
       }
     },
     [isConnected, refreshBookmarks, promptRecoveryConfirm, setBrowserStatusMessage],
   );
+
+  // Navigation for extensions (docs/extension-framework.md, X3): open a session the way the
+  // browser does — the browser is shown if it was collapsed, and the load runs through it — and
+  // report how it ended; or only reveal a project, subject or session there.
+  useEffect(() => setNavigationHandler({
+    openSession: (ref, { scanId }) => new Promise<OpenOutcome>((resolve) => {
+      if (!isConnected) { resolve({ outcome: 'failed', reason: 'Not signed in to XNAT' }); return; }
+      setShowBrowser(true);
+      setNavigateTo({
+        type: 'session',
+        projectId: ref.projectId,
+        projectName: ref.projectId,
+        subjectId: ref.subjectId,
+        subjectLabel: ref.subjectLabel,
+        sessionId: ref.sessionId,
+        sessionLabel: ref.sessionLabel,
+        targetScanId: scanId,
+        onOutcome: resolve,
+      });
+    }),
+    revealInBrowser: (t) => {
+      if (!isConnected) return;
+      setShowBrowser(true);
+      setNavigateTo({
+        type: t.sessionId && t.subjectId ? 'session' : t.subjectId ? 'subject' : 'project',
+        projectId: t.projectId,
+        projectName: t.projectId,
+        subjectId: t.subjectId,
+        subjectLabel: t.subjectLabel,
+        sessionId: t.sessionId,
+        sessionLabel: t.sessionLabel,
+        skipAutoLoad: true,
+      });
+    },
+  }), [isConnected]);
 
   /**
    * E2E seam: expose the REAL scan-load entry so offline specs can drive the exact

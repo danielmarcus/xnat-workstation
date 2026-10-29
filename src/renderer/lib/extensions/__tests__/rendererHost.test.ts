@@ -27,8 +27,17 @@ function fakeApi(initial: ExtensionSummary[]) {
       list = list.map((s) => (s.id === id ? { ...s, state: 'inactive' as const, reason: `Failed to start: ${reason}`, rendererUrl: undefined } : s));
       return list;
     }),
+    xnat: vi.fn(async (id: string, op: string, args: unknown[]) => (
+      op === 'user' ? { ok: true as const, value: { serverUrl: 'https://x', username: id } }
+        : { ok: false as const, error: 'Not signed in to XNAT' }
+    )),
+    channelRequest: vi.fn(async (id: string, message: unknown) => (
+      message === 'boom' ? { ok: false as const, error: 'handler boom' } : { ok: true as const, value: { from: id, echo: message } }
+    )),
+    onChannelMessage: vi.fn((cb: (id: string, message: unknown) => void) => { channelListener = cb; return () => { channelListener = null; }; }),
   };
 }
+let channelListener: ((id: string, message: unknown) => void) | null = null;
 
 const modules: Record<string, unknown> = {
   'xnat-extension://org.example.notes/renderer.js': {
@@ -150,5 +159,29 @@ describe('renderer extension host', () => {
     await reloadExtension('org.example.ui');
     expect(calls).toEqual(['ui activate Session notes', 'ui activate Session notes']);
     expect(counts()).toEqual(ALL); // not doubled
+  });
+
+  it('ext.xnat and ext.channel reach the main process for this extension, with main\'s own error messages (X3)', async () => {
+    let ctx: RendererExtensionContext | null = null;
+    modules['xnat-extension://org.example.x3/renderer.js'] = { activate: (c: RendererExtensionContext) => { ctx = c; } };
+    const api = fakeApi([active('org.example.x3'), active('org.example.notes')]);
+    await startExtensions({ api, importModule });
+    expect(await ctx!.xnat.user()).toEqual({ serverUrl: 'https://x', username: 'org.example.x3' });
+    await expect(ctx!.xnat.request('/data/projects')).rejects.toThrow(/^Not signed in to XNAT$/);
+    expect(api.xnat).toHaveBeenLastCalledWith('org.example.x3', 'request', ['/data/projects']);
+    expect(await ctx!.channel.request('hi')).toEqual({ from: 'org.example.x3', echo: 'hi' });
+    await expect(ctx!.channel.request('boom')).rejects.toThrow(/^handler boom$/);
+
+    const got: unknown[] = [];
+    ctx!.channel.onMessage((m) => got.push(m));
+    channelListener!('org.example.x3', { n: 1 });
+    channelListener!('org.example.notes', { n: 2 }); // another extension's
+    expect(got).toEqual([{ n: 1 }]);
+    await setExtensionEnabled('org.example.x3', false);
+    channelListener!('org.example.x3', { n: 3 });
+    expect(got).toEqual([{ n: 1 }]);
+    expect(typeof ctx!.viewer.session).toBe('function');
+    expect(typeof ctx!.annotations.list).toBe('function');
+    expect(typeof ctx!.events.on).toBe('function');
   });
 });

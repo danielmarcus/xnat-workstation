@@ -42,6 +42,7 @@ import {
 import { segmentationManager } from '../lib/segmentation/segmentationManagerSingleton';
 import { startFlythrough } from '../lib/cornerstone/flythroughService';
 import { projectContainers } from '../lib/annotations/containerProjection';
+import { containerKindOf } from '../lib/annotations/currentContainers';
 import { buildContainerCsv, type MemberStats } from '../lib/annotations/containerCsv';
 import { formatBackupStatus } from '../lib/annotations/backupStatus';
 import { buildApprovalModule, formatReviewerName } from '../lib/annotations/approval';
@@ -203,13 +204,7 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
         srAffiliation,
         activeSessionId: activeSessionId ?? undefined,
         approvalOf: (id) => (approvals[id]?.approved ? 'APPROVED' : 'UNAPPROVED'),
-        kindOf: (id) => {
-          try {
-            return segmentationService.getPreferredDicomType(id) as ContainerKind;
-          } catch {
-            return 'SEG';
-          }
-        },
+        kindOf: containerKindOf,
       }),
     [segmentations, annotations, presentation, dirtySegIds, xnatOriginMap, srContainers, srAffiliation, activeSessionId, approvals],
   );

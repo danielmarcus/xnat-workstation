@@ -51,6 +51,7 @@ test('E1 · the sidebar gets a tab per extension beside Browse; the choice is re
   await addNote(page, 'Motion on slices 40–44');
   const tab = page.getByTestId(`extension-sidebar-tab-${NOTES}`);
   await expect(tab).toContainText('1 note');
+  await expect(tab.getByTestId('notes-session')).toHaveText('No XNAT session open'); // local files: no XNAT session (X3)
   await expect(tab).toContainText('Motion on slices 40–44');
 
   await page.reload({ waitUntil: 'load' });

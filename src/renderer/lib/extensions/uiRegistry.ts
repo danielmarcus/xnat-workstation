@@ -54,7 +54,8 @@ export function setExtensionComponents(c: ExtensionUi['components']): void {
 const owned = new Map<string, Set<Dispose>>();
 let nextKey = 0;
 
-function track(extId: string, dispose: Dispose): Dispose {
+/** Record `dispose` against an extension: it runs when the extension stops (or when called). */
+export function trackForExtension(extId: string, dispose: Dispose): Dispose {
   let done = false;
   const once = () => {
     if (done) return;
@@ -89,12 +90,12 @@ export function createExtensionUiApi(extId: string, extName: string): { ui: Exte
     sidebarTab(spec) {
       // One tab per extension (D10): a second replaces the first.
       set((s) => ({ sidebarTabs: [...s.sidebarTabs.filter((t) => t.extId !== extId), { ...own, ...spec }] }));
-      return track(extId, () => set((s) => ({ sidebarTabs: s.sidebarTabs.filter((t) => !(t.extId === extId && t.component === spec.component)) })));
+      return trackForExtension(extId, () => set((s) => ({ sidebarTabs: s.sidebarTabs.filter((t) => !(t.extId === extId && t.component === spec.component)) })));
     },
     toolbarItem(spec): ToolbarItemHandle {
       const key = `${extId}#${nextKey++}`;
       set((s) => ({ toolbarItems: [...s.toolbarItems, { ...own, key, spec: { ...spec } }] }));
-      const dispose = track(extId, () => set((s) => ({ toolbarItems: s.toolbarItems.filter((t) => t.key !== key) })));
+      const dispose = trackForExtension(extId, () => set((s) => ({ toolbarItems: s.toolbarItems.filter((t) => t.key !== key) })));
       return {
         update: (patch) => set((s) => ({ toolbarItems: s.toolbarItems.map((t) => (t.key === key ? { ...t, spec: { ...t.spec, ...patch } } : t)) })),
         dispose,
@@ -102,7 +103,7 @@ export function createExtensionUiApi(extId: string, extName: string): { ui: Exte
     },
     view(spec) {
       set((s) => ({ views: [...s.views.filter((v) => !(v.extId === extId && v.id === spec.id)), { ...own, ...spec }] }));
-      return track(extId, () => set((s) => ({
+      return trackForExtension(extId, () => set((s) => ({
         views: s.views.filter((v) => !(v.extId === extId && v.id === spec.id)),
         openView: s.openView?.extId === extId && s.openView.id === spec.id ? null : s.openView,
       })));
@@ -119,7 +120,7 @@ export function createExtensionUiApi(extId: string, extName: string): { ui: Exte
     },
     settingsPage(spec) {
       set((s) => ({ settingsPages: [...s.settingsPages.filter((p) => p.extId !== extId), { ...own, ...spec }] }));
-      return track(extId, () => set((s) => ({ settingsPages: s.settingsPages.filter((p) => !(p.extId === extId && p.component === spec.component)) })));
+      return trackForExtension(extId, () => set((s) => ({ settingsPages: s.settingsPages.filter((p) => !(p.extId === extId && p.component === spec.component)) })));
     },
     get components() {
       if (!components) throw new Error('ext.ui.components are not installed');
@@ -132,7 +133,7 @@ export function createExtensionUiApi(extId: string, extName: string): { ui: Exte
       const entry: CommandEntry = { ...own, id: spec.id, title: spec.title, action, run: spec.run };
       set((s) => ({ commands: [...s.commands.filter((c) => c.action !== action), entry] }));
       const unbind = hotkeyService.registerExtensionAction(action, spec.keys ?? [], () => executeExtensionCommand(extId, spec.id));
-      return track(extId, () => {
+      return trackForExtension(extId, () => {
         unbind();
         set((s) => ({ commands: s.commands.filter((c) => c !== entry) }));
       });

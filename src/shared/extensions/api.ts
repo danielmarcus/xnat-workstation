@@ -25,8 +25,141 @@ export interface ExtensionContextBase {
   log: (...args: unknown[]) => void;
 }
 
+// ─── X3: XNAT, the channel between the parts, navigation, app state ─────────
+
+/** The signed-in user, and the XNAT they are signed in to. */
+export interface XnatUser {
+  serverUrl: string;
+  username: string;
+}
+
+export interface XnatRequestInit {
+  method?: 'GET' | 'PUT' | 'POST' | 'DELETE';
+  /** Query parameters, encoded for you. */
+  query?: Record<string, string>;
+  body?: string | Uint8Array;
+  /** The body's Content-Type. */
+  contentType?: string;
+}
+
+/** An XNAT response. HTTP errors are responses (check `ok`), not exceptions. */
+export interface XnatResponse {
+  status: number;
+  ok: boolean;
+  contentType: string;
+  /** The body as text (UTF-8). */
+  text: string;
+}
+
+export interface XnatResourceFile {
+  name: string;
+  size: number;
+  /** Its path on the server, usable with request(). */
+  uri: string;
+}
+
+/**
+ * XNAT as the signed-in user (R4). Requests go through the app's own session — the extension
+ * never sees credentials or cookies — so XNAT's project roles decide what succeeds (design
+ * point 8). Paths are server-relative and start with /data/ or /xapi/. A call made while no
+ * one is signed in rejects with "Not signed in to XNAT".
+ */
+export interface ExtensionXnat {
+  user(): Promise<XnatUser | null>;
+  request(path: string, init?: XnatRequestInit): Promise<XnatResponse>;
+  /** GET with format=json; rejects on an HTTP error. */
+  getJson<T = unknown>(path: string, query?: Record<string, string>): Promise<T>;
+  /** What the signed-in user may do in a project. */
+  permissions(projectId: string): Promise<{ read: boolean; write: boolean }>;
+  /** The files of a resource, e.g. `/data/experiments/XNAT_E00001/resources/NOTES`. */
+  resourceFiles(resourcePath: string): Promise<XnatResourceFile[]>;
+}
+
+/** The main part's end of the channel between an extension's two parts (design point 2). */
+export interface MainChannel {
+  /** Answer the renderer part's requests. One handler; a second replaces the first. */
+  handle(handler: (message: unknown) => unknown): Dispose;
+  /** Send the renderer part a message (it receives it with onMessage). */
+  post(message: unknown): void;
+}
+
+/** The renderer part's end of the channel. Messages must be structured-cloneable. */
+export interface RendererChannel {
+  /** Ask the main part; resolves with what its handler returns (rejects if it throws). */
+  request(message: unknown): Promise<unknown>;
+  onMessage(listener: (message: unknown) => void): Dispose;
+}
+
 /** What the main part's activate() receives. */
-export type MainExtensionContext = ExtensionContextBase;
+export interface MainExtensionContext extends ExtensionContextBase {
+  xnat: ExtensionXnat;
+  channel: MainChannel;
+}
+
+/** An XNAT session, as navigation names it. */
+export interface XnatSessionRef {
+  projectId: string;
+  subjectId: string;
+  sessionId: string;
+  /** Shown in the browser while it opens; looked up when absent. */
+  sessionLabel?: string;
+  subjectLabel?: string;
+}
+
+/** The XNAT session on screen. */
+export interface OpenSession {
+  projectId: string;
+  subjectId: string;
+  sessionId: string;
+  sessionLabel: string;
+}
+
+export interface ExtensionViewer {
+  /** The XNAT session on screen, or null (none, or local files). */
+  session(): OpenSession | null;
+  /** The active viewport (the one tools and loads target). */
+  activeViewport(): { id: string } ;
+  /**
+   * Open a session exactly as the XNAT browser does — hanging protocol, annotation auto-load,
+   * and the unsaved-changes prompt — and learn how it ended: opened, cancelled (the user chose
+   * Cancel at the prompt), or failed (with the reason).
+   */
+  openSession(session: XnatSessionRef, options?: { scanId?: string }): Promise<{ outcome: 'opened' | 'cancelled' | 'failed'; reason?: string }>;
+  /** Show a project, subject or session in the XNAT browser without opening it. */
+  revealInBrowser(target: { projectId: string; subjectId?: string; sessionId?: string; subjectLabel?: string; sessionLabel?: string }): void;
+}
+
+/** An annotation container (a SEG, RTSTRUCT or SR) as extensions see it. */
+export interface AnnotationInfo {
+  id: string;
+  kind: 'SEG' | 'RTSTRUCT' | 'SR';
+  label: string;
+  /** Unsaved edits. */
+  dirty: boolean;
+  /** Its scan on XNAT, once saved there. */
+  xnatScanId?: string;
+  members: Array<{ id: string; label: string }>;
+}
+
+/** Read-only annotation state (X3); acting on annotations arrives in X4. */
+export interface ExtensionAnnotations {
+  list(): AnnotationInfo[];
+  /** The active container and member — the draw target — or null. */
+  active(): { annotation: AnnotationInfo; memberId: string } | null;
+}
+
+export type ExtensionEventName =
+  | 'signedIn'
+  | 'signedOut'
+  | 'sessionChanged'
+  | 'activeViewportChanged'
+  | 'activeAnnotationChanged'
+  | 'annotationsChanged';
+
+export interface ExtensionEvents {
+  /** Called after the change; read the new state with the getters. */
+  on(event: ExtensionEventName, listener: () => void): Dispose;
+}
 
 /** Undoes a registration. Everything an extension registered is also undone when it stops. */
 export type Dispose = () => void;
@@ -125,6 +258,11 @@ export interface RendererExtensionContext extends ExtensionContextBase {
   name: string;
   ui: ExtensionUi;
   commands: ExtensionCommands;
+  xnat: ExtensionXnat;
+  channel: RendererChannel;
+  viewer: ExtensionViewer;
+  annotations: ExtensionAnnotations;
+  events: ExtensionEvents;
 }
 
 /**

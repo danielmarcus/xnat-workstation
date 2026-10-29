@@ -57,7 +57,7 @@ interface XnatBrowserProps {
     sessionLabel: string;
     projectName?: string;
     subjectLabel?: string;
-  }) => void;
+  }, options?: { useHangingProtocol?: boolean; targetScanId?: string }) => unknown;
   navigateTo?: NavigateToTarget | null;
   onNavigateComplete?: () => void;
   pinnedItems?: PinnedItem[];
@@ -449,17 +449,24 @@ export default function XnatBrowser({
 
           // Auto-load session unless explicitly skipped
           if (onLoadSession && scansData.length > 0 && !target.skipAutoLoad) {
-            onLoadSession(target.sessionId, scansData, {
+            const sessionLabel = target.sessionLabel
+              ?? sessionsData.find((x: { id: string; label?: string }) => x.id === target.sessionId)?.label
+              ?? target.sessionId;
+            const outcome = await onLoadSession(target.sessionId, scansData, {
               projectId: target.projectId,
               subjectId: target.subjectId!,
-              sessionLabel: target.sessionLabel!,
+              sessionLabel,
               projectName: target.projectName,
               subjectLabel: target.subjectLabel,
-            });
+            }, ...(target.targetScanId ? [{ targetScanId: target.targetScanId }] : []));
+            target.onOutcome?.((outcome as Parameters<NonNullable<NavigateToTarget['onOutcome']>>[0]) ?? { outcome: 'opened' });
+          } else if (target.onOutcome) {
+            target.onOutcome(scansData.length === 0 ? { outcome: 'failed', reason: 'The session has no scans' } : { outcome: 'opened' });
           }
         }
       } catch (err) {
         console.error('[XnatBrowser] Navigation failed:', err);
+        target.onOutcome?.({ outcome: 'failed', reason: err instanceof Error ? err.message : String(err) });
       } finally {
         setLoading(false);
         onNavigateComplete?.();

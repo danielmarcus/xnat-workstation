@@ -18,7 +18,7 @@ const ROOT = path.resolve(__dirname, '..', '..', '..');
 const edition = fs.mkdtempSync(path.join(os.tmpdir(), 'xnat-e2e-ext-edition-'));
 // The built example (npm run build): its renderer part is bundled from TSX.
 fs.cpSync(path.join(ROOT, 'dist', 'extensions', 'examples', 'session-notes'), path.join(edition, 'session-notes'), { recursive: true });
-for (const f of fs.readdirSync(path.join(ROOT, 'e2e', 'fixtures', 'extensions')).filter((d) => d !== 'ui-throws')) {
+for (const f of fs.readdirSync(path.join(ROOT, 'e2e', 'fixtures', 'extensions')).filter((d) => d !== 'ui-throws' && d !== 'probe')) {
   fs.cpSync(path.join(ROOT, 'e2e', 'fixtures', 'extensions', f), path.join(edition, f), { recursive: true });
 }
 test.use({ extensionsDir: edition });
