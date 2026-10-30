@@ -1,0 +1,11 @@
+{
+  "id": "org.example.hello-licensed",
+  "name": "Hello, licensed",
+  "version": "1.0.0",
+  "apiVersion": "0.6",
+  "publisher": "Example Labs",
+  "description": "The extension authoring guide's example: a sidebar tab and a command, behind a signed licence.",
+  "renderer": "renderer.js",
+  "main": "main.cjs",
+  "features": [{ "id": "hello", "name": "Hello tab" }]
+}

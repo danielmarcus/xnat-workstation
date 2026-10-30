@@ -1,0 +1,61 @@
+# Publish the extension SDK, @nrgxnat/workstation-extension-api (docs/extension-framework.md,
+# question 4): on a tag sdk-v<version>, build it, publish it to public npm by TRUSTED PUBLISHING
+# (npm accepts this workflow, in this repository, as the publisher — no token is stored; every
+# version carries provenance), and attach the package to a GitHub release as a fallback.
+#
+# npm configures trusted publishing on a package that exists, so the FIRST version is published
+# by hand (see packages/extension-api/README.md, "Publishing"); then this workflow publishes.
+name: Publish SDK
+
+on:
+  push:
+    tags:
+      - 'sdk-v*'
+
+permissions:
+  contents: write   # the GitHub release
+  id-token: write   # npm trusted publishing (OIDC) and provenance
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: npm with trusted publishing (11.5 or later)
+        run: npm install -g npm@latest
+
+      - name: Install
+        run: npm ci
+
+      - name: The tag names the package's version
+        run: |
+          v=$(node -p "require('./packages/extension-api/package.json').version")
+          if [ "sdk-v$v" != "$GITHUB_REF_NAME" ]; then echo "The tag $GITHUB_REF_NAME does not name the package's version ($v)"; exit 1; fi
+
+      - name: Typecheck and test the API it describes
+        run: |
+          npm run typecheck
+          npx vitest run src/shared/extensions src/main/extensions src/renderer/lib/extensions
+
+      - name: Build
+        run: npm run build:sdk
+
+      - name: Publish to npm
+        working-directory: packages/extension-api
+        run: npm publish --access public
+
+      - name: Attach to a GitHub release
+        working-directory: packages/extension-api
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          npm pack
+          gh release create "$GITHUB_REF_NAME" ./*.tgz --title "Extension SDK ${GITHUB_REF_NAME#sdk-v}" --notes "@nrgxnat/workstation-extension-api ${GITHUB_REF_NAME#sdk-v} — see docs/extension-authoring.md."

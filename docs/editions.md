@@ -43,7 +43,7 @@ signature. See [module-authoring.md](module-authoring.md) for modules themselves
 | `modules` | Module directories (packed at build time) or `.xwmodule` files (copied), relative to the configuration file |
 | `trustedKeys` | Publisher keys (`module:keygen`'s `public.json` contents) every copy trusts: modules they sign install as Verified |
 | `devTools` | Optional, default `true`: `false` removes developer tools from the packaged app (the open-source edition keeps them; an edition with licensed extensions turns them off) |
-| `extensions` | Optional: extension directories, relative to the configuration file ([extension-framework.md](extension-framework.md)). Each is checked and copied **into the app archive**; one the app would refuse fails the build |
+| `extensions` | Optional: extension directories, relative to the configuration file — see [extension-authoring.md](extension-authoring.md). Each is checked and copied **into the app archive**; one the app would refuse fails the build |
 | `publish` | Optional: electron-builder's `publish` configuration for this edition (none by default) |
 
 ## Building

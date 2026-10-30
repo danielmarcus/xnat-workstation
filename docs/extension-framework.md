@@ -1,7 +1,7 @@
-# Extension framework (plan, for review)
+# Extension framework
 
-Status: **draft for review, 2026-10-29** (branch `extension-framework`). Nothing is built until
-this plan is reviewed. **Decided 2026-10-29:** all six questions (below). Question 1 — extensions are bundled into an
+Status: **built, 2026-10-29** (branch `extension-framework`): X0–X7 done; see [Status](#status)
+for what waits on the user before the merge to `main`. **Decided 2026-10-29:** all six questions (below). Question 1 — extensions are bundled into an
 edition (option a), designed so runtime installation (b) can be added later without redesign;
 and the framework must give an edition what it needs to build a strong licensing model
 (R13–R14, design points 10–11).
@@ -391,7 +391,26 @@ licensing.
     - Consequence for publishers: a production edition cannot be driven by Playwright (its
       inspector is fused off). An extension's own E2E runs against an unpackaged core, or a test
       package with the inspect fuse turned back on, as `test:edition` does.
-- [ ] X7
+- [x] **X7** — docs, the SDK, the guide's acceptance (2026-10-29):
+  - [`docs/extension-authoring.md`](extension-authoring.md): the parts, the manifest, building,
+    the API, the UI rules, testing, shipping in an edition, **licensing** (the gate, features and
+    tiers, where the decision lives, licence models — offline signed file, site licence on XNAT,
+    server-bound, online activation — and what a client-side check can and cannot stop), versions.
+    [`docs/editions.md`](editions.md) updated (extensions, `devTools`, the lock-down).
+  - The guide's worked example, [`docs/extension-authoring-example/`](extension-authoring-example/)
+    ("Hello, licensed"); `npm run test:extension-guide` builds and packs the SDK, copies the
+    example **outside the repository**, installs the SDK from the tarball, typechecks, builds,
+    makes a key pair and runs the example's own E2E: unlicensed it shows nothing; a signed licence
+    mounts its tab. (It caught a real trap, now in the guide: a `main.js` under a
+    `"type": "module"` package is read as ESM — name the main part `main.cjs`.)
+  - The SDK is a package: `npm run build:sdk` → `dist/` (ES modules + types; exports `.`,
+    `./react`, `./jsx-runtime`, `./testing`), its version starting with the API's (0.6.0).
+    `.github/workflows/publish-sdk.yml` publishes a tag `sdk-v<version>` to npm by trusted
+    publishing and attaches the package to a GitHub release.
+  - **Waiting on the user:** the first `npm publish` (npm configures trusted publishing only on a
+    package that exists — `packages/extension-api/README.md`, "Publishing"), and working XNAT
+    credentials for the signed-in suite (X3, X4, X6's sign-in re-evaluation). The merge to `main`
+    waits for both.
 
 ## Questions for review
 

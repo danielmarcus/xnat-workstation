@@ -49,3 +49,6 @@ e2e/playwright-report/
 
 # Bundled binaries
 extraResources/
+
+# The SDK build (scripts/build-sdk.mjs)
+packages/extension-api/.build/

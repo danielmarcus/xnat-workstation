@@ -1,15 +1,31 @@
 {
   "name": "@nrgxnat/workstation-extension-api",
-  "version": "0.1.0",
-  "description": "Types, manifest schema and helpers for building XNAT Workstation extensions",
+  "version": "0.6.0",
+  "description": "The SDK for XNAT Workstation extensions: the API's types, the manifest's validator, the app's React for extension bundles, and the testing helpers",
   "license": "MIT",
-  "private": true,
+  "type": "module",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/danielmarcus/xnat-workstation.git",
     "directory": "packages/extension-api"
   },
-  "types": "./src/index.ts",
-  "files": ["dist", "README.md"],
-  "publishConfig": { "access": "public" }
+  "homepage": "https://github.com/danielmarcus/xnat-workstation/blob/main/docs/extension-authoring.md",
+  "keywords": ["xnat", "xnat-workstation", "extension", "dicom"],
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
+    "./react": { "types": "./dist/react.d.ts", "default": "./dist/react.js" },
+    "./jsx-runtime": { "types": "./dist/jsx-runtime.d.ts", "default": "./dist/jsx-runtime.js" },
+    "./testing": { "types": "./dist/testing.d.ts", "default": "./dist/testing.js" }
+  },
+  "files": ["dist", "README.md", "LICENSE"],
+  "peerDependencies": {
+    "@types/react": ">=19",
+    "@playwright/test": ">=1.40"
+  },
+  "peerDependenciesMeta": {
+    "@types/react": { "optional": true },
+    "@playwright/test": { "optional": true }
+  },
+  "publishConfig": { "access": "public", "provenance": true }
 }
