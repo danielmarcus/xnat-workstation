@@ -1,9 +1,9 @@
 /**
  * Circle Threshold: drag a circle, and everything inside it within the intensity window joins
- * the active segment — the circle counterpart of Rect Threshold, on the slice on screen.
+ * the active segment — the circle counterpart of Rectangle Threshold, on the slice on screen.
  *
  * It is Cornerstone's Circle scissors with the brush's circle-threshold strategy in place of its
- * fill. Rect Threshold's route (draw an ROI annotation, then fill it with
+ * fill. Rectangle Threshold's route (draw an ROI annotation, then fill it with
  * `rectangleROIThresholdVolumeByRange`) has no circle equivalent: that utility rejects any other
  * annotation. The scissors already draw the circle, write it as one undo step and honour segment
  * locks, and their in-circle test runs in the view's own axes, so an oblique reformat fills what
@@ -12,7 +12,7 @@
  * The scissors never hand the tool's configuration to the strategy (their operation data is
  * built from `editData` alone), and Cornerstone's threshold test passes EVERY voxel when it finds
  * no range — so without the window injected here this fills the whole circle. The window is read
- * from the store when the drag ends, as Rect Threshold does, so it is always the one the panel
+ * from the store when the drag ends, as Rectangle Threshold does, so it is always the one the panel
  * shows. Its bounds are inclusive.
  */
 import { CircleScissorsTool } from '@cornerstonejs/tools';

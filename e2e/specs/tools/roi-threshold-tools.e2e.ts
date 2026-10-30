@@ -1,5 +1,5 @@
 /**
- * Rect Threshold: drag a rectangle, and everything inside it within the intensity window
+ * Rectangle Threshold: drag a rectangle, and everything inside it within the intensity window
  * joins the segment.
  *
  * It shipped greyed out, and the reason is worth keeping: Cornerstone's
@@ -52,7 +52,7 @@ async function dragRegion(page: Page) {
 // (tools/CircleThresholdTool). The narrow-window case is what catches it failing open — with no
 // window handed to the strategy, Cornerstone's threshold test passes every voxel.
 for (const tool of [
-  { label: 'Rect Threshold', name: 'rectangle' },
+  { label: 'Rectangle Threshold', name: 'rectangle' },
   { label: 'Circle Threshold', name: 'circle' },
 ]) {
   test(`${tool.label} fills the segment inside the region, within the intensity window`, async ({ page }) => {
@@ -86,12 +86,12 @@ for (const tool of [
 /**
  * #98 (ledger F3): the window's bounds are inclusive. On the binary sphere phantom every
  * sphere voxel reads exactly 300 HU — the upper bound of the default CT window (Soft
- * Tissue, −100…300) — and Rect Threshold wrote nothing: Cornerstone's same-grid test in
+ * Tissue, −100…300) — and Rectangle Threshold wrote nothing: Cornerstone's same-grid test in
  * `thresholdVolumeByRange` is `value <= lower || value >= upper → reject`, i.e. EXCLUSIVE
  * at both ends (its resampled-grid test is inclusive). Driven with the default window,
  * as a user meets it.
  */
-for (const tool of [{ label: 'Rect Threshold', name: 'rectangle' }, { label: 'Circle Threshold', name: 'circle' }]) {
+for (const tool of [{ label: 'Rectangle Threshold', name: 'rectangle' }, { label: 'Circle Threshold', name: 'circle' }]) {
   test(`${tool.label} includes voxels exactly at the window's upper bound (300 HU sphere, −100…300)`, async ({ page }) => {
     await loadFixture(page, 'ct-axial-300', 'panel_0');
     await expect.poll(() => page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.isUnifiedVolumeReady()), { timeout: 30_000 }).toBe(true);

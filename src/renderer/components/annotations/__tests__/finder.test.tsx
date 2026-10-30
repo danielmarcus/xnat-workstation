@@ -11,7 +11,7 @@ describe('finder entries', () => {
   it('finds a mode by the tool name it had before the families', () => {
     expect(top('threshold')).toMatchObject({ label: 'Brush · 2D · Window', target: { kind: 'tool', toolId: 'threshold' } });
     expect(top('sph. thresh')).toMatchObject({ target: { toolId: 'sphereThreshold' } });
-    expect(top('rect threshold')).toMatchObject({ label: 'Shape · Rect · Window', target: { toolId: 'rectThreshold' } });
+    expect(top('rectangle threshold')).toMatchObject({ label: 'Shape · Rectangle · Window', target: { toolId: 'rectThreshold' } });
     expect(top('region+')).toMatchObject({ target: { toolId: 'regionPlus' } });
   });
 

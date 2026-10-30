@@ -49,10 +49,15 @@ describe('catalog presentation contract', () => {
   // One entry per TOOL: a tool offered in more than one toolbox (Select) is one entry.
   const ALL = [...new Map((['SEG', 'RTSTRUCT', 'SR'] as const).flatMap((k) => toolsForKind(k)).map((t) => [t.id, t])).values()];
 
-  it('every label is unique across the whole catalog', () => {
-    const seen = new Map<string, string[]>();
-    for (const t of ALL) seen.set(t.label, [...(seen.get(t.label) ?? []), t.id]);
-    expect([...seen.entries()].filter(([, ids]) => ids.length > 1)).toEqual([]);
+  // Within a toolbox, not across them: each toolbox (and ⌘K) shows one kind's tools, so the
+  // Segmentation shape "Circle" and the measurement "Circle" (2026-10-30: "ROI" dropped from the
+  // measurement Rectangle and Circle so Rectangle could be spelled out) never appear together.
+  it('every label is unique within each toolbox', () => {
+    for (const kind of ['SEG', 'RTSTRUCT', 'SR'] as const) {
+      const seen = new Map<string, string[]>();
+      for (const t of toolsForKind(kind)) seen.set(t.label, [...(seen.get(t.label) ?? []), t.id]);
+      expect([...seen.entries()].filter(([, ids]) => ids.length > 1), kind).toEqual([]);
+    }
   });
 
   it('every icon is unique across the whole catalog', () => {

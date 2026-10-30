@@ -59,7 +59,7 @@ const row = (panel: Locator, name: string) => panel.locator('[data-testid^="memb
 
 test('O1: Interpolate A → B over All segments leaves a segment that is not on the anchors alone', async ({ page }) => {
   const { panel, toolbox } = await setup(page);
-  await clickTool(toolbox, 'Rect');
+  await clickTool(toolbox, 'Rectangle');
   // Segment 1 on slices s and s+4 (the anchors); Segment 2 only on s+2, between them.
   await row(panel, 'Segment 1').click();
   await drag(page, [[-10, -10], [10, 10]]);
@@ -104,7 +104,7 @@ test('S2: α-expansion without Background seeds is refused — it does not paint
 
 test('O2: Cleanup over All segments with one segment locked still commits the others — the locked one is left alone', async ({ page }) => {
   const { panel, toolbox } = await setup(page);
-  await clickTool(toolbox, 'Rect');
+  await clickTool(toolbox, 'Rectangle');
   // Segment 1: a ring (a hole to fill). Segment 2: a ring too, then locked.
   await row(panel, 'Segment 1').click();
   await drag(page, [[-12, -12], [12, 12]]);
@@ -128,7 +128,7 @@ test('O2: Cleanup over All segments with one segment locked still commits the ot
 
 test('O4: a gap-table row previews its own segment\'s gap, whichever segment is active', async ({ page }) => {
   const { panel, toolbox } = await setup(page);
-  await clickTool(toolbox, 'Rect');
+  await clickTool(toolbox, 'Rectangle');
   // Segment 2 on slices s and s+3 (a gap); Segment 1 — active — elsewhere, no gap.
   await row(panel, 'Segment 2').click();
   await drag(page, [[-8, -8], [8, 8]]);
@@ -149,7 +149,7 @@ test('O4: a gap-table row previews its own segment\'s gap, whichever segment is 
 test('O9: copy, pan, next slice, paste — the paste lands where the original is, not shifted by the pan', async ({ page }) => {
   const { panel, toolbox } = await setup(page);
   await row(panel, 'Segment 1').click();
-  await clickTool(toolbox, 'Rect');
+  await clickTool(toolbox, 'Rectangle');
   await drag(page, [[-6, -6], [6, 6]]);
   await page.locator(`[data-testid="unified-viewport-element:${PANEL}"]`).hover();
   await page.keyboard.press('Control+c');
@@ -217,7 +217,7 @@ test('S9: a fast Smart Brush stroke paints all along its path — no gaps betwee
 test('O3: Copy into works from a locked segment — it only reads its source', async ({ page }) => {
   const { panel, toolbox } = await setup(page);
   await row(panel, 'Segment 1').click();
-  await clickTool(toolbox, 'Rect');
+  await clickTool(toolbox, 'Rectangle');
   await drag(page, [[-8, -8], [8, 8]]);
   const seg1 = await hooks(page).member(1);
   await row(panel, 'Segment 1').getByRole('button', { name: 'Toggle lock' }).click();
@@ -257,7 +257,7 @@ test('O7: the slice track follows a change of plane — sagittal to coronal, bot
   await page.keyboard.press('Escape');
   const toolbox = panel.locator('[data-testid="context-toolbox"]');
   await expect(toolbox.getByRole('button', { name: 'Brush', exact: true })).toBeVisible({ timeout: 10_000 });
-  await clickTool(toolbox, 'Rect');
+  await clickTool(toolbox, 'Rectangle');
   await drag(page, [[-6, -6], [6, 6]]); // one sagittal slice: a band 1 slice tall
   const band = page.locator(`[data-testid="viewport-scrollbar:${PANEL}"] [data-testid="slice-track-band"]`);
   await expect(band).toHaveCount(1);
@@ -271,7 +271,7 @@ test('O7: the slice track follows a change of plane — sagittal to coronal, bot
 test('O5: the Cleanup Range shows on the active viewport\'s scrollbar only — its numbers are that viewport\'s slices', async ({ page }) => {
   const { panel, toolbox } = await setup(page);
   await row(panel, 'Segment 1').click();
-  await clickTool(toolbox, 'Rect');
+  await clickTool(toolbox, 'Rectangle');
   await drag(page, [[-6, -6], [6, 6]]);
   await page.evaluate(() => (window as unknown as { __XNAT_E2E__: { setLayoutPreset: (p: string) => void } }).__XNAT_E2E__.setLayoutPreset('mpr-2x2'));
   await expect(page.locator('[data-testid^="viewport-scrollbar:"]')).toHaveCount(3, { timeout: 15_000 }); // the 2×2 MPR: three planes and a 3D view

@@ -81,7 +81,7 @@ test('only the active tool is bound to the mouse after a switch', async ({ page 
   await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.resetUnifiedSegmentations());
   const panel = await segToolbox(page);
 
-  for (const tool of ['Circle', 'Rect', 'Sphere', 'Brush', 'Sph. Brush', 'Threshold']) {
+  for (const tool of ['Circle', 'Rectangle', 'Sphere', 'Brush', 'Sph. Brush', 'Threshold']) {
     await clickTool(panel, tool);
     await page.waitForTimeout(120);
     const bound = await page.evaluate(() => {

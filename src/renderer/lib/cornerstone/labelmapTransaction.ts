@@ -478,7 +478,7 @@ export const defaultDeps: TransactionDeps = {
 };
 
 /**
- * A Cornerstone tool that writes the labelmap itself — Region / Region+ (grow-cut), Rect Threshold
+ * A Cornerstone tool that writes the labelmap itself — Region / Region+ (grow-cut), Rectangle Threshold
  * (threshold ROI) — pushes no history memo and checks no lock: its edit could not be undone
  * (Ctrl+Z undid the edit before it instead) and it wrote into locked segments. Bracket such a
  * write with `beginDirectEdit(member)` … `finish()`: the member's voxels are snapshotted before,

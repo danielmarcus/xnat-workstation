@@ -45,7 +45,7 @@ export enum ToolName {
   RegionSegmentPlus = 'RegionSegmentPlus',
   SegmentBidirectional = 'SegmentBidirectional',
   RectangleROIThreshold = 'RectangleROIThreshold',
-  /** Circle scissors limited to the intensity window — Rect Threshold's circle counterpart. */
+  /** Circle scissors limited to the intensity window — Rectangle Threshold's circle counterpart. */
   CircleThreshold = 'CircleThreshold',
   LabelmapEditWithContour = 'LabelmapEditWithContour',
   /** Contour Fill's Spline and Live Wire boundaries (SegWorks parity D3, branch 6). */
@@ -172,7 +172,7 @@ export const TOOL_DISPLAY_NAMES: Record<ToolName, string> = {
   [ToolName.RegionSegment]: 'Region Segment',
   [ToolName.RegionSegmentPlus]: 'Region Segment+',
   [ToolName.SegmentBidirectional]: 'Segment Bidir.',
-  [ToolName.RectangleROIThreshold]: 'Rect Threshold',
+  [ToolName.RectangleROIThreshold]: 'Rectangle Threshold',
   [ToolName.CircleThreshold]: 'Circle Threshold',
   [ToolName.LabelmapEditWithContour]: 'Contour Fill',
   [ToolName.ContourFillSpline]: 'Contour Fill (Spline)',

@@ -117,7 +117,7 @@ test('paint fill floods the enclosed region with the active segment (signal 24 /
 });
 
 /**
- * Rect Threshold and Circle Threshold — the shape tools limited to the intensity window — have
+ * Rectangle Threshold and Circle Threshold — the shape tools limited to the intensity window — have
  * their effect tests in `tools/roi-threshold-tools`, which checks the window is respected as
  * well as that something was written.
  */

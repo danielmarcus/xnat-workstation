@@ -30,7 +30,7 @@ Status: open · fixed (commit) · won't fix (reason). Open items are tracked as 
 |---|---|---|---|---|
 | T1 | P1 | Region: a click does nothing — it needs a drag (radius); tooltip said "click"; 3D, no undo step, wrote locked segments | sweep | fixed |
 | T2 | P1 | Region+: a click does nothing unless the mouse rested 500 ms first; no feedback; no undo step | sweep | fixed |
-| T3 | P1 | Rect Threshold pushes no undo step — Ctrl+Z undoes the previous edit (erased another segment) | sweep | fixed |
+| T3 | P1 | Rectangle Threshold pushes no undo step — Ctrl+Z undoes the previous edit (erased another segment) | sweep | fixed |
 | T4 | P1 | Spline / Live Wire / Contour Fill: Escape or a tool switch mid-draw leaves the drawing live and freezes navigation (also: Cornerstone replays a click held 400 ms for double-click detection, so Escape soon after a click started a new drawing) | review (contours 2) | fixed |
 | T5 | P1 | Backspace/Delete while drawing a spline deletes the selection instead of the last point | review (contours 3) | fixed |
 | T6 | P2 | Smart Brush live overlay never grows past the first dab (preview bucket cache) | review (mask ops 5) | fixed |
@@ -38,7 +38,7 @@ Status: open · fixed (commit) · won't fix (reason). Open items are tracked as 
 | T8 | P2 | Locked / approved Structure members editable through Copy nearby, Propagate, Undo & edit, ⏎ commit | review (contours 1) | fixed |
 | T9 | P2 | Undo & edit can undo an unrelated edit; ignores member / viewport | review (contours 5, 6) | fixed |
 | T10 | P2 | Copy nearby / Propagate use stale remembered splines, other planes, holes | review (contours 7, 8) | fixed |
-| T11 | P2 | On an oblique reformat (e.g. coronal of an oblique scan) the plane tools edited a grid slice that is not the one shown — Level Trace 12 mm off the plane, Rect Threshold 6 mm; Region / Region+ did nothing, Region+ threw on hover | sweep (world-space invariant) | fixed (refused with a message; Volume-scope operations still work) |
+| T11 | P2 | On an oblique reformat (e.g. coronal of an oblique scan) the plane tools edited a grid slice that is not the one shown — Level Trace 12 mm off the plane, Rectangle Threshold 6 mm; Region / Region+ did nothing, Region+ threw on hover | sweep (world-space invariant) | fixed (refused with a message; Volume-scope operations still work) |
 | T12 | P3 | Double-click close bypasses No crossing; spline in hand marks container dirty; render-time shape depends on globals; Fit ROI jumps slice; RTSTRUCT plane from camera | review (contours 9–13) | fixed (item 3: the ROI active spline's per-annotation plane cache across viewports has no dedicated test) — #99 |
 
 ## Operations
@@ -60,7 +60,7 @@ Status: open · fixed (commit) · won't fix (reason). Open items are tracked as 
 | ID | P | Finding | Source | Status |
 |---|---|---|---|---|
 | F1 | P1 | Every drag-following tool (Smart Brush, Random Walker seeds, the Seeded painter) lost its stroke's first movement — Cornerstone releases a held mouse-down on the move that a window listener added at press time had already missed (a quick flick painted one dab) | S9 regression test | fixed |
-| F3 | P3 | Rect Threshold writes nothing where the intensity equals the window's upper bound exactly (binary 300 HU phantom vs −100…300) — not reproduced on realistic data | sweep (binary phantom) | fixed — #98 |
+| F3 | P3 | Rectangle Threshold writes nothing where the intensity equals the window's upper bound exactly (binary 300 HU phantom vs −100…300) — not reproduced on realistic data | sweep (binary phantom) | fixed — #98 |
 | F2 | P2 | Cornerstone replays a click held 400 ms for double-click detection: Escape just after a click restarted the drawing and froze navigation | T4 regression test | fixed |
 | F4 | P2 | A local RTSTRUCT (or SEG) imported with its images loaded after a fixed 200 ms, not when the viewport existed: on a slow host its ROIDisplayColors fell back to the default palette, its locked members came out unlocked (the presentation restore toggled locks), and its contours carried no view plane, so nothing interpolated with them | contour-copy-paste E2E | fixed |
 

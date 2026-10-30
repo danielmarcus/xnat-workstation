@@ -23,7 +23,7 @@ const SEG_FAMILIES = ['Select', 'Brush', 'Fill', 'Shape', 'Contour', 'Region', '
 const SEG_TOOLS = [
   'Select',
   'Brush', 'Threshold', 'Dyn. Thresh', 'Sph. Brush', 'Sph. Thresh', 'Paint Fill', 'Smart Brush',
-  'Circle', 'Rect', 'Sphere', 'Rect Threshold', 'Circle Threshold', 'Contour Fill',
+  'Circle', 'Rectangle', 'Sphere', 'Rectangle Threshold', 'Circle Threshold', 'Contour Fill',
   'Region', 'Region+', 'Level Trace', 'ROI limit',
 ];
 

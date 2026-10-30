@@ -145,7 +145,7 @@ const TOOL_HUD_LABEL: Partial<Record<string, string>> = {
   [ToolName.Length]: 'Length', [ToolName.Angle]: 'Angle', [ToolName.Bidirectional]: 'Bidirectional',
   [ToolName.Probe]: 'Probe', [ToolName.ArrowAnnotate]: 'Arrow', [ToolName.Crosshairs]: 'Crosshairs',
   [ToolName.Brush]: 'Brush', [ToolName.ThresholdBrush]: 'Threshold', [ToolName.CircleScissors]: 'Circle',
-  [ToolName.RectangleScissors]: 'Rect', [ToolName.StackScroll]: 'Scroll',
+  [ToolName.RectangleScissors]: 'Rectangle', [ToolName.StackScroll]: 'Scroll',
 };
 
 /** The readout a handled hotkey leaves on the active viewport (null = none). */

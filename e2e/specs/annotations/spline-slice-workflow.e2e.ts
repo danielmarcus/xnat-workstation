@@ -368,7 +368,7 @@ test('a spline whose commit wrote nothing is not recorded — Undo & edit does n
   // A fill inside an already-painted area adds no voxels and pushes no undo entry; the newest
   // entry was then the square painted before, and Undo & edit undid THAT.
   const toolbox = await open(page, 'SEG');
-  await clickTool(toolbox, 'Rect');
+  await clickTool(toolbox, 'Rectangle');
   const a = await at(page, -20, -20), b = await at(page, 20, 20);
   await page.mouse.move(a.x, a.y); await page.mouse.down(); await page.mouse.move(b.x, b.y, { steps: 8 }); await page.mouse.up();
   await expect.poll(() => voxels(page)).toBeGreaterThan(0);
@@ -389,8 +389,8 @@ test('Copy nearby copies what is on the slice now — not a remembered spline th
   const toolbox = await open(page, 'SEG');
   await clickRing(page, BONE_R);
   await expect.poll(() => voxels(page), { timeout: 8_000 }).toBeGreaterThan(DISC * 0.85);
-  // Erase half the disc (⇧ inverts Rect).
-  await clickTool(toolbox, 'Rect');
+  // Erase half the disc (⇧ inverts Rectangle).
+  await clickTool(toolbox, 'Rectangle');
   const a = await at(page, -BONE_R - 2, -BONE_R - 2), b = await at(page, 0, BONE_R + 2);
   await page.keyboard.down('Shift');
   await page.mouse.move(a.x, a.y); await page.mouse.down(); await page.mouse.move(b.x, b.y, { steps: 8 }); await page.mouse.up();

@@ -67,7 +67,7 @@ test('the shape tools add in fill mode and remove in erase mode', async ({ page 
   const panel = await segToolbox(page);
 
   // Fill mode: dragging a rectangle puts voxels in.
-  await clickTool(panel, 'Rect');
+  await clickTool(panel, 'Rectangle');
   await panel.getByRole('button', { name: 'fill', exact: true }).click();
   await dragShape(page, [120, 120], [240, 240]);
 
@@ -106,7 +106,7 @@ test('holding Shift inverts the mode AND still draws', async ({ page }) => {
   await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.resetUnifiedSegmentations());
   const panel = await segToolbox(page);
 
-  await clickTool(panel, 'Rect');
+  await clickTool(panel, 'Rectangle');
   await panel.getByRole('button', { name: 'fill', exact: true }).click();
 
   // Plain drag fills.
@@ -270,7 +270,7 @@ test('a Shift keyup lost to a window blur does not leave the mode inverted', asy
   await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.resetUnifiedSegmentations());
   const panel = await segToolbox(page);
 
-  await clickTool(panel, 'Rect');
+  await clickTool(panel, 'Rectangle');
   await panel.getByRole('button', { name: 'fill', exact: true }).click();
 
   await page.keyboard.down('Shift');

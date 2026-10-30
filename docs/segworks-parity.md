@@ -213,7 +213,7 @@ R7-A), built on branch `annotation-panel-modes` — plan and log in
 
 - **D2 →** the Segmentation toolbox is **one row of seven families** (Select · Brush · Fill ·
   Shape · Contour · Region · Trace); a family's **modes** pick its tool (Brush: Kernel 2D/3D ×
-  Limit None/Window/From click/Edges; Shape: Circle/Rect/Sphere × None/Window; Region: Drag/
+  Limit None/Window/From click/Edges; Shape: Circle/Rectangle/Sphere × None/Window; Region: Drag/
   Click). The options strip shows the active tool's essentials, the rest under **More** (a dot
   when a hidden setting differs from its default). The ROI limit is a toggle in the tools
   header band; Seg Bidir. and labelmap opacity are in the Segmentation ⋮ menu; **Random Walker
