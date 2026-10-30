@@ -40,9 +40,10 @@ These were checked while drafting, and they shape the plan:
   issues (#91–#103) are recorded as fixed. The sweep specs (`e2e/specs/sweep/`) it introduced
   are the model for "realistic data, invariant-based" testing and should be extended, not
   replaced.
-- **Known disabled feature.** `Circle Multi` is marked `planned` and disabled (CLAUDE.md, Known
-  gaps). It must stay disabled and be absent from user docs, or be finished — a release
-  decision (see §6).
+- **CLAUDE.md drifts from the code.** Its "Known gaps" note still calls `Circle Multi` a
+  disabled `planned` tool, but the tool was removed from the app entirely on 2026-09-21 (see the
+  note in `e2e/specs/tools/voxel-tools-effect.e2e.ts`; `annotations/tool-affordance` guards that
+  it stays absent). The doc consolidation in §B.4 covers CLAUDE.md as well as user-facing docs.
 
 ---
 
@@ -240,7 +241,7 @@ The cases below are the minimum set; script authors expand steps into the format
 - C8-11 ⌘K / Ctrl+K finder: every tool, mode and operation found by name.
 - C8-12 Every tooltip reads correctly to an annotator (wording review, not just presence).
 - C8-13 Without WebGPU: Region/Region+ refuse with a reason.
-- C8-14 Circle Multi is not offered (or works, per §6 decision).
+- C8-14 Removed tools (Circle Multi) are not offered anywhere — toolbox, finder, hotkeys.
 
 **C9 — Segmentation operations**
 - C9-01..07 One per operation (Cleanup, Interpolate, Propagate, Seeded, Region competition,
@@ -472,7 +473,7 @@ that points to it.
 18. **Troubleshooting and FAQ** — login problems, blank viewport/WebGL, slow loads, "why can't I
     draw here", "where did my annotation go", issue report.
 19. **Glossary** — XNAT terms, DICOM terms (SEG, RTSTRUCT, SR, series, frame of reference), app terms.
-20. **Release notes** — what's in 1.0, known limitations (e.g. Circle Multi, WebGPU-only tools).
+20. **Release notes** — what's in 1.0, known limitations (e.g. WebGPU-only tools).
 
 `docs/annotation-tool-reference.md` stays the generated per-tool table and is linked from chapters
 8–10 rather than duplicated.
@@ -532,8 +533,8 @@ Assumes one developer driving with Claude, plus a part-time tester/annotator. Ad
 
 ## 5. Decisions needed before starting
 
-1. **Release scope**: is Circle Multi finished for 1.0 or shipped disabled and documented as a
-   limitation? Are any other `planned` catalog entries in scope?
+1. **Release scope**: are any tools or features to be finished, hidden or removed for 1.0
+   (e.g. tools that need WebGPU)?
 2. **Regulatory positioning**: "research use only / not for diagnostic use" wording for the guide,
    About box and installer.
 3. **Test XNAT**: which server, and who provisions the de-identified data and the three accounts.
