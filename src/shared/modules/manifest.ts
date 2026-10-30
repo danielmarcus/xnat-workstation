@@ -76,7 +76,7 @@ export const POST_STEP_OPS: Readonly<Record<string, Readonly<Record<string, { mi
   removeStrays: { maxDistanceMm: { min: 5, max: 120 }, protectPct: { min: 0, max: 100 } },
   median: { radius: { min: 1, max: 5 } },
   gaussian: { sigma: { min: 0.5, max: 4 }, threshold: { min: 0.2, max: 0.8 } },
-  smoothEdges: { strength: { min: 0.1, max: 1.5 } },
+  smoothEdges: { radiusMm: { min: 0.5, max: 10 } },
   open: { radius: { min: 1, max: 5 } },
   close: { radius: { min: 1, max: 5 } },
 };

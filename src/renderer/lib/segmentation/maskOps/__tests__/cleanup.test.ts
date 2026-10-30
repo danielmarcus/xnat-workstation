@@ -183,18 +183,43 @@ describe('gaussianSmooth', () => {
 });
 
 describe('smoothEdges', () => {
-  it('removes an isolated pixel and fills a one-pixel notch', () => {
-    const p = plane([
-      '#.......',
-      '........',
-      '..####..',
-      '..#.##..',
-      '..####..',
-      '..####..',
-    ]);
-    const out = smoothEdges(p);
-    expect(out.data[0]).toBe(0);
-    expect(out.data[3 + 3 * 8]).toBe(1);
+  /** A 24 px square with a 3 px notch cut into its top and a 2 px spike off its right side. */
+  const jagged = () => {
+    const w = 40, h = 40;
+    const data = new Uint8Array(w * h);
+    for (let y = 8; y < 32; y++) for (let x = 8; x < 32; x++) data[x + y * w] = 1;
+    for (let y = 8; y < 13; y++) for (let x = 18; x < 21; x++) data[x + y * w] = 0;
+    for (let y = 19; y < 21; y++) for (let x = 32; x < 38; x++) data[x + y * w] = 1;
+    return { width: w, height: h, data };
+  };
+  const at = (p: MaskPlane, x: number, y: number) => p.data[x + y * p.width];
+
+  it('fills a notch and removes a spike narrower than the radius', () => {
+    const out = smoothEdges(jagged(), UNIT, { radiusMm: 3 });
+    expect(at(out, 19, 11), 'notch').toBe(1);
+    expect(at(out, 36, 19), 'spike').toBe(0);
+    expect(at(out, 20, 20), 'body').toBe(1);
+  });
+
+  it('leaves features wider than the radius alone', () => {
+    const out = smoothEdges(jagged(), UNIT, { radiusMm: 1 });
+    expect(at(out, 19, 11), 'notch is 3 px wide').toBe(0);
+  });
+
+  it('keeps a large round body\'s area', () => {
+    const w = 200, h = 200;
+    const data = new Uint8Array(w * h);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if ((x - 100) ** 2 + (y - 100) ** 2 < 70 * 70) data[x + y * w] = 1;
+    const area = data.reduce((n, v) => n + v, 0);
+    const out = smoothEdges({ width: w, height: h, data }, UNIT, { radiusMm: 5 }).data.reduce((n, v) => n + v, 0);
+    expect(Math.abs(out - area) / area).toBeLessThan(0.01);
+  });
+
+  it('measures the radius in mm on anisotropic pixels', () => {
+    // 3 mm is 3 px across but 1 px down: the notch (3 px wide) closes only from the side.
+    const p = jagged();
+    expect(at(smoothEdges(p, { x: 1, y: 3 }, { radiusMm: 3 }), 19, 9)).toBe(1);
+    expect(at(smoothEdges(p, { x: 3, y: 1 }, { radiusMm: 3 }), 19, 9)).toBe(0);
   });
 });
 
@@ -458,13 +483,57 @@ describe('smoothing equals the unoptimised 2D form (O8)', () => {
     }
   });
 
-  it('medianSmooth and smoothEdges (cropped) are unchanged', () => {
+  it('medianSmooth (cropped) is unchanged', () => {
     for (const seed of [3, 9]) {
       const p = painted(160, 128, seed);
       for (const radius of [1, 2, 5]) expect(diff(medianSmooth(p, { radius }).data, median2d(p, radius))).toBe(0);
-      for (const strength of [0.1, 0.5, 1.5]) {
-        const kernel = Float64Array.from([1, 2, 1, 2, 4, 2, 1, 2, 1]);
-        expect(diff(smoothEdges(p, { strength }).data, convolve2d(p, kernel, 1, 0.5 - (strength - 0.5) * 0.15))).toBe(0);
+    }
+  });
+
+  /** Smooth edges as written: a direct disc vote over the whole plane, repeated until stable. */
+  function smoothEdges2d(p: MaskPlane, spacing: PlaneSpacing, radiusMm: number): Uint8Array {
+    const { width: w, height: h } = p;
+    const rx = Math.max(1, radiusMm / spacing.x), ry = Math.max(1, radiusMm / spacing.y);
+    let cur = new Uint8Array(p.data);
+    let prev: Uint8Array | null = null;
+    for (let pass = 0; pass < 64; pass++) {
+      const next = new Uint8Array(w * h);
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          let set = 0, total = 0;
+          for (let dy = -Math.floor(ry); dy <= Math.floor(ry); dy++) {
+            const half = Math.floor(rx * Math.sqrt(Math.max(0, 1 - (dy * dy) / (ry * ry))));
+            for (let dx = -half; dx <= half; dx++) {
+              const xx = x + dx, yy = y + dy;
+              if (xx < 0 || xx >= w || yy < 0 || yy >= h) continue;
+              total++;
+              set += cur[xx + yy * w];
+            }
+          }
+          next[x + y * w] = 2 * set > total ? 1 : 0;
+        }
+      }
+      if (diff(next, cur) === 0) break;
+      if (prev && diff(prev, next) === 0) return next.map((v, i) => v & cur[i]);
+      prev = cur;
+      cur = next;
+    }
+    return cur;
+  }
+
+  it('smoothEdges is stable: a second run changes nothing', () => {
+    for (const seed of [3, 9, 21]) {
+      const once = smoothEdges(painted(160, 128, seed), { x: 0.8, y: 0.6 }, { radiusMm: 2 });
+      const twice = smoothEdges(once, { x: 0.8, y: 0.6 }, { radiusMm: 2 });
+      expect(diff(twice.data, once.data), `seed=${seed}`).toBe(0);
+    }
+  });
+
+  it('smoothEdges (prefix sums over the box) equals the direct disc vote', () => {
+    for (const seed of [3, 9]) {
+      const p = painted(120, 96, seed);
+      for (const [spacing, r] of [[UNIT, 1], [UNIT, 3], [{ x: 0.8, y: 0.6 }, 2.5]] as const) {
+        expect(diff(smoothEdges(p, spacing, { radiusMm: r }).data, smoothEdges2d(p, spacing, r)), `seed=${seed} r=${r}`).toBe(0);
       }
     }
   });
@@ -473,6 +542,14 @@ describe('smoothing equals the unoptimised 2D form (O8)', () => {
     const p = { width: 512, height: 512, data: new Uint8Array(512 * 512) };
     expect(gaussianSmooth(p, { sigma: 4 }).data.includes(1)).toBe(false);
     expect(medianSmooth(p, { radius: 5 }).data.includes(1)).toBe(false);
+    expect(smoothEdges(p, UNIT, { radiusMm: 5 }).data.includes(1)).toBe(false);
+  });
+
+  it('Smooth edges at its largest radius on a 512² slice with a painted organ stays interactive', () => {
+    const p = painted(512, 512, 5);
+    const t0 = performance.now();
+    smoothEdges(p, { x: 0.7, y: 0.7 }, { radiusMm: 10 });
+    expect(performance.now() - t0).toBeLessThan(1000);
   });
 
   it('σ = 4 on a 512² slice with a painted organ takes well under the 2D kernel\'s time', () => {

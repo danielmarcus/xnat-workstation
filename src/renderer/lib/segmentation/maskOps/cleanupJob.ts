@@ -205,10 +205,11 @@ export async function gatherCleanupJob(txn: LabelmapTransaction, o: GatherOption
     if (!(await pause())) return 'stopped';
   }
   if (!live.length) return null;
+  const spacing = planeSpacing(grid.geometry.spacing, o.axis);
   const reach = Math.max(0, ...o.members.map((m) => {
     const a = o.actions[m.segmentIndex];
     const op = a && cleanupOp(a.opId);
-    return op?.reach ? op.reach(a.params) : Infinity;
+    return op?.reach ? op.reach(a.params, spacing) : Infinity;
   }));
   const win: CleanupWindow = Number.isFinite(reach)
     ? { x0: Math.max(0, x0 - reach), y0: Math.max(0, y0 - reach), width: 0, height: 0 }
@@ -241,7 +242,7 @@ export async function gatherCleanupJob(txn: LabelmapTransaction, o: GatherOption
   if (o.roi) cropInto(o.roi, pw, win, (roi = new Uint8Array(win.width * win.height)));
   return {
     window: win,
-    spacing: planeSpacing(grid.geometry.spacing, o.axis),
+    spacing,
     members: o.members,
     allMembers: o.allMembers,
     lockedMembers: o.lockedMembers,

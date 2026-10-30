@@ -213,7 +213,7 @@ describe('a Volume Cleanup on the worker equals the synchronous run (O8, #97)', 
     { name: 'Gaussian σ 2.6, low threshold', opId: 'gaussian', params: { sigma: 2.6, threshold: 0.2 } },
     { name: 'Morph open r 2, All', opId: 'open', params: { radius: 2 }, labels: 'all' },
     { name: 'Morph close r 3, All', opId: 'close', params: { radius: 3 }, labels: 'all' },
-    { name: 'Smooth edges, strength 1.5', opId: 'smoothEdges', params: { strength: 1.5 } },
+    { name: 'Smooth edges, radius 5 mm, All', opId: 'smoothEdges', params: { radiusMm: 5 }, labels: 'all' },
     { name: 'Anisotropic, quadratic', opId: 'anisotropic', params: { conduction: 'quadratic', iterations: 6 } },
     { name: 'Snake refine replacing neighbours', opId: 'snakeRefine', params: { variant: 'morph', iterations: 4, replaceNeighbours: 'replace' } },
     { name: 'Snake refine replacing neighbours, All', opId: 'snakeRefine', params: { variant: 'balloon', iterations: 5, replaceNeighbours: 'replace' }, labels: 'all' },
@@ -255,7 +255,7 @@ describe('a Volume Cleanup on the worker equals the synchronous run (O8, #97)', 
             const input = await gatherCleanupJob(w.txn, { axis, members, allMembers, lockedMembers, actions: actionsBy, slices, roi, readImage }, go);
             if (input === 'stopped') throw new Error('stopped');
             if (input) {
-              if (axis === 2 && op.reach && op.reach(params) <= 12) expect(input.window.width * input.window.height, 'cropped').toBeLessThan(width * height);
+              if (axis === 2 && op.reach && op.reach(params, planeSpacing(geo.spacing, axis)) <= 12) expect(input.window.width * input.window.height, 'cropped').toBeLessThan(width * height);
               const posted: ComputeResponse[] = [];
               handleComputeRequest(structuredClone({ id: 1, name: 'cleanupVolume' as const, input }), (m) => posted.push(structuredClone(m)));
               const last = posted[posted.length - 1];

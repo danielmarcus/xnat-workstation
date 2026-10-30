@@ -67,7 +67,7 @@ A locked segment previews read-only. **X** opens (or expands) Cleanup.
 | **Remove strays** | Clean | Remove islands far from the largest | distance (mm), protect ≥ % |
 | **Median smooth** | Clean | Majority vote | radius (px) |
 | **Gaussian smooth** | Clean | Blur and re-threshold | σ (px), threshold |
-| **Smooth edges** | Clean | Light 3×3 vote | strength |
+| **Smooth edges** | Clean | Majority vote over a disc, repeated until stable | radius (mm) |
 | **Morph open / close** | Clean | Erode→dilate / dilate→erode | radius (px) |
 | **Anisotropic diffusion** | Clean | Edge-preserving, image-guided smoothing | iterations, κ, conduction |
 | **Snake refine** | Clean | Move the boundary onto the image edges nearby (active contour) | variant (Edge · Gradient vector flow — reaches edges farther away · Balloon — also inflates · Morphological — robust to noise), iterations, edge weight, neighbours (Keep · Replace shared boundary — a touching segment's pixels along the shared boundary may be taken, never a locked one's); Advanced: GVF μ, GVF iterations, balloon force |
