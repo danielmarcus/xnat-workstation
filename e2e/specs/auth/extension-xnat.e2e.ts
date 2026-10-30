@@ -16,7 +16,7 @@ fs.cpSync(path.join(ROOT, 'e2e', 'fixtures', 'extensions', 'probe'), path.join(e
 test.use({ extensionsDir: edition });
 
 type Probe = { ext: any; events: string[]; posts: unknown[] };
-type Win = { __extProbe: Probe; __pending?: Promise<unknown>; __XNAT_E2E__: { clearAllContainers: () => void; seedSessionContainer: (s: string, d: boolean) => Promise<string> } };
+type Win = { __extProbe: Probe; __pending?: Promise<unknown>; __XNAT_E2E__: { clearAllContainers: () => void; seedSessionContainer: (s: string, d: boolean) => Promise<string>; getSegmentationCount: () => number; getSegmentationViewportIds: (id: string) => string[] } };
 const probe = <T,>(page: Page, fn: (p: Probe, arg: any) => T | Promise<T>, arg?: unknown) =>
   page.evaluate(async ({ src, arg }) => {
     const p = (window as unknown as Win).__extProbe;
@@ -105,8 +105,21 @@ test('openSession() reports cancelled when the user cancels at the unsaved-chang
   if ((await probe(page, (p) => p.ext.viewer.session()?.sessionId)) !== id) {
     expect(await probe(page, (p, a) => p.ext.viewer.openSession({ projectId: a.p, subjectId: a.s, sessionId: a.e }), { p: config.testProject, s: config.testSubject, e: id })).toEqual({ outcome: 'opened' });
   }
-  // Unsaved work in this session (local only — nothing is saved to the server).
-  await page.evaluate((e) => (window as unknown as Win).__XNAT_E2E__.seedSessionContainer(e, true), id);
+  // 'opened' comes before the session's annotations finish auto-loading, and that load
+  // detaches what is already on the viewport: seeded now, the work would be shown nowhere, and
+  // a switch rightly does not prompt about work it takes from no viewport. Wait until the
+  // auto-load has settled (the count holds for a second).
+  let last = -1;
+  let steady = 0;
+  await expect.poll(async () => {
+    const n = await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.getSegmentationCount());
+    steady = n === last ? steady + 1 : 0;
+    last = n;
+    return steady >= 4;
+  }, { intervals: [250], timeout: 30_000 }).toBe(true);
+  // Unsaved work in this session (local only — nothing is saved to the server), on screen.
+  const seeded = await page.evaluate((e) => (window as unknown as Win).__XNAT_E2E__.seedSessionContainer(e, true), id);
+  await expect.poll(() => page.evaluate((s) => (window as unknown as Win).__XNAT_E2E__.getSegmentationViewportIds(s).length, seeded)).toBeGreaterThan(0);
   try {
     await page.evaluate((a) => {
       const w = window as unknown as Win;

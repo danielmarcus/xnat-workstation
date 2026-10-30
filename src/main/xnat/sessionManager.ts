@@ -190,7 +190,9 @@ export async function directLogin(
       `${baseUrl}/data/JSESSION`,
       {
         method: 'POST',
-        headers: { Authorization: authHeader },
+        // Not a browser User-Agent: SSO-only servers (CNDA) answer 500 to a basic-auth
+        // sign-in that looks like it came from a browser, and an alias token must sign in here.
+        headers: { Authorization: authHeader, 'User-Agent': 'xnat-workstation-e2e' },
       },
     );
 
