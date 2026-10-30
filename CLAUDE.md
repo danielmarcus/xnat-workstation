@@ -142,7 +142,7 @@ Path aliases:
 - Colors use Tailwind utility classes; the app has a dark theme built on the `zinc` palette (`bg-zinc-950` shell, `zinc-800/900` surfaces)
 - Zustand stores use the `create` pattern without providers
 - Tests use **Vitest** for unit + service-integration (`npm test`, configs in `vitest.config.ts`) and **Playwright** for Electron E2E (`npm run test:e2e`, `playwright.config.ts`). DICOM-compliance suites: `npm run test:dicom:compliance`. Cornerstone service tests live in `src/renderer/lib/cornerstone/__tests__/`.
-- E2E specs are grouped by **topic directory** under `e2e/specs/` (`smoke/ auth/ viewport/ tools/ annotations/ transport/`) with descriptive, **un-numbered** filenames. Run order is declared via Playwright projects (`smoke` → `app`/`auth`), not a filename sort. `npm run test:e2e:offline` runs everything that needs no XNAT credentials; `test:e2e:live` runs only the live ones. See [`e2e/specs/README.md`](e2e/specs/README.md).
+- E2E specs are grouped by **topic directory** under `e2e/specs/` (`smoke/ auth/ viewport/ tools/ annotations/ transport/ modules/ extensions/ sweep/`) with descriptive, **un-numbered** filenames. Run order is declared via Playwright projects (`smoke` → `app`/`sweep`/`auth`), not a filename sort. `npm run test:e2e:offline` runs the offline suite except the sweep; `test:e2e:sweep` the sweep; `test:e2e:live` the live ones. See [`e2e/specs/README.md`](e2e/specs/README.md) and "Testing: what to run when" below.
 - E2E needs a **built** app — the fixture launches `dist/`, not the dev server, so run `npm run build` before `test:e2e` or you are testing stale code.
 - PNG assets in the renderer use Vite asset imports (`import url from './assets/file.png'`)
 - macOS tray icons must be template images (monochrome, filename ends with `Template`)
@@ -181,6 +181,23 @@ Every error-handler and every user-facing event picks one of four surfaces:
 | **Banner** (below toolbar, persistent until dismissed) | Non-routine high-stakes events: backup recovery, app update, connection loss |
 
 **No banners for routine events** — autosave success in particular is silent (surfaced in-place via the per-container autosave row inside the Annotations side panel, never as a toast or banner). The full toast spec and the catch-block surface taxonomy live in the design + requirements docs under `docs/` (see UI Architecture below).
+
+
+## Testing: what to run when
+
+Decided 2026-10-30. The full E2E run takes ~50 minutes, and a check of the history showed where its value is: specs written **with** a feature or fix catch real bugs in it; re-running the whole suite after unrelated changes has found almost nothing but broken tests. So run the tests for what changed, and keep the full run for releases.
+
+| When | Run | Time |
+|---|---|---|
+| Every change | `npm run test:changed`: lint, typecheck, the unit tests related to the changed files, and the E2E specs for the changed code (specs that changed, specs named like a changed file, whole folders for extensions / modules / transport). It lists changed files no spec matched; add their folder with `--area <folder>` when the change can reach them. `--dry-run` shows the plan | minutes |
+| A bug fix or a feature | Its own E2E spec, written with it and **seen failing first** (discipline §8 below) — this is where tests find bugs | — |
+| Tools or operations changed | `npm run test:e2e:sweep` — every tool and operation in every orientation (`test:changed` says when) | ~30 min |
+| XNAT sign-in or access changed | `npm run test:e2e:live` — read-only against CNDA; needs a fresh alias token in `.env.e2e` (`XNAT_USERNAME` set) | ~1 min |
+| Packaging or the edition build changed | `npm run test:edition` | ~5 min |
+| Before merging to `main` | `test:changed` against the branch, **plus CI's steps judged by exit code** (`lint`, `notices:check`, `typecheck`, `test`, `build` — vitest fails on an unhandled error even when every test passed; CI runs only on `main`, `codex/**` and pull requests, so a branch's first CI run is otherwise after the merge) | minutes |
+| Before a release | `npm run test:e2e:release` (offline + sweep) and the live specs | ~50 min |
+
+Judge every step by its exit code, never by a pass count. The full run is not a default: do not reach for it after a small change.
 
 ## DICOM Compliance
 

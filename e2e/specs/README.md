@@ -80,10 +80,16 @@ its own, in any order. If a spec only passes after some other spec, that is a bu
 ## Running
 
 ```bash
-npm run test:e2e           # everything (auth specs need live CNDA credentials)
-npm run test:e2e:offline   # smoke + app — no credentials required
-npm run test:e2e:live      # smoke + auth only
+npm run test:changed       # what changed: lint, typecheck, related unit tests, matching E2E specs
+npm run test:e2e:offline   # smoke + app — the offline suite without the sweep (~18 min)
+npm run test:e2e:sweep     # smoke + sweep — every tool and operation in every orientation (~30 min)
+npm run test:e2e:live      # smoke + auth — read-only against CNDA; needs a fresh alias token
+npm run test:e2e:release   # smoke + app + sweep — before a release
+npm run test:e2e           # everything, live included
 ```
+
+Which to run when is in [CLAUDE.md](../../CLAUDE.md), "Testing: what to run when": the specs
+for what changed by default; the whole suite before a release, not after every change.
 
 Full runs need `--max-failures=0`; the config sets `maxFailures: 1` so ordinary runs stop at the
 first failure. Use the `list` reporter rather than `json`.

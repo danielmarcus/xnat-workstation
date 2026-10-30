@@ -30,21 +30,26 @@ export default defineConfig({
    * outright and more strictly: if `smoke` fails, the dependent projects never run.
    *
    *   smoke — launch + WebGL2. Everything else depends on it.
-   *   app   — the whole offline suite. No credentials needed.
+   *   app   — the offline suite. No credentials needed.
+   *   sweep — the tool and operation sweeps (e2e/specs/sweep): every tool and operation in every
+   *           orientation, about 30 minutes — two thirds of the offline time. Run only when the
+   *           tools or operations change, or before a release (CLAUDE.md, "Testing: what to run
+   *           when"); `npm run test:changed` says when.
    *   auth  — live-XNAT specs. Separated so expired CNDA credentials fail only these
    *           instead of aborting the run (they previously sorted FIRST, so a 401 stopped
    *           everything under maxFailures: 1).
    *
-   * Run offline only: npm run test:e2e:offline   (or --project=app)
+   * Run offline only: npm run test:e2e:offline   (or --project=app; the sweep: test:e2e:sweep)
    */
   projects: [
     { name: 'smoke', testDir: './e2e/specs/smoke' },
     {
       name: 'app',
       testDir: './e2e/specs',
-      testIgnore: ['**/smoke/**', '**/auth/**'],
+      testIgnore: ['**/smoke/**', '**/auth/**', '**/sweep/**'],
       dependencies: ['smoke'],
     },
+    { name: 'sweep', testDir: './e2e/specs/sweep', dependencies: ['smoke'] },
     { name: 'auth', testDir: './e2e/specs/auth', dependencies: ['smoke'] },
   ],
 
