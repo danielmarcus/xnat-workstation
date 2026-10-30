@@ -1,0 +1,24 @@
+{
+  "id": "org.xnat.examples.session-notes",
+  "name": "Session notes",
+  "version": "0.1.0",
+  "apiVersion": "0.6",
+  "publisher": "XNAT Workstation examples",
+  "description": "Notes on the open session, kept per session on this computer. The worked example of docs/extension-framework.md; the open-source edition does not ship it.",
+  "renderer": "renderer.js",
+  "main": "main.js",
+  "features": [
+    {
+      "id": "notes",
+      "name": "Notes tab"
+    },
+    {
+      "id": "count",
+      "name": "Toolbar indicator"
+    },
+    {
+      "id": "all-notes",
+      "name": "All notes view"
+    }
+  ]
+}

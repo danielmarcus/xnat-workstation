@@ -32,13 +32,8 @@ test('the context toolbox offers only the active kind’s tools, and only implem
   // A segmentation tool is offered + enabled. (Exact — "Brush" is also a substring
   // of "Sph. Brush".)
   await expect(toolbox.getByRole('button', { name: 'Brush', exact: true })).toBeEnabled();
-  // Every tool the toolbox offers is now implemented — the "planned" (registered but
-  // unimplemented) state was removed with Circle Multi, its last instance. A tool that is
-  // unavailable in the current CONTEXT is still disabled, asserted below.
-  await expect(
-    toolbox.getByRole('button', { name: 'Circle Multi', exact: true }),
-    'Circle Multi was removed from the app — Cornerstone has no fill path for a circle ROI',
-  ).toHaveCount(0);
+  // Every tool the toolbox offers is implemented; there is no "planned" (registered but
+  // unimplemented) state. A tool unavailable in the current CONTEXT is still disabled.
   // A measurement-only tool is NOT meaningful for a SEG → not offered at all (D1/D3).
   await expect(toolbox.getByRole('button', { name: 'Angle', exact: true })).toHaveCount(0);
   await expect(toolbox.getByRole('button', { name: 'Probe', exact: true })).toHaveCount(0);

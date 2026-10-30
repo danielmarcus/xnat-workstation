@@ -55,11 +55,12 @@ const EXPECTED: Array<[string, string, string | null]> = [
   // from the mark. Mixing a CSS keyword with a shipped SVG made the pointer change
   // style, size AND position as the mode flipped.
   ['Circle', 'XnatEditFill', 'XnatEditErase'],
-  ['Rect', 'XnatEditFill', 'XnatEditErase'],
+  ['Rectangle', 'XnatEditFill', 'XnatEditErase'],
   ['Sphere', 'XnatEditFill', 'XnatEditErase'],
   ['Paint Fill', 'cell', null],
   ['Region', 'crosshair', null],
-  ['Rect Multi', 'crosshair', null],
+  ['Rectangle Threshold', 'crosshair', null],
+  ['Circle Threshold', 'crosshair', null],
   ['Contour Fill', 'crosshair', null],
   // An arrow, matching the toolbox icon — the app's named one, never the bare OS arrow.
   ['Select', 'XnatSelect', null],

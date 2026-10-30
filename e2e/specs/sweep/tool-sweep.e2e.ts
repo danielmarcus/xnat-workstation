@@ -88,13 +88,16 @@ const TOOLS: ToolCase[] = [
   { label: 'Sph. Brush', expect: 'change', flat: false, focal: true, gesture: (p) => drag(p, [[-4, 0], [4, 0]]) },
   { label: 'Sph. Thresh', expect: 'change', flat: false, focal: true, gesture: (p) => drag(p, [[-4, 0], [4, 0]]) },
   { label: 'Circle', expect: 'change', flat: true, focal: true, gesture: (p) => drag(p, [[0, 0], [8, 0]]) },
-  { label: 'Rect', expect: 'change', flat: true, focal: true, gesture: (p) => drag(p, [[-8, -8], [8, 8]]) },
+  { label: 'Rectangle', expect: 'change', flat: true, focal: true, gesture: (p) => drag(p, [[-8, -8], [8, 8]]) },
   { label: 'Sphere', expect: 'change', flat: false, focal: true, gesture: (p) => drag(p, [[0, 0], [8, 0]]) },
   { label: 'Paint Fill', expect: 'any', flat: true, focal: false, gesture: (p) => click(p) },
   // Region segments in 3D inside the sphere you drag; Region+ in 3D from one click.
   { label: 'Region', expect: 'change', flat: false, focal: true, growCut: 'RegionSegment', gesture: (p) => drag(p, [[0, 0], [12, 0]]) },
   { label: 'Region+', expect: 'change', flat: false, focal: true, growCut: 'RegionSegmentPlus', gesture: (p) => click(p) },
-  { label: 'Rect Multi', expect: 'change', flat: true, focal: true, gesture: (p) => drag(p, [[-8, -8], [8, 8]]) },
+  { label: 'Rectangle Threshold', expect: 'change', flat: true, focal: true, gesture: (p) => drag(p, [[-8, -8], [8, 8]]) },
+  // The circle's in-circle test runs in the view's axes (it is the Circle scissors), so unlike
+  // Rectangle Threshold it is not refused on an oblique reformat.
+  { label: 'Circle Threshold', expect: 'change', flat: true, focal: true, gesture: (p) => drag(p, [[0, 0], [8, 0]]) },
   { label: 'Contour Fill', expect: 'change', flat: true, focal: true, gesture: (p) => drag(p, loop(10)) },
   { label: 'Level Trace', expect: 'change', flat: true, focal: true, gesture: (p) => click(p), after: commitPreview },
   { label: 'Smart Brush', expect: 'change', flat: true, focal: true, gesture: (p) => drag(p, [[-3, 0], [3, 0]]) },
@@ -103,7 +106,7 @@ const TOOLS: ToolCase[] = [
 ];
 
 /** The app's own plane tools, which work on grid slices — refused on an oblique reformat. */
-const REFUSE_ON_OBLIQUE_VIEW = new Set(['Level Trace', 'Smart Brush', 'Region', 'Region+', 'Rect Multi']);
+const REFUSE_ON_OBLIQUE_VIEW = new Set(['Level Trace', 'Smart Brush', 'Region', 'Region+', 'Rectangle Threshold']);
 
 const CONTEXTS: Array<{ fixture: string; orientation: 'ACQUISITION' | 'SAGITTAL' | 'CORONAL' }> = [
   { fixture: 'ct-body-512', orientation: 'ACQUISITION' },
@@ -148,7 +151,7 @@ async function setup(page: Page, fixture: string, orientation: string): Promise<
   // A second segment with voxels of its own, away from the gestures — it must never change.
   await panel.getByRole('button', { name: 'Add member' }).first().click();
   await page.keyboard.press('Escape');
-  await clickTool(toolbox, 'Rect');
+  await clickTool(toolbox, 'Rectangle');
   await drag(page, [[35, 35], [50, 50]]);
   await panel.locator('[data-testid^="member-row-"]').first().click();
   return { panel, toolbox };

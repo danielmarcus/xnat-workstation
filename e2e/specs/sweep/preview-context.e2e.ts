@@ -24,7 +24,7 @@ async function setup(page: Page): Promise<Locator> {
   await page.keyboard.press('Escape');
   const toolbox = panel.locator('[data-testid="context-toolbox"]');
   await expect(toolbox.getByRole('button', { name: 'Brush', exact: true })).toBeVisible({ timeout: 10_000 });
-  await clickTool(toolbox, 'Rect');
+  await clickTool(toolbox, 'Rectangle');
   for (const [a, b] of [[[-10, -10], [10, 10]], [[18, -1], [19, 0]]] as const) {
     const p = await pt(page, a[0], a[1]), q = await pt(page, b[0], b[1]);
     await page.mouse.move(p.x, p.y); await page.mouse.down(); await page.mouse.move(q.x, q.y, { steps: 6 }); await page.mouse.up();

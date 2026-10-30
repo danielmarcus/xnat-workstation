@@ -46,7 +46,7 @@ Moving tools out of the panel stays the fallback if this does not buy enough.
 | **Select** | Select | — |
 | **Brush** | Brush, Sph. Brush, Threshold, Sph. Thresh, Dyn. Thresh, Smart Brush | Kernel 2D · 3D; Limit None · Window · From click · Edges |
 | **Fill** | Paint Fill | — |
-| **Shape** | Circle, Rect, Sphere, Rect Multi | Shape Circle · Rect · Sphere; Limit None · Window |
+| **Shape** | Circle, Rectangle, Sphere, Rectangle Threshold, Circle Threshold | Shape Circle · Rectangle · Sphere; Limit None · Window |
 | **Contour** | Contour Fill | Boundary Freehand · Spline · Live wire (unchanged) |
 | **Region** | Region, Region+ | Gesture Drag · Click |
 | **Trace** | Level Trace | — |
@@ -67,7 +67,7 @@ Rules for modes:
 
 - Each mode is the existing Cornerstone tool, unchanged; only the entry point merges.
 - A family remembers the last mode used; clicking the family button activates it.
-- Not every combination exists (3D + From click, 3D + Edges, Circle/Sphere + Window). Picking a
+- Not every combination exists (3D + From click, 3D + Edges, Sphere + Window). Picking a
   value that cannot combine with the current ones selects the nearest tool that has it (Edges
   while 3D → 2D + Edges), so every value is clickable and the pressed buttons always describe
   the active tool. Values that force such a switch say so in their tooltip.

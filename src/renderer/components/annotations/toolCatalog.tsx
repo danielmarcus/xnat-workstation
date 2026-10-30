@@ -57,6 +57,8 @@ const SEG_GROUP_ORDER: SegToolGroup[] = ['general', 'paint', 'shape', 'smart'];
 export interface ToolDef {
   id: string;
   label: string;
+  /** Abbreviation shown only where the label would otherwise be cut off (FitLabel). */
+  short?: string;
   title: string;
   icon: ReactNode;
   /** Controls the toolbox must show while this tool is active. */
@@ -89,12 +91,13 @@ const SEG_TOOLS: ToolDef[] = [
   { id: 'sphereBrush', group: 'paint', label: 'Sph. Brush', title: 'Add or remove with a 3D kernel — one stroke also reaches neighbouring slices; hold Shift to invert', needs: ['brushSize', 'editMode'], icon: S(<><circle cx="8" cy="8" r="4" /><ellipse cx="8" cy="8" rx="4" ry="1.7" /></>) },
   { id: 'sphereThreshold', group: 'paint', label: 'Sph. Thresh', title: 'Paint with a 3D kernel, limited to the intensity window', needs: ['brushSize', 'intensityWindow'], icon: S(<><circle cx="8" cy="8" r="4" /><ellipse cx="8" cy="8" rx="4" ry="1.7" /><path d="M5.5 8h5" /></>) },
   { id: 'circleScissors', group: 'shape', label: 'Circle', title: 'Drag a circle; everything inside it is added to or removed from the segment (hold Shift to invert)', needs: ['editMode'], icon: S(<circle cx="8" cy="8" r="5" fill="currentColor" fillOpacity={0.25} />) },
-  { id: 'rectangleScissors', group: 'shape', label: 'Rect', title: 'Drag a rectangle; everything inside it is added to or removed from the segment (hold Shift to invert)', needs: ['editMode'], icon: S(<rect x="3" y="4" width="10" height="8" rx="1" fill="currentColor" fillOpacity={0.25} />) },
+  { id: 'rectangleScissors', group: 'shape', label: 'Rectangle', title: 'Drag a rectangle; everything inside it is added to or removed from the segment (hold Shift to invert)', needs: ['editMode'], icon: S(<rect x="3" y="4" width="10" height="8" rx="1" fill="currentColor" fillOpacity={0.25} />) },
   { id: 'sphereScissors', group: 'shape', label: 'Sphere', title: 'Drag a sphere; everything inside it is added to or removed from the segment, across slices (hold Shift to invert)', needs: ['editMode'], icon: S(<><circle cx="8" cy="8" r="5" fill="currentColor" fillOpacity={0.25} /><ellipse cx="8" cy="8" rx="5" ry="2" /></>) },
   { id: 'paintFill', group: 'paint', label: 'Paint Fill', title: 'Flood-fill the enclosed region under the cursor (F)', icon: S(<><path d="M3 8l5-5 5 5-5 5z" /><path d="M11 11c1 1 1 2 0 2" /></>) },
   { id: 'region', group: 'smart', label: 'Region', title: 'Drag a circle across a structure: it is segmented in 3D within that sphere (grow-cut)', needs: ['brushSize'], icon: S(<><circle cx="8" cy="8" r="4" strokeDasharray="2 1.3" /><circle cx="8" cy="8" r="1.3" fill="currentColor" stroke="none" /></>) },
   { id: 'regionPlus', group: 'smart', label: 'Region+', title: 'Click a structure: it is segmented in 3D (one-click grow-cut)', needs: ['brushSize'], icon: S(<><circle cx="8" cy="8" r="4" strokeDasharray="2 1.3" /><path d="M8 6v4M6 8h4" /></>) },
-  { id: 'rectMulti', group: 'shape', label: 'Rect Multi', title: 'Drag a rectangle; everything inside it within the intensity window joins the segment', needs: ['intensityWindow'], icon: S(<><rect x="4.5" y="2.5" width="9" height="7" rx="1" /><path d="M2.5 5.5v8h9" /></>) },
+  { id: 'rectThreshold', group: 'shape', label: 'Rectangle Threshold', title: 'Drag a rectangle; everything inside it within the intensity window joins the segment', needs: ['intensityWindow'], icon: S(<><rect x="3" y="4" width="10" height="8" rx="1" /><path d="M5 8h6" /></>) },
+  { id: 'circleThreshold', group: 'shape', label: 'Circle Threshold', title: 'Drag a circle; everything inside it within the intensity window joins the segment', needs: ['intensityWindow'], icon: S(<><circle cx="8" cy="8" r="5" /><path d="M5 8h6" /></>) },
   { id: 'contourFill', group: 'shape', label: 'Contour Fill', title: 'Draw a boundary — freehand, spline or live wire — and the area it encloses joins the segment (O)', needs: ['contourDraw'], icon: S(<path d="M4 8c0-3 8-3 8 0s-8 3-8 0z" fill="currentColor" fillOpacity={0.25} />) },
   { id: 'levelTrace', group: 'smart', label: 'Level Trace', title: 'Click a structure: the connected region of similar intensity is previewed; ⏎ adds it', needs: ['semiAuto'], icon: S(<><path d="M3 9c1-4 9-5 10-1s-6 6-9 3" /><circle cx="8" cy="8" r="1" fill="currentColor" stroke="none" /></>) },
   { id: 'smartBrush', group: 'paint', label: 'Smart Brush', title: 'Paint only the tissue under the brush — it does not spill across boundaries', needs: ['semiAuto'], icon: S(<><circle cx="8" cy="8" r="4" /><path d="M8 4v8" strokeDasharray="1.5 1" /></>) },
@@ -115,8 +118,8 @@ const MEASUREMENT_TOOLS: ToolDef[] = [
   { id: 'angle', label: 'Angle', title: 'Measure the angle between two lines (A)', icon: S(<path d="M3 13L13 13M3 13L11 4" />) },
   { id: 'bidirectional', label: 'Bidir.', title: 'Measure a long axis and its perpendicular', icon: S(<path d="M3 8h10M8 3v10" />) },
   { id: 'ellipse', label: 'Ellipse', title: 'Measure an elliptical region and its statistics', icon: S(<ellipse cx="8" cy="8" rx="5.5" ry="3.5" />) },
-  { id: 'rectROI', label: 'Rect ROI', title: 'Measure a rectangular region and its statistics', icon: S(<rect x="3" y="4.5" width="10" height="7" rx="1" />) },
-  { id: 'circleROI', label: 'Circle ROI', title: 'Measure a circular region and its statistics', icon: S(<circle cx="8" cy="8" r="5" />) },
+  { id: 'rectROI', label: 'Rectangle', short: 'Rect', title: 'Measure a rectangular region and its statistics', icon: S(<rect x="3" y="4.5" width="10" height="7" rx="1" />) },
+  { id: 'circleROI', label: 'Circle', title: 'Measure a circular region and its statistics', icon: S(<circle cx="8" cy="8" r="5" />) },
   { id: 'probe', label: 'Probe', title: 'Read the intensity at a single point (D)', icon: S(<><circle cx="8" cy="8" r="1.2" fill="currentColor" stroke="none" /><path d="M8 2v3M8 11v3M2 8h3M11 8h3" /></>) },
   { id: 'arrow', label: 'Arrow', title: 'Point at a feature and label it (T)', icon: S(<path d="M3 13L13 3M9 3h4v4" />) },
   { id: 'freehandROI', label: 'Freehand ROI', title: 'Measure a freehand region and its statistics', icon: S(<path d="M3 10c1-4 4-5 6-2s4 0 4-3" />) },
@@ -130,7 +133,7 @@ const MEASUREMENT_TOOLS: ToolDef[] = [
 export interface ModeAxis {
   id: string;
   label: string;
-  options: Array<{ value: string; label: string; title: string }>;
+  options: Array<{ value: string; label: string; short?: string; title: string }>;
 }
 
 export interface ToolFamily {
@@ -187,23 +190,24 @@ export const SEG_FAMILIES: ToolFamily[] = [
     label: 'Shape',
     title: 'Drag a circle, rectangle or sphere; everything inside it is added to or removed from the segment, optionally only within an intensity window',
     icon: toolDef('rectangleScissors').icon,
-    members: ['rectangleScissors', 'circleScissors', 'sphereScissors', 'rectMulti'],
+    members: ['rectangleScissors', 'circleScissors', 'sphereScissors', 'rectThreshold', 'circleThreshold'],
     axes: [
       { id: 'shape', label: 'Shape', options: [
         { value: 'circle', label: 'Circle', title: 'Drag a circle on the slice' },
-        { value: 'rect', label: 'Rect', title: 'Drag a rectangle on the slice' },
+        { value: 'rect', label: 'Rectangle', short: 'Rect', title: 'Drag a rectangle on the slice' },
         { value: 'sphere', label: 'Sphere', title: 'Drag a sphere: it reaches neighbouring slices (no window limit)' },
       ] },
       { id: 'limit', label: 'Limit', options: [
         { value: 'none', label: 'None', title: 'Everything inside the shape' },
-        { value: 'window', label: 'Window', title: 'Only what falls inside the intensity window (rectangle only)' },
+        { value: 'window', label: 'Window', title: 'Only what falls inside the intensity window (circle or rectangle)' },
       ] },
     ],
     modes: {
       circleScissors: { shape: 'circle', limit: 'none' },
       rectangleScissors: { shape: 'rect', limit: 'none' },
       sphereScissors: { shape: 'sphere', limit: 'none' },
-      rectMulti: { shape: 'rect', limit: 'window' },
+      rectThreshold: { shape: 'rect', limit: 'window' },
+      circleThreshold: { shape: 'circle', limit: 'window' },
     },
   },
   { id: 'contour', label: 'Contour', title: toolDef('contourFill').title, icon: toolDef('contourFill').icon, members: ['contourFill'] },
@@ -302,7 +306,8 @@ export const CATALOG_TO_TOOLNAME: Record<string, ToolName> = {
   paintFill: ToolName.PaintFill,
   region: ToolName.RegionSegment,
   regionPlus: ToolName.RegionSegmentPlus,
-  rectMulti: ToolName.RectangleROIThreshold,
+  rectThreshold: ToolName.RectangleROIThreshold,
+  circleThreshold: ToolName.CircleThreshold,
   contourFill: ToolName.LabelmapEditWithContour,
   levelTrace: ToolName.LevelTrace,
   smartBrush: ToolName.SmartBrush,

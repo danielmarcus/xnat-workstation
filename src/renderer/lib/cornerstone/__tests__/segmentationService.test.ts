@@ -49,6 +49,7 @@ async function importSegmentationService(): Promise<void> {
   vi.doMock('@cornerstonejs/core', () => createCoreModuleMock(cs));
   vi.doMock('@cornerstonejs/tools', () => createToolsModuleMock(cs));
   vi.doMock('@cornerstonejs/adapters', () => createAdaptersModuleMock(cs));
+  vi.doMock('../tools/CircleThresholdTool', () => ({ CircleThresholdTool: { toolName: 'CircleThreshold' } }));
   vi.doMock('../tools/SafePaintFillTool', () => ({
     default: {
       toolName: 'SafePaintFill',

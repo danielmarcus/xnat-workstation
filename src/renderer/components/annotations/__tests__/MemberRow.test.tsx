@@ -31,9 +31,9 @@ describe('MemberRow', () => {
     expect(screen.getByText('12 sl')).toBeTruthy();
   });
 
-  it('shows the active indicator when active', () => {
+  it('marks the row active when active', () => {
     setup({ active: true });
-    expect(screen.getByTestId('active-indicator')).toBeTruthy();
+    expect(screen.getByTestId('member-row-1').getAttribute('data-active')).toBe('true');
   });
 
   it('a single click activates — the one row state (modifiers do not build a set)', async () => {

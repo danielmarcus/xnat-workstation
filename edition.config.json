@@ -5,5 +5,6 @@
   "appId": "com.xnat.workstation",
   "artifactPrefix": "XNAT-Workstation",
   "modules": ["modules/examples/threshold", "modules/examples/postop-edema"],
-  "trustedKeys": []
+  "trustedKeys": [],
+  "extensions": []
 }

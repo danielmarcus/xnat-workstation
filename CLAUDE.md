@@ -8,6 +8,7 @@ XNAT Workstation is a desktop DICOM medical image viewer built on Electron. It c
 
 - **GitHub**: https://github.com/danielmarcus/xnat-workstation (**public**)
 - **Branch**: `main` — work is committed directly to `main`; CI runs on every push to it.
+- **Extensions live elsewhere.** Proprietary extensions (the worklist among them) are built in their own private repositories against the extension framework this app will provide. Their plans, code and requirements never go in this public repository; here, only the framework and its extension slots (sidebar tab, toolbar slot, full-window view, N / ⇧N — SegWorks parity D10, D12).
 
 ## Tech Stack
 
@@ -27,6 +28,7 @@ src/
     ipc/                    # IPC handlers (auth, upload, export, proxy)
     xnat/                   # XNAT REST client and session management
     modules/                # Algorithm modules: packages + signatures, store, sandbox runtime, editions
+    extensions/             # Extension host (docs/extension-framework.md): discovery, checks, main parts
   preload/
     index.ts                # Context bridge: exposes electronAPI to renderer
   renderer/                 # Vite root (React SPA)
@@ -63,6 +65,8 @@ src/
     types/                  # TypeScript interfaces (ElectronAPI, DICOM types, XNAT types)
     dicomTagDictionary.ts   # DICOM tag name lookup
 modules/                    # Example modules (examples/) and built-ins packaged as modules (builtins/)
+extensions/examples/        # The example extension (session-notes, TSX → dist/extensions by build:extensions); the open-source edition ships none
+packages/extension-api/     # The extension SDK, @nrgxnat/workstation-extension-api (re-exports src/shared/extensions; build:sdk). Guide: docs/extension-authoring.md
 edition.config.json         # The open-source edition (docs/editions.md)
 build/                      # App icons for packaging
   icon.png                  # Full-color app icon (320x320)
@@ -203,7 +207,7 @@ All data handling must follow DICOM standards wherever applicable. This includes
 
 > **Status:** the multi-viewport annotation rebuild is DONE and merged to `main` (the `annotation-cleanup` branch was merged and deleted). Rebuild Phases 0–6 are complete: the unified viewport path is the only viewport path (P1.8d), the rebuilt Annotations side panel is the only annotation surface (the legacy `SegmentationPanel` / `AnnotationListPanel` and the `REBUILT_ANNOTATIONS_PANEL` + `multiviewportEnabled` flags were deleted in the Phase-6 cutover), and the XNAT transport is live-verified. The three features that were previously listed here as open — approval persistence (D7.11), inline per-segment metrics, and SR reload from an XNAT scan-click — have all since landed. The architecture below therefore describes the shipped code as well as the specs in `docs/`.
 >
-> **Known gaps** (verified 2026-09-14): `Circle Multi` (CircleROIStartEndThreshold) is registered but its ROI is never converted to labelmap voxels, so it is marked `planned` and disabled — re-enabling the flag alone puts a silent no-op in front of users. Documented in `e2e/specs/tools/voxel-tools-effect.e2e.ts`. (The other former gap, Cornerstone's hover `Segment Select` desyncing the panel, is gone: one app-owned **Select** tool now serves both Structures and Segmentations — see Selection below.)
+> **Known gaps:** none open. (The former gap, Cornerstone's hover `Segment Select` desyncing the panel, is gone: one app-owned **Select** tool now serves both Structures and Segmentations — see Selection below.)
 
 **Selection** (2026-10-08, [`docs/unified-selection.md`](docs/unified-selection.md)): the panel has ONE row state, the active member (a click activates). On the image, the selection is *components of the active member on the current slice* — contours of the ROI, or islands (connected painted regions) of the segment. The **Select** tool (both toolboxes) clicks to select, Shift-clicks to add/remove, clicks empty image to clear; selecting another member's component makes it active (the panel follows the image). Changing slice or active member clears the selection. Ctrl+C / Ctrl+V / Delete act on the selection (copy with nothing selected falls back to the active member's components on the slice; delete never does), each as one undo step. Contour selection is Cornerstone's annotation selection; island selection is `maskSelection`; the clearing rules are `componentSelection`.
 

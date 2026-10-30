@@ -11,7 +11,7 @@ describe('finder entries', () => {
   it('finds a mode by the tool name it had before the families', () => {
     expect(top('threshold')).toMatchObject({ label: 'Brush · 2D · Window', target: { kind: 'tool', toolId: 'threshold' } });
     expect(top('sph. thresh')).toMatchObject({ target: { toolId: 'sphereThreshold' } });
-    expect(top('rect multi')).toMatchObject({ label: 'Shape · Rect · Window', target: { toolId: 'rectMulti' } });
+    expect(top('rectangle threshold')).toMatchObject({ label: 'Shape · Rectangle · Window', target: { toolId: 'rectThreshold' } });
     expect(top('region+')).toMatchObject({ target: { toolId: 'regionPlus' } });
   });
 
@@ -33,6 +33,24 @@ describe('finder entries', () => {
     const sr = finderEntries('SR');
     expect(findEntries(sr, 'length')[0]).toMatchObject({ target: { toolId: 'length' } });
     expect(findEntries(sr, 'cleanup')).toEqual([]);
+  });
+});
+
+describe('extension commands in the finder (extension framework X2, wireframe E6)', () => {
+  const commands = [
+    { extId: 'org.example.notes', extName: 'Session notes', id: 'next', title: 'Next note', action: 'ext:org.example.notes:next' as const, run: () => {} },
+    { extId: 'org.example.notes', extName: 'Session notes', id: 'add', title: 'Add note', action: 'ext:org.example.notes:add' as const, run: () => {} },
+  ];
+  it('are listed for every annotation type, named with their extension, found by title or extension', () => {
+    for (const kind of ['SEG', 'RTSTRUCT', 'SR'] as const) {
+      const entries = finderEntries(kind, [], commands);
+      expect(entries.find((e) => e.id === 'ext:org.example.notes:next')).toMatchObject({
+        label: 'Next note', hint: 'Session notes', target: { kind: 'command', extId: 'org.example.notes', commandId: 'next' },
+      });
+    }
+    const entries = finderEntries('SEG', [], commands);
+    expect(findEntries(entries, 'note').map((e) => e.label).slice(0, 2)).toEqual(['Next note', 'Add note']);
+    expect(findEntries(entries, 'session notes').map((e) => e.label)).toEqual(['Next note', 'Add note']);
   });
 });
 

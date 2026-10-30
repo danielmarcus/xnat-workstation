@@ -1,0 +1,17 @@
+{
+  "name": "hello-licensed",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@nrgxnat/workstation-extension-api": "^0.6.0",
+    "@playwright/test": "^1.58.2",
+    "@types/react": "^19.2.0",
+    "esbuild": "^0.21.5",
+    "typescript": "^5.9.0"
+  }
+}

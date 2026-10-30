@@ -1,0 +1,438 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Extension framework — UI wireframes</title>
+<style>
+  :root{
+    --bg:#09090b; --s1:#18181b; --s2:#1f1f23; --s3:#27272a; --b:#3f3f46; --b2:#52525b;
+    --t:#e4e4e7; --m:#a1a1aa; --d:#71717a;
+    --blue:#3b82f6; --seg:#a855f7; --str:#22c55e; --meas:#f97316; --amber:#f59e0b; --red:#ef4444;
+    --new:#14b8a6;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:#0c0c0f;color:var(--t);font:13px/1.45 -apple-system,BlinkMacSystemFont,"Inter","Segoe UI",sans-serif}
+  main{max-width:1320px;margin:0 auto;padding:28px 28px 80px}
+  h1{font-size:22px;margin:0 0 4px}
+  h2{font-size:17px;margin:44px 0 6px;padding-top:14px;border-top:1px solid var(--s3)}
+  h3{font-size:13px;margin:18px 0 6px;color:var(--m);text-transform:uppercase;letter-spacing:.06em}
+  p,li{color:#c4c4cc;max-width:980px}
+  code{background:var(--s3);padding:1px 4px;border-radius:3px;font-size:12px}
+  .lede{color:var(--m)}
+  .legend{display:flex;gap:18px;flex-wrap:wrap;margin:12px 0;font-size:12px;color:var(--m)}
+  .legend span{display:inline-flex;align-items:center;gap:6px}
+  .sw{width:12px;height:12px;border-radius:2px;display:inline-block}
+  table.t{border-collapse:collapse;width:100%;margin:10px 0;font-size:12px}
+  table.t th,table.t td{border:1px solid var(--s3);padding:6px 8px;text-align:left;vertical-align:top}
+  table.t th{background:var(--s1);color:var(--m);font-weight:600}
+  table.t td.k{white-space:nowrap;font-family:ui-monospace,Menlo,monospace}
+  .rec{color:var(--new);font-weight:600}
+  .warn{color:var(--amber)}
+
+  /* Decision cards */
+  .decision{border:1px solid var(--b);border-radius:8px;background:var(--s1);padding:12px 14px;margin:14px 0}
+  .decision .q{font-weight:600}
+  .decision .id{display:inline-block;background:var(--new);color:#042f2e;font-weight:700;font-size:11px;padding:1px 6px;border-radius:3px;margin-right:6px}
+  .opts{display:grid;gap:14px;margin-top:10px}
+  .opts.c2{grid-template-columns:repeat(2,1fr)}
+  .opts.c3{grid-template-columns:repeat(3,1fr)}
+  .opt{border:1px solid var(--s3);border-radius:6px;padding:10px;background:var(--bg)}
+  .opt.star{border-color:var(--new);box-shadow:0 0 0 1px var(--new) inset}
+  .opt h4{margin:0 0 6px;font-size:12.5px}
+  .opt .pro,.opt .con{font-size:11.5px;margin:4px 0 0;color:var(--m)}
+  .opt .pro::before{content:"+ ";color:var(--str)}
+  .opt .con::before{content:"− ";color:var(--red)}
+  .badge-rec{font-size:10px;color:var(--new);border:1px solid var(--new);border-radius:3px;padding:0 4px;margin-left:6px}
+
+  /* ---------- wireframe primitives (mirror the shipped app, Oct 2026) ---------- */
+  .app{border:1px solid var(--b);border-radius:8px;overflow:hidden;background:var(--bg);font-size:11px;user-select:none}
+  .tbar{display:flex;align-items:center;gap:8px;height:34px;padding:0 8px;background:var(--s1);border-bottom:1px solid var(--s3);color:var(--m);white-space:nowrap;overflow:hidden}
+  .tbar .sep{width:1px;height:16px;background:var(--b)}
+  .tbar .btn{padding:2px 6px;border-radius:4px}
+  .tbar .primary{background:var(--blue);color:#fff}
+  .tbar .sp{flex:1}
+  .body{display:flex;height:100%}
+  .sidebar{width:190px;background:var(--s1);border-right:1px solid var(--s3);display:flex;flex-direction:column}
+  .sidebar .hd{padding:7px 9px;font-weight:600;color:var(--t);border-bottom:1px solid var(--s3)}
+  .sidebar .row{padding:3px 9px;color:var(--m)}
+  .sidebar .row.on{background:var(--s3);color:var(--t)}
+  .vpa{flex:1;display:grid;gap:2px;background:var(--bg);padding:2px;position:relative}
+  .vp{position:relative;background:#000;border-radius:2px;overflow:hidden;min-height:120px}
+  .vp.active::after{content:"";position:absolute;inset:0;box-shadow:0 0 0 2px #a1a1aa inset;pointer-events:none}
+  .vp .ov{position:absolute;color:#d4d4d8;font-family:ui-monospace,Menlo,monospace;font-size:9.5px;line-height:1.3}
+  .vp .tl{top:5px;left:6px}.vp .tr{top:5px;right:12px;text-align:right}.vp .bl{bottom:5px;left:6px}.vp .br{bottom:5px;right:12px;text-align:right}
+  .phantom{position:absolute;left:50%;top:50%;width:62%;aspect-ratio:1;transform:translate(-50%,-50%);border-radius:50%;background:radial-gradient(circle at 50% 50%,#9a9a9a 0 26%,#6b6b6b 27% 100%)}
+  .mask{position:absolute;border-radius:46% 54% 50% 50%;background:rgba(239,68,68,.45);border:1.5px solid #ef4444}
+  .prevmask{position:absolute;border-radius:50% 45% 52% 48%;background:repeating-linear-gradient(45deg,rgba(239,68,68,.45) 0 4px,rgba(239,68,68,.08) 4px 8px);border:1.5px dashed #f87171}
+  .roi{position:absolute;border:1.5px dashed #e4e4e7;border-radius:4px}
+  .sbar{position:absolute;right:2px;top:6px;bottom:6px;width:7px;background:#18181b;border-radius:3px}
+  .sbar .thumb{position:absolute;left:0;right:0;height:12px;background:#52525b;border-radius:3px}
+  .sbar .occ{position:absolute;left:1px;right:1px;background:#ef4444;opacity:.85}
+  .sbar .gap{position:absolute;left:0;right:0;border:1px dashed var(--amber)}
+  .sbar .anc{position:absolute;left:-6px;font-size:8px;color:var(--amber);font-weight:700}
+  .sbar .rng{position:absolute;left:-3px;right:-3px;border:1.5px solid var(--new);border-radius:2px}
+  .pbar{position:absolute;left:50%;top:6px;transform:translateX(-50%);display:flex;gap:6px;align-items:center;background:rgba(24,24,27,.95);border:1px solid var(--b);border-radius:6px;padding:3px 6px;color:var(--t);font-size:10px;white-space:nowrap}
+  .pbar .k{color:var(--d);font-size:9px}
+  .pbar .ok{background:var(--blue);color:#fff;border-radius:3px;padding:1px 6px}
+  .pbar .no{background:var(--s3);border-radius:3px;padding:1px 6px}
+  .hud{position:absolute;background:rgba(24,24,27,.9);border:1px solid var(--b);border-radius:4px;padding:2px 6px;color:var(--t);font-size:10px;white-space:nowrap}
+  .side{width:290px;background:var(--s1);border-left:1px solid var(--s3);display:flex;flex-direction:column}
+  .side .hd{display:flex;align-items:center;justify-content:space-between;padding:8px 10px;font-weight:700;letter-spacing:.04em;border-bottom:1px solid var(--s3)}
+  .side .hd .cr{display:flex;gap:7px;font-weight:400;font-size:10px}
+  .crow{display:flex;align-items:center;gap:6px;padding:5px 10px;border-bottom:1px solid #202024}
+  .crow .nm{flex:1;font-weight:600}
+  .mrow{display:flex;align-items:center;gap:6px;padding:4px 10px 4px 22px}
+  .mrow.on{background:#1e2230;box-shadow:2px 0 0 var(--blue) inset}
+  .mrow .nm{flex:1}
+  .dot{width:9px;height:9px;border-radius:2px;display:inline-block}
+  .ic{color:var(--d);font-size:10px}
+  .grow{flex:1}
+  .tbx{border-top:1px solid var(--s3);background:rgba(24,24,27,.8)}
+  .tbx .th{display:flex;justify-content:space-between;padding:6px 10px;font-size:9px;color:var(--d);text-transform:uppercase;letter-spacing:.06em}
+  .tbx .th .an{color:#ef4444;text-transform:none;letter-spacing:0;font-size:10px}
+  .tabs{display:flex;gap:2px;padding:0 8px 6px}
+  .tabs span{flex:1;text-align:center;padding:3px 0;border-radius:4px;background:var(--s3);color:var(--m);font-size:10px}
+  .tabs span.on{background:#3f3f46;color:var(--t)}
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:3px;padding:0 8px 8px}
+  .grid.c5{grid-template-columns:repeat(5,1fr)}
+  .tool{background:var(--s3);border-radius:4px;padding:4px 6px;color:#d4d4d8;font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tool.on{background:var(--blue);color:#fff}
+  .tool.new{outline:1.5px dashed var(--new);outline-offset:-1.5px}
+  .tool.ico{text-align:center}
+  .ctrls{border-top:1px solid var(--s3);padding:6px 10px}
+  .ctrls .lab{font-size:9px;color:var(--d);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px;display:flex;justify-content:space-between}
+  .slider{display:flex;align-items:center;gap:6px;margin:3px 0;color:var(--m);font-size:10px}
+  .slider .tr{flex:1;height:4px;background:var(--b);border-radius:2px;position:relative}
+  .slider .tr i{position:absolute;left:0;top:0;bottom:0;background:var(--blue);border-radius:2px}
+  .seg{display:flex;border:1px solid var(--b);border-radius:4px;overflow:hidden;font-size:10px}
+  .seg span{flex:1;text-align:center;padding:2px 4px;color:var(--m)}
+  .seg span.on{background:var(--blue);color:#fff}
+  .fld{background:var(--s3);border-radius:3px;padding:1px 5px;color:var(--t);font-size:10px;display:inline-block;min-width:34px}
+  .sel{background:var(--s3);border-radius:3px;padding:1px 5px;color:var(--t);font-size:10px;display:inline-block}
+  .sel::after{content:" ▾";color:var(--d)}
+  .sheet{display:flex;flex-direction:column;border-top:1px solid var(--s3);background:var(--s1)}
+  .sheet .sh{display:flex;align-items:center;gap:6px;padding:7px 10px;border-bottom:1px solid var(--s3)}
+  .sheet .sh b{flex:1}
+  .sheet .sec{padding:6px 10px;border-bottom:1px solid #202024}
+  .sheet .sec .lab{font-size:9px;color:var(--d);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px}
+  .sheet .foot{display:flex;gap:6px;padding:8px 10px;align-items:center}
+  .b{border-radius:4px;padding:3px 9px;background:var(--s3);color:var(--t);font-size:10px}
+  .b.pri{background:var(--blue);color:#fff}
+  .b.dis{opacity:.4}
+  .prog{height:4px;background:var(--b);border-radius:2px;overflow:hidden;margin:4px 0}
+  .prog i{display:block;height:100%;background:var(--blue)}
+  .adv{color:var(--m);font-size:10px;padding:4px 10px;border-bottom:1px solid #202024}
+  .adv::before{content:"▸ "}
+  .list .li{display:flex;gap:6px;align-items:center;padding:3px 0;font-size:10px;color:#d4d4d8}
+  .list .li .grow{color:var(--m)}
+  .callout{position:absolute;background:var(--new);color:#042f2e;font-size:9px;font-weight:700;border-radius:3px;padding:0 4px;white-space:nowrap}
+  .new-tag{display:inline-block;font-size:8.5px;color:var(--new);border:1px solid var(--new);border-radius:3px;padding:0 3px;margin-left:4px;vertical-align:1px}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  .three{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  .cap{font-size:11.5px;color:var(--m);margin:6px 0 0}
+  .toc{columns:3;font-size:12px;margin:8px 0 0;padding-left:18px}
+  .toc a{color:#93c5fd;text-decoration:none}
+</style>
+</head>
+<body><main>
+<style>
+  .ext{outline:1.5px dashed var(--new);outline-offset:-1.5px}
+  .stabs{display:flex;gap:2px;padding:5px 6px;border-bottom:1px solid var(--s3)}
+  .stabs span{flex:1;text-align:center;padding:3px 0;border-radius:4px;background:var(--s3);color:var(--m);font-size:10px;white-space:nowrap}
+  .stabs span.on{background:#3f3f46;color:var(--t)}
+  .stabs span.more{flex:0 0 22px}
+  .note{padding:6px 9px;border-bottom:1px solid #202024}
+  .note .when{color:var(--d);font-size:9.5px}
+  .note .tx{color:#d4d4d8}
+  .note.on{background:#1e2230;box-shadow:2px 0 0 var(--blue) inset}
+  .chip{display:inline-block;border-radius:3px;padding:0 5px;font-size:9.5px;font-weight:600}
+  .chip.ok{background:#14532d;color:#bbf7d0}
+  .chip.part{background:#14532d;color:#bbf7d0}
+  .chip.off{background:var(--s3);color:var(--m)}
+  .chip.bad{background:#7f1d1d;color:#fecaca}
+  .chip.lock{background:#422006;color:#fde68a}
+  .set{display:flex;border:1px solid var(--b);border-radius:8px;overflow:hidden;background:var(--s1);font-size:11px}
+  .set .nav{width:150px;border-right:1px solid var(--s3);padding:6px 0;background:var(--bg)}
+  .set .nav div{padding:3px 12px;color:var(--m)}
+  .set .nav div.on{background:var(--s3);color:var(--t)}
+  .set .nav div.sub{padding-left:24px;font-size:10.5px}
+  .set .nav .gap{height:8px}
+  .set .pane{flex:1;padding:10px 14px;min-width:0}
+  .set .pane h5{margin:0 0 8px;font-size:12px}
+  .xrow{border:1px solid var(--s3);border-radius:6px;padding:8px 10px;margin-bottom:8px;background:var(--bg)}
+  .xrow .top{display:flex;align-items:center;gap:8px}
+  .xrow .top b{font-size:11.5px}
+  .xrow .meta{color:var(--d);font-size:10px}
+  .xrow .why{color:#d4d4d8;font-size:10.5px;margin-top:4px}
+  .xrow .feat{display:flex;gap:10px;flex-wrap:wrap;margin-top:5px;font-size:10px;color:var(--m)}
+  .xrow .feat .y::before{content:"✓ ";color:var(--str)}
+  .xrow .feat .n{color:var(--d)}
+  .xrow .feat .n::before{content:"🔒 ";font-size:9px}
+  .xrow .hosts{margin-top:4px;font-size:10px;color:var(--d)}
+  .tog{display:inline-flex;align-items:center;gap:4px;color:var(--m);font-size:10px}
+  .tog i{width:22px;height:12px;border-radius:6px;background:var(--blue);position:relative;display:inline-block}
+  .tog i::after{content:"";position:absolute;right:2px;top:2px;width:8px;height:8px;border-radius:50%;background:#fff}
+  .tog.offt i{background:var(--b)}
+  .tog.offt i::after{left:2px;right:auto}
+  .fw{position:absolute;inset:0;background:var(--bg);display:flex;flex-direction:column}
+  .fw .bar{display:flex;align-items:center;gap:8px;height:28px;padding:0 10px;background:var(--s1);border-bottom:1px solid var(--s3)}
+  .fw table{border-collapse:collapse;width:100%;font-size:10px}
+  .fw td,.fw th{border-bottom:1px solid #202024;padding:4px 10px;text-align:left;color:#d4d4d8}
+  .fw th{color:var(--d);font-weight:600}
+  .err{margin:10px 8px;border:1px solid #7f1d1d;background:#1c0d0d;border-radius:6px;padding:8px;color:#fecaca;font-size:10.5px}
+  .err .acts{display:flex;gap:6px;margin-top:6px}
+  .kpal{border:1px solid var(--b);border-radius:8px;background:var(--s1);overflow:hidden;font-size:11px;max-width:420px}
+  .kpal .in{padding:8px 10px;border-bottom:1px solid var(--s3);color:var(--t)}
+  .kpal .it{display:flex;gap:8px;padding:5px 10px;color:#d4d4d8}
+  .kpal .it.on{background:#1e2230}
+  .kpal .it .src{margin-left:auto;color:var(--d);font-size:10px}
+  .pop{position:absolute;background:var(--s1);border:1px solid var(--b);border-radius:6px;padding:8px;font-size:10.5px;color:#d4d4d8;box-shadow:0 6px 20px rgba(0,0,0,.5);width:190px}
+  .states{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+  .states .s{border:1px solid var(--s3);border-radius:6px;padding:8px;background:var(--s1);font-size:10.5px;color:#d4d4d8}
+  .states .s h4{margin:0 0 4px;font-size:11.5px}
+  .states .s ul{margin:4px 0 0;padding-left:16px;color:var(--m)}
+  @media (max-width:1000px){.states,.three,.two{grid-template-columns:1fr}}
+</style>
+
+<h1>Extension framework — UI wireframes (X0)</h1>
+<p class="lede">Where an extension's UI appears in Workstation, and how its licence state shows. Drafted for slice X0 of <code>docs/extension-framework.md</code>; drawn from the shipped app as of 2026-10-29. The extension in every picture is the open-source example, <b>Session notes</b> (notes on the open session, stored in an XNAT resource). Its demonstration licence has two tiers: <b>Basic</b> — the sidebar tab and the N / ⇧N keys; <b>Pro</b> — adds the toolbar indicator and the full-window "All notes" view. Wireframes decide <i>where things live and how they behave</i>, not final pixels.</p>
+<div class="legend"><span><i class="sw" style="outline:1.5px dashed var(--new);outline-offset:-1.5px"></i> drawn by an extension (inside a framework slot)</span><span><i class="sw" style="background:var(--blue)"></i> active / selected (the app's only use of blue)</span><span><i class="sw" style="background:var(--new)"></i> recommendation</span></div>
+
+<ol class="toc">
+  <li><a href="#e1">E1 · Sidebar tab</a></li>
+  <li><a href="#e2">E2 · Toolbar slot</a></li>
+  <li><a href="#e3">E3 · Full-window view</a></li>
+  <li><a href="#e4">E4 · Settings › Extensions</a></li>
+  <li><a href="#e5">E5 · Licence states across the app</a></li>
+  <li><a href="#e6">E6 · Keys and ⌘K</a></li>
+  <li><a href="#e7">E7 · When an extension fails</a></li>
+  <li><a href="#rules">Rules every slot follows</a></li>
+  <li><a href="#summary">Decision summary</a></li>
+</ol>
+
+<!-- ===================================================== -->
+<h2 id="e1">E1 · Sidebar tab</h2>
+<p>Today the sidebar is the XNAT browser alone, with no tabs. An extension can add one sidebar tab (D10). The tab strip appears <b>only when at least one tab is contributed</b>; an edition with none looks exactly as today.</p>
+<div class="decision"><span class="id">E1</span><span class="q">How extension tabs sit beside Browse</span>
+<div class="opts c2">
+  <div class="opt star"><h4>A · Text tabs at the top of the sidebar <span class="badge-rec">recommended</span></h4>
+    <div class="app" style="height:250px;display:flex;flex-direction:column">
+      <div class="tbar"><span>XNAT</span><span class="sep"></span><span class="btn">Import</span><span class="btn">Export</span><span class="sp"></span><span class="btn primary">Annotate</span><span class="btn">Tags</span><span class="btn">⚙</span></div>
+      <div class="body" style="flex:1">
+        <div class="sidebar" style="width:200px">
+          <div class="stabs"><span>Browse</span><span class="on">Notes</span></div>
+          <div class="ext" style="flex:1;display:flex;flex-direction:column">
+            <div style="padding:6px 9px;color:var(--m);font-size:10px">Session <b style="color:var(--t)">MR_S014_v1</b> · 3 notes</div>
+            <div class="note on"><div class="when">dmarcus · today 09:12</div><div class="tx">Motion on slices 40–44</div></div>
+            <div class="note"><div class="when">jdoe · yesterday</div><div class="tx">Check left hippocampus boundary</div></div>
+            <div class="note"><div class="when">jdoe · 27 Oct</div><div class="tx">Re-run after QC</div></div>
+            <div style="padding:6px 9px"><span class="b">+ Add note</span></div>
+          </div>
+        </div>
+        <div class="vpa" style="grid-template-columns:1fr"><div class="vp active"><div class="phantom"></div><div class="ov tl">MR_S014_v1<br>T1 MPRAGE</div></div></div>
+      </div>
+    </div>
+    <p class="pro">Approved in D10; reads plainly; the browser stays one click away</p>
+    <p class="pro">More than two tabs: the extras collapse into a <code>⋯</code> menu at the strip's end (order from the edition configuration)</p>
+    <p class="con">A long tab name is cut short (the full name is its tooltip)</p>
+  </div>
+  <div class="opt"><h4>B · An icon rail along the sidebar's left edge</h4>
+    <p class="pro">Scales to many extensions</p>
+    <p class="con">Takes width from the browser permanently, even for one extension; icons need learning; a pattern the app does not use anywhere else</p>
+  </div>
+</div>
+<h3>Behaviour</h3>
+<ul>
+  <li>The sidebar's width, drag-handle and collapse are shared by all tabs; each tab keeps its own scroll position.</li>
+  <li>The active tab is remembered per user. If the remembered tab's extension is inactive or removed, Browse opens.</li>
+  <li>The tab body is the extension's own React component, inside an error boundary (E7). It follows the app's focus rule: clicks never leave keyboard focus in the sidebar, except in its text fields.</li>
+  <li>Opening a session from an extension tab goes through the browser's path (hanging protocol, auto-load, the unsaved-changes prompt) — the tab does not switch to Browse.</li>
+</ul>
+</div>
+
+<!-- ===================================================== -->
+<h2 id="e2">E2 · Toolbar slot</h2>
+<p>A compact item an extension shows when it has something to say — a count, a status, previous / next. It is the place the worklist's case bar was reserved (D10).</p>
+<div class="decision"><span class="id">E2</span><span class="q">Where extension items sit in the toolbar</span>
+<div class="opts c2">
+  <div class="opt star"><h4>A · Immediately left of the right group (Annotate · Tags · Settings) <span class="badge-rec">recommended</span></h4>
+    <div class="app" style="height:auto">
+      <div class="tbar" style="position:relative"><span>XNAT</span><span class="btn">● XNAT</span><span class="sep"></span><span class="btn">Import</span><span class="btn">Export</span><span class="btn">★</span><span class="sep"></span><span class="btn">2×2 ▾</span><span class="btn">✛</span><span class="btn">✋</span><span class="btn">🔍</span><span class="btn">◐</span><span class="sep"></span><span class="btn">↶</span><span class="btn">↷</span><span class="sp"></span><span class="btn ext" style="color:var(--t)">📝 3 notes</span><span class="sep"></span><span class="btn primary">Annotate</span><span class="btn">Tags</span><span class="btn">⚙</span></div>
+      <div style="position:relative;height:110px;background:#000">
+        <div class="pop" style="right:118px;top:6px"><b>Notes on MR_S014_v1</b><div style="color:var(--m);margin:4px 0">3 notes · newest today 09:12</div><span class="b">Open Notes tab</span> <span class="b">All notes…</span></div>
+      </div>
+    </div>
+    <p class="pro">Next to the other session-level controls, away from the viewing tools; the right group is already the part that never collapses</p>
+    <p class="pro">Clicking opens a popover the extension draws (or runs one command); several extensions' items sit side by side in edition order</p>
+    <p class="con">Takes width from the centre groups, which already collapse as the window narrows</p>
+  </div>
+  <div class="opt"><h4>B · Its own row under the toolbar</h4>
+    <p class="pro">Unlimited room</p>
+    <p class="con">Costs viewport height for every user of the edition; looks like a banner, which the app reserves for high-stakes events</p>
+  </div>
+</div>
+<h3>Behaviour</h3>
+<ul>
+  <li>An item is shown only while the extension says so (e.g. only with a session open), so the toolbar is unchanged when there is nothing to say.</li>
+  <li>Size: one line, at most ~180 px wide. When the window narrows, the item collapses to its icon (the text moves into the tooltip) — the same order of collapse as the centre groups.</li>
+  <li>No colour of its own for urgency: status text and the type colours only. Blue stays reserved for active / selection.</li>
+</ul>
+</div>
+
+<!-- ===================================================== -->
+<h2 id="e3">E3 · Full-window view</h2>
+<p>For work that needs room — a table of every note, a worklist, a form. It replaces the viewport area <i>and</i> the side panels while open; the viewer stays loaded underneath, so going back is instant and nothing is lost.</p>
+<div class="decision"><span class="id">E3</span><span class="q">How a full-window view opens and closes</span>
+<div class="opts c2">
+  <div class="opt star"><h4>A · Over the viewer, under the toolbar, with a back bar <span class="badge-rec">recommended</span></h4>
+    <div class="app" style="height:250px;display:flex;flex-direction:column">
+      <div class="tbar"><span>XNAT</span><span class="sep"></span><span class="btn" style="opacity:.4">2×2 ▾ ✛ ✋ 🔍 ◐</span><span class="sp"></span><span class="btn ext" style="color:var(--t)">📝 3 notes</span><span class="btn">Annotate</span><span class="btn">Tags</span><span class="btn">⚙</span></div>
+      <div style="position:relative;flex:1">
+        <div class="fw">
+          <div class="bar"><span class="b">← Back to viewer</span><b>All notes</b><span style="color:var(--d)">· Session notes</span><span class="grow"></span><span class="sel">Project: NEURO01</span></div>
+          <div class="ext" style="flex:1;overflow:hidden">
+            <table><tr><th>Session</th><th>Subject</th><th>Notes</th><th>Latest</th><th>By</th></tr>
+            <tr><td>MR_S014_v1</td><td>S014</td><td>3</td><td>Motion on slices 40–44</td><td>dmarcus</td></tr>
+            <tr><td>MR_S015_v1</td><td>S015</td><td>1</td><td>Contrast timing off</td><td>jdoe</td></tr>
+            <tr><td>MR_S016_v2</td><td>S016</td><td>0</td><td style="color:var(--d)">—</td><td></td></tr>
+            <tr><td>MR_S019_v1</td><td>S019</td><td>2</td><td>Repeat scan requested</td><td>jdoe</td></tr></table>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="pro">The toolbar stays, so the user never feels they left the app; Back (or Esc, when no text field has the keyboard) returns to exactly the same viewer state</p>
+    <p class="pro">Opening a session from the table returns to the viewer and opens it, through the browser's path</p>
+    <p class="con">The viewing tools are greyed while the view is open (they have nothing to act on)</p>
+  </div>
+  <div class="opt"><h4>B · A separate window</h4>
+    <p class="pro">Can sit on a second monitor</p>
+    <p class="con">Two windows to keep in step (sign-out, session changes, modal rules); much more framework work. Can be added later if an extension needs it</p>
+  </div>
+</div>
+<h3>Behaviour</h3>
+<ul>
+  <li>One full-window view at a time. Opening one is a command, so it can be bound to a key and found with ⌘K.</li>
+  <li>The sidebar is hidden while the view is open; the view can show its own filters instead.</li>
+  <li>An unsaved annotation is untouched by opening the view; leaving the session from the view goes through the usual unsaved-changes prompt.</li>
+</ul>
+</div>
+
+<!-- ===================================================== -->
+<h2 id="e4">E4 · Settings › Extensions</h2>
+<p>A new Settings tab after Modules. It lists what the edition ships — every extension, in every state — with each extension's own Settings page nested beneath it in the Settings list. This is where licence state is shown, in place (no banners or toasts).</p>
+<div class="set">
+  <div class="nav"><div>Hotkeys</div><div>Overlay</div><div>Annotation</div><div>Updates</div><div>Interpolation</div><div>File Backup</div><div>Modules</div><div class="on">Extensions</div><div class="sub">Session notes</div><div class="sub">Site forms</div><div>Issue Report</div><div class="gap"></div><div>About</div></div>
+  <div class="pane">
+    <h5>Extensions</h5>
+    <p style="margin:0 0 8px;color:var(--m);font-size:10.5px">Extensions come with this edition of the app and are covered by its signature. They act as you, with your XNAT permissions.</p>
+    <div class="xrow"><div class="top"><b>Session notes</b><span class="meta">1.2.0 · Example Labs</span><span class="chip part">Active · Basic</span><span class="grow"></span><span class="tog"><i></i>Enabled</span></div>
+      <div class="feat"><span class="y">Notes tab</span><span class="y">N / ⇧N keys</span><span class="n">Toolbar indicator — not in your licence</span><span class="n">All notes view — not in your licence</span></div>
+      <div class="hosts">Contacts: licence.example-labs.com · <span style="color:#93c5fd">Settings…</span></div></div>
+    <div class="xrow"><div class="top"><b>Site forms</b><span class="meta">0.9.1 · Example Labs</span><span class="chip lock">Inactive</span><span class="grow"></span><span class="tog"><i></i>Enabled</span></div>
+      <div class="why">No licence for this XNAT server (xnat.example.org). <span style="color:#93c5fd">Enter a licence…</span></div></div>
+    <div class="xrow"><div class="top"><b>Lab tracker</b><span class="meta">2.0.0 · Example Labs</span><span class="chip bad">Refused</span><span class="grow"></span></div>
+      <div class="why">Needs extension API 2.x; this app provides 1.4. Update the app or the extension.</div></div>
+    <div class="xrow"><div class="top"><b>Reading log</b><span class="meta">1.0.3 · Example Labs</span><span class="chip off">Disabled</span><span class="grow"></span><span class="tog offt"><i></i>Enabled</span></div></div>
+  </div>
+</div>
+<p class="cap">Chips: <span class="chip ok">Active</span> everything on · <span class="chip part">Active · tier</span> some features locked · <span class="chip lock">Inactive</span> the extension's own reason (licence, sign-in needed) · <span class="chip bad">Refused</span> the app refused to load it (incompatible API, changed after packaging, invalid manifest) · <span class="chip off">Disabled</span> turned off by the user. A refused extension has no switch: there is nothing to turn on.</p>
+<h3>The extension's own page (Settings › Extensions › Session notes)</h3>
+<div class="set" style="max-width:720px">
+  <div class="nav"><div>Modules</div><div>Extensions</div><div class="sub on">Session notes</div><div class="sub">Site forms</div></div>
+  <div class="pane ext">
+    <h5>Session notes</h5>
+    <div class="sec" style="padding:0 0 8px"><div class="lab" style="font-size:9px;color:var(--d);text-transform:uppercase;letter-spacing:.06em">Licence</div>
+      <div style="color:#d4d4d8;font-size:10.5px">Basic · site licence for xnat.example.org · until 31 Dec 2027</div>
+      <div style="margin-top:6px;display:flex;gap:6px"><span class="b">Import licence file…</span><span class="b">Check again</span></div></div>
+    <div class="sec" style="padding:0"><div class="lab" style="font-size:9px;color:var(--d);text-transform:uppercase;letter-spacing:.06em">Notes</div>
+      <div class="slider">Store notes in resource <span class="fld">NOTES</span></div></div>
+  </div>
+</div>
+<p class="cap">Everything inside the dashed area is the extension's. Its page stays reachable while it is <i>inactive</i> — that is where a licence is entered — but not while it is refused or disabled.</p>
+</div>
+
+<!-- ===================================================== -->
+<h2 id="e5">E5 · Licence states across the app</h2>
+<p>A locked feature is <b>absent</b>, not shown disabled: no tab, toolbar item, view, key or ⌘K entry. The only place locked features are named is Settings › Extensions (E4). This keeps the app calm for users who never bought a tier, and means the app never shows a control that cannot work.</p>
+<div class="states">
+  <div class="s"><h4><span class="chip ok">Active · Pro</span></h4>Everything:<ul><li>Notes tab</li><li>📝 toolbar item</li><li>All notes view</li><li>N / ⇧N, ⌘K entries</li></ul></div>
+  <div class="s"><h4><span class="chip part">Active · Basic</span></h4>Only Basic's features:<ul><li>Notes tab</li><li>N / ⇧N, ⌘K entries for them</li></ul><p style="color:var(--d);margin:4px 0 0">No toolbar item, no All notes view</p></div>
+  <div class="s"><h4><span class="chip lock">Inactive</span></h4>Nothing in the viewer.<ul><li>Settings row with the reason</li><li>Its Settings page, to enter a licence</li></ul><p style="color:var(--d);margin:4px 0 0">If Notes was the open sidebar tab, the sidebar returns to Browse</p></div>
+  <div class="s"><h4><span class="chip bad">Refused</span> / <span class="chip off">Disabled</span></h4>Nothing in the viewer.<ul><li>Settings row only</li></ul></div>
+</div>
+<h3>Changes while the app is running</h3>
+<ul>
+  <li>Importing a higher-tier licence, signing in to a different XNAT server, or an expiry passing re-evaluates the extension: its features appear or disappear <b>live</b>, with no restart.</li>
+  <li>If a feature disappears while in use (its full-window view open, its tab selected), the app returns to the viewer / Browse. Nothing else is affected, and no unsaved annotation is touched.</li>
+  <li>No notification is raised. The change is visible where it happened and in Settings › Extensions.</li>
+</ul>
+
+<!-- ===================================================== -->
+<h2 id="e6">E6 · Keys and ⌘K</h2>
+<div class="two">
+  <div>
+    <h3>Settings › Hotkeys</h3>
+    <table class="t">
+      <tr><th>Action</th><th>Key</th></tr>
+      <tr><td colspan="2" style="color:var(--m);background:var(--s1)">… the app's groups …</td></tr>
+      <tr><td colspan="2" style="color:var(--m);background:var(--s1)">Extensions · Session notes</td></tr>
+      <tr><td>Next note</td><td class="k">N</td></tr>
+      <tr><td>Previous note</td><td class="k">⇧N</td></tr>
+      <tr><td>Add note</td><td class="k" style="color:var(--d)">(unbound)</td></tr>
+      <tr><td>Open All notes</td><td class="k" style="color:var(--d)">(unbound)</td></tr>
+    </table>
+    <p class="cap">Extension keys go through the app's hotkey map: remappable, collision-checked, and viewport-only like every shortcut. N / ⇧N are reserved for extensions (D12); any other key an extension asks for that is already taken is left unbound, with the clash shown here.</p>
+  </div>
+  <div>
+    <h3>⌘K finder</h3>
+    <div class="kpal">
+      <div class="in">note▏</div>
+      <div class="it on">📝 Add note<span class="src">Session notes</span></div>
+      <div class="it">📝 Next note<span class="src">Session notes · N</span></div>
+      <div class="it">📝 Open All notes<span class="src">Session notes</span></div>
+      <div class="it">Interpolate<span class="src">Operation</span></div>
+    </div>
+    <p class="cap">Extension commands appear alongside the app's own, with the extension's name on the right. Only active features' commands are listed.</p>
+  </div>
+</div>
+
+<!-- ===================================================== -->
+<h2 id="e7">E7 · When an extension fails</h2>
+<p>Each slot is wrapped in an error boundary: a crash is contained to that slot and shown in place.</p>
+<div class="three">
+  <div><h3>Sidebar tab</h3>
+    <div class="sidebar" style="width:100%;height:150px;border:1px solid var(--b);border-radius:6px"><div class="stabs"><span>Browse</span><span class="on">Notes</span></div>
+      <div class="err"><b>Session notes stopped working.</b><div style="color:#fca5a5;margin-top:2px">TypeError: cannot read 'items'</div><div class="acts"><span class="b">Reload extension</span><span class="b">Copy details</span></div></div></div></div>
+  <div><h3>Toolbar item</h3>
+    <div class="tbar" style="border:1px solid var(--b);border-radius:6px"><span class="sp"></span><span class="btn" style="color:#fca5a5">⚠ Notes</span><span class="btn primary">Annotate</span><span class="btn">Tags</span></div>
+    <p class="cap">A warning icon with the extension's name; its tooltip / popover has the error, Reload and Copy details.</p></div>
+  <div><h3>Full-window view</h3>
+    <p class="cap">The back bar stays; the body shows the same error card as the sidebar. Back always works.</p>
+    <p class="cap">A failing <b>activation</b> (it throws instead of answering) makes the extension Inactive, with "Failed to start: …" as its reason in Settings.</p></div>
+</div>
+<p class="cap">Copy details puts the error, the extension's id and version, and the app version on the clipboard, for the Issue Report or the extension's publisher.</p>
+
+<!-- ===================================================== -->
+<h2 id="rules">Rules every slot follows</h2>
+<ul>
+  <li><b>Absence is the default.</b> An edition with no extensions — and an extension with nothing to show — leaves the app exactly as it is today.</li>
+  <li><b>The app's rules hold inside extension UI:</b> keyboard focus stays on the viewports except in text fields; dialogs carry <code>role="dialog"</code>; blue only for active / selection; no toasts or banners from extensions (R9).</li>
+  <li><b>Extensions add; they never replace.</b> No slot lets an extension hide or move the app's own controls.</li>
+  <li><b>The user is always told who drew what</b> where it matters: the extension's name on its toolbar tooltip, its ⌘K entries, its Hotkeys group, its error cards and its Settings.</li>
+</ul>
+
+<!-- ===================================================== -->
+<h2 id="summary">Decision summary</h2>
+<table class="t">
+<tr><th>#</th><th>Decision</th><th>Recommended</th><th>Alternative</th></tr>
+<tr><td>E1</td><td>Sidebar tab</td><td class="rec">A · text tabs at the top, only when a tab exists; overflow into ⋯</td><td>B icon rail</td></tr>
+<tr><td>E2</td><td>Toolbar slot</td><td class="rec">A · left of Annotate · Tags · Settings; collapses to its icon</td><td>B own row</td></tr>
+<tr><td>E3</td><td>Full-window view</td><td class="rec">A · over viewer and panels, under the toolbar, with Back / Esc</td><td>B separate window</td></tr>
+<tr><td>E4</td><td>Settings › Extensions</td><td class="rec">One tab after Modules: state chip, reason, features, hosts, switch; each extension's page nested beneath</td><td>—</td></tr>
+<tr><td>E5</td><td>Locked features</td><td class="rec">Absent everywhere except Settings; changes apply live, silently</td><td>Shown disabled with a lock (rejected: controls that cannot work)</td></tr>
+<tr><td>E6</td><td>Keys and ⌘K</td><td class="rec">Through the hotkey map and the finder, labelled with the extension</td><td>—</td></tr>
+<tr><td>E7</td><td>Failures</td><td class="rec">Error card in the failing slot; Reload / Copy details; failed start → Inactive</td><td>—</td></tr>
+</table>
+
+</main></body>
+</html>

@@ -1,0 +1,247 @@
+/**
+ * The renderer half of the extension host (extension framework X1): renderer parts start after
+ * their main part, a failure is reported back (the extension becomes inactive), and the Enabled
+ * switch stops the renderer part before the main part.
+ */
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ExtensionSummary } from '@shared/extensions/types';
+import { EXTENSION_API_VERSION } from '@shared/extensions/manifest';
+import { reloadExtension, setExtensionEnabled, startExtensions, stopExtensions, __resetForTests } from '../rendererHost';
+import { useExtensionStore } from '../../../stores/extensionStore';
+import { useExtensionUiStore, __resetExtensionUiForTests } from '../uiRegistry';
+import type { RendererExtensionContext } from '@shared/extensions/api';
+
+const active = (id: string): ExtensionSummary => ({ key: id, id, name: id, version: '1.0.0', state: 'active', rendererUrl: `xnat-extension://${id}/renderer.js` });
+const calls: string[] = [];
+
+function fakeApi(initial: ExtensionSummary[]) {
+  let list = initial;
+  return {
+    list: vi.fn(async () => list),
+    setEnabled: vi.fn(async (id: string, enabled: boolean) => {
+      calls.push(`main ${enabled ? 'enable' : 'disable'} ${id}`);
+      list = list.map((s) => (s.id === id ? (enabled ? active(id) : { ...s, state: 'disabled' as const, rendererUrl: undefined }) : s));
+      return list;
+    }),
+    rendererFailed: vi.fn(async (id: string, reason: string) => {
+      list = list.map((s) => (s.id === id ? { ...s, state: 'inactive' as const, reason: `Failed to start: ${reason}`, rendererUrl: undefined } : s));
+      return list;
+    }),
+    xnat: vi.fn(async (id: string, op: string, args: unknown[]) => (
+      op === 'user' ? { ok: true as const, value: { serverUrl: 'https://x', username: id } }
+        : { ok: false as const, error: 'Not signed in to XNAT' }
+    )),
+    channelRequest: vi.fn(async (id: string, message: unknown) => (
+      message === 'boom' ? { ok: false as const, error: 'handler boom' } : { ok: true as const, value: { from: id, echo: message } }
+    )),
+    onChannelMessage: vi.fn((cb: (id: string, message: unknown) => void) => { channelListener = cb; return () => { channelListener = null; }; }),
+    storage: vi.fn(async (id: string, op: string, args: unknown[]) => ({ ok: true as const, value: `${id}:${op}:${JSON.stringify(args)}` })),
+    openFile: vi.fn(async () => ({ ok: true as const, value: null })),
+    saveFile: vi.fn(async (_id: string, o: unknown) => ({ ok: true as const, value: { saved: true, name: (o as { suggestedName: string }).suggestedName } })),
+    testing,
+    reevaluate: vi.fn(async (id: string) => {
+      list = list.map((s) => (s.id === id ? { ...s, state: 'active' as const, gated: false, reason: undefined, tier: 'Pro', features: (s.features ?? []).map((f) => ({ ...f, enabled: true })) } : s));
+      return list;
+    }),
+    onChanged: vi.fn((cb: (l: ExtensionSummary[]) => void) => { changedListener = (l) => { list = l; cb(l); }; return () => { changedListener = null; }; }),
+  };
+}
+let channelListener: ((id: string, message: unknown) => void) | null = null;
+let testing = false;
+let changedListener: ((l: ExtensionSummary[]) => void) | null = null;
+
+const modules: Record<string, unknown> = {
+  'xnat-extension://org.example.notes/renderer.js': {
+    activate: (ext: { id: string; apiVersion: string }) => { calls.push(`renderer activate ${ext.id} ${ext.apiVersion}`); },
+    deactivate: () => { calls.push('renderer deactivate org.example.notes'); },
+  },
+  'xnat-extension://org.example.throws/renderer.js': { activate: () => { throw new Error('boom'); } },
+  'xnat-extension://org.example.empty/renderer.js': {},
+  'xnat-extension://org.example.ui/renderer.js': {
+    activate: (ext: RendererExtensionContext) => {
+      calls.push(`ui activate ${ext.name}`);
+      const Tab = () => null;
+      ext.ui.sidebarTab({ title: 'Notes', component: Tab });
+      ext.ui.toolbarItem({ label: '3 notes', icon: '📝' });
+      ext.ui.view({ id: 'all', title: 'All notes', component: Tab });
+      ext.ui.settingsPage({ component: Tab });
+      ext.commands.register({ id: 'next', title: 'Next note', run: () => {}, keys: [{ key: 'n' }] });
+      ext.ui.openView('all');
+    },
+  },
+  'xnat-extension://org.example.halfway/renderer.js': {
+    activate: (ext: RendererExtensionContext) => {
+      ext.ui.sidebarTab({ title: 'Half', component: () => null });
+      throw new Error('after registering');
+    },
+  },
+};
+const ui = () => useExtensionUiStore.getState();
+const counts = () => ({ tabs: ui().sidebarTabs.length, items: ui().toolbarItems.length, views: ui().views.length, pages: ui().settingsPages.length, commands: ui().commands.length });
+const NONE = { tabs: 0, items: 0, views: 0, pages: 0, commands: 0 };
+const ALL = { tabs: 1, items: 1, views: 1, pages: 1, commands: 1 };
+const importModule = async (url: string) => {
+  if (!(url in modules)) throw new Error(`Failed to fetch dynamically imported module: ${url}`);
+  return modules[url];
+};
+
+beforeEach(() => {
+  calls.length = 0;
+  __resetForTests();
+  __resetExtensionUiForTests();
+  useExtensionStore.setState({ extensions: [] });
+  testing = false;
+  delete (globalThis as Record<string, unknown>).__xnatWorkstationExtensions;
+});
+
+describe('renderer extension host', () => {
+  it('starts each active extension\'s renderer part and publishes the list', async () => {
+    const api = fakeApi([active('org.example.notes'), { key: 'x', id: 'org.example.x', name: 'X', state: 'refused', reason: 'nope' }]);
+    await startExtensions({ api, importModule });
+    expect(calls).toEqual([`renderer activate org.example.notes ${EXTENSION_API_VERSION}`]);
+    expect(useExtensionStore.getState().extensions.map((s) => s.state)).toEqual(['active', 'refused']);
+  });
+
+  it('a renderer part that throws, lacks activate() or cannot load is reported, and the extension shows inactive', async () => {
+    const api = fakeApi([active('org.example.throws'), active('org.example.empty'), active('org.example.gone')]);
+    await startExtensions({ api, importModule });
+    expect(api.rendererFailed).toHaveBeenCalledWith('org.example.throws', 'boom');
+    expect(api.rendererFailed).toHaveBeenCalledWith('org.example.empty', 'renderer.js exports no activate()');
+    expect(api.rendererFailed).toHaveBeenCalledWith('org.example.gone', expect.stringMatching(/Failed to fetch/));
+    expect(useExtensionStore.getState().extensions.every((s) => s.state === 'inactive')).toBe(true);
+  });
+
+  it('disabling stops the renderer part first, then the main part; enabling starts them in the other order', async () => {
+    const api = fakeApi([active('org.example.notes')]);
+    await startExtensions({ api, importModule });
+    calls.length = 0;
+    await setExtensionEnabled('org.example.notes', false);
+    expect(calls).toEqual(['renderer deactivate org.example.notes', 'main disable org.example.notes']);
+    expect(useExtensionStore.getState().extensions[0].state).toBe('disabled');
+    calls.length = 0;
+    await setExtensionEnabled('org.example.notes', true);
+    expect(calls).toEqual(['main enable org.example.notes', `renderer activate org.example.notes ${EXTENSION_API_VERSION}`]);
+    expect(useExtensionStore.getState().extensions[0].state).toBe('active');
+  });
+
+  it('starts once per page, however often it is called (StrictMode mounts twice)', async () => {
+    const api = fakeApi([active('org.example.notes')]);
+    await Promise.all([startExtensions({ api, importModule }), startExtensions({ api, importModule })]);
+    expect(calls).toEqual([`renderer activate org.example.notes ${EXTENSION_API_VERSION}`]);
+  });
+
+  it('stopExtensions deactivates every running renderer part', async () => {
+    const api = fakeApi([active('org.example.notes')]);
+    await startExtensions({ api, importModule });
+    calls.length = 0;
+    stopExtensions();
+    expect(calls).toEqual(['renderer deactivate org.example.notes']);
+  });
+
+  it('without the desktop API there are no extensions', async () => {
+    await startExtensions({ api: undefined, importModule });
+    expect(useExtensionStore.getState().extensions).toEqual([]);
+  });
+
+  it('what an extension adds to the UI is removed when it is disabled, and returns when it is enabled (X2)', async () => {
+    const api = fakeApi([{ ...active('org.example.ui'), name: 'Session notes' }]);
+    await startExtensions({ api, importModule });
+    expect(calls).toEqual(['ui activate Session notes']);
+    expect(counts()).toEqual(ALL);
+    expect(ui().openView).toEqual({ extId: 'org.example.ui', id: 'all' });
+    expect(ui().commands[0]).toMatchObject({ extName: 'Session notes', action: 'ext:org.example.ui:next' });
+
+    await setExtensionEnabled('org.example.ui', false);
+    expect(counts()).toEqual(NONE);
+    expect(ui().openView).toBeNull();
+    await setExtensionEnabled('org.example.ui', true);
+    expect(counts()).toEqual(ALL);
+  });
+
+  it('a renderer part that fails after registering leaves nothing behind', async () => {
+    const api = fakeApi([active('org.example.halfway')]);
+    await startExtensions({ api, importModule });
+    expect(counts()).toEqual(NONE);
+    expect(useExtensionStore.getState().extensions[0]).toMatchObject({ state: 'inactive', reason: 'Failed to start: after registering' });
+  });
+
+  it('reloading an extension removes what it added and runs activate() again', async () => {
+    const api = fakeApi([{ ...active('org.example.ui'), name: 'Session notes' }]);
+    await startExtensions({ api, importModule });
+    ui().toolbarItems.forEach(() => undefined);
+    await reloadExtension('org.example.ui');
+    expect(calls).toEqual(['ui activate Session notes', 'ui activate Session notes']);
+    expect(counts()).toEqual(ALL); // not doubled
+  });
+
+  it('ext.xnat and ext.channel reach the main process for this extension, with main\'s own error messages (X3)', async () => {
+    let ctx: RendererExtensionContext | null = null;
+    modules['xnat-extension://org.example.x3/renderer.js'] = { activate: (c: RendererExtensionContext) => { ctx = c; } };
+    const api = fakeApi([active('org.example.x3'), active('org.example.notes')]);
+    await startExtensions({ api, importModule });
+    expect(await ctx!.xnat.user()).toEqual({ serverUrl: 'https://x', username: 'org.example.x3' });
+    await expect(ctx!.xnat.request('/data/projects')).rejects.toThrow(/^Not signed in to XNAT$/);
+    expect(api.xnat).toHaveBeenLastCalledWith('org.example.x3', 'request', ['/data/projects']);
+    expect(await ctx!.channel.request('hi')).toEqual({ from: 'org.example.x3', echo: 'hi' });
+    await expect(ctx!.channel.request('boom')).rejects.toThrow(/^handler boom$/);
+
+    const got: unknown[] = [];
+    ctx!.channel.onMessage((m) => got.push(m));
+    channelListener!('org.example.x3', { n: 1 });
+    channelListener!('org.example.notes', { n: 2 }); // another extension's
+    expect(got).toEqual([{ n: 1 }]);
+    await setExtensionEnabled('org.example.x3', false);
+    channelListener!('org.example.x3', { n: 3 });
+    expect(got).toEqual([{ n: 1 }]);
+    expect(typeof ctx!.viewer.session).toBe('function');
+    expect(typeof ctx!.annotations.list).toBe('function');
+    expect(typeof ctx!.events.on).toBe('function');
+  });
+
+  it('ext.storage and ext.files are made in main as this extension; ext.testing says whether a harness runs (X5)', async () => {
+    let ctx: RendererExtensionContext | null = null;
+    modules['xnat-extension://org.example.x5/renderer.js'] = { activate: (c: RendererExtensionContext) => { ctx = c; } };
+    const api = fakeApi([active('org.example.x5')]);
+    await startExtensions({ api, importModule });
+    expect(await ctx!.storage.get('notes')).toBe('org.example.x5:get:["notes"]');
+    await ctx!.storage.set('notes', [1]);
+    expect(api.storage).toHaveBeenLastCalledWith('org.example.x5', 'set', ['notes', [1]]);
+    expect(await ctx!.files.save({ suggestedName: 'notes.json', data: '[]' })).toEqual({ saved: true, name: 'notes.json' });
+    expect(api.saveFile).toHaveBeenCalledWith('org.example.x5', { suggestedName: 'notes.json', data: '[]' });
+    expect(await ctx!.files.open()).toBeNull();
+    expect(ctx!.testing).toBe(false);
+    expect((globalThis as Record<string, unknown>).__xnatWorkstationExtensions).toBeUndefined(); // not under a harness
+  });
+
+  it('under a test harness, each running extension\'s context is listed for its E2E — and unlisted when it stops', async () => {
+    testing = true;
+    modules['xnat-extension://org.example.x5/renderer.js'] = { activate: () => {} };
+    const api = fakeApi([active('org.example.x5')]);
+    await startExtensions({ api, importModule });
+    const listed = () => ((globalThis as Record<string, unknown>).__xnatWorkstationExtensions as Record<string, RendererExtensionContext> | undefined)?.['org.example.x5'];
+    expect(listed()).toMatchObject({ id: 'org.example.x5', testing: true });
+    await setExtensionEnabled('org.example.x5', false);
+    expect(listed()).toBeUndefined();
+  });
+
+  it('a gated extension is started (for its Settings page) under its gate; a change from main applies live; ext.gate reads it (X6)', async () => {
+    let ctx: RendererExtensionContext | null = null;
+    modules['xnat-extension://org.example.x6/renderer.js'] = { activate: (c: RendererExtensionContext) => { ctx = c; } };
+    const features = [{ id: 'notes', name: 'Notes tab', enabled: false }, { id: 'all', name: 'All notes', enabled: false }];
+    const gated: ExtensionSummary = { ...active('org.example.x6'), state: 'inactive', gated: true, reason: 'No licence', features };
+    const api = fakeApi([gated]);
+    await startExtensions({ api, importModule });
+    expect(ctx).not.toBeNull(); // started although inactive
+    expect(ctx!.gate.current()).toEqual({ active: false, features: [], reason: 'No licence' });
+    expect(useExtensionUiStore.getState().gates['org.example.x6']).toMatchObject({ active: false });
+
+    changedListener!([{ ...gated, state: 'active', gated: false, reason: undefined, tier: 'Basic', features: [{ ...features[0], enabled: true }, features[1]] }]);
+    expect(ctx!.gate.current()).toEqual({ active: true, features: ['notes'], tier: 'Basic' });
+    expect(useExtensionUiStore.getState().gates['org.example.x6']).toEqual({ active: true, features: ['notes'], tier: 'Basic' });
+    expect(useExtensionStore.getState().extensions[0]).toMatchObject({ state: 'active', tier: 'Basic' });
+
+    await ctx!.gate.reevaluate();
+    expect(api.reevaluate).toHaveBeenCalledWith('org.example.x6');
+    expect(ctx!.gate.current()).toEqual({ active: true, features: ['notes', 'all'], tier: 'Pro' });
+  });
+});

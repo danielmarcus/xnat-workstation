@@ -3,12 +3,21 @@
  *
  * Validates that required XNAT connection variables are set.
  * Values are loaded from .env.e2e by playwright.config.ts via dotenv.
+ *
+ * On a server that signs in only through SSO, XNAT_USER and XNAT_PASSWORD are an XNAT alias
+ * token's alias and secret (issued at <server>/data/services/tokens/issue while signed in), and
+ * XNAT_USERNAME names the account the token belongs to. The token cannot fill a login form, so
+ * the specs that type into the server's own login page skip.
  */
 
 export interface E2EConfig {
   xnatUrl: string;
   xnatUser: string;
   xnatPassword: string;
+  /** The account's username: XNAT_USERNAME, or XNAT_USER when the credentials are a password. */
+  xnatUsername: string;
+  /** XNAT_USER and XNAT_PASSWORD are an alias token, not the account's own sign-in. */
+  xnatToken: boolean;
   testProject: string;
   testSubject: string;
   testSession: string;
@@ -40,6 +49,8 @@ export function getE2EConfig(): E2EConfig {
     xnatUrl: required.XNAT_URL!,
     xnatUser: required.XNAT_USER!,
     xnatPassword: required.XNAT_PASSWORD!,
+    xnatUsername: process.env.XNAT_USERNAME || required.XNAT_USER!,
+    xnatToken: !!process.env.XNAT_USERNAME,
     testProject: required.XNAT_TEST_PROJECT!,
     testSubject: required.XNAT_TEST_SUBJECT!,
     testSession: required.XNAT_TEST_SESSION!,

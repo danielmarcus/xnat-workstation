@@ -268,10 +268,10 @@ test('S10.3: an edit made while QC is building leaves the report out of date', a
 
 test('S10.4: 3D QC opened from the sagittal view of an MPR shows the scan in its 2D view', async ({ page }) => {
   const { panel, toolbox } = await mprBody(page);
-  await clickTool(toolbox, 'Rect');
+  await clickTool(toolbox, 'Rectangle');
   await drag(page, 'panel_0', [[-6, -6], [6, 6]]);
   await expect.poll(() => voxels(page)).toBeGreaterThan(0);
-  await activate(page, 'panel_1'); // a click with Rect draws nothing
+  await activate(page, 'panel_1'); // a click with Rectangle draws nothing
   const sheet = await openOperation(panel, '3D QC');
   await expect(sheet.getByTestId('qc3d-row')).toHaveCount(1, { timeout: 30_000 });
   const canvas = page.locator('[data-testid="unified-viewport-element:panel_1"] canvas').first();

@@ -28,7 +28,8 @@ signature. See [module-authoring.md](module-authoring.md) for modules themselves
   "appId": "com.xnat.workstation",
   "artifactPrefix": "XNAT-Workstation",
   "modules": ["modules/examples/threshold", "modules/examples/postop-edema"],
-  "trustedKeys": []
+  "trustedKeys": [],
+  "extensions": []
 }
 ```
 
@@ -41,6 +42,8 @@ signature. See [module-authoring.md](module-authoring.md) for modules themselves
 | `artifactPrefix` | Installers and archives are named `<prefix>-<version>-<arch>.<ext>` |
 | `modules` | Module directories (packed at build time) or `.xwmodule` files (copied), relative to the configuration file |
 | `trustedKeys` | Publisher keys (`module:keygen`'s `public.json` contents) every copy trusts: modules they sign install as Verified |
+| `devTools` | Optional, default `true`: `false` removes developer tools from the packaged app (the open-source edition keeps them; an edition with licensed extensions turns them off) |
+| `extensions` | Optional: extension directories, relative to the configuration file — see [extension-authoring.md](extension-authoring.md). Each is checked and copied **into the app archive**; one the app would refuse fails the build |
 | `publish` | Optional: electron-builder's `publish` configuration for this edition (none by default) |
 
 ## Building
@@ -51,10 +54,18 @@ npm run package          # builds the edition again and packages it with electro
 ```
 
 `npm run build:edition` reads the configuration (`XNAT_EDITION`, or `edition.config.json`),
-packs its modules into `build/edition/modules/`, and records the edition in
+packs its modules into `build/edition/modules/`, copies its extensions into
+`build/edition/extensions/`, and records the edition — with each extension's fingerprint — in
 `build/edition/edition.json`. `electron-builder.config.js` takes the names and app id from that
-record and ships `edition.json` and `modules/` inside the application's resources. At run time
-the app reads them from there (in development, from `build/edition/`).
+record; the record and the extensions go **inside the app archive** (`app.asar`), the modules
+into the application's resources. At run time the app reads them from there (in development,
+from `build/edition/`).
+
+Every edition is **locked down at packaging** ([extension-framework.md](extension-framework.md),
+design point 11): Electron's fuses turn off running as plain Node, `NODE_OPTIONS` and
+`--inspect`, load the app only from its archive, and validate the archive's integrity at
+start-up (macOS, Windows). An extension whose files differ from the record's fingerprints is
+refused. Changing an edition's code therefore means rebuilding and re-signing it.
 
 ## Building another edition
 
@@ -84,9 +95,12 @@ user-data folder), so the signature and notarisation stay valid.
 ## Checking an edition
 
 `npm run test:edition` packages the app (unsigned, unpacked) with a test edition
-(`e2e/fixtures/edition/test-edition.json`), checks the package carries the edition's record and
-its bundled module, launches the packaged app and checks its name, its window title and that the
-module is listed as Bundled — then restores the default edition. Point it at your own
+(`e2e/fixtures/edition/test-edition.json`), checks the package carries the edition's record,
+its bundled module and its extension inside the archive, proves the lock-down (the fuses as set,
+run-as-Node / `NODE_OPTIONS` / `--inspect` without effect, an edited archive refusing to run),
+then launches the packaged app and checks its name, its window title, that the module is listed
+as Bundled, that the extension loads, and that developer tools follow the edition — then
+restores the default edition. Point it at your own
 configuration's shape when building another edition.
 
 Bundled modules can be **disabled** (Settings › Modules) but not removed, and a package with a

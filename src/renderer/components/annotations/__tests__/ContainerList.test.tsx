@@ -48,7 +48,9 @@ describe('ContainerList', () => {
     renderList(true);
     expect(screen.getByText('GTV')).toBeTruthy();
     expect(screen.getByText('CTV')).toBeTruthy();
-    expect(screen.getByTestId('active-indicator')).toBeTruthy(); // GTV is active
+    const active = document.querySelectorAll('[data-active="true"]');
+    expect(active).toHaveLength(1);
+    expect(active[0].textContent).toContain('GTV'); // GTV is active
   });
 
   it('derives member lock state from the Member.locked field', () => {

@@ -4,7 +4,7 @@
  * Defaults and ranges follow SegWorks v2.0.610's Clean panel, with areas/distances in
  * mm / mm² and kernel radii in pixels.
  */
-import type { MaskPlane } from './plane';
+import type { MaskPlane, PlaneSpacing } from './plane';
 import type { PlaneOpContext, PlaneOpOutput } from './scope';
 import { snakeRefine, type SnakeVariant } from '../contours/snake';
 import {
@@ -19,6 +19,7 @@ import {
   removeSpeckles,
   removeStrays,
   smoothEdges,
+  smoothEdgesReach,
 } from './cleanup';
 
 export type ParamSpec =
@@ -62,7 +63,7 @@ export interface CleanupOp {
    * run sends the worker only that window; scopeEquivalence.test holds it). Absent: the whole
    * plane (Snake refine).
    */
-  reach?: (params: ParamValues) => number;
+  reach?: (params: ParamValues, spacing: PlaneSpacing) => number;
   /** With these parameters the operation may claim pixels of other members (so they are written too). */
   claims?: (params: ParamValues) => boolean;
   /** Two-segment operation: the active member (source) and an "Into" member (target). */
@@ -146,10 +147,10 @@ export const CLEANUP_OPS: CleanupOp[] = [
     id: 'smoothEdges',
     group: 'clean',
     label: 'Smooth edges',
-    description: 'A light local vote that rounds isolated jagged pixels.',
-    params: [{ key: 'strength', label: 'Strength', kind: 'number', min: 0.1, max: 1.5, step: 0.1, default: 0.5 }],
-    reach: (p) => (0.5 - (num(p, 'strength') - 0.5) * 0.15 > 0 ? 2 : Infinity),
-    run: (plane, _ctx, p) => smoothEdges(plane, { strength: num(p, 'strength') }),
+    description: 'Rounds a jagged outline: nicks, spikes and gaps narrower than the radius go.',
+    params: [{ key: 'radiusMm', label: 'Radius', kind: 'number', min: 0.5, max: 10, step: 0.5, default: 2, unit: 'mm' }],
+    reach: (p, spacing) => smoothEdgesReach(spacing, num(p, 'radiusMm')),
+    run: (plane, ctx, p) => smoothEdges(plane, ctx.spacing, { radiusMm: num(p, 'radiusMm') }),
   },
   {
     id: 'open',

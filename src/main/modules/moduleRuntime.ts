@@ -18,7 +18,7 @@
  * run after run. What a run serves lives in `runs`, and is forgotten (its origin's storage
  * cleared) when the run stops.
  */
-import { app, BrowserWindow, ipcMain, MessageChannelMain, protocol, session as electronSession, type Session, type WebContents } from 'electron';
+import { app, BrowserWindow, ipcMain, MessageChannelMain, session as electronSession, type CustomScheme, type Session, type WebContents } from 'electron';
 import { IPC } from '../../shared/ipcChannels';
 import * as crypto from 'crypto';
 import * as path from 'path';
@@ -26,10 +26,8 @@ import { moduleStore } from '../ipc/moduleHandlers';
 
 export const MODULE_SCHEME = 'xnat-module';
 
-/** Must run before the app is ready. */
-export function registerModuleScheme(): void {
-  protocol.registerSchemesAsPrivileged([{ scheme: MODULE_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true } }]);
-}
+/** The scheme's privileges; main/index.ts registers every privileged scheme in ONE call. */
+export const MODULE_SCHEME_PRIVILEGES: CustomScheme = { scheme: MODULE_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true } };
 
 const CSP = [
   "default-src 'none'",

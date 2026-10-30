@@ -62,10 +62,9 @@ describe('ContextToolbox', () => {
     expect(screen.getByTestId('editing-chip').textContent).toContain('Length 1');
   });
 
-  // The "planned" rule (a registered-but-unimplemented tool rendered disabled) was
-  // removed with Circle Multi, its only instance. Every tool the toolbox offers is now
-  // implemented; a tool unavailable in the current context is still disabled, which the
-  // next case covers.
+  // There is no "planned" rule (a registered-but-unimplemented tool rendered disabled):
+  // every tool the toolbox offers is implemented. A tool unavailable in the current
+  // context is still disabled, which the next case covers.
   it('disables tools with no FoR-matched viewport (D3)', () => {
     setup({ activeToolId: 'rectangleScissors', disabledToolIds: ['sphereScissors'] });
     expect((screen.getByRole('button', { name: 'Sphere' }) as HTMLButtonElement).disabled).toBe(true);

@@ -15,6 +15,7 @@
 import type { ReactNode } from 'react';
 import type { ContainerKind } from '@shared/types/annotation';
 import type { ThresholdPreset } from '@shared/types/viewer';
+import { FitLabel } from './FitLabel';
 import { KIND_TOOLS_LABEL, SEG_FAMILIES, familyOf, resolveMode, toolsForKind, type ToolControl, type ToolDef, type ToolFamily } from './toolCatalog';
 
 const KIND_COLOR: Record<ContainerKind, string> = {
@@ -205,7 +206,7 @@ export default function ContextToolbox(props: ContextToolboxProps) {
         className={`flex items-center min-w-0 py-1.5 rounded ${columns === 4 ? 'gap-1 px-1' : 'gap-1.5 px-2'} ${cls} ${compact ? 'justify-center' : ''}`}
       >
         {t.icon}
-        {!compact && <span className="truncate">{t.label}</span>}
+        {!compact && <FitLabel label={t.label} short={t.short} className="flex-1 text-left" />}
       </button>
     );
   }
@@ -256,13 +257,14 @@ export default function ContextToolbox(props: ContextToolboxProps) {
               <button
                 key={o.value}
                 type="button"
+                aria-label={o.label}
                 aria-pressed={pressed}
                 disabled={!!off}
                 title={off ?? o.title}
                 onClick={() => to && to !== activeToolId && onSelectTool(to)}
-                className={`flex-1 text-[10px] py-0.5 whitespace-nowrap disabled:opacity-40 ${pressed ? 'bg-blue-600 text-white' : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'}`}
+                className={`flex-1 min-w-0 px-0.5 text-[10px] py-0.5 whitespace-nowrap disabled:opacity-40 ${pressed ? 'bg-blue-600 text-white' : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'}`}
               >
-                {o.label}
+                <FitLabel label={o.label} short={o.short} className="block" />
               </button>
             );
           })}

@@ -2,6 +2,8 @@
  * Toolbar — horizontal toolbar for the viewer with icon+label tool buttons,
  * W/L presets, action buttons, cine controls, layout picker, and protocol picker.
  */
+import ExtensionToolbarItems from '../extensions/ExtensionToolbarItems';
+import { useExtensionUiStore } from '../../lib/extensions/uiRegistry';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useViewerStore } from '../../stores/viewerStore';
 import { useSegmentationStore } from '../../stores/segmentationStore';
@@ -547,6 +549,7 @@ export default function Toolbar({
   // the centre content instead created a feedback loop (see useToolbarCollapse).
   const toolbarRef = useRef<HTMLDivElement>(null);
   const { collapseLevel, textCollapsed, collapsedGroups, isGroupCollapsed } = useToolbarCollapse(toolbarRef);
+  const extensionViewOpen = useExtensionUiStore((s) => s.openView !== null);
 
   // Open Settings to a specific tab when requested by parent (e.g. banner link)
   useEffect(() => {
@@ -585,6 +588,7 @@ export default function Toolbar({
         data-testid="toolbar"
         data-collapse-level={collapseLevel}
         data-text-collapsed={String(textCollapsed)}
+        data-extension-view-open={extensionViewOpen ? 'true' : undefined}
         data-collapsed-groups={collapsedGroups}
         className="h-10 bg-zinc-900 border-b border-zinc-800 flex items-center shrink-0"
       >
@@ -594,6 +598,9 @@ export default function Toolbar({
             {/* Logo · connection chip · Import · Export · Favorites (supplied by App). */}
             {leftSlot}
             <Separator />
+            {/* The viewer's own controls start here: greyed while an extension's full-window
+                view covers the viewer (globals.css, wireframe E3). */}
+            <span data-viewer-controls-start hidden />
 
             {/* Layout · Hanging */}
             <LayoutDropdown disabled={false} />
@@ -703,6 +710,9 @@ export default function Toolbar({
             </CollapsibleGroup>
           </div>
         </div>
+
+        {/* Extensions' items (wireframe E2), left of the right group. */}
+        <ExtensionToolbarItems textCollapsed={textCollapsed} />
 
         {/* Right group — always inline: Annotate (blue when open) · Tags · Settings. */}
         <div className="shrink-0 flex items-center gap-1 px-2 border-l border-zinc-800">

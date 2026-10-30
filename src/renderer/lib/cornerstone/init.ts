@@ -34,6 +34,7 @@ import {
   LabelMapEditWithContourTool,
 } from '@cornerstonejs/tools';
 import SafePaintFillTool from './tools/SafePaintFillTool';
+import { CircleThresholdTool } from './tools/CircleThresholdTool';
 import { AppRegionSegmentPlusTool, AppRegionSegmentTool } from './tools/AppRegionSegmentPlusTool';
 import SelectTool from './tools/SelectTool';
 import { AppLivewireContourTool, ContourFillLivewireTool } from './tools/AppLivewireContourTool';
@@ -121,6 +122,7 @@ export async function initCornerstone(): Promise<void> {
   addTool(SphereScissorsTool);
   addTool(SafePaintFillTool);
   addTool(RectangleROIThresholdTool);
+  addTool(CircleThresholdTool);
 
   // Segmentation tools — contour
   addTool(PlanarFreehandContourSegmentationTool);

@@ -23,9 +23,10 @@ listing no control needs none.
 | **Paint Fill** | Paint | Flood-fill the enclosed region under the cursor (F) | — |
 | **Smart Brush** | Paint | Paint only the tissue under the brush — it does not spill across boundaries. One undo step per stroke; refuses a locked segment | radius (mm), tolerance, spacing |
 | **Circle** | Shape | Drag a circle; everything inside it is added to or removed from the segment (hold Shift to invert) | editMode |
-| **Rect** | Shape | Drag a rectangle; everything inside it is added to or removed from the segment (hold Shift to invert) | editMode |
+| **Rectangle** | Shape | Drag a rectangle; everything inside it is added to or removed from the segment (hold Shift to invert) | editMode |
 | **Sphere** | Shape | Drag a sphere; everything inside it is added to or removed from the segment, across slices (hold Shift to invert) | editMode |
-| **Rect Multi** | Shape | Drag a rectangle; everything inside it within the intensity window joins the segment | intensityWindow |
+| **Rectangle Threshold** | Shape | Drag a rectangle; everything inside it within the intensity window joins the segment | intensityWindow |
+| **Circle Threshold** | Shape | Drag a circle; everything inside it within the intensity window joins the segment | intensityWindow |
 | **Contour Fill** | Shape | Draw a boundary; the area it encloses joins the segment (one undo step; a locked segment is refused). **O** picks it, and pressed again cycles the boundary | Boundary: Freehand · Spline · Live Wire (remembered), then that boundary's controls (see *Spline and Live Wire* below) |
 | **Region** | Smart | Grow a region outward from the voxel you click | brushSize |
 | **Region+** | Smart | Grow a region outward, adapting the boundary as it goes | brushSize |
@@ -66,7 +67,7 @@ A locked segment previews read-only. **X** opens (or expands) Cleanup.
 | **Remove strays** | Clean | Remove islands far from the largest | distance (mm), protect ≥ % |
 | **Median smooth** | Clean | Majority vote | radius (px) |
 | **Gaussian smooth** | Clean | Blur and re-threshold | σ (px), threshold |
-| **Smooth edges** | Clean | Light 3×3 vote | strength |
+| **Smooth edges** | Clean | Majority vote over a disc, repeated until stable | radius (mm) |
 | **Morph open / close** | Clean | Erode→dilate / dilate→erode | radius (px) |
 | **Anisotropic diffusion** | Clean | Edge-preserving, image-guided smoothing | iterations, κ, conduction |
 | **Snake refine** | Clean | Move the boundary onto the image edges nearby (active contour) | variant (Edge · Gradient vector flow — reaches edges farther away · Balloon — also inflates · Morphological — robust to noise), iterations, edge weight, neighbours (Keep · Replace shared boundary — a touching segment's pixels along the shared boundary may be taken, never a locked one's); Advanced: GVF μ, GVF iterations, balloon force |
@@ -211,8 +212,8 @@ Clear drops it.
 | **Angle** | Measure the angle between two lines (A) | — |
 | **Bidir.** | Measure a long axis and its perpendicular | — |
 | **Ellipse** | Measure an elliptical region and its statistics | — |
-| **Rect ROI** | Measure a rectangular region and its statistics | — |
-| **Circle ROI** | Measure a circular region and its statistics | — |
+| **Rectangle** | Measure a rectangular region and its statistics | — |
+| **Circle** | Measure a circular region and its statistics | — |
 | **Probe** | Read the intensity at a single point (D) | — |
 | **Arrow** | Point at a feature and label it (T) | — |
 | **Freehand ROI** | Measure a freehand region and its statistics | — |
@@ -223,7 +224,7 @@ Clear drops it.
 |---|---|
 | Brush family (Brush, Eraser, Threshold, and the sphere variants) | Cornerstone's circle, sized to the brush radius |
 | Dyn. Thresh | Two rings — brush radius plus the sampling radius it will read |
-| Scissors, Rect Multi, Region, Contour Fill | `crosshair` |
+| Scissors, Rectangle Threshold, Circle Threshold, Region, Contour Fill | `crosshair` |
 | Paint Fill | `cell` |
 | Select | `pointer` |
 | Region+ | its own, as live feedback: `copy` when it can proceed, `not-allowed` when its seed heuristic is unsatisfied, `wait` while computing |
@@ -245,7 +246,7 @@ Two other cursor defects fixed at the same time:
 
 ## Add/remove mode
 
-The three shape tools (Circle, Rect, Sphere) are Cornerstone's *scissors* tools. Each
+The three shape tools (Circle, Rectangle, Sphere) are Cornerstone's *scissors* tools. Each
 registers exactly two strategies:
 
 | Strategy | Available | Notes |
@@ -287,9 +288,9 @@ cursor **exactly**:
 
 | Tool | Fill | Erase |
 |---|---|---|
-| Brush, Sph. Brush, Circle, Rect, Sphere | `XnatEditFill` | `XnatEditErase` |
+| Brush, Sph. Brush, Circle, Rectangle, Sphere | `XnatEditFill` | `XnatEditErase` |
 | Threshold, Sph. Thresh, Dyn. Thresh | `crosshair` | — (fill-only) |
-| Paint Fill / Region / Rect Multi / Contour Fill / Select | `cell` / `crosshair` / `crosshair` / `crosshair` / `pointer` | — |
+| Paint Fill / Region / Rectangle Threshold / Circle Threshold / Contour Fill / Select | `cell` / `crosshair` / `crosshair` / `crosshair` / `crosshair` / `pointer` | — |
 
 `XnatEditFill` and `XnatEditErase` are a **matched pair we register ourselves**. Mixing a
 CSS keyword for one mode with a shipped SVG cursor for the other made the pointer change

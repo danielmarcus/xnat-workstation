@@ -61,6 +61,10 @@ export interface NavigateToTarget {
   sessionLabel?: string;
   /** Navigate the browser tree without auto-loading the session. */
   skipAutoLoad?: boolean;
+  /** The scan to show first when the session loads. */
+  targetScanId?: string;
+  /** Told how the session load ended (ext.viewer.openSession). */
+  onOutcome?: (outcome: { outcome: 'opened' | 'cancelled' | 'failed'; reason?: string }) => void;
 }
 
 // ─── Constants ────────────────────────────────────────────────────

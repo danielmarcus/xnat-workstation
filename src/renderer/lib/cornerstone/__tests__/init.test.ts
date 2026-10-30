@@ -106,6 +106,7 @@ async function loadInitModule(options?: { splineRegistered?: boolean }): Promise
   }));
   vi.doMock('../tools/AppRegionSegmentPlusTool', () => ({ AppRegionSegmentTool: { toolName: 'RegionSegment' }, AppRegionSegmentPlusTool: { toolName: 'RegionSegmentPlus' } }));
   vi.doMock('../operationContextReset', () => ({ installOperationContextReset: vi.fn() }));
+  vi.doMock('../tools/CircleThresholdTool', () => ({ CircleThresholdTool: { toolName: 'CircleThreshold' } }));
   vi.doMock('../tools/SafePaintFillTool', () => ({
     default: { toolName: 'SafePaintFill' },
   }));
@@ -139,6 +140,7 @@ describe('initCornerstone', () => {
     });
     expect(mocks.addTool).toHaveBeenCalled();
     expect(mocks.addTool).toHaveBeenCalledWith(expect.objectContaining({ toolName: 'SafePaintFill' }));
+    expect(mocks.addTool).toHaveBeenCalledWith(expect.objectContaining({ toolName: 'CircleThreshold' }));
     expect(mocks.addTool).toHaveBeenCalledWith(expect.objectContaining({ toolName: 'LivewireContourSegmentationTool' }));
     expect(mocks.register).toHaveBeenCalledTimes(1);
     // Legacy metadata provider stays on until the dataSetCacheManager readers move (v5 plan, Phase 6).

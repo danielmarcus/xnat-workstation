@@ -11,6 +11,7 @@ import Toolbar from '../components/viewer/Toolbar';
 import UnifiedViewportGrid from '../components/viewer/UnifiedViewportGrid';
 import AnnotationsPanel from '../components/annotations/AnnotationsPanel';
 import DicomHeaderPanel from '../components/viewer/DicomHeaderPanel';
+import ExtensionViewHost from '../components/extensions/ExtensionViewHost';
 import { annotationService } from '../lib/cornerstone/annotationService';
 import { segmentationService } from '../lib/cornerstone/segmentationService';
 import { containerService } from '../lib/cornerstone/containerService';
@@ -111,6 +112,8 @@ export default function ViewerPage({
           )}
           {showDicomPanel && <DicomHeaderPanel onClose={closeDicomPanel} />}
         </div>
+        {/* An extension's full-window view, over all of the above (wireframe E3). */}
+        <ExtensionViewHost />
       </div>
     </div>
   );

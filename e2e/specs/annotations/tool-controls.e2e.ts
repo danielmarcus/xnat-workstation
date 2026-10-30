@@ -4,7 +4,7 @@
  * Reported as "controls are missing to set needed values", and both halves were true:
  *
  *  - The intensity window was gated on `activeToolId === 'threshold'`, one hardcoded id.
- *    Sph. Thresh and Rect Multi are governed by that window and had no way to set it.
+ *    Sph. Thresh, Rectangle Threshold and Circle Threshold are governed by that window and had no way to set it.
  *  - Dyn. Thresh samples a radius around the first click and had NO control at all; it
  *    ran on a hidden constant.
  *  - The brush radius was shown for every SEG tool, including Circle and Select,
@@ -43,11 +43,12 @@ const CASES = [
   // Threshold variants are fill-only — Cornerstone ships no erase-threshold strategy.
   { tool: 'Sph. Thresh', brushSize: true, intensityWindow: true, samplingRadius: false, editMode: false },
   { tool: 'Dyn. Thresh', brushSize: true, intensityWindow: false, samplingRadius: true, editMode: false },
-  { tool: 'Rect Multi', brushSize: false, intensityWindow: true, samplingRadius: false, editMode: false },
+  { tool: 'Rectangle Threshold', brushSize: false, intensityWindow: true, samplingRadius: false, editMode: false },
+  { tool: 'Circle Threshold', brushSize: false, intensityWindow: true, samplingRadius: false, editMode: false },
   // The shape tools carry the add/remove mode toggle and nothing else — notably no
   // brush radius, which they ignore.
   { tool: 'Circle', brushSize: false, intensityWindow: false, samplingRadius: false, editMode: true },
-  { tool: 'Rect', brushSize: false, intensityWindow: false, samplingRadius: false, editMode: true },
+  { tool: 'Rectangle', brushSize: false, intensityWindow: false, samplingRadius: false, editMode: true },
   { tool: 'Sphere', brushSize: false, intensityWindow: false, samplingRadius: false, editMode: true },
   { tool: 'Select', brushSize: false, intensityWindow: false, samplingRadius: false, editMode: false },
 ];

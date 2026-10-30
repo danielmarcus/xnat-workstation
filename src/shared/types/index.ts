@@ -242,6 +242,30 @@ export interface ElectronAPI {
     /** End a run: its sandboxed process is destroyed. */
     runStop(runId: string): Promise<{ ok: boolean }>;
   };
+  /** The edition's extensions (docs/extension-framework.md). Each call returns the updated list. */
+  extensions?: {
+    list(): Promise<import('../extensions/types').ExtensionSummary[]>;
+    setEnabled(id: string, enabled: boolean): Promise<import('../extensions/types').ExtensionSummary[]>;
+    /** The renderer could not start an extension's renderer part. */
+    rendererFailed(id: string, reason: string): Promise<import('../extensions/types').ExtensionSummary[]>;
+    /** A renderer part's ext.xnat call, made in main. */
+    xnat(id: string, op: string, args: unknown[]): Promise<{ ok: true; value: unknown } | { ok: false; error: string }>;
+    /** A renderer part's ext.channel.request(), answered by its main part. */
+    channelRequest(id: string, message: unknown): Promise<{ ok: true; value: unknown } | { ok: false; error: string }>;
+    /** A renderer part's ext.storage call, made in main. */
+    storage(id: string, op: string, args: unknown[]): Promise<{ ok: true; value: unknown } | { ok: false; error: string }>;
+    /** ext.gate.reevaluate(): the main part is asked again; returns the updated list. */
+    reevaluate(id: string): Promise<import('../extensions/types').ExtensionSummary[]>;
+    /** The extensions' states changed in main (a gate re-evaluated); returns the unsubscribe. */
+    onChanged(callback: (list: import('../extensions/types').ExtensionSummary[]) => void): () => void;
+    /** ext.files.open / save: the system dialogs, in main. */
+    openFile(id: string, options?: unknown): Promise<{ ok: true; value: unknown } | { ok: false; error: string }>;
+    saveFile(id: string, options: unknown): Promise<{ ok: true; value: unknown } | { ok: false; error: string }>;
+    /** The app runs under a test harness. */
+    testing: boolean;
+    /** Main parts' ext.channel.post(); returns the unsubscribe. */
+    onChannelMessage(callback: (id: string, message: unknown) => void): () => void;
+  };
   diagnostics?: {
     getMainSnapshot(): Promise<MainDiagnosticsSnapshotResult>;
   };

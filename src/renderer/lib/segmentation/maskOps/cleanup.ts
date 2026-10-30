@@ -272,15 +272,92 @@ export function gaussianSmooth(p: MaskPlane, opts: GaussianSmoothOptions): MaskP
   return withData(p, out);
 }
 
+export interface SmoothEdgesOptions {
+  /** The smoothing scale: nicks, spikes and gaps narrower than about this go. */
+  radiusMm: number;
+}
+
+/** Most passes a Smooth edges run takes; real outlines settle in a handful. */
+const SMOOTH_EDGES_MAX_PASSES = 64;
+
 /**
- * A light 3×3 weighted vote ([1 2 1; 2 4 2; 1 2 1]/16) that rounds isolated jagged
- * pixels without a global blur. `strength` 0.5 (default) thresholds at 0.5; higher
- * strength lowers the threshold (keeps/fills more), as in SegWorks.
+ * Round a jagged outline at a scale in mm: every pixel takes the majority of a disc of that
+ * radius around it (an ellipse in pixels when the spacing is anisotropic), REPEATED until
+ * nothing changes. One pass of a vote leaves the next layer of jags for the next run (the
+ * 3×3 vote this replaces only ever touched single pixels, and each run found more); run to
+ * its fixed point, the result is stable, so a second run finds nothing to change.
+ *
+ * A pixel outside the set pixels' box has at most half its disc set, so the box never
+ * grows: the reach is the disc's radius in pixels (`smoothEdgesReach`). A synchronous
+ * majority vote can end in a two-pass cycle instead of a fixed point (rare); the run stops
+ * there, keeping the pixels both passes set.
  */
-export function smoothEdges(p: MaskPlane, opts: { strength?: number } = {}): MaskPlane {
-  const kernel = Float64Array.from([1, 2, 1, 2, 4, 2, 1, 2, 1]);
-  const strength = opts.strength ?? 0.5;
-  return convolveThreshold(p, kernel, 1, 0.5 - (strength - 0.5) * 0.15);
+export function smoothEdges(p: MaskPlane, spacing: PlaneSpacing, opts: SmoothEdgesOptions): MaskPlane {
+  const { width: w, height: h } = p;
+  const rx = Math.max(1, opts.radiusMm / spacing.x);
+  const ry = Math.max(1, opts.radiusMm / spacing.y);
+  const R = Math.floor(ry);
+  // The disc as a half-width per row offset.
+  const half = Int32Array.from({ length: 2 * R + 1 }, (_, i) => {
+    const dy = i - R;
+    return Math.floor(rx * Math.sqrt(Math.max(0, 1 - (dy * dy) / (ry * ry))));
+  });
+  const box = reach(p, 0);
+  if (!box) return withData(p, new Uint8Array(p.data.length));
+  const bw = box.x1 - box.x0 + 1;
+  const bh = box.y1 - box.y0 + 1;
+  // Prefix sums of each box row (set pixels are only in the box), one longer than the row.
+  const pre = new Int32Array(bh * (bw + 1));
+  let cur = p.data;
+  let prev: Uint8Array | null = null;
+  for (let pass = 0; pass < SMOOTH_EDGES_MAX_PASSES; pass++) {
+    for (let y = 0; y < bh; y++) {
+      const src = (box.y0 + y) * w + box.x0;
+      const row = y * (bw + 1);
+      for (let x = 0; x < bw; x++) pre[row + x + 1] = pre[row + x] + cur[src + x];
+    }
+    const next = new Uint8Array(cur);
+    let changed = false;
+    for (let y = box.y0; y <= box.y1; y++) {
+      for (let x = box.x0; x <= box.x1; x++) {
+        let set = 0;
+        let total = 0;
+        for (let i = 0; i <= 2 * R; i++) {
+          const yy = y + i - R;
+          if (yy < 0 || yy >= h) continue;
+          const lo = Math.max(0, x - half[i]);
+          const hi = Math.min(w - 1, x + half[i]);
+          total += hi - lo + 1;
+          if (yy < box.y0 || yy > box.y1) continue;
+          const a = Math.max(lo, box.x0) - box.x0;
+          const b = Math.min(hi, box.x1) - box.x0;
+          if (b >= a) {
+            const row = (yy - box.y0) * (bw + 1);
+            set += pre[row + b + 1] - pre[row + a];
+          }
+        }
+        const v = 2 * set > total ? 1 : 0;
+        if (v !== next[x + y * w]) {
+          next[x + y * w] = v;
+          changed = true;
+        }
+      }
+    }
+    if (!changed) break;
+    if (prev && prev.every((v, i) => v === next[i])) {
+      for (let i = 0; i < next.length; i++) next[i] &= cur[i];
+      cur = next;
+      break;
+    }
+    prev = cur;
+    cur = next;
+  }
+  return withData(p, cur === p.data ? new Uint8Array(cur) : cur);
+}
+
+/** How far (pixels) Smooth edges reads beyond the set pixels' box: its disc's radius. */
+export function smoothEdgesReach(spacing: PlaneSpacing, radiusMm: number): number {
+  return Math.ceil(Math.max(1, radiusMm / Math.min(spacing.x, spacing.y)));
 }
 
 // ─── Morphology (square structuring element, as SegWorks) ───────────────────

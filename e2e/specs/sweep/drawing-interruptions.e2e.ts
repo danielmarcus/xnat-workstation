@@ -83,7 +83,7 @@ for (const boundary of ['Spline', 'Live Wire'] as const) {
 test('Backspace while drawing a Spline drops a point — it never deletes the selected island', async ({ page }) => {
   const { toolbox } = await setup(page);
   // An island of the segment, selected with the Select tool.
-  await clickTool(toolbox, 'Rect');
+  await clickTool(toolbox, 'Rectangle');
   const a = await pt(page, 25, 25), b = await pt(page, 40, 40);
   await page.mouse.move(a.x, a.y); await page.mouse.down(); await page.mouse.move(b.x, b.y, { steps: 8 }); await page.mouse.up();
   await expect.poll(() => h(page, 'activeSegmentVoxelCount')).toBeGreaterThan(0);

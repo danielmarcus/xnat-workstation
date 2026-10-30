@@ -89,7 +89,7 @@ async function setup(page: Page, fixture: string, orientation: string): Promise<
   await expect(toolbox.getByRole('button', { name: 'Brush', exact: true })).toBeVisible({ timeout: 10_000 });
   await panel.getByRole('button', { name: 'Add member' }).first().click();
   await page.keyboard.press('Escape');
-  await clickTool(toolbox, 'Rect');
+  await clickTool(toolbox, 'Rectangle');
   await drag(page, [[35, 35], [50, 50]]);
   await panel.locator('[data-testid^="member-row-"]').first().click();
   const a = (await H(page).plane())!.index;
