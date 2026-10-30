@@ -1,5 +1,5 @@
 /**
- * Rect Multi: drag a rectangle, and everything inside it within the intensity window
+ * Rect Threshold: drag a rectangle, and everything inside it within the intensity window
  * joins the segment.
  *
  * It shipped greyed out, and the reason is worth keeping: Cornerstone's
@@ -47,12 +47,13 @@ async function dragRegion(page: Page) {
   await page.waitForTimeout(2000);
 }
 
-// A circle variant was removed from the app entirely rather than shipped disabled:
-// Cornerstone's fill utility rejects a circle annotation outright
-// ("rectangleROIThresholdVolumeByRange only supports RectangleROIThreshold and
-// RectangleROIStartEndThreshold"), so there was no path to implementing it.
+// Circle Threshold reaches the same result by another route: Cornerstone's fill utility rejects a
+// circle annotation, so it is the Circle scissors with the brush's circle-threshold strategy
+// (tools/CircleThresholdTool). The narrow-window case is what catches it failing open — with no
+// window handed to the strategy, Cornerstone's threshold test passes every voxel.
 for (const tool of [
-  { label: 'Rect Multi', name: 'rectangle' },
+  { label: 'Rect Threshold', name: 'rectangle' },
+  { label: 'Circle Threshold', name: 'circle' },
 ]) {
   test(`${tool.label} fills the segment inside the region, within the intensity window`, async ({ page }) => {
     const pageErrors: string[] = [];
@@ -85,18 +86,20 @@ for (const tool of [
 /**
  * #98 (ledger F3): the window's bounds are inclusive. On the binary sphere phantom every
  * sphere voxel reads exactly 300 HU — the upper bound of the default CT window (Soft
- * Tissue, −100…300) — and Rect Multi wrote nothing: Cornerstone's same-grid test in
+ * Tissue, −100…300) — and Rect Threshold wrote nothing: Cornerstone's same-grid test in
  * `thresholdVolumeByRange` is `value <= lower || value >= upper → reject`, i.e. EXCLUSIVE
  * at both ends (its resampled-grid test is inclusive). Driven with the default window,
  * as a user meets it.
  */
-test('Rect Multi includes voxels exactly at the window\'s upper bound (300 HU sphere, −100…300)', async ({ page }) => {
-  await loadFixture(page, 'ct-axial-300', 'panel_0');
-  await expect.poll(() => page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.isUnifiedVolumeReady()), { timeout: 30_000 }).toBe(true);
-  await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.resetUnifiedSegmentations());
-  const panel = await newSegmentation(page);
-  await clickTool(panel, 'Rect Multi');
-  await dragRegion(page);
-  const filled = await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.getPaintedVoxelCount());
-  expect(filled, 'the 300 HU sphere under the rectangle must be filled').toBeGreaterThan(0);
-});
+for (const tool of [{ label: 'Rect Threshold', name: 'rectangle' }, { label: 'Circle Threshold', name: 'circle' }]) {
+  test(`${tool.label} includes voxels exactly at the window's upper bound (300 HU sphere, −100…300)`, async ({ page }) => {
+    await loadFixture(page, 'ct-axial-300', 'panel_0');
+    await expect.poll(() => page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.isUnifiedVolumeReady()), { timeout: 30_000 }).toBe(true);
+    await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.resetUnifiedSegmentations());
+    const panel = await newSegmentation(page);
+    await clickTool(panel, tool.label);
+    await dragRegion(page);
+    const filled = await page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.getPaintedVoxelCount());
+    expect(filled, `the 300 HU sphere under the ${tool.name} must be filled`).toBeGreaterThan(0);
+  });
+}

@@ -62,6 +62,7 @@ import type { Types as ToolTypes } from '@cornerstonejs/tools';
 import { Enums as CoreEnums, eventTarget, getEnabledElementByViewportId } from '@cornerstonejs/core';
 import { cursors as csCursors } from '@cornerstonejs/tools';
 import SafePaintFillTool from './tools/SafePaintFillTool';
+import { CircleThresholdTool } from './tools/CircleThresholdTool';
 import { AppRegionSegmentPlusTool, AppRegionSegmentTool } from './tools/AppRegionSegmentPlusTool';
 import SelectTool from './tools/SelectTool';
 import { LevelTraceTool, RoiLimitTool, SmartBrushTool, SolverSeedTool } from './tools/semiAutoTools';
@@ -146,6 +147,7 @@ const UNIFIED_TOOL_MAP: Partial<Record<ToolName, string>> = {
   [ToolName.ArrowAnnotate]: ArrowAnnotateTool.toolName,
   [ToolName.PlanarFreehandROI]: PlanarFreehandROITool.toolName,
   [ToolName.RectangleROIThreshold]: RectangleROIThresholdTool.toolName,
+  [ToolName.CircleThreshold]: CircleThresholdTool.toolName,
   [ToolName.SegmentBidirectional]: SegmentBidirectionalTool.toolName,
 };
 
@@ -672,7 +674,7 @@ function ensureToolGroup(): ToolTypes.IToolGroup | undefined {
     LivewireContourSegmentationTool, CircleScissorsTool, RectangleScissorsTool,
     SphereScissorsTool, SafePaintFillTool, SculptorTool, SelectTool,
     AppRegionSegmentTool, AppRegionSegmentPlusTool, SegmentBidirectionalTool,
-    RectangleROIThresholdTool, LabelMapEditWithContourTool,
+    RectangleROIThresholdTool, CircleThresholdTool, LabelMapEditWithContourTool,
     LevelTraceTool, SmartBrushTool, RoiLimitTool, SolverSeedTool,
     ContourFillSplineTool, ContourFillLivewireTool,
   ];
@@ -754,7 +756,7 @@ function ensureToolGroup(): ToolTypes.IToolGroup | undefined {
   }
 
   // Scissors outline colour (Settings → Scissors preview) — an instance patch, see its module.
-  for (const Tool of [CircleScissorsTool, RectangleScissorsTool, SphereScissorsTool]) {
+  for (const Tool of [CircleScissorsTool, RectangleScissorsTool, SphereScissorsTool, CircleThresholdTool]) {
     try {
       applyScissorOutlineColor(toolGroup.getToolInstance(Tool.toolName));
     } catch (err) {
@@ -862,6 +864,7 @@ const SELECT_CURSOR = `url("data:image/svg+xml;utf8,${encodeURIComponent(SELECT_
 
 const CURSOR_FOR_TOOL: Partial<Record<ToolName, string>> = {
   [ToolName.RectangleROIThreshold]: 'crosshair',
+  [ToolName.CircleThreshold]: 'crosshair',
   [ToolName.PaintFill]: 'cell',
   [ToolName.RegionSegment]: 'crosshair',
   // The Select tools point at things rather than draw: an arrow, as their icon shows.

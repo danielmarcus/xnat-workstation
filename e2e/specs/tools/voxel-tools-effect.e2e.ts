@@ -117,19 +117,9 @@ test('paint fill floods the enclosed region with the active segment (signal 24 /
 });
 
 /**
- * Circle Multi (CircleROIStartEndThresholdTool) — REMOVED from the app entirely
- * (2026-09-21). Kept in this note because the reasoning still applies to any ROI tool:
- *
- * The audit predicted it and this spec proved it before the tool was disabled: with
- * Circle Multi enabled, a completed real drag wrote 0 voxels. It draws an ROI and
- * computes points-inside-volume, but nothing in src/renderer converts that into
- * labelmap voxels — exactly the shape of the threshold-brush bug (activates cleanly,
- * does nothing). Its rectangle sibling (rectMulti / RectangleROIThreshold) was
- * already marked planned; this one shipped enabled by oversight and now matches.
- *
- * The regression guard lives in `annotations/tool-affordance` with the other planned-tool assertions: the
- * button must stay DISABLED. When the ROI → labelmap conversion is built, drop that
- * guard and add the effect test here instead (drag → expect paintedVoxels > 0).
+ * Rect Threshold and Circle Threshold — the shape tools limited to the intensity window — have
+ * their effect tests in `tools/roi-threshold-tools`, which checks the window is respected as
+ * well as that something was written.
  */
 
 async function expectAtLeastOne(page: Page, message: string): Promise<number> {

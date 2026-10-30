@@ -68,7 +68,7 @@ test('a usable tool never shows a forbidden cursor', async ({ page }) => {
   // The pointer must land somewhere NEW each time. Moving it to coordinates it already
   // occupies emits no mousemove, so the cursor is never re-asserted and the spec reads a
   // stale value — which cost an hour of chasing a fix that was already working.
-  const tools = ['Region', 'Region+', 'Rect Multi', 'Paint Fill', 'Contour Fill', 'Select',
+  const tools = ['Region', 'Region+', 'Rect Threshold', 'Circle Threshold', 'Paint Fill', 'Contour Fill', 'Select',
                  'Circle', 'Rect', 'Sphere'];
   for (const [i, tool] of tools.entries()) {
     await clickTool(panel, tool);

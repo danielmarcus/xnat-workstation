@@ -59,7 +59,8 @@ const EXPECTED: Array<[string, string, string | null]> = [
   ['Sphere', 'XnatEditFill', 'XnatEditErase'],
   ['Paint Fill', 'cell', null],
   ['Region', 'crosshair', null],
-  ['Rect Multi', 'crosshair', null],
+  ['Rect Threshold', 'crosshair', null],
+  ['Circle Threshold', 'crosshair', null],
   ['Contour Fill', 'crosshair', null],
   // An arrow, matching the toolbox icon — the app's named one, never the bare OS arrow.
   ['Select', 'XnatSelect', null],

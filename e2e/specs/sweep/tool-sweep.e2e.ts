@@ -94,7 +94,10 @@ const TOOLS: ToolCase[] = [
   // Region segments in 3D inside the sphere you drag; Region+ in 3D from one click.
   { label: 'Region', expect: 'change', flat: false, focal: true, growCut: 'RegionSegment', gesture: (p) => drag(p, [[0, 0], [12, 0]]) },
   { label: 'Region+', expect: 'change', flat: false, focal: true, growCut: 'RegionSegmentPlus', gesture: (p) => click(p) },
-  { label: 'Rect Multi', expect: 'change', flat: true, focal: true, gesture: (p) => drag(p, [[-8, -8], [8, 8]]) },
+  { label: 'Rect Threshold', expect: 'change', flat: true, focal: true, gesture: (p) => drag(p, [[-8, -8], [8, 8]]) },
+  // The circle's in-circle test runs in the view's axes (it is the Circle scissors), so unlike
+  // Rect Threshold it is not refused on an oblique reformat.
+  { label: 'Circle Threshold', expect: 'change', flat: true, focal: true, gesture: (p) => drag(p, [[0, 0], [8, 0]]) },
   { label: 'Contour Fill', expect: 'change', flat: true, focal: true, gesture: (p) => drag(p, loop(10)) },
   { label: 'Level Trace', expect: 'change', flat: true, focal: true, gesture: (p) => click(p), after: commitPreview },
   { label: 'Smart Brush', expect: 'change', flat: true, focal: true, gesture: (p) => drag(p, [[-3, 0], [3, 0]]) },
@@ -103,7 +106,7 @@ const TOOLS: ToolCase[] = [
 ];
 
 /** The app's own plane tools, which work on grid slices — refused on an oblique reformat. */
-const REFUSE_ON_OBLIQUE_VIEW = new Set(['Level Trace', 'Smart Brush', 'Region', 'Region+', 'Rect Multi']);
+const REFUSE_ON_OBLIQUE_VIEW = new Set(['Level Trace', 'Smart Brush', 'Region', 'Region+', 'Rect Threshold']);
 
 const CONTEXTS: Array<{ fixture: string; orientation: 'ACQUISITION' | 'SAGITTAL' | 'CORONAL' }> = [
   { fixture: 'ct-body-512', orientation: 'ACQUISITION' },

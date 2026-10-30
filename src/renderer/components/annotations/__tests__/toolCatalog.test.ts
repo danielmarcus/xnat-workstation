@@ -119,7 +119,7 @@ describe('Segmentation families', () => {
   it('family labels are unique and familyOf finds a member’s family', () => {
     expect(new Set(SEG_FAMILIES.map((f) => f.label)).size).toBe(SEG_FAMILIES.length);
     expect(familyOf('sphereThreshold')?.id).toBe('brush');
-    expect(familyOf('rectMulti')?.id).toBe('shape');
+    expect(familyOf('rectThreshold')?.id).toBe('shape');
     expect(familyOf('length')).toBeUndefined();
   });
 
@@ -131,12 +131,17 @@ describe('Segmentation families', () => {
     expect(resolveMode(brush(), 'sphereBrush', 'limit', 'window')).toBe('sphereThreshold');
     expect(resolveMode(brush(), 'sphereThreshold', 'kernel', '2d')).toBe('threshold');
     expect(resolveMode(shape(), 'circleScissors', 'shape', 'sphere')).toBe('sphereScissors');
+    expect(resolveMode(shape(), 'circleScissors', 'limit', 'window')).toBe('circleThreshold');
+    expect(resolveMode(shape(), 'rectThreshold', 'shape', 'circle')).toBe('circleThreshold');
+    expect(resolveMode(shape(), 'circleThreshold', 'shape', 'rect')).toBe('rectThreshold');
+    expect(resolveMode(shape(), 'circleThreshold', 'limit', 'none')).toBe('circleScissors');
   });
 
   it('falls back to a member that has the value when the combination does not exist', () => {
     expect(resolveMode(brush(), 'sphereBrush', 'limit', 'edges')).toBe('smartBrush');
     expect(resolveMode(brush(), 'sphereThreshold', 'limit', 'click')).toBe('dynamicThreshold');
-    expect(resolveMode(shape(), 'circleScissors', 'limit', 'window')).toBe('rectMulti');
-    expect(resolveMode(shape(), 'rectMulti', 'shape', 'circle')).toBe('circleScissors');
+    // A sphere has no window limit: each side gives way to a tool that has the value picked.
+    expect(resolveMode(shape(), 'sphereScissors', 'limit', 'window')).toBe('rectThreshold');
+    expect(resolveMode(shape(), 'circleThreshold', 'shape', 'sphere')).toBe('sphereScissors');
   });
 });

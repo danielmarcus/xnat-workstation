@@ -416,6 +416,8 @@ vi.mock('dicom-parser', () => ({
   parseDicom: segIoMocks.parseDicom,
 }));
 
+vi.mock('../tools/CircleThresholdTool', () => ({ CircleThresholdTool: { toolName: 'CircleThreshold' } }));
+
 vi.mock('../tools/SafePaintFillTool', () => ({
   default: { toolName: 'SafePaintFill' },
 }));

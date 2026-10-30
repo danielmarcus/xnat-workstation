@@ -26,6 +26,7 @@ listing no control needs none.
 | **Rect** | Shape | Drag a rectangle; everything inside it is added to or removed from the segment (hold Shift to invert) | editMode |
 | **Sphere** | Shape | Drag a sphere; everything inside it is added to or removed from the segment, across slices (hold Shift to invert) | editMode |
 | **Rect Threshold** | Shape | Drag a rectangle; everything inside it within the intensity window joins the segment | intensityWindow |
+| **Circle Threshold** | Shape | Drag a circle; everything inside it within the intensity window joins the segment | intensityWindow |
 | **Contour Fill** | Shape | Draw a boundary; the area it encloses joins the segment (one undo step; a locked segment is refused). **O** picks it, and pressed again cycles the boundary | Boundary: Freehand · Spline · Live Wire (remembered), then that boundary's controls (see *Spline and Live Wire* below) |
 | **Region** | Smart | Grow a region outward from the voxel you click | brushSize |
 | **Region+** | Smart | Grow a region outward, adapting the boundary as it goes | brushSize |
@@ -223,7 +224,7 @@ Clear drops it.
 |---|---|
 | Brush family (Brush, Eraser, Threshold, and the sphere variants) | Cornerstone's circle, sized to the brush radius |
 | Dyn. Thresh | Two rings — brush radius plus the sampling radius it will read |
-| Scissors, Rect Threshold, Region, Contour Fill | `crosshair` |
+| Scissors, Rect Threshold, Circle Threshold, Region, Contour Fill | `crosshair` |
 | Paint Fill | `cell` |
 | Select | `pointer` |
 | Region+ | its own, as live feedback: `copy` when it can proceed, `not-allowed` when its seed heuristic is unsatisfied, `wait` while computing |
@@ -289,7 +290,7 @@ cursor **exactly**:
 |---|---|---|
 | Brush, Sph. Brush, Circle, Rect, Sphere | `XnatEditFill` | `XnatEditErase` |
 | Threshold, Sph. Thresh, Dyn. Thresh | `crosshair` | — (fill-only) |
-| Paint Fill / Region / Rect Threshold / Contour Fill / Select | `cell` / `crosshair` / `crosshair` / `crosshair` / `pointer` | — |
+| Paint Fill / Region / Rect Threshold / Circle Threshold / Contour Fill / Select | `cell` / `crosshair` / `crosshair` / `crosshair` / `crosshair` / `pointer` | — |
 
 `XnatEditFill` and `XnatEditErase` are a **matched pair we register ourselves**. Mixing a
 CSS keyword for one mode with a shipped SVG cursor for the other made the pointer change
