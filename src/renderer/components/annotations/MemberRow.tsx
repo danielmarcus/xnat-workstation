@@ -9,7 +9,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import type { Member } from '@shared/types/annotation';
-import { ActiveDotGlyph, DeleteGlyph, LockGlyph, VisibilityGlyph } from './icons';
+import { DeleteGlyph, LockGlyph, VisibilityGlyph } from './icons';
 
 export type MemberVisibility = 'filled' | 'outline' | 'hidden';
 export type MemberProvenance = 'manual' | 'interpolated' | 'imported';
@@ -124,7 +124,7 @@ export default function MemberRow(props: MemberRowProps) {
 
   const rowClasses = [
     'flex items-center gap-2 pl-6 pr-2 py-1.5',
-    active ? 'border-l-2 border-blue-500 bg-blue-900/10' : '',
+    active ? 'border-l-2 border-blue-500 bg-blue-900/25' : '',
     crossSeries ? 'opacity-80' : '',
     differentFor ? 'opacity-50' : '',
     !active ? 'hover:bg-zinc-800/50' : '',
@@ -245,12 +245,6 @@ export default function MemberRow(props: MemberRowProps) {
 
       {metric && <span className="text-[9px] text-zinc-500">{metric}</span>}
       {differentFor && <span className="text-[9px] text-zinc-600">not here</span>}
-
-      {active && (
-        <span className="text-blue-400" title="Active — drawing writes here" data-testid="active-indicator">
-          <ActiveDotGlyph />
-        </span>
-      )}
 
       {!differentFor && (
         <button

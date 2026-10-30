@@ -141,12 +141,3 @@ export function LockGlyph({ state, size = 12, className }: { state: 'unlocked' |
     </svg>
   );
 }
-
-/** Solid dot — the "active" (pen) indicator. */
-export function ActiveDotGlyph({ size = 12, className }: IconProps) {
-  return (
-    <svg viewBox="0 0 16 16" width={size} height={size} fill="currentColor" stroke="none" className={className}>
-      <circle cx="8" cy="8" r="3.5" />
-    </svg>
-  );
-}
