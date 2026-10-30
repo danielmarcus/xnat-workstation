@@ -50,7 +50,7 @@ jobs:
 
       - name: Publish to npm
         working-directory: packages/extension-api
-        run: npm publish --access public
+        run: npm publish --access public --provenance
 
       - name: Attach to a GitHub release
         working-directory: packages/extension-api

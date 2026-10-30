@@ -27,5 +27,5 @@
     "@types/react": { "optional": true },
     "@playwright/test": { "optional": true }
   },
-  "publishConfig": { "access": "public", "provenance": true }
+  "publishConfig": { "access": "public" }
 }
