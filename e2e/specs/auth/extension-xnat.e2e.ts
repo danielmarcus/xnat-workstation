@@ -41,7 +41,7 @@ test.beforeEach(async ({ authenticatedPage: page }) => {
 
 test('user(): the signed-in user, in both parts', async ({ authenticatedPage: page }) => {
   const user = await probe(page, (p) => p.ext.xnat.user()) as { serverUrl: string; username: string };
-  expect(user.username).toBe(config.xnatUser);
+  expect(user.username).toBe(config.xnatUsername);
   expect(user.serverUrl.replace(/\/+$/, '')).toBe(config.xnatUrl.replace(/\/+$/, ''));
   expect(await probe(page, (p) => p.ext.channel.request({ op: 'user' }))).toEqual(user);
 });
