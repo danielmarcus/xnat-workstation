@@ -31,4 +31,21 @@ describe('validateEdition', () => {
     expect(validateEdition({ ...ok, publish: { provider: 'generic', url: 'https://example.org' } }).ok).toBe(true);
     expect(validateEdition({ ...ok, publish: 'github' }).ok).toBe(false);
   });
+
+  it('extensions, when present, is a list of paths (docs/extension-framework.md)', () => {
+    expect(validateEdition({ ...ok, extensions: ['extensions/notes'] }).ok).toBe(true);
+    expect(validateEdition({ ...ok, extensions: [] }).ok).toBe(true);
+    for (const bad of ['extensions/notes', [''], [3]]) {
+      const r = validateEdition({ ...ok, extensions: bad });
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.errors.join('\n')).toMatch(/^extensions:/m);
+    }
+  });
+
+  it('devTools, when present, is true or false (design point 11)', () => {
+    expect(validateEdition({ ...ok, devTools: false }).ok).toBe(true);
+    const r = validateEdition({ ...ok, devTools: 'no' });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.errors.join('\n')).toMatch(/^devTools:/m);
+  });
 });

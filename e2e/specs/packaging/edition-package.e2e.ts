@@ -1,11 +1,12 @@
 /**
  * The packaged edition (branch 9, M6): run by `npm run test:edition` against an app packaged
  * with the test edition (e2e/fixtures/edition/test-edition.json) — it is named for the edition
- * and lists the module the edition bundles as Bundled, from inside the package. Skipped in the
- * ordinary E2E runs (they launch dist/, not a package).
+ * and lists the module the edition bundles as Bundled, and the extension it ships as Active,
+ * from inside the package. Skipped in the ordinary E2E runs (they launch dist/, not a package).
  */
 import { test, expect } from '../../fixtures/electron-app';
-import { loadFixture } from '../../helpers/local-fixture';
+import { enterLocalViewer, loadFixture } from '../../helpers/local-fixture';
+import { installPro } from '../../helpers/extensions';
 
 test.skip(process.env.E2E_EDITION_CHECK !== '1', 'run by npm run test:edition');
 
@@ -21,4 +22,37 @@ test('the packaged app is the edition: its name, and its bundled module', async 
   await expect(row).toContainText('Bundled');
   await expect(row.getByRole('button', { name: /Remove/ })).toHaveCount(0);
   await expect(dialog.locator('[data-testid^="module-row-"]')).toHaveCount(1); // only the edition's
+});
+
+test('the packaged app loads the extension the edition ships, from inside its archive', async ({ page }) => {
+  await installPro(page); // its slots need their features licensed (X6)
+  await page.reload({ waitUntil: 'load' });
+  await enterLocalViewer(page);
+  await page.getByTitle('Open settings').click();
+  const dialog = page.getByRole('dialog', { name: 'Settings' });
+  await dialog.getByRole('button', { name: 'Extensions', exact: true }).click();
+  const row = dialog.getByTestId('extension-row-org.xnat.examples.session-notes');
+  await expect(row.getByTestId('extension-state')).toHaveText('Active · Pro');
+  await expect(dialog.locator('[data-testid^="extension-row-"]')).toHaveCount(1);
+  // Its UI renders with the app's React, from inside the archive: the sidebar tab and toolbar item.
+  await dialog.getByTitle('Close', { exact: true }).click();
+  await page.getByRole('tablist', { name: 'Sidebar' }).getByRole('tab', { name: 'Notes', exact: true }).click();
+  await expect(page.getByTestId('extension-sidebar-tab-org.xnat.examples.session-notes')).toContainText('No notes yet.');
+  await expect(page.getByTestId('extension-toolbar-item-org.xnat.examples.session-notes')).toContainText('0 notes');
+});
+
+test('developer tools follow the edition: an edition that turns them off has none in its packaged app', async ({ electronApp }) => {
+  const expected = process.env.E2E_EDITION_DEVTOOLS === 'true';
+  const r = await electronApp.evaluate(async ({ BrowserWindow, Menu }) => {
+    const w = BrowserWindow.getAllWindows()[0];
+    w.webContents.openDevTools({ mode: 'detach' });
+    await new Promise((res) => setTimeout(res, 500));
+    const opened = w.webContents.isDevToolsOpened();
+    w.webContents.closeDevTools();
+    const roles: string[] = [];
+    const walk = (items: Electron.MenuItem[]) => items.forEach((i) => { roles.push(String(i.role ?? '')); if (i.submenu) walk(i.submenu.items); });
+    walk(Menu.getApplicationMenu()?.items ?? []);
+    return { opened, inMenu: roles.some((x) => x.toLowerCase() === 'toggledevtools') };
+  });
+  expect(r).toEqual({ opened: expected, inMenu: expected });
 });

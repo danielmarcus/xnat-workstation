@@ -28,6 +28,7 @@ src/
     ipc/                    # IPC handlers (auth, upload, export, proxy)
     xnat/                   # XNAT REST client and session management
     modules/                # Algorithm modules: packages + signatures, store, sandbox runtime, editions
+    extensions/             # Extension host (docs/extension-framework.md): discovery, checks, main parts
   preload/
     index.ts                # Context bridge: exposes electronAPI to renderer
   renderer/                 # Vite root (React SPA)
@@ -64,6 +65,8 @@ src/
     types/                  # TypeScript interfaces (ElectronAPI, DICOM types, XNAT types)
     dicomTagDictionary.ts   # DICOM tag name lookup
 modules/                    # Example modules (examples/) and built-ins packaged as modules (builtins/)
+extensions/examples/        # The example extension (session-notes, TSX → dist/extensions by build:extensions); the open-source edition ships none
+packages/extension-api/     # The extension SDK, @nrgxnat/workstation-extension-api (re-exports src/shared/extensions; build:sdk). Guide: docs/extension-authoring.md
 edition.config.json         # The open-source edition (docs/editions.md)
 build/                      # App icons for packaging
   icon.png                  # Full-color app icon (320x320)

@@ -112,3 +112,11 @@ html, body, #root {
 [data-collapsed-groups~='navigation'] [data-group-trigger='navigation'] {
   display: flex;
 }
+
+/* An extension's full-window view covers the viewer (docs/mockup/extension-wireframes.html, E3):
+   the toolbar's viewer controls have nothing to act on, so they are greyed and inert until it
+   closes. Annotate · Tags · Settings and extensions' items stay live. */
+[data-extension-view-open="true"] [data-viewer-controls-start] ~ * {
+  opacity: 0.4;
+  pointer-events: none;
+}

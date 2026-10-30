@@ -5,6 +5,7 @@ import ExportDropdown from './components/viewer/ExportDropdown';
 import LoginForm from './components/connection/LoginForm';
 import ConnectionStatus from './components/connection/ConnectionStatus';
 import XnatBrowser from './components/connection/XnatBrowser';
+import SidebarTabs from './components/extensions/SidebarTabs';
 import { useConnectionStore } from './stores/connectionStore';
 import { useViewerStore } from './stores/viewerStore';
 import { useUnifiedLayoutStore } from './stores/unifiedLayoutStore';
@@ -60,6 +61,10 @@ import { useBookmarks } from './lib/app/useBookmarks';
 import BookmarksDropdown from './components/app/BookmarksDropdown';
 import CloseUnsavedDialog from './components/app/CloseUnsavedDialog';
 import { useAppCloseGuard } from './hooks/useAppCloseGuard';
+import { startExtensions, stopExtensions } from './lib/extensions/rendererHost';
+import { installExtensionHost } from './components/extensions/installExtensionHost';
+import { setNavigationHandler, type OpenOutcome } from './lib/app/appNavigation';
+import { currentContainers } from './lib/annotations/currentContainers';
 
 /** DICOM SEG SOP Class UID */
 const SEG_SOP_CLASS_UID = '1.2.840.10008.5.1.4.1.1.66.4';
@@ -787,6 +792,15 @@ export default function App() {
     applyPreferences(preferences);
   }, [preferences]);
 
+  // The edition's extensions (docs/extension-framework.md): their renderer parts start once the
+  // main process has started their main parts, and stop when the window goes away.
+  useEffect(() => {
+    installExtensionHost();
+    void startExtensions().catch((err) => console.warn('[App] extensions did not start:', err));
+    window.addEventListener('beforeunload', stopExtensions);
+    return () => window.removeEventListener('beforeunload', stopExtensions);
+  }, []);
+
   useEffect(() => {
     const updaterApi = window.electronAPI?.updater;
     if (!updaterApi) return;
@@ -1482,8 +1496,10 @@ export default function App() {
     scan: XnatScan,
     context: { projectId: string; subjectId: string; sessionLabel: string; projectName?: string; subjectLabel?: string },
     options?: { openInMpr?: boolean },
-  ) => {
-    if (!isConnected) return;
+  ): Promise<OpenOutcome | void> => {
+    // Only the outcomes the caller cannot see are returned (not signed in, cancelled at the
+    // unsaved-changes prompt); ext.annotations.openScan checks the rest by what loaded.
+    if (!isConnected) return { outcome: 'failed', reason: 'Not signed in to XNAT' };
 
     const currentSessionId = useViewerStore.getState().xnatContext?.sessionId ?? null;
 
@@ -1515,7 +1531,7 @@ export default function App() {
       { viewportId: guardViewportId, toSessionId: sessionId, fromSessionId: currentSessionId },
       leavingLabel,
     );
-    if (guard === 'cancel') return;
+    if (guard === 'cancel') return { outcome: 'cancelled' };
 
     if (currentSessionId && currentSessionId !== sessionId) {
       clearSegLoadingLocks();
@@ -2392,8 +2408,9 @@ export default function App() {
       scans: XnatScan[],
       context: { projectId: string; subjectId: string; sessionLabel: string; projectName?: string; subjectLabel?: string },
       options?: { useHangingProtocol?: boolean; targetScanId?: string },
-    ) => {
-      if (!isConnected) return;
+    ): Promise<OpenOutcome> => {
+      // How it ended is reported to whoever asked (an extension's ext.viewer.openSession).
+      if (!isConnected) return { outcome: 'failed', reason: 'Not signed in to XNAT' };
 
       const previousSessionId = useViewerStore.getState().sessionId;
       if (previousSessionId && previousSessionId !== sessionId) {
@@ -2404,7 +2421,7 @@ export default function App() {
           { viewportId: null, toSessionId: sessionId, fromSessionId: previousSessionId },
           useViewerStore.getState().xnatContext?.sessionLabel || undefined,
         );
-        if (guard === 'cancel') return;
+        if (guard === 'cancel') return { outcome: 'cancelled' };
         dicomwebLoader.clearScanImageIdsCache(previousSessionId);
       }
 
@@ -2641,18 +2658,70 @@ export default function App() {
           'success',
           `${results.length} scan(s) available.`,
         );
-
+        return { outcome: 'opened' };
       } catch (err) {
         console.error('Session load failed:', err);
         const msg = err instanceof Error ? err.message : String(err);
         setLoadError(msg);
         setBrowserStatusMessage('Session load failed', 'error', msg);
+        return { outcome: 'failed', reason: msg };
       } finally {
         setLoading(false);
       }
     },
     [isConnected, refreshBookmarks, promptRecoveryConfirm, setBrowserStatusMessage],
   );
+
+  // Navigation for extensions (docs/extension-framework.md, X3): open a session the way the
+  // browser does — the browser is shown if it was collapsed, and the load runs through it — and
+  // report how it ended; or only reveal a project, subject or session there.
+  useEffect(() => setNavigationHandler({
+    openSession: (ref, { scanId }) => new Promise<OpenOutcome>((resolve) => {
+      if (!isConnected) { resolve({ outcome: 'failed', reason: 'Not signed in to XNAT' }); return; }
+      setShowBrowser(true);
+      setNavigateTo({
+        type: 'session',
+        projectId: ref.projectId,
+        projectName: ref.projectId,
+        subjectId: ref.subjectId,
+        subjectLabel: ref.subjectLabel,
+        sessionId: ref.sessionId,
+        sessionLabel: ref.sessionLabel,
+        targetScanId: scanId,
+        onOutcome: resolve,
+      });
+    }),
+    openScan: async (ref, scanId, { derivedOnly }) => {
+      if (!isConnected) return { outcome: 'failed', reason: 'Not signed in to XNAT' };
+      const scans = await window.electronAPI.xnat.getScans(ref.sessionId);
+      const scan = scans.find((x) => x.id === scanId);
+      if (!scan) return { outcome: 'failed', reason: `Session ${ref.sessionId} has no scan ${scanId}` };
+      if (derivedOnly && !isDerivedScan(scan)) return { outcome: 'failed', reason: `Scan ${scanId} is not an annotation (SEG, RTSTRUCT or SR)` };
+      const told = await loadFromXnatScan(ref.sessionId, scanId, scan, {
+        projectId: ref.projectId,
+        subjectId: ref.subjectId,
+        sessionLabel: ref.sessionLabel ?? ref.sessionId,
+        subjectLabel: ref.subjectLabel,
+      });
+      if (told) return told;
+      const loaded = currentContainers().some((c) => c.source.sessionId === ref.sessionId && c.source.scanId === scanId);
+      return loaded ? { outcome: 'opened' } : { outcome: 'failed', reason: 'The scan did not load (the browser\'s status says why)' };
+    },
+    revealInBrowser: (t) => {
+      if (!isConnected) return;
+      setShowBrowser(true);
+      setNavigateTo({
+        type: t.sessionId && t.subjectId ? 'session' : t.subjectId ? 'subject' : 'project',
+        projectId: t.projectId,
+        projectName: t.projectId,
+        subjectId: t.subjectId,
+        subjectLabel: t.subjectLabel,
+        sessionId: t.sessionId,
+        sessionLabel: t.sessionLabel,
+        skipAutoLoad: true,
+      });
+    },
+  }), [isConnected, loadFromXnatScan]);
 
   /**
    * E2E seam: expose the REAL scan-load entry so offline specs can drive the exact
@@ -3216,13 +3285,18 @@ export default function App() {
                 style={{ width: browserWidth }}
               >
                 <div className="min-h-0 flex-1">
-                  <XnatBrowser
-                    onLoadScan={loadFromXnatScan}
-                    onLoadSession={loadSessionFromXnat}
-                    navigateTo={navigateTo}
-                    onNavigateComplete={() => setNavigateTo(null)}
-                    pinnedItems={pinnedItems}
-                    onTogglePin={handleTogglePin}
+                  {/* Browse, plus any extension's sidebar tab (wireframe E1). */}
+                  <SidebarTabs
+                    browser={
+                      <XnatBrowser
+                        onLoadScan={loadFromXnatScan}
+                        onLoadSession={loadSessionFromXnat}
+                        navigateTo={navigateTo}
+                        onNavigateComplete={() => setNavigateTo(null)}
+                        pinnedItems={pinnedItems}
+                        onTogglePin={handleTogglePin}
+                      />
+                    }
                   />
                 </div>
                 <div className="shrink-0 border-t border-zinc-800 bg-zinc-900/70 px-2.5 py-2">

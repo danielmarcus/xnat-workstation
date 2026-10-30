@@ -56,12 +56,26 @@ function buildLookup(map: HotkeyMap): Map<string, HotkeyAction> {
   const lookup = new Map<string, HotkeyAction>();
   for (const [action, bindings] of Object.entries(map) as [HotkeyAction, HotkeyBinding[]][]) {
     if (!bindings) continue;
+    if (action.startsWith('ext:') && !extensionActionMap.has(action)) continue; // its extension stopped
     for (const binding of bindings) {
       lookup.set(normalizeBinding(binding), action);
     }
   }
+  // Extension actions without an override take the keys they ask for — only those the app
+  // does not use (wireframe E6): a clash leaves the action unbound, never the app's key taken.
+  for (const [action, { defaults }] of extensionActionMap) {
+    if (map[action]) continue;
+    for (const binding of defaults) {
+      const k = normalizeBinding(binding);
+      if (!lookup.has(k)) lookup.set(k, action);
+    }
+  }
   return lookup;
 }
+
+// ─── Extension actions (docs/extension-framework.md, X2) ──────────
+
+const extensionActionMap = new Map<HotkeyAction, { defaults: HotkeyBinding[]; run: () => void }>();
 
 // ─── Action → ToolName Mapping ────────────────────────────────────
 
@@ -180,6 +194,11 @@ function dispatchAction(action: HotkeyAction): boolean {
 }
 
 function dispatchActionInner(action: HotkeyAction): boolean {
+  const extensionAction = extensionActionMap.get(action);
+  if (extensionAction) {
+    try { extensionAction.run(); } catch (err) { console.warn(`[hotkeyService] ${action} failed:`, err); }
+    return true;
+  }
   const viewerState = useViewerStore.getState();
 
   // ─── Tool switching ─────────────────────────────────────────
@@ -650,6 +669,34 @@ export const hotkeyService = {
 
   getHotkeyMap(): HotkeyMap {
     return { ...currentMap };
+  },
+
+  /**
+   * An extension's command as a hotkey action (`ext:<extension>:<command>`), asking for
+   * `defaults`. Returns the function that removes it (the host calls it when the extension
+   * stops).
+   */
+  registerExtensionAction(action: `ext:${string}`, defaults: HotkeyBinding[], run: () => void): () => void {
+    const entry = { defaults, run };
+    extensionActionMap.set(action, entry);
+    lookup = buildLookup(currentMap);
+    return () => {
+      if (extensionActionMap.get(action) !== entry) return;
+      extensionActionMap.delete(action);
+      lookup = buildLookup(currentMap);
+    };
+  },
+
+  /** The registered extension actions (for Settings › Hotkeys). */
+  extensionActions(): HotkeyAction[] {
+    return [...extensionActionMap.keys()];
+  },
+
+  /** An extension action's own keys: those it got, and those it asked for but the app uses. */
+  extensionActionKeys(action: HotkeyAction): { bound: HotkeyBinding[]; clashing: HotkeyBinding[] } {
+    const defaults = extensionActionMap.get(action)?.defaults ?? [];
+    const bound = defaults.filter((b) => lookup.get(normalizeBinding(b)) === action);
+    return { bound, clashing: defaults.filter((b) => !bound.includes(b)) };
   },
 
   /**

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, nativeImage, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, Menu, nativeImage, ipcMain, protocol, shell } from 'electron';
 import path from 'path';
 import { registerAuthHandlers } from './ipc/authHandlers';
 import { registerProxyHandlers } from './ipc/proxyHandlers';
@@ -7,10 +7,13 @@ import { registerUploadHandlers } from './ipc/uploadHandlers';
 import { registerBackupHandlers } from './ipc/backupHandlers';
 import { registerCheckpointHandlers } from './ipc/checkpointHandlers';
 import { currentEdition, registerModuleHandlers } from './ipc/moduleHandlers';
-import { registerModuleRunHandlers, registerModuleScheme } from './modules/moduleRuntime';
+import { MODULE_SCHEME_PRIVILEGES, registerModuleRunHandlers } from './modules/moduleRuntime';
+import { EXTENSION_SCHEME_PRIVILEGES, registerExtensionHandlers } from './ipc/extensionHandlers';
 
-// Modules' sandboxed windows load from xnat-module:// — a scheme must be registered before ready.
-registerModuleScheme();
+// Modules' sandboxed windows load from xnat-module://, extensions' renderer parts from
+// xnat-extension://. Privileged schemes must be registered before ready, and in ONE call:
+// each call replaces the previous registrations.
+protocol.registerSchemesAsPrivileged([MODULE_SCHEME_PRIVILEGES, EXTENSION_SCHEME_PRIVILEGES]);
 import { registerDiagnosticsHandlers } from './ipc/diagnosticsHandlers';
 import { registerUpdateHandlers } from './ipc/updateHandlers';
 import { installMainLogCapture } from './diagnostics/mainLogBuffer';
@@ -29,6 +32,17 @@ process.stderr?.on?.('error', () => {});
 // in the macOS menu bar and dock instead of the default "Electron" — and, set before ready, the
 // user-data folder — and its product name in titles and the About panel.
 const PRODUCT_NAME = currentEdition()?.productName ?? 'XNAT Workstation';
+
+// Under a test harness, secure storage (safeStorage) uses Chromium's stand-in keychain: tests
+// never create or read items in the user's real keychain, and a re-signed test build is never
+// stopped by a keychain prompt. Before ready, as a Chromium switch must be.
+if (process.env.E2E_TESTING === '1') app.commandLine.appendSwitch('use-mock-keychain');
+
+/**
+ * Developer tools in a packaged app: the edition's choice (design point 11) — an edition with
+ * licensed extensions turns them off. Development and E2E builds keep them.
+ */
+const devToolsAllowed = (): boolean => !(app.isPackaged && currentEdition()?.devTools === false);
 app.name = currentEdition()?.appName ?? 'XNAT';
 
 let mainWindow: BrowserWindow | null = null;
@@ -126,7 +140,7 @@ function buildAppMenu(): void {
       submenu: [
         { role: 'reload' as const },
         { role: 'forceReload' as const },
-        { role: 'toggleDevTools' as const },
+        ...(devToolsAllowed() ? [{ role: 'toggleDevTools' as const }] : []),
         { type: 'separator' as const },
         { role: 'resetZoom' as const },
         { role: 'zoomIn' as const },
@@ -189,6 +203,7 @@ function createWindow(): void {
       contextIsolation: true,
       sandbox: false, // Allow preload to require() local modules
       preload: path.join(__dirname, '..', 'preload', 'index.js'),
+      devTools: devToolsAllowed(),
     },
   });
 
@@ -238,6 +253,7 @@ app.whenReady().then(() => {
   registerCheckpointHandlers();
   registerModuleHandlers();
   registerModuleRunHandlers();
+  registerExtensionHandlers();
   registerDiagnosticsHandlers();
   registerUpdateHandlers();
   autoUpdateService.initialize();

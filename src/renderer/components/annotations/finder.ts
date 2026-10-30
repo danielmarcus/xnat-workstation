@@ -9,7 +9,18 @@ import { SEG_FAMILIES, SEG_OPERATIONS, TOOL_LABELS_BEFORE_FAMILIES, toolsForKind
 export type FinderTarget =
   | { kind: 'tool'; toolId: string }
   | { kind: 'operation'; operationId: string; seededMethod?: 'randomWalker' }
-  | { kind: 'measureSegment' };
+  | { kind: 'measureSegment' }
+  /** An extension's command (docs/extension-framework.md, wireframe E6). */
+  | { kind: 'command'; extId: string; commandId: string };
+
+/** An extension's command, as the finder needs it. */
+export interface FinderCommand {
+  extId: string;
+  extName: string;
+  id: string;
+  title: string;
+  action: string;
+}
 
 export interface FinderEntry {
   id: string;
@@ -21,7 +32,15 @@ export interface FinderEntry {
   target: FinderTarget;
 }
 
-export function finderEntries(kind: ContainerKind, modules: ReadonlyArray<OperationDescriptor> = []): FinderEntry[] {
+export function finderEntries(kind: ContainerKind, modules: ReadonlyArray<OperationDescriptor> = [], commands: ReadonlyArray<FinderCommand> = []): FinderEntry[] {
+  // Extensions' commands, whatever is being annotated, named with their extension.
+  const extensionEntries: FinderEntry[] = commands.map((c) => ({
+    id: c.action, label: c.title, hint: c.extName, aliases: [c.extName], target: { kind: 'command', extId: c.extId, commandId: c.id },
+  }));
+  return [...annotationEntries(kind, modules), ...extensionEntries];
+}
+
+function annotationEntries(kind: ContainerKind, modules: ReadonlyArray<OperationDescriptor>): FinderEntry[] {
   if (kind !== 'SEG') {
     return toolsForKind(kind).map((t) => ({ id: `tool:${t.id}`, label: t.label, hint: 'Tool', aliases: [t.title], target: { kind: 'tool', toolId: t.id } }));
   }

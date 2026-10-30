@@ -73,6 +73,7 @@ test.describe('Login Flow', () => {
   });
 
   test('browser login popup opens and authenticates', async ({ electronApp, page }) => {
+    test.skip(config.xnatToken, 'the credentials are an alias token, which cannot fill the server\'s login form (SSO)');
     const loginPage = new LoginPage(page);
 
     // Enter the server URL

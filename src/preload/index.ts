@@ -227,6 +227,30 @@ contextBridge.exposeInMainWorld('electronAPI', {
     runStop: (runId: string) => ipcRenderer.invoke(IPC.MODULES_RUN_STOP, runId),
   },
 
+  extensions: {
+    list: () => ipcRenderer.invoke(IPC.EXTENSIONS_LIST),
+    setEnabled: (id: string, enabled: boolean) => ipcRenderer.invoke(IPC.EXTENSIONS_SET_ENABLED, id, enabled),
+    rendererFailed: (id: string, reason: string) => ipcRenderer.invoke(IPC.EXTENSIONS_RENDERER_FAILED, id, reason),
+    xnat: (id: string, op: string, args: unknown[]) => ipcRenderer.invoke(IPC.EXTENSIONS_XNAT, id, op, args),
+    channelRequest: (id: string, message: unknown) => ipcRenderer.invoke(IPC.EXTENSIONS_CHANNEL_REQUEST, id, message),
+    storage: (id: string, op: string, args: unknown[]) => ipcRenderer.invoke(IPC.EXTENSIONS_STORAGE, id, op, args),
+    reevaluate: (id: string) => ipcRenderer.invoke(IPC.EXTENSIONS_REEVALUATE, id),
+    onChanged: (callback: (list: unknown) => void) => {
+      const wrapped = (_e: unknown, list: unknown) => callback(list);
+      ipcRenderer.on(IPC.EXTENSIONS_CHANGED, wrapped);
+      return () => { ipcRenderer.removeListener(IPC.EXTENSIONS_CHANGED, wrapped); };
+    },
+    openFile: (id: string, options?: unknown) => ipcRenderer.invoke(IPC.EXTENSIONS_FILE_OPEN, id, options ?? {}),
+    saveFile: (id: string, options: unknown) => ipcRenderer.invoke(IPC.EXTENSIONS_FILE_SAVE, id, options),
+    /** The app runs under a test harness (ext.testing). */
+    testing: process.env.E2E_TESTING === '1',
+    onChannelMessage: (callback: (id: string, message: unknown) => void) => {
+      const wrapped = (_e: unknown, id: string, message: unknown) => callback(id, message);
+      ipcRenderer.on(IPC.EXTENSIONS_CHANNEL_MESSAGE, wrapped);
+      return () => { ipcRenderer.removeListener(IPC.EXTENSIONS_CHANNEL_MESSAGE, wrapped); };
+    },
+  },
+
   diagnostics: {
     getMainSnapshot: () =>
       ipcRenderer.invoke(IPC.DIAGNOSTICS_GET_MAIN_SNAPSHOT),

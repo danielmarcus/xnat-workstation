@@ -75,8 +75,28 @@ export async function browserLogin(serverUrl: string): Promise<XnatLoginResult> 
   setupWebRequestInterceptor();
 
   console.log(`[sessionManager] Browser login: connected to ${connectionInfo.serverUrl} as ${connectionInfo.username}`);
+  notifyConnectionChange();
 
   return { success: true, connection: connectionInfo };
+}
+
+// ─── Connection listeners ─────────────────────────────────────────
+
+const connectionListeners = new Set<(info: XnatConnectionInfo | null) => void>();
+
+/**
+ * Be told when the connection starts (with its info) or ends (null) — the extension host re-checks
+ * extensions' licences on it. Returns the function that stops listening.
+ */
+export function onConnectionChange(listener: (info: XnatConnectionInfo | null) => void): () => void {
+  connectionListeners.add(listener);
+  return () => { connectionListeners.delete(listener); };
+}
+
+function notifyConnectionChange(): void {
+  for (const l of [...connectionListeners]) {
+    try { l(connectionInfo); } catch (err) { console.warn('[sessionManager] a connection listener failed:', err); }
+  }
 }
 
 /**
@@ -170,7 +190,9 @@ export async function directLogin(
       `${baseUrl}/data/JSESSION`,
       {
         method: 'POST',
-        headers: { Authorization: authHeader },
+        // Not a browser User-Agent: SSO-only servers (CNDA) answer 500 to a basic-auth
+        // sign-in that looks like it came from a browser, and an alias token must sign in here.
+        headers: { Authorization: authHeader, 'User-Agent': 'xnat-workstation-e2e' },
       },
     );
 
@@ -250,6 +272,7 @@ export async function directLogin(
     setupWebRequestInterceptor();
 
     console.log(`[sessionManager] E2E direct login: connected to ${connectionInfo.serverUrl} as ${connectionInfo.username}`);
+    notifyConnectionChange();
     return { success: true, connection: connectionInfo };
   } catch (err) {
     return {
@@ -301,6 +324,7 @@ function stopKeepalive(): void {
  * — callers should call notifySessionExpired() separately if needed.
  */
 function tearDown(): void {
+  const wasConnected = connectionInfo !== null;
   stopKeepalive();
   clearWebRequestInterceptor();
   if (client) {
@@ -309,6 +333,7 @@ function tearDown(): void {
   }
   client = null;
   connectionInfo = null;
+  if (wasConnected) notifyConnectionChange();
 }
 
 // ─── Auth Failure Handling ────────────────────────────────────────

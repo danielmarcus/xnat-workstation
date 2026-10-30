@@ -209,6 +209,36 @@ describe('XnatBrowser', () => {
     );
   });
 
+  it('a navigateTo session target reports how the load ended, with the scan to show and a looked-up label (extensions, X3)', async () => {
+    setElectronApiMock({
+      getProjects: vi.fn(async () => []),
+      getSessions: vi.fn(async () => [{ id: 'SESS9', label: 'Looked-up Label', projectId: 'P9', subjectId: 'SUB9', scanCount: 1 }]),
+      getScans: vi.fn(async () => [{ id: '21', type: 'MR', modality: 'MR', seriesDescription: 'T1' }]),
+    });
+    const onLoadSession = vi.fn(async () => ({ outcome: 'cancelled' as const }));
+    const onOutcome = vi.fn();
+    render(
+      <XnatBrowser
+        onLoadScan={vi.fn()}
+        onLoadSession={onLoadSession}
+        navigateTo={{ type: 'session', projectId: 'P9', projectName: 'P9', subjectId: 'SUB9', sessionId: 'SESS9', targetScanId: '21', onOutcome }}
+      />,
+    );
+    await waitFor(() => expect(onOutcome).toHaveBeenCalledWith({ outcome: 'cancelled' }));
+    expect(onLoadSession).toHaveBeenCalledWith('SESS9', expect.any(Array), expect.objectContaining({ sessionLabel: 'Looked-up Label' }), { targetScanId: '21' });
+  });
+
+  it('a navigateTo session target that cannot be fetched reports failed, with the reason', async () => {
+    setElectronApiMock({
+      getProjects: vi.fn(async () => []),
+      getSessions: vi.fn(async () => { throw new Error('XNAT API error: 403'); }),
+      getScans: vi.fn(async () => []),
+    });
+    const onOutcome = vi.fn();
+    render(<XnatBrowser onLoadScan={vi.fn()} onLoadSession={vi.fn()} navigateTo={{ type: 'session', projectId: 'P9', projectName: 'P9', subjectId: 'SUB9', sessionId: 'SESS9', onOutcome }} />);
+    await waitFor(() => expect(onOutcome).toHaveBeenCalledWith({ outcome: 'failed', reason: 'XNAT API error: 403' }));
+  });
+
   it('honors navigateTo session targets, auto-loads session, and shows expanded session at sessions level', async () => {
     const onLoadScan = vi.fn();
     const onLoadSession = vi.fn();
