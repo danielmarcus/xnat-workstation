@@ -46,7 +46,7 @@ Moving tools out of the panel stays the fallback if this does not buy enough.
 | **Select** | Select | — |
 | **Brush** | Brush, Sph. Brush, Threshold, Sph. Thresh, Dyn. Thresh, Smart Brush | Kernel 2D · 3D; Limit None · Window · From click · Edges |
 | **Fill** | Paint Fill | — |
-| **Shape** | Circle, Rect, Sphere, Rect Multi | Shape Circle · Rect · Sphere; Limit None · Window |
+| **Shape** | Circle, Rect, Sphere, Rect Threshold | Shape Circle · Rect · Sphere; Limit None · Window |
 | **Contour** | Contour Fill | Boundary Freehand · Spline · Live wire (unchanged) |
 | **Region** | Region, Region+ | Gesture Drag · Click |
 | **Trace** | Level Trace | — |

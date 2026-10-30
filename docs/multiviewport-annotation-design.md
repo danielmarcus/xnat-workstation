@@ -384,7 +384,7 @@ Tools registered in the primary tool group (per [toolService.ts:574-605](../src/
 | Measurement | `LengthTool`, `AngleTool`, `BidirectionalTool`, `EllipticalROITool`, `RectangleROITool`, `CircleROITool`, `ProbeTool`, `ArrowAnnotateTool` |
 | Contour drawing | `PlanarFreehandROITool`, `PlanarFreehandContourSegmentationTool`, `SplineContourSegmentationTool`, `LivewireContourSegmentationTool` |
 | Voxel painting | `BrushTool` (with 2D circle, 3D sphere, eraser, threshold modes), `PaintFillTool` (replacing `SafePaintFillTool` if Phase 5 audit clears it), `LabelMapEditWithContourTool` (Contour Fill, fixed in Phase 5) |
-| Region | `RegionSegmentTool`, `RegionSegmentPlusTool`, `RectangleROIThresholdTool`, `CircleROIStartEndThresholdTool` |
+| Region | `RegionSegmentTool`, `RegionSegmentPlusTool`, `RectangleROIThresholdTool` |
 | Cut | `CircleScissorsTool`, `RectangleScissorsTool`, `SphereScissorsTool` |
 | Modify | `SculptorTool` |
 | Select / measure | `SegmentSelectTool`, `SegmentBidirectionalTool` |
