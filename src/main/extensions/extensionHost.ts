@@ -21,6 +21,23 @@ import type { ExtensionSecureStore } from './extensionSecureStorage';
 
 export const EXTENSION_SCHEME = 'xnat-extension';
 
+/**
+ * An extension's fingerprint: every file in its folder, by its path there, with its SHA-256. The
+ * edition build records it; the host checks it at load (design point 11).
+ */
+export function digestExtension(dir: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  const walk = (d: string) => {
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const full = path.join(d, e.name);
+      if (e.isDirectory()) walk(full);
+      else if (e.isFile()) out[path.relative(dir, full).split(path.sep).join('/')] = crypto.createHash('sha256').update(fs.readFileSync(full)).digest('hex');
+    }
+  };
+  walk(dir);
+  return out;
+}
+
 type MainPartExports = Partial<MainPart>;
 
 interface Entry {
@@ -63,6 +80,11 @@ interface Options {
   secureStore?: ExtensionSecureStore;
   /** Told when an extension's state changes without a call from the renderer (a gate re-evaluated). */
   onChange?: () => void;
+  /**
+   * The edition record's fingerprints (design point 11). When given, an extension loads only if
+   * its files match its own exactly; one the record does not name is not part of the edition.
+   */
+  digests?: Record<string, Record<string, string>>;
 }
 
 const NO_SECURE: ExtensionSecureStorage = new Proxy({} as ExtensionSecureStorage, {
@@ -219,6 +241,16 @@ export class ExtensionHost {
 
   // ─── internals ───────────────────────────────────────────────
 
+  /** The first file that differs from the record ('' when there is no record for it), or null. */
+  private changedFile(dir: string, expected: Record<string, string> | undefined): string | null {
+    if (!expected) return '';
+    const actual = digestExtension(dir);
+    for (const f of [...new Set([...Object.keys(expected), ...Object.keys(actual)])].sort()) {
+      if (expected[f] !== actual[f]) return f;
+    }
+    return null;
+  }
+
   /** Started and not stopped: active, or inactive by its own gate. */
   private running(e: Entry): boolean {
     return e.state === 'active' || (e.state === 'inactive' && !!e.gated);
@@ -297,6 +329,10 @@ export class ExtensionHost {
       const missing = [m.renderer, m.main].find((f) => f && !fs.existsSync(path.join(dir, f)));
       if (missing) { refuse(`${missing} is missing`, m); continue; }
       if (!apiCompatible(m.apiVersion, EXTENSION_API_VERSION)) { refuse(incompatibleReason(m.apiVersion), m); continue; }
+      if (this.opts.digests) {
+        const changed = this.changedFile(dir, this.opts.digests[m.id]);
+        if (changed !== null) { refuse(changed === '' ? 'Not part of this edition' : `Changed after the edition was built: ${changed}`, m); continue; }
+      }
       if (out.some((o) => o.manifest?.id === m.id && o.state !== 'refused')) {
         // Keyed by its folder: the id belongs to the one already loaded.
         out.push({ key: folder, dir, manifest: m, state: 'refused', reason: `An extension with the id ${m.id} is already loaded` });

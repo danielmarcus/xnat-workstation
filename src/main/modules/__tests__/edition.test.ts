@@ -41,4 +41,11 @@ describe('validateEdition', () => {
       if (!r.ok) expect(r.errors.join('\n')).toMatch(/^extensions:/m);
     }
   });
+
+  it('devTools, when present, is true or false (design point 11)', () => {
+    expect(validateEdition({ ...ok, devTools: false }).ok).toBe(true);
+    const r = validateEdition({ ...ok, devTools: 'no' });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.errors.join('\n')).toMatch(/^devTools:/m);
+  });
 });

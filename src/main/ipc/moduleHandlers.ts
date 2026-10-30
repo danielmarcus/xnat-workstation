@@ -15,19 +15,26 @@ import { editionPaths, readEditionInfo, type EditionInfo } from '../modules/edit
 import type { ModuleInspection } from '../../shared/modules/types';
 
 /**
- * The built edition (docs/editions.md): inside the app bundle (resources/edition.json and
- * resources/modules/), or in development the repo's `build/edition/` (`npm run build:edition`).
- * E2E points the bundled modules at a folder of its own — only under E2E_TESTING, so the
- * environment can never make an ordinary run treat a folder as part of the signed app.
+ * The built edition (docs/editions.md): in a package, its record inside the app archive
+ * (`app.asar/edition/edition.json`, so the archive's integrity check covers it and the extension
+ * fingerprints it holds — design point 11) and its modules in `resources/modules/`; in development
+ * the repo's `build/edition/` (`npm run build:edition`). E2E points the bundled modules at a
+ * folder of its own — only under E2E_TESTING, so the environment can never make an ordinary run
+ * treat a folder as part of the signed app.
  */
 function editionDir(): string {
   return app.isPackaged ? process.resourcesPath : path.join(app.getAppPath(), 'build', 'edition');
 }
 
+/** The edition record's file. */
+export function editionInfoFile(): string {
+  return app.isPackaged ? path.join(app.getAppPath(), 'edition', 'edition.json') : editionPaths(editionDir()).info;
+}
+
 let edition: EditionInfo | null | undefined;
 /** The edition this app is (null when none was built — development without `build:edition`). */
 export function currentEdition(): EditionInfo | null {
-  if (edition === undefined) edition = readEditionInfo(editionPaths(editionDir()).info);
+  if (edition === undefined) edition = readEditionInfo(editionInfoFile());
   return edition;
 }
 

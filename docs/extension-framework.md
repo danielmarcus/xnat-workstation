@@ -366,8 +366,31 @@ licensing.
     - E2E: `e2e/specs/extensions/extension-licensing.e2e.ts` (no licence, Basic, Pro live,
       removal live, server-bound, expired, edited-after-signing, declared hosts). Re-evaluation
       on a real sign-in is unit-tested only (live tests stay read-only; credentials pending).
-  - [ ] **X6b, build integrity**: Electron fuses and archive integrity at packaging, extension
-    digests checked at load, the `devTools` edition setting.
+  - [x] **X6b, build integrity** (2026-10-29). As built:
+    - **Fuses** for every edition (`electron-builder.config.js` `electronFuses`): run-as-Node
+      off, `NODE_OPTIONS` and `--inspect` ignored, the app loaded only from its archive, the
+      archive's integrity validated at start-up (macOS, Windows).
+    - The **edition record moved inside the archive** (`app.asar/edition/edition.json`), and now
+      holds each extension's **fingerprint** (SHA-256 of every file); the host refuses an
+      extension that differs ("Changed after the edition was built: <file>") or that the record
+      does not name ("Not part of this edition"). Where the integrity check runs, an edited
+      archive does not start at all; the fingerprints add a clear refusal, and cover the
+      platforms (Linux) and development builds the integrity check does not.
+    - **`devTools`** in the edition configuration (default true): false removes developer tools
+      from the packaged app — the window refuses them and the View menu has no item.
+    - `npm run test:edition` proves it on a real package: the fuses read from the binary;
+      run-as-Node, `NODE_OPTIONS` and `--inspect` doing nothing; an archive edited after
+      packaging not running; then — in that copy only — it turns the inspector back on so
+      Playwright can check the name, the module, the extension (fingerprints passing) and the
+      absent developer tools. Each check was seen failing against a build with every fuse open.
+      (Packaged Electron already ignores `--require` in `NODE_OPTIONS`; the fuse closes the rest,
+      and the fuse reading is the check that tells the two builds apart.)
+    - Under a test harness (`E2E_TESTING`) the app uses Chromium's stand-in keychain
+      (`--use-mock-keychain`), so tests never touch the user's real keychain — a re-signed test
+      package was otherwise stopped by a keychain prompt.
+    - Consequence for publishers: a production edition cannot be driven by Playwright (its
+      inspector is fused off). An extension's own E2E runs against an unpackaged core, or a test
+      package with the inspect fuse turned back on, as `test:edition` does.
 - [ ] X7
 
 ## Questions for review

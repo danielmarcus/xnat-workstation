@@ -54,7 +54,22 @@ module.exports = {
     // The edition's extensions go INSIDE the app archive, so the archive's integrity check
     // covers them (docs/extension-framework.md, design points 5 and 11).
     { from: 'build/edition/extensions', to: 'extensions', filter: ['**/*'] },
+    // The edition record too — it holds the extensions' fingerprints, which must be covered.
+    { from: 'build/edition', to: 'edition', filter: ['edition.json'] },
   ],
+  /**
+   * Every edition is locked down at packaging (docs/extension-framework.md, design point 11): the
+   * app cannot be run as plain Node, NODE_OPTIONS and --inspect are ignored, it loads only from
+   * its archive, and the archive's integrity is checked at start-up (macOS, Windows). Changing the
+   * code then means rebuilding and re-signing the app. `npm run test:edition` checks each one.
+   */
+  electronFuses: {
+    runAsNode: false,
+    enableNodeOptionsEnvironmentVariable: false,
+    enableNodeCliInspectArguments: false,
+    enableEmbeddedAsarIntegrityValidation: true,
+    onlyLoadAppFromAsar: true,
+  },
   extraResources: [
     {
       from: 'build/',
@@ -67,7 +82,6 @@ module.exports = {
     { from: 'node_modules/electron/dist/LICENSES.chromium.html', to: 'licenses/LICENSES.chromium.html' },
     // The edition: its record, and the modules it bundles (the Bundled tier) — inside the
     // signed application, covered by its signature.
-    { from: 'build/edition/edition.json', to: 'edition.json' },
     { from: 'build/edition/modules', to: 'modules', filter: ['*.xwmodule'] },
   ],
   mac: {

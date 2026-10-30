@@ -40,3 +40,19 @@ test('the packaged app loads the extension the edition ships, from inside its ar
   await expect(page.getByTestId('extension-sidebar-tab-org.xnat.examples.session-notes')).toContainText('No notes yet.');
   await expect(page.getByTestId('extension-toolbar-item-org.xnat.examples.session-notes')).toContainText('0 notes');
 });
+
+test('developer tools follow the edition: an edition that turns them off has none in its packaged app', async ({ electronApp }) => {
+  const expected = process.env.E2E_EDITION_DEVTOOLS === 'true';
+  const r = await electronApp.evaluate(async ({ BrowserWindow, Menu }) => {
+    const w = BrowserWindow.getAllWindows()[0];
+    w.webContents.openDevTools({ mode: 'detach' });
+    await new Promise((res) => setTimeout(res, 500));
+    const opened = w.webContents.isDevToolsOpened();
+    w.webContents.closeDevTools();
+    const roles: string[] = [];
+    const walk = (items: Electron.MenuItem[]) => items.forEach((i) => { roles.push(String(i.role ?? '')); if (i.submenu) walk(i.submenu.items); });
+    walk(Menu.getApplicationMenu()?.items ?? []);
+    return { opened, inMenu: roles.some((x) => x.toLowerCase() === 'toggledevtools') };
+  });
+  expect(r).toEqual({ opened: expected, inMenu: expected });
+});

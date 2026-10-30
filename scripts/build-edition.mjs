@@ -17,6 +17,7 @@ const require = createRequire(import.meta.url);
 const { readEditionConfig, editionPaths } = require(path.join(root, 'dist/main/main/modules/edition.js'));
 const { packFiles, readPackage } = require(path.join(root, 'dist/main/main/modules/modulePackage.js'));
 const { EXTENSION_API_VERSION, apiCompatible, incompatibleReason, validateExtensionManifest } = require(path.join(root, 'dist/main/shared/extensions/manifest.js'));
+const { digestExtension } = require(path.join(root, 'dist/main/main/extensions/extensionHost.js'));
 
 const configFile = path.resolve(process.env.XNAT_EDITION || path.join(root, 'edition.config.json'));
 const edition = readEditionConfig(configFile);
@@ -50,6 +51,7 @@ for (const entry of edition.modules) {
   console.log(`[build-edition] ${edition.id}: ${r.manifest.id} ${r.manifest.version}`);
 }
 const extIds = [];
+const extensionDigests = {};
 for (const entry of edition.extensions ?? []) {
   const src = path.resolve(path.dirname(configFile), entry);
   let manifest;
@@ -70,7 +72,9 @@ for (const entry of edition.extensions ?? []) {
     fs.writeFileSync(path.join(dest, rel), data);
   }
   extIds.push(m.id);
+  // Its fingerprint, as copied: the app refuses it if any file differs (design point 11).
+  extensionDigests[m.id] = digestExtension(dest);
   console.log(`[build-edition] ${edition.id}: extension ${m.id} ${m.version}`);
 }
-fs.writeFileSync(info, JSON.stringify({ ...edition, modules: ids, extensions: extIds }, null, 2));
+fs.writeFileSync(info, JSON.stringify({ ...edition, modules: ids, extensions: extIds, extensionDigests }, null, 2));
 console.log(`[build-edition] ${edition.productName} → ${path.relative(root, out)}`);

@@ -10,6 +10,7 @@ import * as path from 'path';
 import { createRequire } from 'module';
 import { ExtensionHost } from '../extensionHost';
 import { ExtensionStorageStore } from '../extensionStorage';
+import { digestExtension } from '../extensionHost';
 import { EXTENSION_API_VERSION } from '../../../shared/extensions/manifest';
 
 let root: string;
@@ -298,5 +299,40 @@ describe('ExtensionHost — the activation gate (X6)', () => {
     await h.start();
     expect(byKey(h)['org.example.plain']).toMatchObject({ state: 'active', gated: false });
     expect(byKey(h)['org.example.plain'].features!.every((f) => f.enabled)).toBe(true);
+  });
+});
+
+describe('ExtensionHost — files checked against the edition record (X6, design point 11)', () => {
+  it('an extension whose files match its recorded fingerprints loads; one changed, added to or missing a file is refused, naming it', async () => {
+    for (const f of ['same', 'changed', 'added', 'missing']) ext(f, manifest(`org.example.${f}`), { 'renderer.js': 'export function activate() {}', 'style.css': 'a{}' });
+    const digests = Object.fromEntries(['same', 'changed', 'added', 'missing'].map((f) => [`org.example.${f}`, digestExtension(path.join(dir, f))]));
+    fs.writeFileSync(path.join(dir, 'changed', 'renderer.js'), 'export function activate() { /* tampered */ }');
+    fs.writeFileSync(path.join(dir, 'added', 'extra.js'), '');
+    fs.rmSync(path.join(dir, 'missing', 'style.css'));
+    ext('stranger', manifest('org.example.stranger'), { 'renderer.js': '' });
+    const h = new ExtensionHost({ dir, settingsFile, load, digests });
+    await h.start();
+    const l = byKey(h);
+    expect(l['org.example.same']).toMatchObject({ state: 'active' });
+    expect(l['org.example.changed']).toMatchObject({ state: 'refused', reason: 'Changed after the edition was built: renderer.js' });
+    expect(l['org.example.added']).toMatchObject({ state: 'refused', reason: 'Changed after the edition was built: extra.js' });
+    expect(l['org.example.missing']).toMatchObject({ state: 'refused', reason: 'Changed after the edition was built: style.css' });
+    expect(l['org.example.stranger']).toMatchObject({ state: 'refused', reason: 'Not part of this edition' });
+  });
+
+  it('without a record (development, the E2E harness) nothing is checked', async () => {
+    ext('plain', manifest('org.example.plain'), { 'renderer.js': '' });
+    const h = new ExtensionHost({ dir, settingsFile, load });
+    await h.start();
+    expect(byKey(h)['org.example.plain']).toMatchObject({ state: 'active' });
+  });
+
+  it('a fingerprint is SHA-256 of each file, by its path in the extension', () => {
+    ext('d', manifest('org.example.d'), { 'renderer.js': 'x' });
+    fs.mkdirSync(path.join(dir, 'd', 'lib'));
+    fs.writeFileSync(path.join(dir, 'd', 'lib', 'a.js'), 'y');
+    const d = digestExtension(path.join(dir, 'd'));
+    expect(Object.keys(d).sort()).toEqual(['extension.json', 'lib/a.js', 'renderer.js']);
+    expect(d['renderer.js']).toBe('2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881');
   });
 });

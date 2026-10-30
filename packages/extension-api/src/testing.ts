@@ -48,6 +48,8 @@ export async function launchWorkstation(options: LaunchOptions): Promise<Worksta
   const userDataDir = options.userDataDir ?? fs.mkdtempSync(path.join(os.tmpdir(), 'xw-extension-e2e-'));
   const app = await _electron.launch({
     ...(options.executablePath ? { executablePath: options.executablePath } : {}),
+    // E2E_TESTING (below) also makes ext.secureStorage use Chromium's stand-in keychain: a test
+    // never touches the user's real keychain, and a test build is never stopped by a prompt.
     args: [...(options.mainEntry ? [path.resolve(options.mainEntry)] : []), `--user-data-dir=${userDataDir}`],
     env: {
       ...(process.env as Record<string, string>),

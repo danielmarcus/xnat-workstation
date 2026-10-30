@@ -13,6 +13,7 @@ import { ExtensionStorageStore } from '../extensions/extensionStorage';
 import { ExtensionSecureStore } from '../extensions/extensionSecureStorage';
 import type { FileFilter } from '../../shared/extensions/api';
 import { getClient, getConnectionInfo, onConnectionChange } from '../xnat/sessionManager';
+import { currentEdition } from './moduleHandlers';
 
 /** The renderer part's ext.xnat calls: these, by name, and nothing else. */
 const XNAT_OPS = new Set(['user', 'request', 'getJson', 'permissions', 'resourceFiles']);
@@ -55,8 +56,11 @@ export const EXTENSION_SCHEME_PRIVILEGES: CustomScheme = { scheme: EXTENSION_SCH
  * treat a folder as part of the signed app.
  */
 export function extensionsDir(): string {
-  const e2e = process.env.E2E_TESTING === '1' && !app.isPackaged ? process.env.XNAT_E2E_EXTENSIONS : undefined;
-  return e2e || path.join(app.getAppPath(), ...(app.isPackaged ? ['extensions'] : ['build', 'edition', 'extensions']));
+  return e2eExtensionsDir() || path.join(app.getAppPath(), ...(app.isPackaged ? ['extensions'] : ['build', 'edition', 'extensions']));
+}
+
+function e2eExtensionsDir(): string | undefined {
+  return process.env.E2E_TESTING === '1' && !app.isPackaged ? process.env.XNAT_E2E_EXTENSIONS : undefined;
 }
 
 const MIME: Record<string, string> = {
@@ -84,6 +88,9 @@ export function registerExtensionHandlers(): void {
     onChange: () => sendAll(IPC.EXTENSIONS_CHANGED, host?.list() ?? []),
     testing: process.env.E2E_TESTING === '1',
     dir: extensionsDir(),
+    // The edition's own extensions are checked against the fingerprints its record holds (design
+    // point 11); an E2E folder is the test's, and has none.
+    digests: e2eExtensionsDir() ? undefined : currentEdition()?.extensionDigests ?? (app.isPackaged ? {} : undefined),
     settingsFile: path.join(app.getPath('userData'), 'extensions.json'),
     xnat,
     post: (id, message) => sendAll(IPC.EXTENSIONS_CHANNEL_MESSAGE, id, message),

@@ -10,5 +10,6 @@
   "trustedKeys": [],
   "extensions": [
     "../../../dist/extensions/examples/session-notes"
-  ]
+  ],
+  "devTools": false
 }

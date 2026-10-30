@@ -51,6 +51,7 @@ export const test = base.extend<
     const extraArgs = (process.env.E2E_ELECTRON_ARGS ?? '').split(/\s+/).filter(Boolean);
     const app = await _electron.launch({
       ...(executablePath ? { executablePath } : {}),
+      // (E2E_TESTING also makes the app use Chromium's stand-in keychain: src/main/index.ts.)
       args: [...(executablePath ? [] : [mainEntry]), `--user-data-dir=${userDataDir}`, ...extraArgs],
       cwd: projectRoot,
       env: {

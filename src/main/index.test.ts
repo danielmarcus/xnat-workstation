@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => {
     }),
     quit: vi.fn(),
     dock: { setIcon: vi.fn() },
+    commandLine: { appendSwitch: vi.fn() },
     setAboutPanelOptions: vi.fn(),
   };
 
@@ -92,8 +93,9 @@ vi.mock('electron', () => ({
 
 vi.mock('./ipc/moduleHandlers', () => ({
   registerModuleHandlers: mocks.registerModuleHandlers,
-  currentEdition: () => null,
+  currentEdition: () => edition.current,
 }));
+const edition = vi.hoisted(() => ({ current: null as null | { devTools?: boolean; productName?: string; appName?: string } }));
 
 vi.mock('./modules/moduleRuntime', () => ({
   registerModuleRunHandlers: mocks.registerModuleRunHandlers,
@@ -210,5 +212,41 @@ describe('main/index bootstrap', () => {
 
     mocks.appHandlers['before-quit']?.();
     expect(mocks.autoUpdateService.dispose).toHaveBeenCalledTimes(1);
+  });
+
+  it('an edition with devTools: false has no developer tools when packaged — the window refuses them and the menu has none', async () => {
+    mocks.app.isPackaged = true;
+    edition.current = { devTools: false };
+    try {
+      await loadMainEntry();
+      const created = mocks.windowInstances.at(-1);
+      expect(created.opts.webPreferences.devTools).toBe(false);
+      const template = JSON.stringify((mocks.Menu.buildFromTemplate as any).mock.calls.at(-1)[0]);
+      expect(template).not.toContain('toggleDevTools');
+    } finally {
+      edition.current = null;
+    }
+  });
+
+  it('otherwise (the open-source edition, development) developer tools stay', async () => {
+    mocks.app.isPackaged = true;
+    await loadMainEntry();
+    expect(mocks.windowInstances.at(-1).opts.webPreferences.devTools).not.toBe(false);
+    expect(JSON.stringify((mocks.Menu.buildFromTemplate as any).mock.calls.at(-1)[0])).toContain('toggleDevTools');
+  });
+
+  it('under a test harness, secure storage uses the stand-in keychain — never the user\'s real one', async () => {
+    const before = process.env.E2E_TESTING;
+    process.env.E2E_TESTING = '1';
+    try {
+      mocks.app.commandLine.appendSwitch.mockClear();
+      await loadMainEntry();
+      expect(mocks.app.commandLine.appendSwitch).toHaveBeenCalledWith('use-mock-keychain');
+    } finally {
+      if (before === undefined) delete process.env.E2E_TESTING; else process.env.E2E_TESTING = before;
+    }
+    mocks.app.commandLine.appendSwitch.mockClear();
+    await loadMainEntry();
+    expect(mocks.app.commandLine.appendSwitch).not.toHaveBeenCalledWith('use-mock-keychain');
   });
 });
