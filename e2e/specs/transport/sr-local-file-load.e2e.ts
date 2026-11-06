@@ -3,7 +3,7 @@
  * REAL local-file import path (App.loadLocalFiles), not a test hook. This is the
  * data-path proof: dropping an SR file routes it to annotationService by SOP Class
  * UID (the SR family) and reconstructs its measurements onto the loaded images —
- * exactly what the XNAT-scan reload does, minus the CNDA download leg.
+ * exactly what the XNAT-scan reload does, minus the live-server download leg.
  *
  * Draw a Length → serialize to an SR (exportSrBase64) → clear everything → feed that
  * SR back through the actual file input (setInputFiles, the genuine affordance) → the

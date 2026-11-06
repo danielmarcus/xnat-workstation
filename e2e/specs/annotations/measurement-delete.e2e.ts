@@ -1,7 +1,7 @@
 /**
  * SR-B — measurement member controls operate on the Cornerstone annotation (by UID).
  *
- * Bug (live CNDA review): the member-row controls (delete/lock/rename/visibility)
+ * Bug (live-server review): the member-row controls (delete/lock/rename/visibility)
  * did `Number(memberId)` and bailed unless it was a positive integer — SEG
  * segment-index semantics. Measurement member ids are annotation UIDs (strings), so
  * every control silently no-op'd; measurements could not be deleted. This drives the

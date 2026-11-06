@@ -1,11 +1,23 @@
 name: CI
 
+# Tiered checks (CLAUDE.md, "Testing: what to run when"):
+#
+#   selective — pull requests and codex/** pushes: only what the change can affect, decided by
+#               the "Classify changes" step from the changed files. A docs-only change runs
+#               nothing past that step (the job still reports, so a required check never hangs).
+#   full      — pushes to main, manual runs, and any change to dependencies, the test setup or
+#               the workflows: every check, as before. On main this is the post-merge safety net
+#               for anything the selective tier missed.
+#
+# Releases are gated separately, in release.yml.
+
 on:
   pull_request:
   push:
     branches:
       - main
       - 'codex/**'
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -26,22 +38,78 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          # The whole history, so the changed files can be found against the base.
+          fetch-depth: 0
+
+      - name: Classify changes
+        id: plan
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          out() { echo "$1=$2" >> "$GITHUB_OUTPUT"; }
+
+          if [[ "$EVENT" == "workflow_dispatch" || "$REF" == "refs/heads/main" ]]; then
+            echo "Full run: $EVENT on $REF"
+            out mode full; out build true; out dicom true
+            exit 0
+          fi
+
+          if [[ -n "$PR_BASE" ]]; then base="$PR_BASE"; else base="$(git merge-base HEAD origin/main)"; fi
+          # Changed files that still exist (deleted ones can't be linted or tested).
+          mapfile -t changed < <(git diff --name-only "$base"...HEAD | while read -r f; do [[ -e "$f" ]] && echo "$f"; done)
+          printf 'Changed (%s):\n' "${#changed[@]}"; printf '  %s\n' "${changed[@]}"
+
+          # Dependencies, the test setup or the workflows themselves: everything.
+          FULL='^(package(-lock)?\.json|vitest\.config\.ts|eslint\.config\.mjs)$|^src/(renderer/)?test/|^\.github/workflows/'
+          # Prose only: nothing to check.
+          DOCS='\.md$|^docs/|^LICENSE$'
+          # What the bundlers and packaging read beyond the TypeScript the typecheck already covers.
+          BUILD='^(vite\.config\.ts|tsconfig[^/]*\.json|electron-builder\.config\.js|edition\.config\.json|postcss\.config\.cjs|tailwind\.config\.cjs)$|^scripts/build-|^(modules|extensions|packages|build)/|^src/(main/index\.ts|preload/)|^src/.*\.(css|html|png|svg|wasm)$'
+          # DICOM writing and parsing, and the compliance suites (npm run test:dicom:compliance).
+          DICOM='^src/renderer/lib/cornerstone/(dicomExportHelpers|dicomDatasetSource|writeDicomDict|dicomComplianceDebug|rtStructService|segmentationService|srExport|srImport)|^src/renderer/lib/dicom/|^src/renderer/lib/annotations/approval|^src/renderer/lib/cornerstone/__tests__/(dicomExportHelpers|rtStructService|segmentationService\.loadExport|dicomExternalCompliance)\.test\.ts$'
+
+          if printf '%s\n' "${changed[@]}" | grep -qE "$FULL"; then
+            echo "Full run: dependencies, test setup or workflows changed"
+            out mode full; out build true; out dicom true
+            exit 0
+          fi
+          code=$(printf '%s\n' "${changed[@]}" | grep -vE "$DOCS" || true)
+          if [[ -z "$code" ]]; then
+            echo "Docs only: no checks needed"
+            out mode skip
+            exit 0
+          fi
+          out mode selective
+          out build "$(grep -qE "$BUILD" <<< "$code" && echo true || echo false)"
+          out dicom "$(grep -qE "$DICOM" <<< "$code" && echo true || echo false)"
+          # Source files for `vitest related` (the unit tests that import them, and changed tests).
+          related=$(grep -E '^src/.*\.tsx?$' <<< "$code" | tr '\n' ' ' || true)
+          out related "$related"
 
       - name: Set up Node.js
+        if: steps.plan.outputs.mode != 'skip'
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: npm
 
       - name: Install dependencies
+        if: steps.plan.outputs.mode != 'skip'
         run: npm ci
 
       - name: Lint (layering boundaries)
+        if: steps.plan.outputs.mode != 'skip'
         run: npm run lint
 
       # THIRD-PARTY-NOTICES.txt must list every shipped dependency's licence: after a
       # dependency change, run `npm run notices` and commit the result.
       - name: Third-party notices up to date
+        if: steps.plan.outputs.mode == 'full'
         run: npm run notices:check
 
       # `npm run build` does NOT typecheck the renderer — build:renderer is `vite build`,
@@ -49,17 +117,36 @@ jobs:
       # renderer + e2e type errors accumulated unseen (57 and 251 respectively, cleared
       # 2026-09-14). This step is what keeps them at zero.
       - name: Typecheck (renderer + main + e2e)
+        if: steps.plan.outputs.mode != 'skip'
         run: npm run typecheck
 
       - name: Install DICOM validator
+        if: steps.plan.outputs.dicom == 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y dicom3tools
 
       - name: Run test suite
+        if: steps.plan.outputs.mode == 'full'
         env:
           DCIODVFY_BIN: /usr/bin/dciodvfy
         run: npm test
 
+      # CI is cleared so the external-validator test skips (rather than fails) without
+      # dciodvfy; the DICOM step below runs it, with the validator, whenever DICOM code changes.
+      - name: Run related unit tests
+        if: steps.plan.outputs.mode == 'selective' && steps.plan.outputs.related != ''
+        env:
+          CI: ''
+          RELATED: ${{ steps.plan.outputs.related }}
+        run: npx vitest related --run --passWithNoTests $RELATED
+
+      - name: DICOM compliance suites
+        if: steps.plan.outputs.mode == 'selective' && steps.plan.outputs.dicom == 'true'
+        env:
+          DCIODVFY_BIN: /usr/bin/dciodvfy
+        run: npm run test:dicom:compliance
+
       - name: Build application
+        if: steps.plan.outputs.build == 'true'
         run: npm run build

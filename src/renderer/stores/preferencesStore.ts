@@ -673,7 +673,7 @@ export const usePreferencesStore = create<PreferencesStore>()(
                   : DEFAULT_ANNOTATION_PANEL_PREFERENCES.width,
               ),
             },
-            // CNDA safety: server autosave is opt-in. Any persisted value that
+            // Production-server safety: server autosave is opt-in. Any persisted value that
             // isn't an explicit `true` (including missing / malformed) defaults
             // to OFF so an upgrade never silently enables server writes.
             xnatAutosaveEnabled:

@@ -4,7 +4,7 @@
  * The transport is composed ONCE on mount so MANUAL save (the review dialog, the
  * close-app dialog, a row's Save) always works — a deliberate Save click is never
  * "accidental", so it isn't gated by the preference. The `xnatAutosaveEnabled`
- * preference (default OFF, CNDA safety) gates only AUTOMATIC background saving:
+ * preference (default OFF, production-server safety) gates only AUTOMATIC background saving:
  *   ON  → segmentationService.setXnatAutosaveEnabled(true)  (edits debounce-save)
  *   OFF → segmentationService.setXnatAutosaveEnabled(false) (edits never auto-save)
  *

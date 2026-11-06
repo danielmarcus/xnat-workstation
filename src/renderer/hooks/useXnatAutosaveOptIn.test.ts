@@ -4,7 +4,7 @@ import { renderHook } from '@testing-library/react';
 
 /**
  * useXnatAutosaveOptIn — the transport is composed on mount so MANUAL save always
- * works, but the CNDA-critical AUTOMATIC save stays OFF unless the preference is
+ * works, but the production-critical AUTOMATIC save stays OFF unless the preference is
  * explicitly ON (composing installs the function but fires no write on its own).
  * segmentationService + the wiring module are mocked so no Cornerstone / real
  * transport runs (no live calls).

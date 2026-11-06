@@ -13,7 +13,7 @@ const mocks = vi.hoisted(() => {
       appHandlers[event] = cb;
     }),
     quit: vi.fn(),
-    dock: { setIcon: vi.fn() },
+    dock: { setIcon: vi.fn(), hide: vi.fn() },
     commandLine: { appendSwitch: vi.fn() },
     setAboutPanelOptions: vi.fn(),
   };
@@ -30,6 +30,12 @@ const mocks = vi.hoisted(() => {
       on: vi.fn((event: string, cb: () => void) => {
         handlers[event] = cb;
       }),
+      // Under E2E_TESTING the window is shown off-screen once ready.
+      once: vi.fn((event: string, cb: () => void) => {
+        handlers[event] = cb;
+      }),
+      setPosition: vi.fn(),
+      showInactive: vi.fn(),
       __handlers: handlers,
     };
     windowInstances.push(instance);

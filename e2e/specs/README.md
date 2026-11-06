@@ -66,6 +66,7 @@ Declared as Playwright **projects** in `playwright.config.ts`:
 
 ```
 smoke ──┬── app    (the offline suite; no credentials)
+        ├── sweep  (every tool and operation in every orientation; offline)
         └── auth   (live XNAT)
 ```
 
@@ -80,16 +81,38 @@ its own, in any order. If a spec only passes after some other spec, that is a bu
 ## Running
 
 ```bash
-npm run test:e2e           # everything (auth specs need live CNDA credentials)
-npm run test:e2e:offline   # smoke + app — no credentials required
-npm run test:e2e:live      # smoke + auth only
+npm run test:changed       # what changed: lint, typecheck, related unit tests, matching E2E specs
+npm run test:e2e:offline   # smoke + app — the offline suite without the sweep (~18 min)
+npm run test:e2e:sweep     # smoke + sweep — every tool and operation in every orientation (~30 min)
+npm run test:e2e:live      # smoke + auth — read-only against XNAT_URL in .env.e2e; needs current credentials
+npm run test:e2e:release   # smoke + app + sweep — before a release
+npm run test:e2e           # everything, live included
 ```
+
+Which to run when is in [CLAUDE.md](../../CLAUDE.md), "Testing: what to run when": the specs
+for what changed by default; the whole suite before a release, not after every change.
 
 Full runs need `--max-failures=0`; the config sets `maxFailures: 1` so ordinary runs stop at the
 first failure. Use the `list` reporter rather than `json`.
 
 The app must be **built** first — the fixture launches `dist/main/main/index.js`, not the dev
 server, so source edits are invisible to E2E until `npm run build`.
+
+## E2E and CI
+
+CI never runs these specs: they need a built Electron app, a display and WebGL2, and the live
+ones need credentials that stay off GitHub. CI is tiered
+instead ([`ci.yml`](../../.github/workflows/ci.yml)), and the E2E runs are done by hand at the
+points below.
+
+| Stage | CI does | You run by hand |
+|---|---|---|
+| Pull request (or a `codex/**` push) | Only what the change can affect: nothing for docs-only changes; otherwise lint, typecheck and the unit tests related to the changed files, plus the DICOM compliance suites and the build when their inputs changed | `npm run test:changed` — the E2E specs for what changed (and the sweep or the live specs when it says they are worth a run) |
+| Push to `main` | Everything: lint, notices, typecheck, the full unit suite, build | — |
+| Release | [`release.yml`](../../.github/workflows/release.yml) re-runs the full checks (`verify`), then waits for a sign-off on the `release` environment before packaging | Before tagging: `npm run test:e2e:release` (smoke + app + sweep), `npm run test:e2e:live`, and `npm run test:edition` (the packaged app). Approving the sign-off records that they passed |
+
+A change to the E2E harness (`e2e/helpers`, `e2e/fixtures`, `e2e/pages`, `playwright.config.ts`)
+is only type-checked by CI, so `test:changed` runs the whole offline suite for it.
 
 ## Related
 
