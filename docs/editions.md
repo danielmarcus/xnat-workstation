@@ -66,7 +66,14 @@ Every edition is **locked down at packaging** ([extension-framework.md](extensio
 design point 11): Electron's fuses turn off running as plain Node, `NODE_OPTIONS` and
 `--inspect`, load the app only from its archive, and validate the archive's integrity at
 start-up (macOS, Windows). An extension whose files differ from the record's fingerprints is
-refused. Changing an edition's code therefore means rebuilding and re-signing it.
+refused. On macOS and Windows, changing an edition's code therefore means rebuilding the archive
+and patching or re-signing the app.
+
+**Linux has no archive integrity check** (Electron validates the archive on macOS and Windows
+only), and the fingerprints live in the edition record inside that same archive — so on Linux,
+extracting the archive, editing an extension, updating its fingerprint and repacking is enough.
+The fingerprints catch an edit that leaves the record alone; they do not stop one that changes
+both.
 
 ## Building another edition
 

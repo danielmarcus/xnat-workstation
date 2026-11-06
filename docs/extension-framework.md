@@ -147,13 +147,16 @@ would plausibly need.
       (`RunAsNode`), `NODE_OPTIONS` and `--inspect` arguments ignored, the app loaded only from
       its archive, and the archive's **integrity validated** at start-up (macOS and Windows).
     - Extensions inside that archive, with digests in the edition record (design point 5), so
-      an edited extension fails the check rather than loading.
+      an edited extension fails the check rather than loading. On Linux, which has no archive
+      integrity check, the record can be edited along with the extension (see X6b).
     - **DevTools** in packaged builds become an edition setting (`devTools`), off for an
       edition that turns it off; the open-source edition keeps them (question 6). In
       development and E2E builds nothing changes.
     - The code signature (already: hardened runtime, notarisation) covers the rest.
-    This raises tampering from "edit a file" to "rebuild and re-sign the app", which is the
-    realistic bar for client-side code; enforcement that must hold against a determined user
+    On macOS and Windows this raises tampering from "edit a file" to "rebuild the archive and
+    patch or re-sign the app binary" — Windows runs an unsigned binary, so there the bar is the
+    patch, not the signature; on Linux it stays at "repack the archive". That is the realistic
+    bar for client-side code; enforcement that must hold against a determined user
     lives on a server (the XNAT site or the publisher's), which the hooks above make possible.
 
 ## Trust and distribution: why (a)
@@ -373,9 +376,11 @@ licensing.
     - The **edition record moved inside the archive** (`app.asar/edition/edition.json`), and now
       holds each extension's **fingerprint** (SHA-256 of every file); the host refuses an
       extension that differs ("Changed after the edition was built: <file>") or that the record
-      does not name ("Not part of this edition"). Where the integrity check runs, an edited
-      archive does not start at all; the fingerprints add a clear refusal, and cover the
-      platforms (Linux) and development builds the integrity check does not.
+      does not name ("Not part of this edition"). Where the integrity check runs (macOS,
+      Windows), an edited archive does not start at all; the fingerprints add a clear refusal,
+      and catch an edit to unpacked development builds. They do **not** protect Linux: the record
+      sits in the same unchecked archive, so an edit that updates the record too goes through
+      (corrected 2026-11-06; earlier text said the fingerprints covered Linux).
     - **`devTools`** in the edition configuration (default true): false removes developer tools
       from the packaged app — the window refuses them and the View menu has no item.
     - `npm run test:edition` proves it on a real package: the fuses read from the binary;

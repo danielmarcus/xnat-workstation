@@ -235,7 +235,14 @@ app archive**, and records a fingerprint of every file in the edition record; an
 would refuse fails the build. Every edition is locked down at packaging: Electron's fuses turn off
 running as plain Node, `NODE_OPTIONS` and `--inspect`, load the app only from its archive and
 validate that archive at start-up (macOS, Windows); an extension whose files differ from the
-record is refused. Changing an edition's code therefore means rebuilding and re-signing it.
+record is refused. On macOS and Windows, changing an edition's code therefore means rebuilding
+the archive and patching or re-signing the app.
+
+**Linux has no archive integrity check** (Electron validates the archive on macOS and Windows
+only), and the fingerprints live in the edition record inside that same archive — so on Linux,
+extracting the archive, editing an extension, updating its fingerprint and repacking is enough.
+The fingerprints catch an edit that leaves the record alone; they do not stop one that changes
+both.
 `devTools: false` removes developer tools from the packaged app — do this for an edition with
 licensed extensions.
 
@@ -323,9 +330,11 @@ Sites often restrict networks: prefer a model that works offline or through XNAT
 ### What a client-side check can and cannot stop
 
 A check running on the user's computer keeps honest users honest; it cannot stop a determined
-one with time and tools. The build's lock-down raises the bar from "edit a file" to "rebuild and
-re-sign the application": the archive and its fingerprints are checked at start-up, the
-inspector and `NODE_OPTIONS` are switched off, and an edition can remove developer tools.
+one with time and tools. On macOS and Windows the build's lock-down raises the bar from "edit a
+file" to "rebuild the archive and patch or re-sign the application": the archive and its
+fingerprints are checked at start-up, the inspector and `NODE_OPTIONS` are switched off, and an
+edition can remove developer tools. On Linux the archive is not checked, so the bar is "repack
+the archive"; ship a Linux build of a licensed edition only if that is acceptable.
 Enforcement that must hold against a determined user belongs on a server the user does not
 control — the XNAT site's (a server-side plugin) or yours (online activation). Write the
 contract to match.
