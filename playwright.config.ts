@@ -35,7 +35,7 @@ export default defineConfig({
    *           orientation, about 30 minutes — two thirds of the offline time. Run only when the
    *           tools or operations change, or before a release (CLAUDE.md, "Testing: what to run
    *           when"); `npm run test:changed` says when.
-   *   auth  — live-XNAT specs. Separated so expired CNDA credentials fail only these
+   *   auth  — live-XNAT specs. Separated so expired credentials (.env.e2e) fail only these
    *           instead of aborting the run (they previously sorted FIRST, so a 401 stopped
    *           everything under maxFailures: 1).
    *

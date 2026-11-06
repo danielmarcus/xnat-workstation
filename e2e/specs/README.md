@@ -83,7 +83,7 @@ its own, in any order. If a spec only passes after some other spec, that is a bu
 npm run test:changed       # what changed: lint, typecheck, related unit tests, matching E2E specs
 npm run test:e2e:offline   # smoke + app — the offline suite without the sweep (~18 min)
 npm run test:e2e:sweep     # smoke + sweep — every tool and operation in every orientation (~30 min)
-npm run test:e2e:live      # smoke + auth — read-only against CNDA; needs a fresh alias token
+npm run test:e2e:live      # smoke + auth — read-only against XNAT_URL in .env.e2e (in practice CNDA); needs current credentials
 npm run test:e2e:release   # smoke + app + sweep — before a release
 npm run test:e2e           # everything, live included
 ```
