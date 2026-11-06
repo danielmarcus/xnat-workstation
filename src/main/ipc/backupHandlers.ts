@@ -23,9 +23,15 @@ function getBackupRoot(): string {
 }
 
 function sessionDir(sessionId: string): string {
-  // Sanitize sessionId to prevent path traversal
-  const safe = sessionId.replace(/[^a-zA-Z0-9_\-\.]/g, '_');
-  return path.join(getBackupRoot(), safe);
+  // Sanitize sessionId to prevent path traversal. The id comes from the XNAT server, so a name
+  // of only dots is refused too: `..` named userData itself (and deleting that "session"
+  // removed it), `.` every session's backups, and Windows drops trailing dots from `...`.
+  const safe = String(sessionId ?? '').replace(/[^a-zA-Z0-9_\-\.]/g, '_');
+  if (!safe || /^\.+$/.test(safe)) throw new Error(`Not a usable backup session id: ${JSON.stringify(sessionId)}`);
+  const root = getBackupRoot();
+  const dir = path.join(root, safe);
+  if (path.dirname(dir) !== root) throw new Error(`Backup session folder outside ${root}: ${dir}`);
+  return dir;
 }
 
 async function ensureDir(dir: string): Promise<void> {
