@@ -141,6 +141,13 @@ is only type-checked by CI, so `test:changed` runs the whole offline suite for i
 
 ## Related
 
-- `e2e/signals/` — acceptance-signal specs that are *expected to fail* until their phase lands.
-  Separate config (`playwright.signals.config.ts`), separate README, outside the green suite.
+- Acceptance signals (the §G list in `docs/multiviewport-annotation-requirements.md`) are traced
+  by name: `grep -rni "signal 29" e2e/specs` finds the specs for signal 29. The expected-red
+  `e2e/signals/` suite that seeded them was removed on 2026-11-06 — its 34 tests only checked
+  that a proposed entry point existed, by test ids the rebuilt panel never adopted, so they could
+  not pass and tested no behaviour. Signals 9–12 and 36 (A2b/A2c) were withdrawn and 18 retired.
+  These have no spec that names them: 2, 4, 5, 8, 15, 16, 19, 20, 28, 33, 34. Likely covered by
+  `same-scan-viewport-parity` (2), `voxel-tools-lock` / `locked-operations` (4), `approval-lock`
+  (19), `undo-active-container` (28) and `selection` (33) — name the signal in those tests when
+  confirmed. **Unconfirmed: 5, 8, 15, 16, 20, 34** — check each has a spec, or write one.
 - `e2e/helpers/`, `e2e/fixtures/`, `e2e/pages/` — shared setup; imported as `../../<dir>/…`.

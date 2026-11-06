@@ -23,8 +23,8 @@ export default [
     ignores: [
       'dist/**', 'release/**', 'node_modules/**', 'coverage/**', 'scripts/**',
       // e2e/ is linted only for its selector rules (the block at the end); not its
-      // fixtures, outputs, or the expected-red signals suite.
-      'e2e/fixtures/**', 'e2e/test-results/**', 'e2e/playwright-report/**', 'e2e/signals/**',
+      // fixtures or outputs.
+      'e2e/fixtures/**', 'e2e/test-results/**', 'e2e/playwright-report/**',
     ],
   },
 
