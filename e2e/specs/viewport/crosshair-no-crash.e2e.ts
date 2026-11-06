@@ -39,9 +39,9 @@ test('Crosshairs tool routes to W/L and survives mouse-move in a single viewport
   // native CrosshairsTool), so a drag still does W/L.
   // Locate by title — the short visible labels ("Pan", "Cross") have accessible
   // names that collide with other buttons ("Show segmentation panel" etc.).
-  await page.locator('button[title="Pan (left-click drag)"]').click();
+  await page.getByRole('button', { name: 'Pan', exact: true }).click();
   await expect.poll(() => primaryTools(page), { timeout: 10_000 }).toEqual(['Pan']);
-  await page.locator('button[title^="Crosshairs"]').click();
+  await page.getByRole('button', { name: 'Crosshairs', exact: true }).click();
   await expect.poll(() => primaryTools(page), { timeout: 10_000 }).toEqual(['WindowLevel']);
 
   // The crash gesture: hover + press + move + release over the viewport. The native

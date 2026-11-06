@@ -20,7 +20,7 @@ test.beforeEach(async ({ electronApp, page }) => {
 });
 
 async function openModules(page: Page): Promise<Locator> {
-  await page.getByTitle('Open settings').click();
+  await page.getByRole('button', { name: 'Open settings', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Settings' });
   await dialog.getByRole('button', { name: 'Modules', exact: true }).click();
   const s = dialog.getByTestId('modules-settings');
@@ -103,7 +103,7 @@ test('a module whose files change on disk after install is refused; Remove delet
   await s.getByTestId('module-confirm').getByRole('button', { name: 'Install' }).click();
   await expect(s.getByTestId('module-row-org.e2e.altered')).toContainText('Community');
   fs.writeFileSync(await installedFile(electronApp, 'org.e2e.altered', 'module.js'), 'export function run() { /* altered on disk */ }');
-  await page.getByRole('dialog', { name: 'Settings' }).getByTitle('Close', { exact: true }).click();
+  await page.getByRole('dialog', { name: 'Settings' }).getByRole('button', { name: 'Close', exact: true }).click();
   s = await openModules(page);
   await expect(s.getByTestId('module-row-org.e2e.altered')).toContainText('Refused');
   await expect(s.getByTestId('module-row-org.e2e.altered')).toContainText('changed after it was installed');

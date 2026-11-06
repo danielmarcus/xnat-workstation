@@ -34,7 +34,7 @@ const panel = (page: Page, pid: string) => page.locator(`[data-testid="unified-v
 const canvas = (page: Page, pid: string) => panel(page, pid).locator('canvas');
 
 const chooseLayout = async (page: Page, name: string) => {
-  await page.locator('[title^="Viewport layout"]').click();
+  await page.getByRole('button', { name: 'Viewport layout', exact: true }).click();
   await page.getByRole('button', { name }).click();
 };
 

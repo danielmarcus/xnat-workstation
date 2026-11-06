@@ -41,11 +41,11 @@ async function toolbox(page: Page, create: string) {
 }
 
 const NAV: Array<[string, string]> = [
-  ['Pan (left-click drag)', 'Pan'],
-  ['Zoom (left-click drag)', 'Zoom'],
+  ['Pan', 'Pan'],
+  ['Zoom', 'Zoom'],
   // Our own registration: the crosshair pointer without Cornerstone's tool icon.
-  ['Crosshairs (left-click to sync; left-drag W/L)', 'XnatCrosshair'],
-  ['Window/Level (left-click drag)', 'WindowLevel'],
+  ['Crosshairs', 'XnatCrosshair'],
+  ['Window/Level', 'WindowLevel'],
 ];
 
 const MEASUREMENT: Array<[string, string]> = [
@@ -70,7 +70,7 @@ const STRUCTURE: Array<[string, string]> = [
 test('toolbar navigation tools show their Cornerstone cursor', async ({ page }) => {
   await loadFixture(page, 'ct-axial-300', 'panel_0');
   for (const [i, [title, expected]] of NAV.entries()) {
-    await page.locator(`button[title="${title}"]`).click();
+    await page.getByRole('button', { name: title, exact: true }).click();
     await hover(page, i);
     expect(await cursor(page), `"${title}"`).toBe(expected);
   }
@@ -117,7 +117,7 @@ test('the Select tools show the arrow cursor, matching their icon', async ({ pag
 
 test('the crosshair cursor is the bare crosshair, with no tool icon beside it', async ({ page }) => {
   await loadFixture(page, 'ct-axial-300', 'panel_0');
-  await page.locator('button[title="Crosshairs (left-click to sync; left-drag W/L)"]').click();
+  await page.getByRole('button', { name: 'Crosshairs', exact: true }).click();
   await hover(page, 0);
   // Rasterise the image the pointer is actually drawn from and count painted pixels by
   // quadrant. Cornerstone lays a pointer cursor out as a 32x32 image: the crosshair in the
@@ -162,10 +162,10 @@ test('Pan/Zoom cursor follows Shift, and stays with the drag that is in progress
   const cy = box.y + box.height / 2;
 
   for (const [title, self, partner] of [
-    ['Pan (left-click drag)', 'Pan', 'Zoom'],
-    ['Zoom (left-click drag)', 'Zoom', 'Pan'],
+    ['Pan', 'Pan', 'Zoom'],
+    ['Zoom', 'Zoom', 'Pan'],
   ]) {
-    await page.locator(`button[title="${title}"]`).click();
+    await page.getByRole('button', { name: title, exact: true }).click();
     await page.mouse.move(cx, cy);
     await expect.poll(() => cursor(page), { message: `${self}: hover` }).toBe(self);
 
@@ -204,7 +204,7 @@ test('Pan/Zoom cursor follows Shift, and stays with the drag that is in progress
  */
 test('releasing Shift under Crosshairs keeps the crosshair, with no mouse move', async ({ page }) => {
   await loadFixture(page, 'ct-axial-300', 'panel_0');
-  await page.locator('button[title="Crosshairs (left-click to sync; left-drag W/L)"]').click();
+  await page.getByRole('button', { name: 'Crosshairs', exact: true }).click();
   await hover(page, 0);
   const box = (await page.locator('[data-testid="unified-viewport-element:panel_0"] canvas').boundingBox())!;
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);

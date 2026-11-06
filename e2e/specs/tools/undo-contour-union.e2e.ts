@@ -71,7 +71,7 @@ test('undo after two contours are unioned brings the first contour back', async 
   const [unionWidth] = await outlineWidths(page);
   expect(unionWidth, 'the union is wider than A').toBeGreaterThan(aWidth * 1.3);
 
-  await page.locator('button[title^="Undo"]').click();
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
   await page.waitForTimeout(700);
 
   expect(await total(), 'undo must leave contour A, not nothing').toBe(1);
@@ -82,7 +82,7 @@ test('undo after two contours are unioned brings the first contour back', async 
   ).toBeLessThan(0.1);
 
   // Redo re-applies the union.
-  await page.locator('button[title^="Redo"]').click();
+  await page.getByRole('button', { name: 'Redo', exact: true }).click();
   await page.waitForTimeout(700);
   expect(await total(), 'redo leaves one contour').toBe(1);
   const [redoneWidth] = await outlineWidths(page);

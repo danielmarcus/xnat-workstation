@@ -180,9 +180,9 @@ test('Delete removes every selected contour, and one undo brings them all back',
   await page.keyboard.press('Delete');
   await expect.poll(async () => (await outlines(page)).length, { message: 'both deleted' }).toBe(0);
 
-  await page.locator('button[title^="Undo"]').click();
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
   await expect.poll(async () => (await outlines(page)).length, { message: 'one undo restores both' }).toBe(2);
-  await page.locator('button[title^="Redo"]').click();
+  await page.getByRole('button', { name: 'Redo', exact: true }).click();
   await expect.poll(async () => (await outlines(page)).length, { message: 'redo deletes them again' }).toBe(0);
 });
 

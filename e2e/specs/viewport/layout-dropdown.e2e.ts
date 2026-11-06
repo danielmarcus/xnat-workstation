@@ -33,7 +33,7 @@ test('the layout dropdown switches the unified grid to 2x2 and selection works (
   await expect(page.locator('[data-testid="unified-viewport:panel_1"]')).toHaveCount(0);
 
   // Drive the REAL dropdown: open the layout picker, choose "2 x 2".
-  await page.locator('[title^="Viewport layout"]').click();
+  await page.getByRole('button', { name: 'Viewport layout', exact: true }).click();
   await page.getByRole('button', { name: '2 x 2' }).click();
 
   // The unified grid must now render 4 GENERIC panels — i.e. the dropdown reached

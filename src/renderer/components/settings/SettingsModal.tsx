@@ -587,6 +587,7 @@ export default function SettingsModal({ open, onClose, onRecover, initialTab }: 
               type="button"
               onClick={onClose}
               className="p-1.5 rounded text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
+              aria-label="Close"
               title="Close"
             >
               <IconClose className="w-4 h-4" />

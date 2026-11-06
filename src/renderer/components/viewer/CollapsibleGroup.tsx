@@ -80,6 +80,7 @@ export default function CollapsibleGroup({
         ref={buttonRef}
         data-group-trigger={groupId}
         onClick={handleToggle}
+        aria-label={triggerTitle}
         title={triggerTitle}
         className={`flex items-center gap-0.5 px-2 py-1.5 rounded transition-colors shrink-0 ${
           open ? 'bg-blue-600 text-white' : 'text-zinc-300 hover:bg-zinc-800'

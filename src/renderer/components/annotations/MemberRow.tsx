@@ -264,6 +264,7 @@ export default function MemberRow(props: MemberRowProps) {
           className={lockState === 'locked' ? 'text-amber-400' : lockState === 'approved' ? 'text-emerald-400/80' : 'text-zinc-600 hover:text-zinc-300'}
           title={lockState === 'approved' ? 'Approved-locked' : lockState === 'locked' ? 'Locked — edits blocked everywhere' : 'Unlocked — click to lock'}
           aria-label="Toggle lock"
+          data-lock-state={lockState}
           disabled={lockState === 'approved'}
           onClick={(e) => { e.stopPropagation(); onToggleLock(); }}
         >

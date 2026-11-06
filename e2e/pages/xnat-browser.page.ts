@@ -21,15 +21,20 @@ export class XnatBrowserPage {
   }
 
   get items() {
-    return this.browser.locator('.overflow-y-auto [role="button"]');
+    return this.browser.getByTestId('xnat-browser-item');
   }
 
   get spinner() {
-    return this.browser.locator('.animate-spin');
+    return this.browser.getByTestId('xnat-browser-loading');
   }
 
   get breadcrumb() {
-    return this.browser.locator('.border-b').first();
+    return this.browser.getByTestId('xnat-browser-breadcrumb');
+  }
+
+  /** The scan buttons of an expanded session (or the scans level); `data-scan-id` holds the id. */
+  get scans() {
+    return this.browser.getByTestId('xnat-browser-scan');
   }
 
   // ─── Level Detection ───────────────────────────────────────────
@@ -57,10 +62,10 @@ export class XnatBrowserPage {
       () => {
         const browser = document.querySelector('[data-testid="xnat-browser"]');
         if (!browser) return false;
-        const scrollArea = browser.querySelector('.overflow-y-auto');
-        if (!scrollArea) return false;
-        const items = scrollArea.querySelectorAll('[role="button"]');
-        const empty = scrollArea.querySelector('.text-zinc-600');
+        const list = browser.querySelector('[data-testid="xnat-browser-list"]');
+        if (!list) return false;
+        const items = list.querySelectorAll('[data-testid="xnat-browser-item"], [data-testid="xnat-browser-scan"]');
+        const empty = list.querySelector('[data-testid="xnat-browser-empty"]');
         return items.length > 0 || empty !== null;
       },
       { timeout },
@@ -70,14 +75,13 @@ export class XnatBrowserPage {
   // ─── Item Matching ─────────────────────────────────────────────
 
   /**
-   * Find an item whose primary name (.font-medium element) exactly matches
-   * the given text. Uses regex anchors to avoid substring false positives.
+   * Find an item whose name (`xnat-browser-item-name`) starts with the given text. Anchored,
+   * so a name that merely contains it does not match.
    */
   private findItemByExactName(name: string) {
-    return this.browser
-      .locator('.overflow-y-auto [role="button"]')
+    return this.items
       .filter({
-        has: this.page.locator('.font-medium', { hasText: new RegExp(`^${escapeRegex(name)}`) }),
+        has: this.page.getByTestId('xnat-browser-item-name').filter({ hasText: new RegExp(`^${escapeRegex(name)}`) }),
       })
       .first();
   }
@@ -146,14 +150,8 @@ export class XnatBrowserPage {
     await this.waitForLevel('sessions');
     await this.waitForLoaded();
 
-    // Session items contain the label in a .font-medium element.
     // Session labels may have a modality badge appended, so match with startsWith.
-    const sessionItem = this.browser
-      .locator('.overflow-y-auto [role="button"]')
-      .filter({
-        has: this.page.locator('.font-medium', { hasText: new RegExp(`^${escapeRegex(sessionLabel)}`) }),
-      })
-      .first();
+    const sessionItem = this.findItemByExactName(sessionLabel);
 
     const count = await sessionItem.count();
     if (count === 0) {
@@ -167,18 +165,14 @@ export class XnatBrowserPage {
 
     // Wait for scans to load inside the expanded session
     await this.spinner.waitFor({ state: 'hidden', timeout: 30_000 }).catch(() => {});
-    await this.browser.locator('.overflow-y-auto .pb-2 button.w-full').first()
-      .waitFor({ state: 'visible', timeout: 30_000 });
+    await this.scans.first().waitFor({ state: 'visible', timeout: 30_000 });
   }
 
   /**
    * Click a scan by ID inside an expanded session.
    */
   async clickScan(scanId: string) {
-    const scanItem = this.browser
-      .locator('.overflow-y-auto button.w-full')
-      .filter({ hasText: `#${scanId}` })
-      .first();
+    const scanItem = this.browser.locator(`[data-testid="xnat-browser-scan"][data-scan-id="${scanId}"]`).first();
 
     const count = await scanItem.count();
     if (count === 0) {
@@ -232,8 +226,7 @@ export class XnatBrowserPage {
       await this.clickScan(scanId);
     } else {
       // Click the first scan button
-      const scanButtons = this.browser.locator('.overflow-y-auto .pb-2 button.w-full');
-      await scanButtons.first().click();
+      await this.scans.first().click();
     }
   }
 

@@ -102,7 +102,7 @@ test('a keyboard-focused viewport shows no second outline from the browser', asy
 
 test('only the active viewport is outlined, and only in the app’s own colour', async ({ page }) => {
   await loadFixture(page, 'ct-axial-300', 'panel_0');
-  await page.locator('[title^="Viewport layout"]').click();
+  await page.getByRole('button', { name: 'Viewport layout', exact: true }).click();
   await page.getByRole('button', { name: '1 x 2' }).click();
   await page.locator('[data-testid="unified-viewport:panel_1"]').waitFor({ state: 'attached', timeout: 20_000 });
 

@@ -28,7 +28,7 @@ export function ExtensionDialog({ title, onClose, children }: { title: string; o
       <div role="dialog" aria-modal="true" aria-label={title} className="relative min-w-[320px] max-w-[min(90vw,640px)] bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl">
         <div className="h-10 px-4 flex items-center justify-between border-b border-zinc-800">
           <h2 className="text-sm font-medium text-zinc-100">{title}</h2>
-          <button type="button" onClick={onClose} title="Close" className="p-1 rounded text-zinc-400 hover:text-white hover:bg-zinc-800">✕</button>
+          <button type="button" onClick={onClose} aria-label="Close" title="Close" className="p-1 rounded text-zinc-400 hover:text-white hover:bg-zinc-800">✕</button>
         </div>
         <div className="p-4 text-xs text-zinc-300">{children}</div>
       </div>

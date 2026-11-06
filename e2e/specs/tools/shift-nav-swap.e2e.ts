@@ -40,7 +40,7 @@ const moved = (a: number[], b: number[]) => a.some((v, i) => Math.abs(v - b[i]) 
 test('Shift-drag zooms with Pan active and pans with Zoom active', async ({ page }) => {
   await loadFixture(page, 'ct-axial-300', 'panel_0');
 
-  await page.locator('button[title="Pan (left-click drag)"]').click();
+  await page.getByRole('button', { name: 'Pan', exact: true }).click();
   // Plain left-click still belongs to Pan alone.
   await expect.poll(() => page.evaluate(() => (window as unknown as Win).__XNAT_E2E__.getUnifiedToolsWithPrimary()))
     .toEqual(['Pan']);
@@ -56,7 +56,7 @@ test('Shift-drag zooms with Pan active and pans with Zoom active', async ({ page
   after = await camera(page);
   expect(Math.abs(after.scale - before.scale), 'Shift-drag under Pan must zoom').toBeGreaterThan(1e-3);
 
-  await page.locator('button[title="Zoom (left-click drag)"]').click();
+  await page.getByRole('button', { name: 'Zoom', exact: true }).click();
   before = await camera(page);
   await drag(page, true);
   after = await camera(page);
@@ -64,7 +64,7 @@ test('Shift-drag zooms with Pan active and pans with Zoom active', async ({ page
   expect(moved(after.focal, before.focal), 'Shift-drag under Zoom must pan').toBe(true);
 
   // Leaving the nav tools drops the swap: Shift-drag under W/L touches neither.
-  await page.locator('button[title="Window/Level (left-click drag)"]').click();
+  await page.getByRole('button', { name: 'Window/Level', exact: true }).click();
   before = await camera(page);
   await drag(page, true);
   after = await camera(page);

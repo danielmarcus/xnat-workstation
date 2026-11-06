@@ -48,7 +48,7 @@ async function addNote(page: Page, text: string) {
 }
 
 async function openSettings(page: Page) {
-  await page.getByTitle('Open settings').click();
+  await page.getByRole('button', { name: 'Open settings', exact: true }).click();
   return page.getByRole('dialog', { name: 'Settings' });
 }
 
@@ -129,7 +129,7 @@ test('E6 · keys: N / ⇧N run the extension\'s commands; they are listed, remap
   await action.selectOption({ label: 'Session notes: Next note' });
   await settings.getByPlaceholder('e.g. w, Escape, Space').fill('j');
   await settings.getByRole('button', { name: 'Set Override' }).click();
-  await settings.getByTitle('Close', { exact: true }).click();
+  await settings.getByRole('button', { name: 'Close', exact: true }).click();
 
   await page.keyboard.press('j');
   await expect(selected).toContainText('first');
@@ -139,7 +139,7 @@ test('E6 · keys: N / ⇧N run the extension\'s commands; they are listed, remap
   const s2 = await openSettings(page);
   await s2.getByRole('button', { name: 'Hotkeys', exact: true }).click();
   await s2.getByRole('button', { name: 'Reset Hotkeys' }).click();
-  await s2.getByTitle('Close', { exact: true }).click();
+  await s2.getByRole('button', { name: 'Close', exact: true }).click();
 });
 
 test('E6 · ⌘K lists the extension\'s commands, named with it; picking one runs it', async ({ page }) => {
@@ -182,7 +182,7 @@ test('disabling an extension removes every slot, command and key it added; enabl
   await expect(settings.getByRole('button', { name: 'Session notes', exact: true })).toHaveCount(0); // its page is gone
   await settings.getByRole('button', { name: 'Hotkeys', exact: true }).click();
   await expect(settings.getByRole('combobox').first().locator('option', { hasText: 'Session notes:' })).toHaveCount(0);
-  await settings.getByTitle('Close', { exact: true }).click();
+  await settings.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(sidebarTab(page, 'Notes')).toHaveCount(0);
   await expect(notesItem(page)).toHaveCount(0);
 
@@ -190,7 +190,7 @@ test('disabling an extension removes every slot, command and key it added; enabl
   await s2.getByRole('button', { name: 'Extensions', exact: true }).click();
   await s2.getByTestId(`extension-row-${NOTES}`).getByLabel('Enable Session notes').click();
   await expect(s2.getByTestId(`extension-row-${NOTES}`).getByTestId('extension-state')).toHaveText('Active · Pro');
-  await s2.getByTitle('Close', { exact: true }).click();
+  await s2.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(sidebarTab(page, 'Notes')).toBeVisible();
   await expect(notesItem(page)).toBeVisible();
 });

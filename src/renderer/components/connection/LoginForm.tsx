@@ -215,7 +215,7 @@ export default function LoginForm() {
           {/* Error message */}
           {error && (
             <div className="bg-red-950/50 border border-red-800/50 rounded-md px-3 py-2">
-              <p className="text-xs text-red-400">{error}</p>
+              <p data-testid="login-error" role="alert" className="text-xs text-red-400">{error}</p>
             </div>
           )}
 
@@ -229,6 +229,7 @@ export default function LoginForm() {
             {isConnecting ? (
               <span className="flex items-center justify-center gap-2">
                 <svg
+                  data-testid="login-connecting"
                   className="animate-spin h-4 w-4"
                   viewBox="0 0 24 24"
                   fill="none"

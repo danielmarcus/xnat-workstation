@@ -158,13 +158,13 @@ test('Delete erases the selected island only; one undo brings it back, redo eras
   await expect.poll(async () => (await perImage(page))[source], { message: 'only the selected island is erased' }).toBe(bothCount - leftCount);
   await expect.poll(() => outlined(page), { message: 'nothing selected after the delete' }).toBe(0);
 
-  await page.locator('button[title^="Undo"]').click();
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
   await expect.poll(async () => (await perImage(page))[source], { message: 'one undo brings it back' }).toBe(bothCount);
-  await page.locator('button[title^="Redo"]').click();
+  await page.getByRole('button', { name: 'Redo', exact: true }).click();
   await expect.poll(async () => (await perImage(page))[source], { message: 'redo erases it again' }).toBe(bothCount - leftCount);
 
   // A locked segment is not erased.
-  await page.locator('button[title^="Undo"]').click();
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
   await expect.poll(async () => (await perImage(page))[source]).toBe(bothCount);
   await panel.locator('[data-testid^="member-row-"]').first().getByRole('button', { name: 'Toggle lock' }).click();
   await clickAt(page, left);

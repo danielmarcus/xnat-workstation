@@ -26,6 +26,7 @@ test.beforeEach(({ page }) => cleanSlate(page));
 test.afterEach(({ page }) => cleanSlate(page));
 
 const svgAnnotations = (page: Page) =>
+  // eslint-disable-next-line no-restricted-syntax -- .svg-layer is Cornerstone's own SVG layer, not app markup
   page.locator('[data-testid="unified-viewport-element:panel_0"] .svg-layer [data-annotation-uid]');
 
 test('deleting a measurement removes it from the viewport display, and SR containers have no "+"', async ({ page }) => {

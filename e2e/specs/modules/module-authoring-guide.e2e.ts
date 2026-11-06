@@ -36,7 +36,7 @@ test('the authoring guide\'s quick start builds, signs and installs as written',
     await resetModules(electronApp);
     await page.reload();
     await loadFixture(page, 'ct-axial-anatomy', 'panel_0');
-    await page.getByTitle('Open settings').click();
+    await page.getByRole('button', { name: 'Open settings', exact: true }).click();
     const dialog = page.getByRole('dialog', { name: 'Settings' });
     await dialog.getByRole('button', { name: 'Modules', exact: true }).click();
     await stubOpen(electronApp, path.join(ROOT, 'my-publisher.public.json'));
@@ -46,7 +46,7 @@ test('the authoring guide\'s quick start builds, signs and installs as written',
     const row = dialog.getByTestId('module-row-org.example.my-threshold');
     await expect(row).toContainText('Verified');
     await expect(dialog.getByTestId('module-confirm')).toHaveCount(0); // no warning for a trusted publisher
-    await dialog.getByTitle('Close', { exact: true }).click();
+    await dialog.getByRole('button', { name: 'Close', exact: true }).click();
     const panel = page.locator('[data-testid="annotations-side-panel"]');
     if (!(await panel.isVisible())) await page.getByRole('button', { name: 'Show segmentation panel' }).click();
     await panel.getByRole('button', { name: 'New Segmentation (SEG)' }).click();

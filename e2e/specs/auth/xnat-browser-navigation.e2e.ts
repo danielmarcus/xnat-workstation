@@ -65,10 +65,8 @@ test.describe('XNAT Navigation', () => {
     await browser.selectSubject(config.testSubject);
     await browser.expandSession(config.testSession);
 
-    // After expanding, scan buttons should appear inside the expanded area.
-    // Scan buttons are <button> elements with class "w-full" inside .pb-2.
-    const scanItems = page.locator('[data-testid="xnat-browser"] .overflow-y-auto .pb-2 button.w-full');
-    const scanCount = await scanItems.count();
+    // After expanding, the session's scan buttons appear.
+    const scanCount = await browser.scans.count();
     expect(scanCount).toBeGreaterThan(0);
   });
 });

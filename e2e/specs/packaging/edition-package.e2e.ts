@@ -15,7 +15,7 @@ test('the packaged app is the edition: its name, and its bundled module', async 
   expect(await electronApp.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().map((w) => w.getTitle()))).toContain(process.env.E2E_EDITION_PRODUCT);
   expect(await electronApp.evaluate(({ app }) => app.isPackaged)).toBe(true);
   await loadFixture(page, 'ct-axial-anatomy', 'panel_0');
-  await page.getByTitle('Open settings').click();
+  await page.getByRole('button', { name: 'Open settings', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Settings' });
   await dialog.getByRole('button', { name: 'Modules', exact: true }).click();
   const row = dialog.getByTestId('module-row-org.xnat.examples.threshold');
@@ -28,14 +28,14 @@ test('the packaged app loads the extension the edition ships, from inside its ar
   await installPro(page); // its slots need their features licensed (X6)
   await page.reload({ waitUntil: 'load' });
   await enterLocalViewer(page);
-  await page.getByTitle('Open settings').click();
+  await page.getByRole('button', { name: 'Open settings', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Settings' });
   await dialog.getByRole('button', { name: 'Extensions', exact: true }).click();
   const row = dialog.getByTestId('extension-row-org.xnat.examples.session-notes');
   await expect(row.getByTestId('extension-state')).toHaveText('Active · Pro');
   await expect(dialog.locator('[data-testid^="extension-row-"]')).toHaveCount(1);
   // Its UI renders with the app's React, from inside the archive: the sidebar tab and toolbar item.
-  await dialog.getByTitle('Close', { exact: true }).click();
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click();
   await page.getByRole('tablist', { name: 'Sidebar' }).getByRole('tab', { name: 'Notes', exact: true }).click();
   await expect(page.getByTestId('extension-sidebar-tab-org.xnat.examples.session-notes')).toContainText('No notes yet.');
   await expect(page.getByTestId('extension-toolbar-item-org.xnat.examples.session-notes')).toContainText('0 notes');

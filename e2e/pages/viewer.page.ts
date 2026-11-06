@@ -49,21 +49,21 @@ export class ViewerPage {
 
   // ─── Toolbar Actions ───────────────────────────────────────────
 
-  /** Select a tool by its title attribute */
-  async selectTool(title: string) {
-    await this.toolbar.locator(`button[title="${title}"]`).click();
+  /** Select a toolbar tool by its accessible name (its aria-label — not the tooltip text). */
+  async selectTool(name: string) {
+    await this.toolbar.getByRole('button', { name, exact: true }).click();
   }
 
   async selectWindowLevel() {
-    await this.selectTool('Window/Level (left-click drag)');
+    await this.selectTool('Window/Level');
   }
 
   async selectPan() {
-    await this.selectTool('Pan (left-click drag)');
+    await this.selectTool('Pan');
   }
 
   async selectZoom() {
-    await this.selectTool('Zoom (left-click drag)');
+    await this.selectTool('Zoom');
   }
 
   async resetViewport() {
@@ -75,14 +75,7 @@ export class ViewerPage {
       return;
     }
 
-    const annotationToolsTrigger = this.toolbar.locator('button[title="Annotation tools"]');
-    if (await annotationToolsTrigger.isVisible().catch(() => false)) {
-      await annotationToolsTrigger.click();
-    }
-
-    const segmentationToggle = this.page.locator(
-      'button[title="Show segmentation panel"], button[title="Hide segmentation panel"]',
-    ).first();
+    const segmentationToggle = this.page.getByRole('button', { name: 'Show segmentation panel', exact: true });
 
     await segmentationToggle.waitFor({ state: 'visible', timeout });
     await segmentationToggle.click();

@@ -54,7 +54,7 @@ async function segmentationWithCheckpoint(page: Page) {
 }
 
 async function openFileBackup(page: Page): Promise<Locator> {
-  await page.getByTitle('Open settings').click();
+  await page.getByRole('button', { name: 'Open settings', exact: true }).click();
   await page.getByRole('button', { name: 'File Backup' }).click();
   return page.getByTestId('checkpoint-files');
 }

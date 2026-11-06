@@ -88,7 +88,7 @@ test('a text field in a side panel still keeps the keyboard while typing', async
   await page.keyboard.press('Escape'); // end the create naming sequence first
   const row = panel.locator('[data-testid^="container-row-"]').last();
   await expect(row).toBeVisible({ timeout: 15_000 });
-  await row.locator('span[title]').first().dblclick();
+  await row.locator('[data-testid^="container-name-"]').dblclick();
   const rename = panel.getByLabel('Rename container');
   await expect(rename).toBeVisible({ timeout: 10_000 });
   await rename.click();
