@@ -194,8 +194,8 @@ Decided 2026-10-30. The full E2E run takes ~50 minutes, and a check of the histo
 | Tools or operations changed | `npm run test:e2e:sweep` — every tool and operation in every orientation (`test:changed` says when) | ~30 min |
 | XNAT sign-in or access changed | `npm run test:e2e:live` — read-only against the server `XNAT_URL` names in `.env.e2e`; needs current credentials there — on an SSO-only server, a fresh alias token with `XNAT_USERNAME` set | ~1 min |
 | Packaging or the edition build changed | `npm run test:edition` | ~5 min |
-| Before merging to `main` | `test:changed` against the branch, **plus CI's steps judged by exit code** (`lint`, `notices:check`, `typecheck`, `test`, `build` — vitest fails on an unhandled error even when every test passed; CI runs only on `main`, `codex/**` and pull requests, so a branch's first CI run is otherwise after the merge) | minutes |
-| Before a release | `npm run test:e2e:release` (offline + sweep) and the live specs | ~50 min |
+| Before merging to `main` | `test:changed` against the branch, **plus CI judged by exit code**. CI is tiered (`.github/workflows/ci.yml`): on a pull request or a `codex/**` push it runs only what the change can affect — nothing for docs-only changes; otherwise lint, typecheck and the unit tests related to the changed files, plus the DICOM compliance suites when DICOM code changed and the build when build inputs changed. Every push to `main`, and any change to dependencies, the test setup or the workflows, runs everything (`lint`, `notices:check`, `typecheck`, `test`, `build`) — vitest fails on an unhandled error even when every test passed | minutes |
+| Before a release | By hand: `npm run test:e2e:release` (offline + sweep), the live specs and `npm run test:edition`; then tag. `release.yml` re-runs the full CI checks (`verify`) and waits for a sign-off on the `release` environment before any packaging job starts | ~1 h |
 
 Judge every step by its exit code, never by a pass count. The full run is not a default: do not reach for it after a small change.
 
