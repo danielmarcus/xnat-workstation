@@ -16,9 +16,10 @@ const h = vi.hoisted(() => {
   const crash = { onLoad: null as null | 'event-first' | 'load-first' | 'event-later' };
   let nextId = 100;
   const fromPartition = (partition: string) => {
-    const s = { partition, handler: null as Handler | null, filter: null as Filter | null, cleared: [] as string[] };
+    const s = { partition, handler: null as Handler | null, filter: null as Filter | null, cleared: [] as string[], proxy: null as null | Record<string, string> };
     sessions.push(s);
     return {
+      setProxy: async (c: Record<string, string>) => { s.proxy = c; },
       setPermissionRequestHandler: () => {},
       setPermissionCheckHandler: () => {},
       webRequest: { onBeforeRequest: (f: Filter) => { s.filter = f; } },
@@ -118,6 +119,15 @@ describe('module runs (#103 item 1)', () => {
     expect(c.ok).toBe(true);
     expect(h.sessions, 'still one session').toHaveLength(1);
     if (c.ok) stopModuleRun(c.runId);
+  });
+});
+
+describe('the sandbox network', () => {
+  it('goes through a proxy that is not there, loopback included — WebRTC over TCP has nowhere to go', async () => {
+    const a = await startModuleRun(sender(), 'org.example.a');
+    if (!a.ok) throw new Error('run did not start');
+    expect(h.sessions[h.sessions.length - 1].proxy).toEqual({ mode: 'fixed_servers', proxyRules: 'http://127.0.0.1:9', proxyBypassRules: '<-loopback>' });
+    stopModuleRun(a.runId);
   });
 });
 

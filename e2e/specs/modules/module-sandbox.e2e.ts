@@ -7,6 +7,7 @@
  */
 import * as dgram from 'dgram';
 import * as http from 'http';
+import * as net from 'net';
 import type { AddressInfo } from 'net';
 import { test, expect } from '../../fixtures/electron-app';
 import type { Page } from '@playwright/test';
@@ -101,6 +102,47 @@ test("a hostile module reaches nothing: network, the app's proxy, Node, the app'
     'import remote': 'blocked', eval: 'blocked', Function: 'blocked',
     require: 'undefined', process: 'undefined', electronAPI: 'undefined', cookie: 'empty', 'window.open': 'blocked',
   });
+});
+
+test('WebRTC fetched back from a same-origin frame reaches nothing either — STUN over UDP, TURN over TCP', async ({ electronApp, page }) => {
+  // The host script removes RTCPeerConnection from the module's window only. An about:blank
+  // frame is same-origin and not covered by the CSP, so a module can take a fresh one from it —
+  // and TURN over TCP is a channel the UDP policy does not close.
+  const file = buildPackage('framed', manifest('org.e2e.framed'), `
+    export async function run(input) {
+      const frame = document.createElement('iframe');
+      document.body.appendChild(frame);
+      const PC = frame.contentWindow.RTCPeerConnection;
+      if (typeof PC !== 'function') return { pc: 'unavailable' };
+      const pc = new PC({ iceServers: [
+        { urls: 'stun:127.0.0.1:' + input.udpPort },
+        { urls: 'turn:127.0.0.1:' + input.tcpPort + '?transport=tcp', username: 'u', credential: 'p' },
+      ] });
+      pc.createDataChannel('x');
+      await pc.setLocalDescription(await pc.createOffer());
+      await new Promise((r) => setTimeout(r, 3000));
+      return { pc: 'created' };
+    }`);
+  expect((await installDirect(electronApp, file)).ok).toBe(true);
+  const connections: number[] = [];
+  const tcp = net.createServer((sock) => { connections.push(1); sock.destroy(); });
+  await new Promise<void>((r) => tcp.listen(0, '127.0.0.1', r));
+  const tcpPort = (tcp.address() as AddressInfo).port;
+  await new Promise<void>((resolve, reject) => {
+    const probe = net.connect(tcpPort, '127.0.0.1', () => { probe.destroy(); resolve(); });
+    probe.once('error', reject);
+  });
+  const udp = dgram.createSocket('udp4');
+  const datagrams: number[] = [];
+  udp.on('message', (m) => datagrams.push(m.length));
+  await new Promise<void>((r) => udp.bind(0, '127.0.0.1', () => r()));
+  connections.length = 0;
+  const r = await run(page, 'org.e2e.framed', { udpPort: udp.address().port, tcpPort });
+  tcp.close();
+  udp.close();
+  expect(r.error).toBeUndefined();
+  expect(connections, 'no TURN connection left the sandbox').toEqual([]);
+  expect(datagrams, 'no STUN datagram left the sandbox').toEqual([]);
 });
 
 test('Cancel ends the run at once — a result returned afterwards is ignored; a module that ignores Cancel is destroyed', async ({ electronApp, page }) => {

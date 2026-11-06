@@ -129,11 +129,25 @@ const byHost = new Map<string, Run>();
 
 const PARTITION = 'xnat-module-sandbox';
 let sandbox: Session | null = null;
+/** The sandbox's proxy is in place: no run starts before it is. */
+let sandboxProxy: Promise<void> = Promise.resolve();
+
+/**
+ * Every connection the sandbox's network stack makes goes to a proxy that is not there —
+ * loopback included (`<-loopback>` removes Chromium's implicit bypass). It is what closes WebRTC:
+ * the host script removes RTCPeerConnection from the module's window only, a same-origin
+ * about:blank frame hands it back, and TURN over TCP is neither a request the filter sees nor
+ * UDP the IP-handling policy stops. Under 'disable_non_proxied_udp' WebRTC may use TCP only
+ * through the proxy, which refuses it. A run's own files are served by the protocol handler,
+ * never the network, so they are unaffected.
+ */
+const NO_NETWORK = { mode: 'fixed_servers' as const, proxyRules: 'http://127.0.0.1:9', proxyBypassRules: '<-loopback>' };
 
 /** The one in-memory session every run's process uses: set up once, serving only live runs. */
 function sandboxSession(): Session {
   if (sandbox) return sandbox;
   const ses = electronSession.fromPartition(PARTITION, { cache: false });
+  sandboxProxy = ses.setProxy(NO_NETWORK);
   ses.setPermissionRequestHandler((_wc, _perm, cb) => cb(false));
   ses.setPermissionCheckHandler(() => false);
   // Nothing leaves the sandbox: a run's page may request only its own run's files.
@@ -203,6 +217,7 @@ export async function startModuleRun(sender: WebContents, id: string): Promise<{
   const host = `run-${runId}`;
   const prefix = `${MODULE_SCHEME}://${host}/`;
   const ses = sandboxSession();
+  await sandboxProxy;
 
   const win = new BrowserWindow({
     show: false,
