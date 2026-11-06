@@ -720,7 +720,7 @@ owner for a few hours in week 1.
 
 | Week | D — Move | A — Testing | B — Review | C — Docs |
 |---|---|---|---|---|
-| 1 | D.1–D.4; CI, release dry run and SDK publish green from NrgXnat Test XNAT checked against §A.1; traceability matrix; G1 (non-blocking) | Static tooling; secret scan of history; `/security-review`; partitions 1–2 | Outline approved; glossary; chapters 1–4 |
+| 1 | D.1–D.4; CI, release dry run and SDK publish green from NrgXnat | Test XNAT checked against §A.1; traceability matrix; G1 (non-blocking) | Static tooling; secret scan of history; `/security-review`; partitions 1–2 | Outline approved; glossary; chapters 1–4 |
 | 2 | D.5 bridge-release proof (can use a pre-release) | MTS for C1–C10; G2–G5 | Partitions 3–5; P1 fixes | Chapters 5–9; screenshot script |
 | 3 | — | MTS for C11–C22; G6–G13; flake stabilisation | Partitions 6–8; `/simplify`; `docs/` reorganisation | Chapters 10–21; developer docs (C.6) |
 | 4 | — | **RC1**: cut `release/1.0`; full manual run on 3 platforms; E2E required | P1/P2 fixes from the run | Technical review; outside-annotator review |
