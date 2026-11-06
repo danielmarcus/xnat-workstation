@@ -41,7 +41,8 @@ export function getE2EConfig(): E2EConfig {
   if (missing.length > 0) {
     throw new Error(
       `Missing required E2E environment variables: ${missing.join(', ')}.\n`
-      + 'Copy .env.e2e.example to .env.e2e and fill in your values.',
+      + 'Set them in .env.e2e at the repository root (git-ignored); the list is in '
+      + 'e2e/specs/README.md, "Live-server settings".',
     );
   }
 

@@ -83,7 +83,8 @@ test('annotations.openScan() opens an annotation scan of the session, as clickin
   const id = await testSessionId(page);
   const scans = await probe(page, (p, e) => p.ext.xnat.getJson(`/data/experiments/${e}/scans`), id) as Rows;
   const annotation = scans.ResultSet.Result.find((r) => /^(SEG|RTSTRUCT|SR)$/i.test(r.type ?? '') || /seg|rtstruct|sr/i.test(r.xsiType ?? ''));
-  test.skip(!annotation, 'the test session has no SEG / RTSTRUCT / SR scan');
+  // Test data, not an optional case: a skip here would hide that openScan() went untested.
+  if (!annotation) throw new Error(`setup: the test session ${config.testSession} needs a SEG, RTSTRUCT or SR scan (e2e/specs/README.md, "Live-server settings")`);
   const ref = { projectId: config.testProject, subjectId: config.testSubject, sessionId: id };
   try {
     expect(await probe(page, (p, r) => p.ext.viewer.openSession(r), ref)).toEqual({ outcome: 'opened' });
@@ -99,7 +100,7 @@ test('openSession() reports cancelled when the user cancels at the unsaved-chang
   const id = await testSessionId(page);
   const all = await probe(page, (p, pr) => p.ext.xnat.getJson(`/data/projects/${pr}/experiments`), config.testProject) as Rows;
   const other = all.ResultSet.Result.find((r) => r.ID !== id && /SessionData$/i.test(r.xsiType ?? ''));
-  test.skip(!other, 'the test project has no second image session');
+  if (!other) throw new Error(`setup: the test project ${config.testProject} needs a second image session (e2e/specs/README.md, "Live-server settings")`);
   const otherSubject = await probe(page, (p, e) => p.ext.xnat.getJson(`/data/experiments/${e}`), other!.ID) as { items: Array<{ data_fields: { subject_ID: string } }> };
 
   if ((await probe(page, (p) => p.ext.viewer.session()?.sessionId)) !== id) {

@@ -8,6 +8,8 @@
 import { test as base, _electron, expect } from '@playwright/test';
 import { LoginPage } from '../../pages/login.page';
 import { getE2EConfig, type E2EConfig } from '../../helpers/env';
+import fs from 'fs';
+import os from 'os';
 import path from 'path';
 
 // Per-test Electron fixture (NOT worker-scoped — fresh app for each test)
@@ -18,15 +20,29 @@ const test = base.extend<{
   electronApp: async ({}, use) => {
     const projectRoot = path.resolve(__dirname, '..', '..', '..');
     const mainEntry = path.join(projectRoot, 'dist', 'main', 'main', 'index.js');
+    // The same isolation as fixtures/electron-app.ts: a throwaway profile (never the real
+    // app's, which holds a signed-in session and UI state) and empty module / extension
+    // folders. Fresh per test, since these tests change sign-in state.
+    const temp = (prefix: string) => fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+    const dirs = [temp('xnat-e2e-profile-'), temp('xnat-e2e-bundled-'), temp('xnat-e2e-extensions-')];
+    const [userDataDir, bundledModules, extensions] = dirs;
+    const extraArgs = (process.env.E2E_ELECTRON_ARGS ?? '').split(/\s+/).filter(Boolean);
     const app = await _electron.launch({
-      args: [mainEntry],
+      args: [mainEntry, `--user-data-dir=${userDataDir}`, ...extraArgs],
       cwd: projectRoot,
-      env: { ...process.env, E2E_TESTING: '1', NODE_ENV: 'production' },
+      env: {
+        ...process.env,
+        E2E_TESTING: '1',
+        XNAT_E2E_BUNDLED_MODULES: bundledModules,
+        XNAT_E2E_EXTENSIONS: extensions,
+        NODE_ENV: 'production',
+      },
     });
     await use(app);
     // Force-kill to avoid hanging on modal dialogs during quit
     const pid = app.process().pid;
     try { if (pid) process.kill(pid, 'SIGKILL'); } catch { /* already gone */ }
+    for (const d of dirs) fs.rmSync(d, { recursive: true, force: true });
   },
   page: async ({ electronApp }, use) => {
     const page = await electronApp.firstWindow();

@@ -106,36 +106,46 @@ export const test = base.extend<
   // already self-reset in their own beforeEach; this extends isolation to the
   // whole suite. Offline specs re-enter the viewer (enterLocalViewer) and the
   // live `auth` specs re-detect their main-process session on reload, so both
-  // survive it. Defensive: never fails the test on its own.
+  // survive it. It fails the test only when the renderer does not boot again — that used to
+  // be swallowed, and surfaced later as an unrelated failure in the test's first action.
   resetState: [async ({ electronApp }, use) => {
+    let win: Page;
     try {
-      const win = await electronApp.firstWindow();
-      // NOTE: no edit-mode reset here. There used to be one, which was a mistake: it
-      // forced the mode to fill before every test, so the whole suite was structurally
-      // incapable of observing the app's real startup mode — and it shipped defaulting
-      // to erase while every spec passed. The mode is session state now (not persisted),
-      // so the reload below resets it on its own and nothing needs faking.
-      await win.reload({ waitUntil: 'load' });
-      // Wait until the renderer has actually BOOTED — not just hit DOMContentLoaded.
-      // The E2E hooks install synchronously at module load (main.tsx, BEFORE React
-      // mounts), so `__XNAT_E2E__` alone resolves too early: the test's first
-      // page.evaluate can then race the tail of the reload ("Execution context was
-      // destroyed, most likely because of a navigation"). Also require the React
-      // root to have rendered, which only happens once the post-reload render cycle
-      // has settled — making the page stable before the test's first action.
-      await win
-        .waitForFunction(
-          () => {
-            const w = window as unknown as { __XNAT_E2E__?: unknown };
-            const root = document.getElementById('root');
-            return !!w.__XNAT_E2E__ && !!root && root.childElementCount > 0;
-          },
-          null,
-          { timeout: 15_000 },
-        )
-        .catch(() => {});
+      win = await electronApp.firstWindow();
     } catch {
       // No window yet — nothing to reset.
+      await use();
+      return;
+    }
+    // NOTE: no edit-mode reset here. There used to be one, which was a mistake: it
+    // forced the mode to fill before every test, so the whole suite was structurally
+    // incapable of observing the app's real startup mode — and it shipped defaulting
+    // to erase while every spec passed. The mode is session state now (not persisted),
+    // so the reload below resets it on its own and nothing needs faking.
+    await win.reload({ waitUntil: 'load' });
+    // Wait until the renderer has actually BOOTED — not just hit DOMContentLoaded.
+    // The E2E hooks install synchronously at module load (main.tsx, BEFORE React
+    // mounts), so `__XNAT_E2E__` alone resolves too early: the test's first
+    // page.evaluate can then race the tail of the reload ("Execution context was
+    // destroyed, most likely because of a navigation"). Also require the React
+    // root to have rendered, which only happens once the post-reload render cycle
+    // has settled — making the page stable before the test's first action.
+    const booted = await win
+      .waitForFunction(
+        () => {
+          const w = window as unknown as { __XNAT_E2E__?: unknown };
+          const root = document.getElementById('root');
+          return !!w.__XNAT_E2E__ && !!root && root.childElementCount > 0;
+        },
+        null,
+        { timeout: 15_000 },
+      )
+      .then(() => true, () => false);
+    if (!booted) {
+      throw new Error(
+        'resetState: the renderer did not boot within 15 s of the pre-test reload '
+        + '(window.__XNAT_E2E__ missing or #root empty) — see the app console in the trace.',
+      );
     }
     await use();
   }, { auto: true }],
