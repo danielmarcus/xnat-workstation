@@ -3,7 +3,7 @@
  * into measurements (the create→save→reload round-trip). Verified offline against a
  * REAL loaded fixture (so the SOP-UID→imageId reconstruction is genuine): draw a
  * Length → serialize to SR (srExport) → clear everything → reconstruct from that SR
- * (srImport) → the measurement reappears. The CNDA upload/download legs are the
+ * (srImport) → the measurement reappears. The live-server upload/download legs are the
  * already-proven transport; this proves the SR serialize↔deserialize round-trip.
  */
 import { test, expect } from '../../fixtures/electron-app';

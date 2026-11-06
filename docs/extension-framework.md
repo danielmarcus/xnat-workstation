@@ -318,7 +318,7 @@ licensing.
   - E2E: `e2e/specs/extensions/extension-annotations.e2e.ts` — template create shown in the
     panel, select, save and conflict against the in-memory mock XNAT, the approval refusal.
     Opening a real annotation scan is in the signed-in suite (read-only), **not yet run**
-    (credentials, as for X3). Live tests stay read-only: CNDA is production.
+    (credentials, as for X3). Live tests stay read-only: the live server may be production.
 - [x] **X5** — storage, files, test hooks (2026-10-29). As built (API **0.5**):
   - `ext.storage` in both parts: `get / set / delete / keys`, JSON values, the extension's own
     file under `userData/extension-data/<id>/storage.json` (atomic writes, 5 MB cap, a damaged
@@ -335,7 +335,7 @@ licensing.
   - The example keeps notes per session in `ext.storage` and exports / imports them as JSON; its
     own E2E (`extensions/examples/session-notes/e2e/`, `npm run test:e2e:extension-example`)
     runs from its folder with the harness, a restart included. Notes stay on the computer
-    rather than in an XNAT resource: live tests are read-only (CNDA), so an XNAT-stored example
+    rather than in an XNAT resource: live tests are read-only, so an XNAT-stored example
     could not be tested; `ext.xnat` can do it.
 - **X6** — built and committed in two halves:
   - [x] **X6a, licensing hooks** (2026-10-29). As built (API **0.6**):

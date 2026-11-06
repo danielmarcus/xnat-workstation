@@ -67,7 +67,7 @@ const AREAS = [
 const HARNESS = /^e2e\/(helpers|fixtures|pages)\/|^playwright\.config\.ts$|^src\/renderer\/lib\/e2e\//;
 /** Worth the 30-minute sweep: the operations and tools it sweeps. */
 const SWEEP = /lib\/segmentation\/(maskOps|solvers|semiauto|interpolation|contours)\/|lib\/compute\/|lib\/cornerstone\/(tools\/|maskOps\w*|unifiedToolService|unifiedSegService|solverService|semiAuto\w*|labelmapTransaction|growCutGpu|undoService)|hooks\/(use\w*Sheet|useOperationsSection|operationLifecycle)\.ts|components\/annotations\/(ContextToolbox|toolCatalog|Operation\w*)\.tsx/;
-/** Worth the live CNDA run (needs a fresh token): signing in and reading XNAT. */
+/** Worth the live run against XNAT_URL in .env.e2e (needs current credentials): signing in and reading XNAT. */
 const LIVE = /^src\/main\/xnat\/|ipc\/authHandlers|extensionXnat|lib\/app\/appNavigation/;
 /** Where an uncovered renderer file's specs probably are. */
 const RELATED = [
@@ -125,7 +125,7 @@ if (uncovered.length) {
   }
 }
 if (changed.some((f) => SWEEP.test(f))) console.log('  Operations or tools changed: the sweep may be worth a run (npm run test:e2e:sweep, ~30 min).');
-if (changed.some((f) => LIVE.test(f))) console.log('  XNAT sign-in or access changed: the live specs may be worth a run (npm run test:e2e:live; needs a fresh token).');
+if (changed.some((f) => LIVE.test(f))) console.log('  XNAT sign-in or access changed: the live specs may be worth a run (npm run test:e2e:live; needs current credentials in .env.e2e).');
 if (changed.some((f) => /^electron-builder\.config\.js$|scripts\/(build|test)-edition/.test(f))) console.log('  Packaging changed: npm run test:edition checks the packaged app.');
 if (flag('--dry-run')) process.exit(0);
 

@@ -14,7 +14,7 @@ Replace the `NN-` filename prefixes with **topic directories + descriptive filen
 move the one thing the numbers actually buy — "run smoke first, fail fast" — into
 **Playwright project dependencies**, which is the runner's own mechanism for ordering.
 This is a pure reorganization: no test logic changes. It also lets us split the live-XNAT
-`auth` specs into their own project so expired CNDA credentials stop blocking a full
+`auth` specs into their own project so expired live-server credentials stop blocking a full
 offline run.
 
 ---
@@ -134,7 +134,7 @@ What this buys beyond parity:
   at all — stronger than today's `maxFailures: 1`, which merely stops after the first failure
   wherever it happens.
 - **Live-XNAT specs become opt-out.** `npm run test:e2e -- --project=app` runs the whole
-  offline suite without touching CNDA. Today, `01-login` and `02-navigation` run *first*
+  offline suite without touching a live server. Today, `01-login` and `02-navigation` run *first*
   (verified with `--list`), so expired credentials abort the run under `maxFailures: 1` — the
   exact failure we hit on 2026-09-10, where 6 auth specs returned 401 and required
   `--max-failures=0` to see the other 92 results.

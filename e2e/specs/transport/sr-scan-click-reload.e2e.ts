@@ -1,7 +1,7 @@
 /**
  * SR reload from an XNAT scan click — the missing half of the Measurement round-trip.
  *
- * The upload half (transport `uploadSr`, scan 50xx) was CNDA-verified in #74; the
+ * The upload half (transport `uploadSr`, scan 50xx) was live-verified in #74; the
  * RELOAD branch was never wired: clicking a Measurement scan in the XNAT browser fell
  * through to the "regular scan" path, so a stored SR could not be read back.
  *
@@ -13,7 +13,7 @@
  * genuine file rather than a stub.
  *
  * NOT covered here: the IPC download against a live XNAT and the browser row click
- * itself — those stay CNDA-gated.
+ * itself — those stay live-server-gated.
  */
 import { test, expect } from '../../fixtures/electron-app';
 import type { Page } from '@playwright/test';

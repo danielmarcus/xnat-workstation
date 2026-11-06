@@ -27,9 +27,9 @@ describe('ext.xnat', () => {
   });
 
   it('user() carries the XNAT site id, asked of the server once per connection', async () => {
-    const c = client({ '/xapi/siteConfig/siteId': { body: 'CNDA', type: 'text/plain' } });
+    const c = client({ '/xapi/siteConfig/siteId': { body: 'XNAT_TEST', type: 'text/plain' } });
     const x = createExtensionXnat(() => c as never, () => connection);
-    expect(await x.user()).toEqual({ serverUrl: 'https://xnat.example.org', username: 'dmarcus', siteId: 'CNDA' });
+    expect(await x.user()).toEqual({ serverUrl: 'https://xnat.example.org', username: 'dmarcus', siteId: 'XNAT_TEST' });
     await x.user();
     expect(c.calls.filter((k) => k.endpoint.startsWith('/xapi/siteConfig/siteId'))).toHaveLength(1);
     const quoted = createExtensionXnat(() => client({ '/xapi/siteConfig/siteId': { body: '"XNAT_01"' } }) as never, () => connection);

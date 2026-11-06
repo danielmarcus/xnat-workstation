@@ -192,7 +192,7 @@ Decided 2026-10-30. The full E2E run takes ~50 minutes, and a check of the histo
 | Every change | `npm run test:changed`: lint, typecheck, the unit tests related to the changed files, and the E2E specs for the changed code (specs that changed, specs named like a changed file, whole folders for extensions / modules / transport). It lists changed files no spec matched; add their folder with `--area <folder>` when the change can reach them. `--dry-run` shows the plan | minutes |
 | A bug fix or a feature | Its own E2E spec, written with it and **seen failing first** (discipline §8 below) — this is where tests find bugs | — |
 | Tools or operations changed | `npm run test:e2e:sweep` — every tool and operation in every orientation (`test:changed` says when) | ~30 min |
-| XNAT sign-in or access changed | `npm run test:e2e:live` — read-only against CNDA; needs a fresh alias token in `.env.e2e` (`XNAT_USERNAME` set) | ~1 min |
+| XNAT sign-in or access changed | `npm run test:e2e:live` — read-only against the server `XNAT_URL` names in `.env.e2e`; needs current credentials there — on an SSO-only server, a fresh alias token with `XNAT_USERNAME` set | ~1 min |
 | Packaging or the edition build changed | `npm run test:edition` | ~5 min |
 | Before merging to `main` | `test:changed` against the branch, **plus CI's steps judged by exit code** (`lint`, `notices:check`, `typecheck`, `test`, `build` — vitest fails on an unhandled error even when every test passed; CI runs only on `main`, `codex/**` and pull requests, so a branch's first CI run is otherwise after the merge) | minutes |
 | Before a release | `npm run test:e2e:release` (offline + sweep) and the live specs | ~50 min |

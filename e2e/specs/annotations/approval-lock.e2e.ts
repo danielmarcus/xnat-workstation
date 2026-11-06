@@ -11,7 +11,7 @@
  *
  * The DICOM persistence half (ApprovalStatus round-tripping through a written file)
  * is covered by the dicomExportHelpers round-trip unit test; what a live XNAT does
- * with the attribute is CNDA-gated and NOT claimed here.
+ * with the attribute is live-server-gated and NOT claimed here.
  */
 import { test, expect } from '../../fixtures/electron-app';
 import type { Page } from '@playwright/test';
