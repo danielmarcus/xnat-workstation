@@ -219,7 +219,7 @@ test('opening the same scan in a second viewport shows the annotation already ma
   await strokeAcross(page, 'panel_0');
 
   // NOW open a second viewport on the same series.
-  await page.locator('[title^="Viewport layout"]').click();
+  await page.getByRole('button', { name: 'Viewport layout', exact: true }).click();
   await page.getByRole('button', { name: '1 x 2' }).click();
   await page.locator('[data-testid="unified-viewport:panel_1"]').waitFor({ state: 'attached', timeout: 20_000 });
   await focus(page, 'panel_1');

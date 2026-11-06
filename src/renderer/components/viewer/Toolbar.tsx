@@ -68,23 +68,30 @@ function ToolButton({
   );
 }
 
-/** Icon-only toolbar button — §10 ghost style. */
+/**
+ * Icon-only toolbar button — §10 ghost style. `label` is its accessible name: the action alone,
+ * stable, without the shortcut or mouse hint that `title` (the tooltip) carries — so tooltip
+ * wording can change without changing what screen readers and tests find it by.
+ */
 function IconButton({
   icon,
   active,
   onClick,
+  label,
   title,
   disabled,
 }: {
   icon: React.ReactNode;
   active?: boolean;
   onClick: () => void;
+  label: string;
   title: string;
   disabled?: boolean;
 }) {
   return (
     <button
       onClick={onClick}
+      aria-label={label}
       title={title}
       disabled={disabled}
       className={`flex items-center justify-center px-2 py-1.5 rounded transition-colors shrink-0 ${
@@ -192,6 +199,7 @@ function LayoutDropdown({ disabled }: { disabled: boolean }) {
       <button
         ref={buttonRef}
         onClick={handleToggle}
+        aria-label="Viewport layout"
         title={`Viewport layout (${currentLabel})`}
         disabled={disabled}
         className={`flex items-center gap-1 px-2 py-1.5 text-[11px] rounded transition-colors shrink-0 ${
@@ -624,30 +632,35 @@ export default function Toolbar({
                 icon={<IconCrosshairs className="w-3.5 h-3.5" />}
                 active={activeTool === ToolName.Crosshairs}
                 onClick={() => setActiveTool(ToolName.Crosshairs)}
+                label="Crosshairs"
                 title="Crosshairs (left-click to sync; left-drag W/L)"
               />
               <IconButton
                 icon={<IconPan className="w-3.5 h-3.5" />}
                 active={activeTool === ToolName.Pan}
                 onClick={() => setActiveTool(ToolName.Pan)}
+                label="Pan"
                 title="Pan (left-click drag)"
               />
               <IconButton
                 icon={<IconZoom className="w-3.5 h-3.5" />}
                 active={activeTool === ToolName.Zoom}
                 onClick={() => setActiveTool(ToolName.Zoom)}
+                label="Zoom"
                 title="Zoom (left-click drag)"
               />
               <IconButton
                 icon={<IconWindowLevel className="w-3.5 h-3.5" />}
                 active={activeTool === ToolName.WindowLevel}
                 onClick={() => setActiveTool(ToolName.WindowLevel)}
+                label="Window/Level"
                 title="Window/Level (left-click drag)"
               />
               <WLPresetsDropdown />
               <IconButton
                 icon={<IconInvert className="w-3.5 h-3.5" />}
                 onClick={toggleInvert}
+                label="Invert grayscale"
                 title="Invert grayscale (negative)"
               />
             </CollapsibleGroup>
@@ -660,10 +673,10 @@ export default function Toolbar({
               triggerIcon={<IconRotate90 className="w-3.5 h-3.5" />}
               triggerTitle="Transform"
             >
-              <IconButton icon={<IconRotate90 className="w-3.5 h-3.5" />} onClick={rotate90} title="Rotate 90°" />
-              <IconButton icon={<IconFlipH className="w-3.5 h-3.5" />} onClick={flipH} title="Flip horizontal" />
-              <IconButton icon={<IconFlipV className="w-3.5 h-3.5" />} onClick={flipV} title="Flip vertical" />
-              <IconButton icon={<IconReset className="w-3.5 h-3.5" />} onClick={resetViewport} title="Reset viewport" />
+              <IconButton icon={<IconRotate90 className="w-3.5 h-3.5" />} onClick={rotate90} label="Rotate 90°" title="Rotate 90°" />
+              <IconButton icon={<IconFlipH className="w-3.5 h-3.5" />} onClick={flipH} label="Flip horizontal" title="Flip horizontal" />
+              <IconButton icon={<IconFlipV className="w-3.5 h-3.5" />} onClick={flipV} label="Flip vertical" title="Flip vertical" />
+              <IconButton icon={<IconReset className="w-3.5 h-3.5" />} onClick={resetViewport} label="Reset viewport" title="Reset viewport" />
             </CollapsibleGroup>
             <Separator />
 
@@ -671,12 +684,14 @@ export default function Toolbar({
             <IconButton
               icon={<IconUndo className="w-3.5 h-3.5" />}
               onClick={() => segmentationService.undo()}
+              label="Undo"
               title="Undo (Ctrl+Z) — active container"
               disabled={!canUndo}
             />
             <IconButton
               icon={<IconRedo className="w-3.5 h-3.5" />}
               onClick={() => segmentationService.redo()}
+              label="Redo"
               title="Redo (Ctrl+Shift+Z)"
               disabled={!canRedo}
             />
@@ -693,6 +708,7 @@ export default function Toolbar({
                 icon={cine.isPlaying ? <IconStop className="w-3.5 h-3.5" /> : <IconPlay className="w-3.5 h-3.5" />}
                 active={cine.isPlaying}
                 onClick={toggleCine}
+                label={cine.isPlaying ? 'Stop cine' : 'Play cine'}
                 title={cine.isPlaying ? 'Stop cine' : 'Play cine'}
               />
               <div className="flex items-center gap-1.5 shrink-0">
@@ -723,6 +739,7 @@ export default function Toolbar({
             icon={<IconSettings className="w-3.5 h-3.5" />}
             active={showSettings}
             onClick={() => setShowSettings((v) => !v)}
+            label={showSettings ? 'Close settings' : 'Open settings'}
             title={showSettings ? 'Close settings' : 'Open settings'}
           />
         </div>

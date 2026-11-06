@@ -28,7 +28,7 @@ test('crosshair intensity readout shows a sampled HU value on a real CT load', a
   await expect(page.locator('[data-testid="viewport-overlay:panel_0"]')).toBeVisible();
 
   // Select the real Crosshairs tool (locate by title; the short "Cross" label collides).
-  await page.locator('button[title^="Crosshairs"]').click();
+  await page.getByRole('button', { name: 'Crosshairs', exact: true }).click();
 
   // Click the centre of the viewport to set the shared world point. The centre is
   // comfortably in-bounds, so the sample resolves to a real voxel even though the

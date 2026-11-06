@@ -47,7 +47,7 @@ test('a container attached to more than one viewport shows the cross-panel pill'
 
   // The pill must be rendered — before the resolvers were wired it never was, at any width.
   await expect(
-    panel.locator('[data-testid="container-list"]').getByTitle(/Rendering on \d+ other panel/).first(),
+    panel.locator('[data-testid="container-list"]').getByTestId('cross-panel-pill').first(),
     'the cross-panel pill should render when a container is on more than one viewport',
   ).toBeVisible({ timeout: 10_000 });
 });

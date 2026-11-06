@@ -142,7 +142,7 @@ test('dragging a locked ROI\'s contour with a drawing tool does not edit it, eve
 test('undo of an edit to a now-locked ROI is refused with the same warning (no modal)', async ({ page }) => {
   const { panel } = await structureWithContour(page);
   await lockRow(panel.locator('[data-testid^="member-row-"]').first());
-  await page.locator('button[title^="Undo"]').click();
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
   await expectLockWarning(page);
   expect((await e2e(page)).total, 'the contour was not undone away').toBe(1);
   await expect(page.getByRole('dialog'), 'no modal').toHaveCount(0);

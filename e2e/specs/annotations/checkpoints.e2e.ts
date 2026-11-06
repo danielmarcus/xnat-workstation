@@ -131,10 +131,10 @@ test('renaming a segmentation keeps its checkpoints (#102: the label was in the 
   const atSave = await count(page);
   await saveCheckpoint(page, panel, 'before-rename');
 
-  await panel.locator('[data-testid^="container-activate-"] span[title]').first().dblclick();
+  await panel.locator('[data-testid^="container-name-"]').first().dblclick();
   await panel.getByLabel('Rename container').fill('Renamed liver/tumour');
   await page.keyboard.press('Enter');
-  await expect(panel.locator('[data-testid^="container-activate-"] span[title="Renamed liver/tumour"]')).toHaveCount(1);
+  await expect(panel.locator('[data-testid^="container-name-"]', { hasText: /^Renamed liver\/tumour$/ })).toHaveCount(1);
 
   await stroke(page, 0.55);
   expect(await count(page)).toBeGreaterThan(atSave);

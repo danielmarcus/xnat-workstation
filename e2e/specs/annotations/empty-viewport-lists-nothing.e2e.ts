@@ -24,7 +24,7 @@ test('focusing an empty viewport shows no annotations from the viewports that ha
   await loadFixture(page, 'ct-axial-300', 'panel_0');
 
   // A 2x2 grid with a scan in panel_0 only — the other three cells are empty.
-  await page.locator('[title^="Viewport layout"]').click();
+  await page.getByRole('button', { name: 'Viewport layout', exact: true }).click();
   await page.getByRole('button', { name: '2 x 2' }).click();
   await page.locator('[data-testid="unified-viewport:panel_3"]').waitFor({ state: 'attached', timeout: 20_000 });
 
@@ -46,7 +46,7 @@ test('focusing an empty viewport shows no annotations from the viewports that ha
     'a viewport with no scan loaded must list no annotations',
   ).toHaveCount(0);
   await expect(
-    panel.locator('[data-testid="container-list"]').getByTitle(/Rendering on \d+ other panel/),
+    panel.locator('[data-testid="container-list"]').getByTestId('cross-panel-pill'),
     'and must not claim anything is rendering on other panels',
   ).toHaveCount(0);
 

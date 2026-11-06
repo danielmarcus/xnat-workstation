@@ -186,7 +186,7 @@ function ExternalLinkIcon() {
 
 function Spinner() {
   return (
-    <div className="flex items-center justify-center py-8">
+    <div data-testid="xnat-browser-loading" className="flex items-center justify-center py-8">
       <svg className="animate-spin h-5 w-5 text-zinc-500" viewBox="0 0 24 24" fill="none">
         <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" className="opacity-25" />
         <path d="M4 12a8 8 0 018-8" stroke="currentColor" strokeWidth="3" strokeLinecap="round" className="opacity-75" />
@@ -981,7 +981,7 @@ export default function XnatBrowser({
   return (
     <div data-testid="xnat-browser" data-level={level} className="h-full flex flex-col">
       {/* Breadcrumb */}
-      <div className="flex items-center gap-1 px-3 py-2 text-xs text-zinc-400 border-b border-zinc-800 bg-zinc-900/50 shrink-0 flex-wrap min-h-[36px]">
+      <div data-testid="xnat-browser-breadcrumb" className="flex items-center gap-1 px-3 py-2 text-xs text-zinc-400 border-b border-zinc-800 bg-zinc-900/50 shrink-0 flex-wrap min-h-[36px]">
         <button
           onClick={goToProjects}
           className={`hover:text-zinc-200 transition-colors ${level === 'projects' ? 'text-zinc-200 font-medium' : ''}`}
@@ -1098,7 +1098,7 @@ export default function XnatBrowser({
       )}
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto min-h-0">
+      <div data-testid="xnat-browser-list" className="flex-1 overflow-y-auto min-h-0">
         {loading ? (
           <Spinner />
         ) : (
@@ -1110,7 +1110,7 @@ export default function XnatBrowser({
                   <div className="flex items-start gap-2.5">
                     <ProjectIcon />
                     <div className="min-w-0">
-                      <div className="text-sm text-zinc-200 font-medium truncate">{p.name}</div>
+                      <div data-testid="xnat-browser-item-name" className="text-sm text-zinc-200 font-medium truncate">{p.name}</div>
                       {p.description && (
                         <div className="text-xs text-zinc-500 truncate mt-0.5">{p.description}</div>
                       )}
@@ -1162,7 +1162,7 @@ export default function XnatBrowser({
                     <div className="flex items-start gap-2.5">
                       <SubjectIcon />
                       <div className="min-w-0">
-                        <div className="text-sm text-zinc-200 font-medium truncate">{s.label}</div>
+                        <div data-testid="xnat-browser-item-name" className="text-sm text-zinc-200 font-medium truncate">{s.label}</div>
                         <div className="text-[11px] text-zinc-600 tabular-nums">
                           {modSummary || (s.sessionCount != null ? `${s.sessionCount} sessions` : '')}
                         </div>
@@ -1203,7 +1203,7 @@ export default function XnatBrowser({
 
             {level === 'sessions' && (
               filteredSessions.length === 0 ? (
-                <div className="flex items-center justify-center py-8 text-zinc-600 text-xs">
+                <div data-testid="xnat-browser-empty" className="flex items-center justify-center py-8 text-zinc-600 text-xs">
                   {q ? `No sessions matching "${search}"` : 'No sessions found'}
                 </div>
               ) : (
@@ -1220,6 +1220,7 @@ export default function XnatBrowser({
                       <div key={session.id}>
                         <div
                           onClick={() => toggleSessionExpanded(session)}
+                          data-testid="xnat-browser-item"
                           className="w-full text-left px-3 py-2.5 hover:bg-zinc-800/50 transition-colors cursor-pointer flex items-start gap-2 group"
                           role="button"
                           tabIndex={0}
@@ -1241,7 +1242,7 @@ export default function XnatBrowser({
                           </svg>
                           <SessionIcon />
                           <div className="min-w-0 flex-1">
-                            <div className="text-sm text-zinc-200 font-medium truncate">
+                            <div data-testid="xnat-browser-item-name" className="text-sm text-zinc-200 font-medium truncate">
                               {session.label}
                             </div>
                             <div className="text-[11px] text-zinc-600 tabular-nums flex items-center gap-1.5">
@@ -1295,6 +1296,8 @@ export default function XnatBrowser({
                                       return (
                                         <button
                                           key={scan.id}
+                                          data-testid="xnat-browser-scan"
+                                          data-scan-id={scan.id}
                                           ref={registerThumbVisibilityTarget(`${session.id}/${scan.id}`)}
                                           onClick={(e) => loadScanForSession(session, scan, { openInMpr: e.shiftKey })}
                                           draggable
@@ -1348,6 +1351,8 @@ export default function XnatBrowser({
                                       return (
                                         <button
                                           key={scan.id}
+                                          data-testid="xnat-browser-scan"
+                                          data-scan-id={scan.id}
                                           onClick={(e) => loadScanForSession(session, scan, { openInMpr: e.shiftKey })}
                                           draggable
                                           onDragStart={(e) => handleScanDragStart(e, session, scan)}
@@ -1396,7 +1401,7 @@ export default function XnatBrowser({
             {level === 'scans' && (
               scanViewMode === 'grid' ? (
                 filteredScans.length === 0 ? (
-                  <div className="flex items-center justify-center py-8 text-zinc-600 text-xs">
+                  <div data-testid="xnat-browser-empty" className="flex items-center justify-center py-8 text-zinc-600 text-xs">
                     {q ? `No scans matching "${search}"` : 'No scans found'}
                   </div>
                 ) : (
@@ -1408,6 +1413,8 @@ export default function XnatBrowser({
                       return (
                         <button
                           key={s.id}
+                          data-testid="xnat-browser-scan"
+                          data-scan-id={s.id}
                           ref={selectedSession ? registerThumbVisibilityTarget(`${selectedSession.id}/${s.id}`) : undefined}
                           onClick={(e) => selectScan(s, e)}
                           draggable
@@ -1527,7 +1534,7 @@ interface ItemListProps<T> {
 function ItemList<T>({ items, renderItem, renderAction, onSelect, onItemDragStart, emptyMessage }: ItemListProps<T>) {
   if (items.length === 0) {
     return (
-      <div className="flex items-center justify-center py-8 text-zinc-600 text-xs">
+      <div data-testid="xnat-browser-empty" className="flex items-center justify-center py-8 text-zinc-600 text-xs">
         {emptyMessage}
       </div>
     );
@@ -1541,6 +1548,7 @@ function ItemList<T>({ items, renderItem, renderAction, onSelect, onItemDragStar
           onClick={(e) => onSelect(item, e)}
           draggable={Boolean(onItemDragStart)}
           onDragStart={onItemDragStart ? (e) => onItemDragStart(item, e) : undefined}
+          data-testid="xnat-browser-item"
           className="w-full text-left px-3 py-2.5 hover:bg-zinc-800/50 transition-colors cursor-pointer flex items-center group"
           role="button"
           tabIndex={0}

@@ -141,7 +141,7 @@ export async function loadTwoSeries(
   // Series A → panel_0 (the default active panel).
   await loadLocalDicom(page, filesA, 'panel_0');
   // Switch to a 1×2 grid via the real Layout dropdown.
-  await page.locator('[title^="Viewport layout"]').click();
+  await page.getByRole('button', { name: 'Viewport layout', exact: true }).click();
   await page.getByRole('button', { name: '1 x 2' }).click();
   await page.locator('[data-testid="unified-viewport:panel_1"]').waitFor({ state: 'attached', timeout: 20_000 });
   // Activate panel_1 (import targets the active panel), then load series B into it.

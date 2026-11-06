@@ -69,7 +69,7 @@ test('toolbar Undo enables + reverts after painting a panel-created (active) SEG
 
   // The real Undo button reverts the stroke. (Prefix match: the toolbar appends a
   // context suffix, e.g. "Undo (Ctrl+Z) — active container", per the §10 rebuild.)
-  await page.locator('button[title^="Undo (Ctrl+Z)"]').click();
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
   await expect.poll(() => hook<number>(page, 'getPaintedVoxelCount'), { timeout: 10_000 }).toBe(0);
 
   // …and the real Redo button restores it (round-trip).
@@ -79,6 +79,6 @@ test('toolbar Undo enables + reverts after painting a panel-created (active) SEG
       message: 'toolbar Redo should enable after an undo on the active container',
     })
     .toBe(true);
-  await page.locator('button[title^="Redo (Ctrl+Shift+Z)"]').click();
+  await page.getByRole('button', { name: 'Redo', exact: true }).click();
   await expect.poll(() => hook<number>(page, 'getPaintedVoxelCount'), { timeout: 10_000 }).toBeGreaterThan(0);
 });

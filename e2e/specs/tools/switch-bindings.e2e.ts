@@ -33,15 +33,15 @@ test('switching tools keeps exactly one tool on the Primary button (Pan -> Zoom)
   // Click the real Pan button → only Pan on Primary. (Locate by the button's
   // title — the visible label is the short "Pan", whose accessible name also
   // matches the "Show segmentation panel" toggle.)
-  await page.locator('button[title="Pan (left-click drag)"]').click();
+  await page.getByRole('button', { name: 'Pan', exact: true }).click();
   await expect.poll(() => primaryTools(page), { timeout: 10_000 }).toEqual(['Pan']);
 
   // Click the real Zoom button → only Zoom on Primary (the bug left BOTH here).
-  await page.locator('button[title="Zoom (left-click drag)"]').click();
+  await page.getByRole('button', { name: 'Zoom', exact: true }).click();
   await expect.poll(() => primaryTools(page), { timeout: 10_000 }).toEqual(['Zoom']);
 
   // Back to W/L → only W/L. (By title — the short "W/L" label also appears on the
   // W/L-presets button.)
-  await page.locator('button[title="Window/Level (left-click drag)"]').click();
+  await page.getByRole('button', { name: 'Window/Level', exact: true }).click();
   await expect.poll(() => primaryTools(page), { timeout: 10_000 }).toEqual(['WindowLevel']);
 });

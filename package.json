@@ -30,7 +30,7 @@
     "notices:check": "node scripts/generate-third-party-notices.cjs --check",
     "package": "npm run build:edition && electron-builder --config electron-builder.config.js",
     "package:win": "npm run build:edition && node scripts/package-win.js",
-    "lint": "eslint src",
+    "lint": "eslint src e2e",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",

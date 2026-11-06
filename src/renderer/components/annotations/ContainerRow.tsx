@@ -183,6 +183,7 @@ export default function ContainerRow(props: ContainerRowProps) {
             }`}
             onDoubleClick={beginEdit}
             title={container.label}
+            data-testid={`container-name-${container.id}`}
             data-capturing={capturing ? 'true' : undefined}
           >
             {capturedDraft ?? container.label}
@@ -225,7 +226,7 @@ export default function ContainerRow(props: ContainerRowProps) {
 
       {dirty && !saving && !conflict && <span className="w-1.5 h-1.5 rounded-full bg-amber-400" title="Unsaved changes (dirty)" data-testid="dirty-dot" />}
       {!dirty && !saving && !conflict && !errored && crossPanelCount != null && crossPanelCount > 0 && (
-        <span className="text-[8px] px-1 rounded-sm bg-zinc-700 text-zinc-300" title={`Rendering on ${crossPanelCount} other panel(s)`}>
+        <span className="text-[8px] px-1 rounded-sm bg-zinc-700 text-zinc-300" title={`Rendering on ${crossPanelCount} other panel(s)`} data-testid="cross-panel-pill">
           ↗ {crossPanelCount}
         </span>
       )}

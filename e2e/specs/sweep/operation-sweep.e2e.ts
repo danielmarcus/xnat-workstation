@@ -77,7 +77,7 @@ async function setup(page: Page, fixture: string, orientation: string): Promise<
   await loadFixture(page, fixture, PANEL);
   if (orientation !== 'ACQUISITION') {
     const before = await H(page).plane();
-    await page.locator(`[data-panel-id="${PANEL}"]`).getByTitle('Viewport orientation').selectOption(orientation);
+    await page.locator(`[data-panel-id="${PANEL}"]`).getByRole('combobox', { name: 'Viewport orientation' }).selectOption(orientation);
     await expect.poll(async () => (await H(page).plane())?.axis ?? -1, { timeout: 15_000 }).not.toBe(before?.axis ?? 2);
   }
   const panel = page.locator('[data-testid="annotations-side-panel"]');

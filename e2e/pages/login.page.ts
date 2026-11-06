@@ -23,11 +23,11 @@ export class LoginPage {
   }
 
   get errorMessage() {
-    return this.page.locator('.text-red-400');
+    return this.page.getByTestId('login-error');
   }
 
   get connectingSpinner() {
-    return this.page.locator('.animate-spin');
+    return this.page.getByTestId('login-connecting');
   }
 
   // ─── Actions ───────────────────────────────────────────────────

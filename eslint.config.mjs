@@ -19,7 +19,14 @@ const libGlobs = (sub) => [`**/lib/${sub}/**`, `@renderer/lib/${sub}/**`, `@/ren
 const dirGlobs = (dir) => [`**/${dir}/**`, `@renderer/${dir}/**`, `@/renderer/${dir}/**`];
 
 export default [
-  { ignores: ['dist/**', 'release/**', 'node_modules/**', 'coverage/**', 'e2e/**', 'scripts/**'] },
+  {
+    ignores: [
+      'dist/**', 'release/**', 'node_modules/**', 'coverage/**', 'scripts/**',
+      // e2e/ is linted only for its selector rules (the block at the end); not its
+      // fixtures, outputs, or the expected-red signals suite.
+      'e2e/fixtures/**', 'e2e/test-results/**', 'e2e/playwright-report/**', 'e2e/signals/**',
+    ],
+  },
 
   // Base: parse TS/TSX. No rules enabled here — zones below add the boundary
   // rule. react-hooks is registered (not enabled) only so pre-existing
@@ -79,5 +86,34 @@ export default [
   {
     files: ['**/*.test.{ts,tsx}', '**/__tests__/**', 'src/renderer/test/**', 'src/test/**', 'src/renderer/lib/e2e/**'],
     rules: { 'no-restricted-imports': 'off' },
+  },
+
+  // E2E selectors: find elements by test id, role + accessible name (aria-label) or label —
+  // never by tooltip text or Tailwind classes, which change for reasons unrelated to the test.
+  // Asserting a tooltip's content (`toHaveAttribute('title', …)`) is fine: that is the subject.
+  {
+    files: ['e2e/**/*.ts'],
+    languageOptions: { parser: tsParser, parserOptions: { ecmaVersion: 'latest', sourceType: 'module' } },
+    linterOptions: { reportUnusedDisableDirectives: 'off' },
+    rules: {
+      'no-restricted-syntax': ['error',
+        {
+          selector: "CallExpression[callee.property.name='getByTitle']",
+          message: "Don't find elements by tooltip: give the control an aria-label (getByRole name) or a data-testid.",
+        },
+        {
+          selector: "CallExpression[callee.property.name=/^(locator|querySelector|querySelectorAll)$/] > Literal[value=/\\[title/]",
+          message: "Don't select on [title=…]: use getByRole with the control's aria-label, or a data-testid.",
+        },
+        {
+          selector: "CallExpression[callee.property.name=/^(locator|querySelector|querySelectorAll)$/] > TemplateLiteral > TemplateElement[value.raw=/\\[title/]",
+          message: "Don't select on [title=…]: use getByRole with the control's aria-label, or a data-testid.",
+        },
+        {
+          selector: "CallExpression[callee.property.name=/^(locator|querySelector|querySelectorAll)$/] > Literal[value=/(^|[\\s>+~,(])\\.[a-zA-Z_-]/]",
+          message: 'Don\'t select on CSS classes (Tailwind changes with styling): add a data-testid.',
+        },
+      ],
+    },
   },
 ];

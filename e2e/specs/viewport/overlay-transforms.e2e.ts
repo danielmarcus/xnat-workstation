@@ -26,11 +26,11 @@ test('rotation / flip / invert overlay fields render their state, default includ
   await expect(field(page, 'invert')).toHaveText('Invert: Off');
 
   // Apply each transform via the real toolbar (open the Transform group if collapsed).
-  const rotate = page.locator('button[title="Rotate 90°"]');
-  if (!(await rotate.isVisible())) await page.locator('button[title="Transform"]').click();
-  await page.locator('button[title="Rotate 90°"]').click();
-  await page.locator('button[title="Flip horizontal"]').click();
-  await page.locator('button[title="Invert grayscale (negative)"]').click();
+  const rotate = page.getByRole('button', { name: 'Rotate 90°', exact: true });
+  if (!(await rotate.isVisible())) await page.getByRole('button', { name: 'Transform', exact: true }).click();
+  await page.getByRole('button', { name: 'Rotate 90°', exact: true }).click();
+  await page.getByRole('button', { name: 'Flip horizontal', exact: true }).click();
+  await page.getByRole('button', { name: 'Invert grayscale', exact: true }).click();
 
   await expect(field(page, 'rotation')).toHaveText('Rot: 90°');
   await expect(field(page, 'flip')).toHaveText('Flip: H');

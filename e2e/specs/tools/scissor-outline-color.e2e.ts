@@ -17,7 +17,7 @@ type Win = { __XNAT_E2E__: { resetUnifiedSegmentations: () => void } };
 const VIEWPORT = '[data-testid="unified-viewport-element:panel_0"]';
 
 async function setScissorPreview(page: Page, enabled: boolean, color?: string) {
-  await page.getByTitle('Open settings').click();
+  await page.getByRole('button', { name: 'Open settings', exact: true }).click();
   await page.getByRole('button', { name: 'Annotation', exact: true }).click();
   const box = page.getByLabel('Enable scissors preview');
   if ((await box.isChecked()) !== enabled) await box.click();

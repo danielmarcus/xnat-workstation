@@ -30,6 +30,7 @@ test.afterEach(({ page }) => cleanSlate(page));
 
 /** All stroke colors (attribute or computed) on the viewport's annotation SVG layer. */
 const svgStrokes = (page: Page) =>
+  // eslint-disable-next-line no-restricted-syntax -- .svg-layer is Cornerstone's own SVG layer, not app markup
   page.locator('[data-testid="unified-viewport-element:panel_0"] .svg-layer [stroke]').evaluateAll((els) =>
     els.map((e) => e.getAttribute('stroke') || getComputedStyle(e as Element).stroke),
   );

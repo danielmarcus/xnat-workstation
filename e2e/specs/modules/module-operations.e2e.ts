@@ -197,11 +197,11 @@ test('a mask holding a label the module did not declare is refused, with the rea
 test('a module disabled in Settings leaves the picker', async ({ electronApp, page }) => {
   const panel = await setup(electronApp, page, [threshold()]);
   await expect.poll(() => operationGroupItems(panel, 'Modules')).toEqual([THRESHOLD]);
-  await page.getByTitle('Open settings').click();
+  await page.getByRole('button', { name: 'Open settings', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Settings' });
   await dialog.getByRole('button', { name: 'Modules', exact: true }).click();
   await dialog.getByLabel(`Enable ${THRESHOLD}`).uncheck();
-  await dialog.getByTitle('Close', { exact: true }).click();
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click();
   await expect.poll(() => operationGroupItems(panel, 'Modules')).toEqual([]);
 });
 

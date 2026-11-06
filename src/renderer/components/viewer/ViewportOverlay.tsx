@@ -213,6 +213,7 @@ export default function ViewportOverlay({ panelId, render3d = false }: ViewportO
             panel?.focus();
             setActiveViewport(panelId);
           }}
+          aria-label="Viewport orientation"
           title="Viewport orientation"
           className="pointer-events-auto bg-zinc-900/85 border border-zinc-700 text-white text-[10px] rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-sky-500 disabled:opacity-40"
         >

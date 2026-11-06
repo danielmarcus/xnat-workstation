@@ -24,7 +24,7 @@ test('active-viewport indicator + view-shortcuts scoped to active panel + global
   await enterLocalViewer(page);
   // panel_0 = scan A; 1×2 layout; panel_1 = scan B (independent canvases).
   await loadLocalDicom(page, ensureFixture('ct-axial-300'), 'panel_0');
-  await page.locator('[title^="Viewport layout"]').click();
+  await page.getByRole('button', { name: 'Viewport layout', exact: true }).click();
   await page.getByRole('button', { name: '1 x 2' }).click();
   await expect(viewport(page, 'panel_1')).toHaveCount(1, { timeout: 20_000 });
   await viewport(page, 'panel_1').click({ position: { x: 20, y: 20 } });

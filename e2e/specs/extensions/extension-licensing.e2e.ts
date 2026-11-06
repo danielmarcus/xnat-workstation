@@ -32,7 +32,7 @@ const sidebarTab = (page: Page, name: string) => page.getByRole('tablist', { nam
 const notesItem = (page: Page) => page.getByTestId(`extension-toolbar-item-${NOTES}`);
 
 async function openNotesSettings(page: Page): Promise<Locator> {
-  await page.getByTitle('Open settings').click();
+  await page.getByRole('button', { name: 'Open settings', exact: true }).click();
   const settings = page.getByRole('dialog', { name: 'Settings' });
   await settings.getByRole('button', { name: 'Extensions', exact: true }).click();
   return settings;
@@ -72,14 +72,14 @@ test('Basic: only its features; importing Pro mounts the rest live; removing the
   await expect(row.getByTestId('extension-state')).toHaveText('Active · Basic');
   await expect(row.locator('[data-feature="notes"]')).toHaveAttribute('data-enabled', 'true');
   await expect(row.locator('[data-feature="count"]')).toHaveAttribute('data-enabled', 'false');
-  await settings.getByTitle('Close', { exact: true }).click();
+  await settings.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(sidebarTab(page, 'Notes')).toBeVisible();
   await expect(notesItem(page)).toHaveCount(0); // Pro only
 
   settings = await openNotesSettings(page);
   await importLicence(electronApp, settings, demoLicence({ tier: 'Pro', features: PRO }), 'pro.json');
   await expect(settings.getByTestId('notes-licence-status')).toContainText('Pro · Example Hospital');
-  await settings.getByTitle('Close', { exact: true }).click();
+  await settings.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(notesItem(page)).toBeVisible(); // live: no restart
   await notesItem(page).getByRole('button').click();
   await page.getByTestId('extension-toolbar-popover').getByRole('button', { name: 'All notes…' }).click();
@@ -89,7 +89,7 @@ test('Basic: only its features; importing Pro mounts the rest live; removing the
   await settings.getByTestId(`extension-row-${NOTES}`).getByRole('button', { name: 'Settings…' }).click();
   await settings.getByRole('button', { name: 'Remove licence' }).click();
   await expect(settings.getByTestId('notes-licence-status')).toContainText('No licence');
-  await settings.getByTitle('Close', { exact: true }).click();
+  await settings.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(page.getByTestId('extension-view')).toHaveCount(0); // its view closed with the licence
   await expect(sidebarTab(page, 'Notes')).toHaveCount(0);
   await expect(notesItem(page)).toHaveCount(0);

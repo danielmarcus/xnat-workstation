@@ -22,7 +22,7 @@ test('a bundled module is listed as Bundled, runs, can be disabled, and can be n
     await loadFixture(page, 'ct-axial-anatomy', 'panel_0');
 
     // Settings › Modules: Bundled, Enabled, no Remove.
-    await page.getByTitle('Open settings').click();
+    await page.getByRole('button', { name: 'Open settings', exact: true }).click();
     const dialog = page.getByRole('dialog', { name: 'Settings' });
     await dialog.getByRole('button', { name: 'Modules', exact: true }).click();
     const row = dialog.getByTestId('module-row-org.xnat.examples.threshold');
@@ -32,7 +32,7 @@ test('a bundled module is listed as Bundled, runs, can be disabled, and can be n
     // A package with its id is refused: the edition's copy cannot be replaced.
     const replaced = await installDirect(electronApp, pkg);
     expect(replaced).toMatchObject({ ok: false, reason: expect.stringMatching(/built into this edition/) });
-    await dialog.getByTitle('Close', { exact: true }).click();
+    await dialog.getByRole('button', { name: 'Close', exact: true }).click();
 
     // It runs, like any module.
     const panel = page.locator('[data-testid="annotations-side-panel"]');
@@ -49,16 +49,16 @@ test('a bundled module is listed as Bundled, runs, can be disabled, and can be n
     await expect.poll(() => voxels(page)).toBeGreaterThan(500);
 
     // Disabled: it leaves the picker, and is still listed (as Bundled) to enable again.
-    await page.getByTitle('Open settings').click();
+    await page.getByRole('button', { name: 'Open settings', exact: true }).click();
     await dialog.getByRole('button', { name: 'Modules', exact: true }).click();
     await row.getByLabel('Enable Intensity threshold').uncheck();
-    await dialog.getByTitle('Close', { exact: true }).click();
+    await dialog.getByRole('button', { name: 'Close', exact: true }).click();
     await expect.poll(() => operationGroupItems(panel, 'Modules')).toEqual([]);
-    await page.getByTitle('Open settings').click();
+    await page.getByRole('button', { name: 'Open settings', exact: true }).click();
     await dialog.getByRole('button', { name: 'Modules', exact: true }).click();
     await expect(row).toContainText('Bundled');
     await expect(row.getByLabel('Enable Intensity threshold')).not.toBeChecked();
-    await dialog.getByTitle('Close', { exact: true }).click();
+    await dialog.getByRole('button', { name: 'Close', exact: true }).click();
   } finally {
     unbundle();
   }

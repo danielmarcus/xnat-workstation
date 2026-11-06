@@ -12,7 +12,7 @@ import type { Page } from '@playwright/test';
 import { ensureFixture, enterLocalViewer } from '../../helpers/local-fixture';
 
 const chooseLayout = async (page: Page, name: string) => {
-  await page.locator('[title^="Viewport layout"]').click();
+  await page.getByRole('button', { name: 'Viewport layout', exact: true }).click();
   await page.getByRole('button', { name }).click();
 };
 const panel = (page: Page, pid: string) => page.locator(`[data-testid="unified-viewport:${pid}"]`);

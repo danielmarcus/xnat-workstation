@@ -193,7 +193,7 @@ test('O6: the ROI limit is cleared when its viewport changes plane — it no lon
   await clickTool(toolbox, 'ROI limit');
   await drag(page, [[-10, -10], [10, 10]]);
   await expect(toolbox.getByText(/Drawn/)).toBeVisible();
-  await page.locator(`[data-panel-id="${PANEL}"]`).getByTitle('Viewport orientation').selectOption('SAGITTAL');
+  await page.locator(`[data-panel-id="${PANEL}"]`).getByRole('combobox', { name: 'Viewport orientation' }).selectOption('SAGITTAL');
   await expect(toolbox.getByText(/Drawn/), 'the axial rectangle does not carry over to sagittal').toHaveCount(0);
 });
 
@@ -233,7 +233,7 @@ test('O3: Copy into works from a locked segment — it only reads its source', a
 
 test('T11: on an oblique reformat Level Trace refuses and says why — it does not edit a slice that is not on screen', async ({ page }) => {
   await loadFixture(page, 'ct-body-oblique', PANEL);
-  await page.locator(`[data-panel-id="${PANEL}"]`).getByTitle('Viewport orientation').selectOption('CORONAL');
+  await page.locator(`[data-panel-id="${PANEL}"]`).getByRole('combobox', { name: 'Viewport orientation' }).selectOption('CORONAL');
   const panel = page.locator('[data-testid="annotations-side-panel"]');
   if (!(await panel.isVisible())) await page.getByRole('button', { name: 'Show segmentation panel' }).click();
   await panel.getByRole('button', { name: 'New Segmentation (SEG)' }).click();
@@ -250,7 +250,7 @@ test('T11: on an oblique reformat Level Trace refuses and says why — it does n
 
 test('O7: the slice track follows a change of plane — sagittal to coronal, both 512 slices', async ({ page }) => {
   await loadFixture(page, 'ct-body-512', PANEL);
-  await page.locator(`[data-panel-id="${PANEL}"]`).getByTitle('Viewport orientation').selectOption('SAGITTAL');
+  await page.locator(`[data-panel-id="${PANEL}"]`).getByRole('combobox', { name: 'Viewport orientation' }).selectOption('SAGITTAL');
   const panel = page.locator('[data-testid="annotations-side-panel"]');
   if (!(await panel.isVisible())) await page.getByRole('button', { name: 'Show segmentation panel' }).click();
   await panel.getByRole('button', { name: 'New Segmentation (SEG)' }).click();
@@ -263,7 +263,7 @@ test('O7: the slice track follows a change of plane — sagittal to coronal, bot
   await expect(band).toHaveCount(1);
   const span = async () => Number(await band.first().getAttribute('data-to')) - Number(await band.first().getAttribute('data-from'));
   expect(await span(), 'one sagittal slice').toBe(0);
-  await page.locator(`[data-panel-id="${PANEL}"]`).getByTitle('Viewport orientation').selectOption('CORONAL');
+  await page.locator(`[data-panel-id="${PANEL}"]`).getByRole('combobox', { name: 'Viewport orientation' }).selectOption('CORONAL');
   // On coronal the same 12 mm square spans ~17 slices of 0.7 mm: the band must be redrawn.
   await expect.poll(span, { timeout: 5_000 }).toBeGreaterThan(10);
 });

@@ -38,7 +38,7 @@ async function reloadCollectingLogs(page: Page): Promise<string[]> {
 
 async function openExtensions(page: Page): Promise<Locator> {
   await enterLocalViewer(page);
-  await page.getByTitle('Open settings').click();
+  await page.getByRole('button', { name: 'Open settings', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Settings' });
   await dialog.getByRole('button', { name: 'Extensions', exact: true }).click();
   return dialog.getByTestId('extensions-settings');
