@@ -3,7 +3,7 @@ import { normalizeServerUrl } from './normalizeServerUrl';
 
 describe('normalizeServerUrl', () => {
   it('adds https and removes trailing slash', () => {
-    expect(normalizeServerUrl('cnda.wustl.edu/')).toBe('https://cnda.wustl.edu');
+    expect(normalizeServerUrl('xnat.example.org/')).toBe('https://xnat.example.org');
   });
 
   it('keeps existing protocol', () => {

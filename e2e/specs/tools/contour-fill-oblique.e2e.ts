@@ -6,7 +6,7 @@
  * on an OBLIQUE acquisition plane, where Cornerstone's world-space rasterizer
  * (viewportContoursToLabelmap → isPointInsidePolyline3D → projectTo2D) throws "Cannot find
  * a shared dimension index for polyline, probably oblique plane" and nothing fills — a
- * live-CNDA bug the axial fixture structurally could not catch.
+ * live-server bug the axial fixture structurally could not catch.
  *
  * The fix rasterizes in INDEX (IJK) space (contourEditPrereq.installObliqueSafeContourFill),
  * where an acquisition-plane contour is a constant-slice plane regardless of world

@@ -1,6 +1,6 @@
 /**
  * xnatAutosaveWiring — composes the real XNAT save transport and gates it behind
- * the `xnatAutosaveEnabled` preference (default OFF, CNDA safety).
+ * the `xnatAutosaveEnabled` preference (default OFF, production-server safety).
  *
  * Layering:
  *   buildSerializedContainer  — PURE assembly of a §H4 SerializedContainer from

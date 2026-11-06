@@ -1137,7 +1137,7 @@ export class XnatClient {
     const versionToken = this.deriveVersionToken(scanUrl, fileResp, dicomWithScanNumber);
 
     // NB: the post-upload `?pullDataFromHeaders=true` scan refresh was removed — it
-    // is broken server-side on CNDA (returns HTTP 500) and added the full latency
+    // is broken server-side on some XNAT servers (returns HTTP 500) and added the full latency
     // of a doomed call to every save. The file upload above is the source of truth.
 
     return { url: scanUrl, scanId: targetScanId, versionToken };
@@ -1339,7 +1339,7 @@ export class XnatClient {
    *
    * NOTE (live-verify): the SR scan xsiType (`xnat:srScanData`) is the conventional XNAT
    * type for Structured Report scans, but the exact xsiType/type a given XNAT accepts is
-   * server-specific — confirm against the live CNDA on first SR save and adjust if the
+   * server-specific — confirm against a live server on first SR save and adjust if the
    * scan-create PUT is rejected (mirrors how SEG/RTSTRUCT xsiTypes were settled live).
    */
   async uploadDicomSrAsScan(

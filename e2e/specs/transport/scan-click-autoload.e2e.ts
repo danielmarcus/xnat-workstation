@@ -18,7 +18,7 @@
  *     invokes — is called directly.
  *
  * NOT covered: the DOM click on a browser row and the real IPC/DICOMweb transport.
- * Those stay CNDA-gated.
+ * Those stay live-server-gated.
  */
 import fs from 'node:fs';
 import { test, expect } from '../../fixtures/electron-app';

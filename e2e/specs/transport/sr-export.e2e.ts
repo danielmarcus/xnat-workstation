@@ -6,7 +6,7 @@
  * TID-1500 Measurement Report via @cornerstonejs/adapters (same adapter family as SEG/RT),
  * then finalizes through serializeDerivedDicomDataset — which validates Modality === 'SR'
  * and round-trips the bytes through the dcmjs write+parse, so a returned base64 is, by
- * construction, a conformant SR. (Live XNAT upload/reload is the CNDA-gated step, verified
+ * construction, a conformant SR. (Live XNAT upload/reload is the live-server-gated step, verified
  * the same way SEG/RTSTRUCT were.)
  *
  * Real path: draw a Length measurement with real mouse events, then serialize. RED before
