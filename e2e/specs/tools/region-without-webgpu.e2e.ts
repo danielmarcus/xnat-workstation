@@ -10,8 +10,11 @@
  *   - a tool that is active anyway (chosen before the check answered) refuses the gesture with a
  *     toast saying why; no voxel changes, nothing throws.
  *
- * Only meaningful where there is no adapter; on a machine with WebGPU it skips, saying so. On a
- * GPU-less Linux host run it as:
+ * It runs on every machine: the renderer is started with `navigator.gpu` removed, so the app
+ * sees no WebGPU whatever the hardware. (It used to skip wherever an adapter existed — every GPU
+ * Mac — which hid that the Region+ case had gone stale when Region became one family button.)
+ * The other no-WebGPU answer, requestAdapter() resolving null, is covered by growCutGpu's unit tests.
+ * On a GPU-less Linux host run it as:
  *   E2E_ELECTRON_ARGS="--enable-unsafe-swiftshader --ignore-gpu-blocklist" xvfb-run -a npx playwright test region-without-webgpu
  */
 import { test, expect } from '../../fixtures/electron-app';
@@ -29,8 +32,17 @@ type Hooks = {
   setActiveUnifiedTool: (toolName: string) => void;
 };
 
-async function hasWebGpuAdapter(page: Page): Promise<boolean> {
-  return page.evaluate(async () => !!(await (navigator as unknown as { gpu?: { requestAdapter(): Promise<unknown> } }).gpu?.requestAdapter()));
+/** Restart the renderer with `navigator.gpu` gone — the app's WebGPU check then answers 'unavailable'. */
+async function withoutWebGpu(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    Object.defineProperty(Navigator.prototype, 'gpu', { get: () => undefined, configurable: true });
+  });
+  await page.reload({ waitUntil: 'load' });
+  await page.waitForFunction(() => {
+    const root = document.getElementById('root');
+    return !!(window as unknown as { __XNAT_E2E__?: unknown }).__XNAT_E2E__ && !!root && root.childElementCount > 0;
+  });
+  expect(await page.evaluate(() => 'gpu' in navigator && (navigator as unknown as { gpu?: unknown }).gpu !== undefined)).toBe(false);
 }
 
 async function point(page: Page, dx: number, dy: number) {
@@ -64,8 +76,8 @@ const CASES: Array<{ label: string; toolName: string; gesture: (page: Page) => P
 for (const c of CASES) {
   test(`${c.label} without WebGPU: disabled with a reason, and refuses with a toast`, async ({ page }) => {
     test.setTimeout(90_000);
+    await withoutWebGpu(page);
     await loadFixture(page, 'ct-body-512', PANEL);
-    test.skip(await hasWebGpuAdapter(page), 'this machine has a WebGPU adapter — the case is for one without');
 
     const pageErrors: string[] = [];
     page.on('pageerror', (e) => pageErrors.push(String(e.stack ?? e).slice(0, 400)));
@@ -77,8 +89,8 @@ for (const c of CASES) {
     const toolbox = panel.locator('[data-testid="context-toolbox"]');
     await expect(toolbox.getByRole('button', { name: 'Brush', exact: true })).toBeVisible({ timeout: 10_000 });
 
-    // The toolbox: disabled, the tooltip saying why.
-    const button = toolbox.getByRole('button', { name: c.label, exact: true });
+    // The toolbox: the Region family (both tools are its modes) disabled, the tooltip saying why.
+    const button = toolbox.getByRole('button', { name: 'Region', exact: true });
     await expect(button).toBeDisabled({ timeout: 10_000 });
     await expect(button).toHaveAttribute('title', MESSAGE);
 

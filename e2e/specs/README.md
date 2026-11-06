@@ -98,6 +98,31 @@ first failure. Use the `list` reporter rather than `json`.
 The app must be **built** first — the fixture launches `dist/main/main/index.js`, not the dev
 server, so source edits are invisible to E2E until `npm run build`.
 
+## Live-server settings
+
+The `auth` specs (`npm run test:e2e:live`) read their server and test data from `.env.e2e` at
+the repository root. That file is git-ignored (`.env.*`) and must stay that way — never commit
+it, and never put real values in a tracked file. The offline specs don't need it.
+
+```bash
+# .env.e2e — placeholders; use your own values
+XNAT_URL=https://xnat.example.org
+XNAT_USER=your-username          # or, on an SSO-only server, an alias token's alias
+XNAT_PASSWORD=your-password      # or the alias token's secret
+XNAT_USERNAME=                   # set only when the two above are an alias token: the account name
+XNAT_TEST_PROJECT=PROJECT_ID
+XNAT_TEST_SUBJECT=SUBJECT_ID
+XNAT_TEST_SESSION=SESSION_ID     # needs at least one SEG, RTSTRUCT or SR scan
+XNAT_TEST_SCAN=                  # optional
+```
+
+- An alias token is issued at `<server>/data/services/tokens/issue` while signed in, and
+  expires; a 401 from the live specs usually means it needs reissuing. With a token, the spec
+  that types into the server's own login page skips (a token cannot fill it).
+- The test project also needs a second image session (`extension-xnat` switches to it). The
+  specs fail with a setup message when the data is missing, rather than skipping.
+- The live specs are read-only: nothing is written to the server.
+
 ## E2E and CI
 
 CI never runs these specs: they need a built Electron app, a display and WebGL2, and the live

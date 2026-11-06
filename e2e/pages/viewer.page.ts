@@ -18,17 +18,9 @@ export class ViewerPage {
 
   // ─── Viewport Locators ─────────────────────────────────────────
 
-  get viewport() {
-    return this.page.locator(`[data-testid="cornerstone-viewport:${this.panelId}"]`);
-  }
-
   get viewportCanvas() {
-    // Path-agnostic: old stack path mounts `cornerstone-viewport-canvas:<panel>`,
-    // the unified path mounts `unified-viewport-element:<panel>`.
     return this.page
-      .locator(
-        `[data-testid="cornerstone-viewport-canvas:${this.panelId}"] canvas, [data-testid="unified-viewport-element:${this.panelId}"] canvas`,
-      )
+      .locator(`[data-testid="unified-viewport-element:${this.panelId}"] canvas`)
       .first();
   }
 

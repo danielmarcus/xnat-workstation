@@ -3,11 +3,10 @@ import fs from 'fs';
 import dotenv from 'dotenv';
 import path from 'path';
 
-// Load E2E environment variables from .env.e2e (preferred) or .env.e2e.example (fallback)
-const envFile = fs.existsSync(path.resolve(__dirname, '.env.e2e'))
-  ? '.env.e2e'
-  : '.env.e2e.example';
-dotenv.config({ path: path.resolve(__dirname, envFile), override: true });
+// The live specs' settings (XNAT_URL and the rest: e2e/specs/README.md, "Live-server
+// settings"), from the git-ignored .env.e2e. Without it the offline specs run as usual.
+const envFile = path.resolve(__dirname, '.env.e2e');
+if (fs.existsSync(envFile)) dotenv.config({ path: envFile, override: true, quiet: true });
 
 export default defineConfig({
   testDir: './e2e/specs',
