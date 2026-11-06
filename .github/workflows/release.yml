@@ -72,13 +72,42 @@ jobs:
         run: npm run build
 
   # The checks a hosted runner cannot do — the offline E2E suite and the sweep
-  # (npm run test:e2e:release, which needs a GPU), the live specs (which need the live
-  # server's credentials) and npm run test:edition — are run by hand before tagging.
-  # Approving this job records that they passed. Only publishing runs wait for it.
-  # Setup, once: Settings → Environments → "release" → Required reviewers. Without
-  # reviewers the environment does not pause, and this job passes on its own.
+  # (npm run test:e2e:release, which needs a GPU), the live specs (which need the test
+  # XNAT's credentials, kept out of CI) and npm run test:edition — are run before tagging by
+  # `npm run release:check` (scripts/release-check.mjs), which posts one commit status per
+  # suite to the commit it ran on. This job refuses a commit without all three as success,
+  # before anyone is asked to sign off. Only publishing runs need it.
+  release-evidence:
+    name: Evidence (manual release checks ran on this commit)
+    if: startsWith(github.ref, 'refs/tags/') || inputs.publish
+    runs-on: ubuntu-latest
+    permissions:
+      statuses: read
+    steps:
+      - name: Require a passing npm run release:check on this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # The contexts scripts/release-check.mjs posts — keep the two lists the same.
+          REQUIRED: release/e2e release/live-e2e release/edition
+        run: |
+          statuses=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/status" --jq '.statuses')
+          missing=0
+          for context in $REQUIRED; do
+            state=$(jq -r --arg c "$context" '[.[] | select(.context == $c)][0].state // "missing"' <<<"$statuses")
+            echo "${context}: ${state}"
+            if [ "$state" != "success" ]; then missing=1; fi
+          done
+          if [ "$missing" = 1 ]; then
+            echo "::error::${GITHUB_SHA:0:7} lacks a passing run of every manual release check. On this commit, run: npm run release:check"
+            exit 1
+          fi
+
+  # Approving this job records the release owner's sign-off on what no script checks (the
+  # manual test scripts). Setup, once: Settings → Environments → "release" → Required
+  # reviewers. Without reviewers the environment does not pause, and this job passes on its own.
   release-signoff:
     name: Sign-off (manual release checks)
+    needs: release-evidence
     if: startsWith(github.ref, 'refs/tags/') || inputs.publish
     runs-on: ubuntu-latest
     environment: release
@@ -88,9 +117,9 @@ jobs:
 
   release-macos:
     name: Release macOS
-    needs: [verify, release-signoff]
-    # Run when verify passed and the sign-off passed or was not needed (a dry run).
-    if: ${{ !cancelled() && needs.verify.result == 'success' && needs.release-signoff.result != 'failure' && needs.release-signoff.result != 'cancelled' }}
+    needs: [verify, release-evidence, release-signoff]
+    # Run when verify passed and the evidence and sign-off passed or were not needed (a dry run).
+    if: ${{ !cancelled() && needs.verify.result == 'success' && needs.release-evidence.result != 'failure' && needs.release-evidence.result != 'cancelled' && needs.release-signoff.result != 'failure' && needs.release-signoff.result != 'cancelled' }}
     runs-on: macos-latest
     timeout-minutes: 60
 
@@ -173,9 +202,9 @@ jobs:
 
   release-linux:
     name: Release Linux
-    needs: [verify, release-signoff]
-    # Run when verify passed and the sign-off passed or was not needed (a dry run).
-    if: ${{ !cancelled() && needs.verify.result == 'success' && needs.release-signoff.result != 'failure' && needs.release-signoff.result != 'cancelled' }}
+    needs: [verify, release-evidence, release-signoff]
+    # Run when verify passed and the evidence and sign-off passed or were not needed (a dry run).
+    if: ${{ !cancelled() && needs.verify.result == 'success' && needs.release-evidence.result != 'failure' && needs.release-evidence.result != 'cancelled' && needs.release-signoff.result != 'failure' && needs.release-signoff.result != 'cancelled' }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
@@ -225,9 +254,9 @@ jobs:
 
   release-windows:
     name: Release Windows
-    needs: [verify, release-signoff]
-    # Run when verify passed and the sign-off passed or was not needed (a dry run).
-    if: ${{ !cancelled() && needs.verify.result == 'success' && needs.release-signoff.result != 'failure' && needs.release-signoff.result != 'cancelled' }}
+    needs: [verify, release-evidence, release-signoff]
+    # Run when verify passed and the evidence and sign-off passed or were not needed (a dry run).
+    if: ${{ !cancelled() && needs.verify.result == 'success' && needs.release-evidence.result != 'failure' && needs.release-evidence.result != 'cancelled' && needs.release-signoff.result != 'failure' && needs.release-signoff.result != 'cancelled' }}
     runs-on: windows-latest
     timeout-minutes: 60
 

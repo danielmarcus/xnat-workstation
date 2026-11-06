@@ -39,6 +39,7 @@
     "test:cornerstone:coverage": "vitest run --coverage src/renderer/lib/cornerstone/__tests__",
     "test:e2e": "npx playwright test --config playwright.config.ts",
     "test:edition": "node scripts/test-edition.mjs",
+    "release:check": "node scripts/release-check.mjs",
     "test:e2e:offline": "npx playwright test --config playwright.config.ts --project=app",
     "test:e2e:live": "npx playwright test --config playwright.config.ts --project=auth",
     "test:e2e:sweep": "npx playwright test --config playwright.config.ts --project=sweep",
