@@ -7,7 +7,7 @@ XNAT Workstation is a desktop DICOM medical image viewer built on Electron. It c
 ## Repository
 
 - **GitHub**: https://github.com/danielmarcus/xnat-workstation (**public**)
-- **Branch**: `main` — work is committed directly to `main`; CI runs on every push to it.
+- **Branch**: `main` is protected by a ruleset — no direct pushes, force pushes or deletion. Every change lands through a **pull request**: work on a branch, open a PR against `main`, and merge once the required check **`Test and build`** (`.github/workflows/ci.yml`) passes, the branch is up to date with `main`, and every review conversation is resolved. No approval is required yet (one maintainer); raise it to one when a second maintainer is named in `CODEOWNERS`. `git push origin main` is rejected — push the branch and open a PR instead. Tags (`v*`, `sdk-v*`) are not covered by the ruleset.
 - **Extensions live elsewhere.** Proprietary extensions (the worklist among them) are built in their own private repositories against the extension framework this app will provide. Their plans, code and requirements never go in this public repository; here, only the framework and its extension slots (sidebar tab, toolbar slot, full-window view, N / ⇧N — SegWorks parity D10, D12).
 
 ## Tech Stack
