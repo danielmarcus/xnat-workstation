@@ -18,9 +18,17 @@ const ALLOWED = /^\/(data|xapi)\//;
 function checkPath(path: string): void {
   let decoded: string;
   try { decoded = decodeURIComponent(path); } catch { decoded = path; }
+  // The request URL is parsed the WHATWG way, which reads a backslash as a slash and drops
+  // tabs and newlines — so '/data/..' + backslash + '..' + backslash + 'app' resolved outside
+  // /data. Refuse both outright (and the encoded backslash, which a server may decode), then
+  // check the path as the URL parser resolves it, not only as written.
+  const pathPart = (s: string) => s.split(/[?#]/)[0];
   const bad = typeof path !== 'string' || !ALLOWED.test(path) || path.startsWith('//') || path.includes('://')
-    || decoded.split(/[/?#]/).some((seg) => seg === '..' || seg === '.');
-  if (bad) throw new Error(`Not an XNAT path: ${String(path).slice(0, 120)} (use a server-relative path under /data/ or /xapi/)`);
+    // eslint-disable-next-line no-control-regex
+    || /[\u0000-\u001f\u007f]/.test(decoded) || pathPart(decoded).includes('\\')
+    || decoded.split(/[/?#]/).some((seg) => seg === '..' || seg === '.')
+    || !ALLOWED.test(new URL(path, 'http://xnat.invalid').pathname);
+  if (bad) throw new Error(`Not an XNAT path: ${JSON.stringify(String(path).slice(0, 120))} (use a server-relative path under /data/ or /xapi/)`);
 }
 
 function withQuery(path: string, query?: Record<string, string>): string {

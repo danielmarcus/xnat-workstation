@@ -54,6 +54,13 @@ describe('ext.xnat', () => {
     ['a parent segment', '/data/../xapi/x'],
     ['a protocol-relative path', '//evil.example/data'],
     ['an encoded parent segment', '/data/%2e%2e/admin'],
+    // URL parsing reads a backslash as a slash and drops tabs and newlines, so each of these
+    // passed a check that only split on '/', and resolved to /app/x outside /data.
+    ['backslash parent segments', '/data/..\\..\\app/x'],
+    ['mixed slash and backslash', '/data/x/..\\..\\..\\app/x'],
+    ['encoded backslashes', '/data/..%5c..%5capp/x'],
+    ['a tab inside a parent segment', '/data/.\t./app/x'],
+    ['a newline inside a parent segment', '/data/x/.\n./../app/x'],
   ])('refuses %s', async (_label, path) => {
     const c = client({});
     await expect(createExtensionXnat(() => c as never, () => connection).request(path)).rejects.toThrow(/path/i);
