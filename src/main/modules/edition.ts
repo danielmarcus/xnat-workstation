@@ -37,6 +37,11 @@ export interface EditionConfig {
    * licensed extensions turns them off. Development and E2E builds are unaffected.
    */
   devTools?: boolean;
+  /**
+   * A test edition (`npm run test:edition`): its packaged app honours E2E_TESTING (the stand-in
+   * keychain, `ext.testing`). Absent or false, a packaged app ignores it (src/main/testHarness.ts).
+   */
+  testHarness?: boolean;
   /** electron-builder's `publish` for this edition (default: none, except the open-source one's). */
   publish?: Record<string, unknown> | Array<Record<string, unknown>>;
 }
@@ -71,6 +76,7 @@ export function validateEdition(raw: unknown): { ok: true; edition: EditionConfi
   });
   if (e.extensions !== undefined && (!Array.isArray(e.extensions) || !e.extensions.every((x) => typeof x === 'string' && x))) errors.push('extensions: a list of paths, when present');
   if (e.devTools !== undefined && typeof e.devTools !== 'boolean') errors.push('devTools: true or false, when present');
+  if (e.testHarness !== undefined && typeof e.testHarness !== 'boolean') errors.push('testHarness: true or false, when present');
   if (e.publish !== undefined && (typeof e.publish !== 'object' || e.publish === null)) errors.push('publish: an electron-builder publish configuration, when present');
   return errors.length ? { ok: false, errors } : { ok: true, edition: e as unknown as EditionConfig };
 }

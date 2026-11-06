@@ -7,6 +7,7 @@ import { registerUploadHandlers } from './ipc/uploadHandlers';
 import { registerBackupHandlers } from './ipc/backupHandlers';
 import { registerCheckpointHandlers } from './ipc/checkpointHandlers';
 import { currentEdition, registerModuleHandlers } from './ipc/moduleHandlers';
+import { testHarness, TEST_HARNESS_ARG } from './testHarness';
 import { MODULE_SCHEME_PRIVILEGES, registerModuleRunHandlers } from './modules/moduleRuntime';
 import { EXTENSION_SCHEME_PRIVILEGES, registerExtensionHandlers } from './ipc/extensionHandlers';
 
@@ -35,8 +36,9 @@ const PRODUCT_NAME = currentEdition()?.productName ?? 'XNAT Workstation';
 
 // Under a test harness, secure storage (safeStorage) uses Chromium's stand-in keychain: tests
 // never create or read items in the user's real keychain, and a re-signed test build is never
-// stopped by a keychain prompt. Before ready, as a Chromium switch must be.
-if (process.env.E2E_TESTING === '1') app.commandLine.appendSwitch('use-mock-keychain');
+// stopped by a keychain prompt. Before ready, as a Chromium switch must be. Never in a packaged
+// edition that is not a test edition (testHarness.ts).
+if (testHarness()) app.commandLine.appendSwitch('use-mock-keychain');
 
 /**
  * Developer tools in a packaged app: the edition's choice (design point 11) — an edition with
@@ -203,6 +205,8 @@ function createWindow(): void {
       contextIsolation: true,
       sandbox: false, // Allow preload to require() local modules
       preload: path.join(__dirname, '..', 'preload', 'index.js'),
+      // The preload's ext.testing (testHarness.ts): only when the harness is honoured.
+      additionalArguments: testHarness() ? [TEST_HARNESS_ARG] : [],
       devTools: devToolsAllowed(),
     },
   });

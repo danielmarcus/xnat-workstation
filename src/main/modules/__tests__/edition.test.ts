@@ -42,6 +42,13 @@ describe('validateEdition', () => {
     }
   });
 
+  it('testHarness, when present, is true or false', () => {
+    expect(validateEdition({ ...ok, testHarness: true }).ok).toBe(true);
+    const r = validateEdition({ ...ok, testHarness: 'yes' });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.errors.join('\n')).toMatch(/^testHarness:/m);
+  });
+
   it('devTools, when present, is true or false (design point 11)', () => {
     expect(validateEdition({ ...ok, devTools: false }).ok).toBe(true);
     const r = validateEdition({ ...ok, devTools: 'no' });

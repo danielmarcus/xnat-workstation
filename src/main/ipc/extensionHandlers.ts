@@ -14,6 +14,7 @@ import { ExtensionSecureStore } from '../extensions/extensionSecureStorage';
 import type { FileFilter } from '../../shared/extensions/api';
 import { getClient, getConnectionInfo, onConnectionChange } from '../xnat/sessionManager';
 import { currentEdition } from './moduleHandlers';
+import { testHarness } from '../testHarness';
 
 /** The renderer part's ext.xnat calls: these, by name, and nothing else. */
 const XNAT_OPS = new Set(['user', 'request', 'getJson', 'permissions', 'resourceFiles']);
@@ -86,7 +87,7 @@ export function registerExtensionHandlers(): void {
     }),
     // A gate re-evaluated: the renderer mounts or unmounts what changed, live.
     onChange: () => sendAll(IPC.EXTENSIONS_CHANGED, host?.list() ?? []),
-    testing: process.env.E2E_TESTING === '1',
+    testing: testHarness(),
     dir: extensionsDir(),
     // The edition's own extensions are checked against the fingerprints its record holds (design
     // point 11); an E2E folder is the test's, and has none.

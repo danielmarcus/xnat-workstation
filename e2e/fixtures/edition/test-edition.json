@@ -11,5 +11,6 @@
   "extensions": [
     "../../../dist/extensions/examples/session-notes"
   ],
-  "devTools": false
+  "devTools": false,
+  "testHarness": true
 }

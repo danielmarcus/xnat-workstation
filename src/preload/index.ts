@@ -9,6 +9,7 @@
  */
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import { IPC } from '../shared/ipcChannels';
+import { TEST_HARNESS_ARG } from '../shared/testHarness';
 
 // A module run's message port (branch 9): relayed to the page, which talks to the sandbox on it.
 ipcRenderer.on(IPC.MODULES_RUN_PORT, (e, info: { runId: string }) => {
@@ -242,8 +243,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     },
     openFile: (id: string, options?: unknown) => ipcRenderer.invoke(IPC.EXTENSIONS_FILE_OPEN, id, options ?? {}),
     saveFile: (id: string, options: unknown) => ipcRenderer.invoke(IPC.EXTENSIONS_FILE_SAVE, id, options),
-    /** The app runs under a test harness (ext.testing). */
-    testing: process.env.E2E_TESTING === '1',
+    /** The app runs under a test harness (ext.testing) — main decides (src/main/testHarness.ts). */
+    testing: process.argv.includes(TEST_HARNESS_ARG),
     onChannelMessage: (callback: (id: string, message: unknown) => void) => {
       const wrapped = (_e: unknown, id: string, message: unknown) => callback(id, message);
       ipcRenderer.on(IPC.EXTENSIONS_CHANNEL_MESSAGE, wrapped);

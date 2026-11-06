@@ -140,7 +140,7 @@ with their full documentation, are in the SDK (`RendererExtensionContext`,
 | `ext.xnat.permissions(projectId)` | `{ read, write }` for the signed-in user |
 | `ext.xnat.resourceFiles(resourcePath)` | The files of a resource |
 | `ext.storage` | `get / set / delete / keys` — JSON, on this computer, per user, yours alone (5 MB) |
-| `ext.testing` | True under a test harness: swap your services for fakes |
+| `ext.testing` | True under a test harness: swap your services for fakes. Never let it decide what is licensed (see [Testing](#testing)) |
 
 Requests go through the app's own session: you never see the user's credentials or cookies, and
 XNAT's project roles decide what succeeds.
@@ -208,7 +208,10 @@ await openViewer(run.page); // into the viewer, where the slots are
 - `extension(page, id).evaluate((ext, arg) => …)` runs in the app with your extension's renderer
   context: drive the real API, then check the UI with Playwright as a user would.
 - Under the harness `ext.testing` is true, and secure storage uses Chromium's stand-in keychain —
-  a test never touches the user's real keychain.
+  a test never touches the user's real keychain. The harness is `E2E_TESTING=1`, honoured only by
+  an unpackaged core and by a packaged edition built with `testHarness: true`
+  ([editions.md](editions.md)); a production edition ignores it. Even so, keep licence checks out
+  of what `ext.testing` swaps: test a licence with a test key pair, as the example does.
 - Pass `userDataDir` to two runs to test a restart.
 - A **production** edition cannot be driven this way: its inspector is switched off at packaging
   (see below). Test against an unpackaged core, or a test package with the inspect fuse turned

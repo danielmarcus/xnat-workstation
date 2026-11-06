@@ -101,7 +101,7 @@ vi.mock('./ipc/moduleHandlers', () => ({
   registerModuleHandlers: mocks.registerModuleHandlers,
   currentEdition: () => edition.current,
 }));
-const edition = vi.hoisted(() => ({ current: null as null | { devTools?: boolean; productName?: string; appName?: string } }));
+const edition = vi.hoisted(() => ({ current: null as null | { devTools?: boolean; testHarness?: boolean; productName?: string; appName?: string } }));
 
 vi.mock('./modules/moduleRuntime', () => ({
   registerModuleRunHandlers: mocks.registerModuleRunHandlers,
@@ -254,5 +254,27 @@ describe('main/index bootstrap', () => {
     mocks.app.commandLine.appendSwitch.mockClear();
     await loadMainEntry();
     expect(mocks.app.commandLine.appendSwitch).not.toHaveBeenCalledWith('use-mock-keychain');
+  });
+
+  // A packaged edition is the licensee's to launch: an environment variable must not switch on
+  // the test harness there (mock keychain, ext.testing) — only an edition built as a test edition.
+  it.each([
+    ['an ordinary packaged edition ignores E2E_TESTING', { devTools: false }, false],
+    ['a packaged test edition honours it', { devTools: false, testHarness: true }, true],
+  ])('%s', async (_label, current, harness) => {
+    const before = process.env.E2E_TESTING;
+    process.env.E2E_TESTING = '1';
+    mocks.app.isPackaged = true;
+    edition.current = current;
+    try {
+      mocks.app.commandLine.appendSwitch.mockClear();
+      await loadMainEntry();
+      expect(mocks.app.commandLine.appendSwitch.mock.calls.some(([s]) => s === 'use-mock-keychain')).toBe(harness);
+      const args: string[] = mocks.windowInstances.at(-1).opts.webPreferences.additionalArguments ?? [];
+      expect(args.includes('--xnat-test-harness')).toBe(harness);
+    } finally {
+      edition.current = null;
+      if (before === undefined) delete process.env.E2E_TESTING; else process.env.E2E_TESTING = before;
+    }
   });
 });
