@@ -35,10 +35,10 @@ Checked against `main` @ `d910d97`:
 - **CI does not run E2E.** `.github/workflows/ci.yml` runs lint, notices check, typecheck
   (now including the SDK and example extensions), `npm test` (with `dciodvfy`) and
   `npm run build`. The Playwright suite runs only when someone runs it locally.
-- **The live suite runs against production CNDA, read-only.** The `auth` project (15 tests:
-  login, browser navigation, the extension XNAT API) signs in with an XNAT alias token, because
-  CNDA now accepts only institutional SSO; the last recorded run was 14 passed, 1 skipped. Nothing
-  live writes to a server.
+- **The live suite runs locally, never in CI** (decided 2026-11-06, to keep XNAT credentials out
+  of CI). The `auth` project (15 tests: login, browser navigation, the extension XNAT API) signs
+  in with an XNAT alias token from a local `.env.e2e`. A dedicated test XNAT now exists for it
+  (§A.1); earlier runs were against production CNDA, read-only. Nothing live writes to a server.
 - **The XNAT write path is only tested against a mock.** The transport specs (SEG/RTSTRUCT/SR
   save, autosave, conflict) run against `mockXnatApi.ts`. Real uploads, overwrite, version
   conflicts against a real server, and session expiry mid-save have no automated coverage.
@@ -89,8 +89,9 @@ The release candidate (RC) ships only when all of the following are true on the 
 2. **CI green**, including the new E2E job (§A.3 G1) for the offline suite on Linux, and branch
    protection requiring it.
 3. **Full offline E2E suite green on macOS, Windows and Linux** (one run each).
-4. **Live suite green** against the dedicated test XNAT (§A.1), including the new live
-   transport specs (§A.3 G2).
+4. **Live suite green** against the test XNAT (§A.1), including the new live transport specs
+   (§A.3 G2) — run locally by the release owner on the RC build, with the run recorded in the run
+   log (it never runs in CI).
 5. **Every manual test script executed** on at least one platform, and the *platform-sensitive*
    scripts (marked 🖥 below) on all three, by someone other than the person who wrote the code
    under test. Results recorded in the run log (§A.2).
@@ -113,8 +114,8 @@ Each of these makes the release slower, riskier or harder to hand over if left a
 | Repo under a personal account | Transfer to NrgXnat (Workstream D) | Release artifacts, update feed and npm provenance all name the repo; changing them after users install 1.0 means a second migration for every install | Week 1, before any other CI or release change |
 | Commits go straight to `main`; CI runs after the push | Protect `main` in the new org: PRs required, the CI job (and, once stable, E2E) required, linear history or merge commits per NRG convention, no force-push. Cut `release/1.0` at RC1; only fixes go there, each also merged to `main` | During a test cycle every push to `main` invalidates manual results already recorded; a release branch freezes what testers are testing | Rules on transfer day; branch at RC1 |
 | One author, no CODEOWNERS | Add `CODEOWNERS` naming at least two NRG maintainers; require one review | An org-owned public repo with a bus factor of one is a support risk the org inherits; review is also where §B findings get applied | Transfer day |
-| E2E not in CI | Offline E2E job on every PR (Linux, `xvfb`); nightly macOS + Windows; nightly live job | Today an E2E-only regression can merge green; 163 specs only help if they run | Week 1 non-blocking, required by RC1 |
-| Live suite runs against production CNDA with a personal alias token | A dedicated, writable test XNAT with de-identified data and service accounts; CNDA used for at most a read-only smoke before release, by a person, not CI | Live tests that write (G2) cannot run on production; traces, screenshots and videos from a CNDA run contain real PHI and must never be uploaded as CI artifacts of a public repo; a personal token in org CI secrets ties CI to one person's account | Server by week 2; never put CNDA credentials in org secrets |
+| E2E not in CI | Offline E2E job on every PR (Linux, `xvfb`); nightly macOS + Windows. The live suite stays local (no credentials in CI) | Today an E2E-only regression can merge green; 163 specs only help if they run | Week 1 non-blocking, required by RC1 |
+| ~~Live suite runs against production CNDA~~ — **done**: a test XNAT exists and the live suite runs locally only | Check the server against §A.1's data and account list; point `.env.e2e` at it, not CNDA; CNDA only for a read-only smoke by a person before release | Live tests that write (G2) cannot run on production; traces and screenshots from a CNDA run contain real PHI | Now |
 | Write path only mock-tested | Live write specs (G2) against the test XNAT | Save is the one action whose failure loses users' work | Week 2–3 |
 | README stale; user docs absent | Rewrite README as a short landing page that points to the user guide and developer docs | The README is the first thing NrgXnat visitors see | Week 3 |
 | `docs/` flat, live docs mixed with finished proposals | `docs/user-guide/` (annotators), `docs/developer/` (building, modules, extensions, editions, architecture), `docs/archive/` (finished proposals, reviews, parity plans); fix links | Readers in a wider org cannot tell which document is current; the SDK README and authoring guide link into `docs/` and must stay stable | Week 3, in one commit, with a link check |
@@ -164,19 +165,19 @@ test titles (`test('C9-04 …')`), findings and doc cross-references.
 least one Retina/HiDPI display and one 1080p display — the overlays, rings and cursor sizes are
 pixel-sensitive.
 
-**Test XNAT.** A dedicated server, never production (see §0.3 for why CNDA is not it), ideally
-run by NRG alongside other XNAT test infrastructure, with:
+**Test XNAT.** A dedicated server exists (2026-11-06). Check it has the following, and add what
+is missing:
 
 - Project `WS_RELEASE_TEST` holding de-identified data covering: CT (thin-slice body, 512²,
   real rescale), MR (multi-sequence brain, same exam), an oblique acquisition, a 4D/multi-phase
   CT, a cine/US multiframe, a localizer, and sessions that already contain SEG, RTSTRUCT and SR
   scans (including one with a `30xx` SEG and one written by another tool, e.g. 3D Slicer).
-- Three service accounts: project owner, member, read-only collaborator (permission failures on
-  save). Alias tokens for CI, owned by the accounts, not by a person.
+- Three accounts: project owner, member, read-only collaborator (permission failures on save),
+  each with an alias token for `.env.e2e`.
 - Local login, plus SSO (OIDC or LDAP) configured if feasible — C2 needs every auth path seen at
   least once, and SSO-only servers like CNDA are now the norm for real users.
-- The `XNAT_*` variables in `e2e/helpers/env.ts` stored as **NrgXnat repo secrets** for the
-  nightly live job, set up after the transfer (§D.3).
+- The `XNAT_*` variables in `e2e/helpers/env.ts` live in each tester's local `.env.e2e` only —
+  **never** in repo or org secrets, and never committed. The live suite runs locally (§0).
 
 **Offline fixtures.** The generated phantoms in `e2e/fixtures/dicom/` stay the backbone of the
 offline suite. Add any series new specs need through `generate.cjs`, never as committed
@@ -428,7 +429,7 @@ titles and file names against component areas, then correct by hand.
 | # | Gap | New automation |
 |---|---|---|
 | G1 | E2E not in CI | `e2e-offline` job in `ci.yml`: `npm run build`, then `xvfb-run npm run test:e2e:offline` on Ubuntu with software GL (`app` project now includes `extensions/`); HTML report uploaded on failure (offline fixtures are synthetic, so reports are safe to publish). Non-blocking for one week to measure flakiness, then required by branch protection. Nightly macOS and Windows matrix. |
-| G2 | Live XNAT write path | `e2e/specs/transport/live-*.e2e.ts` in the `auth` project: save new SEG/RTSTRUCT/SR to the **test server**, reload, compare voxels/contours/values; overwrite; injected conflict (a second REST client edits first); read-only account refusal. Each test deletes what it created. Nightly; **traces, videos and screenshots from live runs kept private** (not uploaded as public artifacts) even on the test server. |
+| G2 | Live XNAT write path | `e2e/specs/transport/live-*.e2e.ts` in the `auth` project: save new SEG/RTSTRUCT/SR to the **test server**, reload, compare voxels/contours/values; overwrite; injected conflict (a second REST client edits first); read-only account refusal. Each test deletes what it created. Run locally (`npm run test:e2e:live`), not in CI; live traces and reports stay on the tester's machine. |
 | G3 | Session expiry | Live spec that invalidates the session mid-session and mid-save (C2-08/09). |
 | G4 | Interoperability | Slicer- and OHIF-written SEG/RTSTRUCT/SR fixtures in `test:dicom:compliance`; `dciodvfy` on every object the E2E specs write (extend `seg-export-roundtrip` to RTSTRUCT and SR). |
 | G5 | Recovery after crash | E2E that kills the Electron process mid-edit and relaunches on the same user-data dir (C14-01). |
@@ -719,7 +720,7 @@ owner for a few hours in week 1.
 
 | Week | D — Move | A — Testing | B — Review | C — Docs |
 |---|---|---|---|---|
-| 1 | D.1–D.4; CI, release dry run and SDK publish green from NrgXnat | Test XNAT requested; traceability matrix; G1 (non-blocking) | Static tooling; secret scan of history; `/security-review`; partitions 1–2 | Outline approved; glossary; chapters 1–4 |
+| 1 | D.1–D.4; CI, release dry run and SDK publish green from NrgXnat Test XNAT checked against §A.1; traceability matrix; G1 (non-blocking) | Static tooling; secret scan of history; `/security-review`; partitions 1–2 | Outline approved; glossary; chapters 1–4 |
 | 2 | D.5 bridge-release proof (can use a pre-release) | MTS for C1–C10; G2–G5 | Partitions 3–5; P1 fixes | Chapters 5–9; screenshot script |
 | 3 | — | MTS for C11–C22; G6–G13; flake stabilisation | Partitions 6–8; `/simplify`; `docs/` reorganisation | Chapters 10–21; developer docs (C.6) |
 | 4 | — | **RC1**: cut `release/1.0`; full manual run on 3 platforms; E2E required | P1/P2 fixes from the run | Technical review; outside-annotator review |
@@ -737,8 +738,11 @@ owner for a few hours in week 1.
 - **npm provenance fails** after the move (repository URL or trusted publisher mismatch).
   Mitigation: D.2 + D.4 together, patch publish in week 1.
 - **E2E in headless Linux CI may not match real GPUs.** Mitigation: nightly macOS/Windows, 🖥 scripts.
-- **Live tests leak PHI** through traces or reports. Mitigation: test server only; live artifacts
-  private; CNDA only by hand.
+- **Live suite only runs by hand**, so a regression in an XNAT-facing path can merge unseen.
+  Mitigation: run it before every RC and after any change to `src/main/xnat/`, transport or
+  extension XNAT code; record each run in the run log.
+- **Live tests leak PHI** through traces or reports. Mitigation: test server only; live reports stay
+  local; CNDA only by hand.
 - **Docs drift from UI** while fixes land in weeks 4–5. Mitigation: generated screenshots and
   shortcut table; doc review after the last UI change.
 - **Review findings outrun fix capacity.** Mitigation: data loss and security first; P3s to backlog.
@@ -755,7 +759,7 @@ owner for a few hours in week 1.
 4. **Release scope**: anything to finish, hide or remove for this release (e.g. tools that need WebGPU).
 5. **Regulatory positioning**: "research use only / not for diagnostic use" wording for the
    guide, About box and installer.
-6. **Test XNAT**: which server, who provisions the de-identified data and the service accounts.
+6. ~~**Test XNAT**~~ — decided: a test server exists; the live suite runs locally only.
 7. **Code-review depth**: per-area `/code-review` (default), the opt-in multi-agent workflow, or
    `max` on the data-loss partitions.
 8. **Doc hosting and support channel**: Markdown in-repo only or also a published site; where
