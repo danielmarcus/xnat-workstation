@@ -11,6 +11,7 @@ const mockClient = {
   getSubjects: vi.fn(),
   getSessions: vi.fn(),
   getProjectSessions: vi.fn(),
+  getSession: vi.fn(),
   getScans: vi.fn(),
   getScanFiles: vi.fn(),
 };
@@ -51,9 +52,30 @@ describe('registerProxyHandlers', () => {
       IPC.XNAT_GET_SUBJECTS,
       IPC.XNAT_GET_SESSIONS,
       IPC.XNAT_GET_PROJECT_SESSIONS,
+      IPC.XNAT_GET_SESSION,
       IPC.XNAT_GET_SCANS,
       IPC.XNAT_GET_SCAN_FILES,
     ]);
+  });
+
+  it('finds a session for a link: found, not found, failed, not signed in', async () => {
+    registerProxyHandlers();
+    const ref = { projectId: 'P1', subjectId: 'XNAT_S1', subjectLabel: 'Subj', sessionId: 'XNAT_E1', sessionLabel: 'Sess' };
+
+    mockClient.getSession.mockResolvedValueOnce(ref);
+    await expect(ipcMainMock.invoke(IPC.XNAT_GET_SESSION, 'P1', 'XNAT_E1')).resolves.toEqual({ ok: true, session: ref });
+    expect(mockClient.getSession).toHaveBeenCalledWith('P1', 'XNAT_E1');
+
+    mockClient.getSession.mockResolvedValueOnce(null);
+    await expect(ipcMainMock.invoke(IPC.XNAT_GET_SESSION, 'P1', 'nope')).resolves.toEqual({ ok: false, error: 'Not found' });
+
+    const error = new Error('XNAT API error: 404 Not Found');
+    mockClient.getSession.mockRejectedValueOnce(error);
+    await expect(ipcMainMock.invoke(IPC.XNAT_GET_SESSION, 'P1', 'gone')).resolves.toEqual({ ok: false, error: error.message });
+    expect(sessionManagerMock.handleAuthFailure).toHaveBeenCalledWith(error);
+
+    sessionManagerMock.getClient.mockReturnValue(null);
+    await expect(ipcMainMock.invoke(IPC.XNAT_GET_SESSION, 'P1', 'XNAT_E1')).resolves.toEqual({ ok: false, error: 'Not connected' });
   });
 
   it('returns proxied DICOMweb response with expected endpoint and accept header', async () => {

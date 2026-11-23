@@ -249,6 +249,45 @@ describe('XnatClient', () => {
     );
   });
 
+  it('getSession finds a session under its project, with the subject\'s label', async () => {
+    const client = new XnatClient('https://xnat.example');
+    await client.setAuthFromBrowserLogin({ jsessionId: 'J1', username: 'dan', serverCookies: [], csrfToken: null });
+
+    mocks.fetch.mockResolvedValueOnce(makeJsonResponse({
+      items: [{ data_fields: { ID: 'XNAT_E00012', label: 'MR_Visit1', project: 'P1', subject_ID: 'XNAT_S00007' } }],
+    }));
+    mocks.fetch.mockResolvedValueOnce(makeJsonResponse({
+      items: [{ data_fields: { ID: 'XNAT_S00007', label: 'Subject07' } }],
+    }));
+
+    await expect(client.getSession('P1', 'MR_Visit1')).resolves.toEqual({
+      projectId: 'P1',
+      subjectId: 'XNAT_S00007',
+      subjectLabel: 'Subject07',
+      sessionId: 'XNAT_E00012',
+      sessionLabel: 'MR_Visit1',
+    });
+    expect(mocks.fetch).toHaveBeenNthCalledWith(1, 'https://xnat.example/data/projects/P1/experiments/MR_Visit1?format=json', expect.any(Object));
+    expect(mocks.fetch).toHaveBeenNthCalledWith(2, 'https://xnat.example/data/projects/P1/subjects/XNAT_S00007?format=json', expect.any(Object));
+  });
+
+  it('getSession: no experiment is null; a failed subject lookup only loses the label', async () => {
+    const client = new XnatClient('https://xnat.example');
+    await client.setAuthFromBrowserLogin({ jsessionId: 'J1', username: 'dan', serverCookies: [], csrfToken: null });
+
+    mocks.fetch.mockResolvedValueOnce(makeJsonResponse({ items: [] }));
+    await expect(client.getSession('P1', 'XNAT_E9')).resolves.toBeNull();
+
+    mocks.fetch.mockResolvedValueOnce(makeJsonResponse({ items: [{ data_fields: { ID: 'XNAT_E1', subject_ID: 'XNAT_S1' } }] }));
+    mocks.fetch.mockResolvedValueOnce(new Response('Forbidden', { status: 403 }));
+    await expect(client.getSession('P1', 'XNAT_E1')).resolves.toEqual({
+      projectId: 'P1', subjectId: 'XNAT_S1', subjectLabel: undefined, sessionId: 'XNAT_E1', sessionLabel: 'XNAT_E1',
+    });
+
+    mocks.fetch.mockResolvedValueOnce(new Response('Not Found', { status: 404 }));
+    await expect(client.getSession('P1', 'XNAT_E404')).rejects.toThrow('404');
+  });
+
   it('filters DICOM resources in getScanFiles', async () => {
     const client = new XnatClient('https://xnat.example');
     await client.setAuthFromBrowserLogin({

@@ -19,6 +19,7 @@ import { registerUpdateHandlers } from './ipc/updateHandlers';
 import { installMainLogCapture } from './diagnostics/mainLogBuffer';
 import { IPC } from '../shared/ipcChannels';
 import { autoUpdateService } from './updater/autoUpdateService';
+import { initOpenLinks } from './openLink';
 
 installMainLogCapture();
 
@@ -50,6 +51,10 @@ let mainWindow: BrowserWindow | null = null;
 // (no unsaved annotations, or the user chose to save/discard). See the 'close'
 // interceptor + APP_CLOSE_DECISION handler below.
 let allowClose = false;
+
+// One instance: a second launch (a link on Windows and Linux) hands its arguments to this one.
+const isPrimaryInstance = initOpenLinks({ getWindow: () => mainWindow, createWindow });
+if (!isPrimaryInstance) app.quit();
 
 const isDev = !app.isPackaged;
 const devServerUrl = (() => {
@@ -244,6 +249,7 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
+  if (!isPrimaryInstance) return;
   // Register IPC handlers before creating the window
   registerAuthHandlers();
   registerProxyHandlers();
