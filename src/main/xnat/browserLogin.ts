@@ -67,12 +67,14 @@ async function exchangeCredentials(
   // Re-read ALL cookies — the request above may have caused Tomcat to
   // regenerate the JSESSIONID (Set-Cookie), and we also need ALB
   // sticky-session cookies (AWSALB, AWSALBCORS) for load-balanced servers.
-  const url = new URL(serverUrl);
+  // Read them by URL, not by hostname: an SSO proxy in front of XNAT
+  // (oauth2-proxy, for one) scopes its cookie to the parent domain, and
+  // XNAT's API calls are turned away without it.
   const serverCookies: ServerCookie[] = [];
   let currentJsessionId = jsessionId;
 
   try {
-    const allCookies = await loginSession.cookies.get({ domain: url.hostname });
+    const allCookies = await loginSession.cookies.get({ url: serverUrl });
     for (const c of allCookies) {
       serverCookies.push({
         name: c.name,

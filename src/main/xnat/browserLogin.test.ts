@@ -187,6 +187,30 @@ describe('openBrowserLogin', () => {
     );
   });
 
+  it('transfers the cookies a request to the server carries, including an SSO proxy cookie on the parent domain', async () => {
+    const { openBrowserLogin } = await import('./browserLogin');
+
+    mocks.loginSession.cookies.get.mockImplementation(async (filter: { name?: string; url?: string; domain?: string }) => {
+      if (filter.name === 'JSESSIONID') return [{ name: 'JSESSIONID', value: 'sess-new', path: '/' }];
+      if (filter.url === 'https://xnat.example.org') {
+        return [
+          { name: 'JSESSIONID', value: 'sess-new', path: '/' },
+          { name: '_oauth2_proxy', value: 'proxy', path: '/', domain: 'example.org' },
+        ];
+      }
+      return [{ name: 'JSESSIONID', value: 'sess-new', path: '/' }];
+    });
+
+    const resultPromise = openBrowserLogin('https://xnat.example.org');
+    await waitForCreatedWindow();
+    mocks.emitCookieChanged({ name: 'JSESSIONID', value: 'sess-old' });
+    mocks.emitCookieChanged({ name: 'JSESSIONID', value: 'sess-new' });
+
+    const result = await resultPromise;
+    expect(mocks.loginSession.cookies.get).toHaveBeenCalledWith({ url: 'https://xnat.example.org' });
+    expect(result.serverCookies.map((c) => c.name)).toEqual(['JSESSIONID', '_oauth2_proxy']);
+  });
+
   it('falls back to fetching root HTML when csrf token is unavailable in window context', async () => {
     const { openBrowserLogin } = await import('./browserLogin');
 
