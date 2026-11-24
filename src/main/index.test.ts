@@ -190,7 +190,7 @@ describe('main/index bootstrap', () => {
     expect(mocks.autoUpdateService.initialize).toHaveBeenCalledTimes(1);
     expect(mocks.installMainLogCapture).toHaveBeenCalledTimes(1);
 
-    expect(mocks.app.name).toBe('XNAT');
+    expect(mocks.app.name).toBe('XNAT (dev)');
     expect(mocks.Menu.buildFromTemplate).toHaveBeenCalledTimes(1);
     expect(mocks.Menu.setApplicationMenu).toHaveBeenCalledTimes(1);
 
@@ -203,6 +203,8 @@ describe('main/index bootstrap', () => {
   it('creates packaged renderer window and responds to activate/window-close events', async () => {
     mocks.app.isPackaged = true;
     await loadMainEntry();
+
+    expect(mocks.app.name).toBe('XNAT');
 
     expect(mocks.BrowserWindow).toHaveBeenCalledTimes(1);
     const created = mocks.windowInstances[0];

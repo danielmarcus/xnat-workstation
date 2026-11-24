@@ -31,7 +31,9 @@ process.stderr?.on?.('error', () => {});
 // ─── App Name ───────────────────────────────────────────────────
 // The edition's names (docs/editions.md): its short name ("XNAT" for the open-source edition)
 // in the macOS menu bar and dock instead of the default "Electron" — and, set before ready, the
-// user-data folder — and its product name in titles and the About panel.
+// user-data folder — and its product name in titles and the About panel. An unpackaged build
+// adds " (dev)", so it has its own settings and single-instance lock and runs beside an
+// installed copy instead of handing its launch to it.
 const PRODUCT_NAME = currentEdition()?.productName ?? 'XNAT Workstation';
 
 // Under a test harness, secure storage (safeStorage) uses Chromium's stand-in keychain: tests
@@ -44,7 +46,7 @@ if (process.env.E2E_TESTING === '1') app.commandLine.appendSwitch('use-mock-keyc
  * licensed extensions turns them off. Development and E2E builds keep them.
  */
 const devToolsAllowed = (): boolean => !(app.isPackaged && currentEdition()?.devTools === false);
-app.name = currentEdition()?.appName ?? 'XNAT';
+app.name = `${currentEdition()?.appName ?? 'XNAT'}${app.isPackaged ? '' : ' (dev)'}`;
 
 let mainWindow: BrowserWindow | null = null;
 // App-close guard: set true once the renderer has confirmed it's safe to quit

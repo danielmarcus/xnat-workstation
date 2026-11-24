@@ -21,9 +21,16 @@ import { isRecentServer, saveRecentConnection } from '../lib/xnat/recentConnecti
 import { confirmDisconnect } from './confirmDisconnect';
 
 export async function handleOpenLink(link: OpenLinkRequest): Promise<void> {
-  const { status, connection, browserLogin } = useConnectionStore.getState();
+  const { status, connection, browserLogin, signingInTo } = useConnectionStore.getState();
   if (status === 'connecting') {
-    console.warn('[useOpenLink] Ignored a link while signing in');
+    // The latest link to the server being signed in to is the one to open; one for another
+    // server waits for the user to finish or cancel that sign-in.
+    if (signingInTo && sameServer(signingInTo, link.server)) {
+      useOpenLinkStore.getState().setPending(link);
+      showToast(`Will open ${link.session} after you sign in.`, 'success', 5000);
+    } else {
+      showToast(`Finish or cancel signing in${signingInTo ? ` to ${signingInTo}` : ''} first, then open the link again.`, 'warning', 6000);
+    }
     return;
   }
   const current = status === 'connected' ? connection?.serverUrl : undefined;
@@ -51,7 +58,8 @@ export async function handleOpenLink(link: OpenLinkRequest): Promise<void> {
   if (current && !(await confirmDisconnect())) return;
 
   useOpenLinkStore.getState().setPending(link);
-  if (await browserLogin(link.server)) saveRecentConnection(link.server);
+  // Not awaited: links that arrive during the sign-in are taken meanwhile (above).
+  void browserLogin(link.server).then((ok) => { if (ok) saveRecentConnection(link.server); });
 }
 
 export async function openLinkedSession(link: OpenLinkRequest): Promise<void> {

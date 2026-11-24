@@ -185,13 +185,40 @@ describe('handleOpenLink — not signed in to the link\'s server', () => {
     expect(options.message).toContain(`signs you out of ${OTHER}`);
   });
 
-  it('a link during a sign-in already under way is ignored', async () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    useConnectionStore.setState({ status: 'connecting', connection: null, browserLogin });
-    await handleOpenLink(LINK);
+  it('a link during a sign-in to its server replaces the waiting link and says so', async () => {
+    useOpenLinkStore.setState({ pending: LINK });
+    useConnectionStore.setState({ status: 'connecting', connection: null, signingInTo: `${SERVER}/`, browserLogin });
+    const newer = { ...LINK, session: 'XNAT_E2', scan: undefined };
+    await handleOpenLink(newer);
+    expect(useOpenLinkStore.getState().pending).toEqual(newer);
+    expect(mocks.showToast).toHaveBeenCalledWith('Will open XNAT_E2 after you sign in.', 'success', 5000);
     expect(mocks.showConfirmDialog).not.toHaveBeenCalled();
     expect(browserLogin).not.toHaveBeenCalled();
-    warn.mockRestore();
+  });
+
+  it('a link during a sign-in to another server is left for later, with a message', async () => {
+    useOpenLinkStore.setState({ pending: null });
+    useConnectionStore.setState({ status: 'connecting', connection: null, signingInTo: OTHER, browserLogin });
+    await handleOpenLink(LINK);
+    expect(useOpenLinkStore.getState().pending).toBeNull();
+    expect(mocks.showToast).toHaveBeenCalledWith(`Finish or cancel signing in to ${OTHER} first, then open the link again.`, 'warning', 6000);
+    expect(browserLogin).not.toHaveBeenCalled();
+  });
+
+  it('a sign-in started by a link does not hold up the next link, which then replaces it', async () => {
+    let finish: (ok: boolean) => void = () => {};
+    browserLogin.mockImplementationOnce((server: string) => {
+      useConnectionStore.setState({ status: 'connecting', signingInTo: server });
+      return new Promise<boolean>((resolve) => { finish = resolve; });
+    });
+    await handleOpenLink(LINK);
+    expect(useOpenLinkStore.getState().pending).toEqual(LINK);
+    const newer = { ...LINK, session: 'XNAT_E2', scan: undefined };
+    await handleOpenLink(newer);
+    expect(useOpenLinkStore.getState().pending).toEqual(newer);
+    expect(browserLogin).toHaveBeenCalledTimes(1);
+    finish(true);
+    await waitFor(() => expect(loadRecentConnections().map((r) => r.serverUrl)).toContain(SERVER));
   });
 });
 
