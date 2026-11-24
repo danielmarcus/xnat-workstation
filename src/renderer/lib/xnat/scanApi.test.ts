@@ -3,6 +3,7 @@ import { createXnatUploadApi, type XnatUploadElectronApi } from '../cornerstone/
 import {
   downloadDerivedScanFile,
   forgetDerivedScanFiles,
+  keepOnlyDerivedScanFilesOf,
   setXnatScanApi,
   type ScanFileResult,
 } from './scanApi';
@@ -53,6 +54,30 @@ describe('downloadDerivedScanFile', () => {
     expect(download).toHaveBeenCalledTimes(2);
   });
 
+  it("keeps only one session's files: another session's download drops the rest", async () => {
+    const download = fakeScanApi({ '3004': 'SEG', '3005': 'RT' });
+    await downloadDerivedScanFile('S1', '3004');
+    await downloadDerivedScanFile('S1', '3005');
+    await downloadDerivedScanFile('S2', '3004');
+    await downloadDerivedScanFile('S2', '3004');
+    expect(download).toHaveBeenCalledTimes(3);
+
+    await downloadDerivedScanFile('S1', '3004');
+    expect(download).toHaveBeenCalledTimes(4);
+  });
+
+  it("a load start keeps its own session's files, including one still downloading, and drops the rest", async () => {
+    const download = fakeScanApi({ '3004': 'SEG' });
+    await downloadDerivedScanFile('S1', '3004');
+    const inFlight = downloadDerivedScanFile('S2', '3004');
+    keepOnlyDerivedScanFilesOf('S2');
+    await inFlight;
+    await downloadDerivedScanFile('S2', '3004');
+    expect(download).toHaveBeenCalledTimes(2);
+    await downloadDerivedScanFile('S1', '3004');
+    expect(download).toHaveBeenCalledTimes(3);
+  });
+
   it('does not keep a failed download', async () => {
     const files: Record<string, string> = {};
     const download = fakeScanApi(files);
@@ -62,18 +87,17 @@ describe('downloadDerivedScanFile', () => {
     expect(download).toHaveBeenCalledTimes(2);
   });
 
-  it('downloads again after its session is forgotten, and only that session', async () => {
+  it('downloads again after its session is forgotten, and not after another session is', async () => {
     const files: Record<string, string> = { '3004': 'old' };
     const download = fakeScanApi(files);
     await downloadDerivedScanFile('S1', '3004');
-    await downloadDerivedScanFile('S2', '3004');
 
     files['3004'] = 'new';
+    forgetDerivedScanFiles('S2');
+    expect(text(await downloadDerivedScanFile('S1', '3004'))).toBe('old');
     forgetDerivedScanFiles('S1');
-
     expect(text(await downloadDerivedScanFile('S1', '3004'))).toBe('new');
-    expect(text(await downloadDerivedScanFile('S2', '3004'))).toBe('old');
-    expect(download).toHaveBeenCalledTimes(3);
+    expect(download).toHaveBeenCalledTimes(2);
   });
 
   it('downloads again after a new scan API is installed', async () => {

@@ -31,7 +31,7 @@ import * as dicomParser from 'dicom-parser';
 import { viewportReadyService } from './lib/cornerstone/viewportReadyService';
 import { useSessionDerivedIndexStore, isSegScan, isRtStructScan, isSrScan, isDerivedScan } from './stores/sessionDerivedIndexStore';
 import { getSrReferenceInfo } from './lib/dicom/srReferences';
-import { downloadDerivedScanFile, forgetDerivedScanFiles, xnatScanApi } from './lib/xnat/scanApi';
+import { downloadDerivedScanFile, forgetDerivedScanFiles, keepOnlyDerivedScanFilesOf, xnatScanApi } from './lib/xnat/scanApi';
 import { useSegmentationManagerStore } from './stores/segmentationManagerStore';
 import { segmentationManager } from './lib/segmentation/segmentationManagerSingleton';
 import { sessionsWithUnsaved, type LoadedContainerRef } from './lib/annotations/sessionLifecycle';
@@ -1517,6 +1517,7 @@ export default function App() {
     if (currentSessionId && currentSessionId !== sessionId) {
       clearSegLoadingLocks();
       useSessionDerivedIndexStore.getState().clear();
+      keepOnlyDerivedScanFilesOf(sessionId);
       dicomwebLoader.clearScanImageIdsCache(currentSessionId);
     }
 
@@ -2410,6 +2411,7 @@ export default function App() {
       // Clear stale loading locks + derived index from the previous session.
       clearSegLoadingLocks();
       useSessionDerivedIndexStore.getState().clear();
+      keepOnlyDerivedScanFilesOf(sessionId);
 
       try {
         setLoading(true);

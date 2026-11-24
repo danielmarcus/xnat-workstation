@@ -48,12 +48,14 @@ const derivedScanFileKey = (sessionId: string, scanId: string) => `${sessionId}|
 /**
  * The file of a derived scan (SEG, RTSTRUCT, SR), downloaded once for a session or scan
  * load: resolving the session's derived index and loading the overlays both need it.
- * Every caller gets its own copy of the bytes.
+ * Only one session's files are kept. Every caller gets its own copy of the bytes.
  */
 export function downloadDerivedScanFile(sessionId: string, scanId: string): Promise<ArrayBuffer> {
   const key = derivedScanFileKey(sessionId, scanId);
   let file = derivedScanFiles.get(key);
   if (!file) {
+    // Expanding sessions in the XNAT browser downloads their files too.
+    keepOnlyDerivedScanFilesOf(sessionId);
     const download = fetchScanFile(sessionId, scanId);
     download.catch(() => {
       if (derivedScanFiles.get(key) === download) derivedScanFiles.delete(key);
@@ -76,6 +78,17 @@ export function forgetDerivedScanFiles(sessionId?: string): void {
   const prefix = derivedScanFileKey(sessionId, '');
   for (const key of Array.from(derivedScanFiles.keys())) {
     if (key.startsWith(prefix)) derivedScanFiles.delete(key);
+  }
+}
+
+/**
+ * Drop every session's files but this one's, when its load starts. Its own stay: selecting
+ * the session in the XNAT browser may already be downloading them for this load.
+ */
+export function keepOnlyDerivedScanFilesOf(sessionId: string): void {
+  const prefix = derivedScanFileKey(sessionId, '');
+  for (const key of Array.from(derivedScanFiles.keys())) {
+    if (!key.startsWith(prefix)) derivedScanFiles.delete(key);
   }
 }
 
