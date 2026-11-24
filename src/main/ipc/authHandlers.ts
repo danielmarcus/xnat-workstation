@@ -9,11 +9,15 @@ import { IPC } from '../../shared/ipcChannels';
 import * as sessionManager from '../xnat/sessionManager';
 
 export function registerAuthHandlers(): void {
-  ipcMain.handle(IPC.XNAT_BROWSER_LOGIN, async (_event, serverUrl: string) => {
+  ipcMain.handle(IPC.XNAT_BROWSER_LOGIN, async (_event, serverUrl: string, options?: { useLoginWindow?: unknown }) => {
     if (typeof serverUrl !== 'string' || serverUrl.trim().length === 0) {
       throw new Error('Invalid payload for xnat:browser-login: serverUrl must be a non-empty string');
     }
-    return sessionManager.browserLogin(serverUrl);
+    return sessionManager.browserLogin(serverUrl, { useLoginWindow: options?.useLoginWindow === true });
+  });
+
+  ipcMain.handle(IPC.XNAT_LOGIN_CANCEL, async () => {
+    sessionManager.cancelLogin();
   });
 
   ipcMain.handle(IPC.XNAT_LOGOUT, async () => {

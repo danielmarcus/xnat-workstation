@@ -48,4 +48,20 @@ describe('deidentifyText', () => {
     const input = 'viewer loaded successfully with 3 panels';
     expect(deidentifyText(input)).toBe(input);
   });
+
+  it('redacts OAuth tokens from browser sign-in', () => {
+    const jwt = 'eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ4In0.c2lnbmF0dXJl';
+    const output = deidentifyText([
+      `Bearer ${jwt}`,
+      '{"refresh_token":"rt-secret","access_token":"at-secret"}',
+      'code_verifier=verifier-secret',
+      `token ${jwt} logged`,
+    ].join(' | '));
+
+    expect(output).not.toContain('eyJ');
+    expect(output).not.toContain('rt-secret');
+    expect(output).not.toContain('at-secret');
+    expect(output).not.toContain('verifier-secret');
+    expect(output).toContain('Bearer <token-redacted>');
+  });
 });

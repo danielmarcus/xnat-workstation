@@ -674,3 +674,94 @@ describe('XnatClient', () => {
     expect(client.currentUsername).toBe('');
   });
 });
+
+describe('XnatClient bearer mode', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.fetch.mockReset();
+  });
+
+  function bearer(token = 'AT1') {
+    return {
+      getAccessToken: vi.fn(async () => token),
+      refreshIfStale: vi.fn(async () => 'AT2'),
+    };
+  }
+
+  it('sends the token and a non-browser User-Agent, with no cookies and no CSRF token', async () => {
+    mocks.fetch.mockResolvedValue(new Response('', { status: 200 }));
+    const client = new XnatClient('https://xnat-api.example.org', bearer());
+
+    await client.rawRequest('/data/experiments/E1?x=1', { method: 'PUT', headers: { 'Content-Type': 'text/plain' } });
+
+    const [url, init] = mocks.fetch.mock.calls[0];
+    expect(url).toBe('https://xnat-api.example.org/data/experiments/E1?x=1');
+    expect(init.credentials).toBe('omit');
+    const headers = new Headers(init.headers);
+    expect(headers.get('Authorization')).toBe('Bearer AT1');
+    expect(headers.get('User-Agent')).toBe('XNATDesktopClient');
+    expect(headers.get('Content-Type')).toBe('text/plain');
+    expect(client.authMode).toBe('bearer');
+    expect(client.isAuthenticated).toBe(true);
+  });
+
+  it('refreshes once on a 401 and retries with the new token', async () => {
+    mocks.fetch
+      .mockResolvedValueOnce(new Response('', { status: 401 }))
+      .mockResolvedValueOnce(makeJsonResponse({ ResultSet: { Result: [] } }));
+    const auth = bearer();
+    const client = new XnatClient('https://xnat-api.example.org', auth);
+
+    await expect(client.getProjects()).resolves.toEqual([]);
+    expect(auth.refreshIfStale).toHaveBeenCalledWith('AT1');
+    expect(new Headers(mocks.fetch.mock.calls[1][1].headers).get('Authorization')).toBe('Bearer AT2');
+  });
+
+  it('turns a 401 it cannot refresh past into an auth error', async () => {
+    mocks.fetch.mockResolvedValue(new Response('', { status: 401 }));
+    const auth = bearer();
+    auth.refreshIfStale.mockRejectedValue(new Error('session ended'));
+    const client = new XnatClient('https://xnat-api.example.org', auth);
+
+    await expect(client.getProjects()).rejects.toBeInstanceOf(XnatAuthError);
+    expect(mocks.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('runs one token refresh for concurrent 401s', async () => {
+    const { OidcSession } = await import('./oidcSession');
+    let refreshes = 0;
+    const idpFetch = vi.fn(async () => {
+      refreshes += 1;
+      await new Promise((r) => setTimeout(r, 5));
+      return new Response(JSON.stringify({ access_token: 'AT2', refresh_token: 'RT2', expires_in: 300 }), { status: 200 });
+    });
+    const session = new OidcSession(
+      { tokenEndpoint: 'https://idp.example.org/token', clientId: 'c', storeKey: 'k' },
+      { fetch: idpFetch, store: null },
+      { accessToken: 'AT1', refreshToken: 'RT1', expiresIn: 300 },
+    );
+    mocks.fetch.mockImplementation(async (_url: string, init: RequestInit) =>
+      new Headers(init.headers).get('Authorization') === 'Bearer AT2'
+        ? new Response('ok', { status: 200 })
+        : new Response('', { status: 401 }));
+    const client = new XnatClient('https://xnat-api.example.org', session);
+
+    const responses = await Promise.all([1, 2, 3, 4].map(() => client.rawRequest('/data/projects')));
+
+    expect(responses.map((r) => r.status)).toEqual([200, 200, 200, 200]);
+    expect(refreshes).toBe(1);
+  });
+
+  it('checks the session with /xapi/users/username and never calls /data/JSESSION', async () => {
+    mocks.fetch.mockResolvedValue(new Response('dan', { status: 200 }));
+    const client = new XnatClient('https://xnat-api.example.org', bearer());
+    client.setBearerUsername('dan');
+
+    await expect(client.validateSession()).resolves.toBe('dan');
+    await client.disconnect();
+
+    const urls = mocks.fetch.mock.calls.map(([u]) => u);
+    expect(urls).toEqual(['https://xnat-api.example.org/xapi/users/username']);
+    expect(mocks.cookieSet).not.toHaveBeenCalled();
+  });
+});

@@ -2,18 +2,24 @@
  * Session Manager — singleton managing the XNAT connection lifecycle.
  *
  * Wraps XnatClient with:
- * - Keepalive timer (pings /data/JSESSION periodically)
+ * - Browser sign-in when the server publishes a discovery document, else the login window
+ * - Keepalive timer (pings /data/JSESSION periodically) or, after browser sign-in, token refresh
  * - WebRequest interceptor for injecting auth headers into Cornerstone's
  *   direct WADO-URI fetches
  * - Session expiry notification to renderer via IPC
  *
  * Only one active connection at a time.
  */
-import { session as electronSession, BrowserWindow } from 'electron';
-import { XnatClient, XnatAuthError } from './xnatClient';
+import * as path from 'path';
+import { app, session as electronSession, BrowserWindow, safeStorage, shell } from 'electron';
+import { XnatClient, XnatAuthError, NON_BROWSER_USER_AGENT, summarizeErrorBody } from './xnatClient';
 import { openBrowserLogin } from './browserLogin';
+import { discoverSignIn, type FetchLike, type SignInConfig } from './oidcDiscovery';
+import { authorizeInBrowser, OidcLoginError } from './oidcLogin';
+import { EncryptedRefreshTokenStore, OidcSession, type OidcSessionDeps, type RefreshTokenStore } from './oidcSession';
 import { IPC } from '../../shared/ipcChannels';
 import type {
+  XnatLoginOptions,
   XnatLoginResult,
   XnatConnectionInfo,
   XnatSessionStatus,
@@ -22,23 +28,41 @@ import type {
 let client: XnatClient | null = null;
 let connectionInfo: XnatConnectionInfo | null = null;
 let keepaliveInterval: NodeJS.Timeout | null = null;
+let oidcSession: OidcSession | null = null;
+let loginAbort: AbortController | null = null;
 
 // ─── Public API ──────────────────────────────────────────────────
 
 /**
- * Authenticate via browser-based login (SSO/OIDC/LDAP/local).
+ * Sign in. When the server publishes a discovery document, in the system browser (bearer mode);
+ * otherwise, or when asked, in XNAT's login page in a child BrowserWindow (cookie mode).
+ */
+export async function browserLogin(serverUrl: string, options: XnatLoginOptions = {}): Promise<XnatLoginResult> {
+  // Disconnect existing connection first
+  if (client) {
+    await logout();
+  }
+
+  if (!options.useLoginWindow) {
+    const config = await discoverSignIn(serverUrl, { fetch: idpFetch, override: discoveryOverride() });
+    if (config) return signInWithBrowser(config);
+  }
+  return loginWindow(serverUrl);
+}
+
+/** Stop a browser sign-in that is waiting for the user. */
+export function cancelLogin(): void {
+  loginAbort?.abort();
+}
+
+/**
  * Opens XNAT's login page in a child BrowserWindow. After the user
  * authenticates, extracts the JSESSIONID and retrieves the username —
  * all using the BrowserWindow's Chromium network stack (which some
  * XNAT servers require). The pre-fetched credentials are then handed
  * to xnatClient.
  */
-export async function browserLogin(serverUrl: string): Promise<XnatLoginResult> {
-  // Disconnect existing connection first
-  if (client) {
-    await logout();
-  }
-
+async function loginWindow(serverUrl: string): Promise<XnatLoginResult> {
   // Open browser login window — returns pre-fetched auth data
   let loginResult: Awaited<ReturnType<typeof openBrowserLogin>>;
   try {
@@ -80,6 +104,122 @@ export async function browserLogin(serverUrl: string): Promise<XnatLoginResult> 
   return { success: true, connection: connectionInfo };
 }
 
+// ─── Browser sign-in (bearer mode) ───────────────────────────────
+
+const idpFetch: FetchLike = (url, init) => electronSession.defaultSession.fetch(url, init);
+
+/** XNAT_WORKSTATION_DISCOVERY: a JSON file or URL standing in for the server's document. Unpackaged builds only. */
+function discoveryOverride(): string | undefined {
+  return app.isPackaged ? undefined : process.env.XNAT_WORKSTATION_DISCOVERY || undefined;
+}
+
+function refreshTokenStore(): RefreshTokenStore | null {
+  const available = safeStorage.isEncryptionAvailable()
+    && !(process.platform === 'linux' && safeStorage.getSelectedStorageBackend() === 'basic_text');
+  if (!available) return null;
+  return new EncryptedRefreshTokenStore(path.join(app.getPath('userData'), 'sign-in-tokens.json'), {
+    isAvailable: () => safeStorage.isEncryptionAvailable(),
+    encrypt: (text) => safeStorage.encryptString(text),
+    decrypt: (data) => safeStorage.decryptString(data),
+  });
+}
+
+function notifyLoginProgress(progress: { stage: 'browser'; host: string }): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    win.webContents.send(IPC.XNAT_LOGIN_PROGRESS, progress);
+  }
+}
+
+const NO_ACCOUNT = Symbol('no XNAT account');
+
+async function fetchBearerUsername(c: XnatClient): Promise<string | typeof NO_ACCOUNT> {
+  const response = await c.rawRequest('/xapi/users/username');
+  const text = (await response.text().catch(() => '')).trim();
+  if (response.status === 403 && /no XNAT account is mapped/i.test(text)) return NO_ACCOUNT;
+  if (!response.ok || !text) {
+    throw new Error(`XNAT refused the sign-in: ${response.status} ${summarizeErrorBody(text, response.statusText)}`.trim());
+  }
+  return text;
+}
+
+async function signInWithBrowser(config: SignInConfig): Promise<XnatLoginResult> {
+  const abort = new AbortController();
+  loginAbort = abort;
+  let session: OidcSession | null = null;
+  const sessionConfig = {
+    tokenEndpoint: config.tokenEndpoint,
+    revocationEndpoint: config.revocationEndpoint,
+    clientId: config.clientId,
+    storeKey: `${config.issuer} ${config.clientId} ${config.apiUrl}`,
+  };
+  const deps: OidcSessionDeps = {
+    fetch: idpFetch,
+    store: refreshTokenStore(),
+    onSessionEnded: () => {
+      if (!session || session !== oidcSession) return;
+      console.warn('[sessionManager] Sign-in session ended — disconnecting');
+      tearDown();
+      notifySessionExpired();
+    },
+  };
+
+  try {
+    session = await OidcSession.restore(sessionConfig, deps);
+    if (!session) {
+      notifyLoginProgress({ stage: 'browser', host: new URL(config.issuer).host });
+      const tokens = await authorizeInBrowser(config, {
+        fetch: idpFetch,
+        openExternal: (url) => shell.openExternal(url),
+        signal: abort.signal,
+      });
+      session = new OidcSession(sessionConfig, deps, tokens);
+      BrowserWindow.getAllWindows()[0]?.focus();
+    }
+
+    const newClient = new XnatClient(config.apiUrl, session);
+    let username = await fetchBearerUsername(newClient);
+    if (username === NO_ACCOUNT) {
+      // First sign-in: XNAT creates the account through its own login page, once.
+      console.log('[sessionManager] No XNAT account for this identity yet — opening the login window once');
+      await openBrowserLogin(config.webUrl);
+      username = await fetchBearerUsername(newClient);
+      if (username === NO_ACCOUNT) throw new Error('XNAT has no account for this sign-in.');
+    }
+    newClient.setBearerUsername(username);
+    const profile = await newClient.getCurrentUserProfile();
+
+    client = newClient;
+    oidcSession = session;
+    connectionInfo = {
+      serverUrl: client.serverUrl,
+      webUrl: config.webUrl,
+      authMode: 'bearer',
+      username,
+      firstName: profile.firstName,
+      lastName: profile.lastName,
+      connectedAt: Date.now(),
+    };
+
+    resetSessionExpiredFlag();
+    session.startAutoRefresh();
+    setupWebRequestInterceptor();
+
+    console.log(`[sessionManager] Browser sign-in: connected to ${connectionInfo.serverUrl} as ${username}`);
+    notifyConnectionChange();
+    return { success: true, connection: connectionInfo };
+  } catch (err) {
+    await session?.revoke();
+    const cancelled = (err instanceof OidcLoginError && err.cancelled) || (err instanceof Error && err.message === 'Login cancelled');
+    if (cancelled) return { success: false, error: 'Login cancelled' };
+    const message = err instanceof XnatAuthError
+      ? 'XNAT did not accept the sign-in.'
+      : (err instanceof Error ? err.message : String(err));
+    return { success: false, error: message, canUseLoginWindow: true };
+  } finally {
+    if (loginAbort === abort) loginAbort = null;
+  }
+}
+
 // ─── Connection listeners ─────────────────────────────────────────
 
 const connectionListeners = new Set<(info: XnatConnectionInfo | null) => void>();
@@ -107,6 +247,7 @@ export async function logout(): Promise<void> {
   if (client) {
     await client.disconnect();
   }
+  await oidcSession?.revoke();
   tearDown();
   console.log('[sessionManager] Logged out');
 }
@@ -326,6 +467,8 @@ function stopKeepalive(): void {
 function tearDown(): void {
   const wasConnected = connectionInfo !== null;
   stopKeepalive();
+  oidcSession?.stopAutoRefresh();
+  oidcSession = null;
   clearWebRequestInterceptor();
   if (client) {
     client.clearCookies();
@@ -387,13 +530,19 @@ function setupWebRequestInterceptor(): void {
 
   const serverUrl = client.serverUrl;
   const filter = { urls: [`${serverUrl}/*`] };
+  const bearer = oidcSession;
 
   // Inject cookies on outgoing renderer requests (Cornerstone wadouri GETs).
   // Renderer requests are cross-origin so Chromium won't attach cookies
   // automatically. Read from the cookie jar — the single source of truth.
+  // After browser sign-in, inject the access token instead.
   electronSession.defaultSession.webRequest.onBeforeSendHeaders(
     filter,
     (details, callback) => {
+      if (bearer) {
+        callback({ requestHeaders: withBearerAuth(details.url, serverUrl, details.requestHeaders, bearer.accessToken) });
+        return;
+      }
       electronSession.defaultSession.cookies.get({ url: details.url })
         .then((cookies) => {
           if (cookies.length === 0) {
@@ -431,6 +580,27 @@ function setupWebRequestInterceptor(): void {
   );
 
   console.log(`[sessionManager] WebRequest interceptor set up for ${serverUrl}`);
+}
+
+/**
+ * The access token and a non-browser User-Agent for a request to the XNAT API, with no cookies;
+ * any other request's headers unchanged.
+ */
+export function withBearerAuth(
+  url: string,
+  apiUrl: string,
+  headers: Record<string, string | string[]>,
+  accessToken: string,
+): Record<string, string | string[]> {
+  if (!url.startsWith(`${apiUrl}/`)) return headers;
+  const out: Record<string, string | string[]> = {};
+  for (const [name, value] of Object.entries(headers)) {
+    const lower = name.toLowerCase();
+    if (lower !== 'cookie' && lower !== 'authorization' && lower !== 'user-agent') out[name] = value;
+  }
+  out.Authorization = `Bearer ${accessToken}`;
+  out['User-Agent'] = NON_BROWSER_USER_AGENT;
+  return out;
 }
 
 function clearWebRequestInterceptor(): void {

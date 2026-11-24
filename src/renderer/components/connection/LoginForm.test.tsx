@@ -97,4 +97,42 @@ describe('LoginForm', () => {
     fireEvent.mouseDown(document.body);
     expect(screen.queryByText('Recent Servers')).not.toBeInTheDocument();
   });
+
+  it('says to continue in the browser while browser sign-in waits, with a way to cancel', async () => {
+    const user = userEvent.setup();
+    const cancelLogin = vi.fn(async () => undefined);
+    useConnectionStore.setState({
+      ...useConnectionStore.getState(),
+      status: 'connecting',
+      loginHost: 'idp.example.org',
+      cancelLogin,
+    });
+
+    render(<LoginForm />);
+
+    expect(screen.getByText('Continue in your browser')).toBeInTheDocument();
+    expect(screen.getByText(/Sign in at idp\.example\.org/)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(cancelLogin).toHaveBeenCalledTimes(1);
+  });
+
+  it('offers the XNAT login window after a failed browser sign-in', async () => {
+    const user = userEvent.setup();
+    const browserLogin = vi.fn(async () => true);
+    useConnectionStore.setState({
+      ...useConnectionStore.getState(),
+      status: 'error',
+      error: 'Sign-in timed out.',
+      canUseLoginWindow: true,
+      browserLogin,
+    });
+
+    render(<LoginForm />);
+    const input = screen.getByLabelText('Server');
+    await user.clear(input);
+    await user.type(input, 'xnat.example.com');
+    await user.click(screen.getByRole('button', { name: 'Use the XNAT login window instead' }));
+
+    expect(browserLogin).toHaveBeenCalledWith('https://xnat.example.com', { useLoginWindow: true });
+  });
 });

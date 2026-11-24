@@ -14,7 +14,7 @@ const mocks = vi.hoisted(() => {
     }
   }
 
-  const XnatClient = vi.fn(function MockXnatClient(this: any, serverUrl: string) {
+  const XnatClient = vi.fn(function MockXnatClient(this: any, serverUrl: string, bearer?: unknown) {
     this.serverUrl = serverUrl.replace(/\/+$/, '');
     this.currentUsername = '';
     this.isAuthenticated = true;
@@ -28,10 +28,16 @@ const mocks = vi.hoisted(() => {
     this.markDisconnected = vi.fn(() => {
       this.isAuthenticated = false;
     });
+    this.bearer = bearer;
+    this.rawRequest = vi.fn(async () => usernameResponses.shift() ?? new Response('dan', { status: 200 }));
+    this.setBearerUsername = vi.fn((username: string) => {
+      this.currentUsername = username;
+    });
     clientInstances.push(this);
   });
+  const usernameResponses: Response[] = [];
 
-  const windows = [{ webContents: { send: vi.fn() } }, { webContents: { send: vi.fn() } }];
+  const windows = [{ webContents: { send: vi.fn() }, focus: vi.fn() }, { webContents: { send: vi.fn() }, focus: vi.fn() }];
   return {
     XnatClient,
     XnatAuthError: MockXnatAuthError,
@@ -41,12 +47,27 @@ const mocks = vi.hoisted(() => {
     windows,
     onBeforeSendHeaders: vi.fn(),
     onHeadersReceived: vi.fn(),
+    discoverSignIn: vi.fn(async () => null as unknown),
+    authorizeInBrowser: vi.fn(),
+    fetch: vi.fn(async () => new Response('', { status: 200 })),
+    usernameResponses,
   };
 });
+
+vi.mock('./oidcDiscovery', () => ({
+  discoverSignIn: mocks.discoverSignIn,
+}));
+
+vi.mock('./oidcLogin', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./oidcLogin')>()),
+  authorizeInBrowser: mocks.authorizeInBrowser,
+}));
 
 vi.mock('./xnatClient', () => ({
   XnatClient: mocks.XnatClient,
   XnatAuthError: mocks.XnatAuthError,
+  NON_BROWSER_USER_AGENT: 'XNATDesktopClient',
+  summarizeErrorBody: (body: string) => body,
 }));
 
 vi.mock('./browserLogin', () => ({
@@ -54,8 +75,12 @@ vi.mock('./browserLogin', () => ({
 }));
 
 vi.mock('electron', () => ({
+  app: { isPackaged: true, getPath: () => '/tmp' },
+  shell: { openExternal: vi.fn(async () => undefined) },
+  safeStorage: { isEncryptionAvailable: () => false },
   session: {
     defaultSession: {
+      fetch: mocks.fetch,
       webRequest: {
         onBeforeSendHeaders: mocks.onBeforeSendHeaders,
         onHeadersReceived: mocks.onHeadersReceived,
@@ -74,6 +99,8 @@ describe('sessionManager', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.clientInstances.length = 0;
+    mocks.usernameResponses.length = 0;
+    mocks.discoverSignIn.mockResolvedValue(null);
     mocks.currentUserProfile.firstName = undefined;
     mocks.currentUserProfile.lastName = undefined;
     mocks.openBrowserLogin.mockResolvedValue({
@@ -330,5 +357,163 @@ describe('sessionManager', () => {
     // CORS headers injected
     expect(result['Access-Control-Allow-Origin']).toEqual(['*']);
     expect(result['Cross-Origin-Resource-Policy']).toEqual(['cross-origin']);
+  });
+});
+
+describe('sessionManager browser sign-in', () => {
+  const config = {
+    resource: 'https://xnat.example.org',
+    issuer: 'https://idp.example.org/realms/r',
+    clientId: 'xnat-workstation',
+    scope: 'openid',
+    apiUrl: 'https://xnat-api.example.org',
+    webUrl: 'https://xnat.example.org',
+    authorizationEndpoint: 'https://idp.example.org/auth',
+    tokenEndpoint: 'https://idp.example.org/token',
+    revocationEndpoint: 'https://idp.example.org/revoke',
+    issRequired: true,
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.clientInstances.length = 0;
+    mocks.usernameResponses.length = 0;
+    mocks.discoverSignIn.mockResolvedValue(config);
+    mocks.authorizeInBrowser.mockResolvedValue({ accessToken: 'AT1', refreshToken: 'RT1', expiresIn: 300 });
+    mocks.openBrowserLogin.mockResolvedValue({ jsessionId: 'j', username: 'dan', serverCookies: [], csrfToken: null });
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('uses the browser flow when the server publishes a document, in bearer mode against the API URL', async () => {
+    vi.resetModules();
+    const sessionManager = await import('./sessionManager');
+
+    const result = await sessionManager.browserLogin('https://xnat.example.org');
+
+    expect(result).toMatchObject({
+      success: true,
+      connection: { serverUrl: 'https://xnat-api.example.org', webUrl: 'https://xnat.example.org', authMode: 'bearer', username: 'dan' },
+    });
+    expect(mocks.openBrowserLogin).not.toHaveBeenCalled();
+    expect(mocks.XnatClient).toHaveBeenCalledWith('https://xnat-api.example.org', expect.anything());
+    for (const win of mocks.windows) {
+      expect(win.webContents.send).toHaveBeenCalledWith(IPC.XNAT_LOGIN_PROGRESS, { stage: 'browser', host: 'idp.example.org' });
+    }
+
+    const beforeSendHandler = mocks.onBeforeSendHeaders.mock.calls[0][1];
+    const cb = vi.fn();
+    beforeSendHandler({ url: 'https://xnat-api.example.org/data/files/1.dcm', requestHeaders: { Cookie: 'JSESSIONID=x' } }, cb);
+    expect(cb).toHaveBeenCalledWith({ requestHeaders: { Authorization: 'Bearer AT1', 'User-Agent': 'XNATDesktopClient' } });
+  });
+
+  it('skips discovery when asked for the login window', async () => {
+    vi.resetModules();
+    const sessionManager = await import('./sessionManager');
+
+    const result = await sessionManager.browserLogin('https://xnat.example.org', { useLoginWindow: true });
+
+    expect(result.success).toBe(true);
+    expect(mocks.discoverSignIn).not.toHaveBeenCalled();
+    expect(mocks.openBrowserLogin).toHaveBeenCalledWith('https://xnat.example.org');
+    expect(result.connection?.authMode).toBeUndefined();
+  });
+
+  it('opens the login window once for an identity with no XNAT account, then signs in with the token', async () => {
+    mocks.usernameResponses.push(
+      new Response('no XNAT account is mapped to this OpenID identity', { status: 403 }),
+      new Response('newuser', { status: 200 }),
+    );
+    vi.resetModules();
+    const sessionManager = await import('./sessionManager');
+
+    const result = await sessionManager.browserLogin('https://xnat.example.org');
+
+    expect(mocks.openBrowserLogin).toHaveBeenCalledTimes(1);
+    expect(mocks.openBrowserLogin).toHaveBeenCalledWith('https://xnat.example.org');
+    expect(result).toMatchObject({ success: true, connection: { authMode: 'bearer', username: 'newuser' } });
+  });
+
+  it('reports a failed browser flow with the login window as the way out', async () => {
+    const { OidcLoginError } = await import('./oidcLogin');
+    mocks.authorizeInBrowser.mockRejectedValue(new OidcLoginError('Sign-in timed out.'));
+    vi.resetModules();
+    const sessionManager = await import('./sessionManager');
+
+    const result = await sessionManager.browserLogin('https://xnat.example.org');
+
+    expect(result).toEqual({ success: false, error: 'Sign-in timed out.', canUseLoginWindow: true });
+    expect(mocks.openBrowserLogin).not.toHaveBeenCalled();
+    expect(sessionManager.isConnected()).toBe(false);
+  });
+
+  it('cancels a browser sign-in that is waiting', async () => {
+    mocks.authorizeInBrowser.mockImplementation(async (_config: unknown, deps: { signal: AbortSignal }) => {
+      const { OidcLoginError } = await import('./oidcLogin');
+      await new Promise((_resolve, reject) => {
+        deps.signal.addEventListener('abort', () => reject(new OidcLoginError('Login cancelled', true)));
+      });
+    });
+    vi.resetModules();
+    const sessionManager = await import('./sessionManager');
+
+    const pending = sessionManager.browserLogin('https://xnat.example.org');
+    await vi.advanceTimersByTimeAsync(0);
+    sessionManager.cancelLogin();
+
+    await expect(pending).resolves.toEqual({ success: false, error: 'Login cancelled' });
+  });
+
+  it('revokes the refresh token on sign-out and sends no JSESSION request', async () => {
+    vi.resetModules();
+    const sessionManager = await import('./sessionManager');
+    await sessionManager.browserLogin('https://xnat.example.org');
+
+    await sessionManager.logout();
+
+    const revoke = mocks.fetch.mock.calls.find(([url]) => url === 'https://idp.example.org/revoke');
+    expect(revoke).toBeDefined();
+    expect(String((revoke![1] as RequestInit).body)).toContain('token=RT1');
+    expect(sessionManager.isConnected()).toBe(false);
+  });
+
+  it('disconnects when a scheduled refresh finds the session over', async () => {
+    mocks.fetch.mockResolvedValue(new Response('{"error":"invalid_grant"}', { status: 400 }));
+    vi.resetModules();
+    const sessionManager = await import('./sessionManager');
+    await sessionManager.browserLogin('https://xnat.example.org');
+
+    await vi.advanceTimersByTimeAsync(240 * 1000);
+
+    expect(sessionManager.isConnected()).toBe(false);
+    for (const win of mocks.windows) {
+      expect(win.webContents.send).toHaveBeenCalledWith(IPC.XNAT_SESSION_EXPIRED);
+    }
+  });
+});
+
+describe('withBearerAuth', () => {
+  it('sets the token and a non-browser User-Agent, and drops cookies, only for the API origin', async () => {
+    const { withBearerAuth } = await import('./sessionManager');
+    const api = 'https://xnat-api.example.org';
+    const headers = { Accept: '*/*', cookie: 'JSESSIONID=x', 'user-agent': 'Mozilla/5.0' };
+
+    expect(withBearerAuth(`${api}/data/files/a.dcm`, api, headers, 'T')).toEqual({
+      Accept: '*/*',
+      Authorization: 'Bearer T',
+      'User-Agent': 'XNATDesktopClient',
+    });
+    for (const other of [
+      'https://xnat-api.example.org.attacker.example/data',
+      'https://xnat-api.example.org:8443/data',
+      'http://xnat-api.example.org/data',
+      'https://xnat.example.org/data',
+      'https://xnat-api.example.org@attacker.example/data',
+    ]) {
+      expect(withBearerAuth(other, api, headers, 'T')).toBe(headers);
+    }
   });
 });

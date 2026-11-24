@@ -1,15 +1,13 @@
 /**
  * XNAT REST API Client
  *
- * All XNAT API requests authenticate via JSESSION cookie stored in
- * Electron's default session cookie jar. The session is kept alive
- * by a periodic keepalive ping in sessionManager.
+ * Two ways to authenticate (docs/authentication.md):
+ * - cookie: the JSESSION cookie from the login window, in Electron's default session cookie jar,
+ *   kept alive by a periodic keepalive ping in sessionManager;
+ * - bearer: an access token from browser sign-in, sent as `Authorization: Bearer` with no cookies.
  *
- * All network operations happen in the main process — session cookies
- * never cross the IPC boundary to the renderer.
- *
- * Uses Electron's session.fetch() (Chromium network stack) so requests
- * automatically include cookies from the default session's cookie jar.
+ * All network operations happen in the main process — credentials never cross the IPC boundary
+ * to the renderer. Uses Electron's session.fetch() (Chromium network stack).
  */
 import { session as electronSession } from 'electron';
 import { createHash } from 'crypto';
@@ -42,6 +40,18 @@ export function summarizeErrorBody(body: string, statusText = ''): string {
   }
   return trimmed.length > 200 ? `${trimmed.slice(0, 200)}…` : trimmed;
 }
+
+/** The access token of a browser sign-in (oidcSession.ts). */
+export interface BearerAuth {
+  getAccessToken(): Promise<string>;
+  refreshIfStale(usedToken: string): Promise<string>;
+}
+
+/**
+ * XNAT checks its CSRF token on any request from a browser User-Agent, bearer requests included,
+ * and a bearer request has no session to hold one. It skips the check for this agent.
+ */
+export const NON_BROWSER_USER_AGENT = 'XNATDesktopClient';
 
 export class XnatClient {
   private baseUrl: string;
@@ -93,9 +103,22 @@ export class XnatClient {
     return Buffer.concat([preamble, buffer]);
   }
 
-  constructor(baseUrl: string) {
+  constructor(baseUrl: string, private bearer: BearerAuth | null = null) {
     // Normalize base URL (remove trailing slash)
     this.baseUrl = baseUrl.replace(/\/+$/, '');
+  }
+
+  private get hasCredentials(): boolean {
+    return this.bearer !== null || this.jsessionId !== null;
+  }
+
+  get authMode(): 'cookie' | 'bearer' {
+    return this.bearer ? 'bearer' : 'cookie';
+  }
+
+  /** Bearer mode: the username, from GET /xapi/users/username. */
+  setBearerUsername(username: string): void {
+    this.username = username;
   }
 
   // ─── Authentication ────────────────────────────────────────────
@@ -152,6 +175,15 @@ export class XnatClient {
    * Returns the username if valid, null if expired.
    */
   async validateSession(): Promise<string | null> {
+    if (this.bearer) {
+      try {
+        const response = await this.xfetch(`${this.baseUrl}/xapi/users/username`, { method: 'GET' });
+        await response.text().catch(() => {});
+        return response.ok ? this.username : null;
+      } catch {
+        return null;
+      }
+    }
     if (!this.jsessionId) return null;
 
     try {
@@ -207,6 +239,7 @@ export class XnatClient {
       .catch(() => {});
 
     this.jsessionId = null;
+    this.bearer = null;
     this.csrfToken = null;
     this.username = '';
   }
@@ -236,6 +269,7 @@ export class XnatClient {
    * token as an XNAT_CSRF query parameter.
    */
   private async xfetch(url: string, options?: RequestInit): Promise<Response> {
+    if (this.bearer) return this.bearerFetch(this.bearer, url, options);
     const method = (options?.method ?? 'GET').toUpperCase();
     const isMutating = method === 'POST' || method === 'PUT' || method === 'PATCH' || method === 'DELETE';
 
@@ -263,6 +297,41 @@ export class XnatClient {
   }
 
   /**
+   * Bearer mode: the access token and a non-browser User-Agent, no cookies (a stray JSESSIONID
+   * would make XNAT ignore the token), no CSRF token. A 401 refreshes the token and retries once.
+   */
+  private async bearerFetch(bearer: BearerAuth, url: string, options?: RequestInit): Promise<Response> {
+    const send = (token: string) => {
+      const headers = new Headers(options?.headers as HeadersInit ?? {});
+      headers.set('Authorization', `Bearer ${token}`);
+      headers.set('User-Agent', NON_BROWSER_USER_AGENT);
+      return electronSession.defaultSession.fetch(url, {
+        cache: 'no-store',
+        redirect: 'follow',
+        ...(options ?? {}),
+        credentials: 'omit',
+        headers,
+      });
+    };
+    let token: string;
+    try {
+      token = await bearer.getAccessToken();
+    } catch {
+      throw new XnatAuthError('Sign-in expired');
+    }
+    const response = await send(token);
+    if (response.status !== 401) return response;
+    let fresh: string;
+    try {
+      fresh = await bearer.refreshIfStale(token);
+    } catch {
+      return response;
+    }
+    await response.text().catch(() => {});
+    return send(fresh);
+  }
+
+  /**
    * Make an authenticated request to an XNAT endpoint.
    * Returns the raw Response for caller to parse.
    */
@@ -270,7 +339,7 @@ export class XnatClient {
     endpoint: string,
     options: RequestInit = {},
   ): Promise<Response> {
-    if (!this.jsessionId || this._disconnected) throw new XnatAuthError('Not authenticated');
+    if (!this.hasCredentials || this._disconnected) throw new XnatAuthError('Not authenticated');
 
     const url = `${this.baseUrl}${endpoint}`;
     const response = await this.xfetch(url, options);
@@ -302,7 +371,7 @@ export class XnatClient {
    * which is how it reports an expired session — is still an XnatAuthError.
    */
   async rawRequest(endpoint: string, options: RequestInit = {}): Promise<Response> {
-    if (!this.jsessionId || this._disconnected) throw new XnatAuthError('Not authenticated');
+    if (!this.hasCredentials || this._disconnected) throw new XnatAuthError('Not authenticated');
     const response = await this.xfetch(`${this.baseUrl}${endpoint}`, options);
     if (response.status === 401) throw new XnatAuthError('401 Unauthorized');
     if (response.ok && (response.headers.get('content-type') ?? '').includes('text/html')) {
@@ -884,7 +953,7 @@ export class XnatClient {
    * last-write-wins (the pre-H6 behavior, so no regression when polling is blind).
    */
   async getScanVersionToken(sessionId: string, scanId: string): Promise<string | null> {
-    if (!this.jsessionId || this._disconnected) throw new XnatAuthError('Not authenticated');
+    if (!this.hasCredentials || this._disconnected) throw new XnatAuthError('Not authenticated');
     const basePath = `/data/experiments/${encodeURIComponent(sessionId)}/scans/${encodeURIComponent(scanId)}`;
     const scanUrl = `${this.baseUrl}${basePath}`;
 
@@ -1045,7 +1114,7 @@ export class XnatClient {
     targetScanId?: string,
     seriesDescription?: string,
   ): Promise<{ scanId: string; dicomBuffer: Buffer }> {
-    if (!this.jsessionId || this._disconnected) throw new XnatAuthError('Not authenticated');
+    if (!this.hasCredentials || this._disconnected) throw new XnatAuthError('Not authenticated');
 
     let resolvedScanId = targetScanId;
     if (!resolvedScanId) {
@@ -1075,7 +1144,7 @@ export class XnatClient {
     dicomBuffer: Buffer,
     seriesDescription: string = 'Segmentation',
   ): Promise<{ url: string; scanId: string; versionToken: string }> {
-    if (!this.jsessionId || this._disconnected) throw new XnatAuthError('Not authenticated');
+    if (!this.hasCredentials || this._disconnected) throw new XnatAuthError('Not authenticated');
     const { targetSessionId, targetSessionLabel, targetProjectId, targetSubjectId } =
       await this.resolveUploadRouting(projectId, subjectId, sessionId, sessionLabel, 'SEG');
     const targetScanId = await this.findNextDerivedScanId(targetSessionId, sourceScanId, 'SEG');
@@ -1155,7 +1224,7 @@ export class XnatClient {
     dicomBuffer: Buffer,
     seriesDescription: string = 'RT Structure Set',
   ): Promise<{ url: string; scanId: string; versionToken: string }> {
-    if (!this.jsessionId || this._disconnected) throw new XnatAuthError('Not authenticated');
+    if (!this.hasCredentials || this._disconnected) throw new XnatAuthError('Not authenticated');
     const { targetSessionId, targetSessionLabel, targetProjectId, targetSubjectId } =
       await this.resolveUploadRouting(projectId, subjectId, sessionId, sessionLabel, 'RTSTRUCT');
     const targetScanId = await this.findNextDerivedScanId(targetSessionId, sourceScanId, 'RTSTRUCT');
@@ -1238,7 +1307,7 @@ export class XnatClient {
     dicomBuffer: Buffer,
     seriesDescription?: string,
   ): Promise<{ url: string; scanId: string; versionToken: string }> {
-    if (!this.jsessionId || this._disconnected) throw new XnatAuthError('Not authenticated');
+    if (!this.hasCredentials || this._disconnected) throw new XnatAuthError('Not authenticated');
 
     console.log(
       `[xnatClient] Overwriting DICOM SEG in scan ${targetScanId}`,
@@ -1292,7 +1361,7 @@ export class XnatClient {
     dicomBuffer: Buffer,
     seriesDescription?: string,
   ): Promise<{ url: string; scanId: string; versionToken: string }> {
-    if (!this.jsessionId || this._disconnected) throw new XnatAuthError('Not authenticated');
+    if (!this.hasCredentials || this._disconnected) throw new XnatAuthError('Not authenticated');
 
     console.log(
       `[xnatClient] Overwriting DICOM RTSTRUCT in scan ${targetScanId}`,
@@ -1351,7 +1420,7 @@ export class XnatClient {
     dicomBuffer: Buffer,
     seriesDescription: string = 'Measurements',
   ): Promise<{ url: string; scanId: string; versionToken: string }> {
-    if (!this.jsessionId || this._disconnected) throw new XnatAuthError('Not authenticated');
+    if (!this.hasCredentials || this._disconnected) throw new XnatAuthError('Not authenticated');
     const { targetSessionId, targetSessionLabel, targetProjectId, targetSubjectId } =
       await this.resolveUploadRouting(projectId, subjectId, sessionId, sessionLabel, 'SR');
     const targetScanId = await this.findNextDerivedScanId(targetSessionId, sourceScanId, 'SR');
@@ -1408,7 +1477,7 @@ export class XnatClient {
     dicomBuffer: Buffer,
     seriesDescription?: string,
   ): Promise<{ url: string; scanId: string; versionToken: string }> {
-    if (!this.jsessionId || this._disconnected) throw new XnatAuthError('Not authenticated');
+    if (!this.hasCredentials || this._disconnected) throw new XnatAuthError('Not authenticated');
     console.log(`[xnatClient] Overwriting DICOM SR in scan ${targetScanId} (${(dicomBuffer.length / 1024).toFixed(1)} KB)`);
 
     const basePath = `/data/experiments/${encodeURIComponent(sessionId)}/scans/${encodeURIComponent(targetScanId)}`;
@@ -1446,7 +1515,7 @@ export class XnatClient {
     dicomBuffer: Buffer,
     customFilename?: string,
   ): Promise<{ url: string }> {
-    if (!this.jsessionId || this._disconnected) throw new XnatAuthError('Not authenticated');
+    if (!this.hasCredentials || this._disconnected) throw new XnatAuthError('Not authenticated');
 
     const filename = customFilename ?? `autosave_seg_${sourceScanId}.dcm`;
     console.log(
@@ -1485,7 +1554,7 @@ export class XnatClient {
   async listTempFiles(
     sessionId: string,
   ): Promise<Array<{ name: string; uri: string; size: number }>> {
-    if (!this.jsessionId || this._disconnected) throw new XnatAuthError('Not authenticated');
+    if (!this.hasCredentials || this._disconnected) throw new XnatAuthError('Not authenticated');
 
     const url = `${this.baseUrl}/data/experiments/${encodeURIComponent(sessionId)}`
       + `/resources/temp/files?format=json`;
@@ -1520,7 +1589,7 @@ export class XnatClient {
     sessionId: string,
     filename: string,
   ): Promise<void> {
-    if (!this.jsessionId || this._disconnected) throw new XnatAuthError('Not authenticated');
+    if (!this.hasCredentials || this._disconnected) throw new XnatAuthError('Not authenticated');
 
     const url = `${this.baseUrl}/data/experiments/${encodeURIComponent(sessionId)}`
       + `/resources/temp/files/${encodeURIComponent(filename)}`;
@@ -1548,7 +1617,7 @@ export class XnatClient {
     scanId: string,
     trashResourceName?: string,
   ): Promise<void> {
-    if (!this.jsessionId || this._disconnected) throw new XnatAuthError('Not authenticated');
+    if (!this.hasCredentials || this._disconnected) throw new XnatAuthError('Not authenticated');
 
     const encSession = encodeURIComponent(sessionId);
     const encScan = encodeURIComponent(scanId);
@@ -1610,7 +1679,7 @@ export class XnatClient {
     sessionId: string,
     filename: string,
   ): Promise<Buffer> {
-    if (!this.jsessionId || this._disconnected) throw new XnatAuthError('Not authenticated');
+    if (!this.hasCredentials || this._disconnected) throw new XnatAuthError('Not authenticated');
 
     const url = `${this.baseUrl}/data/experiments/${encodeURIComponent(sessionId)}`
       + `/resources/temp/files/${encodeURIComponent(filename)}`;
@@ -1631,7 +1700,7 @@ export class XnatClient {
   // ─── Getters ───────────────────────────────────────────────────
 
   get isAuthenticated(): boolean {
-    return this.jsessionId !== null;
+    return this.hasCredentials;
   }
 
   get serverUrl(): string {

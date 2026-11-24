@@ -10,6 +10,8 @@ import { create } from 'zustand';
 import type {
   ConnectionStatus,
   XnatConnectionInfo,
+  XnatLoginOptions,
+  XnatLoginProgress,
 } from '@shared/types/xnat';
 
 interface ConnectionStore {
@@ -17,32 +19,41 @@ interface ConnectionStore {
   status: ConnectionStatus;
   connection: XnatConnectionInfo | null;
   error: string | null;
+  /** While browser sign-in waits for the user: the identity provider's host. */
+  loginHost: string | null;
+  /** The last browser sign-in failed and XNAT's login window may still work. */
+  canUseLoginWindow: boolean;
 
   // ─── Actions ────────────────────────────────────────────────
-  browserLogin: (serverUrl: string) => Promise<boolean>;
+  browserLogin: (serverUrl: string, options?: XnatLoginOptions) => Promise<boolean>;
+  cancelLogin: () => Promise<void>;
   logout: () => Promise<void>;
   checkSession: () => Promise<void>;
 
   // ─── Internal (called by event listener) ────────────────────
   _setExpired: () => void;
+  _setLoginProgress: (progress: XnatLoginProgress) => void;
 }
 
 export const useConnectionStore = create<ConnectionStore>((set) => ({
   status: 'disconnected',
   connection: null,
   error: null,
+  loginHost: null,
+  canUseLoginWindow: false,
 
-  browserLogin: async (serverUrl) => {
-    set({ status: 'connecting', error: null });
+  browserLogin: async (serverUrl, options) => {
+    set({ status: 'connecting', error: null, loginHost: null, canUseLoginWindow: false });
 
     try {
-      const result = await window.electronAPI.xnat.browserLogin(serverUrl);
+      const result = await window.electronAPI.xnat.browserLogin(serverUrl, options);
 
       if (result.success && result.connection) {
         set({
           status: 'connected',
           connection: result.connection,
           error: null,
+          loginHost: null,
         });
         return true;
       } else {
@@ -50,6 +61,8 @@ export const useConnectionStore = create<ConnectionStore>((set) => ({
           status: result.error === 'Login cancelled' ? 'disconnected' : 'error',
           error: result.error === 'Login cancelled' ? null : (result.error || 'Login failed'),
           connection: null,
+          loginHost: null,
+          canUseLoginWindow: result.canUseLoginWindow === true,
         });
         return false;
       }
@@ -58,8 +71,17 @@ export const useConnectionStore = create<ConnectionStore>((set) => ({
         status: 'error',
         error: err instanceof Error ? err.message : String(err),
         connection: null,
+        loginHost: null,
       });
       return false;
+    }
+  },
+
+  cancelLogin: async () => {
+    try {
+      await window.electronAPI.xnat.cancelLogin();
+    } catch {
+      // Best-effort
     }
   },
 
@@ -107,6 +129,10 @@ export const useConnectionStore = create<ConnectionStore>((set) => ({
   _setExpired: () => {
     set({ status: 'disconnected', connection: null, error: 'Session expired' });
   },
+
+  _setLoginProgress: (progress) => {
+    if (useConnectionStore.getState().status === 'connecting') set({ loginHost: progress.host });
+  },
 }));
 
 // ─── Session Expiry Listener ─────────────────────────────────────
@@ -116,6 +142,9 @@ if (typeof window !== 'undefined' && window.electronAPI) {
   window.electronAPI.on('xnat:session-expired', () => {
     console.warn('[connectionStore] Session expired (notified by main process)');
     useConnectionStore.getState()._setExpired();
+  });
+  window.electronAPI.on('xnat:login-progress', (progress) => {
+    useConnectionStore.getState()._setLoginProgress(progress as XnatLoginProgress);
   });
 
   // ─── Auto-detect existing session on startup ─────────────────

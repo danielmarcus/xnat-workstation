@@ -313,25 +313,25 @@ export default function XnatBrowser({
   const connection = useConnectionStore((s) => s.connection);
   const pins = pinnedItemsProp ?? [];
   const serverUrl = connection?.serverUrl ?? '';
-  const normalizedServerUrl = serverUrl.replace(/\/$/, '');
+  const webUrl = (connection?.webUrl ?? serverUrl).replace(/\/$/, '');
 
   const buildXnatEntityUrl = useCallback(
     (type: 'project' | 'subject' | 'session', ids: { projectId?: string; subjectId?: string; sessionId?: string }) => {
-      if (!normalizedServerUrl) return null;
+      if (!webUrl) return null;
 
       if (type === 'project' && ids.projectId) {
-        return `${normalizedServerUrl}/data/projects/${encodeURIComponent(ids.projectId)}?format=html`;
+        return `${webUrl}/data/projects/${encodeURIComponent(ids.projectId)}?format=html`;
       }
       if (type === 'subject' && ids.projectId && ids.subjectId) {
-        return `${normalizedServerUrl}/data/projects/${encodeURIComponent(ids.projectId)}/subjects/${encodeURIComponent(ids.subjectId)}?format=html`;
+        return `${webUrl}/data/projects/${encodeURIComponent(ids.projectId)}/subjects/${encodeURIComponent(ids.subjectId)}?format=html`;
       }
       if (type === 'session' && ids.sessionId) {
-        return `${normalizedServerUrl}/data/experiments/${encodeURIComponent(ids.sessionId)}?format=html`;
+        return `${webUrl}/data/experiments/${encodeURIComponent(ids.sessionId)}?format=html`;
       }
 
       return null;
     },
-    [normalizedServerUrl],
+    [webUrl],
   );
 
   const openXnatEntity = useCallback(async (url: string | null) => {
