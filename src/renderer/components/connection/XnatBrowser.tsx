@@ -462,8 +462,10 @@ export default function XnatBrowser({
     }
 
     doNavigate(navigateTo);
+  // Only a new target navigates: the session load resets the derived index, which changes
+  // maybeResolveSessionAssociations, and re-running then would open the session again.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [navigateTo, maybeResolveSessionAssociations]);
+  }, [navigateTo]);
 
   // Clear search when level changes
   useEffect(() => {
