@@ -159,8 +159,8 @@ export async function openBrowserLogin(
   await loginSession.clearStorageData();
 
   // Some sites send a top-level page load of XNAT's URL into a web portal that frames
-  // XNAT (Scout's launchpad matches Sec-Fetch-Dest: document). Without the fetch-metadata
-  // headers, this window's requests reach XNAT itself.
+  // XNAT, matching on Sec-Fetch-Dest: document. Without the fetch-metadata headers, this
+  // window's requests reach XNAT itself.
   loginSession.webRequest.onBeforeSendHeaders({ urls: [`${parsedUrl.origin}/*`] }, stripFetchMetadata);
 
   return new Promise<BrowserLoginResult>((resolve, reject) => {

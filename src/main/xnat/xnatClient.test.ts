@@ -278,7 +278,7 @@ describe('XnatClient', () => {
     mocks.fetch.mockResolvedValueOnce(makeJsonResponse({ items: [] }));
     await expect(client.getSession('P1', 'XNAT_E9')).resolves.toBeNull();
 
-    mocks.fetch.mockResolvedValueOnce(makeJsonResponse({ items: [{ data_fields: { ID: 'XNAT_E1', subject_ID: 'XNAT_S1' } }] }));
+    mocks.fetch.mockResolvedValueOnce(makeJsonResponse({ items: [{ data_fields: { ID: 'XNAT_E1', project: 'P1', subject_ID: 'XNAT_S1' } }] }));
     mocks.fetch.mockResolvedValueOnce(new Response('Forbidden', { status: 403 }));
     await expect(client.getSession('P1', 'XNAT_E1')).resolves.toEqual({
       projectId: 'P1', subjectId: 'XNAT_S1', subjectLabel: undefined, sessionId: 'XNAT_E1', sessionLabel: 'XNAT_E1',
@@ -286,6 +286,30 @@ describe('XnatClient', () => {
 
     mocks.fetch.mockResolvedValueOnce(new Response('Not Found', { status: 404 }));
     await expect(client.getSession('P1', 'XNAT_E404')).rejects.toThrow('404');
+  });
+
+  it('getSession: a session from another project is null unless it is shared into this one', async () => {
+    const client = new XnatClient('https://xnat.example');
+    await client.setAuthFromBrowserLogin({ jsessionId: 'J1', username: 'dan', serverCookies: [], csrfToken: null });
+    const experiment = (shares: string[]) => makeJsonResponse({
+      items: [{
+        data_fields: { ID: 'XNAT_E5', label: 'MR5', project: 'P2', subject_ID: 'XNAT_S5' },
+        children: [
+          { field: 'scans/scan', items: [{ data_fields: { ID: '1' } }] },
+          { field: 'sharing/share', items: shares.map((project) => ({ data_fields: { project, label: 'MR5' } })) },
+        ],
+      }],
+    });
+
+    mocks.fetch.mockResolvedValueOnce(experiment(['P3']));
+    await expect(client.getSession('P1', 'XNAT_E5')).resolves.toBeNull();
+    expect(mocks.fetch).toHaveBeenCalledTimes(1);
+
+    mocks.fetch.mockResolvedValueOnce(experiment(['P3', 'P1']));
+    mocks.fetch.mockResolvedValueOnce(makeJsonResponse({ items: [{ data_fields: { ID: 'XNAT_S5', label: 'S5' } }] }));
+    await expect(client.getSession('P1', 'XNAT_E5')).resolves.toEqual({
+      projectId: 'P1', subjectId: 'XNAT_S5', subjectLabel: 'S5', sessionId: 'XNAT_E5', sessionLabel: 'MR5',
+    });
   });
 
   it('filters DICOM resources in getScanFiles', async () => {

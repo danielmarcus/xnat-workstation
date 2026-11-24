@@ -498,18 +498,25 @@ export class XnatClient {
   }
 
   /**
-   * Find a session in a project by experiment ID or label (XNAT resolves either under the
-   * project), with its subject. Null when XNAT returns no experiment.
+   * Find a session in a project by experiment ID or label, with its subject. Null when XNAT
+   * returns no experiment, or one that is neither in the project nor shared into it.
    */
   async getSession(projectId: string, session: string): Promise<{
     projectId: string; subjectId: string; subjectLabel?: string; sessionId: string; sessionLabel: string;
   } | null> {
     const projectPath = `/data/projects/${encodeURIComponent(projectId)}`;
     const data = await this.jsonRequest<any>(`${projectPath}/experiments/${encodeURIComponent(session)}`);
-    const row = data?.items?.[0]?.data_fields;
+    const item = data?.items?.[0];
+    const row = item?.data_fields;
     const sessionId = row?.ID || row?.id;
     const subjectId = row?.subject_ID || row?.subject_id;
     if (!sessionId || !subjectId) return null;
+    // XNAT finds an experiment ID in any project the user can read, not only this one.
+    const sharedInto = (item.children ?? [])
+      .filter((child: any) => child.field === 'sharing/share')
+      .flatMap((child: any) => child.items ?? [])
+      .map((share: any) => share.data_fields?.project);
+    if (row.project !== projectId && !sharedInto.includes(projectId)) return null;
 
     let subjectLabel: string | undefined;
     try {
