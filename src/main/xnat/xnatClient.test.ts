@@ -191,7 +191,7 @@ describe('XnatClient', () => {
     const fetchOptions = mocks.fetch.mock.calls[1][1] as RequestInit;
     const headers = new Headers(fetchOptions.headers as HeadersInit);
     expect(headers.get('X-Test')).toBe('1');
-    expect(headers.get('User-Agent')).toBe('XNATDesktopClient');
+    expect(headers.get('User-Agent')).toMatch(/^XNATWorkstation\/\S+$/);
   });
 
   it('retrieves current user first/last name from the XAPI profile endpoint when available', async () => {
@@ -699,7 +699,7 @@ describe('XnatClient bearer mode', () => {
     expect(init.credentials).toBe('omit');
     const headers = new Headers(init.headers);
     expect(headers.get('Authorization')).toBe('Bearer AT1');
-    expect(headers.get('User-Agent')).toBe('XNATDesktopClient');
+    expect(headers.get('User-Agent')).toMatch(/^XNATWorkstation\/\S+$/);
     expect(headers.get('Content-Type')).toBe('text/plain');
     expect(client.authMode).toBe('bearer');
     expect(client.isAuthenticated).toBe(true);

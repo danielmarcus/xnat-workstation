@@ -9,7 +9,7 @@
  * All network operations happen in the main process — credentials never cross the IPC boundary
  * to the renderer. Uses Electron's session.fetch() (Chromium network stack).
  */
-import { session as electronSession } from 'electron';
+import { app, session as electronSession } from 'electron';
 import { createHash } from 'crypto';
 import { data as dcmjsData } from 'dcmjs';
 import { DOMParser } from '@xmldom/xmldom';
@@ -47,11 +47,20 @@ export interface BearerAuth {
   refreshIfStale(usedToken: string): Promise<string>;
 }
 
+function appVersion(): string {
+  try {
+    return app.getVersion();
+  } catch {
+    return 'dev';
+  }
+}
+
 /**
  * XNAT checks its CSRF token on any request from a browser User-Agent, bearer requests included,
- * and a bearer request has no session to hold one. It skips the check for this agent.
+ * and a bearer request has no session to hold one. It skips the check for a User-Agent it doesn't
+ * parse as a browser, which this one isn't (Electron's default is).
  */
-export const NON_BROWSER_USER_AGENT = 'XNATDesktopClient';
+export const NON_BROWSER_USER_AGENT = `XNATWorkstation/${appVersion()}`;
 
 export class XnatClient {
   private baseUrl: string;
@@ -285,11 +294,9 @@ export class XnatClient {
       const separator = url.includes('?') ? '&' : '?';
       fetchUrl = `${url}${separator}XNAT_CSRF=${encodeURIComponent(this.csrfToken)}`;
     } else if (isMutating) {
-      // Fallback: XNAT's XnatSecureGuard skips CSRF validation for
-      // non-browser User-Agent strings. Use the XNATDesktopClient UA
-      // so mutating requests still succeed without a token.
+      // Without a CSRF token, a non-browser User-Agent still passes XNAT's check.
       const headers = new Headers(fetchOptions.headers as HeadersInit ?? {});
-      headers.set('User-Agent', 'XNATDesktopClient');
+      headers.set('User-Agent', NON_BROWSER_USER_AGENT);
       fetchOptions.headers = headers;
     }
 

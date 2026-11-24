@@ -86,7 +86,7 @@ XNAT answers a valid token whose user has no XNAT account yet with `403` "no XNA
 `XnatClient` takes a token source (`BearerAuth`) and, in bearer mode, every request:
 
 - goes to `xnat_api_url`;
-- carries `Authorization: Bearer <access token>` and `User-Agent: XNATDesktopClient`. XNAT checks its CSRF token on any request from a browser User-Agent, bearer requests included (it answers `500 InvalidCsrfException`, GETs too), and skips the check for this agent;
+- carries `Authorization: Bearer <access token>` and `User-Agent: XNATWorkstation/<version>`. XNAT checks its CSRF token on any request from a browser User-Agent, bearer requests included (it answers `500 InvalidCsrfException`, GETs too), and skips the check for a User-Agent it doesn't parse as a browser, which Electron's default is;
 - sends no cookies (`credentials: 'omit'`): a session cookie would make XNAT ignore the token. No CSRF token is added;
 - on `401`, refreshes the access token and retries once.
 

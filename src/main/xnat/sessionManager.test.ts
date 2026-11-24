@@ -66,7 +66,7 @@ vi.mock('./oidcLogin', async (importOriginal) => ({
 vi.mock('./xnatClient', () => ({
   XnatClient: mocks.XnatClient,
   XnatAuthError: mocks.XnatAuthError,
-  NON_BROWSER_USER_AGENT: 'XNATDesktopClient',
+  NON_BROWSER_USER_AGENT: 'XNATWorkstation/test',
   summarizeErrorBody: (body: string) => body,
 }));
 
@@ -407,7 +407,7 @@ describe('sessionManager browser sign-in', () => {
     const beforeSendHandler = mocks.onBeforeSendHeaders.mock.calls[0][1];
     const cb = vi.fn();
     beforeSendHandler({ url: 'https://xnat-api.example.org/data/files/1.dcm', requestHeaders: { Cookie: 'JSESSIONID=x' } }, cb);
-    expect(cb).toHaveBeenCalledWith({ requestHeaders: { Authorization: 'Bearer AT1', 'User-Agent': 'XNATDesktopClient' } });
+    expect(cb).toHaveBeenCalledWith({ requestHeaders: { Authorization: 'Bearer AT1', 'User-Agent': 'XNATWorkstation/test' } });
   });
 
   it('skips discovery when asked for the login window', async () => {
@@ -504,7 +504,7 @@ describe('withBearerAuth', () => {
     expect(withBearerAuth(`${api}/data/files/a.dcm`, api, headers, 'T')).toEqual({
       Accept: '*/*',
       Authorization: 'Bearer T',
-      'User-Agent': 'XNATDesktopClient',
+      'User-Agent': 'XNATWorkstation/test',
     });
     for (const other of [
       'https://xnat-api.example.org.attacker.example/data',
