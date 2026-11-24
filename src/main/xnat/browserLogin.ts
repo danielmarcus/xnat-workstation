@@ -99,6 +99,17 @@ async function exchangeCredentials(
   return { jsessionId: currentJsessionId, username, serverCookies, csrfToken };
 }
 
+/** Drop the fetch-metadata (Sec-Fetch-*) request headers. */
+export function stripFetchMetadata(
+  details: Electron.OnBeforeSendHeadersListenerDetails,
+  callback: (response: Electron.BeforeSendResponse) => void,
+): void {
+  const requestHeaders = Object.fromEntries(
+    Object.entries(details.requestHeaders).filter(([name]) => !/^sec-fetch-/i.test(name)),
+  );
+  callback({ requestHeaders });
+}
+
 /** A server cookie to transfer between sessions. */
 export interface ServerCookie {
   name: string;
@@ -147,6 +158,11 @@ export async function openBrowserLogin(
   // detected before the page even loads.
   await loginSession.clearStorageData();
 
+  // Some sites send a top-level page load of XNAT's URL into a web portal that frames
+  // XNAT (Scout's launchpad matches Sec-Fetch-Dest: document). Without the fetch-metadata
+  // headers, this window's requests reach XNAT itself.
+  loginSession.webRequest.onBeforeSendHeaders({ urls: [`${parsedUrl.origin}/*`] }, stripFetchMetadata);
+
   return new Promise<BrowserLoginResult>((resolve, reject) => {
     const loginWindow = new BrowserWindow({
       width: 900,
@@ -180,8 +196,9 @@ export async function openBrowserLogin(
 
       clearTimeout(timeoutId);
 
-      // Remove the cookie listener
+      // Remove the cookie listener and the header filter
       loginSession.cookies.removeListener('changed', onCookieChanged);
+      loginSession.webRequest.onBeforeSendHeaders(null);
 
       // Clean up the window
       if (!loginWindow.isDestroyed()) {
