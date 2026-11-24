@@ -19,6 +19,13 @@ import { openScan, openSession, type OpenOutcome } from '../lib/app/appNavigatio
 import { isPrimaryImageScan } from '../lib/app/appHelpers';
 import { isRecentServer, saveRecentConnection } from '../lib/xnat/recentConnections';
 import { confirmDisconnect } from './confirmDisconnect';
+import type { XnatConnectionInfo } from '@shared/types';
+
+/** A browser sign-in connects to the server's API URL; links name the URL people use. */
+function isConnectedTo(connection: XnatConnectionInfo | null | undefined, server: string): boolean {
+  if (!connection) return false;
+  return sameServer(connection.serverUrl, server) || (!!connection.webUrl && sameServer(connection.webUrl, server));
+}
 
 export async function handleOpenLink(link: OpenLinkRequest): Promise<void> {
   const { status, connection, browserLogin, signingInTo } = useConnectionStore.getState();
@@ -34,7 +41,7 @@ export async function handleOpenLink(link: OpenLinkRequest): Promise<void> {
     return;
   }
   const current = status === 'connected' ? connection?.serverUrl : undefined;
-  if (current && sameServer(current, link.server)) {
+  if (status === 'connected' && isConnectedTo(connection, link.server)) {
     await openLinkedSession(link);
     return;
   }
@@ -111,7 +118,8 @@ async function drainOpenLinks(): Promise<void> {
 
 export function useOpenLink(ready: boolean): void {
   const status = useConnectionStore((s) => s.status);
-  const serverUrl = useConnectionStore((s) => s.connection?.serverUrl ?? null);
+  const connection = useConnectionStore((s) => s.connection);
+  const serverUrl = connection?.serverUrl ?? null;
 
   useEffect(() => {
     const api = window.electronAPI?.openLink;
@@ -125,6 +133,6 @@ export function useOpenLink(ready: boolean): void {
     const link = useOpenLinkStore.getState().pending;
     if (!ready || status !== 'connected' || !serverUrl || !link) return;
     useOpenLinkStore.getState().setPending(null);
-    if (sameServer(serverUrl, link.server)) void openLinkedSession(link);
-  }, [ready, status, serverUrl]);
+    if (isConnectedTo(connection, link.server)) void openLinkedSession(link);
+  }, [ready, status, serverUrl, connection]);
 }
