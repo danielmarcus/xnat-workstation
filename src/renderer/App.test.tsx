@@ -6,7 +6,6 @@ import App, {
   checkForAutoSaveRecovery,
   preloadImages,
   jumpViewportToReferencedImage,
-  downloadSegArrayBuffer,
 } from './App';
 import { useConnectionStore } from './stores/connectionStore';
 import { useViewerStore } from './stores/viewerStore';
@@ -800,21 +799,6 @@ describe('App', () => {
     await jumpViewportToReferencedImage('panel_0', 'img-0');
     expect(vpWithScroll.scroll).toHaveBeenCalledWith(-2);
     expect(vpWithScroll.render).toHaveBeenCalled();
-  });
-
-  it('downloadSegArrayBuffer decodes base64 and throws on failed download', async () => {
-    (window.electronAPI.xnat.downloadScanFile as any).mockResolvedValueOnce({
-      ok: true,
-      data: btoa('ABC'),
-    });
-    const buffer = await downloadSegArrayBuffer('S1', '11');
-    expect(Array.from(new Uint8Array(buffer))).toEqual([65, 66, 67]);
-
-    (window.electronAPI.xnat.downloadScanFile as any).mockResolvedValueOnce({
-      ok: false,
-      error: 'scan missing',
-    });
-    await expect(downloadSegArrayBuffer('S1', '12')).rejects.toThrow('scan missing');
   });
 
   it('checkForAutoSaveRecovery recovers SEG autosave files and removes temp resources', async () => {

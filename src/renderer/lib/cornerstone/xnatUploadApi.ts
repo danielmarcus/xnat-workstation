@@ -21,6 +21,7 @@
  *     (transient is the safe default so a flaky network retries rather than gives up).
  */
 import type { XnatUploadApi, XnatWriteResult } from './xnatTransport';
+import { forgetDerivedScanFiles } from '../xnat/scanApi';
 
 /** Result shape every upload/overwrite IPC handler returns (mirrors XnatUploadResult). */
 interface XnatWriteIpcResult {
@@ -153,6 +154,14 @@ export function createXnatUploadApi(electronApi: XnatUploadElectronApi): XnatUpl
   function mapResult(res: XnatWriteIpcResult): XnatWriteResult {
     return res.ok ? mapSuccess(res) : classifyFailure(res);
   }
+  // A failed write may still have changed the scan (an overwrite deletes the old file first).
+  async function writeTo(sessionId: string, write: () => Promise<XnatWriteIpcResult>): Promise<XnatWriteResult> {
+    try {
+      return mapResult(await write());
+    } finally {
+      forgetDerivedScanFiles(sessionId);
+    }
+  }
   // A thrown IPC call (transport-level failure) is transient by default.
   const asTransient = (err: unknown): XnatWriteResult => ({
     ok: false,
@@ -163,7 +172,7 @@ export function createXnatUploadApi(electronApi: XnatUploadElectronApi): XnatUpl
   return {
     async uploadSeg(p) {
       try {
-        return mapResult(await electronApi.uploadDicomSeg(
+        return await writeTo(p.sessionId, () => electronApi.uploadDicomSeg(
           p.projectId, p.subjectId, p.sessionId, p.sessionLabel, p.sourceScanId, p.dicomBase64, p.label,
         ));
       } catch (err) {
@@ -173,7 +182,7 @@ export function createXnatUploadApi(electronApi: XnatUploadElectronApi): XnatUpl
 
     async uploadRtStruct(p) {
       try {
-        return mapResult(await electronApi.uploadDicomRtStruct(
+        return await writeTo(p.sessionId, () => electronApi.uploadDicomRtStruct(
           p.projectId, p.subjectId, p.sessionId, p.sessionLabel, p.sourceScanId, p.dicomBase64, p.label,
         ));
       } catch (err) {
@@ -183,7 +192,7 @@ export function createXnatUploadApi(electronApi: XnatUploadElectronApi): XnatUpl
 
     async uploadSr(p) {
       try {
-        return mapResult(await electronApi.uploadDicomSr(
+        return await writeTo(p.sessionId, () => electronApi.uploadDicomSr(
           p.projectId, p.subjectId, p.sessionId, p.sessionLabel, p.sourceScanId, p.dicomBase64, p.label,
         ));
       } catch (err) {
@@ -193,7 +202,7 @@ export function createXnatUploadApi(electronApi: XnatUploadElectronApi): XnatUpl
 
     async overwriteSeg(p) {
       try {
-        return mapResult(await electronApi.overwriteDicomSeg(p.sessionId, p.targetScanId, p.dicomBase64, p.seriesDescription));
+        return await writeTo(p.sessionId, () => electronApi.overwriteDicomSeg(p.sessionId, p.targetScanId, p.dicomBase64, p.seriesDescription));
       } catch (err) {
         return asTransient(err);
       }
@@ -201,7 +210,7 @@ export function createXnatUploadApi(electronApi: XnatUploadElectronApi): XnatUpl
 
     async overwriteRtStruct(p) {
       try {
-        return mapResult(await electronApi.overwriteDicomRtStruct(p.sessionId, p.targetScanId, p.dicomBase64, p.seriesDescription));
+        return await writeTo(p.sessionId, () => electronApi.overwriteDicomRtStruct(p.sessionId, p.targetScanId, p.dicomBase64, p.seriesDescription));
       } catch (err) {
         return asTransient(err);
       }
@@ -209,7 +218,7 @@ export function createXnatUploadApi(electronApi: XnatUploadElectronApi): XnatUpl
 
     async overwriteSr(p) {
       try {
-        return mapResult(await electronApi.overwriteDicomSr(p.sessionId, p.targetScanId, p.dicomBase64, p.seriesDescription));
+        return await writeTo(p.sessionId, () => electronApi.overwriteDicomSr(p.sessionId, p.targetScanId, p.dicomBase64, p.seriesDescription));
       } catch (err) {
         return asTransient(err);
       }

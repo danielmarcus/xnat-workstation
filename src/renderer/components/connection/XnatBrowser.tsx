@@ -29,6 +29,7 @@ import { isPinned } from '../../lib/pinnedItems';
 // eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
 import { dicomwebLoader } from '../../lib/cornerstone/dicomwebLoader';
 import { pLimit } from '../../lib/util/pLimit';
+import { downloadDerivedScanFile } from '../../lib/xnat/scanApi';
 import {
   useSessionDerivedIndexStore,
   isDerivedScan,
@@ -364,19 +365,6 @@ export default function XnatBrowser({
     [openXnatEntity],
   );
 
-  const downloadDerivedScanFile = useCallback(async (sessionId: string, scanId: string) => {
-    const result = await window.electronAPI.xnat.downloadScanFile(sessionId, scanId);
-    if (!result.ok || !result.data) {
-      throw new Error(result.error || 'Failed to download scan file');
-    }
-    const binaryString = atob(result.data);
-    const bytes = new Uint8Array(binaryString.length);
-    for (let i = 0; i < binaryString.length; i++) {
-      bytes[i] = binaryString.charCodeAt(i);
-    }
-    return bytes.buffer;
-  }, []);
-
   const maybeResolveSessionAssociations = useCallback(
     (sessionId: string, sessionScans: XnatScan[]) => {
       if (!sessionScans.some((scan) => isDerivedScan(scan))) return;
@@ -399,7 +387,7 @@ export default function XnatBrowser({
           }
         });
     },
-    [downloadDerivedScanFile, resolveAssociationsForSession, resolvedSessionIds],
+    [resolveAssociationsForSession, resolvedSessionIds],
   );
 
   // ─── Navigate-to Handler ───────────────────────────────────────

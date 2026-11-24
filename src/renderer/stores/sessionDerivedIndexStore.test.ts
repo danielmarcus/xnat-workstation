@@ -37,6 +37,7 @@ vi.mock('../lib/cornerstone/rtStructService', () => ({
   },
 }));
 
+import { downloadDerivedScanFile, setXnatScanApi } from '../lib/xnat/scanApi';
 import {
   inferSourceScanIdFromConvention,
   isDerivedScan,
@@ -571,5 +572,30 @@ describe('provisional + UID resolution integration', () => {
     // Downloads should still happen (provisional doesn't short-circuit)
     expect(downloadScanFile).toHaveBeenCalledTimes(1);
     expect(getScanImageIds).toHaveBeenCalledTimes(1);
+  });
+
+  it('resolving a session and then loading its SEG overlay download the SEG once', async () => {
+    const ipcDownload = vi.fn(async () => ({ ok: true, data: btoa('SEG') }));
+    setXnatScanApi({ getScans: async () => [], downloadScanFile: ipcDownload });
+    mocked.metaDataGet.mockImplementation((type: string) =>
+      type === 'generalSeriesModule' ? { seriesInstanceUID: 'SER-1' } : undefined,
+    );
+    mocked.getSegReferenceInfo.mockReturnValue({ referencedSeriesUID: 'SER-1', referencedSOPInstanceUIDs: [] });
+
+    try {
+      await useSessionDerivedIndexStore.getState().resolveAssociationsForSession(
+        'sess-1',
+        [source('1'), seg('3001')],
+        async () => ['wadouri:https://xnat/img.dcm'],
+        downloadDerivedScanFile,
+      );
+      // What the overlay loader asks for next (SegmentationManager deps.downloadScanFile).
+      const overlayBytes = await downloadDerivedScanFile('sess-1', '3001');
+
+      expect(new TextDecoder().decode(overlayBytes)).toBe('SEG');
+      expect(ipcDownload).toHaveBeenCalledTimes(1);
+    } finally {
+      setXnatScanApi(null);
+    }
   });
 });
