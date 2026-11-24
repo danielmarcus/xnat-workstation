@@ -9,7 +9,7 @@ import {
 
 function fakeScanApi(files: Record<string, string>) {
   const downloadScanFile = vi.fn(async (_sessionId: string, scanId: string): Promise<ScanFileResult> =>
-    files[scanId] !== undefined ? { ok: true, data: btoa(files[scanId]) } : { ok: false, error: 'scan missing' });
+    files[scanId] !== undefined ? { ok: true, data: new TextEncoder().encode(files[scanId]) } : { ok: false, error: 'scan missing' });
   setXnatScanApi({ getScans: async () => [], downloadScanFile });
   return downloadScanFile;
 }
@@ -23,6 +23,12 @@ describe('downloadDerivedScanFile', () => {
     fakeScanApi({ '11': 'ABC' });
     expect(Array.from(new Uint8Array(await downloadDerivedScanFile('S1', '11')))).toEqual([65, 66, 67]);
     await expect(downloadDerivedScanFile('S1', '12')).rejects.toThrow('scan missing');
+  });
+
+  it('returns only the bytes the IPC result views, not the rest of its buffer', async () => {
+    const backing = new TextEncoder().encode('xxSEGyy');
+    setXnatScanApi({ getScans: async () => [], downloadScanFile: async () => ({ ok: true, data: backing.subarray(2, 5) }) });
+    expect(text(await downloadDerivedScanFile('S1', '3004'))).toBe('SEG');
   });
 
   it('downloads a file once for every caller, concurrent or later, and gives each its own copy', async () => {

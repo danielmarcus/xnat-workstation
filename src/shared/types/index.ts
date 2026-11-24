@@ -57,7 +57,7 @@ export interface ElectronAPI {
     downloadScanFile(
       sessionId: string,
       scanId: string,
-    ): Promise<{ ok: boolean; data?: string; error?: string }>;
+    ): Promise<{ ok: boolean; data?: Uint8Array; error?: string }>;
     uploadDicomSeg(
       projectId: string,
       subjectId: string,

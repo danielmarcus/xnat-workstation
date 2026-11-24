@@ -575,7 +575,7 @@ describe('provisional + UID resolution integration', () => {
   });
 
   it('resolving a session and then loading its SEG overlay download the SEG once', async () => {
-    const ipcDownload = vi.fn(async () => ({ ok: true, data: btoa('SEG') }));
+    const ipcDownload = vi.fn(async () => ({ ok: true, data: new TextEncoder().encode('SEG') }));
     setXnatScanApi({ getScans: async () => [], downloadScanFile: ipcDownload });
     mocked.metaDataGet.mockImplementation((type: string) =>
       type === 'generalSeriesModule' ? { seriesInstanceUID: 'SER-1' } : undefined,

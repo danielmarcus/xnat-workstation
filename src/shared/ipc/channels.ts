@@ -18,7 +18,7 @@ export interface ViewportBounds {
 
 export type DownloadScanFileResult = {
   ok: boolean;
-  data?: string;
+  data?: Uint8Array;
   error?: string;
 };
 

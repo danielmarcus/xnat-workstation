@@ -31,7 +31,7 @@ describe('renderer ipc bridge', () => {
 
   it('dicomwebFetch and downloadScanFile forward contract payloads', async () => {
     const fetchResponse = { ok: true, status: 200, data: [{ id: '1' }] };
-    const downloadResponse = { ok: true, data: 'ZmFrZS1kaWNvbQ==' };
+    const downloadResponse = { ok: true, data: new TextEncoder().encode('fake-dicom') };
     vi.mocked(window.electronAPI.xnat.dicomwebFetch).mockResolvedValue(fetchResponse);
     vi.mocked(window.electronAPI.xnat.downloadScanFile).mockResolvedValue(downloadResponse);
 

@@ -13,7 +13,7 @@ import type { XnatScan } from '@shared/types/xnat';
 
 export interface ScanFileResult {
   ok: boolean;
-  data?: string;
+  data?: Uint8Array;
   error?: string;
 }
 
@@ -41,7 +41,7 @@ export function setXnatScanApi(api: XnatScanApi | null): void {
   forgetDerivedScanFiles();
 }
 
-const derivedScanFiles = new Map<string, Promise<ArrayBuffer>>();
+const derivedScanFiles = new Map<string, Promise<Uint8Array>>();
 
 const derivedScanFileKey = (sessionId: string, scanId: string) => `${sessionId}|${scanId}`;
 
@@ -61,7 +61,7 @@ export function downloadDerivedScanFile(sessionId: string, scanId: string): Prom
     derivedScanFiles.set(key, download);
     file = download;
   }
-  return file.then((buffer) => buffer.slice(0));
+  return file.then((bytes) => bytes.slice().buffer);
 }
 
 /**
@@ -79,16 +79,10 @@ export function forgetDerivedScanFiles(sessionId?: string): void {
   }
 }
 
-async function fetchScanFile(sessionId: string, scanId: string): Promise<ArrayBuffer> {
+async function fetchScanFile(sessionId: string, scanId: string): Promise<Uint8Array> {
   const result = await current.downloadScanFile(sessionId, scanId);
-  if (!result.ok || !result.data) {
+  if (!result.ok || !result.data?.byteLength) {
     throw new Error(result.error || 'Failed to download scan file');
   }
-  // Manual loop: fetch(data:) violates the Electron CSP.
-  const binaryString = atob(result.data);
-  const bytes = new Uint8Array(binaryString.length);
-  for (let i = 0; i < binaryString.length; i++) {
-    bytes[i] = binaryString.charCodeAt(i);
-  }
-  return bytes.buffer;
+  return result.data;
 }
