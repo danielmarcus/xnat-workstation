@@ -650,6 +650,12 @@ export class SegmentationManager {
 
         console.log(`[SegmentationManager] Loaded ${type} overlay ${scanId} → ${segmentationId} on ${panelId}`);
       } catch (err) {
+        if (this.disposed || this.isEpochStale(panelId, epochAtStart)) {
+          // The panel moved on (another scan, or sign-out) while this overlay loaded.
+          console.debug(`[SegmentationManager] Overlay ${scanId} dropped: its panel moved on`, err);
+          store().setLoadStatus(scanId, 'idle');
+          return;
+        }
         console.error(`[SegmentationManager] Failed to load overlay ${scanId}:`, err);
         store().setLoadStatus(scanId, 'error');
       }

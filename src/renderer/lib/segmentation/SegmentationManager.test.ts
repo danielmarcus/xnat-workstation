@@ -451,6 +451,31 @@ describe('SegmentationManager', () => {
     expect(useSegmentationStore.getState().dicomTypeBySegmentationId['rt-new']).toBe('RTSTRUCT');
   });
 
+  it('drops an overlay quietly when its panel moves on while it loads', async () => {
+    const manager = new SegmentationManager();
+    seedViewerPanelContext();
+    const deps = makeDeps();
+    manager.initialize(deps);
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    viewportReadyServiceMock.whenReady.mockImplementationOnce(async () => {
+      viewportReadyServiceMock.getEpoch.mockReturnValue(2);
+      throw new Error('[viewportReadyService] Stale epoch for panel_0: waited on epoch 1, now at 2');
+    });
+
+    try {
+      await manager.requestShowOverlaysForSourceScan('panel_0', '10', [
+        { type: 'SEG', scanId: '3010', sessionId: 'SESS1', label: 'Liver' },
+      ]);
+
+      expect(error).not.toHaveBeenCalledWith(expect.stringContaining('Failed to load overlay'), expect.anything());
+      expect(useSegmentationManagerStore.getState().loadStatus['3010']).toBe('idle');
+      expect(segmentationServiceMock.loadDicomSeg).not.toHaveBeenCalled();
+    } finally {
+      viewportReadyServiceMock.getEpoch.mockReturnValue(1);
+      error.mockRestore();
+    }
+  });
+
   it('loads overlays for a source scan, tracks status, applies default visibility, and clears active edit context', async () => {
     const manager = new SegmentationManager();
     seedViewerPanelContext();

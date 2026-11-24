@@ -105,6 +105,17 @@ export const viewportReadyService = {
   },
 
   /**
+   * The panel's viewport was destroyed without a new epoch (a re-render recreating it): its
+   * current epoch is no longer ready, so waiters hold until the viewport is created again and
+   * marked ready.
+   */
+  markNotReady(panelId: string): void {
+    const entry = registry.get(panelId);
+    if (!entry) return;
+    entry.readyEpochs.delete(entry.currentEpoch);
+  },
+
+  /**
    * Returns a promise that resolves when `markReady` is called for the given
    * panel + epoch. Rejects if:
    * - The epoch is already stale (panel has moved to a newer epoch)
