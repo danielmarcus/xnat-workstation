@@ -486,6 +486,8 @@ describe('SegmentationManager', () => {
     );
 
     expect(deps.downloadScanFile).toHaveBeenCalledTimes(2);
+    // A large series can take minutes to load; the overlay waits for it without a timeout.
+    expect(viewportReadyServiceMock.whenReady).toHaveBeenCalledWith('panel_0', expect.any(Number), null);
     expect(segmentationServiceMock.loadDicomSeg).toHaveBeenCalledTimes(1);
     expect(rtStructServiceMock.parseRtStruct).toHaveBeenCalledTimes(1);
     expect(rtStructServiceMock.loadRtStructAsContours).toHaveBeenCalledTimes(1);

@@ -12,6 +12,7 @@ describe('viewportReadyService', () => {
     viewportReadyService.removePanel('panel-c');
     viewportReadyService.removePanel('panel-d');
     viewportReadyService.removePanel('panel-e');
+    viewportReadyService.removePanel('panel-f');
     vi.runOnlyPendingTimers();
     vi.useRealTimers();
   });
@@ -44,6 +45,22 @@ describe('viewportReadyService', () => {
 
     vi.advanceTimersByTime(500);
     await expect(pending).rejects.toThrow('Timeout waiting for panel-c epoch 1 after 500ms');
+  });
+
+  it('waits without a timeout when given null, until the epoch is ready or stale', async () => {
+    const epoch = viewportReadyService.bumpEpoch('panel-f');
+    let settled = false;
+    const ready = viewportReadyService.whenReady('panel-f', epoch, null).then(() => { settled = true; });
+    await vi.advanceTimersByTimeAsync(10 * 60_000);
+    expect(settled).toBe(false);
+    viewportReadyService.markReady('panel-f', epoch);
+    await ready;
+    expect(settled).toBe(true);
+
+    const next = viewportReadyService.bumpEpoch('panel-f');
+    const stale = viewportReadyService.whenReady('panel-f', next, null);
+    viewportReadyService.bumpEpoch('panel-f');
+    await expect(stale).rejects.toThrow('Stale epoch');
   });
 
   it('resolves matching waiters when markReady is called for that epoch', async () => {
