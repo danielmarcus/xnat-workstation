@@ -35,6 +35,7 @@ Browsers usually ask the user before handing the link to the app. If the app is 
 
 - **Signed in to that server:** it opens the session, showing the scan if one is given. If that session is already open, only the scan is loaded.
 - **Not signed in to it:** it starts sign-in to that server, with the server filled in on the login screen, and opens the session once sign-in succeeds. If the user closes the login window, the server stays filled in, and signing in later still opens the session.
+- **A sign-in that fails or is cancelled** keeps the link waiting, so signing in again (the login form is prefilled with its server) opens it. It waits at most 10 minutes, as long as a browser sign-in may take: a sign-in after that drops the link instead of opening it. The login form's **Don't open it** drops it at once.
 - **A link that arrives while signing in:** if it is for the server being signed in to, it replaces the one waiting, and the app says it will open it after sign-in. If it is for another server, the app asks the user to finish or cancel the sign-in first and open the link again.
 - **A server the user has never connected to** (not in the login screen's recent servers): it asks first, naming the server: "Open a session from https://…?", with Open and Cancel.
 - **Signed in to a different server:** it asks before switching, because switching signs the user out. Unsaved annotations get the same Save Draft / Discard prompt as Disconnect.
@@ -49,7 +50,7 @@ A link that fails validation is ignored. The app never runs or fetches anything 
 | Windows | The NSIS installer writes `Software\Classes\xnat-workstation` (`build/installer.nsh`), and the app registers itself at start-up, which covers the portable build |
 | Linux | `MimeType=x-scheme-handler/xnat-workstation` in the `.desktop` file (electron-builder `protocols`), plus `app.setAsDefaultProtocolClient` at start-up |
 
-Only one copy of the app runs at a time. On Windows and Linux, a link launches a second copy, which hands the link to the running one and quits. An unpackaged development build is named "XNAT (dev)", with its own settings, so it runs beside an installed copy.
+Only one copy of the app runs at a time. On Windows and Linux, a link launches a second copy, which hands the link to the running one and quits. An unpackaged development build is named "XNAT (dev)", with its own settings, so it runs beside an installed copy. The first time it runs, it copies the app's own data (annotation backups and checkpoints, settings, modules, extension data) from the folder development builds used before, which is the installed app's; the old folder is left as it was.
 
 Every edition (editions.md) registers the same scheme, so a web page's link doesn't depend on which edition a user has. With two editions installed on one machine, the operating system picks which one opens links.
 

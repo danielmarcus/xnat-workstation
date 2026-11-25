@@ -42,20 +42,25 @@ export function setXnatScanApi(api: XnatScanApi | null): void {
 }
 
 const derivedScanFiles = new Map<string, Promise<Uint8Array>>();
+/** The session a load is under way for (keepOnlyDerivedScanFilesOf); its files are never evicted by another's. */
+let loadingSessionId: string | null = null;
 
 const derivedScanFileKey = (sessionId: string, scanId: string) => `${sessionId}|${scanId}`;
 
 /**
  * The file of a derived scan (SEG, RTSTRUCT, SR), downloaded once for a session or scan
  * load: resolving the session's derived index and loading the overlays both need it.
- * Only one session's files are kept. Every caller gets its own copy of the bytes.
+ * Only the loading session's files and the latest other session's are kept. Every caller
+ * gets its own copy of the bytes.
  */
 export function downloadDerivedScanFile(sessionId: string, scanId: string): Promise<ArrayBuffer> {
   const key = derivedScanFileKey(sessionId, scanId);
   let file = derivedScanFiles.get(key);
   if (!file) {
-    // Expanding sessions in the XNAT browser downloads their files too.
-    keepOnlyDerivedScanFilesOf(sessionId);
+    // Expanding sessions in the XNAT browser downloads their files too: keep only this
+    // session's, plus those of a session being loaded (a browser expansion during its load
+    // must not throw away files the load is about to use).
+    dropDerivedScanFilesExcept(sessionId, loadingSessionId);
     const download = fetchScanFile(sessionId, scanId);
     download.catch(() => {
       if (derivedScanFiles.get(key) === download) derivedScanFiles.delete(key);
@@ -73,6 +78,7 @@ export function downloadDerivedScanFile(sessionId: string, scanId: string): Prom
 export function forgetDerivedScanFiles(sessionId?: string): void {
   if (!sessionId) {
     derivedScanFiles.clear();
+    loadingSessionId = null;
     return;
   }
   const prefix = derivedScanFileKey(sessionId, '');
@@ -86,9 +92,14 @@ export function forgetDerivedScanFiles(sessionId?: string): void {
  * the session in the XNAT browser may already be downloading them for this load.
  */
 export function keepOnlyDerivedScanFilesOf(sessionId: string): void {
-  const prefix = derivedScanFileKey(sessionId, '');
+  loadingSessionId = sessionId;
+  dropDerivedScanFilesExcept(sessionId, null);
+}
+
+function dropDerivedScanFilesExcept(sessionId: string, alsoKeep: string | null): void {
+  const keep = [sessionId, alsoKeep].filter((id): id is string => !!id).map((id) => derivedScanFileKey(id, ''));
   for (const key of Array.from(derivedScanFiles.keys())) {
-    if (!key.startsWith(prefix)) derivedScanFiles.delete(key);
+    if (!keep.some((prefix) => key.startsWith(prefix))) derivedScanFiles.delete(key);
   }
 }
 

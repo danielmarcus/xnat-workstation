@@ -16,7 +16,7 @@ import { XnatClient, XnatAuthError, NON_BROWSER_USER_AGENT, summarizeErrorBody }
 import { openBrowserLogin } from './browserLogin';
 import { discoverSignIn, type FetchLike, type SignInConfig } from './oidcDiscovery';
 import { authorizeInBrowser, OidcLoginError } from './oidcLogin';
-import { EncryptedRefreshTokenStore, OidcSession, type OidcSessionDeps, type RefreshTokenStore } from './oidcSession';
+import { EncryptedRefreshTokenStore, OidcSession, OidcSessionEndedError, type OidcSessionDeps, type RefreshTokenStore } from './oidcSession';
 import { IPC } from '../../shared/ipcChannels';
 import type {
   XnatLoginOptions,
@@ -132,6 +132,18 @@ function notifyLoginProgress(progress: { stage: 'browser'; host: string }): void
 
 const NO_ACCOUNT = Symbol('no XNAT account');
 
+class NoXnatAccountError extends Error {
+  constructor() {
+    super('XNAT has no account for this sign-in.');
+    this.name = 'NoXnatAccountError';
+  }
+}
+
+/** XNAT or the identity provider refused the sign-in itself, as opposed to failing to answer. */
+export function isSignInRejected(err: unknown): boolean {
+  return err instanceof XnatAuthError || err instanceof OidcSessionEndedError || err instanceof NoXnatAccountError;
+}
+
 async function fetchBearerUsername(c: XnatClient): Promise<string | typeof NO_ACCOUNT> {
   const response = await c.rawRequest('/xapi/users/username');
   const text = (await response.text().catch(() => '')).trim();
@@ -146,6 +158,7 @@ async function signInWithBrowser(config: SignInConfig): Promise<XnatLoginResult>
   const abort = new AbortController();
   loginAbort = abort;
   let session: OidcSession | null = null;
+  let restored = false;
   const sessionConfig = {
     tokenEndpoint: config.tokenEndpoint,
     revocationEndpoint: config.revocationEndpoint,
@@ -165,6 +178,7 @@ async function signInWithBrowser(config: SignInConfig): Promise<XnatLoginResult>
 
   try {
     session = await OidcSession.restore(sessionConfig, deps);
+    restored = session !== null;
     if (!session) {
       notifyLoginProgress({ stage: 'browser', host: new URL(config.issuer).host });
       const tokens = await authorizeInBrowser(config, {
@@ -183,7 +197,7 @@ async function signInWithBrowser(config: SignInConfig): Promise<XnatLoginResult>
       console.log('[sessionManager] No XNAT account for this identity yet — opening the login window once');
       await openBrowserLogin(config.webUrl);
       username = await fetchBearerUsername(newClient);
-      if (username === NO_ACCOUNT) throw new Error('XNAT has no account for this sign-in.');
+      if (username === NO_ACCOUNT) throw new NoXnatAccountError();
     }
     newClient.setBearerUsername(username);
     const profile = await newClient.getCurrentUserProfile();
@@ -208,7 +222,10 @@ async function signInWithBrowser(config: SignInConfig): Promise<XnatLoginResult>
     notifyConnectionChange();
     return { success: true, connection: connectionInfo };
   } catch (err) {
-    await session?.revoke();
+    // A sign-in made just now is abandoned. A restored one is kept for the next attempt unless
+    // XNAT or the provider turned it down: a network error or a 5xx says nothing about it.
+    if (!restored || isSignInRejected(err)) await session?.revoke();
+    else session?.stopAutoRefresh();
     const cancelled = (err instanceof OidcLoginError && err.cancelled) || (err instanceof Error && err.message === 'Login cancelled');
     if (cancelled) return { success: false, error: 'Login cancelled' };
     const message = err instanceof XnatAuthError
@@ -540,7 +557,16 @@ function setupWebRequestInterceptor(): void {
     filter,
     (details, callback) => {
       if (bearer) {
-        callback({ requestHeaders: withBearerAuth(details.url, serverUrl, details.requestHeaders, bearer.accessToken) });
+        // A usable token: after the machine sleeps past its expiry the refresh timer has not
+        // run yet, and an image request sent with the old token would get a 401. When it
+        // cannot be refreshed, the request goes with the old one and XNAT turns it away.
+        const send = (token: string) =>
+          callback({ requestHeaders: withBearerAuth(details.url, serverUrl, details.requestHeaders, token) });
+        if (!details.url.startsWith(`${serverUrl}/`)) {
+          callback({ requestHeaders: details.requestHeaders });
+          return;
+        }
+        bearer.getAccessToken().then(send, () => send(bearer.accessToken));
         return;
       }
       electronSession.defaultSession.cookies.get({ url: details.url })

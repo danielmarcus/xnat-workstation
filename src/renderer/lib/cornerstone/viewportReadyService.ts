@@ -18,6 +18,20 @@ interface PanelEntry {
   waiters: Map<number, Waiter[]>;
   /** Epochs that have already been marked ready (so late callers resolve immediately) */
   readyEpochs: Set<number>;
+  /** Epochs whose viewport will not become ready (so late callers reject immediately) */
+  failedEpochs: Map<number, ViewportNotReadyError>;
+}
+
+/**
+ * The viewport a waiter was waiting for will not become ready for that epoch: its creation
+ * failed, or its panel was unmounted. `abandoned` is true for the latter: nothing went wrong,
+ * the panel is just gone.
+ */
+export class ViewportNotReadyError extends Error {
+  constructor(message: string, readonly abandoned: boolean) {
+    super(message);
+    this.name = 'ViewportNotReadyError';
+  }
 }
 
 interface Waiter {
@@ -31,7 +45,7 @@ const registry = new Map<string, PanelEntry>();
 function getOrCreate(panelId: string): PanelEntry {
   let entry = registry.get(panelId);
   if (!entry) {
-    entry = { currentEpoch: 0, waiters: new Map(), readyEpochs: new Set() };
+    entry = { currentEpoch: 0, waiters: new Map(), readyEpochs: new Set(), failedEpochs: new Map() };
     registry.set(panelId, entry);
   }
   return entry;
@@ -62,11 +76,14 @@ export const viewportReadyService = {
       }
     }
 
-    // Clear ready flags for old epochs
+    // Clear ready and failed flags for old epochs
     for (const epoch of entry.readyEpochs) {
       if (epoch < newEpoch) {
         entry.readyEpochs.delete(epoch);
       }
+    }
+    for (const epoch of entry.failedEpochs.keys()) {
+      if (epoch < newEpoch) entry.failedEpochs.delete(epoch);
     }
 
     console.debug(`[viewportReadyService] bumpEpoch(${panelId}): ${oldEpoch} → ${newEpoch}`);
@@ -90,6 +107,7 @@ export const viewportReadyService = {
 
     // Record that this epoch has been marked ready (for late callers)
     entry.readyEpochs.add(epoch);
+    entry.failedEpochs.delete(epoch);
 
     // Only resolve waiters for this exact epoch
     const waiters = entry.waiters.get(epoch);
@@ -107,19 +125,49 @@ export const viewportReadyService = {
   /**
    * The panel's viewport was destroyed without a new epoch (a re-render recreating it): its
    * current epoch is no longer ready, so waiters hold until the viewport is created again and
-   * marked ready.
+   * marked ready. A failure recorded for the old viewport no longer applies either: the
+   * viewport may be about to be created again (an unmount marks the panel failed after this).
    */
   markNotReady(panelId: string): void {
     const entry = registry.get(panelId);
     if (!entry) return;
     entry.readyEpochs.delete(entry.currentEpoch);
+    entry.failedEpochs.delete(entry.currentEpoch);
+  },
+
+  /**
+   * The panel's viewport will not become ready for its current epoch: creating it failed, or
+   * (`abandoned`) the panel was unmounted. Waiters on that epoch reject with a
+   * ViewportNotReadyError, as do later callers, until the viewport is created again and
+   * marked ready or the epoch moves on. Without this, a waiter with no timeout would wait
+   * forever.
+   */
+  markFailed(panelId: string, reason: string, abandoned = false): void {
+    const entry = registry.get(panelId);
+    if (!entry) return;
+    const epoch = entry.currentEpoch;
+    const error = new ViewportNotReadyError(
+      `[viewportReadyService] ${panelId} epoch ${epoch} will not become ready: ${reason}`,
+      abandoned,
+    );
+    entry.readyEpochs.delete(epoch);
+    entry.failedEpochs.set(epoch, error);
+    const waiters = entry.waiters.get(epoch);
+    if (waiters) {
+      for (const w of waiters) {
+        clearTimeout(w.timeoutId);
+        w.reject(error);
+      }
+      entry.waiters.delete(epoch);
+    }
   },
 
   /**
    * Returns a promise that resolves when `markReady` is called for the given
    * panel + epoch. Rejects if:
    * - The epoch is already stale (panel has moved to a newer epoch)
-   * - The timeout expires (default 15s; null waits until the epoch is ready, stale or removed)
+   * - The epoch's viewport failed to create or its panel was unmounted (`markFailed`)
+   * - The timeout expires (default 15s; null waits until the epoch is ready, stale or failed)
    *
    * No polling — purely driven by markReady() and bumpEpoch() calls.
    */
@@ -137,6 +185,10 @@ export const viewportReadyService = {
     if (entry.readyEpochs.has(epoch)) {
       return Promise.resolve();
     }
+
+    // If this epoch's viewport will not become ready, reject immediately
+    const failed = entry.failedEpochs.get(epoch);
+    if (failed) return Promise.reject(failed);
 
     return new Promise<void>((resolve, reject) => {
       const timeoutId = timeoutMs === null ? undefined : setTimeout(() => {

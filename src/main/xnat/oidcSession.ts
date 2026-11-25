@@ -152,12 +152,17 @@ export class OidcSession {
       refresh_token: this.refreshToken,
       client_id: this.config.clientId,
     });
+    // Signed out while the request was out: the tokens it returns must not be kept, or the
+    // rotated refresh token would be saved again after revoke() removed it.
+    if (this.ended) throw new OidcSessionEndedError();
     if (response.status === 400 || response.status === 401) {
       this.end();
       throw new OidcSessionEndedError();
     }
     if (!response.ok) throw new Error(`Token refresh failed (${response.status})`);
-    this.apply(parseTokenResponse(await response.json().catch(() => null)));
+    const tokens = parseTokenResponse(await response.json().catch(() => null));
+    if (this.ended) throw new OidcSessionEndedError();
+    this.apply(tokens);
     this.schedule();
     return this.token;
   }

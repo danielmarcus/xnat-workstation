@@ -23,7 +23,7 @@ vi.mock('../lib/app/appHelpers', () => ({
 
 import { handleOpenLink, useOpenLink } from './useOpenLink';
 import { useConnectionStore } from '../stores/connectionStore';
-import { useOpenLinkStore } from '../stores/openLinkStore';
+import { LINK_WAIT_MS, useOpenLinkStore } from '../stores/openLinkStore';
 import { saveRecentConnection, loadRecentConnections } from '../lib/xnat/recentConnections';
 
 const SERVER = 'https://xnat.example.org';
@@ -186,7 +186,7 @@ describe('handleOpenLink — not signed in to the link\'s server', () => {
   });
 
   it('a link during a sign-in to its server replaces the waiting link and says so', async () => {
-    useOpenLinkStore.setState({ pending: LINK });
+    useOpenLinkStore.getState().setPending(LINK);
     useConnectionStore.setState({ status: 'connecting', connection: null, signingInTo: `${SERVER}/`, browserLogin });
     const newer = { ...LINK, session: 'XNAT_E2', scan: undefined };
     await handleOpenLink(newer);
@@ -238,7 +238,7 @@ describe('useOpenLink', () => {
   });
 
   it('opens the waiting link once a sign-in to its server succeeds (from the link or the login form)', async () => {
-    useOpenLinkStore.setState({ pending: LINK });
+    useOpenLinkStore.getState().setPending(LINK);
     renderHook(() => useOpenLink(true));
     expect(mocks.openSession).not.toHaveBeenCalled();
 
@@ -253,7 +253,7 @@ describe('useOpenLink', () => {
       connection: { serverUrl: 'https://xnat-api.example.org', webUrl: SERVER, authMode: 'bearer', username: 'dan', connectedAt: 1 },
       browserLogin,
     });
-    useOpenLinkStore.setState({ pending: LINK });
+    useOpenLinkStore.getState().setPending(LINK);
     renderHook(() => useOpenLink(true));
     act(() => bearer());
     await waitFor(() => expect(mocks.openSession).toHaveBeenCalledWith(REF, { scanId: '4' }));
@@ -265,8 +265,27 @@ describe('useOpenLink', () => {
     expect(xnat.getSession).toHaveBeenLastCalledWith('P1', 'XNAT_E2');
   });
 
+  it('a link left waiting by a cancelled sign-in opens on a retry, but not once it has waited too long', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      browserLogin.mockResolvedValueOnce(false);
+      await handleOpenLink(LINK);
+      expect(useOpenLinkStore.getState().pending).toEqual(LINK);
+      renderHook(() => useOpenLink(true));
+
+      vi.setSystemTime(Date.now() + LINK_WAIT_MS + 1);
+      act(() => signedIn(SERVER));
+
+      await waitFor(() => expect(useOpenLinkStore.getState().pending).toBeNull());
+      expect(xnat.getSession).not.toHaveBeenCalled();
+      expect(mocks.openSession).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('a sign-in to another server drops the waiting link', async () => {
-    useOpenLinkStore.setState({ pending: LINK });
+    useOpenLinkStore.getState().setPending(LINK);
     renderHook(() => useOpenLink(true));
     act(() => signedIn(OTHER));
     await waitFor(() => expect(useOpenLinkStore.getState().pending).toBeNull());

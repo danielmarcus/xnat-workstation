@@ -192,7 +192,15 @@ export default function LoginForm() {
 
           {linkServer && (
             <p data-testid="login-link-hint" className="text-xs text-zinc-400">
-              Sign in to open the linked session.
+              Sign in to open the linked session.{' '}
+              <button
+                type="button"
+                onClick={() => useOpenLinkStore.getState().setPending(null)}
+                data-testid="login-link-dismiss"
+                className="text-zinc-300 underline hover:text-white"
+              >
+                Don't open it
+              </button>
             </p>
           )}
 
