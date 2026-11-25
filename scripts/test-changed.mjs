@@ -14,7 +14,8 @@
  * The base: on a branch, where it left origin/main; on main, the upstream (unpushed commits).
  * Uncommitted and untracked files always count.
  *
- * E2E specs are chosen three ways: specs that changed themselves; specs whose file name matches
+ * E2E specs are chosen four ways (the fourth, by content, is scripts/spec-map.mjs: the specs that
+ * use a file's test ids or labels, or call the E2E hooks built on it); the first three: specs that changed themselves; specs whose file name matches
  * a changed file's name (maskPreview.ts, useMaskPreview.ts → mask-preview.e2e.ts); and whole
  * folders for areas with clear borders (extensions, modules, transport). A change to the E2E
  * harness itself (helpers, fixtures, page objects, the config) runs the offline suite. Changed
@@ -25,6 +26,8 @@ import { execFileSync, spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
+import { AREAS, HARNESS, SWEEP, LIVE, RELATED, RELEVANT } from './change-areas.mjs';
+import { buildSpecMap, relatedSpecs } from './spec-map.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
@@ -42,7 +45,6 @@ function baseRef() {
   return tryGit('rev-parse', '--abbrev-ref', '@{upstream}') || 'origin/main';
 }
 const base = baseRef();
-const RELEVANT = /^(src|e2e|extensions|modules|packages|scripts)\/|^(playwright\.config\.ts|package\.json|electron-builder\.config\.js)$/;
 const [head] = values('--head');
 const changed = [...new Set([
   ...tryGit('diff', '--name-only', `${base}...${head ?? 'HEAD'}`).split('\n'),
@@ -57,25 +59,7 @@ const allSpecs = fs.readdirSync(path.join(root, SPECS), { recursive: true }).map
   .filter((f) => f.endsWith('.e2e.ts')).map((f) => path.join(SPECS, f));
 const folder = (name) => allSpecs.filter((s) => s.startsWith(path.join(SPECS, name) + path.sep));
 
-/** Areas with clear borders: a change inside runs the whole folder. */
-const AREAS = [
-  { name: 'extensions', match: /(^|\/)extensions?\/|extensionHandlers|ExtensionsSection|^packages\/extension-api\// },
-  { name: 'modules', match: /^modules\/|\/modules\/|moduleHandlers|ModulesSection|useModule/ },
-  { name: 'transport', match: /^src\/main\/xnat\/|^src\/renderer\/lib\/(xnat|backup)\/|components\/connection\/|ipc\/(auth|proxy|upload|export|backup|checkpoint)Handlers|lib\/cornerstone\/(xnat\w*|transport\w*|annotationTransport|srExport|srImport|rtStructService|dicomExportHelpers|writeDicomDict)\.ts|transportStore/ },
-];
-/** Changes the specs all lean on: run the offline suite. */
-const HARNESS = /^e2e\/(helpers|fixtures|pages)\/|^playwright\.config\.ts$|^src\/renderer\/lib\/e2e\//;
-/** Worth the 30-minute sweep: the operations and tools it sweeps. */
-const SWEEP = /lib\/segmentation\/(maskOps|solvers|semiauto|interpolation|contours)\/|lib\/compute\/|lib\/cornerstone\/(tools\/|maskOps\w*|unifiedToolService|unifiedSegService|solverService|semiAuto\w*|labelmapTransaction|growCutGpu|undoService)|hooks\/(use\w*Sheet|useOperationsSection|operationLifecycle)\.ts|components\/annotations\/(ContextToolbox|toolCatalog|Operation\w*)\.tsx/;
-/** Worth the live run against XNAT_URL in .env.e2e (needs current credentials): signing in and reading XNAT. */
-const LIVE = /^src\/main\/xnat\/|ipc\/authHandlers|extensionXnat|lib\/app\/appNavigation/;
-/** Where an uncovered renderer file's specs probably are. */
-const RELATED = [
-  [/components\/annotations\/|lib\/annotations\/|lib\/segmentation\/|hooks\/use(Annotations|\w*Sheet|Operations)|segmentation\w*Store|annotation\w*Store/, ['annotations', 'tools']],
-  [/components\/viewer\/|hooks\/use(Viewport|Slice|Crosshair|HoverProbe|TimeScrubber|ToolbarCollapse)|viewerStore|viewport\w*\.ts/, ['viewport']],
-  [/lib\/cornerstone\/|lib\/hotkeys\/|hooks\/useHotkeys/, ['tools', 'annotations', 'viewport']],
-  [/^src\/renderer\/(App|main)\.tsx|^src\/main\/index\.ts|^src\/preload\//, ['viewport', 'transport']],
-];
+// AREAS, HARNESS, SWEEP, LIVE and RELATED come from ./change-areas.mjs (shared with CI).
 
 const kebab = (s) => s.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase();
 /** maskPreviewStore.ts / useMaskPreview.ts → 'mask-preview'. */
@@ -108,6 +92,33 @@ for (const f of changed) {
 }
 for (const a of values('--area')) folder(a).forEach((s) => add(s, `--area ${a}`));
 
+// Content map (scripts/spec-map.mjs) for what name and area missed: the specs that use the test
+// ids / labels a file renders, or call the E2E hooks built on it. The strongest PER_FILE per
+// file, at most MAX_MAPPED in all; the rest are listed. --no-map turns it off.
+const PER_FILE = 6;
+const MAX_MAPPED = Number(values('--max-mapped')[0] ?? 40);
+const unmatched = [];
+const notRun = new Map();
+// (Not when the harness changed: the whole offline suite runs then.)
+if (harness) { /* covered */ } else if (uncovered.length && !flag('--no-map')) {
+  const map = buildSpecMap(root);
+  const candidates = new Map(); // spec → { score, why }
+  for (const f of uncovered) {
+    const rel = [...relatedSpecs(map, f)];
+    if (!rel.length) { unmatched.push(f); continue; }
+    rel.forEach(([spec, v], i) => {
+      const key = spec.split('/').join(path.sep);
+      if (picked.has(key)) return;
+      if (i >= PER_FILE) { if (!candidates.has(key)) notRun.set(key, f); return; }
+      const prev = candidates.get(key);
+      if (!prev || prev.score < v.score) candidates.set(key, { score: v.score, why: `map: ${v.why} (${f})` });
+    });
+  }
+  const ranked = [...candidates].sort((a, b) => b[1].score - a[1].score);
+  for (const [spec, v] of ranked.slice(0, MAX_MAPPED)) { add(spec, v.why); notRun.delete(spec); }
+  for (const [spec, v] of ranked.slice(MAX_MAPPED)) notRun.set(spec, v.why);
+} else unmatched.push(...uncovered);
+
 const isSweep = (s) => s.startsWith(path.join(SPECS, 'sweep') + path.sep);
 const isLive = (s) => s.startsWith(path.join(SPECS, 'auth') + path.sep);
 
@@ -117,9 +128,10 @@ console.log(`[test:changed] base ${base}: ${changed.length} changed file(s)`);
 if (harness) console.log('  E2E harness changed (helpers / fixtures / pages / config) → the offline suite');
 else if (picked.size === 0) console.log('  no E2E specs selected');
 else for (const s of picked) console.log(`  E2E ${path.relative(SPECS, s)}  ← ${why.get(s)}`);
-if (uncovered.length) {
-  console.log('  No spec matched these by name or area:');
-  for (const f of uncovered) {
+if (notRun.size) console.log(`  ${notRun.size} more spec(s) are related but not run (raise --max-mapped, or add with --area).`);
+if (unmatched.length) {
+  console.log('  No spec matched these by name, area or content:');
+  for (const f of unmatched) {
     const areas = [...new Set(RELATED.filter(([re]) => re.test(f)).flatMap(([, a]) => a))];
     console.log(`    ${f}${areas.length ? `  (specs likely in: ${areas.join(', ')} — add with --area)` : ''}`);
   }

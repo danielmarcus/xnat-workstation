@@ -189,7 +189,7 @@ Decided 2026-10-30. The full E2E run takes ~50 minutes, and a check of the histo
 
 | When | Run | Time |
 |---|---|---|
-| Every change | `npm run test:changed`: lint, typecheck, the unit tests related to the changed files, and the E2E specs for the changed code (specs that changed, specs named like a changed file, whole folders for extensions / modules / transport). It lists changed files no spec matched; add their folder with `--area <folder>` when the change can reach them. `--dry-run` shows the plan | minutes |
+| Every change | `npm run test:changed`: lint, typecheck, the unit tests related to the changed files, and the E2E specs for the changed code (specs that changed, specs named like a changed file, whole folders for extensions / modules / transport, and — through `scripts/spec-map.mjs` — the specs that use a changed file's test ids, labels or messages, or call the E2E hooks built on it, the strongest six per file and forty in all). It lists changed files no spec matched, and related specs it left out; add a folder with `--area <folder>` when the change can reach more. `--dry-run` shows the plan | minutes |
 | A bug fix or a feature | Its own E2E spec, written with it and **seen failing first** (discipline §8 below) — this is where tests find bugs | — |
 | Tools or operations changed | `npm run test:e2e:sweep` — every tool and operation in every orientation (`test:changed` says when) | ~30 min |
 | XNAT sign-in or access changed | `npm run test:e2e:live` — read-only against the server `XNAT_URL` names in `.env.e2e`; needs current credentials there — on an SSO-only server, a fresh alias token with `XNAT_USERNAME` set | ~1 min |

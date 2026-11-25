@@ -10,7 +10,8 @@ export default defineConfig({
     },
   },
   test: {
-    include: ['src/**/*.test.{ts,tsx}'],
+    // scripts/: the change classifier shared by CI and test:changed (scripts/change-areas.mjs).
+    include: ['src/**/*.test.{ts,tsx}', 'scripts/**/*.test.mjs'],
     environment: 'node',
     environmentMatchGlobs: [
       ['src/renderer/lib/cornerstone/**/__tests__/**/*.test.{ts,tsx}', 'node'],
