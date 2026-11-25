@@ -10,7 +10,9 @@ const WINDOWS_USER_PATH_RE = /[A-Za-z]:\\Users\\[^\\\s]+/g;
 
 const URL_RE = /\bhttps?:\/\/[^\s'"<>]+/gi;
 const COOKIE_TOKEN_RE = /(JSESSIONID=)[^;,\s]+/gi;
-const BEARER_RE = /(Authorization:\s*Bearer\s+)[A-Za-z0-9._-]+/gi;
+const BEARER_RE = /(\bBearer\s+)[A-Za-z0-9._~+/=-]+/gi;
+const OAUTH_TOKEN_RE = /((?:access_token|refresh_token|id_token|code_verifier)["']?\s*[=:]\s*["']?)[A-Za-z0-9._~+/=-]+/gi;
+const JWT_RE = /\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*/g;
 const CSRF_RE = /((?:csrf(?:Token)?|XNAT_CSRF)\s*[=:]\s*)[A-Za-z0-9._-]+/gi;
 
 function deidentifyUrl(url: string): string {
@@ -32,6 +34,8 @@ export function deidentifyText(input: string): string {
     .replace(EMAIL_RE, '<email-redacted>')
     .replace(COOKIE_TOKEN_RE, '$1<token-redacted>')
     .replace(BEARER_RE, '$1<token-redacted>')
+    .replace(OAUTH_TOKEN_RE, '$1<token-redacted>')
+    .replace(JWT_RE, '<token-redacted>')
     .replace(CSRF_RE, '$1<token-redacted>')
     .replace(USER_PATH_RE, '/Users/<user>')
     .replace(WINDOWS_USER_PATH_RE, 'C:\\Users\\<user>')

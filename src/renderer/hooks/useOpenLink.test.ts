@@ -247,6 +247,24 @@ describe('useOpenLink', () => {
     expect(useOpenLinkStore.getState().pending).toBeNull();
   });
 
+  it('a browser sign-in counts as the link\'s server through the connection\'s web URL', async () => {
+    const bearer = () => useConnectionStore.setState({
+      status: 'connected',
+      connection: { serverUrl: 'https://xnat-api.example.org', webUrl: SERVER, authMode: 'bearer', username: 'dan', connectedAt: 1 },
+      browserLogin,
+    });
+    useOpenLinkStore.setState({ pending: LINK });
+    renderHook(() => useOpenLink(true));
+    act(() => bearer());
+    await waitFor(() => expect(mocks.openSession).toHaveBeenCalledWith(REF, { scanId: '4' }));
+
+    mocks.openSession.mockClear();
+    await handleOpenLink({ ...LINK, session: 'XNAT_E2', scan: undefined });
+    expect(mocks.showConfirmDialog).not.toHaveBeenCalled();
+    expect(browserLogin).not.toHaveBeenCalled();
+    expect(xnat.getSession).toHaveBeenLastCalledWith('P1', 'XNAT_E2');
+  });
+
   it('a sign-in to another server drops the waiting link', async () => {
     useOpenLinkStore.setState({ pending: LINK });
     renderHook(() => useOpenLink(true));

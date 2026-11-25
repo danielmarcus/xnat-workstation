@@ -2,17 +2,18 @@
  * Typed IPC channel constants shared between main and preload processes.
  *
  * renderer → main (invoke/handle):
- *   XNAT_BROWSER_LOGIN, XNAT_LOGOUT, XNAT_VALIDATE, XNAT_GET_CONNECTION, XNAT_DICOMWEB_FETCH,
+ *   XNAT_BROWSER_LOGIN, XNAT_LOGIN_CANCEL, XNAT_LOGOUT, XNAT_VALIDATE, XNAT_GET_CONNECTION, XNAT_DICOMWEB_FETCH,
  *   XNAT_GET_PROJECT_SESSIONS,
  *   XNAT_UPLOAD_DICOM_SEG, XNAT_UPLOAD_DICOM_RTSTRUCT, XNAT_OVERWRITE_DICOM_SEG,
  *   XNAT_AUTOSAVE_TEMP, XNAT_LIST_TEMP_FILES, XNAT_DELETE_TEMP_FILE, XNAT_DOWNLOAD_TEMP_FILE
  *
  * main → renderer (send/on):
- *   XNAT_SESSION_EXPIRED
+ *   XNAT_SESSION_EXPIRED, XNAT_LOGIN_PROGRESS
  */
 export const IPC = {
   // Auth (renderer → main)
   XNAT_BROWSER_LOGIN: 'xnat:browser-login',
+  XNAT_LOGIN_CANCEL: 'xnat:login-cancel',
   XNAT_LOGOUT: 'xnat:logout',
   XNAT_VALIDATE: 'xnat:validate-session',
   XNAT_GET_CONNECTION: 'xnat:get-connection',
@@ -55,6 +56,7 @@ export const IPC = {
 
   // Session events (main → renderer)
   XNAT_SESSION_EXPIRED: 'xnat:session-expired',
+  XNAT_LOGIN_PROGRESS: 'xnat:login-progress',
 
   // App close guard: main asks the renderer whether it's safe to quit (unsaved
   // annotations); the renderer replies with the user's decision (main → renderer

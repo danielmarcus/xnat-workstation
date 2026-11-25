@@ -10,6 +10,7 @@ import {
 import { DEFAULT_HOTKEY_MAP } from '../../lib/hotkeys/defaultHotkeyMap';
 import { usePreferencesStore } from '../../stores/preferencesStore';
 import { useViewerStore } from '../../stores/viewerStore';
+import { useConnectionStore } from '../../stores/connectionStore';
 import { backupService } from '../../lib/backup/backupService';
 import type { BackupSessionSummary } from '@shared/types/backup';
 import { buildIssueReport } from '../../lib/diagnostics/issueReport';
@@ -220,6 +221,7 @@ function formatUpdateStatus(status: UpdateStatus | null): string {
 }
 
 export default function SettingsModal({ open, onClose, onRecover, initialTab }: SettingsModalProps) {
+  const connection = useConnectionStore((s) => s.connection);
   const overrides = usePreferencesStore((s) => s.preferences.hotkeys.overrides);
   const overlayPrefs = usePreferencesStore((s) => s.preferences.overlay);
   const annotationPrefs = usePreferencesStore((s) => s.preferences.annotation);
@@ -1241,8 +1243,9 @@ export default function SettingsModal({ open, onClose, onRecover, initialTab }: 
                                 ].filter(Boolean).join('  \u00B7  ');
 
                                 // Build XNAT web URL for this session
+                                const webUrl = serverUrl === connection?.serverUrl ? connection.webUrl ?? serverUrl : serverUrl;
                                 const xnatSessionUrl = serverUrl && serverUrl !== 'Unknown Server'
-                                  ? `${serverUrl.replace(/\/$/, '')}/data/experiments/${session.sessionId}?format=html`
+                                  ? `${webUrl.replace(/\/$/, '')}/data/experiments/${session.sessionId}?format=html`
                                   : null;
 
                                 return (

@@ -1,8 +1,9 @@
 /**
  * LoginForm — full-screen login dialog for connecting to an XNAT server.
  *
- * Takes only a server URL. Clicking "Sign In" opens XNAT's own login page
- * in a secure browser window, supporting all auth methods (local, LDAP, OIDC).
+ * Takes only a server URL. Clicking "Sign In" continues in the system browser when
+ * the server supports browser sign-in, and otherwise opens XNAT's own login page
+ * in a secure window, supporting all auth methods (local, LDAP, OIDC).
  *
  * Remembers recent server URLs in localStorage. A link waiting for sign-in (useOpenLink)
  * prefills its server.
@@ -14,12 +15,21 @@ import { loadRecentConnections, saveRecentConnection, type RecentConnection } fr
 import { IconServer, IconSettings, XnatLogo } from '../icons';
 import SettingsModal from '../settings/SettingsModal';
 
+function normalizeServerUrl(input: string): string {
+  let url = input.trim().replace(/\/+$/, '');
+  if (url && !/^https?:\/\//i.test(url)) url = `https://${url}`;
+  return url;
+}
+
 // ─── Component ──────────────────────────────────────────────────
 
 export default function LoginForm() {
   const status = useConnectionStore((s) => s.status);
   const error = useConnectionStore((s) => s.error);
   const browserLogin = useConnectionStore((s) => s.browserLogin);
+  const cancelLogin = useConnectionStore((s) => s.cancelLogin);
+  const loginHost = useConnectionStore((s) => s.loginHost);
+  const canUseLoginWindow = useConnectionStore((s) => s.canUseLoginWindow);
 
   const linkServer = useOpenLinkStore((s) => s.pending?.server ?? null);
 
@@ -63,14 +73,9 @@ export default function LoginForm() {
     async (e: React.FormEvent) => {
       e.preventDefault();
 
-      let trimmedUrl = serverUrl.trim().replace(/\/+$/, '');
+      const trimmedUrl = normalizeServerUrl(serverUrl);
 
       if (!trimmedUrl) return;
-
-      // Auto-prepend https:// if no protocol specified
-      if (!/^https?:\/\//i.test(trimmedUrl)) {
-        trimmedUrl = `https://${trimmedUrl}`;
-      }
 
       // Warn on plain HTTP (credentials and medical data should use TLS)
       if (/^http:\/\//i.test(trimmedUrl) && !trimmedUrl.includes('localhost') && !trimmedUrl.includes('127.0.0.1')) {
@@ -85,6 +90,12 @@ export default function LoginForm() {
     },
     [serverUrl, browserLogin],
   );
+
+  const signInWithLoginWindow = useCallback(async () => {
+    const trimmedUrl = normalizeServerUrl(serverUrl);
+    if (!trimmedUrl) return;
+    if (await browserLogin(trimmedUrl, { useLoginWindow: true })) saveRecentConnection(trimmedUrl);
+  }, [serverUrl, browserLogin]);
 
   const hasRecent = recentConnections.length > 0;
 
@@ -189,6 +200,31 @@ export default function LoginForm() {
           {error && (
             <div className="bg-red-950/50 border border-red-800/50 rounded-md px-3 py-2">
               <p data-testid="login-error" role="alert" className="text-xs text-red-400">{error}</p>
+              {canUseLoginWindow && (
+                <button
+                  type="button"
+                  onClick={signInWithLoginWindow}
+                  data-testid="login-use-window"
+                  className="mt-1.5 text-xs text-zinc-300 underline hover:text-white"
+                >
+                  Use the XNAT login window instead
+                </button>
+              )}
+            </div>
+          )}
+
+          {isConnecting && loginHost && (
+            <div data-testid="login-browser-wait" className="bg-zinc-900 border border-zinc-800 rounded-md px-3 py-2.5 text-center">
+              <p className="text-sm text-zinc-200">Continue in your browser</p>
+              <p className="text-xs text-zinc-500 mt-1">Sign in at {loginHost}, then come back here.</p>
+              <button
+                type="button"
+                onClick={cancelLogin}
+                data-testid="login-cancel"
+                className="mt-2 text-xs text-zinc-400 hover:text-zinc-200 underline"
+              >
+                Cancel
+              </button>
             </div>
           )}
 
@@ -223,7 +259,7 @@ export default function LoginForm() {
                     className="opacity-75"
                   />
                 </svg>
-                Connecting...
+                {loginHost ? 'Waiting for your browser...' : 'Connecting...'}
               </span>
             ) : (
               'Sign In with XNAT'
@@ -233,7 +269,7 @@ export default function LoginForm() {
 
         {/* Footer */}
         <p className="text-center text-xs text-zinc-600 mt-6">
-          Opens your XNAT login page in a secure window
+          Signs in through your browser, or XNAT's login page in a secure window
         </p>
       </div>
     </div>

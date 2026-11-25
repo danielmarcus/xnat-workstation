@@ -45,6 +45,8 @@ describe('preload bridge', () => {
     expect(api.platform).toBe(process.platform);
 
     await api.xnat.browserLogin('https://xnat.example');
+    await api.xnat.browserLogin('https://xnat.example', { useLoginWindow: true });
+    await api.xnat.cancelLogin();
     await api.xnat.logout();
     await api.xnat.validateSession();
     await api.xnat.getConnection();
@@ -91,7 +93,9 @@ describe('preload bridge', () => {
     await api.updater.checkForUpdates();
     await api.updater.quitAndInstall();
 
-    expect(mocks.invoke).toHaveBeenCalledWith(IPC.XNAT_BROWSER_LOGIN, 'https://xnat.example');
+    expect(mocks.invoke).toHaveBeenCalledWith(IPC.XNAT_BROWSER_LOGIN, 'https://xnat.example', undefined);
+    expect(mocks.invoke).toHaveBeenCalledWith(IPC.XNAT_BROWSER_LOGIN, 'https://xnat.example', { useLoginWindow: true });
+    expect(mocks.invoke).toHaveBeenCalledWith(IPC.XNAT_LOGIN_CANCEL);
     expect(mocks.invoke).toHaveBeenCalledWith(IPC.XNAT_LOGOUT);
     expect(mocks.invoke).toHaveBeenCalledWith(IPC.XNAT_VALIDATE);
     expect(mocks.invoke).toHaveBeenCalledWith(IPC.XNAT_GET_CONNECTION);

@@ -9,6 +9,7 @@ const sessionManagerMock = {
   logout: vi.fn(),
   validateSession: vi.fn(),
   getConnectionInfo: vi.fn(),
+  cancelLogin: vi.fn(),
 };
 
 let registerAuthHandlers: (typeof import('./authHandlers'))['registerAuthHandlers'];
@@ -37,6 +38,7 @@ describe('registerAuthHandlers', () => {
     const channels = ipcMainMock.ipcMain.handle.mock.calls.map((call) => call[0]);
     expect(channels).toEqual([
       IPC.XNAT_BROWSER_LOGIN,
+      IPC.XNAT_LOGIN_CANCEL,
       IPC.XNAT_LOGOUT,
       IPC.XNAT_VALIDATE,
       IPC.XNAT_GET_CONNECTION,
@@ -59,7 +61,12 @@ describe('registerAuthHandlers', () => {
       serverUrl: 'https://xnat.example.org',
     });
 
-    expect(sessionManagerMock.browserLogin).toHaveBeenCalledWith('https://xnat.example.org');
+    await ipcMainMock.invoke(IPC.XNAT_BROWSER_LOGIN, 'https://xnat.example.org', { useLoginWindow: true });
+    await ipcMainMock.invoke(IPC.XNAT_LOGIN_CANCEL);
+
+    expect(sessionManagerMock.browserLogin).toHaveBeenNthCalledWith(1, 'https://xnat.example.org', { useLoginWindow: false });
+    expect(sessionManagerMock.browserLogin).toHaveBeenNthCalledWith(2, 'https://xnat.example.org', { useLoginWindow: true });
+    expect(sessionManagerMock.cancelLogin).toHaveBeenCalledTimes(1);
     expect(sessionManagerMock.logout).toHaveBeenCalledTimes(1);
     expect(sessionManagerMock.validateSession).toHaveBeenCalledTimes(1);
     expect(sessionManagerMock.getConnectionInfo).toHaveBeenCalledTimes(1);

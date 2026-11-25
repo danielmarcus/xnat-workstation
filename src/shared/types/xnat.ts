@@ -10,7 +10,12 @@ export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'er
 
 /** Connection info visible to renderer (no secrets) */
 export interface XnatConnectionInfo {
+  /** Where XNAT requests go. */
   serverUrl: string;
+  /** Where links meant for a person's browser go, when that differs from serverUrl. */
+  webUrl?: string;
+  /** 'bearer' after browser sign-in; absent or 'cookie' after the login window. */
+  authMode?: 'cookie' | 'bearer';
   username: string;
   firstName?: string;
   lastName?: string;
@@ -22,6 +27,20 @@ export interface XnatLoginResult {
   success: boolean;
   error?: string;
   connection?: XnatConnectionInfo;
+  /** Browser sign-in failed; XNAT's login window may still work. */
+  canUseLoginWindow?: boolean;
+}
+
+export interface XnatLoginOptions {
+  /** Skip browser sign-in and open XNAT's login window. */
+  useLoginWindow?: boolean;
+}
+
+/** Sent while browser sign-in waits for the user. */
+export interface XnatLoginProgress {
+  stage: 'browser';
+  /** The identity provider's host, shown to the user. */
+  host: string;
 }
 
 /** Result from session validation */

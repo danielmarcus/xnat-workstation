@@ -10,6 +10,7 @@ export * from './updater';
 export * from './annotation';
 
 import type {
+  XnatLoginOptions,
   XnatLoginResult,
   XnatSessionStatus,
   XnatConnectionInfo,
@@ -32,7 +33,8 @@ import type {
 export interface ElectronAPI {
   platform: string;
   xnat: {
-    browserLogin(serverUrl: string): Promise<XnatLoginResult>;
+    browserLogin(serverUrl: string, options?: XnatLoginOptions): Promise<XnatLoginResult>;
+    cancelLogin(): Promise<void>;
     logout(): Promise<void>;
     validateSession(): Promise<XnatSessionStatus>;
     getConnection(): Promise<XnatConnectionInfo | null>;
