@@ -58,7 +58,9 @@ test.describe('open from a link', () => {
 
     await expect(page.getByTestId('login-error')).toContainText('Failed to load login page');
     await expect(page.getByLabel('Server')).toHaveValue(NOTHING_LISTENING);
-    await expect(page.getByTestId('login-link-hint')).toHaveText('Sign in to open the linked session.');
+    // The hint also holds its "Don't open it" button, so match its sentence, not its whole text.
+    await expect(page.getByTestId('login-link-hint')).toContainText('Sign in to open the linked session.');
+    await expect(page.getByTestId('login-link-dismiss')).toBeVisible();
     await page.screenshot({ path: test.info().outputPath('sign-in-prefilled.png') });
   });
 
