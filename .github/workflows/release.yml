@@ -120,7 +120,10 @@ jobs:
     needs: [verify, release-evidence, release-signoff]
     # Run when verify passed and the evidence and sign-off passed or were not needed (a dry run).
     if: ${{ !cancelled() && needs.verify.result == 'success' && needs.release-evidence.result != 'failure' && needs.release-evidence.result != 'cancelled' && needs.release-signoff.result != 'failure' && needs.release-signoff.result != 'cancelled' }}
-    runs-on: macos-latest
+    # Pinned: on macos-26 (macos-latest from Nov 2026) electron-builder cannot unlock the
+    # temporary signing keychain (SecKeychainUnlock in set-key-partition-list), so the
+    # 0.7.0 macOS build failed there. Move up only with a signed dry run (publish: false).
+    runs-on: macos-15
     timeout-minutes: 60
 
     steps:
@@ -190,6 +193,9 @@ jobs:
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # A manual publishing run fills in a release whose tag run left a platform out, which can be
+          # more than electron-builder's 2 hours after it was published. Tag runs keep the guard.
+          EP_GH_IGNORE_TIME: ${{ github.event_name == 'workflow_dispatch' && inputs.publish && 'true' || '' }}
         run: npm run package -- --mac --publish "${{ steps.publish_mode.outputs.mode }}"
 
       - name: Upload macOS artifacts for manual dry runs
