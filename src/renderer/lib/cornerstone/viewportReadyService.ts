@@ -23,7 +23,7 @@ interface PanelEntry {
 interface Waiter {
   resolve: () => void;
   reject: (err: Error) => void;
-  timeoutId: ReturnType<typeof setTimeout>;
+  timeoutId: ReturnType<typeof setTimeout> | undefined;
 }
 
 const registry = new Map<string, PanelEntry>();
@@ -105,14 +105,25 @@ export const viewportReadyService = {
   },
 
   /**
+   * The panel's viewport was destroyed without a new epoch (a re-render recreating it): its
+   * current epoch is no longer ready, so waiters hold until the viewport is created again and
+   * marked ready.
+   */
+  markNotReady(panelId: string): void {
+    const entry = registry.get(panelId);
+    if (!entry) return;
+    entry.readyEpochs.delete(entry.currentEpoch);
+  },
+
+  /**
    * Returns a promise that resolves when `markReady` is called for the given
    * panel + epoch. Rejects if:
    * - The epoch is already stale (panel has moved to a newer epoch)
-   * - The timeout expires (default 15s)
+   * - The timeout expires (default 15s; null waits until the epoch is ready, stale or removed)
    *
    * No polling — purely driven by markReady() and bumpEpoch() calls.
    */
-  whenReady(panelId: string, epoch: number, timeoutMs = 15_000): Promise<void> {
+  whenReady(panelId: string, epoch: number, timeoutMs: number | null = 15_000): Promise<void> {
     const entry = getOrCreate(panelId);
 
     // If this epoch is already stale, reject immediately
@@ -128,7 +139,7 @@ export const viewportReadyService = {
     }
 
     return new Promise<void>((resolve, reject) => {
-      const timeoutId = setTimeout(() => {
+      const timeoutId = timeoutMs === null ? undefined : setTimeout(() => {
         // Remove this waiter on timeout
         const waiters = entry.waiters.get(epoch);
         if (waiters) {

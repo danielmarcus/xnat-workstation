@@ -84,10 +84,11 @@ describe('registerUploadHandlers', () => {
 
     const dicomBase64 = Buffer.from('dicom-source').toString('base64');
 
-    await expect(ipcMainMock.invoke(IPC.XNAT_DOWNLOAD_SCAN_FILE, 'XNAT_E001', '3')).resolves.toEqual({
-      ok: true,
-      data: Buffer.from('scan-bytes').toString('base64'),
-    });
+    const downloaded = await ipcMainMock.invoke(IPC.XNAT_DOWNLOAD_SCAN_FILE, 'XNAT_E001', '3');
+    expect(downloaded.ok).toBe(true);
+    expect(Buffer.isBuffer(downloaded.data)).toBe(false);
+    expect(new TextDecoder().decode(downloaded.data)).toBe('scan-bytes');
+    expect(downloaded.data.byteLength).toBe(downloaded.data.buffer.byteLength);
 
     await expect(
       ipcMainMock.invoke(

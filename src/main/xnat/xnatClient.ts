@@ -574,6 +574,38 @@ export class XnatClient {
   }
 
   /**
+   * Find a session in a project by experiment ID or label, with its subject. Null when XNAT
+   * returns no experiment, or one that is neither in the project nor shared into it.
+   */
+  async getSession(projectId: string, session: string): Promise<{
+    projectId: string; subjectId: string; subjectLabel?: string; sessionId: string; sessionLabel: string;
+  } | null> {
+    const projectPath = `/data/projects/${encodeURIComponent(projectId)}`;
+    const data = await this.jsonRequest<any>(`${projectPath}/experiments/${encodeURIComponent(session)}`);
+    const item = data?.items?.[0];
+    const row = item?.data_fields;
+    const sessionId = row?.ID || row?.id;
+    const subjectId = row?.subject_ID || row?.subject_id;
+    if (!sessionId || !subjectId) return null;
+    // XNAT finds an experiment ID in any project the user can read, not only this one.
+    const sharedInto = (item.children ?? [])
+      .filter((child: any) => child.field === 'sharing/share')
+      .flatMap((child: any) => child.items ?? [])
+      .map((share: any) => share.data_fields?.project);
+    if (row.project !== projectId && !sharedInto.includes(projectId)) return null;
+
+    let subjectLabel: string | undefined;
+    try {
+      const subject = await this.jsonRequest<any>(`${projectPath}/subjects/${encodeURIComponent(subjectId)}`);
+      subjectLabel = subject?.items?.[0]?.data_fields?.label || undefined;
+    } catch {
+      // The browser shows the subject ID instead.
+    }
+
+    return { projectId, subjectId, subjectLabel, sessionId, sessionLabel: row.label || sessionId };
+  }
+
+  /**
    * Get scans in a session.
    */
   async getScans(
@@ -850,8 +882,7 @@ export class XnatClient {
   // ─── Download ─────────────────────────────────────────────────
 
   /**
-   * Download the raw DICOM file(s) from a scan's DICOM resource.
-   * Returns the first file as a Buffer (SEG scans typically have one file).
+   * Download the first valid DICOM file of a scan (SEG, RTSTRUCT and SR scans have one).
    */
   async downloadScanFile(sessionId: string, scanId: string): Promise<Buffer> {
     const tried = new Set<string>();
@@ -893,17 +924,16 @@ export class XnatClient {
       return null;
     };
 
-    // 1. Catalog-derived candidates (getScanFiles prefers cat.xml — fast, ordered).
+    // 1. The live /files listing. One file needs no catalog ordering, and the catalog of a
+    //    derived scan 404s (its file is not in a DICOM resource) or is stale after an overwrite.
+    const listed = await this._getScanFilesLegacy(sessionId, scanId).catch(() => []);
+    const fromListing = await tryCandidates(listed.map((e) => e.uri));
+    if (fromListing) return fromListing;
+
+    // 2. The catalog, for files the listing does not mark as DICOM.
     const catalog = await this.getScanFiles(sessionId, scanId).catch(() => []);
     const fromCatalog = await tryCandidates(catalog.map((e) => e.uri));
     if (fromCatalog) return fromCatalog;
-
-    // 2. Fallback to the live /files listing — the catalog can be STALE (lists a
-    //    file that 404s, e.g. a SEG stored under a non-default name or after an
-    //    overwrite whose metadata refresh failed), so this recovers the real file.
-    const legacy = await this._getScanFilesLegacy(sessionId, scanId).catch(() => []);
-    const fromLegacy = await tryCandidates(legacy.map((e) => e.uri));
-    if (fromLegacy) return fromLegacy;
 
     if (tried.size === 0) throw new Error(`No DICOM files found in scan ${scanId}`);
     throw new Error(

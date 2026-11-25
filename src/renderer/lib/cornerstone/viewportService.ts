@@ -18,6 +18,7 @@ import {
 } from '@cornerstonejs/core';
 import type { MPRPlane, DisplayPlane } from '@shared/types/viewer';
 import { volumeService } from './volumeService';
+import { viewportReadyService } from './viewportReadyService';
 import { chooseViewportType, type ViewportType, type ViewportTypeInput } from './viewportType';
 import { hasMixedOrientation } from './seriesGeometry';
 
@@ -297,6 +298,7 @@ export const viewportService = {
       volumeService.release(volumeId);
       viewportVolumes.delete(viewportId);
     }
+    viewportReadyService.markNotReady(viewportId);
     console.log('[viewportService] Unified viewport destroyed:', viewportId);
   },
 

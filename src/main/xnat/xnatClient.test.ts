@@ -249,6 +249,69 @@ describe('XnatClient', () => {
     );
   });
 
+  it('getSession finds a session under its project, with the subject\'s label', async () => {
+    const client = new XnatClient('https://xnat.example');
+    await client.setAuthFromBrowserLogin({ jsessionId: 'J1', username: 'dan', serverCookies: [], csrfToken: null });
+
+    mocks.fetch.mockResolvedValueOnce(makeJsonResponse({
+      items: [{ data_fields: { ID: 'XNAT_E00012', label: 'MR_Visit1', project: 'P1', subject_ID: 'XNAT_S00007' } }],
+    }));
+    mocks.fetch.mockResolvedValueOnce(makeJsonResponse({
+      items: [{ data_fields: { ID: 'XNAT_S00007', label: 'Subject07' } }],
+    }));
+
+    await expect(client.getSession('P1', 'MR_Visit1')).resolves.toEqual({
+      projectId: 'P1',
+      subjectId: 'XNAT_S00007',
+      subjectLabel: 'Subject07',
+      sessionId: 'XNAT_E00012',
+      sessionLabel: 'MR_Visit1',
+    });
+    expect(mocks.fetch).toHaveBeenNthCalledWith(1, 'https://xnat.example/data/projects/P1/experiments/MR_Visit1?format=json', expect.any(Object));
+    expect(mocks.fetch).toHaveBeenNthCalledWith(2, 'https://xnat.example/data/projects/P1/subjects/XNAT_S00007?format=json', expect.any(Object));
+  });
+
+  it('getSession: no experiment is null; a failed subject lookup only loses the label', async () => {
+    const client = new XnatClient('https://xnat.example');
+    await client.setAuthFromBrowserLogin({ jsessionId: 'J1', username: 'dan', serverCookies: [], csrfToken: null });
+
+    mocks.fetch.mockResolvedValueOnce(makeJsonResponse({ items: [] }));
+    await expect(client.getSession('P1', 'XNAT_E9')).resolves.toBeNull();
+
+    mocks.fetch.mockResolvedValueOnce(makeJsonResponse({ items: [{ data_fields: { ID: 'XNAT_E1', project: 'P1', subject_ID: 'XNAT_S1' } }] }));
+    mocks.fetch.mockResolvedValueOnce(new Response('Forbidden', { status: 403 }));
+    await expect(client.getSession('P1', 'XNAT_E1')).resolves.toEqual({
+      projectId: 'P1', subjectId: 'XNAT_S1', subjectLabel: undefined, sessionId: 'XNAT_E1', sessionLabel: 'XNAT_E1',
+    });
+
+    mocks.fetch.mockResolvedValueOnce(new Response('Not Found', { status: 404 }));
+    await expect(client.getSession('P1', 'XNAT_E404')).rejects.toThrow('404');
+  });
+
+  it('getSession: a session from another project is null unless it is shared into this one', async () => {
+    const client = new XnatClient('https://xnat.example');
+    await client.setAuthFromBrowserLogin({ jsessionId: 'J1', username: 'dan', serverCookies: [], csrfToken: null });
+    const experiment = (shares: string[]) => makeJsonResponse({
+      items: [{
+        data_fields: { ID: 'XNAT_E5', label: 'MR5', project: 'P2', subject_ID: 'XNAT_S5' },
+        children: [
+          { field: 'scans/scan', items: [{ data_fields: { ID: '1' } }] },
+          { field: 'sharing/share', items: shares.map((project) => ({ data_fields: { project, label: 'MR5' } })) },
+        ],
+      }],
+    });
+
+    mocks.fetch.mockResolvedValueOnce(experiment(['P3']));
+    await expect(client.getSession('P1', 'XNAT_E5')).resolves.toBeNull();
+    expect(mocks.fetch).toHaveBeenCalledTimes(1);
+
+    mocks.fetch.mockResolvedValueOnce(experiment(['P3', 'P1']));
+    mocks.fetch.mockResolvedValueOnce(makeJsonResponse({ items: [{ data_fields: { ID: 'XNAT_S5', label: 'S5' } }] }));
+    await expect(client.getSession('P1', 'XNAT_E5')).resolves.toEqual({
+      projectId: 'P1', subjectId: 'XNAT_S5', subjectLabel: 'S5', sessionId: 'XNAT_E5', sessionLabel: 'MR5',
+    });
+  });
+
   it('filters DICOM resources in getScanFiles', async () => {
     const client = new XnatClient('https://xnat.example');
     await client.setAuthFromBrowserLogin({
@@ -290,7 +353,6 @@ describe('XnatClient', () => {
       csrfToken: null,
     });
 
-    mockCatalog404(); // catalog endpoint returns 404, falls back to /files
     mocks.fetch
       .mockResolvedValueOnce(
         makeJsonResponse({
@@ -309,14 +371,14 @@ describe('XnatClient', () => {
     expect(Buffer.isBuffer(buffer)).toBe(true);
     expect(buffer.toString('ascii', 128, 132)).toBe('DICM');
     expect(buffer.length).toBe(132 + 6);
-    // Call 1: catalog 404, call 2: /files, call 3: /bad, call 4: /good
+    // Call 1: /files, call 2: /bad, call 3: /good
     expect(mocks.fetch).toHaveBeenNthCalledWith(
-      3,
+      2,
       'https://xnat.example/bad',
       expect.any(Object),
     );
     expect(mocks.fetch).toHaveBeenNthCalledWith(
-      4,
+      3,
       'https://xnat.example/good',
       expect.any(Object),
     );
@@ -326,7 +388,6 @@ describe('XnatClient', () => {
     const client = new XnatClient('https://xnat.example');
     await client.setAuthFromBrowserLogin({ jsessionId: 'J1', username: 'dan', serverCookies: [], csrfToken: null });
 
-    mockCatalog404(); // catalog endpoint 404 → fall back to /files
     mocks.fetch
       .mockResolvedValueOnce(
         makeJsonResponse({
@@ -344,8 +405,55 @@ describe('XnatClient', () => {
     const buffer = await client.downloadScanFile('XNAT_E001', '3003');
     expect(Buffer.isBuffer(buffer)).toBe(true);
     expect(buffer.toString('ascii', 128, 132)).toBe('DICM'); // the 404 candidate was skipped, /real used
-    expect(mocks.fetch).toHaveBeenNthCalledWith(3, 'https://xnat.example/missing', expect.any(Object));
-    expect(mocks.fetch).toHaveBeenNthCalledWith(4, 'https://xnat.example/real', expect.any(Object));
+    expect(mocks.fetch).toHaveBeenNthCalledWith(2, 'https://xnat.example/missing', expect.any(Object));
+    expect(mocks.fetch).toHaveBeenNthCalledWith(3, 'https://xnat.example/real', expect.any(Object));
+  });
+
+  it('downloadScanFile lists the scan files and downloads one, without asking for the DICOM catalog', async () => {
+    const client = new XnatClient('https://xnat.example');
+    await client.setAuthFromBrowserLogin({ jsessionId: 'J1', username: 'dan', serverCookies: [], csrfToken: null });
+
+    mocks.fetch
+      .mockResolvedValueOnce(
+        makeJsonResponse({
+          ResultSet: { Result: [{ Name: 'seg.dcm', URI: '/data/experiments/XNAT_E001/scans/3004/resources/secondary/files/seg.dcm', collection: 'secondary' }] },
+        }),
+      )
+      .mockResolvedValueOnce(new Response(new Uint8Array([0x02, 0x00, 0x00, 0x00, 0xee]), { status: 200 }));
+
+    const buffer = await client.downloadScanFile('XNAT_E001', '3004');
+
+    expect(buffer.toString('ascii', 128, 132)).toBe('DICM');
+    const urls = mocks.fetch.mock.calls.map(([url]) => String(url));
+    expect(urls).toEqual([
+      expect.stringContaining('/data/experiments/XNAT_E001/scans/3004/files'),
+      'https://xnat.example/data/experiments/XNAT_E001/scans/3004/resources/secondary/files/seg.dcm',
+    ]);
+  });
+
+  it('downloadScanFile falls back to the DICOM catalog when the listing has no DICOM file', async () => {
+    const client = new XnatClient('https://xnat.example');
+    await client.setAuthFromBrowserLogin({ jsessionId: 'J1', username: 'dan', serverCookies: [], csrfToken: null });
+
+    mocks.fetch
+      .mockResolvedValueOnce(makeJsonResponse({ ResultSet: { Result: [] } }))
+      .mockResolvedValueOnce(
+        new Response(
+          '<cat:DCMCatalog xmlns:cat="http://nrg.wustl.edu/catalog"><cat:entries>'
+          + '<cat:entry URI="1.dcm" format="DICOM" instanceNumber="1"/>'
+          + '</cat:entries></cat:DCMCatalog>',
+          { status: 200, headers: { 'content-type': 'text/xml' } },
+        ),
+      )
+      .mockResolvedValueOnce(new Response(new Uint8Array([0x02, 0x00, 0x00, 0x00, 0xee]), { status: 200 }));
+
+    const buffer = await client.downloadScanFile('XNAT_E001', '11');
+
+    expect(buffer.toString('ascii', 128, 132)).toBe('DICM');
+    expect(mocks.fetch).toHaveBeenLastCalledWith(
+      'https://xnat.example/data/experiments/XNAT_E001/scans/11/resources/DICOM/files/1.dcm',
+      expect.any(Object),
+    );
   });
 
   it('resolves SOPClassUID when getScans includes SOP UID metadata probing', async () => {

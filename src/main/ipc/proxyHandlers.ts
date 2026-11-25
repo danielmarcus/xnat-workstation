@@ -112,6 +112,19 @@ export function registerProxyHandlers(): void {
     }
   });
 
+  ipcMain.handle(IPC.XNAT_GET_SESSION, async (_event, projectId: string, session: string) => {
+    const client = sessionManager.getClient();
+    if (!client) return { ok: false, error: 'Not connected' };
+    try {
+      const found = await client.getSession(projectId, session);
+      return found ? { ok: true, session: found } : { ok: false, error: 'Not found' };
+    } catch (err) {
+      console.error('[proxy] getSession error:', err);
+      sessionManager.handleAuthFailure(err);
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
   ipcMain.handle(
     IPC.XNAT_GET_SCANS,
     async (

@@ -28,6 +28,8 @@ export const IPC = {
   XNAT_GET_SCANS: 'xnat:get-scans',
   XNAT_GET_SCAN_FILES: 'xnat:get-scan-files',
   XNAT_GET_PROJECT_SESSIONS: 'xnat:get-project-sessions',
+  // A session's project, subject and labels, found by experiment ID or label within a project.
+  XNAT_GET_SESSION: 'xnat:get-session',
 
   // XNAT download (renderer → main)
   XNAT_DOWNLOAD_SCAN_FILE: 'xnat:download-scan-file',
@@ -76,6 +78,11 @@ export const IPC = {
 
   // Shell (renderer → main)
   SHELL_OPEN_EXTERNAL: 'shell:open-external',
+
+  // xnat-workstation:// links (docs/open-from-link.md): main tells the renderer one arrived
+  // (main → renderer), and the renderer takes it (renderer → main).
+  OPEN_LINK_RECEIVED: 'open-link:received',
+  OPEN_LINK_TAKE: 'open-link:take',
 
   // Local backup cache (renderer → main)
   BACKUP_WRITE_FILE: 'backup:write-file',

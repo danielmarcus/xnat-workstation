@@ -39,7 +39,8 @@ export function registerUploadHandlers(): void {
         console.log(`[uploadHandlers] Downloading scan file: session=${sessionId} scan=${scanId}`);
         const buffer = await client.downloadScanFile(sessionId, scanId);
         console.log(`[uploadHandlers] Downloaded ${buffer.length} bytes`);
-        return { ok: true, data: buffer.toString('base64') };
+        // A copy, so the renderer gets exactly the file and not the rest of a pooled buffer.
+        return { ok: true, data: new Uint8Array(buffer) };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.error('[uploadHandlers] Download failed:', msg);

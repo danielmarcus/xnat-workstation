@@ -108,7 +108,7 @@ Cornerstone3D services in `src/renderer/lib/cornerstone/` are singleton modules 
 ### XNAT Integration
 
 - Images load via DICOMweb (wadouri) through a local proxy (`/dicomweb` in Vite config proxies to `localhost:8081`, which the main process serves)
-- DICOM SEG files are uploaded/downloaded as base64 over IPC
+- DICOM SEG files are uploaded as base64 over IPC; scan files download as bytes (`Uint8Array`)
 - SEG scan IDs follow convention `30xx` where `xx` is the source scan number (e.g., scan 3004 is a SEG for scan 4)
 
 ## TypeScript Configuration

@@ -31,7 +31,7 @@ import * as dicomParser from 'dicom-parser';
 import { viewportReadyService } from './lib/cornerstone/viewportReadyService';
 import { useSessionDerivedIndexStore, isSegScan, isRtStructScan, isSrScan, isDerivedScan } from './stores/sessionDerivedIndexStore';
 import { getSrReferenceInfo } from './lib/dicom/srReferences';
-import { xnatScanApi } from './lib/xnat/scanApi';
+import { downloadDerivedScanFile, forgetDerivedScanFiles, keepOnlyDerivedScanFilesOf, xnatScanApi } from './lib/xnat/scanApi';
 import { useSegmentationManagerStore } from './stores/segmentationManagerStore';
 import { segmentationManager } from './lib/segmentation/segmentationManagerSingleton';
 import { sessionsWithUnsaved, type LoadedContainerRef } from './lib/annotations/sessionLifecycle';
@@ -61,6 +61,7 @@ import { useBookmarks } from './lib/app/useBookmarks';
 import BookmarksDropdown from './components/app/BookmarksDropdown';
 import CloseUnsavedDialog from './components/app/CloseUnsavedDialog';
 import { useAppCloseGuard } from './hooks/useAppCloseGuard';
+import { useOpenLink } from './hooks/useOpenLink';
 import { startExtensions, stopExtensions } from './lib/extensions/rendererHost';
 import { installExtensionHost } from './components/extensions/installExtensionHost';
 import { setNavigationHandler, type OpenOutcome } from './lib/app/appNavigation';
@@ -584,26 +585,6 @@ export async function jumpViewportToReferencedImage(panelId: string, referencedI
 }
 
 /**
- * Download a DICOM SEG file from XNAT and convert from base64 to ArrayBuffer.
- */
-export async function downloadSegArrayBuffer(
-  sessionId: string,
-  scanId: string,
-): Promise<ArrayBuffer> {
-  const result = await xnatScanApi.downloadScanFile(sessionId, scanId);
-  if (!result.ok || !result.data) {
-    throw new Error(result.error || 'Failed to download scan file');
-  }
-  // Convert base64 → ArrayBuffer (manual loop; fetch(data:) violates Electron CSP)
-  const binaryString = atob(result.data);
-  const bytes = new Uint8Array(binaryString.length);
-  for (let i = 0; i < binaryString.length; i++) {
-    bytes[i] = binaryString.charCodeAt(i);
-  }
-  return bytes.buffer;
-}
-
-/**
  * App — Root component for XNAT Workstation.
  *
  * Shows LoginForm when disconnected, viewer when connected.
@@ -891,6 +872,7 @@ export default function App() {
       pendingSegLoadRef.current = null;
       segLoadingPanelRef.current = null;
       dicomwebLoader.clearScanImageIdsCache();
+      forgetDerivedScanFiles();
       setPanelImageIds({});
       setLoading(false);
       setLoadError(null);
@@ -1000,7 +982,7 @@ export default function App() {
             sessionId,
             scans,
             (sid, scanIdArg) => dicomwebLoader.getScanImageIds(sid, scanIdArg),
-            downloadSegArrayBuffer,
+            downloadDerivedScanFile,
           );
         } catch (err) {
           // Non-fatal — the save succeeded; the next session load rebuilds this anyway.
@@ -1021,7 +1003,7 @@ export default function App() {
       },
       getPanelImageIds: (pid) => panelImageIdsRef.current[pid] ?? [],
       preloadImages,
-      downloadScanFile: downloadSegArrayBuffer,
+      downloadScanFile: downloadDerivedScanFile,
       getScanImageIds: (sessionId, scanId) =>
         dicomwebLoader.getScanImageIds(sessionId, scanId),
     });
@@ -1536,6 +1518,7 @@ export default function App() {
     if (currentSessionId && currentSessionId !== sessionId) {
       clearSegLoadingLocks();
       useSessionDerivedIndexStore.getState().clear();
+      keepOnlyDerivedScanFilesOf(sessionId);
       dicomwebLoader.clearScanImageIdsCache(currentSessionId);
     }
 
@@ -1718,7 +1701,7 @@ export default function App() {
         }
 
         // 1. Download the SEG file first so we can inspect its metadata
-        const arrayBuffer = await downloadSegArrayBuffer(sessionId, scanId);
+        const arrayBuffer = await downloadDerivedScanFile(sessionId, scanId);
         console.log(`[App] Downloaded SEG file (${arrayBuffer.byteLength} bytes)`);
         setBrowserStatusMessage('Resolving SEG references...', 'loading', `SEG #${scanId}`);
 
@@ -1974,7 +1957,7 @@ export default function App() {
         }
 
         // 1. Download the RTSTRUCT file
-        const arrayBuffer = await downloadSegArrayBuffer(sessionId, scanId);
+        const arrayBuffer = await downloadDerivedScanFile(sessionId, scanId);
         console.log(`[App] Downloaded RTSTRUCT file (${arrayBuffer.byteLength} bytes)`);
         setBrowserStatusMessage('Resolving RTSTRUCT references...', 'loading', `RTSTRUCT #${scanId}`);
 
@@ -2102,7 +2085,7 @@ export default function App() {
           }
 
           setBrowserStatusMessage('Downloading Measurements...', 'loading', `SR #${scanId}`);
-          const srBuffer = await downloadSegArrayBuffer(sessionId, scanId);
+          const srBuffer = await downloadDerivedScanFile(sessionId, scanId);
           console.log(`[App] Downloaded SR file (${srBuffer.byteLength} bytes)`);
 
           setBrowserStatusMessage('Resolving Measurement references...', 'loading', `SR #${scanId}`);
@@ -2294,7 +2277,7 @@ export default function App() {
               sessionId,
               sessionScans,
               (sid, sid2) => dicomwebLoader.getScanImageIds(sid, sid2),
-              downloadSegArrayBuffer,
+              downloadDerivedScanFile,
             )
           : Promise.resolve();
 
@@ -2390,6 +2373,7 @@ export default function App() {
       }
       setBrowserStatusMessage('Scan load failed', 'error', msg);
     } finally {
+      forgetDerivedScanFiles();
       setLoading(false);
     }
   }, [isConnected, refreshBookmarks, recordLoadedOverlay, setBrowserStatusMessage]);
@@ -2428,6 +2412,7 @@ export default function App() {
       // Clear stale loading locks + derived index from the previous session.
       clearSegLoadingLocks();
       useSessionDerivedIndexStore.getState().clear();
+      keepOnlyDerivedScanFilesOf(sessionId);
 
       try {
         setLoading(true);
@@ -2496,7 +2481,7 @@ export default function App() {
               sessionId,
               sessionScans,
               (sid, scanIdArg) => dicomwebLoader.getScanImageIds(sid, scanIdArg),
-              downloadSegArrayBuffer,
+              downloadDerivedScanFile,
             )
           : Promise.resolve();
         if (!hasDerivedScans) {
@@ -2666,6 +2651,7 @@ export default function App() {
         setBrowserStatusMessage('Session load failed', 'error', msg);
         return { outcome: 'failed', reason: msg };
       } finally {
+        forgetDerivedScanFiles();
         setLoading(false);
       }
     },
@@ -2722,6 +2708,9 @@ export default function App() {
       });
     },
   }), [isConnected, loadFromXnatScan]);
+
+  // xnat-workstation:// links open sessions through the handler above.
+  useOpenLink(cornerstoneReady);
 
   /**
    * E2E seam: expose the REAL scan-load entry so offline specs can drive the exact
@@ -3134,7 +3123,12 @@ export default function App() {
   // ─── Login screen ──────────────────────────────────────────────
 
   if (!isConnected) {
-    return <LoginForm />;
+    return (
+      <>
+        <LoginForm />
+        <AppDialogHost />
+      </>
+    );
   }
 
   // ─── Connected: Viewer ─────────────────────────────────────────

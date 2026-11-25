@@ -56,10 +56,14 @@ export interface ElectronAPI {
     getProjectSessions(
       projectId: string,
     ): Promise<Array<{ subjectId: string; modality: string }>>;
+    getSession(
+      projectId: string,
+      session: string,
+    ): Promise<{ ok: true; session: import('../extensions/api').XnatSessionRef } | { ok: false; error: string }>;
     downloadScanFile(
       sessionId: string,
       scanId: string,
-    ): Promise<{ ok: boolean; data?: string; error?: string }>;
+    ): Promise<{ ok: boolean; data?: Uint8Array; error?: string }>;
     uploadDicomSeg(
       projectId: string,
       subjectId: string,
@@ -277,6 +281,11 @@ export interface ElectronAPI {
     checkForUpdates(): Promise<CheckForUpdatesResponse>;
     quitAndInstall(): Promise<QuitAndInstallResponse>;
     onStatus(callback: (status: UpdateStatus) => void): () => void;
+  };
+  /** xnat-workstation:// links (docs/open-from-link.md). */
+  openLink?: {
+    take(): Promise<import('../openLink').OpenLinkRequest | null>;
+    onReceived(callback: () => void): () => void;
   };
   /** App-close guard: main asks before quitting; the renderer reports the decision. */
   app?: {

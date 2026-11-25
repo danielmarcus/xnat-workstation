@@ -53,6 +53,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke(IPC.XNAT_GET_SCAN_FILES, sessionId, scanId),
     getProjectSessions: (projectId: string) =>
       ipcRenderer.invoke(IPC.XNAT_GET_PROJECT_SESSIONS, projectId),
+    getSession: (projectId: string, session: string) =>
+      ipcRenderer.invoke(IPC.XNAT_GET_SESSION, projectId, session),
 
     downloadScanFile: (sessionId: string, scanId: string) =>
       ipcRenderer.invoke(IPC.XNAT_DOWNLOAD_SCAN_FILE, sessionId, scanId),
@@ -271,6 +273,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
     /** Renderer reports the user's decision back to main. */
     sendCloseDecision: (decision: 'proceed' | 'cancel') =>
       ipcRenderer.send(IPC.APP_CLOSE_DECISION, decision),
+  },
+
+  /** xnat-workstation:// links (docs/open-from-link.md): told when one arrives, then take it. */
+  openLink: {
+    take: () => ipcRenderer.invoke(IPC.OPEN_LINK_TAKE),
+    onReceived: (callback: () => void) => {
+      const wrapped = () => callback();
+      ipcRenderer.on(IPC.OPEN_LINK_RECEIVED, wrapped);
+      return () => {
+        ipcRenderer.removeListener(IPC.OPEN_LINK_RECEIVED, wrapped);
+      };
+    },
   },
 
   updater: {

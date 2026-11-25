@@ -23,6 +23,8 @@ interface ConnectionStore {
   loginHost: string | null;
   /** The last browser sign-in failed and XNAT's login window may still work. */
   canUseLoginWindow: boolean;
+  /** The server a sign-in under way is for. */
+  signingInTo: string | null;
 
   // ─── Actions ────────────────────────────────────────────────
   browserLogin: (serverUrl: string, options?: XnatLoginOptions) => Promise<boolean>;
@@ -41,9 +43,10 @@ export const useConnectionStore = create<ConnectionStore>((set) => ({
   error: null,
   loginHost: null,
   canUseLoginWindow: false,
+  signingInTo: null,
 
   browserLogin: async (serverUrl, options) => {
-    set({ status: 'connecting', error: null, loginHost: null, canUseLoginWindow: false });
+    set({ status: 'connecting', error: null, loginHost: null, canUseLoginWindow: false, signingInTo: serverUrl });
 
     try {
       const result = await window.electronAPI.xnat.browserLogin(serverUrl, options);
@@ -54,6 +57,7 @@ export const useConnectionStore = create<ConnectionStore>((set) => ({
           connection: result.connection,
           error: null,
           loginHost: null,
+          signingInTo: null,
         });
         return true;
       } else {
@@ -63,6 +67,7 @@ export const useConnectionStore = create<ConnectionStore>((set) => ({
           connection: null,
           loginHost: null,
           canUseLoginWindow: result.canUseLoginWindow === true,
+          signingInTo: null,
         });
         return false;
       }
@@ -72,6 +77,7 @@ export const useConnectionStore = create<ConnectionStore>((set) => ({
         error: err instanceof Error ? err.message : String(err),
         connection: null,
         loginHost: null,
+        signingInTo: null,
       });
       return false;
     }

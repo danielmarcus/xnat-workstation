@@ -5,54 +5,15 @@
  * the server supports browser sign-in, and otherwise opens XNAT's own login page
  * in a secure window, supporting all auth methods (local, LDAP, OIDC).
  *
- * Remembers recent server URLs in localStorage.
+ * Remembers recent server URLs in localStorage. A link waiting for sign-in (useOpenLink)
+ * prefills its server.
  */
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useConnectionStore } from '../../stores/connectionStore';
+import { useOpenLinkStore } from '../../stores/openLinkStore';
+import { loadRecentConnections, saveRecentConnection, type RecentConnection } from '../../lib/xnat/recentConnections';
 import { IconServer, IconSettings, XnatLogo } from '../icons';
 import SettingsModal from '../settings/SettingsModal';
-
-// ─── Recent Connections ──────────────────────────────────────────
-
-interface RecentConnection {
-  serverUrl: string;
-  lastUsed: number; // Date.now()
-}
-
-const STORAGE_KEY = 'xnat-viewer:recent-connections';
-const MAX_RECENT = 10;
-
-function loadRecent(): RecentConnection[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .filter((r: any) => r.serverUrl)
-      .map((r: any) => ({ serverUrl: r.serverUrl, lastUsed: r.lastUsed }))
-      .sort((a: RecentConnection, b: RecentConnection) => b.lastUsed - a.lastUsed)
-      .slice(0, MAX_RECENT);
-  } catch {
-    return [];
-  }
-}
-
-function saveRecent(serverUrl: string): void {
-  try {
-    const existing = loadRecent();
-    // Remove duplicate if exists
-    const filtered = existing.filter((r) => r.serverUrl !== serverUrl);
-    // Prepend new entry
-    const updated = [
-      { serverUrl, lastUsed: Date.now() },
-      ...filtered,
-    ].slice(0, MAX_RECENT);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-  } catch {
-    // localStorage unavailable — ignore
-  }
-}
 
 function normalizeServerUrl(input: string): string {
   let url = input.trim().replace(/\/+$/, '');
@@ -70,7 +31,9 @@ export default function LoginForm() {
   const loginHost = useConnectionStore((s) => s.loginHost);
   const canUseLoginWindow = useConnectionStore((s) => s.canUseLoginWindow);
 
-  const [recentConnections] = useState(loadRecent);
+  const linkServer = useOpenLinkStore((s) => s.pending?.server ?? null);
+
+  const [recentConnections] = useState(loadRecentConnections);
   const [serverUrl, setServerUrl] = useState('');
   const [showRecent, setShowRecent] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -84,6 +47,10 @@ export default function LoginForm() {
       setServerUrl(recentConnections[0].serverUrl);
     }
   }, [recentConnections]);
+
+  useEffect(() => {
+    if (linkServer) setServerUrl(linkServer);
+  }, [linkServer]);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -118,7 +85,7 @@ export default function LoginForm() {
       const success = await browserLogin(trimmedUrl);
 
       if (success) {
-        saveRecent(trimmedUrl);
+        saveRecentConnection(trimmedUrl);
       }
     },
     [serverUrl, browserLogin],
@@ -127,7 +94,7 @@ export default function LoginForm() {
   const signInWithLoginWindow = useCallback(async () => {
     const trimmedUrl = normalizeServerUrl(serverUrl);
     if (!trimmedUrl) return;
-    if (await browserLogin(trimmedUrl, { useLoginWindow: true })) saveRecent(trimmedUrl);
+    if (await browserLogin(trimmedUrl, { useLoginWindow: true })) saveRecentConnection(trimmedUrl);
   }, [serverUrl, browserLogin]);
 
   const hasRecent = recentConnections.length > 0;
@@ -222,6 +189,12 @@ export default function LoginForm() {
               </div>
             )}
           </div>
+
+          {linkServer && (
+            <p data-testid="login-link-hint" className="text-xs text-zinc-400">
+              Sign in to open the linked session.
+            </p>
+          )}
 
           {/* Error message */}
           {error && (

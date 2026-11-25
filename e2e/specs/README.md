@@ -13,6 +13,7 @@ Run with `npm run test:e2e` (see [Running](#running) for the offline/live split)
 | `tools/` | Tool group, routing, bindings, drawing, undo | "Does the tool do anything?" |
 | `annotations/` | Panel, containers/members, selection, approval, metrics | "Does the panel reflect it?" |
 | `transport/` | Fixture + DICOM load, SEG/RTSTRUCT/SR round trips, autosave, conflict, scan-click reload | "Did the data survive the trip?" |
+| `links/` | `xnat-workstation://` links: validation, the unknown-server prompt, sign-in handoff | "Does a link from a web page do the right thing?" |
 
 Nothing lives at the top level. A new spec goes in exactly one of these.
 

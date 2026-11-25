@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import LoginForm from './LoginForm';
 import { useConnectionStore } from '../../stores/connectionStore';
+import { useOpenLinkStore } from '../../stores/openLinkStore';
 
 const STORAGE_KEY = 'xnat-viewer:recent-connections';
 
@@ -15,6 +16,7 @@ describe('LoginForm', () => {
     localStorage.clear();
     vi.clearAllMocks();
     resetConnectionStore();
+    useOpenLinkStore.setState({ pending: null });
     useConnectionStore.setState({
       ...useConnectionStore.getState(),
       status: 'disconnected',
@@ -41,6 +43,21 @@ describe('LoginForm', () => {
     await user.click(screen.getByTitle('Recent connections'));
     await user.click(screen.getByRole('button', { name: /xnat-old\.example/i }));
     expect(input.value).toBe('xnat-old.example');
+  });
+
+  it('a link waiting for sign-in prefills its server over the recent one, and says why', () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify([{ serverUrl: 'https://xnat-new.example', lastUsed: 999 }]));
+    useOpenLinkStore.setState({ pending: { server: 'https://linked.example.org', project: 'P1', session: 'E1' } });
+
+    render(<LoginForm />);
+
+    expect((screen.getByLabelText('Server') as HTMLInputElement).value).toBe('https://linked.example.org');
+    expect(screen.getByTestId('login-link-hint')).toHaveTextContent('Sign in to open the linked session.');
+  });
+
+  it('without a waiting link there is no hint', () => {
+    render(<LoginForm />);
+    expect(screen.queryByTestId('login-link-hint')).toBeNull();
   });
 
   it('normalizes URL on submit and saves successful login in recent connections', async () => {

@@ -1,6 +1,7 @@
 /**
  * xnatScanApi — the renderer's seam for the two XNAT scan calls the derived-object
- * load paths make: listing a session's scans and downloading a scan's file.
+ * load paths make: listing a session's scans and downloading a scan's file. Derived-scan
+ * files are downloaded through downloadDerivedScanFile, which shares one download.
  *
  * Production routes straight to `electronAPI.xnat` (IPC → main process). The seam
  * exists because `electronAPI` is a contextBridge object and therefore immutable, so
@@ -12,7 +13,7 @@ import type { XnatScan } from '@shared/types/xnat';
 
 export interface ScanFileResult {
   ok: boolean;
-  data?: string;
+  data?: Uint8Array;
   error?: string;
 }
 
@@ -37,4 +38,64 @@ export const xnatScanApi: XnatScanApi = {
 /** Inject an implementation (pass null to restore the real IPC one). */
 export function setXnatScanApi(api: XnatScanApi | null): void {
   current = api ?? electronScanApi;
+  forgetDerivedScanFiles();
+}
+
+const derivedScanFiles = new Map<string, Promise<Uint8Array>>();
+
+const derivedScanFileKey = (sessionId: string, scanId: string) => `${sessionId}|${scanId}`;
+
+/**
+ * The file of a derived scan (SEG, RTSTRUCT, SR), downloaded once for a session or scan
+ * load: resolving the session's derived index and loading the overlays both need it.
+ * Only one session's files are kept. Every caller gets its own copy of the bytes.
+ */
+export function downloadDerivedScanFile(sessionId: string, scanId: string): Promise<ArrayBuffer> {
+  const key = derivedScanFileKey(sessionId, scanId);
+  let file = derivedScanFiles.get(key);
+  if (!file) {
+    // Expanding sessions in the XNAT browser downloads their files too.
+    keepOnlyDerivedScanFilesOf(sessionId);
+    const download = fetchScanFile(sessionId, scanId);
+    download.catch(() => {
+      if (derivedScanFiles.get(key) === download) derivedScanFiles.delete(key);
+    });
+    derivedScanFiles.set(key, download);
+    file = download;
+  }
+  return file.then((bytes) => bytes.slice().buffer);
+}
+
+/**
+ * Drop downloaded derived-scan files: one session's after the app writes to its scans,
+ * or all of them when a load ends or the connection changes.
+ */
+export function forgetDerivedScanFiles(sessionId?: string): void {
+  if (!sessionId) {
+    derivedScanFiles.clear();
+    return;
+  }
+  const prefix = derivedScanFileKey(sessionId, '');
+  for (const key of Array.from(derivedScanFiles.keys())) {
+    if (key.startsWith(prefix)) derivedScanFiles.delete(key);
+  }
+}
+
+/**
+ * Drop every session's files but this one's, when its load starts. Its own stay: selecting
+ * the session in the XNAT browser may already be downloading them for this load.
+ */
+export function keepOnlyDerivedScanFilesOf(sessionId: string): void {
+  const prefix = derivedScanFileKey(sessionId, '');
+  for (const key of Array.from(derivedScanFiles.keys())) {
+    if (!key.startsWith(prefix)) derivedScanFiles.delete(key);
+  }
+}
+
+async function fetchScanFile(sessionId: string, scanId: string): Promise<Uint8Array> {
+  const result = await current.downloadScanFile(sessionId, scanId);
+  if (!result.ok || !result.data?.byteLength) {
+    throw new Error(result.error || 'Failed to download scan file');
+  }
+  return result.data;
 }

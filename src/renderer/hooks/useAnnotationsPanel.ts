@@ -55,6 +55,7 @@ import { CONTOUR_FILL_TOOLNAME } from '@shared/types/viewer';
 import { getContourToolSettings } from '../lib/cornerstone/tools/contourToolSettings';
 import type { ContainerListHandlers } from '../components/annotations/ContainerList';
 import type { RowTransport } from '../components/annotations/ContainerRow';
+import { forgetDerivedScanFiles } from '../lib/xnat/scanApi';
 
 function rgbaToCss(color?: [number, number, number, number]): string | undefined {
   if (!color) return undefined;
@@ -800,6 +801,7 @@ export function useAnnotationsPanel(activeViewportId: string, sourceImageIds: st
                   ? deletionPrefs.trashResourceName
                   : undefined;
                 const resp = await window.electronAPI.xnat.deleteScan(sessionId, scanId, trashResource);
+                forgetDerivedScanFiles(sessionId);
                 if (!resp.ok) {
                   setDeleteServerError(resp.error ?? 'Failed to delete from XNAT.');
                   return;
