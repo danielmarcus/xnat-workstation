@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { useState } from 'react';
 import userEvent from '@testing-library/user-event';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import XnatBrowser from './XnatBrowser';
@@ -226,6 +227,37 @@ describe('XnatBrowser', () => {
     );
     await waitFor(() => expect(onOutcome).toHaveBeenCalledWith({ outcome: 'cancelled' }));
     expect(onLoadSession).toHaveBeenCalledWith('SESS9', expect.any(Array), expect.objectContaining({ sessionLabel: 'Looked-up Label' }), { targetScanId: '21' });
+  });
+
+  it('a navigateTo session target opens the session once while the derived index is reset under it', async () => {
+    setElectronApiMock({
+      getProjects: vi.fn(async () => []),
+      getSessions: vi.fn(async () => [{ id: 'SESS9', label: 'S9', projectId: 'P9', subjectId: 'SUB9', scanCount: 2 }]),
+      getScans: vi.fn(async () => [
+        { id: '21', type: 'CT', modality: 'CT', seriesDescription: 'Axial' },
+        { id: '3021', type: 'SEG', modality: 'SEG', xsiType: 'xnat:segScanData', seriesDescription: 'Seg' },
+      ]),
+    });
+    let finishLoad!: () => void;
+    // Like App's loadSessionFromXnat: reset the derived index, then load for a while.
+    const onLoadSession = vi.fn(async () => {
+      useSessionDerivedIndexStore.getState().clear();
+      await new Promise<void>((resolve) => { finishLoad = resolve; });
+      return { outcome: 'opened' as const };
+    });
+    const target = { type: 'session' as const, projectId: 'P9', projectName: 'P9', subjectId: 'SUB9', sessionId: 'SESS9' };
+    function Host() {
+      const [navigateTo, setNavigateTo] = useState<typeof target | null>(target);
+      return <XnatBrowser onLoadScan={vi.fn()} onLoadSession={onLoadSession} navigateTo={navigateTo} onNavigateComplete={() => setNavigateTo(null)} />;
+    }
+    render(<Host />);
+
+    await waitFor(() => expect(onLoadSession).toHaveBeenCalled());
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    finishLoad();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(onLoadSession).toHaveBeenCalledTimes(1);
   });
 
   it('a navigateTo session target that cannot be fetched reports failed, with the reason', async () => {

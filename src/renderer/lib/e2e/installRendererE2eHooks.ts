@@ -1074,9 +1074,9 @@ export function installRendererE2eHooks(): void {
         getScans: async (sessionId: string) =>
           (sessionId === config.sessionId ? (config.scans as XnatScan[]) : []),
         downloadScanFile: async (sessionId: string, scanId: string) => {
-          const data = config.filesByScanId[scanId];
-          return data
-            ? { ok: true, data }
+          const base64 = config.filesByScanId[scanId];
+          return base64
+            ? { ok: true, data: Uint8Array.from(atob(base64), (c) => c.charCodeAt(0)) }
             : { ok: false, error: `[e2e fake] no file for scan ${scanId} in ${sessionId}` };
         },
       });

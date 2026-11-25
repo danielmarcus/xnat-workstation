@@ -293,4 +293,18 @@ describe('viewportService', () => {
     expect(s?.currentImageId).toBe('stk-5');
     expect(s?.zoom).toBe(200);
   });
+  it("destroying a viewport clears its epoch's ready mark until the viewport is made again", async () => {
+    const { viewportReadyService } = await import('../viewportReadyService');
+    const epoch = viewportReadyService.bumpEpoch('panel-destroyed');
+    viewportReadyService.markReady('panel-destroyed', epoch);
+    viewportService.destroyUnifiedViewport('panel-destroyed');
+    let settled = false;
+    const ready = viewportReadyService.whenReady('panel-destroyed', epoch, null).then(() => { settled = true; });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    viewportReadyService.markReady('panel-destroyed', epoch);
+    await ready;
+    expect(settled).toBe(true);
+    viewportReadyService.removePanel('panel-destroyed');
+  });
 });

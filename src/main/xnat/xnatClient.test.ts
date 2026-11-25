@@ -353,7 +353,6 @@ describe('XnatClient', () => {
       csrfToken: null,
     });
 
-    mockCatalog404(); // catalog endpoint returns 404, falls back to /files
     mocks.fetch
       .mockResolvedValueOnce(
         makeJsonResponse({
@@ -372,14 +371,14 @@ describe('XnatClient', () => {
     expect(Buffer.isBuffer(buffer)).toBe(true);
     expect(buffer.toString('ascii', 128, 132)).toBe('DICM');
     expect(buffer.length).toBe(132 + 6);
-    // Call 1: catalog 404, call 2: /files, call 3: /bad, call 4: /good
+    // Call 1: /files, call 2: /bad, call 3: /good
     expect(mocks.fetch).toHaveBeenNthCalledWith(
-      3,
+      2,
       'https://xnat.example/bad',
       expect.any(Object),
     );
     expect(mocks.fetch).toHaveBeenNthCalledWith(
-      4,
+      3,
       'https://xnat.example/good',
       expect.any(Object),
     );
@@ -389,7 +388,6 @@ describe('XnatClient', () => {
     const client = new XnatClient('https://xnat.example');
     await client.setAuthFromBrowserLogin({ jsessionId: 'J1', username: 'dan', serverCookies: [], csrfToken: null });
 
-    mockCatalog404(); // catalog endpoint 404 → fall back to /files
     mocks.fetch
       .mockResolvedValueOnce(
         makeJsonResponse({
@@ -407,8 +405,55 @@ describe('XnatClient', () => {
     const buffer = await client.downloadScanFile('XNAT_E001', '3003');
     expect(Buffer.isBuffer(buffer)).toBe(true);
     expect(buffer.toString('ascii', 128, 132)).toBe('DICM'); // the 404 candidate was skipped, /real used
-    expect(mocks.fetch).toHaveBeenNthCalledWith(3, 'https://xnat.example/missing', expect.any(Object));
-    expect(mocks.fetch).toHaveBeenNthCalledWith(4, 'https://xnat.example/real', expect.any(Object));
+    expect(mocks.fetch).toHaveBeenNthCalledWith(2, 'https://xnat.example/missing', expect.any(Object));
+    expect(mocks.fetch).toHaveBeenNthCalledWith(3, 'https://xnat.example/real', expect.any(Object));
+  });
+
+  it('downloadScanFile lists the scan files and downloads one, without asking for the DICOM catalog', async () => {
+    const client = new XnatClient('https://xnat.example');
+    await client.setAuthFromBrowserLogin({ jsessionId: 'J1', username: 'dan', serverCookies: [], csrfToken: null });
+
+    mocks.fetch
+      .mockResolvedValueOnce(
+        makeJsonResponse({
+          ResultSet: { Result: [{ Name: 'seg.dcm', URI: '/data/experiments/XNAT_E001/scans/3004/resources/secondary/files/seg.dcm', collection: 'secondary' }] },
+        }),
+      )
+      .mockResolvedValueOnce(new Response(new Uint8Array([0x02, 0x00, 0x00, 0x00, 0xee]), { status: 200 }));
+
+    const buffer = await client.downloadScanFile('XNAT_E001', '3004');
+
+    expect(buffer.toString('ascii', 128, 132)).toBe('DICM');
+    const urls = mocks.fetch.mock.calls.map(([url]) => String(url));
+    expect(urls).toEqual([
+      expect.stringContaining('/data/experiments/XNAT_E001/scans/3004/files'),
+      'https://xnat.example/data/experiments/XNAT_E001/scans/3004/resources/secondary/files/seg.dcm',
+    ]);
+  });
+
+  it('downloadScanFile falls back to the DICOM catalog when the listing has no DICOM file', async () => {
+    const client = new XnatClient('https://xnat.example');
+    await client.setAuthFromBrowserLogin({ jsessionId: 'J1', username: 'dan', serverCookies: [], csrfToken: null });
+
+    mocks.fetch
+      .mockResolvedValueOnce(makeJsonResponse({ ResultSet: { Result: [] } }))
+      .mockResolvedValueOnce(
+        new Response(
+          '<cat:DCMCatalog xmlns:cat="http://nrg.wustl.edu/catalog"><cat:entries>'
+          + '<cat:entry URI="1.dcm" format="DICOM" instanceNumber="1"/>'
+          + '</cat:entries></cat:DCMCatalog>',
+          { status: 200, headers: { 'content-type': 'text/xml' } },
+        ),
+      )
+      .mockResolvedValueOnce(new Response(new Uint8Array([0x02, 0x00, 0x00, 0x00, 0xee]), { status: 200 }));
+
+    const buffer = await client.downloadScanFile('XNAT_E001', '11');
+
+    expect(buffer.toString('ascii', 128, 132)).toBe('DICM');
+    expect(mocks.fetch).toHaveBeenLastCalledWith(
+      'https://xnat.example/data/experiments/XNAT_E001/scans/11/resources/DICOM/files/1.dcm',
+      expect.any(Object),
+    );
   });
 
   it('resolves SOPClassUID when getScans includes SOP UID metadata probing', async () => {

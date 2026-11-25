@@ -242,7 +242,7 @@ export class SegmentationManager {
    */
   private async reconcilePanelAfterReady(panelId: string, sourceScanId: string, epoch: number): Promise<void> {
     try {
-      await viewportReadyService.whenReady(panelId, epoch);
+      await viewportReadyService.whenReady(panelId, epoch, null);
       if (this.disposed) return;
       if (this.isEpochStale(panelId, epoch)) return;
 
@@ -586,7 +586,9 @@ export class SegmentationManager {
 
         // Wait for viewport to be ready
         console.log(`[SegmentationManager] Waiting for viewport ready: panel=${panelId}, epoch=${epochAtStart}...`);
-        await viewportReadyService.whenReady(panelId, epochAtStart);
+        // No timeout: the overlay is often ready long before a large series has loaded. A new
+        // epoch or the panel's removal still ends the wait.
+        await viewportReadyService.whenReady(panelId, epochAtStart, null);
         console.log(`[SegmentationManager] Viewport ready for ${panelId}, loading ${type} ${scanId}...`);
         if (this.disposed || this.isEpochStale(panelId, epochAtStart)) {
           console.warn(`[SegmentationManager] Aborting after whenReady ${scanId}: disposed=${this.disposed}, epochStale=${this.isEpochStale(panelId, epochAtStart)}`);
@@ -648,6 +650,12 @@ export class SegmentationManager {
 
         console.log(`[SegmentationManager] Loaded ${type} overlay ${scanId} → ${segmentationId} on ${panelId}`);
       } catch (err) {
+        if (this.disposed || this.isEpochStale(panelId, epochAtStart)) {
+          // The panel moved on (another scan, or sign-out) while this overlay loaded.
+          console.debug(`[SegmentationManager] Overlay ${scanId} dropped: its panel moved on`, err);
+          store().setLoadStatus(scanId, 'idle');
+          return;
+        }
         console.error(`[SegmentationManager] Failed to load overlay ${scanId}:`, err);
         store().setLoadStatus(scanId, 'error');
       }
