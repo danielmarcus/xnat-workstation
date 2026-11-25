@@ -84,6 +84,7 @@ const mocks = vi.hoisted(() => {
       dispose: vi.fn(),
     },
     installMainLogCapture: vi.fn(),
+    initOpenLinks: vi.fn((_host: { getWindow(): unknown; createWindow(): void }) => true),
   };
 });
 
@@ -149,6 +150,10 @@ vi.mock('./diagnostics/mainLogBuffer', () => ({
   installMainLogCapture: mocks.installMainLogCapture,
 }));
 
+vi.mock('./openLink', () => ({
+  initOpenLinks: mocks.initOpenLinks,
+}));
+
 async function loadMainEntry(): Promise<void> {
   vi.resetModules();
   await import('./index');
@@ -185,7 +190,7 @@ describe('main/index bootstrap', () => {
     expect(mocks.autoUpdateService.initialize).toHaveBeenCalledTimes(1);
     expect(mocks.installMainLogCapture).toHaveBeenCalledTimes(1);
 
-    expect(mocks.app.name).toBe('XNAT');
+    expect(mocks.app.name).toBe('XNAT (dev)');
     expect(mocks.Menu.buildFromTemplate).toHaveBeenCalledTimes(1);
     expect(mocks.Menu.setApplicationMenu).toHaveBeenCalledTimes(1);
 
@@ -198,6 +203,8 @@ describe('main/index bootstrap', () => {
   it('creates packaged renderer window and responds to activate/window-close events', async () => {
     mocks.app.isPackaged = true;
     await loadMainEntry();
+
+    expect(mocks.app.name).toBe('XNAT');
 
     expect(mocks.BrowserWindow).toHaveBeenCalledTimes(1);
     const created = mocks.windowInstances[0];
@@ -239,6 +246,23 @@ describe('main/index bootstrap', () => {
     await loadMainEntry();
     expect(mocks.windowInstances.at(-1).opts.webPreferences.devTools).not.toBe(false);
     expect(JSON.stringify((mocks.Menu.buildFromTemplate as any).mock.calls.at(-1)[0])).toContain('toggleDevTools');
+  });
+
+  it('takes the single-instance lock before ready and hands the link handler its window', async () => {
+    await loadMainEntry();
+    expect(mocks.initOpenLinks).toHaveBeenCalledTimes(1);
+    const host = mocks.initOpenLinks.mock.calls[0][0];
+    expect(host.getWindow()).toBe(mocks.windowInstances[0]);
+    host.createWindow();
+    expect(mocks.BrowserWindow).toHaveBeenCalledTimes(2);
+  });
+
+  it('a second instance quits at once: no handlers, no window', async () => {
+    mocks.initOpenLinks.mockReturnValueOnce(false);
+    await loadMainEntry();
+    expect(mocks.app.quit).toHaveBeenCalledTimes(1);
+    expect(mocks.registerAuthHandlers).not.toHaveBeenCalled();
+    expect(mocks.BrowserWindow).not.toHaveBeenCalled();
   });
 
   it('under a test harness, secure storage uses the stand-in keychain — never the user\'s real one', async () => {

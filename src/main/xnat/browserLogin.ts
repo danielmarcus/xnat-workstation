@@ -67,12 +67,14 @@ async function exchangeCredentials(
   // Re-read ALL cookies — the request above may have caused Tomcat to
   // regenerate the JSESSIONID (Set-Cookie), and we also need ALB
   // sticky-session cookies (AWSALB, AWSALBCORS) for load-balanced servers.
-  const url = new URL(serverUrl);
+  // Read them by URL, not by hostname: an SSO proxy in front of XNAT
+  // (oauth2-proxy, for one) scopes its cookie to the parent domain, and
+  // XNAT's API calls are turned away without it.
   const serverCookies: ServerCookie[] = [];
   let currentJsessionId = jsessionId;
 
   try {
-    const allCookies = await loginSession.cookies.get({ domain: url.hostname });
+    const allCookies = await loginSession.cookies.get({ url: serverUrl });
     for (const c of allCookies) {
       serverCookies.push({
         name: c.name,
@@ -95,6 +97,17 @@ async function exchangeCredentials(
   }
 
   return { jsessionId: currentJsessionId, username, serverCookies, csrfToken };
+}
+
+/** Drop the fetch-metadata (Sec-Fetch-*) request headers. */
+export function stripFetchMetadata(
+  details: Electron.OnBeforeSendHeadersListenerDetails,
+  callback: (response: Electron.BeforeSendResponse) => void,
+): void {
+  const requestHeaders = Object.fromEntries(
+    Object.entries(details.requestHeaders).filter(([name]) => !/^sec-fetch-/i.test(name)),
+  );
+  callback({ requestHeaders });
 }
 
 /** A server cookie to transfer between sessions. */
@@ -145,6 +158,11 @@ export async function openBrowserLogin(
   // detected before the page even loads.
   await loginSession.clearStorageData();
 
+  // Some sites send a top-level page load of XNAT's URL into a web portal that frames
+  // XNAT, matching on Sec-Fetch-Dest: document. Without the fetch-metadata headers, this
+  // window's requests reach XNAT itself.
+  loginSession.webRequest.onBeforeSendHeaders({ urls: [`${parsedUrl.origin}/*`] }, stripFetchMetadata);
+
   return new Promise<BrowserLoginResult>((resolve, reject) => {
     const loginWindow = new BrowserWindow({
       width: 900,
@@ -178,8 +196,9 @@ export async function openBrowserLogin(
 
       clearTimeout(timeoutId);
 
-      // Remove the cookie listener
+      // Remove the cookie listener and the header filter
       loginSession.cookies.removeListener('changed', onCookieChanged);
+      loginSession.webRequest.onBeforeSendHeaders(null);
 
       // Clean up the window
       if (!loginWindow.isDestroyed()) {

@@ -6,12 +6,7 @@
  */
 import { useState } from 'react';
 import { useConnectionStore } from '../../stores/connectionStore';
-import { useSegmentationStore } from '../../stores/segmentationStore';
-// eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
-import { segmentationManager } from '../../lib/segmentation/segmentationManagerSingleton';
-// eslint-disable-next-line no-restricted-imports -- BOUNDARY-DEBT: pre-rewrite legacy, removed during annotation rebuild (R1–R3)
-import { segmentationService } from '../../lib/cornerstone/segmentationService';
-import { showConfirmDialog } from '../../stores/dialogStore';
+import { confirmDisconnect } from '../../hooks/confirmDisconnect';
 import { IconDisconnect } from '../icons';
 
 export default function ConnectionStatus() {
@@ -32,44 +27,7 @@ export default function ConnectionStatus() {
   async function handleDisconnect() {
     if (disconnecting) return;
 
-    const hasUnsaved =
-      useSegmentationStore.getState().hasUnsavedChanges ||
-      segmentationManager.hasDirtySegmentations();
-
-    if (hasUnsaved) {
-      const saveDraft = await showConfirmDialog({
-        title: 'Unsaved Annotations',
-        message:
-          'You have unsaved annotations.\n\n' +
-          'Press Save Draft to keep a recoverable copy before disconnecting.\n' +
-          'Press Discard to choose whether to drop changes.',
-        confirmLabel: 'Save Draft',
-        cancelLabel: 'Discard',
-      });
-
-      if (saveDraft) {
-        const saved = await segmentationService.flushAutoSaveNow();
-        if (!saved) {
-          const discardAfterFailed = await showConfirmDialog({
-            title: 'Draft Save Failed',
-            message: 'Could not save a draft. Disconnect anyway and discard unsaved changes?',
-            confirmLabel: 'Disconnect',
-            cancelLabel: 'Stay Connected',
-            tone: 'danger',
-          });
-          if (!discardAfterFailed) return;
-        }
-      } else {
-        const discard = await showConfirmDialog({
-          title: 'Discard Unsaved Annotations',
-          message: 'Disconnect and discard unsaved annotations?',
-          confirmLabel: 'Disconnect',
-          cancelLabel: 'Cancel',
-          tone: 'danger',
-        });
-        if (!discard) return;
-      }
-    }
+    if (!(await confirmDisconnect())) return;
 
     setDisconnecting(true);
     try {

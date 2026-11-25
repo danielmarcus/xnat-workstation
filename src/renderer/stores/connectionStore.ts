@@ -17,6 +17,8 @@ interface ConnectionStore {
   status: ConnectionStatus;
   connection: XnatConnectionInfo | null;
   error: string | null;
+  /** The server a sign-in under way is for. */
+  signingInTo: string | null;
 
   // ─── Actions ────────────────────────────────────────────────
   browserLogin: (serverUrl: string) => Promise<boolean>;
@@ -31,9 +33,10 @@ export const useConnectionStore = create<ConnectionStore>((set) => ({
   status: 'disconnected',
   connection: null,
   error: null,
+  signingInTo: null,
 
   browserLogin: async (serverUrl) => {
-    set({ status: 'connecting', error: null });
+    set({ status: 'connecting', error: null, signingInTo: serverUrl });
 
     try {
       const result = await window.electronAPI.xnat.browserLogin(serverUrl);
@@ -43,6 +46,7 @@ export const useConnectionStore = create<ConnectionStore>((set) => ({
           status: 'connected',
           connection: result.connection,
           error: null,
+          signingInTo: null,
         });
         return true;
       } else {
@@ -50,6 +54,7 @@ export const useConnectionStore = create<ConnectionStore>((set) => ({
           status: result.error === 'Login cancelled' ? 'disconnected' : 'error',
           error: result.error === 'Login cancelled' ? null : (result.error || 'Login failed'),
           connection: null,
+          signingInTo: null,
         });
         return false;
       }
@@ -58,6 +63,7 @@ export const useConnectionStore = create<ConnectionStore>((set) => ({
         status: 'error',
         error: err instanceof Error ? err.message : String(err),
         connection: null,
+        signingInTo: null,
       });
       return false;
     }
