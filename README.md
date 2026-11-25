@@ -66,6 +66,7 @@ Annotation list panel with search, visibility toggles, and delete.
 - Hanging protocol auto-detection (CT Pre/Post Contrast, MR Brain, etc.)
 - Upload DICOM SEG and RTSTRUCT segmentations back to XNAT
 - Bookmarks: pin projects, subjects, and sessions; recent session history
+- Open a session from a web page with an `xnat-workstation://` link ([docs/open-from-link.md](docs/open-from-link.md))
 
 ### Export
 

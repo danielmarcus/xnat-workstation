@@ -54,6 +54,8 @@ describe('preload bridge', () => {
     await api.xnat.getScans('XNAT_E001', { includeSopClassUID: true });
     await api.xnat.getScanFiles('XNAT_E001', '11');
     await api.xnat.getProjectSessions('P1');
+    await api.xnat.getSession('P1', 'XNAT_E001');
+    await api.openLink.take();
     await api.xnat.downloadScanFile('XNAT_E001', '11');
     await api.xnat.uploadDicomSeg('P1', 'S1', 'E1', 'Session 1', '11', 'ZmFrZQ==', 'Seg Label');
     await api.xnat.uploadDicomRtStruct('P1', 'S1', 'E1', 'Session 1', '11', 'ZmFrZQ==', 'RT Label');
@@ -99,6 +101,8 @@ describe('preload bridge', () => {
     expect(mocks.invoke).toHaveBeenCalledWith(IPC.XNAT_GET_SCANS, 'XNAT_E001', { includeSopClassUID: true });
     expect(mocks.invoke).toHaveBeenCalledWith(IPC.XNAT_GET_SCAN_FILES, 'XNAT_E001', '11');
     expect(mocks.invoke).toHaveBeenCalledWith(IPC.XNAT_GET_PROJECT_SESSIONS, 'P1');
+    expect(mocks.invoke).toHaveBeenCalledWith(IPC.XNAT_GET_SESSION, 'P1', 'XNAT_E001');
+    expect(mocks.invoke).toHaveBeenCalledWith(IPC.OPEN_LINK_TAKE);
     expect(mocks.invoke).toHaveBeenCalledWith(IPC.XNAT_DOWNLOAD_SCAN_FILE, 'XNAT_E001', '11');
     expect(mocks.invoke).toHaveBeenCalledWith(
       IPC.XNAT_UPLOAD_DICOM_SEG,
@@ -173,6 +177,18 @@ describe('preload bridge', () => {
 
     off();
     expect(mocks.removeListener).toHaveBeenCalledWith(IPC.XNAT_SESSION_EXPIRED, expect.any(Function));
+  });
+
+  it('tells the renderer when a link arrived, carrying nothing from it, and unsubscribes', () => {
+    const api = mocks.exposed.api;
+    const callback = vi.fn();
+    const off = api.openLink.onReceived(callback);
+
+    mocks.getOnHandler(IPC.OPEN_LINK_RECEIVED)?.({} as any, 'ignored');
+    expect(callback).toHaveBeenCalledWith();
+
+    off();
+    expect(mocks.removeListener).toHaveBeenCalledWith(IPC.OPEN_LINK_RECEIVED, expect.any(Function));
   });
 
   it('blocks unknown renderer event channels', () => {

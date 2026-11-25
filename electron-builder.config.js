@@ -70,6 +70,9 @@ module.exports = {
     enableEmbeddedAsarIntegrityValidation: true,
     onlyLoadAppFromAsar: true,
   },
+  // xnat-workstation:// links (docs/open-from-link.md): CFBundleURLTypes in the macOS Info.plist,
+  // MimeType in the Linux .desktop file. The Windows installer's registration is build/installer.nsh.
+  protocols: [{ name: 'XNAT Workstation link', schemes: ['xnat-workstation'] }],
   extraResources: [
     {
       from: 'build/',

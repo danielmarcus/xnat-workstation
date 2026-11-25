@@ -61,6 +61,7 @@ import { useBookmarks } from './lib/app/useBookmarks';
 import BookmarksDropdown from './components/app/BookmarksDropdown';
 import CloseUnsavedDialog from './components/app/CloseUnsavedDialog';
 import { useAppCloseGuard } from './hooks/useAppCloseGuard';
+import { useOpenLink } from './hooks/useOpenLink';
 import { startExtensions, stopExtensions } from './lib/extensions/rendererHost';
 import { installExtensionHost } from './components/extensions/installExtensionHost';
 import { setNavigationHandler, type OpenOutcome } from './lib/app/appNavigation';
@@ -2708,6 +2709,9 @@ export default function App() {
     },
   }), [isConnected, loadFromXnatScan]);
 
+  // xnat-workstation:// links open sessions through the handler above.
+  useOpenLink(cornerstoneReady);
+
   /**
    * E2E seam: expose the REAL scan-load entry so offline specs can drive the exact
    * code path an XNAT-browser click takes (the browser calls this same callback via
@@ -3119,7 +3123,12 @@ export default function App() {
   // ─── Login screen ──────────────────────────────────────────────
 
   if (!isConnected) {
-    return <LoginForm />;
+    return (
+      <>
+        <LoginForm />
+        <AppDialogHost />
+      </>
+    );
   }
 
   // ─── Connected: Viewer ─────────────────────────────────────────

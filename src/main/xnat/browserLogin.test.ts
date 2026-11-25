@@ -25,6 +25,9 @@ const mocks = vi.hoisted(() => {
       on: cookiesOn,
       removeListener: cookiesRemoveListener,
     },
+    webRequest: {
+      onBeforeSendHeaders: vi.fn(),
+    },
   };
 
   const browserWindows: any[] = [];
@@ -185,6 +188,66 @@ describe('openBrowserLogin', () => {
       'changed',
       expect.any(Function),
     );
+  });
+
+  it('transfers the cookies a request to the server carries, including an SSO proxy cookie on the parent domain', async () => {
+    const { openBrowserLogin } = await import('./browserLogin');
+
+    mocks.loginSession.cookies.get.mockImplementation(async (filter: { name?: string; url?: string; domain?: string }) => {
+      if (filter.name === 'JSESSIONID') return [{ name: 'JSESSIONID', value: 'sess-new', path: '/' }];
+      if (filter.url === 'https://xnat.example.org') {
+        return [
+          { name: 'JSESSIONID', value: 'sess-new', path: '/' },
+          { name: '_oauth2_proxy', value: 'proxy', path: '/', domain: 'example.org' },
+        ];
+      }
+      return [{ name: 'JSESSIONID', value: 'sess-new', path: '/' }];
+    });
+
+    const resultPromise = openBrowserLogin('https://xnat.example.org');
+    await waitForCreatedWindow();
+    mocks.emitCookieChanged({ name: 'JSESSIONID', value: 'sess-old' });
+    mocks.emitCookieChanged({ name: 'JSESSIONID', value: 'sess-new' });
+
+    const result = await resultPromise;
+    expect(mocks.loginSession.cookies.get).toHaveBeenCalledWith({ url: 'https://xnat.example.org' });
+    expect(result.serverCookies.map((c) => c.name)).toEqual(['JSESSIONID', '_oauth2_proxy']);
+  });
+
+  it('sends the server no fetch-metadata headers while the login window is open', async () => {
+    const { openBrowserLogin, stripFetchMetadata } = await import('./browserLogin');
+    mocks.loginSession.cookies.get.mockResolvedValue([{ name: 'JSESSIONID', value: 'sess-new', path: '/' }]);
+
+    const resultPromise = openBrowserLogin('https://xnat.example.org/xnat');
+    await waitForCreatedWindow();
+    expect(mocks.loginSession.webRequest.onBeforeSendHeaders).toHaveBeenCalledWith(
+      { urls: ['https://xnat.example.org/*'] },
+      stripFetchMetadata,
+    );
+
+    mocks.emitCookieChanged({ name: 'JSESSIONID', value: 'sess-old' });
+    mocks.emitCookieChanged({ name: 'JSESSIONID', value: 'sess-new' });
+    await resultPromise;
+    expect(mocks.loginSession.webRequest.onBeforeSendHeaders).toHaveBeenLastCalledWith(null);
+  });
+
+  it('strips only the Sec-Fetch-* headers', async () => {
+    const { stripFetchMetadata } = await import('./browserLogin');
+    const callback = vi.fn();
+    stripFetchMetadata(
+      {
+        requestHeaders: {
+          'Sec-Fetch-Dest': 'document',
+          'sec-fetch-site': 'none',
+          'Sec-Fetch-Mode': 'navigate',
+          'Sec-Fetch-User': '?1',
+          Cookie: 'JSESSIONID=x',
+          'User-Agent': 'XNAT',
+        },
+      } as unknown as Electron.OnBeforeSendHeadersListenerDetails,
+      callback,
+    );
+    expect(callback).toHaveBeenCalledWith({ requestHeaders: { Cookie: 'JSESSIONID=x', 'User-Agent': 'XNAT' } });
   });
 
   it('falls back to fetching root HTML when csrf token is unavailable in window context', async () => {
