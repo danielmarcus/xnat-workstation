@@ -29,13 +29,18 @@ const mocks = vi.hoisted(() => {
       this.isAuthenticated = false;
     });
     this.bearer = bearer;
-    this.rawRequest = vi.fn(async () => usernameResponses.shift() ?? new Response('dan', { status: 200 }));
+    this.rawRequest = vi.fn(async () => {
+      const next = usernameResponses.shift() ?? new Response('dan', { status: 200 });
+      if (next instanceof Error) throw next;
+      return next;
+    });
     this.setBearerUsername = vi.fn((username: string) => {
       this.currentUsername = username;
     });
     clientInstances.push(this);
   });
-  const usernameResponses: Response[] = [];
+  const usernameResponses: Array<Response | Error> = [];
+  const keychain = { available: false, userData: '/tmp' };
 
   const windows = [{ webContents: { send: vi.fn() }, focus: vi.fn() }, { webContents: { send: vi.fn() }, focus: vi.fn() }];
   return {
@@ -51,6 +56,7 @@ const mocks = vi.hoisted(() => {
     authorizeInBrowser: vi.fn(),
     fetch: vi.fn(async () => new Response('', { status: 200 })),
     usernameResponses,
+    keychain,
   };
 });
 
@@ -75,9 +81,14 @@ vi.mock('./browserLogin', () => ({
 }));
 
 vi.mock('electron', () => ({
-  app: { isPackaged: true, getPath: () => '/tmp' },
+  app: { isPackaged: true, getPath: () => mocks.keychain.userData },
   shell: { openExternal: vi.fn(async () => undefined) },
-  safeStorage: { isEncryptionAvailable: () => false },
+  safeStorage: {
+    isEncryptionAvailable: () => mocks.keychain.available,
+    getSelectedStorageBackend: () => 'gnome_libsecret',
+    encryptString: (text: string) => Buffer.from(`enc:${text}`),
+    decryptString: (data: Buffer) => data.toString().replace(/^enc:/, ''),
+  },
   session: {
     defaultSession: {
       fetch: mocks.fetch,
@@ -407,7 +418,27 @@ describe('sessionManager browser sign-in', () => {
     const beforeSendHandler = mocks.onBeforeSendHeaders.mock.calls[0][1];
     const cb = vi.fn();
     beforeSendHandler({ url: 'https://xnat-api.example.org/data/files/1.dcm', requestHeaders: { Cookie: 'JSESSIONID=x' } }, cb);
+    await vi.advanceTimersByTimeAsync(0);
     expect(cb).toHaveBeenCalledWith({ requestHeaders: { Authorization: 'Bearer AT1', 'User-Agent': 'XNATWorkstation/test' } });
+  });
+
+  it('refreshes an expired token before a renderer request uses it', async () => {
+    vi.resetModules();
+    const sessionManager = await import('./sessionManager');
+    await sessionManager.browserLogin('https://xnat.example.org');
+    const beforeSendHandler = mocks.onBeforeSendHeaders.mock.calls[0][1];
+    // Asleep past the expiry: the clock moved, the refresh timer has not fired yet.
+    vi.setSystemTime(Date.now() + 10 * 60 * 1000);
+    mocks.fetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ access_token: 'AT2', refresh_token: 'RT2', expires_in: 300 }), { status: 200 }),
+    );
+
+    const cb = vi.fn();
+    beforeSendHandler({ url: 'https://xnat-api.example.org/data/files/1.dcm', requestHeaders: {} }, cb);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(mocks.fetch).toHaveBeenCalledWith(config.tokenEndpoint, expect.anything());
+    expect(cb).toHaveBeenCalledWith({ requestHeaders: { Authorization: 'Bearer AT2', 'User-Agent': 'XNATWorkstation/test' } });
   });
 
   it('skips discovery when asked for the login window', async () => {
@@ -478,6 +509,63 @@ describe('sessionManager browser sign-in', () => {
     expect(revoke).toBeDefined();
     expect(String((revoke![1] as RequestInit).body)).toContain('token=RT1');
     expect(sessionManager.isConnected()).toBe(false);
+  });
+
+  describe('with a stored sign-in', () => {
+    const tokenEndpointAnswers = (url: string) => Promise.resolve(url === config.tokenEndpoint
+      ? new Response(JSON.stringify({ access_token: 'AT2', refresh_token: 'RT2', expires_in: 300 }), { status: 200 })
+      : new Response('', { status: 200 }));
+
+    beforeEach(async () => {
+      const { mkdtempSync } = await import('fs');
+      const { tmpdir } = await import('os');
+      const path = await import('path');
+      mocks.keychain.available = true;
+      mocks.keychain.userData = mkdtempSync(path.join(tmpdir(), 'session-manager-test-'));
+      mocks.fetch.mockImplementation(tokenEndpointAnswers);
+      // A first sign-in stores RT1.
+      vi.resetModules();
+      const first = await import('./sessionManager');
+      await first.browserLogin('https://xnat.example.org');
+      mocks.fetch.mockClear();
+    });
+
+    afterEach(() => {
+      mocks.keychain.available = false;
+      mocks.keychain.userData = '/tmp';
+      mocks.fetch.mockImplementation(async () => new Response('', { status: 200 }));
+    });
+
+    const revoked = () => mocks.fetch.mock.calls.some(([url]) => url === config.revocationEndpoint);
+
+    it('keeps it when XNAT fails to answer after restoring it', async () => {
+      mocks.usernameResponses.push(new Response('Service Unavailable', { status: 503 }));
+      vi.resetModules();
+      const sessionManager = await import('./sessionManager');
+
+      const result = await sessionManager.browserLogin('https://xnat.example.org');
+
+      expect(result.success).toBe(false);
+      expect(mocks.authorizeInBrowser).toHaveBeenCalledTimes(1); // the first sign-in only
+      expect(revoked()).toBe(false);
+
+      // The next attempt restores it again rather than going through the browser.
+      vi.resetModules();
+      const again = await import('./sessionManager');
+      await expect(again.browserLogin('https://xnat.example.org')).resolves.toMatchObject({ success: true });
+      expect(mocks.authorizeInBrowser).toHaveBeenCalledTimes(1);
+    });
+
+    it('revokes it when XNAT turns the restored sign-in down', async () => {
+      mocks.usernameResponses.push(new mocks.XnatAuthError('401 Unauthorized'));
+      vi.resetModules();
+      const sessionManager = await import('./sessionManager');
+
+      const result = await sessionManager.browserLogin('https://xnat.example.org');
+
+      expect(result).toMatchObject({ success: false, error: 'XNAT did not accept the sign-in.' });
+      expect(revoked()).toBe(true);
+    });
   });
 
   it('disconnects when a scheduled refresh finds the session over', async () => {

@@ -20,6 +20,7 @@ import { installMainLogCapture } from './diagnostics/mainLogBuffer';
 import { IPC } from '../shared/ipcChannels';
 import { autoUpdateService } from './updater/autoUpdateService';
 import { initOpenLinks } from './openLink';
+import { adoptPreviousProfile } from './devProfile';
 
 installMainLogCapture();
 
@@ -57,6 +58,20 @@ let allowClose = false;
 // One instance: a second launch (a link on Windows and Linux) hands its arguments to this one.
 const isPrimaryInstance = initOpenLinks({ getWindow: () => mainWindow, createWindow });
 if (!isPrimaryInstance) app.quit();
+
+// A development build's first run in its own " (dev)" folder brings the app's data over from
+// the folder development builds used before (devProfile.ts). Not under a test harness, nor
+// with an explicit --user-data-dir: those profiles must start empty.
+if (
+  isPrimaryInstance
+  && !app.isPackaged
+  && process.env.E2E_TESTING !== '1'
+  && !app.commandLine.hasSwitch('user-data-dir')
+) {
+  const previous = path.join(app.getPath('appData'), currentEdition()?.appName ?? 'XNAT');
+  const copied = adoptPreviousProfile(previous, app.getPath('userData'));
+  if (copied.length > 0) console.log(`[main] Copied ${copied.join(', ')} from ${previous} into the development profile`);
+}
 
 const isDev = !app.isPackaged;
 const devServerUrl = (() => {

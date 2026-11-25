@@ -78,6 +78,29 @@ describe('downloadDerivedScanFile', () => {
     expect(download).toHaveBeenCalledTimes(3);
   });
 
+  it("keeps a loading session's files while the XNAT browser downloads another session's", async () => {
+    const download = fakeScanApi({ '3004': 'SEG' });
+    keepOnlyDerivedScanFilesOf('S1');
+    await downloadDerivedScanFile('S1', '3004');
+    // Expanding S2 and then S3 in the browser during S1's load.
+    await downloadDerivedScanFile('S2', '3004');
+    await downloadDerivedScanFile('S3', '3004');
+    expect(download).toHaveBeenCalledTimes(3);
+
+    await downloadDerivedScanFile('S1', '3004');
+    expect(download).toHaveBeenCalledTimes(3);
+    // Only the latest other session is kept beside it.
+    await downloadDerivedScanFile('S2', '3004');
+    expect(download).toHaveBeenCalledTimes(4);
+
+    // The load ended: S1 is no longer protected.
+    forgetDerivedScanFiles();
+    await downloadDerivedScanFile('S1', '3004');
+    await downloadDerivedScanFile('S2', '3004');
+    await downloadDerivedScanFile('S1', '3004');
+    expect(download).toHaveBeenCalledTimes(7);
+  });
+
   it('does not keep a failed download', async () => {
     const files: Record<string, string> = {};
     const download = fakeScanApi(files);

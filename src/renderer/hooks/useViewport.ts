@@ -153,7 +153,10 @@ export function useViewport({
       })
       .catch((err) => {
         console.warn('[useViewport] create failed:', panelId, err);
-        if (!cancelled) setLoadState('error');
+        if (cancelled) return;
+        setLoadState('error');
+        // Overlay loads wait on this viewport with no timeout; tell them it is not coming.
+        viewportReadyService.markFailed(panelId, err instanceof Error ? err.message : String(err));
       });
 
     // Keep the viewport sized to its (possibly resizing) container.
@@ -177,6 +180,12 @@ export function useViewport({
     // down + reload the shared volume.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [panelId, scanId, frameOfReferenceUID, seriesKey]);
+
+  // The panel unmounting (a layout with fewer viewports) ends any wait for its viewport.
+  // Declared after the effect above so its cleanup runs after the viewport is destroyed.
+  useEffect(() => () => {
+    viewportReadyService.markFailed(panelId, 'panel unmounted', true);
+  }, [panelId]);
 
   // Apply orientation changes (axial ⇄ sagittal ⇄ coronal) to the EXISTING volume
   // viewport without recreating it: a user's dropdown choice (non-MPR) or the

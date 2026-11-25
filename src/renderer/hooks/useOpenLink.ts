@@ -128,11 +128,11 @@ export function useOpenLink(ready: boolean): void {
     return api.onReceived(() => { void drainOpenLinks(); });
   }, [ready]);
 
-  // A sign-in succeeded — started by a link or from the login form.
+  // A sign-in succeeded — started by a link or from the login form. A link left waiting by a
+  // failed or cancelled sign-in opens on a retry, but not one that has waited too long.
   useEffect(() => {
-    const link = useOpenLinkStore.getState().pending;
-    if (!ready || status !== 'connected' || !serverUrl || !link) return;
-    useOpenLinkStore.getState().setPending(null);
-    if (isConnectedTo(connection, link.server)) void openLinkedSession(link);
+    if (!ready || status !== 'connected' || !serverUrl || !useOpenLinkStore.getState().pending) return;
+    const link = useOpenLinkStore.getState().takeFresh();
+    if (link && isConnectedTo(connection, link.server)) void openLinkedSession(link);
   }, [ready, status, serverUrl, connection]);
 }

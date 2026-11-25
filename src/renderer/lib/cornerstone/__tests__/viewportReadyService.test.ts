@@ -13,6 +13,7 @@ describe('viewportReadyService', () => {
     viewportReadyService.removePanel('panel-d');
     viewportReadyService.removePanel('panel-e');
     viewportReadyService.removePanel('panel-f');
+    viewportReadyService.removePanel('panel-g');
     vi.runOnlyPendingTimers();
     vi.useRealTimers();
   });
@@ -61,6 +62,30 @@ describe('viewportReadyService', () => {
     const stale = viewportReadyService.whenReady('panel-f', next, null);
     viewportReadyService.bumpEpoch('panel-f');
     await expect(stale).rejects.toThrow('Stale epoch');
+  });
+
+  it('a viewport that will not become ready rejects untimed waiters and later callers, until it is marked ready', async () => {
+    const epoch = viewportReadyService.bumpEpoch('panel-g');
+    const waiting = viewportReadyService.whenReady('panel-g', epoch, null);
+    viewportReadyService.markFailed('panel-g', 'create failed');
+    await expect(waiting).rejects.toMatchObject({ name: 'ViewportNotReadyError', abandoned: false });
+    await expect(viewportReadyService.whenReady('panel-g', epoch, null)).rejects.toThrow('create failed');
+
+    // Recreated (destroy, then create): waiters hold again, and resolve once it is ready.
+    viewportReadyService.markNotReady('panel-g');
+    let settled = false;
+    const again = viewportReadyService.whenReady('panel-g', epoch, null).then(() => { settled = true; });
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(settled).toBe(false);
+    viewportReadyService.markReady('panel-g', epoch);
+    await again;
+
+    // Unmounted: abandoned, and the epoch counter survives for a remount.
+    viewportReadyService.markNotReady('panel-g');
+    const orphan = viewportReadyService.whenReady('panel-g', epoch, null);
+    viewportReadyService.markFailed('panel-g', 'panel unmounted', true);
+    await expect(orphan).rejects.toMatchObject({ abandoned: true });
+    expect(viewportReadyService.getEpoch('panel-g')).toBe(epoch);
   });
 
   it('resolves matching waiters when markReady is called for that epoch', async () => {

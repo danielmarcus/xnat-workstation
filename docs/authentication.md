@@ -98,10 +98,10 @@ Links meant for a person's browser ("open in XNAT") use `xnat_web_url` (`connect
 
 Tokens stay in the main process (`OidcSession`, `src/main/xnat/oidcSession.ts`):
 
-- The access token is held in memory and refreshed a minute before it expires, and once on a `401`. At most one refresh is in flight; a `401` for a token another request has already replaced does not refresh again.
-- The refresh token is kept in `sign-in-tokens.json` under the app's user data folder, encrypted with Electron `safeStorage`, keyed by issuer, client and API URL. Where `safeStorage` has no encryption (or uses the `basic_text` backend on Linux) it is kept in memory only. A stored refresh token lets the next Sign In to the same server connect without opening the browser.
+- The access token is held in memory and refreshed a minute before it expires, and once on a `401`. At most one refresh is in flight; a `401` for a token another request has already replaced does not refresh again. The renderer's own requests (image loads) get a token refreshed first when it is about to expire, so they are not sent with an expired one after the machine sleeps.
+- The refresh token is kept in `sign-in-tokens.json` under the app's user data folder, encrypted with Electron `safeStorage`, keyed by issuer, client and API URL. Where `safeStorage` has no encryption (or uses the `basic_text` backend on Linux) it is kept in memory only. A stored refresh token lets the next Sign In to the same server connect without opening the browser. When that sign-in then fails, the stored token is revoked only if XNAT or the provider turned it down; a network error or a `5xx` keeps it for the next attempt.
 - When the provider refuses a refresh (`invalid_grant`: the provider's session has ended), the stored token is deleted, the connection is torn down and the renderer is told the session expired, as in cookie mode.
-- Sign-out revokes the refresh token at the provider's `revocation_endpoint` and deletes it.
+- Sign-out revokes the refresh token at the provider's `revocation_endpoint` and deletes it. A refresh still in flight at sign-out is discarded when it returns, so it cannot store a new refresh token.
 
 There is no keepalive in bearer mode; XNAT holds no session for these requests.
 

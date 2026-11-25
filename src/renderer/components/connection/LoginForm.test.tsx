@@ -55,6 +55,17 @@ describe('LoginForm', () => {
     expect(screen.getByTestId('login-link-hint')).toHaveTextContent('Sign in to open the linked session.');
   });
 
+  it("'Don't open it' drops the waiting link and its hint", async () => {
+    const user = userEvent.setup();
+    useOpenLinkStore.getState().setPending({ server: 'https://linked.example.org', project: 'P1', session: 'E1' });
+    render(<LoginForm />);
+
+    await user.click(screen.getByTestId('login-link-dismiss'));
+
+    expect(useOpenLinkStore.getState().pending).toBeNull();
+    expect(screen.queryByTestId('login-link-hint')).toBeNull();
+  });
+
   it('without a waiting link there is no hint', () => {
     render(<LoginForm />);
     expect(screen.queryByTestId('login-link-hint')).toBeNull();

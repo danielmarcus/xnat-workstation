@@ -128,6 +128,23 @@ describe('OidcSession', () => {
     expect(store.data.k).toBeUndefined();
   });
 
+  it('does not keep the tokens of a refresh that returns after sign-out', async () => {
+    const store = memoryStore();
+    let answerRefresh!: (r: Response) => void;
+    const fetch = vi.fn((url: string) => url === config.tokenEndpoint
+      ? new Promise<Response>((resolve) => { answerRefresh = resolve; })
+      : Promise.resolve(new Response('', { status: 200 })));
+    const session = new OidcSession(config, { fetch, store }, { accessToken: 'AT1', refreshToken: 'RT1', expiresIn: 300 });
+
+    const refreshing = session.refresh();
+    await session.revoke();
+    answerRefresh(tokenResponse(2));
+
+    await expect(refreshing).rejects.toBeInstanceOf(OidcSessionEndedError);
+    expect(store.data.k).toBeUndefined();
+    expect(session.accessToken).toBe('AT1');
+  });
+
   it('restores from a stored refresh token, or returns null without one', async () => {
     const fetch = vi.fn(async () => tokenResponse(2));
     await expect(OidcSession.restore(config, { fetch, store: memoryStore() })).resolves.toBeNull();

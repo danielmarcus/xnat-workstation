@@ -14,7 +14,8 @@ const mocks = vi.hoisted(() => {
     }),
     quit: vi.fn(),
     dock: { setIcon: vi.fn(), hide: vi.fn() },
-    commandLine: { appendSwitch: vi.fn() },
+    commandLine: { appendSwitch: vi.fn(), hasSwitch: vi.fn(() => false) },
+    getPath: vi.fn((name: string) => `/profiles/${name}`),
     setAboutPanelOptions: vi.fn(),
   };
 
@@ -85,6 +86,7 @@ const mocks = vi.hoisted(() => {
     },
     installMainLogCapture: vi.fn(),
     initOpenLinks: vi.fn((_host: { getWindow(): unknown; createWindow(): void }) => true),
+    adoptPreviousProfile: vi.fn((_from: string, _to: string) => [] as string[]),
   };
 });
 
@@ -152,6 +154,10 @@ vi.mock('./diagnostics/mainLogBuffer', () => ({
 
 vi.mock('./openLink', () => ({
   initOpenLinks: mocks.initOpenLinks,
+}));
+
+vi.mock('./devProfile', () => ({
+  adoptPreviousProfile: mocks.adoptPreviousProfile,
 }));
 
 async function loadMainEntry(): Promise<void> {
@@ -263,6 +269,26 @@ describe('main/index bootstrap', () => {
     expect(mocks.app.quit).toHaveBeenCalledTimes(1);
     expect(mocks.registerAuthHandlers).not.toHaveBeenCalled();
     expect(mocks.BrowserWindow).not.toHaveBeenCalled();
+  });
+
+  it("a development build brings its data over from the folder development builds used before; a packaged, test or --user-data-dir run does not", async () => {
+    await loadMainEntry();
+    expect(mocks.adoptPreviousProfile).toHaveBeenCalledWith('/profiles/appData/XNAT', '/profiles/userData');
+
+    mocks.adoptPreviousProfile.mockClear();
+    mocks.app.isPackaged = true;
+    await loadMainEntry();
+    mocks.app.isPackaged = false;
+    mocks.app.commandLine.hasSwitch.mockReturnValueOnce(true);
+    await loadMainEntry();
+    const before = process.env.E2E_TESTING;
+    process.env.E2E_TESTING = '1';
+    try {
+      await loadMainEntry();
+    } finally {
+      if (before === undefined) delete process.env.E2E_TESTING; else process.env.E2E_TESTING = before;
+    }
+    expect(mocks.adoptPreviousProfile).not.toHaveBeenCalled();
   });
 
   it('under a test harness, secure storage uses the stand-in keychain — never the user\'s real one', async () => {

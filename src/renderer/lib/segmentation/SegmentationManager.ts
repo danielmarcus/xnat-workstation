@@ -11,7 +11,7 @@
  * and deterministic viewport readiness via viewportReadyService.
  */
 
-import { viewportReadyService } from '../cornerstone/viewportReadyService';
+import { viewportReadyService, ViewportNotReadyError } from '../cornerstone/viewportReadyService';
 import { segmentationService } from '../cornerstone/segmentationService';
 import { rtStructService } from '../cornerstone/rtStructService';
 import { checkpointIdentity, followCheckpointRename } from '../cornerstone/checkpointService';
@@ -556,108 +556,119 @@ export class SegmentationManager {
     for (const descriptor of descriptorsToLoad) {
       store().setLoadStatus(descriptor.scanId, 'loading');
     }
-
-    for (const descriptor of descriptorsToLoad) {
-      if (this.disposed || this.isEpochStale(panelId, epochAtStart)) {
-        console.warn(`[SegmentationManager] requestShowOverlaysForSourceScan: aborting loop — disposed=${this.disposed}, epochStale=${this.isEpochStale(panelId, epochAtStart)}`);
-        return;
-      }
-
-      const { type, scanId, sessionId, label } = descriptor;
-
-      try {
-        // Download the file
-        console.log(`[SegmentationManager] Downloading overlay ${scanId} (${type}) from session ${sessionId}...`);
-        const arrayBuffer = await deps.downloadScanFile(sessionId, scanId);
-        console.log(`[SegmentationManager] Downloaded overlay ${scanId}: ${arrayBuffer.byteLength} bytes`);
+    // An early return (the panel moved on) must not leave the overlays this pass marked
+    // 'loading' that way: a later pass would skip them as "already loading". Only this pass
+    // can have set them (a 'loading' overlay is never queued twice), so any still 'loading'
+    // at the end go back to 'idle'.
+    try {
+      for (const descriptor of descriptorsToLoad) {
         if (this.disposed || this.isEpochStale(panelId, epochAtStart)) {
-          console.warn(`[SegmentationManager] Aborting after download ${scanId}: disposed=${this.disposed}, epochStale=${this.isEpochStale(panelId, epochAtStart)}`);
+          console.warn(`[SegmentationManager] requestShowOverlaysForSourceScan: aborting loop — disposed=${this.disposed}, epochStale=${this.isEpochStale(panelId, epochAtStart)}`);
           return;
         }
 
-        // Pre-load source images for metadata
-        const sourceImageIds = deps.getPanelImageIds(panelId);
-        console.log(`[SegmentationManager] Pre-loading ${sourceImageIds.length} source images for ${scanId}...`);
-        await deps.preloadImages(sourceImageIds);
-        if (this.disposed || this.isEpochStale(panelId, epochAtStart)) {
-          console.warn(`[SegmentationManager] Aborting after preload ${scanId}: disposed=${this.disposed}, epochStale=${this.isEpochStale(panelId, epochAtStart)}`);
-          return;
-        }
+        const { type, scanId, sessionId, label } = descriptor;
 
-        // Wait for viewport to be ready
-        console.log(`[SegmentationManager] Waiting for viewport ready: panel=${panelId}, epoch=${epochAtStart}...`);
-        // No timeout: the overlay is often ready long before a large series has loaded. A new
-        // epoch or the panel's removal still ends the wait.
-        await viewportReadyService.whenReady(panelId, epochAtStart, null);
-        console.log(`[SegmentationManager] Viewport ready for ${panelId}, loading ${type} ${scanId}...`);
-        if (this.disposed || this.isEpochStale(panelId, epochAtStart)) {
-          console.warn(`[SegmentationManager] Aborting after whenReady ${scanId}: disposed=${this.disposed}, epochStale=${this.isEpochStale(panelId, epochAtStart)}`);
-          return;
-        }
-
-        // Load + attach based on type
-        let segmentationId: string;
-
-        segmentationService.beginSegLoad();
         try {
-          if (type === 'SEG') {
-            const result = await segmentationService.loadDicomSeg(arrayBuffer, sourceImageIds);
-            segmentationId = result.segmentationId;
-            await segmentationService.addToViewport(panelId, segmentationId);
-          } else {
-            // RTSTRUCT
-            const parsed = rtStructService.parseRtStruct(arrayBuffer);
-            const result = await rtStructService.loadRtStructAsContours(parsed, sourceImageIds, panelId);
-            segmentationId = result.segmentationId;
+          // Download the file
+          console.log(`[SegmentationManager] Downloading overlay ${scanId} (${type}) from session ${sessionId}...`);
+          const arrayBuffer = await deps.downloadScanFile(sessionId, scanId);
+          console.log(`[SegmentationManager] Downloaded overlay ${scanId}: ${arrayBuffer.byteLength} bytes`);
+          if (this.disposed || this.isEpochStale(panelId, epochAtStart)) {
+            console.warn(`[SegmentationManager] Aborting after download ${scanId}: disposed=${this.disposed}, epochStale=${this.isEpochStale(panelId, epochAtStart)}`);
+            return;
           }
-        } finally {
-          segmentationService.endSegLoad();
+
+          // Pre-load source images for metadata
+          const sourceImageIds = deps.getPanelImageIds(panelId);
+          console.log(`[SegmentationManager] Pre-loading ${sourceImageIds.length} source images for ${scanId}...`);
+          await deps.preloadImages(sourceImageIds);
+          if (this.disposed || this.isEpochStale(panelId, epochAtStart)) {
+            console.warn(`[SegmentationManager] Aborting after preload ${scanId}: disposed=${this.disposed}, epochStale=${this.isEpochStale(panelId, epochAtStart)}`);
+            return;
+          }
+
+          // Wait for viewport to be ready
+          console.log(`[SegmentationManager] Waiting for viewport ready: panel=${panelId}, epoch=${epochAtStart}...`);
+          // No timeout: the overlay is often ready long before a large series has loaded. A new
+          // epoch, a failed viewport create or the panel unmounting still ends the wait
+          // (viewportReadyService.markFailed).
+          await viewportReadyService.whenReady(panelId, epochAtStart, null);
+          console.log(`[SegmentationManager] Viewport ready for ${panelId}, loading ${type} ${scanId}...`);
+          if (this.disposed || this.isEpochStale(panelId, epochAtStart)) {
+            console.warn(`[SegmentationManager] Aborting after whenReady ${scanId}: disposed=${this.disposed}, epochStale=${this.isEpochStale(panelId, epochAtStart)}`);
+            return;
+          }
+
+          // Load + attach based on type
+          let segmentationId: string;
+
+          segmentationService.beginSegLoad();
+          try {
+            if (type === 'SEG') {
+              const result = await segmentationService.loadDicomSeg(arrayBuffer, sourceImageIds);
+              segmentationId = result.segmentationId;
+              await segmentationService.addToViewport(panelId, segmentationId);
+            } else {
+              // RTSTRUCT
+              const parsed = rtStructService.parseRtStruct(arrayBuffer);
+              const result = await rtStructService.loadRtStructAsContours(parsed, sourceImageIds, panelId);
+              segmentationId = result.segmentationId;
+            }
+          } finally {
+            segmentationService.endSegLoad();
+          }
+
+          if (this.disposed || this.isEpochStale(panelId, epochAtStart)) return;
+
+          // Override label if provided
+          if (label) {
+            segmentationService.setLabel(segmentationId, label);
+          }
+
+          // Persist explicit DICOM object type from the overlay descriptor.
+          // This is the source of truth for export/upload route selection.
+          useSegmentationStore.getState().setDicomType(segmentationId, type);
+
+          // Record loaded using session-scoped composite key
+          store().recordLoaded(compositeSourceKey, scanId, {
+            segmentationId,
+            loadedAt: Date.now(),
+          });
+          store().setLoadStatus(scanId, 'loaded');
+
+          // Restore cached presentation state if any
+          this.restorePresentationState(segmentationId);
+
+          // Capture initial colors (DICOM-loaded or defaults) into the
+          // presentation cache so they survive viewport recreation.
+          this.captureInitialPresentationState(segmentationId);
+
+          // Attach to all other panels showing the same source scan
+          await this.attachSegmentationToPanelsForSource(segmentationId, panelId);
+
+          // Wait two rAF cycles for render pipeline to settle, then clean dirty state
+          await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+          if (!this.disposed) {
+            useSegmentationStore.getState()._markClean();
+          }
+
+          console.log(`[SegmentationManager] Loaded ${type} overlay ${scanId} → ${segmentationId} on ${panelId}`);
+        } catch (err) {
+          const abandoned = err instanceof ViewportNotReadyError && err.abandoned;
+          if (this.disposed || this.isEpochStale(panelId, epochAtStart) || abandoned) {
+            // The panel moved on (another scan, or sign-out) while this overlay loaded.
+            console.debug(`[SegmentationManager] Overlay ${scanId} dropped: its panel moved on`, err);
+            store().setLoadStatus(scanId, 'idle');
+            return;
+          }
+          console.error(`[SegmentationManager] Failed to load overlay ${scanId}:`, err);
+          store().setLoadStatus(scanId, 'error');
         }
-
-        if (this.disposed || this.isEpochStale(panelId, epochAtStart)) return;
-
-        // Override label if provided
-        if (label) {
-          segmentationService.setLabel(segmentationId, label);
-        }
-
-        // Persist explicit DICOM object type from the overlay descriptor.
-        // This is the source of truth for export/upload route selection.
-        useSegmentationStore.getState().setDicomType(segmentationId, type);
-
-        // Record loaded using session-scoped composite key
-        store().recordLoaded(compositeSourceKey, scanId, {
-          segmentationId,
-          loadedAt: Date.now(),
-        });
-        store().setLoadStatus(scanId, 'loaded');
-
-        // Restore cached presentation state if any
-        this.restorePresentationState(segmentationId);
-
-        // Capture initial colors (DICOM-loaded or defaults) into the
-        // presentation cache so they survive viewport recreation.
-        this.captureInitialPresentationState(segmentationId);
-
-        // Attach to all other panels showing the same source scan
-        await this.attachSegmentationToPanelsForSource(segmentationId, panelId);
-
-        // Wait two rAF cycles for render pipeline to settle, then clean dirty state
-        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-        if (!this.disposed) {
-          useSegmentationStore.getState()._markClean();
-        }
-
-        console.log(`[SegmentationManager] Loaded ${type} overlay ${scanId} → ${segmentationId} on ${panelId}`);
-      } catch (err) {
-        if (this.disposed || this.isEpochStale(panelId, epochAtStart)) {
-          // The panel moved on (another scan, or sign-out) while this overlay loaded.
-          console.debug(`[SegmentationManager] Overlay ${scanId} dropped: its panel moved on`, err);
-          store().setLoadStatus(scanId, 'idle');
-          return;
-        }
-        console.error(`[SegmentationManager] Failed to load overlay ${scanId}:`, err);
-        store().setLoadStatus(scanId, 'error');
+      }
+    } finally {
+      for (const { scanId } of descriptorsToLoad) {
+        if (store().loadStatus[scanId] === 'loading') store().setLoadStatus(scanId, 'idle');
       }
     }
 

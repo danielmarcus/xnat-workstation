@@ -82,7 +82,8 @@ const mockViewerStore = vi.hoisted(() => {
   };
 });
 
-vi.mock('../cornerstone/viewportReadyService', () => ({
+vi.mock('../cornerstone/viewportReadyService', async (importOriginal) => ({
+  ViewportNotReadyError: (await importOriginal<typeof import('../cornerstone/viewportReadyService')>()).ViewportNotReadyError,
   viewportReadyService: viewportReadyServiceMock,
 }));
 
@@ -472,6 +473,60 @@ describe('SegmentationManager', () => {
       expect(segmentationServiceMock.loadDicomSeg).not.toHaveBeenCalled();
     } finally {
       viewportReadyServiceMock.getEpoch.mockReturnValue(1);
+      error.mockRestore();
+    }
+  });
+
+  it('an early stop leaves none of the overlays it had not reached marked loading, so they load next time', async () => {
+    const manager = new SegmentationManager();
+    seedViewerPanelContext();
+    // The panel moves on while the first overlay downloads.
+    manager.initialize(makeDeps({
+      downloadScanFile: vi.fn(async () => {
+        viewportReadyServiceMock.getEpoch.mockReturnValue(2);
+        return new ArrayBuffer(8);
+      }),
+    }));
+
+    try {
+      await manager.requestShowOverlaysForSourceScan('panel_0', '10', [
+        { type: 'SEG', scanId: '3010', sessionId: 'SESS1', label: 'Liver' },
+        { type: 'SEG', scanId: '3011', sessionId: 'SESS1', label: 'Spleen' },
+      ]);
+
+      const status = useSegmentationManagerStore.getState().loadStatus;
+      expect(status['3010']).toBe('idle');
+      expect(status['3011']).toBe('idle');
+    } finally {
+      viewportReadyServiceMock.getEpoch.mockReturnValue(1);
+    }
+  });
+
+  it('a viewport that will not become ready ends the wait: an error when it failed, quietly when its panel was unmounted', async () => {
+    const { ViewportNotReadyError } = await vi.importActual<typeof import('../cornerstone/viewportReadyService')>('../cornerstone/viewportReadyService');
+    const manager = new SegmentationManager();
+    seedViewerPanelContext();
+    manager.initialize(makeDeps());
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      viewportReadyServiceMock.whenReady.mockRejectedValue(new ViewportNotReadyError('create failed', false));
+      await manager.requestShowOverlaysForSourceScan('panel_0', '10', [
+        { type: 'SEG', scanId: '3010', sessionId: 'SESS1', label: 'Liver' },
+      ]);
+      expect(useSegmentationManagerStore.getState().loadStatus['3010']).toBe('error');
+
+      error.mockClear();
+      viewportReadyServiceMock.whenReady.mockRejectedValue(new ViewportNotReadyError('panel unmounted', true));
+      await manager.requestShowOverlaysForSourceScan('panel_0', '10', [
+        { type: 'SEG', scanId: '3012', sessionId: 'SESS1', label: 'Kidney' },
+        { type: 'SEG', scanId: '3013', sessionId: 'SESS1', label: 'Lung' },
+      ]);
+      const status = useSegmentationManagerStore.getState().loadStatus;
+      expect(status['3012']).toBe('idle');
+      expect(status['3013']).toBe('idle');
+      expect(error).not.toHaveBeenCalledWith(expect.stringContaining('Failed to load overlay'), expect.anything());
+    } finally {
+      viewportReadyServiceMock.whenReady.mockImplementation(async () => undefined);
       error.mockRestore();
     }
   });
